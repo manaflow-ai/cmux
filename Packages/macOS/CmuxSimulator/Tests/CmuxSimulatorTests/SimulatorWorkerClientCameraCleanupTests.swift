@@ -498,6 +498,74 @@ extension SimulatorWorkerClientTests {
         #expect(launcher.endpoint(at: 1) == nil)
     }
 
+    @Test("Device activation cleans camera state before replacing the attached Simulator")
+    func cameraCleanupPrecedesDeviceSwitch() async throws {
+        let firstDeviceIdentifier = "CAMERA-A-\(UUID().uuidString)"
+        let secondDeviceIdentifier = "CAMERA-B-\(UUID().uuidString)"
+        let bundleIdentifier = "com.example.camera-switch"
+        let launcher = TestWorkerLauncher()
+        let control = BlockingCameraCleanupControl()
+        let client = makeClient(launcher: launcher, control: control)
+        await client.send(.attach(udid: firstDeviceIdentifier, geometry: nil))
+        let first = try #require(launcher.endpoint(at: 0))
+        let readiness = await client.subscribe()
+        var readinessIterator = readiness.makeAsyncIterator()
+        first.setResponder { message in
+            switch message {
+            case let .ping(sequence):
+                return .ack(sequence)
+            case let .configureCamera(requestID, configuration):
+                return .cameraConfiguration(
+                    requestID: requestID,
+                    succeeded: true,
+                    targetBundleIdentifier: configuration.targetBundleIdentifier
+                )
+            default:
+                return nil
+            }
+        }
+        first.emit(.status(.streaming))
+        first.emit(.capabilities([.cameraInjection]))
+        first.emit(.frameTransport(simulatorFrameTransportDescriptor(80)))
+        _ = await readinessIterator.next()
+        _ = await readinessIterator.next()
+        _ = await readinessIterator.next()
+        _ = try await client.perform(.configureCamera(.targeted(
+            bundleIdentifier: bundleIdentifier,
+            source: .placeholder
+        )))
+
+        let activation = Task {
+            try await client.activateDevice(id: secondDeviceIdentifier, geometry: nil)
+        }
+        for _ in 0..<1_000 {
+            if await control.isBlocked { break }
+            await Task.yield()
+        }
+
+        #expect(await control.isBlocked)
+        #expect(launcher.endpoint(at: 1) == nil)
+
+        await control.release()
+        let replacement = try #require(await launcher.waitForEndpoint(at: 1))
+        #expect(cameraCleanupActionsMatch(
+            await control.actions,
+            deviceIdentifier: firstDeviceIdentifier,
+            bundleIdentifiers: [bundleIdentifier]
+        ))
+        let replacementMessages = try #require(
+            await replacement.waitForInboundMessages { messages in
+                messages.contains(.attach(udid: secondDeviceIdentifier, geometry: nil))
+            }
+        )
+        #expect(replacementMessages.contains(
+            .attach(udid: secondDeviceIdentifier, geometry: nil)
+        ))
+        replacement.emit(.status(.streaming))
+        try await activation.value
+        await client.stop()
+    }
+
     @Test("An explicit camera target is cleanup-owned before worker confirmation")
     func pendingExplicitCameraTargetIsCleanupOwned() async throws {
         let launcher = TestWorkerLauncher()
