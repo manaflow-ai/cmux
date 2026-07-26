@@ -87,10 +87,25 @@ pub enum ProviderActionFieldKind {
     Integer,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ProviderActionTarget {
+    #[default]
+    Scope,
+    SelectedMachine,
+    SelectedWorkspace,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ProviderActionContext {
+    pub machine_id: Option<String>,
+    pub workspace_id: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProviderActionDescriptor {
     pub id: String,
     pub label: String,
+    pub target: ProviderActionTarget,
     pub destructive: bool,
     pub fields: Vec<ProviderActionFieldDescriptor>,
 }
@@ -122,6 +137,8 @@ pub enum ProviderActionInputError {
     InvalidInteger,
     BelowMinimum,
     AboveMaximum,
+    MissingSelectedMachine,
+    MissingSelectedWorkspace,
     UnsupportedFieldCount,
 }
 
@@ -129,7 +146,11 @@ impl ProviderActionDescriptor {
     /// Build a typed provider request from the shared one-field text prompt.
     /// Zero-field actions submit immediately. Descriptors with more than one
     /// field are rejected until the TUI has a real multi-field form.
-    pub fn request(&self, input: Option<&str>) -> Result<MachineRequest, ProviderActionInputError> {
+    pub fn request(
+        &self,
+        input: Option<&str>,
+        context: &ProviderActionContext,
+    ) -> Result<MachineRequest, ProviderActionInputError> {
         let mut values = BTreeMap::new();
         match self.fields.as_slice() {
             [] => {}
@@ -141,7 +162,38 @@ impl ProviderActionDescriptor {
             }
             _ => return Err(ProviderActionInputError::UnsupportedFieldCount),
         }
-        Ok(MachineRequest::InvokeProviderAction { action_id: self.id.clone(), values })
+        let (machine_id, workspace_id) = match self.target {
+            ProviderActionTarget::Scope => (None, None),
+            ProviderActionTarget::SelectedMachine => (
+                Some(
+                    context
+                        .machine_id
+                        .clone()
+                        .ok_or(ProviderActionInputError::MissingSelectedMachine)?,
+                ),
+                None,
+            ),
+            ProviderActionTarget::SelectedWorkspace => (
+                Some(
+                    context
+                        .machine_id
+                        .clone()
+                        .ok_or(ProviderActionInputError::MissingSelectedMachine)?,
+                ),
+                Some(
+                    context
+                        .workspace_id
+                        .clone()
+                        .ok_or(ProviderActionInputError::MissingSelectedWorkspace)?,
+                ),
+            ),
+        };
+        Ok(MachineRequest::InvokeProviderAction {
+            action_id: self.id.clone(),
+            values,
+            machine_id,
+            workspace_id,
+        })
     }
 }
 
@@ -289,6 +341,8 @@ pub enum MachineRequest {
     InvokeProviderAction {
         action_id: String,
         values: BTreeMap<String, ProviderActionValue>,
+        machine_id: Option<String>,
+        workspace_id: Option<String>,
     },
     RenameManagedMachine {
         machine: MachineKey,
@@ -600,6 +654,10 @@ impl MachineUiState {
             .then(|| self.workspace_creation.get(&active).cloned().unwrap_or_default())
     }
 
+    pub fn is_provider_machine(&self, machine: MachineKey) -> bool {
+        self.workspace_creation.contains_key(&machine)
+    }
+
     pub fn set_managed_machines(&mut self, machines: Vec<ManagedMachineDescriptor>) {
         self.managed_machines = machines;
     }
@@ -839,6 +897,7 @@ mod tests {
             actions: vec![ProviderActionDescriptor {
                 id: "billing".into(),
                 label: "Billing".into(),
+                target: ProviderActionTarget::Scope,
                 destructive: false,
                 fields: Vec::new(),
             }],
@@ -900,6 +959,7 @@ mod tests {
         ProviderActionDescriptor {
             id: "action".into(),
             label: "Action".into(),
+            target: ProviderActionTarget::Scope,
             destructive: false,
             fields,
         }
@@ -938,15 +998,17 @@ mod tests {
     #[test]
     fn provider_action_builds_zero_and_one_field_typed_requests() {
         assert_eq!(
-            action(Vec::new()).request(None),
+            action(Vec::new()).request(None, &ProviderActionContext::default()),
             Ok(MachineRequest::InvokeProviderAction {
                 action_id: "action".into(),
                 values: BTreeMap::new(),
+                machine_id: None,
+                workspace_id: None,
             })
         );
 
         let request = action(vec![action_field(ProviderActionFieldKind::Email)])
-            .request(Some("  person@example.com  "))
+            .request(Some("  person@example.com  "), &ProviderActionContext::default())
             .unwrap();
         assert_eq!(
             request,
@@ -956,6 +1018,8 @@ mod tests {
                     "value".into(),
                     ProviderActionValue::Text("person@example.com".into())
                 )]),
+                machine_id: None,
+                workspace_id: None,
             }
         );
     }
@@ -963,12 +1027,13 @@ mod tests {
     #[test]
     fn provider_action_validates_required_email_integer_and_field_count() {
         assert_eq!(
-            action(vec![action_field(ProviderActionFieldKind::Text)]).request(Some("")),
+            action(vec![action_field(ProviderActionFieldKind::Text)])
+                .request(Some(""), &ProviderActionContext::default()),
             Err(ProviderActionInputError::Required)
         );
         assert_eq!(
             action(vec![action_field(ProviderActionFieldKind::Email)])
-                .request(Some("not-an-email")),
+                .request(Some("not-an-email"), &ProviderActionContext::default()),
             Err(ProviderActionInputError::InvalidEmail)
         );
 
@@ -976,20 +1041,67 @@ mod tests {
         integer.minimum = Some(2);
         integer.maximum = Some(4);
         assert_eq!(
-            action(vec![integer.clone()]).request(Some("one")),
+            action(vec![integer.clone()]).request(Some("one"), &ProviderActionContext::default()),
             Err(ProviderActionInputError::InvalidInteger)
         );
         assert_eq!(
-            action(vec![integer.clone()]).request(Some("1")),
+            action(vec![integer.clone()]).request(Some("1"), &ProviderActionContext::default()),
             Err(ProviderActionInputError::BelowMinimum)
         );
         assert_eq!(
-            action(vec![integer.clone()]).request(Some("5")),
+            action(vec![integer.clone()]).request(Some("5"), &ProviderActionContext::default()),
             Err(ProviderActionInputError::AboveMaximum)
         );
         assert_eq!(
-            action(vec![integer, action_field(ProviderActionFieldKind::Text)]).request(None),
+            action(vec![integer, action_field(ProviderActionFieldKind::Text)])
+                .request(None, &ProviderActionContext::default()),
             Err(ProviderActionInputError::UnsupportedFieldCount)
+        );
+    }
+
+    #[test]
+    fn provider_action_binds_selected_workspace_context() {
+        let mut descriptor = action(Vec::new());
+        descriptor.target = ProviderActionTarget::SelectedWorkspace;
+        let context = ProviderActionContext {
+            machine_id: Some("machine-1".into()),
+            workspace_id: Some("workspace-1".into()),
+        };
+        assert_eq!(
+            descriptor.request(None, &context),
+            Ok(MachineRequest::InvokeProviderAction {
+                action_id: "action".into(),
+                values: BTreeMap::new(),
+                machine_id: Some("machine-1".into()),
+                workspace_id: Some("workspace-1".into()),
+            })
+        );
+        assert_eq!(
+            descriptor.request(
+                None,
+                &ProviderActionContext { machine_id: Some("machine-1".into()), workspace_id: None }
+            ),
+            Err(ProviderActionInputError::MissingSelectedWorkspace)
+        );
+        assert_eq!(
+            descriptor.request(None, &ProviderActionContext::default()),
+            Err(ProviderActionInputError::MissingSelectedMachine)
+        );
+
+        let mut machine_scoped = action(Vec::new());
+        machine_scoped.target = ProviderActionTarget::SelectedMachine;
+        assert_eq!(
+            machine_scoped.request(None, &context),
+            Ok(MachineRequest::InvokeProviderAction {
+                action_id: "action".into(),
+                values: BTreeMap::new(),
+                machine_id: Some("machine-1".into()),
+                workspace_id: None,
+            })
+        );
+        assert_eq!(
+            machine_scoped.request(None, &ProviderActionContext::default()),
+            Err(ProviderActionInputError::MissingSelectedMachine)
         );
     }
 
