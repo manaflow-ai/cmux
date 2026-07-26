@@ -2072,7 +2072,7 @@ impl OrderedSession {
         let session = self.inner.clone();
         let events = self.events.clone();
         let retained_bytes = fallback_key.utf8.capacity();
-        self.operations.enqueue_surface_operation_with_retained_bytes(
+        self.operations.enqueue_coalescing_surface_operation_with_retained_bytes(
             "clear terminal history",
             surface,
             self.remote,

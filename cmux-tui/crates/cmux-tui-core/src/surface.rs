@@ -1878,9 +1878,10 @@ impl Surface {
 
     /// Clear retained primary-screen output inside the emulator without
     /// writing to the child process. Complete rows before an OSC 133 prompt are
-    /// erased when the cursor can be restored exactly; otherwise visible rows
-    /// are preserved. Attached byte frontends receive the same VT erase
-    /// sequence. Alternate-screen applications are left untouched.
+    /// erased when the cursor can be restored exactly; otherwise the request
+    /// fails without changing terminal state. Attached byte frontends receive
+    /// the same VT erase sequence. Alternate-screen applications are left
+    /// untouched.
     pub fn clear_history(&self) -> anyhow::Result<()> {
         self.clear_history_or_encode_key(None)
     }

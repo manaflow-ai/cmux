@@ -490,7 +490,7 @@ impl PtyInputSender {
         )
     }
 
-    pub fn enqueue_surface_operation_with_retained_bytes(
+    pub fn enqueue_coalescing_surface_operation_with_retained_bytes(
         &self,
         label: &'static str,
         surface_id: SurfaceId,
@@ -501,9 +501,9 @@ impl PtyInputSender {
         self.enqueue_mutation(
             label,
             PtyMutationIdentity {
+                coalesce_key: Some((label, surface_id, 0)),
                 failure_surface_id: Some(surface_id),
                 retained_bytes,
-                ..Default::default()
             },
             remote,
             None,
@@ -753,12 +753,11 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
         let remote_transport_failed =
             remote && operation_error.is_some_and(is_remote_transport_failure);
         let remote_timed_out = remote && operation_error.is_some_and(is_remote_timeout);
-        // Remote writes are newline framed, so a transport write error cannot
-        // have delivered a complete command. A response timeout or rejection
-        // can follow a PTY write that already executed. Local PTY errors can
-        // likewise occur while flushing after bytes were written.
+        // Any remote transport error can follow a complete request write, and
+        // response timeout or rejection can likewise follow an operation that
+        // already executed. Local PTY errors can occur while flushing after
+        // bytes were written.
         let known_not_delivered = marked_known_not_delivered
-            || remote_transport_failed
             || (event.kind != PtyInputKind::Mutation
                 && !remote
                 && event.surface.kind() == SurfaceKind::Browser);
@@ -802,8 +801,9 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
         }
         if remote_transport_failed || exhausted_ambiguous_release {
             // One dispatcher belongs to one local or remote App session. A
-            // A failed socket write means every queued remote request shares
-            // the same dead transport, so cancel the backlog immediately.
+            // failed socket write means every queued remote request shares the
+            // same dead transport, so cancel the backlog immediately. The
+            // failed request is ambiguous; queued requests never started.
             state.remote_failed = true;
             canceled.extend(state.events.drain(..).map(|event| {
                 PtyOperationFailure {

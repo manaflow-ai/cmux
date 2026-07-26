@@ -1296,7 +1296,7 @@ impl RemoteSession {
         .map_err(|error| {
             if matches!(
                 error.downcast_ref::<RemoteRequestError>(),
-                Some(RemoteRequestError::Encode(_) | RemoteRequestError::Transport(_))
+                Some(RemoteRequestError::Encode(_))
             ) {
                 ClearHistoryFailure::known_not_delivered(error)
             } else {
@@ -2371,6 +2371,31 @@ mod tests {
         assert_eq!(recorded[0]["cmd"], "clear-history");
         assert_eq!(recorded[0]["surface"], 7);
         assert_eq!(recorded[0]["fallback_key"], Value::Null);
+    }
+
+    #[test]
+    fn clear_history_transport_failure_is_ambiguous() {
+        struct FailingWriter;
+
+        impl RemoteMessageWriter for FailingWriter {
+            fn send(&mut self, _message: &str) -> io::Result<()> {
+                Err(io::Error::new(io::ErrorKind::BrokenPipe, "socket closed"))
+            }
+
+            fn close(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let session = test_session_with_provider_context(
+            Box::new(FailingWriter),
+            HashSet::from([CLEAR_HISTORY_CAPABILITY.to_string()]),
+            None,
+        );
+
+        let failure = session.clear_history_classified(7).unwrap_err();
+
+        assert_eq!(failure.delivery(), cmux_tui_core::ClearHistoryDelivery::Ambiguous);
     }
 
     fn acknowledging_provider_session() -> Arc<RemoteSession> {

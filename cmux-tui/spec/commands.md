@@ -748,11 +748,13 @@ Example:
 | status | implemented |
 | since | protocol 9 with `clear-history-v1` |
 
-On a primary screen with OSC 133 prompt metadata, clears retained scrollback and complete visible rows before the active prompt inside the terminal emulator. The prompt, edit buffer, and cursor remain in place, and no bytes are written to the child process. If prompt location or cursor state cannot be restored exactly, only retained scrollback is cleared. The authoritative server terminal and attached frontend mirrors receive the same VT erase sequence.
+On a primary screen with OSC 133 prompt metadata, clears retained scrollback and complete visible rows before the active prompt inside the terminal emulator. The prompt, edit buffer, and cursor remain in place, and no bytes are written to the child process. Without prompt metadata, only retained scrollback is cleared, preserving the visible grid and cursor. The authoritative server terminal and attached frontend mirrors receive the same VT erase sequence.
+
+The command fails without changing history, the visible grid, or the cursor when active input extends into retained history or exact preservation cannot be proven. If the terminal stream ends inside an incomplete VT sequence, the server waits for a bounded interval and then fails without mutation unless the sequence completes.
 
 Clients must require `identify.capabilities` to contain `clear-history-v1` before sending this command.
 
-When the alternate screen is active, the command leaves both screens untouched. If `fallback_key` is present, the server encodes that structured key from its authoritative terminal keyboard modes and writes the encoded bytes to the PTY. If `fallback_key` is absent, the alternate-screen request succeeds as a no-op. Clients must require both `clear-history-v1` and `clear-history-key-v1` before sending `fallback_key`.
+When the alternate screen is active, the command leaves both screens untouched. If `fallback_key` is present, the server encodes that structured key from its authoritative terminal keyboard modes and writes the encoded bytes to the PTY. If the active keyboard mode cannot represent the key, the command fails without writing bytes. If `fallback_key` is absent, the alternate-screen request succeeds as a no-op. Clients must require both `clear-history-v1` and `clear-history-key-v1` before sending `fallback_key`.
 
 Params:
 
@@ -800,6 +802,9 @@ Errors:
 | --- | --- |
 | `unknown surface <id>` | Surface id does not exist |
 | `browser surface does not support PTY/VT socket commands` | Surface is a browser |
+| `active terminal input extends into retained history` | The prompt or active input cannot be preserved exactly |
+| `terminal output did not reach a safe clear-history boundary` | An incomplete VT sequence did not finish before the bounded wait expired |
+| `terminal keyboard mode cannot encode clear-history fallback key` | The alternate-screen fallback key is not representable in the active keyboard mode |
 | `bad request: ...` | Missing `surface` or wrong JSON type |
 
 CLI mapping:
