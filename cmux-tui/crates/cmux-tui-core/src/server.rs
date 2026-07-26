@@ -5128,7 +5128,7 @@ mod tests {
                 "y_px": 2.0,
                 "frame_seq": 9,
             });
-            if cmd == "browser-mouse" {
+            if cmd.starts_with("browser-mouse") {
                 request["kind"] = json!("down");
             } else {
                 request["delta_y_px"] = json!(3.0);
