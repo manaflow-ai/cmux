@@ -5173,7 +5173,10 @@ impl App {
     }
 
     fn submit_pending_durable_notice_ack(&mut self) {
-        if self.durable_notice_ack_in_flight.is_some() {
+        if self.durable_notice_ack_in_flight.is_some()
+            || self.machine_action_in_flight
+            || self.pending_machine_replacement.is_some()
+        {
             return;
         }
         if let Some(retry_at) = self.durable_notice_ack_retry_at {
