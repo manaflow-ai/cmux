@@ -5,12 +5,6 @@ import Foundation
 /// Worker crashes cannot erase this record, so the host's durable Simulator
 /// cleanup can restore the prior TCC state after relaunching the target app.
 public struct SimulatorCameraAuthorizationStore: Sendable {
-    private struct Record: Codable {
-        let deviceIdentifier: String
-        let bundleIdentifier: String
-        let authorization: SimulatorPrivacyAuthorization
-    }
-
     private let directory: URL
 
     /// Creates a store in the shared Simulator ownership directory by default.
@@ -40,7 +34,7 @@ public struct SimulatorCameraAuthorizationStore: Sendable {
             withIntermediateDirectories: true,
             attributes: [.posixPermissions: 0o700]
         )
-        let data = try JSONEncoder().encode(Record(
+        let data = try JSONEncoder().encode(SimulatorCameraAuthorizationRecord(
             deviceIdentifier: deviceIdentifier,
             bundleIdentifier: bundleIdentifier,
             authorization: authorization
@@ -65,7 +59,10 @@ public struct SimulatorCameraAuthorizationStore: Sendable {
             bundleIdentifier: bundleIdentifier
         )
         guard FileManager().fileExists(atPath: url.path) else { return nil }
-        let record = try JSONDecoder().decode(Record.self, from: Data(contentsOf: url))
+        let record = try JSONDecoder().decode(
+            SimulatorCameraAuthorizationRecord.self,
+            from: Data(contentsOf: url)
+        )
         guard record.deviceIdentifier == deviceIdentifier,
               record.bundleIdentifier == bundleIdentifier,
               [.notDetermined, .denied, .granted].contains(record.authorization)
