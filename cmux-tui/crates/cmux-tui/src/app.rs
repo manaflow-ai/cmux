@@ -2436,10 +2436,6 @@ impl ContextMenu {
         self.levels.iter().any(|level| level.rect.contains(x, y))
     }
 
-    pub fn intersects(&self, rect: Rect) -> bool {
-        self.levels.iter().any(|level| rects_intersect(rect, level.rect))
-    }
-
     fn selected_action(&self) -> Option<MenuAction> {
         let level = self.levels.last()?;
         level.items.get(level.selected).and_then(MenuItem::action)
@@ -2900,6 +2896,60 @@ impl PaneFocusHistory {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct KittySceneSnapshotKey {
+    identity: usize,
+    generation: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum GraphicsSceneSourceKey {
+    Unavailable,
+    Browser { frame: Option<(u64, u32, u32)> },
+    Pty { snapshot: Option<KittySceneSnapshotKey> },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct GraphicsPaneSceneKey {
+    surface: SurfaceId,
+    content: Rect,
+    terminal_bounds: Option<Rect>,
+    source: GraphicsSceneSourceKey,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct GraphicsSceneKey {
+    session_generation: u64,
+    cell_pixels: (u16, u16),
+    occluders: Vec<Rect>,
+    panes: Vec<GraphicsPaneSceneKey>,
+}
+
+#[derive(Default)]
+struct GraphicsSceneCache {
+    key: Option<GraphicsSceneKey>,
+    #[cfg(test)]
+    rebuilds: usize,
+}
+
+impl GraphicsSceneCache {
+    fn replace_if_changed(&mut self, key: GraphicsSceneKey) -> bool {
+        if self.key.as_ref() == Some(&key) {
+            return false;
+        }
+        self.key = Some(key);
+        #[cfg(test)]
+        {
+            self.rebuilds += 1;
+        }
+        true
+    }
+
+    fn invalidate(&mut self) {
+        self.key = None;
+    }
+}
+
 pub struct App {
     pub session: OrderedSession,
     session_event_worker: Option<SessionEventWorker>,
@@ -2928,6 +2978,7 @@ pub struct App {
     pub graphics_writer: Option<GraphicsWriter>,
     pub graphics_supported: bool,
     graphics_host_scene_reset_pending: bool,
+    graphics_scene_cache: GraphicsSceneCache,
     stdout_lock: Arc<Mutex<()>>,
     pub pane_areas: Vec<PaneArea>,
     pane_focus_history: PaneFocusHistory,
@@ -3986,6 +4037,7 @@ fn run_with_machine_updates_inner(
         graphics_writer,
         graphics_supported,
         graphics_host_scene_reset_pending: false,
+        graphics_scene_cache: GraphicsSceneCache::default(),
         stdout_lock,
         pane_areas: Vec::new(),
         pane_focus_history: PaneFocusHistory::default(),
@@ -4810,6 +4862,7 @@ impl App {
         self.pane_focus_history.sync_membership(&self.tree);
         self.rendered_terminal_bounds.clear();
         self.rendered_kitty_graphics.clear();
+        self.graphics_scene_cache.invalidate();
         self.visible_size_surfaces.clear();
         self.pending_size_releases.clear();
         self.prefix_armed = false;
@@ -5147,6 +5200,7 @@ impl App {
         }
         self.render_states.remove(&surface);
         self.rendered_kitty_graphics.remove(&surface);
+        self.graphics_scene_cache.invalidate();
         self.rendered_terminal_sizes.remove(&surface);
         self.visible_size_surfaces.remove(&surface);
         self.pending_size_releases.remove(&surface);
@@ -5277,6 +5331,7 @@ impl App {
             if let Some(writer) = &self.graphics_writer {
                 writer.invalidate_host_scene();
             }
+            self.graphics_scene_cache.invalidate();
             self.graphics_host_scene_reset_pending = false;
         }
         if let Some(sequence) =
@@ -5314,18 +5369,75 @@ impl App {
             return false;
         };
         surface.kind() == SurfaceKind::Browser
-            && surface.browser_frame().is_some()
+            && surface.browser_frame_metadata().is_some()
             && area.content.width > 0
             && area.content.height > 0
     }
 
-    fn mark_graphics_clean(&self, placements: &[GraphicPlacement]) {
-        let surfaces =
-            placements.iter().map(|placement| placement.key.image.surface).collect::<HashSet<_>>();
-        for surface_id in surfaces {
-            if let Some(surface) = self.session.surface(surface_id) {
+    fn mark_graphics_clean(&self) {
+        let mut surfaces = HashSet::new();
+        for area in &self.pane_areas {
+            if surfaces.insert(area.surface)
+                && let Some(surface) = self.session.surface(area.surface)
+            {
                 surface.take_dirty();
             }
+        }
+    }
+
+    fn graphic_occlusion_rects(&self) -> Vec<Rect> {
+        let mut rects: Vec<Rect> = self
+            .menu
+            .as_ref()
+            .map(|menu| menu.levels.iter().map(|level| level.rect).collect())
+            .unwrap_or_default();
+        rects.extend(self.prompt.as_ref().map(|prompt| prompt.rect));
+        rects.extend(self.pairing_dialog.as_ref().map(|dialog| dialog.rect));
+        rects.extend(crate::ui::toast_rect(self));
+        rects
+    }
+
+    fn graphics_scene_key(&self, occluders: Vec<Rect>) -> GraphicsSceneKey {
+        let panes =
+            self.pane_areas
+                .iter()
+                .map(|area| {
+                    let (terminal_bounds, source) = match self.session.surface(area.surface) {
+                        None => (None, GraphicsSceneSourceKey::Unavailable),
+                        Some(surface) => match surface.kind() {
+                            SurfaceKind::Browser => (
+                                None,
+                                GraphicsSceneSourceKey::Browser {
+                                    frame: surface.browser_frame_metadata(),
+                                },
+                            ),
+                            SurfaceKind::Pty => {
+                                let snapshot = self.rendered_kitty_graphics.get(&area.surface).map(
+                                    |snapshot| KittySceneSnapshotKey {
+                                        identity: Arc::as_ptr(snapshot) as usize,
+                                        generation: snapshot.generation,
+                                    },
+                                );
+                                (
+                                    self.rendered_terminal_bounds.get(&area.surface).copied(),
+                                    GraphicsSceneSourceKey::Pty { snapshot },
+                                )
+                            }
+                        },
+                    };
+                    GraphicsPaneSceneKey {
+                        surface: area.surface,
+                        content: area.content,
+                        terminal_bounds,
+                        source,
+                    }
+                })
+                .collect();
+        GraphicsSceneKey {
+            session_generation: self.session_generation,
+            cell_pixels: self.cell_pixels,
+            occluders,
+            panes,
         }
     }
 
@@ -5333,15 +5445,20 @@ impl App {
         if !self.graphics_supported {
             return Ok(());
         }
-        let placements = self.graphic_placements();
-        self.mark_graphics_clean(&placements);
+        self.mark_graphics_clean();
+        let occluders = self.graphic_occlusion_rects();
+        let scene_key = self.graphics_scene_key(occluders.clone());
+        if !self.graphics_scene_cache.replace_if_changed(scene_key) {
+            return Ok(());
+        }
+        let placements = self.graphic_placements(&occluders);
         if let Some(writer) = &self.graphics_writer {
             writer.submit(placements);
         }
         Ok(())
     }
 
-    fn graphic_placements(&self) -> Vec<GraphicPlacement> {
+    fn graphic_placements(&self, occluders: &[Rect]) -> Vec<GraphicPlacement> {
         let mut placements = Vec::new();
         for area in &self.pane_areas {
             let Some(surface) = self.session.surface(area.surface) else { continue };
@@ -5350,7 +5467,7 @@ impl App {
             }
             match surface.kind() {
                 SurfaceKind::Browser => {
-                    if self.graphic_occluded(area.content) {
+                    if Self::graphic_occluded(area.content, occluders) {
                         continue;
                     }
                     let Some(frame) = surface.browser_frame() else { continue };
@@ -5387,7 +5504,7 @@ impl App {
                         let image = images.get(&placement.image_id)?.clone();
                         let placement =
                             kitty_graphic_placement(pane, self.cell_pixels, image, placement)?;
-                        (!self.graphic_occluded(placement.rect)).then_some(placement)
+                        (!Self::graphic_occluded(placement.rect, occluders)).then_some(placement)
                     }));
                 }
             }
@@ -5395,11 +5512,8 @@ impl App {
         placements
     }
 
-    fn graphic_occluded(&self, rect: Rect) -> bool {
-        self.menu.as_ref().is_some_and(|menu| menu.intersects(rect))
-            || self.prompt.as_ref().is_some_and(|prompt| rects_intersect(rect, prompt.rect))
-            || self.pairing_dialog.as_ref().is_some_and(|dialog| rects_intersect(rect, dialog.rect))
-            || crate::ui::toast_rect(self).is_some_and(|toast| rects_intersect(rect, toast))
+    fn graphic_occluded(rect: Rect, occluders: &[Rect]) -> bool {
+        occluders.iter().any(|occluder| rects_intersect(rect, *occluder))
     }
 
     fn refresh_cell_pixels(&mut self, query_fallback: bool) {
@@ -10780,8 +10894,8 @@ fn browser_key_mapping(
 mod tests {
     use super::{
         App, AppEvent, BACKGROUND_REFRESH_RETRIES, ContextMenu, DeferredInput, Drag, FocusTarget,
-        ForwardMuxOutcome, MachineActionWorker, MenuAction, MenuItem, MuxTitleIngress,
-        OrderedSession, OuterCursorSpec, PaneArea, PaneEdge, PaneFocusHistory,
+        ForwardMuxOutcome, GraphicsSceneCache, MachineActionWorker, MenuAction, MenuItem,
+        MuxTitleIngress, OrderedSession, OuterCursorSpec, PaneArea, PaneEdge, PaneFocusHistory,
         PendingSessionMutation, PendingSessionMutationState, PromptTarget, PtyFailureIngress,
         PtyMousePressResult, RailKind, RenderAction, Selection, SessionCompletion,
         SessionCompletionAction, SessionEventSender, SidebarLayout, SidebarPluginSyncClaim,
@@ -10809,8 +10923,8 @@ mod tests {
         Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
     };
     use ghostty_vt::{
-        CursorShape, KeyEncoder, Mods, MouseAction, MouseButton as GhosttyMouseButton, MouseInput,
-        RenderState, Rgb,
+        CursorShape, KeyEncoder, KittyGraphicsSnapshot, Mods, MouseAction,
+        MouseButton as GhosttyMouseButton, MouseInput, RenderState, Rgb,
     };
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
@@ -13390,6 +13504,54 @@ mod tests {
         );
 
         assert!(app.graphics_host_scene_reset_pending);
+    }
+
+    #[test]
+    fn graphics_scene_cache_skips_text_only_snapshot_rebuilds() {
+        let mux = Mux::new("graphics-scene-cache-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let mut app = test_app(Session::Local(mux));
+        app.graphics_supported = true;
+        app.pane_areas.push(PaneArea {
+            pane: 1,
+            surface: surface.id,
+            rect: Rect { x: 0, y: 0, width: 82, height: 26 },
+            bar: Some(Rect { x: 0, y: 0, width: 82, height: 1 }),
+            omnibar: None,
+            content: Rect { x: 1, y: 1, width: 80, height: 24 },
+            track: None,
+        });
+        app.rendered_terminal_bounds.insert(surface.id, Rect { x: 1, y: 1, width: 80, height: 24 });
+        let snapshot = Arc::new(KittyGraphicsSnapshot { generation: 7, ..Default::default() });
+        app.rendered_kitty_graphics.insert(surface.id, snapshot.clone());
+
+        app.emit_graphics().unwrap();
+        app.rendered_kitty_graphics.insert(surface.id, snapshot);
+        app.emit_graphics().unwrap();
+        assert_eq!(app.graphics_scene_cache.rebuilds, 1);
+
+        app.rendered_kitty_graphics.insert(
+            surface.id,
+            Arc::new(KittyGraphicsSnapshot { generation: 7, ..Default::default() }),
+        );
+        app.emit_graphics().unwrap();
+        assert_eq!(app.graphics_scene_cache.rebuilds, 2);
+
+        app.cell_pixels = (9, 18);
+        app.emit_graphics().unwrap();
+        assert_eq!(app.graphics_scene_cache.rebuilds, 3);
+
+        app.pane_areas[0].content.x = 2;
+        app.emit_graphics().unwrap();
+        assert_eq!(app.graphics_scene_cache.rebuilds, 4);
+
+        app.menu = Some(ContextMenu::at(10, 5, vec![vec![MenuAction::CopyPaneId(1)]]));
+        app.emit_graphics().unwrap();
+        assert_eq!(app.graphics_scene_cache.rebuilds, 5);
+
+        app.graphics_scene_cache.invalidate();
+        app.emit_graphics().unwrap();
+        assert_eq!(app.graphics_scene_cache.rebuilds, 6);
     }
 
     #[test]
@@ -17097,6 +17259,7 @@ mod tests {
             graphics_writer: None,
             graphics_supported: false,
             graphics_host_scene_reset_pending: false,
+            graphics_scene_cache: GraphicsSceneCache::default(),
             stdout_lock: Arc::new(Mutex::new(())),
             pane_areas: Vec::new(),
             pane_focus_history: PaneFocusHistory::default(),

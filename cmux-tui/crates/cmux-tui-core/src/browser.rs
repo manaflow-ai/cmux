@@ -1124,6 +1124,15 @@ impl BrowserSurface {
         }
     }
 
+    pub fn latest_frame_metadata(&self) -> Option<(u64, u32, u32)> {
+        let state = self.state.lock().unwrap();
+        if matches!(state.status, BrowserStatus::Failed(_)) {
+            None
+        } else {
+            state.latest_frame.as_ref().map(|frame| (frame.seq, frame.css_width, frame.css_height))
+        }
+    }
+
     pub fn title(&self) -> String {
         self.state.lock().unwrap().title.clone()
     }
@@ -2184,11 +2193,13 @@ mod tests {
         browser.store_frame(test_frame(2));
         assert_eq!(browser.status(), BrowserStatus::Failed("nope".into()));
         assert_eq!(browser.latest_frame(), None);
+        assert_eq!(browser.latest_frame_metadata(), None);
 
         // Clearing the error restores the retained frame.
         browser.clear_error();
         assert_eq!(browser.status(), BrowserStatus::Live);
         assert_eq!(browser.latest_frame().map(|frame| frame.seq), Some(2));
+        assert_eq!(browser.latest_frame_metadata(), Some((2, 80, 48)));
     }
 
     #[test]

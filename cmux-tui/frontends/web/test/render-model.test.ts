@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type {
+  RenderGraphicImage,
   RenderCursor,
   RenderDeltaEvent,
   RenderGraphics,
@@ -209,5 +210,101 @@ describe("render model", () => {
       images: [],
       placements: [],
     });
+  });
+
+  it("rejects snapshots whose retained images exceed the decoded byte budget", () => {
+    const image = (id: number): RenderGraphicImage => ({
+      id,
+      generation: 1,
+      width: 1_250_001,
+      height: 1,
+      format: "rgba",
+      data: "A".repeat(6_666_672),
+    });
+
+    expect(() => applySnapshot(snapshot([], {
+      generation: 1,
+      images: [image(1), image(2)],
+      placements: [],
+    }))).toThrow(/exceeds 10000000 decoded image bytes/);
+  });
+
+  it("rejects incremental image growth beyond the authoritative byte budget", () => {
+    const image = (id: number): RenderGraphicImage => ({
+      id,
+      generation: 1,
+      width: 1_250_000,
+      height: 1,
+      format: "rgba",
+      data: `${"A".repeat(6_666_667)}=`,
+    });
+    const initial = applySnapshot(snapshot([], {
+      generation: 1,
+      images: [image(1)],
+      placements: [],
+    }));
+
+    expect(() => applyDelta(initial, delta({
+      graphics: { generation: 2, images: [image(2)] },
+    }))).not.toThrow();
+    const full = applyDelta(initial, delta({
+      graphics: { generation: 2, images: [image(2)] },
+    }));
+    expect(() => applyDelta(full, delta({
+      graphics: { generation: 3, images: [{ ...image(3), width: 1, data: "AAAAAA==" }] },
+    }))).toThrow(/exceeds 10000000 decoded image bytes/);
+  });
+
+  it("rejects too many retained images across incremental deltas", () => {
+    const images = Array.from({ length: 4_096 }, (_, index): RenderGraphicImage => ({
+      id: index,
+      generation: 1,
+      width: 1,
+      height: 1,
+      format: "rgb",
+      data: "AAAA",
+    }));
+    const initial = applySnapshot(snapshot([], {
+      generation: 1,
+      images,
+      placements: [],
+    }));
+
+    expect(() => applyDelta(initial, delta({
+      graphics: {
+        generation: 2,
+        images: [{ ...images[0]!, id: images.length }],
+      },
+    }))).toThrow(/exceeds 4096 images/);
+  });
+
+  it("rejects encoded image data that does not match its dimensions", () => {
+    expect(() => applySnapshot(snapshot([], {
+      generation: 1,
+      images: [{
+        id: 1,
+        generation: 1,
+        width: 1,
+        height: 1,
+        format: "rgba",
+        data: "A".repeat(1_000_000),
+      }],
+      placements: [],
+    }))).toThrow(/pixel data does not match its dimensions/);
+  });
+
+  it("rejects non-base64 image text even when its length matches the dimensions", () => {
+    expect(() => applySnapshot(snapshot([], {
+      generation: 1,
+      images: [{
+        id: 1,
+        generation: 1,
+        width: 1,
+        height: 1,
+        format: "rgb",
+        data: "AAA!",
+      }],
+      placements: [],
+    }))).toThrow(/not padded base64 text/);
   });
 });

@@ -4,7 +4,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -41,6 +41,7 @@ const WORKSPACE_KEY_MAX_BYTES: usize = 256;
 const WORKSPACE_NAME_MAX_BYTES: usize = 1_024;
 const PROVIDER_WORKSPACE_AUTHORITY_MIN_BYTES: usize = 32;
 const PROVIDER_WORKSPACE_AUTHORITY_MAX_BYTES: usize = 512;
+const CELL_PIXEL_FANOUT_MAX_WORKERS: usize = 32;
 
 /// An opaque per-mux credential provisioned by the external machine
 /// provider. Debug output is deliberately redacted.
@@ -156,6 +157,46 @@ fn validate_mux_generation(value: &str) -> anyhow::Result<()> {
 
 pub(crate) fn clamp_terminal_size(cols: u16, rows: u16) -> (u16, u16) {
     (cols.clamp(1, TERMINAL_DIMENSION_MAX), rows.clamp(1, TERMINAL_DIMENSION_MAX))
+}
+
+fn bounded_deadline_map<T, R, F>(items: &[T], deadline: Instant, operation: F) -> Vec<R>
+where
+    T: Sync,
+    R: Send,
+    F: Fn(&T, Instant) -> R + Sync,
+{
+    if items.is_empty() {
+        return Vec::new();
+    }
+
+    let next = AtomicUsize::new(0);
+    let (sender, receiver) = std::sync::mpsc::channel();
+    std::thread::scope(|scope| {
+        for _ in 0..items.len().min(CELL_PIXEL_FANOUT_MAX_WORKERS) {
+            let sender = sender.clone();
+            let operation = &operation;
+            let next = &next;
+            scope.spawn(move || {
+                loop {
+                    let index = next.fetch_add(1, Ordering::Relaxed);
+                    let Some(item) = items.get(index) else { break };
+                    if sender.send((index, operation(item, deadline))).is_err() {
+                        break;
+                    }
+                }
+            });
+        }
+    });
+    drop(sender);
+
+    let mut ordered = std::iter::repeat_with(|| None).take(items.len()).collect::<Vec<_>>();
+    for (index, result) in receiver {
+        ordered[index] = Some(result);
+    }
+    ordered
+        .into_iter()
+        .map(|result| result.expect("every bounded fanout operation returned"))
+        .collect()
 }
 
 #[derive(Debug, Default)]
@@ -3692,17 +3733,25 @@ impl Mux {
     ) -> CellPixelUpdate {
         let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
         let next = (width_px.max(1), height_px.max(1));
-        let surfaces = self.state.lock().unwrap().surfaces.values().cloned().collect::<Vec<_>>();
-        let mut update = CellPixelUpdate::default();
-        for surface in surfaces {
+        let mut surfaces =
+            self.state.lock().unwrap().surfaces.values().cloned().collect::<Vec<_>>();
+        surfaces.sort_unstable_by_key(|surface| surface.id);
+        let deadline = Instant::now() + crate::terminal_host_runtime::CONTROL_RESPONSE_TIMEOUT;
+        let results = bounded_deadline_map(&surfaces, deadline, |surface, deadline| {
             let id = surface.id;
             let size = surface.size();
             let callback = report.clone();
-            match surface.set_cell_pixel_size_reporting(
+            let result = surface.set_cell_pixel_size_reporting_until(
                 next.0,
                 next.1,
+                deadline,
                 Box::new(move |accepted| callback(id, size, accepted)),
-            ) {
+            );
+            (id, size, result)
+        });
+        let mut update = CellPixelUpdate::default();
+        for (id, size, result) in results {
+            match result {
                 Ok(Some(reservation_id)) => update.resizes.push((id, size, reservation_id)),
                 Ok(None) => {}
                 Err(error) => update
@@ -7998,6 +8047,26 @@ mod tests {
     }
 
     #[test]
+    fn cell_pixel_fanout_runs_concurrently_with_one_shared_deadline() {
+        let items = (0..8).collect::<Vec<_>>();
+        let active = AtomicUsize::new(0);
+        let max_active = AtomicUsize::new(0);
+        let deadline = Instant::now() + Duration::from_secs(1);
+
+        let results = bounded_deadline_map(&items, deadline, |item, observed_deadline| {
+            assert_eq!(observed_deadline, deadline);
+            let concurrent = active.fetch_add(1, Ordering::AcqRel) + 1;
+            max_active.fetch_max(concurrent, Ordering::AcqRel);
+            std::thread::sleep(Duration::from_millis(10));
+            active.fetch_sub(1, Ordering::AcqRel);
+            item * 2
+        });
+
+        assert_eq!(results, vec![0, 2, 4, 6, 8, 10, 12, 14]);
+        assert!(max_active.load(Ordering::Acquire) > 1);
+    }
+
+    #[test]
     fn cell_pixel_fanout_retries_the_same_metric_before_publishing_it() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
@@ -8215,14 +8284,16 @@ mod tests {
     }
 
     #[test]
-    fn client_sizes_clamp_to_tmux_window_bounds() {
+    fn client_sizes_clamp_before_backend_rejects_unrepresentable_pixels() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();
 
-        mux.resize_surface_for_client(surface.id, 1, 0, u16::MAX).unwrap();
+        assert_eq!(clamp_terminal_size(0, u16::MAX), (1, 10_000));
+        let error = mux.resize_surface_for_client(surface.id, 1, 0, u16::MAX).unwrap_err();
 
-        assert_eq!(mux.client_surface_size(surface.id, 1), Some((1, 10_000)));
-        assert_eq!(surface.size(), (1, 10_000));
+        assert!(error.to_string().contains("PTY pixel height exceeds 65535"));
+        assert_eq!(mux.client_surface_size(surface.id, 1), None);
+        assert_eq!(surface.size(), (80, 24));
     }
 
     #[test]
@@ -10701,7 +10772,7 @@ mod tests {
         .unwrap();
         let surface = insert_terminal_identity_surface(&mux, TERMINAL, INCARNATION, &first.key);
 
-        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let calls = Arc::new(AtomicUsize::new(0));
         let (entered_tx, entered_rx) = std::sync::mpsc::channel();
         let (release_tx, release_rx) = std::sync::mpsc::channel();
         let release_rx = Arc::new(Mutex::new(release_rx));
@@ -10994,7 +11065,7 @@ mod tests {
     fn concurrent_empty_workspace_terminal_inherits_the_first_terminals_cwd() {
         let mux = test_mux();
         let workspace = mux.create_empty_workspace(Some("shared".into()), None, None).unwrap();
-        let empty_checks = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let empty_checks = Arc::new(AtomicUsize::new(0));
         let (second_checked_tx, second_checked_rx) = std::sync::mpsc::sync_channel(1);
         *mux.terminal_create_after_empty_check.lock().unwrap() = Some(Arc::new({
             move || {

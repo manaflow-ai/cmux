@@ -826,13 +826,24 @@ struct PtyGeometry {
 }
 
 impl PtyGeometry {
-    fn pty_size(self) -> PtySize {
-        PtySize {
-            rows: self.rows,
-            cols: self.cols,
-            pixel_width: total_pixels(self.cols, self.cell_width),
-            pixel_height: total_pixels(self.rows, self.cell_height),
-        }
+    fn pty_size(self) -> anyhow::Result<PtySize> {
+        let pixel_width = self.cols.checked_mul(self.cell_width.max(1)).ok_or_else(|| {
+            anyhow::anyhow!(
+                "PTY pixel width exceeds {}: {} columns at {} pixels per cell",
+                u16::MAX,
+                self.cols,
+                self.cell_width.max(1)
+            )
+        })?;
+        let pixel_height = self.rows.checked_mul(self.cell_height.max(1)).ok_or_else(|| {
+            anyhow::anyhow!(
+                "PTY pixel height exceeds {}: {} rows at {} pixels per cell",
+                u16::MAX,
+                self.rows,
+                self.cell_height.max(1)
+            )
+        })?;
+        Ok(PtySize { rows: self.rows, cols: self.cols, pixel_width, pixel_height })
     }
 }
 
@@ -987,12 +998,13 @@ impl Surface {
         }
         let _ = terminal_id;
         let cell_pixels = mux.upgrade().map(|mux| mux.cell_pixel_size()).unwrap_or((8, 16));
-        let pty = native_pty_system().openpty(PtySize {
-            rows: opts.rows,
+        let initial_geometry = PtyGeometry {
             cols: opts.cols,
-            pixel_width: total_pixels(opts.cols, cell_pixels.0),
-            pixel_height: total_pixels(opts.rows, cell_pixels.1),
-        })?;
+            rows: opts.rows,
+            cell_width: cell_pixels.0,
+            cell_height: cell_pixels.1,
+        };
+        let pty = native_pty_system().openpty(initial_geometry.pty_size()?)?;
 
         let argv = opts
             .command
@@ -1073,12 +1085,7 @@ impl Surface {
             dirty: AtomicBool::new(false),
             title: Mutex::new(String::new()),
             pwd: Mutex::new(None),
-            geometry: Mutex::new(PtyGeometry {
-                cols: opts.cols,
-                rows: opts.rows,
-                cell_width: cell_pixels.0,
-                cell_height: cell_pixels.1,
-            }),
+            geometry: Mutex::new(initial_geometry),
             #[cfg(test)]
             geometry_test_hook: Mutex::new(None),
             #[cfg(test)]
@@ -1859,6 +1866,13 @@ impl Surface {
         mux: Weak<Mux>,
     ) -> anyhow::Result<Arc<Surface>> {
         let cell_pixels = mux.upgrade().map(|mux| mux.cell_pixel_size()).unwrap_or((8, 16));
+        let initial_geometry = PtyGeometry {
+            cols: opts.cols,
+            rows: opts.rows,
+            cell_width: cell_pixels.0,
+            cell_height: cell_pixels.1,
+        };
+        let initial_pty_size = initial_geometry.pty_size()?;
         let callbacks = Callbacks {
             on_bell: Some(Box::new({
                 let mux = mux.clone();
@@ -1893,12 +1907,7 @@ impl Surface {
             runtime: Mutex::new(PtyRuntime::Local {
                 writer: Box::new(std::io::sink()),
                 master: Box::new(TestMasterPty {
-                    size: Mutex::new(PtySize {
-                        rows: opts.rows,
-                        cols: opts.cols,
-                        pixel_width: total_pixels(opts.cols, cell_pixels.0),
-                        pixel_height: total_pixels(opts.rows, cell_pixels.1),
-                    }),
+                    size: Mutex::new(initial_pty_size),
                     control: test_master_control.clone(),
                 }),
                 killer: Box::new(TestChildKiller),
@@ -1913,12 +1922,7 @@ impl Surface {
             dirty: AtomicBool::new(false),
             title: Mutex::new(String::new()),
             pwd: Mutex::new(None),
-            geometry: Mutex::new(PtyGeometry {
-                cols: opts.cols,
-                rows: opts.rows,
-                cell_width: cell_pixels.0,
-                cell_height: cell_pixels.1,
-            }),
+            geometry: Mutex::new(initial_geometry),
             geometry_test_hook: Mutex::new(None),
             test_master_control: Some(test_master_control),
             vt_replay_builds: AtomicUsize::new(0),
@@ -2343,6 +2347,32 @@ impl Surface {
         }
     }
 
+    pub(crate) fn set_cell_pixel_size_reporting_until(
+        &self,
+        width_px: u16,
+        height_px: u16,
+        deadline: Instant,
+        report: Box<dyn FnOnce(Option<u64>) + Send>,
+    ) -> anyhow::Result<Option<u64>> {
+        match self {
+            Surface::Pty(pty) => {
+                match pty.set_cell_pixel_size_until(width_px, height_px, Some(deadline)) {
+                    Ok(changed) => {
+                        report(changed.then_some(0));
+                        Ok(changed.then_some(0))
+                    }
+                    Err(error) => {
+                        report(None);
+                        Err(error)
+                    }
+                }
+            }
+            Surface::Browser(browser) => {
+                browser.set_cell_pixel_size_reporting(width_px, height_px, report)
+            }
+        }
+    }
+
     pub fn size(&self) -> (u16, u16) {
         match self {
             Surface::Pty(pty) => {
@@ -2589,6 +2619,10 @@ impl Surface {
 
     pub fn browser_frame(&self) -> Option<BrowserFrame> {
         self.as_browser().and_then(BrowserSurface::latest_frame)
+    }
+
+    pub fn browser_frame_metadata(&self) -> Option<(u64, u32, u32)> {
+        self.as_browser().and_then(BrowserSurface::latest_frame_metadata)
     }
 
     pub fn browser_url(&self) -> Option<String> {
@@ -2870,6 +2904,7 @@ impl PtySurface {
         let (cols, rows) = (cols.max(1), rows.max(1));
         let mut geometry = self.geometry.lock().unwrap();
         let next = PtyGeometry { cols, rows, ..*geometry };
+        next.pty_size()?;
         #[cfg(unix)]
         {
             let runtime = self.runtime.lock().unwrap();
@@ -2890,6 +2925,15 @@ impl PtySurface {
     }
 
     fn set_cell_pixel_size(&self, width_px: u16, height_px: u16) -> anyhow::Result<bool> {
+        self.set_cell_pixel_size_until(width_px, height_px, None)
+    }
+
+    fn set_cell_pixel_size_until(
+        &self,
+        width_px: u16,
+        height_px: u16,
+        deadline: Option<Instant>,
+    ) -> anyhow::Result<bool> {
         #[cfg(test)]
         self.run_geometry_test_hook(PtyGeometryTestStep::CellPixelStarted);
         let mut geometry = self.geometry.lock().unwrap();
@@ -2898,13 +2942,22 @@ impl PtySurface {
         if *geometry == next {
             return Ok(false);
         }
+        next.pty_size()?;
         let previous = *geometry;
         #[cfg(unix)]
         let host_committed = {
             let runtime = self.runtime.lock().unwrap();
             match &*runtime {
                 PtyRuntime::Hosted(host) => {
-                    if !host.send_cell_pixel_size(next.cell_width, next.cell_height)? {
+                    let accepted = match deadline {
+                        Some(deadline) => host.send_cell_pixel_size_until(
+                            next.cell_width,
+                            next.cell_height,
+                            deadline,
+                        )?,
+                        None => host.send_cell_pixel_size(next.cell_width, next.cell_height)?,
+                    };
+                    if !accepted {
                         return Ok(false);
                     }
                     true
@@ -2920,9 +2973,18 @@ impl PtySurface {
                 let rollback = {
                     let runtime = self.runtime.lock().unwrap();
                     match &*runtime {
-                        PtyRuntime::Hosted(host) => host
-                            .send_cell_pixel_size(previous.cell_width, previous.cell_height)
-                            .map(|accepted| accepted.then_some(())),
+                        PtyRuntime::Hosted(host) => match deadline {
+                            Some(deadline) => host
+                                .send_cell_pixel_size_until(
+                                    previous.cell_width,
+                                    previous.cell_height,
+                                    deadline,
+                                )
+                                .map(|accepted| accepted.then_some(())),
+                            None => host
+                                .send_cell_pixel_size(previous.cell_width, previous.cell_height)
+                                .map(|accepted| accepted.then_some(())),
+                        },
                         PtyRuntime::Local { .. } | PtyRuntime::ExitedHosted => Ok(None),
                     }
                 };
@@ -2953,6 +3015,8 @@ impl PtySurface {
             return Ok(false);
         }
         let previous = *geometry;
+        let next_pty_size = next.pty_size()?;
+        let previous_pty_size = previous.pty_size()?;
         // Hold the terminal lock while resizing and while sending the attach
         // marker, so mirrors observe bytes and geometry in server order.
         let mut term = self.term.lock().unwrap();
@@ -2985,7 +3049,7 @@ impl PtySurface {
             })?;
         }
         if let Some(master) = master {
-            master.resize(next.pty_size()).map_err(|error| {
+            master.resize(next_pty_size).map_err(|error| {
                 anyhow::anyhow!(
                     "could not resize PTY master to {}x{} at {}x{} px per cell: {error}",
                     next.cols,
@@ -3001,7 +3065,7 @@ impl PtySurface {
             u32::from(next.cell_width),
             u32::from(next.cell_height),
         ) {
-            let rollback = master.map_or(Ok(()), |master| master.resize(previous.pty_size()));
+            let rollback = master.map_or(Ok(()), |master| master.resize(previous_pty_size));
             return match rollback {
                 Ok(()) => Err(anyhow::anyhow!(
                     "could not resize Ghostty terminal to {}x{} at {}x{} px per cell: {error}",
@@ -3079,10 +3143,6 @@ enum PtyGeometryTestStep {
     ResizeCommitBoundary,
     CellPixelStarted,
     CellPixelCommitBoundary,
-}
-
-fn total_pixels(cells: u16, cell_pixels: u16) -> u16 {
-    cells.saturating_mul(cell_pixels.max(1))
 }
 
 fn terminal_color_override_full_state(next: &TerminalColorOverrides) -> Vec<u8> {
@@ -4270,6 +4330,34 @@ mod tests {
         assert_eq!(
             (master.cols, master.rows, master.pixel_width, master.pixel_height),
             (100, 30, 800, 480)
+        );
+    }
+
+    #[test]
+    fn pty_pixel_overflow_rejects_creation_and_geometry_updates_without_mutation() {
+        let mux = Mux::new_for_test("pty-pixel-overflow", SurfaceOptions::default());
+        let oversized = SurfaceOptions { cols: 10_000, ..SurfaceOptions::default() };
+        let creation_error =
+            Surface::spawn_for_test(1, oversized, Arc::downgrade(&mux)).unwrap_err();
+        assert!(creation_error.to_string().contains("PTY pixel width exceeds 65535"));
+
+        let surface =
+            Surface::spawn_for_test(2, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let resize_error = surface.resize(10_000, 24).unwrap_err();
+        assert!(resize_error.to_string().contains("PTY pixel width exceeds 65535"));
+        let cell_error = surface.set_cell_pixel_size(1_000, 16).unwrap_err();
+        assert!(cell_error.to_string().contains("PTY pixel width exceeds 65535"));
+
+        assert_eq!(surface.size(), (80, 24));
+        assert_eq!(surface.test_cell_pixel_size(), (8, 16));
+        {
+            let terminal = surface.as_pty().unwrap().term.lock().unwrap();
+            assert_eq!((terminal.cols(), terminal.rows()), (80, 24));
+        }
+        let master = surface.test_master_size();
+        assert_eq!(
+            (master.cols, master.rows, master.pixel_width, master.pixel_height),
+            (80, 24, 640, 384)
         );
     }
 }

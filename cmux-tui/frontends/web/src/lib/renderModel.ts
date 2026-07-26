@@ -1,13 +1,16 @@
-import type {
-  Id,
-  RenderCursor,
-  RenderDeltaEvent,
-  RenderGraphicImage,
-  RenderGraphicPlacement,
-  RenderGraphics,
-  RenderGraphicsDelta,
-  RenderRow,
-  RenderStateEvent,
+import {
+  CmuxProtocolError,
+  RENDER_GRAPHIC_MAX_DECODED_BYTES,
+  RENDER_GRAPHIC_MAX_IMAGES,
+  type Id,
+  type RenderCursor,
+  type RenderDeltaEvent,
+  type RenderGraphicImage,
+  type RenderGraphicPlacement,
+  type RenderGraphics,
+  type RenderGraphicsDelta,
+  type RenderRow,
+  type RenderStateEvent,
 } from "cmux/browser";
 
 export interface RenderGraphicsModel {
@@ -79,13 +82,79 @@ function sameImage(left: RenderGraphicImage, right: RenderGraphicImage): boolean
     && left.data === right.data;
 }
 
+function decodedImageBytes(image: RenderGraphicImage): number {
+  if (!Number.isSafeInteger(image.width) || image.width <= 0
+    || !Number.isSafeInteger(image.height) || image.height <= 0) {
+    throw new CmuxProtocolError(`render graphics image ${image.id} has invalid dimensions`);
+  }
+  const channels = image.format === "rgb" ? 3 : image.format === "rgba" ? 4 : 0;
+  if (channels === 0) {
+    throw new CmuxProtocolError(`render graphics image ${image.id} has an invalid format`);
+  }
+  if (typeof image.data !== "string" || image.data.length % 4 !== 0) {
+    throw new CmuxProtocolError(`render graphics image ${image.id} data is not padded base64 text`);
+  }
+
+  const padding = image.data.endsWith("==") ? 2 : image.data.endsWith("=") ? 1 : 0;
+  const payloadLength = image.data.length - padding;
+  for (let index = 0; index < image.data.length; index += 1) {
+    const code = image.data.charCodeAt(index);
+    const payload = index < payloadLength;
+    const base64 = code >= 65 && code <= 90
+      || code >= 97 && code <= 122
+      || code >= 48 && code <= 57
+      || code === 43
+      || code === 47;
+    if (payload ? !base64 : code !== 61) {
+      throw new CmuxProtocolError(
+        `render graphics image ${image.id} data is not padded base64 text`,
+      );
+    }
+  }
+  const decodedBytes = (image.data.length / 4) * 3 - padding;
+  const expectedBytes = image.width * image.height * channels;
+  if (!Number.isSafeInteger(expectedBytes)
+    || expectedBytes > RENDER_GRAPHIC_MAX_DECODED_BYTES
+    || decodedBytes !== expectedBytes) {
+    throw new CmuxProtocolError(
+      `render graphics image ${image.id} pixel data does not match its dimensions`,
+    );
+  }
+  return decodedBytes;
+}
+
+function validateAuthoritativeImages(images: readonly RenderGraphicImage[]): void {
+  if (images.length > RENDER_GRAPHIC_MAX_IMAGES) {
+    throw new CmuxProtocolError(
+      `render graphics state exceeds ${RENDER_GRAPHIC_MAX_IMAGES} images`,
+    );
+  }
+
+  let decodedBytes = 0;
+  const ids = new Set<number>();
+  for (const image of images) {
+    if (ids.has(image.id)) {
+      throw new CmuxProtocolError(`render graphics state contains duplicate image ${image.id}`);
+    }
+    ids.add(image.id);
+    decodedBytes += decodedImageBytes(image);
+    if (decodedBytes > RENDER_GRAPHIC_MAX_DECODED_BYTES) {
+      throw new CmuxProtocolError(
+        `render graphics state exceeds ${RENDER_GRAPHIC_MAX_DECODED_BYTES} decoded image bytes`,
+      );
+    }
+  }
+}
+
 function snapshotGraphics(
   graphics: RenderGraphics | undefined,
 ): RenderGraphicsModel {
   if (graphics === undefined) return { generation: 0, images: [], placements: [] };
+  const images = (graphics.images ?? []).map((image) => ({ ...image }));
+  validateAuthoritativeImages(images);
   return {
     generation: graphics.generation,
-    images: (graphics.images ?? []).map((image) => ({ ...image })),
+    images,
     placements: (graphics.placements ?? []).map((placement) => ({ ...placement })),
   };
 }
@@ -135,6 +204,7 @@ function applyGraphicsDelta(
     graphics.images ?? [],
     graphics.removed_image_ids ?? [],
   );
+  validateAuthoritativeImages(images);
   const placements = graphics.placements === undefined
     || samePlacements(previous.placements, graphics.placements)
     ? previous.placements

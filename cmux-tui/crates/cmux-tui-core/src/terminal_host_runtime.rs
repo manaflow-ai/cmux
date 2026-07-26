@@ -29,7 +29,7 @@ const MAX_BLOB: usize = crate::surface::VT_REPLAY_MAX_BYTES;
 const MAX_ARGV: usize = 256;
 const MAX_ENV: usize = 1024;
 const MAX_RENDERER_CAPABILITY_TTL: std::time::Duration = std::time::Duration::from_secs(60);
-const CONTROL_RESPONSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+pub(crate) const CONTROL_RESPONSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 const HOST_HANDSHAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 const MAX_HOST_CLIENT_QUEUED_BYTES: usize =
     MAX_FRAME_PAYLOAD + MAX_TERMINAL_COLORS_PAYLOAD + 2 * crate::terminal_host_protocol::HEADER_LEN;
@@ -653,8 +653,24 @@ mod unix {
         /// this daemon's disposable mirror. Protocol-v1 hosts do not expose
         /// this transaction, so callers leave their mirror unchanged.
         pub fn send_cell_pixel_size(&self, width_px: u16, height_px: u16) -> anyhow::Result<bool> {
+            self.send_cell_pixel_size_until(
+                width_px,
+                height_px,
+                Instant::now() + CONTROL_RESPONSE_TIMEOUT,
+            )
+        }
+
+        pub(crate) fn send_cell_pixel_size_until(
+            &self,
+            width_px: u16,
+            height_px: u16,
+            deadline: Instant,
+        ) -> anyhow::Result<bool> {
             if self.protocol_version < 2 {
                 return Ok(false);
+            }
+            if Instant::now() >= deadline {
+                anyhow::bail!("terminal host cell pixel size deadline elapsed before request");
             }
             let width_px = width_px.max(1);
             let height_px = height_px.max(1);
@@ -676,7 +692,12 @@ mod unix {
                 self.control_responses.waiters.lock().unwrap().remove(&request_id);
                 return Err(error.into());
             }
-            let response = match receiver.recv_timeout(CONTROL_RESPONSE_TIMEOUT) {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                self.control_responses.waiters.lock().unwrap().remove(&request_id);
+                anyhow::bail!("terminal host cell pixel size deadline elapsed after request");
+            }
+            let response = match receiver.recv_timeout(remaining) {
                 Ok(response) => response,
                 Err(error) => {
                     self.control_responses.waiters.lock().unwrap().remove(&request_id);

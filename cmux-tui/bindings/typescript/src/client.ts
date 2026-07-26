@@ -68,6 +68,7 @@ import type {
 import {
   RENDER_ATTACH_MAX_ENCODED_CHARS,
   RENDER_GRAPHIC_MAX_ENCODED_CHARS,
+  RENDER_GRAPHIC_MAX_IMAGES,
   RENDER_GRAPHIC_MAX_PLACEMENTS,
 } from "./protocol/render.js";
 import type { Transport, Unsubscribe } from "./transport.js";
@@ -878,6 +879,11 @@ export class CmuxClient {
     if (images === undefined) return event as RenderAttachEvent;
     if (!Array.isArray(images)) {
       throw new CmuxProtocolError(`${event.event} graphics images is not an array`);
+    }
+    if (images.length > RENDER_GRAPHIC_MAX_IMAGES) {
+      throw new CmuxProtocolError(
+        `${event.event} graphics exceeds ${RENDER_GRAPHIC_MAX_IMAGES} images`,
+      );
     }
     for (const image of images) {
       if (image === null || typeof image !== "object" || Array.isArray(image)) {

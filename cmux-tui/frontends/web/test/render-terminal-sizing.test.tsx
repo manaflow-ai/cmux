@@ -26,10 +26,17 @@ class TestStream {
   }
 }
 
-function Harness({ client }: { client: CmuxClient }) {
-  const onError = useCallback((error: Error) => {
+function Harness({
+  client,
+  onError: suppliedOnError,
+}: {
+  client: CmuxClient;
+  onError?: (error: Error) => void;
+}) {
+  const throwingOnError = useCallback((error: Error) => {
     throw error;
   }, []);
+  const onError = suppliedOnError ?? throwingOnError;
   const { terminalRef } = useRenderTerminal({ client, surface: 7, active: true, onError });
   const hostRef = useCallback((node: HTMLDivElement | null) => {
     if (node !== null) {
@@ -194,5 +201,57 @@ describe("render terminal sizing", () => {
     render(<Harness client={client} />);
 
     await waitFor(() => expect(client.releaseSurfaceSize).toHaveBeenCalledWith(7));
+  });
+
+  it("closes the render stream when authoritative Kitty image state exceeds its cap", async () => {
+    globalThis.ResizeObserver = class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    };
+    const cursor: RenderCursor = {
+      x: 0,
+      y: 0,
+      style: "bar",
+      blink: true,
+      visible: true,
+      color: null,
+    };
+    const stream = new TestStream([{
+      event: "render-state",
+      surface: 7,
+      size: { cols: 100, rows: 30 },
+      cursor,
+      default_fg: "#f8f8f2",
+      default_bg: "#272822",
+      scrollback_rows: 0,
+      rows: [],
+      graphics: {
+        generation: 1,
+        images: Array.from({ length: 4_097 }, (_, id) => ({
+          id,
+          generation: 1,
+          width: 1,
+          height: 1,
+          format: "rgb" as const,
+          data: "AAAA",
+        })),
+        placements: [],
+      },
+    }]);
+    const client = {
+      attachSurface: vi.fn(async () => stream),
+      resizeSurface: vi.fn(async () => ({ accepted: true, reservation_id: null })),
+      releaseSurfaceSize: vi.fn(async () => ({})),
+    } as unknown as CmuxClient;
+    const onError = vi.fn();
+
+    render(<Harness client={client} onError={onError} />);
+
+    await waitFor(() => expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "render graphics state exceeds 4096 images" }),
+    ));
+    expect(stream.close).toHaveBeenCalledTimes(1);
+    expect(client.releaseSurfaceSize).toHaveBeenCalledWith(7);
   });
 });
