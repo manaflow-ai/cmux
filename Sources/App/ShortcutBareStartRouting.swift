@@ -143,9 +143,9 @@ extension AppDelegate {
         return globalSearchShortcutWhenClauseAllows(event: event)
     }
 
-    /// Resolves the foreground Search binding from the authoritative settings snapshot.
+    /// Returns the foreground Search binding from the observer's authoritative snapshot.
     func globalSearchShortcutForRouting() -> StoredShortcut {
-        KeyboardShortcutSettings.shortcut(for: .globalSearch)
+        KeyboardShortcutSettingsObserver.shared.globalSearchShortcut
     }
 
     private func activeGlobalSearchStroke(for shortcut: StoredShortcut) -> ShortcutStroke? {
