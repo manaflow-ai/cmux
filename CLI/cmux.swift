@@ -1930,6 +1930,31 @@ final class SocketClient {
         }
     }
 
+    /// Connects using the remaining absolute deadline for both the socket
+    /// operation timeout and the existing short retry window.
+    func connect(deadline: Date) throws {
+        if socketFD >= 0 { return }
+        let retryDeadline = min(
+            deadline,
+            Date().addingTimeInterval(Self.connectRetryDeadline)
+        )
+        while true {
+            do {
+                let remaining = deadline.timeIntervalSinceNow
+                guard remaining > 0 else {
+                    throw CLIError(message: "Socket connection deadline exceeded")
+                }
+                try connectOnce(responseTimeout: remaining)
+                return
+            } catch {
+                guard Self.shouldRetryConnect(error), Date() < retryDeadline else {
+                    throw error
+                }
+                usleep(Self.connectRetryIntervalMicros)
+            }
+        }
+    }
+
     func connectWithoutRetry(responseTimeout: TimeInterval? = nil) throws {
         if socketFD >= 0 { return }
         try connectOnce(responseTimeout: responseTimeout)
@@ -33992,7 +34017,7 @@ export default CMUXSessionRestore;
         } else if let socketPath {
             let feedClient = SocketClient(path: socketPath)
             do {
-                try feedClient.connect()
+                try feedClient.connect(deadline: clientDeadline)
                 try authenticateClientIfNeeded(
                     feedClient,
                     explicitPassword: socketPassword,
