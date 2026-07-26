@@ -73,6 +73,19 @@ describe("cmux Pro checkout fulfillment", () => {
     );
   });
 
+  test("escapes the customer name in the HTML email", () => {
+    const email = buildProWelcomeEmail({
+      from: "cmux Pro <pro@cmux.com>",
+      to: "a@example.com",
+      customerName: `<script>&"'`,
+      locale: "en",
+      sessionRef: "cs_escape",
+    });
+
+    expect(email.html).toContain("Hey &lt;script&gt;&amp;&quot;&#39;,");
+    expect(email.html).not.toContain("<script>");
+  });
+
   test("sends the signup email without an ASC dependency", async () => {
     const sendEmail = mock(async () => ({ error: null }));
 
