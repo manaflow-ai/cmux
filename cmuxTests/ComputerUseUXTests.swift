@@ -650,7 +650,7 @@ struct ComputerUseUXTests {
         ))
     }
 
-    @Test func permissionRowsOfferNativeRequestThenSettingsFallbackUntilGranted() {
+    @Test func permissionRowsUseOneClickSystemSettingsRoutingUntilGranted() {
         #expect(ComputerUsePermissionRowAction.resolve(
             granted: false,
             statusIsKnown: true,
@@ -671,6 +671,30 @@ struct ComputerUseUXTests {
             statusIsKnown: false,
             nativeRequestAttempted: true
         ) == .openSystemSettings)
+
+        #expect(ComputerUsePermissionRowAction.allow.destination == .systemSettings)
+        #expect(ComputerUsePermissionRowAction.openSystemSettings.destination == .systemSettings)
+        #expect(ComputerUsePermissionRowAction.done.destination == nil)
+    }
+
+    @Test @MainActor func permissionCompanionReportsLayoutReadinessBeforeWindowMovement() {
+        let state = ComputerUseOnboardingPresentationState()
+
+        state.showPermissionCompanion()
+        #expect(state.permissionCompanionVisible)
+        #expect(!state.permissionCompanionLayoutReady)
+
+        state.markPermissionCompanionLayoutReady()
+        #expect(state.permissionCompanionLayoutReady)
+
+        state.requestReturnToOverview()
+        #expect(!state.permissionCompanionVisible)
+        #expect(!state.permissionCompanionLayoutReady)
+    }
+
+    @Test func completedOnboardingRemainsVisibleBeforeAutomaticDismissal() {
+        #expect(ComputerUseOnboardingStep.complete.rawValue > ComputerUseOnboardingStep.screenRecording.rawValue)
+        #expect(ComputerUseOnboardingWindowController.completionDismissDelay >= .seconds(2))
     }
 
     @Test
@@ -1380,6 +1404,8 @@ struct ComputerUseUXTests {
             "--no-permissions-gate",
             "--cursor-shape",
             "cmux",
+            "--idle-hide-ms",
+            "0",
         ])
         #expect(configuration.environment["CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW"] == "1")
         #expect(configuration.environment["CUA_DRIVER_RS_PERMISSIONS_GATE"] == "0")
@@ -1414,6 +1440,8 @@ struct ComputerUseUXTests {
             "--no-permissions-gate",
             "--cursor-shape",
             "cmux",
+            "--idle-hide-ms",
+            "0",
         ])
         #expect(codexConfiguration.environment == configuration.environment)
     }
