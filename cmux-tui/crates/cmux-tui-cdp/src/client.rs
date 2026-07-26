@@ -1838,6 +1838,68 @@ mod tests {
     }
 
     #[test]
+    fn replayed_load_lifecycle_reconciles_pending_document_authority() {
+        let (inner, _outbound_rx) = test_inner();
+        inner.frame_epochs.lock().unwrap().insert(
+            "session-1".to_string(),
+            FrameSession {
+                epoch: Arc::new(FrameEpoch::default()),
+                main_frame_id: None,
+                main_loader_id: None,
+                pending_document: None,
+                minimum_screencast_timestamp: None,
+                timestampless_authority_epoch: None,
+            },
+        );
+
+        handle_text(
+            &inner,
+            &json!({
+                "method": "Page.frameNavigated",
+                "sessionId": "session-1",
+                "params": {
+                    "frame": {
+                        "id": "frame-1",
+                        "loaderId": "loader-1",
+                        "url": "https://example.test"
+                    }
+                }
+            })
+            .to_string(),
+        );
+        handle_text(
+            &inner,
+            &json!({
+                "method": "Page.lifecycleEvent",
+                "sessionId": "session-1",
+                "params": {
+                    "frameId": "frame-1",
+                    "loaderId": "loader-1",
+                    "name": "load",
+                    "timestamp": 1.0
+                }
+            })
+            .to_string(),
+        );
+
+        let (event_tx, event_rx) = sync_channel(2);
+        inner.events.drain_into(&event_tx).unwrap();
+        assert!(matches!(
+            event_rx.recv().unwrap(),
+            CdpEvent::FrameNavigated { frame_epoch: 1, .. }
+        ));
+        assert!(matches!(
+            event_rx.recv_timeout(Duration::from_millis(100)).unwrap(),
+            CdpEvent::DocumentPainted {
+                frame_id,
+                loader_id,
+                navigation_epoch: 1,
+                ..
+            } if frame_id == "frame-1" && loader_id == "loader-1"
+        ));
+    }
+
+    #[test]
     fn back_forward_cache_restore_requests_document_capture_without_new_paint() {
         let (inner, _outbound_rx) = test_inner();
         inner.frame_epochs.lock().unwrap().insert(

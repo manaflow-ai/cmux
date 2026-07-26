@@ -32,6 +32,23 @@ class PointerAuthorityTests(unittest.TestCase):
             )
         )
 
+    def test_recovery_poke_activates_before_guarded_pointer_authority_exists(self) -> None:
+        self.assertEqual(
+            measure_frames.recovery_poke(7, None),
+            {"cmd": "browser-activate", "surface": 7},
+        )
+        self.assertEqual(
+            measure_frames.recovery_poke(7, 11),
+            {
+                "cmd": "browser-wheel-guarded",
+                "surface": 7,
+                "x_px": 10,
+                "y_px": 10,
+                "delta_y_px": 120,
+                "frame_seq": 11,
+            },
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

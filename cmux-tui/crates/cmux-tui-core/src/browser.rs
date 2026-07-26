@@ -4148,7 +4148,7 @@ mod tests {
     }
 
     #[test]
-    fn setup_seeds_main_frame_before_page_events_are_enabled() {
+    fn setup_subscribes_before_seeding_main_frame_authority() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
         let server = thread::Builder::new()
@@ -4160,10 +4160,19 @@ mod tests {
                 assert_eq!(discover["method"], "Target.setDiscoverTargets");
                 write_ws_json(&mut ws, json!({"id": discover["id"], "result": {}}));
 
+                for expected in ["Page.enable", "Page.setLifecycleEventsEnabled"] {
+                    let request = read_ws_json(&mut ws);
+                    assert_eq!(
+                        request["method"], expected,
+                        "document events must be subscribed before authority is snapshotted"
+                    );
+                    write_ws_json(&mut ws, json!({"id": request["id"], "result": {}}));
+                }
+
                 let frame_tree = read_ws_json(&mut ws);
                 assert_eq!(
                     frame_tree["method"], "Page.getFrameTree",
-                    "the root frame must be known before Page events are enabled"
+                    "the post-subscription snapshot must reconcile the current root loader"
                 );
                 write_ws_json(
                     &mut ws,
@@ -4181,12 +4190,7 @@ mod tests {
                     }),
                 );
 
-                for expected in [
-                    "Page.enable",
-                    "Page.setLifecycleEventsEnabled",
-                    "Emulation.setDeviceMetricsOverride",
-                    "Page.startScreencast",
-                ] {
+                for expected in ["Emulation.setDeviceMetricsOverride", "Page.startScreencast"] {
                     let request = read_ws_json(&mut ws);
                     assert_eq!(request["method"], expected);
                     write_ws_json(&mut ws, json!({"id": request["id"], "result": {}}));
@@ -5370,11 +5374,10 @@ mod tests {
     }
 
     #[test]
-    fn no_commit_reload_does_not_poison_the_next_navigation_epoch() {
+    fn latest_navigation_supersedes_an_uncommitted_reload_epoch() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
-        let (commit_tx, commit_rx) = mpsc::channel();
-        let (stop_tx, stop_rx) = mpsc::channel();
+        let (superseded_tx, superseded_rx) = mpsc::channel();
         let server = thread::spawn(move || {
             let (stream, _) = listener.accept().unwrap();
             let mut ws = accept(stream).unwrap();
@@ -5385,21 +5388,18 @@ mod tests {
             let reload = read_ws_json(&mut ws);
             assert_eq!(reload["method"], "Page.reload");
             write_ws_json(&mut ws, json!({"id": reload["id"], "result": {}}));
-            commit_rx.recv_timeout(Duration::from_secs(1)).unwrap();
-            write_ws_json(
-                &mut ws,
-                json!({
-                    "method": "Page.frameNavigated",
-                    "sessionId": "session-1",
-                    "params": {
-                        "frame": {
-                            "id": "main-frame",
-                            "loaderId": "reload-loader",
-                            "url": "https://example.test"
-                        }
-                    }
-                }),
-            );
+
+            ws.get_ref().set_read_timeout(Some(Duration::from_millis(250))).unwrap();
+            let Ok(message) = ws.read() else {
+                superseded_tx.send(false).unwrap();
+                return;
+            };
+            let stop_loading: Value = serde_json::from_str(message.to_text().unwrap()).unwrap();
+            if stop_loading["method"] != "Page.stopLoading" {
+                superseded_tx.send(false).unwrap();
+                return;
+            }
+            write_ws_json(&mut ws, json!({"id": stop_loading["id"], "result": {}}));
 
             let navigate = read_ws_json(&mut ws);
             assert_eq!(navigate["method"], "Page.navigate");
@@ -5417,8 +5417,14 @@ mod tests {
                     }
                 }),
             );
-            write_ws_json(&mut ws, json!({"id": navigate["id"], "result": {}}));
-            stop_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            write_ws_json(
+                &mut ws,
+                json!({
+                    "id": navigate["id"],
+                    "result": {"frameId": "main-frame", "loaderId": "next-loader"}
+                }),
+            );
+            superseded_tx.send(true).unwrap();
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
@@ -5440,44 +5446,39 @@ mod tests {
         browser.store_frame(test_frame(1));
 
         browser.reload_blocking().unwrap();
-        assert!(
-            browser.navigate_blocking("https://next.test").is_err(),
-            "a later command must not reuse an unresolved navigation event reservation"
-        );
-        commit_tx.send(()).unwrap();
-        let reload_deadline = Instant::now() + Duration::from_secs(1);
-        while Instant::now() < reload_deadline
-            && browser.state.lock().unwrap().pending_navigation_epoch.is_some()
-        {
-            thread::yield_now();
-        }
-        assert_eq!(
-            browser.state.lock().unwrap().pending_navigation_epoch,
-            None,
-            "the authoritative reload event must release the serialized navigation lane"
-        );
-        let reload_epoch = browser.frame_epoch.current();
-        assert!(browser.accept_document_paint(reload_epoch, reload_epoch, test_frame(2)));
-        browser.navigate_blocking("https://next.test").unwrap();
-        let deadline = Instant::now() + Duration::from_secs(1);
-        while Instant::now() < deadline
-            && browser.state.lock().unwrap().pending_navigation_epoch.is_some()
-        {
-            thread::yield_now();
-        }
-        let navigation_epoch = browser.frame_epoch.current();
-        assert!(browser.accept_document_paint(navigation_epoch, navigation_epoch, test_frame(3)));
+        let navigate_result = browser.navigate_blocking("https://next.test");
+        let superseded = superseded_rx.recv_timeout(Duration::from_secs(1)).unwrap_or(false);
 
+        let mut admitted = false;
+        if navigate_result.is_ok() {
+            let deadline = Instant::now() + Duration::from_secs(1);
+            while Instant::now() < deadline
+                && browser.state.lock().unwrap().pending_navigation_epoch.is_some()
+            {
+                thread::yield_now();
+            }
+            let navigation_epoch = browser.frame_epoch.current();
+            admitted =
+                browser.accept_document_paint(navigation_epoch, navigation_epoch, test_frame(2));
+        }
+        runtime.shutdown();
+        server.join().unwrap();
+
+        assert!(
+            navigate_result.is_ok(),
+            "the latest URL must replace an unresolved reload instead of being consumed"
+        );
+        assert!(
+            superseded,
+            "Chrome must cancel the unresolved load before accepting its replacement"
+        );
+        assert!(admitted, "the replacement document must regain pointer authority");
         let state = browser.state.lock().unwrap();
         assert_eq!(state.pending_frame_epoch, None);
         assert_eq!(state.pending_navigation_epoch, None);
         assert_eq!(state.accepted_frame_epoch, browser.frame_epoch.current());
         drop(state);
         assert_eq!(browser.url(), "https://next.test");
-
-        stop_tx.send(()).unwrap();
-        runtime.shutdown();
-        server.join().unwrap();
     }
 
     #[test]
@@ -5755,6 +5756,60 @@ mod tests {
         assert_eq!(browser.state.lock().unwrap().pending_navigation_epoch, None);
         runtime.shutdown();
         server.join().unwrap();
+    }
+
+    #[test]
+    fn loaderless_navigation_response_reconciles_the_unchanged_document() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut ws = accept(stream).unwrap();
+            let discover = read_ws_json(&mut ws);
+            assert_eq!(discover["method"], "Target.setDiscoverTargets");
+            write_ws_json(&mut ws, json!({"id": discover["id"], "result": {}}));
+            let navigate = read_ws_json(&mut ws);
+            assert_eq!(navigate["method"], "Page.navigate");
+            write_ws_json(
+                &mut ws,
+                json!({"id": navigate["id"], "result": {"frameId": "main-frame"}}),
+            );
+        });
+        let runtime = super::BrowserRuntime::connect_to_endpoint(
+            &format!("ws://{addr}/devtools/browser/fake"),
+            None,
+            BrowserSource::External,
+        )
+        .unwrap();
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        *browser.session.lock().unwrap() = Some(BrowserSession {
+            runtime: runtime.clone(),
+            target_id: "target-1".to_string(),
+            session_id: "session-1".to_string(),
+        });
+        browser.store_frame(test_frame(1));
+
+        let result = browser.navigate_blocking("https://example.test#same-document");
+        let state = browser.state.lock().unwrap();
+        let pending_frame_epoch = state.pending_frame_epoch;
+        let pending_navigation_epoch = state.pending_navigation_epoch;
+        let pointer_frame_seq = state.pointer_frame_seq;
+        drop(state);
+        runtime.shutdown();
+        server.join().unwrap();
+
+        assert!(result.is_ok());
+        assert_eq!(
+            pending_frame_epoch, None,
+            "a loaderless acknowledgment must not leave a cross-document barrier behind"
+        );
+        assert_eq!(pending_navigation_epoch, None);
+        assert_eq!(
+            pointer_frame_seq,
+            Some(1),
+            "the unchanged document must regain its previously admitted pointer frame"
+        );
     }
 
     #[test]
