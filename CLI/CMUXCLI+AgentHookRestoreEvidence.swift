@@ -3,7 +3,6 @@ import CMUXAgentLaunch
 
 extension CMUXCLI {
     private static let codexPermissionEvidenceChunkBytes = 64 * 1024
-    private static let codexSessionResumeVerifier = CodexSessionResumeVerifier()
 
     func agentHookProviderOwnsResumeTarget(
         kind: String,
@@ -35,7 +34,7 @@ extension CMUXCLI {
                 fileURLWithPath: normalizedHookValue(environment["HOME"]) ?? NSHomeDirectory(),
                 isDirectory: true
             ).appendingPathComponent(".codex", isDirectory: true).path
-        return Self.codexSessionResumeVerifier.evidence(
+        return CodexSessionResumeVerifier().evidence(
             sessionId: sessionId,
             transcriptPath: transcriptPath,
             codexHome: codexHome

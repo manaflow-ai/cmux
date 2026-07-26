@@ -16,8 +16,6 @@ public struct CodexSessionResumeEvidence: Equatable, Sendable {
 
 /// Verifies Codex resume identifiers against Codex's thread index or a legacy rollout.
 public struct CodexSessionResumeVerifier: Sendable {
-    private let indexCache = CodexThreadIndexCache()
-
     public init() {}
 
     /// Returns evidence only when Codex owns a non-empty user-restorable rollout
@@ -40,20 +38,19 @@ public struct CodexSessionResumeVerifier: Sendable {
             .appendingPathComponent("state_5.sqlite", isDirectory: false)
             .path
 
-        if let evidence = indexedEvidence(
-            requestedSessionId: sessionId,
+        if let indexedThread = indexedThread(
+            sessionId: sessionId,
             databasePath: databasePath,
             fileManager: fileManager
         ) {
-            return evidence
-        }
-        // An indexed thread that fails ownership checks must not regain authority
-        // through the less-specific legacy transcript fallback.
-        if indexCache.threads(
-            databasePath: databasePath,
-            fileManager: fileManager
-        )[sessionId] != nil {
-            return nil
+            // An indexed thread that fails ownership checks must not regain
+            // authority through the less-specific legacy transcript fallback.
+            return indexedEvidence(
+                requestedSessionId: sessionId,
+                initialThread: indexedThread,
+                databasePath: databasePath,
+                fileManager: fileManager
+            )
         }
 
         guard let transcriptPath = normalized(transcriptPath).map({ ($0 as NSString).expandingTildeInPath }),
@@ -73,28 +70,25 @@ public struct CodexSessionResumeVerifier: Sendable {
 
     private func indexedEvidence(
         requestedSessionId: String,
+        initialThread: IndexedThread,
         databasePath: String,
         fileManager: FileManager
     ) -> CodexSessionResumeEvidence? {
-        let threads = indexCache.threads(
-            databasePath: databasePath,
-            fileManager: fileManager
-        )
         var currentSessionId = requestedSessionId
+        var currentThread = initialThread
         var visited: Set<String> = []
 
         for _ in 0..<32 {
             guard visited.insert(currentSessionId).inserted,
-                  let thread = threads[currentSessionId],
                   regularNonEmptyFileExists(
-                      atPath: thread.rolloutPath,
+                      atPath: currentThread.rolloutPath,
                       fileManager: fileManager
                   ) else {
                 return nil
             }
 
             let metadata = sessionMetadata(
-                atPath: thread.rolloutPath,
+                atPath: currentThread.rolloutPath,
                 fileManager: fileManager
             )
             if let metadataSessionId = metadata?.sessionId,
@@ -102,7 +96,7 @@ public struct CodexSessionResumeVerifier: Sendable {
                 return nil
             }
 
-            let threadSource = normalized(thread.threadSource)?.lowercased()
+            let threadSource = normalized(currentThread.threadSource)?.lowercased()
             if threadSource == "automation" ||
                 metadata?.isAutomation == true ||
                 metadata?.isExec == true {
@@ -112,10 +106,16 @@ public struct CodexSessionResumeVerifier: Sendable {
             let isSubagent = threadSource == "subagent" || metadata?.isSubagent == true
             if isSubagent {
                 guard let parentSessionId = metadata?.parentSessionId,
-                      parentSessionId != currentSessionId else {
+                      parentSessionId != currentSessionId,
+                      let parentThread = indexedThread(
+                        sessionId: parentSessionId,
+                        databasePath: databasePath,
+                        fileManager: fileManager
+                      ) else {
                     return nil
                 }
                 currentSessionId = parentSessionId
+                currentThread = parentThread
                 continue
             }
 
@@ -124,7 +124,7 @@ public struct CodexSessionResumeVerifier: Sendable {
             }
             return CodexSessionResumeEvidence(
                 sessionId: currentSessionId,
-                rolloutPath: thread.rolloutPath,
+                rolloutPath: currentThread.rolloutPath,
                 source: .threadIndex
             )
         }
@@ -144,98 +144,72 @@ public struct CodexSessionResumeVerifier: Sendable {
         let isExec: Bool
     }
 
-    private final class CodexThreadIndexCache: @unchecked Sendable {
-        private let lock = NSLock()
-        private var threadsByDatabase: [String: [String: IndexedThread]] = [:]
-
-        func threads(
-            databasePath: String,
-            fileManager: FileManager
-        ) -> [String: IndexedThread] {
-            lock.lock()
-            if let cached = threadsByDatabase[databasePath] {
-                lock.unlock()
-                return cached
-            }
-            lock.unlock()
-
-            let loaded = loadThreads(databasePath: databasePath, fileManager: fileManager)
-            lock.lock()
-            let threads = threadsByDatabase[databasePath] ?? loaded
-            threadsByDatabase[databasePath] = threads
-            lock.unlock()
-            return threads
+    private func indexedThread(
+        sessionId: String,
+        databasePath: String,
+        fileManager: FileManager
+    ) -> IndexedThread? {
+        guard fileManager.fileExists(atPath: databasePath) else { return nil }
+        var database: OpaquePointer?
+        guard sqlite3_open_v2(
+            databasePath,
+            &database,
+            SQLITE_OPEN_READONLY | SQLITE_OPEN_NOMUTEX,
+            nil
+        ) == SQLITE_OK, let database else {
+            sqlite3_close(database)
+            return nil
         }
+        defer { sqlite3_close(database) }
 
-        private func loadThreads(
-            databasePath: String,
-            fileManager: FileManager
-        ) -> [String: IndexedThread] {
-            guard fileManager.fileExists(atPath: databasePath) else { return [:] }
-            var database: OpaquePointer?
-            guard sqlite3_open_v2(
-                databasePath,
-                &database,
-                SQLITE_OPEN_READONLY | SQLITE_OPEN_NOMUTEX,
-                nil
-            ) == SQLITE_OK, let database else {
-                sqlite3_close(database)
-                return [:]
-            }
-            defer { sqlite3_close(database) }
-
-            var statement: OpaquePointer?
-            var readsThreadSource = true
-            if sqlite3_prepare_v2(
+        var statement: OpaquePointer?
+        var readsThreadSource = true
+        if sqlite3_prepare_v2(
+            database,
+            "SELECT rollout_path, thread_source FROM threads WHERE id = ? LIMIT 1",
+            -1,
+            &statement,
+            nil
+        ) != SQLITE_OK {
+            sqlite3_finalize(statement)
+            statement = nil
+            readsThreadSource = false
+            guard sqlite3_prepare_v2(
                 database,
-                "SELECT id, rollout_path, thread_source FROM threads",
+                "SELECT rollout_path FROM threads WHERE id = ? LIMIT 1",
                 -1,
                 &statement,
                 nil
-            ) != SQLITE_OK {
+            ) == SQLITE_OK else {
                 sqlite3_finalize(statement)
-                statement = nil
-                readsThreadSource = false
-                guard sqlite3_prepare_v2(
-                    database,
-                    "SELECT id, rollout_path FROM threads",
-                    -1,
-                    &statement,
-                    nil
-                ) == SQLITE_OK else {
-                    sqlite3_finalize(statement)
-                    return [:]
-                }
+                return nil
             }
-            guard let statement else { return [:] }
-            defer { sqlite3_finalize(statement) }
-
-            var threads: [String: IndexedThread] = [:]
-            while sqlite3_step(statement) == SQLITE_ROW {
-                guard let idBytes = sqlite3_column_text(statement, 0),
-                      let pathBytes = sqlite3_column_text(statement, 1) else {
-                    continue
-                }
-                let sessionId = String(cString: idBytes).trimmingCharacters(in: .whitespacesAndNewlines)
-                let rolloutPath = (
-                    String(cString: pathBytes).trimmingCharacters(in: .whitespacesAndNewlines) as NSString
-                ).expandingTildeInPath
-                guard !sessionId.isEmpty, !rolloutPath.isEmpty else { continue }
-                let threadSource: String?
-                if readsThreadSource, let sourceBytes = sqlite3_column_text(statement, 2) {
-                    let value = String(cString: sourceBytes)
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
-                    threadSource = value.isEmpty ? nil : value
-                } else {
-                    threadSource = nil
-                }
-                threads[sessionId] = IndexedThread(
-                    rolloutPath: rolloutPath,
-                    threadSource: threadSource
-                )
-            }
-            return threads
         }
+        guard let statement else { return nil }
+        defer { sqlite3_finalize(statement) }
+
+        let transient = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
+        sqlite3_bind_text(statement, 1, sessionId, -1, transient)
+        guard sqlite3_step(statement) == SQLITE_ROW,
+              let pathBytes = sqlite3_column_text(statement, 0) else {
+            return nil
+        }
+        let rolloutPath = (
+            String(cString: pathBytes).trimmingCharacters(in: .whitespacesAndNewlines) as NSString
+        ).expandingTildeInPath
+        guard !rolloutPath.isEmpty else { return nil }
+        let threadSource: String?
+        if readsThreadSource, let sourceBytes = sqlite3_column_text(statement, 1) {
+            let value = String(cString: sourceBytes)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            threadSource = value.isEmpty ? nil : value
+        } else {
+            threadSource = nil
+        }
+        return IndexedThread(
+            rolloutPath: rolloutPath,
+            threadSource: threadSource
+        )
     }
 
     private func sessionMetadata(
