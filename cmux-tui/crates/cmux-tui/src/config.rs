@@ -844,49 +844,348 @@ pub enum Action {
     Detach,
 }
 
-impl Action {
-    fn config_key(&self) -> String {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ActionExecution {
+    NewTab,
+    NewBrowserTab,
+    NewPaneSmart,
+    NextTab,
+    PrevTab,
+    SelectTab(u8),
+    SplitRight,
+    SplitDown,
+    CloseTab,
+    ClosePane,
+    RenameTab,
+    RenameScreen,
+    RenameWorkspace,
+    CloseScreen,
+    PrevScreen,
+    NextScreen,
+    SelectScreen(u8),
+    NewScreen,
+    NextWorkspace,
+    NewWorkspace,
+    ToggleSidebar,
+    ToggleSidebarView,
+    FocusSidebar,
+    FocusLeft,
+    FocusRight,
+    FocusUp,
+    FocusDown,
+    FocusNextPane,
+    SwapPanePrev,
+    SwapPaneNext,
+    ZoomPane,
+    ResizeGrow,
+    ResizeShrink,
+    ScrollUp,
+    ScrollDown,
+    BrowserBack,
+    BrowserForward,
+    BrowserReload,
+    BrowserEditUrl,
+    Detach,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ActionClassification {
+    Direct,
+    Composite,
+    PresentationOnly,
+}
+
+impl ActionClassification {
+    const fn inventory_name(self) -> &'static str {
         match self {
-            Action::NewTab => "new-tab".to_string(),
-            Action::NewBrowserTab => "new-browser-tab".to_string(),
-            Action::NewPaneSmart => "new-pane-smart".to_string(),
-            Action::NextTab => "next-tab".to_string(),
-            Action::PrevTab => "prev-tab".to_string(),
-            Action::SelectTab(number) => format!("select-tab-{number}"),
-            Action::SplitRight => "split-right".to_string(),
-            Action::SplitDown => "split-down".to_string(),
-            Action::CloseTab => "close-tab".to_string(),
-            Action::ClosePane => "close-pane".to_string(),
-            Action::RenameTab => "rename-tab".to_string(),
-            Action::RenameScreen => "rename-screen".to_string(),
-            Action::RenameWorkspace => "rename-workspace".to_string(),
-            Action::CloseScreen => "close-screen".to_string(),
-            Action::PrevScreen => "prev-screen".to_string(),
-            Action::NextScreen => "next-screen".to_string(),
-            Action::SelectScreen(number) => format!("select-screen-{number}"),
-            Action::NewScreen => "new-screen".to_string(),
-            Action::NextWorkspace => "next-workspace".to_string(),
-            Action::NewWorkspace => "new-workspace".to_string(),
-            Action::ToggleSidebar => "toggle-sidebar".to_string(),
-            Action::ToggleSidebarView => "toggle-sidebar-view".to_string(),
-            Action::FocusSidebar => "focus-sidebar".to_string(),
-            Action::FocusLeft => "focus-left".to_string(),
-            Action::FocusRight => "focus-right".to_string(),
-            Action::FocusUp => "focus-up".to_string(),
-            Action::FocusDown => "focus-down".to_string(),
-            Action::FocusNextPane => "focus-next-pane".to_string(),
-            Action::SwapPanePrev => "swap-pane-prev".to_string(),
-            Action::SwapPaneNext => "swap-pane-next".to_string(),
-            Action::ZoomPane => "zoom-pane".to_string(),
-            Action::ResizeGrow => "resize-grow".to_string(),
-            Action::ResizeShrink => "resize-shrink".to_string(),
-            Action::ScrollUp => "scroll-up".to_string(),
-            Action::ScrollDown => "scroll-down".to_string(),
-            Action::BrowserBack => "browser-back".to_string(),
-            Action::BrowserForward => "browser-forward".to_string(),
-            Action::BrowserReload => "browser-reload".to_string(),
-            Action::BrowserEditUrl => "browser-edit-url".to_string(),
-            Action::Detach => "detach".to_string(),
+            Self::Direct => "direct",
+            Self::Composite => "composite",
+            Self::PresentationOnly => "presentation-only",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ActionMetadata {
+    key: &'static str,
+    classification: ActionClassification,
+    route: &'static str,
+    execution: ActionExecution,
+}
+
+impl ActionMetadata {
+    const fn new(
+        key: &'static str,
+        classification: ActionClassification,
+        route: &'static str,
+        execution: ActionExecution,
+    ) -> Self {
+        Self { key, classification, route, execution }
+    }
+
+    pub(crate) fn execution(self) -> ActionExecution {
+        debug_assert!(!self.key.is_empty());
+        debug_assert!(!self.classification.inventory_name().is_empty());
+        debug_assert!(!self.route.is_empty());
+        self.execution
+    }
+}
+
+impl Action {
+    /// Compiled source of truth for configuration and execution routing. The
+    /// specification inventory checker reads this exhaustive catalog.
+    pub(crate) fn metadata(&self) -> ActionMetadata {
+        match self {
+            Action::NewTab => ActionMetadata::new(
+                "new-tab",
+                ActionClassification::Direct,
+                "new-tab",
+                ActionExecution::NewTab,
+            ),
+            Action::NewBrowserTab => ActionMetadata::new(
+                "new-browser-tab",
+                ActionClassification::Direct,
+                "new-browser-tab",
+                ActionExecution::NewBrowserTab,
+            ),
+            Action::NewPaneSmart => ActionMetadata::new(
+                "new-pane-smart",
+                ActionClassification::Composite,
+                "list-workspaces + new-pane",
+                ActionExecution::NewPaneSmart,
+            ),
+            Action::NextTab => ActionMetadata::new(
+                "next-tab",
+                ActionClassification::Direct,
+                "select-tab delta:+1",
+                ActionExecution::NextTab,
+            ),
+            Action::PrevTab => ActionMetadata::new(
+                "prev-tab",
+                ActionClassification::Direct,
+                "select-tab delta:-1",
+                ActionExecution::PrevTab,
+            ),
+            Action::SelectTab(number) => ActionMetadata::new(
+                "select-tab-{number}",
+                ActionClassification::Direct,
+                "select-tab index",
+                ActionExecution::SelectTab(*number),
+            ),
+            Action::SplitRight => ActionMetadata::new(
+                "split-right",
+                ActionClassification::Direct,
+                "split dir:right",
+                ActionExecution::SplitRight,
+            ),
+            Action::SplitDown => ActionMetadata::new(
+                "split-down",
+                ActionClassification::Direct,
+                "split dir:down",
+                ActionExecution::SplitDown,
+            ),
+            Action::CloseTab => ActionMetadata::new(
+                "close-tab",
+                ActionClassification::Direct,
+                "close-surface",
+                ActionExecution::CloseTab,
+            ),
+            Action::ClosePane => ActionMetadata::new(
+                "close-pane",
+                ActionClassification::Direct,
+                "close-pane",
+                ActionExecution::ClosePane,
+            ),
+            Action::RenameTab => ActionMetadata::new(
+                "rename-tab",
+                ActionClassification::Direct,
+                "rename-surface",
+                ActionExecution::RenameTab,
+            ),
+            Action::RenameScreen => ActionMetadata::new(
+                "rename-screen",
+                ActionClassification::Direct,
+                "rename-screen",
+                ActionExecution::RenameScreen,
+            ),
+            Action::RenameWorkspace => ActionMetadata::new(
+                "rename-workspace",
+                ActionClassification::Direct,
+                "rename-workspace",
+                ActionExecution::RenameWorkspace,
+            ),
+            Action::CloseScreen => ActionMetadata::new(
+                "close-screen",
+                ActionClassification::Direct,
+                "close-screen",
+                ActionExecution::CloseScreen,
+            ),
+            Action::PrevScreen => ActionMetadata::new(
+                "prev-screen",
+                ActionClassification::Direct,
+                "select-screen delta:-1",
+                ActionExecution::PrevScreen,
+            ),
+            Action::NextScreen => ActionMetadata::new(
+                "next-screen",
+                ActionClassification::Direct,
+                "select-screen delta:+1",
+                ActionExecution::NextScreen,
+            ),
+            Action::SelectScreen(number) => ActionMetadata::new(
+                "select-screen-{number}",
+                ActionClassification::Direct,
+                "select-screen index",
+                ActionExecution::SelectScreen(*number),
+            ),
+            Action::NewScreen => ActionMetadata::new(
+                "new-screen",
+                ActionClassification::Direct,
+                "new-screen",
+                ActionExecution::NewScreen,
+            ),
+            Action::NextWorkspace => ActionMetadata::new(
+                "next-workspace",
+                ActionClassification::Direct,
+                "select-workspace delta:+1",
+                ActionExecution::NextWorkspace,
+            ),
+            Action::NewWorkspace => ActionMetadata::new(
+                "new-workspace",
+                ActionClassification::Composite,
+                "session-owned: new-workspace; provider-owned: machine-provider create_workspace",
+                ActionExecution::NewWorkspace,
+            ),
+            Action::ToggleSidebar => ActionMetadata::new(
+                "toggle-sidebar",
+                ActionClassification::PresentationOnly,
+                "frontend action adapter",
+                ActionExecution::ToggleSidebar,
+            ),
+            Action::ToggleSidebarView => ActionMetadata::new(
+                "toggle-sidebar-view",
+                ActionClassification::PresentationOnly,
+                "frontend action adapter",
+                ActionExecution::ToggleSidebarView,
+            ),
+            Action::FocusSidebar => ActionMetadata::new(
+                "focus-sidebar",
+                ActionClassification::PresentationOnly,
+                "frontend action adapter",
+                ActionExecution::FocusSidebar,
+            ),
+            Action::FocusLeft => ActionMetadata::new(
+                "focus-left",
+                ActionClassification::Composite,
+                "frontend geometry + focus-pane",
+                ActionExecution::FocusLeft,
+            ),
+            Action::FocusRight => ActionMetadata::new(
+                "focus-right",
+                ActionClassification::Composite,
+                "frontend geometry + focus-pane",
+                ActionExecution::FocusRight,
+            ),
+            Action::FocusUp => ActionMetadata::new(
+                "focus-up",
+                ActionClassification::Composite,
+                "frontend geometry + focus-pane",
+                ActionExecution::FocusUp,
+            ),
+            Action::FocusDown => ActionMetadata::new(
+                "focus-down",
+                ActionClassification::Composite,
+                "frontend geometry + focus-pane",
+                ActionExecution::FocusDown,
+            ),
+            Action::FocusNextPane => ActionMetadata::new(
+                "focus-next-pane",
+                ActionClassification::Composite,
+                "list-workspaces + focus-pane",
+                ActionExecution::FocusNextPane,
+            ),
+            Action::SwapPanePrev => ActionMetadata::new(
+                "swap-pane-prev",
+                ActionClassification::Composite,
+                "list-workspaces + swap-pane",
+                ActionExecution::SwapPanePrev,
+            ),
+            Action::SwapPaneNext => ActionMetadata::new(
+                "swap-pane-next",
+                ActionClassification::Composite,
+                "list-workspaces + swap-pane",
+                ActionExecution::SwapPaneNext,
+            ),
+            Action::ZoomPane => ActionMetadata::new(
+                "zoom-pane",
+                ActionClassification::Direct,
+                "zoom-pane",
+                ActionExecution::ZoomPane,
+            ),
+            Action::ResizeGrow => ActionMetadata::new(
+                "resize-grow",
+                ActionClassification::Composite,
+                "list-workspaces + set-split-ratio",
+                ActionExecution::ResizeGrow,
+            ),
+            Action::ResizeShrink => ActionMetadata::new(
+                "resize-shrink",
+                ActionClassification::Composite,
+                "list-workspaces + set-split-ratio",
+                ActionExecution::ResizeShrink,
+            ),
+            Action::ScrollUp => ActionMetadata::new(
+                "scroll-up",
+                ActionClassification::PresentationOnly,
+                "frontend viewport adapter; scroll-surface for shared local viewport",
+                ActionExecution::ScrollUp,
+            ),
+            Action::ScrollDown => ActionMetadata::new(
+                "scroll-down",
+                ActionClassification::PresentationOnly,
+                "frontend viewport adapter; scroll-surface for shared local viewport",
+                ActionExecution::ScrollDown,
+            ),
+            Action::BrowserBack => ActionMetadata::new(
+                "browser-back",
+                ActionClassification::Direct,
+                "browser-back",
+                ActionExecution::BrowserBack,
+            ),
+            Action::BrowserForward => ActionMetadata::new(
+                "browser-forward",
+                ActionClassification::Direct,
+                "browser-forward",
+                ActionExecution::BrowserForward,
+            ),
+            Action::BrowserReload => ActionMetadata::new(
+                "browser-reload",
+                ActionClassification::Direct,
+                "browser-reload",
+                ActionExecution::BrowserReload,
+            ),
+            Action::BrowserEditUrl => ActionMetadata::new(
+                "browser-edit-url",
+                ActionClassification::Composite,
+                "frontend prompt + browser-navigate",
+                ActionExecution::BrowserEditUrl,
+            ),
+            Action::Detach => ActionMetadata::new(
+                "detach",
+                ActionClassification::PresentationOnly,
+                "close frontend transport",
+                ActionExecution::Detach,
+            ),
+        }
+    }
+
+    fn config_key(&self) -> String {
+        let key = self.metadata().key;
+        match self {
+            Action::SelectTab(number) | Action::SelectScreen(number) => {
+                key.replace("{number}", &number.to_string())
+            }
+            _ => key.to_string(),
         }
     }
 

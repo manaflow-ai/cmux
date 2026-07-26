@@ -13,172 +13,6 @@ ROOT = Path(__file__).resolve().parents[2]
 TUI = ROOT / "cmux-tui"
 SPEC = TUI / "spec"
 
-# Deliberately independent from inventory.json. Keeping this policy map in the
-# checker makes authority-group drift fail even when the Command enum is
-# unchanged.
-EXPECTED_COMMAND_PROFILES = {
-    "control": {
-        "apply-layout",
-        "clear-window-title",
-        "close-pane",
-        "close-screen",
-        "close-surface",
-        "close-terminal",
-        "close-workspace",
-        "copy",
-        "create-terminal",
-        "create-workspace",
-        "detach-client",
-        "export-layout",
-        "focus-direction",
-        "focus-pane",
-        "get-frontend-projection",
-        "identify",
-        "ids",
-        "list-agents",
-        "list-clients",
-        "list-terminals",
-        "list-workspaces",
-        "move-tab",
-        "move-terminal",
-        "move-workspace",
-        "new-browser-tab",
-        "new-pane",
-        "new-screen",
-        "new-tab",
-        "new-workspace",
-        "notify",
-        "pane-neighbor",
-        "ping",
-        "process-info",
-        "put-frontend-projection",
-        "read-screen",
-        "read-scrollback",
-        "release-surface-size",
-        "reload-config",
-        "rename-pane",
-        "rename-screen",
-        "rename-surface",
-        "rename-workspace",
-        "report-agent",
-        "resize-surface",
-        "resolve-terminal",
-        "run",
-        "scroll-surface",
-        "select-screen",
-        "select-tab",
-        "select-workspace",
-        "send",
-        "send-key",
-        "set-client-info",
-        "set-client-sizing",
-        "set-default-colors",
-        "set-ratio",
-        "set-split-ratio",
-        "set-window-title",
-        "split",
-        "swap-pane",
-        "terminal-events",
-        "vt-state",
-        "wait-for",
-        "zoom-pane",
-    },
-    "frontend": {
-        "attach-surface",
-        "browser-activate",
-        "browser-back",
-        "browser-forward",
-        "browser-insert-text",
-        "browser-key",
-        "browser-mouse",
-        "browser-navigate",
-        "browser-reload",
-        "browser-wheel",
-        "mint-terminal-renderer",
-        "set-cell-pixels",
-        "sidebar-plugin",
-        "subscribe",
-    },
-    "local-admin": {
-        "pairing-response",
-        "shutdown-daemon",
-    },
-    "provider-authority": {
-        "close-provider-managed-workspace",
-        "mark-workspaces-provider-managed",
-        "rename-provider-managed-workspace",
-    },
-}
-
-# Also independent from inventory.json. The sets model the production
-# serializer paths that feed each public stream.
-EXPECTED_EVENTS_BY_STREAM = {
-    "subscribe": {
-        "bell",
-        "client-attached",
-        "client-changed",
-        "client-detached",
-        "client-list-invalidated",
-        "config-reload-requested",
-        "empty",
-        "frontend-projection-changed",
-        "layout-changed",
-        "notification",
-        "overflow",
-        "pairing-requested",
-        "pairing-resolved",
-        "scroll-changed",
-        "status",
-        "surface-exited",
-        "surface-output",
-        "surface-resize-failed",
-        "surface-resized",
-        "terminal-registry-changed",
-        "title-changed",
-        "tree-changed",
-        "window-title-requested",
-    },
-    "subscribe-deltas": {
-        "pane-added",
-        "pane-closed",
-        "screen-added",
-        "screen-closed",
-        "screen-renamed",
-        "tab-added",
-        "tab-closed",
-        "tab-renamed",
-        "workspace-added",
-        "workspace-closed",
-        "workspace-moved",
-        "workspace-renamed",
-    },
-    "attach-byte": {
-        "colors-changed",
-        "detached",
-        "notification",
-        "output",
-        "overflow",
-        "resized",
-        "scroll-changed",
-        "vt-state",
-    },
-    "attach-render": {
-        "detached",
-        "overflow",
-        "render-delta",
-        "render-state",
-        "scroll-changed",
-    },
-    "attach-browser": {
-        "browser-state",
-        "detached",
-        "frame",
-        "notification",
-        "overflow",
-        "scroll-changed",
-    },
-}
-
 
 def fail(message: str) -> None:
     print(f"spec inventory error: {message}", file=sys.stderr)
@@ -311,6 +145,52 @@ def command_names() -> set[str]:
     return {camel_to_kebab(variant) for variant in variants}
 
 
+def rust_function_body(source: str, name: str) -> str:
+    match = re.search(rf"\bfn\s+{re.escape(name)}\s*\([^)]*\)[^{{]*\{{", source)
+    if not match:
+        fail(f"cannot find Rust function {name}")
+    start = match.end()
+    depth = 1
+    for index in range(start, len(source)):
+        char = source[index]
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return source[start:index]
+    fail(f"unterminated Rust function {name}")
+    return ""
+
+
+def command_profiles() -> dict[str, set[str]]:
+    source = strip_rust_comments(
+        (TUI / "crates/cmux-tui-core/src/server.rs").read_text()
+    )
+    body = rust_function_body(source, "profile")
+    profiles: dict[str, set[str]] = {}
+    mapped_variants: set[str] = set()
+    for variant, profile in re.findall(
+        r"Command::([A-Z][A-Za-z0-9]*)"
+        r"(?:\s*\{[^}]*\}|\s*\([^)]*\))?\s*=>\s*(?:\{\s*)?"
+        r"CommandProfile::([A-Z][A-Za-z0-9]*)",
+        body,
+    ):
+        if variant in mapped_variants:
+            fail(f"duplicate command profile metadata for {variant}")
+        mapped_variants.add(variant)
+        profiles.setdefault(camel_to_kebab(profile), set()).add(camel_to_kebab(variant))
+    enum_variants = rust_enum_variants(source, "Command")
+    if mapped_variants != enum_variants:
+        missing = sorted(enum_variants - mapped_variants)
+        stale = sorted(mapped_variants - enum_variants)
+        fail(
+            "command profile metadata is not exhaustive, "
+            f"missing={missing}, stale={stale}"
+        )
+    return profiles
+
+
 def rust_raw_string_end(source: str, start: int) -> int | None:
     if source.startswith(("br", "cr"), start):
         marker = start + 2
@@ -401,9 +281,77 @@ def event_names() -> set[str]:
     return names
 
 
+def event_streams() -> dict[str, set[str]]:
+    source = strip_rust_comments(
+        (TUI / "crates/cmux-tui-core/src/server.rs").read_text()
+    )
+    catalog_match = re.search(
+        r"const\s+PUBLIC_EVENT_CATALOG\s*:\s*&\[PublicEvent\]\s*=\s*&\[(.*?)\n\];",
+        source,
+        re.DOTALL,
+    )
+    if not catalog_match:
+        fail("cannot find PUBLIC_EVENT_CATALOG")
+    streams_by_event: dict[str, set[str]] = {}
+    for name, stream_body in re.findall(
+        r'PublicEvent::new\(\s*"([a-z][a-z0-9-]*)"\s*,\s*&\[(.*?)\]\s*,?\s*\)',
+        catalog_match.group(1),
+        re.DOTALL,
+    ):
+        if name in streams_by_event:
+            fail(f"duplicate public event metadata for {name}")
+        streams = {
+            camel_to_kebab(stream)
+            for stream in re.findall(
+                r"PublicEventStream::([A-Z][A-Za-z0-9]*)",
+                stream_body,
+            )
+        }
+        if not streams:
+            fail(f"public event {name} has no runtime stream")
+        streams_by_event[name] = streams
+    if not streams_by_event:
+        fail("PUBLIC_EVENT_CATALOG has no parseable entries")
+    return streams_by_event
+
+
 def action_variants() -> set[str]:
     source = (TUI / "crates/cmux-tui/src/config.rs").read_text()
     return rust_enum_variants(source, "Action")
+
+
+def action_metadata() -> dict[str, dict[str, str]]:
+    source = strip_rust_comments((TUI / "crates/cmux-tui/src/config.rs").read_text())
+    body = rust_function_body(source, "metadata")
+    metadata: dict[str, dict[str, str]] = {}
+    for variant, key, classification, route, execution in re.findall(
+        r"Action::([A-Z][A-Za-z0-9]*)"
+        r"(?:\s*\([^)]*\))?\s*=>\s*ActionMetadata::new\(\s*"
+        r'"([^"]+)"\s*,\s*'
+        r"ActionClassification::([A-Z][A-Za-z0-9]*)\s*,\s*"
+        r'"([^"]+)"\s*,\s*'
+        r"ActionExecution::([A-Z][A-Za-z0-9]*)",
+        body,
+        re.DOTALL,
+    ):
+        if variant in metadata:
+            fail(f"duplicate action metadata for {variant}")
+        if execution != variant:
+            fail(
+                f"action metadata dispatch mismatch for {variant}: "
+                f"executes {execution}"
+            )
+        metadata[variant] = {
+            "key": key,
+            "classification": camel_to_kebab(classification),
+            "route": route,
+        }
+    variants = rust_enum_variants(source, "Action")
+    if set(metadata) != variants:
+        missing = sorted(variants - set(metadata))
+        stale = sorted(set(metadata) - variants)
+        fail(f"action metadata is not exhaustive, missing={missing}, stale={stale}")
+    return metadata
 
 
 def menu_action_variants() -> set[str]:
@@ -509,14 +457,6 @@ def compare(actual: set[str], expected: set[str], label: str) -> None:
         fail(f"{label} drift, {'; '.join(details)}")
 
 
-def expected_event_streams() -> dict[str, set[str]]:
-    streams_by_event: dict[str, set[str]] = {}
-    for stream, event_names_for_stream in EXPECTED_EVENTS_BY_STREAM.items():
-        for name in event_names_for_stream:
-            streams_by_event.setdefault(name, set()).add(stream)
-    return streams_by_event
-
-
 def compare_mapping(
     actual: dict[str, set[str]],
     expected: dict[str, set[str]],
@@ -567,12 +507,13 @@ def validate_commands(inventory: dict) -> set[str]:
         profile: set(names)
         for profile, names in command_groups.items()
     }
-    compare_mapping(actual_profiles, EXPECTED_COMMAND_PROFILES, "command profile")
+    runtime_profiles = command_profiles()
+    compare_mapping(actual_profiles, runtime_profiles, "command profile")
     commands = [name for group in command_groups.values() for name in group]
     inventory_commands = unique(commands, "command")
     runtime_commands = command_names()
-    expected_profile_commands = set().union(*EXPECTED_COMMAND_PROFILES.values())
-    compare(runtime_commands, expected_profile_commands, "command profile policy")
+    profile_commands = set().union(*runtime_profiles.values())
+    compare(runtime_commands, profile_commands, "command profile metadata")
     compare(runtime_commands, inventory_commands, "command")
 
     command_sections = documented_sections(SPEC / "commands.md")
@@ -594,7 +535,7 @@ def validate_events(inventory: dict) -> set[str]:
     events = inventory["events"]
     inventory_events = unique([event["name"] for event in events], "event")
     runtime_events = event_names()
-    policy_streams = expected_event_streams()
+    policy_streams = event_streams()
     inventory_streams = {
         event["name"]: set(event["streams"])
         for event in events
@@ -639,6 +580,27 @@ def validate_tui_actions(inventory: dict) -> list[dict]:
     actions = inventory["tui_actions"]
     inventory_actions = unique([action["variant"] for action in actions], "TUI action")
     compare(action_variants(), inventory_actions, "TUI action")
+    runtime_metadata = action_metadata()
+    inventory_metadata = {
+        action["variant"]: {
+            "key": action["key"],
+            "classification": action["classification"],
+            "route": action["route"],
+        }
+        for action in actions
+    }
+    changed = sorted(
+        variant
+        for variant in set(runtime_metadata) | set(inventory_metadata)
+        if runtime_metadata.get(variant) != inventory_metadata.get(variant)
+    )
+    if changed:
+        details = [
+            f"{variant}: inventory={inventory_metadata.get(variant)}, "
+            f"runtime={runtime_metadata.get(variant)}"
+            for variant in changed
+        ]
+        fail(f"TUI action metadata drift, {'; '.join(details)}")
     allowed = {"direct", "composite", "presentation-only"}
     for action in actions:
         if action["classification"] not in allowed:

@@ -40,7 +40,7 @@ use ratatui::backend::CrosstermBackend;
 use crate::browser_input::{
     BrowserInputDispatcher, BrowserInputEvent, BrowserInputKind, BrowserResizeFailure,
 };
-use crate::config::{Action, ChromeTheme, Config, ScrollbarPosition, SidebarView};
+use crate::config::{Action, ActionExecution, ChromeTheme, Config, ScrollbarPosition, SidebarView};
 use crate::keys;
 use crate::localization;
 use crate::machine::{
@@ -7614,100 +7614,101 @@ impl App {
         if action_prepares_pty_release(action) && !self.prepare_pty_input_before_mutation() {
             return Ok(RenderAction::None);
         }
+        let execution = action.metadata().execution();
         let pane = self.active_pane();
-        match action {
-            Action::NewTab => {
+        match execution {
+            ActionExecution::NewTab => {
                 self.new_terminal_tab(pane)?;
             }
-            Action::NewBrowserTab => self.create_browser_tab_for_edit(pane)?,
-            Action::NewPaneSmart => self.new_pane_smart()?,
-            Action::NextTab => self.select_tab_for_client(pane, None, Some(1)),
-            Action::PrevTab => self.select_tab_for_client(pane, None, Some(-1)),
-            Action::SelectTab(_) => {
-                if let Some(index) = action.tab_index() {
+            ActionExecution::NewBrowserTab => self.create_browser_tab_for_edit(pane)?,
+            ActionExecution::NewPaneSmart => self.new_pane_smart()?,
+            ActionExecution::NextTab => self.select_tab_for_client(pane, None, Some(1)),
+            ActionExecution::PrevTab => self.select_tab_for_client(pane, None, Some(-1)),
+            ActionExecution::SelectTab(number) => {
+                if let Some(index) = Action::SelectTab(number).tab_index() {
                     self.select_tab_for_client(pane, Some(index), None);
                 }
             }
-            Action::SplitRight => {
+            ActionExecution::SplitRight => {
                 if let Some(pane) = pane {
                     self.split_pane(pane, SplitDir::Right)?;
                 }
             }
-            Action::SplitDown => {
+            ActionExecution::SplitDown => {
                 if let Some(pane) = pane {
                     self.split_pane(pane, SplitDir::Down)?;
                 }
             }
-            Action::CloseTab => {
+            ActionExecution::CloseTab => {
                 // Close the active tab; the pane collapses with its last
                 // tab, so this is also "close pane" for single-tab panes.
                 if let Some(surface) = self.active_surface() {
                     self.session.close_surface(surface);
                 }
             }
-            Action::ClosePane => {
+            ActionExecution::ClosePane => {
                 if let Some(pane) = pane {
                     self.session.close_pane(pane);
                 }
             }
-            Action::RenameTab => self.open_rename_tab_prompt(pane),
-            Action::RenameScreen => self.open_rename_screen_prompt(),
-            Action::RenameWorkspace => self.open_rename_workspace_prompt(),
-            Action::CloseScreen => {
+            ActionExecution::RenameTab => self.open_rename_tab_prompt(pane),
+            ActionExecution::RenameScreen => self.open_rename_screen_prompt(),
+            ActionExecution::RenameWorkspace => self.open_rename_workspace_prompt(),
+            ActionExecution::CloseScreen => {
                 if let Some(screen) = self.active_screen_id() {
                     self.session.close_screen(screen);
                 }
             }
-            Action::PrevScreen => self.select_screen_for_client(None, Some(-1)),
-            Action::NextScreen => self.select_screen_for_client(None, Some(1)),
-            Action::SelectScreen(_) => {
-                if let Some(index) = action.screen_index() {
+            ActionExecution::PrevScreen => self.select_screen_for_client(None, Some(-1)),
+            ActionExecution::NextScreen => self.select_screen_for_client(None, Some(1)),
+            ActionExecution::SelectScreen(number) => {
+                if let Some(index) = Action::SelectScreen(number).screen_index() {
                     self.select_screen_for_client(Some(index), None);
                 }
             }
-            Action::NewScreen => self.new_screen()?,
-            Action::NextWorkspace => self.select_workspace_for_client(None, Some(1)),
-            Action::NewWorkspace => self.new_workspace()?,
-            Action::ToggleSidebar => {
+            ActionExecution::NewScreen => self.new_screen()?,
+            ActionExecution::NextWorkspace => self.select_workspace_for_client(None, Some(1)),
+            ActionExecution::NewWorkspace => self.new_workspace()?,
+            ActionExecution::ToggleSidebar => {
                 self.sidebar_visible = !self.sidebar_visible;
                 if !self.sidebar_visible {
                     self.session.invalidate_sidebar_plugin_sync();
                     self.focus = FocusTarget::Pane;
                 }
             }
-            Action::ToggleSidebarView => self.toggle_sidebar_view(),
-            Action::FocusSidebar => self.toggle_sidebar_focus(),
-            Action::FocusLeft => self.move_focus(Direction::Left),
-            Action::FocusRight => self.move_focus(Direction::Right),
-            Action::FocusUp => self.move_focus(Direction::Up),
-            Action::FocusDown => self.move_focus(Direction::Down),
-            Action::FocusNextPane => self.focus_next_pane(),
-            Action::SwapPanePrev => self.swap_pane_by_order(-1),
-            Action::SwapPaneNext => self.swap_pane_by_order(1),
-            Action::ZoomPane => self.session.zoom_pane(pane),
-            Action::ResizeGrow => self.resize_focused_split(0.05),
-            Action::ResizeShrink => self.resize_focused_split(-0.05),
-            Action::ScrollUp => self.scroll_active(-10),
-            Action::ScrollDown => self.scroll_active(10),
-            Action::BrowserBack => {
+            ActionExecution::ToggleSidebarView => self.toggle_sidebar_view(),
+            ActionExecution::FocusSidebar => self.toggle_sidebar_focus(),
+            ActionExecution::FocusLeft => self.move_focus(Direction::Left),
+            ActionExecution::FocusRight => self.move_focus(Direction::Right),
+            ActionExecution::FocusUp => self.move_focus(Direction::Up),
+            ActionExecution::FocusDown => self.move_focus(Direction::Down),
+            ActionExecution::FocusNextPane => self.focus_next_pane(),
+            ActionExecution::SwapPanePrev => self.swap_pane_by_order(-1),
+            ActionExecution::SwapPaneNext => self.swap_pane_by_order(1),
+            ActionExecution::ZoomPane => self.session.zoom_pane(pane),
+            ActionExecution::ResizeGrow => self.resize_focused_split(0.05),
+            ActionExecution::ResizeShrink => self.resize_focused_split(-0.05),
+            ActionExecution::ScrollUp => self.scroll_active(-10),
+            ActionExecution::ScrollDown => self.scroll_active(10),
+            ActionExecution::BrowserBack => {
                 self.enqueue_active_browser_command(BrowserInputKind::Back);
                 return Ok(RenderAction::Draw);
             }
-            Action::BrowserForward => {
+            ActionExecution::BrowserForward => {
                 self.enqueue_active_browser_command(BrowserInputKind::Forward);
                 return Ok(RenderAction::Draw);
             }
-            Action::BrowserReload => {
+            ActionExecution::BrowserReload => {
                 self.enqueue_active_browser_command(BrowserInputKind::Reload);
                 return Ok(RenderAction::Draw);
             }
-            Action::BrowserEditUrl => {
+            ActionExecution::BrowserEditUrl => {
                 if let Some(pane) = pane {
                     self.focus_omnibar(pane);
                 }
                 return Ok(RenderAction::Draw);
             }
-            Action::Detach => {
+            ActionExecution::Detach => {
                 // Local sessions end with the TUI; remote sessions keep
                 // running server-side (detach).
                 self.quit = true;
