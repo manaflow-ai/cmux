@@ -148,7 +148,10 @@ impl TreeDeltaKind {
             server.parent.mkdir(parents=True)
             server.write_text(
                 """\
-//! This is documentation, not a serializer: {"event": "comment-only"}
+//! This is documentation, not a serializer: json!({"event": "comment-only"})
+/* Nested comments are also not serializers:
+   /* json!({"event": "nested-comment-only"}) */
+*/
 fn tree_delta_json() {
     let _ = json!({"event": "tree-changed"});
 }
@@ -167,7 +170,9 @@ impl TreeDeltaKind {
             original_tui = CHECKER.TUI
             CHECKER.TUI = tui
             try:
-                self.assertNotIn("comment-only", CHECKER.event_names())
+                names = CHECKER.event_names()
+                self.assertNotIn("comment-only", names)
+                self.assertNotIn("nested-comment-only", names)
             finally:
                 CHECKER.TUI = original_tui
 

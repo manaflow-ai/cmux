@@ -311,11 +311,79 @@ def command_names() -> set[str]:
     return {camel_to_kebab(variant) for variant in variants}
 
 
+def rust_raw_string_end(source: str, start: int) -> int | None:
+    if source.startswith(("br", "cr"), start):
+        marker = start + 2
+    elif source.startswith("r", start):
+        marker = start + 1
+    else:
+        return None
+    hashes = 0
+    while marker + hashes < len(source) and source[marker + hashes] == "#":
+        hashes += 1
+    quote = marker + hashes
+    if quote >= len(source) or source[quote] != '"':
+        return None
+    terminator = '"' + ("#" * hashes)
+    closing = source.find(terminator, quote + 1)
+    return len(source) if closing < 0 else closing + len(terminator)
+
+
+def strip_rust_comments(source: str) -> str:
+    output = list(source)
+    index = 0
+    while index < len(source):
+        raw_end = rust_raw_string_end(source, index)
+        if raw_end is not None:
+            index = raw_end
+            continue
+        if source[index] == '"':
+            index += 1
+            while index < len(source):
+                if source[index] == "\\":
+                    index += 2
+                elif source[index] == '"':
+                    index += 1
+                    break
+                else:
+                    index += 1
+            continue
+        if source.startswith("//", index):
+            end = source.find("\n", index)
+            end = len(source) if end < 0 else end
+            for offset in range(index, end):
+                output[offset] = " "
+            index = end
+            continue
+        if source.startswith("/*", index):
+            depth = 1
+            end = index + 2
+            while end < len(source) and depth:
+                if source.startswith("/*", end):
+                    depth += 1
+                    end += 2
+                elif source.startswith("*/", end):
+                    depth -= 1
+                    end += 2
+                else:
+                    end += 1
+            for offset in range(index, end):
+                if output[offset] != "\n":
+                    output[offset] = " "
+            index = end
+            continue
+        index += 1
+    return "".join(output)
+
+
 def event_names() -> set[str]:
     server = (TUI / "crates/cmux-tui-core/src/server.rs").read_text()
-    production = server.split("\n#[cfg(test)]\nmod tests", 1)[0]
+    production = strip_rust_comments(server.split("\n#[cfg(test)]\nmod tests", 1)[0])
     names = set(
-        re.findall(r'"event"\s*:\s*"([a-z][a-z0-9-]*)"', production)
+        re.findall(
+            r'json\s*!\s*\(\s*\{\s*"event"\s*:\s*"([a-z][a-z0-9-]*)"',
+            production,
+        )
     )
     names.update(
         re.findall(
@@ -324,12 +392,12 @@ def event_names() -> set[str]:
         )
     )
 
-    mux = (TUI / "crates/cmux-tui-core/src/mux.rs").read_text()
+    mux = strip_rust_comments((TUI / "crates/cmux-tui-core/src/mux.rs").read_text())
     delta_impl = mux.split("impl TreeDeltaKind", 1)
     if len(delta_impl) != 2:
         fail("cannot find TreeDeltaKind implementation")
     delta_impl = delta_impl[1].split("\n}", 1)[0]
-    names.update(re.findall(r'"([a-z]+(?:-[a-z]+)+)"', delta_impl))
+    names.update(re.findall(r'=>\s*"([a-z]+(?:-[a-z]+)+)"', delta_impl))
     return names
 
 
