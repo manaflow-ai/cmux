@@ -1890,18 +1890,36 @@ class GhosttyApp {
         _ request: PendingConfigurationReload,
         completion: @escaping @MainActor () -> Void
     ) {
-        let soft = request.soft
+        let requestedSoft = request.soft
         let source = request.source
         let reloadSettingsFromFile = request.reloadSettingsFromFile
         let preferredColorScheme = request.preferredColorScheme
         reloadConfigurationDepth += 1
         defer { reloadConfigurationDepth -= 1 }
-        if reloadSettingsFromFile {
-            KeyboardShortcutSettings.settingsFileStore.reload()
-        }
+        let fontTransaction =
+            TerminalFontConfigurationReloadTransaction.prepare(
+                appliedMagnificationPercent:
+                    appliedGlobalFontMagnificationPercent,
+                reloadSettings: {
+                    if reloadSettingsFromFile {
+                        KeyboardShortcutSettings
+                            .settingsFileStore.reload()
+                    }
+                    AppDelegate.shared?
+                        .reloadCmuxConfigStores(source: source)
+                },
+                storedMagnificationPercent: {
+                    GlobalFontMagnification.storedPercent
+                }
+            )
         let reloadMagnificationPercent =
-            GlobalFontMagnification.storedPercent
-        AppDelegate.shared?.reloadCmuxConfigStores(source: source)
+            fontTransaction.targetMagnificationPercent
+        // Reusing the old Ghostty config cannot apply an imported scale.
+        // Promote this transaction so the observer's reentrant reload may
+        // remain safely coalesced by `reloadConfigurationDepth`.
+        let soft =
+            requestedSoft
+            && !fontTransaction.magnificationDidChange
         let reloadColorScheme = preferredColorScheme ?? appearanceBackedColorSchemePreference()
         guard let app else {
             logThemeAction("reload skipped source=\(source) soft=\(soft) reason=no_app")
@@ -1961,6 +1979,12 @@ class GhosttyApp {
         )
         let effectiveReloadColorScheme = effectiveTerminalColorSchemePreference
         synchronizeGhosttyRuntimeColorScheme(effectiveReloadColorScheme, source: "reloadConfiguration:\(source):resolved")
+        let terminalFontConfiguration =
+            terminalFontConfigurationSnapshot(
+                config: newConfig,
+                magnificationPercent:
+                    reloadMagnificationPercent
+            )
         let terminalFontReloadStates =
             Self.terminalSurfaceRegistry
                 .allTerminalSurfaces()
@@ -1969,7 +1993,14 @@ class GhosttyApp {
                         surface,
                         surface.captureFontSizeConfigurationReloadState(
                             magnificationPercent:
-                                appliedGlobalFontMagnificationPercent
+                                fontTransaction
+                                    .previousMagnificationPercent,
+                            targetConfiguredRuntimePoints:
+                                terminalFontConfiguration
+                                    .configuredRuntimePoints,
+                            targetMagnificationPercent:
+                                terminalFontConfiguration
+                                    .magnificationPercent
                         )
                     )
                 }
@@ -1983,11 +2014,6 @@ class GhosttyApp {
             ghostty_config_free(oldConfig)
         }
         config = newConfig
-        let terminalFontConfiguration =
-            terminalFontConfigurationSnapshot(
-                config: newConfig,
-                magnificationPercent: reloadMagnificationPercent
-            )
         let reconciliationWork:
             [TerminalFontConfigurationReloadReconciler.Work] =
             terminalFontReloadStates.map { surface, reloadState in

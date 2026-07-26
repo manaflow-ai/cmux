@@ -151,6 +151,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let surfaceContext: ghostty_surface_context_e
     let configTemplate: CmuxSurfaceConfigTemplate?
     var lastKnownFontSizeLineage: TerminalFontSizeLineage?
+    var pendingFontSizeConfigurationReloadState:
+        TerminalFontSizeConfigurationReloadState?
     var lastAppliedFontSizeChangeToken: UUID?
     var transferReconciledFontSizeChangeTokens: Set<UUID> = []
     var lastPrunedFontSizeTransferRetirementGeneration: UInt64 = 0

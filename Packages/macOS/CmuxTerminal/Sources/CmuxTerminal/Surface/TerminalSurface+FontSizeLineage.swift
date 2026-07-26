@@ -28,6 +28,8 @@ public enum TerminalFontSizeMutationOutcome: Sendable, Equatable {
 public struct TerminalFontSizeConfigurationReloadState: Sendable {
     fileprivate let surfaceId: UUID
     fileprivate let lineage: TerminalFontSizeLineage?
+    fileprivate let inheritanceLineage:
+        TerminalFontSizeLineage?
     fileprivate let followsConfiguredFontSize: Bool
 }
 
@@ -263,7 +265,11 @@ extension TerminalSurface {
         fallbackRuntimePoints: Float32? = nil,
         magnificationPercent: Int? = nil
     ) -> TerminalFontSizeLineage? {
-        fontSizeAdjustmentBaseline(
+        if let pendingFontSizeConfigurationReloadState {
+            return pendingFontSizeConfigurationReloadState
+                .inheritanceLineage
+        }
+        return fontSizeAdjustmentBaseline(
             fallbackRuntimePoints: fallbackRuntimePoints,
             magnificationPercent:
                 magnificationPercent
@@ -516,15 +522,44 @@ extension TerminalSurface {
     /// unscaled base.
     @MainActor
     public func captureFontSizeConfigurationReloadState(
-        magnificationPercent: Int
+        magnificationPercent: Int,
+        targetConfiguredRuntimePoints: Float32? = nil,
+        targetMagnificationPercent: Int? = nil
     ) -> TerminalFontSizeConfigurationReloadState {
-        TerminalFontSizeConfigurationReloadState(
+        precondition(
+            pendingFontSizeConfigurationReloadState == nil,
+            "Terminal font configuration reloads must remain serialized"
+        )
+        let lineage = fontSizeLineageSnapshot(
+            magnificationPercent: magnificationPercent
+        )
+        let inheritanceLineage:
+            TerminalFontSizeLineage?
+        if followsConfiguredFontSize,
+           let targetConfiguredRuntimePoints,
+           targetConfiguredRuntimePoints.isFinite,
+           targetConfiguredRuntimePoints > 0,
+           let targetMagnificationPercent {
+            inheritanceLineage = TerminalFontSizeLineage(
+                basePoints:
+                    CmuxSurfaceConfigTemplate.baseFontSize(
+                        fromRuntimePoints:
+                            targetConfiguredRuntimePoints,
+                        percent: targetMagnificationPercent
+                    ),
+                isExplicitOverride: false
+            )
+        } else {
+            inheritanceLineage = lineage
+        }
+        let state = TerminalFontSizeConfigurationReloadState(
             surfaceId: id,
-            lineage: fontSizeLineageSnapshot(
-                magnificationPercent: magnificationPercent
-            ),
+            lineage: lineage,
+            inheritanceLineage: inheritanceLineage,
             followsConfiguredFontSize: followsConfiguredFontSize
         )
+        pendingFontSizeConfigurationReloadState = state
+        return state
     }
 
     /// Reconciles native runtime points with a newly applied app config.
@@ -539,6 +574,12 @@ extension TerminalSurface {
         configuredRuntimePoints: Float32,
         magnificationPercent: Int
     ) -> TerminalFontSizeMutationOutcome {
+        defer {
+            if pendingFontSizeConfigurationReloadState?
+                    .surfaceId == state.surfaceId {
+                pendingFontSizeConfigurationReloadState = nil
+            }
+        }
         guard state.surfaceId == id,
               configuredRuntimePoints.isFinite,
               configuredRuntimePoints > 0 else {
@@ -637,6 +678,10 @@ extension TerminalSurface {
     public func fontSizeLineageSnapshot(
         magnificationPercent: Int? = nil
     ) -> TerminalFontSizeLineage? {
+        if let pendingFontSizeConfigurationReloadState {
+            return pendingFontSizeConfigurationReloadState
+                .inheritanceLineage
+        }
         guard let runtimeSurface = liveSurfaceForGhosttyAccess(
             reason: "fontSizeLineage.snapshot"
         ) else {
@@ -668,6 +713,10 @@ extension TerminalSurface {
         isExplicitOverride: Bool,
         globalFontMagnificationPercent: Int
     ) -> TerminalFontSizeLineage? {
+        if let pendingFontSizeConfigurationReloadState {
+            return pendingFontSizeConfigurationReloadState
+                .inheritanceLineage
+        }
         guard runtimePoints.isFinite, runtimePoints > 0 else {
             return lastKnownFontSizeLineage
         }
