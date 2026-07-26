@@ -2280,6 +2280,22 @@ mod tests {
     }
 
     #[test]
+    fn repeated_latest_frame_reads_share_the_encoded_payload() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        browser.store_frame(test_frame(1));
+
+        let first = browser.latest_frame().expect("first frame");
+        let second = browser.latest_frame().expect("second frame");
+
+        assert_eq!(
+            first.data_b64.as_ptr(),
+            second.data_b64.as_ptr(),
+            "reading the current frame must not copy its encoded image payload"
+        );
+    }
+
+    #[test]
     fn capture_scale_respects_budget_and_fixed_override() {
         let opts = BrowserCaptureOptions { max_capture_megapixels: 2.0, fixed_capture_scale: None };
         let scale = capture_scale_for(4760, 2548, opts);

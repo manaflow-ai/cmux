@@ -12734,13 +12734,13 @@ mod tests {
     use super::{
         App, AppEvent, BACKGROUND_REFRESH_RETRIES, ContextMenu, DeferredInput, Drag, FocusTarget,
         ForwardMuxOutcome, MachineActionWorker, MachineConnectRoute, MenuAction, MenuItem,
-        MuxTitleIngress, OmnibarHit, OrderedSession, OuterCursorSpec, PaneArea, PaneEdge,
-        PaneFocusHistory, PaneResizeDragTarget, PaneViewportClip, PendingSessionMutation,
+        MuxTitleIngress, OmnibarHit, OmnibarState, OrderedSession, OuterCursorSpec, PaneArea,
+        PaneEdge, PaneFocusHistory, PaneResizeDragTarget, PaneViewportClip, PendingSessionMutation,
         PendingSessionMutationState, PromptTarget, PtyFailureIngress, PtyMousePressResult,
         RailKind, RenderAction, Selection, SessionCompletion, SessionCompletionAction,
         SessionEventSender, ShortcutHelp, SidebarLayout, SidebarPluginSyncClaim,
         SidebarPluginSyncState, StdoutLock, SurfaceResizeDecision, SurfaceResizeOwnership,
-        VIEWPORT_ANIMATION_DURATION, ViewportMotion, WorkspaceRailSelection,
+        TextInput, VIEWPORT_ANIMATION_DURATION, ViewportMotion, WorkspaceRailSelection,
         action_available_in_mode, browser_content_size_for_rect, browser_hover_forward_allowed,
         browser_source_crop, canonical_terminal_content, catch_renderer_panic,
         clamp_split_ratio_for_tab_bars, client_menu_item, clip_horizontal_rect, forward_host_input,
@@ -14777,6 +14777,58 @@ mod tests {
         assert_eq!(app.omnibar_hit_at(21, 5), Some((2, OmnibarHit::Reload)));
         assert_eq!(app.omnibar_hit_at(23, 5), Some((2, OmnibarHit::Edit)));
         assert_eq!(app.omnibar_hit_at(20, 5), None);
+    }
+
+    #[test]
+    fn clipped_browser_omnibar_keeps_editing_and_clicks_visible() {
+        let mux = Mux::new("clipped-browser-omnibar-edit-test", SurfaceOptions::default());
+        let surface = mux.new_browser_tab("about:blank".to_string(), None, Some((38, 5))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        let pane = app.tree.active_screen().expect("active screen").active_pane;
+        let area = PaneArea {
+            pane,
+            surface: surface.id,
+            rect: Rect { x: 20, y: 4, width: 10, height: 8 },
+            bar: Some(Rect { x: 20, y: 4, width: 10, height: 1 }),
+            omnibar: Some(Rect { x: 20, y: 5, width: 8, height: 1 }),
+            content: Rect { x: 20, y: 6, width: 8, height: 5 },
+            track: None,
+            viewport: Some(PaneViewportClip {
+                rect_source_x: 4,
+                full_rect_width: 40,
+                omnibar_source_x: 4,
+                full_omnibar_width: 38,
+                content_source_x: 4,
+                full_content_width: 38,
+            }),
+        };
+        app.pane_areas.push(area);
+        app.omnibar = Some(OmnibarState {
+            pane,
+            surface: surface.id,
+            input: TextInput::new("x".to_string()),
+            select_all: false,
+        });
+
+        let mut terminal = Terminal::new(TestBackend::new(40, 12)).unwrap();
+        let mut cursor = None;
+        terminal
+            .draw(|frame| {
+                cursor = crate::ui::omnibar::draw(&mut app, frame, &area);
+            })
+            .unwrap();
+        assert_eq!(terminal.backend().buffer()[(20, 5)].symbol(), "x");
+        assert_eq!(cursor, Some((21, 5)));
+
+        app.omnibar.as_mut().unwrap().input = TextInput::new("0123456789".to_string());
+        app.handle_left_down(22, 5, KeyModifiers::NONE).unwrap();
+        assert_eq!(
+            app.omnibar.as_mut().unwrap().input.visible_text_and_cursor(38).1,
+            4,
+            "a click must use the visible editor column, not the cropped logical column"
+        );
+        mux.shutdown();
     }
 
     #[test]
