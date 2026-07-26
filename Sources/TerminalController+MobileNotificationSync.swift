@@ -5,7 +5,7 @@ import Foundation
 /// `notification.dismiss` and `notification.reconcile` RPC handlers dispatched
 /// from `mobileHostHandleRPC(_:)`.
 extension TerminalController {
-    private static let mobileNotificationFeedResponseByteLimit =
+    private nonisolated static let mobileNotificationFeedResponseByteLimit =
         MobileSyncFrameCodec.defaultMaximumFrameByteCount - (64 * 1024)
     private static let mobileNotificationFeedTitleByteLimit = 512
     private static let mobileNotificationFeedSubtitleByteLimit = 512
