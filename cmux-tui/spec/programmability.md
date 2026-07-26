@@ -33,9 +33,11 @@ Every `MenuAction` variant is inventoried separately because context menus expos
 
 `focus-left`, `focus-right`, `focus-up`, and `focus-down` are composites because the native TUI uses its rendered geometry and client focus history before calling `focus-pane`. `focus-direction` is a server-side approximation and is not an exact substitute. `scroll-up` and `scroll-down` are presentation-only for an attached remote TUI because that frontend owns its mirrored viewport; `scroll-surface` controls the server-owned viewport.
 
-`new-workspace` is conditional. A session-owned workspace uses the mux
-`new-workspace` command. A provider-owned workspace uses machine-provider
-`create_workspace` with the provider-advertised isolated or host mode.
+`new-workspace` is conditional. Its structured inventory route reads ownership
+from the active workspace session. Session ownership selects the mux
+`new-workspace` command. Provider ownership selects machine-provider
+`create_workspace` with the advertised isolated or host mode. A missing or
+unknown ownership signal rejects the action instead of selecting either route.
 
 ## Required vNext primitives
 

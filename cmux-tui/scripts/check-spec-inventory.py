@@ -41,7 +41,10 @@ def validate_schema_type(value: object, schema: dict[str, object], path: str) ->
         "string": isinstance(value, str),
         "integer": isinstance(value, int) and not isinstance(value, bool),
     }
-    if expected_type in type_matches and not type_matches[expected_type]:
+    if isinstance(expected_type, list):
+        if not any(type_matches.get(item, False) for item in expected_type):
+            fail(f"{path} must be one of the JSON types {expected_type!r}")
+    elif expected_type in type_matches and not type_matches[expected_type]:
         fail(f"{path} must be a JSON {expected_type}")
 
 
@@ -151,7 +154,23 @@ def rust_function_body(source: str, name: str) -> str:
         fail(f"cannot find Rust function {name}")
     start = match.end()
     depth = 1
-    for index in range(start, len(source)):
+    index = start
+    while index < len(source):
+        raw_end = rust_raw_string_end(source, index)
+        if raw_end is not None:
+            index = raw_end
+            continue
+        if source[index] == '"':
+            index += 1
+            while index < len(source):
+                if source[index] == "\\":
+                    index += 2
+                elif source[index] == '"':
+                    index += 1
+                    break
+                else:
+                    index += 1
+            continue
         char = source[index]
         if char == "{":
             depth += 1
@@ -159,6 +178,7 @@ def rust_function_body(source: str, name: str) -> str:
             depth -= 1
             if depth == 0:
                 return source[start:index]
+        index += 1
     fail(f"unterminated Rust function {name}")
     return ""
 
@@ -500,14 +520,14 @@ def event_streams() -> dict[str, set[str]]:
 
 
 def action_variants() -> set[str]:
-    source = (TUI / "crates/cmux-tui/src/config.rs").read_text()
+    source = strip_rust_comments((TUI / "crates/cmux-tui/src/config.rs").read_text())
     return rust_enum_variants(source, "Action")
 
 
-def action_metadata() -> dict[str, dict[str, str]]:
+def action_metadata() -> dict[str, dict[str, object]]:
     source = strip_rust_comments((TUI / "crates/cmux-tui/src/config.rs").read_text())
     body = rust_function_body(source, "metadata")
-    metadata: dict[str, dict[str, str]] = {}
+    metadata: dict[str, dict[str, object]] = {}
     for variant, key, classification, route, execution in re.findall(
         r"Action::([A-Z][A-Za-z0-9]*)"
         r"(?:\s*\([^)]*\))?\s*=>\s*ActionMetadata::new\(\s*"
@@ -529,6 +549,53 @@ def action_metadata() -> dict[str, dict[str, str]]:
             "key": key,
             "classification": camel_to_kebab(classification),
             "route": route,
+        }
+    for (
+        variant,
+        key,
+        classification,
+        ownership_source,
+        session_kind,
+        session_operation,
+        provider_kind,
+        provider_operation,
+        unknown_ownership,
+        execution,
+    ) in re.findall(
+        r"Action::([A-Z][A-Za-z0-9]*)"
+        r"(?:\s*\([^)]*\))?\s*=>\s*ActionMetadata::workspace_ownership\(\s*"
+        r'"([^"]+)"\s*,\s*'
+        r"ActionClassification::([A-Z][A-Za-z0-9]*)\s*,\s*"
+        r"WorkspaceOwnershipSource::([A-Z][A-Za-z0-9]*)\s*,\s*"
+        r'ActionRouteTarget::([A-Z][A-Za-z0-9]*)\(\s*"([^"]+)"\s*\)\s*,\s*'
+        r'ActionRouteTarget::([A-Z][A-Za-z0-9]*)\(\s*"([^"]+)"\s*\)\s*,\s*'
+        r"UnknownOwnership::([A-Z][A-Za-z0-9]*)\s*,\s*"
+        r"ActionExecution::([A-Z][A-Za-z0-9]*)",
+        body,
+        re.DOTALL,
+    ):
+        if variant in metadata:
+            fail(f"duplicate action metadata for {variant}")
+        if execution != variant:
+            fail(
+                f"action metadata dispatch mismatch for {variant}: "
+                f"executes {execution}"
+            )
+        metadata[variant] = {
+            "key": key,
+            "classification": camel_to_kebab(classification),
+            "route": {
+                "ownership_source": camel_to_kebab(ownership_source),
+                "session_owned": {
+                    "kind": camel_to_kebab(session_kind),
+                    "operation": session_operation,
+                },
+                "provider_owned": {
+                    "kind": camel_to_kebab(provider_kind),
+                    "operation": provider_operation,
+                },
+                "unknown_ownership": camel_to_kebab(unknown_ownership),
+            },
         }
     variants = rust_enum_variants(source, "Action")
     if set(metadata) != variants:
@@ -601,42 +668,37 @@ def mux_protocol_version() -> int:
 
 
 def secondary_protocols() -> dict[str, object]:
-    host_source = (TUI / "crates/cmux-tui-core/src/terminal_host_protocol.rs").read_text()
+    host_source = strip_rust_comments(
+        (TUI / "crates/cmux-tui-core/src/terminal_host_protocol.rs").read_text()
+    )
     host_body = rust_enum_body(host_source, "MessageKind")
     host_messages = {
         name: int(value)
         for name, value in re.findall(
-            r"(?m)^    ([A-Z][A-Za-z0-9]*)\s*=\s*([0-9]+),", host_body
+            r"(?m)^    ([A-Z][A-Za-z0-9]*)\s*=\s*([0-9]+)"
+            r"[ \t]*(?=,|(?://.*)?$)",
+            host_body,
         )
     }
 
-    provider_source = (
-        TUI / "crates/cmux-tui-machine-protocol/src/lib.rs"
-    ).read_text()
-    request_body = rust_enum_body(provider_source, "ProviderRequest")
+    provider_source = strip_rust_comments(
+        (TUI / "crates/cmux-tui-machine-protocol/src/lib.rs").read_text()
+    )
     provider_requests = {
         camel_to_snake(name)
-        for name in re.findall(
-            r"(?m)^    ([A-Z][A-Za-z0-9]*)\s*(?:\(|\{|,)", request_body
-        )
+        for name in rust_enum_variants(provider_source, "ProviderRequest")
     }
-    event_body = rust_enum_body(provider_source, "ProviderEvent")
     provider_events = {
         camel_to_snake(name)
-        for name in re.findall(
-            r"(?m)^    ([A-Z][A-Za-z0-9]*)\s*(?:\(|\{|,)", event_body
-        )
+        for name in rust_enum_variants(provider_source, "ProviderEvent")
     }
 
-    management_source = (
-        TUI / "crates/cmux-tui-core/src/provider_management.rs"
-    ).read_text()
-    management_body = rust_enum_body(management_source, "Request")
+    management_source = strip_rust_comments(
+        (TUI / "crates/cmux-tui-core/src/provider_management.rs").read_text()
+    )
     management_operations = {
         camel_to_snake(name)
-        for name in re.findall(
-            r"(?m)^    ([A-Z][A-Za-z0-9]*)\s*(?:\{|,)", management_body
-        )
+        for name in rust_enum_variants(management_source, "Request")
     }
     return {
         "terminal_host_v1": host_messages,
@@ -794,10 +856,54 @@ def validate_events(inventory: dict) -> set[str]:
     return inventory_events
 
 
+def validate_tui_action_route(inventory: dict, action: dict) -> None:
+    route = action["route"]
+    if action["variant"] != "NewWorkspace":
+        if not isinstance(route, str) or not route.strip():
+            fail(f"TUI action {action['variant']} has no programmability route")
+        return
+    if not isinstance(route, dict):
+        fail("NewWorkspace requires a structured workspace ownership route")
+    if route.get("ownership_source") != "active-workspace-session":
+        fail("NewWorkspace has an unknown workspace ownership source")
+
+    session_owned = route.get("session_owned")
+    if not isinstance(session_owned, dict) or session_owned.get("kind") != "mux-command":
+        fail("NewWorkspace session-owned route must target a mux command")
+    session_operation = session_owned.get("operation")
+    commands = {
+        name
+        for profile_commands in inventory["commands"].values()
+        for name in profile_commands
+    }
+    if session_operation not in commands:
+        fail(f"NewWorkspace references unknown mux command {session_operation!r}")
+
+    provider_owned = route.get("provider_owned")
+    if (
+        not isinstance(provider_owned, dict)
+        or provider_owned.get("kind") != "machine-provider-request"
+    ):
+        fail("NewWorkspace provider-owned route must target a machine-provider request")
+    provider_operation = provider_owned.get("operation")
+    provider_requests = set(
+        inventory["secondary_protocols"]["machine_provider_v1"]["requests"]
+    )
+    if provider_operation not in provider_requests:
+        fail(
+            "NewWorkspace references unknown machine-provider request "
+            f"{provider_operation!r}"
+        )
+    if route.get("unknown_ownership") != "reject":
+        fail("NewWorkspace unknown workspace ownership must reject")
+
+
 def validate_tui_actions(inventory: dict) -> list[dict]:
     actions = inventory["tui_actions"]
     inventory_actions = unique([action["variant"] for action in actions], "TUI action")
     compare(action_variants(), inventory_actions, "TUI action")
+    for action in actions:
+        validate_tui_action_route(inventory, action)
     runtime_metadata = action_metadata()
     inventory_metadata = {
         action["variant"]: {
@@ -823,8 +929,6 @@ def validate_tui_actions(inventory: dict) -> list[dict]:
     for action in actions:
         if action["classification"] not in allowed:
             fail(f"bad TUI action classification for {action['variant']}")
-        if not action["route"].strip():
-            fail(f"TUI action {action['variant']} has no programmability route")
     return actions
 
 

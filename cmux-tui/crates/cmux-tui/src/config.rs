@@ -906,10 +906,68 @@ impl ActionClassification {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WorkspaceOwnershipSource {
+    ActiveWorkspaceSession,
+}
+
+impl WorkspaceOwnershipSource {
+    const fn inventory_name(self) -> &'static str {
+        match self {
+            Self::ActiveWorkspaceSession => "active-workspace-session",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ActionRouteTarget {
+    MuxCommand(&'static str),
+    MachineProviderRequest(&'static str),
+}
+
+impl ActionRouteTarget {
+    const fn inventory_kind(self) -> &'static str {
+        match self {
+            Self::MuxCommand(_) => "mux-command",
+            Self::MachineProviderRequest(_) => "machine-provider-request",
+        }
+    }
+
+    const fn operation(self) -> &'static str {
+        match self {
+            Self::MuxCommand(operation) | Self::MachineProviderRequest(operation) => operation,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UnknownOwnership {
+    Reject,
+}
+
+impl UnknownOwnership {
+    const fn inventory_name(self) -> &'static str {
+        match self {
+            Self::Reject => "reject",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ActionRoute {
+    Static(&'static str),
+    WorkspaceOwnership {
+        source: WorkspaceOwnershipSource,
+        session_owned: ActionRouteTarget,
+        provider_owned: ActionRouteTarget,
+        unknown: UnknownOwnership,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ActionMetadata {
     key: &'static str,
     classification: ActionClassification,
-    route: &'static str,
+    route: ActionRoute,
     execution: ActionExecution,
 }
 
@@ -920,13 +978,45 @@ impl ActionMetadata {
         route: &'static str,
         execution: ActionExecution,
     ) -> Self {
-        Self { key, classification, route, execution }
+        Self { key, classification, route: ActionRoute::Static(route), execution }
+    }
+
+    const fn workspace_ownership(
+        key: &'static str,
+        classification: ActionClassification,
+        source: WorkspaceOwnershipSource,
+        session_owned: ActionRouteTarget,
+        provider_owned: ActionRouteTarget,
+        unknown: UnknownOwnership,
+        execution: ActionExecution,
+    ) -> Self {
+        Self {
+            key,
+            classification,
+            route: ActionRoute::WorkspaceOwnership {
+                source,
+                session_owned,
+                provider_owned,
+                unknown,
+            },
+            execution,
+        }
     }
 
     pub(crate) fn execution(self) -> ActionExecution {
         debug_assert!(!self.key.is_empty());
         debug_assert!(!self.classification.inventory_name().is_empty());
-        debug_assert!(!self.route.is_empty());
+        match self.route {
+            ActionRoute::Static(route) => debug_assert!(!route.is_empty()),
+            ActionRoute::WorkspaceOwnership { source, session_owned, provider_owned, unknown } => {
+                debug_assert!(!source.inventory_name().is_empty());
+                debug_assert_eq!(session_owned.inventory_kind(), "mux-command");
+                debug_assert!(!session_owned.operation().is_empty());
+                debug_assert_eq!(provider_owned.inventory_kind(), "machine-provider-request");
+                debug_assert!(!provider_owned.operation().is_empty());
+                debug_assert_eq!(unknown.inventory_name(), "reject");
+            }
+        }
         self.execution
     }
 }
@@ -1050,10 +1140,13 @@ impl Action {
                 "select-workspace delta:+1",
                 ActionExecution::NextWorkspace,
             ),
-            Action::NewWorkspace => ActionMetadata::new(
+            Action::NewWorkspace => ActionMetadata::workspace_ownership(
                 "new-workspace",
                 ActionClassification::Composite,
-                "session-owned: new-workspace; provider-owned: machine-provider create_workspace",
+                WorkspaceOwnershipSource::ActiveWorkspaceSession,
+                ActionRouteTarget::MuxCommand("new-workspace"),
+                ActionRouteTarget::MachineProviderRequest("create_workspace"),
+                UnknownOwnership::Reject,
                 ActionExecution::NewWorkspace,
             ),
             Action::ToggleSidebar => ActionMetadata::new(

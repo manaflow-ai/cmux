@@ -69,7 +69,41 @@
           "classification": {
             "enum": ["direct", "composite", "presentation-only"]
           },
-          "route": {"type": "string", "minLength": 1}
+          "route": {
+            "type": ["string", "object"],
+            "minLength": 1,
+            "required": [
+              "ownership_source",
+              "session_owned",
+              "provider_owned",
+              "unknown_ownership"
+            ],
+            "properties": {
+              "ownership_source": {
+                "enum": ["active-workspace-session"]
+              },
+              "session_owned": {
+                "type": "object",
+                "required": ["kind", "operation"],
+                "properties": {
+                  "kind": {"const": "mux-command"},
+                  "operation": {"type": "string", "minLength": 1}
+                },
+                "additionalProperties": false
+              },
+              "provider_owned": {
+                "type": "object",
+                "required": ["kind", "operation"],
+                "properties": {
+                  "kind": {"const": "machine-provider-request"},
+                  "operation": {"type": "string", "minLength": 1}
+                },
+                "additionalProperties": false
+              },
+              "unknown_ownership": {"const": "reject"}
+            },
+            "additionalProperties": false
+          }
         },
         "additionalProperties": false
       }

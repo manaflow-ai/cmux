@@ -2256,12 +2256,12 @@ fn authorize_command_profile(mux: &Mux, client: u64, command: &mut Command) -> a
             Command::PairingResponse { .. } => {
                 anyhow::bail!("pairing decisions require a trusted local connection")
             }
-            _ => unreachable!("local-admin command profile must be exhaustive"),
+            _ => anyhow::bail!("this command requires a trusted local connection"),
         },
         CommandProfile::ProviderAuthority => {
-            let authority = command
-                .provider_authority_mut()
-                .expect("provider-authority command must expose its authority");
+            let Some(authority) = command.provider_authority_mut() else {
+                anyhow::bail!("provider workspace authority is required");
+            };
             let result = mux.authorize_provider_workspace_authority(authority);
             if result.is_err() {
                 zeroize_string(authority);

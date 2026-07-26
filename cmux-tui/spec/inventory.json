@@ -167,7 +167,23 @@
     {"variant": "SelectScreen", "key": "select-screen-{number}", "classification": "direct", "route": "select-screen index"},
     {"variant": "NewScreen", "key": "new-screen", "classification": "direct", "route": "new-screen"},
     {"variant": "NextWorkspace", "key": "next-workspace", "classification": "direct", "route": "select-workspace delta:+1"},
-    {"variant": "NewWorkspace", "key": "new-workspace", "classification": "composite", "route": "session-owned: new-workspace; provider-owned: machine-provider create_workspace"},
+    {
+      "variant": "NewWorkspace",
+      "key": "new-workspace",
+      "classification": "composite",
+      "route": {
+        "ownership_source": "active-workspace-session",
+        "session_owned": {
+          "kind": "mux-command",
+          "operation": "new-workspace"
+        },
+        "provider_owned": {
+          "kind": "machine-provider-request",
+          "operation": "create_workspace"
+        },
+        "unknown_ownership": "reject"
+      }
+    },
     {"variant": "ToggleSidebar", "key": "toggle-sidebar", "classification": "presentation-only", "route": "frontend action adapter"},
     {"variant": "ToggleSidebarView", "key": "toggle-sidebar-view", "classification": "presentation-only", "route": "frontend action adapter"},
     {"variant": "FocusSidebar", "key": "focus-sidebar", "classification": "presentation-only", "route": "frontend action adapter"},
