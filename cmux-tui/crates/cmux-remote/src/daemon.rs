@@ -2026,6 +2026,64 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn revocation_starts_all_session_closes_without_waiting_for_transport_cleanup() {
+        let directory = tempdir().unwrap();
+        let auth =
+            AuthDatabase::load_or_create(directory.path(), "revocation-fanout", false).unwrap();
+        let invitation = auth.create_invitation(Duration::from_secs(60), Vec::new()).await.unwrap();
+        let identity = StaticIdentity::generate().unwrap();
+        let authorization = tokio::spawn({
+            let auth = auth.clone();
+            let invitation_id = invitation.id.clone();
+            async move {
+                ServerAuthenticator::authorize(
+                    &*auth,
+                    AuthRequest {
+                        mode: AuthKind::Invitation,
+                        invitation_id: Some(invitation_id),
+                        device_public_key: identity.public_key(),
+                        device_name: "two-session-client".into(),
+                        session: SessionId([61; 16]),
+                        lane: Lane::Control,
+                        lanes: vec![Lane::Control],
+                        generation: 0,
+                        inbound: InboundAuthEvidence::Network(NetworkPeer::Tls),
+                    },
+                )
+                .await
+            }
+        });
+        auth.wait_for_pending(Duration::from_secs(1)).await.unwrap();
+        let device = auth.approve(&invitation.id).await.unwrap();
+        assert_eq!(authorization.await.unwrap().unwrap().device_id, device.id);
+
+        let (daemon, _accepted) = RemoteDaemon::new(auth.clone(), SessionLimits::default());
+        let mut connections = Vec::new();
+        for session_byte in [61, 62] {
+            let key =
+                ClientKey { device_id: device.id.clone(), session: SessionId([session_byte; 16]) };
+            let session = ReliableSession::new(
+                key.session,
+                Arc::new(HangingCloseLink),
+                SessionLimits::default(),
+            );
+            let connection =
+                ServerConnection::new(&daemon, key.clone(), session, vec![Lane::ALL.to_vec()]);
+            daemon.state.lock().await.clients.insert(key, connection.clone());
+            connections.push(connection);
+        }
+
+        auth.revoke(&device.id).await.unwrap();
+        tokio::time::timeout(Duration::from_millis(250), async {
+            while connections.iter().any(|connection| !connection.closed.load(Ordering::Acquire)) {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("one slow transport serialized revocation of another session");
+    }
+
     #[async_trait]
     impl FrameLink for BlockingReplayLink {
         fn description(&self) -> &str {

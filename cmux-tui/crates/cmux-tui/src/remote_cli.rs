@@ -2133,6 +2133,23 @@ fn expand_home(path: String) -> anyhow::Result<PathBuf> {
 mod tests {
     use super::*;
 
+    #[tokio::test]
+    async fn rpc_stdin_wait_stops_when_remote_runtime_finishes_without_eof() {
+        let (_stdin_tx, mut stdin_rx) = tokio::sync::mpsc::channel::<io::Result<String>>(1);
+        let (finished_tx, mut finished_rx) = tokio::sync::watch::channel(false);
+        finished_tx.send_replace(true);
+
+        let event = tokio::time::timeout(
+            Duration::from_millis(100),
+            next_rpc_input(&mut stdin_rx, &mut finished_rx),
+        )
+        .await
+        .expect("RPC input stayed blocked after the remote runtime finished")
+        .unwrap();
+
+        assert!(matches!(event, RpcInputEvent::RuntimeFinished));
+    }
+
     fn test_provider_registry() -> Arc<cmux_remote::provider::ProviderRegistry> {
         Arc::new(
             client_provider_registry(
