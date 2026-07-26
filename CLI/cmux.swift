@@ -1968,7 +1968,11 @@ final class SocketClient {
         lastConfiguredReceiveTimeout = nil
     }
 
-    func send(command: String, responseTimeout: TimeInterval? = nil) throws -> String {
+    func send(
+        command: String,
+        responseTimeout: TimeInterval? = nil,
+        deadline: Date? = nil
+    ) throws -> String {
         if relayEndpoint != nil, socketFD < 0 {
             try connect()
         }
@@ -1980,7 +1984,18 @@ final class SocketClient {
             }
         }
 
-        let initialResponseTimeout = responseTimeout ?? Self.responseTimeoutSeconds
+        func boundedTimeout(_ timeout: TimeInterval) throws -> TimeInterval {
+            guard let deadline else { return timeout }
+            let remaining = deadline.timeIntervalSinceNow
+            guard remaining > 0 else {
+                throw CLIError(message: "Command timed out")
+            }
+            return min(timeout, remaining)
+        }
+
+        let initialResponseTimeout = try boundedTimeout(
+            responseTimeout ?? Self.responseTimeoutSeconds
+        )
         if lastConfiguredReceiveTimeout != initialResponseTimeout {
             try configureReceiveTimeout(initialResponseTimeout)
         }
@@ -2005,7 +2020,8 @@ final class SocketClient {
         var receivedCompleteResponse = false
 
         while true {
-            let currentTimeout = sawNewline ? Self.multilineResponseIdleTimeoutSeconds : initialResponseTimeout
+            let phaseTimeout = sawNewline ? Self.multilineResponseIdleTimeoutSeconds : initialResponseTimeout
+            let currentTimeout = try boundedTimeout(phaseTimeout)
             operation.phase = sawNewline ? .readMultilineResponse : .waitForResponse
             operation.sawNewline = sawNewline
             operation.timeout = currentTimeout
@@ -6147,13 +6163,15 @@ struct CMUXCLI {
         _ client: SocketClient,
         explicitPassword: String?,
         socketPath: String,
-        responseTimeout: TimeInterval? = nil
+        responseTimeout: TimeInterval? = nil,
+        deadline: Date? = nil
     ) throws {
         try Self.authenticateSocketClientIfNeeded(
             client,
             explicitPassword: explicitPassword,
             socketPath: socketPath,
-            responseTimeout: responseTimeout
+            responseTimeout: responseTimeout,
+            deadline: deadline
         )
     }
 
@@ -6161,13 +6179,18 @@ struct CMUXCLI {
         _ client: SocketClient,
         explicitPassword: String?,
         socketPath: String,
-        responseTimeout: TimeInterval? = nil
+        responseTimeout: TimeInterval? = nil,
+        deadline: Date? = nil
     ) throws {
         if let socketPassword = SocketPasswordResolver.resolve(
             explicit: explicitPassword,
             socketPath: socketPath
         ) {
-            let authResponse = try client.send(command: "auth \(socketPassword)", responseTimeout: responseTimeout)
+            let authResponse = try client.send(
+                command: "auth \(socketPassword)",
+                responseTimeout: responseTimeout,
+                deadline: deadline
+            )
             if authResponse.hasPrefix("ERROR:"),
                !authResponse.contains("Unknown command 'auth'") {
                 throw CLIError(message: authResponse)
@@ -34134,7 +34157,8 @@ export default CMUXSessionRestore;
                     feedClient,
                     explicitPassword: socketPassword,
                     socketPath: socketPath,
-                    responseTimeout: try remainingResponseTime()
+                    responseTimeout: try remainingResponseTime(),
+                    deadline: clientDeadline
                 )
             } catch {
                 feedClient.close()
@@ -34152,7 +34176,8 @@ export default CMUXSessionRestore;
         do {
             response = try activeClient.send(
                 command: line,
-                responseTimeout: try remainingResponseTime()
+                responseTimeout: try remainingResponseTime(),
+                deadline: clientDeadline
             )
         } catch {
             print("{}")
