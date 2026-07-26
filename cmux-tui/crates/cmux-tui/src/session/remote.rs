@@ -2079,7 +2079,7 @@ mod tests {
     }
 
     #[test]
-    fn clear_history_shortcut_forwards_key_to_older_remote_server() {
+    fn clear_history_shortcut_rejects_older_remote_server() {
         let session_slot = Arc::new(Mutex::new(None));
         let requests = Arc::new(Mutex::new(Vec::new()));
         let session = test_session(Box::new(RecordingAcknowledgingWriter {
@@ -2107,13 +2107,10 @@ mod tests {
             ..Default::default()
         };
 
-        session.clear_history_or_send_key(7, &fallback).unwrap();
+        let error = session.clear_history_or_send_key(7, &fallback).unwrap_err();
 
-        let requests = requests.lock().unwrap();
-        assert_eq!(requests.len(), 1);
-        assert_eq!(requests[0]["cmd"], "send");
-        let encoded = requests[0]["bytes"].as_str().unwrap();
-        assert_eq!(base64::engine::general_purpose::STANDARD.decode(encoded).unwrap(), b"\x0c");
+        assert_eq!(error.to_string(), CLEAR_HISTORY_UNSUPPORTED_ERROR);
+        assert!(requests.lock().unwrap().is_empty());
     }
 
     #[test]
@@ -2150,7 +2147,7 @@ mod tests {
     }
 
     #[test]
-    fn intermediate_remote_server_keeps_plain_clear_but_forwards_shortcut_key() {
+    fn intermediate_remote_server_keeps_plain_clear_but_rejects_shortcut() {
         let session_slot = Arc::new(Mutex::new(None));
         let requests = Arc::new(Mutex::new(Vec::new()));
         let session = test_session_with_provider_context(
@@ -2182,17 +2179,10 @@ mod tests {
             ..Default::default()
         };
 
-        session.clear_history_or_send_key(7, &fallback).unwrap();
+        let error = session.clear_history_or_send_key(7, &fallback).unwrap_err();
 
-        {
-            let recorded = requests.lock().unwrap();
-            assert_eq!(recorded.len(), 1);
-            assert_eq!(recorded[0]["cmd"], "send");
-            let encoded = recorded[0]["bytes"].as_str().unwrap();
-            assert_eq!(base64::engine::general_purpose::STANDARD.decode(encoded).unwrap(), b"\x0c");
-        }
-
-        requests.lock().unwrap().clear();
+        assert_eq!(error.to_string(), CLEAR_HISTORY_UNSUPPORTED_ERROR);
+        assert!(requests.lock().unwrap().is_empty());
         session.clear_history(7).unwrap();
 
         let recorded = requests.lock().unwrap();

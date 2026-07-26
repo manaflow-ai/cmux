@@ -867,7 +867,7 @@ fn hosted_clear_history_encodes_fallback_from_authoritative_keyboard_mode() {
 }
 
 #[test]
-fn adopted_legacy_host_forwards_clear_history_fallback_as_input() {
+fn adopted_legacy_host_rejects_clear_history_fallback() {
     let mut harness = RecoveryHarness::start("legacy-clear-history-fallback");
     let created = request(
         &harness.socket,
@@ -916,7 +916,7 @@ fn adopted_legacy_host_forwards_clear_history_fallback_as_input() {
     };
     assert!(wait_for_screen(&harness.socket, adopted_surface, "ready").contains("ready"));
 
-    request(
+    let unsupported = request_response(
         &harness.socket,
         serde_json::json!({
             "id": 3,
@@ -947,40 +947,21 @@ fn adopted_legacy_host_forwards_clear_history_fallback_as_input() {
             },
         }),
     );
-    assert!(wait_for_screen(&harness.socket, adopted_surface, "readyz").contains("readyz"));
-
-    let unsupported = request_response(
-        &harness.socket,
-        serde_json::json!({
-            "id": 4,
-            "cmd": "clear-history",
-            "surface": adopted_surface,
-            "fallback_key": {
-                "key": "k",
-                "mods": {
-                    "shift": false,
-                    "control": false,
-                    "alt": false,
-                    "super": true,
-                    "caps_lock": false,
-                    "num_lock": false,
-                },
-                "consumed_mods": {
-                    "shift": false,
-                    "control": false,
-                    "alt": false,
-                    "super": false,
-                    "caps_lock": false,
-                    "num_lock": false,
-                },
-                "utf8": "",
-                "unshifted_codepoint": "k",
-                "action": "press",
-                "macos_option_as_alt": true,
-            },
-        }),
+    assert_eq!(unsupported["ok"], false, "legacy host fallback was silently accepted");
+    assert!(
+        unsupported["error"].as_str().unwrap().contains("does not support clear-history"),
+        "unexpected rejection: {unsupported}"
     );
-    assert_eq!(unsupported["ok"], false, "unencodable fallback was silently accepted");
+    std::thread::sleep(Duration::from_millis(100));
+    let screen = request(
+        &harness.socket,
+        serde_json::json!({"id": 4, "cmd": "read-screen", "surface": adopted_surface}),
+    )["text"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(screen.contains("ready"));
+    assert!(!screen.contains("readyz"), "fallback key reached legacy host: {screen:?}");
 
     request(
         &harness.socket,
