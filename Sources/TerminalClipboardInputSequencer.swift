@@ -48,6 +48,11 @@ final class TerminalClipboardInputSequencer<Event, RequestID: Hashable> {
         guard !isReplaying else { return false }
         guard hasRequestInFlight else { return false }
         guard bufferedEventCount < maximumBufferedEvents else {
+            // Key-up and flags-changed events cannot be dropped without
+            // leaving terminal keyboard state stuck, and this synchronous
+            // AppKit callback cannot wait without blocking the UI. At the
+            // emergency bound, fail open by replaying accepted events in FIFO
+            // order before routing the current event normally.
             replayBufferedEvents(
                 replay,
                 whileRequestsAreActive: true
