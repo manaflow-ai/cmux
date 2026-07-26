@@ -3009,6 +3009,7 @@ mod tests {
                     json!({
                         "app": "cmux-tui",
                         "protocol": cmux_tui_core::server::PROTOCOL_VERSION,
+                        "capabilities": ["browser-pointer-frame-guard-v1"],
                     })
                 } else {
                     Value::Null
