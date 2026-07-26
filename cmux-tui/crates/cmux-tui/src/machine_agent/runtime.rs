@@ -1568,6 +1568,59 @@ mod tests {
         }
     }
 
+    struct BlockingLocal {
+        stream: Mutex<Option<DuplexConnection>>,
+        started: (Mutex<bool>, Condvar),
+        released: (Mutex<bool>, Condvar),
+    }
+
+    impl BlockingLocal {
+        fn new(stream: DuplexConnection) -> Arc<Self> {
+            Arc::new(Self {
+                stream: Mutex::new(Some(stream)),
+                started: (Mutex::new(false), Condvar::new()),
+                released: (Mutex::new(false), Condvar::new()),
+            })
+        }
+
+        fn wait_until_started(&self) {
+            let (started, available) = &self.started;
+            let mut started = started.lock().unwrap();
+            while !*started {
+                started = available.wait(started).unwrap();
+            }
+        }
+
+        fn release(&self) {
+            let (released, available) = &self.released;
+            *released.lock().unwrap() = true;
+            available.notify_all();
+        }
+    }
+
+    impl LocalSessionConnector for BlockingLocal {
+        fn verify_protocol(&self) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        fn open(&self) -> io::Result<DuplexConnection> {
+            let (started, available) = &self.started;
+            *started.lock().unwrap() = true;
+            available.notify_all();
+
+            let (released, available) = &self.released;
+            let mut released = released.lock().unwrap();
+            while !*released {
+                released = available.wait(released).unwrap();
+            }
+            self.stream
+                .lock()
+                .unwrap()
+                .take()
+                .ok_or_else(|| io::Error::new(io::ErrorKind::ConnectionRefused, "no fake session"))
+        }
+    }
+
     fn identity() -> MachineIdentity {
         MachineIdentity {
             machine_id: OpaqueId::new("machine-test").unwrap(),
@@ -1875,6 +1928,48 @@ mod tests {
             replay.message,
             Message::Reject(StreamRejected { stream_id: 8, ref code })
                 if code.as_str() == "replay"
+        ));
+        stop.stop();
+        cloud_server.shutdown();
+        agent_thread.join().unwrap();
+    }
+
+    #[test]
+    fn blocked_local_open_does_not_block_cloud_control_frames() {
+        let (cloud, mut cloud_servers) = QueueCloud::new();
+        let mut cloud_server = WirePeer::new(cloud_servers.remove(0));
+        let (local_client, _local_server) = UnixStream::pair().unwrap();
+        let local = BlockingLocal::new(duplex_from_unix_stream(local_client).unwrap());
+        let stop = AtomicStop::new();
+        let agent = MachineAgent::new(
+            identity(),
+            SessionName::new("agents").unwrap(),
+            cloud,
+            local.clone(),
+            Arc::new(TestReporter::default()),
+            Arc::new(TestWait),
+            stop.clone(),
+        );
+        let agent_thread = thread::spawn(move || agent.run().unwrap());
+
+        assert!(matches!(cloud_server.read().message, Message::Hello(_)));
+        cloud_server.write(registered(1, None));
+        cloud_server.write(Message::Open(OpenStream {
+            stream_id: 7,
+            open_id: OpaqueId::new("blocked-open").unwrap(),
+            initial_window: 4,
+        }));
+        local.wait_until_started();
+
+        cloud_server.reader.get_ref().set_read_timeout(Some(Duration::from_millis(500))).unwrap();
+        cloud_server.write(Message::Ping(Heartbeat { nonce: 42 }));
+        assert!(matches!(cloud_server.read().message, Message::Pong(Heartbeat { nonce: 42 })));
+        cloud_server.reader.get_ref().set_read_timeout(None).unwrap();
+
+        local.release();
+        assert!(matches!(
+            cloud_server.read().message,
+            Message::Opened(StreamOpened { stream_id: 7, .. })
         ));
         stop.stop();
         cloud_server.shutdown();

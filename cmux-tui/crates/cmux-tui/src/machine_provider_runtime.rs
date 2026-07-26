@@ -3052,7 +3052,7 @@ mod tests {
     }
 
     #[test]
-    fn ambiguous_external_connect_retry_reuses_mutation_id_after_reconnect() {
+    fn ambiguous_protocol_failure_reuses_external_connect_mutation_id_after_reconnect() {
         let socket = TestProviderSocket::bind();
         let listener = socket.listener();
         let mut catalog = snapshot(1, "Existing", protocol::MachineStatus::Running);
@@ -3072,6 +3072,8 @@ mod tests {
                     panic!("first request was not external connect");
                 };
                 assert_eq!(params.specifier.expose(), "PAIR 4J7K");
+                stream.write_all(b"{\"invalid\":}\n").unwrap();
+                stream.flush().unwrap();
                 params.mutation_id
             };
 
@@ -3108,7 +3110,9 @@ mod tests {
             active_local: None,
             pending_active_local: None,
         };
-        assert!(controller.perform_request(MachineRequest::Connect("PAIR 4J7K".into())).is_err());
+        let first_error =
+            controller.perform_request(MachineRequest::Connect("PAIR 4J7K".into())).unwrap_err();
+        assert!(first_error.to_string().contains("protocol error"));
         let Err(retry_while_disconnected) =
             controller.perform_request(MachineRequest::Connect("PAIR 4J7K".into()))
         else {
