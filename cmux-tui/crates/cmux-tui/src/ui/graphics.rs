@@ -21,7 +21,7 @@ pub struct GraphicPlacement {
     pub data_b64: String,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct GraphicsState {
     session_generation: Option<u64>,
     transmitted: HashMap<SurfaceId, u64>,
@@ -66,6 +66,12 @@ impl GraphicsState {
 
         self.visible = now_visible;
         out
+    }
+
+    pub(crate) fn visible_image_deletions(&self) -> Vec<Vec<u8>> {
+        let mut visible = self.visible.iter().copied().collect::<Vec<_>>();
+        visible.sort_unstable();
+        visible.into_iter().map(delete_image).collect()
     }
 }
 

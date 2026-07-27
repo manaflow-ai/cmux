@@ -613,6 +613,7 @@ where
                     pointer_frame_seq: placement.pointer_frame_seq,
                 })
                 .collect();
+            let acknowledged_graphics = graphics.clone();
             let batches =
                 graphics.frame_batches(submission.session_generation, &submission.placements);
             let fence_id = processing_fence_id(submission.id);
@@ -689,8 +690,16 @@ where
                 processing_fence_waiter.cancel(fence_id);
                 if error.kind() == std::io::ErrorKind::TimedOut {
                     consecutive_fence_timeouts = consecutive_fence_timeouts.saturating_add(1);
-                    graphics = GraphicsState::default();
+                    graphics = acknowledged_graphics;
                     if consecutive_fence_timeouts >= MAX_CONSECUTIVE_GRAPHICS_FENCE_TIMEOUTS {
+                        let cleanup = graphics.visible_image_deletions();
+                        let _guard = stdout_lock.lock();
+                        for deletion in cleanup {
+                            if output.write_all(&deletion).is_err() {
+                                break;
+                            }
+                        }
+                        let _ = output.flush();
                         *completion.lock().unwrap() = Some(GraphicsCompletion::Failed);
                         on_ready();
                         return;
