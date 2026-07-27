@@ -879,6 +879,7 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
 
 fn dequeue_ready_event(state: &mut QueueState) -> Option<PtyInputEvent> {
     let mut ready_index = None;
+    let mut blocked_queued_lanes = HashSet::new();
     for (index, event) in state.events.iter().enumerate() {
         if event.kind == PtyInputKind::Mutation && !event.concurrent_surface_operation {
             if index == 0 && state.in_flight_surface_operations.is_empty() {
@@ -891,12 +892,19 @@ fn dequeue_ready_event(state: &mut QueueState) -> Option<PtyInputEvent> {
         let lane = event
             .ordering_lane()
             .expect("surface input and concurrent operations have an ordering lane");
+        if blocked_queued_lanes.contains(&lane) {
+            continue;
+        }
         if state.in_flight_surface_operations.contains_key(&lane) {
+            blocked_queued_lanes.insert(lane);
             continue;
         }
         if event.concurrent_surface_operation
             && state.in_flight_surface_operations.len() >= MAX_CONCURRENT_SURFACE_OPERATIONS
         {
+            // Worker saturation delays this operation, but it remains the
+            // ordering barrier for later work in the same surface lane.
+            blocked_queued_lanes.insert(lane);
             continue;
         }
         ready_index = Some(index);
