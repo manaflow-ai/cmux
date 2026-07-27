@@ -25,7 +25,7 @@ public final class CmuxRemoteFrameView: NSView {
     public override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
-        layer?.backgroundColor = NSColor.black.cgColor
+        layer?.backgroundColor = NSColor.clear.cgColor
         layer?.masksToBounds = true
     }
 

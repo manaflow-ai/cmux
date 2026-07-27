@@ -107,7 +107,7 @@ final class ApplicationCaptureView: NSView {
         self.onMovedToWindow = onMovedToWindow
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.backgroundColor = NSColor.black.cgColor
+        layer?.backgroundColor = NSColor.clear.cgColor
         addSubview(remoteFrameView)
         remoteFrameView.onFirstFrame = { [weak self] in
             guard let self, self.captureDesired, self.session != nil else { return }

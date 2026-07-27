@@ -3,6 +3,7 @@ import SwiftUI
 struct ApplicationPanelView: View {
     let panel: ApplicationPanel
     let isVisibleInUI: Bool
+    let appearance: PanelAppearance
     let onRequestPanelFocus: () -> Void
 
     var body: some View {
@@ -39,7 +40,11 @@ struct ApplicationPanelView: View {
                 onRequestPanelFocus()
             }
         )
-        .background(Color.black)
+        .background(Color(nsColor: appearance.contentBackgroundColor))
+        .environment(
+            \.colorScheme,
+            cmuxReadableColorScheme(for: appearance.backgroundColor)
+        )
     }
 
     private var captureToolbar: some View {
