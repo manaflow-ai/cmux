@@ -271,25 +271,30 @@ public struct TeamScopedPairedMacStore: MobilePairedMacStoring {
     /// scope before an async revoke; if the user switches teams during that
     /// await, resolving a nil (team-less) captured scope to the live team would
     /// delete the newly-selected team's row instead of the team-less one this
-    /// call was issued against. Forwarding to ``inner`` via `removeExactScope`
-    /// keeps the exact scope through the layers below.
+    /// call was issued against.
+    ///
+    /// Forward the captured scope straight to `inner.removeExactScope`. Do NOT
+    /// re-derive the row's team through ``visibleScope`` / ``visibleMac``: those
+    /// call `inner.loadAll(teamID:)`, which broadens (a nil team returns every
+    /// team's rows; a set team also returns team-less rows) and orders by
+    /// `lastSeenAt` descending, so `.first` can resolve a DIFFERENT team's row
+    /// than the captured scope and delete that instead. `inner.removeExactScope`
+    /// deletes by the exact `(stackUserID, teamID, instanceTag)` owner key, and
+    /// the layers below (``MobileMacCompatiblePairedMacStore``,
+    /// ``IOSBuildScopedPairedMacStore``) do not substitute the team, so the
+    /// captured scope is honored verbatim all the way down. Mirrors
+    /// ``BackingUpPairedMacStore/removeExactScope(macDeviceID:instanceTag:stackUserID:teamID:)``.
     public func removeExactScope(
         macDeviceID: String,
         instanceTag: String?,
         stackUserID: String?,
         teamID: String?
     ) async throws {
-        let scope = try await visibleScope(
+        try await inner.removeExactScope(
             macDeviceID: macDeviceID,
             instanceTag: instanceTag,
             stackUserID: stackUserID,
             teamID: teamID
-        )
-        try await inner.removeExactScope(
-            macDeviceID: macDeviceID,
-            instanceTag: instanceTag,
-            stackUserID: scope.stackUserID,
-            teamID: scope.teamID
         )
     }
 
