@@ -566,7 +566,7 @@ pub struct PtySurface {
     runtime: Mutex<PtyRuntime>,
     /// Local process ownership is separate from PTY writes so shutdown never
     /// waits behind a blocked writer.
-    local_process: Option<Mutex<LocalProcess>>,
+    local_process: Option<Box<LocalProcess>>,
     #[cfg(unix)]
     hosted_shutdown_owner: Option<Box<HostedShutdownOwner>>,
     supports_clear_history_key_fallback: AtomicBool,
@@ -1750,7 +1750,7 @@ impl Surface {
             stream_progress: Box::new(TerminalStreamProgress::default()),
             mouse_encoders: Mutex::new(mouse_encoders),
             runtime: Mutex::new(PtyRuntime::Local { writer, master: pty.master }),
-            local_process: Some(Mutex::new(LocalProcess::Owned(process.clone()))),
+            local_process: Some(Box::new(LocalProcess::Owned(process.clone()))),
             #[cfg(unix)]
             hosted_shutdown_owner: None,
             supports_clear_history_key_fallback: AtomicBool::new(
@@ -2525,7 +2525,7 @@ impl Surface {
                     }),
                 }),
             }),
-            local_process: Some(Mutex::new(LocalProcess::untracked(Box::new(TestChildKiller)))),
+            local_process: Some(Box::new(LocalProcess::untracked(Box::new(TestChildKiller)))),
             #[cfg(unix)]
             hosted_shutdown_owner: None,
             supports_clear_history_key_fallback: AtomicBool::new(false),
@@ -2560,8 +2560,7 @@ impl Surface {
     pub(crate) fn set_server_shutdown_failure_for_test(&self, fail: bool) {
         let Self::Pty(pty) = self else { return };
         let Some(process) = &pty.local_process else { return };
-        let process = process.lock().unwrap();
-        let LocalProcess::Untracked(killer) = &*process else { return };
+        let LocalProcess::Untracked(killer) = process.as_ref() else { return };
         *killer.lock().unwrap() =
             if fail { Box::new(TestFailingChildKiller) } else { Box::new(TestChildKiller) };
     }
@@ -2570,8 +2569,7 @@ impl Surface {
     pub(crate) fn set_server_shutdown_delay_for_test(&self, delay: Duration) {
         let Self::Pty(pty) = self else { return };
         let Some(process) = &pty.local_process else { return };
-        let process = process.lock().unwrap();
-        let LocalProcess::Untracked(killer) = &*process else { return };
+        let LocalProcess::Untracked(killer) = process.as_ref() else { return };
         *killer.lock().unwrap() = Box::new(TestSlowFailingChildKiller(delay));
     }
 
@@ -2583,8 +2581,9 @@ impl Surface {
         let attempts = Arc::new(AtomicUsize::new(0));
         let Self::Pty(pty) = self else { return (failing, attempts) };
         let Some(process) = &pty.local_process else { return (failing, attempts) };
-        let process = process.lock().unwrap();
-        let LocalProcess::Untracked(killer) = &*process else { return (failing, attempts) };
+        let LocalProcess::Untracked(killer) = process.as_ref() else {
+            return (failing, attempts);
+        };
         *killer.lock().unwrap() = Box::new(TestRecoveringChildKiller {
             failing: failing.clone(),
             attempts: attempts.clone(),
@@ -3270,7 +3269,7 @@ impl Surface {
         match self {
             Surface::Pty(pty) => {
                 if let Some(process) = &pty.local_process {
-                    return process.lock().unwrap().request_hangup();
+                    return process.request_hangup();
                 }
                 let mut runtime = pty.runtime.lock().unwrap();
                 match &mut *runtime {
@@ -3325,7 +3324,7 @@ impl Surface {
             Surface::Pty(pty) => {
                 if let Some(process) = &pty.local_process {
                     return Some(SurfaceShutdownOwner {
-                        kind: SurfaceShutdownOwnerKind::Local(process.lock().unwrap().clone()),
+                        kind: SurfaceShutdownOwnerKind::Local(process.as_ref().clone()),
                     });
                 }
                 #[cfg(unix)]
@@ -4047,11 +4046,10 @@ mod tests {
             ..SurfaceOptions::default()
         };
         let surface = Surface::spawn(1, options, Arc::downgrade(&mux)).unwrap();
-        let process =
-            match &*surface.as_pty().unwrap().local_process.as_ref().unwrap().lock().unwrap() {
-                LocalProcess::Owned(process) => process.clone(),
-                LocalProcess::Untracked(_) => unreachable!("real PTY process must be tracked"),
-            };
+        let process = match surface.as_pty().unwrap().local_process.as_deref().unwrap() {
+            LocalProcess::Owned(process) => process.clone(),
+            LocalProcess::Untracked(_) => unreachable!("real PTY process must be tracked"),
+        };
         let start_deadline = Instant::now() + Duration::from_secs(1);
         while !pid_path.exists() && Instant::now() < start_deadline {
             std::thread::sleep(Duration::from_millis(10));
@@ -4116,11 +4114,10 @@ mod tests {
             ..SurfaceOptions::default()
         };
         let surface = Surface::spawn(1, options, Arc::downgrade(&mux)).unwrap();
-        let process =
-            match &*surface.as_pty().unwrap().local_process.as_ref().unwrap().lock().unwrap() {
-                LocalProcess::Owned(process) => process.clone(),
-                LocalProcess::Untracked(_) => unreachable!("real PTY process must be tracked"),
-            };
+        let process = match surface.as_pty().unwrap().local_process.as_deref().unwrap() {
+            LocalProcess::Owned(process) => process.clone(),
+            LocalProcess::Untracked(_) => unreachable!("real PTY process must be tracked"),
+        };
         process.normal_cleanup_failures.store(1, Ordering::Release);
         std::fs::write(&release_path, b"ready").unwrap();
 
@@ -4169,11 +4166,10 @@ mod tests {
                 Arc::downgrade(&mux),
             )
             .unwrap();
-            let process =
-                match &*surface.as_pty().unwrap().local_process.as_ref().unwrap().lock().unwrap() {
-                    LocalProcess::Owned(process) => process.clone(),
-                    LocalProcess::Untracked(_) => unreachable!("real PTY process must be tracked"),
-                };
+            let process = match surface.as_pty().unwrap().local_process.as_deref().unwrap() {
+                LocalProcess::Owned(process) => process.clone(),
+                LocalProcess::Untracked(_) => unreachable!("real PTY process must be tracked"),
+            };
             process.normal_cleanup_failures.store(usize::MAX, Ordering::Release);
             surfaces.push(surface);
             processes.push(process);
@@ -4226,11 +4222,10 @@ mod tests {
             ..SurfaceOptions::default()
         };
         let surface = Surface::spawn(1, options, Arc::downgrade(&mux)).unwrap();
-        let process =
-            match &*surface.as_pty().unwrap().local_process.as_ref().unwrap().lock().unwrap() {
-                LocalProcess::Owned(process) => process.clone(),
-                LocalProcess::Untracked(_) => unreachable!("real PTY process must be tracked"),
-            };
+        let process = match surface.as_pty().unwrap().local_process.as_deref().unwrap() {
+            LocalProcess::Owned(process) => process.clone(),
+            LocalProcess::Untracked(_) => unreachable!("real PTY process must be tracked"),
+        };
         process.normal_cleanup_delay_ms.store(300, Ordering::Release);
         std::fs::write(&release_path, b"ready").unwrap();
         let sweep_deadline = Instant::now() + Duration::from_secs(1);
