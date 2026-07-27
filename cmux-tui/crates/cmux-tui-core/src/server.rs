@@ -5605,6 +5605,43 @@ mod tests {
     }
 
     #[test]
+    fn guarded_browser_attach_rejects_a_late_capability_upgrade() {
+        let mux = test_mux();
+        let writer = test_writer();
+        let surface = mux.new_browser_tab("about:blank".to_string(), None, Some((80, 24))).unwrap();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        assert_eq!(
+            mux.control_clients.browser_pointer_owner(client).unwrap(),
+            BrowserPointerOwner::Legacy
+        );
+        assert!(handle_message(
+            &mux,
+            client,
+            &json!({
+                "id": 1,
+                "cmd": "set-client-info",
+                "capabilities": [GUARDED_BROWSER_POINTER_CAPABILITY],
+            })
+            .to_string(),
+            &writer,
+        ));
+
+        let attach = handle_command(
+            &mux,
+            client,
+            Command::AttachSurface { surface: surface.id, mode: None, cols: None, rows: None },
+            &writer,
+        );
+        mux.shutdown();
+
+        let error = attach.expect_err("a legacy pointer owner must not gain a guarded attach");
+        assert!(
+            error.to_string().contains(GUARDED_BROWSER_POINTER_CAPABILITY),
+            "late capability upgrade must return the guarded-pointer admission error: {error:#}"
+        );
+    }
+
+    #[test]
     fn split_ids_serialize_stably_and_both_ratio_commands_work() {
         let mux = test_mux();
         let first = mux.new_workspace(None, None).unwrap();
