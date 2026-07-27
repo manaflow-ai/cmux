@@ -1706,6 +1706,41 @@ mod tests {
     }
 
     #[test]
+    fn saturated_worker_cap_preserves_the_queued_surface_barrier() {
+        let mut state = QueueState::default();
+        for surface in 1..=MAX_CONCURRENT_SURFACE_OPERATIONS as u64 {
+            state.in_flight_surface_operations.insert(lane(surface), 0);
+        }
+        state.events.push_back(PtyInputEvent::mutation_for_surface(
+            "queued clear history",
+            PtyMutationIdentity {
+                failure_surface_id: Some(100),
+                concurrent_surface_operation: true,
+                ..Default::default()
+            },
+            false,
+            None,
+            None,
+            || Ok(()),
+        ));
+        state.events.push_back(event(100, 1, PtyInputKind::Ordered));
+        state.events.push_back(event(101, 2, PtyInputKind::Ordered));
+        state.queued_bytes = state.events.iter().map(PtyInputEvent::queued_byte_len).sum();
+
+        let ready = dequeue_ready_event(&mut state).unwrap();
+
+        assert_eq!(
+            ready.ordering_lane(),
+            Some(lane(101)),
+            "same-surface input overtook the clear blocked on worker capacity"
+        );
+        assert_eq!(
+            state.events.iter().map(PtyInputEvent::ordering_lane).collect::<Vec<_>>(),
+            vec![Some(lane(100)), Some(lane(100))]
+        );
+    }
+
+    #[test]
     fn in_flight_surface_operation_counts_against_byte_budget() {
         let dispatcher = PtyInputDispatcher::spawn(|_| {}).unwrap();
         let sender = dispatcher.sender();
