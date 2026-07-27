@@ -58,6 +58,21 @@ def wait_for_payload_text(path: Path, expected_count: int, timeout: float = 5.0)
     return "\n---\n".join(file.read_text(encoding="utf-8") for file in sorted_files())
 
 
+def release_fifo(path: Path) -> bool:
+    try:
+        # A nonblocking open fails instead of hanging when the FIFO has no reader.
+        descriptor = os.open(path, os.O_WRONLY | os.O_NONBLOCK)
+    except OSError:
+        return False
+    try:
+        os.write(descriptor, b"release")
+        return True
+    except OSError:
+        return False
+    finally:
+        os.close(descriptor)
+
+
 def communicate_or_kill(process: subprocess.Popen[str], timeout: float) -> tuple[str, str, bool]:
     try:
         stdout, stderr = process.communicate(timeout=timeout)
@@ -401,14 +416,18 @@ await Bun.write(process.env.CMUX_TEST_PI_NONBLOCKING_SHUTDOWN_FINISHED, "finishe
         shutdown_finished_before_release = nonblocking_shutdown_finished.exists()
         pre_release_args = fake_args_log.read_text(encoding="utf-8").splitlines()
         if event_overtook_prompt or shutdown_finished_before_release or pre_release_args != ["hooks pi prompt-submit"]:
-            nonblocking_release.write_text("release", encoding="utf-8")
+            release_fifo(nonblocking_release)
             nonblocking_check.kill()
             stdout, stderr = nonblocking_check.communicate(timeout=5)
             print(f"FAIL: Pi events overtook the blocked prompt hook: {pre_release_args!r}")
             print(f"stdout={stdout.strip()}")
             print(f"stderr={stderr.strip()}")
             return 1
-        nonblocking_release.write_text("release", encoding="utf-8")
+        if not release_fifo(nonblocking_release):
+            nonblocking_check.kill()
+            nonblocking_check.communicate(timeout=5)
+            print("FAIL: blocking Pi prompt hook had no FIFO reader")
+            return 1
         stdout, stderr, nonblocking_timed_out = communicate_or_kill(nonblocking_check, timeout=20)
         if nonblocking_timed_out:
             print("FAIL: nonblocking Pi prompt check timed out")
@@ -502,12 +521,16 @@ while (!(await Bun.file(process.env.CMUX_TEST_PI_QUEUE_SECOND_STARTED).exists())
             print(f"FAIL: first queued Pi prompt hook did not start: {stderr.strip()}")
             return 1
         if queue_second_started.exists():
-            queue_release.write_text("release", encoding="utf-8")
+            release_fifo(queue_release)
             queue_check.kill()
             queue_check.communicate(timeout=5)
             print("FAIL: second Pi prompt hook overtook the first hook")
             return 1
-        queue_release.write_text("release", encoding="utf-8")
+        if not release_fifo(queue_release):
+            queue_check.kill()
+            queue_check.communicate(timeout=5)
+            print("FAIL: queued Pi prompt hook had no FIFO reader")
+            return 1
         stdout, stderr, queue_timed_out = communicate_or_kill(queue_check, timeout=20)
         if queue_timed_out:
             print(f"FAIL: queued Pi prompt check timed out: {stderr.strip()}")
