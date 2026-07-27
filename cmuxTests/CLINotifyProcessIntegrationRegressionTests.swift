@@ -3409,6 +3409,15 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         try owner.run()
 
         let stderrPipe = Pipe()
+        let stderrData = LockedBox<Data>()
+        stderrData.set(Data())
+        stderrPipe.fileHandleForReading.readabilityHandler = { handle in
+            let chunk = handle.availableData
+            guard !chunk.isEmpty else { return }
+            var accumulated = stderrData.get() ?? Data()
+            accumulated.append(chunk)
+            stderrData.set(accumulated)
+        }
         let watcher = Process()
         watcher.executableURL = URL(fileURLWithPath: context.cliPath)
         watcher.arguments = [
@@ -3440,6 +3449,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         watcher.standardError = stderrPipe
         try watcher.run()
         defer {
+            stderrPipe.fileHandleForReading.readabilityHandler = nil
             if watcher.isRunning {
                 watcher.terminate()
                 watcher.waitUntilExit()
@@ -3455,14 +3465,18 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         }
         XCTAssertTrue(repeatedCursorObserved, "Watcher must detect a repeated pagination cursor")
 
+        let localizedErrorObserved = waitForCondition(timeout: 5) {
+            String(decoding: stderrData.get() ?? Data(), as: UTF8.self)
+                .contains("Codex app-server が読み込み済みスレッドのカーソルを繰り返しました。")
+        }
+        XCTAssertTrue(localizedErrorObserved)
+
         if watcher.isRunning {
             watcher.terminate()
             watcher.waitUntilExit()
         }
-        let stderr = String(
-            decoding: stderrPipe.fileHandleForReading.readDataToEndOfFile(),
-            as: UTF8.self
-        )
+        stderrPipe.fileHandleForReading.readabilityHandler = nil
+        let stderr = String(decoding: stderrData.get() ?? Data(), as: UTF8.self)
         XCTAssertTrue(
             stderr.contains("Codex app-server が読み込み済みスレッドのカーソルを繰り返しました。"),
             stderr
