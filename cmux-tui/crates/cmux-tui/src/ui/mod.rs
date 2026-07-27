@@ -33,12 +33,12 @@ pub(crate) use scrollbar::{
 pub fn draw(app: &mut App, frame: &mut Frame) {
     app.reset_frame_cursor_spec();
     let area = frame.area();
+    if area.height == 0 {
+        return;
+    }
     let frame_size = (area.width, area.height);
     if app.frame_layout_size != Some(frame_size) {
         app.sync_layout(frame_size);
-    }
-    if area.height == 0 {
-        return;
     }
     if app.shortcut_help.is_some() && (area.width < 24 || area.height < 7) {
         app.shortcut_help = None;
