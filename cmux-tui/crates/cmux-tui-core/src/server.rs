@@ -4345,14 +4345,19 @@ fn handle_command(
                 _ => anyhow::bail!("attach-surface cols and rows must be supplied together"),
             };
             let surface = get_surface(mux, surface_id)?;
-            if surface.kind() == SurfaceKind::Browser
-                && !mux
+            if surface.kind() == SurfaceKind::Browser {
+                let guarded_owner = mux
                     .control_clients
                     .supports_capability(client, GUARDED_BROWSER_POINTER_CAPABILITY)
-            {
-                anyhow::bail!(
-                    "browser attach requires client capability {GUARDED_BROWSER_POINTER_CAPABILITY}; upgrade or restart the cmux-tui client"
-                );
+                    && mux.control_clients.browser_pointer_owner(client)?
+                        == BrowserPointerOwner::Client(client);
+                if !guarded_owner {
+                    anyhow::bail!(
+                        "browser attach requires client capability \
+                         {GUARDED_BROWSER_POINTER_CAPABILITY} before the first browser pointer \
+                         command; upgrade or restart the cmux-tui client"
+                    );
+                }
             }
             let lifecycle = AttachLifecycle::default();
             let outbound_stream = writer.start_stream(&attach_overflow_json(surface_id))?;
