@@ -400,4 +400,58 @@ struct TerminalKeyboardCopyModeCursorPackageTests {
         #expect(move.cursor == TerminalKeyboardCopyModeCursor(row: 19, column: 4))
         #expect(move.scrollDelta == 1)
     }
+
+    @Test func visualSelectionStartsAsExactlyOneCell() {
+        let cell = TerminalKeyboardCopyModeVisualSelection.Cell(screenRow: 8, column: 7)
+        let selection = TerminalKeyboardCopyModeVisualSelection(anchor: cell, endpoint: cell)
+
+        #expect(
+            selection.visibleSegments(
+                scrollOffset: 0,
+                viewportRows: 20,
+                viewportColumns: 40
+            ) == [
+                .init(viewportRow: 8, startColumn: 7, endColumn: 7)
+            ]
+        )
+    }
+
+    @Test func reverseVisualSelectionNormalizesVisibleSegments() {
+        let selection = TerminalKeyboardCopyModeVisualSelection(
+            anchor: .init(screenRow: 12, column: 4),
+            endpoint: .init(screenRow: 10, column: 6)
+        )
+
+        #expect(
+            selection.visibleSegments(
+                scrollOffset: 10,
+                viewportRows: 10,
+                viewportColumns: 8
+            ) == [
+                .init(viewportRow: 0, startColumn: 6, endColumn: 7),
+                .init(viewportRow: 1, startColumn: 0, endColumn: 7),
+                .init(viewportRow: 2, startColumn: 0, endColumn: 4),
+            ]
+        )
+    }
+
+    @Test func visualSelectionMovementOwnsItsAbsoluteEndpoint() {
+        var selection = TerminalKeyboardCopyModeVisualSelection(
+            anchor: .init(screenRow: 19, column: 3),
+            endpoint: .init(screenRow: 19, column: 3)
+        )
+
+        let move = selection.moveEndpoint(
+            .down,
+            count: 1,
+            viewportRows: 10,
+            viewportColumns: 8,
+            scrollOffset: 10,
+            totalRows: 100
+        )
+
+        #expect(selection.endpoint == .init(screenRow: 20, column: 3))
+        #expect(move.scrollDelta == 1)
+        #expect(move.cursor == TerminalKeyboardCopyModeCursor(row: 9, column: 3))
+    }
 }

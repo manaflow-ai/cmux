@@ -7271,6 +7271,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
 #if DEBUG
+    struct DebugKeyboardCopyModeCursorOverlayState {
+        let backgroundAlpha: CGFloat
+        let borderWidth: CGFloat
+    }
+
+    func debugKeyboardCopyModeCursorOverlayState() -> DebugKeyboardCopyModeCursorOverlayState {
+        DebugKeyboardCopyModeCursorOverlayState(
+            backgroundAlpha: keyboardCopyModeCursorOverlayView.layer?.backgroundColor
+                .flatMap { NSColor(cgColor: $0)?.alphaComponent } ?? 0,
+            borderWidth: keyboardCopyModeCursorOverlayView.layer?.borderWidth ?? 0
+        )
+    }
+
     func debugHasPendingLeftMouseReleaseForTesting() -> Bool {
         hasPendingLeftMouseRelease
     }
