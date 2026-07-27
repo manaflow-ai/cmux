@@ -62,8 +62,6 @@ sha2 = "0.10"
 zeroize = "1.9"
 subtle = "2.6.1"
 parking_lot = "0.12"
-hickory-resolver = { version = "0.26.1", default-features = false, features = ["system-config", "tokio"] }
-tokio = { version = "1.47.1", features = ["net", "rt-multi-thread", "sync", "time"] }
 
 [patch.crates-io]
 # Crossterm 0.29 discards Kitty's shifted key, base-layout key, and associated
