@@ -42,6 +42,8 @@ type TerminalAdoptionSurfaceFactory =
     Arc<dyn Fn(SurfaceId) -> anyhow::Result<Arc<Surface>> + Send + Sync>;
 #[cfg(test)]
 type NewPaneAfterSpawnHook = Arc<dyn Fn(Arc<Surface>) + Send + Sync>;
+#[cfg(test)]
+type BrowserTabAfterSpawnHook = Arc<dyn Fn(Arc<Surface>) + Send + Sync>;
 
 const TERMINAL_DIMENSION_MAX: u16 = 10_000;
 const WORKSPACE_REGISTRY_LIMIT: usize = 4_096;
@@ -1513,6 +1515,8 @@ pub struct Mux {
     #[cfg(test)]
     new_pane_after_spawn: Mutex<Option<NewPaneAfterSpawnHook>>,
     #[cfg(test)]
+    browser_tab_after_spawn: Mutex<Option<BrowserTabAfterSpawnHook>>,
+    #[cfg(test)]
     terminal_adoption_after_attach: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(all(test, unix))]
     terminal_adoption_surface_factory: Mutex<Option<TerminalAdoptionSurfaceFactory>>,
@@ -1761,6 +1765,8 @@ impl Mux {
             terminal_create_after_workspace_reservation: Mutex::new(None),
             #[cfg(test)]
             new_pane_after_spawn: Mutex::new(None),
+            #[cfg(test)]
+            browser_tab_after_spawn: Mutex::new(None),
             #[cfg(test)]
             terminal_adoption_after_attach: Mutex::new(None),
             #[cfg(all(test, unix))]
@@ -6504,6 +6510,10 @@ impl Mux {
         };
 
         let surface = self.spawn_browser_surface(url, size, None)?;
+        #[cfg(test)]
+        if let Some(hook) = self.browser_tab_after_spawn.lock().unwrap().clone() {
+            hook(surface.clone());
+        }
         let active_at = self.next_active_at();
         let notifications = self.surface_notifications();
         let attached = {
@@ -10424,6 +10434,91 @@ mod tests {
         assert!(browser.is_dead());
         done.recv_timeout(Duration::from_secs(1))
             .expect("browser worker exited after failed attach");
+    }
+
+    #[test]
+    fn failed_browser_tab_attach_retains_its_shutdown_owner() {
+        fn read_ws_json(ws: &mut tungstenite::WebSocket<std::net::TcpStream>) -> Value {
+            loop {
+                match ws.read().unwrap() {
+                    tungstenite::Message::Text(text) => {
+                        return serde_json::from_str(&text).unwrap();
+                    }
+                    tungstenite::Message::Binary(bytes) => {
+                        return serde_json::from_slice(&bytes).unwrap();
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut ws = tungstenite::accept(stream).unwrap();
+            let discover = read_ws_json(&mut ws);
+            assert_eq!(discover["method"], "Target.setDiscoverTargets");
+            ws.send(tungstenite::Message::Text(
+                serde_json::json!({"id": discover["id"], "result": {}}).to_string().into(),
+            ))
+            .unwrap();
+        });
+        let runtime = BrowserRuntime::connect_external_for_test(&format!(
+            "ws://{address}/devtools/browser/fake"
+        ))
+        .unwrap();
+        server.join().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while !runtime.is_closed() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(runtime.is_closed(), "test CDP runtime did not observe disconnect");
+
+        let mux = test_mux();
+        let initial = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(initial.id).unwrap());
+        let (bootstrap_reached_tx, bootstrap_reached_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_bootstrap_tx, release_bootstrap_rx) = std::sync::mpsc::sync_channel(1);
+        let release_bootstrap_rx = Arc::new(Mutex::new(release_bootstrap_rx));
+        *mux.browser_bootstrap_before_runtime.lock().unwrap() = Some(Arc::new({
+            move || {
+                bootstrap_reached_tx.send(()).unwrap();
+                release_bootstrap_rx.lock().unwrap().recv().unwrap();
+            }
+        }));
+        *mux.browser_tab_after_spawn.lock().unwrap() = Some(Arc::new({
+            let mux = mux.clone();
+            let runtime = runtime.clone();
+            move |surface| {
+                surface.as_browser().unwrap().install_shutdown_session_for_test(
+                    runtime.clone(),
+                    "target-race",
+                    "session-race",
+                );
+                mux.state.lock().unwrap().panes.remove(&pane);
+            }
+        }));
+
+        let result = mux.new_browser_tab("about:blank".into(), Some(pane), Some((80, 24)));
+        bootstrap_reached_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        mux.request_daemon_shutdown();
+        release_bootstrap_tx.send(()).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while mux.async_surface_creations.inner.state.lock().unwrap().active != 0
+            && Instant::now() < deadline
+        {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+
+        assert!(result.is_err(), "browser attached after its pane disappeared");
+        assert_eq!(
+            mux.shutdown_owners.len(),
+            1,
+            "failed browser attachment discarded its retryable target owner"
+        );
+        initial.kill();
+        runtime.shutdown();
     }
 
     #[test]

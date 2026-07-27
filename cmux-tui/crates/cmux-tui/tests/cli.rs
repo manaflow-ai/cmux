@@ -359,6 +359,34 @@ fn legacy_server_process_helper() {
             assert!(Instant::now() < deadline, "descendant did not become a zombie");
             std::thread::sleep(Duration::from_millis(10));
         }
+    } else if scenario == "dead-owned-surface" {
+        let mut command = Command::new("/bin/bash");
+        command
+            .args([
+                "--noprofile",
+                "--norc",
+                "-c",
+                concat!(
+                    "trap '' HUP; ",
+                    "(trap '' HUP; while :; do sleep 60; done) & ",
+                    "printf '%s' \"$!\" > \"$CMUX_TUI_TEST_LEGACY_DESCENDANT_PID_FILE\""
+                ),
+            ])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        unsafe {
+            command.pre_exec(|| {
+                if libc::setsid() < 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        let mut direct = command.spawn().unwrap();
+        assert!(direct.wait().unwrap().success());
+        let pid_file =
+            PathBuf::from(std::env::var_os("CMUX_TUI_TEST_LEGACY_DESCENDANT_PID_FILE").unwrap());
+        let _ = wait_for_pid_file(&pid_file, Duration::from_secs(5));
     } else if scenario == "reparent-on-close" {
         let mut command = Command::new("/bin/bash");
         command
@@ -499,6 +527,7 @@ fn legacy_server_process_helper() {
                 | "unowned-surface"
                 | "browser-surface"
                 | "dead-surface"
+                | "dead-owned-surface"
         ));
         let surfaces: &[u64] = match (scenario.as_str(), snapshot_index) {
             ("zombie-child", _) => &[],
@@ -511,7 +540,7 @@ fn legacy_server_process_helper() {
             .map(|surface| {
                 if scenario == "browser-surface" {
                     serde_json::json!({"surface": surface, "kind": "browser"})
-                } else if scenario == "dead-surface" {
+                } else if matches!(scenario.as_str(), "dead-surface" | "dead-owned-surface") {
                     serde_json::json!({"surface": surface, "kind": "pty", "dead": true})
                 } else {
                     serde_json::json!({"surface": surface, "kind": "pty"})
@@ -1087,7 +1116,10 @@ fn packaged_launcher_name_is_used_in_upgrade_instructions() {
     assert_eq!(output.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("cmux server stop"), "{stderr}");
-    assert!(stderr.contains("then run `cmux` again"), "{stderr}");
+    assert!(
+        stderr.contains(&format!("then run `cmux ping --socket {}` again", socket.display())),
+        "{stderr}"
+    );
     server.join().unwrap();
     let _ = fs::remove_file(&socket);
     let _ = fs::remove_dir_all(&dir);
@@ -1470,6 +1502,25 @@ fn server_stop_closes_exited_legacy_placeholders_without_a_pid() {
     assert_success(&output);
     let status = server.child.wait().unwrap();
     assert_eq!(status.signal(), Some(libc::SIGKILL));
+}
+
+#[cfg(unix)]
+#[test]
+fn server_stop_fails_closed_for_a_dead_legacy_surface_with_a_live_session() {
+    let mut server =
+        LegacyServerProcess::start("legacy-server-dead-owned", "dead-owned-surface", None);
+    let descendant_pid = wait_for_pid_file(&server.descendant_pid_file, Duration::from_secs(5));
+
+    let output = Command::new(bin())
+        .args(["server", "stop", "--socket"])
+        .arg(&server.socket)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success(), "live process behind a dead surface was ignored");
+    assert!(server.child.try_wait().unwrap().is_none(), "legacy server was killed on ambiguity");
+    assert!(process_exists(descendant_pid), "ambiguous pane process was killed without ownership");
 }
 
 #[cfg(unix)]

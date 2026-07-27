@@ -1923,6 +1923,25 @@ mod tests {
     }
 
     #[test]
+    fn completed_probe_drains_response_after_closed_peer_rejects_deadline_refresh() {
+        let read_timeouts = Arc::new(Mutex::new(Vec::new()));
+        let stream = ScriptedStream {
+            reads: VecDeque::from([Ok(
+                b"{\"id\":0,\"ok\":true,\"data\":{\"app\":\"cmux-tui\",\"capabilities\":[]}}\n"
+                    .to_vec(),
+            )]),
+            current: io::Cursor::new(Vec::new()),
+            writes: Vec::new(),
+            read_timeouts,
+            fail_read_timeout_call: Some(3),
+        };
+        transport::Stream::set_read_timeout(&stream, Some(Duration::from_millis(250))).unwrap();
+        let mut reader = BufReader::new(Box::new(stream) as Box<dyn transport::Stream>);
+
+        assert_eq!(server_supports_capability(&mut reader, "unused"), Ok(false));
+    }
+
+    #[test]
     fn plugin_verb_is_registered_as_local_with_help() {
         let plugin = verb_by_name("plugin").expect("plugin verb registered");
         assert!(matches!(plugin.kind, VerbKind::Local(_)));

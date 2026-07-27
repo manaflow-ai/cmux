@@ -26,6 +26,8 @@ pub const CDP_EVENT_QUEUE_MAX_BYTES: usize = 32 * 1024 * 1024;
 
 #[cfg(test)]
 static RETAINED_SIZE_CALLS: AtomicU64 = AtomicU64::new(0);
+#[cfg(test)]
+static NEXT_RESOLVE_DELAY_MS: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScreencastFrame {
@@ -354,6 +356,13 @@ impl CdpClient {
             anyhow::bail!("CDP connection deadline expired");
         }
         let endpoint = WsEndpoint::parse(web_socket_url)?;
+        #[cfg(test)]
+        {
+            let delay_ms = NEXT_RESOLVE_DELAY_MS.swap(0, Ordering::AcqRel);
+            if delay_ms != 0 {
+                std::thread::sleep(Duration::from_millis(delay_ms));
+            }
+        }
         let mut addrs = (endpoint.host.as_str(), endpoint.port).to_socket_addrs()?;
         let addr = addrs.next().ok_or_else(|| {
             anyhow::anyhow!("no socket address for {}:{}", endpoint.host, endpoint.port)
@@ -1182,13 +1191,15 @@ mod tests {
     use std::io::{Read, Write};
     use std::net::TcpListener;
     use std::sync::mpsc::sync_channel;
-    use std::sync::{Arc, Barrier};
+    use std::sync::{Arc, Barrier, Mutex};
     use std::thread;
     use std::time::{Duration, Instant};
 
     use tungstenite::{Message, accept};
 
     use super::*;
+
+    static RESOLVE_TEST_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn screencast_frame_rejects_terminal_control_bytes() {
@@ -1421,6 +1432,32 @@ mod tests {
         assert!(
             elapsed < Duration::from_millis(200),
             "WebSocket handshake exceeded its absolute deadline: {elapsed:?}"
+        );
+    }
+
+    #[test]
+    fn websocket_resolution_uses_the_connection_deadline() {
+        let _guard = RESOLVE_TEST_LOCK.lock().unwrap();
+        NEXT_RESOLVE_DELAY_MS.store(300, Ordering::Release);
+        let (events, _receiver) = sync_channel(1);
+
+        let started = Instant::now();
+        let result = CdpClient::connect_with_timeout(
+            "ws://localhost:0/devtools/browser/fake",
+            events,
+            Duration::from_millis(50),
+        );
+        let elapsed = started.elapsed();
+        // A bounded resolver may still be finishing this injected operation
+        // after the caller's deadline. Let it drain before another test can
+        // use the process-wide resolver.
+        thread::sleep(Duration::from_millis(350));
+        NEXT_RESOLVE_DELAY_MS.store(0, Ordering::Release);
+
+        assert!(result.is_err(), "invalid local endpoint unexpectedly connected");
+        assert!(
+            elapsed < Duration::from_millis(200),
+            "hostname resolution exceeded the connection deadline: {elapsed:?}"
         );
     }
 
