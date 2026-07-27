@@ -1547,6 +1547,23 @@ mod tests {
         child.wait().unwrap();
     }
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_binary_does_not_strongly_import_optional_signal_api() {
+        let output = Command::new("/usr/bin/nm")
+            .arg("-u")
+            .arg(std::env::current_exe().unwrap())
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let imports = String::from_utf8(output.stdout).unwrap();
+
+        assert!(
+            !imports.lines().any(|line| line.contains("_proc_signal_with_audittoken")),
+            "an optional post-deployment-target API remained a strong dyld import"
+        );
+    }
+
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     #[test]
     fn session_members_are_never_signaled_through_a_reusable_pid() {

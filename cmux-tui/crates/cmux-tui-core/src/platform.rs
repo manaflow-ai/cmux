@@ -914,6 +914,39 @@ pub mod transport {
             );
         }
 
+        #[cfg(target_os = "macos")]
+        #[test]
+        fn transport_listener_creation_waits_for_the_process_barrier() {
+            use std::sync::mpsc;
+
+            let _serial = SOCKET_CREATED_TEST_LOCK.lock().unwrap();
+            let path = std::path::PathBuf::from("/tmp").join(format!(
+                "cmux-listen-barrier-{}-{}.sock",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            let process_barrier = cmux_tui_process::ProcessCreationGuard::acquire();
+            let (result_sender, result_receiver) = mpsc::sync_channel(1);
+            let creator = std::thread::spawn({
+                let path = path.clone();
+                move || result_sender.send(listen(&path)).unwrap()
+            });
+
+            assert!(
+                result_receiver.recv_timeout(Duration::from_millis(250)).is_err(),
+                "Unix listener creation bypassed the process-wide descriptor barrier"
+            );
+            drop(process_barrier);
+            let listener = result_receiver.recv_timeout(Duration::from_secs(2)).unwrap().unwrap();
+            creator.join().unwrap();
+
+            drop(listener);
+            std::fs::remove_file(path).unwrap();
+        }
+
         #[cfg(target_os = "linux")]
         #[test]
         fn deadline_connect_times_out_while_listener_backlog_is_saturated() {
