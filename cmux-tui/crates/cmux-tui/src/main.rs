@@ -24,6 +24,8 @@ mod plugin_manager;
 mod process_diagnostics;
 #[cfg(target_os = "linux")]
 mod provider_authority;
+#[cfg(unix)]
+mod provider_notice_identity;
 mod pty_input;
 mod session;
 mod sidebar_files;
@@ -1219,8 +1221,13 @@ fn run_provider_machine_client(
     local_machines: Vec<config::MachineConfig>,
     connect_external: bool,
 ) -> anyhow::Result<()> {
-    let mut runtime =
-        ProviderMachineController::connect_with(connector, local_machines, connect_external)?;
+    let state_root = cmux_tui_core::platform::workspace_state_dir();
+    let mut runtime = ProviderMachineController::connect_with(
+        connector,
+        local_machines,
+        connect_external,
+        state_root,
+    )?;
 
     let (session, label, machine_ui) = match runtime.open_selected() {
         Ok(opened) => opened,
