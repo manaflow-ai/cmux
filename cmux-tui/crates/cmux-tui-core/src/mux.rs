@@ -8642,6 +8642,35 @@ mod tests {
     }
 
     #[test]
+    fn closing_kitty_surfaces_rebalances_the_survivors_process_share() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let mut surfaces = vec![first.clone()];
+        for _ in 1..8 {
+            surfaces.push(mux.new_tab(Some(pane), None, Some((80, 24))).unwrap());
+        }
+        let constrained =
+            first.with_terminal(|terminal| terminal.kitty_image_storage_limit().unwrap()).unwrap();
+
+        for surface in surfaces.iter().skip(1) {
+            assert!(mux.close_surface(surface.id).unwrap());
+        }
+
+        let survivor_limit =
+            first.with_terminal(|terminal| terminal.kitty_image_storage_limit().unwrap()).unwrap();
+        let expected = KITTY_IMAGE_PROCESS_BUDGET_BYTES
+            .checked_div(KITTY_IMAGE_PERSISTENT_COPIES_PER_SURFACE)
+            .unwrap()
+            .min(ghostty_vt::MAX_KITTY_IMAGE_BYTES as u64);
+        assert!(
+            survivor_limit > constrained,
+            "surviving terminal kept its peak-surface quota of {survivor_limit} bytes"
+        );
+        assert_eq!(survivor_limit, expected);
+    }
+
+    #[test]
     fn cell_pixel_fanout_runs_concurrently_with_one_shared_deadline() {
         let items = (0..8).collect::<Vec<_>>();
         let active = AtomicUsize::new(0);

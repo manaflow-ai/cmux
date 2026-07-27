@@ -831,9 +831,22 @@ impl TerminalHostReconnectBackoff {
             }
             return false;
         };
+        #[cfg(test)]
+        pty.run_geometry_test_hook(PtyGeometryTestStep::ReconnectBackoffStarted);
         std::thread::sleep(delay);
         true
     }
+}
+
+#[cfg(unix)]
+fn wait_for_reconnect_after_geometry_failure(
+    retry: &mut TerminalHostReconnectBackoff,
+    pty: &PtySurface,
+    geometry: std::sync::MutexGuard<'_, PtyGeometry>,
+) -> bool {
+    let retrying = retry.wait_or_fail(pty);
+    drop(geometry);
+    retrying
 }
 
 impl SurfaceKind {
@@ -2240,7 +2253,8 @@ impl Surface {
                             scrollback,
                             callbacks,
                         ) else {
-                            if !retry.wait_or_fail(pty) {
+                            if !wait_for_reconnect_after_geometry_failure(&mut retry, pty, geometry)
+                            {
                                 return;
                             }
                             continue;
@@ -2251,7 +2265,8 @@ impl Surface {
                             )
                             .is_err()
                         {
-                            if !retry.wait_or_fail(pty) {
+                            if !wait_for_reconnect_after_geometry_failure(&mut retry, pty, geometry)
+                            {
                                 return;
                             }
                             continue;
@@ -2265,7 +2280,8 @@ impl Surface {
                             )
                             .is_err()
                         {
-                            if !retry.wait_or_fail(pty) {
+                            if !wait_for_reconnect_after_geometry_failure(&mut retry, pty, geometry)
+                            {
                                 return;
                             }
                             continue;
@@ -2282,7 +2298,8 @@ impl Surface {
                             .restore_kitty_image_aliases(&replacement_snapshot.kitty_image_aliases)
                             .is_err()
                         {
-                            if !retry.wait_or_fail(pty) {
+                            if !wait_for_reconnect_after_geometry_failure(&mut retry, pty, geometry)
+                            {
                                 return;
                             }
                             continue;
@@ -3965,6 +3982,7 @@ enum PtyGeometryTestStep {
     ResizeCommitBoundary,
     CellPixelStarted,
     CellPixelCommitBoundary,
+    ReconnectBackoffStarted,
 }
 
 fn terminal_color_override_full_state(next: &TerminalColorOverrides) -> Vec<u8> {
@@ -4878,6 +4896,53 @@ mod tests {
         );
         assert!(delays[7..].iter().all(|delay| *delay == Duration::from_secs(1)));
         assert_eq!(backoff.next_delay(), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hosted_reconnect_backoff_releases_geometry_before_waiting() {
+        let mux = Mux::new_for_test("reconnect-geometry-release", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let pty = surface.as_pty().unwrap();
+        let (backoff_started_tx, backoff_started_rx) = std::sync::mpsc::channel();
+        let (release_backoff_tx, release_backoff_rx) = std::sync::mpsc::channel();
+        let release_backoff_rx = Arc::new(Mutex::new(release_backoff_rx));
+        *pty.geometry_test_hook.lock().unwrap() = Some(Arc::new({
+            let release_backoff_rx = release_backoff_rx.clone();
+            move |step| {
+                if step == PtyGeometryTestStep::ReconnectBackoffStarted {
+                    backoff_started_tx.send(()).unwrap();
+                    release_backoff_rx.lock().unwrap().recv().unwrap();
+                }
+            }
+        }));
+
+        let reconnect_surface = surface.clone();
+        let reconnect = std::thread::spawn(move || {
+            let pty = reconnect_surface.as_pty().unwrap();
+            let geometry = pty.geometry.lock().unwrap();
+            let mut retry = TerminalHostReconnectBackoff::default();
+            wait_for_reconnect_after_geometry_failure(&mut retry, pty, geometry)
+        });
+        backoff_started_rx.recv().unwrap();
+
+        let probing_surface = surface.clone();
+        let (geometry_acquired_tx, geometry_acquired_rx) = std::sync::mpsc::channel();
+        let geometry_probe = std::thread::spawn(move || {
+            let size = probing_surface.test_cell_pixel_size();
+            geometry_acquired_tx.send(size).unwrap();
+        });
+        let geometry_released_before_backoff =
+            geometry_acquired_rx.recv_timeout(Duration::from_millis(100)).is_ok();
+
+        release_backoff_tx.send(()).unwrap();
+        assert!(reconnect.join().unwrap());
+        geometry_probe.join().unwrap();
+        assert!(
+            geometry_released_before_backoff,
+            "host reconnect backoff held the geometry transaction lock"
+        );
     }
 
     #[test]
