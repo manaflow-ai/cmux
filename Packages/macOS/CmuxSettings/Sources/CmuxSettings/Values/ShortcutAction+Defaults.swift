@@ -112,6 +112,18 @@ extension ShortcutAction {
         case .prevSurface: return ShortcutStroke(key: "[", command: true, shift: true)
         case .moveSurfaceLeft: return ShortcutStroke(key: "[", command: true, shift: true, option: true)
         case .moveSurfaceRight: return ShortcutStroke(key: "]", command: true, shift: true, option: true)
+        case .moveSurfaceToPreviousPane:
+            return ShortcutStroke(key: "[", command: true, shift: true, control: true)
+        case .moveSurfaceToNextPane:
+            return ShortcutStroke(key: "]", command: true, shift: true, control: true)
+        case .moveSurfaceToPaneLeft:
+            return ShortcutStroke(key: "←", command: true, shift: true, option: true)
+        case .moveSurfaceToPaneRight:
+            return ShortcutStroke(key: "→", command: true, shift: true, option: true)
+        case .moveSurfaceToPaneUp:
+            return ShortcutStroke(key: "↑", command: true, shift: true, option: true)
+        case .moveSurfaceToPaneDown:
+            return ShortcutStroke(key: "↓", command: true, shift: true, option: true)
         case .selectSurfaceByNumber: return ShortcutStroke(key: "1", control: true)
         case .selectWorkspaceByNumber: return ShortcutStroke(key: "1", command: true)
         case .moveWorkspaceUp: return ShortcutStroke(key: "[", command: true, option: true, control: true)
@@ -149,6 +161,7 @@ extension ShortcutAction {
         case .toggleBrowserDeveloperTools: return ShortcutStroke(key: "i", command: true, option: true)
         case .showBrowserJavaScriptConsole: return ShortcutStroke(key: "c", command: true, option: true)
         case .toggleBrowserFocusMode: return ShortcutStroke(key: "\r", command: true, option: true)
+        case .toggleBrowserDesignMode: return ShortcutStroke(key: "d", command: true, option: true, control: true)
         case .toggleReactGrab: return ShortcutStroke(key: "g", command: true, shift: true)
         case .diffViewerScrollDown: return ShortcutStroke(key: "j")
         case .diffViewerScrollUp: return ShortcutStroke(key: "k")

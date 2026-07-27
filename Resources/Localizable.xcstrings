@@ -22001,6 +22001,57 @@
         }
       }
     },
+    "browser.designMode.handoff.contextJSON": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Details: %1$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "詳細: %1$@"
+          }
+        }
+      }
+    },
+    "browser.designMode.handoff.contextOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Design-mode context for the selected page elements."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択したページ要素のデザインモードコンテキストです。"
+          }
+        }
+      }
+    },
+    "browser.designMode.handoff.pageURL": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Page: %1$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ページ: %1$@"
+          }
+        }
+      }
+    },
     "browser.designMode.mode.draw": {
       "extractionState": "manual",
       "localizations": {
@@ -63799,6 +63850,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "おやすみモード"
+          }
+        }
+      }
+    },
+    "command.surfaceNavigation.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface Navigation"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスナビゲーション"
           }
         }
       }
@@ -202932,13 +203000,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Move Surface Left"
+            "value": "Reorder Surface Left"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サーフェスを左へ移動"
+            "value": "サーフェスを左へ並べ替え"
           }
         }
       }
@@ -202949,13 +203017,115 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Move Surface Right"
+            "value": "Reorder Surface Right"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サーフェスを右へ移動"
+            "value": "サーフェスを右へ並べ替え"
+          }
+        }
+      }
+    },
+    "shortcut.moveSurfaceToNextPane.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move Surface to Next Pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスを次のペインへ移動"
+          }
+        }
+      }
+    },
+    "shortcut.moveSurfaceToPaneDown.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move Surface to Pane Below"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスを下のペインへ移動"
+          }
+        }
+      }
+    },
+    "shortcut.moveSurfaceToPaneLeft.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move Surface to Pane on Left"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスを左のペインへ移動"
+          }
+        }
+      }
+    },
+    "shortcut.moveSurfaceToPaneRight.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move Surface to Pane on Right"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスを右のペインへ移動"
+          }
+        }
+      }
+    },
+    "shortcut.moveSurfaceToPaneUp.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move Surface to Pane Above"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスを上のペインへ移動"
+          }
+        }
+      }
+    },
+    "shortcut.moveSurfaceToPreviousPane.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move Surface to Previous Pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスを前のペインへ移動"
           }
         }
       }
