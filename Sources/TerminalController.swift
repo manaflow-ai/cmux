@@ -12204,7 +12204,7 @@ class TerminalController {
             if let uuid = UUID(uuidString: trimmed),
                tab.panels[uuid] != nil {
                 guard tab.surfaceIdFromPanelId(uuid) != nil else { return }
-                tabManager.focusSurface(tabId: tab.id, surfaceId: uuid)
+                controlFocusMainAreaPanel(surfaceOrPanelID: uuid, in: tab, tabManager: tabManager)
                 success = true
                 return
             }
@@ -12213,7 +12213,11 @@ class TerminalController {
                 let panels = orderedPanels(in: tab)
                 guard index < panels.count else { return }
                 guard tab.surfaceIdFromPanelId(panels[index].id) != nil else { return }
-                tabManager.focusSurface(tabId: tab.id, surfaceId: panels[index].id)
+                controlFocusMainAreaPanel(
+                    surfaceOrPanelID: panels[index].id,
+                    in: tab,
+                    tabManager: tabManager
+                )
                 success = true
             }
         }

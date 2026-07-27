@@ -47,7 +47,11 @@ extension TerminalController {
         // The wrapper is the mirror's real Bonsplit tab. Selecting it makes the
         // projected TerminalPanelView visible; mirror.activePaneId drives which
         // inner hosted view receives its `isFocused` responder state.
-        workspace.focusPanel(location.containerPanelID)
+        controlFocusMainAreaPanel(
+            surfaceOrPanelID: location.containerPanelID,
+            in: workspace,
+            tabManager: tabManager
+        )
         return true
     }
 

@@ -98,7 +98,7 @@ extension TerminalController {
               tab.surfaceIdFromPanelId(panelID) != nil else {
             return false
         }
-        tabManager.focusSurface(tabId: tab.id, surfaceId: panelID)
+        controlFocusMainAreaPanel(surfaceOrPanelID: panelID, in: tab, tabManager: tabManager)
         return true
     }
 
