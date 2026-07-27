@@ -7010,6 +7010,40 @@ mod tests {
     }
 
     #[test]
+    fn queued_same_document_navigation_survives_a_later_screencast_epoch() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        browser.store_frame(test_frame(1));
+        let same_document_epoch = browser.frame_epoch.advance_same_document();
+
+        let queued = browser.reserve_reconfigure(11, 5).expect("changed geometry");
+        browser.begin_reconfigure_frame_transition();
+        let restart_epoch = browser.frame_epoch.advance();
+        browser.confirm_reconfigure(queued, restart_epoch);
+        assert!(browser.store_frame_for_epoch(test_frame(2), restart_epoch));
+
+        handle_same_document_navigated(
+            browser,
+            &json!({
+                "frameId": "main-frame",
+                "url": "https://example.test/#queued"
+            }),
+            same_document_epoch,
+        )
+        .expect("same-document URL");
+
+        assert!(
+            browser.needs_same_document_paint(),
+            "a later screencast restart must not discard the queued navigation barrier"
+        );
+        assert_eq!(
+            browser.latest_frame_seq(),
+            None,
+            "pixels captured after the restart but before navigation handling are not authoritative"
+        );
+    }
+
+    #[test]
     fn ordinary_repaint_rotates_pointer_authority_without_revoking_capture() {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
