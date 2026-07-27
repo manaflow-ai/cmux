@@ -398,8 +398,7 @@ impl<'de> Deserialize<'de> for LayoutUndoResult {
             confirmation_required: bool,
             screen: u64,
             revision: u64,
-            #[serde(default)]
-            closes_panes: Vec<u64>,
+            closes_panes: Option<Vec<u64>>,
         }
 
         let wire = Wire::deserialize(deserializer)?;
@@ -408,7 +407,11 @@ impl<'de> Deserialize<'de> for LayoutUndoResult {
             (false, true) => Ok(Self::ConfirmationRequired {
                 screen: wire.screen,
                 revision: wire.revision,
-                closes_panes: wire.closes_panes,
+                closes_panes: wire.closes_panes.ok_or_else(|| {
+                    serde::de::Error::custom(
+                        "layout undo confirmation closes_panes must be an array of pane IDs",
+                    )
+                })?,
             }),
             _ => Err(serde::de::Error::custom("layout undo response has no unique outcome")),
         }

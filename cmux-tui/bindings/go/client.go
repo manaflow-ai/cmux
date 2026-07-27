@@ -546,11 +546,11 @@ func (c *Client) UndoLayout(ctx context.Context, pane uint64, confirmationRevisi
 		params["confirm_close"] = true
 	}
 	var wire struct {
-		Undone               bool     `json:"undone"`
-		ConfirmationRequired bool     `json:"confirmation_required"`
-		Screen               uint64   `json:"screen"`
-		Revision             uint64   `json:"revision"`
-		ClosesPanes          []uint64 `json:"closes_panes"`
+		Undone               bool      `json:"undone"`
+		ConfirmationRequired bool      `json:"confirmation_required"`
+		Screen               uint64    `json:"screen"`
+		Revision             uint64    `json:"revision"`
+		ClosesPanes          *[]uint64 `json:"closes_panes"`
 	}
 	if err := c.request(ctx, "undo-layout", params, &wire); err != nil {
 		return nil, err
@@ -559,8 +559,13 @@ func (c *Client) UndoLayout(ctx context.Context, pane uint64, confirmationRevisi
 	case wire.Undone && !wire.ConfirmationRequired:
 		return LayoutUndoUndone{Screen: wire.Screen, Revision: wire.Revision}, nil
 	case !wire.Undone && wire.ConfirmationRequired:
+		if wire.ClosesPanes == nil {
+			return nil, &decodeError{
+				msg: "layout undo confirmation closes_panes must be an array of pane IDs",
+			}
+		}
 		return LayoutUndoConfirmationRequired{
-			Screen: wire.Screen, Revision: wire.Revision, ClosesPanes: wire.ClosesPanes,
+			Screen: wire.Screen, Revision: wire.Revision, ClosesPanes: *wire.ClosesPanes,
 		}, nil
 	default:
 		return nil, &decodeError{msg: "layout undo response has no unique outcome"}

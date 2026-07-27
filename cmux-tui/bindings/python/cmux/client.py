@@ -899,10 +899,21 @@ class CmuxClient:
                 screen=int(data["screen"]), revision=int(data["revision"])
             )
         if data.get("confirmation_required") is True:
+            raw_closes_panes = data.get("closes_panes")
+            if not isinstance(raw_closes_panes, list) or any(
+                isinstance(value, bool)
+                or not isinstance(value, int)
+                or value < 0
+                or value > 2**64 - 1
+                for value in raw_closes_panes
+            ):
+                raise ProtocolError(
+                    "layout undo confirmation closes_panes must be an array of pane IDs"
+                )
             return LayoutUndoConfirmationRequired(
                 screen=int(data["screen"]),
                 revision=int(data["revision"]),
-                closes_panes=[int(value) for value in data.get("closes_panes", [])],
+                closes_panes=list(raw_closes_panes),
             )
         raise ProtocolError("layout undo response has no outcome")
 
