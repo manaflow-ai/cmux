@@ -394,6 +394,7 @@ final class CmuxSettingsFileStore {
         var snapshot = ResolvedSettingsSnapshot(path: sourcePath)
 
         parsePaneChromeSettings(root, sourcePath: sourcePath, snapshot: &snapshot)
+        parseTabBarStyleSettings(root, sourcePath: sourcePath, snapshot: &snapshot)
         if let appSection = root["app"] as? [String: Any] {
             parseAppSection(appSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
@@ -454,6 +455,90 @@ final class CmuxSettingsFileStore {
                 continue
             }
             snapshot.managedUserDefaults[key] = .nullableString(value)
+        }
+    }
+
+    /// Applies the top-level surface tab bar style keys (#7458) from `cmux.json`
+    /// into the resolved settings snapshot, mirroring ``parsePaneChromeSettings``.
+    private func parseTabBarStyleSettings(
+        _ root: [String: Any],
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        let colorKeys = [
+            TabBarStyleSettings.activeBackgroundKey,
+            TabBarStyleSettings.activeForegroundKey,
+            TabBarStyleSettings.inactiveBackgroundKey,
+            TabBarStyleSettings.inactiveForegroundKey,
+            TabBarStyleSettings.hoverBackgroundKey,
+            TabBarStyleSettings.activeIndicatorColorKey,
+        ]
+        for key in colorKeys where root.keys.contains(key) {
+            guard let value = parseNullableHex(root[key], path: key, sourcePath: sourcePath) else {
+                continue
+            }
+            snapshot.managedUserDefaults[key] = .nullableString(value)
+        }
+
+        // The divider accepts the literal "none" (hide) in addition to a hex.
+        // Match the schema's lowercase const exactly (no case folding) so a value
+        // that parses at runtime can't fail schema/editor validation.
+        let dividerKey = TabBarStyleSettings.dividerColorKey
+        if root.keys.contains(dividerKey) {
+            if let raw = jsonString(root[dividerKey]), raw == "none" {
+                snapshot.managedUserDefaults[dividerKey] = .string("none")
+            } else if let value = parseNullableHex(root[dividerKey], path: dividerKey, sourcePath: sourcePath) {
+                snapshot.managedUserDefaults[dividerKey] = .nullableString(value)
+            }
+        }
+
+        // Enum/string keys: an explicit null clears the override (winning over a
+        // fallback file), a valid string is accepted, and any other present value
+        // is logged — consistent with the nullable-hex color paths above.
+        let edgeKey = TabBarStyleSettings.activeIndicatorEdgeKey
+        if root.keys.contains(edgeKey) {
+            if root[edgeKey] is NSNull {
+                snapshot.managedUserDefaults[edgeKey] = .nullableString(nil)
+            } else if let raw = jsonString(root[edgeKey]) {
+                // Accept only the schema's lowercase enum values verbatim.
+                if ["top", "bottom", "none"].contains(raw) {
+                    snapshot.managedUserDefaults[edgeKey] = .string(raw)
+                } else {
+                    logInvalid(edgeKey, sourcePath: sourcePath)
+                }
+            } else {
+                logInvalid(edgeKey, sourcePath: sourcePath)
+            }
+        }
+
+        let familyKey = TabBarStyleSettings.fontFamilyKey
+        if root.keys.contains(familyKey) {
+            if root[familyKey] is NSNull {
+                snapshot.managedUserDefaults[familyKey] = .nullableString(nil)
+            } else if let raw = jsonString(root[familyKey]) {
+                snapshot.managedUserDefaults[familyKey] = .string(raw)
+            } else {
+                logInvalid(familyKey, sourcePath: sourcePath)
+            }
+        }
+
+        let weightKey = TabBarStyleSettings.fontWeightKey
+        if root.keys.contains(weightKey) {
+            if root[weightKey] is NSNull {
+                snapshot.managedUserDefaults[weightKey] = .nullableString(nil)
+            } else if let raw = jsonString(root[weightKey]) {
+                let accepted: Set<String> = [
+                    "ultraLight", "thin", "light", "regular", "medium",
+                    "semibold", "bold", "heavy", "black",
+                ]
+                if accepted.contains(raw) {
+                    snapshot.managedUserDefaults[weightKey] = .string(raw)
+                } else {
+                    logInvalid(weightKey, sourcePath: sourcePath)
+                }
+            } else {
+                logInvalid(weightKey, sourcePath: sourcePath)
+            }
         }
     }
 
@@ -1621,7 +1706,8 @@ final class CmuxSettingsFileStore {
                 }
 
                 if change.defaultsKey == PaneChromeSettings.paneBorderColorKey ||
-                    change.defaultsKey == PaneChromeSettings.activePaneBorderColorKey {
+                    change.defaultsKey == PaneChromeSettings.activePaneBorderColorKey ||
+                    TabBarStyleSettings.supportedKeys.contains(change.defaultsKey) {
                     paneChromeDidChange = true
                 }
 

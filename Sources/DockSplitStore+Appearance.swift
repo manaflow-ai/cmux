@@ -56,6 +56,7 @@ extension DockSplitStore {
                 renderingMode: renderingMode,
                 paneBorderColorHex: PaneChromeSettings.paneBorderColorHex()
             ),
+            tabStyle: TabBarStyleSettings.tabStyle(),
             usesSharedBackdrop: sharesWindowBackdrop
         )
     }
