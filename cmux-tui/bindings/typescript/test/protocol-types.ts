@@ -9,6 +9,7 @@ import type {
   RenderAttachEvent,
   RenderDeltaEvent,
   RenderStateEvent,
+  SurfaceExitedEvent,
   Tree,
   TreeDeltaEvent,
 } from "../src/browser.js";
@@ -109,6 +110,13 @@ const stackLayout = {
   expanded: 3,
 } as const satisfies import("../src/browser.js").Layout;
 void stackLayout;
+
+const hostedSurfaceExit = {
+  event: "surface-exited",
+  surface: 7,
+  runtime_ms: 321,
+} satisfies SurfaceExitedEvent;
+void hostedSurfaceExit;
 
 function surfaceFromKnownEvent(event: KnownCmuxEvent): number | undefined {
   switch (event.event) {

@@ -225,6 +225,7 @@ class Event:
     error: Optional[str] = None
     retry_after_ms: Optional[int] = None
     reservation_id: Optional[int] = None
+    runtime_ms: Optional[int] = None
 
     @property
     def bytes_data(self) -> Optional[bytes]:
@@ -927,4 +928,5 @@ def _parse_event(value: Dict[str, Any]) -> Event:
         error=value.get("error"),
         retry_after_ms=value.get("retry_after_ms"),
         reservation_id=value.get("reservation_id"),
+        runtime_ms=value.get("runtime_ms"),
     )

@@ -276,8 +276,9 @@ type OverflowEvent struct {
 func (OverflowEvent) EventName() string { return "overflow" }
 
 type SurfaceEvent struct {
-	Event   string `json:"event"`
-	Surface uint64 `json:"surface"`
+	Event     string  `json:"event"`
+	Surface   uint64  `json:"surface"`
+	RuntimeMS *uint64 `json:"runtime_ms"`
 }
 
 func (e SurfaceEvent) EventName() string { return e.Event }

@@ -40,7 +40,7 @@ Subscribe events belong to the `subscribe` registration. Tree lifecycle deltas b
 | `layout-changed` | subscribe | `screen` | protocol 6 |
 | `surface-output` | subscribe | `surface` | protocol 5 |
 | `surface-resized` | subscribe | `surface` | protocol 5 |
-| `surface-exited` | subscribe | `surface` | protocol 5 |
+| `surface-exited` | subscribe | `surface` | protocol 5; hosted `runtime_ms` in protocol 10 |
 | `title-changed` | subscribe | `surface` | protocol 5 |
 | `bell` | subscribe | `surface` | protocol 5 |
 | `notification` | subscribe | `notification` | protocol 6; optional related `surface` |
@@ -80,7 +80,7 @@ Protocol v6 attach streams are ordered as `vt-state -> (resized | output | color
 
 Protocol v7 render attach streams are ordered as `render-state -> (render-delta | scroll-changed)* -> detached`. The initial state snapshot and render tap are registered under one terminal lock, matching the byte stream's no-gap/no-duplication guarantee. `render-delta` frames coalesce damage but preserve authoritative state order. See [`render.md`](render.md#stream-ordering).
 
-When a surface exits, the mux removes it from the tree itself. Before `surface-exited`, a coarse subscription normally receives `tree-changed`, while a delta subscription normally receives the applicable close delta or the `tree-changed` fallback; either mode may also receive `empty`. By the time `surface-exited` is observed, frontends should consider the surface reaped from authoritative tree state.
+When a non-hosted surface exits, the mux removes it from the tree itself before `surface-exited`. Hosted terminals instead remain as durable Exited tabs until an explicit close tombstones them. A frontend that auto-closes an established hosted process must therefore send that close mutation after receiving `surface-exited`; startup failures may remain visible for inspection.
 
 ## Subscribe Events
 
@@ -519,15 +519,15 @@ Example:
 Payload:
 
 ```text
-object{event:"surface-exited",surface:Id}
+object{event:"surface-exited",surface:Id,runtime_ms:uint64|null}
 ```
 
-Meaning: A PTY child exited or a browser surface was closed. The mux has already reaped the surface from the tree by the time this event is observed.
+Meaning: A PTY child exited or a browser surface was closed. `runtime_ms` is the hosted child runtime in milliseconds and is `null` for browser and non-hosted surfaces. Hosted terminals remain in durable topology until an explicit close; clients connected to servers predating protocol 10 may receive this event without `runtime_ms`.
 
 Example:
 
 ```json
-{"event":"surface-exited","surface":1}
+{"event":"surface-exited","surface":1,"runtime_ms":321}
 ```
 
 ### title-changed

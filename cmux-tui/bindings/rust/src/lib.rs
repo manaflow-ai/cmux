@@ -1249,6 +1249,20 @@ mod tests {
     }
 
     #[test]
+    fn surface_exited_decodes_hosted_runtime() {
+        let event = parse_event(serde_json::json!({
+            "event": "surface-exited",
+            "surface": 7,
+            "runtime_ms": 321,
+        }));
+
+        assert!(matches!(
+            event,
+            Event::SurfaceExited(SurfaceEvent { surface: 7, runtime_ms: Some(321) })
+        ));
+    }
+
+    #[test]
     fn resized_decodes_protocol_v6_data_field() {
         let event = parse_event(serde_json::json!({
             "event": "resized",

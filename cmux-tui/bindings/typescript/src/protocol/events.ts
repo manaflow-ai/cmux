@@ -32,7 +32,7 @@ export interface SurfaceResizeFailedEvent {
   retry_after_ms: number | null;
   reservation_id?: number | null;
 }
-export interface SurfaceExitedEvent { event: "surface-exited"; surface: Id }
+export interface SurfaceExitedEvent { event: "surface-exited"; surface: Id; runtime_ms?: number | null }
 export interface TitleChangedEvent { event: "title-changed"; surface: Id; title?: string }
 export interface BellEvent { event: "bell"; surface: Id }
 

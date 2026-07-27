@@ -17,7 +17,13 @@ public sealed interface CmuxEvent permits TreeChangedEvent, LayoutChangedEvent, 
                 raw.get("surface") instanceof Number ? CmuxClient.asLong(raw.get("surface")) : null
             );
             case "surface-output", "surface-exited", "bell", "detached" ->
-                new SurfaceEvent(event, CmuxClient.asLong(raw.get("surface")));
+                new SurfaceEvent(
+                    event,
+                    CmuxClient.asLong(raw.get("surface")),
+                    raw.get("runtime_ms") instanceof Number
+                        ? CmuxClient.asLong(raw.get("runtime_ms"))
+                        : null
+                );
             case "title-changed" -> new TitleChangedEvent(
                 CmuxClient.asLong(raw.get("surface")),
                 raw.get("title") instanceof String title ? title : null

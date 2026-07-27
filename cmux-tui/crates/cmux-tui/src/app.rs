@@ -6355,6 +6355,11 @@ impl App {
             }
             AppEvent::Mux(MuxEvent::SurfaceExited { surface, runtime_ms }) => {
                 if self.surface_only == Some(surface) {
+                    if runtime_ms.is_some_and(|runtime_ms| {
+                        runtime_ms > self.config.abnormal_command_exit_runtime_ms()
+                    }) {
+                        self.close_established_exited_surface(surface);
+                    }
                     self.retire_surface_state(surface);
                     self.remove_surface_from_tree(surface);
                     self.quit = true;
@@ -15957,6 +15962,38 @@ mod tests {
             .unwrap(),
             RenderAction::Draw
         );
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(5)).unwrap()).unwrap();
+        }
+
+        assert!(mux.with_state(|state| {
+            state.workspaces.iter().all(|candidate| candidate.id != workspace)
+        }));
+    }
+    #[test]
+    fn surface_only_attach_tombstones_an_established_exited_shell() {
+        let mux = Mux::new(
+            "surface-only-established-exit-test",
+            SurfaceOptions {
+                command: Some(vec!["/bin/cat".to_string()]),
+                ..SurfaceOptions::default()
+            },
+        );
+        let surface = mux.new_workspace(None, Some((20, 8))).unwrap();
+        let workspace = mux.with_state(|state| state.workspaces[0].id);
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.surface_only = Some(surface.id);
+
+        assert_eq!(
+            app.handle(AppEvent::Mux(MuxEvent::SurfaceExited {
+                surface: surface.id,
+                runtime_ms: Some(251),
+            }))
+            .unwrap(),
+            RenderAction::None
+        );
+        assert!(app.quit);
         while app.session.has_pending_mutations() {
             app.handle(events.recv_timeout(Duration::from_secs(5)).unwrap()).unwrap();
         }

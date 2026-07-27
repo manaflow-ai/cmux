@@ -44,6 +44,12 @@ public final class JsonTest {
             (Map<String, Object>) Json.parse("{\"event\":\"title-changed\",\"surface\":7}")
         );
         assertEquals(null, legacyTitle.title(), "legacy title event title");
+        SurfaceEvent surfaceExit = (SurfaceEvent) CmuxEvent.from(
+            (Map<String, Object>) Json.parse(
+                "{\"event\":\"surface-exited\",\"surface\":7,\"runtime_ms\":321}"
+            )
+        );
+        assertEquals(321L, surfaceExit.runtimeMs(), "hosted surface exit runtime");
         CmuxEvent layoutEvent = CmuxEvent.from(
             (Map<String, Object>) Json.parse("{\"event\":\"layout-changed\",\"screen\":7}")
         );

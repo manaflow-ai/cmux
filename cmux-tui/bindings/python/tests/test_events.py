@@ -34,6 +34,19 @@ class EventTests(unittest.TestCase):
         self.assertEqual(event.surface, 7)
         self.assertIsNone(event.title)
 
+    def test_surface_exit_exposes_hosted_runtime(self) -> None:
+        event = _parse_event(
+            {
+                "event": "surface-exited",
+                "surface": 7,
+                "runtime_ms": 321,
+            }
+        )
+
+        self.assertEqual(event.event, "surface-exited")
+        self.assertEqual(event.surface, 7)
+        self.assertEqual(event.runtime_ms, 321)
+
     def test_overflow_exposes_recovery_fields(self) -> None:
         event = _parse_event(
             {
