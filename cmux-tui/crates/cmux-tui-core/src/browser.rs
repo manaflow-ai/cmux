@@ -7442,6 +7442,33 @@ mod tests {
     }
 
     #[test]
+    fn verified_committed_navigation_survives_a_newer_command_failure() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        browser.store_frame(test_frame(1));
+        let committed_epoch = browser.frame_epoch.advance_navigation();
+        let newer = browser.begin_navigation_frame_transition().expect("newer navigation");
+
+        handle_frame_navigated(
+            browser,
+            json!({"frame": {"url": "https://committed.test", "name": "committed"}}),
+            committed_epoch,
+        );
+        let paint_epoch = browser.frame_epoch.advance();
+        assert!(browser.accept_document_paint(committed_epoch, paint_epoch, test_frame(2)));
+        browser.restore_pointer_frame_after_failed_command(newer);
+
+        assert_eq!(browser.url(), "https://committed.test");
+        assert_eq!(browser.latest_frame_seq(), Some(2));
+        let state = browser.state.lock().unwrap();
+        assert_eq!(state.accepted_navigation_epoch, committed_epoch);
+        assert_eq!(state.accepted_frame_epoch, paint_epoch);
+        assert_eq!(state.pending_frame_epoch, None);
+        assert_eq!(state.pending_navigation_epoch, None);
+        assert_eq!(state.pending_document_epoch, None);
+    }
+
+    #[test]
     fn reconfigure_completion_dominates_queued_older_navigation_epoch() {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
