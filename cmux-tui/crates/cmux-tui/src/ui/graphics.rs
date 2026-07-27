@@ -1267,6 +1267,23 @@ mod tests {
     }
 
     #[test]
+    fn terminal_probe_preserves_enhanced_csi_u_metadata() {
+        use crossterm::event::{Event, KeyCode, KeyModifiers};
+
+        let events = parse_pending_input(b"\x1b[38:49:49;4;49u");
+
+        assert!(matches!(
+            events.as_slice(),
+            [Event::EnhancedKey(key)]
+                if key.key_event.code == KeyCode::Char('&')
+                    && key.key_event.modifiers == KeyModifiers::SHIFT | KeyModifiers::ALT
+                    && key.shifted_key == Some('1')
+                    && key.base_layout_key == Some('1')
+                    && key.text == "1"
+        ));
+    }
+
+    #[test]
     fn terminal_probe_bounds_an_unfinished_startup_paste() {
         const EXPECTED_MAX_INCOMPLETE_BYTES: usize = 4 * 1024;
 

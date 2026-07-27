@@ -9368,6 +9368,43 @@ mod tests {
     }
 
     #[test]
+    fn kitty_quota_worker_retries_a_transient_update_failure() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+        wait_for_kitty_image_budget(&mux);
+
+        let attempts = Arc::new(AtomicUsize::new(0));
+        *mux.kitty_image_budget_operation.lock().unwrap() = Some(Arc::new({
+            let attempts = attempts.clone();
+            move |surface, limits| {
+                if attempts.fetch_add(1, Ordering::AcqRel) == 0 {
+                    anyhow::bail!("injected transient Kitty quota failure");
+                }
+                surface.set_kitty_graphics_limits(
+                    limits.image_bytes,
+                    limits.inflight_bytes,
+                    limits.images,
+                    limits.placements,
+                )
+            }
+        }));
+
+        assert!(mux.close_surface(second.id).unwrap());
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while attempts.load(Ordering::Acquire) < 2 && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+
+        assert!(
+            attempts.load(Ordering::Acquire) >= 2,
+            "Kitty quota worker stopped after a transient failure"
+        );
+        wait_for_kitty_image_budget(&mux);
+    }
+
+    #[test]
     fn cell_pixel_fanout_runs_concurrently_with_one_shared_deadline() {
         let items = (0..8).collect::<Vec<_>>();
         let active = AtomicUsize::new(0);
@@ -9388,6 +9425,39 @@ mod tests {
             vec![0, 2, 4, 6, 8, 10, 12, 14]
         );
         assert!(max_active.load(Ordering::Acquire) > 1);
+    }
+
+    #[test]
+    fn cell_pixel_fanout_returns_when_an_operation_ignores_its_deadline() {
+        let gate = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
+        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+        let caller_gate = gate.clone();
+        let caller = std::thread::spawn(move || {
+            let items = vec![1_u8];
+            let deadline = Instant::now() + Duration::from_millis(30);
+            let results = bounded_deadline_map(&items, deadline, move |item, _| {
+                let (released, changed) = &*caller_gate;
+                let mut released = released.lock().unwrap();
+                while !*released {
+                    released = changed.wait(released).unwrap();
+                }
+                *item
+            });
+            let _ = sender.send(results);
+        });
+
+        let returned_before_release = receiver.recv_timeout(Duration::from_millis(150)).is_ok();
+        {
+            let (released, changed) = &*gate;
+            *released.lock().unwrap() = true;
+            changed.notify_all();
+        }
+        caller.join().unwrap();
+
+        assert!(
+            returned_before_release,
+            "fanout joined an operation after its shared deadline elapsed"
+        );
     }
 
     #[test]

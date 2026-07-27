@@ -938,4 +938,65 @@ describe("RenderGraphics canvas resource policy", () => {
     expect(workers).toBe(1);
     expect(terminations).toBe(0);
   });
+
+  it("restores a reused canvas backing store after a placement-only update", async () => {
+    class FakeImageData {
+      readonly colorSpace = "srgb";
+      constructor(
+        readonly data: Uint8ClampedArray,
+        readonly width: number,
+        readonly height: number,
+      ) {}
+    }
+    const context = {
+      clearRect: vi.fn(),
+      putImageData: vi.fn(),
+    };
+    vi.stubGlobal("ImageData", FakeImageData);
+    const getContext = vi.spyOn(HTMLCanvasElement.prototype, "getContext")
+      .mockReturnValue(context as unknown as CanvasRenderingContext2D);
+    const image = {
+      id: 1,
+      generation: 1,
+      width: 1,
+      height: 1,
+      format: "rgba" as const,
+      data: zeroBytesBase64(4),
+    };
+    const first: RenderGraphicsModel = {
+      generation: 1,
+      images: [image],
+      placements: [placement(1, 1, 1)],
+    };
+    const second: RenderGraphicsModel = {
+      generation: 2,
+      images: [{ ...image }],
+      placements: [{ ...placement(1, 1, 1), viewport_col: 1 }],
+    };
+
+    try {
+      const { container, rerender } = render(
+        <RenderGraphics graphics={first}>
+          <div>terminal</div>
+        </RenderGraphics>,
+      );
+      await waitFor(() => expect(context.putImageData).toHaveBeenCalledTimes(1));
+      const canvas = container.querySelector<HTMLCanvasElement>(
+        "[data-graphic-placement]",
+      )!;
+
+      rerender(
+        <RenderGraphics graphics={second}>
+          <div>terminal</div>
+        </RenderGraphics>,
+      );
+      await waitFor(() => expect(context.putImageData).toHaveBeenCalledTimes(2));
+
+      expect(container.querySelector("[data-graphic-placement]")).toBe(canvas);
+      expect(canvas.width).toBe(1);
+      expect(canvas.height).toBe(1);
+    } finally {
+      getContext.mockRestore();
+    }
+  });
 });
