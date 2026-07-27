@@ -2,7 +2,7 @@ import Testing
 @testable import CmuxTerminal
 
 @Suite struct TerminalKeyInputLifecycleTrackerTests {
-    @Test func consumedRepeatCannotStealReleaseFromForwardedPress() {
+    @Test func consumedRepeatRetainsForwardedPressLifecycle() {
         var tracker = TerminalKeyInputLifecycleTracker()
 
         let pressActions = tracker.actions(
@@ -18,8 +18,47 @@ import Testing
         let forwardsRelease = tracker.shouldForwardKeyUp(keyCode: 0)
 
         #expect(pressActions == [.sendKey(text: "a", composing: false)])
-        #expect(repeatActions.isEmpty)
+        #expect(repeatActions == [.sendKey(text: "a", composing: false)])
         #expect(forwardsRelease)
+    }
+
+    @Test func terminalOwnedRepeatRetainsInitialPhysicalMeaning() {
+        var tracker = TerminalKeyInputLifecycleTracker()
+
+        _ = tracker.actions(
+            for: physicalPlan(text: "a"),
+            keyCode: 0,
+            isRepeat: false
+        )
+        let repeatActions = tracker.actions(
+            for: physicalPlan(text: "q"),
+            keyCode: 0,
+            isRepeat: true
+        )
+
+        #expect(repeatActions == [.sendKey(text: "a", composing: false)])
+    }
+
+    @Test func terminalOwnedRepeatPreservesNewCommittedPreeditText() {
+        var tracker = TerminalKeyInputLifecycleTracker()
+
+        _ = tracker.actions(
+            for: physicalPlan(text: "a"),
+            keyCode: 0,
+            isRepeat: false
+        )
+        let repeatActions = tracker.actions(
+            for: TerminalKeyInputPlan(actions: [
+                .sendCommittedText("한"),
+            ]),
+            keyCode: 0,
+            isRepeat: true
+        )
+
+        #expect(repeatActions == [
+            .sendCommittedText("한"),
+            .sendKey(text: "a", composing: false),
+        ])
     }
 
     @Test func forwardedRepeatCannotCreateLifecycleForConsumedPress() {

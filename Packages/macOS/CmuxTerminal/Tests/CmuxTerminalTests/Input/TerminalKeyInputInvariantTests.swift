@@ -161,7 +161,8 @@ import Testing
 
         if snapshot.hadMarkedText, !snapshot.committedText.isEmpty {
             var actions = committedText.map(TerminalKeyInputAction.sendCommittedText)
-            if snapshot.event.replaysPhysicalKeyAfterPreeditCommit {
+            if snapshot.event.replaysPhysicalKeyAfterPreeditCommit ||
+                (snapshot.textInputCommandPerformed && !suppressedAccumulatedControl) {
                 actions.append(.sendKey(text: nil, composing: false))
             }
             return actions

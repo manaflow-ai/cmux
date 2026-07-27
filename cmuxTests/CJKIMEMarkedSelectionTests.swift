@@ -167,7 +167,7 @@ struct CJKIMEMarkedSelectionTests {
         #expect(pressedKeyCodes.isEmpty)
     }
 
-    @Test func consumedRepeatCannotStealReleaseFromForwardedPress() throws {
+    @Test func consumedRepeatRetainsForwardedPressLifecycle() throws {
         let hostedTerminal = try makeHostedTerminalWindow()
         let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
         let previousTextInputHandler = GhosttyNSView.debugTextInputEventHandler
@@ -219,7 +219,7 @@ struct CJKIMEMarkedSelectionTests {
         hostedTerminal.surfaceView.keyDown(with: repeatEvent)
         hostedTerminal.surfaceView.keyUp(with: release)
 
-        #expect(lifecycle == ["press", "release"])
+        #expect(lifecycle == ["press", "repeat", "release"])
     }
 
     @Test func forwardedRepeatCannotCreateLifecycleForConsumedPress() throws {
@@ -277,7 +277,7 @@ struct CJKIMEMarkedSelectionTests {
         #expect(lifecycle.isEmpty)
     }
 
-    @Test func textInputCommandAfterPreeditCommitDoesNotReplayPhysicalKey() throws {
+    @Test func textInputCommandAfterPreeditCommitReplaysPhysicalKey() throws {
         let hostedTerminal = try makeHostedTerminalWindow()
         let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
         let previousTextInputHandler = GhosttyNSView.debugTextInputEventHandler
@@ -324,6 +324,7 @@ struct CJKIMEMarkedSelectionTests {
 
         #expect(recordedKeys == [
             RecordedKey(keyCode: 0, text: "committed", composing: false),
+            RecordedKey(keyCode: UInt32(kVK_Return), text: nil, composing: false),
         ])
     }
 

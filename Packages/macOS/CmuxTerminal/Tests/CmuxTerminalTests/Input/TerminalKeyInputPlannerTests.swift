@@ -107,7 +107,7 @@ import Testing
         #expect(!plan.forwardsPhysicalKey)
     }
 
-    @Test func committedPreeditTextDoesNotReplayDelegatedCommand() {
+    @Test func committedPreeditTextPrecedesDelegatedCommand() {
         let actions = planner.actions(for: snapshot(
             hadMarkedText: true,
             textInputCommandPerformed: true,
@@ -116,7 +116,25 @@ import Testing
             rawText: "\u{000A}"
         ))
 
-        #expect(actions == [.sendCommittedText("é")])
+        #expect(actions == [
+            .sendCommittedText("é"),
+            .sendKey(text: nil, composing: false),
+        ])
+    }
+
+    @Test func preeditCommandAndNavigationPolicyReplayPhysicalKeyOnce() {
+        let actions = planner.actions(for: snapshot(
+            hadMarkedText: true,
+            textInputCommandPerformed: true,
+            committedText: ["é"],
+            translatedText: "\u{F703}",
+            replaysPhysicalKeyAfterPreeditCommit: true
+        ))
+
+        #expect(actions == [
+            .sendCommittedText("é"),
+            .sendKey(text: nil, composing: false),
+        ])
     }
 
     @Test func committedPreeditTextReplaysNavigationKey() {
