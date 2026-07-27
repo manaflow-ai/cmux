@@ -17715,6 +17715,42 @@ mod tests {
     }
 
     #[test]
+    fn final_browser_pointer_admission_accepts_rendered_frame_within_live_range() {
+        let surface_id = 7;
+        let mut app = test_app(crate::session::test_remote_session_with_browser_pointer_range(
+            surface_id, 41, 42,
+        ));
+        app.replace_tree(browser_completion_tree(surface_id, surface_id));
+        app.sidebar_visible = false;
+        let area = browser_completion_area(surface_id);
+        app.pane_areas = vec![area];
+        app.rendered_pane_content_generations
+            .insert(surface_id, PaneContentGeneration::Browser(41));
+        app.commit_rendered_pointer_frame();
+        assert!(app.session.inner.take_remote_tree_stale());
+        let (dispatcher, blocked) = BrowserInputDispatcher::blocked(4);
+        app.browser_input = dispatcher;
+        let motion = MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: area.content.x + 2,
+            row: area.content.y + 1,
+            modifiers: KeyModifiers::NONE,
+        };
+
+        app.handle(AppEvent::Input(Event::Mouse(motion))).unwrap();
+
+        let forwarded =
+            blocked.recv_timeout(Duration::from_secs(1)).expect("rendered browser hover");
+        let BrowserInputKind::Mouse { frame_seq, .. } = forwarded.kind else {
+            panic!("expected browser mouse input");
+        };
+        assert_eq!(
+            frame_seq, 41,
+            "final admission must preserve the exact acknowledged presentation token"
+        );
+    }
+
+    #[test]
     fn pty_mouse_tracking_forwards_click_release_and_wheel_with_shift_override() {
         let mux = Mux::new(
             "mouse-passthrough-test",

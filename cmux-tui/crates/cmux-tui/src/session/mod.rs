@@ -1760,6 +1760,19 @@ pub(crate) fn test_remote_session_with_live_browser(
 }
 
 #[cfg(test)]
+pub(crate) fn test_remote_session_with_browser_pointer_range(
+    surface_id: SurfaceId,
+    pointer_frame_floor_seq: u64,
+    frame_seq: u64,
+) -> Session {
+    Session::Remote(remote::test_session_with_browser_pointer_range(
+        surface_id,
+        pointer_frame_floor_seq,
+        frame_seq,
+    ))
+}
+
+#[cfg(test)]
 pub(crate) fn test_remote_session_with_provider_authority_without_guard() -> Session {
     Session::Remote(remote::test_session_with_provider_authority_without_guard())
 }

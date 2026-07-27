@@ -2107,6 +2107,15 @@ pub(super) fn test_session_with_live_browser(
     surface_id: SurfaceId,
     frame_seq: u64,
 ) -> Arc<RemoteSession> {
+    test_session_with_browser_pointer_range(surface_id, frame_seq, frame_seq)
+}
+
+#[cfg(test)]
+pub(super) fn test_session_with_browser_pointer_range(
+    surface_id: SurfaceId,
+    pointer_frame_floor_seq: u64,
+    frame_seq: u64,
+) -> Arc<RemoteSession> {
     let session = test_session_with_provider_context(None, HashSet::new());
     let frame = BrowserFrame {
         session_id: "test-browser-session".to_string(),
@@ -2130,6 +2139,7 @@ pub(super) fn test_session_with_live_browser(
             live_since: Some(Instant::now()),
             last_frame_at: Some(Instant::now()),
             frame: Some(RemoteBrowserFrame { frame }),
+            pointer_frame_floor_seq: Some(pointer_frame_floor_seq),
             pointer_frame_seq: Some(frame_seq),
             ..RemoteBrowserState::default()
         }),
