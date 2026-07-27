@@ -433,6 +433,16 @@ mod tests {
     }
 
     #[test]
+    fn truncation_bounds_pathological_zero_width_input() {
+        let oversized_grapheme = format!("x{}", "\u{301}".repeat(10_000));
+        assert_eq!(truncate(&oversized_grapheme, 20), "…");
+
+        let invisible = "\u{200b}".repeat(10_000);
+        assert_eq!(truncate(&invisible, 0), "");
+        assert!(truncate(&invisible, 4).len() <= 4_096);
+    }
+
+    #[test]
     fn render_buffer_rejects_control_bytes_from_every_ui_source() {
         let mut buffer = Buffer::empty(Rect::new(0, 0, 3, 1));
         buffer[(0, 0)].set_symbol("\u{1b}");

@@ -364,6 +364,26 @@ fn machine_agent_argument_failures_are_stable_and_localized() {
     assert!(!stderr.contains("machine-agent を開始または続行できませんでした"));
 }
 
+#[test]
+fn ratio_commands_localize_nonfinite_values() {
+    for args in [
+        ["set-ratio", "--pane", "1", "--dir", "right", "--ratio", "NaN"].as_slice(),
+        ["set-split-ratio", "--split", "1", "--ratio", "NaN"].as_slice(),
+    ] {
+        let output = Command::new(bin())
+            .env("LC_ALL", "ja_JP.UTF-8")
+            .env("LC_MESSAGES", "ja_JP.UTF-8")
+            .env("LANG", "ja_JP.UTF-8")
+            .args(args)
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(2));
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert!(stderr.contains("--ratio には有限の数値を指定してください"), "{stderr}");
+        assert!(!stderr.contains("--ratio must be a finite number"), "{stderr}");
+    }
+}
+
 #[cfg(unix)]
 struct PtyChild {
     child: Child,
