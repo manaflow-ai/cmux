@@ -6,6 +6,11 @@
 //   GET  /v1/presence/snapshot            one-shot presence map
 //   GET  /v1/presence/subscribe           WebSocket upgrade or SSE stream:
 //                                         snapshot first, then online/offline/seen
+//                                         (?deviceScope=<deviceId> instead makes it a
+//                                         directed nudge channel: WS-only, no snapshot,
+//                                         only `nudge` frames for that device)
+//   POST /v1/presence/nudge               directed wake-up for one device's
+//                                         deviceScope subscribers (owner-only)
 //
 // Auth on every /v1 route: `Authorization: Bearer <Stack access token>` plus
 // optional `X-Cmux-Team-Id` / `?teamId=` team scoping, verified in auth.ts the
@@ -24,7 +29,7 @@ import {
   type AuthEnv,
 } from "./auth";
 import { MAX_SUBSCRIBE_AGE_MS, TeamPresence } from "./do";
-import { parseHeartbeat, readBoundedJson } from "./validate";
+import { parseHeartbeat, parseNudge, readBoundedJson } from "./validate";
 import { MAX_PAIRED_MAC_BACKUP_BYTES, normalizeClientScope, parsePairedMacBackup } from "./syncPairedMacs";
 
 export { TeamPresence };
@@ -79,6 +84,24 @@ export default {
       // ownership (a co-member must not be able to spoof this device).
       const result = await team.stub.heartbeat(team.teamId, team.user.id, parsed.beat);
       if ("error" in result) return json({ error: result.error }, result.status);
+      return json(result);
+    }
+
+    if (url.pathname === "/v1/presence/nudge") {
+      // Directed server->device wake-up: tell one device's own deviceScope
+      // subscribers to re-check server state now (e.g. its iroh broker binding
+      // changed) instead of waiting out their next scheduled round trip. The
+      // caller must be the device's pinned owner, enforced in the DO exactly
+      // like heartbeat ownership.
+      if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
+      const team = await resolveTeamOr403(request, env);
+      if (!team.ok) return team.response;
+      const body = await readBoundedJson(request);
+      if (!body.ok) return json({ error: "invalid_request" }, body.status);
+      const parsed = parseNudge(body.value);
+      if (!parsed.ok) return json({ error: parsed.error }, 400);
+      const result = await team.stub.nudge(team.teamId, team.user.id, parsed.nudge);
+      if (!result.ok) return json({ error: result.error }, result.status);
       return json(result);
     }
 

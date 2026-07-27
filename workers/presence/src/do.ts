@@ -31,9 +31,11 @@ import {
   routesEqual,
   shouldPrune,
   type HeartbeatInput,
+  type NudgeEvent,
   type PresenceEvent,
   type PresenceInstance,
 } from "./core";
+import { parseDeviceScope, type NudgeInput } from "./validate";
 import { parseHello, type SyncServerFrame } from "./sync";
 import {
   gcTombstones,
@@ -112,6 +114,12 @@ interface WsAttachment {
    * for an old client/worker that did not forward it; such a socket simply does
    * not get served `pairedMacs`. Persisted so it survives DO hibernation. */
   userId?: string;
+  /** Device-scoped (directed) subscription: set from a validated
+   * `?deviceScope=<deviceId>` at subscribe time after an owner check. The
+   * socket receives ONLY `nudge` frames for that device — no snapshot, no
+   * presence broadcast, no sync — so a host can hold a quiet wake-up channel.
+   * Persisted so it survives DO hibernation. */
+  deviceScope?: string;
 }
 
 /** Whether a socket has subscribed to a given sync collection. A legacy
@@ -141,6 +149,19 @@ function wsUserId(ws: WebSocket): string | null {
   try {
     const attachment = ws.deserializeAttachment() as WsAttachment | null;
     return typeof attachment?.userId === "string" && attachment.userId ? attachment.userId : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The device id a directed socket is scoped to, or null for a normal
+ * presence/sync subscriber. */
+function wsDeviceScope(ws: WebSocket): string | null {
+  try {
+    const attachment = ws.deserializeAttachment() as WsAttachment | null;
+    return typeof attachment?.deviceScope === "string" && attachment.deviceScope
+      ? attachment.deviceScope
+      : null;
   } catch {
     return null;
   }
@@ -376,6 +397,46 @@ export class TeamPresence extends DurableObject {
     return await listBackupSnapshot(this.syncStorage(), userId, clientScope);
   }
 
+  /** Deliver a directed wake-up to `deviceId`'s device-scoped subscribers.
+   * Called only by the worker after it verifies the token, so `userId` is
+   * trusted, exactly like `heartbeat`. The caller must be the device's pinned
+   * owner; an unpinned device has never heartbeated here and has nothing to
+   * wake. `delivered: 0` is success, not failure: the device may be offline,
+   * and a nudge only accelerates a re-check its next scheduled round trip
+   * would run anyway. */
+  async nudge(
+    teamId: string,
+    userId: string,
+    input: NudgeInput,
+  ): Promise<{ ok: true; delivered: number } | { ok: false; error: string; status: number }> {
+    await this.rememberTeamId(teamId);
+    const pinned = await this.ctx.storage.get<string>(ownerKey(input.deviceId));
+    if (pinned === undefined) return { ok: false, error: "device_unknown", status: 404 };
+    const owner = checkDeviceOwner(pinned, userId);
+    if (!owner.ok) return { ok: false, error: owner.error, status: 403 };
+    const now = Date.now();
+    const event: NudgeEvent = {
+      type: "nudge",
+      deviceId: input.deviceId,
+      ...(input.tag ? { tag: input.tag } : {}),
+      kind: input.kind,
+      at: now,
+    };
+    const json = JSON.stringify(event);
+    let delivered = 0;
+    for (const ws of this.ctx.getWebSockets()) {
+      if (wsDeviceScope(ws) !== input.deviceId) continue;
+      if (wsExpiresAt(ws) <= now) continue;
+      try {
+        ws.send(json);
+        delivered += 1;
+      } catch {
+        // Socket already gone; hibernation cleans it up.
+      }
+    }
+    return { ok: true, delivered };
+  }
+
   // ---- Subscribe transports (worker forwards the original Request) ----
 
   override async fetch(request: Request): Promise<Response> {
@@ -413,6 +474,53 @@ export class TeamPresence extends DurableObject {
     // Absent for an old worker that does not forward it (the socket then never
     // gets served `pairedMacs`).
     const userId = request.headers.get("x-presence-user-id")?.trim() || undefined;
+
+    // `?deviceScope=<deviceId>` turns the stream into a directed nudge channel
+    // for that one device: WS-only, no snapshot, no presence broadcast, only
+    // `nudge` frames. Ownership mirrors heartbeat: the subscriber must be the
+    // device's pinned owner. An UNPINNED device is allowed (the Mac subscribes
+    // at startup, possibly before its first heartbeat pins it) but the pin is
+    // NOT written here — only a heartbeat may claim a device.
+    const deviceScope = parseDeviceScope(new URL(request.url).searchParams.get("deviceScope"));
+    if (deviceScope.scope === "invalid") {
+      return new Response(JSON.stringify({ error: "invalid_device_scope" }), {
+        status: 400,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (deviceScope.scope === "device") {
+      if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
+        return new Response(JSON.stringify({ error: "device_scope_requires_websocket" }), {
+          status: 400,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (!userId) {
+        return new Response(JSON.stringify({ error: "device_scope_requires_user" }), {
+          status: 403,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      const pinned = await this.ctx.storage.get<string>(ownerKey(deviceScope.deviceId));
+      const owner = checkDeviceOwner(pinned, userId);
+      if (!owner.ok) {
+        return new Response(JSON.stringify({ error: owner.error }), {
+          status: 403,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      const pair = new WebSocketPair();
+      const client = pair[0];
+      const server = pair[1];
+      this.ctx.acceptWebSocket(server);
+      server.serializeAttachment({
+        expiresAt,
+        userId,
+        deviceScope: deviceScope.deviceId,
+      } satisfies WsAttachment);
+      await this.ensureAlarmAt(expiresAt);
+      return new Response(null, { status: 101, webSocket: client });
+    }
 
     if (request.headers.get("upgrade")?.toLowerCase() === "websocket") {
       const pair = new WebSocketPair();
@@ -460,6 +568,8 @@ export class TeamPresence extends DurableObject {
   // backward-compatible with the one-way presence transport.
   override async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
     if (wsExpiresAt(ws) <= Date.now()) return;
+    // Directed nudge channels are push-only: no sync, no inbound protocol.
+    if (wsDeviceScope(ws) !== null) return;
     // Bound the inbound message BEFORE parsing: this is client-controlled input
     // on the live presence DO, so an unbounded JSON.parse would be a
     // resource-exhaustion vector. A well-formed `sync.hello` is tiny (a handful
@@ -801,6 +911,8 @@ export class TeamPresence extends DurableObject {
     for (const event of events) {
       const json = JSON.stringify(event);
       for (const ws of this.ctx.getWebSockets()) {
+        // Directed nudge channels never receive presence events.
+        if (wsDeviceScope(ws) !== null) continue;
         // Deadline enforced at delivery too, so an expired subscriber never
         // receives data even if the closing alarm has not fired yet.
         if (wsExpiresAt(ws) <= now) {

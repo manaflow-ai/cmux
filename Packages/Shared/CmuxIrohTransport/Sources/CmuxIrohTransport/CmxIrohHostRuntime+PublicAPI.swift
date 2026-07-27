@@ -40,6 +40,18 @@ extension CmxIrohHostRuntime {
         }
     }
 
+    /// Runs one registration/policy refresh round now, as if the renewal
+    /// timer had fired. Called when an external signal (a server-directed
+    /// presence nudge) says broker-side state for this binding changed, so
+    /// the host re-registers and re-reads policy within seconds instead of
+    /// waiting out the hint-expiry renewal. Coalesces with an in-flight
+    /// refresh through the standard pending-replay path; no-op unless active.
+    public func requestRegistrationRefresh() {
+        guard lifecyclePhase == .active,
+              registrationRefreshEnabled else { return }
+        scheduleRegistrationRefresh(revision: lifecycleRevision)
+    }
+
     /// Returns current verified private alias material without broker path hints.
     public func lanAdvertisementContext() -> CmxIrohHostLANAdvertisementContext? {
         guard lifecyclePhase == .active,

@@ -299,6 +299,18 @@ final class MobileHostIrohRuntime {
         DiagnosticFailureKind.classify(error)
     }
 
+    /// A server-directed presence nudge said broker-side state for this
+    /// device changed (its binding was revoked or replaced). Refresh the
+    /// active runtime's registration now, and run the standard retry
+    /// evaluation so an absent runtime reactivates instead of waiting for
+    /// the next network change or renewal deadline.
+    func refreshRegistrationFromServerSignal() {
+        if let runtime {
+            Task { await runtime.requestRegistrationRefresh() }
+        }
+        retryIfNeeded()
+    }
+
     func makeDiagnosticSessionID() -> Int {
         if nextDiagnosticSessionID == Int.max {
             nextDiagnosticSessionID = 1

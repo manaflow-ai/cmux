@@ -81,6 +81,22 @@ export type PresenceEvent =
    * trip. */
   | { type: "routes"; instance: PresenceInstance };
 
+/** A directed wake-up frame for one device's own `?deviceScope=` stream:
+ * "server-side state for you changed, re-check now" (e.g. the device's iroh
+ * broker binding was revoked or replaced). Deliberately NOT part of
+ * `PresenceEvent`: legacy presence decoders throw on unknown event types, so
+ * nudges are only ever sent to sockets that opted in by subscribing
+ * device-scoped, mirroring how sync frames are gated on `sync.hello`. */
+export interface NudgeEvent {
+  type: "nudge";
+  deviceId: string;
+  /** Restricts the wake-up to one app instance (build tag); absent = whole device. */
+  tag?: string;
+  kind: string;
+  /** Epoch ms the nudge was accepted by the DO. */
+  at: number;
+}
+
 export interface HeartbeatResult {
   instance: PresenceInstance;
   /** Events to broadcast to subscribers, in order. A fresh heartbeat on an
