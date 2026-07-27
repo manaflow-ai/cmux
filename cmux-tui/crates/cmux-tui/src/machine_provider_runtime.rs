@@ -1,9 +1,7 @@
 //! Dynamic machine catalog backed by a versioned external provider.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::path::Path;
-#[cfg(test)]
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::Duration;
@@ -84,6 +82,55 @@ struct KeyRegistry {
     next: u64,
 }
 
+enum ProviderNoticeIdentity {
+    #[cfg(test)]
+    Ephemeral(protocol::OpaqueId),
+    Persisted {
+        state_root: PathBuf,
+        lease: Option<crate::provider_notice_identity::ProviderNoticeIdentityLease>,
+    },
+}
+
+impl ProviderNoticeIdentity {
+    fn consumer_id(&mut self) -> anyhow::Result<&protocol::OpaqueId> {
+        match self {
+            #[cfg(test)]
+            Self::Ephemeral(consumer_id) => Ok(consumer_id),
+            Self::Persisted { state_root, lease } => {
+                if lease.is_none() {
+                    let acquired = crate::provider_notice_identity::acquire(state_root).map_err(
+                        |error| {
+                            let message = if error
+                                .downcast_ref::<crate::provider_notice_identity::ProviderNoticeIdentityInUse>()
+                                .is_some()
+                            {
+                                localization::catalog()
+                                    .sidebar
+                                    .provider_connection_already_running
+                            } else {
+                                localization::catalog()
+                                    .sidebar
+                                    .provider_notice_identity_unavailable
+                            };
+                            error.context(message)
+                        },
+                    )?;
+                    *lease = Some(acquired);
+                }
+                Ok(lease.as_ref().expect("notice identity lease was initialized").consumer_id())
+            }
+        }
+    }
+
+    #[cfg(test)]
+    fn acquired_consumer_id(&self) -> Option<&protocol::OpaqueId> {
+        match self {
+            Self::Ephemeral(consumer_id) => Some(consumer_id),
+            Self::Persisted { lease, .. } => lease.as_ref().map(|identity| identity.consumer_id()),
+        }
+    }
+}
+
 /// Owns the provider control connection and stable process-local machine keys.
 pub(crate) struct ProviderMachineRuntime {
     connector: Arc<dyn MachineProviderConnector>,
@@ -94,7 +141,6 @@ pub(crate) struct ProviderMachineRuntime {
     keys: Arc<Mutex<KeyRegistry>>,
     mutation_nonce: String,
     mutation_sequence: AtomicU64,
-    notice_consumer_id: protocol::OpaqueId,
     open: Option<OpenConnection>,
     pending: Option<PendingConnection>,
     pending_external_connect: Option<PendingExternalConnect>,
@@ -102,7 +148,7 @@ pub(crate) struct ProviderMachineRuntime {
     last_snapshot_notice: Option<protocol::ProviderNotice>,
     pending_notice_messages: HashSet<String>,
     notice: Option<String>,
-    _notice_identity_lease: Option<crate::provider_notice_identity::ProviderNoticeIdentityLease>,
+    notice_identity: ProviderNoticeIdentity,
 }
 
 /// Composes a provider-owned catalog with client-local socket and SSH targets.
@@ -338,10 +384,9 @@ impl ProviderMachineRuntime {
         socket_path: impl AsRef<Path>,
         token: protocol::BearerToken,
     ) -> anyhow::Result<Self> {
-        Self::connect_with_consumer_id(
+        Self::connect_with_notice_identity(
             Arc::new(UnixProviderConnector::new(socket_path.as_ref().to_path_buf(), token)),
-            random_notice_consumer_id()?,
-            None,
+            ProviderNoticeIdentity::Ephemeral(random_notice_consumer_id()?),
         )
     }
 
@@ -349,20 +394,10 @@ impl ProviderMachineRuntime {
         connector: Arc<dyn MachineProviderConnector>,
         state_root: &Path,
     ) -> anyhow::Result<Self> {
-        let identity_lease =
-            crate::provider_notice_identity::acquire(state_root).map_err(|error| {
-                let message = if error
-                    .downcast_ref::<crate::provider_notice_identity::ProviderNoticeIdentityInUse>()
-                    .is_some()
-                {
-                    localization::catalog().sidebar.provider_connection_already_running
-                } else {
-                    localization::catalog().sidebar.provider_notice_identity_unavailable
-                };
-                anyhow::anyhow!(message)
-            })?;
-        let notice_consumer_id = identity_lease.consumer_id().clone();
-        Self::connect_with_consumer_id(connector, notice_consumer_id, Some(identity_lease))
+        Self::connect_with_notice_identity(
+            connector,
+            ProviderNoticeIdentity::Persisted { state_root: state_root.to_path_buf(), lease: None },
+        )
     }
 
     #[cfg(test)]
@@ -377,13 +412,12 @@ impl ProviderMachineRuntime {
         )
     }
 
-    fn connect_with_consumer_id(
+    fn connect_with_notice_identity(
         connector: Arc<dyn MachineProviderConnector>,
-        notice_consumer_id: protocol::OpaqueId,
-        notice_identity_lease: Option<crate::provider_notice_identity::ProviderNoticeIdentityLease>,
+        mut notice_identity: ProviderNoticeIdentity,
     ) -> anyhow::Result<Self> {
         let (client, snapshot, machine_lifecycle_snapshot, workspace_snapshot) =
-            connect_client(Arc::clone(&connector), &notice_consumer_id)?;
+            connect_client(Arc::clone(&connector), &mut notice_identity)?;
         let client = Arc::new(client);
         let surface_initial_snapshot_notice = !client.has_retained_durable_notices()?;
         let mut runtime = Self {
@@ -399,7 +433,6 @@ impl ProviderMachineRuntime {
             })),
             mutation_nonce: random_mutation_nonce()?,
             mutation_sequence: AtomicU64::new(1),
-            notice_consumer_id,
             open: None,
             pending: None,
             pending_external_connect: None,
@@ -407,7 +440,7 @@ impl ProviderMachineRuntime {
             last_snapshot_notice: None,
             pending_notice_messages: HashSet::new(),
             notice: None,
-            _notice_identity_lease: notice_identity_lease,
+            notice_identity,
         };
         runtime.observe_snapshot_notice(
             runtime.snapshot.notice.clone(),
@@ -1221,7 +1254,7 @@ impl ProviderMachineRuntime {
 
     fn reconnect_control(&mut self) -> anyhow::Result<()> {
         let (client, initial_snapshot, initial_machine_lifecycle, initial_workspace) =
-            connect_client(Arc::clone(&self.connector), &self.notice_consumer_id)?;
+            connect_client(Arc::clone(&self.connector), &mut self.notice_identity)?;
         let (mut desired_scope_id, mut desired_machine_id) = self.desired_selection();
         let mut snapshot = reconcile_snapshot_selection(
             &client,
@@ -1698,7 +1731,7 @@ impl MachineController for ProviderMachineRuntime {
 
 fn connect_client(
     connector: Arc<dyn MachineProviderConnector>,
-    notice_consumer_id: &protocol::OpaqueId,
+    notice_identity: &mut ProviderNoticeIdentity,
 ) -> anyhow::Result<(
     ProviderClient,
     protocol::SnapshotResult,
@@ -1713,7 +1746,8 @@ fn connect_client(
     let (client, _hello) =
         ProviderClient::connect_authenticated_with(connector, client_descriptor)?;
     if client.supports_capability(protocol::DURABLE_NOTICES_CAPABILITY)? {
-        client.subscribe_notices(notice_consumer_id.clone())?;
+        let consumer_id = notice_identity.consumer_id()?.clone();
+        client.subscribe_notices(consumer_id)?;
     }
     let snapshot = client.snapshot(None)?;
     let machine_lifecycle_snapshot = load_machine_lifecycle_snapshot(&client, &snapshot)?;
@@ -5340,7 +5374,7 @@ mod tests {
         let second = consumer_ids.recv_timeout(Duration::from_secs(2)).unwrap();
 
         assert_eq!(first, second);
-        assert_eq!(first, runtime.notice_consumer_id);
+        assert_eq!(Some(&first), runtime.notice_identity.acquired_consumer_id());
         finish.send(()).unwrap();
         drop(runtime);
         server.join().unwrap();
@@ -5354,6 +5388,7 @@ mod tests {
         let identity_parent = state.path.join("device");
         std::fs::DirBuilder::new().mode(0o755).create(&identity_parent).unwrap();
         std::fs::set_permissions(&identity_parent, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let (release, release_connection) = mpsc::channel();
         let server = thread::spawn(move || {
             let Some(stream) = accept_with_timeout(&listener) else { return false };
             let (stream, reader) = serve_initial_snapshot_on_stream(
@@ -5361,6 +5396,7 @@ mod tests {
                 snapshot(1, "Legacy", protocol::MachineStatus::Running),
                 &[],
             );
+            release_connection.recv_timeout(Duration::from_secs(2)).unwrap();
             drop(reader);
             drop(stream);
             true
@@ -5368,6 +5404,7 @@ mod tests {
 
         let runtime =
             ProviderMachineRuntime::connect_in_state_root(&socket.path, token(), &state.path);
+        release.send(()).unwrap();
         assert!(
             server.join().unwrap(),
             "legacy provider was not contacted before identity state was accessed"
@@ -5438,7 +5475,41 @@ mod tests {
         let (consumers, consumer_ids) = mpsc::channel();
         let (release, release_connection) = mpsc::channel();
         let server = thread::spawn(move || {
-            for revision in [1, 2, 3] {
+            let first_catalog = snapshot(1, "Machine", protocol::MachineStatus::Running);
+            let (first_stream, first_reader, first_consumer_id) =
+                serve_initial_durable_snapshot(&listener, first_catalog, None);
+            consumers.send(first_consumer_id).unwrap();
+
+            let (mut blocked_stream, _) = listener.accept().unwrap();
+            let mut blocked_reader = BufReader::new(blocked_stream.try_clone().unwrap());
+            let hello: protocol::RequestEnvelope = read_frame(&mut blocked_reader);
+            assert!(matches!(hello.request, protocol::ProviderRequest::Hello(_)));
+            write_frame(
+                &mut blocked_stream,
+                &protocol::ResponseEnvelope::success(
+                    hello.id,
+                    protocol::HelloResult {
+                        provider_id: id("test-provider"),
+                        provider_name: "Test Provider".into(),
+                        negotiated_version: protocol::Version,
+                    },
+                )
+                .with_capabilities([protocol::DURABLE_NOTICES_CAPABILITY]),
+            );
+            let mut blocked_request = String::new();
+            assert_eq!(
+                blocked_reader.read_line(&mut blocked_request).unwrap(),
+                0,
+                "competing runtime subscribed with the leased identity: {blocked_request}"
+            );
+            drop(blocked_reader);
+            drop(blocked_stream);
+
+            release_connection.recv().unwrap();
+            drop(first_reader);
+            drop(first_stream);
+
+            for revision in [2, 3] {
                 let catalog = snapshot(revision, "Machine", protocol::MachineStatus::Running);
                 let (stream, reader, consumer_id) =
                     serve_initial_durable_snapshot(&listener, catalog, None);
