@@ -2575,6 +2575,14 @@ struct TerminalKeyboardCopyModeCursorAppearanceTests {
     }
 }
 
+@Suite("Terminal keyboard copy mode clipboard")
+struct TerminalKeyboardCopyModeClipboardTests {
+    @Test func zeroLengthSelectionDecodesAsEmptyString() {
+        let text = ghostty_text_s()
+
+        #expect(GhosttyNSView.keyboardCopyModeSelectionString(text) == "")
+    }
+}
 
 final class GhosttyBackgroundThemeTests: XCTestCase {
     func testColorClampsOpacity() {
