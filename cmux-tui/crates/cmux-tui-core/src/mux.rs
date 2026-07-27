@@ -4059,8 +4059,23 @@ impl Mux {
         Ok(())
     }
 
+    pub(crate) fn unregister_kitty_image_surface(&self, surface: &Surface) -> anyhow::Result<()> {
+        let mut registered = self.kitty_image_surfaces.lock().unwrap();
+        surface.set_kitty_image_storage_limit(0)?;
+        registered.retain(|candidate| {
+            candidate.upgrade().is_some_and(|candidate| !std::ptr::eq(candidate.as_ref(), surface))
+        });
+        Self::rebalance_registered_kitty_image_surfaces(&mut registered)
+    }
+
     pub(crate) fn rebalance_kitty_image_surfaces(&self) -> anyhow::Result<()> {
         let mut registered = self.kitty_image_surfaces.lock().unwrap();
+        Self::rebalance_registered_kitty_image_surfaces(&mut registered)
+    }
+
+    fn rebalance_registered_kitty_image_surfaces(
+        registered: &mut Vec<Weak<Surface>>,
+    ) -> anyhow::Result<()> {
         let surfaces = registered.iter().filter_map(Weak::upgrade).collect::<Vec<_>>();
         registered.retain(|candidate| candidate.strong_count() > 0);
         if surfaces.is_empty() {

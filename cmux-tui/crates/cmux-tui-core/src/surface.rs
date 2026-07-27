@@ -844,9 +844,8 @@ fn wait_for_reconnect_after_geometry_failure(
     pty: &PtySurface,
     geometry: std::sync::MutexGuard<'_, PtyGeometry>,
 ) -> bool {
-    let retrying = retry.wait_or_fail(pty);
     drop(geometry);
-    retrying
+    retry.wait_or_fail(pty)
 }
 
 impl SurfaceKind {
@@ -3371,21 +3370,26 @@ impl Surface {
     pub fn kill(&self) {
         match self {
             Surface::Pty(pty) => {
-                let mut runtime = pty.runtime.lock().unwrap();
-                match &mut *runtime {
-                    PtyRuntime::Local { killer, .. } => {
-                        let _ = killer.kill();
+                {
+                    let mut runtime = pty.runtime.lock().unwrap();
+                    match &mut *runtime {
+                        PtyRuntime::Local { killer, .. } => {
+                            let _ = killer.kill();
+                        }
+                        #[cfg(unix)]
+                        PtyRuntime::Hosted(host) => {
+                            // The host owns record cleanup and removes it only
+                            // after the PTY process has actually exited. Unlinking
+                            // here would make a failed Terminate write turn a live
+                            // shell into an undiscoverable orphan.
+                            let _ = host.terminate();
+                        }
+                        #[cfg(unix)]
+                        PtyRuntime::ExitedHosted => {}
                     }
-                    #[cfg(unix)]
-                    PtyRuntime::Hosted(host) => {
-                        // The host owns record cleanup and removes it only
-                        // after the PTY process has actually exited. Unlinking
-                        // here would make a failed Terminate write turn a live
-                        // shell into an undiscoverable orphan.
-                        let _ = host.terminate();
-                    }
-                    #[cfg(unix)]
-                    PtyRuntime::ExitedHosted => {}
+                }
+                if let Some(mux) = pty.mux.upgrade() {
+                    let _ = mux.unregister_kitty_image_surface(self);
                 }
             }
             Surface::Browser(browser) => browser.kill(),
@@ -4909,7 +4913,6 @@ mod tests {
         let (release_backoff_tx, release_backoff_rx) = std::sync::mpsc::channel();
         let release_backoff_rx = Arc::new(Mutex::new(release_backoff_rx));
         *pty.geometry_test_hook.lock().unwrap() = Some(Arc::new({
-            let release_backoff_rx = release_backoff_rx.clone();
             move |step| {
                 if step == PtyGeometryTestStep::ReconnectBackoffStarted {
                     backoff_started_tx.send(()).unwrap();
