@@ -502,6 +502,15 @@ final class CmuxMainThreadTurnProfiler {
 #endif
 
 @MainActor
+private final class WeakTerminalKeyReleaseOwner {
+    weak var view: GhosttyNSView?
+
+    init(_ view: GhosttyNSView) {
+        self.view = view
+    }
+}
+
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation, NSMenuDelegate, CmuxConfigStoreReloadEnvironment {
     nonisolated(unsafe) static var shared: AppDelegate?
     /// Stateless control-socket syscall layer (CmuxControlSocket); composition-root owned.
@@ -742,6 +751,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var shortcutMonitor: Any?
     private var shortcutKeyPressLifecycle = ShortcutKeyPressLifecycleTracker()
     private var zeroTimestampShortcutEventsByKeyCode: [UInt16: NSEvent] = [:]
+    private var terminalKeyReleaseOwners: [UInt16: WeakTerminalKeyReleaseOwner] = [:]
     private var shortcutDefaultsObserver: NSObjectProtocol?
     private var menuBarVisibilityObserver: NSObjectProtocol?
     private var mobileHostSettingsObserver: NSObjectProtocol?
@@ -12560,6 +12570,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             matching: [.keyDown, .keyUp, .flagsChanged, .systemDefined]
         ) { [weak self] event in
             guard let self else { return event }
+            self.prepareTerminalKeyReleaseOwnership(for: event)
             if ShortcutRecorderEventRouter.dispatchActiveRecordingEvent(
                 event,
                 preferredWindow: event.window ?? shortcutRoutingActiveWindow
@@ -12681,6 +12692,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func shortcutMonitorConsumesLifecycleEvent(_ event: NSEvent) -> Bool {
         handleBrowserOmnibarSelectionRepeatLifecycleEvent(event)
+        let terminalReleaseOwner = takeTerminalKeyReleaseOwner(for: event)
         let consumedShortcutRelease = shortcutConsumesKeyUp(event)
         let consumedEscapeRelease = clearEscapeSuppressionForKeyUp(
             event: event,
@@ -12689,32 +12701,55 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if consumedShortcutRelease || consumedEscapeRelease {
             return true
         }
-        return forwardCommandKeyUpToFocusedTerminal(event)
-    }
-
-    private func forwardCommandKeyUpToFocusedTerminal(_ event: NSEvent) -> Bool {
         guard event.type == .keyUp else { return false }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         guard flags.contains(.command) else { return false }
-
-        let preferredWindow = event.window ?? shortcutRoutingActiveWindow
-        guard let ghosttyView = shortcutRoutingFirstResponder(
-            preferredWindow: preferredWindow
-        ).cmuxTerminalKeyEquivalentOwningGhosttyView() else {
-            return false
-        }
+        guard let terminalReleaseOwner else { return false }
 
         // AppKit does not reliably continue Command-modified key-up events
         // through the responder chain. The local monitor is the one guaranteed
-        // delivery point, so finish the same terminal lifecycle here and
-        // consume the event to prevent a second release if AppKit does forward.
-        ghosttyView.keyUp(with: event)
+        // delivery point. Route only to the view that recorded terminal
+        // ownership for this physical press, regardless of focus at release.
+        terminalReleaseOwner.keyUp(with: event)
         return true
+    }
+
+    private func prepareTerminalKeyReleaseOwnership(for event: NSEvent) {
+        guard event.type == .keyDown, !event.isARepeat else { return }
+        terminalKeyReleaseOwners.removeValue(forKey: event.keyCode)
+    }
+
+    private func takeTerminalKeyReleaseOwner(for event: NSEvent) -> GhosttyNSView? {
+        guard event.type == .keyUp else { return nil }
+        return terminalKeyReleaseOwners.removeValue(forKey: event.keyCode)?.view
+    }
+
+    func recordTerminalKeyReleaseOwner(
+        _ view: GhosttyNSView,
+        forKeyDown keyCode: UInt16
+    ) {
+        terminalKeyReleaseOwners[keyCode] = WeakTerminalKeyReleaseOwner(view)
+    }
+
+    func clearTerminalKeyReleaseOwner(
+        _ view: GhosttyNSView,
+        forKey keyCode: UInt16
+    ) {
+        guard terminalKeyReleaseOwners[keyCode]?.view === view else { return }
+        terminalKeyReleaseOwners.removeValue(forKey: keyCode)
+    }
+
+    func clearTerminalKeyReleaseOwners(for view: GhosttyNSView) {
+        terminalKeyReleaseOwners = terminalKeyReleaseOwners.filter { _, owner in
+            guard let recordedView = owner.view else { return false }
+            return recordedView !== view
+        }
     }
 
     func resetShortcutPressOwnership() {
         shortcutKeyPressLifecycle.reset()
         zeroTimestampShortcutEventsByKeyCode.removeAll(keepingCapacity: true)
+        terminalKeyReleaseOwners.removeAll(keepingCapacity: true)
     }
 
     private func installShortcutDefaultsObserver() {
@@ -15174,6 +15209,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     // Debug/test hook: mirrors local monitor routing (keyDown + keyUp lifecycle).
     func debugHandleShortcutMonitorEvent(event: NSEvent) -> Bool {
+        prepareTerminalKeyReleaseOwnership(for: event)
         if event.type == .systemDefined {
             return false
         }

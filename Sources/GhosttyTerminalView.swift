@@ -5325,6 +5325,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func resetTerminalKeyInputLifecycle() {
+        AppDelegate.shared?.clearTerminalKeyReleaseOwners(for: self)
         terminalKeyInputLifecycleTracker.reset()
         zeroTimestampTerminalKeyEventsByKeyCode.removeAll(
             keepingCapacity: true
@@ -5520,6 +5521,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             terminalKeyInputLifecycleTracker.recordGhosttyMenuBindingConsumption(
                 forKeyDown: event.keyCode,
                 eventIdentity: eventIdentity
+            )
+            AppDelegate.shared?.recordTerminalKeyReleaseOwner(
+                self,
+                forKeyDown: event.keyCode
             )
         }
         return consumed
@@ -5824,6 +5829,23 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         eventIdentity: PhysicalKeyEventIdentity,
         surface: ghostty_surface_t
     ) -> Bool {
+        // Register before calling into Ghostty because a binding can change
+        // focus reentrantly. Focus loss resets the lifecycle and removes this
+        // owner while the callback is on the stack.
+        AppDelegate.shared?.recordTerminalKeyReleaseOwner(
+            self,
+            forKeyDown: event.keyCode
+        )
+        var didSend = false
+        defer {
+            if !didSend {
+                AppDelegate.shared?.clearTerminalKeyReleaseOwner(
+                    self,
+                    forKey: event.keyCode
+                )
+            }
+        }
+
         var keyEvent = ghosttyKeyEvent(for: event, surface: surface)
         keyEvent.action = action
         keyEvent.composing = composing
@@ -5843,13 +5865,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         guard let text, shouldSendText(text) else {
             keyEvent.text = nil
-            return sendGhosttyKey(surface, keyEvent)
+            didSend = sendGhosttyKey(surface, keyEvent)
+            return didSend
         }
 
-        return text.withCString { pointer in
+        didSend = text.withCString { pointer in
             keyEvent.text = pointer
             return sendGhosttyKey(surface, keyEvent)
         }
+        return didSend
     }
 
     fileprivate func sendCommittedText(
@@ -5907,6 +5931,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
 
     override func keyUp(with event: NSEvent) {
+        AppDelegate.shared?.clearTerminalKeyReleaseOwner(
+            self,
+            forKey: event.keyCode
+        )
         let release = terminalKeyInputLifecycleTracker.release(
             forKeyUp: event.keyCode
         )
