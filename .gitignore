@@ -48,6 +48,7 @@ node_modules/
 tests/visual_output/
 tests/visual_report.html
 experiments/*/target/
+/Native/AlacrittyTerminalFFI/target/
 
 # Stale pre-rebrand Rust TUI dir (renamed to cmux-tui/; old checkouts may
 # still have an untracked mux/target that must never be committed again)

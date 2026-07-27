@@ -5131,6 +5131,26 @@ class TerminalController {
         terminalPanel: TerminalPanel,
         includeScrollback: Bool
     ) -> TerminalTextRawSnapshot? {
+        if terminalPanel.surface.isAlacrittyBacked {
+            guard let text = terminalPanel.surface.alacrittyText(
+                includeScrollback: includeScrollback
+            ) else {
+                return nil
+            }
+            return includeScrollback
+                ? TerminalTextRawSnapshot(
+                    viewport: nil,
+                    screen: text,
+                    history: nil,
+                    active: nil
+                )
+                : TerminalTextRawSnapshot(
+                    viewport: text,
+                    screen: nil,
+                    history: nil,
+                    active: nil
+                )
+        }
         guard terminalPanel.surface.surface != nil else { return nil }
         if includeScrollback {
             return TerminalTextRawSnapshot(
@@ -5184,7 +5204,7 @@ class TerminalController {
     }
 
     private func readTerminalTextBase64(terminalPanel: TerminalPanel, includeScrollback: Bool = false, lineLimit: Int? = nil) -> String {
-        guard terminalPanel.surface.liveSurfaceForGhosttyAccess(reason: "readTerminalTextBase64") != nil else {
+        guard terminalPanel.surface.hasLiveSurface else {
             return "ERROR: Terminal surface not found"
         }
         guard let snapshot = readTerminalTextRawSnapshot(
@@ -10840,7 +10860,7 @@ class TerminalController {
                   let terminalPanel = tab.terminalPanel(for: panelId) else {
                 return .finished("ERROR: Terminal surface not found")
             }
-            guard terminalPanel.surface.liveSurfaceForGhosttyAccess(reason: "readTerminalTextBase64") != nil else {
+            guard terminalPanel.surface.hasLiveSurface else {
                 return .finished("ERROR: Terminal surface not found")
             }
             guard let snapshot = self.readTerminalTextRawSnapshot(

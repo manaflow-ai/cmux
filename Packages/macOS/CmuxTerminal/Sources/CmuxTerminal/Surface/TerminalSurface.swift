@@ -68,16 +68,17 @@ public final class TerminalSurface: Identifiable, ObservableObject {
             runtimeSurfaceGeneration &+= 1
         }
     }
-    /// Monotonic lifetime identity for the native Ghostty surface.
+    /// Monotonic lifetime identity for the active native terminal surface.
     ///
     /// The generation advances whenever the runtime handle is installed or
     /// removed, so clients can invalidate pointer-backed caches even when an
     /// allocator later reuses the same address.
-    public private(set) var runtimeSurfaceGeneration: UInt64 = 0
+    public internal(set) var runtimeSurfaceGeneration: UInt64 = 0
     weak var attachedView: (any TerminalSurfaceNativeViewing)?
     // MARK: Injected collaborators (see TerminalSurfaceRuntimeDependencies)
     let registry: any TerminalSurfaceRegistering
     let engine: any TerminalEngineHosting
+    let configuredBackend: TerminalRuntimeBackend
     let spawnPolicyProvider: any TerminalSurfaceSpawnPolicyProviding
     let byteTee: any TerminalByteTeeBinding
     let rendererRealization: any TerminalRendererRealizationScheduling
@@ -90,6 +91,21 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let sessionPortRangeSize: Int
     let scrollbackReplayEnvironmentKey: String
     let globalFontMagnificationPercent: @Sendable () -> Int
+    var alacrittyRuntime: AlacrittyTerminalRuntime?
+    var alacrittyDrawScheduled = false
+
+    /// Whether this surface uses Alacritty for terminal state and rendering.
+    ///
+    /// Manual-I/O remote mirrors remain on Ghostty because they inject an
+    /// externally-owned PTY stream rather than spawning a local process.
+    public var isAlacrittyBacked: Bool {
+        configuredBackend == .alacritty && !manualIO
+    }
+
+    /// Whether either native backend currently owns a live runtime.
+    var hasNativeRuntime: Bool {
+        surface != nil || alacrittyRuntime != nil
+    }
 
     /// Presentation state for the current runtime renderer. This distinguishes a
     /// renderer Ghostty created from one cmux has actually presented in a real
@@ -113,7 +129,9 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// `ghostty_surface_inherited_config`, `ghostty_surface_quicklook_font`),
     /// call `liveSurfaceForGhosttyAccess(reason:)` so stale freed pointers are
     /// rejected and quarantined.
-    public var hasLiveSurface: Bool { surface != nil && portalLifecycleState == .live }
+    public var hasLiveSurface: Bool {
+        hasNativeRuntime && portalLifecycleState == .live
+    }
 
     /// Whether the terminal surface view is currently attached to a window.
     ///
@@ -492,6 +510,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.manualInputHandler = manualInputHandler
         self.registry = dependencies.registry
         self.engine = dependencies.engine
+        self.configuredBackend = dependencies.backend
         self.spawnPolicyProvider = dependencies.spawnPolicy
         self.byteTee = dependencies.byteTee
         self.rendererRealization = dependencies.rendererRealization
@@ -569,6 +588,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     deinit {
+        alacrittyRuntime?.close()
+        alacrittyRuntime = nil
         claudeCommandShimInstallTask?.cancel()
         claudeCommandShimCompletionTask?.cancel()
         registry.unregister(self)

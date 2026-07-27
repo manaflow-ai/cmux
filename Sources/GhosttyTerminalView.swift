@@ -397,6 +397,7 @@ class GhosttyApp {
     static let terminalSurfaceRuntimeDependencies = TerminalSurfaceRuntimeDependencies(
         registry: GhosttyApp.terminalSurfaceRegistry,
         engine: GhosttyApp.shared,
+        backend: .alacritty,
         viewProvider: TerminalSurfaceViewFactory(),
         spawnPolicy: TerminalSurfaceSpawnPolicyBridge(),
         byteTee: TerminalOutputByteTeeBridge(),
@@ -3130,6 +3131,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     weak var terminalSurface: TerminalSurface?
+    private let alacrittyRenderTargetView = NSView(frame: .zero)
+    var terminalRenderTargetView: NSView { alacrittyRenderTargetView }
     /// View-scoped ingress keeps title churn independent across terminal surfaces.
     fileprivate let titleUpdateIngress = GhosttyTitleUpdateIngress()
     /// Retained independently because the weak surface can clear before view teardown.
@@ -3420,6 +3423,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // input sequencing that needs to wait for terminal redraws.
         wantsLayer = true
         layer?.masksToBounds = true
+        alacrittyRenderTargetView.wantsLayer = false
+        alacrittyRenderTargetView.frame = bounds
+        alacrittyRenderTargetView.autoresizingMask = [.width, .height]
+        alacrittyRenderTargetView.isHidden = true
+        addSubview(alacrittyRenderTargetView, positioned: .below, relativeTo: nil)
         setupKeyboardCopyModeCursorOverlay()
         installEventMonitor()
         updateTrackingAreas()
@@ -3589,6 +3597,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             updateGhosttyMouseShape(GHOSTTY_MOUSE_SHAPE_TEXT)
         }
         terminalSurface = surface
+        alacrittyRenderTargetView.isHidden = !surface.isAlacrittyBacked
         tabId = surface.tabId
         if !isAlreadyAttached {
             surface.attachToView(self)
@@ -3601,6 +3610,20 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         applySurfaceBackground()
         applySurfaceColorScheme(force: !isSameSurface || !isAlreadyAttached)
+    }
+
+    func terminalRuntimeTitleDidChange(_ title: String) {
+        guard let tabId, let terminalSurface else { return }
+        titleUpdateIngress.submit(
+            tabId: tabId,
+            surfaceId: terminalSurface.id,
+            sourceSurface: terminalSurface,
+            title: title
+        )
+    }
+
+    func terminalRuntimeChildDidExit(_ exitCode: Int32) {
+        enqueueRenderedFrameUpdate()
     }
 
     override func viewDidMoveToWindow() {
@@ -3699,6 +3722,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func layout() {
         super.layout()
+        alacrittyRenderTargetView.frame = bounds
         updateSurfaceSize()
         syncKeyboardCopyModeCursorOverlay()
         invalidateTextInputCoordinates()
@@ -3922,6 +3946,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             suppressAssignedGridPin: isWindowLiveResizeActive
                 || TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: window)
         )
+        if terminalSurface.isAlacrittyBacked,
+           let alacrittyCellSize = terminalSurface.cellSizePoints(),
+           alacrittyCellSize != cellSize {
+            cellSize = alacrittyCellSize
+            NotificationCenter.default.post(
+                name: .ghosttyDidUpdateCellSize,
+                object: self,
+                userInfo: [GhosttyNotificationKey.cellSize: alacrittyCellSize]
+            )
+        }
         return didChange || surfaceSizeChanged
     }
 
@@ -4021,6 +4055,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     @discardableResult
     func prepareSurfaceForPaste(reason: String) -> Bool {
         terminalSurface?.didReceiveExplicitInput()
+        if let terminalSurface, terminalSurface.isAlacrittyBacked {
+            if !terminalSurface.hasLiveSurface {
+                terminalSurface.attachToViewForInputDemand(self)
+                updateSurfaceSize(size: bounds.size)
+            }
+            return terminalSurface.hasLiveSurface
+        }
         guard ensureSurfaceReadyForInput() != nil else {
             requestInputRecoveryAfterSurfaceMiss(reason: reason)
             return false
@@ -5276,6 +5317,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard event.type == .keyDown else { return false }
         guard let fr = window?.firstResponder as? NSView,
               fr === self || fr.isDescendant(of: self) else { return false }
+        if terminalSurface?.isAlacrittyBacked == true {
+            return false
+        }
         guard let surface = ensureSurfaceReadyForInput() else { return false }
 
         // Let non-Cmd keys flow to keyDown while IME is composing; Cmd shortcuts still work.
@@ -5444,8 +5488,59 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
     }
 
+    private func keyDownWithAlacritty(_ event: NSEvent) {
+        guard let terminalSurface else { return }
+        if !terminalSurface.hasLiveSurface {
+            guard window != nil else {
+                super.keyDown(with: event)
+                return
+            }
+            terminalSurface.attachToViewForInputDemand(self)
+            updateSurfaceSize(size: bounds.size)
+        }
+
+        let appDelegate = AppDelegate.shared
+        if let appDelegate,
+           let mode = appDelegate.rightSidebarModeShortcut(for: event),
+           let window,
+           appDelegate.shouldRouteRightSidebarModeShortcut(in: window) {
+            _ = appDelegate.focusRightSidebarInActiveMainWindow(
+                mode: mode,
+                focusFirstItem: true,
+                preferredWindow: window
+            )
+            return
+        }
+        appDelegate?.tabManager?.dismissNotificationOnTerminalInteraction(
+            tabId: terminalSurface.tabId,
+            surfaceId: terminalSurface.id
+        )
+        if !cmuxFindEventIsPlainEscape(event) {
+            endFindEscapeSuppression()
+        }
+        if shouldConsumeSuppressedFindEscape(event) { return }
+        if cmuxFindEventIsPlainEscape(event), terminalSurface.searchState != nil {
+            terminalSurface.closeSearchFromExplicitInput()
+            beginFindEscapeSuppression()
+            return
+        }
+
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if flags.contains(.command) {
+            return
+        }
+        if terminalSurface.sendAlacrittyHardwareKey(event) {
+            return
+        }
+        interpretKeyEvents([event])
+    }
+
     override func keyDown(with event: NSEvent) {
         terminalSurface?.didReceiveExplicitInput()
+        if terminalSurface?.isAlacrittyBacked == true {
+            keyDownWithAlacritty(event)
+            return
+        }
 #if DEBUG
         let typingTimingStart = CmuxTypingTiming.start()
         let phaseTotalStart = ProcessInfo.processInfo.systemUptime
@@ -7278,6 +7373,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func scrollWheel(with event: NSEvent) {
         NotificationCenter.default.post(name: .ghosttyDidReceiveWheelScroll, object: self)
+        if let terminalSurface, terminalSurface.isAlacrittyBacked {
+            lastScrollEventTime = CACurrentMediaTime()
+            let delta = event.hasPreciseScrollingDeltas
+                ? event.scrollingDeltaY / 12
+                : event.scrollingDeltaY
+            let lines = Int32(delta.rounded(.awayFromZero))
+            if lines != 0 {
+                _ = terminalSurface.scrollAlacritty(lines: lines)
+            }
+            return
+        }
         guard let surface = surface else { return }
         lastScrollEventTime = CACurrentMediaTime()
         Self.focusLog("scrollWheel: surface=\(terminalSurface?.id.uuidString ?? "nil") firstResponder=\(String(describing: window?.firstResponder))")
@@ -11395,6 +11501,10 @@ extension GhosttyNSView: NSTextInputClient {
     /// execution, etc.). Programmatic callers can preserve literal ESC bytes so
     /// automation payloads remain byte-for-byte stable.
     fileprivate func sendTextToSurface(_ chars: String, preserveLiteralEscape: Bool) {
+        if let terminalSurface, terminalSurface.isAlacrittyBacked {
+            _ = terminalSurface.sendAlacrittyCommittedText(chars)
+            return
+        }
         guard let surface = ensureSurfaceReadyForInput() else { return }
 #if DEBUG
         let typingTimingStart = CmuxTypingTiming.start()

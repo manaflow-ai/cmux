@@ -79,6 +79,9 @@ select_zig_for_target() {
   # /usr/local/bin first or run under Rosetta, but the x86_64 Zig link path can
   # fail against newer macOS SDKs while arm64 Zig cross-compiles both slices.
   candidates+=("/opt/homebrew/bin/zig")
+  # Fleet images keep toolchain versions side by side instead of replacing the
+  # global Zig symlink. Prefer the exact required version when it is installed.
+  candidates+=("/usr/local/lib/zig-${ZIG_REQUIRED}/zig")
   local path_zig=""
   path_zig="$(command -v zig 2>/dev/null || true)"
   [[ -n "$path_zig" ]] && candidates+=("$path_zig")

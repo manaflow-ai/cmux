@@ -2,7 +2,7 @@ extension TerminalSurface {
     /// Attaches the model for immediate user input, bypassing restore pacing.
     @MainActor
     public func attachToViewForInputDemand(_ view: any TerminalSurfaceNativeViewing) {
-        guard surface == nil else { return }
+        guard !hasNativeRuntime else { return }
         if let attachedView, attachedView !== view { return }
         attachedView = view
         releaseHeadlessStartupWindowIfNeeded(for: view)

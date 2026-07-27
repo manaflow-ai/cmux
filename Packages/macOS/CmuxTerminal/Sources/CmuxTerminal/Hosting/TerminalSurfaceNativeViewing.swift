@@ -10,6 +10,19 @@ public import CmuxTerminalCore
 /// callback context identifies its host view through that core seam.
 @MainActor
 public protocol TerminalSurfaceNativeViewing: NSView, TerminalSurfaceHosting {
+    /// The AppKit view whose native handle the active renderer draws into.
+    ///
+    /// Ghostty uses the conforming view itself. Alternate renderers can supply
+    /// a dedicated child view while preserving this view as cmux's responder
+    /// and portal host.
+    var terminalRenderTargetView: NSView { get }
+
+    /// Receives an OSC title update from the active terminal runtime.
+    func terminalRuntimeTitleDidChange(_ title: String)
+
+    /// Receives the local terminal child-process exit code.
+    func terminalRuntimeChildDidExit(_ exitCode: Int32)
+
     /// The owning workspace id mirrored onto the view for focus routing.
     var tabId: UUID? { get set }
 
@@ -34,4 +47,15 @@ public protocol TerminalSurfaceNativeViewing: NSView, TerminalSurfaceHosting {
     /// - Returns: Whether a refresh was performed.
     @discardableResult
     func forceRefreshSurface() -> Bool
+}
+
+extension TerminalSurfaceNativeViewing {
+    /// Uses the terminal surface view itself as the default renderer target.
+    public var terminalRenderTargetView: NSView { self }
+
+    /// Ignores title changes when a host does not expose title state.
+    public func terminalRuntimeTitleDidChange(_ title: String) {}
+
+    /// Ignores child exit when a host does not expose an exit overlay.
+    public func terminalRuntimeChildDidExit(_ exitCode: Int32) {}
 }

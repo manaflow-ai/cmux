@@ -1,0 +1,33 @@
+[package]
+name = "cmux-alacritty-terminal-ffi"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[features]
+x11 = []
+
+[dependencies]
+ahash = { version = "0.8.6", features = ["no-rng"] }
+alacritty_terminal = { path = "../../vendor/alacritty/alacritty_terminal", default-features = false }
+bitflags = "2.2.1"
+crossfont = "0.8.1"
+glutin = { version = "0.32.2", default-features = false, features = ["egl", "wgl"] }
+libc = "0.2"
+log = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+unicode-width = "0.2.0"
+winit = { version = "0.30.9", default-features = false, features = ["rwh_06", "serde"] }
+
+[build-dependencies]
+gl_generator = "0.14.0"
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"

@@ -7057,6 +7057,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B900000AA1B2C3D4E5F60719 /* Copy CLI */,
 				D1FF50000000000000000001 /* Build Diff Sidecar */,
 				C0DEFF100000000000000003 /* Build Command Palette Nucleo FFI */,
+				A1AC47000000000000000003 /* Build Alacritty Terminal FFI */,
 				A5001300A1B2C3D4E5F60719 /* ShellScript */,
 				A9E030000000000000000009 /* Reject Bundled Provider Binaries */,
 
@@ -7428,6 +7429,33 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "\"${SRCROOT}/scripts/build-command-palette-nucleo-ffi.sh\"\n";
+		};
+		A1AC47000000000000000003 /* Build Alacritty Terminal FFI */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/Native/AlacrittyTerminalFFI/Cargo.toml",
+				"$(SRCROOT)/Native/AlacrittyTerminalFFI/Cargo.lock",
+				"$(SRCROOT)/Native/AlacrittyTerminalFFI/build.rs",
+				"$(SRCROOT)/Native/AlacrittyTerminalFFI/src/config.rs",
+				"$(SRCROOT)/Native/AlacrittyTerminalFFI/src/display.rs",
+				"$(SRCROOT)/Native/AlacrittyTerminalFFI/src/lib.rs",
+				"$(SRCROOT)/scripts/build-alacritty-terminal-ffi.sh",
+				"$(SRCROOT)/vendor/alacritty",
+			);
+			name = "Build Alacritty Terminal FFI";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)/libcmux_alacritty_terminal_ffi.dylib",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${SRCROOT}/scripts/build-alacritty-terminal-ffi.sh\"\n";
 		};
 		D1FF50000000000000000001 /* Build Diff Sidecar */ = {
 			isa = PBXShellScriptBuildPhase;

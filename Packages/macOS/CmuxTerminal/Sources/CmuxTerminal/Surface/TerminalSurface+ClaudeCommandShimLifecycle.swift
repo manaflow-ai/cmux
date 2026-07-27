@@ -69,7 +69,7 @@ extension TerminalSurface {
         view: (any TerminalSurfaceNativeViewing)?,
         source: RuntimeSurfaceCreationSource
     ) {
-        guard allowsRuntimeSurfaceCreation(), surface == nil else { return }
+        guard allowsRuntimeSurfaceCreation(), !hasNativeRuntime else { return }
 
         if let view, view.window != nil {
             createSurface(for: view, source: source)

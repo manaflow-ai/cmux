@@ -27,6 +27,10 @@ extension TerminalSurface {
         desiredFocusState = focused
         // Track desired state even before the C surface exists (e.g. during
         // layout restoration). createSurface syncs the state once created.
+        if isAlacrittyBacked {
+            _ = alacrittyRuntime?.setFocus(focused)
+            return
+        }
         guard let surface = surface else { return }
         ghostty_surface_set_focus(surface, focused)
 
@@ -44,7 +48,12 @@ extension TerminalSurface {
     }
 
     /// Applies the occlusion state to the runtime surface.
+    @MainActor
     public func setOcclusion(_ visible: Bool) {
+        if isAlacrittyBacked {
+            if visible { scheduleAlacrittyDraw() }
+            return
+        }
         guard let surface = surface else { return }
         ghostty_surface_set_occlusion(surface, visible)
     }
@@ -54,12 +63,16 @@ extension TerminalSurface {
     /// release. Requires a live runtime surface because the presentation phase
     /// is also initialized before the native surface is created.
     public var isRendererRealized: Bool {
-        surface != nil && rendererPresentationPhase.isNativeRendererRealized
+        if isAlacrittyBacked { return alacrittyRuntime != nil }
+        return surface != nil && rendererPresentationPhase.isNativeRendererRealized
     }
 
     /// Whether the current runtime renderer has completed cmux's presentation transition.
     public var isRendererPresented: Bool {
-        surface != nil && rendererPresentationPhase == .presented
+        if isAlacrittyBacked {
+            return alacrittyRuntime != nil && rendererPresentationPhase == .presented
+        }
+        return surface != nil && rendererPresentationPhase == .presented
     }
 
     /// Whether this surface's portal is currently visible in the UI. This is the
@@ -172,6 +185,7 @@ extension TerminalSurface {
     @MainActor
     public func releaseRenderer() -> Bool {
 #if os(macOS)
+        if isAlacrittyBacked { return false }
         guard rendererPresentationPhase != .released else { return false }
         // A visible portal is protected once it is actually attached. Before
         // that point (including the hidden bootstrap window), release is the
@@ -215,6 +229,12 @@ extension TerminalSurface {
     @MainActor
     func ensureRendererPresented(attachmentReady: Bool) {
 #if os(macOS)
+        if isAlacrittyBacked {
+            guard attachmentReady, alacrittyRuntime != nil else { return }
+            rendererPresentationPhase = .presented
+            scheduleAlacrittyDraw()
+            return
+        }
         // `setVisibleInUI(true)` can precede Dock portal reattachment. Do not
         // realize against a windowless/headless layer and then mirror that
         // enqueue as a completed presentation.
