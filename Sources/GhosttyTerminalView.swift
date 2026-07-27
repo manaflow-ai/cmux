@@ -3387,8 +3387,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func makeBackingLayer() -> CALayer {
-        let metalLayer = GhosttyMetalLayer()
-        metalLayer.configureFrameDelivery(
+        let metalLayer = GhosttyMetalLayer(
             renderDemand: GhosttyApp.renderedFrameNotificationDemand,
             localRenderDemand: localRenderedFrameNotificationDemand,
             receiver: self

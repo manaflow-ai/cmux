@@ -1,6 +1,7 @@
 public import CmuxTerminalCore
 public import QuartzCore
 internal import CmuxFoundation
+internal import Foundation
 
 /// Lightweight instrumentation to detect whether Ghostty is actually requesting Metal drawables.
 /// This helps catch "frozen until refocus" regressions without relying on screenshots (which can
@@ -10,9 +11,57 @@ internal import CmuxFoundation
 /// synchronous instrumentation, while an actor owns receiver and demand state
 /// behind a bounded newest-value ingress.
 public final class GhosttyMetalLayer: CAMetalLayer {
-    private let frameDeliveryCoordinator = RenderedFrameDeliveryCoordinator()
-    private let drawableCount = AtomicUInt64Value()
-    private let lastDrawableTimeBits = AtomicUInt64Value()
+    private let renderDemand: (any RenderDemandGating)?
+    private let localRenderDemand: (any RenderDemandGating)?
+    private let frameDeliveryCoordinator: RenderedFrameDeliveryCoordinator
+    private let drawableCount: AtomicUInt64Value
+    private let lastDrawableTimeBits: AtomicUInt64Value
+
+    /// Creates a layer whose renderer notifications are gated by the supplied
+    /// demand counters.
+    public init(
+        renderDemand: (any RenderDemandGating)?,
+        localRenderDemand: (any RenderDemandGating)?,
+        receiver: (any TerminalRenderedFrameReceiving)?
+    ) {
+        self.renderDemand = renderDemand
+        self.localRenderDemand = localRenderDemand
+        self.frameDeliveryCoordinator = RenderedFrameDeliveryCoordinator(
+            renderDemand: renderDemand,
+            localRenderDemand: localRenderDemand,
+            receiver: receiver
+        )
+        self.drawableCount = AtomicUInt64Value()
+        self.lastDrawableTimeBits = AtomicUInt64Value()
+        super.init()
+    }
+
+    override public init(layer: Any) {
+        if let source = layer as? GhosttyMetalLayer {
+            self.renderDemand = source.renderDemand
+            self.localRenderDemand = source.localRenderDemand
+            self.frameDeliveryCoordinator = source.frameDeliveryCoordinator
+            self.drawableCount = source.drawableCount
+            self.lastDrawableTimeBits = source.lastDrawableTimeBits
+        } else {
+            self.renderDemand = nil
+            self.localRenderDemand = nil
+            self.frameDeliveryCoordinator = RenderedFrameDeliveryCoordinator()
+            self.drawableCount = AtomicUInt64Value()
+            self.lastDrawableTimeBits = AtomicUInt64Value()
+        }
+        super.init(layer: layer)
+    }
+
+    /// Restores an unconfigured layer from an archive.
+    public required init?(coder: NSCoder) {
+        self.renderDemand = nil
+        self.localRenderDemand = nil
+        self.frameDeliveryCoordinator = RenderedFrameDeliveryCoordinator()
+        self.drawableCount = AtomicUInt64Value()
+        self.lastDrawableTimeBits = AtomicUInt64Value()
+        super.init(coder: coder)
+    }
 
     /// Whether either gate currently requests rendered-frame delivery.
     /// Kept as one shared predicate so the renderer hot path and its focused
@@ -22,23 +71,6 @@ public final class GhosttyMetalLayer: CAMetalLayer {
         local: (any RenderDemandGating)?
     ) -> Bool {
         global?.isActive == true || local?.isActive == true
-    }
-
-    /// Configures the demand gates and view that receive coalesced frame
-    /// updates.
-    public func configureFrameDelivery(
-        renderDemand: (any RenderDemandGating)?,
-        localRenderDemand: (any RenderDemandGating)?,
-        receiver: (any TerminalRenderedFrameReceiving)?
-    ) {
-        let coordinator = frameDeliveryCoordinator
-        Task {
-            await coordinator.configure(
-                renderDemand: renderDemand,
-                localRenderDemand: localRenderDemand,
-                receiver: receiver
-            )
-        }
     }
 
     /// The number of drawables vended so far and the media time of the last

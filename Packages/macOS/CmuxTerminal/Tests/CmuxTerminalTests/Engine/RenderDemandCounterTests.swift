@@ -74,10 +74,17 @@ struct RenderDemandCounterTests {
 
     @Test @MainActor
     func renderedFrameDeliveryBuffersOnlyTheNewestMainActorHop() {
-        let coordinator = RenderedFrameDeliveryCoordinator(startConsumer: false)
+        let demand = RenderDemandCounter()
+        let coordinator = RenderedFrameDeliveryCoordinator(
+            renderDemand: demand,
+            startConsumer: false
+        )
 
+        #expect(!coordinator.requestFrame())
+        let retention = demand.retain()
         #expect(coordinator.requestFrame())
         #expect(!coordinator.requestFrame())
         #expect(!coordinator.requestFrame())
+        retention.release()
     }
 }
