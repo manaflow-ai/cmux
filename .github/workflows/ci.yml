@@ -957,6 +957,7 @@ jobs:
           python3 tests/test_issue_2448_shell_claude_wrapper_dispatch.py
           python3 tests/test_issue_8093_ghostty_ssh_binary_path.py
           python3 tests/test_issue_6714_zsh_shim_noclobber.py
+          python3 tests/test_issue_6714_bash_shim_noclobber.py
           python3 tests/test_issue_8953_zsh_prompt_wrap_guard.py
           python3 tests/test_shell_git_branch_stale_cwd.py
           python3 tests/test_shell_git_config_remote_url_parsing.py
