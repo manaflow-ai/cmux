@@ -1006,6 +1006,22 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         )
     }
 
+    func testPlainSurfaceUsesMinimalNonzeroPreLayoutBounds() {
+        let panel = TerminalPanel(workspaceId: UUID())
+        defer { panel.surface.teardownSurface() }
+
+        XCTAssertEqual(panel.hostedView.bounds.size, CGSize(width: 1, height: 1))
+    }
+
+    func testHeadlessStartupExpandsMinimalBoundsToEightHundredBySixHundred() throws {
+        let panel = TerminalPanel(workspaceId: UUID(), initialCommand: "echo startup")
+        defer { panel.surface.teardownSurface() }
+
+        let window = try XCTUnwrap(panel.hostedView.window)
+        XCTAssertTrue(panel.surface.isHeadlessStartupWindow(window))
+        XCTAssertEqual(window.contentView?.bounds.size, CGSize(width: 800, height: 600))
+    }
+
     func testPlainHostedViewWindowAttachmentCreatesRuntimeSurface() throws {
         let panel = TerminalPanel(workspaceId: UUID())
         XCTAssertEqual(panel.hostedView.debugSurfaceId, panel.surface.id)
