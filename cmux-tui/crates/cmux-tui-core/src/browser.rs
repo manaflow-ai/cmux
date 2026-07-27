@@ -35,6 +35,8 @@ pub struct BrowserFrame {
     pub data_b64: String,
     pub css_width: u32,
     pub css_height: u32,
+    pub image_width: u32,
+    pub image_height: u32,
     pub seq: u64,
 }
 
@@ -843,6 +845,8 @@ fn start_surface_thread(
                         data_b64: frame.data_b64,
                         css_width: frame.css_width,
                         css_height: frame.css_height,
+                        image_width: frame.image_width,
+                        image_height: frame.image_height,
                         seq: 0,
                     };
                     browser.store_frame(frame);
@@ -2169,6 +2173,8 @@ mod tests {
             data_b64: "AAAA".to_string(),
             css_width: 80,
             css_height: 48,
+            image_width: 80,
+            image_height: 48,
             seq,
         }
     }
@@ -2672,6 +2678,8 @@ mod tests {
                 data_b64: format!("frame-{index}"),
                 css_width: 80,
                 css_height: 24,
+                image_width: 80,
+                image_height: 24,
                 ack_id: index,
             })
         };
@@ -2695,6 +2703,8 @@ mod tests {
             data_b64: "frame-latest".to_string(),
             css_width: 80,
             css_height: 24,
+            image_width: 80,
+            image_height: 24,
             ack_id: 1,
         });
         assert!(!route.deliver(frame));
@@ -2731,6 +2741,8 @@ mod tests {
                 data_b64: "frame-final".to_string(),
                 css_width: 80,
                 css_height: 24,
+                image_width: 80,
+                image_height: 24,
                 ack_id: 1,
             }));
 

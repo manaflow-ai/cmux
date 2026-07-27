@@ -2783,16 +2783,22 @@ fn browser_state_json(
     });
     if include_frame {
         value["frame"] = match state.frame.as_ref() {
-            Some(frame) => json!({
-                "seq": frame.seq,
-                "width": frame.css_width,
-                "height": frame.css_height,
-                "data": frame.data_b64,
-            }),
+            Some(frame) => browser_frame_json(frame),
             None => Value::Null,
         };
     }
     value
+}
+
+fn browser_frame_json(frame: &crate::BrowserFrame) -> Value {
+    json!({
+        "seq": frame.seq,
+        "width": frame.css_width,
+        "height": frame.css_height,
+        "image_width": frame.image_width,
+        "image_height": frame.image_height,
+        "data": frame.data_b64,
+    })
 }
 
 fn spawn_attach_notification_stream(
@@ -4496,14 +4502,9 @@ fn handle_command(
                                 }
                             }
                             if let Some(frame) = update.frame {
-                                let value = json!({
-                                    "event": "frame",
-                                    "surface": surface_id,
-                                    "seq": frame.seq,
-                                    "width": frame.css_width,
-                                    "height": frame.css_height,
-                                    "data": frame.data_b64,
-                                });
+                                let mut value = browser_frame_json(&frame);
+                                value["event"] = json!("frame");
+                                value["surface"] = json!(surface_id);
                                 if let Err(error) = writer.send_stream(&value, &outbound_stream) {
                                     handle_attach_send_error(&lifecycle, &error);
                                     break;

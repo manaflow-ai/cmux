@@ -117,6 +117,8 @@ mod tests {
             data_b64: data_b64.to_string(),
             css_width: 10,
             css_height: 5,
+            image_width: 10,
+            image_height: 5,
             seq,
         })
     }

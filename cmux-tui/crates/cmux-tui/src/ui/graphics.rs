@@ -308,6 +308,8 @@ mod tests {
                 data_b64: "frame".to_string(),
                 css_width: 80,
                 css_height: 24,
+                image_width: 80,
+                image_height: 24,
                 seq: 1,
             }),
         };

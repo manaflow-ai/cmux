@@ -18,10 +18,10 @@ use std::time::{Duration, Instant};
 
 use base64::Engine;
 use cmux_tui_core::{
-    BrowserSource, BrowserStatus, DEFAULT_VIEWPORT_PANE_WIDTH, Direction, LayoutUndoError,
-    LayoutUndoResult, MAX_VIEWPORT_PANE_WIDTH, MIN_VIEWPORT_PANE_WIDTH, MuxEvent, Node,
-    PairingChallenge, PaneId, Rect, ScreenId, SplitDir, SplitEdge, SplitId, SurfaceId, SurfaceKind,
-    ViewportColumn, ViewportLayoutResult, VirtualRect, WorkspaceId, ZoomMode,
+    BrowserFrame, BrowserSource, BrowserStatus, DEFAULT_VIEWPORT_PANE_WIDTH, Direction,
+    LayoutUndoError, LayoutUndoResult, MAX_VIEWPORT_PANE_WIDTH, MIN_VIEWPORT_PANE_WIDTH, MuxEvent,
+    Node, PairingChallenge, PaneId, Rect, ScreenId, SplitDir, SplitEdge, SplitId, SurfaceId,
+    SurfaceKind, ViewportColumn, ViewportLayoutResult, VirtualRect, WorkspaceId, ZoomMode,
     exact_split_for_pane_edge, exact_split_for_pane_edge_with_viewport, layout_screen,
     layout_screen_with_viewport, split_sides, zellij_default_pane_layout,
 };
@@ -3646,6 +3646,15 @@ fn browser_source_crop(
     Some((source_x as u32, source_end.saturating_sub(source_x).max(1) as u32))
 }
 
+fn browser_frame_source_crop(
+    frame: &BrowserFrame,
+    source_column: u16,
+    visible_columns: u16,
+    full_columns: u16,
+) -> Option<(u32, u32)> {
+    browser_source_crop(frame.image_width, source_column, visible_columns, full_columns)
+}
+
 impl PaneFocusHistory {
     fn record(&mut self, pane: PaneId) {
         self.next_sequence = self.next_sequence.saturating_add(1);
@@ -6461,8 +6470,8 @@ impl App {
             }
             let Some(frame) = surface.browser_frame() else { continue };
             let source_crop_px = area.viewport.and_then(|clip| {
-                browser_source_crop(
-                    frame.css_width,
+                browser_frame_source_crop(
+                    &frame,
                     clip.content_source_x,
                     area.content.width,
                     clip.full_content_width,
@@ -7499,7 +7508,7 @@ impl App {
                 Ok(RenderAction::Draw)
             }
             AppEvent::Input(Event::FocusLost) => {
-                self.cancel_pty_mouse_drag();
+                self.finish_active_drag();
                 Ok(RenderAction::None)
             }
             AppEvent::Input(Event::Resize(_, _)) => {
@@ -9444,7 +9453,7 @@ impl App {
                 self.shortcut_help = if self.shortcut_help.is_some() {
                     None
                 } else {
-                    self.finish_active_drag_for_overlay();
+                    self.finish_active_drag();
                     Some(ShortcutHelp::from_config(&self.config, self.surface_only.is_some()))
                 };
                 self.menu = None;
@@ -10709,7 +10718,7 @@ impl App {
         }
     }
 
-    fn finish_active_drag_for_overlay(&mut self) {
+    fn finish_active_drag(&mut self) {
         if matches!(self.drag, Some(Drag::PtyMouse { .. })) {
             self.cancel_pty_mouse_drag();
             return;
@@ -11326,7 +11335,7 @@ impl App {
         modifiers: KeyModifiers,
     ) -> anyhow::Result<RenderAction> {
         self.selection = None;
-        self.drag = None;
+        self.finish_active_drag();
 
         if self.pairing_dialog.is_some() {
             return self.handle_pairing_click(x, y);
@@ -15481,8 +15490,7 @@ mod tests {
     fn focus_loss_settles_an_active_split_resize_transaction() {
         let mux = Mux::new("focus-lost-split-resize-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
-        let transaction =
-            app.session.layout_resize_transaction.load(std::sync::atomic::Ordering::Acquire);
+        let transaction = app.session.layout_resize_transaction.load(Ordering::Acquire);
         app.drag = Some(Drag::ResizeSplit {
             horizontal: Some(PaneResizeDragTarget::ViewportColumn {
                 pane: 1,
@@ -15498,18 +15506,14 @@ mod tests {
         app.handle(AppEvent::Input(Event::FocusLost)).unwrap();
 
         assert!(app.drag.is_none());
-        assert_ne!(
-            app.session.layout_resize_transaction.load(std::sync::atomic::Ordering::Acquire),
-            transaction
-        );
+        assert_ne!(app.session.layout_resize_transaction.load(Ordering::Acquire), transaction);
     }
 
     #[test]
     fn a_new_left_press_settles_an_abandoned_split_resize_transaction() {
         let mux = Mux::new("new-press-split-resize-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
-        let transaction =
-            app.session.layout_resize_transaction.load(std::sync::atomic::Ordering::Acquire);
+        let transaction = app.session.layout_resize_transaction.load(Ordering::Acquire);
         app.drag = Some(Drag::ResizeSplit {
             horizontal: Some(PaneResizeDragTarget::ViewportColumn {
                 pane: 1,
@@ -15524,10 +15528,7 @@ mod tests {
 
         app.handle_left_down(0, 0, KeyModifiers::NONE).unwrap();
 
-        assert_ne!(
-            app.session.layout_resize_transaction.load(std::sync::atomic::Ordering::Acquire),
-            transaction
-        );
+        assert_ne!(app.session.layout_resize_transaction.load(Ordering::Acquire), transaction);
     }
 
     #[test]

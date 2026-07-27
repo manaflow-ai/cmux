@@ -1720,14 +1720,36 @@ fn hex_color(color: Rgb) -> String {
 fn parse_browser_frame(value: &Value) -> Option<RemoteBrowserFrame> {
     let data_b64 = value.get("data")?.as_str()?.to_string();
     let seq = value.get("seq")?.as_u64()?;
-    let width = value.get("width").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
-    let height = value.get("height").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+    let width = value
+        .get("width")
+        .and_then(Value::as_u64)
+        .and_then(|width| u32::try_from(width).ok())
+        .unwrap_or(0);
+    let height = value
+        .get("height")
+        .and_then(Value::as_u64)
+        .and_then(|height| u32::try_from(height).ok())
+        .unwrap_or(0);
+    let image_width = value
+        .get("image_width")
+        .and_then(Value::as_u64)
+        .and_then(|width| u32::try_from(width).ok())
+        .filter(|width| *width > 0)
+        .unwrap_or(width);
+    let image_height = value
+        .get("image_height")
+        .and_then(Value::as_u64)
+        .and_then(|height| u32::try_from(height).ok())
+        .filter(|height| *height > 0)
+        .unwrap_or(height);
     Some(RemoteBrowserFrame {
         frame: Arc::new(BrowserFrame {
             session_id: String::new(),
             data_b64,
             css_width: width,
             css_height: height,
+            image_width,
+            image_height,
             seq,
         }),
     })
