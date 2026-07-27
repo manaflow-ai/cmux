@@ -1223,7 +1223,6 @@ mod tests {
             "{message}"
         );
         let replay_arguments = std::env::args_os().skip(1).collect::<Vec<_>>();
-        assert!(!replay_arguments.is_empty(), "test runner must provide an argument");
         let mut replay = launcher;
         for argument in replay_arguments {
             replay.push(' ');
@@ -1247,6 +1246,10 @@ mod tests {
 
     #[test]
     fn replay_command_preserves_quoted_and_empty_arguments() {
+        assert_eq!(
+            replay_command_from("cmux-tui".to_string(), std::iter::empty::<&str>()),
+            "cmux-tui"
+        );
         assert_eq!(
             replay_command_from("cmux-tui".to_string(), ["--session", "two words", "", "it's"]),
             "cmux-tui --session 'two words' '' 'it'\"'\"'s'"
