@@ -66,7 +66,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
             webView.isInspectable = true
         }
         webView.underPageBackgroundColor = GhosttyBackgroundTheme.currentColor()
-        webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
+        BrowserUserAgentSettings.applyEmbeddedWebKitIdentity(to: webView)
         BrowserThemeSettings.apply(openerPanel?.currentBrowserThemeMode ?? BrowserThemeSettings.mode(), to: webView)
         self.webView = webView
         self.webAuthnCoordinator = BrowserWebAuthnCoordinator()
@@ -408,7 +408,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
 
 // MARK: - PopupUIDelegate
 
-private class PopupUIDelegate: NSObject, WKUIDelegate {
+private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
     weak var controller: BrowserPopupWindowController?
 
     func webViewDidClose(_ webView: WKWebView) {

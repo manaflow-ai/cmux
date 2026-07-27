@@ -59,7 +59,7 @@ extension TerminalInputAccessoryAction {
              .zoomOut, .zoomIn,
              .upArrow, .downArrow, .leftArrow, .rightArrow,
              .home, .end, .pageUp, .pageDown,
-             .composer:
+             .composer, .files:
             false
         case .paste:
             true

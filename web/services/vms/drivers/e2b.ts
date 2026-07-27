@@ -16,6 +16,7 @@ import {
   isReusableRpcLease,
   ensurePrivateDirectoryCommand,
   leaseClientMetadata,
+  makeWebSocketAttachmentId,
   makeWebSocketLease,
   shellArgValue,
   shellQuote,
@@ -192,7 +193,7 @@ export class E2BProvider implements VMProvider {
   }
 
   async openAttach(vmId: string, options?: AttachOptions): Promise<AttachEndpoint> {
-    const endpoint = await this.openWebSocketPty(vmId);
+    const endpoint = await this.openWebSocketPty(vmId, options);
     if (options?.requireDaemon && !endpoint.daemon) {
       throw new ProviderError(
         "e2b",
@@ -202,7 +203,7 @@ export class E2BProvider implements VMProvider {
     return endpoint;
   }
 
-  async openWebSocketPty(vmId: string): Promise<WebSocketPtyEndpoint> {
+  async openWebSocketPty(vmId: string, options?: AttachOptions): Promise<WebSocketPtyEndpoint> {
     return withVmSpan(
       "cmux.vm.provider.open_websocket_pty",
       { "cmux.vm.provider": "e2b", "cmux.vm.operation": "open_websocket_pty", "cmux.vm.id": vmId },
@@ -214,7 +215,8 @@ export class E2BProvider implements VMProvider {
             throw new Error("sandbox is missing a traffic access token; recreate it with the cmuxd WebSocket image");
           }
           const service = await readWebSocketService(sandbox);
-          const pty = makeWebSocketLease("e2b", "pty", true, CMUXD_WS_PTY_LEASE_TTL_SECONDS);
+          const pty = makeWebSocketLease("e2b", "pty", true, CMUXD_WS_PTY_LEASE_TTL_SECONDS, options?.sessionId);
+          const attachmentId = options?.attachmentId?.trim() || makeWebSocketAttachmentId("e2b");
           const encodedPTY = Buffer.from(JSON.stringify(pty.lease)).toString("base64");
           const commands = [
             ensurePrivateDirectoryCommand(service.ptyLeasePath),
@@ -256,6 +258,7 @@ export class E2BProvider implements VMProvider {
             headers: { "e2b-traffic-access-token": trafficAccessToken },
             token: pty.token,
             sessionId: pty.sessionId,
+            attachmentId,
             expiresAtUnix: pty.expiresAtUnix,
             daemon: daemon ? {
               url: `wss://${sandbox.getHost(CMUXD_WS_PORT)}/rpc`,

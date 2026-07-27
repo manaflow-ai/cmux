@@ -7,9 +7,9 @@ import Testing
 /// format (Claude Code 2.1), with content anonymized.
 @Suite("ClaudeTranscriptParser")
 struct ClaudeTranscriptParserTests {
-    private let parser = ClaudeTranscriptParser()
+    let parser = ClaudeTranscriptParser()
 
-    private func userLine(
+    func userLine(
         uuid: String = "u-1",
         content: String,
         isMeta: Bool? = nil,
@@ -25,7 +25,7 @@ struct ClaudeTranscriptParserTests {
         return Self.json(object)
     }
 
-    private func assistantLine(
+    func assistantLine(
         uuid: String = "a-1",
         blocks: [[String: Any]],
         timestamp: String = "2026-06-12T05:08:20.730Z"
@@ -37,6 +37,15 @@ struct ClaudeTranscriptParserTests {
                 "role": "assistant", "content": blocks, "stop_reason": "tool_use",
             ],
             "uuid": uuid, "timestamp": timestamp, "sessionId": "s-1",
+        ])
+    }
+
+    private func sidechainAssistantLine(blocks: [[String: Any]]) -> String {
+        Self.json([
+            "parentUuid": "u-1", "isSidechain": true, "type": "assistant",
+            "message": ["role": "assistant", "content": blocks],
+            "uuid": "side-1", "timestamp": "2026-06-12T05:08:20.730Z",
+            "sessionId": "s-1",
         ])
     }
 
@@ -62,67 +71,6 @@ struct ClaudeTranscriptParserTests {
     }
 
     // MARK: - Prose, thoughts, noise
-
-    @Test("user text line maps to user prose with uuid id and line seq")
-    func userProse() {
-        let result = parser.parse(lines: [userLine(uuid: "u-9", content: "fix the bug")], startingSeq: 41)
-        #expect(result.messages.count == 1)
-        let message = result.messages[0]
-        #expect(message.id == "u-9")
-        #expect(message.seq == 41)
-        #expect(message.role == .user)
-        #expect(message.kind == .prose(ChatProse(text: "fix the bug")))
-        #expect(result.updatedMessages.isEmpty)
-    }
-
-    @Test("meta, command-tag, system-reminder, and non-message lines are skipped")
-    func noiseSkipped() {
-        let lines = [
-            userLine(content: "<local-command-caveat>Caveat: ...</local-command-caveat>", isMeta: true),
-            userLine(content: "<command-name>/model</command-name>\n<command-message>model</command-message>"),
-            userLine(content: "<local-command-stdout>Set model</local-command-stdout>"),
-            userLine(content: "<system-reminder>noise</system-reminder>"),
-            #"{"type": "mode", "mode": "normal", "sessionId": "s-1"}"#,
-            #"{"type": "summary", "summary": "Earlier conversation", "leafUuid": "x"}"#,
-            #"{"type": "ai-title", "aiTitle": "Build a thing", "sessionId": "s-1"}"#,
-            userLine(uuid: "u-real", content: "real prompt"),
-        ]
-        let result = parser.parse(lines: lines, startingSeq: 0)
-        #expect(result.messages.count == 1)
-        #expect(result.messages[0].id == "u-real")
-        #expect(result.messages[0].seq == 7)
-    }
-
-    @Test("assistant text and thinking blocks map to prose and thought; empty thinking is skipped")
-    func assistantTextAndThinking() {
-        let lines = [
-            assistantLine(uuid: "a-t", blocks: [["type": "thinking", "thinking": "", "signature": "CAIS"]]),
-            assistantLine(uuid: "a-u", blocks: [["type": "thinking", "thinking": "weighing options", "signature": "CAIS"]]),
-            assistantLine(uuid: "a-v", blocks: [["type": "text", "text": "Here is the plan."]]),
-        ]
-        let result = parser.parse(lines: lines, startingSeq: 0)
-        #expect(result.messages.count == 2)
-        #expect(result.messages[0].kind == .thought(ChatThought(text: "weighing options")))
-        #expect(result.messages[1].role == .agent)
-        #expect(result.messages[1].kind == .prose(ChatProse(text: "Here is the plan.")))
-    }
-
-    @Test("multiple blocks on one line share the seq and get suffixed ids")
-    func multiBlockLine() {
-        let line = assistantLine(
-            uuid: "a-m",
-            blocks: [
-                ["type": "text", "text": "Running it now."],
-                ["type": "tool_use", "id": "toolu_1", "name": "Bash", "input": ["command": "ls"]],
-            ]
-        )
-        let result = parser.parse(lines: [line], startingSeq: 5)
-        #expect(result.messages.count == 2)
-        #expect(result.messages[0].id == "a-m")
-        #expect(result.messages[1].id == "a-m#1")
-        #expect(result.messages[0].seq == 5)
-        #expect(result.messages[1].seq == 5)
-    }
 
     // MARK: - Tools
 
@@ -251,6 +199,34 @@ struct ClaudeTranscriptParserTests {
         #expect(edit.deletions == 0)
     }
 
+    @Test("MultiEdit and NotebookEdit map to file edits for Created provenance")
+    func multiEditAndNotebookEditTools() {
+        let line = assistantLine(blocks: [
+            ["type": "tool_use", "id": "toolu_multi", "name": "MultiEdit",
+             "input": ["file_path": "Sources/App.swift", "edits": [[
+                "old_string": "old", "new_string": "new",
+             ]]]],
+            ["type": "tool_use", "id": "toolu_notebook", "name": "NotebookEdit",
+             "input": ["notebook_path": "Notes/Research.ipynb", "old_string": "a",
+                       "new_source": "b"]],
+        ])
+        let messages = parser.parse(lines: [line], startingSeq: 0).messages
+        let edits = messages.compactMap { message -> ChatFileEdit? in
+            guard case .fileEdit(let edit) = message.kind else { return nil }
+            return edit
+        }
+        #expect(edits.map(\.filePath) == ["Sources/App.swift", "Notes/Research.ipynb"])
+        let artifacts = ChatArtifactIndexedReference.derive(
+            from: messages,
+            workingDirectory: "/repo"
+        )
+        #expect(Set(artifacts.map(\.path)) == [
+            "/repo/Sources/App.swift",
+            "/repo/Notes/Research.ipynb",
+        ])
+        #expect(artifacts.allSatisfy { $0.provenance == .created })
+    }
+
     @Test("unknown tools map to a generic toolUse with summary and input detail")
     func genericTool() {
         let line = assistantLine(blocks: [
@@ -266,6 +242,23 @@ struct ClaudeTranscriptParserTests {
         #expect(tool.summary == "Read /repo/main.swift")
         #expect(tool.inputDetail?.contains("file_path") == true)
         #expect(tool.status == .running)
+        #expect(tool.referencedPaths == ["/repo/main.swift"])
+    }
+
+    @Test("ChatToolUse wire coding preserves optional referenced paths and decodes legacy payloads")
+    func toolReferencedPathsWireCoding() throws {
+        let coding = ChatWireCoding()
+        let tool = ChatToolUse(
+            toolName: "Read",
+            summary: "Read /repo/main.swift",
+            referencedPaths: ["/repo/main.swift"]
+        )
+        let decoded = try coding.decode(ChatToolUse.self, from: try coding.encode(tool))
+        #expect(decoded.referencedPaths == ["/repo/main.swift"])
+
+        let legacy = Data(#"{"tool_name":"Read","summary":"Read /repo/main.swift","status":"running"}"#.utf8)
+        let legacyDecoded = try coding.decode(ChatToolUse.self, from: legacy)
+        #expect(legacyDecoded.referencedPaths == nil)
     }
 
     @Test("AskUserQuestion maps to a question and its result fills the selected answer")
@@ -401,6 +394,42 @@ struct ClaudeTranscriptParserTests {
             return
         }
         #expect(prose.text == "the human's prompt")
+    }
+
+    @Test("sidechain mutation content with interior whitespace is not an artifact path")
+    func sidechainMutationMultilineContentIsNotArtifact() {
+        let line = sidechainAssistantLine(blocks: [
+            ["type": "tool_use", "id": "toolu_js", "name": "Write", "input": [
+                "file_path": "/tmp/app.js",
+                "content": "// generated file\n/usr/local/bin/tool --flag",
+            ]],
+            ["type": "tool_use", "id": "toolu_c", "name": "Write", "input": [
+                "file_path": "/tmp/app.c",
+                "content": "/usr/include/stdio.h\nint main(void) { return 0; }",
+            ]],
+        ])
+        let result = parser.parse(lines: [line], startingSeq: 7)
+
+        #expect(result.messages.isEmpty)
+        #expect(result.artifactReferences == [
+            ChatArtifactTranscriptReference(path: "/tmp/app.js", provenance: .created, seq: 7),
+            ChatArtifactTranscriptReference(path: "/tmp/app.c", provenance: .created, seq: 7),
+        ])
+    }
+
+    @Test("only a sidechain mutation target is created")
+    func sidechainMutationTargetProvenance() {
+        let line = sidechainAssistantLine(blocks: [[
+            "type": "tool_use", "id": "toolu_write", "name": "Write",
+            "input": ["file_path": "/tmp/a", "content": "/tmp/b"],
+        ]])
+        let result = parser.parse(lines: [line], startingSeq: 9)
+
+        #expect(result.messages.isEmpty)
+        #expect(result.artifactReferences == [
+            ChatArtifactTranscriptReference(path: "/tmp/a", provenance: .created, seq: 9),
+            ChatArtifactTranscriptReference(path: "/tmp/b", provenance: .referenced, seq: 9),
+        ])
     }
 
     @Test("malformed lines are skipped without affecting seq assignment")

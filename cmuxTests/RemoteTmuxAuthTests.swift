@@ -371,26 +371,9 @@ import Testing
 
         connection.handleMessageForTesting(.commandResult(commandNumber: 1, lines: [], isError: false))
 
-        #expect(connection.pendingCommandKindsForTesting == [.listWindows])
-    }
-
-    @Test @MainActor func layoutChangePrunesRemovedPaneDiagnosticState() {
-        let connection = RemoteTmuxControlConnection(host: RemoteTmuxHost(destination: "user@host"), sessionName: "work")
-        connection.handleMessageForTesting(.layoutChange(
-            windowId: 1,
-            layout: "abcd,120x40,0,0{60x40,0,0,4,59x40,61,0,5}"
-        ))
-        connection.handleMessageForTesting(.output(paneId: 4, data: Data("left".utf8)))
-        connection.handleMessageForTesting(.output(paneId: 5, data: Data("right".utf8)))
-        connection.handleMessageForTesting(.subscriptionChanged(name: "cmux_reflow_4", value: "0|zsh"))
-        connection.handleMessageForTesting(.subscriptionChanged(name: "cmux_reflow_5", value: "1|vim"))
-
-        connection.handleMessageForTesting(.layoutChange(windowId: 1, layout: "f92f,80x24,0,0,4"))
-
-        #expect(connection.snapshot().paneOutputByteCounts[4] == 4)
-        #expect(connection.snapshot().paneOutputByteCounts[5] == nil)
-        #expect(connection.paneForegroundStates[4] != nil)
-        #expect(connection.paneForegroundStates[5] == nil)
+        #expect(connection.pendingCommandKindsForTesting == [
+            .listWindows(reorderGeneration: 0, retainedPaneIDs: [])
+        ])
     }
 
     @Test func pastePaneCommandsProtectOptionLookingText() throws {

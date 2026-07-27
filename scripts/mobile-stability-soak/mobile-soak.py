@@ -189,7 +189,10 @@ def create_ticket(workspace_id=None):
             "created_at": time.monotonic(),
         }
 
-    params = {"ttl_seconds": ticket_ttl_seconds}
+    params = {
+        "ttl_seconds": ticket_ttl_seconds,
+        "target": "simulator_injection",
+    }
     if workspace_id:
         params["workspace_id"] = workspace_id
     payload = cmux_rpc("mobile.attach_ticket.create", params)

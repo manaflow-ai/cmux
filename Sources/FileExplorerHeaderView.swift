@@ -1,9 +1,10 @@
 import AppKit
+import CmuxAppKitSupportUI
 import CmuxFoundation
 
 /// Pure AppKit header bar with folder icon, path label, and hidden files toggle.
 final class FileExplorerHeaderView: NSView {
-    private let iconView = NSImageView()
+    private let iconView = CmuxResolvedIconImageView()
     private let pathLabel = NSTextField(labelWithString: "")
     private var heightConstraint: NSLayoutConstraint?
     private var displayPath = ""
@@ -20,7 +21,6 @@ final class FileExplorerHeaderView: NSView {
 
     private func setupViews() {
         iconView.translatesAutoresizingMaskIntoConstraints = false
-        iconView.contentTintColor = .secondaryLabelColor
 
         pathLabel.translatesAutoresizingMaskIntoConstraints = false
         applyFonts()
@@ -69,15 +69,22 @@ final class FileExplorerHeaderView: NSView {
 
     private func applyHeaderState() {
         assert(Thread.isMainThread, "AppKit image updates must run on the main thread")
-        let config = NSImage.SymbolConfiguration(pointSize: 11, weight: .regular)
         if let quickSearchQuery {
-            iconView.image = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)?
-                .withSymbolConfiguration(config)
+            iconView.apply(CmuxResolvedIconRequest(
+                source: .systemSymbol(name: "magnifyingglass", accessibilityDescription: nil),
+                size: NSSize(width: 14, height: 14),
+                tintColor: .secondaryLabelColor,
+                symbolWeight: .regular
+            ))
             pathLabel.stringValue = "/" + quickSearchQuery
             pathLabel.toolTip = pathLabel.stringValue
         } else {
-            iconView.image = NSImage(systemSymbolName: "folder.fill", accessibilityDescription: nil)?
-                .withSymbolConfiguration(config)
+            iconView.apply(CmuxResolvedIconRequest(
+                source: .systemSymbol(name: "folder.fill", accessibilityDescription: nil),
+                size: NSSize(width: 14, height: 14),
+                tintColor: .secondaryLabelColor,
+                symbolWeight: .regular
+            ))
             pathLabel.stringValue = displayPath
             pathLabel.toolTip = displayPath
         }

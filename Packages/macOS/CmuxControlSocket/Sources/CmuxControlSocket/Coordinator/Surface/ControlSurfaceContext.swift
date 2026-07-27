@@ -181,9 +181,11 @@ public protocol ControlSurfaceContext: AnyObject {
     /// The app-bundle-resolved localized terminal-input error strings, shared by
     /// `surface.send_text` and `surface.send_key`. The app resolves each
     /// `String(localized:)` so the package never binds them to the wrong bundle.
+    /// `nonisolated`: a pure, thread-safe bundle lookup, called by the
+    /// worker-lane send bodies' off-main reply shaping.
     ///
     /// - Returns: The input strings.
-    func controlSurfaceInputStrings() -> ControlSurfaceInputStrings
+    nonisolated func controlSurfaceInputStrings() -> ControlSurfaceInputStrings
 
     // MARK: - send_text / send_key
 
@@ -219,24 +221,10 @@ public protocol ControlSurfaceContext: AnyObject {
         key: String
     ) -> ControlSurfaceSendResolution
 
-    // MARK: - read_text
-
-    /// Reads terminal text for `surface.read_text`.
-    ///
-    /// - Parameters:
-    ///   - routing: The routing selectors.
-    ///   - surfaceID: The explicit `surface_id`, or `nil` for the focused surface.
-    ///   - hasSurfaceIDParam: Whether a `surface_id` param was present at all.
-    ///   - includeScrollback: Whether to include scrollback.
-    ///   - lineLimit: The optional tail line limit (already validated `> 0`).
-    /// - Returns: The read-text resolution.
-    func controlSurfaceReadText(
-        routing: ControlRoutingSelectors,
-        surfaceID: UUID?,
-        hasSurfaceIDParam: Bool,
-        includeScrollback: Bool,
-        lineLimit: Int?
-    ) -> ControlSurfaceReadTextResolution
+    // `surface.read_text` has no witness here: it runs on the socket-worker lane
+    // (issue #5757) so its full-scrollback formatting stays off the main actor,
+    // which the @MainActor coordinator seam cannot host. The app dispatches it
+    // directly via `TerminalController.v2SurfaceReadText`.
 
     // MARK: - resume.set / get / clear
 
@@ -310,13 +298,43 @@ public protocol ControlSurfaceContext: AnyObject {
         path: String
     ) -> ControlSurfaceReportPWDResolution
 
+    /// Records a reported Git branch for `surface.report_git_branch`.
+    ///
+    /// - Parameters:
+    ///   - workspaceID: The target workspace.
+    ///   - requestedSurfaceID: The explicit `surface_id`, or `nil` to resolve.
+    ///   - branch: The reported non-empty branch name.
+    ///   - isDirty: The dirty state, or `nil` to preserve a matching branch's state.
+    /// - Returns: The Git metadata report resolution.
+    func controlSurfaceReportGitBranch(
+        workspaceID: UUID,
+        requestedSurfaceID: UUID?,
+        branch: String,
+        isDirty: Bool?
+    ) -> ControlSurfaceReportGitBranchResolution
+
+    /// Clears a reported Git branch for `surface.clear_git_branch`.
+    ///
+    /// - Parameters:
+    ///   - workspaceID: The target workspace.
+    ///   - requestedSurfaceID: The explicit `surface_id`, or `nil` to resolve.
+    /// - Returns: The Git metadata report resolution.
+    func controlSurfaceClearGitBranch(
+        workspaceID: UUID,
+        requestedSurfaceID: UUID?
+    ) -> ControlSurfaceReportGitBranchResolution
+
     /// Parses a raw shell-activity token via the app's
     /// `parseReportedShellActivityState`, returning the state's raw value (the
     /// coordinator rejects a `nil` result as `invalid_params`).
     ///
     /// - Parameter rawState: The raw `state`/`shell_state`/`activity` token.
     /// - Returns: The parsed state's raw value, or `nil` when unrecognized.
-    func controlSurfaceParseShellActivityState(_ rawState: String) -> String?
+    ///
+    /// `nonisolated` because the app parser is a pure static token table and
+    /// the worker-lane v1 `report_shell_state` body validates off the main
+    /// actor.
+    nonisolated func controlSurfaceParseShellActivityState(_ rawState: String) -> String?
 
     /// Parses a raw port-scan kick reason via the app's
     /// `parseRemotePortScanKickReason`, returning the reason's raw value (the
@@ -324,7 +342,10 @@ public protocol ControlSurfaceContext: AnyObject {
     ///
     /// - Parameter rawReason: The raw `reason` token.
     /// - Returns: The parsed reason's raw value, or `nil` when unrecognized.
-    func controlSurfaceParsePortScanKickReason(_ rawReason: String) -> String?
+    ///
+    /// `nonisolated` because the app parser is a pure static token table and
+    /// the worker-lane v1 `ports_kick` body validates off the main actor.
+    nonisolated func controlSurfaceParsePortScanKickReason(_ rawReason: String) -> String?
 
     /// Records reported shell-activity state for `surface.report_shell_state`.
     ///

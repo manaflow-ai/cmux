@@ -1,3 +1,5 @@
+import CMUXMobileCore
+import CmuxSettings
 import Foundation
 
 /// Host-supplied callbacks the package's section views invoke for
@@ -40,6 +42,9 @@ public protocol SettingsHostActions: AnyObject {
     /// language picker, which requires a full process restart.
     func restartApp()
 
+    /// Applies the current persisted control-socket configuration to the live server.
+    func socketControlConfigurationDidChange()
+
     /// Launches the host's browser-import flow (Safari / Chrome /
     /// Firefox source picker + profile selection + cookie prompt).
     func openBrowserImportFlow()
@@ -52,6 +57,9 @@ public protocol SettingsHostActions: AnyObject {
     /// "Open Config" row in the App section). The host owns the
     /// window scene so the package can't open it directly.
     func openTerminalConfigWindow()
+
+    /// Opens the user's workspace-layout action definitions for editing.
+    func customizeWorkspaceLayouts()
 
     /// Persists an explicit menu-bar-only preference change in the host app.
     ///
@@ -130,6 +138,10 @@ public protocol SettingsHostActions: AnyObject {
     /// bound-port indicator and connection count stay live without polling.
     func mobilePairingStatusUpdates() -> AsyncStream<MobilePairingStatusSnapshot>
 
+    /// Cross-platform Iroh and private-network settings controller supplied by
+    /// the host app. `nil` in previews and hosts without the Iroh runtime.
+    func irohSettingsController() -> (any CmxIrohSettingsControlling)?
+
     /// The Mac's system name (e.g. `Host.current().localizedName`) used as the
     /// iOS pairing display name when the user sets no override. The Mobile
     /// section shows it as the display-name field placeholder. Empty when
@@ -163,11 +175,30 @@ public protocol SettingsHostActions: AnyObject {
     /// Runs host-owned live-refresh side effects after the package resets every
     /// catalog-backed setting.
     func resetAllSettingsSideEffects()
+
+    /// Invalidates host-owned shortcut caches after Settings persists a shortcut change.
+    func notifyShortcutSettingsDidChange()
+
+    /// Applies the host-side OS `AppleLanguages` override for a changed app
+    /// language selection.
+    func applyLanguageOverride(_ language: AppLanguage)
 }
 
 public extension SettingsHostActions {
+    /// Default no-op for previews and tests without a live control socket.
+    func socketControlConfigurationDidChange() {}
+
     /// Default no-op for hosts with no app-owned reset side effects.
     func resetAllSettingsSideEffects() {}
+
+    /// Default no-op for hosts with no app-owned shortcut caches.
+    func notifyShortcutSettingsDidChange() {}
+
+    /// Default no-op for package previews and tests without host layout editing.
+    func customizeWorkspaceLayouts() {}
+
+    /// Default no-op for package previews and tests without app-language ownership.
+    func applyLanguageOverride(_ language: AppLanguage) {}
 
     func openMobilePairingWindow() {}
 
@@ -190,6 +221,8 @@ public extension SettingsHostActions {
     func mobilePairingStatusUpdates() -> AsyncStream<MobilePairingStatusSnapshot> {
         AsyncStream { $0.finish() }
     }
+
+    func irohSettingsController() -> (any CmxIrohSettingsControlling)? { nil }
 
     /// Default: empty, for hosts that cannot resolve the Mac's system name.
     func mobilePairingDefaultDisplayName() -> String { "" }

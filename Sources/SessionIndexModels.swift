@@ -188,14 +188,14 @@ enum OpenCodeDatabaseSnapshot {
 
 // MARK: - Session entry
 
-struct PullRequestLink: Hashable {
+struct PullRequestLink: Hashable, Sendable {
     let number: Int
     let url: String
     let repository: String?
 }
 
 /// Agent-specific fields used to build the resume command with appropriate flags.
-enum AgentSpecifics: Hashable {
+enum AgentSpecifics: Hashable, Sendable {
     case claude(model: String?, permissionMode: String?, configDirectoryForResume: String?)
     case codex(model: String?, approvalPolicy: String?, sandboxMode: String?, effort: String?)
     case grok(model: String?, permissionMode: String?, sandboxMode: String?, grokHome: String?)
@@ -252,7 +252,7 @@ enum ClaudeConfigurationRoot {
     }
 }
 
-struct SessionEntry: Identifiable, Hashable {
+struct SessionEntry: Identifiable, Hashable, Sendable {
     let id: String
     let agent: SessionAgent
     /// Native session identifier for the agent's CLI (used to build the resume command).
@@ -348,7 +348,7 @@ struct SessionEntry: Identifiable, Hashable {
             // user's own shell (fish/csh included), so the rendered command is
             // wrapped in `/bin/sh -c '…'`; the `cd` guard stays outside in
             // `resumeCommandWithCwd`. https://github.com/manaflow-ai/cmux/issues/5639
-            var parts = ["\(AgentResumeArgv.codexWrapperShellExecutableToken) resume \(sessionId)"]
+            var parts = ["\(AgentResumeArgv.codexWrapperShellExecutableToken) resume \(sessionId)", AgentResumeArgv.codexUpdateCheckSuppressionOverride.joined(separator: " ")]
             if let model, !model.isEmpty {
                 parts.append("-m \(Self.shellQuote(model))")
             }

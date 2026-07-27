@@ -106,7 +106,7 @@ test("prefers the canonical attach_url returned by the Mac RPC", () => {
 
 test("does not reuse canonical attach_url after local route filtering", () => {
   const { attachURL, routes } = buildAttachURL(samplePayloadWithCanonicalURL(), { routeKind: "tailscale" });
-  assert.match(attachURL, /^cmux-ios:\/\/attach\?v=1&payload=/);
+  assert.match(attachURL, /^cmux-ios-dev:\/\/attach\?v=1&payload=/);
   assert.equal(routes.length, 1);
   const decoded = decodePayload(attachURL);
   assert.equal(decoded.routes.length, 1);

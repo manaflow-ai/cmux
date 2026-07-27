@@ -7,7 +7,8 @@
     "deploy": "wrangler deploy",
     "test": "bun test",
     "typecheck": "tsgo --noEmit && tsgo --noEmit -p tsconfig.test.json",
-    "check": "bun run typecheck && bun test && wrangler deploy --dry-run --outdir dist"
+    "relay-catalog:check": "bun ../../web/tools/generate-managed-iroh-relay-catalog.ts --check",
+    "check": "bun run relay-catalog:check && bun run typecheck && bun test && wrangler deploy --dry-run --outdir dist"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260525.0",

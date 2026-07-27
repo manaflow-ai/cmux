@@ -1,18 +1,13 @@
 name: tmux corpus
 
 on:
-  pull_request:
-    paths:
-      - ".github/workflows/tmux-corpus.yml"
-      - "daemon/remote/**"
+  # Temporarily manual-only beginning 2026-07-13 to pause automatic CI.
   workflow_dispatch:
     inputs:
       fuzztime:
         description: Time per Go fuzz target
         required: false
         default: 2m
-  schedule:
-    - cron: "17 10 * * *"
 
 permissions:
   actions: write

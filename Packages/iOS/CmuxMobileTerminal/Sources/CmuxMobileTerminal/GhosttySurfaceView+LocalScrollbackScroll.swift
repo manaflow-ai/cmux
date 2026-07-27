@@ -21,6 +21,7 @@ extension GhosttySurfaceView {
         ghostty_surface_mouse_pos(surface, posX, posY, GHOSTTY_MODS_NONE)
         ghostty_surface_mouse_scroll(surface, 0, lines, 0)
         drawForWakeup()
+        scheduleVisibleArtifactCountUpdate()
     }
 }
 #endif

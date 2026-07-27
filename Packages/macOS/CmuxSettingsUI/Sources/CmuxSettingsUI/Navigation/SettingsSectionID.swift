@@ -18,6 +18,8 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
     case sleepyMode
     /// Mobile pairing and sync settings.
     case mobile
+    /// Iroh relay policy, custom relays, and private-network routes.
+    case networking
     case sidebarAppearance
     /// User/agent-authored custom sidebars: enable gate and renderer choice.
     case customSidebars
@@ -42,6 +44,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .textBox: return String(localized: "settings.section.textBox", defaultValue: "TextBox (Beta)")
         case .sleepyMode: return String(localized: "settings.section.sleepyMode", defaultValue: "Sleepy Mode")
         case .mobile: return String(localized: "settings.section.mobile", defaultValue: "Mobile")
+        case .networking: return String(localized: "settings.section.networking", defaultValue: "Networking")
         case .sidebarAppearance: return "Sidebar"
         case .customSidebars: return String(localized: "settings.section.customSidebars", defaultValue: "Custom Sidebars")
         case .betaFeatures: return "Beta Features"
@@ -65,6 +68,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .textBox: return "textformat"
         case .sleepyMode: return "moon.zzz"
         case .mobile: return "iphone"
+        case .networking: return "network"
         case .sidebarAppearance: return "sidebar.left"
         case .customSidebars: return "sidebar.squares.left"
         case .betaFeatures: return "exclamationmark.triangle"
@@ -90,6 +94,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .textBox: return "textbox text box rich input prompt default new terminal workspace split tab focus show beta"
         case .sleepyMode: return "sleepy mode screensaver caffeinate keep awake lock touch id battery wifi clock mascot theme glow pixel"
         case .mobile: return "ios iphone ipad mobile pairing local network sync"
+        case .networking: return "iroh relay server private network tailscale vpn direct peer custom provider region"
         case .sidebarAppearance: return "sidebar details branches material terminal background"
         case .customSidebars: return "custom sidebars vibe swift json interpreted renderer in-process remote worker isolated"
         case .betaFeatures: return "beta experimental unstable feed dock right sidebar"

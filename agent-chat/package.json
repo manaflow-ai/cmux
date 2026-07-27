@@ -1,0 +1,26 @@
+{
+  "name": "cmux-agent-chat",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun server.ts",
+    "build": "bun run build.ts",
+    "check": "bun x tsc --noEmit && bun test/claude-environment.test.ts && bun test/model-label.test.ts && bun test/activity.test.ts && bun test/keymap.test.ts && bun test/options-store.test.ts && bun test/options-ui.test.ts && bun test/turns.test.ts && bun test/selection-css.test.ts && bun test/highlight.test.ts"
+  },
+  "dependencies": {
+    "@base-ui-components/react": "^1.0.0-rc.0",
+    "cmdk": "^1.1.1",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-markdown": "^10.1.0",
+    "rehype-sanitize": "^6.0.0",
+    "remark-breaks": "^4.0.0",
+    "remark-gfm": "^4.0.1",
+    "shiki": "^4.3.1"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.14",
+    "@types/react": "^19",
+    "@types/react-dom": "^19"
+  }
+}

@@ -1,10 +1,11 @@
 import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
+import {
+  issueNativeHandoffCookie,
+  NATIVE_HANDOFF_QUERY_PARAM,
+} from "../native-handoff-cookie";
 
 export const dynamic = "force-dynamic";
-
-const NATIVE_HANDOFF_COOKIE = "cmux-native-auth-handoff";
-const NATIVE_HANDOFF_PARAM = "cmux_auth_handoff";
 
 function canSetAutoHandoff(request: NextRequest): boolean {
   const fetchSite = request.headers.get("sec-fetch-site");
@@ -34,20 +35,14 @@ export function GET(request: NextRequest) {
   let nonce: string | null = null;
   if (shouldSetHandoff) {
     nonce = randomUUID();
-    afterSignInURL.searchParams.set(NATIVE_HANDOFF_PARAM, nonce);
+    afterSignInURL.searchParams.set(NATIVE_HANDOFF_QUERY_PARAM, nonce);
   }
 
   const stackSignInURL = new URL("/handler/sign-in", request.nextUrl.origin);
   stackSignInURL.searchParams.set("after_auth_return_to", afterSignInURL.toString());
   const response = NextResponse.redirect(stackSignInURL);
   if (nonce) {
-    response.cookies.set(NATIVE_HANDOFF_COOKIE, nonce, {
-      httpOnly: true,
-      maxAge: 10 * 60,
-      path: "/handler/after-sign-in",
-      sameSite: "lax",
-      secure: request.nextUrl.protocol === "https:",
-    });
+    issueNativeHandoffCookie(response, request, nonce);
   }
   return response;
 }

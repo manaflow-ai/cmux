@@ -246,6 +246,9 @@ html { scroll-behavior: smooth; }
 {{highlightJS}}
 </script>
 <script>
+{{viewerNavigationJS}}
+</script>
+<script>
 (function() {
   var contentEl = document.getElementById('content');
   var lightSheet = document.getElementById('hljs-light');
@@ -283,6 +286,55 @@ html { scroll-behavior: smooth; }
     var div = document.createElement('div');
     div.textContent = String(s == null ? '' : s);
     return div.innerHTML;
+  }
+
+  function escapeAttribute(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
+  function decodeHTML(s) {
+    var textarea = document.createElement('textarea');
+    textarea.innerHTML = String(s == null ? '' : s);
+    return textarea.value;
+  }
+
+  function sanitizeLinkLabelHTML(html) {
+    var template = document.createElement('template');
+    template.innerHTML = String(html == null ? '' : html);
+    var allowedInlineTags = {
+      br: true,
+      code: true,
+      del: true,
+      em: true,
+      img: true,
+      s: true,
+      strong: true
+    };
+    var walker = document.createTreeWalker(template.content, NodeFilter.SHOW_ELEMENT);
+    var elements = [];
+    while (walker.nextNode()) {
+      elements.push(walker.currentNode);
+    }
+    elements.reverse().forEach(function(el) {
+      if (!el.parentNode) { return; }
+      var tag = el.tagName.toLowerCase();
+      if (!allowedInlineTags[tag]) {
+        el.parentNode.replaceChild(document.createTextNode(el.textContent || ''), el);
+        return;
+      }
+      Array.prototype.slice.call(el.attributes || []).forEach(function(attr) {
+        var name = String(attr.name || '').toLowerCase();
+        if (tag === 'img' && (name === 'src' || name === 'alt' || name === 'title')) {
+          return;
+        }
+        el.removeAttribute(attr.name);
+      });
+    });
+    return template.innerHTML;
   }
 
   function escapeDataAttribute(s) {
@@ -997,6 +1049,13 @@ html { scroll-behavior: smooth; }
       heading(text, level, raw) {
         var slug = uniqueHeadingSlug(raw);
         return '<h' + level + ' id="' + slug + '">' + text + '</h' + level + '>\n';
+      },
+      link(href, title, text) {
+        var html = '<a href="' + escapeAttribute(href) + '"';
+        if (title != null) {
+          html += ' title="' + escapeAttribute(decodeHTML(title)) + '"';
+        }
+        return html + '>' + sanitizeLinkLabelHTML(text) + '</a>';
       }
     }
   });
@@ -1713,6 +1772,13 @@ html { scroll-behavior: smooth; }
     darkMql.addListener(window.__cmuxApplyTheme);
   }
   window.__cmuxApplyTheme();
+  window.__cmuxPerformViewerNavigationAction = function(action) {
+    return CmuxViewerNavigation.performAction(action, markdownScroller());
+  };
+  CmuxViewerNavigation.installManualInputReset({
+    target: document,
+    getScroller: markdownScroller
+  });
 })();
 </script>
 </body>

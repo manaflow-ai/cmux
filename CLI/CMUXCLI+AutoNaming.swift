@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 
 // Auto-naming engine: pure, dependency-injected logic for naming workspaces
@@ -89,15 +90,9 @@ struct AutoNamingTranscriptMessage: Codable, Equatable, Sendable {
 /// for users on any auth path.
 struct AutoNamingEnvironmentPolicy: Sendable {
     /// Exact variables marking a live agent session or cmux terminal; never pass them to the summarizer.
-    private static let scrubbedExactKeys: Set<String> = [
-        "CLAUDECODE",
-        "CLAUDE_CODE", "CLAUDE_CODE_CHILD_SESSION",
-        "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_PARENT_SESSION_ID",
-        "CLAUDE_CODE_SESSION_ID",
-        "CLAUDE_CODE_EXECPATH",
-        "CLAUDE_CODE_SSE_PORT",
-        "NODE_OPTIONS"
-    ]
+    private static let scrubbedExactKeys = ClaudeSessionEnvironmentPolicy()
+        .inheritedSessionIdentityKeys
+        .union(["NODE_OPTIONS"])
 
     func summarizerEnvironment(from env: [String: String]) -> [String: String] {
         env.filter { key, _ in

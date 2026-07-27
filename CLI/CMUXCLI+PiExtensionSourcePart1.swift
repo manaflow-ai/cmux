@@ -12,9 +12,16 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 
 type HookExtra = Record<string, unknown>;
 
+interface PendingCompletion {
+  lastAssistantMessage?: string;
+  notificationType: string;
+  turnId: string;
+}
+
 interface SessionState {
   nextTurn: number;
   activeTurnId?: string;
+  pendingCompletion?: PendingCompletion;
   stopped: boolean;
 }
 
@@ -82,6 +89,46 @@ function normalizedLaunchArgv(): string[] {
     return [resolveExecutable("pi"), ...raw.slice(2)];
   }
   return [resolveExecutable("pi"), ...raw.slice(1)];
+}
+
+function detectedPiVersion(): string | null {
+  const script = process.argv.slice(0, 2).find((value) => {
+    const candidate = String(value);
+    return looksLikePiScript(candidate) || looksLikePiExecutable(candidate);
+  });
+  if (!script) return null;
+  let scriptPath = path.resolve(String(script));
+  try {
+    // npm launches through bin symlinks, so inspect the package containing the resolved script.
+    scriptPath = fs.realpathSync(scriptPath);
+  } catch (_) {}
+  let directory = path.dirname(scriptPath);
+  for (let depth = 0; depth < 8; depth += 1) {
+    try {
+      const packageJSON = JSON.parse(fs.readFileSync(path.join(directory, "package.json"), "utf8"));
+      if (
+        packageJSON?.name === "@earendil-works/pi-coding-agent" ||
+        packageJSON?.name === "@mariozechner/pi-coding-agent"
+      ) {
+        return firstString(packageJSON.version);
+      }
+    } catch (_) {}
+    const parent = path.dirname(directory);
+    if (parent === directory) break;
+    directory = parent;
+  }
+  return null;
+}
+
+function supportsAgentSettled(): boolean {
+  const version = detectedPiVersion();
+  if (!version) return false;
+  const match = /^(\d+)\.(\d+)\.(\d+)/.exec(version);
+  if (!match) return false;
+  const major = Number(match[1]);
+  const minor = Number(match[2]);
+  const patch = Number(match[3]);
+  return major > 0 || minor > 80 || (minor === 80 && patch >= 5);
 }
 
 function base64NulSeparated(values: string[]): string {
@@ -232,6 +279,7 @@ function beginTurn(sessionId: string, event: unknown): string {
   const turnId = eventTurnId(event) || `${sessionId}:turn-${state.nextTurn + 1}`;
   if (!eventTurnId(event)) state.nextTurn += 1;
   state.activeTurnId = turnId;
+  state.pendingCompletion = undefined;
   state.stopped = false;
   return turnId;
 }
@@ -248,8 +296,19 @@ function finishTurn(sessionId: string, event: unknown): string {
   const turnId = eventTurnId(event) || state.activeTurnId || `${sessionId}:turn-${state.nextTurn + 1}`;
   if (!eventTurnId(event) && !state.activeTurnId) state.nextTurn += 1;
   state.activeTurnId = undefined;
+  state.pendingCompletion = undefined;
   state.stopped = true;
   return turnId;
+}
+
+function settleTurn(sessionId: string): PendingCompletion | undefined {
+  const state = sessionStates.get(sessionId);
+  const completion = state?.pendingCompletion;
+  if (!state || !completion || state.stopped) return undefined;
+  state.activeTurnId = undefined;
+  state.pendingCompletion = undefined;
+  state.stopped = true;
+  return completion;
 }
 
 function warn(ctx: ExtensionContext | null, message: string, details: Record<string, unknown> = {}): void {

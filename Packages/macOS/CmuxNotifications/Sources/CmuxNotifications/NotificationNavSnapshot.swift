@@ -15,26 +15,61 @@ public struct NotificationNavSnapshot: Sendable, Equatable, Identifiable {
     /// The id of the surface within the workspace, when the notification is
     /// scoped to a specific surface rather than the workspace as a whole.
     public let surfaceId: UUID?
+    /// The owning terminal panel id, when known by the app target.
+    public let panelId: UUID?
+    /// Whether navigation may follow the surface to its current owning workspace.
+    /// Source-confined relay notifications set this to `false` so opening them
+    /// cannot cross the workspace boundary authorized at delivery time.
+    public let retargetsToLiveSurfaceOwner: Bool
     /// Whether the notification has already been read.
     public let isRead: Bool
     /// The notification's click action, if any. When present the notification
     /// opens via ``NotificationClickRouting`` (a side effect such as revealing a
     /// path in Finder) rather than focusing a terminal surface.
     public let clickAction: NotificationNavClickAction?
+    /// Bottom-relative terminal scrollback row captured when the notification was recorded.
+    public let scrollRow: Int?
+    /// Total terminal scrollback rows visible to Ghostty when `scrollRow` was captured.
+    public let scrollTotalRows: Int?
+    /// Ghostty row-space identity captured with the scroll position.
+    public let scrollRowSpaceRevision: UInt64?
 
     /// Creates a navigation snapshot of a notification.
+    ///
+    /// - Parameters:
+    ///   - id: Stable notification identity.
+    ///   - tabId: Workspace id recorded for the notification.
+    ///   - surfaceId: Surface id recorded for the notification, when any.
+    ///   - panelId: App-target terminal panel id, when known.
+    ///   - retargetsToLiveSurfaceOwner: Whether navigation may follow the surface
+    ///     into its current owning workspace. Defaults to `true` for trusted
+    ///     local notifications and backward compatibility.
+    ///   - isRead: Whether the notification has already been read.
+    ///   - clickAction: Side effect to perform instead of terminal navigation.
+    ///   - scrollRow: Captured bottom-relative terminal scrollback row.
+    ///   - scrollTotalRows: Total scrollback rows at capture time.
     public init(
         id: UUID,
         tabId: UUID,
         surfaceId: UUID?,
+        panelId: UUID? = nil,
+        retargetsToLiveSurfaceOwner: Bool = true,
         isRead: Bool,
-        clickAction: NotificationNavClickAction?
+        clickAction: NotificationNavClickAction?,
+        scrollRow: Int? = nil,
+        scrollTotalRows: Int? = nil,
+        scrollRowSpaceRevision: UInt64? = nil
     ) {
         self.id = id
         self.tabId = tabId
         self.surfaceId = surfaceId
+        self.panelId = panelId
+        self.retargetsToLiveSurfaceOwner = retargetsToLiveSurfaceOwner
         self.isRead = isRead
         self.clickAction = clickAction
+        self.scrollRow = scrollRow
+        self.scrollTotalRows = scrollTotalRows
+        self.scrollRowSpaceRevision = scrollRowSpaceRevision
     }
 
     /// Whether the notification carries a click action.

@@ -81,6 +81,7 @@ def is_web_change(path: str) -> bool:
 def is_go_change(path: str) -> bool:
     return path.startswith("daemon/remote/") or path in {
         "scripts/build_remote_daemon_release_assets.sh",
+        "scripts/generate_remote_daemon_release_manifest.py",
         "tests/test_remote_daemon_release_assets.sh",
     }
 
@@ -105,7 +106,9 @@ def is_agent_session_web_change(path: str) -> bool:
 
 
 def is_macos_neutral(path: str) -> bool:
-    if path.startswith(("docs/", "design/", "plans/", "ios/", "web/", "webviews/", "daemon/remote/")):
+    # `cmux-tui/` is the standalone cmux-tui Rust project, gated by its own `cmux-tui`
+    # workflow; it never affects the macOS app build or app-host tests.
+    if path.startswith(("docs/", "design/", "plans/", "ios/", "web/", "webviews/", "daemon/remote/", "cmux-tui/")):
         return True
     return path == "README.md" or (path.startswith("README.") and path.endswith(".md"))
 

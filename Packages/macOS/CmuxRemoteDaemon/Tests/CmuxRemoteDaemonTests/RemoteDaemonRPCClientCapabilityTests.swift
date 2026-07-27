@@ -32,6 +32,8 @@ struct RemoteDaemonRPCClientCapabilityTests {
         #expect(RemoteDaemonRPCClient.requiredPTYPersistentDaemonCapability == "pty.session.persistent_daemon")
         #expect(RemoteDaemonRPCClient.requiredPTYWriteNotificationCapability == "pty.write.notification")
         #expect(RemoteDaemonRPCClient.requiredPTYResizeNotificationCapability == "pty.resize.notification")
+        #expect(RemoteDaemonRPCClient.optionalPTYInputSeqAckCapability == "pty.input.seq_ack")
+        #expect(RemoteDaemonRPCClient.ptyInputSeqGapErrorCode == "pty_input_seq_gap")
     }
 
     @Test("a base configuration only requires proxy streaming")
@@ -74,6 +76,14 @@ struct RemoteDaemonRPCClientCapabilityTests {
                 "pty.session.persistent_daemon",
             ]
         )
+    }
+
+    @Test("seq-ack is optional and never required for transport startup")
+    func seqAckCapabilityIsOptional() {
+        #expect(!RemoteDaemonRPCClient.requiredCapabilities(for: configuration()).contains("pty.input.seq_ack"))
+        #expect(!RemoteDaemonRPCClient.requiredCapabilities(
+            for: configuration(preserveAfterTerminalExit: true, persistentDaemonSlot: "slot")
+        ).contains("pty.input.seq_ack"))
     }
 
     @Test("missingRequiredCapabilities filters advertised capabilities preserving order")

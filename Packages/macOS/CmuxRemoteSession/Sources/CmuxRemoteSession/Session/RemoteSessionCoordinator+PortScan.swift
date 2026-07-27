@@ -1,15 +1,13 @@
+internal import CmuxCore
 public import Foundation
 
 // Remote listening-port discovery: TTY-scoped scan bursts kicked by shell
-// activity, with host-wide/delta polling fallbacks for shells without our
-// command hooks. Faithful lift; the coalesce/burst `asyncAfter` chains became
-// injected-clock tasks with token/generation guards. The 0.2s coalesce delay
-// and the per-reason burst offsets are identical, and burst wakeups keep the
-// legacy absolute cadence (each sleep covers the delta between offsets and
-// the scan itself runs on the serial queue without delaying later wakeups,
-// exactly like the legacy absolute-deadline `asyncAfter`).
+// activity, with polling fallbacks for shells without command hooks. Injected-
+// clock tasks preserve the legacy coalesce and absolute burst cadence.
 extension RemoteSessionCoordinator {
     static let remotePortScanCoalesceDelayMilliseconds = 200
+    static let remotePortScanCompleteMarker = "__cmux_port_scan_complete__"
+    static let remoteTTYPortScanCompleteMarker = "__cmux_port_scan_complete_tty__"
 
     /// Replaces the tracked panel-to-TTY map (from shell integration) on the
     /// coordinator queue; panels whose TTY changed lose their scanned ports.
@@ -27,12 +25,8 @@ extension RemoteSessionCoordinator {
         }
     }
 
-    /// Enables or disables remote listening-port discovery on the coordinator
-    /// queue. The app derives the flag from the sidebar ports-visibility
-    /// settings (`sidebar.showPorts` and `sidebar.hideAllDetails`): disabling
-    /// tears down any active poll timer and in-flight scan burst and stops
-    /// every ssh-spawning scan; enabling resumes polling when the daemon is
-    /// ready and re-arms a TTY-scoped refresh so ports repopulate promptly.
+    /// Enables or disables remote listening-port discovery on the coordinator queue.
+    /// Disabling stops ssh scans; enabling resumes polling and TTY refreshes.
     public func updateRemotePortScanningEnabled(_ enabled: Bool) {
         queue.async { [weak self] in
             self?.updateRemotePortScanningEnabledLocked(enabled)
@@ -63,13 +57,9 @@ extension RemoteSessionCoordinator {
         }
     }
 
-    /// Tears down every ssh-spawning port-scan activity and clears detected
-    /// ports. Mirrors the scan teardown on the proxy-error path so a disabled
-    /// scanner leaves no poll timer, burst, or stale ports behind, and resets
-    /// the hidden poll/bootstrap bookkeeping (delta baseline, retry budget) so
-    /// re-enabling resumes like a fresh scanner start rather than against
-    /// pre-disable state.
-    private func suspendRemotePortScanningLocked() {
+    /// Tears down every ssh-spawning scan, clears ports, and resets poll and
+    /// bootstrap bookkeeping so the next enabled transport starts cleanly.
+    func suspendRemotePortScanningLocked() {
         remotePortScanGeneration &+= 1
         remotePortScanBurstTask?.cancel()
         remotePortScanBurstTask = nil
@@ -79,10 +69,9 @@ extension RemoteSessionCoordinator {
         cancelRemotePortScanCoalesceLocked()
         cancelBootstrapRemoteTTYRetryLocked()
         bootstrapRemoteTTYRetryCount = 0
-        remoteScannedPortsByPanel.removeAll()
+        remotePortScanSnapshot.reset()
         stopRemotePortPollingLocked()
-        polledRemotePorts = []
-        remotePortPollBaselinePorts = nil
+        remotePortPollState.reset()
         keepPolledRemotePortsUntilTTYScan = false
         publishPortsSnapshotLocked()
     }
@@ -99,22 +88,32 @@ extension RemoteSessionCoordinator {
             cancelBootstrapRemoteTTYRetryLocked()
             bootstrapRemoteTTYRetryCount = 0
         }
+        let shouldBeginFallbackTransition =
+            previousTTYNames.isEmpty
+            && shouldUseFallbackRemotePortPollingLocked()
+                && !remotePortPollState.publishedPorts.isEmpty
+                && !nextTTYNames.isEmpty
         keepPolledRemotePortsUntilTTYScan =
-            !previousTTYNames.isEmpty
-            ? keepPolledRemotePortsUntilTTYScan
-            : shouldUseFallbackRemotePortPollingLocked() && !polledRemotePorts.isEmpty && !nextTTYNames.isEmpty
-        remoteScannedPortsByPanel = remoteScannedPortsByPanel.filter { panelId, _ in
-            guard let oldTTY = previousTTYNames[panelId],
-                  let newTTY = nextTTYNames[panelId] else {
-                return false
-            }
-            return oldTTY == newTTY
-        }
+            previousTTYNames.isEmpty
+            ? shouldBeginFallbackTransition
+            : keepPolledRemotePortsUntilTTYScan
+        let unchangedPanelIds = Set(nextTTYNames.compactMap { panelId, newTTY in
+            previousTTYNames[panelId] == newTTY ? panelId : nil
+        })
+        remotePortScanSnapshot.reconcile(
+            scannedPorts: [:],
+            scannedKeys: unchangedPanelIds,
+            trackedKeys: unchangedPanelIds,
+            completeness: .incomplete
+        )
         remotePortScanTTYNames = nextTTYNames
         if nextTTYNames.isEmpty {
             keepPolledRemotePortsUntilTTYScan = false
         }
         updateRemotePortPollingStateLocked()
+        if shouldBeginFallbackTransition {
+            keepPolledRemotePortsUntilTTYScan = remotePortPollState.beginTTYTransition()
+        }
         publishPortsSnapshotLocked()
     }
 
@@ -214,27 +213,66 @@ extension RemoteSessionCoordinator {
         guard remotePortScanningEnabled else { return }
         let ttyNamesByPanel = remotePortScanTTYNames
         guard !ttyNamesByPanel.isEmpty else {
-            remoteScannedPortsByPanel.removeAll()
+            remotePortScanSnapshot.reset()
             keepPolledRemotePortsUntilTTYScan = false
             publishPortsSnapshotLocked()
             return
         }
 
         do {
-            remoteScannedPortsByPanel = try scanRemotePortsByPanelLocked(ttyNamesByPanel: ttyNamesByPanel)
-            keepPolledRemotePortsUntilTTYScan = false
-            polledRemotePorts = []
+            let scan = try scanRemotePortsByPanelLocked(ttyNamesByPanel: ttyNamesByPanel)
+            remotePortScanSnapshot.reconcile(
+                scannedPorts: scan.portsByPanel,
+                scannedKeys: Set(ttyNamesByPanel.keys),
+                trackedKeys: Set(ttyNamesByPanel.keys),
+                completenessByKey: scan.completenessByPanel
+            )
+            let allTTYsComplete = scan.completenessByPanel.values.allSatisfy { $0 == .complete }
+            reconcileRemotePortTTYTransitionLocked(
+                completeness: allTTYsComplete ? .complete : .incomplete
+            )
             publishPortsSnapshotLocked()
         } catch {
+            if keepPolledRemotePortsUntilTTYScan {
+                reconcileRemotePortTTYTransitionLocked(completeness: .incomplete)
+                publishPortsSnapshotLocked()
+            }
             debugLog("remote.ports.scan.failed error=\(error.localizedDescription) \(debugConfigSummary())")
         }
     }
 
-    private func scanRemotePortsByPanelLocked(ttyNamesByPanel: [UUID: String]) throws -> [UUID: [Int]] {
-        let ttyNames = Array(Set(ttyNamesByPanel.values)).sorted()
-        guard !ttyNames.isEmpty else { return [:] }
+    private func reconcileRemotePortTTYTransitionLocked(completeness: PortScanCompleteness) {
+        let wasRetainingFallback = keepPolledRemotePortsUntilTTYScan
+        if wasRetainingFallback {
+            keepPolledRemotePortsUntilTTYScan = !remotePortPollState.advanceTTYTransition(
+                completeness: completeness
+            )
+        }
+        if !keepPolledRemotePortsUntilTTYScan && (wasRetainingFallback || completeness == .complete) {
+            remotePortPollState.reset()
+        }
+    }
 
-        let command = "sh -c \(Self.remotePortScanScript(ttyNames: ttyNames, excluding: excludedRemoteScanPorts()).shellSingleQuoted)"
+    private func scanRemotePortsByPanelLocked(
+        ttyNamesByPanel: [UUID: String]
+    ) throws -> (
+        portsByPanel: [UUID: [Int]],
+        completenessByPanel: [UUID: PortScanCompleteness]
+    ) {
+        let ttyNames = Array(Set(ttyNamesByPanel.values)).sorted()
+        guard !ttyNames.isEmpty else { return ([:], [:]) }
+
+        var protectedPortsByTTY: [String: Set<Int>] = [:]
+        for (panelId, ports) in remotePortScanSnapshot.snapshot {
+            guard let ttyName = ttyNamesByPanel[panelId] else { continue }
+            protectedPortsByTTY[ttyName, default: []].formUnion(ports)
+        }
+        let script = Self.remotePortScanScript(
+            ttyNames: ttyNames,
+            excluding: excludedRemoteScanPorts(),
+            protecting: protectedPortsByTTY
+        )
+        let command = "sh -c \(script.shellSingleQuoted)"
         let result = try sshExec(
             arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command],
             timeout: 8
@@ -246,14 +284,23 @@ extension RemoteSessionCoordinator {
             ])
         }
 
-        let portsByTTY = Self.parseRemoteTTYPortPairs(
+        let scanOutput = RemoteTTYPortScanOutput(
             output: result.stdout,
-            trackedTTYNames: Set(ttyNames)
+            trackedTTYNames: Set(ttyNames),
+            completionMarker: Self.remoteTTYPortScanCompleteMarker
         )
 
-        return ttyNamesByPanel.reduce(into: [UUID: [Int]]()) { result, entry in
-            result[entry.key] = portsByTTY[entry.value] ?? []
+        let portsByPanel = ttyNamesByPanel.reduce(into: [UUID: [Int]]()) { result, entry in
+            result[entry.key] = scanOutput.portsByTTY[entry.value] ?? []
         }
+        let completenessByPanel = ttyNamesByPanel.reduce(
+            into: [UUID: PortScanCompleteness]()
+        ) { result, entry in
+            result[entry.key] = scanOutput.completeTTYNames.contains(entry.value)
+                ? .complete
+                : .incomplete
+        }
+        return (portsByPanel, completenessByPanel)
     }
 
     // DispatchSourceTimer stays for the poll cadence as part of the faithful
@@ -265,6 +312,9 @@ extension RemoteSessionCoordinator {
             return
         }
         stopRemotePortPollingLocked()
+        if !keepPolledRemotePortsUntilTTYScan {
+            remotePortPollState.reset()
+        }
 
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now() + mode.initialDelay, repeating: mode.repeatInterval)
@@ -282,28 +332,28 @@ extension RemoteSessionCoordinator {
         remotePortPollTimer?.cancel()
         remotePortPollTimer = nil
         remotePortPollMode = nil
+        remotePortPollState.resetScanHistory()
     }
 
     func updateRemotePortPollingStateLocked() {
         guard daemonReady, !isStopping, let pollingMode = remotePortPollingModeLocked() else {
             stopRemotePortPollingLocked()
             if !keepPolledRemotePortsUntilTTYScan {
-                polledRemotePorts = []
+                remotePortPollState.reset()
             }
-            remotePortPollBaselinePorts = nil
             return
         }
         startRemotePortPollingLocked(mode: pollingMode)
     }
 
-    private func pollRemotePortsLocked() {
+    func pollRemotePortsLocked() {
         guard !isStopping else { return }
         guard daemonReady else { return }
         if !remotePortScanTTYNames.isEmpty {
             guard shouldUseTTYFallbackRemotePortPollingLocked() else {
                 stopRemotePortPollingLocked()
                 if !keepPolledRemotePortsUntilTTYScan {
-                    polledRemotePorts = []
+                    remotePortPollState.reset()
                 }
                 publishPortsSnapshotLocked()
                 return
@@ -316,8 +366,7 @@ extension RemoteSessionCoordinator {
         }
         guard let pollingMode = remotePortPollingModeLocked() else {
             stopRemotePortPollingLocked()
-            polledRemotePorts = []
-            remotePortPollBaselinePorts = nil
+            remotePortPollState.reset()
             keepPolledRemotePortsUntilTTYScan = false
             publishPortsSnapshotLocked()
             return
@@ -325,9 +374,8 @@ extension RemoteSessionCoordinator {
         guard remotePortScanTTYNames.isEmpty else {
             stopRemotePortPollingLocked()
             if !keepPolledRemotePortsUntilTTYScan {
-                polledRemotePorts = []
+                remotePortPollState.reset()
             }
-            remotePortPollBaselinePorts = nil
             publishPortsSnapshotLocked()
             return
         }
@@ -345,21 +393,14 @@ extension RemoteSessionCoordinator {
                 ])
             }
             let currentPorts = Set(Self.parseRemotePorts(output: result.stdout))
-            switch pollingMode {
-            case .hostWide:
-                polledRemotePorts = currentPorts.sorted()
-                remotePortPollBaselinePorts = nil
-            case .hostWideDelta:
-                if let baselinePorts = remotePortPollBaselinePorts {
-                    polledRemotePorts = currentPorts.subtracting(baselinePorts).sorted()
-                } else {
-                    remotePortPollBaselinePorts = currentPorts
-                    polledRemotePorts = []
-                }
-            case .ttyScoped:
-                polledRemotePorts = []
-                remotePortPollBaselinePorts = nil
-            }
+            let completeness: PortScanCompleteness = result.stdout
+                .split(whereSeparator: \.isNewline)
+                .contains(Substring(Self.remotePortScanCompleteMarker)) ? .complete : .incomplete
+            guard remotePortPollState.apply(
+                observedPorts: currentPorts,
+                mode: pollingMode,
+                completeness: completeness
+            ) else { return }
             keepPolledRemotePortsUntilTTYScan = false
             publishPortsSnapshotLocked()
         } catch {
@@ -410,27 +451,6 @@ extension RemoteSessionCoordinator {
         return shouldUseFallbackRemotePortPollingLocked() ? .hostWide : nil
     }
 
-    static func parseRemoteTTYPortPairs(output: String, trackedTTYNames: Set<String>) -> [String: [Int]] {
-        var portsByTTY = Dictionary(uniqueKeysWithValues: trackedTTYNames.map { ($0, Set<Int>()) })
-
-        for line in output.split(separator: "\n") {
-            let parts = line.split(separator: "\t", omittingEmptySubsequences: false)
-            guard parts.count == 2 else { continue }
-            let ttyName = String(parts[0]).trimmingCharacters(in: .whitespacesAndNewlines)
-            guard trackedTTYNames.contains(ttyName),
-                  let port = Int(parts[1]),
-                  port >= 1024,
-                  port <= 65535 else {
-                continue
-            }
-            portsByTTY[ttyName, default: []].insert(port)
-        }
-
-        return portsByTTY.reduce(into: [String: [Int]]()) { result, entry in
-            result[entry.key] = entry.value.sorted()
-        }
-    }
-
     static func parseRemotePorts(output: String) -> [Int] {
         let values = output
             .split(whereSeparator: \.isWhitespace)
@@ -447,140 +467,5 @@ extension RemoteSessionCoordinator {
         let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
         guard candidate.unicodeScalars.allSatisfy({ allowed.contains($0) }) else { return nil }
         return candidate
-    }
-
-    static func remotePortScanScript(ttyNames: [String], excluding ports: Set<Int>) -> String {
-        let ttySet = ttyNames.joined(separator: " ")
-        let ttyCSV = ttyNames.joined(separator: ",")
-        let excludedPorts = ports.sorted().map(String.init).joined(separator: " ")
-
-        return """
-        set -eu
-        cmux_tracked_ttys=" \(ttySet) "
-        cmux_tty_csv='\(ttyCSV)'
-        cmux_excluded_ports=" \(excludedPorts) "
-
-        cmux_emit_port() {
-          cmux_tty="$1"
-          cmux_port="$2"
-          case "$cmux_tracked_ttys" in
-            *" $cmux_tty "*) ;;
-            *) return 0 ;;
-          esac
-          case "$cmux_excluded_ports" in
-            *" $cmux_port "*) return 0 ;;
-          esac
-          [ "$cmux_port" -ge 1024 ] && [ "$cmux_port" -le 65535 ] || return 0
-          printf '%s\\t%s\\n' "$cmux_tty" "$cmux_port"
-        }
-
-        cmux_used_ss=0
-        if [ -d /proc ] && command -v ss >/dev/null 2>&1; then
-          cmux_ss_output="$(ss -ltnpH 2>/dev/null || true)"
-          case "$cmux_ss_output" in
-            *pid=*)
-              cmux_used_ss=1
-              printf '%s\\n' "$cmux_ss_output" | while IFS= read -r cmux_line; do
-                [ -n "$cmux_line" ] || continue
-                cmux_port="$(printf '%s\\n' "$cmux_line" | awk '{print $4}' | sed -E 's/.*:([0-9]+)$/\\1/' | awk '/^[0-9]+$/ { print $1; exit }')"
-                [ -n "$cmux_port" ] || continue
-                printf '%s\\n' "$cmux_line" | awk '
-                  {
-                    line = $0
-                    while (match(line, /pid=[0-9]+/)) {
-                      print substr(line, RSTART + 4, RLENGTH - 4)
-                      line = substr(line, RSTART + RLENGTH)
-                    }
-                  }
-                ' | while IFS= read -r cmux_pid; do
-                  [ -n "$cmux_pid" ] || continue
-                  cmux_tty_path="$(readlink "/proc/$cmux_pid/fd/0" 2>/dev/null || true)"
-                  [ -n "$cmux_tty_path" ] || continue
-                  cmux_tty="${cmux_tty_path##*/}"
-                  [ -n "$cmux_tty" ] || continue
-                  cmux_emit_port "$cmux_tty" "$cmux_port"
-                done
-              done
-              ;;
-          esac
-        fi
-
-        if [ "$cmux_used_ss" -eq 0 ] && command -v lsof >/dev/null 2>&1 && [ -n "$cmux_tty_csv" ]; then
-          cmux_tmpdir="$(mktemp -d 2>/dev/null || mktemp -d -t cmux-ports)"
-          trap 'rm -rf "$cmux_tmpdir"' EXIT INT TERM
-          cmux_pid_tty_map="$cmux_tmpdir/pid_tty"
-          ps -t "$cmux_tty_csv" -o pid=,tty= 2>/dev/null | awk '
-            NF >= 2 {
-              tty = $2
-              sub(/^.*\\//, "", tty)
-              print $1 "\\t" tty
-            }
-          ' > "$cmux_pid_tty_map"
-          [ -s "$cmux_pid_tty_map" ] || exit 0
-          cmux_pid_csv="$(awk '{print $1}' "$cmux_pid_tty_map" | paste -sd, -)"
-          [ -n "$cmux_pid_csv" ] || exit 0
-          lsof -nP -a -p "$cmux_pid_csv" -iTCP -sTCP:LISTEN -Fpn 2>/dev/null | awk -v map="$cmux_pid_tty_map" '
-            BEGIN {
-              while ((getline < map) > 0) {
-                pid_to_tty[$1] = $2
-              }
-              close(map)
-            }
-            $0 ~ /^p/ {
-              pid = substr($0, 2)
-              tty = pid_to_tty[pid]
-              next
-            }
-            $0 ~ /^n/ && tty != "" {
-              name = substr($0, 2)
-              sub(/->.*/, "", name)
-              sub(/^.*:/, "", name)
-              sub(/[^0-9].*/, "", name)
-              if (name != "") {
-                print tty "\\t" name
-              }
-            }
-          ' | while IFS=$'\\t' read -r cmux_tty cmux_port; do
-            [ -n "$cmux_tty" ] || continue
-            [ -n "$cmux_port" ] || continue
-            cmux_emit_port "$cmux_tty" "$cmux_port"
-          done
-        fi
-        """
-    }
-
-    static func remoteAllPortsScanScript(excluding ports: Set<Int>) -> String {
-        let excludedPorts = ports.sorted().map(String.init).joined(separator: " ")
-
-        return """
-        set -eu
-        cmux_excluded_ports=" \(excludedPorts) "
-
-        cmux_emit_port() {
-          cmux_port="$1"
-          case "$cmux_excluded_ports" in
-            *" $cmux_port "*) return 0 ;;
-          esac
-          [ "$cmux_port" -ge 1024 ] && [ "$cmux_port" -le 65535 ] || return 0
-          printf '%s\\n' "$cmux_port"
-        }
-
-        if command -v ss >/dev/null 2>&1; then
-          ss -ltnH 2>/dev/null | awk '{print $4}' | sed -E 's/.*:([0-9]+)$/\\1/' | awk '/^[0-9]+$/ {print $1}' | while IFS= read -r cmux_port; do
-            [ -n "$cmux_port" ] || continue
-            cmux_emit_port "$cmux_port"
-          done
-        elif command -v netstat >/dev/null 2>&1; then
-          netstat -lnt 2>/dev/null | awk 'NR > 2 {print $4}' | sed -E 's/.*:([0-9]+)$/\\1/' | awk '/^[0-9]+$/ {print $1}' | while IFS= read -r cmux_port; do
-            [ -n "$cmux_port" ] || continue
-            cmux_emit_port "$cmux_port"
-          done
-        elif command -v lsof >/dev/null 2>&1; then
-          lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null | awk 'NR > 1 {print $9}' | sed -E 's/.*:([0-9]+)$/\\1/' | awk '/^[0-9]+$/ {print $1}' | while IFS= read -r cmux_port; do
-            [ -n "$cmux_port" ] || continue
-            cmux_emit_port "$cmux_port"
-          done
-        fi
-        """
     }
 }

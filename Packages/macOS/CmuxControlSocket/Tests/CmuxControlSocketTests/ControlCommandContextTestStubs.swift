@@ -1,12 +1,35 @@
 import Foundation
 import CmuxSettings
 @testable import CmuxControlSocket
-
 // Benign default implementations of the non-window domain seams, so a test fake
 // that conforms to the full `ControlCommandContext` umbrella only has to
 // implement the domain it actually exercises. Each domain's own tests override
 // the methods they drive; everything else returns an inert "nothing here"
 // result. As domains land, add their defaults here (one block per domain).
+
+extension ControlCommandContext {
+    /// Test default for the worker-lane resolution hop primitive: run the
+    /// body on the main actor (inline when the test is already there, else a
+    /// synchronous dispatch), mirroring the app's `v2MainSync` semantics.
+    /// Test fakes have no app topology, so there is no known-ref refresh —
+    /// exactly like the pre-migration main-lane coordinator tests, whose
+    /// refresh also lived app-side.
+    nonisolated func controlResolveOnMain<T: Sendable>(
+        _ body: @MainActor (any ControlCommandContext) -> T
+    ) -> T {
+        // The hop is synchronous: the calling thread blocks until `body`
+        // returns, so handing the seam into the main-actor window cannot
+        // outlive the call (the same contract as the app's `v2MainSync`).
+        // Strict checking can't see that, hence the unsafe transfer.
+        nonisolated(unsafe) let seam: any ControlCommandContext = self
+        if Thread.isMainThread {
+            return MainActor.assumeIsolated { body(seam) }
+        }
+        return DispatchQueue.main.sync {
+            MainActor.assumeIsolated { body(seam) }
+        }
+    }
+}
 
 extension ControlAppFocusContext {
     func controlSetAppFocusOverride(_ focused: Bool?) {}
@@ -21,6 +44,7 @@ extension ControlFeedContext {
 extension ControlPaneContext {
     func controlPaneList(routing: ControlRoutingSelectors) -> ControlPaneListSnapshot? { nil }
     func controlPaneRoutingResolvesTabManager(routing: ControlRoutingSelectors) -> Bool { false }
+    func controlPaneResizeInvalidParametersMessage() -> String { "Invalid pane resize parameters" }
     func controlPaneFocus(
         routing: ControlRoutingSelectors,
         paneID: UUID
@@ -164,7 +188,12 @@ extension ControlNotificationContext {
 
 extension ControlWorkspaceGroupContext {
     func controlWorkspaceGroupStrings() -> ControlWorkspaceGroupStrings {
-        ControlWorkspaceGroupStrings(allChildrenAreAnchors: "", workspaceIsOtherGroupAnchor: "", invalidReferenceWorkspace: "invalid reference workspace")
+        ControlWorkspaceGroupStrings(
+            allChildrenAreAnchors: "",
+            workspaceIsOtherGroupAnchor: "",
+            invalidReferenceWorkspace: "invalid reference workspace",
+            closeWorkspacesMustBeBoolean: "close workspaces must be boolean"
+        )
     }
 
     func controlWorkspaceGroupList(
@@ -175,11 +204,10 @@ extension ControlWorkspaceGroupContext {
         routing: ControlRoutingSelectors,
         name: String,
         cwd: String?,
-        childWorkspaceIDs: [UUID],
-        childrenExplicit: Bool
+        childWorkspaceIDs: [UUID]
     ) -> ControlWorkspaceGroupCreateResolution { .tabManagerUnavailable }
 
-    func controlUngroupWorkspaceGroup(routing: ControlRoutingSelectors, groupID: UUID) -> Bool? { nil }
+    func controlUngroupWorkspaceGroup(routing: ControlRoutingSelectors, groupID: UUID) -> Int? { nil }
     func controlDeleteWorkspaceGroup(routing: ControlRoutingSelectors, groupID: UUID) -> Int? { nil }
     func controlRenameWorkspaceGroup(routing: ControlRoutingSelectors, groupID: UUID, name: String) -> Bool? { nil }
     func controlSetWorkspaceGroupCollapsed(routing: ControlRoutingSelectors, groupID: UUID, isCollapsed: Bool) -> Bool? { nil }
@@ -216,7 +244,7 @@ extension ControlWorkspaceGroupContext {
 extension ControlWorkspaceContext {
     func controlWorkspaceStrings() -> ControlWorkspaceStrings {
         ControlWorkspaceStrings(
-            closeProtected: "",
+            closeProtected: "", closeFailed: "",
             reorderManyMissingOrder: "",
             reorderManyDuplicateWorkspace: "",
             reorderManyWorkspaceNotFound: "",
@@ -339,7 +367,7 @@ extension ControlWorkspaceContext {
     func controlWorkspaceRemoteTerminalSessionEnd(
         workspaceID: UUID,
         surfaceID: UUID,
-        relayPort: Int
+        relayPort: Int?, sessionID: String?, lifecycleID: String?, lifecycleOnly: Bool
     ) -> ControlWorkspaceRemoteTerminalSessionEndResolution { .notFound }
 }
 
@@ -412,7 +440,7 @@ extension ControlSurfaceContext {
         surfaceID: UUID?
     ) -> ControlSurfaceTriggerFlashResolution { .tabManagerUnavailable }
 
-    func controlSurfaceInputStrings() -> ControlSurfaceInputStrings {
+    nonisolated func controlSurfaceInputStrings() -> ControlSurfaceInputStrings {
         ControlSurfaceInputStrings(inputQueueFull: "", surfaceUnavailable: "", processExited: "")
     }
 
@@ -429,14 +457,6 @@ extension ControlSurfaceContext {
         hasSurfaceIDParam: Bool,
         key: String
     ) -> ControlSurfaceSendResolution { .tabManagerUnavailable }
-
-    func controlSurfaceReadText(
-        routing: ControlRoutingSelectors,
-        surfaceID: UUID?,
-        hasSurfaceIDParam: Bool,
-        includeScrollback: Bool,
-        lineLimit: Int?
-    ) -> ControlSurfaceReadTextResolution { .tabManagerUnavailable }
 
     func controlSurfaceResumeSet(
         routing: ControlRoutingSelectors,
@@ -459,13 +479,21 @@ extension ControlSurfaceContext {
         expectedSource: String?
     ) -> ControlSurfaceResumeResolution { .surfaceNotFound }
 
-    func controlSurfaceParseShellActivityState(_ rawState: String) -> String? { nil }
-    func controlSurfaceParsePortScanKickReason(_ rawReason: String) -> String? { nil }
+    nonisolated func controlSurfaceParseShellActivityState(_ rawState: String) -> String? { nil }
+    nonisolated func controlSurfaceParsePortScanKickReason(_ rawReason: String) -> String? { nil }
 
     func controlSurfaceReportTTY(workspaceID: UUID, requestedSurfaceID: UUID?, ttyName: String)
         -> ControlSurfaceReportTTYResolution { .workspaceNotFound }
     func controlSurfaceReportPWD(workspaceID: UUID, requestedSurfaceID: UUID?, path: String)
         -> ControlSurfaceReportPWDResolution { .workspaceNotFound }
+    func controlSurfaceReportGitBranch(
+        workspaceID: UUID,
+        requestedSurfaceID: UUID?,
+        branch: String,
+        isDirty: Bool?
+    ) -> ControlSurfaceReportGitBranchResolution { .workspaceNotFound }
+    func controlSurfaceClearGitBranch(workspaceID: UUID, requestedSurfaceID: UUID?)
+        -> ControlSurfaceReportGitBranchResolution { .workspaceNotFound }
 
     func controlSurfaceReportShellState(
         workspaceID: UUID,

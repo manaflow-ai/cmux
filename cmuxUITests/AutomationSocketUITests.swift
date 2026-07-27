@@ -39,7 +39,7 @@ final class AutomationSocketUITests: XCTestCase {
         let app = configuredApp(mode: "cmuxOnly")
         app.launch()
         XCTAssertTrue(
-            ensureForegroundAfterLaunch(app, timeout: 12.0),
+            ensureRunningAfterLaunch(app, timeout: 12.0),
             "Expected app to launch for socket toggle test. state=\(app.state.rawValue)"
         )
 
@@ -56,7 +56,7 @@ final class AutomationSocketUITests: XCTestCase {
         let app = configuredApp(mode: "automation")
         app.launch()
         XCTAssertTrue(
-            ensureForegroundAfterLaunch(app, timeout: 12.0),
+            ensureRunningAfterLaunch(app, timeout: 12.0),
             "Expected app to launch for socket path recreation test. state=\(app.state.rawValue)"
         )
 
@@ -70,9 +70,69 @@ final class AutomationSocketUITests: XCTestCase {
         try FileManager.default.removeItem(atPath: socketPath)
 
         XCTAssertTrue(
-            waitForSocketPong(timeout: 8.0),
+            waitForSocketPong(timeout: 8.0, allowDiagnosticsFallback: false),
             "Expected listener to recreate removed socket path and answer ping at \(socketPath)"
         )
+        app.terminate()
+    }
+
+    func testSimulateShortcutPlainCharacterKeepsAppAlive() throws {
+        let app = configuredApp(mode: "cmuxOnly")
+        // Backgrounded apps on CI runners get App Nap throttled and can stall
+        // main-thread hops indefinitely; simulate_shortcut replies after a main hop.
+        app.launchArguments += ["-NSAppSleepDisabled", "YES"]
+        app.launch()
+        XCTAssertTrue(
+            ensureRunningAfterLaunch(app, timeout: 12.0),
+            "Expected app to launch for plain-char simulation test. state=\(app.state.rawValue)"
+        )
+
+        guard let resolvedPath = resolveSocketPath(timeout: 5.0, allowTmpFallback: false) else {
+            XCTFail("Expected control socket to exist")
+            return
+        }
+        socketPath = resolvedPath
+        XCTAssertTrue(waitForSocketPong(timeout: 5.0), "Expected socket ping at \(socketPath)")
+
+        // Backgrounded apps service main-thread hops slowly (multi-second), and
+        // simulate_shortcut dispatches on the main thread, so activate first and
+        // give the reply a generous timeout; ping is not a main-hop and stays fast.
+        app.activate()
+
+        // First launch on a clean runner can wedge the main thread for a long
+        // time (session restore, network timeouts). Prove a main-hop round trip
+        // completes before measuring the interesting command.
+        var mainHopReady = false
+        for _ in 0..<12 {
+            if ControlSocketClient(path: socketPath, responseTimeout: 10.0)
+                .sendLine("activate_app") == "OK" {
+                mainHopReady = true
+                break
+            }
+        }
+        try XCTSkipUnless(
+            mainHopReady,
+            "Main thread never serviced a socket hop on this host; main-hop verbs cannot be exercised here"
+        )
+
+        // A modifier-less key is not consumed as a shortcut, so it runs the full
+        // keyDown -> interpretKeyEvents pipeline. Synthetic events built without
+        // CGEvent backing make NSTextInputContext raise there, which terminated
+        // the app mid-reply (socket closed, no crash report).
+        let reply = ControlSocketClient(path: socketPath, responseTimeout: 30.0)
+            .sendLine("simulate_shortcut x")
+
+        // Liveness first so a regression reads as "app died", not as a nil-reply
+        // timeout; only then require the OK reply.
+        XCTAssertNotEqual(
+            app.state, .notRunning,
+            "App died processing plain-char simulation (CGEvent-less crash regressed). reply=\(reply ?? "nil")"
+        )
+        XCTAssertTrue(
+            waitForSocketPong(timeout: 10.0),
+            "Socket must still answer after plain-char simulation. reply=\(reply ?? "nil") state=\(app.state.rawValue)"
+        )
+        XCTAssertEqual(reply, "OK", "simulate_shortcut x should reply OK. state=\(app.state.rawValue)")
         app.terminate()
     }
 
@@ -80,7 +140,7 @@ final class AutomationSocketUITests: XCTestCase {
         let app = configuredApp(mode: "off")
         app.launch()
         XCTAssertTrue(
-            ensureForegroundAfterLaunch(app, timeout: 12.0),
+            ensureRunningAfterLaunch(app, timeout: 12.0),
             "Expected app to launch for socket off test. state=\(app.state.rawValue)"
         )
 
@@ -208,7 +268,17 @@ final class AutomationSocketUITests: XCTestCase {
         return false
     }
 
-    private func waitForSocketPong(timeout: TimeInterval) -> Bool {
+    private func ensureRunningAfterLaunch(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                app.state == .runningForeground || app.state == .runningBackground
+            },
+            object: NSObject()
+        )
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    private func waitForSocketPong(timeout: TimeInterval, allowDiagnosticsFallback: Bool = true) -> Bool {
         var resolvedPath: String?
         let ready = waitForControlSocketReady(
             pingTimeout: timeout,
@@ -227,8 +297,19 @@ final class AutomationSocketUITests: XCTestCase {
                 return false
             }
         )
-        if let resolvedPath { socketPath = resolvedPath }
-        return ready
+        if ready, let resolvedPath {
+            socketPath = resolvedPath
+            return true
+        }
+        guard allowDiagnosticsFallback else { return false }
+        let diagnostics = loadDiagnostics()
+        guard controlSocketDiagnosticsReportReady(diagnostics),
+              let expectedPath = diagnostics["socketExpectedPath"],
+              socketCandidates().contains(expectedPath) else {
+            return false
+        }
+        socketPath = expectedPath
+        return true
     }
 
     private func socketCandidates() -> [String] {
@@ -278,7 +359,8 @@ final class AutomationSocketUITests: XCTestCase {
     }
 
     private func socketCommand(_ command: String) -> String? {
-        ControlSocketClient(path: socketPath, responseTimeout: 1.0).sendLine(command)
+        ControlSocketClient(path: socketPath, responseTimeout: 1.0).sendLine(command) ??
+            controlSocketCommandViaNetcat(command, socketPath: socketPath)
     }
 
     private func socketJSON(method: String, params: [String: Any]) -> [String: Any]? {
@@ -287,7 +369,8 @@ final class AutomationSocketUITests: XCTestCase {
             "method": method,
             "params": params,
         ]
-        return ControlSocketClient(path: socketPath, responseTimeout: 2.0).sendJSON(request)
+        return ControlSocketClient(path: socketPath, responseTimeout: 2.0).sendJSON(request) ??
+            controlSocketJSONViaNetcat(request, socketPath: socketPath)
     }
 
     private func socketResult(method: String, params: [String: Any]) -> [String: Any]? {

@@ -11,6 +11,7 @@ import tempfile
 from pathlib import Path
 
 from claude_teams_test_utils import resolve_cmux_cli
+from node_runtime import ensure_node_on_path
 
 
 def make_executable(path: Path, content: str) -> None:
@@ -267,6 +268,9 @@ fs.writeFileSync(
 
 
 def main() -> int:
+    if ensure_node_on_path() is None:
+        print("SKIP: node runtime not found; fake claude execs node")
+        return 0
     try:
         cli_path = resolve_cmux_cli()
     except Exception as exc:

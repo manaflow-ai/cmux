@@ -2,6 +2,31 @@ public import Foundation
 import Darwin
 import os
 
+/// Sendable ownership boundary for Dispatch's thread-safe timer source.
+private final class CommandTimer: @unchecked Sendable {
+    private let source: any DispatchSourceTimer
+
+    init(queue: DispatchQueue) {
+        source = DispatchSource.makeTimerSource(queue: queue)
+    }
+
+    func schedule(deadline: DispatchTime) {
+        source.schedule(deadline: deadline)
+    }
+
+    func setEventHandler(_ handler: @escaping @Sendable () -> Void) {
+        source.setEventHandler(handler: handler)
+    }
+
+    func cancel() {
+        source.cancel()
+    }
+
+    func resume() {
+        source.resume()
+    }
+}
+
 /// Runs external commands with `Process`, capturing output and honoring an
 /// optional deadline.
 ///
@@ -108,7 +133,7 @@ public struct CommandRunner: CommandRunning, Sendable {
             // The timeout path never goes through here, so a descendant that inherited a
             // pipe and holds it open past the deadline can never delay the timeout result.
             @Sendable func recordAndCompleteIfReady(_ mutate: @Sendable (inout RunState) -> Void) {
-                let (completed, timerToCancel): (CommandResult?, (any DispatchSourceTimer)?) =
+                let (completed, timerToCancel): (CommandResult?, CommandTimer?) =
                     state.withLock { s in
                         mutate(&s)
                         guard !s.resumed, let out = s.stdout, let err = s.stderr, s.didTerminate else {
@@ -135,7 +160,7 @@ public struct CommandRunner: CommandRunning, Sendable {
             // Resume immediately with a terminal result (timeout or spawn failure),
             // independent of the pipe readers. Returns whether this call won the race.
             @Sendable func claimImmediate(_ result: CommandResult) -> Bool {
-                let (won, timerToCancel): (Bool, (any DispatchSourceTimer)?) =
+                let (won, timerToCancel): (Bool, CommandTimer?) =
                     state.withLock { s in
                         if s.resumed { return (false, nil) }
                         s.resumed = true
@@ -195,7 +220,7 @@ public struct CommandRunner: CommandRunning, Sendable {
             // are disallowed here (Task.sleep / DispatchQueue.asyncAfter); it is hidden
             // behind this runner.
             if let timeout {
-                let timer = DispatchSource.makeTimerSource(queue: Self.timerQueue)
+                let timer = CommandTimer(queue: Self.timerQueue)
                 timer.schedule(deadline: .now() + timeout)
                 timer.setEventHandler {
                     let timedOut = CommandResult(
@@ -224,18 +249,18 @@ public struct CommandRunner: CommandRunning, Sendable {
 
     /// Mutable state shared across the stdout/stderr readers, termination handler, deadline
     /// timer, and spawn-failure path while one `run` resolves; guarded by a lock.
-    private struct RunState {
+    private struct RunState: Sendable {
         var stdout: Data?
         var stderr: Data?
         var didTerminate = false
         var exitStatus: Int32?
         var resumed = false
         // The command deadline timer, cancelled when the continuation resumes (any path).
-        var deadlineTimer: (any DispatchSourceTimer)?
+        var deadlineTimer: CommandTimer?
     }
 
     private static func scheduleSigkill(_ process: Process) {
-        let timer = DispatchSource.makeTimerSource(queue: timerQueue)
+        let timer = CommandTimer(queue: timerQueue)
         timer.schedule(deadline: .now() + sigkillGraceSeconds)
         timer.setEventHandler {
             // Only SIGKILL if the Process is still running. If it already exited during

@@ -6,6 +6,8 @@
 // Object alarm (an explicit event, not just absence). Everything here is pure
 // and synchronous so it unit-tests without Workers runtime or storage.
 
+import { sanitizePublishedRoutes } from "./routePrivacy";
+
 /** How often hosts should heartbeat. Returned to clients so the cadence is
  * server-owned and can change without shipping new host builds. */
 export const HEARTBEAT_INTERVAL_MS = 15_000;
@@ -23,9 +25,8 @@ export const OFFLINE_TIMEOUT_MS = 45_000;
 export const PRUNE_AFTER_MS = 24 * 60 * 60 * 1000;
 
 /** One attach route as the registry stores it (`device_app_instances.routes`
- * jsonb). Opaque to presence, exactly like the registry route: bounded plain
- * objects whose semantic schema (`CmxAttachRoute`) is owned by the clients, so
- * new route kinds flow through without a worker ship. */
+ * jsonb). Legacy kinds remain opaque. Iroh routes cross a server privacy
+ * boundary and are reduced to EndpointID plus an approved managed relay URL. */
 export type PresenceRoute = Record<string, unknown>;
 
 export interface PresenceInstance {
@@ -52,7 +53,7 @@ export interface PresenceInstance {
    * A live CACHE of the durable registry row (the host writes the same set to
    * `POST /api/devices`), kept here so subscribers get fresh routes pushed in
    * realtime instead of polling the registry. Reconciliation on DO cold start
-   * is the heartbeat itself: hosts re-announce the full set within 15s. */
+   * is the heartbeat itself: hosts re-announce the sanitized set within 15s. */
   routes?: PresenceRoute[];
 }
 
@@ -75,9 +76,9 @@ export type PresenceEvent =
   | { type: "online"; instance: PresenceInstance }
   | { type: "offline"; instance: PresenceInstance; reason: "timeout" | "goodbye" }
   | { type: "seen"; deviceId: string; tag: string; lastSeenAt: number }
-  /** The instance's attach routes changed while online (new port/IP). Carries
-   * the full updated instance so subscribers can reconnect on the fresh routes
-   * without a registry round trip. */
+  /** The instance's attach routes changed while online. Carries the full
+   * sanitized instance so subscribers can reconnect without a registry round
+   * trip. */
   | { type: "routes"; instance: PresenceInstance };
 
 export interface HeartbeatResult {
@@ -112,7 +113,9 @@ export function applyHeartbeat(
   const wasOnline = existing?.online === true;
   // Absent routes mean "unchanged": keep the previous set so a client that
   // omits the field (or a future slim keepalive) never wipes pushed routes.
-  const routes = beat.routes ?? existing?.routes;
+  const existingRoutes = sanitizePublishedRoutes(existing?.routes);
+  const beatRoutes = sanitizePublishedRoutes(beat.routes);
+  const routes = beatRoutes ?? existingRoutes;
   const instance: PresenceInstance = {
     deviceId: beat.deviceId,
     tag: beat.tag,
@@ -131,7 +134,7 @@ export function applyHeartbeat(
   // Already online: a changed route set is the realtime "new port/IP" push;
   // an unchanged one is just a lightweight liveness tick.
   const events: PresenceEvent[] =
-    beat.routes !== undefined && !routesEqual(existing.routes, beat.routes)
+    beatRoutes !== undefined && !routesEqual(existingRoutes, beatRoutes)
       ? [{ type: "routes", instance }]
       : [{ type: "seen", deviceId: instance.deviceId, tag: instance.tag, lastSeenAt: nowMs }];
   return { instance, events };
@@ -146,7 +149,7 @@ function applyGoodbye(
   // Keep the last known routes on the offline record: they are the
   // best-known rendezvous for "try waking this host", matching the registry
   // row that outlives the instance going offline.
-  const routes = beat.routes ?? existing?.routes;
+  const routes = sanitizePublishedRoutes(beat.routes) ?? sanitizePublishedRoutes(existing?.routes);
   const instance: PresenceInstance = {
     deviceId: beat.deviceId,
     tag: beat.tag,
@@ -280,11 +283,13 @@ export function expireInstances(
   for (const instance of instances) {
     if (!instance.online) continue;
     if (nowMs - instance.lastSeenAt < timeoutMs) continue;
+    const routes = sanitizePublishedRoutes(instance.routes);
     const updated: PresenceInstance = {
       ...instance,
       online: false,
       onlineSince: undefined,
       offlineAt: nowMs,
+      ...(routes !== undefined ? { routes } : {}),
     };
     expired.push(updated);
     events.push({ type: "offline", instance: updated, reason: "timeout" });
@@ -350,8 +355,13 @@ export function buildSnapshot(
 ): PresenceSnapshot {
   const byDevice = new Map<string, PresenceInstance[]>();
   for (const instance of instances) {
+    const routes = sanitizePublishedRoutes(instance.routes);
+    const publishedInstance: PresenceInstance = {
+      ...instance,
+      ...(routes !== undefined ? { routes } : {}),
+    };
     const list = byDevice.get(instance.deviceId) ?? [];
-    list.push(instance);
+    list.push(publishedInstance);
     byDevice.set(instance.deviceId, list);
   }
   const devices: PresenceDevice[] = [];

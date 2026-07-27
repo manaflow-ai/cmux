@@ -1,6 +1,9 @@
 internal import CmuxFoundation
+internal import OSLog
 public import CmuxRemoteWorkspace
 public import Foundation
+
+nonisolated private let remoteRelayLogger = Logger(subsystem: "com.cmuxterm.app", category: "RemoteRelay")
 
 // The reverse CLI relay: a remote `127.0.0.1:<relayPort>` listener forwarded
 // back to the local CLI relay server, preferring an `ssh -O forward` on the
@@ -219,7 +222,8 @@ extension RemoteSessionCoordinator {
         reverseRelayRestartToken = nil
     }
 
-    func stopReverseRelayLocked() {
+    @discardableResult
+    func stopReverseRelayLocked(cleanupScope: RemoteRelayCleanupScope = .transport) -> Bool {
         reverseRelayStderrPipe?.fileHandleForReading.readabilityHandler = nil
         if let reverseRelayProcess, reverseRelayProcess.isRunning {
             reverseRelayProcess.terminate()
@@ -230,7 +234,7 @@ extension RemoteSessionCoordinator {
         reverseRelayStderrBuffer = ""
         cliRelayServer?.stop()
         cliRelayServer = nil
-        removeRemoteRelayMetadataLocked()
+        return removeRemoteRelayMetadataLocked(cleanupScope: cleanupScope)
     }
 
     func reverseRelayArguments(relayPort: Int, localRelayPort: Int) -> [String] {
@@ -393,20 +397,94 @@ extension RemoteSessionCoordinator {
         }
     }
 
-    private func removeRemoteRelayMetadataLocked() {
-        guard let relayPort = configuration.relayPort, relayPort > 0 else { return }
+    private func removeRemoteRelayMetadataLocked(cleanupScope: RemoteRelayCleanupScope) -> Bool {
         // VM workspaces never installed relay metadata (the reverse-relay path is gated off),
         // and the ssh-exec the cleanup would issue hangs on Freestyle's russh gateway.
         if configuration.skipDaemonBootstrap {
-            debugLog("remote.relay.cleanup.skipped reason=vm-baked relayPort=\(relayPort)")
-            return
+            debugLog("remote.relay.cleanup.skipped reason=vm-baked relayPort=\(configuration.relayPort.map(String.init) ?? "nil")")
+            return true
         }
-        let script = Self.remoteRelayMetadataCleanupScript(relayPort: relayPort)
+        guard let relayPort = configuration.relayPort, relayPort > 0 else {
+            guard case .persistentSlot = cleanupScope,
+                  let daemonRemotePath,
+                  let script = Self.remotePersistentDaemonStopScript(
+                      daemonRemotePath: daemonRemotePath,
+                      persistentDaemonSlot: configuration.persistentDaemonSlot
+                  ) else {
+                if case .transport = cleanupScope { return true }
+                return false
+            }
+            return runRemoteRelayCleanupScriptLocked(script, cleanupScope: cleanupScope, relayPort: nil)
+        }
+        let script = switch cleanupScope {
+        case .transport:
+            Self.remoteRelayTransportMetadataCleanupScript(
+                relayPort: relayPort,
+                persistentDaemonSlot: configuration.persistentDaemonSlot
+            )
+        case .persistentSlot:
+            Self.remoteRelayMetadataCleanupScript(
+                relayPort: relayPort,
+                persistentDaemonSlot: configuration.persistentDaemonSlot
+            )
+        }
+        let missingMetadataFallbackScript: String?
+        if case .persistentSlot = cleanupScope, let daemonRemotePath {
+            missingMetadataFallbackScript = Self.remotePersistentDaemonStopScript(
+                daemonRemotePath: daemonRemotePath,
+                persistentDaemonSlot: configuration.persistentDaemonSlot
+            )
+        } else {
+            missingMetadataFallbackScript = nil
+        }
+        return runRemoteRelayCleanupScriptLocked(
+            script,
+            cleanupScope: cleanupScope,
+            relayPort: relayPort,
+            status64FallbackScript: missingMetadataFallbackScript
+        )
+    }
+
+    private func runRemoteRelayCleanupScriptLocked(
+        _ script: String,
+        cleanupScope: RemoteRelayCleanupScope,
+        relayPort: Int?,
+        status64FallbackScript: String? = nil
+    ) -> Bool {
         let command = "sh -c \(script.shellSingleQuoted)"
         do {
-            _ = try sshExec(arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command], timeout: 8)
+            let result = try sshExec(
+                arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command],
+                timeout: 8
+            )
+            if result.status == 64, let status64FallbackScript {
+                debugLog(
+                    "remote.relay.cleanup.fallback reason=metadata-ownership-unavailable " +
+                        "relayPort=\(relayPort.map(String.init) ?? "nil") \(debugConfigSummary())"
+                )
+                return runRemoteRelayCleanupScriptLocked(
+                    status64FallbackScript,
+                    cleanupScope: cleanupScope,
+                    relayPort: nil
+                )
+            }
+            guard result.status == 0 else {
+                let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout)
+                    ?? "ssh exited \(result.status)"
+                debugLog(
+                    "remote.relay.cleanup.failed scope=\(cleanupScope) relayPort=\(relayPort.map(String.init) ?? "nil") " +
+                        "\(detail) \(debugConfigSummary())"
+                )
+                remoteRelayLogger.error(
+                    "cleanup failed scope=\(String(describing: cleanupScope), privacy: .public) relayPort=\(relayPort.map(String.init) ?? "nil", privacy: .public) detail=\(detail, privacy: .private(mask: .hash))"
+                )
+                return false
+            }
+            return true
         } catch {
             debugLog("remote.relay.cleanup.error \(error.localizedDescription)")
+            remoteRelayLogger.error("cleanup error: \(error.localizedDescription, privacy: .private(mask: .hash))")
+            return false
         }
     }
 

@@ -21,7 +21,7 @@ public struct TerminalSurfaceRuntimeDependencies {
     /// Live settings reads folded into spawn environments.
     public let spawnPolicy: any TerminalSurfaceSpawnPolicyProviding
 
-    /// The mobile PTY byte-tee installer.
+    /// The shared PTY output-tee installer.
     public let byteTee: any TerminalByteTeeBinding
 
     /// The renderer-reclamation pass scheduler.

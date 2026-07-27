@@ -264,6 +264,7 @@ import Testing
             "CLAUDECODE": "1",
             "CLAUDE_CODE": "1",
             "CLAUDE_CODE_CHILD_SESSION": "child",
+            "CLAUDE_CODE_BRIDGE_SESSION_ID": "session_parent-bridge",
             "CLAUDE_CODE_ENTRYPOINT": "cli",
             "CLAUDE_CODE_PARENT_SESSION_ID": "parent",
             "CLAUDE_CODE_SESSION_ID": "abc",
@@ -282,6 +283,7 @@ import Testing
         #expect(env["CLAUDECODE"] == nil)
         #expect(env["CLAUDE_CODE"] == nil)
         #expect(env["CLAUDE_CODE_CHILD_SESSION"] == nil)
+        #expect(env["CLAUDE_CODE_BRIDGE_SESSION_ID"] == nil)
         #expect(env["CLAUDE_CODE_ENTRYPOINT"] == nil)
         #expect(env["CLAUDE_CODE_PARENT_SESSION_ID"] == nil)
         #expect(env["CLAUDE_CODE_SESSION_ID"] == nil)

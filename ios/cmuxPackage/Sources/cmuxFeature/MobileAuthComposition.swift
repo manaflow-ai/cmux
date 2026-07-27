@@ -28,10 +28,13 @@ public struct MobileAuthComposition {
     /// development and Release to production, but an ``authEnvironmentOverrideKey``
     /// entry (from `LocalConfig.plist`, or the Info.plist value
     /// `ios/scripts/reload.sh --prod-auth` bakes) flips it, so a sideloaded
-    /// dev build can run production auth and pair with a release Mac
-    /// (https://github.com/manaflow-ai/cmux/issues/7145). Exposed so the
+    /// dev build can test production account behavior. Build compatibility is
+    /// enforced separately and remains exact-tag DEV to DEV. Exposed so the
     /// identity provider can label the channel its user ids belong to.
     public let authEnvironment: CMUXAuthEnvironment
+
+    /// UIKit protected-data availability bridge used by auth session restore.
+    private let protectedDataAvailability: ProtectedDataAvailability
 
     /// A reachability monitor used to fail sign-in flows fast when offline.
     private let reachability: any ReachabilityProviding
@@ -57,7 +60,12 @@ public struct MobileAuthComposition {
 
         let overrides = Self.authOverrides(
             localConfig: Self.localConfigStringOverrides(in: bundle),
-            bakedAuthEnvironment: bundle.object(forInfoDictionaryKey: Self.authEnvironmentInfoPlistKey) as? String
+            bakedAuthEnvironment: bundle.object(
+                forInfoDictionaryKey: Self.authEnvironmentInfoPlistKey
+            ) as? String,
+            bakedAPIBaseURL: bundle.object(
+                forInfoDictionaryKey: Self.apiBaseURLInfoPlistKey
+            ) as? String
         )
         let resolvedEnvironment = Self.resolvedAuthEnvironment(
             isDevelopmentBuild: Self.isDevelopmentBuild,
@@ -74,6 +82,7 @@ public struct MobileAuthComposition {
             config: resolvedConfig,
             tokenStore: Self.tokenStore
         )
+        let availability = ProtectedDataAvailability()
         let sessionCache = CMUXAuthSessionCache(
             keyValueStore: defaults,
             key: Self.sessionCacheDefaultsKey
@@ -127,6 +136,7 @@ public struct MobileAuthComposition {
             config: resolvedConfig,
             launch: launch,
             isOnline: { await monitor.isOnline },
+            isTokenStorageAvailable: { await MainActor.run { availability.isAvailable } },
             onSignedIn: { await deferredSignIn.run() }
         )
         let push = PushRegistrationService(
@@ -139,10 +149,14 @@ public struct MobileAuthComposition {
         deferredSignIn.set { await push.syncTokenIfPossible() }
         self.coordinator = coordinator
         self.pushRegistration = push
+        self.protectedDataAvailability = availability
     }
 
     /// Begin asynchronous session restore (call once after construction).
     public func start() {
+        protectedDataAvailability.startObserving { [coordinator] in
+            Task { await coordinator.revalidateSession() }
+        }
         coordinator.start()
     }
 
@@ -167,6 +181,12 @@ public struct MobileAuthComposition {
     /// `ios/Config/Info.plist` and `ios/Config/Shared.xcconfig`.
     nonisolated static let authEnvironmentInfoPlistKey = "CMUXAuthEnvironment"
 
+    /// The Info.plist key carrying the tagged build's isolated web origin.
+    /// `ios/scripts/reload.sh` bakes the same port used by the matching macOS
+    /// tag so auth, trust-broker, and device routes cannot drift to another
+    /// agent's localhost server.
+    nonisolated static let apiBaseURLInfoPlistKey = "CMUXApiBaseURL"
+
     /// Merge the Info.plist-baked auth environment into the `LocalConfig.plist`
     /// override table. An explicit LocalConfig entry wins over the bake
     /// (mirroring presence resolution, where the local override table beats the
@@ -174,13 +194,20 @@ public struct MobileAuthComposition {
     /// `$(CMUX_IOS_AUTH_ENV)` expansion in a normal build contributes nothing.
     nonisolated static func authOverrides(
         localConfig: [String: String],
-        bakedAuthEnvironment: String?
+        bakedAuthEnvironment: String?,
+        bakedAPIBaseURL: String? = nil
     ) -> [String: String] {
         var overrides = localConfig
         if overrides[authEnvironmentOverrideKey] == nil,
            let baked = bakedAuthEnvironment?.trimmingCharacters(in: .whitespacesAndNewlines),
            !baked.isEmpty {
             overrides[authEnvironmentOverrideKey] = baked
+        }
+        if overrides["ApiBaseURL"] == nil,
+           let baked = bakedAPIBaseURL?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !baked.isEmpty {
+            overrides["ApiBaseURL"] = baked
         }
         return overrides
     }

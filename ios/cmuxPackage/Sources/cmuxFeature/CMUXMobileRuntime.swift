@@ -30,6 +30,9 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
     /// Production sets it on (the default), and falls back to the legacy
     /// 750ms poll only when a connected Mac does not support events.
     public var supportsServerPushEvents: Bool
+    public var independentEventByteStreamProvider: CmxIndependentEventByteStreamProvider?
+    public var terminalLaneProvider: MobileTerminalLaneProvider?
+    public var artifactLaneProvider: MobileArtifactLaneProvider?
 
     /// Builds the production access-token provider over an injected
     /// ``TokenProviding`` (the app-root ``AuthCoordinator``), honoring the DEBUG
@@ -136,7 +139,10 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
         pairingRequestTimeoutNanoseconds: UInt64 = CMUXMobileRuntime.defaultPairingRequestTimeoutNanoseconds,
         pairingAttemptTimeoutNanoseconds: UInt64 = CMUXMobileRuntime.defaultPairingAttemptTimeoutNanoseconds,
         now: @escaping @Sendable () -> Date = Date.init,
-        supportsServerPushEvents: Bool = true
+        supportsServerPushEvents: Bool = true,
+        independentEventByteStreamProvider: CmxIndependentEventByteStreamProvider? = nil,
+        terminalLaneProvider: MobileTerminalLaneProvider? = nil,
+        artifactLaneProvider: MobileArtifactLaneProvider? = nil
     ) {
         self.supportedRouteKinds = supportedRouteKinds
         self.transportFactory = transportFactory
@@ -148,6 +154,9 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
         self.pairingAttemptTimeoutNanoseconds = pairingAttemptTimeoutNanoseconds
         self.now = now
         self.supportsServerPushEvents = supportsServerPushEvents
+        self.independentEventByteStreamProvider = independentEventByteStreamProvider
+        self.terminalLaneProvider = terminalLaneProvider
+        self.artifactLaneProvider = artifactLaneProvider
     }
 
     public init(
@@ -159,7 +168,10 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
         pairingRequestTimeoutNanoseconds: UInt64 = CMUXMobileRuntime.defaultPairingRequestTimeoutNanoseconds,
         pairingAttemptTimeoutNanoseconds: UInt64 = CMUXMobileRuntime.defaultPairingAttemptTimeoutNanoseconds,
         now: @escaping @Sendable () -> Date = Date.init,
-        supportsServerPushEvents: Bool = true
+        supportsServerPushEvents: Bool = true,
+        independentEventByteStreamProvider: CmxIndependentEventByteStreamProvider? = nil,
+        terminalLaneProvider: MobileTerminalLaneProvider? = nil,
+        artifactLaneProvider: MobileArtifactLaneProvider? = nil
     ) {
         self.supportedRouteKinds = transportFactory.supportedKinds
         self.transportFactory = transportFactory
@@ -170,6 +182,9 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
         self.pairingRequestTimeoutNanoseconds = pairingRequestTimeoutNanoseconds
         self.pairingAttemptTimeoutNanoseconds = pairingAttemptTimeoutNanoseconds
         self.supportsServerPushEvents = supportsServerPushEvents
+        self.independentEventByteStreamProvider = independentEventByteStreamProvider
+        self.terminalLaneProvider = terminalLaneProvider
+        self.artifactLaneProvider = artifactLaneProvider
         self.now = now
     }
 }

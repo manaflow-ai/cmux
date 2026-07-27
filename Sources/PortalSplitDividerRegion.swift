@@ -1,5 +1,45 @@
 import AppKit
 
+/// Divider hover cursors are asserted manually from `.activeAlways` tracking
+/// areas, which AppKit delivers even when another window covers this one at
+/// the pointer. Gate `NSCursor.set()` on the host window actually being the
+/// topmost mouse target so a backgrounded window cannot flip the cursor
+/// through an overlapping window (same bug class as the sidebar resizer
+/// occlusion fix).
+@MainActor
+struct PortalDividerCursorOcclusion {
+    var topmostMouseEventWindowNumber: (NSPoint) -> Int? = { screenPoint in
+        let windowNumber = NSWindow.windowNumber(at: screenPoint, belowWindowWithWindowNumber: 0)
+        return windowNumber > 0 ? windowNumber : nil
+    }
+
+    func mayAssertDividerCursor(screenPoint: NSPoint, windowNumber: Int) -> Bool {
+        topmostMouseEventWindowNumber(screenPoint) == windowNumber
+    }
+
+    func mayAssertDividerCursor(in window: NSWindow?) -> Bool {
+        guard let window else { return false }
+        return mayAssertDividerCursor(
+            screenPoint: NSEvent.mouseLocation,
+            windowNumber: window.windowNumber
+        )
+    }
+}
+
+/// Orientation of a hovered split divider and the resize cursor it shows.
+/// Shared by the portal host views and the hosted web-inspector divider.
+enum PortalDividerCursorKind: Equatable {
+    case vertical
+    case horizontal
+
+    var cursor: NSCursor {
+        switch self {
+        case .vertical: return .resizeLeftRight
+        case .horizontal: return .resizeUpDown
+        }
+    }
+}
+
 @MainActor
 final class PortalSplitDividerRegion {
     weak var splitView: NSSplitView?
@@ -10,7 +50,11 @@ final class PortalSplitDividerRegion {
     let isVertical: Bool
     let isInHostedContent: Bool
 
-    static let dividerHitExpansion: CGFloat = 5
+    /// Extra points on each side of the hairline divider that show the resize
+    /// cursor and accept a divider drag. Bonsplit's drag effective rect is fed
+    /// the same value (see `Workspace.bonsplitAppearance`), so every point
+    /// that shows the cursor can start a drag.
+    static let dividerHitExpansion: CGFloat = 8
 
     init(
         splitView: NSSplitView,

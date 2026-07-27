@@ -45,6 +45,23 @@ public struct MobileTerminalRenderGridReplay: Sendable {
         patchBytes()
     }
 
+    /// Synthesizes only the frame's effective terminal color state.
+    ///
+    /// This patch updates foreground, background, cursor, and palette colors
+    /// without clearing cells, moving the cursor, or replacing terminal text.
+    /// Hybrid mobile mirrors use it when raw PTY bytes own content but a newer
+    /// render-grid theme revision must still repaint the mounted surface.
+    /// - Returns: VT color commands for the frame's theme.
+    public func themePatchBytes() -> Data {
+        let theme = frame.terminalTheme
+        var bytes = Data()
+        bytes.append(oscColorOrResetBytes(10, reset: 110, frame.terminalForeground ?? theme?.foreground))
+        bytes.append(oscColorOrResetBytes(11, reset: 111, frame.terminalBackground ?? theme?.background))
+        bytes.append(oscColorOrResetBytes(12, reset: 112, frame.terminalCursorColor))
+        appendPaletteRestore(to: &bytes)
+        return bytes
+    }
+
     private func deltaPatchBytes() -> Data {
         var bytes = Data()
         let stylesByID = styleMapByID(frame.styles)
@@ -52,6 +69,7 @@ public struct MobileTerminalRenderGridReplay: Sendable {
         let autowrapMode = deltaReplayAutowrapMode()
         if frame.cursor == nil { bytes.append(Data("\u{1B}[s".utf8)) }
         bytes.append(deltaReplayModeNormalizationBytes())
+        appendDeltaScrollPrologue(&bytes, stylesByID: stylesByID, defaultStyle: defaultStyle)
         let rowsToClear = Set(frame.clearedRows).union(frame.rowSpans.map(\.row)).sorted()
         for row in rowsToClear {
             bytes.append(sgrBytes(for: defaultStyle))
@@ -129,13 +147,29 @@ public struct MobileTerminalRenderGridReplay: Sendable {
         bytes.append(oscColorOrResetBytes(10, reset: 110, frame.terminalForeground))
         bytes.append(oscColorOrResetBytes(11, reset: 111, frame.terminalBackground))
         bytes.append(oscColorOrResetBytes(12, reset: 112, frame.terminalCursorColor))
+        appendPaletteRestore(to: &bytes)
         bytes.append(sgrBytes(for: defaultStyle))
+        // A screen-anchored full without scrollback preserves the consumer's
+        // local history: it repaints the active grid in place instead of
+        // resetting the terminal. Screen-anchored consumers accumulate deep
+        // local scrollback (hydrated once, then grown by scrolling deltas),
+        // and mid-stream authoritative repaints - theme changes, replay
+        // barriers, resyncs - must not destroy it or yank a locally scrolled
+        // viewport. Hydrating fulls (scrollback rows present) and viewport-
+        // anchored (v1) fulls keep the historical reset+flow.
+        let preservesLocalHistory = frame.anchor == .screen
+            && frame.activeScreen == .primary
+            && frame.scrollbackRows == 0
         // DECSC at home with the default pen resets each screen's saved
         // cursor to the RIS baseline; a stale DECSC from the reused surface
         // must not survive the replay, and the snapshot cursor is never
         // saved (a later bare DECRC/?1048l restore should land on the
         // default, matching what RIS left behind).
-        bytes.append(Data("\u{1B}[H\u{1B}7\u{1B}[2J\u{1B}[3J\u{1B}[?1049h".utf8))
+        if preservesLocalHistory {
+            bytes.append(Data("\u{1B}[H\u{1B}7\u{1B}[?1049h".utf8))
+        } else {
+            bytes.append(Data("\u{1B}[H\u{1B}7\u{1B}[2J\u{1B}[3J\u{1B}[?1049h".utf8))
+        }
 
         bytes.append(Data(hyperlinkStateReset.utf8))
         bytes.append(Data(semanticPromptReset.utf8))
@@ -172,6 +206,24 @@ public struct MobileTerminalRenderGridReplay: Sendable {
                 defaultStyle: defaultStyle,
                 terminateLast: false
             )
+        } else if preservesLocalHistory {
+            // Repaint the active grid in place (clear each row, then paint its
+            // spans by absolute position). No line feeds at the bottom row, so
+            // nothing is pushed into - and nothing erases - local scrollback.
+            for row in 0..<frame.rows {
+                bytes.append(sgrBytes(for: defaultStyle))
+                bytes.append(Data("\u{1B}[\(row + 1);1H\u{1B}[2K".utf8))
+            }
+            var activeStyleID: Int?
+            for span in frame.rowSpans {
+                guard !span.text.isEmpty else { continue }
+                let style = activeStyleID != span.styleID ? stylesByID[span.styleID] : nil
+                appendSpanReplay(span, row: span.row, style: style, to: &bytes)
+                if activeStyleID != span.styleID, style != nil {
+                    activeStyleID = span.styleID
+                }
+            }
+            bytes.append(sgrBytes(for: defaultStyle))
         } else {
             // Primary: scrollback then the viewport as one continuous flow so
             // the scrollback naturally lands in the client's history.
@@ -206,6 +258,43 @@ public struct MobileTerminalRenderGridReplay: Sendable {
         appendCursorRestore(&bytes)
         bytes.append(Data("\u{1B}[?2026l".utf8))
         return bytes
+    }
+
+    /// Scrolls the consumer's grid for a screen-anchored delta before row
+    /// repaints: line feeds at the bottom row push the rows that entered the
+    /// producer's history since the previous frame into local scrollback, so
+    /// the consumer's scrollback accumulates exactly like the producer's. A
+    /// burst delta additionally flows the missed history rows (captured as
+    /// scrollback spans) through the grid like natural output, oldest first.
+    private func appendDeltaScrollPrologue(
+        _ bytes: inout Data,
+        stylesByID: [Int: MobileTerminalRenderGridFrame.Style],
+        defaultStyle: MobileTerminalRenderGridFrame.Style
+    ) {
+        let pushes = frame.scrolledRows
+        guard pushes > 0, frame.activeScreen == .primary else { return }
+        let missed = min(max(0, frame.scrollbackRows), pushes)
+        // Reset any stray scroll region so a line feed at the bottom row pushes
+        // the top row into scrollback (the delta repaints by absolute rows, so
+        // the region reset cannot desync the mirror), then feed from the bottom.
+        bytes.append(sgrBytes(for: defaultStyle))
+        bytes.append(Data("\u{1B}[r\u{1B}[\(frame.rows);1H".utf8))
+        if missed > 0 {
+            bytes.append(Data("\r\n".utf8))
+            appendFlowLines(
+                &bytes,
+                spans: frame.scrollbackSpans,
+                lineCount: missed,
+                stylesByID: stylesByID,
+                defaultStyle: defaultStyle,
+                terminateLast: false
+            )
+        }
+        let trailing = pushes - missed
+        if trailing > 0 {
+            bytes.append(sgrBytes(for: defaultStyle))
+            bytes.append(Data(String(repeating: "\r\n", count: trailing).utf8))
+        }
     }
 
     private func deltaReplayModeNormalizationBytes() -> Data {
@@ -244,14 +333,38 @@ public struct MobileTerminalRenderGridReplay: Sendable {
             }
             bytes.append(sgrBytes(for: defaultStyle))
             var activeStyleID = 0
+            var paintedEnd = 0
             for span in (spansByRow[line] ?? []).sorted(by: { $0.column < $1.column }) {
                 guard !span.text.isEmpty else { continue }
+                if span.column > paintedEnd {
+                    if activeStyleID != 0 {
+                        bytes.append(sgrBytes(for: defaultStyle))
+                    }
+                    activeStyleID = 0
+                    appendCursor(row: nil, column: paintedEnd, to: &bytes)
+                    appendVTPrintable(
+                        String(repeating: " ", count: span.column - paintedEnd),
+                        to: &bytes
+                    )
+                    paintedEnd = span.column
+                }
                 let style = activeStyleID != span.styleID ? stylesByID[span.styleID] : nil
                 appendSpanReplay(span, row: nil, style: style, to: &bytes)
                 if activeStyleID != span.styleID,
                    style != nil {
                     activeStyleID = span.styleID
                 }
+                paintedEnd = max(paintedEnd, span.column + span.gridCellWidth)
+            }
+            if paintedEnd < frame.columns {
+                if activeStyleID != 0 {
+                    bytes.append(sgrBytes(for: defaultStyle))
+                }
+                appendCursor(row: nil, column: paintedEnd, to: &bytes)
+                appendVTPrintable(
+                    String(repeating: " ", count: frame.columns - paintedEnd),
+                    to: &bytes
+                )
             }
         }
         if terminateLast {
@@ -496,26 +609,6 @@ public struct MobileTerminalRenderGridReplay: Sendable {
         }
     }
 
-    private func sgrBytes(for style: MobileTerminalRenderGridFrame.Style) -> Data {
-        var codes = ["0"]
-        if style.bold { codes.append("1") }
-        if style.faint { codes.append("2") }
-        if style.italic { codes.append("3") }
-        if style.underline { codes.append("4") }
-        if style.blink { codes.append("5") }
-        if style.inverse { codes.append("7") }
-        if style.invisible { codes.append("8") }
-        if style.strikethrough { codes.append("9") }
-        if style.overline { codes.append("53") }
-        if let foreground = rgbComponents(style.foreground) {
-            codes.append("38;2;\(foreground.red);\(foreground.green);\(foreground.blue)")
-        }
-        if let background = rgbComponents(style.background) {
-            codes.append("48;2;\(background.red);\(background.green);\(background.blue)")
-        }
-        return Data("\u{1B}[\(codes.joined(separator: ";"))m".utf8)
-    }
-
     private func cursorStyleBytes(for cursor: MobileTerminalRenderGridFrame.Cursor) -> Data {
         let parameter: Int
         switch cursor.style {
@@ -529,12 +622,4 @@ public struct MobileTerminalRenderGridReplay: Sendable {
         return Data("\u{1B}[\(parameter) q".utf8)
     }
 
-    private func rgbComponents(_ value: String?) -> (red: Int, green: Int, blue: Int)? {
-        guard var value else { return nil }
-        if value.hasPrefix("#") {
-            value.removeFirst()
-        }
-        guard value.count == 6, let raw = Int(value, radix: 16) else { return nil }
-        return ((raw >> 16) & 0xFF, (raw >> 8) & 0xFF, raw & 0xFF)
-    }
 }

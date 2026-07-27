@@ -366,10 +366,10 @@ import Testing
                 .panels.first { $0.customTitle == "Local Resume Shell" }
         )
         let restoredPanel = try #require(restoredWorkspace.terminalPanel(for: restoredLocalPanel.id))
-        let restoredCommand = try #require(restoredPanel.surface.debugInitialCommand())
-        #expect(restoredPanel.surface.debugInitialInputForTesting() == nil)
+        #expect(restoredPanel.surface.debugInitialCommand() == nil)
+        let restoredInput = try #require(restoredPanel.surface.debugInitialInputForTesting())
         #expect(restoredPanel.requestedWorkingDirectory == nil)
-        let launcherScriptPath = try launcherScriptPath(from: restoredCommand)
+        let launcherScriptPath = try launcherScriptPath(from: restoredInput)
         let launcherEnvironment = try makeOhMyZshLauncherEnvironment(
             root: root,
             integrationDir: shellIntegrationDirectory(),
@@ -471,7 +471,7 @@ import Testing
         #expect(process.terminationStatus == 0, "\(errorText)")
 
         let output = try String(contentsOf: outputURL, encoding: .utf8)
-        #expect(output == "\(cwd.path)|resume session-moved-cli --yolo\n")
+        #expect(output == "\(cwd.path)|resume session-moved-cli -c check_for_update_on_startup=false --yolo\n")
         #expect(!startupInput.contains(movedExecutable.path), "\(startupInput)")
     }
 
@@ -539,10 +539,16 @@ import Testing
         throw ResumeShellTimeout(shellDescription: "/bin/zsh \(scriptPath)", timeout: timeout)
     }
 
-    private func launcherScriptPath(from command: String) throws -> String {
-        let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(command).map(\.value)
-        #expect(words.first == "/bin/zsh", "\(command)")
-        return try #require(words.dropFirst().first, "Expected /bin/zsh launcher script command, saw: \(command)")
+    private func launcherScriptPath(from input: String) throws -> String {
+        let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(input).map(\.value)
+        let launcherIndex = try #require(
+            words.lastIndex(of: "/bin/zsh"),
+            "Expected /bin/zsh launcher script input, saw: \(input)"
+        )
+        return try #require(
+            words.dropFirst(launcherIndex + 1).first,
+            "Expected launcher script path after /bin/zsh, saw: \(input)"
+        )
     }
 
     private func shellIntegrationDirectory() -> URL {

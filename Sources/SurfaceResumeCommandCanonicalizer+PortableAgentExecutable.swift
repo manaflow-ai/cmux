@@ -45,7 +45,8 @@ extension SurfaceResumeBindingSnapshot {
         guard let inlineInput = inlineStartupInput(
             repairPortableAgentExecutable: repairPortableAgentExecutable
         ) else { return nil }
-        guard inlineInput.utf8.count > Self.maxInlineStartupInputBytes else {
+        let requiresLauncherScript = isAgentHookBinding && allowLauncherScript
+        guard requiresLauncherScript || inlineInput.utf8.count > Self.maxInlineStartupInputBytes else {
             return inlineInput
         }
         guard allowLauncherScript else { return inlineInput }
@@ -69,30 +70,22 @@ extension SurfaceResumeBindingSnapshot {
         )
     }
 
-    func startupCommandWithLauncherScript(
-        fileManager: FileManager = .default,
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory,
-        repairPortableAgentExecutable: Bool
-    ) -> String? {
-        guard let inlineInput = inlineStartupInput(repairPortableAgentExecutable: repairPortableAgentExecutable),
-              let scriptURL = SurfaceResumeBindingScriptStore.writeLauncherScript(
-                  inlineInput: inlineInput,
-                  binding: self,
-                  fileManager: fileManager,
-                  temporaryDirectory: temporaryDirectory,
-                  returnToLoginShell: true
-              ) else {
-            return nil
-        }
-        return "/bin/zsh \(Self.shellSingleQuoted(scriptURL.path))"
-    }
-
     private func resolvedStartupCommand(repairPortableAgentExecutable: Bool) -> String {
-        guard repairPortableAgentExecutable, isAgentHookBinding else {
+        guard isAgentHookBinding else {
             return startupCommand
         }
-        return SurfaceResumeCommandCanonicalizer.replacingPortableAgentExecutable(
+        let suppressed = SurfaceResumeCommandCanonicalizer.insertingCodexUpdateCheckSuppression(
             in: startupCommand,
+            kind: kind
+        )
+        guard repairPortableAgentExecutable else {
+            return suppressed
+        }
+        // Suppression insertion runs before executable repair: repair can wrap a
+        // stale-executable command in `/bin/sh -c '…'`, whose single-word body no
+        // longer parses as a codex resume argv.
+        return SurfaceResumeCommandCanonicalizer.replacingPortableAgentExecutable(
+            in: suppressed,
             kind: kind
         )
     }
@@ -402,7 +395,7 @@ extension SurfaceResumeCommandCanonicalizer {
         return false
     }
 
-    private static func commandExecutableWordIndex(
+    static func commandExecutableWordIndex(
         in words: [TerminalStartupWorkingDirectoryPrefix.ShellWordRange],
         command: String
     ) -> Int? {

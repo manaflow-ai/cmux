@@ -292,9 +292,9 @@ import Testing
         case noRespawnCommand
     }
 
-    private final class CLITmuxCompatRemoteSplitBundleToken {}
+    final class CLITmuxCompatRemoteSplitBundleToken {}
 
-    private final class ServerState: @unchecked Sendable {
+    final class ServerState: @unchecked Sendable {
         private let lock = NSLock()
         private var errors: [String] = []
 
@@ -313,21 +313,21 @@ import Testing
         }
     }
 
-    private struct ProcessRunResult {
+    struct ProcessRunResult {
         let status: Int32
         let stdout: String
         let stderr: String
         let timedOut: Bool
     }
 
-    private static func makeSocketPath(_ name: String) -> String {
+    static func makeSocketPath(_ name: String) -> String {
         let shortID = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8)
         return URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("cli-\(name.prefix(6))-\(shortID).sock")
             .path
     }
 
-    private static func bindUnixSocket(at path: String) throws -> Int32 {
+    static func bindUnixSocket(at path: String) throws -> Int32 {
         unlink(path)
         let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else {
@@ -369,7 +369,7 @@ import Testing
         return fd
     }
 
-    private static func startMockServer(
+    static func startMockServer(
         listenerFD: Int32,
         state: ServerState,
         handler: @escaping @Sendable (String) -> String
@@ -417,7 +417,7 @@ import Testing
         return handled
     }
 
-    private static func v2Response(
+    static func v2Response(
         id: String,
         ok: Bool,
         result: [String: Any]? = nil,
@@ -430,7 +430,7 @@ import Testing
         return String(data: data ?? Data("{}".utf8), encoding: .utf8) ?? "{}"
     }
 
-    private static func malformedRequestResponse(id: String? = nil, raw: String) -> String {
+    static func malformedRequestResponse(id: String? = nil, raw: String) -> String {
         v2Response(
             id: id ?? "unknown",
             ok: false,
@@ -438,12 +438,12 @@ import Testing
         )
     }
 
-    private static func jsonObject(_ line: String) -> [String: Any]? {
+    static func jsonObject(_ line: String) -> [String: Any]? {
         guard let data = line.data(using: .utf8) else { return nil }
         return try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any]
     }
 
-    private static func runProcess(
+    static func runProcess(
         executablePath: String,
         arguments: [String],
         environment: [String: String],

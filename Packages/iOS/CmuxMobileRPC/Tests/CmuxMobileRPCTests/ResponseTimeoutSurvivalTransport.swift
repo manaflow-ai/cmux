@@ -28,7 +28,12 @@ actor ResponseTimeoutSurvivalTransport: CmxByteTransport {
         sentPayloads.append(contentsOf: payloads)
         for payload in payloads {
             let request = try recordedRPCRequest(from: payload)
-            guard request.id == "second-after-timeout" else { continue }
+            guard [
+                "second-after-cancel",
+                "second-after-hanging-close",
+                "second-after-timeout",
+                "third-after-late-failure",
+            ].contains(request.id) else { continue }
             try enqueueResponse(id: request.id)
         }
     }

@@ -79,7 +79,7 @@ export function DownloadConfirmation() {
               // auto-download useEffect won't run if the bundle never hydrates).
               <a
                 href={DOWNLOAD_URL}
-                className="underline underline-offset-2 decoration-border hover:decoration-foreground transition-colors"
+                className="underline underline-offset-2 decoration-link-underline hover:decoration-foreground transition-colors"
               >
                 {chunks}
               </a>

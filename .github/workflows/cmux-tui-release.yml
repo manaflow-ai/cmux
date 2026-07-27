@@ -1,0 +1,62 @@
+name: cmux-tui release binaries
+
+# Builds the cmux-tui TUI binary for every distribution target (npm/PyPI `cmux`).
+# Manual dispatch or cmux-tui tag builds upload one artifact per target so the
+# npm/PyPI wrapper-packaging jobs can bundle them.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "TUI package version to build, for example 0.1.0"
+        required: true
+        type: string
+  push:
+    tags:
+      - "cmux-tui-v*"
+
+permissions: {}
+
+concurrency:
+  group: cmux-tui-release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  version:
+    name: derive package version
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Derive package version
+        id: version
+        env:
+          DISPATCH_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
+            [[ "$GITHUB_REF_NAME" =~ ^cmux-tui-v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+              echo "tag must match cmux-tui-vX.Y.Z" >&2
+              exit 1
+            }
+            version="${GITHUB_REF_NAME#cmux-tui-v}"
+          else
+            version="$DISPATCH_VERSION"
+            [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+              echo "workflow_dispatch version must match X.Y.Z" >&2
+              exit 1
+            }
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  build-package:
+    needs: version
+    permissions:
+      contents: read
+    uses: ./.github/workflows/cmux-tui-build-package.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+      package_npm: true
+      package_pypi: true
+      include_windows: true

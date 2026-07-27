@@ -12,9 +12,10 @@ import Network
 ///
 /// Wire behavior is pinned: the newline-delimited JSON handshake (token,
 /// cols/rows, client_pid), the `{"type":"ready","attachment_token":...}` and
-/// `{"type":"error","message":...}` status lines, every buffer cap, the 30s
-/// handshake and unused-bridge timeouts, the half-close semantics, and the
-/// error-message mapping in `userFacingBridgeErrorMessage` must not change.
+/// `{"type":"error","message":...}` status lines (plus optional error
+/// `code`), every buffer cap, the 30s handshake and unused-bridge timeouts,
+/// the half-close semantics, and the error-message mapping in
+/// `userFacingBridgeErrorMessage` must not change.
 ///
 /// Isolation design: every mutable property (listener, session, isStopped,
 /// and all Session state) is confined to the private serial `queue`.
@@ -38,12 +39,15 @@ public final class RemotePTYBridgeServer: @unchecked Sendable {
         public let token: String
         /// Remote persistent PTY session this bridge attaches to.
         public let sessionID: String
+        /// Stable logical generation shared by every reconnect bridge for this attach.
+        public let lifecycleID: String
         /// Attachment identifier requested for this bridge.
         public let attachmentID: String
     }
 
     private let rpcClient: any RemotePTYBridgeRPCClient
     private let sessionID: String
+    private let lifecycleID: String
     private let attachmentID: String
     private let command: String?
     private let requireExisting: Bool
@@ -51,11 +55,14 @@ public final class RemotePTYBridgeServer: @unchecked Sendable {
     private let clock: any RemoteProxyRetryClock
     private let token = UUID().uuidString.lowercased()
     private let queue = DispatchQueue(label: "com.cmux.remote-ssh.pty-bridge.\(UUID().uuidString)", qos: .userInitiated)
-    private let onStop: () -> Void
+    private let onStop: (RemotePTYBridgeStopDisposition) -> Void
 
     private var listener: NWListener?
     private var session: Session?
     private var isStopped = false
+    private var authenticatedClient = false
+    private var didReportStop = false
+    private var stopWaiters: [() -> Void] = []
     private var unusedBridgeTimeoutTask: Task<Void, Never>?
 
     /// Creates a bridge server for one remote PTY attachment.
@@ -63,6 +70,7 @@ public final class RemotePTYBridgeServer: @unchecked Sendable {
     /// - Parameters:
     ///   - rpcClient: Daemon RPC seam used to attach/write/detach.
     ///   - sessionID: Remote persistent PTY session identifier.
+    ///   - lifecycleID: Stable logical generation reused across reconnect attempts.
     ///   - attachmentID: Attachment identifier to request.
     ///   - command: Optional command to start when the session does not
     ///     exist yet.
@@ -72,20 +80,22 @@ public final class RemotePTYBridgeServer: @unchecked Sendable {
     ///     app-side).
     ///   - clock: Sleep seam driving the handshake and unused-bridge
     ///     timeouts (virtual time in tests).
-    ///   - onStop: Invoked exactly once, on the bridge queue, when the
-    ///     bridge stops for any reason.
+    ///   - onStop: Invoked exactly once, on the bridge queue, with whether a
+    ///     local client authenticated.
     public init(
         rpcClient: any RemotePTYBridgeRPCClient,
         sessionID: String,
+        lifecycleID: String,
         attachmentID: String,
         command: String?,
         requireExisting: Bool,
         strings: any RemotePTYBridgeStrings,
         clock: any RemoteProxyRetryClock = SystemRemoteProxyRetryClock(),
-        onStop: @escaping () -> Void
+        onStop: @escaping (RemotePTYBridgeStopDisposition) -> Void
     ) {
         self.rpcClient = rpcClient
         self.sessionID = sessionID
+        self.lifecycleID = lifecycleID
         self.attachmentID = attachmentID
         self.command = command
         self.requireExisting = requireExisting
@@ -151,6 +161,7 @@ public final class RemotePTYBridgeServer: @unchecked Sendable {
             port: startupPort,
             token: token,
             sessionID: sessionID,
+            lifecycleID: lifecycleID,
             attachmentID: attachmentID
         )
     }
@@ -159,6 +170,37 @@ public final class RemotePTYBridgeServer: @unchecked Sendable {
     public func stop() {
         queue.async {
             self.stopLocked()
+        }
+    }
+
+    /// Stops the bridge and joins any attach RPC already in flight.
+    ///
+    /// The join preserves the synchronous PTY-close contract: callers can
+    /// safely issue `pty.close` after this returns without a delayed
+    /// `requireExisting: false` attach recreating the session afterward.
+    /// This method must be called from outside the bridge and RPC queues so
+    /// those queues remain free to deliver the attach completion.
+    ///
+    /// - Parameter deadline: Last instant to wait for an in-flight attach.
+    /// - Returns: `true` when no attach can complete after this method returns.
+    func stopAndWaitForAttachCompletion(deadline: DispatchTime) -> Bool {
+        let stopped = DispatchSemaphore(value: 0)
+        let shouldWait = queue.sync {
+            stopLocked()
+            guard !didReportStop else { return false }
+            stopWaiters.append { stopped.signal() }
+            return true
+        }
+        guard shouldWait else { return true }
+        return stopped.wait(timeout: deadline) == .success
+    }
+
+    /// Stops synchronously so a tunnel replacement can preserve the final disposition.
+    func stopAndWaitForDisposition() -> RemotePTYBridgeStopDisposition {
+        queue.sync {
+            let disposition: RemotePTYBridgeStopDisposition = authenticatedClient ? .acceptedClient : .unused
+            stopLocked()
+            return disposition
         }
     }
 
@@ -184,10 +226,10 @@ public final class RemotePTYBridgeServer: @unchecked Sendable {
             token: token,
             queue: queue,
             strings: strings,
-            clock: clock
-        ) { [weak self] in
-            self?.stopLocked()
-        }
+            clock: clock,
+            onAuthenticated: { [weak self] in self?.authenticatedClient = true },
+            onClose: { [weak self] in self?.sessionDidCloseLocked() }
+        )
         self.session = session
         session.start()
     }
@@ -215,10 +257,30 @@ public final class RemotePTYBridgeServer: @unchecked Sendable {
         listener?.stateUpdateHandler = nil
         listener?.cancel()
         listener = nil
-        let activeSession = session
+        session?.stop()
+        if session == nil {
+            reportStopLocked()
+        }
+    }
+
+    private func sessionDidCloseLocked() {
         session = nil
-        activeSession?.stop()
-        onStop()
+        if isStopped {
+            reportStopLocked()
+        } else {
+            stopLocked()
+        }
+    }
+
+    private func reportStopLocked() {
+        guard !didReportStop else { return }
+        didReportStop = true
+        onStop(authenticatedClient ? .acceptedClient : .unused)
+        let waiters = stopWaiters
+        stopWaiters.removeAll(keepingCapacity: false)
+        for waiter in waiters {
+            waiter()
+        }
     }
 
     private static func makeLoopbackListener() throws -> NWListener {

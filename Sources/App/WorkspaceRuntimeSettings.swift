@@ -1,10 +1,8 @@
 import Darwin
 import Foundation
-
 enum WorkspaceTitlebarSettings {
     static let showTitlebarKey = "workspaceTitlebarVisible"
     static let defaultShowTitlebar = true
-
     static func isVisible(defaults: UserDefaults = .standard) -> Bool {
         if defaults.object(forKey: showTitlebarKey) == nil {
             return defaultShowTitlebar
@@ -14,7 +12,6 @@ enum WorkspaceTitlebarSettings {
 }
 enum WorkspacePresentationModeSettings {
     static let modeKey = "workspacePresentationMode"
-
     enum Mode: String {
         case standard
         case minimal
@@ -120,6 +117,8 @@ enum TerminalTextBoxInputSettings {
     static let maximumMaxLines = 20
     static let submitActionsKey = "terminal.textBoxSubmitActions"
     static let defaultSubmitActionKey = "terminal.textBoxDefaultSubmitAction"
+    static let lastSelectedSubmitActionKey = "terminal.textBoxLastSelectedSubmitAction"
+    static let lastSelectedSubmitActionDefaultKey = "terminal.textBoxLastSelectedSubmitActionDefault"
     static let defaultSubmitActionID = TextBoxSubmitAction.textEntryAction.id
 
     static func showOnNewTerminals(defaults: UserDefaults = .standard) -> Bool {

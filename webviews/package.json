@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "bun run verify:tanstack-router && bun run typecheck && vite build",
+    "benchmark": "bun run bench/diff-stream.bench.ts",
     "lint": "oxlint . --react-plugin --jsx-a11y-plugin --import-plugin",
     "lint:ci": "oxlint . --react-plugin --jsx-a11y-plugin --import-plugin --deny-warnings",
     "lint:fix": "oxlint . --react-plugin --jsx-a11y-plugin --import-plugin --fix",
