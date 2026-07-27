@@ -13,6 +13,7 @@
 - [Machines and remote sessions](docs/machines.md)
 - [Control socket protocol](docs/protocol.md)
 - [Browser panes](docs/browser-panes.md)
+- [cmux tree](docs/cmux-tree.md) ([日本語](docs/cmux-tree.ja.md))
 
 ## Build
 
@@ -21,6 +22,7 @@ Builds need zig 0.15.2, a Rust toolchain, and the `ghostty` submodule initialize
 ```bash
 cd cmux-tui
 cargo build -p cmux-tui
+cargo build -p cmux-tree
 ```
 
 ## Run
@@ -33,11 +35,15 @@ cargo run -p cmux-tui
 cargo run -p cmux-tui -- --session agents
 cargo run -p cmux-tui -- --headless --session agents
 cargo run -p cmux-tui -- attach --session agents
+cargo run -p cmux-tree --bin cmux-tree
+cargo run -p cmux-tree --bin cmux-tree-hook -- [codex arguments]
 cargo run -p cmux-tui -- machine-agent --session agents
 cargo run -p cmux-tui -- attach --session agents --surface <surface-id>
 ```
 
 The default session is `main`. Default sockets live at `$TMPDIR/cmux-tui-<uid>/<session>.sock`; use `--socket <path>` for an explicit path. Detach from an attached TUI with prefix `d`, which is `Ctrl-b d` by default.
+
+`cmux-tree` is a separate, read-only Codex observer. It auto-discovers attachable local Codex app-servers, connects directly to one app-server per machine, and does not require a `cmux-tui` session. The companion `cmux-tree-hook` is a Rust launch hook that prepares Codex's managed local app-server before replacing itself with the normal Codex client. See [cmux tree](docs/cmux-tree.md) for launch-hook, local, and remote setup.
 
 `attach --surface <id>` attaches one PTY terminal by numeric or short surface id. It uses the full host terminal without the sidebar, status bar, pane border, or other tabs.
 

@@ -9,6 +9,7 @@ members = [
     "crates/cmux-tui-machine-agent-protocol",
     "crates/cmux-tui-machine-protocol",
     "crates/cmux-tui",
+    "crates/cmux-tree",
 ]
 
 [workspace.package]
@@ -55,6 +56,7 @@ rusqlite = { version = "0.40.1", default-features = false, features = ["bundled"
 fs4 = "1.1.0"
 sha2 = "0.10"
 zeroize = "1.9"
+textwrap = "0.16"
 subtle = "2.6.1"
 parking_lot = "0.12"
 
