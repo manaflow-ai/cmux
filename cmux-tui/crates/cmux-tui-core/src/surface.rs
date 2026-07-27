@@ -559,6 +559,7 @@ pub struct PtySurface {
     stream_progress: Box<TerminalStreamProgress>,
     mouse_encoders: Mutex<MouseEncoders>,
     runtime: Mutex<PtyRuntime>,
+    supports_clear_history_key_fallback: AtomicBool,
     host_identity: Option<crate::terminal_host_runtime::TerminalHostIdentity>,
     pid: Option<u32>,
     command: Vec<String>,
@@ -993,6 +994,7 @@ fn mark_hosted_runtime_exited(
             host.disconnect();
         }
         *runtime = PtyRuntime::ExitedHosted;
+        pty.supports_clear_history_key_fallback.store(false, Ordering::Release);
     }
 }
 
@@ -1070,6 +1072,10 @@ impl Surface {
         let killer = child.clone_killer();
         let mut reader = pty.master.try_clone_reader()?;
         let writer = pty.master.take_writer()?;
+        #[cfg(unix)]
+        let supports_clear_history_key_fallback = pty.master.as_raw_fd().is_some();
+        #[cfg(not(unix))]
+        let supports_clear_history_key_fallback = false;
 
         // Query responses generated while parsing pty output are queued
         // here and flushed to the pty after each vt_write (the callback
@@ -1114,6 +1120,9 @@ impl Surface {
             stream_progress: Box::new(TerminalStreamProgress::default()),
             mouse_encoders: Mutex::new(mouse_encoders),
             runtime: Mutex::new(PtyRuntime::Local { writer, master: pty.master, killer }),
+            supports_clear_history_key_fallback: AtomicBool::new(
+                supports_clear_history_key_fallback,
+            ),
             host_identity: None,
             pid,
             command: argv,
@@ -1282,6 +1291,7 @@ impl Surface {
         mouse_encoders.sync_from_terminal(&term);
         let sequence_boundary = snapshot.sequence_boundary;
         let host_identity = attachment.identity();
+        let supports_clear_history_key_fallback = attachment.supports_clear_history();
         let render_state = RenderState::new()?;
         let (frame_requests, frame_rx) = sync_channel(1);
         let surface = Arc::new(Surface::Pty(PtySurface {
@@ -1290,6 +1300,9 @@ impl Surface {
             stream_progress: Box::new(TerminalStreamProgress::default()),
             mouse_encoders: Mutex::new(mouse_encoders),
             runtime: Mutex::new(PtyRuntime::Hosted(Box::new(attachment))),
+            supports_clear_history_key_fallback: AtomicBool::new(
+                supports_clear_history_key_fallback,
+            ),
             host_identity: Some(host_identity),
             pid: snapshot.pid,
             command: snapshot.command,
@@ -1639,7 +1652,10 @@ impl Surface {
                                 // Keep desired-lease capture, replay, and the
                                 // runtime swap atomic with respect to mux
                                 // resize/release operations.
+                                let supports_clear_history = replacement.supports_clear_history();
                                 *runtime = PtyRuntime::Hosted(Box::new(replacement));
+                                pty.supports_clear_history_key_fallback
+                                    .store(supports_clear_history, Ordering::Release);
                                 true
                             }
                         };
@@ -1787,6 +1803,7 @@ impl Surface {
             stream_progress: Box::new(TerminalStreamProgress::default()),
             mouse_encoders: Mutex::new(mouse_encoders),
             runtime: Mutex::new(PtyRuntime::ExitedHosted),
+            supports_clear_history_key_fallback: AtomicBool::new(false),
             host_identity: Some(identity),
             pid: None,
             command,
@@ -1864,6 +1881,7 @@ impl Surface {
                 }),
                 killer: Box::new(TestChildKiller),
             }),
+            supports_clear_history_key_fallback: AtomicBool::new(false),
             host_identity: None,
             pid: Some(id as u32),
             command: opts.command.unwrap_or_else(|| vec![platform::default_shell()]),
@@ -2140,22 +2158,8 @@ impl Surface {
     }
 
     pub fn supports_clear_history_key_fallback(&self) -> bool {
-        let Some(pty) = self.as_pty() else {
-            return false;
-        };
-        #[cfg(unix)]
-        {
-            match &*pty.runtime.lock().unwrap() {
-                PtyRuntime::Local { master, .. } => master.as_raw_fd().is_some(),
-                PtyRuntime::Hosted(host) => host.supports_clear_history(),
-                PtyRuntime::ExitedHosted => false,
-            }
-        }
-        #[cfg(not(unix))]
-        {
-            let _ = pty;
-            false
-        }
+        self.as_pty()
+            .is_some_and(|pty| pty.supports_clear_history_key_fallback.load(Ordering::Acquire))
     }
 
     pub fn clear_history_or_encode_key_classified(
