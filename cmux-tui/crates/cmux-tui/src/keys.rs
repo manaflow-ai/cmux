@@ -713,7 +713,7 @@ mod tests {
     }
 
     #[test]
-    fn enhanced_character_alt_without_text_is_not_an_authoritative_shortcut() {
+    fn enhanced_character_alt_without_text_preserves_a_real_alt_chord() {
         let input = KeyboardInput::from_enhanced(EnhancedKeyEvent {
             key_event: KeyEvent::new(KeyCode::Char('j'), KeyModifiers::ALT),
             shifted_key: None,
@@ -721,7 +721,19 @@ mod tests {
             text: String::new(),
         });
 
-        assert!(input.suppresses_alt_shortcut());
+        assert!(!input.suppresses_alt_shortcut());
+        assert!(input.shortcut_keys().0.modifiers.contains(KeyModifiers::ALT));
+        let input = input.into_terminal_input().unwrap();
+        assert!(!input.composing);
+
+        let mut terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(b"\x1b[>29u");
+        let mut encoder = KeyEncoder::new().unwrap();
+        encoder.sync_from_terminal(&terminal);
+        let mut encoded = Vec::new();
+        encoder.encode(&input, &mut encoded).unwrap();
+
+        assert_eq!(encoded, b"\x1b[106;3u");
     }
 
     #[test]
