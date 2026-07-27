@@ -32,7 +32,10 @@ public struct TerminalKeyInputPlanner: Sendable {
 
         if snapshot.hadMarkedText, !snapshot.committedText.isEmpty {
             var actions = committedText.map(TerminalKeyInputAction.sendCommittedText)
-            if snapshot.event.replaysPhysicalKeyAfterPreeditCommit {
+            let replaysPhysicalKey =
+                snapshot.event.replaysPhysicalKeyAfterPreeditCommit ||
+                (snapshot.textInputCommandPerformed && !suppressedAccumulatedControl)
+            if replaysPhysicalKey {
                 actions.append(.sendKey(text: nil, composing: false))
             }
             return actions

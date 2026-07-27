@@ -10,16 +10,23 @@ public struct TerminalKeyInputLifecycleTracker: Sendable {
         case terminal
     }
 
-    private var owners: [UInt16: PhysicalKeyOwner] = [:]
+    private struct PhysicalKeyLifecycle: Sendable {
+        let owner: PhysicalKeyOwner
+        let terminalActions: [TerminalKeyInputAction]
+    }
+
+    private var lifecycles: [UInt16: PhysicalKeyLifecycle] = [:]
 
     /// Creates an empty physical-key lifecycle tracker.
     public init() {}
 
-    /// Resolves actions for a key-down without changing ownership on repeats.
+    /// Resolves actions for a key-down without changing ownership or physical
+    /// meaning on repeats.
     ///
     /// A repeat whose press belongs to AppKit may still deliver text committed
     /// from an existing preedit, but it cannot introduce an orphaned physical
-    /// key event into the terminal.
+    /// key event into the terminal. A repeat whose press belongs to the terminal
+    /// keeps the original physical action even if AppKit changes its decision.
     public mutating func actions(
         for plan: TerminalKeyInputPlan,
         keyCode: UInt16,
@@ -27,21 +34,27 @@ public struct TerminalKeyInputLifecycleTracker: Sendable {
     ) -> [TerminalKeyInputAction] {
         let plannedOwner: PhysicalKeyOwner =
             plan.forwardsPhysicalKey ? .terminal : .appKit
-        let owner: PhysicalKeyOwner
+        let plannedLifecycle = PhysicalKeyLifecycle(
+            owner: plannedOwner,
+            terminalActions: plan.actions.filter(\.forwardsPhysicalKey)
+        )
+        let lifecycle: PhysicalKeyLifecycle
 
-        if isRepeat, let existingOwner = owners[keyCode] {
-            owner = existingOwner
+        if isRepeat, let existingLifecycle = lifecycles[keyCode] {
+            lifecycle = existingLifecycle
         } else {
-            owner = plannedOwner
-            owners[keyCode] = plannedOwner
+            lifecycle = plannedLifecycle
+            lifecycles[keyCode] = plannedLifecycle
         }
 
-        guard isRepeat, owner == .appKit else {
-            return plan.actions
-        }
-        return plan.actions.filter { action in
-            guard case .sendKey = action else { return true }
-            return false
+        guard isRepeat else { return plan.actions }
+
+        let nonPhysicalActions = plan.actions.filter { !$0.isPhysicalKey }
+        switch lifecycle.owner {
+        case .appKit:
+            return nonPhysicalActions
+        case .terminal:
+            return nonPhysicalActions + lifecycle.terminalActions
         }
     }
 
@@ -50,11 +63,23 @@ public struct TerminalKeyInputLifecycleTracker: Sendable {
     /// An unmatched release is forwarded to preserve the native fallback used
     /// when focus changes after the operating system has delivered the press.
     public mutating func shouldForwardKeyUp(keyCode: UInt16) -> Bool {
-        owners.removeValue(forKey: keyCode) != .appKit
+        lifecycles.removeValue(forKey: keyCode)?.owner != .appKit
     }
 
     /// Clears all key lifecycles after responder ownership changes.
     public mutating func reset() {
-        owners.removeAll(keepingCapacity: true)
+        lifecycles.removeAll(keepingCapacity: true)
+    }
+}
+
+private extension TerminalKeyInputAction {
+    var isPhysicalKey: Bool {
+        guard case .sendKey = self else { return false }
+        return true
+    }
+
+    var forwardsPhysicalKey: Bool {
+        guard case .sendKey(_, composing: false) = self else { return false }
+        return true
     }
 }
