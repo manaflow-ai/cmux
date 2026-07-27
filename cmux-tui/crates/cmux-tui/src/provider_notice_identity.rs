@@ -26,11 +26,33 @@ impl fmt::Display for UnexpectedLinkCount {
 
 impl std::error::Error for UnexpectedLinkCount {}
 
-struct CreationLock {
+struct IdentityLeaseLock {
     file: File,
 }
 
-impl CreationLock {
+#[derive(Debug)]
+pub(super) struct ProviderNoticeIdentityInUse;
+
+impl fmt::Display for ProviderNoticeIdentityInUse {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("provider notice identity is already in use")
+    }
+}
+
+impl std::error::Error for ProviderNoticeIdentityInUse {}
+
+pub(super) struct ProviderNoticeIdentityLease {
+    consumer_id: OpaqueId,
+    _lock: IdentityLeaseLock,
+}
+
+impl ProviderNoticeIdentityLease {
+    pub(super) fn consumer_id(&self) -> &OpaqueId {
+        &self.consumer_id
+    }
+}
+
+impl IdentityLeaseLock {
     fn acquire(identity_path: &Path) -> anyhow::Result<Self> {
         let lock_path = state_parent(identity_path)?.join(LOCK_FILE);
         let file = OpenOptions::new()
@@ -42,10 +64,13 @@ impl CreationLock {
             .open(lock_path)?;
         verify_private_file(&file, "provider notice identity lock")?;
         loop {
-            if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } == 0 {
+            if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
                 break;
             }
             let error = io::Error::last_os_error();
+            if error.kind() == io::ErrorKind::WouldBlock {
+                return Err(ProviderNoticeIdentityInUse.into());
+            }
             if error.kind() != io::ErrorKind::Interrupted {
                 return Err(error.into());
             }
@@ -54,7 +79,7 @@ impl CreationLock {
     }
 }
 
-impl Drop for CreationLock {
+impl Drop for IdentityLeaseLock {
     fn drop(&mut self) {
         unsafe {
             libc::flock(self.file.as_raw_fd(), libc::LOCK_UN);
@@ -69,18 +94,19 @@ struct StoredIdentity {
     consumer_id: OpaqueId,
 }
 
-pub(super) fn load_or_create(state_root: &Path) -> anyhow::Result<OpaqueId> {
+pub(super) fn acquire(state_root: &Path) -> anyhow::Result<ProviderNoticeIdentityLease> {
     let path = identity_path(state_root);
     ensure_private_parent(&path)?;
-    let _lock = CreationLock::acquire(&path)?;
-    match fs::symlink_metadata(&path) {
+    let lock = IdentityLeaseLock::acquire(&path)?;
+    let consumer_id = match fs::symlink_metadata(&path) {
         Ok(_) => {
             remove_orphaned_temporary_links(&path)?;
             load(&path)
         }
         Err(error) if error.kind() == io::ErrorKind::NotFound => create(&path),
         Err(error) => Err(error.into()),
-    }
+    }?;
+    Ok(ProviderNoticeIdentityLease { consumer_id, _lock: lock })
 }
 
 fn identity_path(state_root: &Path) -> PathBuf {
@@ -287,8 +313,6 @@ fn sync_directory(path: &Path) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use std::os::unix::fs::{PermissionsExt, symlink};
-    use std::sync::{Arc, Barrier};
-    use std::thread;
 
     use super::*;
 
@@ -315,11 +339,16 @@ mod tests {
         }
     }
 
+    fn load_once(state_root: &Path) -> anyhow::Result<OpaqueId> {
+        let lease = acquire(state_root)?;
+        Ok(lease.consumer_id().clone())
+    }
+
     #[test]
     fn identity_is_stable_and_private() {
         let state = TestStateRoot::create("private");
-        let first = load_or_create(&state.path).unwrap();
-        let second = load_or_create(&state.path).unwrap();
+        let first = load_once(&state.path).unwrap();
+        let second = load_once(&state.path).unwrap();
         let path = identity_path(&state.path);
         let parent = path.parent().unwrap();
         let lock = parent.join(LOCK_FILE);
@@ -335,21 +364,21 @@ mod tests {
     #[test]
     fn identity_rejects_permissive_hardlinked_or_symlinked_state() {
         let state = TestStateRoot::create("file-safety");
-        load_or_create(&state.path).unwrap();
+        load_once(&state.path).unwrap();
         let path = identity_path(&state.path);
         fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
-        assert!(load_or_create(&state.path).is_err());
+        assert!(load_once(&state.path).is_err());
         fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
 
         let second_link = path.with_file_name("second-link.json");
         fs::hard_link(&path, &second_link).unwrap();
-        assert!(load_or_create(&state.path).is_err());
+        assert!(load_once(&state.path).is_err());
         fs::remove_file(second_link).unwrap();
 
         let target = path.with_file_name("target.json");
         fs::rename(&path, &target).unwrap();
         symlink(&target, &path).unwrap();
-        assert!(load_or_create(&state.path).is_err());
+        assert!(load_once(&state.path).is_err());
     }
 
     #[test]
@@ -358,76 +387,69 @@ mod tests {
         let path = identity_path(&state.path);
         let parent = path.parent().unwrap();
         DirBuilder::new().mode(0o755).create(parent).unwrap();
-        assert!(load_or_create(&state.path).is_err());
+        assert!(load_once(&state.path).is_err());
         fs::remove_dir(parent).unwrap();
 
         let real = state.path.join("real");
         DirBuilder::new().mode(0o700).create(&real).unwrap();
         symlink(&real, parent).unwrap();
-        assert!(load_or_create(&state.path).is_err());
+        assert!(load_once(&state.path).is_err());
     }
 
     #[test]
     fn identity_rejects_permissive_hardlinked_or_symlinked_lock() {
         let state = TestStateRoot::create("lock-safety");
-        load_or_create(&state.path).unwrap();
+        load_once(&state.path).unwrap();
         let lock = identity_path(&state.path).parent().unwrap().join(LOCK_FILE);
 
         fs::set_permissions(&lock, fs::Permissions::from_mode(0o644)).unwrap();
-        assert!(load_or_create(&state.path).is_err());
+        assert!(load_once(&state.path).is_err());
         fs::set_permissions(&lock, fs::Permissions::from_mode(0o600)).unwrap();
 
         let second_link = lock.with_file_name("second-lock");
         fs::hard_link(&lock, &second_link).unwrap();
-        assert!(load_or_create(&state.path).is_err());
+        assert!(load_once(&state.path).is_err());
         fs::remove_file(second_link).unwrap();
 
         let target = lock.with_file_name("target-lock");
         fs::rename(&lock, &target).unwrap();
         symlink(&target, &lock).unwrap();
-        assert!(load_or_create(&state.path).is_err());
+        assert!(load_once(&state.path).is_err());
     }
 
     #[test]
     fn identity_parser_is_bounded() {
         let state = TestStateRoot::create("bounded");
-        load_or_create(&state.path).unwrap();
+        load_once(&state.path).unwrap();
         let path = identity_path(&state.path);
         fs::write(&path, vec![b'x'; MAX_STATE_BYTES as usize + 1]).unwrap();
-        let error = load_or_create(&state.path).unwrap_err();
+        let error = load_once(&state.path).unwrap_err();
         assert!(error.to_string().contains("too large"));
     }
 
     #[test]
     fn identity_rejects_unsupported_version() {
         let state = TestStateRoot::create("unsupported-version");
-        let consumer_id = load_or_create(&state.path).unwrap();
+        let consumer_id = load_once(&state.path).unwrap();
         let path = identity_path(&state.path);
         let future = StoredIdentity { version: STATE_VERSION + 1, consumer_id };
         fs::write(&path, serde_json::to_vec(&future).unwrap()).unwrap();
 
-        let error = load_or_create(&state.path).unwrap_err();
+        let error = load_once(&state.path).unwrap_err();
         assert!(error.to_string().contains("unsupported provider notice identity version"));
     }
 
     #[test]
-    fn concurrent_creators_share_one_identity() {
-        let state = TestStateRoot::create("concurrent");
-        let root = Arc::new(state.path.clone());
-        let barrier = Arc::new(Barrier::new(8));
-        let workers = (0..8)
-            .map(|_| {
-                let root = Arc::clone(&root);
-                let barrier = Arc::clone(&barrier);
-                thread::spawn(move || {
-                    barrier.wait();
-                    load_or_create(&root).unwrap()
-                })
-            })
-            .collect::<Vec<_>>();
-        let identities =
-            workers.into_iter().map(|worker| worker.join().unwrap()).collect::<Vec<_>>();
-        assert!(identities.iter().all(|identity| identity == &identities[0]));
+    fn identity_lease_is_exclusive_and_reuses_the_cursor_after_release() {
+        let state = TestStateRoot::create("exclusive");
+        let first = acquire(&state.path).unwrap();
+        let first_id = first.consumer_id().clone();
+        let error = acquire(&state.path).err().unwrap();
+        assert!(error.downcast_ref::<ProviderNoticeIdentityInUse>().is_some());
+
+        drop(first);
+        let restarted = acquire(&state.path).unwrap();
+        assert_eq!(restarted.consumer_id(), &first_id);
 
         let path = identity_path(&state.path);
         assert_eq!(fs::metadata(&path).unwrap().nlink(), 1);

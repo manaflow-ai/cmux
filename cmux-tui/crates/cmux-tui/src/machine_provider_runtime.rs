@@ -102,6 +102,7 @@ pub(crate) struct ProviderMachineRuntime {
     last_snapshot_notice: Option<protocol::ProviderNotice>,
     pending_notice_messages: HashSet<String>,
     notice: Option<String>,
+    _notice_identity_lease: Option<crate::provider_notice_identity::ProviderNoticeIdentityLease>,
 }
 
 /// Composes a provider-owned catalog with client-local socket and SSH targets.
@@ -340,6 +341,7 @@ impl ProviderMachineRuntime {
         Self::connect_with_consumer_id(
             Arc::new(UnixProviderConnector::new(socket_path.as_ref().to_path_buf(), token)),
             random_notice_consumer_id()?,
+            None,
         )
     }
 
@@ -347,13 +349,20 @@ impl ProviderMachineRuntime {
         connector: Arc<dyn MachineProviderConnector>,
         state_root: &Path,
     ) -> anyhow::Result<Self> {
-        let notice_consumer_id = crate::provider_notice_identity::load_or_create(state_root)
-            .map_err(|_| {
-                anyhow::anyhow!(
+        let identity_lease =
+            crate::provider_notice_identity::acquire(state_root).map_err(|error| {
+                let message = if error
+                    .downcast_ref::<crate::provider_notice_identity::ProviderNoticeIdentityInUse>()
+                    .is_some()
+                {
+                    localization::catalog().sidebar.provider_connection_already_running
+                } else {
                     localization::catalog().sidebar.provider_notice_identity_unavailable
-                )
+                };
+                anyhow::anyhow!(message)
             })?;
-        Self::connect_with_consumer_id(connector, notice_consumer_id)
+        let notice_consumer_id = identity_lease.consumer_id().clone();
+        Self::connect_with_consumer_id(connector, notice_consumer_id, Some(identity_lease))
     }
 
     #[cfg(test)]
@@ -371,6 +380,7 @@ impl ProviderMachineRuntime {
     fn connect_with_consumer_id(
         connector: Arc<dyn MachineProviderConnector>,
         notice_consumer_id: protocol::OpaqueId,
+        notice_identity_lease: Option<crate::provider_notice_identity::ProviderNoticeIdentityLease>,
     ) -> anyhow::Result<Self> {
         let (client, snapshot, machine_lifecycle_snapshot, workspace_snapshot) =
             connect_client(Arc::clone(&connector), &notice_consumer_id)?;
@@ -397,6 +407,7 @@ impl ProviderMachineRuntime {
             last_snapshot_notice: None,
             pending_notice_messages: HashSet::new(),
             notice: None,
+            _notice_identity_lease: notice_identity_lease,
         };
         runtime.observe_snapshot_notice(
             runtime.snapshot.notice.clone(),
