@@ -141,6 +141,73 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
         )
     }
 
+    func testConsumedMenuBindingKeepsPressIdentityForReleaseAfterLayoutChange() throws {
+        let terminal = try makeHostedTerminal()
+        defer {
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
+            terminal.window.orderOut(nil)
+        }
+
+        var capturedReleases: [CapturedGhosttyKeyIdentityEvent] = []
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            guard keyEvent.keycode == 8,
+                  keyEvent.action == GHOSTTY_ACTION_RELEASE else {
+                return
+            }
+            capturedReleases.append(CapturedGhosttyKeyIdentityEvent(
+                action: keyEvent.action,
+                keycode: keyEvent.keycode,
+                text: keyEvent.text.map { String(cString: $0) },
+                modifiers: keyEvent.mods.rawValue,
+                consumedModifiers: keyEvent.consumed_mods.rawValue,
+                unshiftedCodepoint: keyEvent.unshifted_codepoint,
+                composing: keyEvent.composing
+            ))
+        }
+
+        let timestamp = ProcessInfo.processInfo.systemUptime
+        let press = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: timestamp,
+            windowNumber: terminal.window.windowNumber,
+            context: nil,
+            characters: "c",
+            charactersIgnoringModifiers: "c",
+            isARepeat: false,
+            keyCode: 8
+        ))
+        let release = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyUp,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: timestamp + 0.1,
+            windowNumber: terminal.window.windowNumber,
+            context: nil,
+            characters: "с",
+            charactersIgnoringModifiers: "с",
+            isARepeat: false,
+            keyCode: 8
+        ))
+
+        terminal.window.makeFirstResponder(terminal.surfaceView)
+        withExtendedLifetime(terminal.surface) {
+            XCTAssertTrue(
+                terminal.surfaceView.consumeUnavailableCopyMenuAction(press),
+                "The default Ghostty Copy binding should be consumed after the native menu declines it"
+            )
+            terminal.surfaceView.keyUp(with: release)
+        }
+
+        XCTAssertEqual(capturedReleases.count, 1)
+        XCTAssertEqual(
+            capturedReleases.first?.unshiftedCodepoint,
+            "c".unicodeScalars.first?.value,
+            "A Ghostty-consumed menu binding must release with the identity that was consumed, even after the layout changes"
+        )
+    }
+
     func testComposingPressForwardsMatchingRelease() throws {
         let terminal = try makeHostedTerminal()
         defer {
