@@ -6,6 +6,7 @@ members = [
     "crates/ghostty-vt",
     "crates/cmux-tui-cdp",
     "crates/cmux-tui-core",
+    "crates/cmux-tui-machine-agent-protocol",
     "crates/cmux-tui-machine-protocol",
     "crates/cmux-tui",
     "crates/cmux-tree",
@@ -32,6 +33,7 @@ ghostty-vt-sys = { path = "crates/ghostty-vt-sys" }
 ghostty-vt = { path = "crates/ghostty-vt" }
 cmux-tui-core = { path = "crates/cmux-tui-core" }
 cmux-tui-cdp = { path = "crates/cmux-tui-cdp" }
+cmux-tui-machine-agent-protocol = { path = "crates/cmux-tui-machine-agent-protocol" }
 cmux-tui-machine-protocol = { path = "crates/cmux-tui-machine-protocol" }
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
@@ -55,6 +57,8 @@ fs4 = "1.1.0"
 sha2 = "0.10"
 zeroize = "1.9"
 textwrap = "0.16"
+subtle = "2.6.1"
+parking_lot = "0.12"
 
 [profile.release]
 lto = "thin"

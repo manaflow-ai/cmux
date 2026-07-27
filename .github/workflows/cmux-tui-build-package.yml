@@ -35,6 +35,9 @@ on:
 
 permissions: {}
 
+env:
+  RUST_TOOLCHAIN: "1.95.0"
+
 jobs:
   build:
     name: build ${{ matrix.target }}
@@ -50,18 +53,22 @@ jobs:
             runner: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
             cross: false
             ext: ""
+            compatibility_target: ""
           - target: x86_64-apple-darwin
             runner: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
             cross: true
             ext: ""
-          - target: x86_64-unknown-linux-gnu
-            runner: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-            cross: false
-            ext: ""
-          - target: aarch64-unknown-linux-gnu
+            compatibility_target: ""
+          - target: x86_64-unknown-linux-musl
             runner: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
             cross: true
             ext: ""
+            compatibility_target: x86_64-unknown-linux-gnu
+          - target: aarch64-unknown-linux-musl
+            runner: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+            cross: true
+            ext: ""
+            compatibility_target: aarch64-unknown-linux-gnu
     steps:
       - name: Checkout caller ref
         if: inputs.checkout_ref == ''
@@ -89,6 +96,13 @@ jobs:
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
           version: 0.15.2
+
+      - name: Install Rust toolchain
+        shell: bash
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+          rustc --version
 
       - name: Install Rust target
         shell: bash
@@ -129,14 +143,18 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          cp "cmux-tui/target/${{ matrix.target }}/release/cmux-tui${{ matrix.ext }}" "dist/cmux-tui-${{ matrix.target }}${{ matrix.ext }}"
+          binary="dist/cmux-tui-${{ matrix.target }}${{ matrix.ext }}"
+          cp "cmux-tui/target/${{ matrix.target }}/release/cmux-tui${{ matrix.ext }}" "$binary"
+          if [[ -n "${{ matrix.compatibility_target }}" ]]; then
+            cp "$binary" "dist/cmux-tui-${{ matrix.compatibility_target }}${{ matrix.ext }}"
+          fi
           ls -la dist
 
       - name: Upload binary artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: cmux-tui-${{ matrix.target }}
-          path: dist/cmux-tui-${{ matrix.target }}${{ matrix.ext }}
+          path: dist/cmux-tui-*${{ matrix.ext }}
           if-no-files-found: error
 
   build-windows:
@@ -168,6 +186,13 @@ jobs:
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
           version: 0.15.2
+
+      - name: Install Rust toolchain
+        shell: bash
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+          rustc --version
 
       - name: Install Rust target
         shell: bash
@@ -243,13 +268,13 @@ jobs:
       - name: Download linux x64 binary
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: cmux-tui-x86_64-unknown-linux-gnu
+          name: cmux-tui-x86_64-unknown-linux-musl
           path: dist/binaries
 
       - name: Download linux arm64 binary
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: cmux-tui-aarch64-unknown-linux-gnu
+          name: cmux-tui-aarch64-unknown-linux-musl
           path: dist/binaries
 
       - name: Build npm package directories
@@ -302,9 +327,9 @@ jobs:
               if not binary.stat().st_mode & stat.S_IXUSR:
                   raise SystemExit(f"{binary} is not executable")
           PY
-          chmod +x dist/binaries/cmux-tui-x86_64-unknown-linux-gnu
-          dist/binaries/cmux-tui-x86_64-unknown-linux-gnu --version >/tmp/cmux-tui-version.txt 2>&1 || \
-            dist/binaries/cmux-tui-x86_64-unknown-linux-gnu --help >/tmp/cmux-tui-version.txt 2>&1
+          chmod +x dist/binaries/cmux-tui-x86_64-unknown-linux-musl
+          dist/binaries/cmux-tui-x86_64-unknown-linux-musl --version >/tmp/cmux-tui-version.txt 2>&1 || \
+            dist/binaries/cmux-tui-x86_64-unknown-linux-musl --help >/tmp/cmux-tui-version.txt 2>&1
 
       - name: Archive npm package directories with executable modes
         if: inputs.package_npm
@@ -320,9 +345,9 @@ jobs:
           for wheel in dist/pypi-wheels/*.whl; do
             python3 -m zipfile -l "$wheel" >"/tmp/$(basename "$wheel").list"
           done
-          chmod +x dist/binaries/cmux-tui-x86_64-unknown-linux-gnu
-          dist/binaries/cmux-tui-x86_64-unknown-linux-gnu --version >/tmp/cmux-tui-version.txt 2>&1 || \
-            dist/binaries/cmux-tui-x86_64-unknown-linux-gnu --help >/tmp/cmux-tui-version.txt 2>&1
+          chmod +x dist/binaries/cmux-tui-x86_64-unknown-linux-musl
+          dist/binaries/cmux-tui-x86_64-unknown-linux-musl --version >/tmp/cmux-tui-version.txt 2>&1 || \
+            dist/binaries/cmux-tui-x86_64-unknown-linux-musl --help >/tmp/cmux-tui-version.txt 2>&1
           python3 -m venv /tmp/cmux-tui-wheel-smoke
           /tmp/cmux-tui-wheel-smoke/bin/python -m pip install --no-index --find-links dist/pypi-wheels cmux=="$PYPI_VERSION"
           /tmp/cmux-tui-wheel-smoke/bin/cmux --help >/tmp/cmux-help.txt
@@ -343,3 +368,77 @@ jobs:
           name: pypi-wheels
           path: dist/pypi-wheels/*.whl
           if-no-files-found: error
+
+  verify-linux-packages:
+    name: verify Linux package entrypoints (${{ matrix.architecture }})
+    needs: package
+    if: ${{ inputs.package_npm || inputs.package_pypi }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        architecture:
+          - x64
+          - arm64
+    env:
+      PYPI_VERSION: ${{ inputs.pypi_version != '' && inputs.pypi_version || inputs.version }}
+    steps:
+      - name: Checkout caller ref
+        if: inputs.checkout_ref == ''
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Checkout requested ref
+        if: inputs.checkout_ref != ''
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.checkout_ref }}
+
+      - name: Set up ARM64 emulation
+        if: matrix.architecture == 'arm64'
+        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
+        with:
+          platforms: arm64
+
+      - name: Download npm package archive
+        if: inputs.package_npm
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: npm-packages
+          path: dist
+
+      - name: Restore npm package directories
+        if: inputs.package_npm
+        run: |
+          python3 cmux-tui/dist/scripts/package_npm_artifact.py extract \
+            --archive dist/npm-packages.tar.gz \
+            --out dist
+
+      - name: Download PyPI wheels
+        if: inputs.package_pypi
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: pypi-wheels
+          path: dist/pypi-wheels
+
+      - name: Test Linux distributions
+        env:
+          PACKAGE_NPM: ${{ inputs.package_npm }}
+          PACKAGE_PYPI: ${{ inputs.package_pypi }}
+        run: |
+          set -euo pipefail
+          args=(--version "$PYPI_VERSION")
+          if [[ "$PACKAGE_NPM" == "true" ]]; then
+            args+=(--npm-packages dist/npm-packages)
+          fi
+          if [[ "$PACKAGE_PYPI" == "true" ]]; then
+            args+=(--pypi-wheels dist/pypi-wheels)
+          fi
+          python3 cmux-tui/dist/scripts/test_linux_packages.py \
+            --architecture "${{ matrix.architecture }}" \
+            "${args[@]}"
