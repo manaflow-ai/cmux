@@ -58,6 +58,17 @@ def wait_for_payload_text(path: Path, expected_count: int, timeout: float = 5.0)
     return "\n---\n".join(file.read_text(encoding="utf-8") for file in sorted_files())
 
 
+def communicate_or_kill(process: subprocess.Popen[str], timeout: float) -> tuple[str, str, bool]:
+    try:
+        stdout, stderr = process.communicate(timeout=timeout)
+        return stdout, stderr, False
+    except subprocess.TimeoutExpired:
+        # Kill a stuck harness process before the temporary test directory is removed.
+        process.kill()
+        stdout, stderr = process.communicate(timeout=5)
+        return stdout, stderr, True
+
+
 def payloads_from_log(text: str) -> list[dict[str, object]]:
     payloads: list[dict[str, object]] = []
     for raw in text.split("\n---\n"):
@@ -398,7 +409,12 @@ await Bun.write(process.env.CMUX_TEST_PI_NONBLOCKING_SHUTDOWN_FINISHED, "finishe
             print(f"stderr={stderr.strip()}")
             return 1
         nonblocking_release.write_text("release", encoding="utf-8")
-        stdout, stderr = nonblocking_check.communicate(timeout=20)
+        stdout, stderr, nonblocking_timed_out = communicate_or_kill(nonblocking_check, timeout=20)
+        if nonblocking_timed_out:
+            print("FAIL: nonblocking Pi prompt check timed out")
+            print(f"stdout={stdout.strip()}")
+            print(f"stderr={stderr.strip()}")
+            return 1
         if nonblocking_check.returncode != 0:
             print("FAIL: nonblocking Pi prompt check failed")
             print(f"exit={nonblocking_check.returncode}")
@@ -492,7 +508,10 @@ while (!(await Bun.file(process.env.CMUX_TEST_PI_QUEUE_SECOND_STARTED).exists())
             print("FAIL: second Pi prompt hook overtook the first hook")
             return 1
         queue_release.write_text("release", encoding="utf-8")
-        stdout, stderr = queue_check.communicate(timeout=20)
+        stdout, stderr, queue_timed_out = communicate_or_kill(queue_check, timeout=20)
+        if queue_timed_out:
+            print(f"FAIL: queued Pi prompt check timed out: {stderr.strip()}")
+            return 1
         if queue_check.returncode != 0 or not queue_second_started.exists():
             print(f"FAIL: queued Pi prompt hook was not delivered: {stderr.strip()}")
             return 1
