@@ -3,7 +3,7 @@ import Foundation
 extension GhosttyNSView {
     /// Returns true for terminal control input rather than printable text.
     nonisolated func isControlCharacterScalar(_ scalar: UnicodeScalar) -> Bool {
-        scalar.value < 0x20
+        scalar.value < 0x20 || scalar.value == 0x7F
     }
 
     /// Filters AppKit fallback payloads to text that libghostty should receive.
