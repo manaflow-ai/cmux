@@ -156,9 +156,8 @@ pub struct BrowserAttachState {
     pub rows: u16,
     pub status: BrowserStatus,
     pub frame: Option<BrowserFrame>,
-    /// Opaque pointer-authority token. It may reuse an earlier bitmap sequence
-    /// across ordinary repaints while the document and coordinate mapping stay
-    /// unchanged.
+    /// Opaque pointer-authority token for this exact admitted bitmap.
+    /// A later bitmap always carries a different token.
     pub pointer_frame_seq: Option<u64>,
     pub frames_stalled: bool,
 }
@@ -205,8 +204,8 @@ struct BrowserState {
     /// epoch or an authoritative streamed frame arrives.
     failed_screencast_capture_epoch: Option<u64>,
     pending_frame: Option<(u64, BrowserFrame)>,
-    /// Opaque pointer-authority token. Navigation and geometry changes
-    /// invalidate it before the next admissible screencast frame lands.
+    /// Opaque pointer-authority token for the exact admitted bitmap.
+    /// Every later admissible bitmap rotates it.
     pointer_frame_seq: Option<u64>,
     /// Changes whenever pointer admission changes, so a failed command can
     /// restore its previous authority only if no asynchronous browser event won
@@ -1767,8 +1766,7 @@ impl BrowserSurface {
     }
 
     /// Return the opaque authority token for guarded pointer input. The token
-    /// survives ordinary repaints and changes only after document or geometry
-    /// invalidation, so clients must not treat it as the latest bitmap number.
+    /// identifies the latest admitted bitmap and rotates on every later bitmap.
     pub fn latest_frame_seq(&self) -> Option<u64> {
         let state = self.state.lock().unwrap();
         self.exported_pointer_frame_seq_locked(&state)
@@ -2209,20 +2207,11 @@ impl BrowserSurface {
         state.next_frame_seq = state.next_frame_seq.saturating_add(1);
         state.last_frame_at = Some(Instant::now());
         state.stall_nudged = false;
-        let page_viewport = (frame.css_width.max(1), frame.css_height.max(1));
-        let pointer_geometry_changed =
-            state.page_viewport.is_some_and(|previous| previous != page_viewport);
-        state.page_viewport = Some(page_viewport);
+        state.page_viewport = Some((frame.css_width.max(1), frame.css_height.max(1)));
         let can_authorize_pointer = matches!(state.status, BrowserStatus::Live)
             && state.pending_navigation_epoch.is_none()
             && state.pending_document_epoch.is_none();
-        let pointer_frame_seq = can_authorize_pointer.then(|| {
-            if pointer_geometry_changed {
-                frame.seq
-            } else {
-                state.pointer_frame_seq.unwrap_or(frame.seq)
-            }
-        });
+        let pointer_frame_seq = can_authorize_pointer.then_some(frame.seq);
         if state.pointer_frame_seq != pointer_frame_seq {
             Self::set_pointer_frame_locked(state, pointer_frame_seq);
         }
@@ -3019,6 +3008,7 @@ impl BrowserSurface {
         reservation_id: u64,
         frame_epoch: u64,
         navigation_epoch: u64,
+        error: &anyhow::Error,
     ) {
         let mut state = self.state.lock().unwrap();
         let reserved = state.pending_screencast_capture
@@ -3041,6 +3031,14 @@ impl BrowserSurface {
             && state.accepted_frame_epoch <= frame_epoch
         {
             state.failed_screencast_capture_epoch = Some(frame_epoch);
+            self.mark_failed_locked(
+                &mut state,
+                &format!(
+                    "{BROWSER_UPDATED_PAGE_VERIFICATION_FAILED_PREFIX}{error}{BROWSER_VERIFICATION_FAILED_SUFFIX}"
+                ),
+            );
+            self.mark_state_dirty_locked(&mut state);
+            self.dirty.store(true, Ordering::Release);
         }
     }
 
@@ -3479,8 +3477,9 @@ impl BrowserSurface {
     }
 
     /// Queue a mouse event admitted by the opaque `frame_seq` authority token.
-    /// Uncaptured events with stale authority are ignored; an accepted press owns its matching
-    /// motion and release until navigation or geometry invalidates the page.
+    /// Uncaptured events with stale authority are ignored. An accepted press
+    /// retains ownership of its balancing release after later bitmaps arrive,
+    /// while motion remains bound to the bitmap that admitted the press.
     pub fn mouse_event_for_frame(
         &self,
         event_type: &str,
@@ -3955,6 +3954,7 @@ impl BrowserSurface {
                 }
             }
         }
+        let error = last_error.expect("authority capture attempts must record an error");
         let suppressed = session.runtime.client.suppress_timestampless_screencast_capture(
             session_id,
             reservation_id,
@@ -3962,11 +3962,16 @@ impl BrowserSurface {
             navigation_epoch,
         );
         if suppressed {
-            self.suppress_failed_screencast_capture(reservation_id, frame_epoch, navigation_epoch);
+            self.suppress_failed_screencast_capture(
+                reservation_id,
+                frame_epoch,
+                navigation_epoch,
+                &error,
+            );
         } else {
             self.cancel_screencast_capture(reservation_id);
         }
-        Err(last_error.expect("authority capture attempts must record an error"))
+        Err(error)
     }
 
     fn capture_main_frame_after_restart(
@@ -5954,11 +5959,11 @@ mod tests {
         assert!(browser.scale_guarded_input_point(Some(1), 1.0, 1.0).is_some());
 
         browser.store_frame(test_frame(2));
-        assert!(browser.scale_guarded_input_point(Some(1), 1.0, 1.0).is_some());
-        assert!(browser.scale_guarded_input_point(Some(2), 1.0, 1.0).is_none());
+        assert!(browser.scale_guarded_input_point(Some(1), 1.0, 1.0).is_none());
+        assert!(browser.scale_guarded_input_point(Some(2), 1.0, 1.0).is_some());
 
         browser.mark_failed("failed".to_string());
-        assert!(browser.scale_guarded_input_point(Some(1), 1.0, 1.0).is_none());
+        assert!(browser.scale_guarded_input_point(Some(2), 1.0, 1.0).is_none());
     }
 
     #[test]
@@ -6078,8 +6083,8 @@ mod tests {
         browser.store_frame_for_epoch(test_frame(3), capture_epoch);
         assert_eq!(
             browser.latest_frame_seq(),
-            Some(2),
-            "the restarted stream must retain the authorized document and geometry"
+            Some(3),
+            "the restarted stream must bind authority to its newly admitted bitmap"
         );
         assert_eq!(
             browser.latest_frame().map(|frame| frame.seq),
@@ -6510,8 +6515,8 @@ mod tests {
         );
         assert_eq!(
             browser.latest_frame_seq(),
-            Some(2),
-            "ordinary verified repaints must preserve the current pointer token"
+            Some(3),
+            "the loader-verified replacement must rotate pointer authority with its bitmap"
         );
         assert_eq!(
             browser.latest_frame().map(|frame| frame.data_b64),
@@ -7211,6 +7216,34 @@ mod tests {
                             }
                         }
                     }),
+                    "Page.createIsolatedWorld" => json!({
+                        "id": request["id"],
+                        "result": {"executionContextId": 41}
+                    }),
+                    "Runtime.evaluate" => json!({
+                        "id": request["id"],
+                        "result": {
+                            "result": {"type": "number", "value": 10_000.0}
+                        }
+                    }),
+                    "Page.startScreencast" => {
+                        let response = json!({"id": request["id"], "result": {}});
+                        write_ws_json(&mut ws, response);
+                        write_ws_json(
+                            &mut ws,
+                            json!({
+                                "method": "Page.screencastFrame",
+                                "sessionId": "session-1",
+                                "params": {
+                                    "data": "AAAA",
+                                    "sessionId": 9,
+                                    "metadata": {"deviceWidth": 80, "deviceHeight": 48}
+                                }
+                            }),
+                        );
+                        continue;
+                    }
+                    "Page.screencastFrameAck" => continue,
                     "Page.captureScreenshot" => {
                         capture_attempts += 1;
                         json!({
@@ -7235,15 +7268,26 @@ mod tests {
         .unwrap();
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
+        let route = runtime.register("target-1", "session-1");
+        runtime.client.register_frame_epoch("session-1", browser.frame_epoch.clone());
+        runtime.client.seed_main_frame("session-1").unwrap();
         *browser.session.lock().unwrap() = Some(BrowserSession {
             runtime: runtime.clone(),
             target_id: "target-1".to_string(),
             session_id: "session-1".to_string(),
         });
         browser.store_frame(test_frame(1));
-        let frame_epoch = browser.frame_epoch.current();
-        let navigation_epoch = browser.frame_epoch.latest_navigation();
-        let reservation = 61;
+        let frame_epoch =
+            runtime.client.start_screencast_with_frame_barrier("session-1", 80, 48).unwrap();
+        let request = route.recv().expect("timestamp-less frame recovery request");
+        let cmux_tui_cdp::CdpEvent::ScreencastFrameCaptureRequested {
+            request_id: reservation,
+            navigation_epoch,
+            ..
+        } = request
+        else {
+            panic!("expected timestamp-less frame recovery request");
+        };
         assert!(browser.reserve_screencast_capture(reservation, frame_epoch, navigation_epoch));
 
         let capture = browser.authorize_screencast_capture_blocking(

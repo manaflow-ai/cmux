@@ -788,12 +788,23 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
             "y_px": 10.0,
             "button": "left",
             "click_count": 1,
-            "frame_seq": 2
+            "frame_seq": 3
         }),
     );
     assert_eq!(drag["ok"], true);
-    let drag_request = recv_method(&seen_rx, "Input.dispatchMouseEvent");
-    assert_eq!(drag_request["params"]["type"], "mouseMoved");
+    let deadline = Instant::now() + Duration::from_millis(250);
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        match seen_rx.recv_timeout(remaining) {
+            Ok(request) => assert!(
+                request["method"] != "Input.dispatchMouseEvent"
+                    || request["params"]["type"] != "mouseMoved",
+                "motion captured under the previous bitmap must not target the repainted DOM"
+            ),
+            Err(mpsc::RecvTimeoutError::Timeout) => break,
+            Err(error) => panic!("CDP request stream closed while checking stale drag: {error}"),
+        }
+    }
 
     let release = rpc(
         &socket_path,
@@ -806,12 +817,14 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
             "y_px": 10.0,
             "button": "left",
             "click_count": 1,
-            "frame_seq": 2
+            "frame_seq": 3
         }),
     );
     assert_eq!(release["ok"], true);
     let release_request = recv_method(&seen_rx, "Input.dispatchMouseEvent");
     assert_eq!(release_request["params"]["type"], "mouseReleased");
+    assert_eq!(release_request["params"]["x"], mouse_request["params"]["x"]);
+    assert_eq!(release_request["params"]["y"], mouse_request["params"]["y"]);
 
     let insert = rpc(
         &socket_path,
