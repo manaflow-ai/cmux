@@ -127,7 +127,7 @@ extension CMUXCLI {
             "shift",
             "\"$@\" <\"$payload\" >/dev/null 2>&1 & child=\"$!\"",
             "watchdog_pid_file=\"$payload.watchdog-pid\"",
-            "( sleep 30 & timer=\"$!\"; printf '%s\\n' \"$timer\" >\"$watchdog_pid_file\"; wait \"$timer\" 2>/dev/null || true; rm -f \"$watchdog_pid_file\"; kill \"$child\" 2>/dev/null || true ) & watchdog=\"$!\"",
+            "( sleep 30 & timer=\"$!\"; printf \"%s\\n\" \"$timer\" >\"$watchdog_pid_file\"; wait \"$timer\" 2>/dev/null || true; rm -f \"$watchdog_pid_file\"; kill \"$child\" 2>/dev/null || true ) & watchdog=\"$!\"",
             "while [ ! -s \"$watchdog_pid_file\" ] && kill -0 \"$watchdog\" 2>/dev/null; do /bin/sleep 0.01; done",
             "wait \"$child\" 2>/dev/null || true",
             "if [ -r \"$watchdog_pid_file\" ]; then IFS= read -r timer <\"$watchdog_pid_file\"; kill \"$timer\" 2>/dev/null || true; fi",
