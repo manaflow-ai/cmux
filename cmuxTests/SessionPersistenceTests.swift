@@ -675,6 +675,33 @@ final class SessionPersistenceTests: XCTestCase {
         )
     }
 
+    func testTruncatedScrollbackPreservesValuesAtOrBelowCharacterLimit() {
+        let maxChars = SessionPersistencePolicy.maxScrollbackCharactersPerTerminal
+        let exactASCII = String(repeating: "x", count: maxChars)
+        let exactUnicode = String(repeating: "🙂", count: maxChars)
+
+        XCTAssertNil(SessionPersistencePolicy.truncatedScrollback(nil))
+        XCTAssertNil(SessionPersistencePolicy.truncatedScrollback(""))
+        XCTAssertEqual(SessionPersistencePolicy.truncatedScrollback(exactASCII), exactASCII)
+        XCTAssertGreaterThan(exactUnicode.utf8.count, maxChars)
+        XCTAssertEqual(SessionPersistencePolicy.truncatedScrollback(exactUnicode), exactUnicode)
+    }
+
+    func testTruncatedScrollbackReturnsExactCharacterSuffixForOversizedValues() {
+        let maxChars = SessionPersistencePolicy.maxScrollbackCharactersPerTerminal
+        let retainedASCII = String(repeating: "x", count: maxChars)
+        let retainedUnicode = String(repeating: "e\u{301}", count: maxChars)
+
+        XCTAssertEqual(
+            SessionPersistencePolicy.truncatedScrollback("discarded" + retainedASCII),
+            retainedASCII
+        )
+        XCTAssertEqual(
+            SessionPersistencePolicy.truncatedScrollback("discarded" + retainedUnicode),
+            retainedUnicode
+        )
+    }
+
     func testTruncatedScrollbackAvoidsLeadingPartialANSICSISequence() {
         let maxChars = SessionPersistencePolicy.maxScrollbackCharactersPerTerminal
         let source = "\u{001B}[31m"

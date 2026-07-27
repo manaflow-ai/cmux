@@ -64,6 +64,9 @@ enum SessionPersistencePolicy {
 
     static func truncatedScrollback(_ text: String?) -> String? {
         guard let text, !text.isEmpty else { return nil }
+        if text.utf8.count <= maxScrollbackCharactersPerTerminal {
+            return text
+        }
         if text.count <= maxScrollbackCharactersPerTerminal {
             return text
         }
