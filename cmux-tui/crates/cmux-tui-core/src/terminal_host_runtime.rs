@@ -2394,6 +2394,7 @@ mod unix {
         termination_started: AtomicBool,
         child_signal_lock: Mutex<()>,
         child_reaped: AtomicBool,
+        child_wait_ownership_lost: AtomicBool,
         group_escalation_complete: AtomicBool,
         #[cfg(test)]
         normal_cleanup_failures: AtomicUsize,
@@ -2723,6 +2724,30 @@ mod unix {
             self.pty_drained.load(Ordering::Acquire)
         }
 
+        fn observe_child_wait_state_locked(
+            &self,
+            session: libc::pid_t,
+            nonblocking: bool,
+        ) -> std::io::Result<crate::process_session::ChildWaitState> {
+            if self.child_wait_ownership_lost.load(Ordering::Acquire) {
+                return Ok(crate::process_session::ChildWaitState::OwnershipLost);
+            }
+            let state =
+                crate::process_session::observe_child_without_reaping(session, nonblocking)?;
+            match state {
+                crate::process_session::ChildWaitState::Waitable => {
+                    self.child_waitable.store(true, Ordering::Release);
+                    self.child_exit.1.notify_all();
+                }
+                crate::process_session::ChildWaitState::OwnershipLost => {
+                    self.child_wait_ownership_lost.store(true, Ordering::Release);
+                    self.child_exit.1.notify_all();
+                }
+                crate::process_session::ChildWaitState::Running => {}
+            }
+            Ok(state)
+        }
+
         fn signal_terminal_process_session(
             &self,
             signal: libc::c_int,
@@ -2735,6 +2760,9 @@ mod unix {
             let Some(session) = self.pid.and_then(|pid| libc::pid_t::try_from(pid).ok()) else {
                 return Err(std::io::Error::other("PTY child has no process id"));
             };
+            if self.child_wait_ownership_lost.load(Ordering::Acquire) {
+                return Err(std::io::Error::other("PTY child wait ownership was lost"));
+            }
             if self.child_reaped.load(Ordering::Acquire) {
                 return match crate::process_session::session_is_empty_until(session, deadline) {
                     Ok(true) => Ok(()),
@@ -2744,6 +2772,11 @@ mod unix {
                     Err(error) => Err(error),
                 };
             }
+            if self.observe_child_wait_state_locked(session, true)?
+                == crate::process_session::ChildWaitState::OwnershipLost
+            {
+                return Err(std::io::Error::other("PTY child wait ownership was lost"));
+            }
             crate::process_session::signal_until(session, signal, deadline)
         }
 
@@ -2752,8 +2785,16 @@ mod unix {
             let Some(leader) = self.pid.and_then(|pid| libc::pid_t::try_from(pid).ok()) else {
                 return Err(std::io::Error::other("PTY child has no process id"));
             };
+            if self.child_wait_ownership_lost.load(Ordering::Acquire) {
+                return Err(std::io::Error::other("PTY child wait ownership was lost"));
+            }
             if self.child_reaped.load(Ordering::Acquire) {
                 return crate::process_session::session_is_empty_until(leader, deadline);
+            }
+            if self.observe_child_wait_state_locked(leader, true)?
+                == crate::process_session::ChildWaitState::OwnershipLost
+            {
+                return Err(std::io::Error::other("PTY child wait ownership was lost"));
             }
             crate::process_session::kill_until_only_leader(leader, leader, deadline, || {
                 self.child_waitable.load(Ordering::Acquire)
@@ -2833,13 +2874,20 @@ mod unix {
         }
 
         fn terminate_and_wait(&self) {
-            let child_reaped = {
+            let (child_reaped, wait_ownership_lost) = {
                 let _signal = self.child_signal_lock.lock().unwrap();
                 self.termination_started.store(true, Ordering::Release);
-                self.child_reaped.load(Ordering::Acquire)
+                (
+                    self.child_reaped.load(Ordering::Acquire),
+                    self.child_wait_ownership_lost.load(Ordering::Acquire),
+                )
             };
             self.child_exit.1.notify_all();
             crate::process_session::wake_child_reaper();
+            if wait_ownership_lost {
+                self.abandon_group_escalation();
+                return;
+            }
             if child_reaped {
                 let session_empty = self
                     .pid
@@ -2943,31 +2991,6 @@ mod unix {
             return Err(error);
         }
         Ok(())
-    }
-
-    fn wait_for_child_exit_without_reaping(pid: libc::pid_t) -> std::io::Result<()> {
-        loop {
-            let mut status = std::mem::MaybeUninit::<libc::siginfo_t>::uninit();
-            // SAFETY: status points to writable siginfo storage. WNOWAIT
-            // observes this owned child becoming waitable without releasing
-            // its PID/PGID for reuse; the portable Child handle reaps it after
-            // acquiring child_signal_lock.
-            let result = unsafe {
-                libc::waitid(
-                    libc::P_PID,
-                    pid as libc::id_t,
-                    status.as_mut_ptr(),
-                    libc::WEXITED | libc::WNOWAIT,
-                )
-            };
-            if result == 0 {
-                return Ok(());
-            }
-            let error = std::io::Error::last_os_error();
-            if error.kind() != std::io::ErrorKind::Interrupted {
-                return Err(error);
-            }
-        }
     }
 
     struct HostLivenessLease {
@@ -3222,6 +3245,26 @@ mod unix {
             pty.slave.spawn_command(command)?
         };
         let pid = child.process_id();
+        let Some(session) = pid.and_then(|pid| libc::pid_t::try_from(pid).ok()) else {
+            let _ = child.kill();
+            let _ = child.wait();
+            anyhow::bail!("native terminal-host PTY child did not expose a process ID");
+        };
+        let child_identity = match crate::process_session::StableProcessHandle::capture(session) {
+            Ok(Some(identity)) => identity,
+            Ok(None) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                anyhow::bail!(
+                    "terminal-host PTY child exited before its process identity was captured"
+                );
+            }
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(error).context("capture terminal-host PTY child identity");
+            }
+        };
         drop(pty.slave);
         let killer = child.clone_killer();
         let pty_poll_fd = pty.master.as_raw_fd().context("open terminal-host PTY poll fd")?;
@@ -3284,6 +3327,7 @@ mod unix {
             termination_started: AtomicBool::new(false),
             child_signal_lock: Mutex::new(()),
             child_reaped: AtomicBool::new(false),
+            child_wait_ownership_lost: AtomicBool::new(false),
             group_escalation_complete: AtomicBool::new(false),
             #[cfg(test)]
             normal_cleanup_failures: AtomicUsize::new(
@@ -3373,14 +3417,13 @@ mod unix {
         })?;
         let child_host = shared.clone();
         thread::Builder::new().name("terminal-host-child".into()).spawn(move || {
-            let observed_without_reaping = child_host
-                .pid
-                .and_then(|pid| libc::pid_t::try_from(pid).ok())
-                .is_some_and(|pid| wait_for_child_exit_without_reaping(pid).is_ok());
-            if observed_without_reaping {
-                let session =
-                    libc::pid_t::try_from(child_host.pid.expect("observed child has a PID"))
-                        .expect("portable-pty child PID fits pid_t");
+            let observation = loop {
+                match crate::process_session::observe_child_without_reaping(session, false) {
+                    Ok(crate::process_session::ChildWaitState::Running) => continue,
+                    observation => break observation,
+                }
+            };
+            if matches!(observation, Ok(crate::process_session::ChildWaitState::Waitable)) {
                 child_host.child_waitable.store(true, Ordering::Release);
                 child_host.child_exit.1.notify_all();
                 let cleanup_host = child_host.clone();
@@ -3400,6 +3443,7 @@ mod unix {
                                 termination_started: &cleanup_host.termination_started,
                                 cleanup_complete: &cleanup_host.group_escalation_complete,
                                 child_reaped: &cleanup_host.child_reaped,
+                                wait_ownership_lost: &cleanup_host.child_wait_ownership_lost,
                             },
                         )
                     },
@@ -3412,6 +3456,7 @@ mod unix {
                                 termination_started: &reap_host.termination_started,
                                 cleanup_complete: &reap_host.group_escalation_complete,
                                 child_reaped: &reap_host.child_reaped,
+                                wait_ownership_lost: &reap_host.child_wait_ownership_lost,
                             },
                             cleanup_succeeded,
                             || {
@@ -3431,30 +3476,21 @@ mod unix {
                     },
                 );
             } else {
-                // Native Unix PTYs always expose a PID and support waitid;
-                // retain a conservative fallback for alternate backends.
-                let _ = child.wait();
-                child_host.child_reaped.store(true, Ordering::Release);
-                child_host.child_waitable.store(true, Ordering::Release);
-                let session_empty = child_host
-                    .pid
-                    .and_then(|pid| libc::pid_t::try_from(pid).ok())
-                    .is_some_and(|session| {
-                        matches!(
-                            crate::process_session::session_is_empty_until(
-                                session,
-                                Instant::now() + HOST_KILL_WAIT,
-                            ),
-                            Ok(true)
-                        )
-                    });
-                if session_empty {
-                    let mut exited = child_host.child_exit.0.lock().unwrap();
-                    *exited = true;
-                    child_host.child_exit.1.notify_all();
-                    drop(exited);
-                    child_host.publish_exit_if_drained();
+                {
+                    let _signal = child_host.child_signal_lock.lock().unwrap();
+                    child_host.child_wait_ownership_lost.store(true, Ordering::Release);
                 }
+                child_host.child_exit.1.notify_all();
+                while !matches!(child_identity.matches_current(), Ok(false)) {
+                    thread::sleep(Duration::from_millis(25));
+                }
+                drop(child);
+                child_host.child_reaped.store(true, Ordering::Release);
+                let mut exited = child_host.child_exit.0.lock().unwrap();
+                *exited = true;
+                child_host.child_exit.1.notify_all();
+                drop(exited);
+                child_host.publish_exit_if_drained();
             }
         })?;
         Ok(shared)

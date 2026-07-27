@@ -851,6 +851,8 @@ struct LocalPtyProcess {
     #[cfg(unix)]
     child_reaped: AtomicBool,
     #[cfg(unix)]
+    child_wait_ownership_lost: AtomicBool,
+    #[cfg(unix)]
     group_escalation_complete: AtomicBool,
     #[cfg(all(unix, test))]
     normal_cleanup_failures: AtomicUsize,
@@ -912,6 +914,8 @@ impl LocalPtyProcess {
             #[cfg(unix)]
             child_reaped: AtomicBool::new(false),
             #[cfg(unix)]
+            child_wait_ownership_lost: AtomicBool::new(false),
+            #[cfg(unix)]
             group_escalation_complete: AtomicBool::new(false),
             #[cfg(all(unix, test))]
             normal_cleanup_failures: AtomicUsize::new(0),
@@ -944,6 +948,29 @@ impl LocalPtyProcess {
                     "native PTY child did not expose a process ID",
                 ));
             };
+            let child_identity = match crate::process_session::StableProcessHandle::capture(session)
+            {
+                Ok(Some(identity)) => identity,
+                Ok(None) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    process.child_reaped.store(true, Ordering::Release);
+                    *process.exited.0.lock().unwrap() = true;
+                    process.exited.1.notify_all();
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::NotFound,
+                        "native PTY child exited before its process identity was captured",
+                    ));
+                }
+                Err(error) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    process.child_reaped.store(true, Ordering::Release);
+                    *process.exited.0.lock().unwrap() = true;
+                    process.exited.1.notify_all();
+                    return Err(error);
+                }
+            };
             let observe_process = process.clone();
             let cleanup_process = process.clone();
             let prepare_process = process.clone();
@@ -954,12 +981,9 @@ impl LocalPtyProcess {
                 session,
                 NORMAL_EXIT_SESSION_CLEANUP_TIMEOUT,
                 move || {
-                    let observed = local_child_is_waitable(session)?;
-                    if observed {
-                        observe_process.child_waitable.store(true, Ordering::Release);
-                        observe_process.exited.1.notify_all();
-                    }
-                    Ok(observed)
+                    let _signal = observe_process.child_signal_lock.lock().unwrap();
+                    let state = observe_process.observe_child_wait_state_locked(session)?;
+                    Ok(state != crate::process_session::ChildWaitState::Running)
                 },
                 move || {
                     crate::process_session::reserved_child_needs_cleanup(
@@ -969,11 +993,26 @@ impl LocalPtyProcess {
                             termination_started: &cleanup_process.termination_started,
                             cleanup_complete: &cleanup_process.group_escalation_complete,
                             child_reaped: &cleanup_process.child_reaped,
+                            wait_ownership_lost: &cleanup_process.child_wait_ownership_lost,
                         },
                     )
                 },
                 move || prepare_process.prepare_natural_cleanup(),
                 move |cleanup_succeeded| {
+                    if reap_process.child_wait_ownership_lost.load(Ordering::Acquire) {
+                        let _signal = reap_process.child_signal_lock.lock().unwrap();
+                        if !reap_process.pty_drained.load(Ordering::Acquire)
+                            || !matches!(child_identity.matches_current(), Ok(false))
+                        {
+                            return false;
+                        }
+                        drop(child.take());
+                        reap_process.child_reaped.store(true, Ordering::Release);
+                        drop(_signal);
+                        *reap_process.exited.0.lock().unwrap() = true;
+                        reap_process.exited.1.notify_all();
+                        return true;
+                    }
                     let done = crate::process_session::poll_reserved_session_leader(
                         crate::process_session::ReservedChildReap {
                             signal_lock: &reap_process.child_signal_lock,
@@ -981,6 +1020,7 @@ impl LocalPtyProcess {
                             termination_started: &reap_process.termination_started,
                             cleanup_complete: &reap_process.group_escalation_complete,
                             child_reaped: &reap_process.child_reaped,
+                            wait_ownership_lost: &reap_process.child_wait_ownership_lost,
                         },
                         cleanup_succeeded,
                         || {
@@ -1036,6 +1076,16 @@ impl LocalPtyProcess {
             if self.child_reaped.load(Ordering::Acquire) {
                 return true;
             }
+            let Some(session) = self.pid.and_then(|pid| libc::pid_t::try_from(pid).ok()) else {
+                return false;
+            };
+            if !matches!(
+                self.observe_child_wait_state_locked(session),
+                Ok(crate::process_session::ChildWaitState::Running
+                    | crate::process_session::ChildWaitState::Waitable)
+            ) {
+                return false;
+            }
             return self.killer.lock().unwrap().kill().is_ok();
         }
         #[cfg(not(unix))]
@@ -1062,6 +1112,29 @@ impl LocalPtyProcess {
         let (exited, _) =
             self.exited.1.wait_timeout_while(exited, remaining, |exited| !*exited).unwrap();
         *exited
+    }
+
+    #[cfg(unix)]
+    fn observe_child_wait_state_locked(
+        &self,
+        session: libc::pid_t,
+    ) -> std::io::Result<crate::process_session::ChildWaitState> {
+        if self.child_wait_ownership_lost.load(Ordering::Acquire) {
+            return Ok(crate::process_session::ChildWaitState::OwnershipLost);
+        }
+        let state = crate::process_session::observe_child_without_reaping(session, true)?;
+        match state {
+            crate::process_session::ChildWaitState::Waitable => {
+                self.child_waitable.store(true, Ordering::Release);
+                self.exited.1.notify_all();
+            }
+            crate::process_session::ChildWaitState::OwnershipLost => {
+                self.child_wait_ownership_lost.store(true, Ordering::Release);
+                self.exited.1.notify_all();
+            }
+            crate::process_session::ChildWaitState::Running => {}
+        }
+        Ok(state)
     }
 
     #[cfg(unix)]
@@ -1096,6 +1169,9 @@ impl LocalPtyProcess {
         let Some(session) = self.pid.and_then(|pid| libc::pid_t::try_from(pid).ok()) else {
             return Err(std::io::Error::other("PTY child has no process id"));
         };
+        if self.child_wait_ownership_lost.load(Ordering::Acquire) {
+            return Err(std::io::Error::other("PTY child wait ownership was lost"));
+        }
         if self.child_reaped.load(Ordering::Acquire) {
             return match crate::process_session::session_is_empty_until(session, deadline) {
                 Ok(true) => Ok(()),
@@ -1104,6 +1180,11 @@ impl LocalPtyProcess {
                 )),
                 Err(error) => Err(error),
             };
+        }
+        if self.observe_child_wait_state_locked(session)?
+            == crate::process_session::ChildWaitState::OwnershipLost
+        {
+            return Err(std::io::Error::other("PTY child wait ownership was lost"));
         }
         match snapshot {
             Some(snapshot) => {
@@ -1123,8 +1204,16 @@ impl LocalPtyProcess {
         let Some(leader) = self.pid.and_then(|pid| libc::pid_t::try_from(pid).ok()) else {
             return Err(std::io::Error::other("PTY child has no process id"));
         };
+        if self.child_wait_ownership_lost.load(Ordering::Acquire) {
+            return Err(std::io::Error::other("PTY child wait ownership was lost"));
+        }
         if self.child_reaped.load(Ordering::Acquire) {
             return crate::process_session::session_is_empty_until(leader, deadline);
+        }
+        if self.observe_child_wait_state_locked(leader)?
+            == crate::process_session::ChildWaitState::OwnershipLost
+        {
+            return Err(std::io::Error::other("PTY child wait ownership was lost"));
         }
         match snapshot {
             Some(snapshot) => crate::process_session::kill_until_only_leader_from_snapshot(
@@ -1190,13 +1279,20 @@ impl LocalPtyProcess {
     ) -> bool {
         #[cfg(unix)]
         {
-            let child_reaped = {
+            let (child_reaped, wait_ownership_lost) = {
                 let _signal = self.child_signal_lock.lock().unwrap();
                 self.termination_started.store(true, Ordering::Release);
-                self.child_reaped.load(Ordering::Acquire)
+                (
+                    self.child_reaped.load(Ordering::Acquire),
+                    self.child_wait_ownership_lost.load(Ordering::Acquire),
+                )
             };
             self.exited.1.notify_all();
             crate::process_session::wake_child_reaper();
+            if wait_ownership_lost {
+                self.abandon_termination();
+                return self.wait_for_exit_until(deadline);
+            }
             if child_reaped {
                 if self.group_escalation_complete.load(Ordering::Acquire) {
                     return true;
@@ -1246,7 +1342,7 @@ impl LocalPtyProcess {
 impl Drop for LocalPtyProcess {
     fn drop(&mut self) {
         #[cfg(unix)]
-        if !*self.child_reaped.get_mut() {
+        if !*self.child_reaped.get_mut() && !*self.child_wait_ownership_lost.get_mut() {
             let _ = self.killer.get_mut().map(|killer| killer.kill());
         }
         #[cfg(not(unix))]
@@ -1293,32 +1389,10 @@ impl Drop for NonblockingFdGuard {
     }
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, test))]
 fn local_child_is_waitable(pid: libc::pid_t) -> std::io::Result<bool> {
-    loop {
-        let mut status = std::mem::MaybeUninit::<libc::siginfo_t>::zeroed();
-        let result = unsafe {
-            libc::waitid(
-                libc::P_PID,
-                pid as libc::id_t,
-                status.as_mut_ptr(),
-                libc::WEXITED | libc::WNOWAIT | libc::WNOHANG,
-            )
-        };
-        if result == 0 {
-            // SAFETY: waitid initialized status on success; zeroed storage
-            // keeps si_signo at zero when WNOHANG finds no waitable child.
-            return Ok(unsafe { status.assume_init() }.si_signo != 0);
-        }
-        let error = std::io::Error::last_os_error();
-        if error.kind() == std::io::ErrorKind::Interrupted {
-            continue;
-        }
-        if error.raw_os_error() == Some(libc::ECHILD) {
-            return Ok(true);
-        }
-        return Err(error);
-    }
+    crate::process_session::observe_child_without_reaping(pid, true)
+        .map(|state| state == crate::process_session::ChildWaitState::Waitable)
 }
 
 #[cfg(unix)]
@@ -3159,6 +3233,18 @@ impl Surface {
         &self,
     ) -> Option<crate::terminal_host_runtime::TerminalHostIdentity> {
         self.as_pty().and_then(|pty| pty.host_identity.clone())
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn live_terminal_host_identity(
+        &self,
+    ) -> Option<crate::terminal_host_runtime::TerminalHostIdentity> {
+        let pty = self.as_pty()?;
+        let runtime = pty.runtime.lock().unwrap();
+        match &*runtime {
+            PtyRuntime::Hosted(host) => Some(host.identity()),
+            PtyRuntime::ExitedHosted | PtyRuntime::Local { .. } => None,
+        }
     }
 
     pub fn terminal_host_connection_state(&self) -> Option<TerminalHostConnectionState> {

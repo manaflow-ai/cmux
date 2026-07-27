@@ -2378,22 +2378,21 @@ impl Mux {
             };
             terminals.into_iter().collect::<HashSet<_>>()
         };
-        let live_counts = {
+        let live_incarnations = {
             let state = self.state.lock().unwrap();
-            let mut counts = HashMap::<String, usize>::new();
-            for terminal_id in state
-                .surfaces
-                .values()
-                .filter_map(|surface| surface.terminal_host_identity())
-                .map(|identity| identity.terminal_id)
+            let mut live = HashMap::<String, HashSet<String>>::new();
+            for identity in
+                state.surfaces.values().filter_map(|surface| surface.live_terminal_host_identity())
             {
-                *counts.entry(terminal_id).or_default() += 1;
+                live.entry(identity.terminal_id).or_default().insert(identity.incarnation);
             }
-            counts
+            live
         };
         for (record_path, record) in records {
             let already_live = registered.contains(&record.terminal_id)
-                && live_counts.get(&record.terminal_id).copied() == Some(1);
+                && live_incarnations
+                    .get(&record.terminal_id)
+                    .is_some_and(|incarnations| incarnations.contains(&record.incarnation));
             if already_live {
                 continue;
             }

@@ -73,6 +73,14 @@ pub(crate) struct ReservedChildReap<'a> {
     pub(crate) termination_started: &'a AtomicBool,
     pub(crate) cleanup_complete: &'a AtomicBool,
     pub(crate) child_reaped: &'a AtomicBool,
+    pub(crate) wait_ownership_lost: &'a AtomicBool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ChildWaitState {
+    Running,
+    Waitable,
+    OwnershipLost,
 }
 
 enum NaturalReaperCommand {
@@ -151,11 +159,65 @@ impl NaturalReaper {
 }
 
 pub(crate) fn reserve_child_reaper() -> io::Result<ReservedChildReaperLease> {
+    require_waitable_child_disposition()?;
     let mut slot = NATURAL_REAPER.get_or_init(|| Mutex::new(None)).lock().unwrap();
     if slot.is_none() {
         *slot = Some(NaturalReaper::start()?);
     }
     slot.as_ref().expect("natural PTY reaper initialized").lease()
+}
+
+pub(crate) fn observe_child_without_reaping(
+    pid: libc::pid_t,
+    nonblocking: bool,
+) -> io::Result<ChildWaitState> {
+    loop {
+        let mut status = std::mem::MaybeUninit::<libc::siginfo_t>::zeroed();
+        let mut flags = libc::WEXITED | libc::WNOWAIT;
+        if nonblocking {
+            flags |= libc::WNOHANG;
+        }
+        // SAFETY: status points to writable siginfo storage. WNOWAIT keeps
+        // the child and its numeric session ID reserved until the sole owner
+        // performs the final wait.
+        let result =
+            unsafe { libc::waitid(libc::P_PID, pid as libc::id_t, status.as_mut_ptr(), flags) };
+        if result == 0 {
+            // SAFETY: waitid initialized status on success; zeroed storage
+            // keeps si_signo at zero when WNOHANG finds no waitable child.
+            return Ok(if unsafe { status.assume_init() }.si_signo == 0 {
+                ChildWaitState::Running
+            } else {
+                ChildWaitState::Waitable
+            });
+        }
+        let error = io::Error::last_os_error();
+        if error.kind() == io::ErrorKind::Interrupted {
+            continue;
+        }
+        if error.raw_os_error() == Some(libc::ECHILD) {
+            return Ok(ChildWaitState::OwnershipLost);
+        }
+        return Err(error);
+    }
+}
+
+fn require_waitable_child_disposition() -> io::Result<()> {
+    let mut action = std::mem::MaybeUninit::<libc::sigaction>::zeroed();
+    // SAFETY: a null replacement only reads the process-wide SIGCHLD
+    // disposition into the initialized output storage.
+    if unsafe { libc::sigaction(libc::SIGCHLD, std::ptr::null(), action.as_mut_ptr()) } < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: sigaction initialized the output on success.
+    let action = unsafe { action.assume_init() };
+    if action.sa_sigaction == libc::SIG_IGN || action.sa_flags & libc::SA_NOCLDWAIT != 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "SIGCHLD disposition does not preserve PTY child wait ownership",
+        ));
+    }
+    Ok(())
 }
 
 pub(crate) fn wake_child_reaper() {
@@ -197,7 +259,8 @@ pub(crate) fn enqueue_reserved_session_leader(
 
 pub(crate) fn reserved_child_needs_cleanup(sync: ReservedChildReap<'_>) -> bool {
     let _signal = sync.signal_lock.lock().unwrap();
-    !sync.cleanup_complete.load(Ordering::Acquire)
+    !sync.wait_ownership_lost.load(Ordering::Acquire)
+        && !sync.cleanup_complete.load(Ordering::Acquire)
         && !sync.termination_started.load(Ordering::Acquire)
 }
 
@@ -207,6 +270,9 @@ pub(crate) fn poll_reserved_session_leader(
     reap: impl FnOnce(),
 ) -> bool {
     let _signal = sync.signal_lock.lock().unwrap();
+    if sync.wait_ownership_lost.load(Ordering::Acquire) {
+        return false;
+    }
     if !sync.cleanup_complete.load(Ordering::Acquire) {
         if sync.termination_started.load(Ordering::Acquire) || !cleanup_succeeded {
             return false;
@@ -1111,6 +1177,7 @@ pub(crate) fn require_stable_process_signaling_until(deadline: Instant) -> io::R
             "forced process-session preflight failure",
         ));
     }
+    require_waitable_child_disposition()?;
     let pid = libc::pid_t::try_from(std::process::id())
         .map_err(|_| io::Error::new(io::ErrorKind::Unsupported, "invalid process id"))?;
     let process = StableProcessHandle::capture(pid)?.ok_or_else(|| {
@@ -1333,6 +1400,7 @@ mod tests {
         let termination_started = AtomicBool::new(false);
         let cleanup_complete = AtomicBool::new(false);
         let child_reaped = AtomicBool::new(false);
+        let wait_ownership_lost = AtomicBool::new(false);
         let reap_called = AtomicBool::new(false);
         let sync = || ReservedChildReap {
             signal_lock: &signal_lock,
@@ -1340,6 +1408,7 @@ mod tests {
             termination_started: &termination_started,
             cleanup_complete: &cleanup_complete,
             child_reaped: &child_reaped,
+            wait_ownership_lost: &wait_ownership_lost,
         };
 
         assert!(
@@ -1365,6 +1434,34 @@ mod tests {
         }));
         assert!(child_reaped.load(Ordering::Acquire));
         assert!(reap_called.load(Ordering::Acquire));
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn ignored_sigchld_fails_before_reserving_a_child_reaper() {
+        const CHILD_ENV: &str = "CMUX_TUI_TEST_IGNORED_SIGCHLD";
+        const TEST_NAME: &str =
+            "process_session::tests::ignored_sigchld_fails_before_reserving_a_child_reaper";
+        if std::env::var_os(CHILD_ENV).is_none() {
+            let status = Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", TEST_NAME])
+                .env(CHILD_ENV, "1")
+                .status()
+                .unwrap();
+            assert!(status.success(), "SIGCHLD preflight subprocess failed: {status}");
+            return;
+        }
+
+        // SAFETY: this isolated one-test subprocess intentionally changes its
+        // process-wide child disposition and exits immediately after the
+        // preflight assertion.
+        let previous = unsafe { libc::signal(libc::SIGCHLD, libc::SIG_IGN) };
+        assert_ne!(previous, libc::SIG_ERR);
+
+        let Err(error) = reserve_child_reaper() else {
+            panic!("ignored SIGCHLD passed the child-wait ownership preflight");
+        };
+        assert_eq!(error.kind(), io::ErrorKind::Unsupported);
     }
 
     #[cfg(target_os = "linux")]
