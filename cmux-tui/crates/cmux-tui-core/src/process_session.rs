@@ -419,8 +419,19 @@ fn accept_natural_reaper_command(
 #[cfg(test)]
 thread_local! {
     static PROCESS_TABLE_SCAN_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static STABLE_PROCESS_PREFLIGHT_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     static RAW_PID_SIGNAL_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     static STABLE_PROCESS_SIGNAL_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+pub(crate) fn reset_stable_process_preflight_count_for_test() {
+    STABLE_PROCESS_PREFLIGHT_COUNT.set(0);
+}
+
+#[cfg(test)]
+pub(crate) fn stable_process_preflight_count_for_test() -> usize {
+    STABLE_PROCESS_PREFLIGHT_COUNT.get()
 }
 
 pub(crate) struct SessionProcessSnapshot {
@@ -974,6 +985,8 @@ pub fn require_stable_process_signaling() -> io::Result<()> {
 }
 
 pub(crate) fn require_stable_process_signaling_until(deadline: Instant) -> io::Result<()> {
+    #[cfg(test)]
+    STABLE_PROCESS_PREFLIGHT_COUNT.set(STABLE_PROCESS_PREFLIGHT_COUNT.get() + 1);
     #[cfg(test)]
     if FORCE_PROCESS_SESSION_PREFLIGHT_FAILURE.get() {
         return Err(io::Error::new(

@@ -339,4 +339,27 @@ mod tests {
         assert!(source_changed.contains("-dirty-"));
         assert_ne!(source_changed, clean);
     }
+
+    #[test]
+    fn ghostty_identity_tracks_native_package_sources() {
+        let repository = TestRepository::new("ghostty-packages");
+        fs::create_dir(repository.root.join("include")).unwrap();
+        fs::create_dir(repository.root.join("src")).unwrap();
+        fs::create_dir_all(repository.root.join("pkg/simdutf")).unwrap();
+        fs::write(repository.root.join("build.zig"), b"build").unwrap();
+        fs::write(repository.root.join("build.zig.zon"), b"dependencies").unwrap();
+        fs::write(repository.root.join("include/ghostty.h"), b"header").unwrap();
+        fs::write(repository.root.join("src/main.zig"), b"source").unwrap();
+        fs::write(repository.root.join("pkg/simdutf/input"), b"one").unwrap();
+        run_git(&repository.root, &["add", "."]);
+        run_git(&repository.root, &["commit", "-qm", "add native inputs"]);
+        let clean =
+            source_identity(&repository.root, &repository.root, GHOSTTY_SOURCE_PATHS).unwrap();
+
+        fs::write(repository.root.join("pkg/simdutf/input"), b"two").unwrap();
+        let changed =
+            source_identity(&repository.root, &repository.root, GHOSTTY_SOURCE_PATHS).unwrap();
+
+        assert_ne!(changed, clean, "Ghostty package changes retained the clean build identity");
+    }
 }

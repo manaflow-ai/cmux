@@ -1936,6 +1936,45 @@ mod tests {
     }
 
     #[test]
+    fn malformed_target_listing_never_confirms_absence() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut ws = accept(stream).unwrap();
+            let request = ws.read().unwrap();
+            let Message::Text(request) = request else { panic!("expected text request") };
+            let request: Value = serde_json::from_str(&request).unwrap();
+            assert_eq!(request["method"], "Target.getTargets");
+            ws.send(Message::Text(
+                json!({
+                    "id": request["id"],
+                    "result": {
+                        "targetInfos": [
+                            {"targetId": "known-target"},
+                            {"type": "page"},
+                            {"targetId": 7}
+                        ]
+                    }
+                })
+                .to_string()
+                .into(),
+            ))
+            .unwrap();
+        });
+        let (event_tx, _event_rx) = sync_channel(1);
+        let client =
+            CdpClient::connect(&format!("ws://{addr}/devtools/browser/fake"), event_tx).unwrap();
+
+        let result =
+            client.target_exists_with_timeout("missing-target", Duration::from_millis(500));
+
+        drop(client);
+        server.join().unwrap();
+        assert!(result.is_err(), "malformed target metadata confirmed target absence");
+    }
+
+    #[test]
     fn socket_shutdown_disconnects_a_backpressured_event_receiver() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();

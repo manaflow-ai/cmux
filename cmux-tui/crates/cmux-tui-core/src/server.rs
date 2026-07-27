@@ -5274,6 +5274,22 @@ mod tests {
         assert_eq!(PROTOCOL_VERSION, 10);
     }
 
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn repeated_identify_never_rescans_the_global_process_table() {
+        let mux = test_mux();
+        crate::process_session::reset_stable_process_preflight_count_for_test();
+
+        handle_command(&mux, 0, Command::Identify, &test_writer()).unwrap();
+        handle_command(&mux, 0, Command::Identify, &test_writer()).unwrap();
+
+        assert_eq!(
+            crate::process_session::stable_process_preflight_count_for_test(),
+            0,
+            "ordinary identity requests repeated the process-control startup preflight"
+        );
+    }
+
     #[test]
     fn identify_exposes_shutdown_cleanup_health() {
         let mux = test_mux();
