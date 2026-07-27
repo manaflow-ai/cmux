@@ -7469,6 +7469,36 @@ mod tests {
     }
 
     #[test]
+    fn failed_replacement_restores_a_verified_commit_from_the_superseded_command() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        browser.store_frame(test_frame(1));
+        let committed_epoch = browser.frame_epoch.advance_navigation();
+        browser.begin_navigation_frame_transition().expect("unresolved newer navigation");
+        handle_frame_navigated(
+            browser,
+            json!({"frame": {"url": "https://committed.test", "name": "committed"}}),
+            committed_epoch,
+        );
+        let paint_epoch = browser.frame_epoch.advance();
+        assert!(browser.accept_document_paint(committed_epoch, paint_epoch, test_frame(2)));
+
+        let replacement =
+            browser.begin_superseding_navigation_frame_transition(true).expect("replacement");
+        browser.restore_pointer_frame_after_failed_command(replacement);
+
+        assert_eq!(
+            browser.latest_frame_seq(),
+            Some(2),
+            "the stopped command's verified document must regain pointer authority"
+        );
+        let state = browser.state.lock().unwrap();
+        assert_eq!(state.accepted_navigation_epoch, committed_epoch);
+        assert_eq!(state.accepted_frame_epoch, paint_epoch);
+        assert_eq!(state.pending_navigation_epoch, None);
+    }
+
+    #[test]
     fn reconfigure_completion_dominates_queued_older_navigation_epoch() {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
