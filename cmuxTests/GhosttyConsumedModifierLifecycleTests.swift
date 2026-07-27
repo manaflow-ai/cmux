@@ -145,11 +145,11 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
         let terminal = try makeHostedTerminal()
         defer {
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
-            KeyboardLayout.debugUnshiftedCodepointOverride = nil
+            terminal.surfaceView.setUnshiftedCodepointProviderForTesting(nil)
             terminal.window.orderOut(nil)
         }
 
-        KeyboardLayout.debugUnshiftedCodepointOverride = { event in
+        terminal.surfaceView.setUnshiftedCodepointProviderForTesting { event in
             event.type == .keyUp ? 0x0441 : nil
         }
         var capturedReleases: [CapturedGhosttyKeyIdentityEvent] = []

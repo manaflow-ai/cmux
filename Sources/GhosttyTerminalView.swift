@@ -3307,6 +3307,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var keyboardCopyModeConsumedKeyUps: Set<UInt16> = []
     private var terminalKeyInputLifecycleTracker = TerminalKeyInputLifecycleTracker()
     private var zeroTimestampTerminalKeyEventsByKeyCode: [UInt16: NSEvent] = [:]
+#if DEBUG
+    private var unshiftedCodepointProviderForTesting: ((NSEvent) -> UInt32?)?
+#endif
     private var keyboardCopyModeInputState = TerminalKeyboardCopyModeInputState()
     private var keyboardCopyModeCursor: TerminalKeyboardCopyModeCursor?
     private var keyboardCopyModePendingViewportJumpSync = false
@@ -6116,8 +6119,21 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     /// Get the unshifted codepoint for the key event
     private func unshiftedCodepointFromEvent(_ event: NSEvent) -> UInt32 {
-        KeyboardLayout.unshiftedCodepoint(for: event)
+#if DEBUG
+        if let codepoint = unshiftedCodepointProviderForTesting?(event) {
+            return codepoint
+        }
+#endif
+        return KeyboardLayout.unshiftedCodepoint(for: event)
     }
+
+#if DEBUG
+    func setUnshiftedCodepointProviderForTesting(
+        _ provider: ((NSEvent) -> UInt32?)?
+    ) {
+        unshiftedCodepointProviderForTesting = provider
+    }
+#endif
 
     private func ghosttyKeyEvent(for event: NSEvent, surface: ghostty_surface_t) -> ghostty_input_key_s {
         var keyEvent = ghostty_input_key_s()

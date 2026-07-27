@@ -2,10 +2,6 @@ import AppKit
 import Carbon
 
 class KeyboardLayout {
-#if DEBUG
-    static var debugUnshiftedCodepointOverride: ((NSEvent) -> UInt32?)?
-#endif
-
     /// Translate a physical keyCode to the character AppKit would use for shortcut matching,
     /// preserving command-aware layouts. Sources without a directly usable ASCII
     /// character fall back to the system's ASCII-capable shortcut layout.
@@ -91,13 +87,6 @@ class KeyboardLayout {
         }
     ) -> UInt32 {
         guard event.type == .keyDown || event.type == .keyUp else { return 0 }
-
-#if DEBUG
-        if let override = debugUnshiftedCodepointOverride,
-           let codepoint = override(event) {
-            return codepoint
-        }
-#endif
 
         guard let text = eventCharacterProvider(event),
               let scalar = text.unicodeScalars.first else {
