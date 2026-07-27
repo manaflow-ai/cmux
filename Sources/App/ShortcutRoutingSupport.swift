@@ -85,7 +85,7 @@ func browserOmnibarShouldSubmitOnReturn(flags: NSEvent.ModifierFlags) -> Bool {
     return normalizedFlags == [] || normalizedFlags == [.shift]
 }
 
-func browserResponderHasMarkedText(_ responder: NSResponder?) -> Bool {
+func shortcutResponderHasMarkedText(_ responder: NSResponder?) -> Bool {
     guard let responder else { return false }
 
     // During IME composition, Return/Enter belongs to the text system so the

@@ -379,6 +379,10 @@ final class BrowserProfileStore: ObservableObject {
         repository.profileDefinition(id: id)
     }
 
+    func resolveProfileSelection(_ selector: String) -> BrowserProfileSelectionResolution {
+        repository.resolveProfileSelection(selector)
+    }
+
     func displayName(for id: UUID) -> String {
         repository.displayName(for: id)
     }
@@ -3019,7 +3023,7 @@ final class BrowserPanel: Panel, ObservableObject {
         surfaceID: id,
         script: BrowserDesignModeScript(),
         promptFormatter: BrowserDesignModePromptFormatter(),
-        screenshotStore: BrowserDesignModeScreenshotStore(
+        artifactStore: BrowserDesignModeArtifactStore(
             directory: FileManager.default.temporaryDirectory
                 .appendingPathComponent("cmux-browser-design-mode", isDirectory: true)
         ),
@@ -5445,6 +5449,7 @@ final class BrowserPanel: Panel, ObservableObject {
         for popup in popupsToClose { popup.closeAllChildPopups(); popup.closePopup() }
         webAuthnCoordinator.tearDown(from: webView); webView.stopLoading()
         designModeController.webViewWillBeRemoved(webView)
+        designModeController.releaseDeliveredHandoffForTeardown()
         isMainFrameProvisionalNavigationActive = false
         webView.navigationDelegate = nil
         webView.uiDelegate = nil

@@ -6,51 +6,6 @@ import os
 
 nonisolated private let cmuxSettingsFileStoreLogger = Logger(subsystem: "com.cmuxterm.app", category: "SettingsStore")
 
-/// Publishes keyboard-shortcut revisions and owns the right-sidebar matcher snapshot.
-@MainActor
-final class KeyboardShortcutSettingsObserver: ObservableObject {
-    static let shared = KeyboardShortcutSettingsObserver()
-
-    @Published private(set) var revision: UInt64 = 0
-    let rightSidebarModeShortcutMatcher = RightSidebarModeShortcutMatcher()
-    private var settingsCancellable: AnyCancellable?
-    private var recorderCancellable: AnyCancellable?
-
-    private init(notificationCenter: NotificationCenter = .default) {
-        settingsCancellable = notificationCenter.publisher(
-            for: KeyboardShortcutSettings.didChangeNotification
-        ).sink { [weak self] _ in
-            Self.deliverOnMainActor { [weak self] in
-                self?.revision &+= 1
-                self?.rightSidebarModeShortcutMatcher.reload()
-            }
-        }
-        recorderCancellable = notificationCenter.publisher(
-            for: KeyboardShortcutRecorderActivity.didChangeNotification
-        ).sink { [weak self] _ in
-            Self.deliverOnMainActor { [weak self] in
-                self?.revision &+= 1
-            }
-        }
-    }
-
-    /// Preserves synchronous delivery for main-thread settings mutations while
-    /// bridging background file-watcher notifications onto the main actor.
-    nonisolated private static func deliverOnMainActor(
-        _ action: @escaping @MainActor @Sendable () -> Void
-    ) {
-        if Thread.isMainThread {
-            MainActor.assumeIsolated {
-                action()
-            }
-        } else {
-            Task { @MainActor in
-                action()
-            }
-        }
-    }
-}
-
 final class CmuxSettingsFileStore {
     static let currentSchemaVersion = 1
     static let schemaURLString = "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json"
@@ -98,6 +53,7 @@ final class CmuxSettingsFileStore {
     private var socketPasswordObserver: NSObjectProtocol?
 
     private var shortcutsByAction: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
+    private var managedShortcutActions: Set<KeyboardShortcutSettings.Action> = []
     private var whenClausesByAction: [KeyboardShortcutSettings.Action: ShortcutWhenClause] = [:]
     private var activeManagedUserDefaults: [String: ManagedSettingsValue] = [:]
     private var importedManagedDefaults: [String: ManagedSettingsValue] = [:]
@@ -185,6 +141,7 @@ final class CmuxSettingsFileStore {
         let previousState = synchronized {
             (
                 shortcuts: shortcutsByAction,
+                managedShortcutActions: managedShortcutActions,
                 whenClauses: whenClausesByAction,
                 importedManagedDefaults: importedManagedDefaults,
                 sourcePath: activeSourcePath
@@ -203,6 +160,7 @@ final class CmuxSettingsFileStore {
         )
         synchronized {
             shortcutsByAction = resolved.shortcuts
+            managedShortcutActions = resolved.managedShortcutActions
             whenClausesByAction = resolved.whenClauses
             activeManagedUserDefaults = resolved.managedUserDefaults
             importedManagedDefaults = resolved.managedUserDefaults
@@ -213,6 +171,7 @@ final class CmuxSettingsFileStore {
         saveImportedManagedDefaults(resolved.managedUserDefaults)
 
         if previousState.shortcuts != resolved.shortcuts
+            || previousState.managedShortcutActions != resolved.managedShortcutActions
             || previousState.whenClauses != resolved.whenClauses
             || previousState.sourcePath != resolved.path {
             KeyboardShortcutSettings.notifySettingsFileDidChange(center: notificationCenter)
@@ -233,7 +192,7 @@ final class CmuxSettingsFileStore {
     }
 
     func isManagedByFile(_ action: KeyboardShortcutSettings.Action) -> Bool {
-        synchronized { shortcutsByAction[action] != nil }
+        synchronized { managedShortcutActions.contains(action) }
     }
 
     func settingsFileURLForEditing() -> URL {
@@ -296,6 +255,7 @@ final class CmuxSettingsFileStore {
                 ResolvedSettingsSnapshot(
                     path: activeSourcePath,
                     shortcuts: shortcutsByAction,
+                    managedShortcutActions: managedShortcutActions,
                     whenClauses: whenClausesByAction,
                     managedUserDefaults: activeManagedUserDefaults,
                     legacyDerivedManagedUserDefaultKeys: activeLegacyDerivedManagedUserDefaultKeys,
@@ -1004,6 +964,7 @@ final class CmuxSettingsFileStore {
                 cmuxSettingsFileStoreLogger.warning("ignoring unknown shortcut action '\(rawAction, privacy: .private(mask: .hash))' in \(sourcePath, privacy: .private(mask: .hash))")
                 continue
             }
+            snapshot.managedShortcutActions.insert(action)
             guard let shortcut = parseShortcutBindingValue(rawBinding, action: action) else {
                 cmuxSettingsFileStoreLogger.warning("ignoring invalid shortcut binding for '\(rawAction, privacy: .private(mask: .hash))' in \(sourcePath, privacy: .private(mask: .hash))")
                 continue
@@ -1061,8 +1022,8 @@ final class CmuxSettingsFileStore {
             // Object form written by the CmuxSettings package recorder (in-app
             // Settings UI): { "first": { key, command, ... }, "second": { ... }? }.
             // A Settings rebinding only reaches this store in that shape; decode it
-            // so every action resolved here — most visibly the system-wide Carbon
-            // hotkeys (globalSearch, showHideAllWindows) — honors the rebinding
+            // so every action resolved here — including foreground Global Search and the
+            // opt-in system-wide Show/Hide hotkey — honors the rebinding
             // instead of silently falling back to the built-in default.
             if let object = rawValue as? [String: Any] {
                 return parseShortcutObjectForm(object, action: action)
@@ -1828,6 +1789,7 @@ typealias KeyboardShortcutSettingsFileStore = CmuxSettingsFileStore
 struct ResolvedSettingsSnapshot {
     var path: String?
     var shortcuts: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
+    var managedShortcutActions: Set<KeyboardShortcutSettings.Action> = []
     /// Per-action `when`-clause overrides parsed from `shortcuts.when` — gate a
     /// binding to a focus context (see ``ShortcutWhenClause``).
     var whenClauses: [KeyboardShortcutSettings.Action: ShortcutWhenClause] = [:]
@@ -1836,13 +1798,18 @@ struct ResolvedSettingsSnapshot {
     var managedCustomSettings = ManagedCustomSettings()
 
     mutating func fillMissingSettings(from fallback: ResolvedSettingsSnapshot) {
-        if path == nil && (!fallback.shortcuts.isEmpty ||
+        if path == nil && (!fallback.managedShortcutActions.isEmpty ||
             !fallback.managedUserDefaults.isEmpty ||
             !fallback.managedCustomSettings.isEmpty) {
             path = fallback.path
         }
-        for (action, shortcut) in fallback.shortcuts where shortcuts[action] == nil {
-            shortcuts[action] = shortcut
+        let missingShortcutActions = fallback.managedShortcutActions
+            .subtracting(managedShortcutActions)
+        for action in missingShortcutActions {
+            managedShortcutActions.insert(action)
+            if let shortcut = fallback.shortcuts[action] {
+                shortcuts[action] = shortcut
+            }
         }
         for (action, clause) in fallback.whenClauses where whenClauses[action] == nil {
             whenClauses[action] = clause
