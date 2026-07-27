@@ -14,4 +14,13 @@ struct CmuxRemoteFrameViewHitTestingTests {
 
         #expect(host.hitTest(NSPoint(x: 200, y: 150)) === host)
     }
+
+    @Test("Read-only frame presentation leaves background styling to its host")
+    func framePresentationUsesTransparentBackground() {
+        let frameView = CmuxRemoteFrameView(
+            frame: NSRect(x: 0, y: 0, width: 400, height: 300)
+        )
+
+        #expect(frameView.layer?.backgroundColor == NSColor.clear.cgColor)
+    }
 }
