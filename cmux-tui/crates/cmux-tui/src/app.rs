@@ -11873,6 +11873,22 @@ mod tests {
     }
 
     #[test]
+    fn draw_skips_layout_sync_for_zero_width_frames() {
+        let mux = Mux::new("zero-width-frame-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sync_layout((80, 24));
+        let expected_content = app.content_area;
+        let expected_visible = app.visible_size_surfaces.clone();
+
+        let mut terminal = Terminal::new(TestBackend::new(0, 24)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+
+        assert_eq!(app.frame_layout_size, Some((80, 24)));
+        assert_eq!(app.content_area, expected_content);
+        assert_eq!(app.visible_size_surfaces, expected_visible);
+    }
+
+    #[test]
     fn panic_restore_waits_for_a_concurrent_stdout_owner() {
         let lock = Arc::new(StdoutLock::new(()));
         let (held_tx, held_rx) = std::sync::mpsc::sync_channel(1);
