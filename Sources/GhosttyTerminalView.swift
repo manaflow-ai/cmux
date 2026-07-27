@@ -879,21 +879,25 @@ class GhosttyApp {
         runtimeConfig.write_clipboard_cb = { _, location, content, len, _ in
             guard let content = content, len > 0 else { return }
             let buffer = UnsafeBufferPointer(start: content, count: Int(len))
+            let decoder = TerminalClipboardRepresentationDecoder()
 
             var fallback: String?
             var representations: [TerminalClipboardRepresentation] = []
             representations.reserveCapacity(Int(len))
             for item in buffer {
                 guard let dataPtr = item.data else { continue }
-                let value = String(cString: dataPtr)
-
                 if let mimePtr = item.mime {
-                    representations.append(.init(
-                        mimeType: String(cString: mimePtr),
-                        string: value
-                    ))
+                    let mimeType = String(cString: mimePtr)
+                    guard let representation = decoder.decode(
+                        mimeType: mimeType,
+                        data: dataPtr
+                    ) else { continue }
+                    representations.append(representation)
                 } else if fallback == nil {
-                    fallback = value
+                    fallback = decoder.decode(
+                        mimeType: nil,
+                        data: dataPtr
+                    )?.string
                 }
             }
 
@@ -4364,7 +4368,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func copyKeyboardCopyModeSelectionToClipboard(surface: ghostty_surface_t) -> Bool {
-        let maximumBytes = UInt(2 * 1024 * 1024)
+        let maximumBytes = UInt(
+            TerminalClipboardRepresentationDecoder.defaultMaximumRichTextBytes
+        )
         return ghostty_surface_copy_selection_to_clipboard_bounded(
             surface,
             maximumBytes
