@@ -70,6 +70,8 @@ def test_stable_release_builds_and_tests_once_before_dispatching_publishers() ->
     assert sum(text.count(reusable_build) for text in stable_workflows) == 1
     assert "publish_npm:" in release
     assert "publish_pypi:" in release
+    assert 'if [[ "${GITHUB_REF_TYPE:-}" != "tag" ]]' in release
+    assert "Stable artifacts require a cmux-tui-vX.Y.Z tag ref." in release
     assert "needs: build-package" in release
     assert 'gh workflow run tui-publish-npm.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG"' in release
     assert 'gh workflow run tui-publish-pypi.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG"' in release
