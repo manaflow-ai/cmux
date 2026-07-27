@@ -22,7 +22,8 @@ struct SimulatorUIAutomationExecutor {
         case let .uiSnapshot(sinceScreenHash):
             return try await coordinator.withUIAutomationTransaction {
                 let record = try await captureSimulatorUIAutomationSnapshot(
-                    coordinator: coordinator
+                    coordinator: coordinator,
+                    retryingUntil: simulatorUINowMilliseconds() + 2_500
                 )
                 if sinceScreenHash == record.snapshot.screenHash {
                     return simulatorUIUnchangedPayload(record.snapshot)
@@ -389,7 +390,8 @@ struct SimulatorUIAutomationExecutor {
             )
         }
         let refreshed = try await captureSimulatorUIAutomationSnapshot(
-            coordinator: coordinator
+            coordinator: coordinator,
+            retryingUntil: simulatorUINowMilliseconds() + 2_500
         )
         guard refreshed.snapshot.screenHash == current.snapshot.screenHash else {
             throw SimulatorUIAutomationFailure(
@@ -457,7 +459,8 @@ struct SimulatorUIAutomationExecutor {
         while true {
             try Task.checkCancellation()
             let record = try await captureSimulatorUIAutomationSnapshot(
-                coordinator: coordinator
+                coordinator: coordinator,
+                retryingUntil: deadline
             )
             latestRecord = record
             let now = simulatorUINowMilliseconds()
@@ -618,6 +621,24 @@ struct SimulatorUIAutomationExecutor {
     }
 
     private func captureSimulatorUIAutomationSnapshot(
+        coordinator: SimulatorPaneCoordinator,
+        retryingUntil deadlineMilliseconds: Int64? = nil
+    ) async throws -> SimulatorUIAutomationSnapshotRecord {
+        guard let deadlineMilliseconds else {
+            return try await captureSimulatorUIAutomationSnapshotOnce(
+                coordinator: coordinator
+            )
+        }
+        return try await SimulatorUIAutomationCaptureRetry(timing: timing).capture(
+            until: deadlineMilliseconds
+        ) {
+            try await captureSimulatorUIAutomationSnapshotOnce(
+                coordinator: coordinator
+            )
+        }
+    }
+
+    private func captureSimulatorUIAutomationSnapshotOnce(
         coordinator: SimulatorPaneCoordinator
     ) async throws -> SimulatorUIAutomationSnapshotRecord {
         try requireSimulatorCapability(.accessibility, coordinator: coordinator)
@@ -668,7 +689,8 @@ struct SimulatorUIAutomationExecutor {
         // cancellable, and uses the injected timing seam.
         while true {
             let record = try await captureSimulatorUIAutomationSnapshot(
-                coordinator: coordinator
+                coordinator: coordinator,
+                retryingUntil: deadline
             )
             let now = simulatorUINowMilliseconds()
             if previousHash == record.snapshot.screenHash {

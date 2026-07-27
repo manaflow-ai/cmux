@@ -1793,6 +1793,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C51A720000000000000000B1 /* SimulatorPanelIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A720000000000000000B2 /* SimulatorPanelIntegrationTests.swift */; };
 		C51A760000000000000000D1 /* SimulatorPanelThemeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A760000000000000000D2 /* SimulatorPanelThemeTests.swift */; };
 		C51A710000000000000000B1 /* SimulatorPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A710000000000000000B2 /* SimulatorPanelView.swift */; };
+		C51A76100000000000000001 /* SimulatorUIAutomationCaptureRetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A76100000000000000002 /* SimulatorUIAutomationCaptureRetry.swift */; };
 		C51A76200000000000000001 /* SimulatorUIAutomationCaptureRetryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A76200000000000000002 /* SimulatorUIAutomationCaptureRetryTests.swift */; };
 		C51A76000000000000000003 /* SimulatorUIAutomationExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A76000000000000000004 /* SimulatorUIAutomationExecutor.swift */; };
 		C51A76000000000000000005 /* SimulatorUIAutomationFailure.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A76000000000000000006 /* SimulatorUIAutomationFailure.swift */; };
@@ -4093,6 +4094,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C51A720000000000000000B2 /* SimulatorPanelIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimulatorPanelIntegrationTests.swift; sourceTree = "<group>"; };
 		C51A760000000000000000D2 /* SimulatorPanelThemeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimulatorPanelThemeTests.swift; sourceTree = "<group>"; };
 		C51A710000000000000000B2 /* SimulatorPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/SimulatorPanelView.swift; sourceTree = "<group>"; };
+		C51A76100000000000000002 /* SimulatorUIAutomationCaptureRetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimulatorUIAutomationCaptureRetry.swift; sourceTree = "<group>"; };
 		C51A76200000000000000002 /* SimulatorUIAutomationCaptureRetryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimulatorUIAutomationCaptureRetryTests.swift; sourceTree = "<group>"; };
 		C51A76000000000000000004 /* SimulatorUIAutomationExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimulatorUIAutomationExecutor.swift; sourceTree = "<group>"; };
 		C51A76000000000000000006 /* SimulatorUIAutomationFailure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimulatorUIAutomationFailure.swift; sourceTree = "<group>"; };
@@ -6300,6 +6302,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C51A74000000000000000002 /* TerminalController+ControlSimulatorOperationPayloads.swift */,
 				C51A7300000000000000000E /* TerminalController+ControlSimulatorCameraPayloads.swift */,
 				C51A76000000000000000002 /* ContinuousSimulatorUIAutomationTiming.swift */,
+				C51A76100000000000000002 /* SimulatorUIAutomationCaptureRetry.swift */,
 				C51A76000000000000000004 /* SimulatorUIAutomationExecutor.swift */,
 				C51A76000000000000000006 /* SimulatorUIAutomationFailure.swift */,
 				C51A76000000000000000008 /* SimulatorUIAutomationTiming.swift */,
@@ -8604,6 +8607,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C51A71F10000000000000004 /* SimulatorFocusOwnershipView.swift in Sources */,
 				C51A710000000000000000A1 /* SimulatorPanel.swift in Sources */,
 				C51A710000000000000000B1 /* SimulatorPanelView.swift in Sources */,
+				C51A76100000000000000001 /* SimulatorUIAutomationCaptureRetry.swift in Sources */,
 				C51A76000000000000000003 /* SimulatorUIAutomationExecutor.swift in Sources */,
 				C51A76000000000000000005 /* SimulatorUIAutomationFailure.swift in Sources */,
 				C51A76000000000000000007 /* SimulatorUIAutomationTiming.swift in Sources */,
