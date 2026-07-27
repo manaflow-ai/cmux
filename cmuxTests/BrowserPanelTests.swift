@@ -4622,6 +4622,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         portal.bind(webView: webView, to: newAnchor, visibleInUI: true)
         let enterInWindowCountAfterRebind = webView.enterInWindowCount
         let endDeferringCountAfterRebind = webView.endDeferringViewInWindowChangesCount
+        let redrawCountAfterRebind = webView.setNeedsDisplayCount
 
         XCTAssertTrue(
             webView.superview === slot,
@@ -4650,10 +4651,15 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             "Workspace rebind must not synchronously flush WebKit display"
         )
 
-        await waitForNextMainTurn()
+        drainFormerPresentationRetryWindow()
 
         XCTAssertEqual(webView.enterInWindowCount, enterInWindowCountAfterRebind)
         XCTAssertEqual(webView.endDeferringViewInWindowChangesCount, endDeferringCountAfterRebind)
+        XCTAssertEqual(
+            webView.setNeedsDisplayCount,
+            redrawCountAfterRebind,
+            "Workspace rebind must not enqueue a delayed presentation invalidation"
+        )
     }
 }
 
