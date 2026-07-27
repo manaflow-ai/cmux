@@ -45,12 +45,17 @@ def wait_for_path(path: Path, timeout: float = 5.0) -> bool:
 def wait_for_payload_text(path: Path, expected_count: int, timeout: float = 5.0) -> str:
     deadline = time.monotonic() + timeout
     pattern = f"{path.name}.*"
+
+    # Sort the explicit write sequence without relying on PID ordering.
+    def sorted_files() -> list[Path]:
+        return sorted(path.parent.glob(pattern), key=lambda file: int(file.name.rsplit(".", 1)[-1]))
+
     while time.monotonic() < deadline:
-        files = sorted(path.parent.glob(pattern))
+        files = sorted_files()
         if len(files) >= expected_count:
             return "\n---\n".join(file.read_text(encoding="utf-8") for file in files)
         time.sleep(0.05)
-    return "\n---\n".join(file.read_text(encoding="utf-8") for file in sorted(path.parent.glob(pattern)))
+    return "\n---\n".join(file.read_text(encoding="utf-8") for file in sorted_files())
 
 
 def payloads_from_log(text: str) -> list[dict[str, object]]:
@@ -163,8 +168,27 @@ def main() -> int:
 set -euo pipefail
 printf '%s\n' "$*" >> "$CMUX_TEST_PI_ARGS_LOG"
 payload="$(cat)"
-# Keep each detached hook payload isolated from concurrent writers.
-printf '%s' "$payload" > "$CMUX_TEST_PI_STDIN_LOG.$$"
+# Assign each completed payload write a stable sequence under a directory lock.
+payload_dir="$(dirname "$CMUX_TEST_PI_STDIN_LOG")"
+payload_lock="$payload_dir/.cmux-payload-lock"
+payload_counter="$payload_dir/.cmux-payload-counter"
+payload_tmp="$payload_dir/.cmux-payload-tmp.$$"
+payload_lock_attempts=0
+while ! mkdir "$payload_lock" 2>/dev/null; do
+  payload_lock_attempts=$((payload_lock_attempts + 1))
+  # Fail instead of hanging if a killed fake hook left a stale lock.
+  if (( payload_lock_attempts >= 500 )); then echo "payload lock timeout" >&2; exit 1; fi
+  sleep 0.01
+done
+trap 'rmdir "$payload_lock"' EXIT
+payload_sequence=0
+if [[ -f "$payload_counter" ]]; then payload_sequence="$(cat "$payload_counter")"; fi
+payload_sequence=$((payload_sequence + 1))
+printf '%s' "$payload_sequence" > "$payload_counter"
+printf '%s' "$payload" > "$payload_tmp"
+mv "$payload_tmp" "$CMUX_TEST_PI_STDIN_LOG.$payload_sequence"
+rmdir "$payload_lock"
+trap - EXIT
 if printf '%s' "$payload" | grep -q 'pi-session-nonblocking'; then
   : > "$CMUX_TEST_PI_NONBLOCKING_STARTED"
   cat "$CMUX_TEST_PI_NONBLOCKING_RELEASE" >/dev/null
