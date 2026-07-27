@@ -3979,11 +3979,48 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
 
     override func tearDown() {
         GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
+        GhosttyNSView.debugFocusScrollMonitorEnabledOverride = nil
+        GhosttyNSView.debugFocusScrollMonitorLifecycleObserver = nil
         for surface in surfacesToRelease.reversed() {
             surface.releaseSurfaceForTesting()
         }
         surfacesToRelease.removeAll()
         super.tearDown()
+    }
+
+    func testFocusScrollMonitorIsAbsentWhenDebuggingIsDisabled() {
+        GhosttyNSView.debugFocusScrollMonitorEnabledOverride = false
+        var lifecycleEvents: [GhosttyNSView.DebugFocusScrollMonitorLifecycleEvent] = []
+        GhosttyNSView.debugFocusScrollMonitorLifecycleObserver = { lifecycleEvents.append($0) }
+
+        weak var releasedView: GhosttyNSView?
+        autoreleasepool {
+            var view: GhosttyNSView? = GhosttyNSView(frame: .zero)
+            releasedView = view
+            XCTAssertFalse(view?.debugHasFocusScrollMonitor == true)
+            view = nil
+        }
+
+        XCTAssertNil(releasedView)
+        XCTAssertEqual(lifecycleEvents, [])
+    }
+
+    func testFocusScrollMonitorInstallsAndCleansUpWhenDebuggingIsEnabled() {
+        GhosttyNSView.debugFocusScrollMonitorEnabledOverride = true
+        var lifecycleEvents: [GhosttyNSView.DebugFocusScrollMonitorLifecycleEvent] = []
+        GhosttyNSView.debugFocusScrollMonitorLifecycleObserver = { lifecycleEvents.append($0) }
+
+        weak var releasedView: GhosttyNSView?
+        autoreleasepool {
+            var view: GhosttyNSView? = GhosttyNSView(frame: .zero)
+            releasedView = view
+            XCTAssertTrue(view?.debugHasFocusScrollMonitor == true)
+            XCTAssertEqual(lifecycleEvents, [.installed])
+            view = nil
+        }
+
+        XCTAssertNil(releasedView)
+        XCTAssertEqual(lifecycleEvents, [.installed, .removed])
     }
 
     private func makeTrackedTerminalSurface(
