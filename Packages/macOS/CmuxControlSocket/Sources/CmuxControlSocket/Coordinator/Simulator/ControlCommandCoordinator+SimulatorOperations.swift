@@ -28,16 +28,42 @@ extension ControlCommandCoordinator {
             }
             operation = .gesture(events)
         case "simulator.tap":
-            guard let point = simulatorTouch(request.params, phase: "began") else {
-                return invalidSimulatorOperation("tap requires normalized x and y coordinates")
+            let hasCoordinates = request.params["x"] != nil || request.params["y"] != nil
+                || request.params["x2"] != nil || request.params["y2"] != nil
+            let hasSelector = request.params["label"] != nil
+                || request.params["identifier"] != nil || request.params["role"] != nil
+            guard !hasCoordinates || !hasSelector else {
+                return invalidSimulatorOperation(String(
+                    localized: "cli.simulator.error.tapInputsExclusive",
+                    defaultValue: "Tap coordinates and accessibility selectors are mutually exclusive"
+                ))
             }
-            operation = .gesture([
-                point,
-                ControlSimulatorTouch(
-                    phase: "ended", x: point.x, y: point.y,
-                    secondX: point.secondX, secondY: point.secondY, edge: point.edge
-                ),
-            ])
+            if hasSelector {
+                let label = string(request.params, "label")
+                let identifier = string(request.params, "identifier")
+                guard label != nil || identifier != nil else {
+                    return invalidSimulatorOperation(String(
+                        localized: "cli.simulator.error.tapSelectorRequired",
+                        defaultValue: "An accessibility tap requires a label or identifier"
+                    ))
+                }
+                operation = .accessibilityTap(
+                    label: label,
+                    identifier: identifier,
+                    role: string(request.params, "role")
+                )
+            } else {
+                guard let point = simulatorTouch(request.params, phase: "began") else {
+                    return invalidSimulatorOperation("tap requires normalized x and y coordinates")
+                }
+                operation = .gesture([
+                    point,
+                    ControlSimulatorTouch(
+                        phase: "ended", x: point.x, y: point.y,
+                        secondX: point.secondX, secondY: point.secondY, edge: point.edge
+                    ),
+                ])
+            }
         case "simulator.swipe":
             guard let events = simulatorSwipe(request.params) else {
                 return invalidSimulatorOperation(

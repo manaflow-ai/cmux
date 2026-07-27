@@ -26,7 +26,15 @@ extension CMUXCLI {
         var readsStandardInput = false
         var file: String?
         var optionValue: String?
+        var accessibilityLabel: String?
+        var accessibilityIdentifier: String?
+        var accessibilityRole: String?
         var positionals: [String] = []
+
+        var hasAccessibilitySelector: Bool {
+            accessibilityLabel != nil || accessibilityIdentifier != nil
+                || accessibilityRole != nil
+        }
     }
 
     func simulatorSubcommandUsage() -> String {
@@ -37,7 +45,9 @@ extension CMUXCLI {
 
             Subcommands:
               type [text] [--stdin|--file <path>]  Type text and wait for transmission completion
-              tap <x> <y> [x2 y2]                 Send a correlated one- or two-finger tap
+              tap <x> <y> [x2 y2]                 Send a coordinate tap
+              tap (--label <text>|--identifier <id>) [--role <role>]
+                                                    Tap one visible accessibility element
               gesture <json> [--stdin|--file]      Send 1...256 ordered normalized touch events
               multitouch <json> [--stdin|--file]  Send ordered two-finger touch events
               swipe <x1> <y1> <x2> <y2> [steps]  Send a sampled swipe
@@ -87,6 +97,7 @@ extension CMUXCLI {
 
             Examples:
               cmux ios list --json
+              cmux ios tap --label General --role Button
               cmux ios screenshot --surface surface:2 --out phone.png
               cmux ios screenshot --all --out screenshots/
               cmux ios rotate landscape-left

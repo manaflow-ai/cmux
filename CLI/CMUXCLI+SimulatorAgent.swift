@@ -10,6 +10,9 @@ extension CMUXCLI {
         if subcommand != "permissions", arguments.optionValue != nil {
             throw simulatorArgumentsError(subcommand)
         }
+        if subcommand != "tap", arguments.hasAccessibilitySelector {
+            throw simulatorArgumentsError(subcommand)
+        }
         switch subcommand {
         case "select", "select-device":
             guard let value = oneSimulatorValue(arguments) else {
@@ -23,8 +26,26 @@ extension CMUXCLI {
                 )
             )
         case "tap":
-            guard !arguments.readsStandardInput, arguments.file == nil,
-                  values.count == 2 || values.count == 4 else { throw simulatorArgumentsError(subcommand) }
+            guard !arguments.readsStandardInput, arguments.file == nil else {
+                throw simulatorArgumentsError(subcommand)
+            }
+            if arguments.hasAccessibilitySelector {
+                guard values.isEmpty,
+                      arguments.accessibilityLabel != nil
+                        || arguments.accessibilityIdentifier != nil else {
+                    throw simulatorArgumentsError(subcommand)
+                }
+                var params: [String: Any] = [:]
+                if let label = arguments.accessibilityLabel { params["label"] = label }
+                if let identifier = arguments.accessibilityIdentifier {
+                    params["identifier"] = identifier
+                }
+                if let role = arguments.accessibilityRole { params["role"] = role }
+                return request("simulator.tap", params)
+            }
+            guard values.count == 2 || values.count == 4 else {
+                throw simulatorArgumentsError(subcommand)
+            }
             let point = try simulatorPoint(values[0], values[1])
             var params: [String: Any] = ["x": point.x, "y": point.y]
             if values.count == 4 {

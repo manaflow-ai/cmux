@@ -10,6 +10,8 @@ public enum ControlSimulatorOperation: Sendable, Equatable {
     case recover
     /// Sends an ordered sequence of normalized touch events.
     case gesture([ControlSimulatorTouch])
+    /// Resolves one visible accessibility element and taps its center.
+    case accessibilityTap(label: String?, identifier: String?, role: String?)
     /// Presses a named simulated hardware button.
     case hardwareButton(String)
     /// Rotates the simulated device to a named orientation.
@@ -55,7 +57,7 @@ public enum ControlSimulatorOperation: Sendable, Equatable {
         case .context, .eventLog, .cameraStatus, .permissionsRead,
              .interfaceStatus, .accessibility, .foregroundApplication:
             false
-        case .prepareScreenshot, .selectDevice, .recover, .gesture,
+        case .prepareScreenshot, .selectDevice, .recover, .gesture, .accessibilityTap,
              .hardwareButton, .rotate,
              .coreAnimation, .memoryWarning, .tools, .cameraConfigure,
              .cameraSwitch, .cameraMirror, .permissionsSet, .interfaceSet:

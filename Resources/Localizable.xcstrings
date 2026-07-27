@@ -42291,13 +42291,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux ios <subcommand> [args] [--surface <ref>]\n\nEvery native `cmux simulator` subcommand is accepted unchanged.\n\nAdditional subcommands:\n  list [--workspace <ref>]            List Simulator panes and device identifiers\n  context [--udid]                    Print one selected Simulator identity\n  select <device-udid>                Bind a pane to an iPhone or iPad Simulator\n  screenshot [--out <path>]           Capture one or many selected Simulators\n\nExamples:\n  cmux ios list --json\n  cmux ios screenshot --surface surface:2 --out phone.png\n  cmux ios screenshot --all --out screenshots/\n  cmux ios rotate landscape-left"
+            "value": "Usage: cmux ios <subcommand> [args] [--surface <ref>]\n\nEvery native `cmux simulator` subcommand is accepted unchanged.\n\nAdditional subcommands:\n  list [--workspace <ref>]            List Simulator panes and device identifiers\n  context [--udid]                    Print one selected Simulator identity\n  select <device-udid>                Bind a pane to an iPhone or iPad Simulator\n  screenshot [--out <path>]           Capture one or many selected Simulators\n\nExamples:\n  cmux ios list --json\n  cmux ios tap --label General --role Button\n  cmux ios screenshot --surface surface:2 --out phone.png\n  cmux ios screenshot --all --out screenshots/\n  cmux ios rotate landscape-left"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用方法: cmux ios <subcommand> [args] [--surface <ref>]\n\nすべてのネイティブ `cmux simulator` サブコマンドをそのまま使用できます。\n\n追加サブコマンド:\n  list [--workspace <ref>]            Simulatorペインとデバイス識別子を表示\n  context [--udid]                    選択したSimulator識別情報を表示\n  select <device-udid>                ペインをiPhoneまたはiPad Simulatorに接続\n  screenshot [--out <path>]           選択したSimulatorをキャプチャ\n\n例:\n  cmux ios list --json\n  cmux ios screenshot --surface surface:2 --out phone.png\n  cmux ios screenshot --all --out screenshots/\n  cmux ios rotate landscape-left"
+            "value": "使用方法: cmux ios <subcommand> [args] [--surface <ref>]\n\nすべてのネイティブ `cmux simulator` サブコマンドをそのまま使用できます。\n\n追加サブコマンド:\n  list [--workspace <ref>]            Simulatorペインとデバイス識別子を表示\n  context [--udid]                    選択したSimulator識別情報を表示\n  select <device-udid>                ペインをiPhoneまたはiPad Simulatorに接続\n  screenshot [--out <path>]           選択したSimulatorをキャプチャ\n\n例:\n  cmux ios list --json\n  cmux ios tap --label General --role Button\n  cmux ios screenshot --surface surface:2 --out phone.png\n  cmux ios screenshot --all --out screenshots/\n  cmux ios rotate landscape-left"
           }
         }
       }
@@ -48159,6 +48159,74 @@
         }
       }
     },
+    "cli.simulator.error.tapInputsExclusive": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap coordinates and accessibility selectors are mutually exclusive"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タップ座標とアクセシビリティセレクタは同時に指定できません"
+          }
+        }
+      }
+    },
+    "cli.simulator.error.tapSelectorRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An accessibility tap requires a label or identifier"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクセシビリティタップにはラベルまたは識別子が必要です"
+          }
+        }
+      }
+    },
+    "cli.simulator.error.tapTargetAmbiguous": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Multiple visible Simulator elements matched; add --identifier or --role"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "複数の表示中のSimulator要素が一致しました。--identifierまたは--roleを追加してください"
+          }
+        }
+      }
+    },
+    "cli.simulator.error.tapTargetNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No visible enabled Simulator element matched the accessibility selector"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクセシビリティセレクタに一致する表示中で有効なSimulator要素がありません"
+          }
+        }
+      }
+    },
     "cli.simulator.error.textEmpty": {
       "extractionState": "manual",
       "localizations": {
@@ -48811,13 +48879,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux simulator <subcommand> [args] [--surface <id|ref|index>]\n\nSubcommands:\n  type [text] [--stdin|--file <path>]  Type text and wait for transmission completion\n  tap <x> <y> [x2 y2]                 Send a correlated one- or two-finger tap\n  gesture <json> [--stdin|--file]      Send 1...256 ordered normalized touch events\n  multitouch <json> [--stdin|--file]  Send ordered two-finger touch events\n  swipe <x1> <y1> <x2> <y2> [steps]  Send a sampled swipe\n  button <name>                       Press a Simulator hardware button\n  rotate <orientation>                Rotate to a logical orientation\n  ca <diagnostic> <on|off>             Toggle a Core Animation diagnostic\n  memory-warning                      Simulate a memory warning\n  event-log [limit]                   Print recent Simulator events\n  tools <show|hide|toggle>             Control the Simulator tools inspector\n  camera <configure|switch|mirror|status> ...\n  permissions <list|grant|revoke|reset> ...\n  ui [status|get|set] [option] [value]\n  targets                             Refresh and print Web Inspector targets\n  attach <target-id>                  Attach the native Web Inspector session\n  send [json] [--stdin|--file <path>] Send a raw JSON inspector command\n  highlight <on|off>                  Highlight the attached page\n  release                             Release the attached page\n\nEach command waits for its correlated Simulator-worker result. `send` prints the raw response carrying the same JSON request id."
+            "value": "Usage: cmux simulator <subcommand> [args] [--surface <id|ref|index>]\n\nSubcommands:\n  type [text] [--stdin|--file <path>]  Type text and wait for transmission completion\n  tap <x> <y> [x2 y2]                 Send a coordinate tap\n  tap (--label <text>|--identifier <id>) [--role <role>]\n                                        Tap one visible accessibility element\n  gesture <json> [--stdin|--file]      Send 1...256 ordered normalized touch events\n  multitouch <json> [--stdin|--file]  Send ordered two-finger touch events\n  swipe <x1> <y1> <x2> <y2> [steps]  Send a sampled swipe\n  button <name>                       Press a Simulator hardware button\n  rotate <orientation>                Rotate to a logical orientation\n  ca <diagnostic> <on|off>             Toggle a Core Animation diagnostic\n  memory-warning                      Simulate a memory warning\n  event-log [limit]                   Print recent Simulator events\n  tools <show|hide|toggle>             Control the Simulator tools inspector\n  camera <configure|switch|mirror|status> ...\n  permissions <list|grant|revoke|reset> ...\n  ui [status|get|set] [option] [value]\n  targets                             Refresh and print Web Inspector targets\n  attach <target-id>                  Attach the native Web Inspector session\n  send [json] [--stdin|--file <path>] Send a raw JSON inspector command\n  highlight <on|off>                  Highlight the attached page\n  release                             Release the attached page\n\nEach command waits for its correlated Simulator-worker result. `send` prints the raw response carrying the same JSON request id."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用方法: cmux simulator <subcommand> [args] [--surface <id|ref|index>]\n\nサブコマンド:\n  type [text] [--stdin|--file <path>]  テキストを入力して送信完了を待機\n  tap <x> <y> [x2 y2]                 1本指または2本指のタップを送信\n  gesture <json> [--stdin|--file]      1〜256件の正規化タッチイベントを送信\n  multitouch <json> [--stdin|--file]  2本指タッチイベントを送信\n  swipe <x1> <y1> <x2> <y2> [steps]  スワイプを送信\n  button <name>                       ハードウェアボタンを押す\n  rotate <orientation>                指定した向きに回転\n  ca <diagnostic> <on|off>             Core Animation診断を切り替え\n  memory-warning                      メモリ警告を送信\n  event-log [limit]                   最近のSimulatorイベントを表示\n  tools <show|hide|toggle>             Simulatorツールインスペクタを操作\n  camera <configure|switch|mirror|status> ...\n  permissions <list|grant|revoke|reset> ...\n  ui [status|get|set] [option] [value]\n  targets                             Web Inspector対象を更新して表示\n  attach <target-id>                  Web Inspectorセッションを接続\n  send [json] [--stdin|--file <path>] 生のJSONコマンドを送信\n  highlight <on|off>                  接続中のページを強調表示\n  release                             接続中のページを解放\n\n各コマンドは対応するSimulatorワーカーの結果を待機します。`send` は同じJSONリクエストIDの生の応答を表示します。"
+            "value": "使用方法: cmux simulator <subcommand> [args] [--surface <id|ref|index>]\n\nサブコマンド:\n  type [text] [--stdin|--file <path>]  テキストを入力して送信完了を待機\n  tap <x> <y> [x2 y2]                 座標を指定してタップを送信\n  tap (--label <text>|--identifier <id>) [--role <role>]\n                                        表示中のアクセシビリティ要素を1つタップ\n  gesture <json> [--stdin|--file]      1〜256件の正規化タッチイベントを送信\n  multitouch <json> [--stdin|--file]  2本指タッチイベントを送信\n  swipe <x1> <y1> <x2> <y2> [steps]  スワイプを送信\n  button <name>                       ハードウェアボタンを押す\n  rotate <orientation>                指定した向きに回転\n  ca <diagnostic> <on|off>             Core Animation診断を切り替え\n  memory-warning                      メモリ警告を送信\n  event-log [limit]                   最近のSimulatorイベントを表示\n  tools <show|hide|toggle>             Simulatorツールインスペクタを操作\n  camera <configure|switch|mirror|status> ...\n  permissions <list|grant|revoke|reset> ...\n  ui [status|get|set] [option] [value]\n  targets                             Web Inspector対象を更新して表示\n  attach <target-id>                  Web Inspectorセッションを接続\n  send [json] [--stdin|--file <path>] 生のJSONコマンドを送信\n  highlight <on|off>                  接続中のページを強調表示\n  release                             接続中のページを解放\n\n各コマンドは対応するSimulatorワーカーの結果を待機します。`send` は同じJSONリクエストIDの生の応答を表示します。"
           }
         }
       }

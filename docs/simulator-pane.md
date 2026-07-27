@@ -24,11 +24,15 @@ The CLI uses normalized coordinates from `0` to `1`:
 
 ```sh
 cmux simulator tap 0.5 0.5 --surface surface:1
+cmux simulator tap --label General --role Button --surface surface:1
+cmux simulator tap --identifier com.example.continue --surface surface:1
 cmux simulator swipe 0.5 0.8 0.5 0.2 12 --surface surface:1
 cmux simulator button home --surface surface:1
 cmux simulator rotate landscape_left --surface surface:1
 cmux simulator type 'Hello from cmux' --surface surface:1
 ```
+
+Accessibility taps match one visible, enabled element by exact label or identifier, then tap its center. Add `--identifier` or `--role` when a label matches multiple elements.
 
 Run `cmux simulator` for gesture JSON, two-finger input, camera, permission, accessibility, Core Animation, and Web Inspector command syntax.
 

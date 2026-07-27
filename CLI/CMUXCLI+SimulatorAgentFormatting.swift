@@ -127,6 +127,7 @@ extension CMUXCLI {
 
     func oneSimulatorValue(_ arguments: SimulatorArguments) -> String? {
         guard !arguments.readsStandardInput, arguments.file == nil,
+              !arguments.hasAccessibilitySelector,
               arguments.positionals.count == 1 else { return nil }
         return arguments.positionals[0]
     }

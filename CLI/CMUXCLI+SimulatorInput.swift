@@ -10,7 +10,9 @@ extension CMUXCLI {
             if readsPositionalsOnly { result.positionals.append(argument) }
             else if argument == "--" { readsPositionalsOnly = true }
             else if argument == "--stdin" { result.readsStandardInput = true }
-            else if argument == "--surface" || argument == "--file" || argument == "--value" {
+            else if argument == "--surface" || argument == "--file" || argument == "--value"
+                || argument == "--label" || argument == "--identifier" || argument == "--id"
+                || argument == "--role" {
                 guard index + 1 < args.count else {
                     throw CLIError(message: String.localizedStringWithFormat(
                         String(localized: "cli.simulator.error.missingOptionValue",
@@ -20,7 +22,10 @@ extension CMUXCLI {
                 index += 1
                 if argument == "--surface" { result.surface = args[index] }
                 else if argument == "--file" { result.file = args[index] }
-                else { result.optionValue = args[index] }
+                else if argument == "--value" { result.optionValue = args[index] }
+                else if argument == "--label" { result.accessibilityLabel = args[index] }
+                else if argument == "--role" { result.accessibilityRole = args[index] }
+                else { result.accessibilityIdentifier = args[index] }
             } else if argument.hasPrefix("--value=") {
                 let value = String(argument.dropFirst("--value=".count))
                 guard !value.isEmpty else {
@@ -30,6 +35,21 @@ extension CMUXCLI {
                     ))
                 }
                 result.optionValue = value
+            } else if let (name, value) = ["--label", "--identifier", "--id", "--role"]
+                .compactMap({ option -> (String, String)? in
+                    let prefix = "\(option)="
+                    guard argument.hasPrefix(prefix) else { return nil }
+                    return (option, String(argument.dropFirst(prefix.count)))
+                }).first {
+                guard !value.isEmpty else {
+                    throw CLIError(message: String.localizedStringWithFormat(
+                        String(localized: "cli.simulator.error.missingOptionValue",
+                               defaultValue: "simulator: %@ requires a value"), name
+                    ))
+                }
+                if name == "--label" { result.accessibilityLabel = value }
+                else if name == "--role" { result.accessibilityRole = value }
+                else { result.accessibilityIdentifier = value }
             } else if argument.hasPrefix("--") {
                 throw CLIError(message: String.localizedStringWithFormat(
                     String(localized: "cli.simulator.error.unknownFlag",
@@ -45,7 +65,7 @@ extension CMUXCLI {
         _ arguments: SimulatorArguments,
         maximumBytes: Int
     ) throws -> String {
-        guard arguments.optionValue == nil else {
+        guard arguments.optionValue == nil, !arguments.hasAccessibilitySelector else {
             throw simulatorArgumentsError("input")
         }
         guard arguments.positionals.count <= 1 else {
@@ -100,7 +120,8 @@ extension CMUXCLI {
         guard arguments.positionals.isEmpty,
               !arguments.readsStandardInput,
               arguments.file == nil,
-              arguments.optionValue == nil else {
+              arguments.optionValue == nil,
+              !arguments.hasAccessibilitySelector else {
             throw CLIError(message: String.localizedStringWithFormat(
                 String(localized: "cli.simulator.error.unexpectedArgumentForCommand",
                        defaultValue: "simulator %@ does not accept input"), subcommand

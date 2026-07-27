@@ -140,11 +140,75 @@ extension TerminalController {
                 mutationCommitted = operation.commitsExternalMutation
                 payload = .object(["completed": .bool(true)])
             case let .gesture(touches):
-                let geometry = coordinator.display.map(SimulatorOrientationGeometry.init(display:))
-                let events = try touches.map { try controlSimulatorPointerEvent($0, geometry: geometry) }
-                _ = try await coordinator.perform(.interactive(.gesture(events)))
+                let eventCount = try await performSimulatorGesture(
+                    touches,
+                    coordinator: coordinator
+                )
                 mutationCommitted = operation.commitsExternalMutation
-                payload = .object(["completed": .bool(true), "event_count": .int(Int64(events.count))])
+                payload = .object([
+                    "completed": .bool(true),
+                    "event_count": .int(Int64(eventCount)),
+                ])
+            case let .accessibilityTap(label, identifier, role):
+                guard coordinator.supports(.touch) else {
+                    throw SimulatorFailure(
+                        code: "simulator_capability_unavailable",
+                        message: String(
+                            localized: "cli.simulator.error.capabilityUnavailable",
+                            defaultValue: "The active Simulator worker does not support this operation"
+                        ),
+                        isRecoverable: true
+                    )
+                }
+                guard case let .accessibility(snapshot) = try await coordinator.perform(
+                    .readAccessibility
+                ) else {
+                    throw invalidSimulatorOperation(String(
+                        localized: "cli.simulator.error.accessibilityMissing",
+                        defaultValue: "The Simulator worker returned no accessibility snapshot"
+                    ))
+                }
+                let targets = snapshot.interactionTargets(
+                    label: label,
+                    identifier: identifier,
+                    role: role
+                )
+                guard !targets.isEmpty else {
+                    throw invalidSimulatorOperation(String(
+                        localized: "cli.simulator.error.tapTargetNotFound",
+                        defaultValue: "No visible enabled Simulator element matched the accessibility selector"
+                    ))
+                }
+                guard targets.count == 1, let target = targets.first else {
+                    throw invalidSimulatorOperation(String(
+                        localized: "cli.simulator.error.tapTargetAmbiguous",
+                        defaultValue: "Multiple visible Simulator elements matched; add --identifier or --role"
+                    ))
+                }
+                let touches = [
+                    ControlSimulatorTouch(
+                        phase: "began", x: target.point.x, y: target.point.y
+                    ),
+                    ControlSimulatorTouch(
+                        phase: "ended", x: target.point.x, y: target.point.y
+                    ),
+                ]
+                let eventCount = try await performSimulatorGesture(
+                    touches,
+                    coordinator: coordinator
+                )
+                mutationCommitted = operation.commitsExternalMutation
+                payload = .object([
+                    "completed": .bool(true),
+                    "event_count": .int(Int64(eventCount)),
+                    "target": .object([
+                        "identifier": .string(target.node.id),
+                        "label": target.node.label.map(JSONValue.string) ?? .null,
+                        "role": target.node.role.map(JSONValue.string) ?? .null,
+                        "x": .double(target.point.x),
+                        "y": .double(target.point.y),
+                    ]),
+                ])
             case let .hardwareButton(raw):
                 guard let button = SimulatorHardwareButton(rawValue: raw) else {
                     throw invalidSimulatorOperation(String.localizedStringWithFormat(
@@ -354,6 +418,7 @@ extension TerminalController {
         case .selectDevice: nil
         case .recover: nil
         case let .gesture(events): events.contains(where: { $0.secondX != nil }) ? .multiTouch : .touch
+        case .accessibilityTap: .accessibility
         case .hardwareButton: .hardwareButtons
         case .rotate: .rotation
         case .coreAnimation: .coreAnimationDiagnostics
@@ -405,6 +470,16 @@ extension TerminalController {
             ))
         }
         return deviceID
+    }
+
+    private func performSimulatorGesture(
+        _ touches: [ControlSimulatorTouch],
+        coordinator: SimulatorPaneCoordinator
+    ) async throws -> Int {
+        let geometry = coordinator.display.map(SimulatorOrientationGeometry.init(display:))
+        let events = try touches.map { try controlSimulatorPointerEvent($0, geometry: geometry) }
+        _ = try await coordinator.perform(.interactive(.gesture(events)))
+        return events.count
     }
 
     private func simulatorCommittedMutationPayload(
