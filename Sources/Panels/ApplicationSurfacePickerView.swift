@@ -48,7 +48,7 @@ struct ApplicationSurfacePickerView: View {
             content
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.black)
+        .background(Color.clear)
         .accessibilityIdentifier("ApplicationSurfacePicker")
     }
 
