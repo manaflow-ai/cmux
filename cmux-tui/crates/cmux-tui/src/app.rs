@@ -2409,6 +2409,13 @@ pub struct PaneViewportClip {
     pub full_content_width: u16,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PaneSizeLease {
+    pane: PaneId,
+    surface: SurfaceId,
+    content_size: (u16, u16),
+}
+
 impl PaneArea {
     pub(crate) fn logical_rect(&self) -> Rect {
         Rect {
@@ -3520,6 +3527,74 @@ struct PaneAreaProjection<'a> {
     viewport_offset: Option<u64>,
 }
 
+fn full_pane_parts_for_layout(
+    screen: &ScreenView,
+    pane_id: PaneId,
+    full_rect: VirtualRect,
+    stacked_headers: &HashSet<PaneId>,
+    scrollbar_position: ScrollbarPosition,
+    surface_only: Option<SurfaceId>,
+) -> Option<(SurfaceId, PaneParts<VirtualRect>)> {
+    let pane = screen.pane(pane_id)?;
+    let surface_id = pane.active_surface()?;
+    let has_browser_omnibar =
+        pane.tabs.get(pane.active_tab).is_some_and(|tab| tab.kind == SurfaceKind::Browser);
+    let parts = if surface_only.is_some() {
+        (None, None, full_rect, None)
+    } else if stacked_headers.contains(&pane_id) {
+        stacked_header_parts_for_virtual_rect(full_rect)?
+    } else {
+        pane_parts_for_virtual_rect(full_rect, scrollbar_position, has_browser_omnibar)?
+    };
+    Some((surface_id, parts))
+}
+
+fn swept_viewport_size_leases(
+    projection: PaneAreaProjection<'_>,
+    target_offset: u64,
+) -> Vec<PaneSizeLease> {
+    let PaneAreaProjection {
+        screen,
+        layout,
+        stacked_headers,
+        area,
+        scrollbar_position,
+        surface_only,
+        viewport_offset,
+    } = projection;
+    let current_offset = viewport_offset.unwrap_or(0);
+    let swept_left = u64::from(area.x).saturating_add(current_offset.min(target_offset));
+    let swept_right = u64::from(area.x)
+        .saturating_add(current_offset.max(target_offset))
+        .saturating_add(u64::from(area.width));
+    layout
+        .iter()
+        .filter_map(|&(pane_id, full_rect)| {
+            let (surface, (_, _, content, _)) = full_pane_parts_for_layout(
+                screen,
+                pane_id,
+                full_rect,
+                stacked_headers,
+                scrollbar_position,
+                surface_only,
+            )?;
+            let content_right = content.x.saturating_add(content.width);
+            if content.height == 0
+                || content.width == 0
+                || content.x >= swept_right
+                || content_right <= swept_left
+            {
+                return None;
+            }
+            Some(PaneSizeLease {
+                pane: pane_id,
+                surface,
+                content_size: (u16::try_from(content.width).unwrap_or(u16::MAX), content.height),
+            })
+        })
+        .collect()
+}
+
 fn rebuild_pane_areas(pane_areas: &mut Vec<PaneArea>, projection: PaneAreaProjection<'_>) {
     let PaneAreaProjection {
         screen,
@@ -3533,21 +3608,16 @@ fn rebuild_pane_areas(pane_areas: &mut Vec<PaneArea>, projection: PaneAreaProjec
     pane_areas.clear();
     let viewport_x = viewport_offset.map(|offset| u64::from(area.x).saturating_add(offset));
     for &(pane_id, full_rect) in layout {
-        let Some(pane) = screen.pane(pane_id) else {
-            continue;
-        };
-        let Some(surface_id) = pane.active_surface() else {
-            continue;
-        };
-        let has_browser_omnibar =
-            pane.tabs.get(pane.active_tab).is_some_and(|tab| tab.kind == SurfaceKind::Browser);
-        let Some((full_bar, full_omnibar, full_content, full_track)) = (if surface_only.is_some() {
-            Some((None, None, full_rect, None))
-        } else if stacked_headers.contains(&pane_id) {
-            stacked_header_parts_for_virtual_rect(full_rect)
-        } else {
-            pane_parts_for_virtual_rect(full_rect, scrollbar_position, has_browser_omnibar)
-        }) else {
+        let Some((surface_id, (full_bar, full_omnibar, full_content, full_track))) =
+            full_pane_parts_for_layout(
+                screen,
+                pane_id,
+                full_rect,
+                stacked_headers,
+                scrollbar_position,
+                surface_only,
+            )
+        else {
             continue;
         };
         let (rect, rect_source_x, bar, omnibar, omnibar_source_x, content, content_source_x, track) =
@@ -3746,8 +3816,9 @@ pub struct App {
     /// Terminal cells actually represented by the last rendered snapshot.
     /// Foreign-viewer padding outside these bounds is display-only.
     pub(crate) rendered_terminal_bounds: HashMap<SurfaceId, Rect>,
-    /// Surfaces whose active tabs occupy the current layout destination.
-    /// Attach streams may outlive this set, but only members hold size leases.
+    /// Surfaces whose active tabs occupy the current viewport or an active
+    /// animation sweep. Attach streams may outlive this set, but only members
+    /// hold size leases.
     visible_size_surfaces: HashSet<SurfaceId>,
     /// Hidden leases stay owned until the server confirms their idempotent
     /// release. Failures clear this set so a later layout pass retries them.
@@ -6602,17 +6673,20 @@ impl App {
         };
         let maximum =
             self.viewport_virtual_width.saturating_sub(u64::from(self.content_area.width));
-        let Some(motion) = self.viewport_states.get_mut(&screen) else {
-            return RenderAction::None;
+        let (offset, settled) = {
+            let Some(motion) = self.viewport_states.get_mut(&screen) else {
+                return RenderAction::None;
+            };
+            let was_animating = motion.animating();
+            let _ = motion.update(now);
+            (motion.offset().min(maximum), was_animating && !motion.animating())
         };
-        let _ = motion.update(now);
-        let offset = motion.offset().min(maximum);
         if offset == self.viewport_offset {
-            return RenderAction::None;
+            return if settled { RenderAction::Draw } else { RenderAction::None };
         }
         self.viewport_offset = offset;
         self.reclip_viewport_panes();
-        RenderAction::Paint
+        if settled { RenderAction::Draw } else { RenderAction::Paint }
     }
 
     fn reclip_viewport_panes(&mut self) {
@@ -6793,9 +6867,8 @@ impl App {
             },
         );
 
-        // Size and attach the animation destination up front. Paint-only
-        // ticks can then reveal cached surfaces without doing socket work.
-        let mut lease_areas = Vec::new();
+        // Size and attach every pane crossed by an animation up front.
+        // Paint-only ticks can then reveal cached surfaces without socket work.
         let target_offset = viewport_enabled.then(|| {
             let maximum = layout.virtual_width.saturating_sub(u64::from(area.width));
             self.viewport_states
@@ -6803,11 +6876,8 @@ impl App {
                 .map_or(self.viewport_offset, |motion| motion.target.round() as u64)
                 .min(maximum)
         });
-        if target_offset == Some(self.viewport_offset) || !viewport_enabled {
-            lease_areas.extend_from_slice(&self.pane_areas);
-        } else {
-            rebuild_pane_areas(
-                &mut lease_areas,
+        let size_leases = if let Some(target_offset) = target_offset {
+            swept_viewport_size_leases(
                 PaneAreaProjection {
                     screen: &screen,
                     layout: &layout.panes,
@@ -6815,16 +6885,23 @@ impl App {
                     area,
                     scrollbar_position: self.config.scrollbar.position,
                     surface_only: self.surface_only,
-                    viewport_offset: target_offset,
+                    viewport_offset: Some(self.viewport_offset),
                 },
-            );
-        }
+                target_offset,
+            )
+        } else {
+            self.pane_areas
+                .iter()
+                .filter(|area| area.content.width > 0 && area.content.height > 0)
+                .map(|area| PaneSizeLease {
+                    pane: area.pane,
+                    surface: area.surface,
+                    content_size: area.content_size(),
+                })
+                .collect()
+        };
 
-        let visible = lease_areas
-            .iter()
-            .filter(|area| area.content.width > 0 && area.content.height > 0)
-            .map(|area| area.surface)
-            .collect::<HashSet<_>>();
+        let visible = size_leases.iter().map(|lease| lease.surface).collect::<HashSet<_>>();
         let hidden = self
             .visible_size_surfaces
             .difference(&visible)
@@ -6844,14 +6921,11 @@ impl App {
         self.visible_size_surfaces.extend(visible);
 
         // Keep inactive tabs attached for instant rendering, but give only
-        // each destination pane's active tab a sizing lease. This makes the
-        // settled viewport, not cached transport state, the ownership boundary.
-        for area in lease_areas {
-            if area.content.width == 0 || area.content.height == 0 {
-                continue;
-            }
-            let Some(pane) = screen.pane(area.pane) else { continue };
-            let content_size = area.content_size();
+        // active tabs in the swept viewport a sizing lease. The settling draw
+        // releases panes outside the final viewport.
+        for lease in size_leases {
+            let Some(pane) = screen.pane(lease.pane) else { continue };
+            let content_size = lease.content_size;
             for tab in &pane.tabs {
                 if self.surface_only.is_some_and(|surface| surface != tab.surface) {
                     continue;
@@ -6859,7 +6933,7 @@ impl App {
                 if self.session.has_surface(tab.surface) {
                     continue;
                 }
-                let size = (tab.surface == area.surface)
+                let size = (tab.surface == lease.surface)
                     .then_some(content_size)
                     .filter(|(cols, rows)| *cols > 0 && *rows > 0);
                 if self.session.can_attach_surface(tab.surface)
@@ -6868,22 +6942,22 @@ impl App {
                     self.session.attach_surface(tab.surface, size);
                 }
             }
-            let Some(surface) = self.session.surface(area.surface) else { continue };
+            let Some(surface) = self.session.surface(lease.surface) else { continue };
             let desired = content_size;
             if surface.kind() == SurfaceKind::Browser
-                && self.browser_input.resize_failed(area.surface, desired)
+                && self.browser_input.resize_failed(lease.surface, desired)
             {
                 continue;
             }
-            let needs = newly_visible.contains(&area.surface)
-                || !self.session.has_surface_size_report(area.surface)
+            let needs = newly_visible.contains(&lease.surface)
+                || !self.session.has_surface_size_report(lease.surface)
                 || surface.resize_needed(content_size.0, content_size.1, false);
             if let SurfaceResizeDecision::NeedsQueue(claim) =
-                self.session.surface_resize_decision(area.surface, desired, needs)
+                self.session.surface_resize_decision(lease.surface, desired, needs)
                 && self.prepare_pty_input_before_mutation()
             {
                 self.enqueue_surface_resize(
-                    area.surface,
+                    lease.surface,
                     surface,
                     content_size.0,
                     content_size.1,
@@ -12896,20 +12970,21 @@ mod tests {
         App, AppEvent, BACKGROUND_REFRESH_RETRIES, ContextMenu, DeferredInput, Drag, FocusTarget,
         ForwardMuxOutcome, MachineActionWorker, MachineConnectRoute, MenuAction, MenuItem,
         MuxTitleIngress, OmnibarHit, OmnibarState, OrderedSession, OuterCursorSpec, PaneArea,
-        PaneEdge, PaneFocusHistory, PaneResizeDragTarget, PaneViewportClip, PendingSessionMutation,
-        PendingSessionMutationState, PromptTarget, PtyFailureIngress, PtyMousePressResult,
-        RailKind, RenderAction, Selection, SessionCompletion, SessionCompletionAction,
-        SessionEventSender, ShortcutHelp, SidebarLayout, SidebarPluginSyncClaim,
-        SidebarPluginSyncState, StdoutLock, SurfaceResizeDecision, SurfaceResizeOwnership,
-        TextInput, VIEWPORT_ANIMATION_DURATION, ViewportMotion, WorkspaceRailSelection,
-        action_available_in_mode, browser_content_size_for_rect, browser_frame_source_crop,
-        browser_hover_forward_allowed, browser_source_crop, canonical_terminal_content,
-        catch_renderer_panic, clamp_split_ratio_for_tab_bars, client_menu_item,
-        clip_horizontal_rect, forward_host_input, forward_mux_event, forward_mux_events,
-        layout_undo_error_completion, outer_cursor_escape, outer_cursor_escape_if_changed,
-        pane_context_menu_groups, pane_parts_for_rect, prepare_ordered_session,
-        preserve_client_view, rail_drag_width, record_surface_resize_dispatch_result,
-        sidebar_layout_for, sidebar_plugin_status_settles_passive_claim, start_ordered_session,
+        PaneAreaProjection, PaneEdge, PaneFocusHistory, PaneResizeDragTarget, PaneViewportClip,
+        PendingSessionMutation, PendingSessionMutationState, PromptTarget, PtyFailureIngress,
+        PtyMousePressResult, RailKind, RenderAction, Selection, SessionCompletion,
+        SessionCompletionAction, SessionEventSender, ShortcutHelp, SidebarLayout,
+        SidebarPluginSyncClaim, SidebarPluginSyncState, StdoutLock, SurfaceResizeDecision,
+        SurfaceResizeOwnership, TextInput, VIEWPORT_ANIMATION_DURATION, ViewportMotion,
+        WorkspaceRailSelection, action_available_in_mode, browser_content_size_for_rect,
+        browser_frame_source_crop, browser_hover_forward_allowed, browser_source_crop,
+        canonical_terminal_content, catch_renderer_panic, clamp_split_ratio_for_tab_bars,
+        client_menu_item, clip_horizontal_rect, forward_host_input, forward_mux_event,
+        forward_mux_events, layout_undo_error_completion, outer_cursor_escape,
+        outer_cursor_escape_if_changed, pane_context_menu_groups, pane_parts_for_rect,
+        prepare_ordered_session, preserve_client_view, rail_drag_width,
+        record_surface_resize_dispatch_result, sidebar_layout_for,
+        sidebar_plugin_status_settles_passive_claim, start_ordered_session,
         swept_viewport_size_leases, with_panic_stdout_lock,
     };
     use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
@@ -14402,13 +14477,15 @@ mod tests {
         ];
 
         let leases = swept_viewport_size_leases(
-            &screen,
-            &layout,
-            &HashSet::new(),
-            Rect { x: 0, y: 0, width: 80, height: 24 },
-            ScrollbarPosition::Column,
-            None,
-            0,
+            PaneAreaProjection {
+                screen: &screen,
+                layout: &layout,
+                stacked_headers: &HashSet::new(),
+                area: Rect { x: 0, y: 0, width: 80, height: 24 },
+                scrollbar_position: ScrollbarPosition::Column,
+                surface_only: None,
+                viewport_offset: Some(0),
+            },
             160,
         );
 
