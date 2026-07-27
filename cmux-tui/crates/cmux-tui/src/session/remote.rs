@@ -1642,13 +1642,15 @@ impl RemoteSession {
             .iter()
             .filter_map(|(surface, _, deferred)| (!deferred).then_some(*surface))
             .collect::<HashSet<_>>();
+        let use_target_for_creation =
+            failures.is_empty() || failures.iter().all(|(_, _, deferred)| *deferred);
         let failed_snapshots = snapshots
             .iter()
             .filter(|(surface, _)| failed_surfaces.contains(&surface.id))
             .cloned()
             .collect::<Vec<_>>();
         Self::restore_cell_pixels(&failed_snapshots)?;
-        if failures.is_empty() {
+        if use_target_for_creation {
             *self.cell_pixels.lock().unwrap() = next;
         }
         let failures =

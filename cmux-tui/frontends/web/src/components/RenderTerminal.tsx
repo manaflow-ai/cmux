@@ -35,7 +35,10 @@ const RenderRowView = memo(function RenderRowView({
     <div
       aria-hidden={backgroundOnly || undefined}
       className={backgroundOnly ? "render-row-background" : "render-row"}
-      style={{ top: `calc(var(--render-cell-height) * ${index})` }}
+      style={{
+        top: `calc(var(--render-cell-height) * ${index})`,
+        ...(backgroundOnly ? { backgroundColor: defaultBg } : {}),
+      }}
       {...(backgroundOnly ? {} : { "data-row": row.row })}
     >
       {row.runs.map((run, runIndex) => {

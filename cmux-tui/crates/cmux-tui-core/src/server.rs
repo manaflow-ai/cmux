@@ -842,13 +842,16 @@ impl Drop for BudgetedText {
 
 struct BudgetedJsonWriter {
     bytes: Vec<u8>,
+    // Total quota charged while this writer is alive. A reserved writer
+    // starts with logical quota but grows its Vec only as bytes are written.
     retained_bytes: usize,
+    reservation_bytes: usize,
     budget: Arc<OutboundByteBudget>,
 }
 
 impl BudgetedJsonWriter {
     fn new(budget: Arc<OutboundByteBudget>) -> Self {
-        Self { bytes: Vec::new(), retained_bytes: 0, budget }
+        Self { bytes: Vec::new(), retained_bytes: 0, reservation_bytes: 0, budget }
     }
 
     fn with_reservation(
@@ -856,7 +859,14 @@ impl BudgetedJsonWriter {
         reserved_bytes: usize,
     ) -> std::io::Result<Self> {
         let mut writer = Self::new(budget);
-        writer.ensure_capacity(reserved_bytes)?;
+        if !writer.budget.try_retain(reserved_bytes) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::WouldBlock,
+                "global outbound byte budget overflowed",
+            ));
+        }
+        writer.retained_bytes = reserved_bytes;
+        writer.reservation_bytes = reserved_bytes;
         Ok(writer)
     }
 
@@ -865,32 +875,37 @@ impl BudgetedJsonWriter {
             return Ok(());
         }
         let target = required_len.checked_next_power_of_two().unwrap_or(required_len).max(8);
-        let additional_retained = target.saturating_sub(self.retained_bytes);
-        if !self.budget.try_retain(additional_retained) {
+        let previous_retained = self.retained_bytes;
+        let target_retained = target.max(self.reservation_bytes);
+        let additional_retained = target_retained.saturating_sub(previous_retained);
+        if additional_retained > 0 && !self.budget.try_retain(additional_retained) {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::WouldBlock,
                 "global outbound byte budget overflowed",
             ));
         }
-        self.retained_bytes += additional_retained;
+        self.retained_bytes = target_retained;
         if let Err(error) = self.bytes.try_reserve_exact(target.saturating_sub(self.bytes.len())) {
-            self.retained_bytes -= additional_retained;
-            self.budget.release(additional_retained);
+            self.retained_bytes = previous_retained;
+            if additional_retained > 0 {
+                self.budget.release(additional_retained);
+            }
             return Err(std::io::Error::other(error));
         }
         let actual_capacity = self.bytes.capacity();
-        if actual_capacity > self.retained_bytes {
-            let additional = actual_capacity - self.retained_bytes;
+        let actual_retained = actual_capacity.max(self.reservation_bytes);
+        if actual_retained > self.retained_bytes {
+            let additional = actual_retained - self.retained_bytes;
             if !self.budget.try_retain(additional) {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::WouldBlock,
                     "global outbound byte budget overflowed",
                 ));
             }
-            self.retained_bytes = actual_capacity;
-        } else if actual_capacity < self.retained_bytes {
-            let unused = self.retained_bytes - actual_capacity;
-            self.retained_bytes = actual_capacity;
+            self.retained_bytes = actual_retained;
+        } else if actual_retained < self.retained_bytes {
+            let unused = self.retained_bytes - actual_retained;
+            self.retained_bytes = actual_retained;
             self.budget.release(unused);
         }
         Ok(())
@@ -898,8 +913,13 @@ impl BudgetedJsonWriter {
 
     fn finish(mut self) -> Arc<BudgetedText> {
         let bytes = std::mem::take(&mut self.bytes);
-        let retained_bytes = self.retained_bytes;
+        let retained_bytes = bytes.capacity();
+        debug_assert!(retained_bytes <= self.retained_bytes);
+        if retained_bytes < self.retained_bytes {
+            self.budget.release(self.retained_bytes - retained_bytes);
+        }
         self.retained_bytes = 0;
+        self.reservation_bytes = 0;
         let text = String::from_utf8(bytes).expect("serde_json emits UTF-8");
         Arc::new(BudgetedText { text, retained_bytes, budget: self.budget.clone() })
     }
@@ -2563,9 +2583,9 @@ fn send_vt_state_command_response(
     surface: SurfaceId,
     writer: &MessageWriter,
 ) -> anyhow::Result<()> {
-    // Reserve and allocate the entire wire-frame allowance before copying a
-    // replay or starting its base64 encoder. Concurrent large commands are
-    // rejected before they can build unaccounted response buffers.
+    // Reserve the entire wire-frame allowance before copying a replay or
+    // starting its base64 encoder. The writer allocates only for actual
+    // output and releases unused logical quota before the response is queued.
     let mut output = writer.render_service.reserved_control_writer()?;
     let surface = get_surface(mux, surface)?;
     require_pty(&surface)?;
