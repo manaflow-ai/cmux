@@ -658,7 +658,7 @@ fn legacy_server_process_helper() {
                 drop(reader);
                 drop(stream);
                 drop(listener);
-                fs::remove_file(&socket).unwrap();
+                let _ = fs::remove_file(&socket);
                 return;
             }
             if scenario == "applied-close-disconnect" {
@@ -1630,6 +1630,7 @@ fn server_stop_fails_closed_when_another_legacy_client_can_create_surfaces() {
     );
     assert!(server.child.try_wait().unwrap().is_none());
     assert!(process_exists(descendant_pid));
+    assert!(transport::connect(&server.socket).is_ok(), "failed shutdown did not restore socket");
 }
 
 #[cfg(unix)]
@@ -1871,6 +1872,7 @@ fn server_stop_refuses_when_a_legacy_close_error_leaves_the_surface_present() {
     );
     assert!(server.child.try_wait().unwrap().is_none());
     assert!(process_exists(descendant_pid));
+    assert!(transport::connect(&server.socket).is_ok(), "failed shutdown did not restore socket");
 }
 
 #[cfg(unix)]

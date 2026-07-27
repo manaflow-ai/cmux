@@ -24,8 +24,8 @@ mod legacy_process;
 use legacy_process::terminate_process_tree;
 #[cfg(unix)]
 use legacy_process::{
-    CapturedProcessSession, CapturedProcessTree, ProcessIdentity, capture_process_session,
-    capture_process_tree_until,
+    CapturedProcessSession, CapturedProcessTree, FrozenProcessTree, ProcessIdentity,
+    capture_process_session, capture_process_tree_until, freeze_process_tree_until,
 };
 
 const PROBE_REQUEST_ID: u64 = 0;
@@ -61,9 +61,175 @@ type TransportReader = BufReader<Box<dyn transport::Stream>>;
 #[cfg(unix)]
 static LEGACY_HELPER_CANCELLED: AtomicBool = AtomicBool::new(false);
 #[cfg(unix)]
+static LEGACY_SOCKET_QUARANTINE_SEQUENCE: AtomicUsize = AtomicUsize::new(1);
+#[cfg(unix)]
 static LEGACY_HELPER_REAPER: OnceLock<Option<LegacyHelperReaper>> = OnceLock::new();
 #[cfg(all(unix, test))]
 static LEGACY_HELPER_REAPER_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+#[cfg(unix)]
+struct LegacySocketQuarantine {
+    original: PathBuf,
+    quarantined: PathBuf,
+    device: u64,
+    inode: u64,
+    armed: bool,
+}
+
+#[cfg(unix)]
+impl LegacySocketQuarantine {
+    fn acquire(original: &Path) -> std::io::Result<Self> {
+        use std::os::unix::fs::{FileTypeExt as _, MetadataExt as _};
+
+        let metadata = std::fs::symlink_metadata(original)?;
+        if !metadata.file_type().is_socket() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "legacy control path is not a socket",
+            ));
+        }
+        let parent = original.parent().ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "legacy control socket has no parent directory",
+            )
+        })?;
+        for _ in 0..64 {
+            let sequence = LEGACY_SOCKET_QUARANTINE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+            let quarantined = parent.join(format!(".cs-{:x}-{sequence:x}", std::process::id()));
+            match std::fs::hard_link(original, &quarantined) {
+                Ok(()) => {
+                    if let Err(error) = std::fs::remove_file(original) {
+                        let _ = std::fs::remove_file(&quarantined);
+                        return Err(error);
+                    }
+                    let moved = std::fs::symlink_metadata(&quarantined)?;
+                    if moved.dev() != metadata.dev()
+                        || moved.ino() != metadata.ino()
+                        || !moved.file_type().is_socket()
+                    {
+                        let _ = std::fs::hard_link(&quarantined, original);
+                        let _ = std::fs::remove_file(&quarantined);
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            "legacy control socket identity changed during quarantine",
+                        ));
+                    }
+                    return Ok(Self {
+                        original: original.to_path_buf(),
+                        quarantined,
+                        device: metadata.dev(),
+                        inode: metadata.ino(),
+                        armed: true,
+                    });
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(error) => return Err(error),
+            }
+        }
+        Err(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            "could not reserve a private legacy control socket path",
+        ))
+    }
+
+    fn adopt(
+        original: PathBuf,
+        quarantined: PathBuf,
+        device: u64,
+        inode: u64,
+    ) -> std::io::Result<Self> {
+        let quarantine = Self { original, quarantined, device, inode, armed: true };
+        if quarantine.matches(&quarantine.quarantined)? != Some(true) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "private legacy control socket identity changed",
+            ));
+        }
+        Ok(quarantine)
+    }
+
+    fn path(&self) -> &Path {
+        &self.quarantined
+    }
+
+    fn matches(&self, path: &Path) -> std::io::Result<Option<bool>> {
+        use std::os::unix::fs::{FileTypeExt as _, MetadataExt as _};
+
+        match std::fs::symlink_metadata(path) {
+            Ok(metadata) => Ok(Some(
+                metadata.file_type().is_socket()
+                    && metadata.dev() == self.device
+                    && metadata.ino() == self.inode,
+            )),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
+    fn restore(&mut self) -> std::io::Result<()> {
+        if !self.armed {
+            return Ok(());
+        }
+        match (self.matches(&self.original)?, self.matches(&self.quarantined)?) {
+            (Some(true), Some(true)) => {
+                std::fs::remove_file(&self.quarantined)?;
+            }
+            (Some(true), None) => {}
+            (None, Some(true)) => {
+                std::fs::hard_link(&self.quarantined, &self.original)?;
+                std::fs::remove_file(&self.quarantined)?;
+            }
+            (Some(false), _) | (_, Some(false)) => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::AlreadyExists,
+                    "legacy control socket path was replaced during shutdown",
+                ));
+            }
+            (None, None) => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "legacy control socket disappeared during shutdown",
+                ));
+            }
+        }
+        self.armed = false;
+        Ok(())
+    }
+
+    fn commit(&mut self) -> std::io::Result<()> {
+        if !self.armed {
+            return Ok(());
+        }
+        for path in [&self.quarantined, &self.original] {
+            match self.matches(path)? {
+                Some(true) => std::fs::remove_file(path)?,
+                Some(false) => {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::AlreadyExists,
+                        "legacy control socket path was replaced during shutdown",
+                    ));
+                }
+                None => {}
+            }
+        }
+        self.armed = false;
+        Ok(())
+    }
+}
+
+#[cfg(unix)]
+impl Drop for LegacySocketQuarantine {
+    fn drop(&mut self) {
+        let _ = self.restore();
+    }
+}
+
+#[cfg(unix)]
+struct LegacySurfaceCleanup {
+    owners: Vec<CapturedProcessSession>,
+    frozen_server: Option<FrozenProcessTree>,
+}
 
 #[cfg(unix)]
 struct LegacyHelperReaper {
@@ -500,9 +666,15 @@ impl ServerLifecycle {
     #[cfg(unix)]
     fn stop_legacy_server(self) -> anyhow::Result<()> {
         let process = verified_legacy_process(self.probe.identity.pid, self.peer_process_id)?;
-        let result = run_detached_legacy_stop(&self.path, process);
+        // Preserve the exact socket inode at a private sibling path, then
+        // remove the public name before starting the detached helper. Existing
+        // streams stay valid, while no new caller can enter the legacy
+        // mutation protocol through the advertised path.
+        let quarantine = LegacySocketQuarantine::acquire(&self.path).map_err(|_| {
+            anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
+        })?;
         drop(self.reader);
-        result
+        run_detached_legacy_stop(quarantine, process)
     }
 
     #[cfg(not(unix))]
@@ -516,7 +688,7 @@ impl ServerLifecycle {
         expected: ProcessIdentity,
         captured: &CapturedProcessTree,
         deadline: Instant,
-    ) -> anyhow::Result<Vec<CapturedProcessSession>> {
+    ) -> anyhow::Result<LegacySurfaceCleanup> {
         let mut next_request_id = LEGACY_LIST_REQUEST_ID;
         let mut consecutive_empty_scans = 0;
         let mut owners = Vec::<CapturedProcessSession>::new();
@@ -527,6 +699,7 @@ impl ServerLifecycle {
             if Instant::now() >= deadline {
                 anyhow::bail!(crate::localization::catalog().server.legacy_cleanup_failed);
             }
+            self.require_exclusive_legacy_client(&mut next_request_id, deadline)?;
             let closed = match self.close_legacy_surface_snapshot(
                 &mut next_request_id,
                 expected,
@@ -546,7 +719,7 @@ impl ServerLifecycle {
                     let verified_exit = phase == LegacyConnectionPhase::ClosingVerifiedSnapshot
                         || (phase == LegacyConnectionPhase::Listing && previous_snapshot_completed);
                     if verified_exit && legacy_server_retired(expected, &self.path)? {
-                        return Ok(owners);
+                        return Ok(LegacySurfaceCleanup { owners, frozen_server: None });
                     }
                     if let Err(reconnect_error) = self.reconnect_legacy_server(expected, deadline) {
                         if verified_exit
@@ -554,7 +727,7 @@ impl ServerLifecycle {
                                 expected, &self.path, deadline,
                             )?
                         {
-                            return Ok(owners);
+                            return Ok(LegacySurfaceCleanup { owners, frozen_server: None });
                         }
                         return Err(reconnect_error);
                     }
@@ -565,15 +738,59 @@ impl ServerLifecycle {
             };
             previous_snapshot_completed = true;
             if closed == 0 {
+                self.require_exclusive_legacy_client(&mut next_request_id, deadline)?;
                 consecutive_empty_scans += 1;
                 if consecutive_empty_scans == LEGACY_STABLE_EMPTY_SCANS {
-                    return Ok(owners);
+                    // Stop the verified server before accepting the final
+                    // empty snapshot. The frozen tree records every remaining
+                    // PTY session while no connection handler can create or
+                    // reparent another surface.
+                    let frozen_server =
+                        freeze_process_tree_until(expected, deadline).map_err(|_| {
+                            anyhow::anyhow!(
+                                crate::localization::catalog().server.legacy_cleanup_failed
+                            )
+                        })?;
+                    return Ok(LegacySurfaceCleanup { owners, frozen_server: Some(frozen_server) });
                 }
             } else {
                 consecutive_empty_scans = 0;
             }
         }
         anyhow::bail!(crate::localization::catalog().server.legacy_cleanup_failed)
+    }
+
+    #[cfg(unix)]
+    fn require_exclusive_legacy_client(
+        &mut self,
+        next_request_id: &mut u64,
+        deadline: Instant,
+    ) -> anyhow::Result<()> {
+        let request_id = take_legacy_request_id(next_request_id)?;
+        set_transport_deadline(self.reader.get_mut().as_ref(), deadline).map_err(|_| {
+            anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
+        })?;
+        write_json_line(self.reader.get_mut(), &json!({"id": request_id, "cmd": "list-clients"}))
+            .map_err(|_| {
+            anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
+        })?;
+        let response =
+            read_response_until(&mut self.reader, request_id, deadline).map_err(|_| {
+                anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
+            })?;
+        let clients = response_data(&response)?.as_array().ok_or_else(|| {
+            anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
+        })?;
+        let exclusive = clients.len() == 1
+            && clients[0].get("self").and_then(Value::as_bool) == Some(true)
+            && clients[0].get("transport").and_then(Value::as_str) == Some("unix");
+        // The public listener name is already quarantined. Refusing every
+        // previously accepted peer leaves this helper as the only process
+        // capable of mutating legacy topology before the final freeze.
+        if !exclusive {
+            anyhow::bail!(crate::localization::catalog().server.legacy_cleanup_failed);
+        }
+        Ok(())
     }
 
     #[cfg(unix)]
@@ -718,7 +935,10 @@ fn take_legacy_request_id(next_request_id: &mut u64) -> anyhow::Result<u64> {
 }
 
 #[cfg(unix)]
-fn run_detached_legacy_stop(path: &Path, expected: ProcessIdentity) -> anyhow::Result<()> {
+fn run_detached_legacy_stop(
+    mut quarantine: LegacySocketQuarantine,
+    expected: ProcessIdentity,
+) -> anyhow::Result<()> {
     use std::os::unix::process::CommandExt;
 
     let reaper = reserve_legacy_helper_reaper()?;
@@ -728,9 +948,12 @@ fn run_detached_legacy_stop(path: &Path, expected: ProcessIdentity) -> anyhow::R
     let mut command = Command::new(executable);
     command
         .arg("__legacy-stop-helper")
-        .arg(path)
+        .arg(&quarantine.original)
+        .arg(&quarantine.quarantined)
         .arg(expected.pid().to_string())
         .arg(expected.started_at().to_string())
+        .arg(quarantine.device.to_string())
+        .arg(quarantine.inode.to_string())
         .arg(LEGACY_SHUTDOWN_TIMEOUT.as_millis().to_string())
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -749,8 +972,14 @@ fn run_detached_legacy_stop(path: &Path, expected: ProcessIdentity) -> anyhow::R
     let deadline = Instant::now() + LEGACY_SHUTDOWN_TIMEOUT + LEGACY_HELPER_WAIT_MARGIN;
     let status = wait_for_child_until(helper, reaper, deadline)?;
     if status.success() {
+        quarantine.commit().map_err(|_| {
+            anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
+        })?;
         return Ok(());
     }
+    quarantine.restore().map_err(|_| {
+        anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
+    })?;
     anyhow::bail!(crate::localization::catalog().server.legacy_cleanup_failed)
 }
 
@@ -806,7 +1035,16 @@ fn wait_for_child_until(
 #[cfg(unix)]
 pub(crate) fn run_legacy_stop_helper(args: &[String]) -> anyhow::Result<()> {
     install_legacy_helper_signal_handler();
-    let [path, expected_pid, expected_started_at, timeout_ms] = args else {
+    let [
+        original_path,
+        quarantined_path,
+        expected_pid,
+        expected_started_at,
+        device,
+        inode,
+        timeout_ms,
+    ] = args
+    else {
         anyhow::bail!(crate::localization::catalog().server.shutdown_unsupported);
     };
     let expected_pid =
@@ -815,6 +1053,12 @@ pub(crate) fn run_legacy_stop_helper(args: &[String]) -> anyhow::Result<()> {
         })?;
     let expected_started_at = expected_started_at
         .parse::<u128>()
+        .map_err(|_| anyhow::anyhow!(crate::localization::catalog().server.shutdown_unsupported))?;
+    let device = device
+        .parse::<u64>()
+        .map_err(|_| anyhow::anyhow!(crate::localization::catalog().server.shutdown_unsupported))?;
+    let inode = inode
+        .parse::<u64>()
         .map_err(|_| anyhow::anyhow!(crate::localization::catalog().server.shutdown_unsupported))?;
     let timeout = timeout_ms
         .parse::<u64>()
@@ -826,31 +1070,61 @@ pub(crate) fn run_legacy_stop_helper(args: &[String]) -> anyhow::Result<()> {
         })?;
     let deadline = Instant::now() + timeout;
     ensure_legacy_helper_active()?;
+    let mut quarantine = LegacySocketQuarantine::adopt(
+        PathBuf::from(original_path),
+        PathBuf::from(quarantined_path),
+        device,
+        inode,
+    )
+    .map_err(|_| anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed))?;
     let expected = ProcessIdentity::from_parts(expected_pid, expected_started_at);
-    let mut lifecycle = ServerLifecycle::connect_until(PathBuf::from(path), deadline)?;
-    if lifecycle.probe.identity.supports(SERVER_SHUTDOWN_CAPABILITY) {
-        anyhow::bail!(crate::localization::catalog().server.legacy_peer_mismatch);
-    }
-    let actual = verified_legacy_process(lifecycle.probe.identity.pid, lifecycle.peer_process_id)?;
-    if actual != expected {
-        anyhow::bail!(crate::localization::catalog().server.legacy_peer_mismatch);
-    }
-    let captured = capture_legacy_process_tree(actual, deadline)?;
+    let result = (|| {
+        let mut lifecycle =
+            ServerLifecycle::connect_until(quarantine.path().to_path_buf(), deadline)?;
+        if lifecycle.probe.identity.supports(SERVER_SHUTDOWN_CAPABILITY) {
+            anyhow::bail!(crate::localization::catalog().server.legacy_peer_mismatch);
+        }
+        let actual =
+            verified_legacy_process(lifecycle.probe.identity.pid, lifecycle.peer_process_id)?;
+        if actual != expected {
+            anyhow::bail!(crate::localization::catalog().server.legacy_peer_mismatch);
+        }
+        let captured = capture_legacy_process_tree(actual, deadline)?;
 
-    ensure_legacy_helper_active()?;
-    let owners =
-        lifecycle.close_legacy_surfaces_until_stable(actual, &captured, deadline).map_err(
-            |_| anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed),
-        )?;
-    for owner in owners {
         ensure_legacy_helper_active()?;
-        owner.terminate_until(deadline).map_err(|_| {
-            anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
-        })?;
+        let cleanup =
+            lifecycle.close_legacy_surfaces_until_stable(actual, &captured, deadline).map_err(
+                |_| anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed),
+            )?;
+        drop(captured);
+        for owner in cleanup.owners {
+            ensure_legacy_helper_active()?;
+            owner.terminate_until(deadline).map_err(|_| {
+                anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
+            })?;
+        }
+        if let Some(server) = cleanup.frozen_server {
+            ensure_legacy_helper_active()?;
+            server.terminate_until(deadline).map_err(|_| {
+                anyhow::anyhow!(crate::localization::catalog().server.legacy_signal_failed)
+            })?;
+        }
+        wait_for_disconnect_until(&mut lifecycle.reader, &lifecycle.path, deadline)
+    })();
+    match result {
+        Ok(()) => {
+            quarantine.commit().map_err(|_| {
+                anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
+            })?;
+            Ok(())
+        }
+        Err(error) => {
+            quarantine.restore().map_err(|_| {
+                anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
+            })?;
+            Err(error)
+        }
     }
-    ensure_legacy_helper_active()?;
-    terminate_captured_legacy_process_tree(captured, deadline)?;
-    wait_for_disconnect_until(&mut lifecycle.reader, &lifecycle.path, deadline)
 }
 
 #[cfg(unix)]
@@ -886,8 +1160,8 @@ fn legacy_process_exited(expected: ProcessIdentity) -> anyhow::Result<bool> {
 }
 
 #[cfg(unix)]
-fn legacy_server_retired(expected: ProcessIdentity, path: &Path) -> anyhow::Result<bool> {
-    Ok(!path.exists() && legacy_process_exited(expected)?)
+fn legacy_server_retired(expected: ProcessIdentity, _path: &Path) -> anyhow::Result<bool> {
+    legacy_process_exited(expected)
 }
 
 #[cfg(unix)]
@@ -919,16 +1193,6 @@ fn capture_legacy_process_tree(
     deadline: Instant,
 ) -> anyhow::Result<CapturedProcessTree> {
     capture_process_tree_until(process, deadline)
-        .map_err(|_| anyhow::anyhow!(crate::localization::catalog().server.legacy_signal_failed))
-}
-
-#[cfg(unix)]
-fn terminate_captured_legacy_process_tree(
-    process: CapturedProcessTree,
-    deadline: Instant,
-) -> anyhow::Result<()> {
-    process
-        .terminate_until(deadline)
         .map_err(|_| anyhow::anyhow!(crate::localization::catalog().server.legacy_signal_failed))
 }
 

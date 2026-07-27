@@ -165,16 +165,18 @@ pub(super) fn terminate_process_tree(process: ProcessIdentity) -> io::Result<()>
     terminate_process_tree_until(process, Instant::now() + PROCESS_TREE_RETRY_TIMEOUT)
 }
 
+#[cfg(test)]
 pub(super) fn terminate_process_tree_until(
     process: ProcessIdentity,
     deadline: Instant,
 ) -> io::Result<()> {
     retry_process_tree_termination(process, deadline, |_| {
         let tree = FrozenProcessTree::freeze(process, deadline)?;
-        tree.kill()
+        tree.terminate_until(deadline)
     })
 }
 
+#[cfg(test)]
 fn retry_process_tree_termination(
     process: ProcessIdentity,
     deadline: Instant,
@@ -209,13 +211,13 @@ pub(super) fn capture_process_tree_until(
     process: ProcessIdentity,
     deadline: Instant,
 ) -> io::Result<CapturedProcessTree> {
-    let tree = freeze_process_tree(process, deadline)?;
-    let sessions = tree.captured_sessions()?;
+    let tree = freeze_process_tree_until(process, deadline)?;
+    let sessions = tree.sessions.clone();
     drop(tree);
-    Ok(CapturedProcessTree { root: process, sessions })
+    Ok(CapturedProcessTree { sessions })
 }
 
-fn freeze_process_tree(
+pub(super) fn freeze_process_tree_until(
     process: ProcessIdentity,
     deadline: Instant,
 ) -> io::Result<FrozenProcessTree> {
@@ -248,24 +250,12 @@ fn freeze_process_tree(
 }
 
 pub(super) struct CapturedProcessTree {
-    root: ProcessIdentity,
     sessions: Vec<CapturedSession>,
 }
 
 impl CapturedProcessTree {
     fn contains_process(&self, process: ProcessIdentity) -> bool {
         self.sessions.iter().any(|session| session.members.contains(&process))
-    }
-
-    pub(super) fn terminate_until(self, deadline: Instant) -> io::Result<()> {
-        for session in &self.sessions {
-            if !session.kill_until_empty(deadline)? {
-                return Err(io::Error::other(
-                    "captured PTY session did not exit before the legacy shutdown deadline",
-                ));
-            }
-        }
-        terminate_process_tree_until(self.root, deadline)
     }
 }
 
@@ -346,6 +336,7 @@ pub(super) fn capture_process_session(
     captured.map(Some)
 }
 
+#[derive(Clone)]
 struct CapturedSession {
     id: libc::pid_t,
     members: Vec<ProcessIdentity>,
@@ -416,9 +407,10 @@ impl SessionProbe {
     }
 }
 
-struct FrozenProcessTree {
+pub(super) struct FrozenProcessTree {
     root: ProcessFence,
     descendants: Vec<ProcessFence>,
+    sessions: Vec<CapturedSession>,
 }
 
 impl FrozenProcessTree {
@@ -430,7 +422,7 @@ impl FrozenProcessTree {
                 "server exited before its process tree was fenced",
             ));
         };
-        let mut tree = Self { root, descendants: Vec::new() };
+        let mut tree = Self { root, descendants: Vec::new(), sessions: Vec::new() };
 
         let helper_pid = libc::pid_t::try_from(std::process::id())
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid helper process id"))?;
@@ -469,13 +461,14 @@ impl FrozenProcessTree {
                 }
             }
             if !added {
+                tree.sessions = tree.current_sessions()?;
                 return Ok(tree);
             }
         }
         Err(io::Error::other("legacy process tree did not stabilize"))
     }
 
-    fn captured_sessions(&self) -> io::Result<Vec<CapturedSession>> {
+    fn current_sessions(&self) -> io::Result<Vec<CapturedSession>> {
         // SAFETY: getsid only queries live, exact processes held stopped by
         // this FrozenProcessTree.
         let root_session = unsafe { libc::getsid(self.root.identity.pid) };
@@ -510,6 +503,17 @@ impl FrozenProcessTree {
             session.members.dedup();
         }
         Ok(sessions)
+    }
+
+    pub(super) fn terminate_until(self, deadline: Instant) -> io::Result<()> {
+        for session in &self.sessions {
+            if !session.kill_until_empty(deadline)? {
+                return Err(io::Error::other(
+                    "frozen PTY session did not exit before the legacy shutdown deadline",
+                ));
+            }
+        }
+        self.kill()
     }
 
     fn kill(mut self) -> io::Result<()> {
