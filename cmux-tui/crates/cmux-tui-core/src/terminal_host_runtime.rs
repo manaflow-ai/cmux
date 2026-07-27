@@ -275,8 +275,12 @@ mod unix {
     use std::collections::{HashMap, HashSet};
     use std::fs::{self, File, OpenOptions};
     use std::io::{Read, Write};
+    #[cfg(all(test, target_os = "linux"))]
     use std::mem::{offset_of, size_of};
-    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
+    use std::os::fd::{AsRawFd, RawFd};
+    #[cfg(all(test, target_os = "linux"))]
+    use std::os::fd::{FromRawFd, OwnedFd};
+    #[cfg(test)]
     use std::os::unix::ffi::OsStrExt;
     use std::os::unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt};
     use std::os::unix::net::{UnixListener, UnixStream};
@@ -2002,114 +2006,10 @@ mod unix {
     }
 
     fn connect_once_until(path: &Path, deadline: Instant) -> std::io::Result<UnixStream> {
-        let (address, address_len) = unix_socket_address(path)?;
-        // SAFETY: socket has no pointer arguments and returns a new owned
-        // descriptor on success.
-        let descriptor = unsafe { libc::socket(libc::AF_UNIX, libc::SOCK_STREAM, 0) };
-        if descriptor < 0 {
-            return Err(std::io::Error::last_os_error());
-        }
-        // SAFETY: descriptor is a fresh successful socket result and this
-        // OwnedFd takes its sole ownership.
-        let descriptor = unsafe { OwnedFd::from_raw_fd(descriptor) };
-        // SAFETY: F_GETFD only reads flags from this valid descriptor.
-        let descriptor_flags = unsafe { libc::fcntl(descriptor.as_raw_fd(), libc::F_GETFD) };
-        if descriptor_flags < 0 {
-            return Err(std::io::Error::last_os_error());
-        }
-        // SAFETY: F_SETFD updates flags on this valid descriptor.
-        if unsafe {
-            libc::fcntl(descriptor.as_raw_fd(), libc::F_SETFD, descriptor_flags | libc::FD_CLOEXEC)
-        } < 0
-        {
-            return Err(std::io::Error::last_os_error());
-        }
-        let stream = UnixStream::from(descriptor);
-        stream.set_nonblocking(true)?;
-        // SAFETY: address is an initialized sockaddr_un with its exact
-        // kernel-visible length, and stream owns a valid AF_UNIX socket.
-        let connected = unsafe {
-            libc::connect(
-                stream.as_raw_fd(),
-                (&raw const address).cast::<libc::sockaddr>(),
-                address_len,
-            )
-        };
-        if connected != 0 {
-            let error = std::io::Error::last_os_error();
-            let code = error.raw_os_error();
-            if code != Some(libc::EINPROGRESS)
-                && code != Some(libc::EAGAIN)
-                && code != Some(libc::EWOULDBLOCK)
-            {
-                return Err(error);
-            }
-            wait_for_connect(&stream, deadline)?;
-        }
-        stream.set_nonblocking(false)?;
-        Ok(stream)
+        crate::platform::transport::connect_unix_until(path, deadline)
     }
 
-    fn wait_for_connect(stream: &UnixStream, deadline: Instant) -> std::io::Result<()> {
-        loop {
-            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::TimedOut,
-                    "terminal host connection exceeded its deadline",
-                ));
-            };
-            if remaining.is_zero() {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::TimedOut,
-                    "terminal host connection exceeded its deadline",
-                ));
-            }
-            let timeout_ms = remaining.as_millis().max(1).min(i32::MAX as u128) as i32;
-            let mut descriptor =
-                libc::pollfd { fd: stream.as_raw_fd(), events: libc::POLLOUT, revents: 0 };
-            // SAFETY: descriptor points to one initialized pollfd for the
-            // duration of this call.
-            let result = unsafe { libc::poll(&mut descriptor, 1, timeout_ms) };
-            if result == 0 {
-                continue;
-            }
-            if result < 0 {
-                let error = std::io::Error::last_os_error();
-                if error.kind() == std::io::ErrorKind::Interrupted {
-                    continue;
-                }
-                return Err(error);
-            }
-            if descriptor.revents & libc::POLLNVAL != 0 {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::BrokenPipe,
-                    "terminal host connection socket became invalid",
-                ));
-            }
-            let mut socket_error = 0;
-            let mut socket_error_len = libc::socklen_t::try_from(size_of::<libc::c_int>()).unwrap();
-            // SAFETY: socket_error and its length describe a writable c_int,
-            // and stream owns a valid socket descriptor.
-            if unsafe {
-                libc::getsockopt(
-                    stream.as_raw_fd(),
-                    libc::SOL_SOCKET,
-                    libc::SO_ERROR,
-                    (&raw mut socket_error).cast(),
-                    &raw mut socket_error_len,
-                )
-            } != 0
-            {
-                return Err(std::io::Error::last_os_error());
-            }
-            return if socket_error == 0 {
-                Ok(())
-            } else {
-                Err(std::io::Error::from_raw_os_error(socket_error))
-            };
-        }
-    }
-
+    #[cfg(all(test, target_os = "linux"))]
     fn unix_socket_address(path: &Path) -> std::io::Result<(libc::sockaddr_un, libc::socklen_t)> {
         const SUN_PATH_CAPACITY: usize =
             size_of::<libc::sockaddr_un>() - offset_of!(libc::sockaddr_un, sun_path);

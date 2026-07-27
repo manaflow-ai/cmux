@@ -685,6 +685,15 @@ pub(crate) struct SurfaceShutdownOwner {
     kind: SurfaceShutdownOwnerKind,
 }
 
+pub(crate) enum SurfaceShutdownOwnerIdentity {
+    Surface,
+    #[cfg(unix)]
+    Hosted {
+        terminal_id: String,
+        incarnation: String,
+    },
+}
+
 enum SurfaceShutdownOwnerKind {
     Local(LocalProcess),
     #[cfg(unix)]
@@ -2694,6 +2703,28 @@ impl Surface {
             Surface::Browser(browser) => {
                 browser.kill();
                 true
+            }
+        }
+    }
+
+    /// Describe retained shutdown ownership without consuming or mutating it.
+    pub(crate) fn shutdown_owner_identity(&self) -> Option<SurfaceShutdownOwnerIdentity> {
+        match self {
+            Surface::Pty(pty) => {
+                if pty.local_process.is_some() {
+                    return Some(SurfaceShutdownOwnerIdentity::Surface);
+                }
+                #[cfg(unix)]
+                if let Some(owner) = &pty.hosted_shutdown_owner {
+                    return Some(SurfaceShutdownOwnerIdentity::Hosted {
+                        terminal_id: owner.record.terminal_id.clone(),
+                        incarnation: owner.record.incarnation.clone(),
+                    });
+                }
+                None
+            }
+            Surface::Browser(browser) => {
+                browser.has_shutdown_owner().then_some(SurfaceShutdownOwnerIdentity::Surface)
             }
         }
     }

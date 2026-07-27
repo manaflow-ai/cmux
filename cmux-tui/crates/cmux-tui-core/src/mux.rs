@@ -20,7 +20,9 @@ use crate::event_bus::{MuxEventBroadcaster, MuxEventReceiver};
 use crate::layout::{Rect, layout_screen};
 use crate::model::{Node, Pane, Screen, State, Workspace};
 use crate::pairing::PairingBroker;
-use crate::surface::{DefaultColors, Surface, SurfaceOptions, SurfaceShutdownOwner};
+use crate::surface::{
+    DefaultColors, Surface, SurfaceOptions, SurfaceShutdownOwner, SurfaceShutdownOwnerIdentity,
+};
 use crate::terminal_host::TerminalId;
 use crate::terminal_host_runtime::TerminalHostIdentity;
 #[cfg(unix)]
@@ -5076,8 +5078,13 @@ impl Mux {
                 let surface_owner_keys = state
                     .surfaces
                     .values()
-                    .filter_map(|surface| {
-                        surface.shutdown_owner().map(|owner| shutdown_owner_key(surface.id, &owner))
+                    .filter_map(|surface| match surface.shutdown_owner_identity()? {
+                        SurfaceShutdownOwnerIdentity::Surface => {
+                            Some(ShutdownOwnerKey::Surface(surface.id))
+                        }
+                        SurfaceShutdownOwnerIdentity::Hosted { terminal_id, incarnation } => {
+                            Some(ShutdownOwnerKey::Hosted { terminal_id, incarnation })
+                        }
                     })
                     .collect::<Vec<_>>();
                 (required, surface_owner_keys)

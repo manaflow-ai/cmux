@@ -1335,6 +1335,10 @@ impl BrowserSurface {
         self.session.lock().unwrap().take().map(BrowserShutdownOwner)
     }
 
+    pub(crate) fn has_shutdown_owner(&self) -> bool {
+        self.session.lock().unwrap().is_some()
+    }
+
     pub fn latest_frame(&self) -> Option<BrowserFrame> {
         let state = self.state.lock().unwrap();
         if matches!(state.status, BrowserStatus::Failed(_)) {

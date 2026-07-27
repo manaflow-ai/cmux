@@ -36,6 +36,14 @@ pub mod transport {
         imp::connect_until(path, deadline)
     }
 
+    #[cfg(unix)]
+    pub(crate) fn connect_unix_until(
+        path: &Path,
+        deadline: Instant,
+    ) -> io::Result<std::os::unix::net::UnixStream> {
+        imp::connect_unix_until(path, deadline)
+    }
+
     impl Listener {
         pub fn accept(&self) -> io::Result<Box<dyn Stream>> {
             self.inner.accept()
@@ -67,6 +75,10 @@ pub mod transport {
         }
 
         pub(super) fn connect_until(path: &Path, deadline: Instant) -> io::Result<Box<dyn Stream>> {
+            connect_unix_until(path, deadline).map(|stream| Box::new(stream) as Box<dyn Stream>)
+        }
+
+        pub(super) fn connect_unix_until(path: &Path, deadline: Instant) -> io::Result<UnixStream> {
             ensure_connect_time_remaining(deadline)?;
             let (address, address_len) = unix_socket_address(path)?;
             // SAFETY: socket has no pointer arguments and returns a new owned
@@ -131,7 +143,7 @@ pub mod transport {
                 break;
             }
             stream.set_nonblocking(false)?;
-            Ok(Box::new(stream))
+            Ok(stream)
         }
 
         fn retry_connect_after_would_block(
