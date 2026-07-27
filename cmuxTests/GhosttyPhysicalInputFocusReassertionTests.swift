@@ -24,6 +24,44 @@ struct GhosttyPhysicalInputFocusReassertionTests {
     }
 
     @Test
+    func controlKeyDownForcesNativeFocusRepairBeforeForwarding() throws {
+        let terminal = try makeHostedTerminal()
+        defer { terminal.window.orderOut(nil) }
+
+        try focusTerminal(terminal)
+        _ = try #require(terminal.surface.surface)
+        #expect(
+            terminal.surface.debugDesiredFocusState(),
+            "Regression setup requires model focus to remain true while native focus may have drifted"
+        )
+
+        let previousObserver = GhosttyNSView.debugNativeFocusReassertionObserver
+        defer {
+            GhosttyNSView.debugNativeFocusReassertionObserver = previousObserver
+        }
+
+        var nativeFocusReassertions = 0
+        GhosttyNSView.debugNativeFocusReassertionObserver = {
+            previousObserver?()
+            nativeFocusReassertions += 1
+        }
+
+        let event = try makeKeyDownEvent(
+            characters: "\u{0004}",
+            charactersIgnoringModifiers: "d",
+            modifierFlags: [.control],
+            keyCode: 2,
+            window: terminal.window
+        )
+        terminal.surfaceView.keyDown(with: event)
+
+        #expect(
+            nativeFocusReassertions == 1,
+            "Control input must bypass the deduplicated model state and repair native Ghostty focus"
+        )
+    }
+
+    @Test
     func printableKeyDownReassertsGhosttyFocusWhenFirstResponderSurfaceFocusDrifted() throws {
         let terminal = try makeHostedTerminal()
         defer { terminal.window.orderOut(nil) }
@@ -189,13 +227,14 @@ struct GhosttyPhysicalInputFocusReassertionTests {
     private func makeKeyDownEvent(
         characters: String,
         charactersIgnoringModifiers: String,
+        modifierFlags: NSEvent.ModifierFlags = [],
         keyCode: UInt16,
         window: NSWindow
     ) throws -> NSEvent {
         try #require(NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
-            modifierFlags: [],
+            modifierFlags: modifierFlags,
             timestamp: ProcessInfo.processInfo.systemUptime,
             windowNumber: window.windowNumber,
             context: nil,

@@ -103,6 +103,37 @@ import Testing
         #expect(!release.forwardsPhysicalKey)
     }
 
+    @Test func appKitOwnedRepeatPreservesDirectAppKitCommitWithoutPhysicalOwnership() {
+        var tracker = TerminalKeyInputLifecycleTracker()
+        let planner = TerminalKeyInputPlanner()
+        _ = tracker.actions(
+            for: consumedPlan(),
+            keyCode: 0,
+            isRepeat: false
+        )
+
+        let repeatPlan = planner.plan(for: TerminalKeyInputSnapshot(
+            hadMarkedText: false,
+            hasMarkedText: false,
+            textInputConsumed: true,
+            textInputCommandPerformed: false,
+            committedText: ["é"],
+            event: TerminalKeyInputEvent(
+                translatedText: nil,
+                rawText: "e"
+            )
+        ))
+        let repeatActions = tracker.actions(
+            for: repeatPlan,
+            keyCode: 0,
+            isRepeat: true
+        )
+        let release = tracker.release(forKeyUp: 0)
+
+        #expect(repeatActions == [.sendCommittedText("é")])
+        #expect(!release.forwardsPhysicalKey)
+    }
+
     @Test func firstObservedRepeatEstablishesReleaseOwnership() {
         var tracker = TerminalKeyInputLifecycleTracker()
 

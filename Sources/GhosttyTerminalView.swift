@@ -3350,6 +3350,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return UserDefaults.standard.bool(forKey: "cmuxKeyLatencyProbe")
     }()
     @MainActor static var debugGhosttySurfaceKeyEventObserver: ((ghostty_input_key_s) -> Void)?
+    @MainActor static var debugNativeFocusReassertionObserver: (() -> Void)?
 #endif
     private var eventMonitor: Any?
     private var trackingArea: NSTrackingArea?
@@ -4029,7 +4030,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard let terminalSurface, window?.firstResponder === self, !suppressingReparentFocus,
               isVisibleInUI, hasUsableFocusGeometry, !isHiddenOrHasHiddenAncestor,
               AppDelegate.shared?.allowsTerminalKeyboardFocus(workspaceId: terminalSurface.tabId, panelId: terminalSurface.id, in: window) != false else { return false }
-        terminalSurface.setFocus(true); if forceNative, let surface { terminalSurface.recordExternalFocusState(true); ghostty_surface_set_focus(surface, true) }
+        terminalSurface.setFocus(true)
+        if forceNative, let surface {
+#if DEBUG
+            Self.debugNativeFocusReassertionObserver?()
+#endif
+            terminalSurface.recordExternalFocusState(true)
+            ghostty_surface_set_focus(surface, true)
+        }
         return true
     }
     private func requestInputRecoveryAfterSurfaceMiss(reason: String) {
