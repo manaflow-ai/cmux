@@ -13862,6 +13862,22 @@ mod tests {
             })
             .expect("overflow must render a horizontal track");
 
+        let (content_width, viewport_width, initial_offset) =
+            app.horizontal_scrollbar_state().unwrap();
+        let (thumb_x, _) = crate::ui::horizontal_thumb_geometry(
+            content_width,
+            viewport_width,
+            initial_offset,
+            track.width,
+        );
+        app.handle_left_down(track.x + thumb_x, track.y, KeyModifiers::NONE).unwrap();
+        assert_eq!(
+            app.viewport_states[&screen_id].offset(),
+            initial_offset,
+            "grabbing the thumb must not jump the viewport"
+        );
+        app.handle_left_up(track.x + thumb_x, track.y).unwrap();
+
         app.handle_left_down(track.x, track.y, KeyModifiers::NONE).unwrap();
         assert!(matches!(app.drag, Some(Drag::HorizontalScrollbar { .. })));
         app.handle_left_drag(track.x + track.width - 1, track.y).unwrap();

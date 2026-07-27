@@ -2049,6 +2049,23 @@ mod tests {
     }
 
     #[test]
+    fn layout_undo_requires_confirmation_flags_together() {
+        for values in [
+            BTreeMap::from([
+                ("pane".to_string(), "7".to_string()),
+                ("revision".to_string(), "42".to_string()),
+            ]),
+            BTreeMap::from([
+                ("pane".to_string(), "7".to_string()),
+                ("confirm-close".to_string(), "true".to_string()),
+            ]),
+        ] {
+            let error = build_undo_layout(&FlagMap { values, ..Default::default() }).unwrap_err();
+            assert_eq!(error.0, "--revision and --confirm-close must be supplied together");
+        }
+    }
+
+    #[test]
     fn run_workspace_key_requires_atomic_workspace_creation() {
         let flags = FlagMap {
             values: BTreeMap::from([
