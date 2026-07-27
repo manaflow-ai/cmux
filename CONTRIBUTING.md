@@ -2,9 +2,10 @@
 
 ## Prerequisites
 
-- macOS 14+
-- Xcode 15+
+- macOS 26+
+- Xcode 26+ (see `.xcode-version` for the exact pinned version)
 - [Zig](https://ziglang.org/) (install via `brew install zig`)
+- [Rust](https://rustup.rs/)
 
 ## Getting Started
 
