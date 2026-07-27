@@ -3271,6 +3271,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _renderedFrameLock.unlock()
 
         guard renderedFrameNotificationDemandIsActive else { return }
+        if keyboardCopyModeActive, let surface {
+            syncKeyboardCopyModeCursorOverlay(surface: surface)
+        }
         NotificationCenter.default.post(
             name: .ghosttyDidRenderFrame,
             object: self
@@ -3295,6 +3298,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var imeConsumedKeyUps: Set<UInt16> = []
     private var keyboardCopyModeInputState = TerminalKeyboardCopyModeInputState()
     private var keyboardCopyModeCursor: TerminalKeyboardCopyModeCursor?
+    private var keyboardCopyModeRenderedFrameNotificationRelease: (() -> Void)?
     private enum KeyboardCopyModeSelectionKind {
         case character
         case line
@@ -3417,13 +3421,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         keyboardCopyModeCursorOverlayView.layer?.borderWidth = 1
         keyboardCopyModeCursorOverlayView.isHidden = true
         addSubview(keyboardCopyModeCursorOverlayView, positioned: .above, relativeTo: nil)
-    }
-
-    func setKeyboardCopyModeCursorColor(_ color: NSColor) {
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        keyboardCopyModeCursorOverlayView.layer?.borderColor = color.withAlphaComponent(1).cgColor
-        CATransaction.commit()
     }
 
     func applySurfaceBackground() {
@@ -4035,24 +4032,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         keyboardCopyModeInputState.reset()
         keyboardCopyModeSelectionKind = nil
         keyboardCopyModeActive = active
+        setKeyboardCopyModeRenderedFrameTrackingActive(active)
         if active, let surface {
-            var column: UInt16 = 0
-            var row: UInt16 = 0
-            var widthCells: UInt16 = 0
-            if ghostty_surface_keyboard_copy_cursor_set(
-                surface,
-                true,
-                &column,
-                &row,
-                &widthCells
-            ) {
-                keyboardCopyModeCursor = TerminalKeyboardCopyModeCursor(
-                    row: Int(row),
-                    column: Int(column)
-                )
-            } else {
+            if !initializeKeyboardCopyModeCursor(surface: surface) {
                 keyboardCopyModeCursor = nil
                 keyboardCopyModeActive = false
+                setKeyboardCopyModeRenderedFrameTrackingActive(false)
             }
             syncKeyboardCopyModeCursorOverlay(surface: surface)
         } else {
@@ -4074,6 +4059,47 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         terminalSurface?.setKeyboardCopyModeActive(keyboardCopyModeActive)
     }
 
+    private func setKeyboardCopyModeRenderedFrameTrackingActive(_ active: Bool) {
+        if active {
+            if keyboardCopyModeRenderedFrameNotificationRelease == nil {
+                keyboardCopyModeRenderedFrameNotificationRelease =
+                    retainLocalRenderedFrameNotifications()
+            }
+            return
+        }
+
+        keyboardCopyModeRenderedFrameNotificationRelease?()
+        keyboardCopyModeRenderedFrameNotificationRelease = nil
+    }
+
+    private func initializeKeyboardCopyModeCursor(surface: ghostty_surface_t) -> Bool {
+        var column: UInt16 = 0
+        var row: UInt16 = 0
+        var widthCells: UInt16 = 0
+        guard ghostty_surface_keyboard_copy_cursor_set(
+            surface,
+            true,
+            &column,
+            &row,
+            &widthCells
+        ) else { return false }
+
+        keyboardCopyModeCursor = TerminalKeyboardCopyModeCursor(
+            row: Int(row),
+            column: Int(column)
+        )
+        return true
+    }
+
+    func runtimeSurfaceDidBecomeReady() {
+        guard keyboardCopyModeActive, let surface else { return }
+        guard initializeKeyboardCopyModeCursor(surface: surface) else {
+            setKeyboardCopyModeActive(false)
+            return
+        }
+        syncKeyboardCopyModeCursorOverlay(surface: surface)
+    }
+
     @discardableResult
     private func performBindingAction(_ action: String, repeatCount: Int) -> Bool {
         var performed = true
@@ -4084,6 +4110,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     struct KeyboardCopyModeResolvedCell {
         let cursor: TerminalKeyboardCopyModeCursor
         let widthCells: Int
+        let color: NSColor
     }
 
     struct KeyboardCopyModeGridMetrics {
@@ -4138,22 +4165,36 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func keyboardCopyModeTrackedCursor(
         surface: ghostty_surface_t
     ) -> KeyboardCopyModeResolvedCell? {
-        var column: UInt16 = 0
-        var row: UInt16 = 0
-        var widthCells: UInt16 = 0
-        guard ghostty_surface_keyboard_copy_cursor_viewport(
+        var snapshot = ghostty_keyboard_copy_cursor_s()
+        guard ghostty_surface_keyboard_copy_cursor_snapshot(
             surface,
-            &column,
-            &row,
-            &widthCells
+            &snapshot
         ) else { return nil }
 
         return KeyboardCopyModeResolvedCell(
             cursor: TerminalKeyboardCopyModeCursor(
-                row: Int(row),
-                column: Int(column)
+                row: Int(snapshot.row),
+                column: Int(snapshot.column)
             ),
-            widthCells: max(Int(widthCells), 1)
+            widthCells: max(Int(snapshot.width_cells), 1),
+            color: Self.keyboardCopyModeCursorColor(
+                red: snapshot.color_red,
+                green: snapshot.color_green,
+                blue: snapshot.color_blue
+            )
+        )
+    }
+
+    static func keyboardCopyModeCursorColor(
+        red: UInt8,
+        green: UInt8,
+        blue: UInt8
+    ) -> NSColor {
+        NSColor(
+            srgbRed: CGFloat(red) / 255,
+            green: CGFloat(green) / 255,
+            blue: CGFloat(blue) / 255,
+            alpha: 1
         )
     }
 
@@ -4184,6 +4225,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return
         }
         keyboardCopyModeCursorOverlayView.frame = metrics.appKitRect(for: resolved)
+        keyboardCopyModeCursorOverlayView.layer?.borderColor = resolved.color.cgColor
         keyboardCopyModeCursorOverlayView.isHidden = false
     }
 
@@ -6999,6 +7041,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
     }
     deinit {
+        keyboardCopyModeRenderedFrameNotificationRelease?()
         selectionAccessibilitySignal.finish()
         if titleUpdateSurfaceKey != nil {
             titleUpdateIngress.retireCurrentAttachment()
@@ -8721,10 +8764,6 @@ final class GhosttySurfaceScrollView: NSView {
 
     func setTriggerFlashHandler(_ handler: (() -> Void)?) {
         surfaceView.onTriggerFlash = handler
-    }
-
-    func setKeyboardCopyModeCursorColor(_ color: NSColor) {
-        surfaceView.setKeyboardCopyModeCursorColor(color)
     }
 
     /// Applies the host-layer terminal fill and optionally clears the shared backdrop behind it.
@@ -11586,7 +11625,6 @@ struct GhosttyTerminalView: NSViewRepresentable {
     var showsUnreadNotificationRing: Bool = false
     var inactiveOverlayColor: NSColor = .clear
     var inactiveOverlayOpacity: Double = 0
-    var copyModeCursorColor: NSColor = .controlAccentColor
     var searchState: TerminalSurface.SearchState? = nil
     var reattachToken: UInt64 = 0
     var sessionContentWidthPresentation = SessionContentWidthPresentation.disabled
@@ -11841,7 +11879,6 @@ struct GhosttyTerminalView: NSViewRepresentable {
                 opacity: CGFloat(inactiveOverlayOpacity),
                 visible: showsInactiveOverlay
             )
-            hostedView.setKeyboardCopyModeCursorColor(copyModeCursorColor)
             hostedView.setNotificationRing(visible: showsUnreadNotificationRing)
             hostedView.setSearchOverlay(searchState: searchState)
             hostedView.syncKeyStateIndicator(text: terminalSurface.currentKeyStateIndicatorText)
@@ -11935,7 +11972,6 @@ struct GhosttyTerminalView: NSViewRepresentable {
             let vacancyOnTriggerFlash = onTriggerFlash
             let vacancyInactiveOverlayColor = inactiveOverlayColor
             let vacancyInactiveOverlayOpacity = inactiveOverlayOpacity
-            let vacancyCopyModeCursorColor = copyModeCursorColor
             let vacancyShowsInactiveOverlay = showsInactiveOverlay
             let vacancyShowsUnreadNotificationRing = showsUnreadNotificationRing
             let vacancySearchState = searchState
@@ -11993,7 +12029,6 @@ struct GhosttyTerminalView: NSViewRepresentable {
                     opacity: CGFloat(vacancyInactiveOverlayOpacity),
                     visible: vacancyShowsInactiveOverlay
                 )
-                hostedView.setKeyboardCopyModeCursorColor(vacancyCopyModeCursorColor)
                 hostedView.setNotificationRing(visible: vacancyShowsUnreadNotificationRing)
                 hostedView.setSearchOverlay(searchState: vacancySearchState)
                 hostedView.syncKeyStateIndicator(text: terminalSurface.currentKeyStateIndicatorText)

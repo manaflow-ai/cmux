@@ -12,10 +12,11 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `65505e8c3`, the merged head of
-https://github.com/manaflow-ai/ghostty/pull/156. It adds tracked, atomic
-keyboard copy navigation on top of the native keyboard selection geometry from
-https://github.com/manaflow-ai/ghostty/pull/154 and the current
+The submodule pinned by this branch is `acefff5de`, the merged head of
+https://github.com/manaflow-ai/ghostty/pull/157. It adds bounded copy work and
+an atomic runtime cursor snapshot on top of the tracked navigation from
+https://github.com/manaflow-ai/ghostty/pull/156, the native selection geometry
+from https://github.com/manaflow-ai/ghostty/pull/154, and the current
 `manaflow-ai/ghostty` `main`.
 
 `4cc0933cf` adds the screen-anchored render-grid export for the iOS
@@ -55,7 +56,7 @@ and the product-main renderer/link fixes described below. It also bounds each
 renderer mailbox drain turn so continuous producers cannot starve lifecycle
 processing or rendering.
 
-No prebuilt checksum is pinned yet for `65505e8c3`.
+No prebuilt checksum is pinned yet for `acefff5de`.
 `scripts/ensure-ghosttykit.sh` therefore builds its universal ReleaseFast
 GhosttyKit archive locally.
 
@@ -884,13 +885,16 @@ tend to conflict together during rebases.
   - `e81fb65f` (surface: bound screen clipboard text formatting)
   - `aeed68c44` (Expose native keyboard selection geometry)
   - `65505e8c3` (Make keyboard copy navigation atomic)
+  - `acefff5de` (Bound copy work and expose runtime cursor style)
 - PRs:
   - https://github.com/manaflow-ai/ghostty/pull/154
   - https://github.com/manaflow-ai/ghostty/pull/156
+  - https://github.com/manaflow-ai/ghostty/pull/157
 - Files:
   - `include/ghostty.h`
   - `src/apprt/embedded.zig`
   - `src/Surface.zig`
+  - `src/termio/Termio.zig`
   - `src/terminal/Screen.zig`
   - `src/terminal/Selection.zig`
   - `src/terminal/render.zig`
@@ -909,8 +913,11 @@ tend to conflict together during rebases.
   - Ties keyboard selection ownership to Ghostty's selection activity identity
     so mouse or other foreign selection replacement cannot be mistaken for
     copy-mode state.
-  - Bounds clipboard formatting to 2 MiB while keeping formatting and terminal
-    reads inside Ghostty.
+  - Bounds clipboard formatting to 2 MiB and preflights selected physical cells
+    before decompression, keeping both input work and output size bounded.
+  - Returns cursor geometry and effective runtime color in one terminal-state
+    snapshot, including OSC overrides, semantic cell colors, inverse video,
+    palette colors, and live manual-IO theme changes.
 - Conflict notes:
   - Reconcile the exported C declarations with `src/apprt/embedded.zig` whenever the embedded surface API changes.
   - Keep character-cell canonicalization aligned with wide-cell and wrapped-spacer behavior in `src/terminal/Selection.zig`.

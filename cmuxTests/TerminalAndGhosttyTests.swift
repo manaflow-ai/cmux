@@ -2533,25 +2533,21 @@ struct TerminalKeyboardCopyModeCursorSwiftTests {
 struct TerminalKeyboardCopyModeCursorAppearanceTests {
     @Test func cursorUsesAnUnfilledCellOutline() throws {
         let surfaceView = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
-        let cursorColor = NSColor(srgbRed: 0.2, green: 0.4, blue: 0.8, alpha: 1)
-        surfaceView.setKeyboardCopyModeCursorColor(cursorColor)
         let layer = try #require(surfaceView.keyboardCopyModeCursorOverlayView.layer)
         let backgroundAlpha = layer.backgroundColor
             .flatMap { NSColor(cgColor: $0)?.alphaComponent } ?? 0
-        let borderColor = layer.borderColor.flatMap(NSColor.init(cgColor:))
 
         #expect(backgroundAlpha == 0)
         #expect(layer.borderWidth == 1)
-        #expect(borderColor?.hexString() == cursorColor.hexString())
     }
 
-    @Test func cursorUsesConfiguredTerminalCursorColor() {
-        var config = GhosttyConfig()
-        config.cursorColor = NSColor(hex: "#336699")!
-
-        let appearance = PanelAppearance.fromConfig(config, usesTransparentWindow: false)
-
-        #expect(appearance.cursorColor.hexString() == "#336699")
+    @Test func cursorUsesGhosttyRuntimeSnapshotColor() {
+        let color = GhosttyNSView.keyboardCopyModeCursorColor(
+            red: 0x33,
+            green: 0x66,
+            blue: 0x99
+        )
+        #expect(color.hexString() == "#336699")
     }
 
     @Test func wideCursorOutlineSpansBothAlignedGridCells() {
@@ -2564,7 +2560,8 @@ struct TerminalKeyboardCopyModeCursorAppearanceTests {
         )
         let cell = GhosttyNSView.KeyboardCopyModeResolvedCell(
             cursor: TerminalKeyboardCopyModeCursor(row: 2, column: 3),
-            widthCells: 2
+            widthCells: 2,
+            color: .clear
         )
 
         #expect(
