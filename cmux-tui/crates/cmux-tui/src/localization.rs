@@ -834,6 +834,22 @@ mod tests {
     }
 
     #[test]
+    fn option_mode_config_warning_is_localized() {
+        assert_eq!(
+            catalog_for_locale("en_US.UTF-8")
+                .config
+                .invalid_macos_option_as_alt("\"guess\""),
+            "cmux-tui: ignoring non-boolean keys.macos_option_as_alt = \"guess\""
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8")
+                .config
+                .invalid_macos_option_as_alt("\"guess\""),
+            "cmux-tui: 真偽値ではない keys.macos_option_as_alt = \"guess\" を無視します"
+        );
+    }
+
+    #[test]
     fn workspace_port_provider_actions_use_localized_labels() {
         assert_eq!(
             catalog().sidebar.provider_action_label(provider_action_id::LIST_WORKSPACE_PORTS),
