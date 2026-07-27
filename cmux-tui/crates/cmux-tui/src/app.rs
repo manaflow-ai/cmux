@@ -14247,6 +14247,41 @@ mod tests {
     }
 
     #[test]
+    fn viewport_animation_tick_reclips_without_authoritative_layout_draw() {
+        let mux = Mux::new("viewport-animation-paint-test", SurfaceOptions::default());
+        let first = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let base = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        mux.new_pane_right(base, cmux_tui_core::DEFAULT_VIEWPORT_PANE_WIDTH, Some((51, 22)))
+            .unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((80, 25));
+
+        let screen = app.tree.active_screen().unwrap().id;
+        let started_at = app.viewport_states[&screen].started_at;
+        assert!(app.viewport_animation_active());
+        assert_eq!(app.viewport_offset, 0);
+        app.tree.workspace_revision = u64::MAX;
+
+        assert_eq!(
+            app.advance_viewport_animation(started_at + VIEWPORT_ANIMATION_DURATION / 2),
+            RenderAction::Paint
+        );
+        assert!(app.viewport_offset > 0);
+        assert_eq!(
+            app.tree.workspace_revision,
+            u64::MAX,
+            "animation paint must preserve the cached authoritative tree"
+        );
+
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface).unwrap();
+        }
+    }
+
+    #[test]
     fn viewport_geometry_changes_reveal_the_active_pane_without_canceling_manual_scroll() {
         let mux = Mux::new("viewport-geometry-reveal-test", SurfaceOptions::default());
         mux.new_workspace(None, Some((80, 24))).unwrap();

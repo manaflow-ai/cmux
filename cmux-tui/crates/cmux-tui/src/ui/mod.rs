@@ -391,7 +391,10 @@ mod tests {
     use ratatui::layout::Rect;
     use ratatui::style::Style;
 
-    use super::{copy_buffer_row_cropped, middle_truncate, sanitize_render_buffer, truncate};
+    use super::{
+        ReusableRowBuffer, copy_buffer_row_cropped, middle_truncate, sanitize_render_buffer,
+        truncate,
+    };
 
     #[test]
     fn middle_truncates_for_narrow_columns() {
@@ -452,5 +455,19 @@ mod tests {
         let clipped_tail = draw_crop(2);
         assert_eq!(clipped_tail[(0, 0)].symbol(), " ");
         assert_eq!(clipped_tail[(1, 0)].symbol(), "b");
+    }
+
+    #[test]
+    fn reusable_row_buffer_keeps_its_allocation_for_smaller_rows() {
+        let mut scratch = ReusableRowBuffer::default();
+        let first = scratch.take(512);
+        let pointer = first.content.as_ptr();
+        let capacity = first.content.capacity();
+        scratch.put(first);
+
+        let second = scratch.take(256);
+        assert_eq!(second.area.width, 256);
+        assert_eq!(second.content.as_ptr(), pointer);
+        assert_eq!(second.content.capacity(), capacity);
     }
 }

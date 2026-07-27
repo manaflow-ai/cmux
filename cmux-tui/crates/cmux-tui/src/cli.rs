@@ -1960,6 +1960,8 @@ mod tests {
         let mut help = Vec::new();
         write_help("usage\n", &japanese.layout, &mut help).unwrap();
         let help = String::from_utf8(help).unwrap();
+        assert!(help.contains("コマンドヘルプ"));
+        assert!(!help.contains("VERB HELP"));
         assert!(help.contains("右側にビューポートペインを作成"));
         assert!(help.contains("直前のレイアウト変更を元に戻す"));
 
