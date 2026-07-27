@@ -225,7 +225,7 @@ fn headless_creation_uses_legacy_default_then_latest_client_size() {
         .unwrap();
     assert_vt_state_size(&mut writer, &mut reader, 11, clamped, (1, 1));
 
-    mux.shutdown();
+    mux.shutdown().unwrap();
     cmux_tui_core::server::cleanup(&sock_path);
 }
 
@@ -247,7 +247,7 @@ fn shared_surface_uses_smallest_viewer_size_until_that_viewer_detaches() {
     mux.remove_surface_size_client(surface, 1);
     assert_eq!(mux.surface(surface).unwrap().size(), (120, 40));
 
-    mux.shutdown();
+    mux.shutdown().unwrap();
 }
 
 #[test]

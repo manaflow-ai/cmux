@@ -90,7 +90,7 @@ fn websocket_server_allows_pairing_without_a_static_token() {
         assert!(server.is_ok(), "WebSocket listener rejected pairing mode");
     }
 
-    mux.shutdown();
+    mux.shutdown().unwrap();
 }
 
 #[test]
@@ -104,7 +104,7 @@ fn websocket_server_rejects_tokens_that_cannot_fit_the_auth_limit() {
     );
 
     assert!(result.is_err(), "WebSocket listener accepted an unusably large token");
-    mux.shutdown();
+    mux.shutdown().unwrap();
 }
 
 #[test]
@@ -125,7 +125,7 @@ fn websocket_rejects_oversized_authentication_frames() {
         "oversized pre-authentication frame remained accepted"
     );
 
-    mux.shutdown();
+    mux.shutdown().unwrap();
 }
 
 #[test]
@@ -161,7 +161,7 @@ fn websocket_auth_accepts_exact_preamble_and_rejects_missing_or_wrong_tokens() {
     assert_eq!(identify["data"]["protocol"], server::PROTOCOL_VERSION);
     assert_eq!(identify["data"]["session"], "ws-auth");
 
-    mux.shutdown();
+    mux.shutdown().unwrap();
 }
 
 #[test]
@@ -204,7 +204,7 @@ fn websocket_pairing_is_approved_over_trusted_unix_and_credential_reconnects() {
     send_json(&mut reconnect, json!({"id": 4, "cmd": "identify"}));
     assert_eq!(read_until(&mut reconnect, |value| value["id"] == 4)["ok"], true);
 
-    mux.shutdown();
+    mux.shutdown().unwrap();
     server::cleanup(&socket_path);
 }
 
@@ -265,7 +265,7 @@ fn websocket_streams_subscribe_and_attach_and_survives_unclean_disconnect() {
     assert_eq!(identify["ok"], true);
     assert_eq!(identify["data"]["protocol"], server::PROTOCOL_VERSION);
 
-    mux.shutdown();
+    mux.shutdown().unwrap();
 }
 
 #[test]
@@ -322,7 +322,7 @@ fn websocket_subscriber_receives_cross_connection_event_without_poll_delay() {
     );
     assert_eq!(read_until(&mut trigger, |value| value["id"] == 3)["ok"], true);
 
-    mux.shutdown();
+    mux.shutdown().unwrap();
 }
 
 #[test]
@@ -449,7 +449,7 @@ fn clients_list_identify_resize_and_detach_across_transports() {
     let mut eof = String::new();
     assert_eq!(unix_reader.read_line(&mut eof).unwrap(), 0);
 
-    mux.shutdown();
+    mux.shutdown().unwrap();
     server::cleanup(&socket_path);
 }
 
@@ -480,5 +480,5 @@ fn websocket_non_loopback_bind_requires_and_accepts_explicit_insecure_opt_in() {
     assert_eq!(identify["ok"], true);
     assert_eq!(identify["data"]["protocol"], server::PROTOCOL_VERSION);
 
-    mux.shutdown();
+    mux.shutdown().unwrap();
 }

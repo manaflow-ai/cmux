@@ -59,7 +59,11 @@ static SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
 #[cfg(unix)]
 const MACHINE_PROVIDER_TOKEN_ENV: &str = "CMUX_MACHINE_PROVIDER_TOKEN";
 const PROVIDER_WORKSPACE_AUTHORITY_ENV: &str = "CMUX_PROVIDER_WORKSPACE_AUTHORITY";
-const SERVER_SHUTDOWN_EXIT_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
+// One second beyond the core cleanup budget lets `run_server` report a
+// bounded cleanup error before the last-resort watchdog exits the process.
+const SERVER_SHUTDOWN_EXIT_GRACE: std::time::Duration =
+    cmux_tui_core::server::SERVER_SHUTDOWN_TIMEOUT
+        .saturating_add(std::time::Duration::from_secs(1));
 
 #[cfg(target_os = "linux")]
 unsafe extern "C" {
@@ -964,11 +968,11 @@ impl ServerProcessShutdownGuard {
                     completed.recv_timeout(server_shutdown_exit_grace()),
                     Err(std::sync::mpsc::RecvTimeoutError::Timeout)
                 ) {
-                    // A successful shutdown request drains every surface and
-                    // attempts its confirmed response before setting
-                    // shutdown_requested. If the interactive driver cannot
-                    // return after that boundary, it owns no remaining work
-                    // that can justify retaining the process or control socket.
+                    // Full shutdown drains every surface before requesting
+                    // exit. Daemon handoff fences new work and gives normal
+                    // cleanup the same bounded grace. If the interactive
+                    // driver cannot return after either accepted boundary,
+                    // the old process must release its control socket.
                     cmux_tui_core::server::cleanup(&worker_socket_path);
                     std::process::exit(0);
                 }
@@ -1161,8 +1165,9 @@ fn run_server(
         run_tui(Session::Local(mux.clone()), args.session, None)
     };
     drop(websocket_server);
-    mux.shutdown();
+    let shutdown_result = mux.shutdown();
     server_process.complete();
+    shutdown_result?;
     result
 }
 

@@ -2527,7 +2527,7 @@ mod tests {
         assert_eq!(colors.selection_fg, Some(Rgb { r: 0xfe, g: 0xfe, b: 0xfe }));
 
         mux.close_surface(surface.id).unwrap();
-        mux.shutdown();
+        mux.shutdown().unwrap();
         server::cleanup(&socket);
     }
 

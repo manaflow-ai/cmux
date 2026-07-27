@@ -589,7 +589,7 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
     assert_eq!(failed, "net::ERR_NAME_NOT_RESOLVED");
 
     mux.close_surface(surface).unwrap();
-    mux.shutdown();
+    mux.shutdown().unwrap();
     server::cleanup(&socket_path);
     server.join().unwrap();
 }
@@ -726,7 +726,7 @@ fn wedged_browser_navigate_does_not_block_same_socket_connection() {
         "wedged browser close blocked for {:?}",
         close_started.elapsed()
     );
-    mux.shutdown();
+    mux.shutdown().unwrap();
     server::cleanup(&socket_path);
     server.join().unwrap();
 }
@@ -857,7 +857,7 @@ fn queued_back_and_forward_do_not_collapse_while_worker_is_blocked() {
     );
 
     mux.close_surface(surface).unwrap();
-    mux.shutdown();
+    mux.shutdown().unwrap();
     server::cleanup(&socket_path);
     server.join().unwrap();
 }
@@ -974,7 +974,7 @@ fn control_command_reports_backpressure_when_worker_queue_is_full() {
     );
 
     mux.close_surface(surface).unwrap();
-    mux.shutdown();
+    mux.shutdown().unwrap();
     server::cleanup(&socket_path);
     server.join().unwrap();
 }
@@ -1051,7 +1051,7 @@ fn browser_capture_scale_applies_to_metrics_screencast_and_input() {
     assert_eq!(mouse["params"]["x"], 50.0);
     assert_eq!(mouse["params"]["y"], 50.0);
 
-    mux.shutdown();
+    mux.shutdown().unwrap();
     server.join().unwrap();
 }
 
@@ -1131,7 +1131,7 @@ fn stalled_external_browser_nudges_target_once_before_interaction() {
     assert_eq!(second_mouse["method"], "Input.dispatchMouseEvent");
     assert_eq!(second_mouse["params"]["x"], 13.0);
 
-    mux.shutdown();
+    mux.shutdown().unwrap();
     server.join().unwrap();
 }
 
@@ -1174,5 +1174,5 @@ fn browser_tab_creation_is_async_and_surfaces_bootstrap_failure() {
             || status.contains("timed out"),
         "{status}"
     );
-    mux.shutdown();
+    mux.shutdown().unwrap();
 }

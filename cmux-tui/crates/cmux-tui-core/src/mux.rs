@@ -57,7 +57,10 @@ const SHUTDOWN_TERMINATION_TIMEOUT: Duration = Duration::from_millis(100);
 const SHUTDOWN_FANOUT_WORKERS: usize = 32;
 const SHUTDOWN_RECONCILE_INITIAL_DELAY: Duration = Duration::from_millis(25);
 const SHUTDOWN_RECONCILE_MAX_DELAY: Duration = Duration::from_secs(1);
-const SERVER_EXIT_RETRY_DELAY: Duration = Duration::from_millis(25);
+const SERVER_EXIT_RETRY_INITIAL_DELAY: Duration = Duration::from_millis(25);
+const SERVER_EXIT_RETRY_MAX_DELAY: Duration = Duration::from_secs(1);
+#[cfg(test)]
+const SERVER_EXIT_TEST_ATTEMPT_BUDGET: u32 = 8;
 const SHUTDOWN_OWNER_CAPACITY: usize = 4_096;
 #[cfg(unix)]
 const TERMINAL_ADOPTION_QUEUE_CAPACITY: usize = SHUTDOWN_OWNER_CAPACITY;
@@ -1120,7 +1123,7 @@ impl ShutdownRequestWatchInner {
     }
 }
 
-/// One-shot notification for a successful server-shutdown request.
+/// One-shot notification that the server process has accepted an exit request.
 #[derive(Clone)]
 pub struct ShutdownRequestWatch {
     inner: Arc<ShutdownRequestWatchInner>,
@@ -5120,24 +5123,47 @@ impl Mux {
     }
 
     /// Finish every fallible cleanup phase before allowing the server process
-    /// to release its socket. Each attempt is bounded, but the process keeps
-    /// exact ownership and retries until all local work has stopped or moved
-    /// to its durable external host.
-    pub fn shutdown(&self) {
+    /// to release its socket. Retried work keeps exact ownership, while one
+    /// absolute deadline guarantees an accepted daemon handoff cannot wedge
+    /// the old process or its socket forever.
+    pub fn shutdown(&self) -> anyhow::Result<()> {
         self.shutdown_owner_reconciler.stop();
+        let overall_deadline = Instant::now() + self.shutdown_total_timeout();
+        let mut retry_delay = SERVER_EXIT_RETRY_INITIAL_DELAY;
+        let mut last_error = None;
         loop {
-            let deadline = Instant::now() + self.shutdown_attempt_timeout();
-            if self.shutdown_once_until(deadline).is_ok() {
-                return;
+            let now = Instant::now();
+            if now >= overall_deadline {
+                break;
             }
-            std::thread::sleep(SERVER_EXIT_RETRY_DELAY);
+            let attempt_deadline = (now + self.shutdown_attempt_timeout()).min(overall_deadline);
+            match self.shutdown_once_until(attempt_deadline) {
+                Ok(()) => return Ok(()),
+                Err(error) => last_error = Some(error),
+            }
+            let Some(remaining) = overall_deadline.checked_duration_since(Instant::now()) else {
+                break;
+            };
+            std::thread::sleep(retry_delay.min(remaining));
+            retry_delay = retry_delay.saturating_mul(2).min(SERVER_EXIT_RETRY_MAX_DELAY);
         }
+        let error =
+            last_error.unwrap_or_else(|| anyhow::anyhow!("daemon cleanup deadline expired"));
+        Err(error.context("daemon cleanup did not finish before the process exit deadline"))
     }
 
     fn shutdown_attempt_timeout(&self) -> Duration {
         #[cfg(test)]
         if let Some(timeout) = *self.shutdown_attempt_timeout.lock().unwrap() {
             return timeout;
+        }
+        crate::server::SERVER_SHUTDOWN_TIMEOUT
+    }
+
+    fn shutdown_total_timeout(&self) -> Duration {
+        #[cfg(test)]
+        if let Some(timeout) = *self.shutdown_attempt_timeout.lock().unwrap() {
+            return timeout.saturating_mul(SERVER_EXIT_TEST_ATTEMPT_BUDGET);
         }
         crate::server::SERVER_SHUTDOWN_TIMEOUT
     }
@@ -5413,7 +5439,20 @@ impl Mux {
     /// browser owns this mux. New owner announcements are rejected until the
     /// response is queued or the reservation is cancelled.
     pub fn begin_daemon_handoff(&self, requesting_client: u64) -> anyhow::Result<()> {
-        self.control_clients.begin_daemon_handoff(requesting_client, &self.daemon_handoff_pending)
+        self.control_clients
+            .begin_daemon_handoff(requesting_client, &self.daemon_handoff_pending)?;
+        let deadline = Instant::now() + crate::server::SERVER_SHUTDOWN_TIMEOUT;
+        let preflight = (|| {
+            #[cfg(unix)]
+            crate::process_session::require_stable_process_signaling_until(deadline)
+                .context("preflight process control for daemon handoff")?;
+            let _coordinator = self.lock_shutdown_coordinator_until(deadline)?;
+            Ok(())
+        })();
+        if preflight.is_err() {
+            self.cancel_daemon_handoff();
+        }
+        preflight
     }
 
     pub fn cancel_daemon_handoff(&self) {
@@ -5431,6 +5470,7 @@ impl Mux {
         self.daemon_shutdown_requested.store(true, Ordering::Release);
         #[cfg(unix)]
         self.request_terminal_adoption_stop();
+        self.request_shutdown();
     }
 
     pub fn daemon_shutdown_requested(&self) -> bool {
@@ -10955,7 +10995,7 @@ mod tests {
         assert!(!closed_early, "workspace closed before layout commit");
         assert!(applied.unwrap().is_ok());
         assert_eq!(close_result.unwrap(), Some(2));
-        mux.shutdown();
+        mux.shutdown().unwrap();
     }
 
     #[test]
@@ -12401,7 +12441,7 @@ mod tests {
         while !mux.terminal_adoptions.lock().unwrap().is_empty() && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(10));
         }
-        mux.shutdown();
+        mux.shutdown().unwrap();
         let _ = std::fs::remove_dir_all(root);
 
         assert!(
@@ -13074,7 +13114,7 @@ mod tests {
         let shutdown = std::thread::spawn({
             let mux = mux.clone();
             move || {
-                mux.shutdown();
+                mux.shutdown().unwrap();
                 shutdown_done_tx.send(()).unwrap();
             }
         });
@@ -13102,7 +13142,7 @@ mod tests {
         let shutdown = std::thread::spawn({
             let mux = mux.clone();
             move || {
-                mux.shutdown();
+                mux.shutdown().unwrap();
                 shutdown_done_tx.send(()).unwrap();
             }
         });
@@ -13130,18 +13170,15 @@ mod tests {
         let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
         let (failing, _attempts) = surface.set_recovering_server_shutdown_for_test();
         let (shutdown_done_tx, shutdown_done_rx) = std::sync::mpsc::sync_channel(1);
-        let shutdown = std::thread::spawn({
-            let mux = mux.clone();
-            move || {
-                shutdown_done_tx.send(mux.shutdown()).unwrap();
-            }
+        let shutdown = std::thread::spawn(move || {
+            shutdown_done_tx.send(mux.shutdown()).unwrap();
         });
 
         let completed_before_deadline =
             shutdown_done_rx.recv_timeout(Duration::from_millis(400)).is_ok();
         failing.store(false, Ordering::Release);
         if !completed_before_deadline {
-            shutdown_done_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+            let _ = shutdown_done_rx.recv_timeout(Duration::from_secs(2)).unwrap();
         }
         shutdown.join().unwrap();
 
@@ -13184,7 +13221,7 @@ mod tests {
             std::thread::sleep(Duration::from_millis(10));
         }
         mux.request_daemon_shutdown();
-        mux.shutdown();
+        mux.shutdown().unwrap();
 
         assert!(
             slot_available,
@@ -13591,7 +13628,7 @@ mod tests {
             })
             .collect::<Vec<_>>();
         assert!(layouts.is_empty());
-        mux.shutdown();
+        mux.shutdown().unwrap();
     }
 
     #[test]
@@ -14161,7 +14198,7 @@ mod tests {
                 .unwrap(),
                 Some(2)
             );
-            mux.shutdown();
+            mux.shutdown().unwrap();
         }
 
         let recovered = Mux::open_persistent_provider_managed(
@@ -14179,7 +14216,7 @@ mod tests {
         });
         let error = recovered.close_workspace_at_revision(1, None).unwrap_err();
         assert!(error.to_string().contains("provider-managed workspace directly"));
-        recovered.shutdown();
+        recovered.shutdown().unwrap();
         drop(recovered);
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -14243,7 +14280,7 @@ mod tests {
         assert_eq!(resolved.terminal.lifecycle, TerminalLifecycle::Exited);
         assert_eq!(resolved.terminal.exit.unwrap()["reason"], "missing-host-record");
         assert_eq!(resolved.terminal_revision, 2);
-        mux.shutdown();
+        mux.shutdown().unwrap();
         drop(mux);
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -14330,14 +14367,14 @@ mod tests {
         let closed = mux.resolve_terminal(TERMINAL).unwrap().unwrap();
         assert_eq!(closed.surface, None);
         assert_eq!(closed.terminal.lifecycle, TerminalLifecycle::Tombstoned);
-        mux.shutdown();
+        mux.shutdown().unwrap();
         drop(mux);
 
         let reopened = Mux::open_persistent("recover-exited", options, &root).unwrap();
         let closed = reopened.resolve_terminal(TERMINAL).unwrap().unwrap();
         assert_eq!(closed.surface, None);
         assert_eq!(closed.terminal.lifecycle, TerminalLifecycle::Tombstoned);
-        reopened.shutdown();
+        reopened.shutdown().unwrap();
         drop(reopened);
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -14920,7 +14957,7 @@ mod tests {
         assert_eq!(second_surface.spawn_cwd().as_deref(), Some("/tmp"));
         *mux.terminal_create_after_empty_check.lock().unwrap() = None;
         *mux.terminal_create_after_materialization_lock.lock().unwrap() = None;
-        mux.shutdown();
+        mux.shutdown().unwrap();
     }
 
     #[test]
@@ -15000,7 +15037,7 @@ mod tests {
         assert!(replay.replayed);
         *mux.terminal_create_after_workspace_reservation.lock().unwrap() = None;
         surface.kill();
-        mux.shutdown();
+        mux.shutdown().unwrap();
     }
 
     #[test]
@@ -15067,7 +15104,7 @@ mod tests {
             *mux.terminal_create_after_workspace_reservation.lock().unwrap() = None;
             initial.kill();
             created.kill();
-            mux.shutdown();
+            mux.shutdown().unwrap();
         }
     }
 
@@ -15158,7 +15195,7 @@ mod tests {
             Some((replacement.workspace, key, replacement.revision + 1))
         );
         surface.kill();
-        mux.shutdown();
+        mux.shutdown().unwrap();
     }
 
     #[test]
@@ -15219,7 +15256,7 @@ mod tests {
         assert!(!mux.close_workspace(managed.workspace));
 
         *mux.workspace_close_after_selector_resolution.lock().unwrap() = None;
-        mux.shutdown();
+        mux.shutdown().unwrap();
     }
 
     #[test]
@@ -15291,7 +15328,7 @@ mod tests {
             assert_eq!(state.workspaces[0].screens.len(), 1);
             assert_eq!(state.workspace_revision, 1);
         });
-        mux.shutdown();
+        mux.shutdown().unwrap();
     }
 
     #[test]
@@ -15332,7 +15369,7 @@ mod tests {
             .expect_err("duplicate stable key must fail");
         assert!(duplicate.to_string().contains("already exists"));
         mux.with_state(|state| assert_eq!(state.workspaces.len(), 1));
-        mux.shutdown();
+        mux.shutdown().unwrap();
     }
 
     #[test]
@@ -15348,7 +15385,7 @@ mod tests {
             assert_eq!(state.pane_of(surface.id), Some(state.workspaces[0].screens[0].active_pane));
             assert_eq!(state.workspace_revision, 1);
         });
-        mux.shutdown();
+        mux.shutdown().unwrap();
     }
 
     #[test]
@@ -15377,7 +15414,7 @@ mod tests {
             let pane = workspace.screens[0].active_pane;
             assert_eq!(state.panes[&pane].tabs.len(), surfaces.len());
         });
-        mux.shutdown();
+        mux.shutdown().unwrap();
     }
 
     #[test]
@@ -15457,7 +15494,7 @@ mod tests {
             assert_eq!(state.pane_of(browser.id), Some(pane));
             assert_eq!(state.pane_of(terminal.surface), Some(pane));
         });
-        mux.shutdown();
+        mux.shutdown().unwrap();
     }
 
     #[test]
@@ -15604,7 +15641,7 @@ mod tests {
         wait_for_text(&surface, "authority-test:after");
         assert_eq!(surface.process_id(), process_id);
         assert!(!surface.is_dead());
-        mux.shutdown();
+        mux.shutdown().unwrap();
     }
 
     #[test]
