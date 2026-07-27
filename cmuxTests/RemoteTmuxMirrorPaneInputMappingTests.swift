@@ -167,11 +167,10 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
     }
 
     /// The reported repro: a window cmux first saw as a single pane, then split.
-    /// The original display pane is adopted as pane one; the new split pane gets a
-    /// freshly wired handler. After the split + the `%window-pane-changed` event
-    /// tmux emits (the new pane becomes active), select-target and input-target
-    /// must still agree for both panes, and the new pane must be the active/input
-    /// target — with no intervening manual click.
+    /// After the split + the `%window-pane-changed` event tmux emits (the new pane
+    /// becomes active), the outer workspace tab must remain a container rather
+    /// than also becoming an inner pane, and workspace focus navigation must enter
+    /// the mirror and select the adjacent tmux pane.
     @Test
     func singlePaneToSplitKeepsSelectAndInputTargetsAlignedForNewPane() throws {
         let harness = try Harness()
@@ -200,11 +199,30 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
         try expectSelectTargetMatchesInputTarget(mirror)
         try expectDistinctSurfacesPerPane(mirror)
 
+        let containerPanelId = try #require(
+            harness.workspace.remoteTmuxSessionMirror?.panelIdByWindow[2]
+        )
+        let containerPanel = try #require(
+            harness.workspace.panels[containerPanelId] as? TerminalPanel
+        )
+        let originalPanePanel = try #require(mirror.panel(forPane: 4))
+        #expect(
+            containerPanel !== originalPanePanel,
+            "The outer workspace container must never also own an inner tmux pane"
+        )
+
         // The freshly split pane is the one the user is looking at; it must be the
         // mirror's active/input target immediately, not the original pane.
         #expect(
             mirror.activePaneId == 5,
             "The newly split pane must be the active input target without a click; got \(String(describing: mirror.activePaneId))"
+        )
+
+        harness.workspace.moveFocus(direction: .left)
+
+        #expect(
+            mirror.activePaneId == 4,
+            "Workspace directional focus must enter the nested mirror and select the adjacent tmux pane"
         )
     }
 }
