@@ -1,7 +1,321 @@
+import Darwin
 import Foundation
 import Testing
 
 extension CMUXCLIErrorOutputRegressionTests {
+    @Test func agentsUseWorkspaceOwnershipBeforeSurfaceFallback() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agents-ownership-precedence-\(UUID().uuidString)", isDirectory: true)
+        let stateDir = root.appendingPathComponent("state", isDirectory: true)
+        try FileManager.default.createDirectory(at: stateDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                "owned-stale-surface": [
+                    "sessionId": "owned-stale-surface",
+                    "workspaceId": "workspace-local",
+                    "surfaceId": "surface-stale",
+                    "restoreAuthority": true,
+                    "startedAt": 100.0,
+                    "updatedAt": 100.0,
+                ],
+                "foreign-workspace-local-surface": [
+                    "sessionId": "foreign-workspace-local-surface",
+                    "workspaceId": "workspace-foreign",
+                    "surfaceId": "surface-local",
+                    "restoreAuthority": true,
+                    "startedAt": 110.0,
+                    "updatedAt": 110.0,
+                ],
+                "surface-only-local": [
+                    "sessionId": "surface-only-local",
+                    "workspaceId": "",
+                    "surfaceId": "surface-local",
+                    "restoreAuthority": true,
+                    "startedAt": 120.0,
+                    "updatedAt": 120.0,
+                ],
+                "surface-only-foreign": [
+                    "sessionId": "surface-only-foreign",
+                    "workspaceId": "",
+                    "surfaceId": "surface-foreign",
+                    "restoreAuthority": true,
+                    "startedAt": 130.0,
+                    "updatedAt": 130.0,
+                ],
+            ],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: store, options: [.sortedKeys])
+        try data.write(to: stateDir.appendingPathComponent("codex-hook-sessions.json"), options: .atomic)
+        let responder = try agentsInstanceResponder(workspaces: [
+            "workspace-local": ["surface-local"],
+        ])
+        defer { responder.stop() }
+
+        var environment = agentsTestEnvironment()
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = stateDir.path
+        let expectedSessionIDs: Set<String> = ["owned-stale-surface", "surface-only-local"]
+
+        let listResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["--socket", responder.path, "agents", "list", "--agent", "codex", "--all", "--json"],
+            environment: environment,
+            timeout: 5
+        )
+        #expect(listResult.status == 0, Comment(rawValue: listResult.stdout))
+        let listPayload = try #require(
+            JSONSerialization.jsonObject(with: Data(listResult.stdout.utf8)) as? [String: Any]
+        )
+        let sessions = try #require(listPayload["sessions"] as? [[String: Any]])
+        #expect(Set(sessions.compactMap { $0["session_id"] as? String }) == expectedSessionIDs)
+
+        let treeResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["--socket", responder.path, "agents", "tree", "--agent", "codex", "--all", "--json"],
+            environment: environment,
+            timeout: 5
+        )
+        #expect(treeResult.status == 0, Comment(rawValue: treeResult.stdout))
+        let treePayload = try #require(
+            JSONSerialization.jsonObject(with: Data(treeResult.stdout.utf8)) as? [String: Any]
+        )
+        let nodes = try #require(treePayload["nodes"] as? [[String: Any]])
+        #expect(Set(nodes.compactMap { $0["session_id"] as? String }) == expectedSessionIDs)
+    }
+
+    @Test func agentsTreeRejectsCyclesConsistentlyInJSONAndText() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agents-cycle-consistency-\(UUID().uuidString)", isDirectory: true)
+        let stateDir = root.appendingPathComponent("state", isDirectory: true)
+        try FileManager.default.createDirectory(at: stateDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                "cycle-a": [
+                    "sessionId": "cycle-a",
+                    "workspaceId": "workspace-local",
+                    "surfaceId": "surface-a",
+                    "runId": "run-a",
+                    "parentRunId": "run-b",
+                    "relationship": "spawned",
+                    "restoreAuthority": true,
+                    "startedAt": 100.0,
+                    "updatedAt": 100.0,
+                ],
+                "cycle-b": [
+                    "sessionId": "cycle-b",
+                    "workspaceId": "workspace-local",
+                    "surfaceId": "surface-b",
+                    "runId": "run-b",
+                    "parentRunId": "run-a",
+                    "relationship": "spawned",
+                    "restoreAuthority": true,
+                    "startedAt": 110.0,
+                    "updatedAt": 110.0,
+                ],
+                "normal-root": [
+                    "sessionId": "normal-root",
+                    "workspaceId": "workspace-local",
+                    "surfaceId": "surface-root",
+                    "runId": "run-root",
+                    "restoreAuthority": true,
+                    "startedAt": 120.0,
+                    "updatedAt": 120.0,
+                ],
+                "normal-child": [
+                    "sessionId": "normal-child",
+                    "workspaceId": "workspace-local",
+                    "surfaceId": "surface-child",
+                    "runId": "run-child",
+                    "parentRunId": "run-root",
+                    "relationship": "forked",
+                    "restoreAuthority": true,
+                    "startedAt": 130.0,
+                    "updatedAt": 130.0,
+                ],
+            ],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: store, options: [.sortedKeys])
+        try data.write(to: stateDir.appendingPathComponent("codex-hook-sessions.json"), options: .atomic)
+        let responder = try agentsInstanceResponder(workspaces: [
+            "workspace-local": ["surface-a", "surface-b", "surface-root", "surface-child"],
+        ])
+        defer { responder.stop() }
+
+        var environment = agentsTestEnvironment()
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = stateDir.path
+
+        let jsonResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["--socket", responder.path, "agents", "tree", "--agent", "codex", "--all", "--json"],
+            environment: environment,
+            timeout: 5
+        )
+        #expect(jsonResult.status == 0, Comment(rawValue: jsonResult.stdout))
+        let payload = try #require(
+            JSONSerialization.jsonObject(with: Data(jsonResult.stdout.utf8)) as? [String: Any]
+        )
+        let edges = try #require(payload["edges"] as? [[String: Any]])
+        #expect(edges.count == 1)
+        #expect(edges.first?["from_session_id"] as? String == "normal-root")
+        #expect(edges.first?["to_session_id"] as? String == "normal-child")
+
+        let textResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["--socket", responder.path, "agents", "tree", "--agent", "codex", "--all"],
+            environment: environment,
+            timeout: 5
+        )
+        #expect(textResult.status == 0, Comment(rawValue: textResult.stdout))
+        #expect(textResult.stdout.contains("root codex cycle-a"))
+        #expect(textResult.stdout.contains("root codex cycle-b"))
+        #expect(textResult.stdout.contains("root codex normal-root"))
+        #expect(textResult.stdout.contains("forked codex normal-child"))
+        #expect(!textResult.stdout.contains("spawned codex cycle-a"))
+        #expect(!textResult.stdout.contains("spawned codex cycle-b"))
+    }
+
+    @Test func agentsTreeRendersMaximumDepthWithoutStackOverflow() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agents-depth-4096-\(UUID().uuidString)", isDirectory: true)
+        let stateDir = root.appendingPathComponent("state", isDirectory: true)
+        try FileManager.default.createDirectory(at: stateDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        var sessions: [String: Any] = [:]
+        for index in 0..<4_096 {
+            var record: [String: Any] = [
+                "sessionId": "session-\(index)",
+                "workspaceId": "workspace-local",
+                "surfaceId": "",
+                "runId": "run-\(index)",
+                "restoreAuthority": true,
+                "startedAt": Double(index),
+                "updatedAt": Double(index),
+            ]
+            if index > 0 {
+                record["parentRunId"] = "run-\(index - 1)"
+                record["relationship"] = "spawned"
+            }
+            sessions["session-\(index)"] = record
+        }
+        let store: [String: Any] = ["version": 1, "sessions": sessions]
+        let data = try JSONSerialization.data(withJSONObject: store, options: [.sortedKeys])
+        try data.write(to: stateDir.appendingPathComponent("codex-hook-sessions.json"), options: .atomic)
+        let responder = try agentsInstanceResponder(workspaces: ["workspace-local": []])
+        defer { responder.stop() }
+
+        var environment = agentsTestEnvironment()
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = stateDir.path
+        let result = runProcessDiscardingOutput(
+            executablePath: cliPath,
+            arguments: [
+                "--socket", responder.path,
+                "agents", "tree", "--agent", "codex", "--all",
+                "--depth", "4096", "--max-nodes", "4096",
+            ],
+            environment: environment,
+            timeout: 20
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status == 0, Comment(rawValue: result.stdout))
+    }
+
+    @Test func agentsUseStructuredLegacyTopologyFallback() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agents-legacy-topology-\(UUID().uuidString)", isDirectory: true)
+        let stateDir = root.appendingPathComponent("state", isDirectory: true)
+        try FileManager.default.createDirectory(at: stateDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let responder = try UnixSocketResponder(
+            path: "/tmp/cmux-agents-legacy-\(UUID().uuidString.prefix(8)).sock"
+        ) { request in
+            guard let data = request.data(using: .utf8),
+                  let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let method = payload["method"] as? String else {
+                return #"{"ok":false,"error":{"code":"invalid_request","message":"Malformed request"}}"#
+            }
+            switch method {
+            case "system.tree":
+                return #"{"ok":false,"error":{"code":"unrecognized_method","message":"Legacy server does not recognize this request"}}"#
+            case "window.list":
+                return #"{"ok":true,"result":{"windows":[{"id":"window-local"}]}}"#
+            case "workspace.list":
+                return #"{"ok":true,"result":{"workspaces":[{"id":"workspace-local"}]}}"#
+            case "surface.list":
+                return #"{"ok":true,"result":{"surfaces":[{"id":"surface-local"}]}}"#
+            default:
+                return #"{"ok":false,"error":{"code":"unexpected_method","message":"Unexpected method"}}"#
+            }
+        }
+        defer { responder.stop() }
+
+        var environment = agentsTestEnvironment()
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = stateDir.path
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["--socket", responder.path, "agents", "--json"],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(result.status == 0, Comment(rawValue: result.stdout))
+        let payload = try #require(
+            JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any]
+        )
+        let instance = try #require(payload["cmux_instance"] as? [String: Any])
+        #expect(instance["workspace_ids"] as? [String] == ["workspace-local"])
+        #expect(instance["surface_ids"] as? [String] == ["surface-local"])
+        let methods = responder.receivedRequests.compactMap { request -> String? in
+            guard let data = request.data(using: .utf8),
+                  let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return nil
+            }
+            return payload["method"] as? String
+        }
+        #expect(methods == ["system.tree", "window.list", "workspace.list", "surface.list"])
+    }
+
+    @Test(arguments: [
+        #"{"ok":true,"result":{"windows":[]}}"#,
+        #"{"ok":true,"result":{"windows":"malformed"}}"#,
+    ])
+    func agentsRejectEmptyOrMalformedTopology(_ response: String) throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agents-invalid-topology-\(UUID().uuidString)", isDirectory: true)
+        let stateDir = root.appendingPathComponent("state", isDirectory: true)
+        try FileManager.default.createDirectory(at: stateDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let responder = try UnixSocketResponder(
+            path: "/tmp/cmux-agents-invalid-\(UUID().uuidString.prefix(8)).sock",
+            response: response
+        )
+        defer { responder.stop() }
+
+        var environment = agentsTestEnvironment()
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = stateDir.path
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["--socket", responder.path, "agents", "--json"],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(result.status != 0)
+        #expect(result.stdout.localizedCaseInsensitiveContains("topology"), Comment(rawValue: result.stdout))
+    }
+
     @Test func agentsDoNotFocusWindowBeforeReadOnlyInspection() throws {
         let cliPath = try bundledCLIPath()
         let responder = try agentsInstanceResponder(workspaces: [:])
@@ -1126,6 +1440,53 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(session["codex_indexed"] as? Bool == false)
         #expect(session["codex_transcript_found"] as? Bool == false)
         #expect(session["session_home"] as? String == codexHome.path)
+    }
+
+    private func runProcessDiscardingOutput(
+        executablePath: String,
+        arguments: [String],
+        environment: [String: String],
+        timeout: TimeInterval
+    ) -> ProcessRunResult {
+        let process = Process()
+        let errorPipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: executablePath)
+        process.arguments = arguments
+        process.environment = environment
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = errorPipe
+
+        do {
+            try process.run()
+        } catch {
+            return ProcessRunResult(status: -1, stdout: String(describing: error), timedOut: false)
+        }
+
+        let exitSignal = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async {
+            process.waitUntilExit()
+            exitSignal.signal()
+        }
+
+        let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
+        if timedOut {
+            process.terminate()
+            if exitSignal.wait(timeout: .now() + 1) == .timedOut,
+               process.isRunning {
+                kill(process.processIdentifier, SIGKILL)
+                _ = exitSignal.wait(timeout: .now() + 1)
+            }
+        }
+
+        return ProcessRunResult(
+            status: process.terminationStatus,
+            stdout: String(
+                data: errorPipe.fileHandleForReading.readDataToEndOfFile(),
+                encoding: .utf8
+            ) ?? "",
+            timedOut: timedOut
+        )
     }
 
     private func agentsTestEnvironment() -> [String: String] {
