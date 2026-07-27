@@ -8,10 +8,7 @@ public struct TerminalKeyInputPlan: Sendable, Equatable {
     /// A composing key operation is intentionally excluded because libghostty
     /// suppresses non-modifier presses while composition is active.
     public var forwardsPhysicalKey: Bool {
-        actions.contains { action in
-            guard case .sendKey(_, composing: false) = action else { return false }
-            return true
-        }
+        actions.contains(where: \.forwardsPhysicalKey)
     }
 
     init(actions: [TerminalKeyInputAction]) {

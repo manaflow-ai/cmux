@@ -79,7 +79,7 @@ import Testing
             rawText: "\u{0008}"
         ))
 
-        #expect(actions == [.sendKey(text: "opaque", composing: false)])
+        #expect(actions == [.sendCommittedKey("opaque")])
     }
 
     @Test func accumulatedComposingC0PreservesPostCommitNavigationReplay() {
@@ -157,7 +157,7 @@ import Testing
             translatedText: nil
         ))
 
-        #expect(actions == [.sendKey(text: "你", composing: false)])
+        #expect(actions == [.sendCommittedKey("你")])
     }
 
     @Test(arguments: [

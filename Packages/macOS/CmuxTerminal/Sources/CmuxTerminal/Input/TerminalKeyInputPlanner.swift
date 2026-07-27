@@ -43,7 +43,7 @@ public struct TerminalKeyInputPlanner: Sendable {
 
         if !snapshot.committedText.isEmpty {
             var actions: [TerminalKeyInputAction] = committedText.map {
-                .sendKey(text: $0, composing: false)
+                .sendCommittedKey($0)
             }
             if !suppressedAccumulatedControl,
                snapshot.textInputCommandPerformed {

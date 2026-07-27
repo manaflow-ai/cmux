@@ -5688,6 +5688,20 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             isRepeat: event.isARepeat
         )
 
+        let inputFlags = ShortcutStroke.normalizedModifierFlags(
+            from: event.modifierFlags
+        )
+        if !markedTextBefore,
+           inputFlags.contains(.control),
+           inputFlags.isDisjoint(with: [.command, .option]),
+           inputActions.contains(where: \.forwardsPhysicalKey) {
+            // TerminalSurface normally deduplicates focus against model state,
+            // but native Ghostty focus can drift while that state remains true.
+            // Preserve the established Control-input repair after shared
+            // AppKit/lifecycle routing has decided to forward a physical key.
+            _ = reassertTerminalFocusForInputIfFirstResponder(forceNative: true)
+        }
+
         for inputAction in inputActions {
 #if DEBUG
             let ghosttySendStart = ProcessInfo.processInfo.systemUptime
@@ -5696,6 +5710,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             case .sendCommittedText(let text):
                 _ = sendCommittedPreeditText(
                     text,
+                    action: action,
+                    surface: surface
+                )
+            case .sendCommittedKey(let text):
+                _ = sendGhosttyKey(
+                    event,
+                    translationEvent: translationEvent,
+                    text: text,
+                    composing: false,
                     action: action,
                     surface: surface
                 )

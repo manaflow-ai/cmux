@@ -54,7 +54,7 @@ public struct TerminalKeyInputLifecycleTracker: Sendable {
         let nonPhysicalActions = plan.actions.filter { !$0.isPhysicalKey }
         switch lifecycle.owner {
         case .appKit:
-            return nonPhysicalActions
+            return plan.actions.compactMap(\.withoutPhysicalOwnership)
         case .terminal:
             return nonPhysicalActions + lifecycle.terminalActions
         }
@@ -105,17 +105,5 @@ public struct TerminalKeyInputLifecycleTracker: Sendable {
     /// Clears all key lifecycles after responder ownership changes.
     public mutating func reset() {
         lifecycles.removeAll(keepingCapacity: true)
-    }
-}
-
-private extension TerminalKeyInputAction {
-    var isPhysicalKey: Bool {
-        guard case .sendKey = self else { return false }
-        return true
-    }
-
-    var forwardsPhysicalKey: Bool {
-        guard case .sendKey(_, composing: false) = self else { return false }
-        return true
     }
 }
