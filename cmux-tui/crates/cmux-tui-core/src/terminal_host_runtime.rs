@@ -283,8 +283,10 @@ mod unix {
     use std::os::unix::process::CommandExt;
     use std::process::{Command, Stdio};
     use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-    use std::sync::mpsc::{SyncSender, TrySendError, sync_channel};
-    use std::sync::{Arc, Condvar, Mutex};
+    use std::sync::mpsc::{
+        Receiver, RecvTimeoutError, Sender, SyncSender, TrySendError, sync_channel,
+    };
+    use std::sync::{Arc, Condvar, Mutex, OnceLock};
     use std::thread;
     use std::time::{Duration, Instant};
 
@@ -302,6 +304,10 @@ mod unix {
     const HOST_LAUNCH_ROLLBACK_WAIT: Duration = Duration::from_secs(4);
     const HOST_LAUNCH_TIMEOUT: Duration = Duration::from_secs(10);
     const HOST_LAUNCH_CANCEL_POLL: Duration = Duration::from_millis(25);
+    const HOST_PROCESS_REAPER_CAPACITY: usize = 4_096;
+    const HOST_PROCESS_REAPER_POLL: Duration = Duration::from_millis(25);
+    const HOST_PROCESS_REAPER_RETRY_MAX: Duration = Duration::from_secs(1);
+    static HOST_PROCESS_REAPER: OnceLock<Mutex<Option<HostProcessReaper>>> = OnceLock::new();
     #[cfg(test)]
     static HOST_REAP_TEST_LOCK: Mutex<()> = Mutex::new(());
     #[cfg(test)]
@@ -309,22 +315,174 @@ mod unix {
     #[cfg(test)]
     static NEXT_HOST_PROCESS_REAPER_SPAWN_FAILURES: AtomicUsize = AtomicUsize::new(0);
 
+    struct HostProcessReaper {
+        sender: Sender<HostProcessReapRequest>,
+        active: Arc<AtomicUsize>,
+        _worker: thread::JoinHandle<()>,
+    }
+
+    struct HostProcessReaperLease {
+        sender: Sender<HostProcessReapRequest>,
+        active: Arc<AtomicUsize>,
+        #[cfg(test)]
+        completion: Option<Sender<()>>,
+    }
+
+    impl Drop for HostProcessReaperLease {
+        fn drop(&mut self) {
+            self.active.fetch_sub(1, Ordering::AcqRel);
+            #[cfg(test)]
+            if let Some(completion) = self.completion.take() {
+                let _ = completion.send(());
+            }
+        }
+    }
+
+    struct HostProcessReapRequest {
+        child: std::process::Child,
+        _lease: HostProcessReaperLease,
+        next_attempt: Instant,
+        retry_delay: Duration,
+    }
+
+    impl HostProcessReaper {
+        fn start() -> std::io::Result<Self> {
+            let (sender, receiver) = std::sync::mpsc::channel();
+            let active = Arc::new(AtomicUsize::new(0));
+            let worker = spawn_host_process_reaper_worker(receiver)?;
+            Ok(Self { sender, active, _worker: worker })
+        }
+
+        fn lease(&self) -> std::io::Result<HostProcessReaperLease> {
+            self.active
+                .fetch_update(Ordering::AcqRel, Ordering::Acquire, |active| {
+                    (active < HOST_PROCESS_REAPER_CAPACITY).then_some(active + 1)
+                })
+                .map_err(|_| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::WouldBlock,
+                        "terminal-host process reaper capacity exhausted",
+                    )
+                })?;
+            Ok(HostProcessReaperLease {
+                sender: self.sender.clone(),
+                active: self.active.clone(),
+                #[cfg(test)]
+                completion: None,
+            })
+        }
+    }
+
+    fn reserve_host_process_reaper() -> std::io::Result<HostProcessReaperLease> {
+        let mut slot = HOST_PROCESS_REAPER.get_or_init(|| Mutex::new(None)).lock().unwrap();
+        if slot.is_none() {
+            *slot = Some(HostProcessReaper::start()?);
+        }
+        slot.as_ref().expect("terminal-host process reaper initialized").lease()
+    }
+
+    fn spawn_host_process_reaper_worker(
+        receiver: Receiver<HostProcessReapRequest>,
+    ) -> std::io::Result<thread::JoinHandle<()>> {
+        #[cfg(test)]
+        if NEXT_HOST_PROCESS_REAPER_SPAWN_FAILURES
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |remaining| remaining.checked_sub(1))
+            .is_ok()
+        {
+            return Err(std::io::Error::other("forced terminal-host reaper spawn failure"));
+        }
+        thread::Builder::new()
+            .name("terminal-host-process-reaper".into())
+            .spawn(move || run_host_process_reaper(receiver))
+    }
+
+    fn run_host_process_reaper(receiver: Receiver<HostProcessReapRequest>) {
+        let mut pending = Vec::<HostProcessReapRequest>::new();
+        loop {
+            let received = if pending.is_empty() {
+                receiver.recv().map_err(|_| RecvTimeoutError::Disconnected)
+            } else {
+                let now = Instant::now();
+                let wait = pending
+                    .iter()
+                    .map(|request| request.next_attempt.saturating_duration_since(now))
+                    .min()
+                    .unwrap_or(HOST_PROCESS_REAPER_POLL);
+                receiver.recv_timeout(wait)
+            };
+            match received {
+                Ok(request) => pending.push(request),
+                Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Disconnected) if pending.is_empty() => return,
+                Err(RecvTimeoutError::Disconnected) => {}
+            }
+            pending.extend(receiver.try_iter());
+
+            let now = Instant::now();
+            let mut index = 0;
+            while index < pending.len() {
+                if pending[index].next_attempt > now {
+                    index += 1;
+                    continue;
+                }
+                match pending[index].child.try_wait() {
+                    Ok(Some(_)) => {
+                        pending.swap_remove(index);
+                    }
+                    Ok(None) => {
+                        let retry = pending[index].retry_delay;
+                        pending[index].next_attempt = now + retry;
+                        pending[index].retry_delay =
+                            retry.saturating_mul(2).min(HOST_PROCESS_REAPER_RETRY_MAX);
+                        index += 1;
+                    }
+                    Err(_) => {
+                        let retry = pending[index].retry_delay;
+                        pending[index].next_attempt = now + retry;
+                        pending[index].retry_delay =
+                            retry.saturating_mul(2).min(HOST_PROCESS_REAPER_RETRY_MAX);
+                        index += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    fn enqueue_host_process_reaper(lease: HostProcessReaperLease, child: std::process::Child) {
+        let sender = lease.sender.clone();
+        sender
+            .send(HostProcessReapRequest {
+                child,
+                _lease: lease,
+                next_attempt: Instant::now(),
+                retry_delay: HOST_PROCESS_REAPER_POLL,
+            })
+            .expect("terminal-host process reaper remains alive while registered");
+    }
+
     struct SpawnedHostProcess {
         child: Option<std::process::Child>,
+        reaper: Option<HostProcessReaperLease>,
     }
 
     impl SpawnedHostProcess {
+        fn with_reaper(
+            child: std::process::Child,
+            reaper: HostProcessReaperLease,
+        ) -> SpawnedHostProcess {
+            Self { child: Some(child), reaper: Some(reaper) }
+        }
+
         #[cfg(test)]
-        fn new_for_test(child: std::process::Child) -> Self {
-            Self { child: Some(child) }
+        fn new_for_test(child: std::process::Child) -> (Self, Receiver<()>) {
+            let mut reaper = reserve_host_process_reaper().unwrap();
+            let (completion, completed) = std::sync::mpsc::channel();
+            reaper.completion = Some(completion);
+            (Self::with_reaper(child, reaper), completed)
         }
 
         fn child_mut(&mut self) -> &mut std::process::Child {
             self.child.as_mut().expect("terminal-host child is present")
-        }
-
-        fn into_child(mut self) -> std::process::Child {
-            self.child.take().expect("terminal-host child is present")
         }
 
         fn wait_timeout(&mut self, timeout: Duration) -> bool {
@@ -334,6 +492,7 @@ mod unix {
                 match child.try_wait() {
                     Ok(Some(_)) => {
                         self.child.take();
+                        self.reaper.take();
                         return true;
                     }
                     Ok(None) if Instant::now() < deadline => {
@@ -346,22 +505,10 @@ mod unix {
 
         fn detach_reaper(mut self) {
             let Some(child) = self.child.take() else { return };
-            let _ = spawn_host_process_reaper(child);
+            let reaper =
+                self.reaper.take().expect("spawned terminal host retains its reaper reservation");
+            enqueue_host_process_reaper(reaper, child);
         }
-    }
-
-    fn spawn_host_process_reaper(mut child: std::process::Child) -> std::io::Result<()> {
-        #[cfg(test)]
-        if NEXT_HOST_PROCESS_REAPER_SPAWN_FAILURES
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |remaining| remaining.checked_sub(1))
-            .is_ok()
-        {
-            return Err(std::io::Error::other("forced terminal-host reaper spawn failure"));
-        }
-        thread::Builder::new().name("terminal-host-detached-reaper".into()).spawn(move || {
-            let _ = child.wait();
-        })?;
-        Ok(())
     }
 
     impl Drop for SpawnedHostProcess {
@@ -764,13 +911,7 @@ mod unix {
         /// kills and waits the child process through SpawnedHostProcess.
         pub(crate) fn commit_launched_host(&mut self) {
             let Some(process) = self.launch_process.take() else { return };
-            let mut child = process.into_child();
-            // Reaping is housekeeping after the ownership handoff. Failure to
-            // create this helper cannot turn a committed live Surface into an
-            // error; dropping Child leaves the independent host running.
-            let _ = thread::Builder::new().name("terminal-host-reaper".into()).spawn(move || {
-                let _ = child.wait();
-            });
+            process.detach_reaper();
         }
 
         pub fn identity(&self) -> TerminalHostIdentity {
@@ -1015,8 +1156,10 @@ mod unix {
                 if libc::setsid() < 0 { Err(std::io::Error::last_os_error()) } else { Ok(()) }
             });
         }
+        let reaper = reserve_host_process_reaper()
+            .context("reserve bounded terminal-host process cleanup")?;
         let child = command.spawn().context("spawn terminal-host process")?;
-        let mut process = SpawnedHostProcess { child: Some(child) };
+        let mut process = SpawnedHostProcess::with_reaper(child, reaper);
         let host_pid = process.child_mut().id();
         let stdin =
             process.child_mut().stdin.take().context("open terminal-host bootstrap stdin")?;
@@ -3890,44 +4033,31 @@ mod unix {
             let child =
                 Command::new("/bin/sh").arg("-c").arg("exit 0").spawn().expect("spawn test child");
             let pid = libc::pid_t::try_from(child.id()).expect("child PID fits pid_t");
-            let process = SpawnedHostProcess::new_for_test(child);
+            let (process, completed) = SpawnedHostProcess::new_for_test(child);
             NEXT_HOST_PROCESS_REAPER_SPAWN_FAILURES.store(1, Ordering::Release);
 
             process.detach_reaper();
 
-            let deadline = Instant::now() + Duration::from_secs(1);
-            let reaped_by_owner = loop {
-                let mut status = 0;
-                // SAFETY: pid names the test-owned child and status is writable
-                // for the duration of this nonblocking wait.
-                let result = unsafe { libc::waitpid(pid, &raw mut status, libc::WNOHANG) };
-                if result == -1 {
-                    let error = std::io::Error::last_os_error();
-                    if error.raw_os_error() == Some(libc::ECHILD) {
-                        break true;
-                    }
-                    panic!("waitpid failed: {error}");
-                }
-                if result == pid {
-                    break false;
-                }
-                if Instant::now() >= deadline {
-                    // SAFETY: pid remains the exact test-owned child until it
-                    // is reaped, and this branch is only timeout cleanup.
-                    unsafe {
-                        libc::kill(pid, libc::SIGKILL);
-                        libc::waitpid(pid, &raw mut status, 0);
-                    }
-                    break false;
-                }
-                thread::sleep(Duration::from_millis(10));
-            };
+            let reaped_by_owner = completed.recv_timeout(Duration::from_secs(1)).is_ok();
             NEXT_HOST_PROCESS_REAPER_SPAWN_FAILURES.store(0, Ordering::Release);
+            if !reaped_by_owner {
+                // SAFETY: pid remains the exact test-owned child while its
+                // reaper reservation is still outstanding.
+                unsafe {
+                    libc::kill(pid, libc::SIGKILL);
+                }
+            }
 
             assert!(
                 reaped_by_owner,
                 "detached terminal-host cleanup abandoned the child after thread spawn failed"
             );
+            let mut status = 0;
+            // SAFETY: completion proves the reaper dropped its sole Child
+            // handle after observing exit, so this call only verifies ECHILD.
+            let result = unsafe { libc::waitpid(pid, &raw mut status, libc::WNOHANG) };
+            assert_eq!(result, -1);
+            assert_eq!(std::io::Error::last_os_error().raw_os_error(), Some(libc::ECHILD));
         }
 
         #[test]

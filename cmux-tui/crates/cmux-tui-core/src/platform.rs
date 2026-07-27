@@ -6,7 +6,7 @@ pub mod transport {
     use std::io::{self, Read, Write};
     use std::net::Shutdown;
     use std::path::Path;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     pub trait Stream: Read + Write + Send + Sync {
         fn try_clone_box(&self) -> io::Result<Box<dyn Stream>>;
@@ -32,6 +32,10 @@ pub mod transport {
         imp::connect(path)
     }
 
+    pub fn connect_until(path: &Path, deadline: Instant) -> io::Result<Box<dyn Stream>> {
+        imp::connect_until(path, deadline)
+    }
+
     impl Listener {
         pub fn accept(&self) -> io::Result<Box<dyn Stream>> {
             self.inner.accept()
@@ -41,9 +45,12 @@ pub mod transport {
     #[cfg(unix)]
     mod imp {
         use std::io;
+        use std::mem::{offset_of, size_of};
+        use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+        use std::os::unix::ffi::OsStrExt;
         use std::os::unix::net::{UnixListener, UnixStream};
         use std::path::Path;
-        use std::time::Duration;
+        use std::time::{Duration, Instant};
 
         use super::Stream;
 
@@ -57,6 +64,200 @@ pub mod transport {
 
         pub(super) fn connect(path: &Path) -> io::Result<Box<dyn Stream>> {
             Ok(Box::new(UnixStream::connect(path)?))
+        }
+
+        pub(super) fn connect_until(path: &Path, deadline: Instant) -> io::Result<Box<dyn Stream>> {
+            ensure_connect_time_remaining(deadline)?;
+            let (address, address_len) = unix_socket_address(path)?;
+            // SAFETY: socket has no pointer arguments and returns a new owned
+            // descriptor on success.
+            let descriptor = unsafe { libc::socket(libc::AF_UNIX, libc::SOCK_STREAM, 0) };
+            if descriptor < 0 {
+                return Err(io::Error::last_os_error());
+            }
+            // SAFETY: descriptor is a fresh successful socket result and this
+            // OwnedFd takes its sole ownership.
+            let descriptor = unsafe { OwnedFd::from_raw_fd(descriptor) };
+            // SAFETY: F_GETFD only reads flags from this valid descriptor.
+            let descriptor_flags = unsafe { libc::fcntl(descriptor.as_raw_fd(), libc::F_GETFD) };
+            if descriptor_flags < 0 {
+                return Err(io::Error::last_os_error());
+            }
+            // SAFETY: F_SETFD updates flags on this valid descriptor.
+            if unsafe {
+                libc::fcntl(
+                    descriptor.as_raw_fd(),
+                    libc::F_SETFD,
+                    descriptor_flags | libc::FD_CLOEXEC,
+                )
+            } < 0
+            {
+                return Err(io::Error::last_os_error());
+            }
+            let stream = UnixStream::from(descriptor);
+            stream.set_nonblocking(true)?;
+            loop {
+                ensure_connect_time_remaining(deadline)?;
+                // SAFETY: address is an initialized sockaddr_un with its
+                // exact kernel-visible length, and stream owns a valid
+                // AF_UNIX socket.
+                let connected = unsafe {
+                    libc::connect(
+                        stream.as_raw_fd(),
+                        (&raw const address).cast::<libc::sockaddr>(),
+                        address_len,
+                    )
+                };
+                if connected == 0 {
+                    break;
+                }
+                let error = io::Error::last_os_error();
+                let code = error.raw_os_error();
+                if retry_connect_after_would_block(code, deadline)? {
+                    continue;
+                }
+                let pending = [
+                    Some(libc::EAGAIN),
+                    Some(libc::EINPROGRESS),
+                    Some(libc::EWOULDBLOCK),
+                    Some(libc::EALREADY),
+                    Some(libc::EINTR),
+                ]
+                .contains(&code);
+                if !pending {
+                    return Err(error);
+                }
+                wait_for_connect(&stream, deadline)?;
+                break;
+            }
+            stream.set_nonblocking(false)?;
+            Ok(Box::new(stream))
+        }
+
+        fn retry_connect_after_would_block(
+            code: Option<i32>,
+            deadline: Instant,
+        ) -> io::Result<bool> {
+            #[cfg(target_os = "linux")]
+            if code == Some(libc::EAGAIN) || code == Some(libc::EWOULDBLOCK) {
+                // Linux leaves a nonblocking AF_UNIX socket unconnected when
+                // the listener queue is full. The socket still polls writable
+                // with SO_ERROR zero, so retry connect instead of treating
+                // writability as completion.
+                let remaining = ensure_connect_time_remaining(deadline)?;
+                std::thread::sleep(remaining.min(Duration::from_millis(5)));
+                return Ok(true);
+            }
+            let _ = (code, deadline);
+            Ok(false)
+        }
+
+        fn ensure_connect_time_remaining(deadline: Instant) -> io::Result<Duration> {
+            deadline
+                .checked_duration_since(Instant::now())
+                .filter(|remaining| !remaining.is_zero())
+                .ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::TimedOut,
+                        "transport connection exceeded its deadline",
+                    )
+                })
+        }
+
+        fn wait_for_connect(stream: &UnixStream, deadline: Instant) -> io::Result<()> {
+            loop {
+                let remaining = ensure_connect_time_remaining(deadline)?;
+                let timeout_ms = remaining.as_millis().max(1).min(i32::MAX as u128) as i32;
+                let mut descriptor =
+                    libc::pollfd { fd: stream.as_raw_fd(), events: libc::POLLOUT, revents: 0 };
+                // SAFETY: descriptor points to one initialized pollfd for the
+                // duration of this call.
+                let result = unsafe { libc::poll(&raw mut descriptor, 1, timeout_ms) };
+                if result == 0 {
+                    continue;
+                }
+                if result < 0 {
+                    let error = io::Error::last_os_error();
+                    if error.kind() == io::ErrorKind::Interrupted {
+                        continue;
+                    }
+                    return Err(error);
+                }
+                if descriptor.revents & libc::POLLNVAL != 0 {
+                    return Err(io::Error::new(
+                        io::ErrorKind::BrokenPipe,
+                        "transport connection socket became invalid",
+                    ));
+                }
+                let mut socket_error = 0;
+                let mut socket_error_len =
+                    libc::socklen_t::try_from(size_of::<libc::c_int>()).unwrap();
+                // SAFETY: socket_error and its length describe a writable
+                // c_int, and stream owns a valid socket descriptor.
+                if unsafe {
+                    libc::getsockopt(
+                        stream.as_raw_fd(),
+                        libc::SOL_SOCKET,
+                        libc::SO_ERROR,
+                        (&raw mut socket_error).cast(),
+                        &raw mut socket_error_len,
+                    )
+                } != 0
+                {
+                    return Err(io::Error::last_os_error());
+                }
+                return if socket_error == 0 {
+                    Ok(())
+                } else {
+                    Err(io::Error::from_raw_os_error(socket_error))
+                };
+            }
+        }
+
+        pub(super) fn unix_socket_address(
+            path: &Path,
+        ) -> io::Result<(libc::sockaddr_un, libc::socklen_t)> {
+            const SUN_PATH_CAPACITY: usize =
+                size_of::<libc::sockaddr_un>() - offset_of!(libc::sockaddr_un, sun_path);
+            let path = path.as_os_str().as_bytes();
+            if path.is_empty() || path.len() >= SUN_PATH_CAPACITY || path.contains(&0) {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "invalid transport Unix socket path",
+                ));
+            }
+            // SAFETY: all-zero is a valid starting representation for
+            // sockaddr_un; family, path, and platform length are set below.
+            let mut address = unsafe { std::mem::zeroed::<libc::sockaddr_un>() };
+            address.sun_family = libc::AF_UNIX as libc::sa_family_t;
+            for (destination, source) in address.sun_path.iter_mut().zip(path) {
+                *destination = *source as libc::c_char;
+            }
+            let address_len = offset_of!(libc::sockaddr_un, sun_path) + path.len() + 1;
+            #[cfg(any(
+                target_os = "dragonfly",
+                target_os = "freebsd",
+                target_os = "macos",
+                target_os = "netbsd",
+                target_os = "openbsd"
+            ))]
+            {
+                address.sun_len = u8::try_from(address_len).map_err(|_| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "transport Unix socket path is too long",
+                    )
+                })?;
+            }
+            Ok((
+                address,
+                libc::socklen_t::try_from(address_len).map_err(|_| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "transport Unix socket path is too long",
+                    )
+                })?,
+            ))
         }
 
         impl Listener {
@@ -159,11 +360,23 @@ pub mod transport {
     #[cfg(windows)]
     mod imp {
         use std::io;
+        use std::mem::{offset_of, size_of};
+        use std::os::windows::io::{
+            AsRawSocket, FromRawSocket, IntoRawSocket, OwnedSocket, RawSocket,
+        };
         use std::path::Path;
-        use std::time::Duration;
+        use std::sync::OnceLock;
+        use std::time::{Duration, Instant};
 
         use super::Stream;
         use uds_windows::{UnixListener, UnixStream};
+        use windows_sys::Win32::Networking::WinSock::{
+            AF_UNIX, FIONBIO, INVALID_SOCKET, POLLNVAL, POLLWRNORM, SO_ERROR, SOCK_STREAM,
+            SOCKADDR, SOCKADDR_UN, SOCKET, SOCKET_ERROR, SOL_SOCKET, WSA_FLAG_NO_HANDLE_INHERIT,
+            WSA_FLAG_OVERLAPPED, WSADATA, WSAEALREADY, WSAEINPROGRESS, WSAEINTR, WSAEWOULDBLOCK,
+            WSAGetLastError, WSAPOLLFD, WSAPoll, WSASocketW, WSAStartup,
+            connect as winsock_connect, getsockopt, ioctlsocket,
+        };
 
         pub(super) struct Listener {
             inner: UnixListener,
@@ -175,6 +388,185 @@ pub mod transport {
 
         pub(super) fn connect(path: &Path) -> io::Result<Box<dyn Stream>> {
             Ok(Box::new(UnixStream::connect(path)?))
+        }
+
+        pub(super) fn connect_until(path: &Path, deadline: Instant) -> io::Result<Box<dyn Stream>> {
+            ensure_connect_time_remaining(deadline)?;
+            initialize_winsock()?;
+            let (address, address_len) = unix_socket_address(path)?;
+            // SAFETY: WSASocketW receives no borrowed protocol descriptor and
+            // returns a new socket handle on success.
+            let socket = unsafe {
+                WSASocketW(
+                    AF_UNIX as i32,
+                    SOCK_STREAM,
+                    0,
+                    std::ptr::null(),
+                    0,
+                    WSA_FLAG_OVERLAPPED | WSA_FLAG_NO_HANDLE_INHERIT,
+                )
+            };
+            if socket == INVALID_SOCKET {
+                return Err(last_winsock_error());
+            }
+            // SAFETY: socket is a fresh successful WSASocketW result and this
+            // OwnedSocket takes its sole ownership.
+            let socket = unsafe { OwnedSocket::from_raw_socket(socket as RawSocket) };
+            let socket_handle = winsock_handle(&socket)?;
+            let mut nonblocking = 1;
+            // SAFETY: socket is valid and nonblocking points to a writable
+            // u32 for the duration of the call.
+            if unsafe { ioctlsocket(socket_handle, FIONBIO, &raw mut nonblocking) } == SOCKET_ERROR
+            {
+                return Err(last_winsock_error());
+            }
+            // SAFETY: address is an initialized SOCKADDR_UN with its exact
+            // Winsock-visible length.
+            let connected = unsafe {
+                winsock_connect(socket_handle, (&raw const address).cast::<SOCKADDR>(), address_len)
+            };
+            if connected == SOCKET_ERROR {
+                let error = last_winsock_error();
+                let code = error.raw_os_error();
+                let pending =
+                    [Some(WSAEALREADY), Some(WSAEINPROGRESS), Some(WSAEINTR), Some(WSAEWOULDBLOCK)]
+                        .contains(&code);
+                if !pending {
+                    return Err(error);
+                }
+                wait_for_connect(socket_handle, deadline)?;
+            }
+            nonblocking = 0;
+            // SAFETY: socket remains valid and nonblocking points to a
+            // writable u32 for the duration of the call.
+            if unsafe { ioctlsocket(socket_handle, FIONBIO, &raw mut nonblocking) } == SOCKET_ERROR
+            {
+                return Err(last_winsock_error());
+            }
+            let raw = socket.into_raw_socket();
+            // SAFETY: ownership was transferred out of OwnedSocket exactly
+            // once and UnixStream accepts that same Winsock socket handle.
+            Ok(Box::new(unsafe { UnixStream::from_raw_socket(raw) }))
+        }
+
+        fn winsock_handle(socket: &OwnedSocket) -> io::Result<SOCKET> {
+            SOCKET::try_from(socket.as_raw_socket()).map_err(|_| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "transport socket handle does not fit the Winsock ABI",
+                )
+            })
+        }
+
+        fn initialize_winsock() -> io::Result<()> {
+            static STARTUP: OnceLock<i32> = OnceLock::new();
+            let result = *STARTUP.get_or_init(|| {
+                // SAFETY: data is writable and lives for the duration of
+                // WSAStartup. Version 2.2 is the Winsock API used below.
+                unsafe {
+                    let mut data = std::mem::zeroed::<WSADATA>();
+                    WSAStartup(0x0202, &raw mut data)
+                }
+            });
+            if result == 0 { Ok(()) } else { Err(io::Error::from_raw_os_error(result)) }
+        }
+
+        fn ensure_connect_time_remaining(deadline: Instant) -> io::Result<Duration> {
+            deadline
+                .checked_duration_since(Instant::now())
+                .filter(|remaining| !remaining.is_zero())
+                .ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::TimedOut,
+                        "transport connection exceeded its deadline",
+                    )
+                })
+        }
+
+        fn wait_for_connect(socket: SOCKET, deadline: Instant) -> io::Result<()> {
+            loop {
+                let remaining = ensure_connect_time_remaining(deadline)?;
+                let timeout_ms = remaining.as_millis().max(1).min(i32::MAX as u128) as i32;
+                let mut descriptor = WSAPOLLFD { fd: socket, events: POLLWRNORM, revents: 0 };
+                // SAFETY: descriptor points to one initialized WSAPOLLFD for
+                // the duration of this call.
+                let result = unsafe { WSAPoll(&raw mut descriptor, 1, timeout_ms) };
+                if result == 0 {
+                    continue;
+                }
+                if result == SOCKET_ERROR {
+                    let error = last_winsock_error();
+                    if error.raw_os_error() == Some(WSAEINTR) {
+                        continue;
+                    }
+                    return Err(error);
+                }
+                if descriptor.revents & POLLNVAL != 0 {
+                    return Err(io::Error::new(
+                        io::ErrorKind::BrokenPipe,
+                        "transport connection socket became invalid",
+                    ));
+                }
+                let mut socket_error = 0i32;
+                let mut socket_error_len = i32::try_from(size_of::<i32>()).unwrap();
+                // SAFETY: socket_error and its length describe one writable
+                // i32, and socket remains a valid Winsock handle.
+                if unsafe {
+                    getsockopt(
+                        socket,
+                        SOL_SOCKET,
+                        SO_ERROR,
+                        (&raw mut socket_error).cast(),
+                        &raw mut socket_error_len,
+                    )
+                } == SOCKET_ERROR
+                {
+                    return Err(last_winsock_error());
+                }
+                return if socket_error == 0 {
+                    Ok(())
+                } else {
+                    Err(io::Error::from_raw_os_error(socket_error))
+                };
+            }
+        }
+
+        fn unix_socket_address(path: &Path) -> io::Result<(SOCKADDR_UN, i32)> {
+            let path = path.to_str().ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "transport Unix socket path is not valid UTF-8",
+                )
+            })?;
+            let path = path.as_bytes();
+            let capacity = size_of::<SOCKADDR_UN>() - offset_of!(SOCKADDR_UN, sun_path);
+            if path.is_empty() || path.len() >= capacity || path.contains(&0) {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "invalid transport Unix socket path",
+                ));
+            }
+            let mut address = SOCKADDR_UN::default();
+            address.sun_family = AF_UNIX;
+            for (destination, source) in address.sun_path.iter_mut().zip(path) {
+                *destination = *source as i8;
+            }
+            let length = offset_of!(SOCKADDR_UN, sun_path) + path.len() + 1;
+            Ok((
+                address,
+                i32::try_from(length).map_err(|_| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "transport Unix socket path is too long",
+                    )
+                })?,
+            ))
+        }
+
+        fn last_winsock_error() -> io::Error {
+            // SAFETY: WSAGetLastError has no pointer arguments and reads the
+            // calling thread's Winsock error state.
+            io::Error::from_raw_os_error(unsafe { WSAGetLastError() })
         }
 
         impl Listener {
@@ -208,6 +600,103 @@ pub mod transport {
             fn shutdown(&self, how: std::net::Shutdown) -> io::Result<()> {
                 UnixStream::shutdown(self, how)
             }
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn expired_connect_deadline_fails_before_socket_resolution() {
+            let error = connect_until(
+                Path::new("deadline-expired-before-address-resolution"),
+                Instant::now() - Duration::from_millis(1),
+            )
+            .err()
+            .expect("expired transport connect unexpectedly succeeded");
+
+            assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+        }
+
+        #[cfg(unix)]
+        #[test]
+        fn deadline_connect_preserves_the_stream_contract() {
+            let path = std::env::temp_dir().join(format!(
+                "cmux-platform-connect-{}-{}.sock",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+
+            let stream = connect_until(&path, Instant::now() + Duration::from_secs(1)).unwrap();
+            let (_accepted, _) = listener.accept().unwrap();
+
+            drop(stream);
+            drop(listener);
+            std::fs::remove_file(path).unwrap();
+        }
+
+        #[cfg(target_os = "linux")]
+        #[test]
+        fn deadline_connect_times_out_while_listener_backlog_is_saturated() {
+            use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+
+            let path = std::env::temp_dir().join(format!(
+                "cmux-platform-backlog-{}-{}.sock",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            let (address, address_len) = imp::unix_socket_address(&path).unwrap();
+            // SAFETY: socket has no pointer arguments and returns a new owned
+            // descriptor on success.
+            let listener =
+                unsafe { libc::socket(libc::AF_UNIX, libc::SOCK_STREAM | libc::SOCK_CLOEXEC, 0) };
+            assert!(listener >= 0, "failed to create the test listener");
+            // SAFETY: listener is a fresh successful socket result and this
+            // OwnedFd takes its sole ownership.
+            let listener = unsafe { OwnedFd::from_raw_fd(listener) };
+            // SAFETY: address is initialized for this exact filesystem path
+            // and listener owns a valid AF_UNIX descriptor.
+            let result = unsafe {
+                libc::bind(
+                    listener.as_raw_fd(),
+                    (&raw const address).cast::<libc::sockaddr>(),
+                    address_len,
+                )
+            };
+            assert_eq!(result, 0, "failed to bind the test listener");
+            // SAFETY: listener remains a valid bound AF_UNIX descriptor.
+            let result = unsafe { libc::listen(listener.as_raw_fd(), 0) };
+            assert_eq!(result, 0, "failed to create a zero-backlog test listener");
+            let mut queued = Vec::new();
+            let mut timeout_elapsed = None;
+            for _ in 0..32 {
+                let started = Instant::now();
+                match connect_until(&path, started + Duration::from_millis(75)) {
+                    Ok(stream) => queued.push(stream),
+                    Err(error) => {
+                        assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+                        timeout_elapsed = Some(started.elapsed());
+                        break;
+                    }
+                }
+            }
+            let elapsed =
+                timeout_elapsed.expect("could not saturate the listener backlog with 32 clients");
+            assert!(
+                elapsed < Duration::from_secs(1),
+                "saturated listener connect exceeded its deadline bound: {elapsed:?}"
+            );
+            drop(queued);
+            drop(listener);
+            std::fs::remove_file(path).unwrap();
         }
     }
 }

@@ -47,6 +47,7 @@ base64 = "0.22"
 libc = "0.2"
 tungstenite = { version = "0.29", default-features = false, features = ["handshake"] }
 uds_windows = "1.2"
+windows-sys = { version = "0.61", features = ["Win32_Networking_WinSock"] }
 regex = "1"
 bindgen = "0.72"
 smallvec = "1"
