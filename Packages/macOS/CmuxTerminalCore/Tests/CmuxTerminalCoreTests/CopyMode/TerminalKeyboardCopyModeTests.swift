@@ -466,4 +466,20 @@ struct TerminalKeyboardCopyModeCursorPackageTests {
         #expect(move.scrollDelta == 1)
         #expect(move.cursor == TerminalKeyboardCopyModeCursor(row: 9, column: 3))
     }
+
+    @Test func visualSelectionEndpointFollowsViewportJump() {
+        var selection = TerminalKeyboardCopyModeVisualSelection(
+            anchor: .init(screenRow: 20, column: 3),
+            endpoint: .init(screenRow: 20, column: 3)
+        )
+
+        selection.updateEndpoint(
+            from: TerminalKeyboardCopyModeCursor(row: 4, column: 7),
+            viewportRows: 20,
+            scrollOffset: 100,
+            totalRows: 200
+        )
+
+        #expect(selection.endpoint == .init(screenRow: 104, column: 7))
+    }
 }
