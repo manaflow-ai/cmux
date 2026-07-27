@@ -108,6 +108,22 @@ import Testing
                 mismatches.append("command U+\(String(value, radix: 16, uppercase: true))")
             }
 
+            if expectedCommandText != nil {
+                let committedCommandActions = planner.actions(for: snapshot(
+                    textInputConsumed: true,
+                    textInputCommandPerformed: true,
+                    committedText: [text],
+                    translatedText: text,
+                    rawText: "\u{001B}"
+                ))
+                if committedCommandActions != [.sendCommittedKey(text)],
+                   mismatches.count < 10 {
+                    mismatches.append(
+                        "committed command U+\(String(value, radix: 16, uppercase: true))"
+                    )
+                }
+            }
+
             let committedActions = planner.actions(for: snapshot(
                 hadMarkedText: true,
                 committedText: [text],
@@ -187,7 +203,11 @@ import Testing
                 .sendCommittedKey($0)
             }
             if !suppressedAccumulatedControl,
-               snapshot.textInputCommandPerformed {
+               snapshot.textInputCommandPerformed,
+               !ghosttyCommandDuplicatesCommittedText(
+                   committedText,
+                   translatedText: snapshot.event.translatedText
+               ) {
                 actions.append(.sendKey(text: nil, composing: false))
             }
             return actions
@@ -229,6 +249,16 @@ import Testing
             return false
         }
         return scalar.value < 0x20
+    }
+
+    private func ghosttyCommandDuplicatesCommittedText(
+        _ committedText: [String],
+        translatedText: String?
+    ) -> Bool {
+        guard let translatedText = ghosttyCommandText(translatedText) else {
+            return false
+        }
+        return committedText.joined() == translatedText
     }
 
     private func ghosttyCommandText(_ text: String?) -> String? {

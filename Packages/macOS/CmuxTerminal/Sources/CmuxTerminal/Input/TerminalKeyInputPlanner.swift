@@ -46,7 +46,11 @@ public struct TerminalKeyInputPlanner: Sendable {
                 .sendCommittedKey($0)
             }
             if !suppressedAccumulatedControl,
-               snapshot.textInputCommandPerformed {
+               snapshot.textInputCommandPerformed,
+               !commandCallbackDuplicatesCommittedText(
+                   committedText,
+                   translatedText: snapshot.event.translatedText
+               ) {
                 actions.append(.sendKey(text: nil, composing: false))
             }
             return actions
@@ -90,6 +94,21 @@ public struct TerminalKeyInputPlanner: Sendable {
             return false
         }
         return scalar.value < 0x20
+    }
+
+    /// `interpretKeyEvents` may report the same physical key through both
+    /// `insertText` and `doCommand`. Once the committed text exactly matches
+    /// the event's translated printable text, replaying the command would send
+    /// the key twice. A distinct command still follows the commit so input
+    /// methods can commit preedit text and then delegate navigation.
+    private func commandCallbackDuplicatesCommittedText(
+        _ committedText: [String],
+        translatedText: String?
+    ) -> Bool {
+        guard let translatedText = forwardableCommandText(translatedText) else {
+            return false
+        }
+        return committedText.joined() == translatedText
     }
 
     /// AppKit can delegate a physical key through `doCommand` even when the
