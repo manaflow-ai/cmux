@@ -105,14 +105,16 @@ private final class TeamlessScopeFlippingForget: MobileIrohMacForgetting {
 
         #expect(ok)
         #expect(forget.forgottenMacDeviceIDs == ["mac-a"])
+        // Assert by each row's own stamped team, not by loadAll's team filter:
+        // loadAll(teamID: nil) returns EVERY team's rows, and loadAll(teamID:
+        // "team-b") also returns team-less rows (legacy visibility), so filtering
+        // the returned rows by `teamID` is the only way to prove exactly which
+        // row was deleted. Load once and partition by `teamID`.
+        let remaining = try await base.loadAll(stackUserID: "user-1", teamID: nil)
         // The captured team-less row is gone.
-        let teamlessRemaining = try await base.loadAll(stackUserID: "user-1", teamID: nil)
-            .map(\.macDeviceID)
-        #expect(!teamlessRemaining.contains("mac-a"))
+        #expect(!remaining.contains { $0.macDeviceID == "mac-a" && $0.teamID == nil })
         // The team the scope flipped to mid-revoke keeps its row.
-        let teamBRemaining = try await base.loadAll(stackUserID: "user-1", teamID: "team-b")
-            .map(\.macDeviceID)
-        #expect(teamBRemaining.contains("mac-a"))
+        #expect(remaining.contains { $0.macDeviceID == "mac-a" && $0.teamID == "team-b" })
     }
 
     private static func route(_ host: String, port: Int = 50922) throws -> CmxAttachRoute {
