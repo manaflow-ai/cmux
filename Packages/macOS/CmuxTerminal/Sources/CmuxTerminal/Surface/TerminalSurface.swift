@@ -539,11 +539,11 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.sessionPortRangeSize = dependencies.sessionPortRangeSize
         self.scrollbackReplayEnvironmentKey = dependencies.scrollbackReplayEnvironmentKey
         self.globalFontMagnificationPercent = dependencies.globalFontMagnificationPercent
-        // Match Ghostty's own SurfaceView: ensure a non-zero initial frame so the backing layer
-        // has non-zero bounds and the renderer can initialize without presenting a blank/stretched
-        // intermediate frame on the first real resize.
+        // The backing layer only needs non-zero bounds before the first real layout.
+        // Startup surfaces are expanded to at least 800×600 by their headless window
+        // before runtime creation; normal surfaces receive their pane frame on attach.
         let views = dependencies.viewProvider.makeSurfaceViews(
-            initialFrame: NSRect(x: 0, y: 0, width: 800, height: 600)
+            initialFrame: NSRect(x: 0, y: 0, width: 1, height: 1)
         )
         self.surfaceView = views.surfaceView
         self.paneHost = views.paneHost
