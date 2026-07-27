@@ -32,6 +32,27 @@ public final class JsonTest {
         assertReject("\"\\u１２３4\"");
         assertStringifyReject(Double.NaN);
         assertStringifyReject(Double.POSITIVE_INFINITY);
+        for (Double width : List.of(
+            Double.NaN,
+            Double.POSITIVE_INFINITY,
+            Double.NEGATIVE_INFINITY,
+            0.09,
+            1.01
+        )) {
+            try {
+                CmuxClient.validateViewportPaneWidth(width);
+                throw new AssertionError("accepted invalid viewport width: " + width);
+            } catch (IllegalArgumentException expectedError) {
+                assertEquals(
+                    "viewport pane width must be between 0.1 and 1.0",
+                    expectedError.getMessage(),
+                    "viewport width validation"
+                );
+            }
+        }
+        CmuxClient.validateViewportPaneWidth(null);
+        CmuxClient.validateViewportPaneWidth(0.1);
+        CmuxClient.validateViewportPaneWidth(1.0);
 
         CmuxEvent event = CmuxEvent.from((Map<String, Object>) Json.parse(
             "{\"event\":\"title-changed\",\"surface\":7,\"title\":\"build logs\"}"

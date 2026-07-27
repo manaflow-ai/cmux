@@ -338,6 +338,40 @@ class ProtocolTests(unittest.TestCase):
             ],
         )
 
+    def test_viewport_widths_reject_invalid_values_locally(self) -> None:
+        client = CmuxClient.__new__(CmuxClient)
+        client._protocol = 10
+        client._capabilities = {
+            "viewport-splits-v1",
+            "viewport-column-resize-v1",
+        }
+        requests = []
+        client._request = lambda command, **params: (
+            requests.append((command, params)) or {"surface": 9}
+        )
+
+        calls = (
+            lambda width: client.new_pane_right(7, width=width),
+            lambda width: client.set_viewport_pane_width(7, width),
+        )
+        invalid_widths = (
+            float("nan"),
+            float("inf"),
+            float("-inf"),
+            0.09,
+            1.01,
+        )
+        for call in calls:
+            for width in invalid_widths:
+                with self.subTest(call=call, width=width):
+                    with self.assertRaisesRegex(
+                        ValueError,
+                        "viewport pane width must be between 0.1 and 1.0",
+                    ):
+                        call(width)
+
+        self.assertEqual(requests, [])
+
     def test_layout_undo_preserves_preview_revision_for_confirmation(self) -> None:
         client = CmuxClient.__new__(CmuxClient)
         client._protocol = 10
