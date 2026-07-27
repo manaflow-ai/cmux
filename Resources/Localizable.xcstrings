@@ -5768,6 +5768,131 @@
         }
       }
     },
+    "agentSession.codex.error.repeatedLoadedThreadCursor": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codex app-server repeated a loaded-thread cursor."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codex app-server repeated a loaded-thread cursor."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codex app-server repeated a loaded-thread cursor."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codex app-server repeated a loaded-thread cursor."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex app-server repeated a loaded-thread cursor."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codex app-server repeated a loaded-thread cursor."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codex app-server repeated a loaded-thread cursor."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codex app-server repeated a loaded-thread cursor."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex app-server が読み込み済みスレッドのカーソルを繰り返しました。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codex app-server repeated a loaded-thread cursor."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codex app-server repeated a loaded-thread cursor."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codex app-server repeated a loaded-thread cursor."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codex app-server repeated a loaded-thread cursor."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codex app-server repeated a loaded-thread cursor."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codex app-server repeated a loaded-thread cursor."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codex app-server repeated a loaded-thread cursor."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codex app-server repeated a loaded-thread cursor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codex app-server repeated a loaded-thread cursor."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codex app-server repeated a loaded-thread cursor."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codex app-server repeated a loaded-thread cursor."
+          }
+        }
+      }
+    },
     "agentSession.codex.error.rpcFailed": {
       "extractionState": "manual",
       "localizations": {
