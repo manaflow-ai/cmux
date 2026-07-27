@@ -1915,39 +1915,35 @@ final class SocketClient {
     }
 
     func connect() throws {
-        if socketFD >= 0 { return }
-        let deadline = Date().addingTimeInterval(Self.connectRetryDeadline)
-        while true {
-            do {
-                try connectOnce()
-                return
-            } catch {
-                guard Self.shouldRetryConnect(error), Date() < deadline else {
-                    throw error
-                }
-                usleep(Self.connectRetryIntervalMicros)
-            }
-        }
+        try connectWithRetry(deadline: nil)
     }
 
     /// Connects using the remaining absolute deadline for both the socket
     /// operation timeout and the existing short retry window.
     func connect(deadline: Date) throws {
+        try connectWithRetry(deadline: deadline)
+    }
+
+    private func connectWithRetry(deadline: Date?) throws {
         if socketFD >= 0 { return }
         let retryDeadline = min(
-            deadline,
-            Date().addingTimeInterval(Self.connectRetryDeadline)
+            deadline ?? .distantFuture,
+            Date.now.addingTimeInterval(Self.connectRetryDeadline)
         )
         while true {
             do {
-                let remaining = deadline.timeIntervalSinceNow
-                guard remaining > 0 else {
-                    throw CLIError(message: "Socket connection deadline exceeded")
+                if let deadline {
+                    let remaining = deadline.timeIntervalSinceNow
+                    guard remaining > 0 else {
+                        throw CLIError(message: "Socket connection deadline exceeded")
+                    }
+                    try connectOnce(responseTimeout: remaining, deadline: deadline)
+                } else {
+                    try connectOnce()
                 }
-                try connectOnce(responseTimeout: remaining, deadline: deadline)
                 return
             } catch {
-                guard Self.shouldRetryConnect(error), Date() < retryDeadline else {
+                guard Self.shouldRetryConnect(error), Date.now < retryDeadline else {
                     throw error
                 }
                 usleep(Self.connectRetryIntervalMicros)
@@ -2453,7 +2449,7 @@ final class SocketClient {
         guard remaining > 0 else {
             throw CLIError(message: "Socket connection deadline exceeded")
         }
-        return remaining
+        return min(responseTimeout ?? Self.responseTimeoutSeconds, remaining)
     }
 
     private func writeAll(

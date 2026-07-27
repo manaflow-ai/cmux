@@ -219,7 +219,7 @@ struct CLIHookNoResponseTests {
             try? FileManager.default.removeItem(at: root)
         }
 
-        let server = Self.startAcceptedSocketThatDoesNotRead(listenerFD: listenerFD, holdFor: 1.0)
+        let server = try Self.startAcceptedSocketThatDoesNotRead(listenerFD: listenerFD, holdFor: 1.0)
         let largeToolInput = String(repeating: "x", count: 512 * 1024)
         let input = """
         {"hook_event_name":"PreToolUse","session_id":"codex-session-no-read","cwd":"\(root.path)","tool_name":"apply_patch","tool_input":{"payload":"\(largeToolInput)"}}
@@ -419,7 +419,21 @@ struct CLIHookNoResponseTests {
         return MockSocketServer(handled: handled)
     }
 
-    private static func startAcceptedSocketThatDoesNotRead(listenerFD: Int32, holdFor: TimeInterval) -> MockSocketServer {
+    private static func startAcceptedSocketThatDoesNotRead(
+        listenerFD: Int32,
+        holdFor: TimeInterval
+    ) throws -> MockSocketServer {
+        var receiveBufferBytes: Int32 = 4 * 1024
+        guard setsockopt(
+            listenerFD,
+            SOL_SOCKET,
+            SO_RCVBUF,
+            &receiveBufferBytes,
+            socklen_t(MemoryLayout.size(ofValue: receiveBufferBytes))
+        ) == 0 else {
+            throw posixError("failed to constrain non-reading socket receive buffer")
+        }
+
         let handled = DispatchSemaphore(value: 0)
         DispatchQueue.global(qos: .userInitiated).async {
             var clientAddr = sockaddr_un()
