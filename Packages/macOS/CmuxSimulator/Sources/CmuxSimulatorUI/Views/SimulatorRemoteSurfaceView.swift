@@ -366,8 +366,6 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
         if frameLayer == nil {
             let frameLayer = CALayer()
             frameLayer.contentsGravity = .resize
-            frameLayer.minificationFilter = .nearest
-            frameLayer.magnificationFilter = .nearest
             layer?.addSublayer(frameLayer)
             self.frameLayer = frameLayer
         }
@@ -383,6 +381,19 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
         renderLatestFrame()
         layoutFrameLayer()
         startPresentationTimer()
+    }
+
+    func updateFrameLayerSampling(displayedRawSize: CGSize) {
+        guard let frameLayer, let frameTransportDescriptor else { return }
+        let scale = frameLayer.contentsScale
+        let displayedPixelWidth = displayedRawSize.width * scale
+        let displayedPixelHeight = displayedRawSize.height * scale
+        let isPixelAligned =
+            abs(displayedPixelWidth - Double(frameTransportDescriptor.width)) <= 1
+            && abs(displayedPixelHeight - Double(frameTransportDescriptor.height)) <= 1
+        let filter: CALayerContentsFilter = isPixelAligned ? .nearest : .linear
+        frameLayer.minificationFilter = filter
+        frameLayer.magnificationFilter = filter
     }
 
     func renderLatestFrame() {

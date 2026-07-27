@@ -38,6 +38,7 @@ extension SimulatorRemoteSurfaceView {
             width: swapsAxes ? rect.height : rect.width,
             height: swapsAxes ? rect.width : rect.height
         )
+        updateFrameLayerSampling(displayedRawSize: rawSize)
         let radians = CGFloat(geometry?.presentationRotationDegrees ?? 0) * .pi / 180
         let radius =
             if let chrome, let display {
