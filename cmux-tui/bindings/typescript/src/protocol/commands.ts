@@ -13,7 +13,7 @@ import type {
   PaneDirection,
   SplitDirection,
 } from "./common.js";
-import type { DeclarativeLayout, Layout, Tree } from "./tree.js";
+import type { DeclarativeLayout, Layout, Tree, ViewportSplit } from "./tree.js";
 import type { RenderRow } from "./render.js";
 
 export interface IdentifyRequest extends CmuxRequestBase { cmd: "identify" }
@@ -128,7 +128,14 @@ export interface ExportLayoutRequest extends CmuxRequestBase {
   screen?: Id | null;
 }
 export interface ExportedPane { pane: Id; surfaces: Id[] }
-export interface ExportLayoutResult { layout: Layout; panes: ExportedPane[] }
+export interface ExportLayoutResult {
+  layout: Layout;
+  panes: ExportedPane[];
+  /** Authoritative width of the first viewport column. Older servers omit it. */
+  viewport_base_width?: number;
+  /** Authoritative widths of appended viewport columns. Older servers omit them. */
+  viewport_splits?: ViewportSplit[];
+}
 
 export interface ApplyLayoutRequest extends CmuxRequestBase {
   cmd: "apply-layout";

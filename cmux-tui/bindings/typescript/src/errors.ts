@@ -8,11 +8,13 @@ export class CmuxError extends Error {
 export class CmuxCommandError extends CmuxError {
   readonly commandId: unknown;
   readonly response: unknown;
+  readonly errorCode: string | undefined;
 
-  constructor(message: string, commandId?: unknown, response?: unknown) {
+  constructor(message: string, commandId?: unknown, response?: unknown, errorCode?: string) {
     super(message);
     this.commandId = commandId;
     this.response = response;
+    this.errorCode = errorCode;
   }
 }
 

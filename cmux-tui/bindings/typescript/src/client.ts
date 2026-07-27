@@ -9,6 +9,7 @@ import {
 import type {
   ApplyLayoutResult,
   AttachEvent,
+  BrowserFrame,
   CmuxCommand,
   CmuxRequest,
   CmuxRequestParams,
@@ -447,7 +448,12 @@ export class CmuxClient {
       : requestOrCommand;
     const response = await this.sendRaw(request as unknown as JsonObject);
     if (response.ok) return response.data as CmuxResponseDataFor<C>;
-    throw new CmuxCommandError(response.error || "unknown error", response.id, response);
+    throw new CmuxCommandError(
+      response.error || "unknown error",
+      response.id,
+      response,
+      response.error_code,
+    );
   }
 
   async identify(): Promise<IdentifyResult> {
@@ -817,7 +823,12 @@ export class CmuxClient {
     });
     if (!response.ok) {
       stream.close();
-      throw new CmuxCommandError(response.error || "unknown error", response.id, response);
+      throw new CmuxCommandError(
+        response.error || "unknown error",
+        response.id,
+        response,
+        response.error_code,
+      );
     }
     const terminalError = streamError ?? stream.error;
     if (terminalError) throw terminalError;
@@ -839,7 +850,7 @@ export class CmuxClient {
       }
       case "frame": {
         this.validateAttachEncodedData(event.data, "frame");
-        return event as DecodedAttachEvent;
+        return this.normalizeBrowserFrame(event as unknown as BrowserFrame) as DecodedAttachEvent;
       }
       case "browser-state": {
         const frame = event.frame;
@@ -851,6 +862,10 @@ export class CmuxClient {
             (frame as { data?: unknown }).data,
             "browser-state frame",
           );
+          return {
+            ...event,
+            frame: this.normalizeBrowserFrame(frame as BrowserFrame),
+          } as DecodedAttachEvent;
         }
         return event as DecodedAttachEvent;
       }
@@ -860,6 +875,16 @@ export class CmuxClient {
 
   private decodeAttachData(value: unknown, eventName: string): Uint8Array {
     return decodeBase64(this.validateAttachEncodedData(value, eventName));
+  }
+
+  private normalizeBrowserFrame<T extends BrowserFrame>(
+    frame: T,
+  ): T & { image_width: number; image_height: number } {
+    return {
+      ...frame,
+      image_width: typeof frame.image_width === "number" ? frame.image_width : frame.width,
+      image_height: typeof frame.image_height === "number" ? frame.image_height : frame.height,
+    };
   }
 
   private validateAttachEncodedData(value: unknown, eventName: string): string {

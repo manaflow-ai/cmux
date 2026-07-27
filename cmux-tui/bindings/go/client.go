@@ -37,13 +37,23 @@ func validateWorkspaceSelector(workspace *uint64, key *string) error {
 }
 
 type CommandError struct {
-	Message string
-	ID      any
+	Message   string
+	ID        any
+	ErrorCode string
 }
 
 func (e *CommandError) Error() string { return e.Message }
 func (e *CommandError) Is(target error) bool {
 	return target == ErrCommand
+}
+
+func commandError(response map[string]any) *CommandError {
+	msg, _ := response["error"].(string)
+	if msg == "" {
+		msg = "unknown error"
+	}
+	code, _ := response["error_code"].(string)
+	return &CommandError{Message: msg, ID: response["id"], ErrorCode: code}
 }
 
 type connectionError struct{ msg string }
@@ -196,11 +206,7 @@ func (c *Client) request(ctx context.Context, cmd string, params map[string]any,
 		}
 		return nil
 	}
-	msg, _ := response["error"].(string)
-	if msg == "" {
-		msg = "unknown error"
-	}
-	return &CommandError{Message: msg, ID: response["id"]}
+	return commandError(response)
 }
 
 func (c *Client) nextRequestID() uint64 {
@@ -695,12 +701,8 @@ func (c *Client) openStream(ctx context.Context, request map[string]any) (*Strea
 		if ok, _ := response["ok"].(bool); ok {
 			return &Stream{conn: conn, timeout: c.timeout, buffered: buffered}, nil
 		}
-		msg, _ := response["error"].(string)
-		if msg == "" {
-			msg = "unknown error"
-		}
 		_ = conn.Close()
-		return nil, &CommandError{Message: msg, ID: response["id"]}
+		return nil, commandError(response)
 	}
 }
 

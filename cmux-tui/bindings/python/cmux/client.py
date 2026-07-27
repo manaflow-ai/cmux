@@ -19,6 +19,8 @@ class CommandError(CmuxError):
         super().__init__(message)
         self.message = message
         self.response = response
+        code = response.get("error_code") if response is not None else None
+        self.error_code: Optional[str] = code if isinstance(code, str) else None
 
 
 class CmuxConnectionError(CmuxError):

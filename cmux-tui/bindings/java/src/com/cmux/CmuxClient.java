@@ -547,7 +547,7 @@ public final class CmuxClient implements AutoCloseable {
             }
             return new LinkedHashMap<>();
         }
-        throw new CmuxCommandException(asString(response.getOrDefault("error", "unknown error")), response.get("id"));
+        throw commandException(response);
     }
 
     private List<?> requestList(String cmd, Map<String, Object> params) throws CmuxException {
@@ -562,10 +562,7 @@ public final class CmuxClient implements AutoCloseable {
             }
             throw new CmuxDecodeException(cmd + " returned non-array data", null);
         }
-        throw new CmuxCommandException(
-            asString(response.getOrDefault("error", "unknown error")),
-            response.get("id")
-        );
+        throw commandException(response);
     }
 
     private long nextId() {
@@ -591,6 +588,15 @@ public final class CmuxClient implements AutoCloseable {
 
     static String asString(Object value) {
         return value == null ? "" : String.valueOf(value);
+    }
+
+    static CmuxCommandException commandException(Map<String, Object> response) {
+        String errorCode = response.get("error_code") instanceof String code ? code : null;
+        return new CmuxCommandException(
+            asString(response.getOrDefault("error", "unknown error")),
+            response.get("id"),
+            errorCode
+        );
     }
 
     static long asLong(Object value) {
@@ -781,7 +787,7 @@ public final class CmuxClient implements AutoCloseable {
                     return new CmuxStream(connection, buffered);
                 }
                 if (Boolean.FALSE.equals(response.get("ok"))) {
-                    throw new CmuxCommandException(asString(response.get("error")), response.get("id"));
+                    throw commandException(response);
                 }
             }
         }

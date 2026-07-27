@@ -13,7 +13,7 @@ pub type Result<T> = std::result::Result<T, CmuxError>;
 
 #[derive(Debug)]
 pub enum CmuxError {
-    Command { message: String, id: Option<Value> },
+    Command { message: String, id: Option<Value>, error_code: Option<String> },
     Decode(String),
     Connection(String),
     Timeout(String),
@@ -35,6 +35,18 @@ impl fmt::Display for CmuxError {
 }
 
 impl std::error::Error for CmuxError {}
+
+fn command_error(response: &Value) -> CmuxError {
+    CmuxError::Command {
+        message: response
+            .get("error")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown error")
+            .to_string(),
+        id: response.get("id").cloned(),
+        error_code: response.get("error_code").and_then(Value::as_str).map(ToString::to_string),
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct ClientConfig {
@@ -541,14 +553,7 @@ impl CmuxClient {
             let data = response.get("data").cloned().unwrap_or(Value::Object(Map::new()));
             serde_json::from_value(data).map_err(|err| CmuxError::Decode(err.to_string()))
         } else {
-            Err(CmuxError::Command {
-                message: response
-                    .get("error")
-                    .and_then(Value::as_str)
-                    .unwrap_or("unknown error")
-                    .to_string(),
-                id: response.get("id").cloned(),
-            })
+            Err(command_error(&response))
         }
     }
 
@@ -1103,14 +1108,7 @@ impl CmuxStream {
             if response.get("ok") == Some(&Value::Bool(true)) {
                 return Ok(Self { conn, buffered, finished: false });
             }
-            return Err(CmuxError::Command {
-                message: response
-                    .get("error")
-                    .and_then(Value::as_str)
-                    .unwrap_or("unknown error")
-                    .to_string(),
-                id: response.get("id").cloned(),
-            });
+            return Err(command_error(&response));
         }
     }
 
@@ -1529,7 +1527,7 @@ mod tests {
 
         assert!(matches!(
             error,
-            CmuxError::Command { code: Some(code), .. } if code == "layout-undo-stale"
+            CmuxError::Command { error_code: Some(code), .. } if code == "layout-undo-stale"
         ));
     }
 

@@ -84,6 +84,23 @@ test("decoded browser frames preserve encoded dimensions and fill legacy default
       image_height: 48,
       data: "cG5n",
     });
+    connection.emit({
+      event: "browser-state",
+      surface: 7,
+      cols: 80,
+      rows: 24,
+      url: "https://example.com",
+      title: "Example",
+      status: "ready",
+      error: null,
+      frames_stalled: false,
+      frame: {
+        seq: 3,
+        width: 80,
+        height: 24,
+        data: "cG5n",
+      },
+    });
     connection.emit({ id: request.id, ok: true, data: {} });
   });
   const client = new CmuxClient({
@@ -95,6 +112,7 @@ test("decoded browser frames preserve encoded dimensions and fill legacy default
 
   const legacy = await stream.next();
   const scaled = await stream.next();
+  const state = await stream.next();
   assert.equal(legacy.event, "frame");
   assert.equal(scaled.event, "frame");
   if (legacy.event === "frame" && scaled.event === "frame") {
@@ -102,6 +120,18 @@ test("decoded browser frames preserve encoded dimensions and fill legacy default
     assert.equal(legacy.image_height, 24);
     assert.equal(scaled.image_width, 160);
     assert.equal(scaled.image_height, 48);
+  }
+  assert.equal(state.event, "browser-state");
+  if (
+    state.event === "browser-state"
+    && "frame" in state
+    && state.frame
+    && typeof state.frame === "object"
+    && "image_width" in state.frame
+    && "image_height" in state.frame
+  ) {
+    assert.equal(state.frame.image_width, 80);
+    assert.equal(state.frame.image_height, 24);
   }
   stream.close();
   await client.close();
