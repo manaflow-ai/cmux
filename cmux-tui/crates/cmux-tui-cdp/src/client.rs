@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{
     Receiver, Sender, SyncSender, TryRecvError, TrySendError, channel, sync_channel,
 };
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use hickory_resolver::TokioResolver;
@@ -42,9 +42,16 @@ static CDP_RESOLVER: std::sync::OnceLock<Mutex<Option<Arc<CdpResolver>>>> =
     std::sync::OnceLock::new();
 
 struct CdpResolver {
-    resolver: TokioResolver,
+    resolver: Arc<(Mutex<ResolverState>, Condvar)>,
     permits: Arc<Semaphore>,
     runtime: Runtime,
+    _initializer: std::thread::JoinHandle<()>,
+}
+
+enum ResolverState {
+    Initializing,
+    Ready(Arc<TokioResolver>),
+    Failed(String),
 }
 
 struct ResolveRequest {
@@ -58,29 +65,43 @@ struct ResolveRequest {
 
 impl CdpResolver {
     fn spawn() -> std::io::Result<Self> {
-        #[cfg(test)]
-        {
-            let delay_ms = NEXT_RESOLVER_INIT_DELAY_MS.swap(0, Ordering::AcqRel);
-            if delay_ms != 0 {
-                std::thread::sleep(Duration::from_millis(delay_ms));
-            }
-        }
         let runtime = RuntimeBuilder::new_multi_thread()
             .worker_threads(1)
             .thread_name("cmux-tui-cdp-resolver")
             .enable_all()
             .build()?;
-        let resolver = {
-            let _runtime = runtime.enter();
-            hickory_resolver::Resolver::builder_tokio()
-                .map_err(|error| std::io::Error::other(error.to_string()))?
-                .build()
-                .map_err(|error| std::io::Error::other(error.to_string()))?
-        };
+        let resolver = Arc::new((Mutex::new(ResolverState::Initializing), Condvar::new()));
+        let initializer_state = resolver.clone();
+        let runtime_handle = runtime.handle().clone();
+        let initializer = std::thread::Builder::new()
+            .name("cmux-tui-cdp-resolver-init".into())
+            .spawn(move || {
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    #[cfg(test)]
+                    {
+                        let delay_ms = NEXT_RESOLVER_INIT_DELAY_MS.swap(0, Ordering::AcqRel);
+                        if delay_ms != 0 {
+                            std::thread::sleep(Duration::from_millis(delay_ms));
+                        }
+                    }
+                    let _runtime = runtime_handle.enter();
+                    hickory_resolver::Resolver::builder_tokio()
+                        .map_err(|error| error.to_string())
+                        .and_then(|builder| builder.build().map_err(|error| error.to_string()))
+                }))
+                .unwrap_or_else(|_| Err("resolver initializer panicked".to_string()));
+                let (state, ready) = &*initializer_state;
+                *state.lock().unwrap() = match result {
+                    Ok(resolver) => ResolverState::Ready(Arc::new(resolver)),
+                    Err(error) => ResolverState::Failed(error),
+                };
+                ready.notify_all();
+            })?;
         Ok(Self {
             resolver,
             permits: Arc::new(Semaphore::new(CDP_RESOLVER_QUEUE_CAPACITY)),
             runtime,
+            _initializer: initializer,
         })
     }
 
@@ -90,7 +111,7 @@ impl CdpResolver {
             .clone()
             .try_acquire_owned()
             .map_err(|_| anyhow::anyhow!("CDP resolver queue is full"))?;
-        let resolver = self.resolver.clone();
+        let resolver = self.resolver_until(request.deadline)?;
         let _task = self.runtime.spawn(async move {
             let deadline = tokio::time::Instant::from_std(request.deadline);
             let result = if deadline <= tokio::time::Instant::now() {
@@ -127,6 +148,31 @@ impl CdpResolver {
             drop(permit);
         });
         Ok(())
+    }
+
+    fn resolver_until(&self, deadline: Instant) -> anyhow::Result<Arc<TokioResolver>> {
+        let (state, ready) = &*self.resolver;
+        let mut state = state.lock().unwrap();
+        loop {
+            match &*state {
+                ResolverState::Ready(resolver) => return Ok(resolver.clone()),
+                ResolverState::Failed(error) => {
+                    anyhow::bail!("CDP resolver initialization failed: {error}")
+                }
+                ResolverState::Initializing => {}
+            }
+            let remaining = remaining_until(deadline, "CDP address resolution deadline expired")?;
+            let (next, timeout) = ready.wait_timeout(state, remaining).unwrap();
+            state = next;
+            if timeout.timed_out() && matches!(*state, ResolverState::Initializing) {
+                anyhow::bail!("CDP address resolution deadline expired");
+            }
+        }
+    }
+
+    fn initialization_failed(&self) -> bool {
+        let state = self.resolver.0.lock().unwrap();
+        matches!(&*state, ResolverState::Failed(_))
     }
 }
 
@@ -458,15 +504,22 @@ fn remaining_until(deadline: Instant, expired: &str) -> anyhow::Result<Duration>
 }
 
 fn submit_resolve_request(request: ResolveRequest) -> anyhow::Result<()> {
-    let resolver = CDP_RESOLVER.get_or_init(|| Mutex::new(None));
+    let registry = CDP_RESOLVER.get_or_init(|| Mutex::new(None));
     let resolver = {
-        let mut state = resolver.lock().unwrap();
+        let mut state = registry.lock().unwrap();
         if state.is_none() {
             *state = Some(Arc::new(CdpResolver::spawn()?));
         }
         state.as_ref().unwrap().clone()
     };
-    resolver.submit(request)
+    let result = resolver.submit(request);
+    if result.is_err() && resolver.initialization_failed() {
+        let mut state = registry.lock().unwrap();
+        if state.as_ref().is_some_and(|current| Arc::ptr_eq(current, &resolver)) {
+            *state = None;
+        }
+    }
+    result
 }
 
 fn resolve_socket_addr_until(
