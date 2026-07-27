@@ -12634,13 +12634,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
                 return event // Pass through
             }
-            self.handleBrowserOmnibarSelectionRepeatLifecycleEvent(event)
-            let consumedShortcutRelease = self.shortcutConsumesKeyUp(event)
-            let consumedEscapeRelease = self.clearEscapeSuppressionForKeyUp(
-                event: event,
-                consumeIfSuppressed: true
-            )
-            if consumedShortcutRelease || consumedEscapeRelease {
+            if self.shortcutMonitorConsumesLifecycleEvent(event) {
                 return nil
             }
             return event
@@ -12683,6 +12677,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return shortcutKeyPressLifecycle.shortcutConsumesKeyUp(
             keyCode: event.keyCode
         )
+    }
+
+    private func shortcutMonitorConsumesLifecycleEvent(_ event: NSEvent) -> Bool {
+        handleBrowserOmnibarSelectionRepeatLifecycleEvent(event)
+        let consumedShortcutRelease = shortcutConsumesKeyUp(event)
+        let consumedEscapeRelease = clearEscapeSuppressionForKeyUp(
+            event: event,
+            consumeIfSuppressed: true
+        )
+        if consumedShortcutRelease || consumedEscapeRelease {
+            return true
+        }
+        return forwardCommandKeyUpToFocusedTerminal(event)
+    }
+
+    private func forwardCommandKeyUpToFocusedTerminal(_ event: NSEvent) -> Bool {
+        guard event.type == .keyUp else { return false }
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard flags.contains(.command) else { return false }
+
+        let preferredWindow = event.window ?? shortcutRoutingActiveWindow
+        guard let ghosttyView = shortcutRoutingFirstResponder(
+            preferredWindow: preferredWindow
+        ).cmuxTerminalKeyEquivalentOwningGhosttyView() else {
+            return false
+        }
+
+        // AppKit does not reliably continue Command-modified key-up events
+        // through the responder chain. The local monitor is the one guaranteed
+        // delivery point, so finish the same terminal lifecycle here and
+        // consume the event to prevent a second release if AppKit does forward.
+        ghosttyView.keyUp(with: event)
+        return true
     }
 
     func resetShortcutPressOwnership() {
@@ -15155,13 +15182,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 handleCustomShortcut(event: event)
             }
         }
-        handleBrowserOmnibarSelectionRepeatLifecycleEvent(event)
-        let consumedShortcutRelease = shortcutConsumesKeyUp(event)
-        let consumedEscapeRelease = clearEscapeSuppressionForKeyUp(
-            event: event,
-            consumeIfSuppressed: true
-        )
-        return consumedShortcutRelease || consumedEscapeRelease
+        return shortcutMonitorConsumesLifecycleEvent(event)
     }
 
     func debugMatchesConfiguredShortcut(
