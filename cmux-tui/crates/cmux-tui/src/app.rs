@@ -12815,6 +12815,7 @@ mod tests {
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
     use ratatui::style::Modifier;
+    use unicode_width::UnicodeWidthStr;
 
     use crate::browser_input::{BrowserInputDispatcher, BrowserInputEvent, BrowserInputKind};
     use crate::config::{
@@ -14063,6 +14064,54 @@ mod tests {
     }
 
     #[test]
+    fn viewport_resize_drag_keeps_its_mouse_down_coordinate_origin() {
+        let mux = Mux::new("viewport-resize-origin-test", SurfaceOptions::default());
+        let first = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let base = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        mux.new_pane_right(base, cmux_tui_core::DEFAULT_VIEWPORT_PANE_WIDTH, Some((51, 22)))
+            .unwrap();
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.config.viewport.animation = false;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((80, 25));
+        app.viewport_offset = 40;
+        let target = PaneResizeDragTarget::ViewportColumn {
+            pane: base,
+            edge: PaneEdge::Right,
+            column_x: 0,
+            viewport_x: 0,
+            viewport_width: 80,
+        };
+
+        app.resize_drag_target(target, 20, 5);
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        let first_width = mux.with_state(|state| {
+            state.workspaces[state.active_workspace].screens[0].viewport_base_width.unwrap()
+        });
+
+        app.viewport_offset = 10;
+        app.resize_drag_target(target, 20, 5);
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        let second_width = mux.with_state(|state| {
+            state.workspaces[state.active_workspace].screens[0].viewport_base_width.unwrap()
+        });
+        assert!(
+            (second_width - first_width).abs() < f32::EPSILON,
+            "live viewport motion must not change a drag's pointer mapping"
+        );
+
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface).unwrap();
+        }
+    }
+
+    #[test]
     fn layout_undo_action_confirms_before_closing_a_created_pane() {
         let mux = Mux::new("layout-undo-action-test", SurfaceOptions::default());
         mux.new_workspace(None, Some((80, 24))).unwrap();
@@ -14926,6 +14975,58 @@ mod tests {
             2,
             "a click must use the visible editor column, not the cropped logical column"
         );
+        mux.shutdown();
+    }
+
+    #[test]
+    fn browser_omnibar_places_stall_suffix_after_emoji_display_cells() {
+        let mux = Mux::new("emoji-browser-omnibar-test", SurfaceOptions::default());
+        let surface = mux.new_browser_tab("emoji:👩‍💻".to_string(), None, Some((48, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((50, 12));
+        let pane = app.tree.active_screen().unwrap().active_pane;
+        let tab = app
+            .tree
+            .active_workspace_mut_screen()
+            .unwrap()
+            .panes
+            .iter_mut()
+            .find(|candidate| candidate.id == pane)
+            .unwrap()
+            .tabs
+            .first_mut()
+            .unwrap();
+        tab.browser_frames_stalled = true;
+        let area = *app.pane_areas.iter().find(|area| area.pane == pane).unwrap();
+        let omnibar = area.omnibar.unwrap();
+        let handle = app.session.surface(surface.id).unwrap();
+        let mut label = handle.browser_url().unwrap();
+        if matches!(handle.browser_status(), Some(BrowserStatus::Starting))
+            || (matches!(handle.browser_status(), Some(BrowserStatus::Live))
+                && !handle.has_browser_frame())
+        {
+            label.push('…');
+        }
+        let suffix = " ⏸ chrome tab hidden";
+        let max = omnibar.width.saturating_sub(9) as usize;
+        let label_max = max - suffix.width();
+        let text = crate::ui::truncate(&label, label_max);
+        let expected_icon_x = omnibar.x + 9 + text.width() as u16 + 1;
+
+        let mut terminal = Terminal::new(TestBackend::new(50, 12)).unwrap();
+        terminal
+            .draw(|frame| {
+                crate::ui::omnibar::draw(&mut app, frame, &area);
+            })
+            .unwrap();
+        assert_eq!(
+            terminal.backend().buffer()[(expected_icon_x, omnibar.y)].symbol(),
+            "⏸",
+            "the stall suffix must start after the label's display cells"
+        );
+
         mux.shutdown();
     }
 
@@ -16223,6 +16324,35 @@ mod tests {
 
         let workspace = mux.with_state(|state| state.workspaces[state.active_workspace].id);
         mux.close_workspace(workspace);
+    }
+
+    #[test]
+    fn emoji_tab_name_fills_its_display_cell_hit_rect() {
+        let (mux, first) = test_mux("emoji-tab-width-test", None);
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        assert!(mux.rename_surface(first.id, "👩‍💻".to_string()));
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((40, 10));
+
+        let mut terminal = Terminal::new(TestBackend::new(40, 10)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let tab = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(hit, super::Hit::Tab { pane: hit_pane, index: 0 } if *hit_pane == pane)
+                    .then_some(*rect)
+            })
+            .expect("emoji tab hit");
+        assert_eq!(
+            terminal.backend().buffer()[(tab.x + tab.width - 1, tab.y)].symbol(),
+            " ",
+            "every visible cell in the tab hit rect must belong to the label"
+        );
+
+        mux.close_surface(first.id).unwrap();
     }
 
     #[test]
