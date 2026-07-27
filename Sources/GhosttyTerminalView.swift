@@ -3307,9 +3307,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var keyboardCopyModeConsumedKeyUps: Set<UInt16> = []
     private var terminalKeyInputLifecycleTracker = TerminalKeyInputLifecycleTracker()
     private var zeroTimestampTerminalKeyEventsByKeyCode: [UInt16: NSEvent] = [:]
-#if DEBUG
-    private var unshiftedCodepointProviderForTesting: ((NSEvent) -> UInt32?)?
-#endif
     private var keyboardCopyModeInputState = TerminalKeyboardCopyModeInputState()
     private var keyboardCopyModeCursor: TerminalKeyboardCopyModeCursor?
     private var keyboardCopyModePendingViewportJumpSync = false
@@ -3354,7 +3351,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return UserDefaults.standard.bool(forKey: "cmuxKeyLatencyProbe")
     }()
     @MainActor static var debugGhosttySurfaceKeyEventObserver: ((ghostty_input_key_s) -> Void)?
-    @MainActor static var debugNativeFocusReassertionObserver: (() -> Void)?
 #endif
     private var eventMonitor: Any?
     private var trackingArea: NSTrackingArea?
@@ -4030,15 +4026,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if reassertInputFocus { _ = reassertTerminalFocusForInputIfFirstResponder() }
         return surface
     }
-    private func reassertTerminalFocusForInputIfFirstResponder(forceNative: Bool = false) -> Bool {
+    func reassertTerminalFocusForInputIfFirstResponder(forceNative: Bool = false) -> Bool {
         guard let terminalSurface, window?.firstResponder === self, !suppressingReparentFocus,
               isVisibleInUI, hasUsableFocusGeometry, !isHiddenOrHasHiddenAncestor,
               AppDelegate.shared?.allowsTerminalKeyboardFocus(workspaceId: terminalSurface.tabId, panelId: terminalSurface.id, in: window) != false else { return false }
         terminalSurface.setFocus(true)
         if forceNative, let surface {
-#if DEBUG
-            Self.debugNativeFocusReassertionObserver?()
-#endif
             terminalSurface.recordExternalFocusState(true)
             ghostty_surface_set_focus(surface, true)
         }
@@ -5264,12 +5257,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var imePointOverrideForTesting: (x: Double, y: Double, width: Double, height: Double)?
     func setIMEPointForTesting(x: Double, y: Double, width: Double, height: Double) { imePointOverrideForTesting = (x, y, width, height) }
     func clearIMEPointForTesting() { imePointOverrideForTesting = nil }
-    private var textInputEventHandlerForTesting: ((NSEvent) -> Bool)?
-    func setTextInputEventHandlerForTesting(
-        _ handler: ((NSEvent) -> Bool)?
-    ) {
-        textInputEventHandlerForTesting = handler
-    }
 #endif
 
 #if DEBUG
@@ -5294,12 +5281,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// event currently being dispatched. Reconstructed and test events use
     /// `interpretKeyEvents`, which is AppKit's supported responder entry point
     /// for an explicit event list.
-    private func handleTextInputEvent(_ event: NSEvent) -> Bool {
-#if DEBUG
-        if let textInputEventHandlerForTesting {
-            return textInputEventHandlerForTesting(event)
-        }
-#endif
+    func handleTextInputEvent(_ event: NSEvent) -> Bool {
         guard event.windowNumber != 0,
               NSApp.currentEvent === event,
               let inputContext else {
@@ -6118,22 +6100,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     /// Get the unshifted codepoint for the key event
-    private func unshiftedCodepointFromEvent(_ event: NSEvent) -> UInt32 {
-#if DEBUG
-        if let codepoint = unshiftedCodepointProviderForTesting?(event) {
-            return codepoint
-        }
-#endif
+    func unshiftedCodepointFromEvent(_ event: NSEvent) -> UInt32 {
         return KeyboardLayout.unshiftedCodepoint(for: event)
     }
-
-#if DEBUG
-    func setUnshiftedCodepointProviderForTesting(
-        _ provider: ((NSEvent) -> UInt32?)?
-    ) {
-        unshiftedCodepointProviderForTesting = provider
-    }
-#endif
 
     private func ghosttyKeyEvent(for event: NSEvent, surface: ghostty_surface_t) -> ghostty_input_key_s {
         var keyEvent = ghostty_input_key_s()

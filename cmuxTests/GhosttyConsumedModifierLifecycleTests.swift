@@ -20,10 +20,42 @@ private struct CapturedGhosttyKeyIdentityEvent {
 
 @MainActor
 final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
+    private final class LifecycleSurfaceView: GhosttyNSView {
+        var textInputEventHandler: ((NSEvent) -> Bool)?
+        var unshiftedCodepointResolver: ((NSEvent) -> UInt32?)?
+
+        override func handleTextInputEvent(_ event: NSEvent) -> Bool {
+            guard let textInputEventHandler else {
+                return super.handleTextInputEvent(event)
+            }
+            return textInputEventHandler(event)
+        }
+
+        override func unshiftedCodepointFromEvent(_ event: NSEvent) -> UInt32 {
+            unshiftedCodepointResolver?(event)
+                ?? super.unshiftedCodepointFromEvent(event)
+        }
+    }
+
+    private struct LifecycleSurfaceViewFactory: TerminalSurfaceViewProviding {
+        func makeSurfaceViews(
+            initialFrame: NSRect
+        ) -> (
+            surfaceView: any TerminalSurfaceNativeViewing,
+            paneHost: any TerminalSurfacePaneHosting
+        ) {
+            let surfaceView = LifecycleSurfaceView(frame: initialFrame)
+            return (
+                surfaceView,
+                GhosttySurfaceScrollView(surfaceView: surfaceView)
+            )
+        }
+    }
+
     private struct HostedTerminal {
         let surface: TerminalSurface
         let hostedView: GhosttySurfaceScrollView
-        let surfaceView: GhosttyNSView
+        let surfaceView: LifecycleSurfaceView
         let window: NSWindow
     }
 
@@ -31,11 +63,10 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
         let terminal = try makeHostedTerminal()
         defer {
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
-            terminal.surfaceView.setTextInputEventHandlerForTesting(nil)
             terminal.window.orderOut(nil)
         }
 
-        terminal.surfaceView.setTextInputEventHandlerForTesting { event in
+        terminal.surfaceView.textInputEventHandler = { event in
             guard let text = event.characters else {
                 return false
             }
@@ -145,11 +176,10 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
         let terminal = try makeHostedTerminal()
         defer {
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
-            terminal.surfaceView.setUnshiftedCodepointProviderForTesting(nil)
             terminal.window.orderOut(nil)
         }
 
-        terminal.surfaceView.setUnshiftedCodepointProviderForTesting { event in
+        terminal.surfaceView.unshiftedCodepointResolver = { event in
             event.type == .keyUp ? 0x0441 : nil
         }
         var capturedReleases: [CapturedGhosttyKeyIdentityEvent] = []
@@ -216,11 +246,10 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
         let terminal = try makeHostedTerminal()
         defer {
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
-            terminal.surfaceView.setTextInputEventHandlerForTesting(nil)
             terminal.window.orderOut(nil)
         }
 
-        terminal.surfaceView.setTextInputEventHandlerForTesting { _ in false }
+        terminal.surfaceView.textInputEventHandler = { _ in false }
         terminal.surfaceView.setMarkedText(
             "ᄒ",
             selectedRange: NSRange(location: 1, length: 0),
@@ -278,11 +307,10 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
         let terminal = try makeHostedTerminal()
         defer {
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
-            terminal.surfaceView.setTextInputEventHandlerForTesting(nil)
             terminal.window.orderOut(nil)
         }
 
-        terminal.surfaceView.setTextInputEventHandlerForTesting { _ in
+        terminal.surfaceView.textInputEventHandler = { _ in
             terminal.surfaceView.insertText(
                 "日本",
                 replacementRange: NSRange(location: NSNotFound, length: 0)
@@ -358,12 +386,11 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
         let terminal = try makeHostedTerminal()
         defer {
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
-            terminal.surfaceView.setTextInputEventHandlerForTesting(nil)
             terminal.window.orderOut(nil)
         }
 
         var callbackOrder: [String] = []
-        terminal.surfaceView.setTextInputEventHandlerForTesting { event in
+        terminal.surfaceView.textInputEventHandler = { event in
             if event.isARepeat {
                 callbackOrder.append("repeat.insertText")
                 terminal.surfaceView.insertText(
@@ -464,7 +491,8 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
             tabId: UUID(),
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: nil,
-            workingDirectory: nil
+            workingDirectory: nil,
+            dependencies: runtimeDependencies()
         )
         let hostedView = surface.hostedView
         let window = NSWindow(
@@ -487,8 +515,30 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
         return HostedTerminal(
             surface: surface,
             hostedView: hostedView,
-            surfaceView: try XCTUnwrap(findGhosttyNSView(in: hostedView)),
+            surfaceView: try XCTUnwrap(
+                findGhosttyNSView(in: hostedView) as? LifecycleSurfaceView
+            ),
             window: window
+        )
+    }
+
+    private func runtimeDependencies() -> TerminalSurfaceRuntimeDependencies {
+        let live = GhosttyApp.terminalSurfaceRuntimeDependencies
+        return TerminalSurfaceRuntimeDependencies(
+            registry: live.registry,
+            engine: live.engine,
+            viewProvider: LifecycleSurfaceViewFactory(),
+            spawnPolicy: live.spawnPolicy,
+            byteTee: live.byteTee,
+            rendererRealization: live.rendererRealization,
+            hibernationRecorder: live.hibernationRecorder,
+            runtimeTeardown: live.runtimeTeardown,
+            restoreSpawnScheduler: live.restoreSpawnScheduler,
+            runtimeFilesystem: live.runtimeFilesystem,
+            sessionPortBase: live.sessionPortBase,
+            sessionPortRangeSize: live.sessionPortRangeSize,
+            scrollbackReplayEnvironmentKey: live.scrollbackReplayEnvironmentKey,
+            globalFontMagnificationPercent: live.globalFontMagnificationPercent
         )
     }
 }

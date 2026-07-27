@@ -11,10 +11,40 @@ import XCTest
 #if DEBUG
 @MainActor
 final class GhosttyPhysicalInputFocusReassertionTests: XCTestCase {
+    private final class FocusObservingSurfaceView: GhosttyNSView {
+        private(set) var forcedNativeFocusReassertionCount = 0
+
+        override func reassertTerminalFocusForInputIfFirstResponder(
+            forceNative: Bool = false
+        ) -> Bool {
+            if forceNative {
+                forcedNativeFocusReassertionCount += 1
+            }
+            return super.reassertTerminalFocusForInputIfFirstResponder(
+                forceNative: forceNative
+            )
+        }
+    }
+
+    private struct FocusObservingSurfaceViewFactory: TerminalSurfaceViewProviding {
+        func makeSurfaceViews(
+            initialFrame: NSRect
+        ) -> (
+            surfaceView: any TerminalSurfaceNativeViewing,
+            paneHost: any TerminalSurfacePaneHosting
+        ) {
+            let surfaceView = FocusObservingSurfaceView(frame: initialFrame)
+            return (
+                surfaceView,
+                GhosttySurfaceScrollView(surfaceView: surfaceView)
+            )
+        }
+    }
+
     private struct HostedTerminal {
         let surface: TerminalSurface
         let hostedView: GhosttySurfaceScrollView
-        let surfaceView: GhosttyNSView
+        let surfaceView: FocusObservingSurfaceView
         let window: NSWindow
     }
 
@@ -34,17 +64,6 @@ final class GhosttyPhysicalInputFocusReassertionTests: XCTestCase {
             "Regression setup explicitly models deduplicated focus while native focus may have drifted"
         )
 
-        let previousObserver = GhosttyNSView.debugNativeFocusReassertionObserver
-        defer {
-            GhosttyNSView.debugNativeFocusReassertionObserver = previousObserver
-        }
-
-        var nativeFocusReassertions = 0
-        GhosttyNSView.debugNativeFocusReassertionObserver = {
-            previousObserver?()
-            nativeFocusReassertions += 1
-        }
-
         let event = try makeKeyDownEvent(
             characters: "\u{0004}",
             charactersIgnoringModifiers: "d",
@@ -55,7 +74,7 @@ final class GhosttyPhysicalInputFocusReassertionTests: XCTestCase {
         terminal.surfaceView.keyDown(with: event)
 
         XCTAssertEqual(
-            nativeFocusReassertions,
+            terminal.surfaceView.forcedNativeFocusReassertionCount,
             1,
             "Control input must bypass the deduplicated model state and repair native Ghostty focus"
         )
@@ -180,7 +199,8 @@ final class GhosttyPhysicalInputFocusReassertionTests: XCTestCase {
             tabId: UUID(),
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: nil,
-            workingDirectory: nil
+            workingDirectory: nil,
+            dependencies: runtimeDependencies()
         )
         let hostedView = surface.hostedView
         let window = NSWindow(
@@ -206,8 +226,30 @@ final class GhosttyPhysicalInputFocusReassertionTests: XCTestCase {
         return HostedTerminal(
             surface: surface,
             hostedView: hostedView,
-            surfaceView: try XCTUnwrap(findGhosttyNSView(in: hostedView)),
+            surfaceView: try XCTUnwrap(
+                findGhosttyNSView(in: hostedView) as? FocusObservingSurfaceView
+            ),
             window: window
+        )
+    }
+
+    private func runtimeDependencies() -> TerminalSurfaceRuntimeDependencies {
+        let live = GhosttyApp.terminalSurfaceRuntimeDependencies
+        return TerminalSurfaceRuntimeDependencies(
+            registry: live.registry,
+            engine: live.engine,
+            viewProvider: FocusObservingSurfaceViewFactory(),
+            spawnPolicy: live.spawnPolicy,
+            byteTee: live.byteTee,
+            rendererRealization: live.rendererRealization,
+            hibernationRecorder: live.hibernationRecorder,
+            runtimeTeardown: live.runtimeTeardown,
+            restoreSpawnScheduler: live.restoreSpawnScheduler,
+            runtimeFilesystem: live.runtimeFilesystem,
+            sessionPortBase: live.sessionPortBase,
+            sessionPortRangeSize: live.sessionPortRangeSize,
+            scrollbackReplayEnvironmentKey: live.scrollbackReplayEnvironmentKey,
+            globalFontMagnificationPercent: live.globalFontMagnificationPercent
         )
     }
 
