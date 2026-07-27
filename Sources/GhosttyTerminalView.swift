@@ -3306,6 +3306,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var wordPathHoverActive = false
     private var keyboardCopyModeConsumedKeyUps: Set<UInt16> = []
     private var terminalKeyInputLifecycleTracker = TerminalKeyInputLifecycleTracker()
+    private var zeroTimestampTerminalKeyEventsByKeyCode: [UInt16: NSEvent] = [:]
     private var keyboardCopyModeInputState = TerminalKeyboardCopyModeInputState()
     private var keyboardCopyModeCursor: TerminalKeyboardCopyModeCursor?
     private var keyboardCopyModePendingViewportJumpSync = false
@@ -3636,7 +3637,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
 #endif
         guard let window else {
-            terminalKeyInputLifecycleTracker.reset()
+            resetTerminalKeyInputLifecycle()
             return
         }
 
@@ -3665,7 +3666,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             object: window,
             queue: .main
         ) { [weak self] _ in
-            self?.terminalKeyInputLifecycleTracker.reset()
+            self?.resetTerminalKeyInputLifecycle()
         }
 
         if let surface = terminalSurface?.surface,
@@ -5122,7 +5123,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let result = super.becomeFirstResponder()
         var shouldApplySurfaceFocus = false
         if result {
-            terminalKeyInputLifecycleTracker.reset()
+            resetTerminalKeyInputLifecycle()
             if let terminalSurface,
                AppDelegate.shared?.allowsTerminalKeyboardFocus(
                    workspaceId: terminalSurface.tabId,
@@ -5221,7 +5222,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     override func resignFirstResponder() -> Bool {
         let result = super.resignFirstResponder()
         if result {
-            terminalKeyInputLifecycleTracker.reset()
+            resetTerminalKeyInputLifecycle()
             desiredFocus = false
             terminalSurface?.hostedView.cancelSuppressedFirstResponderFocusReapply()
             terminalSurface?.recordExternalFocusState(false)
@@ -5312,6 +5313,37 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         withExternalCommittedText {
             insertText(insertString, replacementRange: NSRange(location: NSNotFound, length: 0))
         }
+    }
+
+    private func terminalPhysicalKeyEventIdentity(
+        for event: NSEvent
+    ) -> PhysicalKeyEventIdentity {
+        let zeroTimestampEventToken: UInt
+        if event.timestamp.isZero {
+            zeroTimestampEventToken = UInt(
+                bitPattern: ObjectIdentifier(event)
+            )
+            // Retain the previous synthetic event until its replacement token
+            // is captured so allocator reuse cannot merge distinct lifecycles.
+            zeroTimestampTerminalKeyEventsByKeyCode[event.keyCode] = event
+        } else {
+            zeroTimestampEventToken = 0
+            zeroTimestampTerminalKeyEventsByKeyCode.removeValue(
+                forKey: event.keyCode
+            )
+        }
+        return PhysicalKeyEventIdentity(
+            timestampBitPattern: event.timestamp.bitPattern,
+            windowNumber: event.windowNumber,
+            zeroTimestampEventToken: zeroTimestampEventToken
+        )
+    }
+
+    private func resetTerminalKeyInputLifecycle() {
+        terminalKeyInputLifecycleTracker.reset()
+        zeroTimestampTerminalKeyEventsByKeyCode.removeAll(
+            keepingCapacity: true
+        )
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -5467,8 +5499,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         for event: NSEvent,
         surface: ghostty_surface_t
     ) -> ghostty_binding_flags_e? {
+        let eventIdentity = terminalPhysicalKeyEventIdentity(for: event)
         var flags = ghostty_binding_flags_e(0)
-        let isBinding = withGhosttyBindingKeyEvent(for: event, surface: surface) { keyEvent in
+        let isBinding = withGhosttyBindingKeyEvent(
+            for: event,
+            eventIdentity: eventIdentity,
+            surface: surface
+        ) { keyEvent in
             return ghostty_surface_key_is_binding(surface, keyEvent, &flags)
         }
         return isBinding ? flags : nil
@@ -5479,7 +5516,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         for event: NSEvent,
         surface: ghostty_surface_t
     ) -> Bool {
-        withGhosttyBindingKeyEvent(for: event, surface: surface) { keyEvent in
+        let eventIdentity = terminalPhysicalKeyEventIdentity(for: event)
+        let consumed = withGhosttyBindingKeyEvent(
+            for: event,
+            eventIdentity: eventIdentity,
+            surface: surface
+        ) { keyEvent in
             action.withCString { actionPointer in
                 ghostty_surface_key_consume_if_menu_action(
                     surface,
@@ -5489,14 +5531,32 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 )
             }
         }
+        if consumed {
+            terminalKeyInputLifecycleTracker.recordGhosttyMenuBindingConsumption(
+                forKeyDown: event.keyCode,
+                eventIdentity: eventIdentity
+            )
+        }
+        return consumed
     }
 
     private func withGhosttyBindingKeyEvent<Result>(
         for event: NSEvent,
+        eventIdentity: PhysicalKeyEventIdentity,
         surface: ghostty_surface_t,
         _ body: (ghostty_input_key_s) -> Result
     ) -> Result {
         var keyEvent = ghosttyKeyEvent(for: event, surface: surface)
+        let physicalIdentity =
+            terminalKeyInputLifecycleTracker.physicalIdentityForBindingProbe(
+                forKeyDown: event.keyCode,
+                resolvedIdentity: TerminalKeyInputPhysicalIdentity(
+                    unshiftedCodepoint: keyEvent.unshifted_codepoint
+                ),
+                isRepeat: event.isARepeat,
+                eventIdentity: eventIdentity
+            )
+        keyEvent.unshifted_codepoint = physicalIdentity.unshiftedCodepoint
         let text = textForKeyEvent(event).flatMap { shouldSendText($0) ? $0 : nil } ?? ""
         return text.withCString { pointer in
             keyEvent.text = pointer
@@ -5693,10 +5753,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             )
         )
         let inputPlan = terminalKeyInputPlanner.plan(for: inputSnapshot)
+        let physicalEventIdentity = terminalPhysicalKeyEventIdentity(
+            for: event
+        )
         let inputActions = terminalKeyInputLifecycleTracker.actions(
             for: inputPlan,
             keyCode: event.keyCode,
-            isRepeat: event.isARepeat
+            isRepeat: event.isARepeat,
+            eventIdentity: physicalEventIdentity
         )
 
         let inputFlags = ShortcutStroke.normalizedModifierFlags(
@@ -5731,6 +5795,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     text: text,
                     composing: false,
                     action: action,
+                    eventIdentity: physicalEventIdentity,
                     surface: surface
                 )
             case .sendKey(let text, let composing):
@@ -5740,6 +5805,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     text: text,
                     composing: composing,
                     action: action,
+                    eventIdentity: physicalEventIdentity,
                     surface: surface
                 )
             }
@@ -5770,6 +5836,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         text: String?,
         composing: Bool,
         action: ghostty_input_action_e,
+        eventIdentity: PhysicalKeyEventIdentity,
         surface: ghostty_surface_t
     ) -> Bool {
         var keyEvent = ghosttyKeyEvent(for: event, surface: surface)
@@ -5783,7 +5850,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             resolvedIdentity: TerminalKeyInputPhysicalIdentity(
                 unshiftedCodepoint: keyEvent.unshifted_codepoint
             ),
-            isRepeat: event.isARepeat
+            isRepeat: event.isARepeat,
+            eventIdentity: eventIdentity
         )
         keyEvent.unshifted_codepoint = physicalIdentity.unshiftedCodepoint
         keyEvent.consumed_mods = resolvedConsumedModifiers
@@ -5856,6 +5924,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     override func keyUp(with event: NSEvent) {
         let release = terminalKeyInputLifecycleTracker.release(
             forKeyUp: event.keyCode
+        )
+        zeroTimestampTerminalKeyEventsByKeyCode.removeValue(
+            forKey: event.keyCode
         )
         guard let surface = ensureSurfaceReadyForInput() else {
             super.keyUp(with: event)

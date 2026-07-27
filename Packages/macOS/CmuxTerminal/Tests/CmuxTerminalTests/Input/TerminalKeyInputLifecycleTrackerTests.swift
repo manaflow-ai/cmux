@@ -222,6 +222,150 @@ import Testing
         ))
     }
 
+    @Test func bindingProbeAndSendShareOneStablePhysicalIdentity() {
+        var tracker = TerminalKeyInputLifecycleTracker()
+        let pressEventIdentity = eventIdentity(1)
+        let initialIdentity = TerminalKeyInputPhysicalIdentity(
+            unshiftedCodepoint: 0x63
+        )
+        let laterResolverIdentity = TerminalKeyInputPhysicalIdentity(
+            unshiftedCodepoint: 0x0441
+        )
+
+        let probeIdentity = tracker.physicalIdentityForBindingProbe(
+            forKeyDown: 8,
+            resolvedIdentity: initialIdentity,
+            isRepeat: false,
+            eventIdentity: pressEventIdentity
+        )
+        _ = tracker.actions(
+            for: physicalPlan(text: "c"),
+            keyCode: 8,
+            isRepeat: false,
+            eventIdentity: pressEventIdentity
+        )
+        let sendIdentity = tracker.physicalIdentity(
+            forKeyDown: 8,
+            resolvedIdentity: laterResolverIdentity,
+            isRepeat: false,
+            eventIdentity: pressEventIdentity
+        )
+        let release = tracker.release(forKeyUp: 8)
+
+        #expect(probeIdentity == initialIdentity)
+        #expect(sendIdentity == initialIdentity)
+        #expect(release == TerminalKeyInputRelease(
+            forwardsPhysicalKey: true,
+            physicalIdentity: initialIdentity
+        ))
+    }
+
+    @Test func repeatBindingProbeKeepsPressIdentityAcrossLayoutChanges() {
+        var tracker = TerminalKeyInputLifecycleTracker()
+        let initialIdentity = TerminalKeyInputPhysicalIdentity(
+            unshiftedCodepoint: 0x63
+        )
+        let changedLayoutIdentity = TerminalKeyInputPhysicalIdentity(
+            unshiftedCodepoint: 0x0441
+        )
+
+        _ = tracker.physicalIdentityForBindingProbe(
+            forKeyDown: 8,
+            resolvedIdentity: initialIdentity,
+            isRepeat: false,
+            eventIdentity: eventIdentity(1)
+        )
+        _ = tracker.actions(
+            for: physicalPlan(text: "c"),
+            keyCode: 8,
+            isRepeat: false,
+            eventIdentity: eventIdentity(1)
+        )
+        let repeatProbeIdentity = tracker.physicalIdentityForBindingProbe(
+            forKeyDown: 8,
+            resolvedIdentity: changedLayoutIdentity,
+            isRepeat: true,
+            eventIdentity: eventIdentity(2)
+        )
+
+        #expect(repeatProbeIdentity == initialIdentity)
+    }
+
+    @Test func bindingProbeAloneDoesNotCreateTerminalReleaseOwnership() {
+        var tracker = TerminalKeyInputLifecycleTracker()
+        let initialIdentity = TerminalKeyInputPhysicalIdentity(
+            unshiftedCodepoint: 0x63
+        )
+
+        _ = tracker.physicalIdentityForBindingProbe(
+            forKeyDown: 8,
+            resolvedIdentity: initialIdentity,
+            isRepeat: false,
+            eventIdentity: eventIdentity(1)
+        )
+        let release = tracker.release(forKeyUp: 8)
+
+        #expect(release == TerminalKeyInputRelease(
+            forwardsPhysicalKey: false,
+            physicalIdentity: initialIdentity
+        ))
+    }
+
+    @Test func consumedMenuBindingRequiresReleaseWithProbedIdentity() {
+        var tracker = TerminalKeyInputLifecycleTracker()
+        let pressEventIdentity = eventIdentity(1)
+        let initialIdentity = TerminalKeyInputPhysicalIdentity(
+            unshiftedCodepoint: 0x63
+        )
+
+        _ = tracker.physicalIdentityForBindingProbe(
+            forKeyDown: 8,
+            resolvedIdentity: initialIdentity,
+            isRepeat: false,
+            eventIdentity: pressEventIdentity
+        )
+        tracker.recordGhosttyMenuBindingConsumption(
+            forKeyDown: 8,
+            eventIdentity: pressEventIdentity
+        )
+        let release = tracker.release(forKeyUp: 8)
+
+        #expect(release == TerminalKeyInputRelease(
+            forwardsPhysicalKey: true,
+            physicalIdentity: initialIdentity
+        ))
+    }
+
+    @Test func distinctNonRepeatBindingProbeReplacesStaleIdentity() {
+        var tracker = TerminalKeyInputLifecycleTracker()
+
+        _ = tracker.physicalIdentityForBindingProbe(
+            forKeyDown: 8,
+            resolvedIdentity: TerminalKeyInputPhysicalIdentity(
+                unshiftedCodepoint: 0x63
+            ),
+            isRepeat: false,
+            eventIdentity: eventIdentity(1)
+        )
+        let replacementIdentity = tracker.physicalIdentityForBindingProbe(
+            forKeyDown: 8,
+            resolvedIdentity: TerminalKeyInputPhysicalIdentity(
+                unshiftedCodepoint: 0x0441
+            ),
+            isRepeat: false,
+            eventIdentity: eventIdentity(2)
+        )
+        let release = tracker.release(forKeyUp: 8)
+
+        #expect(replacementIdentity == TerminalKeyInputPhysicalIdentity(
+            unshiftedCodepoint: 0x0441
+        ))
+        #expect(release == TerminalKeyInputRelease(
+            forwardsPhysicalKey: false,
+            physicalIdentity: replacementIdentity
+        ))
+    }
+
     @Test func resetClearsPhysicalIdentity() {
         var tracker = TerminalKeyInputLifecycleTracker()
         _ = tracker.actions(
@@ -252,5 +396,12 @@ import Testing
 
     private func physicalPlan(text: String) -> TerminalKeyInputPlan {
         TerminalKeyInputPlan(actions: [.sendKey(text: text, composing: false)])
+    }
+
+    private func eventIdentity(_ value: UInt64) -> PhysicalKeyEventIdentity {
+        PhysicalKeyEventIdentity(
+            timestampBitPattern: value,
+            windowNumber: 1
+        )
     }
 }

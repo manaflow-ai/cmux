@@ -1,5 +1,5 @@
-/// Stable identity shared by every AppKit entrypoint for one keyboard event.
-public struct ShortcutKeyEventIdentity: Sendable, Equatable {
+/// Stable identity shared by every AppKit entrypoint for one physical key event.
+public struct PhysicalKeyEventIdentity: Sendable, Equatable {
     /// Exact bit pattern of the native event timestamp.
     public let timestampBitPattern: UInt64
 
@@ -23,3 +23,6 @@ public struct ShortcutKeyEventIdentity: Sendable, Equatable {
             : 0
     }
 }
+
+/// Compatibility name for the shortcut-routing lifecycle.
+public typealias ShortcutKeyEventIdentity = PhysicalKeyEventIdentity

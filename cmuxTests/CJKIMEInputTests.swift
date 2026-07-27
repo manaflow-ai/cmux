@@ -1888,7 +1888,7 @@ final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
 
 @MainActor
 final class DeadKeyCompositionRegressionTests: XCTestCase {
-    func testOptionTildeDeadKeyUsesOriginalEventBeforeAltTranslation() {
+    func testOptionTildeRespectsGhosttyAltTranslationBeforeAppKit() {
         _ = NSApplication.shared
 
         let surface = TerminalSurface(
@@ -1962,11 +1962,13 @@ final class DeadKeyCompositionRegressionTests: XCTestCase {
         }
 
         var pressedText: [String] = []
+        var pressedModifiers: [UInt32] = []
         var pressedKeycodes: [UInt32] = []
         GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
             guard keyEvent.action == GHOSTTY_ACTION_PRESS else { return }
             if let text = keyEvent.text {
                 pressedText.append(String(cString: text))
+                pressedModifiers.append(keyEvent.mods.rawValue)
             } else {
                 pressedKeycodes.append(keyEvent.keycode)
             }
@@ -2005,9 +2007,23 @@ final class DeadKeyCompositionRegressionTests: XCTestCase {
             view.keyDown(with: aKey)
         }
 
-        XCTAssertEqual(pressedText, ["ã"])
-        XCTAssertEqual(pressedKeycodes, [], "Dead-key composition should not leak raw Alt-N key events")
-        XCTAssertFalse(view.hasMarkedText(), "Composition should clear after the composed character commits")
+        XCTAssertEqual(
+            pressedText,
+            ["n", "a"],
+            "macos-option-as-alt should send Ghostty's translated text instead of restoring AppKit dead-key composition"
+        )
+        XCTAssertEqual(
+            pressedModifiers.first.map {
+                $0 & GHOSTTY_MODS_ALT.rawValue
+            },
+            GHOSTTY_MODS_ALT.rawValue,
+            "Ghostty must retain Alt for terminal encoding after removing it from AppKit character translation"
+        )
+        XCTAssertEqual(pressedKeycodes, [])
+        XCTAssertFalse(
+            view.hasMarkedText(),
+            "Ghostty's Alt translation must not leave an AppKit dead-key composition armed"
+        )
     }
 }
 
