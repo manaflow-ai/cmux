@@ -331,6 +331,17 @@ impl std::fmt::Display for DeferredCellPixelAck {
 
 impl std::error::Error for DeferredCellPixelAck {}
 
+#[derive(Debug)]
+pub(crate) struct CellPixelRequestDeadlineElapsed;
+
+impl std::fmt::Display for CellPixelRequestDeadlineElapsed {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("terminal host cell pixel size deadline elapsed before request")
+    }
+}
+
+impl std::error::Error for CellPixelRequestDeadlineElapsed {}
+
 #[cfg(unix)]
 mod unix {
     use std::collections::{HashMap, HashSet};
@@ -916,7 +927,7 @@ mod unix {
                 return Ok(false);
             }
             if Instant::now() >= deadline {
-                anyhow::bail!("terminal host cell pixel size deadline elapsed before request");
+                return Err(CellPixelRequestDeadlineElapsed.into());
             }
             let width_px = width_px.max(1);
             let height_px = height_px.max(1);
