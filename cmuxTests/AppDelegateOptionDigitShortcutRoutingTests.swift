@@ -484,6 +484,72 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
     }
 
     @Test
+    func modalShortcutOwnsReleaseWhileItsActionIsRunning() throws {
+        try withIsolatedShortcutRoutingState {
+            let appDelegate = try #require(AppDelegate.shared)
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let testWindow = try #require(self.window(withId: windowId))
+            let openFolderShortcut = StoredShortcut(
+                key: "o",
+                command: true,
+                shift: false,
+                option: false,
+                control: false
+            )
+
+            try withTemporaryShortcut(action: .openFolder, shortcut: openFolderShortcut) {
+                let timestamp = ProcessInfo.processInfo.systemUptime
+                let keyDown = try #require(NSEvent.keyEvent(
+                    with: .keyDown,
+                    location: .zero,
+                    modifierFlags: [.command],
+                    timestamp: timestamp,
+                    windowNumber: testWindow.windowNumber,
+                    context: nil,
+                    characters: "o",
+                    charactersIgnoringModifiers: "o",
+                    isARepeat: false,
+                    keyCode: 31
+                ))
+                let keyUp = try #require(NSEvent.keyEvent(
+                    with: .keyUp,
+                    location: .zero,
+                    modifierFlags: [.command],
+                    timestamp: timestamp + 0.01,
+                    windowNumber: testWindow.windowNumber,
+                    context: nil,
+                    characters: "o",
+                    charactersIgnoringModifiers: "o",
+                    isARepeat: false,
+                    keyCode: 31
+                ))
+
+                var nestedReleaseConsumed: Bool?
+                RunLoop.main.perform(inModes: [.modalPanel]) {
+                    nestedReleaseConsumed = appDelegate.debugHandleShortcutMonitorEvent(event: keyUp)
+                    NSApp.abortModal()
+                }
+                defer {
+                    if NSApp.modalWindow != nil {
+                        NSApp.abortModal()
+                    }
+                }
+
+                #expect(
+                    appDelegate.debugHandleShortcutMonitorEvent(event: keyDown),
+                    "The modal shortcut press should be consumed"
+                )
+                #expect(
+                    nestedReleaseConsumed == true,
+                    "A release delivered by the modal run loop should retain shortcut ownership"
+                )
+            }
+        }
+    }
+
+    @Test
     func distinctZeroTimestampShortcutEventsDispatchIndependently() throws {
         try withIsolatedShortcutRoutingState {
             let appDelegate = try #require(AppDelegate.shared)
