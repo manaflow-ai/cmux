@@ -4168,6 +4168,37 @@ mod tests {
     }
 
     #[test]
+    fn clear_history_fallback_capability_read_never_waits_for_runtime_writer() {
+        let mux = Mux::new_for_test("clear-history-capability-lock", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let (locked_tx, locked_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let locked_surface = surface.clone();
+        let lock_holder = std::thread::spawn(move || {
+            let pty = locked_surface.as_pty().unwrap();
+            let _runtime = pty.runtime.lock().unwrap();
+            locked_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+        });
+        locked_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let (result_tx, result_rx) = std::sync::mpsc::channel();
+        let reader = std::thread::spawn(move || {
+            result_tx.send(surface.supports_clear_history_key_fallback()).unwrap();
+        });
+        let result = result_rx.recv_timeout(Duration::from_millis(100));
+        release_tx.send(()).unwrap();
+        lock_holder.join().unwrap();
+        reader.join().unwrap();
+
+        assert!(
+            matches!(result, Ok(false)),
+            "capability read waited for the PTY writer runtime: {result:?}"
+        );
+    }
+
+    #[test]
     fn clear_history_preserves_prompt_without_writing_to_the_child() {
         let mux = Mux::new_for_test("clear-prompt-history", SurfaceOptions::default());
         let surface =
