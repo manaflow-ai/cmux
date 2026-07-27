@@ -162,6 +162,7 @@ def main() -> int:
         nonblocking_returned = root / "nonblocking-prompt-returned"
         nonblocking_gated = root / "nonblocking-events-gated"
         nonblocking_overtake = root / "nonblocking-event-overtook-prompt"
+        nonblocking_discarded_event = root / "nonblocking-discarded-event-delivered"
         nonblocking_finished = root / "nonblocking-prompt-finished"
         nonblocking_shutdown_finished = root / "nonblocking-shutdown-finished"
         nonblocking_release = root / "nonblocking-prompt-release"
@@ -176,6 +177,9 @@ def main() -> int:
 set -euo pipefail
 printf '%s\n' "$*" >> "$CMUX_TEST_PI_ARGS_LOG"
 payload="$(cat)"
+if printf '%s' "$payload" | grep -q '"tool_call_id":"discarded-tool-call"'; then
+  : > "$CMUX_TEST_PI_NONBLOCKING_DISCARDED_EVENT"
+fi
 # Assign each completed payload write a stable sequence under a directory lock.
 payload_dir="$(dirname "$CMUX_TEST_PI_STDIN_LOG")"
 payload_lock="$payload_dir/.cmux-payload-lock"
@@ -284,6 +288,7 @@ esac
         check_env["CMUX_TEST_PI_NONBLOCKING_RETURNED"] = str(nonblocking_returned)
         check_env["CMUX_TEST_PI_NONBLOCKING_GATED"] = str(nonblocking_gated)
         check_env["CMUX_TEST_PI_NONBLOCKING_OVERTAKE"] = str(nonblocking_overtake)
+        check_env["CMUX_TEST_PI_NONBLOCKING_DISCARDED_EVENT"] = str(nonblocking_discarded_event)
         check_env["CMUX_TEST_PI_NONBLOCKING_FINISHED"] = str(nonblocking_finished)
         check_env["CMUX_TEST_PI_NONBLOCKING_SHUTDOWN_FINISHED"] = str(nonblocking_shutdown_finished)
         check_env["CMUX_TEST_PI_NONBLOCKING_RELEASE"] = str(nonblocking_release)
@@ -351,6 +356,11 @@ await handlers.get("tool_execution_start")({
   toolName: "bash",
   args: { command: "echo discarded" }
 }, ctx);
+await handlers.get("agent_end")({
+  messages: [{ role: "assistant", content: "discarded done" }],
+  stopReason: "completed"
+}, ctx);
+await handlers.get("agent_settled")({}, ctx);
 const shutdown = handlers.get("session_shutdown")({}, ctx);
 await Bun.write(process.env.CMUX_TEST_PI_NONBLOCKING_GATED, "queued");
 await shutdown;
@@ -407,13 +417,20 @@ await Bun.write(process.env.CMUX_TEST_PI_NONBLOCKING_SHUTDOWN_FINISHED, "finishe
         if nonblocking_overtake.exists():
             print("FAIL: Pi event overtook the active prompt hook after release")
             return 1
+        if wait_for_path(nonblocking_discarded_event, timeout=1.0):
+            print("FAIL: event for a discarded Pi prompt was delivered after shutdown")
+            return 1
         nonblocking_args = wait_for_text(fake_args_log, 6, timeout=5.0).splitlines()
         # Shutdown must not start a prompt hook that was queued behind the active hook.
         if nonblocking_args.count("hooks pi prompt-submit") != 1:
             print(f"FAIL: queued Pi prompt hook started during shutdown: {nonblocking_args!r}")
             return 1
         nonblocking_payloads = payloads_from_log(wait_for_payload_text(fake_stdin_log, 6, timeout=5.0))
-        if any(payload.get("tool_call_id") == "discarded-tool-call" for payload in nonblocking_payloads):
+        if any(
+            payload.get("tool_call_id") == "discarded-tool-call"
+            or payload.get("last_assistant_message") == "discarded done"
+            for payload in nonblocking_payloads
+        ):
             print(f"FAIL: event for a discarded Pi prompt was delivered: {nonblocking_payloads!r}")
             return 1
         if not any(payload.get("tool_call_id") == "active-tool-call" for payload in nonblocking_payloads):
