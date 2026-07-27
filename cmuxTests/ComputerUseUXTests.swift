@@ -18,6 +18,16 @@ import Testing
 
 @Suite("Computer Use UX")
 struct ComputerUseUXTests {
+    @MainActor
+    private final class WindowFrameRecorder: NSObject, NSWindowDelegate {
+        private(set) var resizedFrames: [NSRect] = []
+
+        func windowDidResize(_ notification: Notification) {
+            guard let window = notification.object as? NSWindow else { return }
+            resizedFrames.append(window.frame)
+        }
+    }
+
     private static let stateAuthenticationKey = Data(
         repeating: 0x5a,
         count: 32
@@ -633,6 +643,46 @@ struct ComputerUseUXTests {
         )
 
         #expect(window.styleMask == expandedStyle)
+    }
+
+    @Test @MainActor func permissionCompanionGlideInterpolatesItsWindowFrame() {
+        let expandedSize = CGSize(width: 600, height: 440)
+        let companionSize = CGSize(width: 472, height: 112)
+        let window = ComputerUseOnboardingWindow(
+            contentRect: NSRect(origin: .zero, size: expandedSize),
+            styleMask: [.titled, .closable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        let recorder = WindowFrameRecorder()
+        window.delegate = recorder
+        defer {
+            window.delegate = nil
+            window.close()
+        }
+        window.center()
+        window.orderBack(nil)
+
+        let startingFrame = window.frame
+        let destinationFrame = NSRect(
+            x: startingFrame.minX + 160,
+            y: startingFrame.minY + 120,
+            width: companionSize.width,
+            height: companionSize.height
+        )
+        window.setAppKitOwnedFrame(
+            destinationFrame,
+            display: true,
+            animate: true
+        )
+
+        #expect(window.frame == destinationFrame)
+        #expect(recorder.resizedFrames.contains { frame in
+            frame.width < startingFrame.width
+                && frame.width > destinationFrame.width
+                && frame.height < startingFrame.height
+                && frame.height > destinationFrame.height
+        })
     }
 
     @Test func permissionCompanionAnimationHonorsReduceMotion() {
