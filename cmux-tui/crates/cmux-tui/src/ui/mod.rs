@@ -363,26 +363,58 @@ fn draw_prefix_help_bar(app: &App, frame: &mut Frame, bar_x: u16, y: u16) {
     }
 }
 
+const TRUNCATE_BYTES_PER_CELL: usize = 128;
+const TRUNCATE_MAX_OUTPUT_BYTES: usize = 4_096;
+
 pub(crate) fn truncate(s: &str, max: usize) -> String {
-    if s.width() <= max {
-        s.to_string()
-    } else if max == 0 {
-        String::new()
-    } else {
-        let content_width = max - 1;
-        let mut width = 0;
-        let mut out = String::new();
-        for grapheme in s.graphemes(true) {
-            let grapheme_width = grapheme.width();
-            if width + grapheme_width > content_width {
-                break;
-            }
-            out.push_str(grapheme);
-            width += grapheme_width;
-        }
-        out.push('…');
-        out
+    if max == 0 {
+        return String::new();
     }
+
+    // Display width alone does not bound combining marks or other zero-width
+    // scalars. Limit the UTF-8 prefix inspected and copied on every paint.
+    let output_byte_budget = max
+        .saturating_mul(TRUNCATE_BYTES_PER_CELL)
+        .clamp(TRUNCATE_BYTES_PER_CELL, TRUNCATE_MAX_OUTPUT_BYTES);
+    let mut prefix_end = s.len().min(output_byte_budget);
+    while !s.is_char_boundary(prefix_end) {
+        prefix_end -= 1;
+    }
+    let byte_truncated = prefix_end < s.len();
+    let bounded_prefix = &s[..prefix_end];
+
+    if !byte_truncated && bounded_prefix.width() <= max {
+        return bounded_prefix.to_string();
+    }
+
+    // A byte cutoff can land inside one extended grapheme. Conservatively
+    // discard that final grapheme so a pathological first grapheme becomes
+    // just an ellipsis instead of leaking a partial combining sequence.
+    let complete_prefix = if byte_truncated {
+        let last_grapheme_start =
+            bounded_prefix.grapheme_indices(true).next_back().map(|(index, _)| index).unwrap_or(0);
+        &bounded_prefix[..last_grapheme_start]
+    } else {
+        bounded_prefix
+    };
+    let content_width = max - 1;
+    let content_byte_budget = output_byte_budget.saturating_sub('…'.len_utf8());
+    let mut width: usize = 0;
+    let mut out = String::with_capacity(
+        complete_prefix.len().min(content_byte_budget).saturating_add('…'.len_utf8()),
+    );
+    for grapheme in complete_prefix.graphemes(true) {
+        let grapheme_width = grapheme.width();
+        if width.saturating_add(grapheme_width) > content_width
+            || out.len().saturating_add(grapheme.len()) > content_byte_budget
+        {
+            break;
+        }
+        out.push_str(grapheme);
+        width += grapheme_width;
+    }
+    out.push('…');
+    out
 }
 
 pub(crate) fn middle_truncate(input: &str, max_chars: usize) -> String {

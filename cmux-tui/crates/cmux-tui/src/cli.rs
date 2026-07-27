@@ -1216,15 +1216,33 @@ fn build_set_ratio(flags: &FlagMap) -> Result<Value, UsageError> {
     Ok(json!({
         "pane": flags.required_u64("pane")?,
         "dir": flags.required_dir()?,
-        "ratio": flags.required_f32("ratio")?,
+        "ratio": required_ratio(flags)?,
     }))
 }
 
 fn build_set_split_ratio(flags: &FlagMap) -> Result<Value, UsageError> {
     Ok(json!({
         "split": flags.required_u64("split")?,
-        "ratio": flags.required_f32("ratio")?,
+        "ratio": required_ratio(flags)?,
     }))
+}
+
+fn required_ratio(flags: &FlagMap) -> Result<f32, UsageError> {
+    required_ratio_with_messages(flags, &crate::localization::catalog().layout)
+}
+
+fn required_ratio_with_messages(
+    flags: &FlagMap,
+    messages: &LayoutMessages,
+) -> Result<f32, UsageError> {
+    let ratio = flags
+        .required("ratio")?
+        .parse::<f32>()
+        .map_err(|_| UsageError(messages.ratio_must_be_number.to_string()))?;
+    if !ratio.is_finite() {
+        return Err(UsageError(messages.ratio_must_be_finite.to_string()));
+    }
+    Ok(ratio)
 }
 
 fn build_set_viewport_pane_width(flags: &FlagMap) -> Result<Value, UsageError> {
@@ -1426,17 +1444,6 @@ impl FlagMap {
 
     fn required_isize(&self, name: &str) -> Result<isize, UsageError> {
         parse_isize(name, &self.required(name)?)
-    }
-
-    fn required_f32(&self, name: &str) -> Result<f32, UsageError> {
-        let value = self
-            .required(name)?
-            .parse::<f32>()
-            .map_err(|_| UsageError(format!("--{name} must be a number")))?;
-        if !value.is_finite() {
-            return Err(UsageError(format!("--{name} must be a finite number")));
-        }
-        Ok(value)
     }
 
     fn required_dir(&self) -> Result<String, UsageError> {
