@@ -1169,6 +1169,137 @@ mod tests {
         assert_eq!(observed_rx.recv_timeout(Duration::from_secs(1)), Ok(1));
     }
 
+    fn block_all_browser_input_workers(
+        dispatcher: &BrowserInputDispatcher,
+    ) -> Vec<std::sync::mpsc::Sender<()>> {
+        let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+        let mut releases = Vec::new();
+        for surface_id in 1..=BROWSER_INPUT_WORKER_COUNT as u64 {
+            let (release_tx, release_rx) = std::sync::mpsc::channel();
+            assert!(dispatcher.enqueue(BrowserInputEvent {
+                surface_id,
+                surface: SurfaceHandle::RemoteBrowserUnsupported,
+                kind: BrowserInputKind::TestBlock {
+                    entered: entered_tx.clone(),
+                    release: release_rx,
+                },
+            }));
+            releases.push(release_tx);
+        }
+        for _ in 0..BROWSER_INPUT_WORKER_COUNT {
+            entered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        }
+        releases
+    }
+
+    #[test]
+    fn scheduler_turn_dispatches_at_most_one_blocking_request() {
+        let dispatcher = BrowserInputDispatcher::spawn(|_| {}, |_| {}).unwrap();
+        let (first_entered_tx, first_entered_rx) = std::sync::mpsc::channel();
+        let (second_entered_tx, _second_entered_rx) = std::sync::mpsc::channel();
+        let mut first_releases = Vec::new();
+        let mut second_releases = Vec::new();
+
+        for surface_id in 1..=BROWSER_INPUT_WORKER_COUNT as u64 {
+            let (first_release_tx, first_release_rx) = std::sync::mpsc::channel();
+            let (second_release_tx, second_release_rx) = std::sync::mpsc::channel();
+            assert!(dispatcher.enqueue(BrowserInputEvent {
+                surface_id,
+                surface: SurfaceHandle::RemoteBrowserUnsupported,
+                kind: BrowserInputKind::TestBlock {
+                    entered: first_entered_tx.clone(),
+                    release: first_release_rx,
+                },
+            }));
+            assert!(dispatcher.enqueue(BrowserInputEvent {
+                surface_id,
+                surface: SurfaceHandle::RemoteBrowserUnsupported,
+                kind: BrowserInputKind::TestBlock {
+                    entered: second_entered_tx.clone(),
+                    release: second_release_rx,
+                },
+            }));
+            first_releases.push(first_release_tx);
+            second_releases.push(second_release_tx);
+        }
+        for _ in 0..BROWSER_INPUT_WORKER_COUNT {
+            first_entered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        }
+
+        let (observed_tx, observed_rx) = std::sync::mpsc::channel();
+        assert!(dispatcher.enqueue(BrowserInputEvent {
+            surface_id: 99,
+            surface: SurfaceHandle::RemoteBrowserUnsupported,
+            kind: BrowserInputKind::TestProbe(observed_tx),
+        }));
+        first_releases[0].send(()).unwrap();
+
+        assert_eq!(
+            observed_rx.recv_timeout(Duration::from_millis(250)),
+            Ok(99),
+            "one surface dispatched a second blocking request before yielding its worker"
+        );
+
+        for release in first_releases.into_iter().skip(1).chain(second_releases) {
+            let _ = release.send(());
+        }
+    }
+
+    #[test]
+    fn scheduler_bounds_aggregate_surface_admission() {
+        let dispatcher = BrowserInputDispatcher::spawn(|_| {}, |_| {}).unwrap();
+        let releases = block_all_browser_input_workers(&dispatcher);
+        let (observed_tx, _observed_rx) = std::sync::mpsc::channel();
+        let mut accepted = 0;
+
+        for surface_id in 1_000..1_300 {
+            accepted += usize::from(dispatcher.enqueue(BrowserInputEvent {
+                surface_id,
+                surface: SurfaceHandle::RemoteBrowserUnsupported,
+                kind: BrowserInputKind::TestProbe(observed_tx.clone()),
+            }));
+        }
+
+        assert!(
+            accepted < 300,
+            "blocked workers admitted an unbounded set of retained per-surface queues"
+        );
+        for release in releases {
+            let _ = release.send(());
+        }
+    }
+
+    #[test]
+    fn forgetting_a_ready_surface_purges_its_retained_lane() {
+        let dispatcher = BrowserInputDispatcher::spawn(|_| {}, |_| {}).unwrap();
+        let releases = block_all_browser_input_workers(&dispatcher);
+        let dropped = Arc::new(AtomicBool::new(false));
+        assert!(dispatcher.enqueue(resize_event_with_probe(99, 80, dropped.clone())));
+
+        dispatcher.forget_surface(99);
+
+        assert!(
+            dropped.load(Ordering::Acquire),
+            "forgetting a ready surface retained its canceled queued event"
+        );
+        assert!(
+            !dispatcher
+                .scheduler
+                .as_ref()
+                .unwrap()
+                .ready
+                .lock()
+                .unwrap()
+                .lanes
+                .iter()
+                .any(|lane| lane.lane.expected_surface_id == Some(99)),
+            "forgetting a ready surface left its lane in the global scheduler"
+        );
+        for release in releases {
+            let _ = release.send(());
+        }
+    }
+
     #[test]
     fn many_surfaces_use_a_bounded_worker_count() {
         const MAX_BROWSER_INPUT_WORKERS: usize = 8;
