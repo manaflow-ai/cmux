@@ -247,6 +247,26 @@ import Testing
         ])
     }
 
+    @Test func nilComparisonDoesNotMaskEvaluationFailures() {
+        let workspaces = SwiftValue.array([
+            .object(["title": .string("alpha")]),
+        ])
+        let node = interp.evaluate("""
+        VStack {
+            Text("missing field: \\(workspaces[0].note == nil)")
+            Text("bad subscript: \\(workspaces[3] == nil)")
+            Text("bad conversion: \\(Int("nope") == nil)")
+            Text("unsupported: \\(unknownThing() == nil)")
+        }
+        """, state: ["workspaces": workspaces])
+        #expect(node?.children.map(\.text) == [
+            "missing field: true",
+            "bad subscript: ",
+            "bad conversion: ",
+            "unsupported: ",
+        ])
+    }
+
     @Test func labelFormButtonCapturesActionAndLabel() {
         let node = interp.evaluate("""
         VStack {

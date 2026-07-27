@@ -166,13 +166,14 @@ public struct ExpressionEvaluator: Sendable {
     private func evalInfix(_ node: InfixOperatorExprSyntax, _ env: EvalEnvironment) -> SwiftValue? {
         guard let op = node.operator.as(BinaryOperatorExprSyntax.self)?.operator.text else { return nil }
 
-        // Equality must tolerate an absent operand: a missing optional field
-        // evaluates to a host `nil`, and the `nil` literal evaluates to `.null`.
-        // Coalesce both to `.null` so `x == nil` / `x != nil` yield a Bool
-        // (false/true when present, true/false when absent) instead of vanishing.
+        // Equality must tolerate an absent optional object field, but not every
+        // evaluation failure. Preserve failed conversions, invalid subscripts,
+        // unsupported syntax, and budget exhaustion as `nil` so callers skip.
         if op == "==" || op == "!=" {
-            let lhs = eval(node.leftOperand, env) ?? .null
-            let rhs = eval(node.rightOperand, env) ?? .null
+            guard let lhs = evalEqualityOperand(node.leftOperand, env).nilComparableValue,
+                  let rhs = evalEqualityOperand(node.rightOperand, env).nilComparableValue else {
+                return nil
+            }
             return .bool(op == "==" ? lhs == rhs : lhs != rhs)
         }
 
@@ -231,6 +232,51 @@ public struct ExpressionEvaluator: Sendable {
         case ">=": return .bool(l >= r)
         default: return nil
         }
+    }
+
+    private enum EqualityOperand {
+        case value(SwiftValue)
+        case missingOptional
+        case failed
+
+        var nilComparableValue: SwiftValue? {
+            switch self {
+            case let .value(value): return value
+            case .missingOptional: return .null
+            case .failed: return nil
+            }
+        }
+    }
+
+    private func evalEqualityOperand(_ expr: ExprSyntax, _ env: EvalEnvironment) -> EqualityOperand {
+        if expr.is(NilLiteralExprSyntax.self) {
+            return .value(.null)
+        }
+
+        if let member = expr.as(MemberAccessExprSyntax.self), let baseExpr = member.base {
+            guard let base = eval(baseExpr, env) else { return .failed }
+            let name = member.declName.baseName.text
+            if case let .object(fields) = base {
+                return fields[name].map(EqualityOperand.value) ?? .missingOptional
+            }
+            return base.member(name).map(EqualityOperand.value) ?? .failed
+        }
+
+        if let subscriptCall = expr.as(SubscriptCallExprSyntax.self),
+           let indexExpr = subscriptCall.arguments.first?.expression {
+            guard let base = eval(subscriptCall.calledExpression, env),
+                  let index = eval(indexExpr, env) else { return .failed }
+            switch (base, index) {
+            case let (.array(values), .int(i)):
+                return (i >= 0 && i < values.count) ? .value(values[i]) : .failed
+            case let (.object(fields), .string(key)):
+                return fields[key].map(EqualityOperand.value) ?? .missingOptional
+            default:
+                return .failed
+            }
+        }
+
+        return eval(expr, env).map(EqualityOperand.value) ?? .failed
     }
 
     private func numericPair(_ lhs: SwiftValue, _ rhs: SwiftValue) -> (Double?, Double?, Bool) {
