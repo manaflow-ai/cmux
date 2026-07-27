@@ -32,7 +32,8 @@ use std::time::{Duration, Instant};
 
 use base64::Engine;
 use ghostty_vt::{
-    Dirty, KeyEncoder, StyledRun, UnderlineStyle, key_input_from_chord, rows_to_runs,
+    Dirty, KeyAction, KeyEncoder, KeyInput, Mods, StyledRun, UnderlineStyle, key_input_from_chord,
+    rows_to_runs, sys,
 };
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -46,7 +47,9 @@ use zeroize::Zeroize;
 use crate::model::{Screen, State, Workspace};
 use crate::mux::clamp_terminal_size;
 use crate::platform::{self, transport};
-use crate::surface::AttachLifecycle;
+use crate::surface::{
+    AttachLifecycle, CLEAR_HISTORY_KEY_TEXT_MAX_BYTES, ClearHistoryDelivery, ClearHistoryFailure,
+};
 use crate::{
     AgentRecord, AgentSource, AgentState, AttachFrame, DefaultColors, Direction, LayoutLeafSpec,
     LayoutSpec, Mux, MuxEvent, Node, NotificationLevel, PairingDecision, PaneId, RenderAttachFrame,
@@ -57,6 +60,8 @@ use crate::{
 
 const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
 const WORKSPACE_REGISTRY_CAPABILITY: &str = "workspace-registry-v1";
+pub const CLEAR_HISTORY_CAPABILITY: &str = "clear-history-v1";
+pub const CLEAR_HISTORY_KEY_CAPABILITY: &str = "clear-history-key-v1";
 pub const SURFACE_SUBSCRIBE_FILTER_CAPABILITY: &str = "surface-subscribe-filter";
 pub const PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY: &str =
     "provider-managed-workspace-authority-v2";
@@ -65,6 +70,348 @@ pub const STABLE_SPLIT_IDS_PROTOCOL_VERSION: u32 = 8;
 pub const STACK_LAYOUT_PROTOCOL_VERSION: u32 = 9;
 pub const PER_SURFACE_CLIENT_SIZING_PROTOCOL_VERSION: u32 = 10;
 pub const PROTOCOL_VERSION: u32 = PER_SURFACE_CLIENT_SIZING_PROTOCOL_VERSION;
+const PROTOCOL_KEY_TEXT_MAX_BYTES: usize = CLEAR_HISTORY_KEY_TEXT_MAX_BYTES;
+
+fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&'static str> {
+    let mut capabilities = vec![
+        ATTACH_INITIAL_SIZE_CAPABILITY,
+        WORKSPACE_REGISTRY_CAPABILITY,
+        CLEAR_HISTORY_CAPABILITY,
+        SURFACE_SUBSCRIBE_FILTER_CAPABILITY,
+        PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
+    ];
+    if bounded_clear_history_fallback_writes {
+        capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);
+    }
+    capabilities
+}
+
+macro_rules! protocol_keys {
+    ($($variant:ident => $constant:ident),+ $(,)?) => {
+        #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
+        #[serde(rename_all = "kebab-case")]
+        enum ProtocolKey {
+            $($variant),+
+        }
+
+        impl TryFrom<sys::GhosttyKey> for ProtocolKey {
+            type Error = anyhow::Error;
+
+            fn try_from(key: sys::GhosttyKey) -> Result<Self, Self::Error> {
+                match key {
+                    $(sys::$constant => Ok(Self::$variant),)+
+                    _ => anyhow::bail!("unsupported terminal key"),
+                }
+            }
+        }
+
+        impl From<ProtocolKey> for sys::GhosttyKey {
+            fn from(key: ProtocolKey) -> Self {
+                match key {
+                    $(ProtocolKey::$variant => sys::$constant),+
+                }
+            }
+        }
+    };
+}
+
+protocol_keys! {
+    Unidentified => GHOSTTY_KEY_UNIDENTIFIED,
+    Backquote => GHOSTTY_KEY_BACKQUOTE,
+    Backslash => GHOSTTY_KEY_BACKSLASH,
+    BracketLeft => GHOSTTY_KEY_BRACKET_LEFT,
+    BracketRight => GHOSTTY_KEY_BRACKET_RIGHT,
+    Comma => GHOSTTY_KEY_COMMA,
+    Digit0 => GHOSTTY_KEY_DIGIT_0,
+    Digit1 => GHOSTTY_KEY_DIGIT_1,
+    Digit2 => GHOSTTY_KEY_DIGIT_2,
+    Digit3 => GHOSTTY_KEY_DIGIT_3,
+    Digit4 => GHOSTTY_KEY_DIGIT_4,
+    Digit5 => GHOSTTY_KEY_DIGIT_5,
+    Digit6 => GHOSTTY_KEY_DIGIT_6,
+    Digit7 => GHOSTTY_KEY_DIGIT_7,
+    Digit8 => GHOSTTY_KEY_DIGIT_8,
+    Digit9 => GHOSTTY_KEY_DIGIT_9,
+    Equal => GHOSTTY_KEY_EQUAL,
+    A => GHOSTTY_KEY_A,
+    B => GHOSTTY_KEY_B,
+    C => GHOSTTY_KEY_C,
+    D => GHOSTTY_KEY_D,
+    E => GHOSTTY_KEY_E,
+    F => GHOSTTY_KEY_F,
+    G => GHOSTTY_KEY_G,
+    H => GHOSTTY_KEY_H,
+    I => GHOSTTY_KEY_I,
+    J => GHOSTTY_KEY_J,
+    K => GHOSTTY_KEY_K,
+    L => GHOSTTY_KEY_L,
+    M => GHOSTTY_KEY_M,
+    N => GHOSTTY_KEY_N,
+    O => GHOSTTY_KEY_O,
+    P => GHOSTTY_KEY_P,
+    Q => GHOSTTY_KEY_Q,
+    R => GHOSTTY_KEY_R,
+    S => GHOSTTY_KEY_S,
+    T => GHOSTTY_KEY_T,
+    U => GHOSTTY_KEY_U,
+    V => GHOSTTY_KEY_V,
+    W => GHOSTTY_KEY_W,
+    X => GHOSTTY_KEY_X,
+    Y => GHOSTTY_KEY_Y,
+    Z => GHOSTTY_KEY_Z,
+    Minus => GHOSTTY_KEY_MINUS,
+    Period => GHOSTTY_KEY_PERIOD,
+    Quote => GHOSTTY_KEY_QUOTE,
+    Semicolon => GHOSTTY_KEY_SEMICOLON,
+    Slash => GHOSTTY_KEY_SLASH,
+    Backspace => GHOSTTY_KEY_BACKSPACE,
+    Enter => GHOSTTY_KEY_ENTER,
+    Space => GHOSTTY_KEY_SPACE,
+    Tab => GHOSTTY_KEY_TAB,
+    Delete => GHOSTTY_KEY_DELETE,
+    End => GHOSTTY_KEY_END,
+    Home => GHOSTTY_KEY_HOME,
+    Insert => GHOSTTY_KEY_INSERT,
+    PageDown => GHOSTTY_KEY_PAGE_DOWN,
+    PageUp => GHOSTTY_KEY_PAGE_UP,
+    ArrowDown => GHOSTTY_KEY_ARROW_DOWN,
+    ArrowLeft => GHOSTTY_KEY_ARROW_LEFT,
+    ArrowRight => GHOSTTY_KEY_ARROW_RIGHT,
+    ArrowUp => GHOSTTY_KEY_ARROW_UP,
+    Numpad0 => GHOSTTY_KEY_NUMPAD_0,
+    Numpad1 => GHOSTTY_KEY_NUMPAD_1,
+    Numpad2 => GHOSTTY_KEY_NUMPAD_2,
+    Numpad3 => GHOSTTY_KEY_NUMPAD_3,
+    Numpad4 => GHOSTTY_KEY_NUMPAD_4,
+    Numpad5 => GHOSTTY_KEY_NUMPAD_5,
+    Numpad6 => GHOSTTY_KEY_NUMPAD_6,
+    Numpad7 => GHOSTTY_KEY_NUMPAD_7,
+    Numpad8 => GHOSTTY_KEY_NUMPAD_8,
+    Numpad9 => GHOSTTY_KEY_NUMPAD_9,
+    NumpadAdd => GHOSTTY_KEY_NUMPAD_ADD,
+    NumpadBackspace => GHOSTTY_KEY_NUMPAD_BACKSPACE,
+    NumpadComma => GHOSTTY_KEY_NUMPAD_COMMA,
+    NumpadDecimal => GHOSTTY_KEY_NUMPAD_DECIMAL,
+    NumpadDivide => GHOSTTY_KEY_NUMPAD_DIVIDE,
+    NumpadEnter => GHOSTTY_KEY_NUMPAD_ENTER,
+    NumpadEqual => GHOSTTY_KEY_NUMPAD_EQUAL,
+    NumpadMultiply => GHOSTTY_KEY_NUMPAD_MULTIPLY,
+    NumpadSubtract => GHOSTTY_KEY_NUMPAD_SUBTRACT,
+    NumpadUp => GHOSTTY_KEY_NUMPAD_UP,
+    NumpadDown => GHOSTTY_KEY_NUMPAD_DOWN,
+    NumpadRight => GHOSTTY_KEY_NUMPAD_RIGHT,
+    NumpadLeft => GHOSTTY_KEY_NUMPAD_LEFT,
+    NumpadBegin => GHOSTTY_KEY_NUMPAD_BEGIN,
+    NumpadHome => GHOSTTY_KEY_NUMPAD_HOME,
+    NumpadEnd => GHOSTTY_KEY_NUMPAD_END,
+    NumpadInsert => GHOSTTY_KEY_NUMPAD_INSERT,
+    NumpadDelete => GHOSTTY_KEY_NUMPAD_DELETE,
+    NumpadPageUp => GHOSTTY_KEY_NUMPAD_PAGE_UP,
+    NumpadPageDown => GHOSTTY_KEY_NUMPAD_PAGE_DOWN,
+    Escape => GHOSTTY_KEY_ESCAPE,
+    F1 => GHOSTTY_KEY_F1,
+    F2 => GHOSTTY_KEY_F2,
+    F3 => GHOSTTY_KEY_F3,
+    F4 => GHOSTTY_KEY_F4,
+    F5 => GHOSTTY_KEY_F5,
+    F6 => GHOSTTY_KEY_F6,
+    F7 => GHOSTTY_KEY_F7,
+    F8 => GHOSTTY_KEY_F8,
+    F9 => GHOSTTY_KEY_F9,
+    F10 => GHOSTTY_KEY_F10,
+    F11 => GHOSTTY_KEY_F11,
+    F12 => GHOSTTY_KEY_F12,
+    F13 => GHOSTTY_KEY_F13,
+    F14 => GHOSTTY_KEY_F14,
+    F15 => GHOSTTY_KEY_F15,
+    F16 => GHOSTTY_KEY_F16,
+    F17 => GHOSTTY_KEY_F17,
+    F18 => GHOSTTY_KEY_F18,
+    F19 => GHOSTTY_KEY_F19,
+    F20 => GHOSTTY_KEY_F20,
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct ProtocolModifiers {
+    shift: bool,
+    control: bool,
+    alt: bool,
+    #[serde(rename = "super")]
+    super_key: bool,
+    caps_lock: bool,
+    num_lock: bool,
+}
+
+impl ProtocolModifiers {
+    fn try_from_ghostty(mods: Mods) -> anyhow::Result<Self> {
+        let known = Mods::SHIFT.0
+            | Mods::CTRL.0
+            | Mods::ALT.0
+            | Mods::SUPER.0
+            | Mods::CAPS_LOCK.0
+            | Mods::NUM_LOCK.0;
+        if mods.0 & !known != 0 {
+            anyhow::bail!("unsupported terminal modifier bits");
+        }
+        Ok(Self {
+            shift: mods.contains(Mods::SHIFT),
+            control: mods.contains(Mods::CTRL),
+            alt: mods.contains(Mods::ALT),
+            super_key: mods.contains(Mods::SUPER),
+            caps_lock: mods.contains(Mods::CAPS_LOCK),
+            num_lock: mods.contains(Mods::NUM_LOCK),
+        })
+    }
+
+    fn into_ghostty(self) -> Mods {
+        let mut mods = Mods::default();
+        for (enabled, flag) in [
+            (self.shift, Mods::SHIFT),
+            (self.control, Mods::CTRL),
+            (self.alt, Mods::ALT),
+            (self.super_key, Mods::SUPER),
+            (self.caps_lock, Mods::CAPS_LOCK),
+            (self.num_lock, Mods::NUM_LOCK),
+        ] {
+            if enabled {
+                mods = mods | flag;
+            }
+        }
+        mods
+    }
+}
+
+/// Validated key input carried over the clear-history control protocol for
+/// authoritative terminal-mode encoding.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProtocolKeyInput {
+    key: ProtocolKey,
+    mods: ProtocolModifiers,
+    consumed_mods: ProtocolModifiers,
+    #[serde(default)]
+    composing: bool,
+    utf8: String,
+    unshifted_codepoint: Option<char>,
+    #[serde(default)]
+    shifted_codepoint: Option<char>,
+    #[serde(default)]
+    base_layout_codepoint: Option<char>,
+    action: Option<ProtocolKeyAction>,
+    macos_option_as_alt: bool,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
+enum ProtocolKeyAction {
+    Press,
+    Release,
+    Repeat,
+}
+
+fn validate_protocol_key_text(text: &str) -> anyhow::Result<()> {
+    if text.len() > PROTOCOL_KEY_TEXT_MAX_BYTES {
+        anyhow::bail!("terminal key text exceeds the 4 KiB protocol limit");
+    }
+    if text.chars().any(char::is_control) {
+        anyhow::bail!("terminal key text contains control characters");
+    }
+    Ok(())
+}
+
+impl TryFrom<&KeyInput> for ProtocolKeyInput {
+    type Error = anyhow::Error;
+
+    fn try_from(input: &KeyInput) -> Result<Self, Self::Error> {
+        validate_protocol_key_text(&input.utf8)?;
+        let unshifted_codepoint = match input.unshifted_codepoint {
+            0 => None,
+            codepoint => Some(
+                char::from_u32(codepoint)
+                    .ok_or_else(|| anyhow::anyhow!("invalid unshifted key codepoint"))?,
+            ),
+        };
+        let shifted_codepoint = match input.shifted_codepoint {
+            0 => None,
+            codepoint => Some(
+                char::from_u32(codepoint)
+                    .ok_or_else(|| anyhow::anyhow!("invalid shifted key codepoint"))?,
+            ),
+        };
+        let base_layout_codepoint = match input.base_layout_codepoint {
+            0 => None,
+            codepoint => Some(
+                char::from_u32(codepoint)
+                    .ok_or_else(|| anyhow::anyhow!("invalid base-layout key codepoint"))?,
+            ),
+        };
+        Ok(Self {
+            key: ProtocolKey::try_from(input.key)?,
+            mods: ProtocolModifiers::try_from_ghostty(input.mods)?,
+            consumed_mods: ProtocolModifiers::try_from_ghostty(input.consumed_mods)?,
+            composing: input.composing,
+            utf8: input.utf8.clone(),
+            unshifted_codepoint,
+            shifted_codepoint,
+            base_layout_codepoint,
+            action: input.action.map(|action| match action {
+                KeyAction::Press => ProtocolKeyAction::Press,
+                KeyAction::Release => ProtocolKeyAction::Release,
+                KeyAction::Repeat => ProtocolKeyAction::Repeat,
+            }),
+            macos_option_as_alt: input.macos_option_as_alt,
+        })
+    }
+}
+
+impl TryFrom<ProtocolKeyInput> for KeyInput {
+    type Error = anyhow::Error;
+
+    fn try_from(input: ProtocolKeyInput) -> Result<Self, Self::Error> {
+        validate_protocol_key_text(&input.utf8)?;
+        let mods = input.mods.into_ghostty();
+        let consumed_mods = input.consumed_mods.into_ghostty();
+        if consumed_mods.0 & !mods.0 != 0 {
+            anyhow::bail!("consumed terminal modifiers are not active");
+        }
+        if !input.macos_option_as_alt
+            && (!mods.contains(Mods::ALT) || !consumed_mods.contains(Mods::ALT))
+        {
+            anyhow::bail!("consumed macOS Option requires an active Alt modifier");
+        }
+        Ok(Self {
+            key: input.key.into(),
+            mods,
+            consumed_mods,
+            composing: input.composing,
+            utf8: input.utf8,
+            unshifted_codepoint: input.unshifted_codepoint.map_or(0, char::into),
+            shifted_codepoint: input.shifted_codepoint.map_or(0, char::into),
+            base_layout_codepoint: input.base_layout_codepoint.map_or(0, char::into),
+            action: input.action.map(|action| match action {
+                ProtocolKeyAction::Press => KeyAction::Press,
+                ProtocolKeyAction::Release => KeyAction::Release,
+                ProtocolKeyAction::Repeat => KeyAction::Repeat,
+            }),
+            macos_option_as_alt: input.macos_option_as_alt,
+        })
+    }
+}
+
+pub(crate) fn encode_terminal_host_clear_history(
+    fallback_key: Option<&KeyInput>,
+) -> anyhow::Result<Vec<u8>> {
+    let fallback_key = fallback_key.map(ProtocolKeyInput::try_from).transpose()?;
+    Ok(serde_json::to_vec(&fallback_key)?)
+}
+
+pub(crate) fn decode_terminal_host_clear_history(
+    payload: &[u8],
+) -> anyhow::Result<Option<KeyInput>> {
+    let fallback_key: Option<ProtocolKeyInput> = serde_json::from_slice(payload)?;
+    fallback_key.map(KeyInput::try_from).transpose()
+}
 
 /// Default socket path for a session.
 pub fn default_socket_path(session: &str) -> PathBuf {
@@ -189,6 +536,13 @@ enum Command {
     },
     ReadScreen {
         surface: SurfaceId,
+    },
+    ClearHistory {
+        surface: SurfaceId,
+        /// Structured key input encoded using the authoritative terminal
+        /// modes when the surface is in the alternate screen.
+        #[serde(default)]
+        fallback_key: Option<ProtocolKeyInput>,
     },
     ReadScrollback {
         surface: SurfaceId,
@@ -640,6 +994,68 @@ enum Command {
     },
 }
 
+impl Command {
+    fn ordering_surface(&self) -> Option<SurfaceId> {
+        match self {
+            Self::SetClientSizing { surface, .. }
+            | Self::Send { surface, .. }
+            | Self::ReadScreen { surface }
+            | Self::ClearHistory { surface, .. }
+            | Self::ReadScrollback { surface, .. }
+            | Self::WaitFor { surface, .. }
+            | Self::SendKey { surface, .. }
+            | Self::Copy { surface, .. }
+            | Self::ReportAgent { surface, .. }
+            | Self::VtState { surface }
+            | Self::MintTerminalRenderer { surface, .. }
+            | Self::BrowserMouse { surface, .. }
+            | Self::BrowserWheel { surface, .. }
+            | Self::BrowserKey { surface, .. }
+            | Self::BrowserInsertText { surface, .. }
+            | Self::BrowserNavigate { surface, .. }
+            | Self::BrowserBack { surface }
+            | Self::BrowserForward { surface }
+            | Self::BrowserReload { surface }
+            | Self::BrowserActivate { surface }
+            | Self::ProcessInfo { surface }
+            | Self::MoveTab { surface, .. }
+            | Self::CloseSurface { surface }
+            | Self::RenameSurface { surface, .. }
+            | Self::ResizeSurface { surface, .. }
+            | Self::ReleaseSurfaceSize { surface }
+            | Self::AttachSurface { surface, .. }
+            | Self::ScrollSurface { surface, .. } => Some(*surface),
+            Self::Notify { surface, .. }
+            | Self::ListAgents { surface, .. }
+            | Self::Subscribe { surface, .. } => *surface,
+            _ => None,
+        }
+    }
+
+    fn is_clear_history(&self) -> bool {
+        matches!(self, Self::ClearHistory { .. })
+    }
+
+    fn can_overtake_clear_barrier(&self) -> bool {
+        matches!(
+            self,
+            Self::ClearHistory { .. }
+                | Self::Send { .. }
+                | Self::SendKey { .. }
+                | Self::BrowserMouse { .. }
+                | Self::BrowserWheel { .. }
+                | Self::BrowserKey { .. }
+                | Self::BrowserInsertText { .. }
+                | Self::BrowserNavigate { .. }
+                | Self::BrowserBack { .. }
+                | Self::BrowserForward { .. }
+                | Self::BrowserReload { .. }
+                | Self::BrowserActivate { .. }
+                | Self::ScrollSurface { .. }
+        )
+    }
+}
+
 #[derive(Debug, Default, Deserialize)]
 struct MutationRequest {
     #[serde(default)]
@@ -682,6 +1098,55 @@ struct Response {
     data: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error_delivery: Option<ResponseErrorDelivery>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "kebab-case")]
+enum ResponseErrorDelivery {
+    KnownNotDelivered,
+    Ambiguous,
+}
+
+impl From<ClearHistoryDelivery> for ResponseErrorDelivery {
+    fn from(delivery: ClearHistoryDelivery) -> Self {
+        match delivery {
+            ClearHistoryDelivery::KnownNotDelivered => Self::KnownNotDelivered,
+            ClearHistoryDelivery::Ambiguous => Self::Ambiguous,
+        }
+    }
+}
+
+#[derive(Debug)]
+struct DeliveryClassifiedError {
+    error: anyhow::Error,
+    delivery: ResponseErrorDelivery,
+}
+
+impl DeliveryClassifiedError {
+    fn known_not_delivered(error: anyhow::Error) -> anyhow::Error {
+        anyhow::Error::new(Self { error, delivery: ResponseErrorDelivery::KnownNotDelivered })
+    }
+}
+
+impl From<ClearHistoryFailure> for DeliveryClassifiedError {
+    fn from(failure: ClearHistoryFailure) -> Self {
+        let delivery = failure.delivery().into();
+        Self { error: failure.into_error(), delivery }
+    }
+}
+
+impl std::fmt::Display for DeliveryClassifiedError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.error.fmt(formatter)
+    }
+}
+
+impl std::error::Error for DeliveryClassifiedError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.error.source()
+    }
 }
 
 const STREAM_DISCONNECT_POLL: Duration = Duration::from_millis(100);
@@ -726,6 +1191,134 @@ const OUTBOUND_GLOBAL_CONTROL_BYTE_CAPACITY: usize = OUTBOUND_CONTROL_BYTE_RESER
 const _: () =
     assert!(crate::surface::VT_REPLAY_MAX_BYTES.div_ceil(3) * 4 < OUTBOUND_CONTROL_BYTE_RESERVE);
 const CLIENT_DETACH_WRITE_TIMEOUT: Duration = Duration::from_millis(100);
+const CONNECTION_SURFACE_QUEUE_CAPACITY: usize = 256;
+const CONNECTION_SURFACE_QUEUE_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
+const CONNECTION_SURFACE_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
+const SERVER_SURFACE_WORKER_CAPACITY: usize = 16;
+const SERVER_SURFACE_RETAINED_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
+
+#[derive(Default)]
+struct ServerSurfaceOperationState {
+    workers: usize,
+    retained_bytes: usize,
+}
+
+#[derive(Default)]
+pub(crate) struct ServerSurfaceOperationAdmission {
+    state: Mutex<ServerSurfaceOperationState>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ServerSurfaceAdmissionError {
+    RetainedByteCapacity,
+}
+
+struct ServerSurfaceWorkerPermit {
+    admission: Arc<ServerSurfaceOperationAdmission>,
+}
+
+impl Drop for ServerSurfaceWorkerPermit {
+    fn drop(&mut self) {
+        let mut state = self.admission.state.lock().unwrap();
+        state.workers = state.workers.saturating_sub(1);
+    }
+}
+
+struct ServerSurfaceBytesPermit {
+    admission: Arc<ServerSurfaceOperationAdmission>,
+    retained_bytes: usize,
+}
+
+impl Drop for ServerSurfaceBytesPermit {
+    fn drop(&mut self) {
+        let mut state = self.admission.state.lock().unwrap();
+        state.retained_bytes = state.retained_bytes.saturating_sub(self.retained_bytes);
+    }
+}
+
+impl ServerSurfaceOperationAdmission {
+    fn try_reserve_worker(self: &Arc<Self>) -> Option<ServerSurfaceWorkerPermit> {
+        let mut state = self.state.lock().unwrap();
+        if state.workers >= SERVER_SURFACE_WORKER_CAPACITY {
+            return None;
+        }
+        state.workers += 1;
+        Some(ServerSurfaceWorkerPermit { admission: self.clone() })
+    }
+
+    fn try_reserve_bytes(
+        self: &Arc<Self>,
+        retained_bytes: usize,
+    ) -> Result<ServerSurfaceBytesPermit, ServerSurfaceAdmissionError> {
+        let mut state = self.state.lock().unwrap();
+        if retained_bytes
+            > SERVER_SURFACE_RETAINED_BYTE_CAPACITY.saturating_sub(state.retained_bytes)
+        {
+            return Err(ServerSurfaceAdmissionError::RetainedByteCapacity);
+        }
+        state.retained_bytes += retained_bytes;
+        Ok(ServerSurfaceBytesPermit { admission: self.clone(), retained_bytes })
+    }
+}
+
+struct PendingSurfaceRequest {
+    request: Request,
+    retained_bytes: usize,
+    _bytes_permit: ServerSurfaceBytesPermit,
+}
+
+#[derive(Default)]
+struct ConnectionSurfaceState {
+    requests: VecDeque<PendingSurfaceRequest>,
+    queued_bytes: usize,
+    active_clear_surfaces: HashSet<SurfaceId>,
+    dispatcher_started: bool,
+    dispatcher_done: bool,
+    closed: bool,
+}
+
+struct ConnectionSurfaceScheduler {
+    state: Mutex<ConnectionSurfaceState>,
+    changed: Condvar,
+    admission: Arc<ServerSurfaceOperationAdmission>,
+    cancelled: AtomicBool,
+    dispatcher: Mutex<Option<JoinHandle<()>>>,
+    connection_permit: Mutex<Option<ConnectionPermit>>,
+}
+
+impl Default for ConnectionSurfaceScheduler {
+    fn default() -> Self {
+        Self::new(Arc::new(ServerSurfaceOperationAdmission::default()))
+    }
+}
+
+impl ConnectionSurfaceScheduler {
+    fn new(admission: Arc<ServerSurfaceOperationAdmission>) -> Self {
+        Self::new_inner(admission, None)
+    }
+
+    #[cfg(test)]
+    fn new_with_connection_permit(
+        admission: Arc<ServerSurfaceOperationAdmission>,
+        permit: ConnectionPermit,
+    ) -> Self {
+        Self::new_inner(admission, Some(permit))
+    }
+
+    fn new_inner(
+        admission: Arc<ServerSurfaceOperationAdmission>,
+        connection_permit: Option<ConnectionPermit>,
+    ) -> Self {
+        Self {
+            state: Mutex::new(ConnectionSurfaceState::default()),
+            changed: Condvar::new(),
+            admission,
+            cancelled: AtomicBool::new(false),
+            dispatcher: Mutex::new(None),
+            connection_permit: Mutex::new(connection_permit),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct RenderGraphicCacheKey {
@@ -1319,6 +1912,321 @@ impl MessageWriter {
     }
 }
 
+impl ConnectionSurfaceScheduler {
+    fn dispatch(
+        self: &Arc<Self>,
+        mux: Arc<Mux>,
+        client: u64,
+        request: &mut Option<Request>,
+        retained_bytes: usize,
+        writer: MessageWriter,
+    ) -> Option<bool> {
+        let mut state = self.state.lock().unwrap();
+        if state.closed {
+            return Some(false);
+        }
+        let is_clear_history = request.as_ref().unwrap().cmd.is_clear_history();
+        let over_count = state.requests.len() >= CONNECTION_SURFACE_QUEUE_CAPACITY;
+        let over_bytes = retained_bytes
+            > CONNECTION_SURFACE_QUEUE_BYTE_CAPACITY.saturating_sub(state.queued_bytes);
+        if over_count || over_bytes {
+            drop(state);
+            return Some(send_request_error_with_delivery(
+                &writer,
+                request.take().unwrap().id,
+                "surface request queue is full; request was not executed",
+                is_clear_history.then_some(ResponseErrorDelivery::KnownNotDelivered),
+            ));
+        }
+        let request_id = request.as_ref().unwrap().id.clone();
+        let bytes_permit = match self.admission.try_reserve_bytes(retained_bytes) {
+            Ok(bytes) => bytes,
+            Err(ServerSurfaceAdmissionError::RetainedByteCapacity) => {
+                drop(state);
+                let request_id = request.take().unwrap().id;
+                return Some(if is_clear_history {
+                    send_request_error_with_delivery(
+                        &writer,
+                        request_id,
+                        "server surface-operation byte budget is full; request was not executed",
+                        Some(ResponseErrorDelivery::KnownNotDelivered),
+                    )
+                } else {
+                    send_request_error(
+                        &writer,
+                        request_id,
+                        "server surface-operation byte budget is full; request was not executed",
+                    )
+                });
+            }
+        };
+        let start_dispatcher = !state.dispatcher_started;
+        state.dispatcher_started = true;
+        state.queued_bytes = state.queued_bytes.saturating_add(retained_bytes);
+        state.requests.push_back(PendingSurfaceRequest {
+            request: request.take().unwrap(),
+            retained_bytes,
+            _bytes_permit: bytes_permit,
+        });
+        self.changed.notify_all();
+        drop(state);
+
+        if start_dispatcher && let Err(error) = self.start_dispatcher(mux, client, writer.clone()) {
+            self.finish_dispatcher();
+            self.close();
+            return Some(send_request_error_with_delivery(
+                &writer,
+                request_id,
+                &format!("could not start connection request dispatcher: {error}"),
+                is_clear_history.then_some(ResponseErrorDelivery::KnownNotDelivered),
+            ));
+        }
+        Some(true)
+    }
+
+    fn start_dispatcher(
+        self: &Arc<Self>,
+        mux: Arc<Mux>,
+        client: u64,
+        writer: MessageWriter,
+    ) -> std::io::Result<()> {
+        let scheduler = self.clone();
+        let handle = std::thread::Builder::new()
+            .name("mux-control-dispatch".into())
+            .spawn(move || run_connection_surface_dispatcher(scheduler, mux, client, writer))?;
+        *self.dispatcher.lock().unwrap() = Some(handle);
+        Ok(())
+    }
+
+    fn next_runnable_index(state: &ConnectionSurfaceState) -> Option<usize> {
+        if state.active_clear_surfaces.is_empty() {
+            return (!state.requests.is_empty()).then_some(0);
+        }
+        for (index, pending) in state.requests.iter().enumerate() {
+            let surface = pending.request.cmd.ordering_surface()?;
+            if state.active_clear_surfaces.contains(&surface) {
+                continue;
+            }
+            if pending.request.cmd.can_overtake_clear_barrier() {
+                return Some(index);
+            }
+            return None;
+        }
+        None
+    }
+
+    fn next_request(&self) -> Option<PendingSurfaceRequest> {
+        let mut state = self.state.lock().unwrap();
+        loop {
+            if let Some(index) = Self::next_runnable_index(&state) {
+                let pending = state.requests.remove(index).unwrap();
+                state.queued_bytes = state.queued_bytes.saturating_sub(pending.retained_bytes);
+                if pending.request.cmd.is_clear_history() {
+                    let surface = pending
+                        .request
+                        .cmd
+                        .ordering_surface()
+                        .expect("clear-history is ordered by surface");
+                    let inserted = state.active_clear_surfaces.insert(surface);
+                    assert!(inserted, "a clear worker cannot overlap its surface");
+                }
+                return Some(pending);
+            }
+            if state.closed && state.requests.is_empty() {
+                state.dispatcher_done = true;
+                self.changed.notify_all();
+                return None;
+            }
+            state = self.changed.wait(state).unwrap();
+        }
+    }
+
+    fn finish_clear(&self, surface: SurfaceId) {
+        let mut state = self.state.lock().unwrap();
+        state.active_clear_surfaces.remove(&surface);
+        self.changed.notify_all();
+    }
+
+    fn finish_dispatcher(&self) {
+        {
+            let mut state = self.state.lock().unwrap();
+            state.dispatcher_done = true;
+            self.changed.notify_all();
+        }
+        self.connection_permit.lock().unwrap().take();
+    }
+
+    fn close(&self) {
+        self.cancelled.store(true, Ordering::Release);
+        let mut state = self.state.lock().unwrap();
+        state.closed = true;
+        state.requests.clear();
+        state.queued_bytes = 0;
+        let dispatcher_never_started = !state.dispatcher_started;
+        if dispatcher_never_started {
+            state.dispatcher_done = true;
+        }
+        self.changed.notify_all();
+        drop(state);
+        if dispatcher_never_started {
+            self.connection_permit.lock().unwrap().take();
+        }
+    }
+
+    fn finish(&self) {
+        let mut state = self.state.lock().unwrap();
+        state.closed = true;
+        let dispatcher_never_started = !state.dispatcher_started;
+        if dispatcher_never_started {
+            state.dispatcher_done = true;
+        }
+        self.changed.notify_all();
+        drop(state);
+        if dispatcher_never_started {
+            self.connection_permit.lock().unwrap().take();
+        }
+    }
+
+    fn wait_for_completion(&self, timeout: Option<Duration>) -> bool {
+        let deadline = timeout.map(|timeout| Instant::now() + timeout);
+        let mut state = self.state.lock().unwrap();
+        while !state.dispatcher_done || !state.active_clear_surfaces.is_empty() {
+            if let Some(deadline) = deadline {
+                if Instant::now() >= deadline {
+                    break;
+                }
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                let (next, _) = self.changed.wait_timeout(state, remaining).unwrap();
+                state = next;
+            } else {
+                state = self.changed.wait(state).unwrap();
+            }
+        }
+        let drained = state.dispatcher_done && state.active_clear_surfaces.is_empty();
+        drop(state);
+        if drained && let Some(dispatcher) = self.dispatcher.lock().unwrap().take() {
+            let _ = dispatcher.join();
+        }
+        drained
+    }
+
+    fn finish_and_wait(&self) {
+        self.finish();
+        let drained = self.wait_for_completion(None);
+        debug_assert!(drained, "unbounded graceful drain must settle");
+    }
+
+    fn close_and_wait(&self, timeout: Duration) -> bool {
+        self.close();
+        self.wait_for_completion(Some(timeout))
+    }
+}
+
+struct ActiveClearGuard {
+    scheduler: Arc<ConnectionSurfaceScheduler>,
+    surface: SurfaceId,
+}
+
+impl Drop for ActiveClearGuard {
+    fn drop(&mut self) {
+        self.scheduler.finish_clear(self.surface);
+    }
+}
+
+struct ConnectionDispatcherGuard(Arc<ConnectionSurfaceScheduler>);
+
+impl Drop for ConnectionDispatcherGuard {
+    fn drop(&mut self) {
+        self.0.finish_dispatcher();
+    }
+}
+
+fn run_pending_request(
+    scheduler: &ConnectionSurfaceScheduler,
+    mux: &Arc<Mux>,
+    client: u64,
+    pending: PendingSurfaceRequest,
+    writer: &MessageWriter,
+) -> bool {
+    let PendingSurfaceRequest { request, _bytes_permit, .. } = pending;
+    handle_request_with_cancellation(mux, client, request, writer, Some(&scheduler.cancelled))
+}
+
+fn run_connection_surface_dispatcher(
+    scheduler: Arc<ConnectionSurfaceScheduler>,
+    mux: Arc<Mux>,
+    client: u64,
+    writer: MessageWriter,
+) {
+    let _dispatcher = ConnectionDispatcherGuard(scheduler.clone());
+    while writer.is_open() {
+        let Some(pending) = scheduler.next_request() else { return };
+        if pending.request.cmd.is_clear_history() {
+            let surface = pending
+                .request
+                .cmd
+                .ordering_surface()
+                .expect("clear-history is ordered by surface");
+            let Some(worker_permit) = scheduler.admission.try_reserve_worker() else {
+                let id = pending.request.id.clone();
+                drop(pending);
+                scheduler.finish_clear(surface);
+                if !send_request_error_with_delivery(
+                    &writer,
+                    id,
+                    "too many clear-history operations are already in progress",
+                    Some(ResponseErrorDelivery::KnownNotDelivered),
+                ) {
+                    scheduler.close();
+                    return;
+                }
+                continue;
+            };
+            let shared_pending = Arc::new(Mutex::new(Some(pending)));
+            let worker_pending = shared_pending.clone();
+            let worker_scheduler = scheduler.clone();
+            let worker_mux = mux.clone();
+            let worker_writer = writer.clone();
+            let spawn =
+                std::thread::Builder::new().name("mux-surface-control".into()).spawn(move || {
+                    let _active = ActiveClearGuard { scheduler: worker_scheduler.clone(), surface };
+                    // Drop the mux-wide permit before `_active` wakes the next
+                    // request queued behind this surface barrier.
+                    let _worker_permit = worker_permit;
+                    let pending = worker_pending.lock().unwrap().take().unwrap();
+                    if !run_pending_request(
+                        &worker_scheduler,
+                        &worker_mux,
+                        client,
+                        pending,
+                        &worker_writer,
+                    ) {
+                        worker_scheduler.close();
+                    }
+                });
+            if let Err(error) = spawn {
+                let pending = shared_pending.lock().unwrap().take().unwrap();
+                let id = pending.request.id.clone();
+                drop(pending);
+                scheduler.finish_clear(surface);
+                if !send_request_error_with_delivery(
+                    &writer,
+                    id,
+                    &format!("could not start clear-history worker: {error}"),
+                    Some(ResponseErrorDelivery::KnownNotDelivered),
+                ) {
+                    scheduler.close();
+                    return;
+                }
+            }
+        } else if !run_pending_request(&scheduler, &mux, client, pending, &writer) {
+            scheduler.close();
+            return;
+        }
+    }
+    scheduler.close();
+}
+
 #[derive(Default)]
 struct BoundedOutbound {
     state: Mutex<BoundedOutboundState>,
@@ -1340,9 +2248,14 @@ struct RegularOutbound {
     stream: OutboundStream,
 }
 
-struct ConnectionPermit(Arc<AtomicU64>);
+#[derive(Clone)]
+struct ConnectionPermit {
+    _lease: Arc<ConnectionPermitLease>,
+}
 
-impl Drop for ConnectionPermit {
+struct ConnectionPermitLease(Arc<AtomicU64>);
+
+impl Drop for ConnectionPermitLease {
     fn drop(&mut self) {
         self.0.fetch_sub(1, Ordering::AcqRel);
     }
@@ -1354,7 +2267,7 @@ fn claim_connection(active: &Arc<AtomicU64>) -> Option<ConnectionPermit> {
             (count < MAX_SERVER_CONNECTIONS as u64).then_some(count + 1)
         })
         .ok()
-        .map(|_| ConnectionPermit(active.clone()))
+        .map(|_| ConnectionPermit { _lease: Arc::new(ConnectionPermitLease(active.clone())) })
 }
 
 impl BoundedOutbound {
@@ -2160,8 +3073,7 @@ pub fn serve(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PathBuf> {
             let mux = mux.clone();
             let render_service = render_service.clone();
             let _ = std::thread::Builder::new().name("mux-conn".into()).spawn(move || {
-                let _permit = permit;
-                handle_connection(mux, stream, render_service);
+                handle_connection_with_permit(mux, stream, render_service, Some(permit));
             });
         }
     })?;
@@ -2261,13 +3173,13 @@ pub fn serve_websocket(
             if std::thread::Builder::new()
                 .name("mux-ws-conn".into())
                 .spawn(move || {
-                    let _permit = permit;
-                    handle_websocket_connection(
+                    handle_websocket_connection_with_permit(
                         mux,
                         stream,
                         peer,
                         token.as_deref(),
                         render_service,
+                        Some(permit),
                     );
                     connections.lock().unwrap().remove(&id);
                 })
@@ -2295,10 +3207,16 @@ fn sanitize_window_title(title: &str) -> String {
         .collect()
 }
 
-fn handle_connection(
+#[cfg(test)]
+fn handle_connection(mux: Arc<Mux>, stream: Box<dyn transport::Stream>) {
+    handle_connection_with_permit(mux, stream, Arc::new(RenderService::new()), None);
+}
+
+fn handle_connection_with_permit(
     mux: Arc<Mux>,
     stream: Box<dyn transport::Stream>,
     render_service: Arc<RenderService>,
+    connection_permit: Option<ConnectionPermit>,
 ) {
     let Ok(mut write_half) = stream.try_clone_box() else { return };
     let Ok(control) = write_half.try_clone_box() else { return };
@@ -2329,29 +3247,59 @@ fn handle_connection(
         return;
     };
     let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let surface_scheduler = Arc::new(ConnectionSurfaceScheduler::new_inner(
+        mux.surface_operation_admission.clone(),
+        connection_permit.clone(),
+    ));
     let reader = BufReader::new(stream);
+    let mut drain_accepted = true;
     for line in reader.lines() {
-        let Ok(mut line) = line else { break };
+        let mut line = match line {
+            Ok(line) => line,
+            Err(_) => {
+                drain_accepted = false;
+                break;
+            }
+        };
         if line.trim().is_empty() {
             zeroize_string(&mut line);
             continue;
         }
-        let keep_open = handle_message(&mux, client, &line, &writer);
+        let keep_open = handle_connection_message(&mux, client, &line, &writer, &surface_scheduler);
         zeroize_string(&mut line);
         if !keep_open {
+            drain_accepted = false;
             break;
         }
     }
+    if drain_accepted {
+        surface_scheduler.finish_and_wait();
+    } else {
+        let _ = surface_scheduler.close_and_wait(CONNECTION_SURFACE_SHUTDOWN_TIMEOUT);
+    }
     disconnect_client(&mux, client, false);
     let _ = writer_thread.join();
+    drop(connection_permit);
 }
 
+#[cfg(test)]
 fn handle_websocket_connection(
     mux: Arc<Mux>,
     stream: TcpStream,
     peer: SocketAddr,
     token: Option<&str>,
     render_service: Arc<RenderService>,
+) {
+    handle_websocket_connection_with_permit(mux, stream, peer, token, render_service, None);
+}
+
+fn handle_websocket_connection_with_permit(
+    mux: Arc<Mux>,
+    stream: TcpStream,
+    peer: SocketAddr,
+    token: Option<&str>,
+    render_service: Arc<RenderService>,
+    connection_permit: Option<ConnectionPermit>,
 ) {
     let stream = SynchronizedTcpStream::new(stream);
     if stream.set_read_timeout(Some(WEBSOCKET_HANDSHAKE_TIMEOUT)).is_err()
@@ -2406,6 +3354,10 @@ fn handle_websocket_connection(
         return;
     };
     let client = mux.control_clients.register(ClientTransport::WebSocket, writer.clone());
+    let surface_scheduler = Arc::new(ConnectionSurfaceScheduler::new_inner(
+        mux.surface_operation_admission.clone(),
+        connection_permit.clone(),
+    ));
 
     loop {
         if !writer.is_open() {
@@ -2416,7 +3368,8 @@ fn handle_websocket_connection(
         match incoming {
             Ok(Message::Text(text)) => {
                 let mut text = text.to_string();
-                let keep_open = handle_message(&mux, client, &text, &writer);
+                let keep_open =
+                    handle_connection_message(&mux, client, &text, &writer, &surface_scheduler);
                 zeroize_string(&mut text);
                 if !keep_open {
                     break;
@@ -2430,9 +3383,11 @@ fn handle_websocket_connection(
             Err(_) => break,
         }
     }
+    let _ = surface_scheduler.close_and_wait(CONNECTION_SURFACE_SHUTDOWN_TIMEOUT);
     disconnect_client(&mux, client, false);
     let _ = writer_thread.join();
     let _ = websocket.close(None);
+    drop(connection_permit);
 }
 
 fn authenticate_websocket(
@@ -2522,44 +3477,63 @@ pub fn detach_control_client(mux: &Mux, client: u64) -> bool {
     disconnect_client(mux, client, true)
 }
 
+#[cfg(test)]
 fn handle_message(mux: &Arc<Mux>, client: u64, message: &str, writer: &MessageWriter) -> bool {
-    let Request { id, cmd } = match serde_json::from_str::<Request>(message) {
+    match serde_json::from_str::<Request>(message) {
+        Ok(request) => handle_request(mux, client, request, writer),
+        Err(error) => send_request_error(writer, None, &format!("bad request: {error}")),
+    }
+}
+
+fn handle_connection_message(
+    mux: &Arc<Mux>,
+    client: u64,
+    message: &str,
+    writer: &MessageWriter,
+    scheduler: &Arc<ConnectionSurfaceScheduler>,
+) -> bool {
+    let request = match serde_json::from_str::<Request>(message) {
         Ok(request) => request,
-        Err(error) => {
-            let response = Response {
-                id: None,
-                ok: false,
-                data: None,
-                error: Some(format!("bad request: {error}")),
-            };
-            return writer.send_control(&response).is_ok();
-        }
+        Err(error) => return send_request_error(writer, None, &format!("bad request: {error}")),
     };
-    let cmd = match cmd {
-        Command::VtState { surface } => {
-            return match send_vt_state_command_response(mux, id.clone(), surface, writer) {
-                Ok(()) => true,
-                Err(error) => writer
-                    .send_control(&Response {
-                        id,
-                        ok: false,
-                        data: None,
-                        error: Some(error.to_string()),
-                    })
-                    .is_ok(),
-            };
-        }
-        cmd => cmd,
-    };
+    let mut pending = Some(request);
+    match scheduler.dispatch(mux.clone(), client, &mut pending, message.len(), writer.clone()) {
+        Some(keep_open) => keep_open,
+        None => handle_request(mux, client, pending.take().unwrap(), writer),
+    }
+}
+
+fn handle_request(mux: &Arc<Mux>, client: u64, request: Request, writer: &MessageWriter) -> bool {
+    handle_request_with_cancellation(mux, client, request, writer, None)
+}
+
+fn handle_request_with_cancellation(
+    mux: &Arc<Mux>,
+    client: u64,
+    request: Request,
+    writer: &MessageWriter,
+    cancellation: Option<&AtomicBool>,
+) -> bool {
+    let Request { id, cmd } = request;
+    if let Command::VtState { surface } = &cmd {
+        return match send_vt_state_command_response(mux, id.clone(), *surface, writer) {
+            Ok(()) => true,
+            Err(error) => send_request_error(writer, id, &error.to_string()),
+        };
+    }
 
     let detach_self = matches!(&cmd, Command::DetachClient { client: target } if *target == client);
     let shutdown_daemon = matches!(&cmd, Command::ShutdownDaemon { .. });
-    let response = match handle_command(mux, client, cmd, writer) {
-        Ok(data) => Response { id, ok: true, data: Some(data), error: None },
-        Err(error) => Response { id, ok: false, data: None, error: Some(error.to_string()) },
+    let response = match handle_command_with_cancellation(mux, client, cmd, writer, cancellation) {
+        Ok(data) => Response { id, ok: true, data: Some(data), error: None, error_delivery: None },
+        Err(error) => {
+            let error_delivery =
+                error.downcast_ref::<DeliveryClassifiedError>().map(|error| error.delivery);
+            Response { id, ok: false, data: None, error: Some(error.to_string()), error_delivery }
+        }
     };
     let response_ok = response.ok;
-    let sent = writer.send_control(&response).is_ok();
+    let sent = send_response(writer, response);
     // Queue the successful acknowledgement before making the owning loop
     // leave. The headless loop polls at a bounded interval, giving the writer
     // thread time to flush the response before normal process teardown.
@@ -2634,6 +3608,26 @@ fn write_vt_state_command_json(
     write_kitty_image_aliases_json(output, kitty_image_aliases)?;
     output.write_all(b"}}")?;
     Ok(())
+}
+
+fn send_request_error(writer: &MessageWriter, id: Option<Value>, error: &str) -> bool {
+    send_request_error_with_delivery(writer, id, error, None)
+}
+
+fn send_request_error_with_delivery(
+    writer: &MessageWriter,
+    id: Option<Value>,
+    error: &str,
+    error_delivery: Option<ResponseErrorDelivery>,
+) -> bool {
+    send_response(
+        writer,
+        Response { id, ok: false, data: None, error: Some(error.to_string()), error_delivery },
+    )
+}
+
+fn send_response(writer: &MessageWriter, response: Response) -> bool {
+    serde_json::to_value(response).is_ok_and(|value| writer.send_control(&value).is_ok())
 }
 
 fn auth_token(message: &str) -> Option<String> {
@@ -2850,6 +3844,8 @@ fn pane_json(
                 "browser_status": surface.and_then(|s| s.browser_status().map(|status| status.as_str())),
                 "browser_error": surface.and_then(|s| s.browser_status().and_then(|status| status.error())),
                 "browser_frames_stalled": surface.and_then(|s| s.browser_frames_stalled()),
+                "supports_clear_history_key_fallback": surface
+                    .is_some_and(|surface| surface.supports_clear_history_key_fallback()),
                 "notification": notifications.get(sid).copied().map(|n| {
                     json!({
                         "notification": n.notification,
@@ -3858,11 +4854,22 @@ fn detach_committed_attach(mux: &Mux, client: u64, surface: SurfaceId, stream: u
     }
 }
 
+#[cfg(test)]
 fn handle_command(
     mux: &Arc<Mux>,
     client: u64,
     cmd: Command,
     writer: &MessageWriter,
+) -> anyhow::Result<Value> {
+    handle_command_with_cancellation(mux, client, cmd, writer, None)
+}
+
+fn handle_command_with_cancellation(
+    mux: &Arc<Mux>,
+    client: u64,
+    cmd: Command,
+    writer: &MessageWriter,
+    cancellation: Option<&AtomicBool>,
 ) -> anyhow::Result<Value> {
     match cmd {
         Command::Identify => {
@@ -3873,12 +4880,7 @@ fn handle_command(
                 "build_commit": stamped_build_commit(),
                 "ghostty_commit": stamped_ghostty_commit(),
                 "protocol": PROTOCOL_VERSION,
-                "capabilities": [
-                    ATTACH_INITIAL_SIZE_CAPABILITY,
-                    WORKSPACE_REGISTRY_CAPABILITY,
-                    SURFACE_SUBSCRIBE_FILTER_CAPABILITY,
-                    PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY
-                ],
+                "capabilities": advertised_capabilities(cfg!(unix)),
                 "session": mux.session,
                 "pid": std::process::id(),
                 "registry_id": registry_id,
@@ -4112,6 +5114,19 @@ fn handle_command(
             let text = surface.try_with_terminal(|t| t.viewport_text())??;
             Ok(json!({ "text": text }))
         }
+        Command::ClearHistory { surface, fallback_key } => {
+            let surface =
+                get_surface(mux, surface).map_err(DeliveryClassifiedError::known_not_delivered)?;
+            require_pty(&surface).map_err(DeliveryClassifiedError::known_not_delivered)?;
+            let fallback_key = fallback_key
+                .map(KeyInput::try_from)
+                .transpose()
+                .map_err(DeliveryClassifiedError::known_not_delivered)?;
+            surface
+                .clear_history_or_encode_key_classified(fallback_key.as_ref())
+                .map_err(DeliveryClassifiedError::from)?;
+            Ok(json!({}))
+        }
         Command::ReadScrollback { surface, start, count } => {
             let surface = get_surface(mux, surface)?;
             require_pty(&surface)?;
@@ -4138,6 +5153,10 @@ fn handle_command(
             Ok(sidebar_plugin_status_json(mux.ensure_sidebar_plugin(cols, rows, relaunch)))
         }
         Command::WaitFor { surface, pattern, timeout_ms } => {
+            let cancelled = || cancellation.is_some_and(|flag| flag.load(Ordering::Acquire));
+            if cancelled() {
+                anyhow::bail!("connection closed while waiting for pattern");
+            }
             let surface = get_surface(mux, surface)?;
             require_pty(&surface)?;
             let regex = Regex::new(&pattern).map_err(|err| anyhow::anyhow!("bad regex: {err}"))?;
@@ -4166,12 +5185,15 @@ fn handle_command(
                 }));
             }
             loop {
+                if cancelled() {
+                    anyhow::bail!("connection closed while waiting for pattern");
+                }
                 let now = Instant::now();
                 if now >= deadline {
                     anyhow::bail!("timeout waiting for pattern");
                 }
                 let remaining = deadline.saturating_duration_since(now);
-                match attach.stream.recv_timeout(remaining) {
+                match attach.stream.recv_timeout(remaining.min(STREAM_DISCONNECT_POLL)) {
                     Ok(_) => {
                         if let Some(text) = check()? {
                             return Ok(json!({
@@ -4182,7 +5204,9 @@ fn handle_command(
                         }
                     }
                     Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                        anyhow::bail!("timeout waiting for pattern");
+                        if Instant::now() >= deadline {
+                            anyhow::bail!("timeout waiting for pattern");
+                        }
                     }
                     Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                         anyhow::bail!("timeout waiting for pattern");
@@ -6254,6 +7278,488 @@ mod tests {
     }
 
     #[test]
+    fn write_side_eof_drains_accepted_surface_requests() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        surface.with_terminal(|term| {
+            term.vt_write(b"history\r\n\x1b]133;A\x07prompt> \x1b[31");
+        });
+
+        let nonce =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let path = platform::fallback_runtime_dir().join(format!(
+            "write-eof-drain-{}-{}.sock",
+            std::process::id(),
+            nonce % 1_000_000_000
+        ));
+        let _ = std::fs::remove_file(&path);
+        let listener = transport::listen(&path).unwrap();
+        let mut client = transport::connect(&path).unwrap();
+        let server = listener.accept().unwrap();
+        let server_mux = mux.clone();
+        let handler = std::thread::spawn(move || handle_connection(server_mux, server));
+
+        writeln!(client, "{}", json!({"id": 1, "cmd": "clear-history", "surface": surface.id}))
+            .unwrap();
+        writeln!(
+            client,
+            "{}",
+            json!({"id": 2, "cmd": "send", "surface": surface.id, "text": "after-eof"})
+        )
+        .unwrap();
+        client.flush().unwrap();
+        client.shutdown(Shutdown::Write).unwrap();
+        client.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+
+        let mut responses = Vec::new();
+        let mut reader = BufReader::new(client);
+        while responses.len() < 2 {
+            let mut line = String::new();
+            match reader.read_line(&mut line) {
+                Ok(0) => break,
+                Ok(_) => responses.push(serde_json::from_str::<Value>(&line).unwrap()),
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    ) =>
+                {
+                    break;
+                }
+                Err(error) => panic!("unexpected response read error: {error}"),
+            }
+        }
+        let _ = reader.get_ref().shutdown(Shutdown::Both);
+        handler.join().unwrap();
+        let _ = std::fs::remove_file(path);
+        mux.close_surface(surface.id).unwrap();
+
+        let response_ids =
+            responses.iter().filter_map(|response| response["id"].as_u64()).collect::<Vec<_>>();
+        assert_eq!(response_ids, [1, 2], "write-side EOF discarded an accepted request");
+    }
+
+    #[test]
+    fn clear_history_rejection_reports_known_not_delivered_delivery() {
+        let mux = test_mux();
+        let outbound = Arc::new(BoundedOutbound::default());
+        let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+
+        assert!(handle_message(
+            &mux,
+            client,
+            &json!({"id": 1, "cmd": "clear-history", "surface": 999_999}).to_string(),
+            &writer,
+        ));
+        let response: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+
+        assert_eq!(response["ok"], false);
+        assert_eq!(response["error_delivery"], "known-not-delivered");
+    }
+
+    #[test]
+    fn clear_history_does_not_block_unrelated_surface_input_on_one_connection() {
+        let mux = test_mux();
+        let blocked = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let unrelated = mux.new_workspace(None, Some((80, 24))).unwrap();
+        blocked.with_terminal(|term| {
+            for line in 0..24 {
+                term.vt_write(format!("history-{line}\r\n").as_bytes());
+            }
+            term.vt_write(b"\x1b]133;A\x07prompt> \x1b[31");
+        });
+
+        let nonce =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let path = platform::fallback_runtime_dir().join(format!(
+            "clear-concurrency-{}-{}.sock",
+            std::process::id(),
+            nonce % 1_000_000_000
+        ));
+        let _ = std::fs::remove_file(&path);
+        let listener = transport::listen(&path).unwrap();
+        let mut client = transport::connect(&path).unwrap();
+        let server = listener.accept().unwrap();
+        let server_mux = mux.clone();
+        let handler = std::thread::spawn(move || handle_connection(server_mux, server));
+
+        client.set_read_timeout(Some(Duration::from_millis(150))).unwrap();
+        writeln!(client, "{}", json!({"id": 1, "cmd": "clear-history", "surface": blocked.id}))
+            .unwrap();
+        client.flush().unwrap();
+        std::thread::sleep(Duration::from_millis(30));
+        writeln!(
+            client,
+            "{}",
+            json!({"id": 2, "cmd": "send", "surface": blocked.id, "text": "same"})
+        )
+        .unwrap();
+        writeln!(
+            client,
+            "{}",
+            json!({"id": 3, "cmd": "send", "surface": unrelated.id, "text": "other"})
+        )
+        .unwrap();
+        client.flush().unwrap();
+
+        let mut reader = BufReader::new(client);
+        let mut first_line = String::new();
+        let first_response = reader.read_line(&mut first_line);
+        reader.get_ref().set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+        let mut ordered_lines = Vec::new();
+        for _ in 0..2 {
+            let mut line = String::new();
+            ordered_lines.push((reader.read_line(&mut line), line));
+        }
+        let _ = reader.get_ref().shutdown(Shutdown::Both);
+        handler.join().unwrap();
+        let _ = std::fs::remove_file(path);
+        mux.close_surface(blocked.id).unwrap();
+        mux.close_surface(unrelated.id).unwrap();
+
+        first_response.expect("unrelated input response was blocked behind clear-history");
+        let first_response: Value = serde_json::from_str(&first_line).unwrap();
+        assert_eq!(first_response["id"], 3);
+        assert_eq!(first_response["ok"], true);
+        let ordered_ids = ordered_lines
+            .into_iter()
+            .map(|(read, line)| {
+                read.expect("same-surface request did not settle after clear-history");
+                serde_json::from_str::<Value>(&line).unwrap()["id"].as_u64().unwrap()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(ordered_ids, [1, 2]);
+    }
+
+    #[test]
+    fn lifecycle_command_waits_for_active_clear_history_on_one_connection() {
+        let mux = test_mux();
+        let blocked = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(blocked.id).unwrap());
+        blocked.with_terminal(|term| {
+            for line in 0..24 {
+                term.vt_write(format!("history-{line}\r\n").as_bytes());
+            }
+            term.vt_write(b"\x1b]133;A\x07prompt> \x1b[31");
+        });
+
+        let nonce =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let path = platform::fallback_runtime_dir().join(format!(
+            "clear-lifecycle-{}-{}.sock",
+            std::process::id(),
+            nonce % 1_000_000_000
+        ));
+        let _ = std::fs::remove_file(&path);
+        let listener = transport::listen(&path).unwrap();
+        let mut client = transport::connect(&path).unwrap();
+        let server = listener.accept().unwrap();
+        let server_mux = mux;
+        let handler = std::thread::spawn(move || handle_connection(server_mux, server));
+
+        writeln!(client, "{}", json!({"id": 1, "cmd": "clear-history", "surface": blocked.id}))
+            .unwrap();
+        client.flush().unwrap();
+        std::thread::sleep(Duration::from_millis(30));
+        writeln!(client, "{}", json!({"id": 2, "cmd": "close-pane", "pane": pane})).unwrap();
+        client.flush().unwrap();
+
+        client.set_read_timeout(Some(Duration::from_millis(75))).unwrap();
+        let mut reader = BufReader::new(client);
+        let mut early_line = String::new();
+        let early_response = match reader.read_line(&mut early_line) {
+            Ok(0) => panic!("connection closed before clear-history settled"),
+            Ok(_) => Some(early_line),
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) =>
+            {
+                None
+            }
+            Err(error) => panic!("unexpected response read error: {error}"),
+        };
+
+        reader.get_ref().set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+        let mut responses = early_response.iter().cloned().collect::<Vec<_>>();
+        while responses.len() < 2 {
+            let mut line = String::new();
+            reader.read_line(&mut line).expect("ordered lifecycle response");
+            responses.push(line);
+        }
+        let _ = reader.get_ref().shutdown(Shutdown::Both);
+        handler.join().unwrap();
+        let _ = std::fs::remove_file(path);
+
+        assert!(
+            early_response.is_none(),
+            "lifecycle command responded before clear-history reached a safe boundary"
+        );
+        let response_ids = responses
+            .into_iter()
+            .map(|line| serde_json::from_str::<Value>(&line).unwrap()["id"].as_u64().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(response_ids, [1, 2]);
+    }
+
+    fn active_clear_lanes_across_connections(request_count: usize, retained_bytes: usize) -> usize {
+        let mux = test_mux();
+        let writer = test_writer();
+        let admission = Arc::new(ServerSurfaceOperationAdmission::default());
+        let schedulers = [
+            Arc::new(ConnectionSurfaceScheduler::new(admission.clone())),
+            Arc::new(ConnectionSurfaceScheduler::new(admission)),
+        ];
+        let surfaces = (0..request_count)
+            .map(|_| {
+                let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+                surface.with_terminal(|term| {
+                    term.vt_write(b"history\r\n\x1b]133;A\x07prompt> \x1b[31");
+                });
+                surface
+            })
+            .collect::<Vec<_>>();
+
+        for (index, surface) in surfaces.iter().enumerate() {
+            let scheduler = &schedulers[index % schedulers.len()];
+            let mut request = Some(Request {
+                id: Some(json!(index)),
+                cmd: Command::ClearHistory { surface: surface.id, fallback_key: None },
+            });
+            assert_eq!(
+                scheduler.dispatch(mux.clone(), 0, &mut request, retained_bytes, writer.clone(),),
+                Some(true)
+            );
+        }
+        let active = schedulers
+            .iter()
+            .map(|scheduler| scheduler.state.lock().unwrap().active_clear_surfaces.len())
+            .sum();
+
+        for scheduler in &schedulers {
+            let _ = scheduler.close_and_wait(Duration::from_secs(1));
+        }
+        for surface in surfaces {
+            mux.close_surface(surface.id).unwrap();
+        }
+        active
+    }
+
+    #[test]
+    fn connection_surface_schedulers_for_one_mux_share_admission() {
+        let mux = test_mux();
+        let first = ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone());
+        let second = ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone());
+        assert!(Arc::ptr_eq(&first.admission, &second.admission));
+    }
+
+    #[test]
+    fn blocking_wait_cannot_overtake_input_queued_behind_a_clear_barrier() {
+        let admission = Arc::new(ServerSurfaceOperationAdmission::default());
+        let mut state = ConnectionSurfaceState::default();
+        state.active_clear_surfaces.insert(1);
+        for (id, cmd) in [
+            (
+                1,
+                Command::Send {
+                    surface: 1,
+                    text: Some("input".to_string()),
+                    bytes: None,
+                    paste: false,
+                },
+            ),
+            (2, Command::WaitFor { surface: 2, pattern: "never".to_string(), timeout_ms: 60_000 }),
+        ] {
+            state.requests.push_back(PendingSurfaceRequest {
+                request: Request { id: Some(json!(id)), cmd },
+                retained_bytes: 0,
+                _bytes_permit: admission.try_reserve_bytes(0).unwrap(),
+            });
+        }
+
+        assert_eq!(
+            ConnectionSurfaceScheduler::next_runnable_index(&state),
+            None,
+            "blocking wait overtook earlier input while its clear barrier was active"
+        );
+    }
+
+    #[test]
+    fn queued_same_surface_clears_do_not_reserve_worker_permits() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        surface.with_terminal(|term| {
+            term.vt_write(b"history\r\n\x1b]133;A\x07prompt> \x1b[31");
+        });
+        let admission = Arc::new(ServerSurfaceOperationAdmission::default());
+        let scheduler = Arc::new(ConnectionSurfaceScheduler::new(admission.clone()));
+        let writer = test_writer();
+
+        for id in 0..SERVER_SURFACE_WORKER_CAPACITY {
+            let mut clear = Some(Request {
+                id: Some(json!(id)),
+                cmd: Command::ClearHistory { surface: surface.id, fallback_key: None },
+            });
+            assert_eq!(
+                scheduler.dispatch(mux.clone(), 0, &mut clear, 0, writer.clone()),
+                Some(true)
+            );
+        }
+
+        let reserved_workers = admission.state.lock().unwrap().workers;
+        let _ = scheduler.close_and_wait(Duration::from_secs(1));
+        mux.close_surface(surface.id).unwrap();
+
+        assert!(
+            reserved_workers <= 1,
+            "queued same-surface clears reserved {reserved_workers} mux-wide worker permits"
+        );
+    }
+
+    #[test]
+    fn queued_wait_releases_clear_worker_permit_after_clear_settles() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        surface.with_terminal(|term| {
+            term.vt_write(b"history\r\n\x1b]133;A\x07prompt> \x1b[31");
+        });
+        let admission = Arc::new(ServerSurfaceOperationAdmission::default());
+        let scheduler = Arc::new(ConnectionSurfaceScheduler::new(admission.clone()));
+        let writer = test_writer();
+
+        let mut clear = Some(Request {
+            id: Some(json!(1)),
+            cmd: Command::ClearHistory { surface: surface.id, fallback_key: None },
+        });
+        assert_eq!(scheduler.dispatch(mux.clone(), 0, &mut clear, 0, writer.clone()), Some(true));
+        let mut wait = Some(Request {
+            id: Some(json!(2)),
+            cmd: Command::WaitFor {
+                surface: surface.id,
+                pattern: "never-matches".to_string(),
+                timeout_ms: 500,
+            },
+        });
+        assert_eq!(scheduler.dispatch(mux.clone(), 0, &mut wait, 0, writer), Some(true));
+
+        std::thread::sleep(Duration::from_millis(350));
+        let active_clear_workers = admission.state.lock().unwrap().workers;
+        let drained = scheduler.close_and_wait(Duration::from_secs(1));
+        mux.close_surface(surface.id).unwrap();
+
+        assert_eq!(
+            active_clear_workers, 0,
+            "a queued wait-for retained the completed clear-history worker permit"
+        );
+        assert!(drained);
+    }
+
+    #[test]
+    fn connection_close_cancels_a_wait_queued_after_clear_history() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        surface.with_terminal(|term| {
+            term.vt_write(b"history\r\n\x1b]133;A\x07prompt> \x1b[31");
+        });
+        let scheduler = Arc::new(ConnectionSurfaceScheduler::new(Arc::new(
+            ServerSurfaceOperationAdmission::default(),
+        )));
+        let writer = test_writer();
+
+        let mut clear = Some(Request {
+            id: Some(json!(1)),
+            cmd: Command::ClearHistory { surface: surface.id, fallback_key: None },
+        });
+        assert_eq!(scheduler.dispatch(mux.clone(), 0, &mut clear, 0, writer.clone()), Some(true));
+        let mut wait = Some(Request {
+            id: Some(json!(2)),
+            cmd: Command::WaitFor {
+                surface: surface.id,
+                pattern: "release-wait".to_string(),
+                timeout_ms: 1_000,
+            },
+        });
+        assert_eq!(scheduler.dispatch(mux.clone(), 0, &mut wait, 0, writer), Some(true));
+
+        std::thread::sleep(Duration::from_millis(350));
+        let drained = scheduler.close_and_wait(Duration::from_millis(500));
+        if !drained {
+            let _ = scheduler.close_and_wait(Duration::from_secs(1));
+        }
+        mux.close_surface(surface.id).unwrap();
+
+        assert!(drained, "connection shutdown did not cancel an active wait-for request");
+    }
+
+    #[test]
+    fn independent_muxes_do_not_share_surface_operation_admission() {
+        let first_mux = test_mux();
+        let second_mux = test_mux();
+        let first = ConnectionSurfaceScheduler::new(first_mux.surface_operation_admission.clone());
+        let second =
+            ConnectionSurfaceScheduler::new(second_mux.surface_operation_admission.clone());
+        let permits = (0..SERVER_SURFACE_WORKER_CAPACITY)
+            .map(|_| first.admission.try_reserve_worker().unwrap())
+            .collect::<Vec<_>>();
+
+        let isolated = second.admission.try_reserve_worker();
+        drop(permits);
+
+        assert!(
+            isolated.is_some(),
+            "one mux exhausted the hidden process-global admission budget of another mux"
+        );
+    }
+
+    #[test]
+    fn scheduler_retains_connection_permit_until_dispatcher_exit() {
+        let active = Arc::new(AtomicU64::new(0));
+        let permit = claim_connection(&active).unwrap();
+        let scheduler = Arc::new(ConnectionSurfaceScheduler::new_with_connection_permit(
+            Arc::new(ServerSurfaceOperationAdmission::default()),
+            permit,
+        ));
+        scheduler.state.lock().unwrap().dispatcher_started = true;
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let worker_scheduler = scheduler.clone();
+        let dispatcher = std::thread::spawn(move || {
+            release_rx.recv().unwrap();
+            worker_scheduler.finish_dispatcher();
+        });
+        *scheduler.dispatcher.lock().unwrap() = Some(dispatcher);
+
+        assert!(!scheduler.close_and_wait(Duration::from_millis(25)));
+        assert_eq!(
+            active.load(Ordering::Acquire),
+            1,
+            "timed-out shutdown released admission while its dispatcher was live"
+        );
+
+        release_tx.send(()).unwrap();
+        assert!(scheduler.close_and_wait(Duration::from_secs(1)));
+        assert_eq!(active.load(Ordering::Acquire), 0);
+    }
+
+    #[test]
+    fn surface_worker_limit_is_mux_wide_across_connections() {
+        assert!(
+            active_clear_lanes_across_connections(17, 0) <= 16,
+            "per-connection limits allowed more than 16 mux-wide clear workers"
+        );
+    }
+
+    #[test]
+    fn active_surface_request_bytes_count_toward_mux_budget() {
+        const FOUR_MIB: usize = 4 * 1024 * 1024;
+        assert!(
+            active_clear_lanes_across_connections(5, FOUR_MIB) <= 4,
+            "active first requests bypassed the 16 MiB mux-wide byte budget"
+        );
+    }
+
+    #[test]
     fn stalled_websocket_handshake_times_out() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
@@ -8286,11 +9792,170 @@ mod tests {
         for expected in [
             "attach-initial-size",
             "workspace-registry-v1",
+            CLEAR_HISTORY_CAPABILITY,
+            CLEAR_HISTORY_KEY_CAPABILITY,
             "surface-subscribe-filter",
             PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
         ] {
             assert!(capabilities.iter().any(|value| value.as_str() == Some(expected)));
         }
+    }
+
+    #[test]
+    fn identify_advertises_clear_history_key_only_with_bounded_fallback_writes() {
+        let unsupported = advertised_capabilities(false);
+        assert!(unsupported.contains(&CLEAR_HISTORY_CAPABILITY));
+        assert!(!unsupported.contains(&CLEAR_HISTORY_KEY_CAPABILITY));
+
+        let supported = advertised_capabilities(true);
+        assert!(supported.contains(&CLEAR_HISTORY_CAPABILITY));
+        assert!(supported.contains(&CLEAR_HISTORY_KEY_CAPABILITY));
+    }
+
+    #[test]
+    fn protocol_key_input_round_trips_encoder_metadata() {
+        let input = KeyInput {
+            key: sys::GHOSTTY_KEY_NUMPAD_ENTER,
+            mods: Mods::SHIFT | Mods::CTRL | Mods::ALT | Mods::CAPS_LOCK | Mods::NUM_LOCK,
+            consumed_mods: Mods::SHIFT | Mods::ALT,
+            composing: true,
+            utf8: "ß".to_string(),
+            unshifted_codepoint: 's' as u32,
+            shifted_codepoint: 'S' as u32,
+            base_layout_codepoint: '1' as u32,
+            action: Some(KeyAction::Repeat),
+            macos_option_as_alt: false,
+        };
+
+        let value = serde_json::to_value(ProtocolKeyInput::try_from(&input).unwrap()).unwrap();
+        assert_eq!(value["key"], "numpad-enter");
+        assert_eq!(value["composing"], true);
+        assert_eq!(value["unshifted_codepoint"], "s");
+        assert_eq!(value["shifted_codepoint"], "S");
+        assert_eq!(value["base_layout_codepoint"], "1");
+        let decoded = serde_json::from_value::<ProtocolKeyInput>(value).unwrap();
+        let decoded = KeyInput::try_from(decoded).unwrap();
+
+        assert_eq!(decoded.key, input.key);
+        assert_eq!(decoded.mods, input.mods);
+        assert_eq!(decoded.consumed_mods, input.consumed_mods);
+        assert_eq!(decoded.composing, input.composing);
+        assert_eq!(decoded.utf8, input.utf8);
+        assert_eq!(decoded.unshifted_codepoint, input.unshifted_codepoint);
+        assert_eq!(decoded.shifted_codepoint, input.shifted_codepoint);
+        assert_eq!(decoded.base_layout_codepoint, input.base_layout_codepoint);
+        assert_eq!(decoded.action, input.action);
+        assert_eq!(decoded.macos_option_as_alt, input.macos_option_as_alt);
+    }
+
+    #[test]
+    fn protocol_key_text_limit_is_bounded_for_one_key_event() {
+        const {
+            assert!(
+                PROTOCOL_KEY_TEXT_MAX_BYTES <= 4 * 1024,
+                "one key event may retain an unbounded fallback payload"
+            );
+        }
+        let input = KeyInput {
+            key: sys::GHOSTTY_KEY_K,
+            mods: Mods::SUPER,
+            utf8: "\"".repeat(PROTOCOL_KEY_TEXT_MAX_BYTES),
+            unshifted_codepoint: 'k' as u32,
+            base_layout_codepoint: 'k' as u32,
+            action: Some(KeyAction::Press),
+            macos_option_as_alt: true,
+            ..Default::default()
+        };
+        let fallback_key = ProtocolKeyInput::try_from(&input).unwrap();
+        let request = json!({
+            "id": u64::MAX,
+            "cmd": "clear-history",
+            "surface": u64::MAX,
+            "fallback_key": fallback_key,
+        });
+        let encoded = serde_json::to_vec(&request).unwrap();
+
+        assert!(
+            encoded.len() <= WEBSOCKET_INBOUND_MESSAGE_MAX_BYTES,
+            "accepted fallback key serialized to {} bytes, above the {}-byte WebSocket limit",
+            encoded.len(),
+            WEBSOCKET_INBOUND_MESSAGE_MAX_BYTES
+        );
+    }
+
+    #[test]
+    fn protocol_key_input_rejects_raw_ghostty_discriminants() {
+        let raw = json!({
+            "key": u32::MAX,
+            "mods": u16::MAX,
+            "consumed_mods": 0,
+            "utf8": "",
+            "unshifted_codepoint": 0,
+            "action": "press",
+            "macos_option_as_alt": true,
+        });
+
+        assert!(
+            serde_json::from_value::<ProtocolKeyInput>(raw).is_err(),
+            "raw Ghostty enum and modifier values crossed the protocol boundary"
+        );
+    }
+
+    #[test]
+    fn protocol_key_input_rejects_unknown_or_invalid_semantics() {
+        let input = KeyInput {
+            key: sys::GHOSTTY_KEY_K,
+            mods: Mods::SUPER,
+            unshifted_codepoint: 'k' as u32,
+            action: Some(KeyAction::Press),
+            ..Default::default()
+        };
+        let valid = serde_json::to_value(ProtocolKeyInput::try_from(&input).unwrap()).unwrap();
+
+        let mut unknown_key = valid.clone();
+        unknown_key["key"] = json!("future-key");
+        assert!(serde_json::from_value::<ProtocolKeyInput>(unknown_key).is_err());
+
+        let mut unknown_modifier = valid.clone();
+        unknown_modifier["mods"]["hyper"] = json!(true);
+        assert!(serde_json::from_value::<ProtocolKeyInput>(unknown_modifier).is_err());
+
+        let mut invalid_codepoint = valid.clone();
+        invalid_codepoint["unshifted_codepoint"] = json!("ss");
+        assert!(serde_json::from_value::<ProtocolKeyInput>(invalid_codepoint).is_err());
+
+        let mut invalid_shifted_codepoint = valid.clone();
+        invalid_shifted_codepoint["shifted_codepoint"] = json!("SS");
+        assert!(serde_json::from_value::<ProtocolKeyInput>(invalid_shifted_codepoint).is_err());
+
+        let mut invalid_base_layout_codepoint = valid.clone();
+        invalid_base_layout_codepoint["base_layout_codepoint"] = json!("11");
+        assert!(serde_json::from_value::<ProtocolKeyInput>(invalid_base_layout_codepoint).is_err());
+
+        let mut control_text = valid.clone();
+        control_text["utf8"] = json!("\r");
+        let control_text = serde_json::from_value::<ProtocolKeyInput>(control_text).unwrap();
+        assert!(KeyInput::try_from(control_text).is_err());
+
+        let mut inactive_consumed_modifier = valid;
+        inactive_consumed_modifier["consumed_mods"]["shift"] = json!(true);
+        let inactive_consumed_modifier =
+            serde_json::from_value::<ProtocolKeyInput>(inactive_consumed_modifier).unwrap();
+        assert!(KeyInput::try_from(inactive_consumed_modifier).is_err());
+
+        let invalid_key = KeyInput { key: u32::MAX, ..input.clone() };
+        assert!(ProtocolKeyInput::try_from(&invalid_key).is_err());
+        let invalid_mods = KeyInput { mods: Mods(u16::MAX), ..input.clone() };
+        assert!(ProtocolKeyInput::try_from(&invalid_mods).is_err());
+        let invalid_codepoint = KeyInput { unshifted_codepoint: 0xD800, ..input.clone() };
+        assert!(ProtocolKeyInput::try_from(&invalid_codepoint).is_err());
+        let invalid_shifted = KeyInput { shifted_codepoint: 0xD800, ..input.clone() };
+        assert!(ProtocolKeyInput::try_from(&invalid_shifted).is_err());
+        let oversized_text =
+            KeyInput { utf8: "x".repeat(PROTOCOL_KEY_TEXT_MAX_BYTES + 1), ..input };
+        assert!(ProtocolKeyInput::try_from(&oversized_text).is_err());
+        let invalid_base_layout = KeyInput { base_layout_codepoint: 0xD800, ..input };
+        assert!(ProtocolKeyInput::try_from(&invalid_base_layout).is_err());
     }
 
     #[test]

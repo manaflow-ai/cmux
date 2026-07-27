@@ -6,11 +6,13 @@ import {
   DEFAULT_MAX_ATTACH_ENCODED_CHARS,
   MAX_ATTACH_HANDSHAKE_TIMEOUT_MS,
   MIN_ATTACH_HANDSHAKE_BYTES_PER_SECOND,
+  TERMINAL_KEY_TEXT_MAX_BYTES,
   defaultAttachHandshakeTimeoutMs,
 } from "../src/client.js";
 import { CmuxCommandError, CmuxProtocolError } from "../src/errors.js";
 import type {
   DecodedResizedEvent,
+  TerminalKeyInput,
   ListClientsResult,
   RenderStateEvent,
   TreeDeltaEvent,
@@ -39,6 +41,33 @@ class ScriptedTransport implements Transport {
     for (const handler of this.messageHandlers) handler(json);
   }
 }
+
+const commandKFallback: TerminalKeyInput = {
+  key: "k",
+  mods: {
+    shift: false,
+    control: false,
+    alt: false,
+    super: true,
+    caps_lock: false,
+    num_lock: false,
+  },
+  consumed_mods: {
+    shift: false,
+    control: false,
+    alt: false,
+    super: false,
+    caps_lock: false,
+    num_lock: false,
+  },
+  composing: false,
+  utf8: "",
+  unshifted_codepoint: "k",
+  shifted_codepoint: null,
+  base_layout_codepoint: "k",
+  action: "press",
+  macos_option_as_alt: true,
+};
 
 test("stream fails closed at the default buffered-event cap", async () => {
   let cleanups = 0;
@@ -268,6 +297,180 @@ test("newPane rejects servers older than protocol 9", async () => {
   const client = new CmuxClient({ transport, timeoutMs: 100 });
 
   await assert.rejects(client.newPane(1), /new-pane requires protocol 9/);
+  await client.close();
+});
+
+test("clearHistory rejects servers without the advertised capability", async () => {
+  let clearRequests = 0;
+  const transport = new ScriptedTransport((request, connection) => {
+    if (request.cmd === "identify") {
+      connection.emit({
+        id: request.id,
+        ok: true,
+        data: { app: "cmux-tui", version: "0.1.2", protocol: 9, session: "main", pid: 1 },
+      });
+      return;
+    }
+    clearRequests += 1;
+  });
+  const client = new CmuxClient({ transport, timeoutMs: 100 });
+
+  await assert.rejects(client.clearHistory(7), /clear-history is not supported/);
+  assert.equal(clearRequests, 0);
+  await client.close();
+});
+
+test("clearHistory sends the capability-gated wire command", async () => {
+  const transport = new ScriptedTransport((request, connection) => {
+    if (request.cmd === "identify") {
+      connection.emit({
+        id: request.id,
+        ok: true,
+        data: {
+          app: "cmux-tui",
+          version: "0.1.2",
+          protocol: 9,
+          capabilities: ["clear-history-v1"],
+          session: "main",
+          pid: 1,
+        },
+      });
+      return;
+    }
+    assert.deepEqual(request, { id: 2, cmd: "clear-history", surface: 7 });
+    connection.emit({ id: request.id, ok: true, data: {} });
+  });
+  const client = new CmuxClient({ transport, timeoutMs: 100 });
+
+  await client.clearHistory(7);
+  await client.close();
+});
+
+test("clearHistory fallback requires its additive capability", async () => {
+  let clearRequests = 0;
+  const transport = new ScriptedTransport((request, connection) => {
+    if (request.cmd === "identify") {
+      connection.emit({
+        id: request.id,
+        ok: true,
+        data: {
+          app: "cmux-tui",
+          version: "0.1.2",
+          protocol: 9,
+          capabilities: ["clear-history-v1"],
+          session: "main",
+          pid: 1,
+        },
+      });
+      return;
+    }
+    clearRequests += 1;
+  });
+  const client = new CmuxClient({ transport, timeoutMs: 100 });
+
+  await assert.rejects(
+    client.clearHistory(7, commandKFallback),
+    /clear-history key fallback is not supported/,
+  );
+  assert.equal(clearRequests, 0);
+  await client.close();
+});
+
+test("clearHistory preserves the structured fallback key", async () => {
+  const transport = new ScriptedTransport((request, connection) => {
+    if (request.cmd === "identify") {
+      connection.emit({
+        id: request.id,
+        ok: true,
+        data: {
+          app: "cmux-tui",
+          version: "0.1.2",
+          protocol: 9,
+          capabilities: ["clear-history-v1", "clear-history-key-v1"],
+          session: "main",
+          pid: 1,
+        },
+      });
+      return;
+    }
+    assert.deepEqual(request, {
+      id: 2,
+      cmd: "clear-history",
+      surface: 7,
+      fallback_key: commandKFallback,
+    });
+    connection.emit({ id: request.id, ok: true, data: {} });
+  });
+  const client = new CmuxClient({ transport, timeoutMs: 100 });
+
+  await client.clearHistory(7, commandKFallback);
+  await client.close();
+});
+
+test("clearHistory failures preserve delivery classification", async () => {
+  const transport = new ScriptedTransport((request, connection) => {
+    if (request.cmd === "identify") {
+      connection.emit({
+        id: request.id,
+        ok: true,
+        data: {
+          app: "cmux-tui",
+          version: "0.1.2",
+          protocol: 9,
+          capabilities: ["clear-history-v1"],
+          session: "main",
+          pid: 1,
+        },
+      });
+      return;
+    }
+    connection.emit({
+      id: request.id,
+      ok: false,
+      error: "clear failed",
+      error_delivery: "known-not-delivered",
+    });
+  });
+  const client = new CmuxClient({ transport, timeoutMs: 100 });
+
+  await assert.rejects(client.clearHistory(7), (error: unknown) => {
+    assert.ok(error instanceof CmuxCommandError);
+    assert.equal(error.delivery, "known-not-delivered");
+    return true;
+  });
+  await client.close();
+});
+
+test("clearHistory rejects oversized fallback key text locally", async () => {
+  let clearRequests = 0;
+  const transport = new ScriptedTransport((request, connection) => {
+    if (request.cmd === "identify") {
+      connection.emit({
+        id: request.id,
+        ok: true,
+        data: {
+          app: "cmux-tui",
+          version: "0.1.2",
+          protocol: 9,
+          capabilities: ["clear-history-v1", "clear-history-key-v1"],
+          session: "main",
+          pid: 1,
+        },
+      });
+      return;
+    }
+    clearRequests += 1;
+  });
+  const client = new CmuxClient({ transport, timeoutMs: 100 });
+
+  await assert.rejects(
+    client.clearHistory(7, {
+      ...commandKFallback,
+      utf8: "x".repeat(TERMINAL_KEY_TEXT_MAX_BYTES + 1),
+    }),
+    /terminal key text exceeds the 4 KiB protocol limit/,
+  );
+  assert.equal(clearRequests, 0);
   await client.close();
 });
 
