@@ -1,5 +1,5 @@
 use std::io;
-#[cfg(any(test, not(unix)))]
+#[cfg(test)]
 use std::io::Write;
 #[cfg(unix)]
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
@@ -7,7 +7,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::thread::{JoinHandle, ThreadId};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(unix)]
+use std::time::Instant;
 
 use parking_lot::ReentrantMutex;
 
@@ -245,40 +247,6 @@ impl GraphicsOutput for InterruptibleStdout {
     }
 }
 
-#[cfg(not(unix))]
-struct InterruptibleStdout(std::io::Stdout);
-
-#[cfg(not(unix))]
-impl InterruptibleStdout {
-    fn open() -> io::Result<Self> {
-        Ok(Self(std::io::stdout()))
-    }
-}
-
-#[cfg(not(unix))]
-impl GraphicsOutput for InterruptibleStdout {
-    fn write_segment(
-        &mut self,
-        bytes: &[u8],
-        permit: &WritePermit<'_>,
-        emitted: &mut usize,
-    ) -> io::Result<bool> {
-        *emitted = 0;
-        if permit.should_abort() {
-            return Ok(false);
-        }
-        self.0.write_all(bytes)?;
-        self.0.flush()?;
-        *emitted = bytes.len();
-        Ok(true)
-    }
-
-    fn write_recovery(&mut self, bytes: &[u8]) -> io::Result<()> {
-        self.0.write_all(bytes)?;
-        self.0.flush()
-    }
-}
-
 #[cfg(test)]
 struct TestOutput<W>(W);
 
@@ -474,8 +442,21 @@ pub struct GraphicsWriter {
 }
 
 impl GraphicsWriter {
+    pub(crate) const fn platform_supported() -> bool {
+        cfg!(unix)
+    }
+
+    #[cfg(unix)]
     pub fn spawn(stdout_lock: Arc<StdoutLock>) -> io::Result<Self> {
         Self::spawn_with_graphics_output(stdout_lock, InterruptibleStdout::open()?)
+    }
+
+    #[cfg(not(unix))]
+    pub fn spawn(_stdout_lock: Arc<StdoutLock>) -> io::Result<Self> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "inline graphics output requires an interruptible terminal writer",
+        ))
     }
 
     #[cfg(test)]

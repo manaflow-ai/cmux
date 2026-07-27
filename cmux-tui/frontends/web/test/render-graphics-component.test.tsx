@@ -1,7 +1,10 @@
 import { render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RenderGraphicPlacement } from "cmux/browser";
-import { RenderGraphics } from "../src/components/RenderGraphics";
+import {
+  RenderGraphics,
+  RenderGraphicsBudgetProvider,
+} from "../src/components/RenderGraphics";
 import {
   decodeRenderGraphicImage,
   RENDER_GRAPHIC_CANVAS_BACKING_BYTE_CAP,
@@ -373,7 +376,7 @@ describe("RenderGraphics canvas resource policy", () => {
       ),
     };
     const surfaces = (includeFirst: boolean) => (
-      <>
+      <RenderGraphicsBudgetProvider>
         {includeFirst && (
           <section data-testid="first" key="first">
             <RenderGraphics graphics={graphics}>
@@ -386,7 +389,7 @@ describe("RenderGraphics canvas resource policy", () => {
             <div>second terminal</div>
           </RenderGraphics>
         </section>
-      </>
+      </RenderGraphicsBudgetProvider>
     );
     const { container, getByTestId, rerender } = render(surfaces(true));
 
@@ -585,13 +588,13 @@ describe("RenderGraphics canvas resource policy", () => {
     const surfaceCount = Math.floor(RENDER_GRAPHIC_DECODED_BYTE_CAP / decodedBytes) + 1;
 
     render(
-      <>
+      <RenderGraphicsBudgetProvider>
         {Array.from({ length: surfaceCount }, (_, index) => (
           <RenderGraphics graphics={graphics} key={index}>
             <div>terminal {index}</div>
           </RenderGraphics>
         ))}
-      </>,
+      </RenderGraphicsBudgetProvider>,
     );
 
     await waitFor(() => {

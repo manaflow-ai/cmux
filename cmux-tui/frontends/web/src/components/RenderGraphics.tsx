@@ -1,7 +1,10 @@
 import {
+  createContext,
   useCallback,
+  useContext,
   useMemo,
   useRef,
+  useState,
   useSyncExternalStore,
   type CSSProperties,
   type ReactNode,
@@ -375,7 +378,22 @@ class GraphicsBudgetRegistry {
   }
 }
 
-const graphicsBudget = new GraphicsBudgetRegistry();
+const GraphicsBudgetContext = createContext<GraphicsBudgetRegistry | null>(null);
+
+export function RenderGraphicsBudgetProvider({ children }: { children: ReactNode }) {
+  const [registry] = useState(() => new GraphicsBudgetRegistry());
+  return (
+    <GraphicsBudgetContext.Provider value={registry}>
+      {children}
+    </GraphicsBudgetContext.Provider>
+  );
+}
+
+function useGraphicsBudget(): GraphicsBudgetRegistry {
+  const shared = useContext(GraphicsBudgetContext);
+  const [local] = useState(() => new GraphicsBudgetRegistry());
+  return shared ?? local;
+}
 
 function RenderGraphicCanvas({ decoded, placement }: RenderGraphicCanvasProps) {
   const canvasRef = useCallback((canvas: HTMLCanvasElement | null) => {
@@ -423,6 +441,7 @@ export function RenderGraphics({
   graphics,
   plainChildren,
 }: RenderGraphicsProps) {
+  const graphicsBudget = useGraphicsBudget();
   const owner = useRef(Symbol("render-graphics")).current;
   const images = graphics?.images ?? EMPTY_IMAGES;
   const imageMetadata = useMemo(() => {
@@ -442,11 +461,11 @@ export function RenderGraphics({
   );
   const subscribeBudget = useCallback(
     (listener: () => void) => graphicsBudget.subscribe(owner, listener),
-    [owner],
+    [graphicsBudget, owner],
   );
   const budgetSnapshot = useCallback(
     () => graphicsBudget.snapshot(owner),
-    [owner],
+    [graphicsBudget, owner],
   );
   const budgetRevision = useSyncExternalStore(
     subscribeBudget,
@@ -492,7 +511,7 @@ export function RenderGraphics({
     if (element === null) return;
     graphicsBudget.update(owner, candidateSource);
     return () => graphicsBudget.scheduleRemove(owner);
-  }, [candidateSource, owner]);
+  }, [candidateSource, graphicsBudget, owner]);
   const registration = (
     <span aria-hidden="true" hidden ref={registerBudget} />
   );

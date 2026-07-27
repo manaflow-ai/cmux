@@ -4643,7 +4643,8 @@ fn run_with_machine_updates_inner(
     if session_available && publishes_global_cell_metrics(surface_only) {
         session.set_cell_pixel_size(cell_pixels.0, cell_pixels.1);
     }
-    let graphics_supported = terminal_probe.graphics_supported;
+    let graphics_supported =
+        terminal_probe.graphics_supported && GraphicsWriter::platform_supported();
     let pending_input = terminal_probe.pending_input;
 
     if let Err(e) = (|| -> anyhow::Result<()> {
