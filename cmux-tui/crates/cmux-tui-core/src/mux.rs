@@ -6997,7 +6997,10 @@ impl Mux {
         let (workspace, screen_id, preview) = {
             let mut state = self.state.lock().unwrap();
             let Some((workspace_index, screen_index)) = state.screen_of(pane) else {
-                anyhow::bail!("unknown pane {pane}");
+                return Err(LayoutUndoError::Stale(
+                    "layout undo target is no longer available".to_string(),
+                )
+                .into());
             };
             let workspace = state.workspaces[workspace_index].id;
             let screen_id = state.workspaces[workspace_index].screens[screen_index].id;
@@ -7052,13 +7055,19 @@ impl Mux {
             (workspace, screen_id, entry)
         };
         if !preview.created_panes.is_empty() && expected_revision.is_none() {
-            anyhow::bail!("confirmed layout undo requires the preview revision");
+            return Err(LayoutUndoError::Stale(
+                "confirmed layout undo requires the preview revision".to_string(),
+            )
+            .into());
         }
         if preview.created_panes.is_empty() {
             let revision = {
                 let mut state = self.state.lock().unwrap();
                 let Some((workspace_index, screen_index)) = state.screen_of(pane) else {
-                    anyhow::bail!("pane {pane} disappeared before layout undo");
+                    return Err(LayoutUndoError::Stale(
+                        "layout undo target disappeared before the change could commit".to_string(),
+                    )
+                    .into());
                 };
                 let screen = &mut state.workspaces[workspace_index].screens[screen_index];
                 let Some(entry) = screen.layout_undo.pop_back() else {
@@ -7099,14 +7108,20 @@ impl Mux {
         let (removed, deltas, selection_resync, terminal_revision, terminal_count, revision) = {
             let mut state = self.state.lock().unwrap();
             let Some(workspace_index) = state.workspace_index(workspace) else {
-                anyhow::bail!("layout undo workspace disappeared");
+                return Err(LayoutUndoError::Stale(
+                    "layout undo workspace is no longer available".to_string(),
+                )
+                .into());
             };
             let Some(screen_index) = state.workspaces[workspace_index]
                 .screens
                 .iter()
                 .position(|screen| screen.id == screen_id)
             else {
-                anyhow::bail!("layout undo screen disappeared");
+                return Err(LayoutUndoError::Stale(
+                    "layout undo screen is no longer available".to_string(),
+                )
+                .into());
             };
             let entry = {
                 let screen = &state.workspaces[workspace_index].screens[screen_index];
@@ -7207,7 +7222,10 @@ impl Mux {
                 .iter()
                 .position(|screen| screen.id == screen_id)
             else {
-                anyhow::bail!("layout undo unexpectedly removed its screen");
+                return Err(LayoutUndoError::Stale(
+                    "layout changed while undo was closing panes".to_string(),
+                )
+                .into());
             };
             let screen = &mut state.workspaces[workspace_index].screens[screen_index];
             let revision = screen.layout_revision.max(entry.after_revision).saturating_add(1);
