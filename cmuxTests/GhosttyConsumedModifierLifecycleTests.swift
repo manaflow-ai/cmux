@@ -207,7 +207,6 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
         let terminal = try makeHostedTerminal()
         defer {
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
-            GhosttyNSView.debugGhosttySurfaceTextInputObserver = nil
             terminal.surfaceView.setTextInputEventHandlerForTesting(nil)
             terminal.window.orderOut(nil)
         }
@@ -226,7 +225,6 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
         )
 
         var committedTextEvents: [CapturedGhosttyKeyIdentityEvent] = []
-        var nonphysicalCommittedText: [String] = []
         GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
             guard keyEvent.text.map({ String(cString: $0) }) == "日本" else {
                 return
@@ -240,9 +238,6 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
                 unshiftedCodepoint: keyEvent.unshifted_codepoint,
                 composing: keyEvent.composing
             ))
-        }
-        GhosttyNSView.debugGhosttySurfaceTextInputObserver = {
-            nonphysicalCommittedText.append($0)
         }
 
         let timestamp = ProcessInfo.processInfo.systemUptime
@@ -277,10 +272,6 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
             terminal.surfaceView.keyUp(with: release)
         }
 
-        XCTAssertTrue(
-            nonphysicalCommittedText.isEmpty,
-            "Committed preedit text must not bypass Ghostty's key-binding state machine"
-        )
         XCTAssertEqual(committedTextEvents.count, 1)
         guard let committedTextEvent = committedTextEvents.first else { return }
         XCTAssertEqual(committedTextEvent.action, GHOSTTY_ACTION_PRESS)
@@ -296,7 +287,6 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
         let terminal = try makeHostedTerminal()
         defer {
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
-            GhosttyNSView.debugGhosttySurfaceTextInputObserver = nil
             terminal.surfaceView.setTextInputEventHandlerForTesting(nil)
             terminal.window.orderOut(nil)
         }
@@ -325,13 +315,16 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
         }
 
         var physicalActions: [ghostty_input_action_e] = []
-        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
-            guard keyEvent.keycode == 14 else { return }
-            physicalActions.append(keyEvent.action)
-        }
+        var committedTextActions: [ghostty_input_action_e] = []
         var committedText: [String] = []
-        GhosttyNSView.debugGhosttySurfaceTextInputObserver = {
-            committedText.append($0)
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            if keyEvent.keycode == 14 {
+                physicalActions.append(keyEvent.action)
+            } else if keyEvent.keycode == 0,
+                      let text = keyEvent.text.map({ String(cString: $0) }) {
+                committedTextActions.append(keyEvent.action)
+                committedText.append(text)
+            }
         }
 
         let timestamp = ProcessInfo.processInfo.systemUptime
@@ -385,6 +378,7 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
             "repeat.doCommand",
         ])
         XCTAssertEqual(committedText, ["é"])
+        XCTAssertEqual(committedTextActions, [GHOSTTY_ACTION_REPEAT])
         XCTAssertTrue(
             physicalActions.isEmpty,
             "A key consumed by the native text-input handler must not leak a press, repeat, or release"

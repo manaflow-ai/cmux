@@ -3350,7 +3350,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return UserDefaults.standard.bool(forKey: "cmuxKeyLatencyProbe")
     }()
     @MainActor static var debugGhosttySurfaceKeyEventObserver: ((ghostty_input_key_s) -> Void)?
-    @MainActor static var debugGhosttySurfaceTextInputObserver: ((String) -> Void)?
     @MainActor static var debugNativeFocusReassertionObserver: (() -> Void)?
 #endif
     private var eventMonitor: Any?
@@ -5722,6 +5721,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             case .sendCommittedText(let text):
                 sendCommittedText(
                     text,
+                    action: action,
                     surface: surface
                 )
             case .sendCommittedKey(let text):
@@ -5801,14 +5801,24 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     private func sendCommittedText(
         _ text: String,
+        action: ghostty_input_action_e,
         surface: ghostty_surface_t
     ) {
-#if DEBUG
-        Self.debugGhosttySurfaceTextInputObserver?(text)
-#endif
-        let byteCount = text.utf8.count
+        // Match Ghostty's AppKit committedPreeditTextAction. A keycode-zero
+        // event remains nonphysical while still traversing Ghostty's key
+        // callback, which resolves pending binding sequences before writing.
+        var keyEvent = ghostty_input_key_s()
+        keyEvent.action = action
+        keyEvent.keycode = 0
+        keyEvent.text = nil
+        keyEvent.composing = false
+        keyEvent.mods = GHOSTTY_MODS_NONE
+        keyEvent.consumed_mods = GHOSTTY_MODS_NONE
+        keyEvent.unshifted_codepoint = 0
+
         text.withCString { pointer in
-            ghostty_surface_text_input(surface, pointer, UInt(byteCount))
+            keyEvent.text = pointer
+            _ = sendGhosttyKey(surface, keyEvent)
         }
     }
 
