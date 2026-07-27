@@ -286,6 +286,24 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// state unless the workspace focus path requests it.
     var desiredFocusState: Bool = false
 
+    /// Portal-visibility state cmux wants Ghostty to have, tracked independently
+    /// of whether a runtime surface exists yet.
+    ///
+    /// Surfaces for background workspaces are created lazily, long after the
+    /// portal has already marked the view hidden, so the `false` push lands on a
+    /// nil runtime surface and is lost. Ghostty's renderer thread defaults to
+    /// `visible = true` and only reacts to transitions, so a lost `false` leaves
+    /// it believing the surface is on screen forever. Combined with a focused
+    /// surface that keeps its `CVDisplayLink` running, that is a display-refresh
+    /// -rate wakeup for a surface nobody can see. `createSurface` replays this
+    /// exactly like `desiredFocusState`.
+    var desiredOcclusionVisible: Bool = true
+
+    /// Last occlusion value actually handed to the live runtime surface, used to
+    /// dedupe redundant pushes. Reset on runtime teardown so a recreated surface
+    /// always re-receives the desired state instead of trusting a stale cache.
+    var appliedOcclusionVisible: Bool?
+
     /// Bumped after every completed runtime clipboard read.
     public internal(set) var clipboardReadGeneration = 0
 #if DEBUG

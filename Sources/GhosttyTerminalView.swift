@@ -8004,7 +8004,6 @@ final class GhosttySurfaceScrollView: NSView {
     private static let scrollToBottomThreshold: CGFloat = 5.0
     private var isActive = true
     private var lastFocusRefreshAt: CFTimeInterval = 0
-    private var lastRequestedPortalOcclusionVisible: Bool?
     private var activeDropZone: DropZone?
     private var pendingDropZone: DropZone?
     private var sessionContentWidthPresentation = SessionContentWidthPresentation.disabled
@@ -9724,10 +9723,13 @@ final class GhosttySurfaceScrollView: NSView {
         surfaceView.setVisibleInUI(visible)
         isHidden = !visible
         surfaceView.terminalSurface?.setRendererPortalVisible(visible)
-        if wasVisible != visible, lastRequestedPortalOcclusionVisible != visible {
-            lastRequestedPortalOcclusionVisible = visible
-            surfaceView.terminalSurface?.setOcclusion(visible)
-        }
+        // Hand the authoritative portal state to the surface on every call.
+        // `TerminalSurface.setOcclusion` dedupes and records the value for replay
+        // across runtime surface recreation. Gating here on the view's own
+        // previous value dropped the push whenever the view had already been
+        // marked hidden before its runtime surface existed, which left Ghostty on
+        // its `visible = true` default and its CVDisplayLink running off screen.
+        surfaceView.terminalSurface?.setOcclusion(visible)
 #if DEBUG
         if wasVisible != visible {
             let transition = "\(wasVisible ? 1 : 0)->\(visible ? 1 : 0)"

@@ -43,10 +43,29 @@ extension TerminalSurface {
         }
     }
 
-    /// Applies the occlusion state to the runtime surface.
+    /// Applies the occlusion state to the runtime surface (deduplicated).
+    ///
+    /// The desired value is recorded even when there is no runtime surface yet,
+    /// so `createSurface` can replay it. Without that, a `false` pushed while the
+    /// surface was still nil is lost and Ghostty keeps its default
+    /// `visible = true`, leaving the surface's `CVDisplayLink` free to run at the
+    /// display refresh rate for a pane that is not on screen.
     public func setOcclusion(_ visible: Bool) {
+        desiredOcclusionVisible = visible
         guard let surface = surface else { return }
+        guard appliedOcclusionVisible != visible else { return }
+        appliedOcclusionVisible = visible
         ghostty_surface_set_occlusion(surface, visible)
+    }
+
+    /// Pushes `desiredOcclusionVisible` onto a freshly created runtime surface,
+    /// bypassing the dedupe cache (a new runtime surface starts from Ghostty's
+    /// own `visible = true` default, so the cache from the previous one cannot be
+    /// trusted). Called from `createSurface`.
+    @MainActor
+    func replayDesiredOcclusionToRuntime() {
+        appliedOcclusionVisible = nil
+        setOcclusion(desiredOcclusionVisible)
     }
 
     /// Whether this surface currently holds realized GPU renderer resources.

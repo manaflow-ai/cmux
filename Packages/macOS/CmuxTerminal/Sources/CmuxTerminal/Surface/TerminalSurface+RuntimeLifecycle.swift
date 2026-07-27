@@ -328,6 +328,9 @@ extension TerminalSurface {
         pendingSocketInputQueue.removeAll(keepingCapacity: false)
         pendingSocketInputBytes = 0
         desiredFocusState = false
+        // The next runtime surface starts from Ghostty's own default, so drop the
+        // applied cache and let `createSurface` replay `desiredOcclusionVisible`.
+        appliedOcclusionVisible = nil
 
         guard let surfaceToFree else {
             callbackContext?.release()
@@ -629,6 +632,14 @@ extension TerminalSurface {
         // surface converges with any focus changes that happened while the
         // surface was being initialized.
         ghostty_surface_set_focus(createdSurface, desiredFocusState)
+
+        // Same convergence for occlusion. A hidden pane's `setOcclusion(false)`
+        // usually lands before its runtime surface exists (background workspaces
+        // create surfaces lazily), and Ghostty's renderer defaults to
+        // `visible = true` and only reacts to transitions, so without this replay
+        // the surface stays "visible" to Ghostty forever and keeps its
+        // CVDisplayLink ticking at the display refresh rate off screen.
+        replayDesiredOcclusionToRuntime()
 
         flushPendingSocketInputIfNeeded()
 
