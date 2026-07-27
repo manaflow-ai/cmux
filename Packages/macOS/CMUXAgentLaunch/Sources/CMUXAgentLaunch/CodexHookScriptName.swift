@@ -40,22 +40,6 @@ public struct CodexHookScriptName: Equatable, Sendable {
             return
         }
 
-        // Older content-addressed generators placed the event before the hash.
-        // Accept only the closed set of known cmux events so a user script with
-        // a generated-looking name is never claimed during hook cleanup.
-        if let separator = body.lastIndex(of: "-") {
-            let legacySubcommand = String(body[..<separator])
-            let legacyContentID = body[body.index(after: separator)...]
-            if recognizedLegacyCodexHookSubcommands.contains(legacySubcommand),
-               legacyContentID.count == 16,
-               legacyContentID.utf8.allSatisfy(isLowercaseCodexHookHexadecimal)
-            {
-                self.contentID = String(legacyContentID)
-                self.subcommand = legacySubcommand
-                return
-            }
-        }
-
         guard body.count > 17,
               let contentIDEnd = body.index(body.startIndex, offsetBy: 16, limitedBy: body.endIndex),
               body[contentIDEnd] == "-"

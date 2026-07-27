@@ -16,7 +16,24 @@ target/debug/cmux-tree
 
 The default config is `~/.config/cmux-tree/config.json`. Set `CMUX_TREE_CONFIG` or pass `--config PATH` to use another file.
 
-## Start Codex app-server
+## Launch Codex through the Rust hook
+
+`cmux-tree-hook` is a drop-in Codex launcher written in Rust. For an ordinary interactive or `resume` launch, it checks Codex's default Unix socket. If the socket is absent, it runs the official `codex app-server daemon start` command. That command returns after the server is ready. The hook then replaces its own process with the real Codex binary and preserves every argument and the final exit status.
+
+```bash
+target/debug/cmux-tree-hook
+target/debug/cmux-tree-hook resume --last
+```
+
+The hook finds Codex's managed standalone binary under `CODEX_HOME`, then falls back to `codex` on `PATH`. Set `CMUX_TREE_CODEX_PATH` to select a specific executable.
+
+Codex remains the full interactive chat client. Current Codex versions automatically connect eligible interactive launches to a running managed daemon. `cmux-tree` opens a second connection to that daemon and observes the same conversations. After resolving the Codex binary, the live-daemon path performs one socket metadata check and starts no subprocess. The hook uses process replacement, so no helper remains in memory. It installs no lifecycle hooks and starts no process for turn, tool, or stop events.
+
+Codex preserves embedded-server behavior for `exec`, explicit remote connections, profiles, command-line config overrides, hook feature overrides, and strict config. The Rust hook does not start an unused local daemon for those invocations. A daemon startup failure also falls through to normal Codex, which retains its native embedded-server fallback.
+
+This launch boundary must run before Codex chooses its transport. Lifecycle hooks in `hooks.json` run after that choice and cannot make an embedded conversation attachable. Codex processes that were already running with an embedded app-server remain unavailable to cmux tree.
+
+## Discover Codex app-server
 
 `cmux-tree` scans local Codex processes every 10 seconds. It discovers TCP WebSocket listeners, verifies them through `/healthz`, and discovers running Codex daemon Unix sockets. Press `r` to scan immediately.
 
@@ -32,11 +49,9 @@ codex app-server --listen ws://127.0.0.1:4500
 
 It appears as `Local Codex :4500` without configuration. A managed local daemon also appears automatically after `codex app-server daemon start`.
 
-Codex app-servers launched with the default `stdio://` transport cannot be attached because their input and output pipes belong to the parent client. Start a WebSocket listener or the managed daemon when cmux tree needs to observe it.
+Codex app-servers launched with the default `stdio://` transport cannot be attached because their input and output pipes belong to the parent client. Start a WebSocket listener, use the managed daemon directly, or launch Codex through `cmux-tree-hook`.
 
-When the managed daemon is listening at Codex's default Unix socket, cmux sends ordinary interactive and `resume` launches through Codex's native daemon-reuse path. The original terminal remains a full Codex chat client while `cmux-tree` observes the same server through a separate connection. This path performs one socket metadata check and starts no cmux CLI, probe, or hook processes. `exec`, explicit remote connections, profiles, and command-line config overrides keep the existing embedded-server hook path because Codex cannot replay their full launch configuration through a reused daemon.
-
-Persistent Codex event hooks are not required for `cmux-tree`. Its trajectory is built directly from app-server events. Watching a conversation does not run a hook command, probe cmux, or hydrate stored tool output in the background.
+Persistent Codex event hooks are not required for `cmux-tree`. Its trajectory is built directly from app-server events. Watching a conversation does not run a hook command or hydrate stored tool output in the background.
 
 Authenticated listeners are not auto-added because discovery never reads credentials from another process's arguments. Add them manually with a protected bearer-token file.
 

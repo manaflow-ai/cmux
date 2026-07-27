@@ -471,6 +471,40 @@ impl Catalog {
         self.pick("unknown", "不明")
     }
 
+    #[allow(dead_code)]
+    pub const fn codex_binary_not_found(self) -> &'static str {
+        self.pick("find the real Codex executable", "実際の Codex 実行ファイルを検索")
+    }
+
+    #[allow(dead_code)]
+    pub fn invalid_codex_binary(self, path: &str) -> String {
+        match self.locale {
+            Locale::English => format!("{path} is not an executable Codex binary"),
+            Locale::Japanese => format!("{path} は実行可能な Codex バイナリではありません"),
+        }
+    }
+
+    #[allow(dead_code)]
+    pub const fn no_codex_binary(self) -> &'static str {
+        self.pick("no Codex executable was found", "Codex 実行ファイルが見つかりません")
+    }
+
+    #[allow(dead_code)]
+    pub fn launch_codex(self, path: &str) -> String {
+        match self.locale {
+            Locale::English => format!("launch Codex at {path}"),
+            Locale::Japanese => format!("{path} の Codex を起動"),
+        }
+    }
+
+    #[allow(dead_code)]
+    pub const fn daemon_start_failed(self) -> &'static str {
+        self.pick(
+            "Codex app-server daemon did not start; launching Codex normally",
+            "Codex app-server デーモンを起動できなかったため、通常どおり Codex を起動します",
+        )
+    }
+
     pub const fn empty(self) -> &'static str {
         self.pick("(empty)", "（空）")
     }

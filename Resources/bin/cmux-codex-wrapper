@@ -13,13 +13,6 @@
 # (CMUX_CODEX_HOOKS_DISABLED=1), the wrapper does NOTHING but exec the real
 # codex. Every failure path below also execs the real codex, so installing the
 # wrapper can never break `codex`.
-#
-# When Codex's default local app-server daemon is already listening, replayable
-# interactive launches take Codex's native implicit-daemon path. That path
-# replaces the per-invocation hook injection instead of layering more work onto
-# it: no cmux ping, hook-argument generator, or per-event hook processes run.
-# Codex itself remains the authority on the daemon connection and falls back to
-# its embedded server if the socket stops accepting connections.
 
 # Deliberately NOT using `set -e`/`set -u`: a wrapper that aborts on any error
 # would break the user's `codex`. Each helper handles its own failures and the
@@ -208,41 +201,6 @@ should_inject_codex_hooks() {
     return 0
 }
 
-# Return 0 for interactive invocations that Codex itself can replay through its
-# implicit local daemon. Keep this in sync with Codex's
-# `can_reuse_implicit_local_daemon`: arbitrary config overrides, profiles,
-# strict config, hook-trust bypass, and `--search` must stay embedded because a
-# reused daemon cannot adopt their complete launch state. `exec`/`e` rejects
-# remote mode entirely.
-codex_invocation_can_reuse_local_daemon() {
-    should_inject_codex_hooks "$@" || return 1
-
-    local arg
-    for arg in "$@"; do
-        case "$arg" in
-            exec|e)
-                return 1
-                ;;
-            -c|--config|--config=*|-p|--profile|--profile=*|\
-            --enable|--enable=*|--disable|--disable=*|--search|\
-            --strict-config|--dangerously-bypass-hook-trust|\
-            --remote|--remote=*|--remote-auth-token-env|--remote-auth-token-env=*)
-                return 1
-                ;;
-        esac
-    done
-    return 0
-}
-
-# Codex's default Unix transport is fixed relative to CODEX_HOME. Checking the
-# socket type is a single stat and deliberately does not spawn a readiness
-# probe: Codex performs its own bounded connect probe immediately after exec.
-codex_default_daemon_socket_available() {
-    local codex_home="${CODEX_HOME:-${HOME:-}/.codex}"
-    [[ -n "$codex_home" ]] || return 1
-    [[ -S "${codex_home%/}/app-server-control/app-server-control.sock" ]]
-}
-
 # Extract the resumed session id from a `codex resume ...` argv. codex does NOT
 # fire its own SessionStart hook when resuming a session, so without this the GUI
 # never learns the resumed session's new live pid: it keeps the stale
@@ -298,20 +256,7 @@ exec_real_codex_passthrough() {
 if [[ "${CMUX_CODEX_HOOKS_DISABLED:-}" == "1" ]]; then
     exec_real_codex_passthrough "$@"
 fi
-if [[ "$IN_CMUX" == "0" ]]; then
-    exec_real_codex_passthrough "$@"
-fi
-
-# A live default daemon is an explicit machine-level opt-in. Let Codex use its
-# native implicit-daemon path before doing any cmux socket RPC or generating
-# per-invocation hooks. This keeps the harness hot path smaller than the legacy
-# hook path and gives cmux-tree a second client connection to the same server.
-if codex_default_daemon_socket_available \
-    && codex_invocation_can_reuse_local_daemon "$@"; then
-    exec_real_codex_passthrough "$@"
-fi
-
-if ! cmux_socket_available; then
+if [[ "$IN_CMUX" == "0" ]] || ! cmux_socket_available; then
     exec_real_codex_passthrough "$@"
 fi
 

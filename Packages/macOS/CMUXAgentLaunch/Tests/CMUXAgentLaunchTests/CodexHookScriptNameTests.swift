@@ -56,31 +56,6 @@ struct CodexHookScriptNameTests {
     }
 
     @Test(
-        "Previously content-addressed legacy filenames parse",
-        arguments: [
-            (
-                "cmux-codex-hook-persistent-session-start-19c7223b259df868.sh",
-                "persistent-session-start",
-                "19c7223b259df868"
-            ),
-            (
-                "cmux-codex-hook-persistent-feed-PermissionRequest-76239097d0722e52.sh",
-                "persistent-feed-PermissionRequest",
-                "76239097d0722e52"
-            ),
-        ]
-    )
-    func legacySuffixContentAddressedFilenamesParse(
-        filename: String,
-        subcommand: String,
-        contentID: String
-    ) throws {
-        let name = try #require(CodexHookScriptName(filename: filename))
-        #expect(name.subcommand == subcommand)
-        #expect(name.contentID == contentID)
-    }
-
-    @Test(
         "Malformed generated filenames are rejected",
         arguments: [
             "cmux-codex-hook-0123456789abcde-stop.sh",

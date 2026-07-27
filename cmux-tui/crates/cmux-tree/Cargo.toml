@@ -14,6 +14,10 @@ workspace = true
 name = "cmux-tree"
 path = "src/main.rs"
 
+[[bin]]
+name = "cmux-tree-hook"
+path = "src/hook_main.rs"
+
 [dependencies]
 anyhow.workspace = true
 crossterm.workspace = true
