@@ -293,13 +293,10 @@ extension TerminalController {
         )
         content.apply(to: alert, presentingWindow: nil)
 
-        switch alert.runModal() {
-        case .alertFirstButtonReturn:
-            return .auto
-        case .alertSecondButtonReturn:
-            return .prompt
-        default:
-            return .manual
+        return switch alert.runModal() {
+        case .alertFirstButtonReturn: .auto
+        case .alertSecondButtonReturn: .prompt
+        default: .manual
         }
     }
 
