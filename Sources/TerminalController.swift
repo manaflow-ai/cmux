@@ -23,6 +23,7 @@ import Bonsplit
 import WebKit
 import CmuxSidebar
 import CmuxWorkspaces
+import CmuxSimulator
 
 extension Notification.Name {
     static let socketListenerDidStart = Notification.Name("cmux.socketListenerDidStart")
@@ -137,6 +138,11 @@ class TerminalController {
     /// `WorkspaceRemoteSessionController`; ownership moves to the composition root with the
     /// planned `RemoteSessionCoordinator` wiring.
     nonisolated let remoteProxyBroker: any RemoteProxyBrokering
+    /// App-owned location mutation scope injected into every Simulator pane.
+    let simulatorLocationOwnershipScope: SimulatorLocationOwnershipScope
+    /// App-owned camera cleanup scope injected into every Simulator pane.
+    let simulatorCameraCleanupOwnershipScope: SimulatorCameraCleanupOwnershipScope
+    private var simulatorMutationRecoveryTask: Task<Void, Never>?
     /// Process-wide native SSH master owner and per-host reconnect coordinator.
     nonisolated let nativeSSHConnectionBroker: NativeSSHConnectionBroker
     // Stateless Sendable structs from CmuxControlSocket; injected at construction.
@@ -373,6 +379,28 @@ class TerminalController {
         self.terminalArtifactAuthorizationStore = terminalArtifactAuthorizationStore
         self.transport = transport
         self.remoteProxyBroker = remoteProxyBroker
+        let simulatorOwnershipFileManager = FileManager()
+        let simulatorApplicationSupportDirectory = simulatorOwnershipFileManager.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        )[0]
+        let simulatorDurableRecoveryDirectory = simulatorApplicationSupportDirectory
+            .appendingPathComponent(
+                "com.cmux.simulator-ownership",
+                isDirectory: true
+            )
+        let simulatorOwnershipDirectory = simulatorOwnershipFileManager.temporaryDirectory
+            .appendingPathComponent(
+                "com.cmux.simulator-ownership",
+                isDirectory: true
+            )
+        self.simulatorLocationOwnershipScope = SimulatorLocationOwnershipScope(
+            ownershipDirectory: simulatorOwnershipDirectory,
+            recoveryDirectory: simulatorDurableRecoveryDirectory
+        )
+        self.simulatorCameraCleanupOwnershipScope = SimulatorCameraCleanupOwnershipScope(
+            directory: simulatorOwnershipDirectory
+        )
         self.nativeSSHConnectionBroker = nativeSSHConnectionBroker
         let serverEventTarget = ServerEventTarget()
         let socketServer = SocketControlServer(
@@ -832,6 +860,29 @@ class TerminalController {
     func attachAuth(coordinator: AuthCoordinator, browserSignIn: HostBrowserSignInFlow) {
         self.authCoordinator = coordinator
         self.browserSignInFlow = browserSignIn
+    }
+
+    func startSimulatorMutationRecovery() {
+        guard simulatorMutationRecoveryTask == nil else { return }
+        let locationOwnershipScope = simulatorLocationOwnershipScope
+        let cameraOwnershipScope = simulatorCameraCleanupOwnershipScope
+        simulatorMutationRecoveryTask = Task { @MainActor [weak self] in
+            let service = SimulatorControlService(
+                locationOwnershipScope: locationOwnershipScope,
+                cameraCleanupOwnershipScope: cameraOwnershipScope
+            )
+            async let cameraSucceeded = service.recoverOrphanedCameraAuthorizations()
+            async let locationSucceeded = service.recoverOrphanedLocationRoutes()
+            let results = await (cameraSucceeded, locationSucceeded)
+            StartupBreadcrumbLog.append(
+                "simulator.mutation.launchRecovery",
+                fields: [
+                    "cameraSucceeded": results.0 ? "1" : "0",
+                    "locationSucceeded": results.1 ? "1" : "0",
+                ]
+            )
+            self?.simulatorMutationRecoveryTask = nil
+        }
     }
 
     func start(
@@ -2587,6 +2638,7 @@ class TerminalController {
             "browser.input_keyboard",
             "browser.input_touch",
         ]
+        methods.append(contentsOf: ControlCommandExecutionPolicy.simulatorMethods)
 #if DEBUG
         methods.append(contentsOf: Self.v2DebugMethodNames)
 #endif
@@ -4427,7 +4479,10 @@ class TerminalController {
             @MainActor
             func closeWorkspaces(_ workspaces: [Workspace]) -> Int {
                 var closed = 0
-                for candidate in workspaces where candidate.id != workspace.id {
+                // Drain non-anchor members before group anchors so a range close
+                // that targets a group promotes at most once per group instead of
+                // re-promoting and rescanning per member (see anchorLastCloseOrder).
+                for candidate in tabManager.anchorLastCloseOrder(workspaces) where candidate.id != workspace.id {
                     let existedBefore = tabManager.tabs.contains(where: { $0.id == candidate.id })
                     guard existedBefore else { continue }
                     tabManager.closeWorkspace(candidate)
@@ -14057,16 +14112,12 @@ class TerminalController {
             result = await v2MobileAttachTicketCreate(params: request.params)
         case "mobile.workspace.list", "workspace.list":
             result = v2MobileWorkspaceList(params: request.params)
-        case "mobile.workspace.changes.summary":
-            result = await v2MobileWorkspaceChangesSummary(params: request.params)
-        case "mobile.workspace.changes.files":
-            result = await v2MobileWorkspaceChangesFiles(params: request.params)
-        case "mobile.workspace.changes.file_diff":
-            result = await v2MobileWorkspaceChangesFileDiff(params: request.params)
-        case "mobile.workspace.changes.file_stat":
-            result = await v2MobileWorkspaceChangesFileStat(params: request.params)
-        case "mobile.workspace.changes.file_fetch":
-            result = await v2MobileWorkspaceChangesFileFetch(params: request.params)
+        case "mobile.workspace.changes.summary",
+             "mobile.workspace.changes.files",
+             "mobile.workspace.changes.file_diff",
+             "mobile.workspace.changes.file_stat",
+             "mobile.workspace.changes.file_fetch":
+            result = await v2MobileWorkspaceChanges(method: request.method, params: request.params)
         case "mobile.directory.search":
             result = await v2MobileDirectorySearch(
                 params: request.params,

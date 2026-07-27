@@ -1,7 +1,9 @@
 import AppKit
 import Bonsplit
 import Combine
+import CmuxSimulatorUI
 import CmuxSettings
+import CmuxWorkspaces
 import Testing
 
 #if canImport(cmux_DEV)
@@ -310,6 +312,192 @@ struct DockShortcutRoutingTests {
             }
         }
     }
+
+    @Test("Move-to-pane shortcut does not mutate the background workspace while Dock is focused")
+    @MainActor
+    func moveToPaneDoesNotMutateBackgroundWorkspaceWhileDockFocused() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try Self.withHarness { harness in
+                let movedPanelId = try #require(
+                    harness.mainWorkspace.focusedPanelId
+                )
+                let sourcePaneId = try #require(
+                    harness.mainWorkspace.paneId(forPanelId: movedPanelId)
+                )
+                _ = try #require(
+                    harness.mainWorkspace.newTerminalSplit(
+                        from: movedPanelId,
+                        orientation: .horizontal,
+                        focus: false
+                    )
+                )
+                harness.mainWorkspace.focusPanel(movedPanelId)
+                let dockPanelBefore = harness.dock.focusedPanelId
+                let shortcut = Self.customShortcut(key: "y")
+                KeyboardShortcutSettings.setShortcut(
+                    shortcut,
+                    for: .moveSurfaceToPaneRight
+                )
+
+                #expect(Self.dispatch(shortcut, in: harness))
+                #expect(
+                    harness.mainWorkspace.paneId(forPanelId: movedPanelId) ==
+                        sourcePaneId
+                )
+                #expect(harness.mainWorkspace.focusedPanelId == movedPanelId)
+                #expect(harness.dock.focusedPanelId == dockPanelBefore)
+            }
+        }
+    }
+
+    @Test("Repeated move-to-pane shortcut does not create a missing pane")
+    @MainActor
+    func repeatedMoveToPaneDoesNotCreateMissingPane() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try Self.withHarness { harness in
+                let movedPanelId = try #require(harness.mainWorkspace.focusedPanelId)
+                let paneIdsBefore = harness.mainWorkspace.bonsplitController.allPaneIds
+                let panelIdsBefore = Set(harness.mainWorkspace.panels.keys)
+                let shortcut = Self.customShortcut(key: "y")
+                KeyboardShortcutSettings.setShortcut(
+                    shortcut,
+                    for: .moveSurfaceToPaneRight
+                )
+                harness.appDelegate.noteMainPanelKeyboardFocusIntent(
+                    workspaceId: harness.mainWorkspace.id,
+                    panelId: movedPanelId,
+                    in: harness.window
+                )
+
+                #expect(Self.dispatch(shortcut, in: harness, isARepeat: true))
+                #expect(harness.mainWorkspace.bonsplitController.allPaneIds == paneIdsBefore)
+                #expect(Set(harness.mainWorkspace.panels.keys) == panelIdsBefore)
+                #expect(harness.mainWorkspace.focusedPanelId == movedPanelId)
+            }
+        }
+    }
+
+    @Test("Repeated move-to-pane shortcut still uses an existing destination")
+    @MainActor
+    func repeatedMoveToPaneUsesExistingDestination() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try Self.withHarness { harness in
+                let movedPanelId = try #require(harness.mainWorkspace.focusedPanelId)
+                let sourcePaneId = try #require(
+                    harness.mainWorkspace.paneId(forPanelId: movedPanelId)
+                )
+                _ = try #require(
+                    harness.mainWorkspace.newTerminalSurface(
+                        inPane: sourcePaneId,
+                        focus: false
+                    )
+                )
+                let destinationPanel = try #require(
+                    harness.mainWorkspace.newTerminalSplit(
+                        from: movedPanelId,
+                        orientation: .horizontal,
+                        focus: false
+                    )
+                )
+                let destinationPaneId = try #require(
+                    harness.mainWorkspace.paneId(forPanelId: destinationPanel.id)
+                )
+                harness.mainWorkspace.focusPanel(movedPanelId)
+                let shortcut = Self.customShortcut(key: "y")
+                KeyboardShortcutSettings.setShortcut(
+                    shortcut,
+                    for: .moveSurfaceToPaneRight
+                )
+                harness.appDelegate.noteMainPanelKeyboardFocusIntent(
+                    workspaceId: harness.mainWorkspace.id,
+                    panelId: movedPanelId,
+                    in: harness.window
+                )
+
+                #expect(Self.dispatch(shortcut, in: harness, isARepeat: true))
+                #expect(
+                    harness.mainWorkspace.paneId(forPanelId: movedPanelId) ==
+                        destinationPaneId
+                )
+            }
+        }
+    }
+
+    @Test("Simulator shortcuts target the focused Dock Simulator")
+    @MainActor
+    func simulatorShortcutTargetsFocusedDock() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try Self.withHarness { harness in
+                let flags = CmuxFeatureFlags.shared
+                let simulatorFlag = CmuxFeatureFlags.allFlags[5]
+                let previousOverride = flags.overrideValue(for: simulatorFlag)
+                flags.setOverride(true, for: simulatorFlag)
+                defer { flags.setOverride(previousOverride, for: simulatorFlag) }
+
+                let panel = try harness.dock.seedSimulatorPanel(inPane: harness.rootPane)
+                defer { panel.close() }
+                let responder = DockSimulatorResponder(
+                    owner: ObjectIdentifier(panel.coordinator)
+                )
+                harness.window.contentView = responder
+                #expect(harness.window.makeFirstResponder(responder))
+                let shortcut = Self.customShortcut(key: "y")
+                KeyboardShortcutSettings.setShortcut(shortcut, for: .simulatorHome)
+
+                #expect(Self.dispatch(shortcut, in: harness))
+            }
+        }
+    }
+
+    @Test("Simulator tool editors retain panel focus without routing Simulator shortcuts")
+    @MainActor
+    func simulatorToolEditorRetainsPanelFocus() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try Self.withHarness { harness in
+                let flags = CmuxFeatureFlags.shared
+                let simulatorFlag = CmuxFeatureFlags.allFlags[5]
+                let previousOverride = flags.overrideValue(for: simulatorFlag)
+                flags.setOverride(true, for: simulatorFlag)
+                defer { flags.setOverride(previousOverride, for: simulatorFlag) }
+
+                let panel = try harness.dock.seedSimulatorPanel(inPane: harness.rootPane)
+                defer { panel.close() }
+                let ownershipView = NSView(frame: harness.window.contentView?.bounds ?? .zero)
+                let textField = NSTextField(
+                    frame: NSRect(x: 20, y: 20, width: 240, height: 24)
+                )
+                ownershipView.addSubview(textField)
+                harness.window.contentView = ownershipView
+                panel.setFocusOwnershipView(ownershipView)
+                defer { panel.clearFocusOwnershipView(ownershipView) }
+                #expect(harness.window.makeFirstResponder(textField))
+                let firstResponder = try #require(harness.window.firstResponder)
+                #expect(shortcutResponderAcceptsTextEditing(firstResponder))
+
+                let shortcut = Self.customShortcut(key: "y")
+                KeyboardShortcutSettings.setShortcut(shortcut, for: .simulatorHome)
+                let event = try #require(Self.event(shortcut, in: harness))
+                let focus = harness.appDelegate.shortcutEventFocusContext(event)
+                var canvasContext = focus.shortcutContext
+                canvasContext.setBool(
+                    ShortcutContextKnownKey.workspaceCanvasLayout.rawValue,
+                    true
+                )
+
+                #expect(focus.simulatorFocused)
+                #expect(focus.shortcutContext.bool(
+                    ShortcutContextKnownKey.simulatorFocus.rawValue
+                ))
+                #expect(!focus.shortcutContext.bool(
+                    ShortcutContextKnownKey.terminalFocus.rawValue
+                ))
+                #expect(!KeyboardShortcutSettings.effectiveWhenClause(
+                    for: .canvasZoomReset
+                ).evaluate(canvasContext))
+                #expect(!harness.appDelegate.debugHandleCustomShortcut(event: event))
+            }
+        }
+    }
 }
 
 private extension DockShortcutRoutingTests {
@@ -391,22 +579,12 @@ private extension DockShortcutRoutingTests {
     }
 
     @MainActor
-    static func dispatch(_ shortcut: AppStoredShortcut, in harness: Harness) -> Bool {
-        guard !shortcut.isUnbound,
-              !shortcut.hasChord,
-              let keyCode = shortcut.firstStroke.resolvedKeyCode(),
-              let event = NSEvent.keyEvent(
-                  with: .keyDown,
-                  location: .zero,
-                  modifierFlags: shortcut.modifierFlags,
-                  timestamp: ProcessInfo.processInfo.systemUptime,
-                  windowNumber: harness.window.windowNumber,
-                  context: nil,
-                  characters: shortcut.menuItemKeyEquivalent ?? shortcut.key,
-                  charactersIgnoringModifiers: shortcut.menuItemKeyEquivalent ?? shortcut.key,
-                  isARepeat: false,
-                  keyCode: keyCode
-              ) else {
+    static func dispatch(
+        _ shortcut: AppStoredShortcut,
+        in harness: Harness,
+        isARepeat: Bool = false
+    ) -> Bool {
+        guard let event = event(shortcut, in: harness, isARepeat: isARepeat) else {
             return false
         }
 #if DEBUG
@@ -414,6 +592,30 @@ private extension DockShortcutRoutingTests {
 #else
         return false
 #endif
+    }
+
+    static func event(
+        _ shortcut: AppStoredShortcut,
+        in harness: Harness,
+        isARepeat: Bool = false
+    ) -> NSEvent? {
+        guard !shortcut.isUnbound,
+              !shortcut.hasChord,
+              let keyCode = shortcut.firstStroke.resolvedKeyCode() else {
+            return nil
+        }
+        return NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: shortcut.modifierFlags,
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: harness.window.windowNumber,
+            context: nil,
+            characters: shortcut.menuItemKeyEquivalent ?? shortcut.key,
+            charactersIgnoringModifiers: shortcut.menuItemKeyEquivalent ?? shortcut.key,
+            isARepeat: isARepeat,
+            keyCode: keyCode
+        )
     }
 
     static func customShortcut(key: String) -> AppStoredShortcut {
@@ -466,4 +668,39 @@ private extension DockSplitStore {
         applyDockSelection(tabId: tabId, inPane: pane)
         return panel
     }
+
+    @MainActor
+    func seedSimulatorPanel(inPane pane: PaneID) throws -> SimulatorPanel {
+        let panel = SimulatorPanel()
+        panels[panel.id] = panel
+        let tabId = try #require(
+            bonsplitController.createTab(
+                title: panel.displayTitle,
+                icon: panel.displayIcon,
+                kind: SurfaceKind.simulator.rawValue,
+                isDirty: panel.isDirty,
+                inPane: pane
+            )
+        )
+        surfaceIdToPanelId[tabId] = panel.id
+        bonsplitController.focusPane(pane)
+        bonsplitController.selectTab(tabId)
+        applyDockSelection(tabId: tabId, inPane: pane)
+        return panel
+    }
+}
+
+@MainActor
+private final class DockSimulatorResponder: NSView, SimulatorInputResponder {
+    let simulatorOwnerID: ObjectIdentifier?
+
+    init(owner: ObjectIdentifier) {
+        simulatorOwnerID = owner
+        super.init(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { nil }
+
+    override var acceptsFirstResponder: Bool { true }
 }
