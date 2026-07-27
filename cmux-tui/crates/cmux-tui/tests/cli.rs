@@ -334,6 +334,7 @@ fn legacy_server_process_helper() {
             | "applied-close-disconnect"
             | "exit-after-close"
             | "persistent-close-error"
+            | "concurrent-client"
             | "browser-surface"
     ) {
         let mut command = Command::new("yes");
@@ -515,6 +516,31 @@ fn legacy_server_process_helper() {
             }
         }
         let list_request: serde_json::Value = serde_json::from_str(&request).unwrap();
+        if list_request["cmd"].as_str() == Some("list-clients") {
+            let mut clients = vec![serde_json::json!({
+                "client": 1,
+                "transport": "unix",
+                "self": true,
+            })];
+            if scenario == "concurrent-client" {
+                clients.push(serde_json::json!({
+                    "client": 2,
+                    "transport": "unix",
+                    "self": false,
+                }));
+            }
+            writeln!(
+                stream,
+                "{}",
+                serde_json::json!({
+                    "id": list_request["id"],
+                    "ok": true,
+                    "data": clients,
+                })
+            )
+            .unwrap();
+            continue;
+        }
         assert_eq!(list_request["cmd"].as_str(), Some("list-workspaces"));
         if scenario == "cleanup-failure" {
             writeln!(
@@ -539,6 +565,7 @@ fn legacy_server_process_helper() {
                 | "applied-close-disconnect"
                 | "exit-after-close"
                 | "persistent-close-error"
+                | "concurrent-client"
                 | "zombie-child"
                 | "reparent-on-close"
                 | "unowned-surface"
@@ -1580,6 +1607,29 @@ fn server_stop_falls_back_when_an_older_server_lacks_shutdown_capability() {
         std::thread::sleep(Duration::from_millis(10));
     }
     assert!(!process_exists(descendant_pid));
+}
+
+#[cfg(unix)]
+#[test]
+fn server_stop_fails_closed_when_another_legacy_client_can_create_surfaces() {
+    let mut server =
+        LegacyServerProcess::start("legacy-server-concurrent-client", "concurrent-client", None);
+    let descendant_pid = server.descendant_pid().unwrap();
+
+    let output = Command::new(bin())
+        .args(["server", "stop", "--socket"])
+        .arg(&server.socket)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("could not close pane processes before stopping the older server")
+    );
+    assert!(server.child.try_wait().unwrap().is_none());
+    assert!(process_exists(descendant_pid));
 }
 
 #[cfg(unix)]
