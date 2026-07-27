@@ -387,7 +387,7 @@ jobs:
           # persistent on every third-party x64 runner and can disappear
           # between setup and the package smoke test.
           - architecture: arm64
-            runner: ubuntu-24.04-arm
+            runner: ${{ vars.LINUX_ARM64_RUNNER || 'ubuntu-24.04-arm' }} # github-hosted-required: package smoke tests need native ARM64 execution
     env:
       PYPI_VERSION: ${{ inputs.pypi_version != '' && inputs.pypi_version || inputs.version }}
     steps:
