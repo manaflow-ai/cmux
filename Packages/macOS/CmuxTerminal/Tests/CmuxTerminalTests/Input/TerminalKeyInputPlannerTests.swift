@@ -42,6 +42,18 @@ import Testing
         #expect(plan.forwardsPhysicalKey)
     }
 
+    @Test func textInputCommandPreservesRecoveredPrintableText() {
+        let plan = planner.plan(for: snapshot(
+            textInputConsumed: true,
+            textInputCommandPerformed: true,
+            translatedText: "~",
+            rawText: "\u{001B}"
+        ))
+
+        #expect(plan.actions == [.sendKey(text: "~", composing: false)])
+        #expect(plan.forwardsPhysicalKey)
+    }
+
     @Test func composingC0IsSuppressedBeforeAppKitCommandReplay() {
         let plan = planner.plan(for: snapshot(
             hasMarkedText: true,

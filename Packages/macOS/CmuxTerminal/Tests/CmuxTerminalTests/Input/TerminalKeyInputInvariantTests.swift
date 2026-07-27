@@ -94,6 +94,20 @@ import Testing
                 mismatches.append("direct U+\(String(value, radix: 16, uppercase: true))")
             }
 
+            let commandActions = planner.actions(for: snapshot(
+                textInputConsumed: true,
+                textInputCommandPerformed: true,
+                translatedText: text,
+                rawText: "\u{001B}"
+            ))
+            let expectedCommandText =
+                value < 0x20 || value == 0x7F ? nil : text
+            if commandActions != [
+                .sendKey(text: expectedCommandText, composing: false),
+            ], mismatches.count < 10 {
+                mismatches.append("command U+\(String(value, radix: 16, uppercase: true))")
+            }
+
             let committedActions = planner.actions(for: snapshot(
                 hadMarkedText: true,
                 committedText: [text],
@@ -184,7 +198,12 @@ import Testing
         }
 
         if snapshot.textInputCommandPerformed {
-            return [.sendKey(text: nil, composing: false)]
+            return [
+                .sendKey(
+                    text: ghosttyCommandText(snapshot.event.translatedText),
+                    composing: false
+                ),
+            ]
         }
 
         if snapshot.textInputConsumed {
@@ -210,6 +229,16 @@ import Testing
             return false
         }
         return scalar.value < 0x20
+    }
+
+    private func ghosttyCommandText(_ text: String?) -> String? {
+        guard let text, !text.isEmpty else { return nil }
+        let scalars = text.unicodeScalars
+        guard let scalar = scalars.first,
+              scalars.index(after: scalars.startIndex) == scalars.endIndex else {
+            return text
+        }
+        return scalar.value < 0x20 || scalar.value == 0x7F ? nil : text
     }
 
     private func snapshot(
