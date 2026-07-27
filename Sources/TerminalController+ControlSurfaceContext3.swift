@@ -384,6 +384,30 @@ extension TerminalController {
         case .unresolved(let resolution): return resolution
         case .surface(let id): requestedSurfaceID = id
         }
+        if let target = ws.controlSurfaceTarget(for: requestedSurfaceID),
+           let applicationPanel = target.panel as? ApplicationPanel {
+            let unavailableMessage = String(
+                localized: "socket.application.inputUnavailable",
+                defaultValue: "Application input is unavailable. Check CMUX Accessibility permission and reopen the application surface."
+            )
+            guard socketServer.accessMode != .allowAll else {
+                return .applicationInputUnavailable(target.surfaceID, message: unavailableMessage)
+            }
+            switch applicationPanel.sendNamedKey(key) {
+            case .sent:
+                break
+            case .unknownKey:
+                return .unknownKey
+            case .surfaceUnavailable:
+                return .applicationInputUnavailable(target.surfaceID, message: unavailableMessage)
+            }
+            return .sent(
+                windowID: v2ResolveWindowId(tabManager: tabManager),
+                workspaceID: ws.id,
+                surfaceID: target.surfaceID,
+                queued: false
+            )
+        }
         guard let target = ws.controlTerminalTarget(for: requestedSurfaceID) else {
             return .surfaceNotTerminal(requestedSurfaceID)
         }

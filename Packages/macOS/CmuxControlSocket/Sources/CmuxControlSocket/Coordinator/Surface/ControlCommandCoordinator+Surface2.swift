@@ -336,6 +336,12 @@ extension ControlCommandCoordinator {
                 message: strings?.surfaceUnavailable ?? "",
                 data: .object(["surface_id": .string(id.uuidString)])
             )
+        case .applicationInputUnavailable(let id, let message):
+            return .err(
+                code: "surface_unavailable",
+                message: message,
+                data: .object(["surface_id": .string(id.uuidString)])
+            )
         case .processExited(let id):
             return .err(
                 code: "process_exited",

@@ -395,6 +395,15 @@ extension ControlSurfaceContext {
         )
     }
 
+    func controlSurfaceApplicationStrings() -> ControlSurfaceApplicationStrings {
+        ControlSurfaceApplicationStrings(
+            splitUnsupported: "",
+            invalidWindowID: "",
+            invalidProcessID: "",
+            invalidFrameRate: ""
+        )
+    }
+
     func controlSurfaceSplit(
         routing: ControlRoutingSelectors,
         inputs: ControlSurfaceSplitInputs

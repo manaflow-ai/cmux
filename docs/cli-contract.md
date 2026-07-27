@@ -117,6 +117,7 @@ Environment:
 | `focus-pane` | Focus a pane. |
 | `new-pane` | Create a pane with terminal or browser content. |
 | `new-surface` | Create a surface inside a pane. |
+| `list-application-windows` | List capturable native windows without connecting to the CMUX socket. `--json` returns `{"windows":[{"window_id":Int,"process_id":Int,"owner":String,"title":String}]}`. |
 | `close-surface` | Close a surface. |
 | `move-surface` | Move a surface to another pane, workspace, window, or index. |
 | `split-off` | Move a surface into a new split without changing focus by default. |
@@ -599,6 +600,7 @@ the expected text without connecting to a cmux socket.
 - `cmux focus-pane --help` -> `Usage: cmux focus-pane`
 - `cmux new-pane --help` -> `Usage: cmux new-pane`
 - `cmux new-surface --help` -> `Usage: cmux new-surface`
+- `cmux list-application-windows --help` -> `Usage: cmux list-application-windows`
 - `cmux close-surface --help` -> `Usage: cmux close-surface`
 - `cmux drag-surface-to-split --help` -> `Usage: cmux drag-surface-to-split`
 - `cmux refresh-surfaces --help` -> `Usage: cmux refresh-surfaces`

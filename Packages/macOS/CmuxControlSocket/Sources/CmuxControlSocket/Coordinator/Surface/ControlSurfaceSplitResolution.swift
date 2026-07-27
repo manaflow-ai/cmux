@@ -5,8 +5,8 @@ public import Foundation
 ///
 /// The coordinator validates `direction` and the divider (returning
 /// `invalid_params` itself) and signals `unavailable`; the app maps the type token,
-/// rejects `agent-session`, runs the browser-disabled path, resolves the workspace
-/// and target surface, creates the split, and returns this resolution.
+/// rejects create-only surface types, runs the browser-disabled path, resolves the
+/// workspace and target surface, creates the split, and returns this resolution.
 public enum ControlSurfaceSplitResolution: Sendable, Equatable {
     /// No TabManager resolved (legacy `unavailable` / "TabManager not available").
     case tabManagerUnavailable
@@ -17,6 +17,10 @@ public enum ControlSurfaceSplitResolution: Sendable, Equatable {
     /// The type token resolved to `agent-session` (legacy `invalid_params` /
     /// "agent-session is only supported by surface.create", `data: {"type": …}`).
     case agentSessionRejected(typeRawValue: String)
+    /// The type token resolved to `application` (`invalid_params` /
+    /// Application surfaces are only supported by `surface.create`;
+    /// `data: {"type": …}` preserves the requested wire type.
+    case applicationRejected(typeRawValue: String)
     /// The browser was disabled; carries the shared external-open outcome.
     case browserDisabled(ControlSurfaceBrowserDisabledOutcome)
     /// No workspace resolved (legacy `not_found` / "Workspace not found").

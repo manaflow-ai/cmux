@@ -5,6 +5,9 @@ import Foundation
 final class FakeSurfaceControlCommandContext: ControlCommandContext {
     var paneCreateResolution: ControlPaneCreateResolution = .tabManagerUnavailable
     var createResolution: ControlSurfaceCreateResolution = .tabManagerUnavailable
+    var healthSnapshot: ControlSurfaceHealthSnapshot?
+    var sendKeyResolution: ControlSurfaceSendResolution = .tabManagerUnavailable
+    var lastCreateInputs: ControlSurfaceCreateInputs?
     var surfaceListSnapshot: ControlSurfaceListSnapshot?
     var resumeResolution: ControlSurfaceResumeResolution = .surfaceNotFound
     var reportPWDResolution: ControlSurfaceReportPWDResolution = .recorded(surfaceID: UUID())
@@ -41,7 +44,38 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
         routing: ControlRoutingSelectors,
         inputs: ControlSurfaceCreateInputs
     ) -> ControlSurfaceCreateResolution {
-        createResolution
+        lastCreateInputs = inputs
+        return createResolution
+    }
+
+    func controlSurfaceHealth(routing: ControlRoutingSelectors) -> ControlSurfaceHealthSnapshot? {
+        healthSnapshot
+    }
+
+    func controlSurfaceApplicationStrings() -> ControlSurfaceApplicationStrings {
+        ControlSurfaceApplicationStrings(
+            splitUnsupported: "application split unsupported",
+            invalidWindowID: "invalid native window ID",
+            invalidProcessID: "invalid application process ID",
+            invalidFrameRate: "invalid application frame rate"
+        )
+    }
+
+    nonisolated func controlSurfaceInputStrings() -> ControlSurfaceInputStrings {
+        ControlSurfaceInputStrings(
+            inputQueueFull: "queue full",
+            surfaceUnavailable: "surface unavailable",
+            processExited: "process exited"
+        )
+    }
+
+    func controlSurfaceSendKey(
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID?,
+        hasSurfaceIDParam: Bool,
+        key: String
+    ) -> ControlSurfaceSendResolution {
+        sendKeyResolution
     }
 
     func controlSurfaceResumeSet(

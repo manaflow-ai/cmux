@@ -18,6 +18,8 @@ extension ClosedItemHistoryStore {
             return String(localized: "menu.history.recentlyClosed.panel.terminal", defaultValue: "Terminal")
         case .browser:
             return String(localized: "menu.history.recentlyClosed.panel.browser", defaultValue: "Browser")
+        case .application:
+            return String(localized: "menu.history.recentlyClosed.panel.application", defaultValue: "Application")
         case .markdown:
             return String(localized: "menu.history.recentlyClosed.panel.markdown", defaultValue: "Markdown")
         case .filePreview:

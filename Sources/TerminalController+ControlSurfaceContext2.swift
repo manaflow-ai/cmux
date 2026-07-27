@@ -8,6 +8,27 @@ import Foundation
 /// localized respawn strings. Split out of `TerminalController+ControlSurfaceContext`
 /// to keep the conformance readable; see that file's doc comment for the overview.
 extension TerminalController {
+    func controlSurfaceApplicationStrings() -> ControlSurfaceApplicationStrings {
+        ControlSurfaceApplicationStrings(
+            splitUnsupported: String(
+                localized: "socket.application.splitUnsupported",
+                defaultValue: "Application surfaces are only supported by surface.create."
+            ),
+            invalidWindowID: String(
+                localized: "socket.application.invalidWindowID",
+                defaultValue: "window_id_native must be a positive supported native window ID."
+            ),
+            invalidProcessID: String(
+                localized: "socket.application.invalidProcessID",
+                defaultValue: "process_id must be a positive supported application process ID."
+            ),
+            invalidFrameRate: String(
+                localized: "socket.application.invalidFrameRate",
+                defaultValue: "frame_rate must be between 1 and 120."
+            )
+        )
+    }
+
     func controlSurfaceRespawnStrings() -> ControlSurfaceRespawnStrings {
         ControlSurfaceRespawnStrings(
             invalidFocus: String(
@@ -79,6 +100,9 @@ extension TerminalController {
         if panelType == .agentSession {
             return .agentSessionRejected(typeRawValue: panelType.rawValue)
         }
+        if panelType == .application {
+            return .applicationRejected(typeRawValue: panelType.rawValue)
+        }
         let url = inputs.urlRaw.flatMap { URL(string: $0) }
         if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
             return .browserDisabled(surfaceBrowserDisabledOutcome(
@@ -87,7 +111,6 @@ extension TerminalController {
                 tabManager: tabManager
             ))
         }
-
         guard let ws = resolveSurfaceWorkspace(routing: routing, tabManager: tabManager) else {
             return .workspaceNotFound
         }
@@ -326,6 +349,12 @@ extension TerminalController {
                 tabManager: tabManager
             ))
         }
+        if panelType == .application, socketServer.accessMode == .allowAll {
+            return .applicationControlUnavailable(message: String(
+                localized: "socket.application.allowAllUnavailable",
+                defaultValue: "Application control is unavailable in allowAll socket mode. Use cmuxOnly, automation, or password mode."
+            ))
+        }
 
         if case .dock = placement {
             return dockSurfaceCreate(
@@ -372,7 +401,27 @@ extension TerminalController {
         let focus = v2FocusAllowed(requested: inputs.requestedFocus)
         let useLocalContext = surfaceRemoteContextWantsLocal(inputs.remoteContextRaw)
         let newPanelId: UUID?
-        if panelType == .browser {
+        if panelType == .application {
+            guard let applicationWindowID = inputs.applicationWindowID,
+                  applicationWindowID > 0,
+                  let applicationProcessID = inputs.applicationProcessID,
+                  applicationProcessID > 0,
+                  (1...120).contains(inputs.applicationFrameRate ?? 60)
+            else {
+                return .createFailed
+            }
+            newPanelId = ws.newApplicationSurface(
+                inPane: paneId,
+                windowID: CGWindowID(applicationWindowID),
+                processID: applicationProcessID,
+                title: inputs.applicationTitle ?? String(
+                    localized: "panel.application.defaultTitle",
+                    defaultValue: "Application"
+                ),
+                targetFrameRate: inputs.applicationFrameRate ?? 60,
+                focus: focus
+            )?.id
+        } else if panelType == .browser {
             newPanelId = ws.newBrowserSurface(
                 inPane: paneId,
                 url: url,
