@@ -17,12 +17,13 @@ final class GhosttyPhysicalInputFocusReassertionTests: XCTestCase {
         override func reassertTerminalFocusForInputIfFirstResponder(
             forceNative: Bool = false
         ) -> Bool {
-            if forceNative {
-                forcedNativeFocusReassertionCount += 1
-            }
-            return super.reassertTerminalFocusForInputIfFirstResponder(
+            let didReassert = super.reassertTerminalFocusForInputIfFirstResponder(
                 forceNative: forceNative
             )
+            if forceNative, didReassert {
+                forcedNativeFocusReassertionCount += 1
+            }
+            return didReassert
         }
     }
 
