@@ -57,6 +57,16 @@ final class MarkdownMermaidZoomTests {
         #expect(abs((baseline["zoom"] ?? -1) - 1) <= 0.001)
         #expect(abs(baselineWidth - 240) <= 2)
 
+        // Resize before the first classifying zoom transition. The shell's
+        // viewport sample must describe this new size, not its load-time frame.
+        let resizedFrame = NSRect(x: 0, y: 0, width: 900, height: 480)
+        window.setFrame(resizedFrame, display: true)
+        webView.frame = resizedFrame
+        let resizedBaseline = try await waitForMermaidSnapshot(
+            in: webView,
+            minimumInnerWidth: try #require(baseline["innerWidth"]) * 1.15
+        )
+
         coordinator.setFontSize(MarkdownFontSizeSettings.defaultPointSize * 2)
         let zoomed = try await waitForMermaidSnapshot(in: webView, expectedZoom: 2)
         let zoomedWidth = try #require(zoomed["width"])
@@ -66,7 +76,7 @@ final class MarkdownMermaidZoomTests {
         // innerWidth shrinks by the zoom), older WebKit leaves innerWidth alone
         // and the shell inflates the CSS rect instead. The product of the two
         // is the on-screen size either way.
-        let zoomedDeviceScale = try #require(baseline["innerWidth"]) / #require(zoomed["innerWidth"])
+        let zoomedDeviceScale = try #require(resizedBaseline["innerWidth"]) / #require(zoomed["innerWidth"])
         #expect(zoomedWidth * zoomedDeviceScale > baselineWidth * 1.8)
         #expect(abs((zoomedWidth / baselineWidth) - (zoomedProseHeight / baselineProseHeight)) <= 0.25)
         let exported = try await exportedMermaidSnapshot(in: webView)
@@ -98,7 +108,7 @@ final class MarkdownMermaidZoomTests {
         #expect(fittedZoomedWidth * fittedDeviceScale > fittedWidth * 1.8)
         #expect((try #require(fittedZoomed["leftOffset"])) >= -1)
 
-        let widerFrame = NSRect(x: 0, y: 0, width: 960, height: 480)
+        let widerFrame = NSRect(x: 0, y: 0, width: 1_200, height: 480)
         window.setFrame(widerFrame, display: true)
         webView.frame = widerFrame
         _ = try await webView.evaluateJavaScript("window.__cmuxSetMarkdownZoom(2);")
@@ -120,7 +130,8 @@ final class MarkdownMermaidZoomTests {
     private func waitForMermaidSnapshot(
         in webView: WKWebView,
         expectedZoom: Double? = nil,
-        minimumWidth: Double? = nil
+        minimumWidth: Double? = nil,
+        minimumInnerWidth: Double? = nil
     ) async throws -> [String: Double] {
         let deadline = Date().addingTimeInterval(10)
         var lastSnapshot: [String: Double]?
@@ -129,7 +140,8 @@ final class MarkdownMermaidZoomTests {
                 lastSnapshot = snapshot
                 let zoomMatches = expectedZoom.map { abs((snapshot["zoom"] ?? -1) - $0) <= 0.001 } ?? true
                 let widthMatches = minimumWidth.map { (snapshot["width"] ?? 0) >= $0 } ?? ((snapshot["width"] ?? 0) > 0)
-                if zoomMatches && widthMatches {
+                let innerWidthMatches = minimumInnerWidth.map { (snapshot["innerWidth"] ?? 0) >= $0 } ?? true
+                if zoomMatches && widthMatches && innerWidthMatches {
                     return snapshot
                 }
             }
