@@ -254,7 +254,8 @@ public struct ExpressionEvaluator: Sendable {
         }
 
         if let member = expr.as(MemberAccessExprSyntax.self), let baseExpr = member.base {
-            guard let base = eval(baseExpr, env) else { return .failed }
+            let baseOperand = evalEqualityOperand(baseExpr, env)
+            guard case let .value(base) = baseOperand else { return baseOperand }
             let name = member.declName.baseName.text
             if case let .object(fields) = base {
                 return fields[name].map(EqualityOperand.value) ?? .missingOptional
@@ -264,8 +265,9 @@ public struct ExpressionEvaluator: Sendable {
 
         if let subscriptCall = expr.as(SubscriptCallExprSyntax.self),
            let indexExpr = subscriptCall.arguments.first?.expression {
-            guard let base = eval(subscriptCall.calledExpression, env),
-                  let index = eval(indexExpr, env) else { return .failed }
+            let baseOperand = evalEqualityOperand(subscriptCall.calledExpression, env)
+            guard case let .value(base) = baseOperand else { return baseOperand }
+            guard let index = eval(indexExpr, env) else { return .failed }
             switch (base, index) {
             case let (.array(values), .int(i)):
                 return (i >= 0 && i < values.count) ? .value(values[i]) : .failed

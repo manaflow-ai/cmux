@@ -250,10 +250,13 @@ import Testing
     @Test func nilComparisonDoesNotMaskEvaluationFailures() {
         let workspaces = SwiftValue.array([
             .object(["title": .string("alpha")]),
+            .object(["title": .string("beta"), "meta": .object(["note": .string("hello")])]),
         ])
         let node = interp.evaluate("""
         VStack {
             Text("missing field: \\(workspaces[0].note == nil)")
+            Text("nested missing: \\(workspaces[0].meta.note == nil)")
+            Text("nested present: \\(workspaces[1].meta.note != nil)")
             Text("bad subscript: \\(workspaces[3] == nil)")
             Text("bad conversion: \\(Int("nope") == nil)")
             Text("unsupported: \\(unknownThing() == nil)")
@@ -261,6 +264,8 @@ import Testing
         """, state: ["workspaces": workspaces])
         #expect(node?.children.map(\.text) == [
             "missing field: true",
+            "nested missing: true",
+            "nested present: true",
             "bad subscript: ",
             "bad conversion: ",
             "unsupported: ",
