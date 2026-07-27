@@ -151,6 +151,7 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
 
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
+        updateFrameLayerBackingScale()
         rebuildPresentationTimer()
         pushGeometry()
     }
@@ -356,10 +357,11 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
         lastFrameSequence = nil
         let frameLayer = CALayer()
         frameLayer.contentsGravity = .resize
-        frameLayer.minificationFilter = .linear
-        frameLayer.magnificationFilter = .linear
+        frameLayer.minificationFilter = .nearest
+        frameLayer.magnificationFilter = .nearest
         layer?.addSublayer(frameLayer)
         self.frameLayer = frameLayer
+        updateFrameLayerBackingScale()
         framePipeline = SimulatorFramePresentationPipeline(
             source: source,
             presentationDidComplete: { [weak self] in

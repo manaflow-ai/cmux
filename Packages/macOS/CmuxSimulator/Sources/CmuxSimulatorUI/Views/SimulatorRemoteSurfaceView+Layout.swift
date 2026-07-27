@@ -30,6 +30,7 @@ extension SimulatorRemoteSurfaceView {
 
     func layoutFrameLayer() {
         guard let frameLayer else { return }
+        updateFrameLayerBackingScale()
         let rect = displayRect
         let geometry = orientationGeometry
         let swapsAxes = geometry?.swapsAxes == true
@@ -53,5 +54,11 @@ extension SimulatorRemoteSurfaceView {
         frameLayer.cornerCurve = .continuous
         frameLayer.masksToBounds = true
         CATransaction.commit()
+    }
+
+    func updateFrameLayerBackingScale() {
+        guard let frameLayer else { return }
+        let scale = window?.backingScaleFactor ?? layer?.contentsScale ?? 1
+        frameLayer.contentsScale = scale.isFinite && scale > 0 ? scale : 1
     }
 }
