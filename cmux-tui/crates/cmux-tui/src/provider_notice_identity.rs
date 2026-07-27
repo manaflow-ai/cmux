@@ -110,7 +110,11 @@ pub(super) fn acquire(state_root: &Path) -> anyhow::Result<ProviderNoticeIdentit
 }
 
 fn identity_path(state_root: &Path) -> PathBuf {
-    state_root.join(IDENTITY_DIRECTORY).join(IDENTITY_FILE)
+    identity_parent(state_root).join(IDENTITY_FILE)
+}
+
+pub(super) fn identity_parent(state_root: &Path) -> PathBuf {
+    state_root.join(IDENTITY_DIRECTORY)
 }
 
 fn remove_orphaned_temporary_links(path: &Path) -> anyhow::Result<()> {

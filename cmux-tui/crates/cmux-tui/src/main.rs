@@ -1221,13 +1221,12 @@ fn run_provider_machine_client(
     local_machines: Vec<config::MachineConfig>,
     connect_external: bool,
 ) -> anyhow::Result<()> {
-    let state_root = cmux_tui_core::platform::workspace_state_dir()
-        .ok_or_else(|| anyhow::anyhow!("cannot determine durable state directory"))?;
+    let state_root = cmux_tui_core::platform::workspace_state_dir();
     let mut runtime = ProviderMachineController::connect_with(
         connector,
         local_machines,
         connect_external,
-        &state_root,
+        state_root,
     )?;
 
     let (session, label, machine_ui) = match runtime.open_selected() {

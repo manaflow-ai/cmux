@@ -1,7 +1,9 @@
 //! Dynamic machine catalog backed by a versioned external provider.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::path::{Path, PathBuf};
+#[cfg(test)]
+use std::path::Path;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::Duration;
@@ -86,7 +88,7 @@ enum ProviderNoticeIdentity {
     #[cfg(test)]
     Ephemeral(protocol::OpaqueId),
     Persisted {
-        state_root: PathBuf,
+        state_root: Option<PathBuf>,
         lease: Option<crate::provider_notice_identity::ProviderNoticeIdentityLease>,
     },
 }
@@ -98,8 +100,13 @@ impl ProviderNoticeIdentity {
             Self::Ephemeral(consumer_id) => Ok(consumer_id),
             Self::Persisted { state_root, lease } => {
                 if lease.is_none() {
-                    let acquired = crate::provider_notice_identity::acquire(state_root).map_err(
-                        |error| {
+                    let message =
+                        localization::catalog().sidebar.provider_notice_identity_unavailable;
+                    let state_root = state_root.as_deref().ok_or_else(|| {
+                        anyhow::anyhow!("cannot determine durable state directory").context(message)
+                    })?;
+                    let acquired =
+                        crate::provider_notice_identity::acquire(state_root).map_err(|error| {
                             let message = if error
                                 .downcast_ref::<crate::provider_notice_identity::ProviderNoticeIdentityInUse>()
                                 .is_some()
@@ -113,8 +120,7 @@ impl ProviderNoticeIdentity {
                                     .provider_notice_identity_unavailable
                             };
                             error.context(message)
-                        },
-                    )?;
+                        })?;
                     *lease = Some(acquired);
                 }
                 Ok(lease.as_ref().expect("notice identity lease was initialized").consumer_id())
@@ -167,7 +173,7 @@ impl ProviderMachineController {
         connector: Arc<dyn MachineProviderConnector>,
         configured: Vec<MachineConfig>,
         connect_external: bool,
-        state_root: &Path,
+        state_root: Option<PathBuf>,
     ) -> anyhow::Result<Self> {
         Ok(Self {
             provider: ProviderMachineRuntime::connect_with(connector, state_root)?,
@@ -392,11 +398,11 @@ impl ProviderMachineRuntime {
 
     pub(crate) fn connect_with(
         connector: Arc<dyn MachineProviderConnector>,
-        state_root: &Path,
+        state_root: Option<PathBuf>,
     ) -> anyhow::Result<Self> {
         Self::connect_with_notice_identity(
             connector,
-            ProviderNoticeIdentity::Persisted { state_root: state_root.to_path_buf(), lease: None },
+            ProviderNoticeIdentity::Persisted { state_root, lease: None },
         )
     }
 
@@ -408,7 +414,18 @@ impl ProviderMachineRuntime {
     ) -> anyhow::Result<Self> {
         Self::connect_with(
             Arc::new(UnixProviderConnector::new(socket_path.as_ref().to_path_buf(), token)),
-            state_root,
+            Some(state_root.to_path_buf()),
+        )
+    }
+
+    #[cfg(test)]
+    fn connect_without_state_root(
+        socket_path: impl AsRef<Path>,
+        token: protocol::BearerToken,
+    ) -> anyhow::Result<Self> {
+        Self::connect_with(
+            Arc::new(UnixProviderConnector::new(socket_path.as_ref().to_path_buf(), token)),
+            None,
         )
     }
 
@@ -2269,6 +2286,33 @@ mod tests {
                 Err(error) => panic!("accept provider connection: {error}"),
             }
         }
+    }
+
+    fn negotiate_durable_then_expect_disconnect(listener: &UnixListener) -> bool {
+        let Some(mut stream) = accept_with_timeout(listener) else { return false };
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let hello: protocol::RequestEnvelope = read_frame(&mut reader);
+        assert!(matches!(hello.request, protocol::ProviderRequest::Hello(_)));
+        write_frame(
+            &mut stream,
+            &protocol::ResponseEnvelope::success(
+                hello.id,
+                protocol::HelloResult {
+                    provider_id: id("test-provider"),
+                    provider_name: "Test Provider".into(),
+                    negotiated_version: protocol::Version,
+                },
+            )
+            .with_capabilities([protocol::DURABLE_NOTICES_CAPABILITY]),
+        );
+
+        let mut next = String::new();
+        assert_eq!(
+            reader.read_line(&mut next).unwrap(),
+            0,
+            "identity failure did not stop before durable subscription: {next}"
+        );
+        true
     }
 
     fn serve_initial_durable_snapshot(
@@ -4182,9 +4226,13 @@ mod tests {
         });
         let connector = Arc::new(UnixProviderConnector::new(socket.path.clone(), token()));
         let state_root = TestStateRoot::create("provider-reconnect");
-        let mut controller =
-            ProviderMachineController::connect_with(connector, Vec::new(), false, &state_root.path)
-                .unwrap();
+        let mut controller = ProviderMachineController::connect_with(
+            connector,
+            Vec::new(),
+            false,
+            Some(state_root.path.clone()),
+        )
+        .unwrap();
 
         let result = controller.perform_request(MachineRequest::ReconnectProvider).unwrap();
         assert!(result.replacement.is_some());
@@ -4292,9 +4340,13 @@ mod tests {
         });
         let connector = Arc::new(UnixProviderConnector::new(socket.path.clone(), token()));
         let state_root = TestStateRoot::create("provider-delete");
-        let mut controller =
-            ProviderMachineController::connect_with(connector, Vec::new(), false, &state_root.path)
-                .unwrap();
+        let mut controller = ProviderMachineController::connect_with(
+            connector,
+            Vec::new(),
+            false,
+            Some(state_root.path.clone()),
+        )
+        .unwrap();
         let machine = key_for_id(&controller.provider.keys, &id("machine-1")).unwrap();
         controller.provider.open = Some(OpenConnection {
             client: controller.provider.client.clone(),
@@ -5385,7 +5437,7 @@ mod tests {
         let socket = TestProviderSocket::bind();
         let listener = socket.listener();
         let state = TestStateRoot::create("legacy-without-identity");
-        let identity_parent = state.path.join("device");
+        let identity_parent = crate::provider_notice_identity::identity_parent(&state.path);
         std::fs::DirBuilder::new().mode(0o755).create(&identity_parent).unwrap();
         std::fs::set_permissions(&identity_parent, std::fs::Permissions::from_mode(0o755)).unwrap();
         let (release, release_connection) = mpsc::channel();
@@ -5414,39 +5466,42 @@ mod tests {
     }
 
     #[test]
+    fn legacy_provider_connects_without_a_resolvable_state_root() {
+        let socket = TestProviderSocket::bind();
+        let listener = socket.listener();
+        let (release, release_connection) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let Some(stream) = accept_with_timeout(&listener) else { return false };
+            let (stream, reader) = serve_initial_snapshot_on_stream(
+                stream,
+                snapshot(1, "Legacy", protocol::MachineStatus::Running),
+                &[],
+            );
+            release_connection.recv_timeout(Duration::from_secs(2)).unwrap();
+            drop(reader);
+            drop(stream);
+            true
+        });
+
+        let runtime = ProviderMachineRuntime::connect_without_state_root(&socket.path, token());
+        release.send(()).unwrap();
+        assert!(
+            server.join().unwrap(),
+            "legacy provider was not contacted before the missing state root was required"
+        );
+        let runtime = runtime.expect("legacy provider should not require a durable state root");
+        assert_eq!(runtime.ui_state(false).snapshot.machines[0].name, "Legacy");
+    }
+
+    #[test]
     fn unavailable_notice_identity_preserves_localized_context_after_durable_handshake() {
         let socket = TestProviderSocket::bind();
         let listener = socket.listener();
         let state = TestStateRoot::create("unavailable-identity");
-        let identity_parent = state.path.join("device");
+        let identity_parent = crate::provider_notice_identity::identity_parent(&state.path);
         std::fs::DirBuilder::new().mode(0o755).create(&identity_parent).unwrap();
         std::fs::set_permissions(&identity_parent, std::fs::Permissions::from_mode(0o755)).unwrap();
-        let server = thread::spawn(move || {
-            let Some(mut stream) = accept_with_timeout(&listener) else { return false };
-            let mut reader = BufReader::new(stream.try_clone().unwrap());
-            let hello: protocol::RequestEnvelope = read_frame(&mut reader);
-            assert!(matches!(hello.request, protocol::ProviderRequest::Hello(_)));
-            write_frame(
-                &mut stream,
-                &protocol::ResponseEnvelope::success(
-                    hello.id,
-                    protocol::HelloResult {
-                        provider_id: id("test-provider"),
-                        provider_name: "Test Provider".into(),
-                        negotiated_version: protocol::Version,
-                    },
-                )
-                .with_capabilities([protocol::DURABLE_NOTICES_CAPABILITY]),
-            );
-
-            let mut next = String::new();
-            assert_eq!(
-                reader.read_line(&mut next).unwrap(),
-                0,
-                "identity failure did not stop before durable subscription: {next}"
-            );
-            true
-        });
+        let server = thread::spawn(move || negotiate_durable_then_expect_disconnect(&listener));
 
         let error =
             ProviderMachineRuntime::connect_in_state_root(&socket.path, token(), &state.path)
@@ -5464,6 +5519,26 @@ mod tests {
             format!("{error:?}")
                 .contains("provider notice identity directory must not be accessible")
         );
+    }
+
+    #[test]
+    fn missing_notice_identity_root_uses_localized_error_after_durable_handshake() {
+        let socket = TestProviderSocket::bind();
+        let listener = socket.listener();
+        let server = thread::spawn(move || negotiate_durable_then_expect_disconnect(&listener));
+
+        let error = ProviderMachineRuntime::connect_without_state_root(&socket.path, token())
+            .err()
+            .expect("missing identity root unexpectedly connected");
+        assert!(
+            server.join().unwrap(),
+            "durable capability was not negotiated before the missing state root was required"
+        );
+        assert_eq!(
+            error.to_string(),
+            localization::catalog().sidebar.provider_notice_identity_unavailable
+        );
+        assert!(format!("{error:?}").contains("cannot determine durable state directory"));
     }
 
     #[test]
@@ -5546,7 +5621,10 @@ mod tests {
             .recv_timeout(Duration::from_secs(2))
             .expect("second runtime did not fail before subscribing")
             .expect_err("second runtime unexpectedly acquired the shared notice cursor");
-        assert!(blocked_error.contains("already running"));
+        assert_eq!(
+            blocked_error,
+            localization::catalog().sidebar.provider_connection_already_running
+        );
         blocked.join().unwrap();
         assert!(consumer_ids.try_recv().is_err());
 
