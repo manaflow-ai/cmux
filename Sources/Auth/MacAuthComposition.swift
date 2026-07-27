@@ -22,6 +22,8 @@ struct MacAuthComposition {
     let callbackRouter: AuthCallbackRouter
     /// The token store the Stack client persists through.
     let tokenStore: any StackAuthTokenStoreProtocol
+    /// Bridges the native Stack session into explicitly opened cmux web panes.
+    let browserAppSession: BrowserAppSessionController
 
     /// Build the auth graph.
     /// - Parameters:
@@ -138,6 +140,12 @@ struct MacAuthComposition {
             launch: launch
         )
         self.coordinator = coordinator
+        let browserAppSession = BrowserAppSessionController(
+            coordinator: coordinator,
+            webOrigin: AuthEnvironment.appWebOrigin,
+            projectID: stackProjectID
+        )
+        self.browserAppSession = browserAppSession
         let callbackRouter = AuthCallbackRouter(
             extraAllowedScheme: AuthEnvironment.callbackScheme
         )
@@ -158,6 +166,7 @@ struct MacAuthComposition {
                     accessToken: accessToken,
                     refreshToken: refreshToken
                 )
+                await browserAppSession.clearCmuxWebSession()
             }
         )
     }

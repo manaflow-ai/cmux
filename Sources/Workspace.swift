@@ -3687,6 +3687,59 @@ final class Workspace: Identifiable, ObservableObject {
 #endif
             _ = self.closePanel(browserPanel.id, force: true)
         }
+        browserPanel.openAppLinkInBrowserSplit = { [weak self, weak browserPanel] url in
+            guard let self, let browserPanel else { return false }
+            return self.openAppLinkInBrowserSplit(url, from: browserPanel)
+        }
+    }
+
+    private func openAppLinkInBrowserSplit(
+        _ destinationURL: URL,
+        from sourcePanel: BrowserPanel
+    ) -> Bool {
+        guard BrowserAvailabilitySettings.isEnabled(),
+              let mountedSource = panels[sourcePanel.id] as? BrowserPanel,
+              mountedSource === sourcePanel else {
+            return false
+        }
+
+        Task { @MainActor [weak self, weak sourcePanel] in
+            guard let self, let sourcePanel,
+                  let mountedSource = self.panels[sourcePanel.id] as? BrowserPanel,
+                  mountedSource === sourcePanel else {
+                return
+            }
+            let request = await AppDelegate.shared?.auth?.browserAppSession.request(
+                destinationURL: destinationURL,
+                profileID: sourcePanel.profileID
+            ) ?? URLRequest(url: destinationURL)
+
+            guard let currentSource = self.panels[sourcePanel.id] as? BrowserPanel,
+                  currentSource === sourcePanel else {
+                return
+            }
+            if let targetPane = self.preferredRightSideTargetPane(
+                fromPanelId: sourcePanel.id
+            ), self.newBrowserSurface(
+                inPane: targetPane,
+                initialRequest: request,
+                focus: true,
+                preferredProfileID: sourcePanel.profileID
+            ) != nil {
+                return
+            }
+            if self.newBrowserSplit(
+                from: sourcePanel.id,
+                orientation: .horizontal,
+                initialRequest: request,
+                preferredProfileID: sourcePanel.profileID,
+                focus: true
+            ) != nil {
+                return
+            }
+            _ = NSWorkspace.shared.open(destinationURL)
+        }
+        return true
     }
 
     private func triggerWorkspacePaneFlash(panelId: UUID, reason: WorkspaceAttentionFlashReason) {
@@ -7656,6 +7709,7 @@ final class Workspace: Identifiable, ObservableObject {
         orientation: SplitOrientation,
         insertFirst: Bool = false,
         url: URL? = nil,
+        initialRequest: URLRequest? = nil,
         preferredProfileID: UUID? = nil,
         focus: Bool = true,
         creationPolicy: BrowserPanelCreationPolicy = .userInitiated,
@@ -7669,8 +7723,8 @@ final class Workspace: Identifiable, ObservableObject {
         if isRemoteTmuxMirror { return nil }
         let browserEnabled = BrowserAvailabilitySettings.isEnabled()
         guard browserEnabled || creationPolicy.permitsCreationWhenBrowserDisabled else {
-            if let url {
-                _ = NSWorkspace.shared.open(url)
+            if let externalURL = url ?? initialRequest?.url {
+                _ = NSWorkspace.shared.open(externalURL)
             }
             return nil
         }
@@ -7696,6 +7750,7 @@ final class Workspace: Identifiable, ObservableObject {
                 sourcePanelId: panelId
             ),
             initialURL: url,
+            initialRequest: initialRequest,
             renderInitialNavigation: browserEnabled || creationPolicy != .restoration,
             preloadInitialNavigationInBackground: creationPolicy.preloadsInitialNavigationInBackground,
             omnibarVisible: omnibarVisible,

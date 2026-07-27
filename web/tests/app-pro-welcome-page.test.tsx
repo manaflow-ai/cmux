@@ -41,7 +41,10 @@ describe("app pro welcome page", () => {
     expect(html).toContain(
       'href="/dashboard/testflight?cmux_open_in_browser=split-right"',
     );
-    expect(html).toContain('href="/dashboard/billing"');
+    expect(html).toContain(
+      'href="/dashboard/billing?cmux_open_in_browser=split-right"',
+    );
+    expect(html).toContain('rel="noopener" target="_blank"');
     expect(html).toContain(
       'class="mt-2 text-sm leading-5 text-muted">See your plan, invoices, and cancellation.',
     );
