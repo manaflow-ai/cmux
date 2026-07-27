@@ -241,6 +241,14 @@ impl BrowserInputKind {
         }
     }
 
+    fn is_key_down(&self) -> bool {
+        matches!(self, BrowserInputKind::Key { event_type: "keyDown", .. })
+    }
+
+    fn is_key_up(&self) -> bool {
+        matches!(self, BrowserInputKind::Key { event_type: "keyUp", .. })
+    }
+
     fn resize_dimensions(&self) -> Option<(u16, u16)> {
         match self {
             BrowserInputKind::Resize { cols, rows, .. } => Some((*cols, *rows)),
@@ -308,6 +316,7 @@ struct SurfaceInputLane {
     order: Arc<Mutex<BrowserEnqueueOrder>>,
     latest_resizes: Arc<Mutex<HashMap<(SurfaceId, u64), SequencedBrowserInputEvent>>>,
     retained_releases: Arc<Mutex<Vec<SequencedBrowserInputEvent>>>,
+    retained_atomic_events: Arc<Mutex<Vec<SequencedBrowserInputEvent>>>,
     surface_lifetimes: Mutex<HashMap<SurfaceId, Arc<AtomicBool>>>,
     queued_count: AtomicUsize,
 }
@@ -316,6 +325,7 @@ struct SurfaceInputLane {
 pub(crate) struct BlockedBrowserInput {
     rx: Receiver<SequencedBrowserInputEvent>,
     retained_releases: Arc<Mutex<Vec<SequencedBrowserInputEvent>>>,
+    retained_atomic_events: Arc<Mutex<Vec<SequencedBrowserInputEvent>>>,
 }
 
 #[cfg(test)]
@@ -326,6 +336,7 @@ impl BlockedBrowserInput {
             pending.push(event);
         }
         pending.append(&mut self.retained_releases.lock().unwrap());
+        pending.append(&mut self.retained_atomic_events.lock().unwrap());
         pending.sort_unstable_by_key(|event| event.sequence);
         let mut events = Vec::new();
         for event in pending {
@@ -340,6 +351,15 @@ impl BlockedBrowserInput {
 #[cfg(test)]
 impl BlockedBrowserInput {
     pub(crate) fn recv_timeout(&self, timeout: Duration) -> Option<BrowserInputEvent> {
+        let mut retained = self.retained_atomic_events.lock().unwrap();
+        if let Ok(event) = self.rx.try_recv() {
+            retained.push(event);
+            retained.sort_unstable_by_key(|event| event.sequence);
+        }
+        if !retained.is_empty() {
+            return Some(retained.remove(0).event);
+        }
+        drop(retained);
         self.rx.recv_timeout(timeout).ok().map(|event| event.event)
     }
 }
@@ -381,6 +401,12 @@ impl BrowserInputDispatcher {
         )
     }
 
+    fn evict_idle_lane(lanes: &mut HashMap<SurfaceId, Arc<ScheduledSurfaceInputLane>>) -> bool {
+        let idle_surface =
+            lanes.iter().find_map(|(surface_id, lane)| lane.is_evictable().then_some(*surface_id));
+        idle_surface.is_some_and(|surface_id| lanes.remove(&surface_id).is_some())
+    }
+
     /// Queue an event without blocking. A full queue retains releases and
     /// the latest resize per surface and input-delimited run, and drops
     /// other input.
@@ -404,7 +430,10 @@ impl BrowserInputDispatcher {
             if is_release && !lanes.contains_key(&surface_id) {
                 return false;
             }
-            if !lanes.contains_key(&surface_id) && lanes.len() >= MAX_BROWSER_INPUT_SURFACES {
+            if !lanes.contains_key(&surface_id)
+                && lanes.len() >= MAX_BROWSER_INPUT_SURFACES
+                && !Self::evict_idle_lane(&mut lanes)
+            {
                 return false;
             }
             if !scheduler.try_reserve_event(retained_bytes, is_release) {
@@ -426,6 +455,51 @@ impl BrowserInputDispatcher {
             scheduler.release_admission(retained_bytes);
         }
         outcome.accepted
+    }
+
+    /// Queue a synthesized key-down/key-up pair atomically. The pair is
+    /// rejected as a whole under global backpressure, and once accepted its
+    /// key-up remains retained with the key-down.
+    pub(crate) fn enqueue_key_press(
+        &self,
+        key_down: BrowserInputEvent,
+        key_up: BrowserInputEvent,
+    ) -> bool {
+        if key_down.surface_id != key_up.surface_id
+            || !key_down.kind.is_key_down()
+            || !key_up.kind.is_key_up()
+        {
+            return false;
+        }
+        #[cfg(test)]
+        if let Some(lane) = &self.blocked_lane {
+            return lane.enqueue_atomic_pair(key_down, key_up);
+        }
+        let surface_id = key_down.surface_id;
+        let key_down_bytes = key_down.retained_bytes();
+        let key_up_bytes = key_up.retained_bytes();
+        let retained_bytes = key_down_bytes.saturating_add(key_up_bytes);
+        let scheduler = self.scheduler.as_ref().expect("production browser input has a scheduler");
+        let lane = {
+            let mut lanes = self.lanes.lock().unwrap();
+            if !lanes.contains_key(&surface_id)
+                && lanes.len() >= MAX_BROWSER_INPUT_SURFACES
+                && !Self::evict_idle_lane(&mut lanes)
+            {
+                return false;
+            }
+            if !scheduler.try_reserve_events(2, retained_bytes, false) {
+                return false;
+            }
+            let lane = lanes
+                .entry(surface_id)
+                .or_insert_with(|| ScheduledSurfaceInputLane::new(surface_id, QUEUE_CAPACITY))
+                .clone();
+            lane.lane.enqueue_atomic_pair_accounted(key_down, key_down_bytes, key_up, key_up_bytes);
+            lane
+        };
+        scheduler.schedule(lane);
+        true
     }
 
     pub fn resize_failed(&self, surface_id: SurfaceId, desired: (u16, u16)) -> bool {
@@ -598,12 +672,21 @@ impl BrowserInputScheduler {
     }
 
     fn try_reserve_event(&self, retained_bytes: usize, is_release: bool) -> bool {
+        self.try_reserve_events(1, retained_bytes, is_release)
+    }
+
+    fn try_reserve_events(
+        &self,
+        event_count: usize,
+        retained_bytes: usize,
+        is_release: bool,
+    ) -> bool {
         let event_limit =
             GLOBAL_QUEUE_CAPACITY + usize::from(is_release) * GLOBAL_RELEASE_RESERVE_CAPACITY;
         let byte_limit =
             GLOBAL_QUEUE_MAX_BYTES + usize::from(is_release) * GLOBAL_RELEASE_RESERVE_MAX_BYTES;
         let mut admission = self.admission.lock().unwrap();
-        let next_events = admission.queued_events.saturating_add(1);
+        let next_events = admission.queued_events.saturating_add(event_count);
         let next_bytes = admission.retained_bytes.saturating_add(retained_bytes);
         if next_events > event_limit || next_bytes > byte_limit {
             return false;
@@ -671,6 +754,13 @@ impl ScheduledSurfaceInputLane {
         self.lane.queued_count.load(Ordering::Acquire) > 0
     }
 
+    fn is_evictable(&self) -> bool {
+        if self.scheduled.load(Ordering::Acquire) || self.has_pending() {
+            return false;
+        }
+        self.lane.order.lock().unwrap().accepted_pointer_presses.is_empty()
+    }
+
     fn retire(self: &Arc<Self>, scheduler: &BrowserInputScheduler, surface_id: SurfaceId) {
         self.retired.store(true, Ordering::Release);
         let canceled_fallbacks = self.lane.cancel_surface(surface_id);
@@ -691,26 +781,18 @@ impl ScheduledSurfaceInputLane {
         let order = self.lane.order.lock().unwrap();
         let mut pending = self.pending.lock().unwrap();
         let rx = self.rx.lock().unwrap();
-        let mut batch = pending.drain(..).collect::<Vec<_>>();
+        let mut incoming = Vec::new();
         while let Ok(event) = rx.try_recv() {
-            batch.push(event);
+            incoming.push(event);
         }
         let latest = std::mem::take(&mut *self.lane.latest_resizes.lock().unwrap());
         let releases = std::mem::take(&mut *self.lane.retained_releases.lock().unwrap());
-        merge_fallback_events(&mut batch, latest, releases);
+        incoming.extend(std::mem::take(&mut *self.lane.retained_atomic_events.lock().unwrap()));
+        merge_fallback_events(&mut incoming, latest, releases);
         #[cfg(test)]
-        self.examined_events.fetch_add(batch.len(), Ordering::Relaxed);
-        let mut discarded = coalesce_sequenced_browser_events(&mut batch);
-        let mut retained = VecDeque::new();
-        for event in batch {
-            if event.lifetime.load(Ordering::Acquire) {
-                discarded.push(event);
-            } else {
-                retained.push_back(event);
-            }
-        }
-        let event = retained.pop_front();
-        *pending = retained;
+        self.examined_events.fetch_add(incoming.len(), Ordering::Relaxed);
+        let discarded = append_sequenced_browser_events(&mut pending, incoming);
+        let event = pending.pop_front();
         let removed = discarded.len() + usize::from(event.is_some());
         self.lane.remove_queued_events(removed);
         drop(rx);
@@ -730,6 +812,7 @@ impl ScheduledSurfaceInputLane {
         }
         let latest = std::mem::take(&mut *self.lane.latest_resizes.lock().unwrap());
         let releases = std::mem::take(&mut *self.lane.retained_releases.lock().unwrap());
+        batch.extend(std::mem::take(&mut *self.lane.retained_atomic_events.lock().unwrap()));
         merge_fallback_events(&mut batch, latest, releases);
         let mut discarded = Vec::new();
         for event in batch {
@@ -754,6 +837,7 @@ impl SurfaceInputLane {
     ) -> (Self, Receiver<SequencedBrowserInputEvent>) {
         let (tx, rx) = sync_channel(capacity);
         let retained_releases = Arc::new(Mutex::new(Vec::new()));
+        let retained_atomic_events = Arc::new(Mutex::new(Vec::new()));
         (
             Self {
                 expected_surface_id,
@@ -761,6 +845,7 @@ impl SurfaceInputLane {
                 order: Arc::new(Mutex::new(BrowserEnqueueOrder::default())),
                 latest_resizes: Arc::new(Mutex::new(HashMap::new())),
                 retained_releases,
+                retained_atomic_events,
                 surface_lifetimes: Mutex::new(HashMap::new()),
                 queued_count: AtomicUsize::new(0),
             },
@@ -785,13 +870,63 @@ impl SurfaceInputLane {
     ) -> (Self, BlockedBrowserInput) {
         let (lane, rx) = Self::channel(expected_surface_id, capacity);
         let retained_releases = lane.retained_releases.clone();
-        (lane, BlockedBrowserInput { rx, retained_releases })
+        let retained_atomic_events = lane.retained_atomic_events.clone();
+        (lane, BlockedBrowserInput { rx, retained_releases, retained_atomic_events })
     }
 
     #[cfg(test)]
     fn enqueue(&self, event: BrowserInputEvent) -> bool {
         let retained_bytes = event.retained_bytes();
         self.enqueue_accounted(event, retained_bytes).accepted
+    }
+
+    #[cfg(test)]
+    fn enqueue_atomic_pair(&self, first: BrowserInputEvent, second: BrowserInputEvent) -> bool {
+        let first_bytes = first.retained_bytes();
+        let second_bytes = second.retained_bytes();
+        self.enqueue_atomic_pair_accounted(first, first_bytes, second, second_bytes);
+        true
+    }
+
+    fn enqueue_atomic_pair_accounted(
+        &self,
+        first: BrowserInputEvent,
+        first_bytes: usize,
+        second: BrowserInputEvent,
+        second_bytes: usize,
+    ) {
+        debug_assert_eq!(first.surface_id, second.surface_id);
+        if let Some(expected_surface_id) = self.expected_surface_id {
+            debug_assert_eq!(first.surface_id, expected_surface_id);
+        }
+        let mut order = self.order.lock().unwrap();
+        let lifetime = self
+            .surface_lifetimes
+            .lock()
+            .unwrap()
+            .entry(first.surface_id)
+            .or_insert_with(|| Arc::new(AtomicBool::new(false)))
+            .clone();
+        let first_sequence = order.next_sequence;
+        order.next_sequence = order.next_sequence.saturating_add(1);
+        let second_sequence = order.next_sequence;
+        order.next_sequence = order.next_sequence.saturating_add(1);
+        self.retained_atomic_events.lock().unwrap().extend([
+            SequencedBrowserInputEvent {
+                sequence: first_sequence,
+                event: first,
+                lifetime: lifetime.clone(),
+                retained_bytes: first_bytes,
+            },
+            SequencedBrowserInputEvent {
+                sequence: second_sequence,
+                event: second,
+                lifetime,
+                retained_bytes: second_bytes,
+            },
+        ]);
+        order.barrier_epoch = order.barrier_epoch.saturating_add(2);
+        self.queued_count.fetch_add(2, Ordering::Release);
     }
 
     fn enqueue_accounted(
@@ -1014,21 +1149,33 @@ fn coalesce_browser_events(batch: &mut Vec<BrowserInputEvent>) {
     }
 }
 
-fn coalesce_sequenced_browser_events(
-    batch: &mut Vec<SequencedBrowserInputEvent>,
+fn append_sequenced_browser_events(
+    pending: &mut VecDeque<SequencedBrowserInputEvent>,
+    incoming: Vec<SequencedBrowserInputEvent>,
 ) -> Vec<SequencedBrowserInputEvent> {
+    debug_assert!(
+        pending
+            .back()
+            .zip(incoming.first())
+            .is_none_or(|(previous, next)| previous.sequence <= next.sequence)
+    );
     let mut discarded = Vec::new();
-    let mut index = 0;
-    while index + 1 < batch.len() {
-        let current = &batch[index].event;
-        let next = &batch[index + 1].event;
-        let same_coalescing_kind = (current.kind.is_mouse_move() && next.kind.is_mouse_move())
-            || (current.kind.is_resize() && next.kind.is_resize());
-        if same_coalescing_kind && current.surface_id == next.surface_id {
-            discarded.push(batch.remove(index));
-        } else {
-            index += 1;
+    for event in incoming {
+        if event.lifetime.load(Ordering::Acquire) {
+            discarded.push(event);
+            continue;
         }
+        let coalesces_with_previous = pending.back().is_some_and(|previous| {
+            let current = &previous.event;
+            let next = &event.event;
+            let same_coalescing_kind = (current.kind.is_mouse_move() && next.kind.is_mouse_move())
+                || (current.kind.is_resize() && next.kind.is_resize());
+            same_coalescing_kind && current.surface_id == next.surface_id
+        });
+        if coalesces_with_previous {
+            discarded.push(pending.pop_back().expect("pending event exists"));
+        }
+        pending.push_back(event);
     }
     discarded
 }
@@ -1209,6 +1356,21 @@ mod tests {
             surface_id: surface,
             surface: SurfaceHandle::RemoteBrowserUnsupported,
             kind: BrowserInputKind::Reload,
+        }
+    }
+
+    fn key_event(surface: SurfaceId, event_type: &'static str) -> BrowserInputEvent {
+        BrowserInputEvent {
+            surface_id: surface,
+            surface: SurfaceHandle::RemoteBrowserUnsupported,
+            kind: BrowserInputKind::Key {
+                event_type,
+                key: BrowserKey::Character('j'),
+                code: "KeyJ",
+                windows_virtual_key_code: 74,
+                modifiers: 1,
+                text: None,
+            },
         }
     }
 
@@ -1481,6 +1643,36 @@ mod tests {
         assert!(
             accepted < 300,
             "blocked workers admitted an unbounded set of retained per-surface queues"
+        );
+        for release in releases {
+            let _ = release.send(());
+        }
+    }
+
+    #[test]
+    fn synthetic_key_press_is_rejected_before_a_partial_global_admission() {
+        let dispatcher = BrowserInputDispatcher::spawn(|_| {}, |_| {}).unwrap();
+        let releases = block_all_browser_input_workers(&dispatcher);
+        let (observed_tx, _observed_rx) = std::sync::mpsc::channel();
+        for index in BROWSER_INPUT_WORKER_COUNT..GLOBAL_QUEUE_CAPACITY - 1 {
+            let surface_id = index as u64 % BROWSER_INPUT_WORKER_COUNT as u64 + 1;
+            assert!(dispatcher.enqueue(BrowserInputEvent {
+                surface_id,
+                surface: SurfaceHandle::RemoteBrowserUnsupported,
+                kind: BrowserInputKind::TestProbe(observed_tx.clone()),
+            }));
+        }
+        let lane = dispatcher.lanes.lock().unwrap().get(&1).unwrap().clone();
+        let queued_before = lane.lane.queued_count.load(Ordering::Acquire);
+
+        assert!(
+            !dispatcher.enqueue_key_press(key_event(1, "keyDown"), key_event(1, "keyUp")),
+            "a two-event synthetic key press consumed the scheduler's last single slot"
+        );
+        assert_eq!(
+            lane.lane.queued_count.load(Ordering::Acquire),
+            queued_before,
+            "rejecting the pair retained a key-down without its key-up"
         );
         for release in releases {
             let _ = release.send(());

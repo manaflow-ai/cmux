@@ -11744,7 +11744,7 @@ impl App {
         let Some(modifiers) = browser_modifiers(key.modifiers) else {
             return;
         };
-        let _ = self.browser_input.enqueue(BrowserInputEvent {
+        let key_down = BrowserInputEvent {
             surface_id,
             surface: surface.clone(),
             kind: BrowserInputKind::Key {
@@ -11755,9 +11755,9 @@ impl App {
                 modifiers,
                 text,
             },
-        });
+        };
         if key.kind == KeyEventKind::Press {
-            let _ = self.browser_input.enqueue(BrowserInputEvent {
+            let key_up = BrowserInputEvent {
                 surface_id,
                 surface,
                 kind: BrowserInputKind::Key {
@@ -11768,7 +11768,10 @@ impl App {
                     modifiers,
                     text: None,
                 },
-            });
+            };
+            let _ = self.browser_input.enqueue_key_press(key_down, key_up);
+        } else {
+            let _ = self.browser_input.enqueue(key_down);
         }
     }
 
