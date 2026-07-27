@@ -536,6 +536,7 @@ impl RemoteSurface {
         })
     }
 
+    #[cfg(test)]
     pub fn browser_frame_seq(&self) -> Option<u64> {
         let browser = self.browser.lock().unwrap();
         if matches!(browser.status, BrowserStatus::Failed(_)) {

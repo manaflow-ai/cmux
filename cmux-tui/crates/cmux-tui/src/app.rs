@@ -8162,9 +8162,9 @@ impl App {
                     let Some(expected_generation) = expected_generation else {
                         return Ok(RenderAction::None);
                     };
-                    if self.session.surface(surface).and_then(|surface| surface.browser_frame_seq())
-                        != Some(expected_generation)
-                    {
+                    if !self.session.surface(surface).is_some_and(|surface| {
+                        surface.browser_accepts_pointer_frame(expected_generation)
+                    }) {
                         return Ok(RenderAction::None);
                     }
                 }

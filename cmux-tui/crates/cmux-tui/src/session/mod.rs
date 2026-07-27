@@ -1468,6 +1468,7 @@ impl SurfaceHandle {
         }
     }
 
+    #[cfg(test)]
     pub fn browser_frame_seq(&self) -> Option<u64> {
         match self {
             SurfaceHandle::Local(surface, _) => surface.browser_frame_seq(),
