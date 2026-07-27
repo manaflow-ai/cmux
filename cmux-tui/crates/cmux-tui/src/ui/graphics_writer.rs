@@ -26,6 +26,8 @@ const TERMINATE_MULTIPART_GRAPHICS: &[u8] = b"\x1b_Gq=2,m=0;\x1b\\\x1b_Ga=d,d=A,
 const OUTPUT_POLL_INTERVAL_MS: i32 = 20;
 #[cfg(unix)]
 const CONTROL_STRING_ABORT_TIMEOUT: Duration = Duration::from_millis(200);
+#[cfg(unix)]
+const GRAPHICS_SEGMENT_WRITE_TIMEOUT: Duration = Duration::from_millis(200);
 
 trait GraphicsOutput: Send + 'static {
     /// Write one complete group of Kitty APC commands. `Ok(false)` means
@@ -69,6 +71,15 @@ impl InterruptibleStdout {
     fn abort_partial_control_string(&mut self) -> io::Result<()> {
         let deadline = Instant::now() + CONTROL_STRING_ABORT_TIMEOUT;
         loop {
+            if Instant::now() >= deadline {
+                // The terminal output queue is shared with Ratatui and other
+                // descriptors. A graphics timeout may abandon this operation,
+                // but it must never flush their bytes.
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "terminal stayed blocked while canceling a partial control string",
+                ));
+            }
             let written = unsafe {
                 libc::write(self.fd.as_raw_fd(), (&CONTROL_STRING_CANCEL as *const u8).cast(), 1)
             };
@@ -85,15 +96,6 @@ impl InterruptibleStdout {
             match error.raw_os_error() {
                 Some(libc::EINTR) => continue,
                 Some(libc::EAGAIN) => {
-                    if Instant::now() >= deadline {
-                        // The terminal output queue is shared with Ratatui and
-                        // other descriptors. A graphics timeout may abandon
-                        // this operation, but it must never flush their bytes.
-                        return Err(io::Error::new(
-                            io::ErrorKind::TimedOut,
-                            "terminal stayed blocked while canceling a partial control string",
-                        ));
-                    }
                     let mut poll_fd =
                         libc::pollfd { fd: self.fd.as_raw_fd(), events: libc::POLLOUT, revents: 0 };
                     let remaining = deadline.saturating_duration_since(Instant::now());
@@ -121,12 +123,22 @@ impl GraphicsOutput for InterruptibleStdout {
     ) -> io::Result<bool> {
         let mut offset = 0;
         *emitted = 0;
+        let deadline = Instant::now() + GRAPHICS_SEGMENT_WRITE_TIMEOUT;
         while offset < bytes.len() {
             if permit.should_abort() {
                 if offset != 0 {
                     self.abort_partial_control_string()?;
                 }
                 return Ok(false);
+            }
+            if Instant::now() >= deadline {
+                if offset != 0 {
+                    self.abort_partial_control_string()?;
+                }
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "terminal stayed blocked while writing a graphics segment",
+                ));
             }
             let written = unsafe {
                 libc::write(
@@ -174,6 +186,15 @@ impl GraphicsOutput for InterruptibleStdout {
         let mut offset = 0;
         let deadline = Instant::now() + CONTROL_STRING_ABORT_TIMEOUT;
         while offset < bytes.len() {
+            if Instant::now() >= deadline {
+                if offset != 0 {
+                    let _ = self.abort_partial_control_string();
+                }
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "terminal stayed blocked while recovering a graphics command",
+                ));
+            }
             let written = unsafe {
                 libc::write(
                     self.fd.as_raw_fd(),
@@ -198,15 +219,6 @@ impl GraphicsOutput for InterruptibleStdout {
             match error.raw_os_error() {
                 Some(libc::EINTR) => continue,
                 Some(libc::EAGAIN) => {
-                    if Instant::now() >= deadline {
-                        if offset != 0 {
-                            let _ = self.abort_partial_control_string();
-                        }
-                        return Err(io::Error::new(
-                            io::ErrorKind::TimedOut,
-                            "terminal stayed blocked while recovering a multipart image",
-                        ));
-                    }
                     let mut poll_fd =
                         libc::pollfd { fd: self.fd.as_raw_fd(), events: libc::POLLOUT, revents: 0 };
                     let remaining = deadline.saturating_duration_since(Instant::now());
@@ -328,9 +340,15 @@ impl WritePermit<'_> {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct GraphicsWriterFailure {
+    pub(crate) parser_reset_required: bool,
+}
+
 #[derive(Default)]
 struct WriterControlState {
     done: bool,
+    failure: Option<GraphicsWriterFailure>,
 }
 
 #[derive(Default)]
@@ -357,7 +375,9 @@ impl WriterControl {
     }
 
     fn is_stopping(&self) -> bool {
-        self.stop_requested.load(Ordering::Acquire) || self.is_cancelled()
+        self.stop_requested.load(Ordering::Acquire)
+            || self.is_cancelled()
+            || self.failure().is_some()
     }
 
     fn is_cancelled(&self) -> bool {
@@ -367,6 +387,21 @@ impl WriterControl {
     fn mark_done(&self) {
         self.state.lock().unwrap().done = true;
         self.changed.notify_all();
+    }
+
+    fn record_failure(&self, parser_reset_required: bool) {
+        let mut state = self.state.lock().unwrap();
+        state.failure = Some(GraphicsWriterFailure {
+            parser_reset_required: state
+                .failure
+                .is_some_and(|failure| failure.parser_reset_required)
+                || parser_reset_required,
+        });
+        self.changed.notify_all();
+    }
+
+    fn failure(&self) -> Option<GraphicsWriterFailure> {
+        self.state.lock().unwrap().failure
     }
 
     fn wait_done(&self) {
@@ -471,6 +506,10 @@ impl GraphicsWriter {
             control: self.control.clone(),
             notify: self.notify.as_ref().expect("active graphics writer").clone(),
         }
+    }
+
+    pub(crate) fn failure(&self) -> Option<GraphicsWriterFailure> {
+        self.control.failure()
     }
 
     #[cfg(test)]
@@ -650,7 +689,7 @@ fn writer_loop<O>(
             break;
         }
     }
-    if !control.is_cancelled() {
+    if !control.is_cancelled() && control.failure().is_none() {
         let revision = slot.lock().unwrap().revision;
         for batch in graphics.frame_batches(&[]) {
             if !matches!(
@@ -689,6 +728,7 @@ fn write_batch<O: GraphicsOutput>(
                 control,
                 multipart_active,
                 false,
+                false,
                 BatchWriteOutcome::Stopped,
             );
         }
@@ -698,6 +738,7 @@ fn write_batch<O: GraphicsOutput>(
                 stdout_lock,
                 control,
                 multipart_active,
+                false,
                 false,
                 BatchWriteOutcome::Superseded,
             );
@@ -709,6 +750,7 @@ fn write_batch<O: GraphicsOutput>(
                 control,
                 multipart_active,
                 false,
+                true,
                 BatchWriteOutcome::Stopped,
             );
         };
@@ -723,6 +765,7 @@ fn write_batch<O: GraphicsOutput>(
                     control,
                     multipart_active,
                     false,
+                    false,
                     BatchWriteOutcome::Stopped,
                 );
             }
@@ -732,6 +775,7 @@ fn write_batch<O: GraphicsOutput>(
                     stdout_lock,
                     control,
                     multipart_active,
+                    false,
                     false,
                     BatchWriteOutcome::Superseded,
                 );
@@ -754,6 +798,7 @@ fn write_batch<O: GraphicsOutput>(
                         control,
                         multipart_active,
                         parser_reset_required,
+                        true,
                         BatchWriteOutcome::Stopped,
                     );
                 }
@@ -764,16 +809,29 @@ fn write_batch<O: GraphicsOutput>(
                         control,
                         multipart_active,
                         parser_reset_required,
+                        false,
                         BatchWriteOutcome::Superseded,
                     );
                 }
-                Ok(false) | Err(_) => {
+                Ok(false) => {
                     return finish_interrupted_batch(
                         output,
                         stdout_lock,
                         control,
                         multipart_active,
                         parser_reset_required,
+                        !control.is_cancelled(),
+                        BatchWriteOutcome::Stopped,
+                    );
+                }
+                Err(_) => {
+                    return finish_interrupted_batch(
+                        output,
+                        stdout_lock,
+                        control,
+                        multipart_active,
+                        parser_reset_required,
+                        true,
                         BatchWriteOutcome::Stopped,
                     );
                 }
@@ -787,6 +845,7 @@ fn write_batch<O: GraphicsOutput>(
                 control,
                 multipart_active,
                 false,
+                false,
                 BatchWriteOutcome::Stopped,
             );
         }
@@ -796,6 +855,7 @@ fn write_batch<O: GraphicsOutput>(
                 stdout_lock,
                 control,
                 multipart_active,
+                false,
                 false,
                 BatchWriteOutcome::Superseded,
             );
@@ -810,41 +870,49 @@ fn finish_interrupted_batch<O: GraphicsOutput>(
     control: &WriterControl,
     multipart_active: bool,
     parser_reset_required: bool,
+    writer_failed: bool,
     outcome: BatchWriteOutcome,
 ) -> BatchWriteOutcome {
     if !parser_reset_required && !multipart_active {
+        if writer_failed && !control.is_cancelled() {
+            control.record_failure(false);
+            return BatchWriteOutcome::Stopped;
+        }
         return outcome;
     }
     let _guard = stdout_lock.lock();
-    if parser_reset_required && !reset_outer_parser(output, control) {
+    let mut parser_grounded = true;
+    let mut recovery_failed = false;
+    if parser_reset_required && output.write_recovery(&[CONTROL_STRING_CANCEL]).is_err() {
+        parser_grounded = false;
+        recovery_failed = true;
+    }
+    if parser_grounded
+        && multipart_active
+        && output.write_recovery(TERMINATE_MULTIPART_GRAPHICS).is_err()
+    {
+        recovery_failed = true;
+        if output.write_recovery(&[CONTROL_STRING_CANCEL]).is_err() {
+            parser_grounded = false;
+        }
+    }
+    if writer_failed || recovery_failed {
+        if !control.is_cancelled() {
+            // Record the fatal state before releasing the shared stdout lock.
+            // A waiting Ratatui draw observes it before emitting normal bytes.
+            control.record_failure(!parser_grounded);
+        }
         return BatchWriteOutcome::Stopped;
     }
-    if !multipart_active {
-        return outcome;
-    }
-    loop {
-        match output.write_recovery(TERMINATE_MULTIPART_GRAPHICS) {
-            Ok(()) => return outcome,
-            Err(_) if control.is_cancelled() => return BatchWriteOutcome::Stopped,
-            Err(_) if !reset_outer_parser(output, control) => {
-                return BatchWriteOutcome::Stopped;
-            }
-            Err(_) => {}
-        }
-    }
+    outcome
 }
 
-fn reset_outer_parser<O: GraphicsOutput>(output: &mut O, control: &WriterControl) -> bool {
-    // The caller retains the shared stdout lock across these retries, so a
-    // later Ratatui frame cannot overtake the pending CAN. Cancellation hands
-    // recovery to the terminal restore path, which emits CAN before teardown.
-    loop {
-        match output.write_recovery(&[CONTROL_STRING_CANCEL]) {
-            Ok(()) => return true,
-            Err(_) if control.is_cancelled() => return false,
-            Err(_) => {}
-        }
-    }
+#[cfg(test)]
+fn assert_writer_failed(control: &WriterControl, expected_parser_reset_required: bool) {
+    assert_eq!(
+        control.failure(),
+        Some(GraphicsWriterFailure { parser_reset_required: expected_parser_reset_required })
+    );
 }
 
 fn multipart_state_after_complete_commands(bytes: &[u8], mut active: bool) -> bool {
@@ -1038,12 +1106,6 @@ mod tests {
 
         fn write_recovery(&mut self, bytes: &[u8]) -> io::Result<()> {
             self.recovery_attempts += 1;
-            if self.recovery_attempts == 1 {
-                return Err(io::Error::new(
-                    io::ErrorKind::TimedOut,
-                    "terminal still blocked during first recovery attempt",
-                ));
-            }
             self.bytes.extend_from_slice(bytes);
             Ok(())
         }
@@ -1834,6 +1896,7 @@ mod tests {
             write_batch(&mut output, &stdout_lock, &slot, &control, 1, command),
             BatchWriteOutcome::Stopped
         );
+        assert_writer_failed(&control, false);
         output.bytes.extend_from_slice(b"visible-after-recovery");
 
         let mut host = Terminal::new(80, 4, 0, Callbacks::default()).unwrap();
@@ -1843,10 +1906,7 @@ mod tests {
             host.viewport_text().unwrap().contains("visible-after-recovery"),
             "normal terminal output was consumed by an unterminated Kitty APC"
         );
-        assert!(
-            output.recovery_attempts >= 2,
-            "the pending parser reset was not retried after backpressure cleared"
-        );
+        assert_eq!(output.recovery_attempts, 1);
     }
 
     #[test]
@@ -1883,6 +1943,7 @@ mod tests {
             }
         };
         assert_eq!(outcome, BatchWriteOutcome::Stopped);
+        assert_writer_failed(&control, true);
         worker.join().unwrap();
     }
 

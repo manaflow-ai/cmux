@@ -5085,6 +5085,7 @@ impl App {
             // Always drain retained failures. PtyFailuresReady only shortens
             // the idle wait, so a failed try_send cannot create a lost wakeup.
             action = action.merge(self.apply_pty_failures());
+            self.ensure_graphics_writer_healthy()?;
             if self.session.take_cancellation_pending() {
                 if self.session.has_pending_mutations() {
                     self.session.defer_cancellation();
@@ -5786,6 +5787,7 @@ impl App {
         terminal: &mut RatatuiTerminal<CrosstermBackend<std::io::Stdout>>,
         action: RenderAction,
     ) -> anyhow::Result<()> {
+        self.ensure_graphics_writer_healthy()?;
         match action {
             RenderAction::Draw => {
                 let size = terminal.size()?;
@@ -6193,12 +6195,26 @@ impl App {
         }
     }
 
+    fn ensure_graphics_writer_healthy(&self) -> anyhow::Result<()> {
+        let Some(failure) = self.graphics_writer.as_ref().and_then(GraphicsWriter::failure) else {
+            return Ok(());
+        };
+        let messages = &localization::catalog().graphics;
+        let message = if failure.parser_reset_required {
+            messages.parser_recovery_failed
+        } else {
+            messages.output_failed
+        };
+        anyhow::bail!("{message}")
+    }
+
     fn draw_terminal(
         &mut self,
         terminal: &mut RatatuiTerminal<CrosstermBackend<std::io::Stdout>>,
     ) -> anyhow::Result<()> {
         let lock = self.stdout_lock.clone();
         let _guard = lock.lock();
+        self.ensure_graphics_writer_healthy()?;
         self.painted_durable_notice_this_frame = None;
         terminal.draw(|f| crate::ui::draw(self, f))?;
         if self.graphics_host_scene_reset_pending {
@@ -6552,6 +6568,7 @@ impl App {
     fn write_window_title(&self, title: &str) -> anyhow::Result<()> {
         let lock = self.stdout_lock.clone();
         let _guard = lock.lock();
+        self.ensure_graphics_writer_healthy()?;
         let mut stdout = std::io::stdout();
         stdout.write_all(&cmux_tui_core::server::window_title_osc(title))?;
         stdout.flush()?;
@@ -7204,13 +7221,17 @@ impl App {
                     } => {
                         if reconnect_required {
                             self.deferred_input.retain(|input| input.destination != Some(surface));
-                            self.status_message = Some(format!(
-                                "surface {surface} {operation} outcome is unknown; detach and reconnect before sending more input: {error}"
-                            ));
+                            self.status_message = Some(
+                                localization::catalog()
+                                    .attach
+                                    .surface_sync_unknown(surface, operation, &error),
+                            );
                         } else {
-                            self.status_message = Some(format!(
-                                "surface {surface} {operation} failed; retries are rate-limited: {error}"
-                            ));
+                            self.status_message = Some(
+                                localization::catalog()
+                                    .attach
+                                    .surface_sync_failed(surface, operation, &error),
+                            );
                         }
                     }
                     SessionMutationOutcome::SurfaceSizeReleased { surface } => {
@@ -10943,6 +10964,9 @@ impl App {
         let shape = if want_pointer { "pointer" } else { "default" };
         let lock = self.stdout_lock.clone();
         let _guard = lock.lock();
+        if self.ensure_graphics_writer_healthy().is_err() {
+            return;
+        }
         let mut stdout = std::io::stdout();
         let _ = write!(stdout, "\x1b]22;{shape}\x07");
         let _ = stdout.flush();
@@ -11571,6 +11595,9 @@ impl App {
         let encoded = base64::engine::general_purpose::STANDARD.encode(text.as_bytes());
         let lock = self.stdout_lock.clone();
         let _guard = lock.lock();
+        if self.ensure_graphics_writer_healthy().is_err() {
+            return;
+        }
         let mut stdout = std::io::stdout();
         let _ = write!(stdout, "\x1b]52;c;{encoded}\x07");
         let _ = stdout.flush();
@@ -16350,6 +16377,7 @@ mod tests {
             )
         );
 
+        app.session.pending_mutations.store(1, Ordering::Release);
         app.handle(AppEvent::SessionMutationSettled {
             outcome: super::SessionMutationOutcome::SurfaceSyncFailed {
                 surface: 77,
