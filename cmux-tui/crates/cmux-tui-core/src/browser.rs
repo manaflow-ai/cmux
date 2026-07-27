@@ -1724,7 +1724,7 @@ impl BrowserSurface {
     /// invalidation, so clients must not treat it as the latest bitmap number.
     pub fn latest_frame_seq(&self) -> Option<u64> {
         let state = self.state.lock().unwrap();
-        self.pointer_epoch_is_current_locked(&state).then_some(state.pointer_frame_seq).flatten()
+        self.exported_pointer_frame_seq_locked(&state)
     }
 
     pub fn latest_frame_update(&self) -> Option<BrowserFrameUpdate> {
@@ -1735,10 +1735,7 @@ impl BrowserSurface {
         state.latest_frame.clone().map(|frame| BrowserFrameUpdate {
             frame,
             status: state.status.clone(),
-            pointer_frame_seq: self
-                .pointer_epoch_is_current_locked(&state)
-                .then_some(state.pointer_frame_seq)
-                .flatten(),
+            pointer_frame_seq: self.exported_pointer_frame_seq_locked(&state),
         })
     }
 
@@ -1950,7 +1947,7 @@ impl BrowserSurface {
         if changed {
             state.latest_frame = None;
             Self::set_pointer_frame_locked(&mut state, None);
-            Self::set_pending_attach_frame_locked(&mut state, None);
+            self.set_pending_attach_frame_locked(&mut state, None);
             state.page_viewport = None;
             state.live_since = Some(Instant::now());
             state.last_frame_at = None;
@@ -1960,9 +1957,9 @@ impl BrowserSurface {
             && state.pending_frame_epoch.is_none_or(|pending_epoch| frame_epoch >= pending_epoch)
         {
             let accepted_navigation_epoch = state.accepted_navigation_epoch;
-            Self::accept_frame_epoch_locked(&mut state, frame_epoch, accepted_navigation_epoch);
+            self.accept_frame_epoch_locked(&mut state, frame_epoch, accepted_navigation_epoch);
         }
-        Self::mark_state_dirty_locked(&mut state);
+        self.mark_state_dirty_locked(&mut state);
     }
 
     fn fail_reconfigure(&self, queued: QueuedBrowserGeometry) -> Option<(u8, Option<Duration>)> {
@@ -1988,8 +1985,8 @@ impl BrowserSurface {
             state.pending_same_document_navigation = false;
             state.pending_frame = None;
             state.pending_navigation_rollback = None;
-            Self::mark_failed_locked(&mut state, BROWSER_RESIZE_RECOVERY_FAILED_MESSAGE);
-            Self::mark_state_dirty_locked(&mut state);
+            self.mark_failed_locked(&mut state, BROWSER_RESIZE_RECOVERY_FAILED_MESSAGE);
+            self.mark_state_dirty_locked(&mut state);
             self.dirty.store(true, Ordering::Release);
         }
         Some((attempts, retry_delay))
@@ -2072,7 +2069,14 @@ impl BrowserSurface {
         let (tx, rx) = sync_channel(1);
         let slot = Arc::new(Mutex::new(BrowserAttachUpdate::default()));
         let mut state = self.state.lock().unwrap();
-        let snapshot = browser_attach_state_locked(&state, Instant::now(), self.is_dead(), true);
+        let pointer_frame_seq = self.exported_pointer_frame_seq_locked(&state);
+        let snapshot = browser_attach_state_locked(
+            &state,
+            Instant::now(),
+            self.is_dead(),
+            true,
+            pointer_frame_seq,
+        );
         if !self.is_dead() {
             state.taps.push(BrowserFrameTap { slot: slot.clone(), notify: tx });
         }
@@ -2119,11 +2123,11 @@ impl BrowserSurface {
         if state.failed_screencast_capture_epoch == Some(frame_epoch) {
             state.failed_screencast_capture_epoch = None;
         }
-        Self::store_frame_locked(&mut state, frame);
+        self.store_frame_locked(&mut state, frame);
         true
     }
 
-    fn store_frame_locked(state: &mut BrowserState, mut frame: BrowserFrame) {
+    fn store_frame_locked(&self, state: &mut BrowserState, mut frame: BrowserFrame) {
         // Screencast frames keep streaming the previous page after a
         // failed navigation; they must not mask that failure. A fresh
         // frame does prove Chrome recovered from the worker's
@@ -2174,13 +2178,13 @@ impl BrowserSurface {
             Self::set_pointer_frame_locked(state, pointer_frame_seq);
         }
         if clears_not_responding {
-            Self::mark_state_dirty_locked(state);
+            self.mark_state_dirty_locked(state);
         }
         state.latest_frame = Some(frame.clone());
         let update = BrowserFrameUpdate {
             frame,
             status: state.status.clone(),
-            pointer_frame_seq: state.pointer_frame_seq,
+            pointer_frame_seq: self.exported_pointer_frame_seq_locked(state),
         };
         state.taps.retain(|tap| {
             tap.slot.lock().unwrap().frame = Some(update.clone());
@@ -2199,6 +2203,7 @@ impl BrowserSurface {
     }
 
     fn accept_frame_epoch_locked(
+        &self,
         state: &mut BrowserState,
         frame_epoch: u64,
         navigation_epoch: u64,
@@ -2229,7 +2234,7 @@ impl BrowserSurface {
             _ => None,
         };
         if let Some(frame) = pending {
-            Self::store_frame_locked(state, frame);
+            self.store_frame_locked(state, frame);
         }
     }
 
@@ -2252,16 +2257,16 @@ impl BrowserSurface {
         state.live_since = Some(now);
         state.last_frame_at = None;
         state.stall_nudged = false;
-        Self::mark_state_dirty_locked(&mut state);
+        self.mark_state_dirty_locked(&mut state);
         Ok(())
     }
 
-    fn mark_failed_locked(state: &mut BrowserState, message: &str) {
+    fn mark_failed_locked(&self, state: &mut BrowserState, message: &str) {
         state.status = BrowserStatus::Failed(message.to_string());
         // Failure revokes admission for new input, but does not always prove
         // that the document or its coordinate mapping changed. Preserve an
         // accepted press long enough to deliver its balancing release.
-        Self::invalidate_pointer_frame_locked(state, false);
+        self.invalidate_pointer_frame_locked(state, false);
         state.pending_navigation_rollback = None;
         state.pending_screencast_capture = None;
         state.title = format!("browser failed: {message}");
@@ -2270,8 +2275,8 @@ impl BrowserSurface {
 
     pub fn mark_failed(&self, message: String) {
         let mut state = self.state.lock().unwrap();
-        Self::mark_failed_locked(&mut state, &message);
-        Self::mark_state_dirty_locked(&mut state);
+        self.mark_failed_locked(&mut state, &message);
+        self.mark_state_dirty_locked(&mut state);
         self.dirty.store(true, Ordering::Release);
     }
 
@@ -2283,7 +2288,7 @@ impl BrowserSurface {
             // action for an exhausted resize. Let the desired geometry enter
             // a new bounded retry cycle after that lifecycle command.
             state.reconfigure_failure = None;
-            Self::mark_state_dirty_locked(&mut state);
+            self.mark_state_dirty_locked(&mut state);
         }
     }
 
@@ -2293,7 +2298,7 @@ impl BrowserSurface {
             return false;
         }
         state.title = title;
-        Self::mark_state_dirty_locked(&mut state);
+        self.mark_state_dirty_locked(&mut state);
         true
     }
 
@@ -2301,7 +2306,7 @@ impl BrowserSurface {
         let mut state = self.state.lock().unwrap();
         if state.url != url {
             state.url = url;
-            Self::mark_state_dirty_locked(&mut state);
+            self.mark_state_dirty_locked(&mut state);
             return true;
         }
         false
@@ -2313,11 +2318,13 @@ impl BrowserSurface {
         state.title = title;
         state.status = BrowserStatus::Live;
         state.stall_nudged = false;
-        Self::mark_state_dirty_locked(&mut state);
+        self.mark_state_dirty_locked(&mut state);
     }
 
-    fn mark_state_dirty_locked(state: &mut BrowserState) {
-        let snapshot = browser_attach_state_locked(state, Instant::now(), false, false);
+    fn mark_state_dirty_locked(&self, state: &mut BrowserState) {
+        let pointer_frame_seq = self.exported_pointer_frame_seq_locked(state);
+        let snapshot =
+            browser_attach_state_locked(state, Instant::now(), false, false, pointer_frame_seq);
         state.taps.retain(|tap| {
             let mut slot = tap.slot.lock().unwrap();
             if let Some(frame) = slot.frame.as_mut() {
@@ -2377,6 +2384,10 @@ impl BrowserSurface {
             && state.pending_document_epoch.is_none()
             && state.accepted_frame_epoch == self.frame_epoch.current()
             && state.accepted_navigation_epoch == self.frame_epoch.latest_navigation()
+    }
+
+    fn exported_pointer_frame_seq_locked(&self, state: &BrowserState) -> Option<u64> {
+        self.pointer_epoch_is_current_locked(state).then_some(state.pointer_frame_seq).flatten()
     }
 
     fn scale_guarded_input_point(
@@ -2460,11 +2471,15 @@ impl BrowserSurface {
         state.pointer_frame_revision = state.pointer_frame_revision.wrapping_add(1);
     }
 
-    fn set_pending_attach_frame_locked(state: &mut BrowserState, frame: Option<BrowserFrame>) {
+    fn set_pending_attach_frame_locked(
+        &self,
+        state: &mut BrowserState,
+        frame: Option<BrowserFrame>,
+    ) {
         let update = frame.map(|frame| BrowserFrameUpdate {
             frame,
             status: state.status.clone(),
-            pointer_frame_seq: state.pointer_frame_seq,
+            pointer_frame_seq: self.exported_pointer_frame_seq_locked(state),
         });
         for tap in &state.taps {
             tap.slot.lock().unwrap().frame = update.clone();
@@ -2472,6 +2487,7 @@ impl BrowserSurface {
     }
 
     fn invalidate_pointer_frame_locked(
+        &self,
         state: &mut BrowserState,
         revoke_capture: bool,
     ) -> PointerFrameInvalidation {
@@ -2483,7 +2499,7 @@ impl BrowserSurface {
         let previous_pending_same_document_navigation = state.pending_same_document_navigation;
         let previous_pending_frame = state.pending_frame.clone();
         Self::set_pointer_frame_locked(state, None);
-        Self::set_pending_attach_frame_locked(state, None);
+        self.set_pending_attach_frame_locked(state, None);
         state.pending_screencast_capture = None;
         if revoke_capture {
             state.pointer_capture_generation = state.pointer_capture_generation.wrapping_add(1);
@@ -2537,7 +2553,7 @@ impl BrowserSurface {
     ) -> PointerFrameInvalidation {
         // A targeted navigation can resolve within the current document. Keep
         // an accepted press alive until ingress proves a document replacement.
-        let invalidation = Self::invalidate_pointer_frame_locked(state, !may_be_same_document);
+        let invalidation = self.invalidate_pointer_frame_locked(state, !may_be_same_document);
         self.install_navigation_frame_transition_locked(state, may_be_same_document, invalidation)
     }
 
@@ -2554,7 +2570,7 @@ impl BrowserSurface {
         state.pending_frame = None;
         invalidation.expected_frame_epoch = Some(pending_frame_epoch);
         state.pending_navigation_rollback = Some(invalidation.clone());
-        Self::mark_state_dirty_locked(state);
+        self.mark_state_dirty_locked(state);
         invalidation
     }
 
@@ -2609,11 +2625,11 @@ impl BrowserSurface {
         let mut state = self.state.lock().unwrap();
         let pending_frame_epoch =
             state.pending_frame_epoch.unwrap_or_else(|| self.frame_epoch.current()).wrapping_add(1);
-        let mut invalidation = Self::invalidate_pointer_frame_locked(&mut state, revoke_capture);
+        let mut invalidation = self.invalidate_pointer_frame_locked(&mut state, revoke_capture);
         state.pending_frame_epoch = Some(pending_frame_epoch);
         state.pending_frame = None;
         invalidation.expected_frame_epoch = Some(pending_frame_epoch);
-        Self::mark_state_dirty_locked(&mut state);
+        self.mark_state_dirty_locked(&mut state);
         invalidation
     }
 
@@ -2623,11 +2639,11 @@ impl BrowserSurface {
         // success. A failed attempt advances it zero times, so every retry,
         // including one for replacement geometry, waits on current + 1.
         let pending_frame_epoch = self.frame_epoch.current().wrapping_add(1);
-        let mut invalidation = Self::invalidate_pointer_frame_locked(&mut state, false);
+        let mut invalidation = self.invalidate_pointer_frame_locked(&mut state, false);
         state.pending_frame_epoch = Some(pending_frame_epoch);
         state.pending_frame = None;
         invalidation.expected_frame_epoch = Some(pending_frame_epoch);
-        Self::mark_state_dirty_locked(&mut state);
+        self.mark_state_dirty_locked(&mut state);
         invalidation
     }
 
@@ -2659,7 +2675,7 @@ impl BrowserSurface {
         }
         state.pending_same_document_navigation = false;
         state.pending_navigation_rollback = None;
-        Self::invalidate_pointer_frame_locked(&mut state, !capture_revoked_at_command);
+        self.invalidate_pointer_frame_locked(&mut state, !capture_revoked_at_command);
         state.pending_document_epoch = Some(frame_epoch);
         let pending_frame_epoch = state
             .pending_frame_epoch
@@ -2668,7 +2684,7 @@ impl BrowserSurface {
             .max(state.accepted_frame_epoch);
         state.pending_frame_epoch = Some(pending_frame_epoch);
         state.pending_frame = None;
-        Self::mark_state_dirty_locked(&mut state);
+        self.mark_state_dirty_locked(&mut state);
         true
     }
 
@@ -2777,8 +2793,8 @@ impl BrowserSurface {
             state.pending_screencast_capture = None;
         }
         state.failed_screencast_capture_epoch = None;
-        Self::store_frame_locked(&mut state, frame);
-        Self::mark_state_dirty_locked(&mut state);
+        self.store_frame_locked(&mut state, frame);
+        self.mark_state_dirty_locked(&mut state);
         true
     }
 
@@ -2804,8 +2820,8 @@ impl BrowserSurface {
             state.pending_screencast_capture = None;
         }
         state.failed_screencast_capture_epoch = None;
-        Self::store_frame_locked(&mut state, frame);
-        Self::mark_state_dirty_locked(&mut state);
+        self.store_frame_locked(&mut state, frame);
+        self.mark_state_dirty_locked(&mut state);
         true
     }
 
@@ -2840,8 +2856,8 @@ impl BrowserSurface {
         state.accepted_frame_epoch = frame_epoch;
         state.pending_screencast_capture = None;
         state.failed_screencast_capture_epoch = None;
-        Self::store_frame_locked(&mut state, frame);
-        Self::mark_state_dirty_locked(&mut state);
+        self.store_frame_locked(&mut state, frame);
+        self.mark_state_dirty_locked(&mut state);
         true
     }
 
@@ -2886,13 +2902,13 @@ impl BrowserSurface {
         state.pending_same_document_navigation = false;
         state.pending_frame = None;
         state.pending_navigation_rollback = None;
-        Self::mark_failed_locked(
+        self.mark_failed_locked(
             &mut state,
             &format!(
                 "{BROWSER_NEW_PAGE_VERIFICATION_FAILED_PREFIX}{error}{BROWSER_VERIFICATION_FAILED_SUFFIX}"
             ),
         );
-        Self::mark_state_dirty_locked(&mut state);
+        self.mark_state_dirty_locked(&mut state);
         self.dirty.store(true, Ordering::Release);
     }
 
@@ -2906,13 +2922,13 @@ impl BrowserSurface {
         state.pending_same_document_navigation = false;
         state.pending_frame = None;
         state.pending_navigation_rollback = None;
-        Self::mark_failed_locked(
+        self.mark_failed_locked(
             &mut state,
             &format!(
                 "{BROWSER_UPDATED_PAGE_VERIFICATION_FAILED_PREFIX}{error}{BROWSER_VERIFICATION_FAILED_SUFFIX}"
             ),
         );
-        Self::mark_state_dirty_locked(&mut state);
+        self.mark_state_dirty_locked(&mut state);
         self.dirty.store(true, Ordering::Release);
     }
 
@@ -2944,8 +2960,8 @@ impl BrowserSurface {
         state.pending_frame = invalidation.previous_pending_frame;
         Self::set_pointer_frame_locked(&mut state, invalidation.previous);
         let retained_frame = state.latest_frame.clone();
-        Self::set_pending_attach_frame_locked(&mut state, retained_frame);
-        Self::mark_state_dirty_locked(&mut state);
+        self.set_pending_attach_frame_locked(&mut state, retained_frame);
+        self.mark_state_dirty_locked(&mut state);
     }
 
     #[cfg(test)]
@@ -3914,6 +3930,7 @@ fn browser_attach_state_locked(
     now: Instant,
     dead: bool,
     include_frame: bool,
+    pointer_frame_seq: Option<u64>,
 ) -> BrowserAttachState {
     BrowserAttachState {
         url: state.url.clone(),
@@ -3922,7 +3939,7 @@ fn browser_attach_state_locked(
         rows: state.size.1,
         status: state.status.clone(),
         frame: include_frame.then(|| state.latest_frame.clone()).flatten(),
-        pointer_frame_seq: state.pointer_frame_seq,
+        pointer_frame_seq,
         frames_stalled: frames_stalled_locked(state, now, dead),
     }
 }
@@ -8600,7 +8617,7 @@ mod tests {
             let mut state = browser.state.lock().unwrap();
             state.status = BrowserStatus::Failed("navigation failed".to_string());
             state.pointer_frame_seq = None;
-            super::BrowserSurface::mark_state_dirty_locked(&mut state);
+            browser.mark_state_dirty_locked(&mut state);
         }
 
         stream.notify.recv_timeout(Duration::from_secs(1)).unwrap();
