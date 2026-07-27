@@ -22,8 +22,8 @@ pub use kitty::{
 pub use mouse::{MouseAction, MouseButton, MouseEncoder, MouseEncoders, MouseInput};
 pub use render::{
     ATTR_BLINK, ATTR_BOLD, ATTR_FAINT, ATTR_INVERSE, ATTR_INVISIBLE, ATTR_ITALIC,
-    ATTR_STRIKETHROUGH, Cell, CellWidth, ColorSpec, CursorInfo, CursorShape, Dirty, RenderFrame,
-    RenderState, StyledRun, UnderlineStyle, rows_to_runs,
+    ATTR_STRIKETHROUGH, Cell, CellWidth, ColorSpec, CursorInfo, CursorShape, Dirty,
+    KittyGraphicsFrameDelta, RenderFrame, RenderState, StyledRun, UnderlineStyle, rows_to_runs,
 };
 pub use terminal::{
     Callbacks, ClearHistoryOutcome, KittyGraphicsLimits, KittyImageIdCursors, KittyReplayState,

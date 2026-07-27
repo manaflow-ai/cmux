@@ -18,7 +18,6 @@ import {
   RENDER_GRAPHIC_CANVAS_BACKING_BYTE_CAP,
   RENDER_GRAPHIC_CANVAS_COUNT_CAP,
   RENDER_GRAPHIC_DECODED_BYTE_CAP,
-  renderGraphicImageKey,
   renderGraphicRgbaByteLength,
   resolveRenderGraphicPlacementPlan,
   type DecodedRenderGraphicImage,
@@ -45,14 +44,14 @@ interface CandidatePriority {
 }
 
 interface RenderGraphicCandidate extends CandidatePriority {
-  image: RenderGraphicImage;
+  imageId: number;
   placement: RenderGraphicPlacementPlan;
   decodedBytes: number;
 }
 
 interface GraphicsSelection {
   placements: ReadonlySet<RenderGraphicCandidate>;
-  images: ReadonlySet<string>;
+  images: ReadonlySet<number>;
 }
 
 interface RenderedPlacement {
@@ -63,7 +62,9 @@ interface RenderedPlacement {
 
 interface ImageAdmissionMetadata {
   decodedBytes: number;
-  image: RenderGraphicImage;
+  id: number;
+  width: number;
+  height: number;
 }
 
 const EMPTY_IMAGES: readonly RenderGraphicImage[] = [];
@@ -182,7 +183,7 @@ class RenderGraphicCandidateSource {
 
   candidateFrom(
     startPosition: number,
-    rejectedImages: ReadonlySet<string>,
+    rejectedImages: ReadonlySet<number>,
   ):
     | { candidate: RenderGraphicCandidate; nextPosition: number }
     | undefined {
@@ -191,14 +192,14 @@ class RenderGraphicCandidateSource {
       const rawPlacement = this.placements[order]!;
       const image = this.images.get(rawPlacement.image_id);
       if (image === undefined) continue;
-      if (rejectedImages.has(renderGraphicImageKey(image.image))) continue;
+      if (rejectedImages.has(image.id)) continue;
       let candidate = this.candidateCache[position];
       if (candidate === undefined) {
-        const placement = planRenderGraphicPlacement(image.image, rawPlacement);
+        const placement = planRenderGraphicPlacement(image, rawPlacement);
         candidate = placement === null
           ? null
           : {
-            image: image.image,
+            imageId: image.id,
             placement,
             order,
             z: rawPlacement.z,
@@ -282,8 +283,8 @@ class GraphicsBudgetRegistry {
 
   private recalculate(): void {
     const nextPlacements = new Map<symbol, Set<RenderGraphicCandidate>>();
-    const nextImages = new Map<symbol, Set<string>>();
-    const rejectedImages = new Map<symbol, Set<string>>();
+    const nextImages = new Map<symbol, Set<number>>();
+    const rejectedImages = new Map<symbol, Set<number>>();
     for (const owner of this.candidates.keys()) {
       nextPlacements.set(owner, new Set());
       nextImages.set(owner, new Set());
@@ -314,18 +315,18 @@ class GraphicsBudgetRegistry {
       if (candidate.placement.backingBytes
         <= RENDER_GRAPHIC_CANVAS_BACKING_BYTE_CAP - backingBytes) {
         const images = nextImages.get(owner)!;
-        const imageKey = renderGraphicImageKey(candidate.image);
-        if (images.has(imageKey)
+        const imageId = candidate.imageId;
+        if (images.has(imageId)
           || candidate.decodedBytes <= RENDER_GRAPHIC_DECODED_BYTE_CAP - decodedBytes) {
           nextPlacements.get(owner)!.add(candidate);
-          if (!images.has(imageKey)) {
-            images.add(imageKey);
+          if (!images.has(imageId)) {
+            images.add(imageId);
             decodedBytes += candidate.decodedBytes;
           }
           backingBytes += candidate.placement.backingBytes;
           admitted += 1;
         } else {
-          rejectedImages.get(owner)!.add(imageKey);
+          rejectedImages.get(owner)!.add(imageId);
         }
       }
       if (admitted >= RENDER_GRAPHIC_CANVAS_COUNT_CAP) continue;
@@ -358,7 +359,7 @@ class GraphicsBudgetRegistry {
         || [...selection.placements].some((candidate) =>
           !previous.placements.has(candidate)
         )
-        || [...selection.images].some((imageKey) => !previous.images.has(imageKey));
+        || [...selection.images].some((imageId) => !previous.images.has(imageId));
       if (!changed) continue;
       this.selections.set(owner, selection);
       this.revisions.set(owner, (this.revisions.get(owner) ?? 0) + 1);
@@ -407,6 +408,43 @@ function useGraphicsResources(): RenderGraphicsResources {
 
 export function useRenderGraphicsModelBudget(): object {
   return useContext(GraphicsResourcesContext)?.modelBudget ?? defaultModelBudget;
+}
+
+function useImageAdmissionMetadata(
+  images: readonly RenderGraphicImage[],
+): ReadonlyMap<number, ImageAdmissionMetadata> {
+  const previous = useRef<ReadonlyMap<number, ImageAdmissionMetadata>>(new Map());
+  return useMemo(() => {
+    const metadata = new Map<number, ImageAdmissionMetadata>();
+    for (const image of images) {
+      const decodedBytes = renderGraphicRgbaByteLength(image);
+      if (decodedBytes !== null) {
+        metadata.set(image.id, {
+          decodedBytes,
+          id: image.id,
+          width: image.width,
+          height: image.height,
+        });
+      }
+    }
+    const retained = previous.current;
+    let unchanged = retained.size === metadata.size;
+    if (unchanged) {
+      for (const [id, candidate] of metadata) {
+        const current = retained.get(id);
+        if (current === undefined
+          || current.decodedBytes !== candidate.decodedBytes
+          || current.width !== candidate.width
+          || current.height !== candidate.height) {
+          unchanged = false;
+          break;
+        }
+      }
+    }
+    if (unchanged) return retained;
+    previous.current = metadata;
+    return metadata;
+  }, [images]);
 }
 
 function RenderGraphicCanvas({ decoded, placement }: RenderGraphicCanvasProps) {
@@ -460,14 +498,7 @@ export function RenderGraphics({
   const { budget: graphicsBudget, decoder } = useGraphicsResources();
   const owner = useRef(Symbol("render-graphics")).current;
   const images = graphics?.images ?? EMPTY_IMAGES;
-  const imageMetadata = useMemo(() => {
-    const metadata = new Map<number, ImageAdmissionMetadata>();
-    for (const image of images) {
-      const decodedBytes = renderGraphicRgbaByteLength(image);
-      if (decodedBytes !== null) metadata.set(image.id, { image, decodedBytes });
-    }
-    return metadata;
-  }, [images]);
+  const imageMetadata = useImageAdmissionMetadata(images);
   const candidateSource = useMemo(
     () => new RenderGraphicCandidateSource(
       graphics?.placements ?? EMPTY_PLACEMENTS,
@@ -490,14 +521,14 @@ export function RenderGraphics({
   );
   const selected = graphicsBudget.selected(owner);
   const admittedImages = useMemo(
-    () => images.filter((image) => selected.images.has(renderGraphicImageKey(image))),
+    () => images.filter((image) => selected.images.has(image.id)),
     [budgetRevision, images, selected],
   );
   const decodedImages = useDecodedRenderGraphicImages(decoder, owner, admittedImages);
   const placements = useMemo(() => {
     const rendered = [...selected.placements]
       .flatMap((candidate): RenderedPlacement[] => {
-        const decoded = decodedImages.get(candidate.image.id);
+        const decoded = decodedImages.get(candidate.imageId);
         return decoded === undefined
           ? []
           : [{

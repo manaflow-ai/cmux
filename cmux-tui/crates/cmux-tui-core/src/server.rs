@@ -672,6 +672,7 @@ enum Command {
         #[serde(alias = "height_px")]
         height_px: u16,
     },
+    GetCellPixels,
     BrowserMouse {
         surface: SurfaceId,
         kind: String,
@@ -4495,43 +4496,67 @@ struct RenderClientState {
     size: (u16, u16),
     default_colors: (Rgb, Rgb),
     scrollback_rows: u32,
-    graphics_snapshot: Arc<ghostty_vt::KittyGraphicsSnapshot>,
-    graphics_image_generations: HashMap<u32, u64>,
+    graphics_snapshot_id: u64,
+    graphics_image_revision: u64,
+    graphics_placement_revision: u64,
+    graphics_image_generations: Arc<[(u32, u64)]>,
 }
 
 #[cfg(test)]
 static RENDER_CLIENT_IMAGE_SCAN_COUNT: AtomicUsize = AtomicUsize::new(0);
-#[cfg(test)]
-static RENDER_CLIENT_PLACEMENT_SCAN_COUNT: AtomicUsize = AtomicUsize::new(0);
 
-fn render_client_image_generations(
-    graphics: &ghostty_vt::KittyGraphicsSnapshot,
-) -> HashMap<u32, u64> {
+fn render_client_image_delta(
+    previous: &[(u32, u64)],
+    next: &[(u32, u64)],
+) -> (HashSet<u32>, Vec<u32>) {
     #[cfg(test)]
-    RENDER_CLIENT_IMAGE_SCAN_COUNT.fetch_add(graphics.images.len(), Ordering::Relaxed);
-    graphics.images.iter().map(|image| (image.id, image.generation)).collect()
-}
-
-fn render_client_placements_changed(
-    previous: &[ghostty_vt::KittyPlacement],
-    next: &[ghostty_vt::KittyPlacement],
-) -> bool {
-    #[cfg(test)]
-    RENDER_CLIENT_PLACEMENT_SCAN_COUNT.fetch_add(previous.len().max(next.len()), Ordering::Relaxed);
-    previous != next
+    RENDER_CLIENT_IMAGE_SCAN_COUNT.fetch_add(previous.len().max(next.len()), Ordering::Relaxed);
+    let mut changed = HashSet::new();
+    let mut removed = Vec::new();
+    let (mut previous_index, mut next_index) = (0, 0);
+    while previous_index < previous.len() || next_index < next.len() {
+        match (previous.get(previous_index), next.get(next_index)) {
+            (Some(&(previous_id, previous_generation)), Some(&(next_id, next_generation))) => {
+                if previous_id < next_id {
+                    removed.push(previous_id);
+                    previous_index += 1;
+                } else if next_id < previous_id {
+                    changed.insert(next_id);
+                    next_index += 1;
+                } else {
+                    if previous_generation != next_generation {
+                        changed.insert(next_id);
+                    }
+                    previous_index += 1;
+                    next_index += 1;
+                }
+            }
+            (Some(&(previous_id, _)), None) => {
+                removed.push(previous_id);
+                previous_index += 1;
+            }
+            (None, Some(&(next_id, _))) => {
+                changed.insert(next_id);
+                next_index += 1;
+            }
+            (None, None) => break,
+        }
+    }
+    (changed, removed)
 }
 
 impl RenderClientState {
     fn new(render_service: Arc<RenderService>, frame: &SurfaceRenderFrame) -> Self {
+        let graphics_delta = &frame.frame.kitty_graphics_delta;
         Self {
             render_service,
             size: frame.frame.size,
             default_colors: frame.frame.default_colors,
             scrollback_rows: frame.scrollback_rows,
-            graphics_snapshot: frame.frame.kitty_graphics.clone(),
-            graphics_image_generations: render_client_image_generations(
-                &frame.frame.kitty_graphics,
-            ),
+            graphics_snapshot_id: graphics_delta.snapshot_id,
+            graphics_image_revision: graphics_delta.image_revision,
+            graphics_placement_revision: graphics_delta.placement_revision,
+            graphics_image_generations: graphics_delta.image_generations.clone(),
         }
     }
 
@@ -4568,27 +4593,29 @@ impl RenderClientState {
             scrollback_rows: scrollback_changed.then_some(frame.scrollback_rows),
             graphics: None,
         };
-        if !Arc::ptr_eq(&self.graphics_snapshot, &frame.frame.kitty_graphics) {
+        let graphics_delta = &frame.frame.kitty_graphics_delta;
+        if self.graphics_snapshot_id != graphics_delta.snapshot_id {
             let graphics = &frame.frame.kitty_graphics;
-            let image_generations = render_client_image_generations(graphics);
-            let upsert_image_ids = image_generations
-                .iter()
-                .filter_map(|(&id, &generation)| {
-                    (self.graphics_image_generations.get(&id) != Some(&generation)).then_some(id)
-                })
-                .collect::<HashSet<_>>();
-            let mut removed_image_ids = self
-                .graphics_image_generations
-                .keys()
-                .filter(|id| !image_generations.contains_key(id))
-                .copied()
-                .collect::<Vec<_>>();
-            removed_image_ids.sort_unstable();
+            let image_revision_changed =
+                self.graphics_image_revision != graphics_delta.image_revision;
+            let (upsert_image_ids, removed_image_ids) = if image_revision_changed
+                && graphics_delta.previous_snapshot_id == Some(self.graphics_snapshot_id)
+            {
+                (
+                    graphics_delta.changed_image_ids.iter().copied().collect::<HashSet<_>>(),
+                    graphics_delta.removed_image_ids.to_vec(),
+                )
+            } else if image_revision_changed {
+                render_client_image_delta(
+                    &self.graphics_image_generations,
+                    &graphics_delta.image_generations,
+                )
+            } else {
+                (HashSet::new(), Vec::new())
+            };
             let images_changed = !upsert_image_ids.is_empty() || !removed_image_ids.is_empty();
-            let placements_changed = render_client_placements_changed(
-                &self.graphics_snapshot.placements,
-                &graphics.placements,
-            );
+            let placements_changed =
+                self.graphics_placement_revision != graphics_delta.placement_revision;
             if images_changed || placements_changed {
                 message.graphics = Some(render_graphics_message(
                     &self.render_service,
@@ -4598,10 +4625,10 @@ impl RenderClientState {
                     placements_changed,
                 ));
             }
-            if images_changed {
-                self.graphics_image_generations = image_generations;
-            }
-            self.graphics_snapshot = frame.frame.kitty_graphics.clone();
+            self.graphics_snapshot_id = graphics_delta.snapshot_id;
+            self.graphics_image_revision = graphics_delta.image_revision;
+            self.graphics_placement_revision = graphics_delta.placement_revision;
+            self.graphics_image_generations = graphics_delta.image_generations.clone();
         }
         self.size = frame.frame.size;
         self.default_colors = frame.frame.default_colors;
@@ -5453,6 +5480,28 @@ fn handle_command_with_cancellation(
         Command::NewBrowserTab { url, pane, cols, rows } => {
             let surface = mux.new_browser_tab(url, pane, optional_surface_size(cols, rows))?;
             Ok(json!({ "surface": surface.id }))
+        }
+        Command::GetCellPixels => {
+            let (width_px, height_px) = mux.cell_pixel_creation_size();
+            let surfaces = mux.with_state(|state| {
+                state
+                    .surfaces
+                    .values()
+                    .map(|surface| {
+                        let (width_px, height_px) = surface.cell_pixel_size();
+                        json!({
+                            "surface": surface.id,
+                            "width_px": width_px,
+                            "height_px": height_px,
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            });
+            Ok(json!({
+                "width_px": width_px,
+                "height_px": height_px,
+                "surfaces": surfaces,
+            }))
         }
         Command::SetCellPixels { width_px, height_px } => {
             let update = mux.set_cell_pixel_size(width_px, height_px);
@@ -6724,6 +6773,30 @@ mod tests {
         )
     }
 
+    fn replace_render_image(
+        frame: &mut SurfaceRenderFrame,
+        image_id: u32,
+        pixels: impl Into<Arc<[u8]>>,
+    ) {
+        let graphics = Arc::make_mut(&mut frame.frame.kitty_graphics);
+        graphics.generation += 1;
+        let image = graphics.images.iter_mut().find(|image| image.id == image_id).unwrap();
+        image.generation += 1;
+        image.data = pixels.into();
+        let delta = Arc::make_mut(&mut frame.frame.kitty_graphics_delta);
+        delta.previous_snapshot_id = Some(delta.snapshot_id);
+        delta.snapshot_id = delta.snapshot_id.wrapping_add(1);
+        delta.image_revision = delta.image_revision.wrapping_add(1);
+        delta.image_generations = graphics
+            .images
+            .iter()
+            .map(|image| (image.id, image.generation))
+            .collect::<Vec<_>>()
+            .into();
+        delta.changed_image_ids = Arc::from([image_id]);
+        delta.removed_image_ids = Arc::from([]);
+    }
+
     const RED_IMAGE_41: &[u8] = b"\x1b_Ga=T,t=d,f=24,i=41,p=7,s=1,v=1,c=1,r=1,q=2;/wAA\x1b\\";
     const GREEN_IMAGE_42: &[u8] = b"\x1b_Ga=T,t=d,f=24,i=42,p=8,s=1,v=1,c=1,r=1,q=2;AP8A\x1b\\";
     const LARGE_RENDER_IMAGE_WIDTH: usize = 1_024;
@@ -7022,11 +7095,7 @@ mod tests {
         let mut render_state = RenderState::new().unwrap();
         let mut frame = render_protocol_frame(&mut terminal, &mut render_state);
         let mut client = RenderClientState::new(Arc::new(RenderService::new()), &frame);
-        let graphics = Arc::make_mut(&mut frame.frame.kitty_graphics);
-        graphics.generation += 1;
-        let image = graphics.images.iter_mut().find(|image| image.id == 41).unwrap();
-        image.generation += 1;
-        image.data = Arc::<[u8]>::from([0, 0, 255]);
+        replace_render_image(&mut frame, 41, [0, 0, 255]);
         let delta = serde_json::to_value(client.delta_message(1, &frame)).unwrap();
         let images = delta["graphics"]["images"].as_array().unwrap();
 
@@ -7043,28 +7112,55 @@ mod tests {
         terminal.vt_write(GREEN_IMAGE_42);
         let mut render_state = RenderState::new().unwrap();
         let mut frame = render_protocol_frame(&mut terminal, &mut render_state);
+        let placement_revision = frame.frame.kitty_graphics_delta.placement_revision;
         let mut client = RenderClientState::new(Arc::new(RenderService::new()), &frame);
         RENDER_CLIENT_IMAGE_SCAN_COUNT.store(0, Ordering::Relaxed);
-        RENDER_CLIENT_PLACEMENT_SCAN_COUNT.store(0, Ordering::Relaxed);
 
-        let graphics = Arc::make_mut(&mut frame.frame.kitty_graphics);
-        graphics.generation += 1;
-        let image = graphics.images.iter_mut().find(|image| image.id == 41).unwrap();
-        image.generation += 1;
-        image.data = Arc::<[u8]>::from([0, 0, 255]);
+        replace_render_image(&mut frame, 41, [0, 0, 255]);
         let delta = serde_json::to_value(client.delta_message(1, &frame)).unwrap();
 
-        assert_eq!(delta["graphics"]["images"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            delta["graphics"]["images"]
+                .as_array()
+                .unwrap_or_else(|| panic!("pixel update omitted graphics: {delta:#}"))
+                .len(),
+            1
+        );
         assert_eq!(
             RENDER_CLIENT_IMAGE_SCAN_COUNT.load(Ordering::Relaxed),
             0,
             "pixel-only animation rebuilt the complete image-generation map"
         );
         assert_eq!(
-            RENDER_CLIENT_PLACEMENT_SCAN_COUNT.load(Ordering::Relaxed),
-            0,
-            "pixel-only animation compared every placement for one render attachment"
+            frame.frame.kitty_graphics_delta.placement_revision, placement_revision,
+            "pixel-only animation changed the shared placement revision"
         );
+    }
+
+    #[test]
+    fn render_client_that_skips_a_graphics_frame_falls_back_to_one_linear_diff() {
+        let mut terminal = Terminal::new(10, 3, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(RED_IMAGE_41);
+        terminal.vt_write(GREEN_IMAGE_42);
+        let mut render_state = RenderState::new().unwrap();
+        let initial = render_protocol_frame(&mut terminal, &mut render_state);
+        let mut client = RenderClientState::new(Arc::new(RenderService::new()), &initial);
+        let mut skipped = initial;
+        replace_render_image(&mut skipped, 41, [0, 0, 255]);
+        let mut latest = skipped;
+        replace_render_image(&mut latest, 42, [255, 255, 0]);
+        RENDER_CLIENT_IMAGE_SCAN_COUNT.store(0, Ordering::Relaxed);
+
+        let delta = serde_json::to_value(client.delta_message(1, &latest)).unwrap();
+        let images = delta["graphics"]["images"].as_array().unwrap();
+
+        assert_eq!(images.len(), 2, "{delta:#}");
+        assert_eq!(
+            RENDER_CLIENT_IMAGE_SCAN_COUNT.load(Ordering::Relaxed),
+            2,
+            "a skipped frame did not use one bounded linear image diff"
+        );
+        assert!(delta["graphics"].get("placements").is_none(), "{delta:#}");
     }
 
     #[test]

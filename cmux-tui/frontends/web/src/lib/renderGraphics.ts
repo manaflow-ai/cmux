@@ -162,7 +162,7 @@ export function updateDecodedRenderGraphicImages(
 }
 
 export function planRenderGraphicPlacement(
-  image: RenderGraphicImage,
+  image: Pick<RenderGraphicImage, "id" | "width" | "height">,
   placement: RenderGraphicPlacement,
 ): RenderGraphicPlacementPlan | null {
   if (!placement.viewport_visible || placement.image_id !== image.id

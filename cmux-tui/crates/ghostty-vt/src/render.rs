@@ -150,7 +150,56 @@ pub struct RenderFrame {
     pub default_colors: (Rgb, Rgb),
     pub dirty_rows: Vec<u16>,
     pub kitty_graphics: Arc<KittyGraphicsSnapshot>,
+    pub kitty_graphics_delta: Arc<KittyGraphicsFrameDelta>,
     rows: Vec<Vec<Cell>>,
+}
+
+/// Shared change metadata computed once when a terminal graphics snapshot is
+/// produced, then reused by every render attachment.
+#[derive(Debug, Clone, Default)]
+pub struct KittyGraphicsFrameDelta {
+    pub snapshot_id: u64,
+    pub previous_snapshot_id: Option<u64>,
+    pub image_revision: u64,
+    pub placement_revision: u64,
+    pub image_generations: Arc<[(u32, u64)]>,
+    pub changed_image_ids: Arc<[u32]>,
+    pub removed_image_ids: Arc<[u32]>,
+}
+
+fn image_generation_delta(previous: &[(u32, u64)], next: &[(u32, u64)]) -> (Vec<u32>, Vec<u32>) {
+    let mut changed = Vec::new();
+    let mut removed = Vec::new();
+    let (mut previous_index, mut next_index) = (0, 0);
+    while previous_index < previous.len() || next_index < next.len() {
+        match (previous.get(previous_index), next.get(next_index)) {
+            (Some(&(previous_id, previous_generation)), Some(&(next_id, next_generation))) => {
+                if previous_id < next_id {
+                    removed.push(previous_id);
+                    previous_index += 1;
+                } else if next_id < previous_id {
+                    changed.push(next_id);
+                    next_index += 1;
+                } else {
+                    if previous_generation != next_generation {
+                        changed.push(next_id);
+                    }
+                    previous_index += 1;
+                    next_index += 1;
+                }
+            }
+            (Some(&(previous_id, _)), None) => {
+                removed.push(previous_id);
+                previous_index += 1;
+            }
+            (None, Some(&(next_id, _))) => {
+                changed.push(next_id);
+                next_index += 1;
+            }
+            (None, None) => break,
+        }
+    }
+    (changed, removed)
 }
 
 impl RenderFrame {
@@ -189,6 +238,7 @@ pub struct RenderState {
     palette: [Rgb; 256],
     default_palette: [Rgb; 256],
     kitty_graphics: Arc<KittyGraphicsSnapshot>,
+    kitty_graphics_delta: Arc<KittyGraphicsFrameDelta>,
     kitty_pixel_cache: HashMap<u64, Arc<[u8]>>,
     kitty_terminal_instance_id: Option<u64>,
     next_frame_seq: u64,
@@ -226,6 +276,7 @@ impl RenderState {
             palette: [Rgb::default(); 256],
             default_palette: [Rgb::default(); 256],
             kitty_graphics: Arc::new(KittyGraphicsSnapshot::default()),
+            kitty_graphics_delta: Arc::new(KittyGraphicsFrameDelta::default()),
             kitty_pixel_cache: HashMap::new(),
             kitty_terminal_instance_id: None,
             next_frame_seq: 0,
@@ -244,6 +295,46 @@ impl RenderState {
             &mut self.kitty_pixel_cache,
             self.kitty_terminal_instance_id != Some(terminal_instance_id),
         )? {
+            let same_terminal = self.kitty_terminal_instance_id == Some(terminal_instance_id);
+            let image_generations = graphics
+                .images
+                .iter()
+                .map(|image| (image.id, image.generation))
+                .collect::<Vec<_>>();
+            let (changed_image_ids, removed_image_ids) = if same_terminal {
+                image_generation_delta(
+                    &self.kitty_graphics_delta.image_generations,
+                    &image_generations,
+                )
+            } else {
+                let (_, removed) = image_generation_delta(
+                    &self.kitty_graphics_delta.image_generations,
+                    &image_generations,
+                );
+                (image_generations.iter().map(|(id, _)| *id).collect(), removed)
+            };
+            let image_changed = !changed_image_ids.is_empty() || !removed_image_ids.is_empty();
+            let placement_changed =
+                !same_terminal || self.kitty_graphics.placements != graphics.placements;
+            let snapshot_id = self.kitty_graphics_delta.snapshot_id.wrapping_add(1).max(1);
+            self.kitty_graphics_delta = Arc::new(KittyGraphicsFrameDelta {
+                snapshot_id,
+                previous_snapshot_id: same_terminal
+                    .then_some(self.kitty_graphics_delta.snapshot_id),
+                image_revision: if image_changed {
+                    self.kitty_graphics_delta.image_revision.wrapping_add(1)
+                } else {
+                    self.kitty_graphics_delta.image_revision
+                },
+                placement_revision: if placement_changed {
+                    self.kitty_graphics_delta.placement_revision.wrapping_add(1)
+                } else {
+                    self.kitty_graphics_delta.placement_revision
+                },
+                image_generations: image_generations.into(),
+                changed_image_ids: changed_image_ids.into(),
+                removed_image_ids: removed_image_ids.into(),
+            });
             self.kitty_graphics = Arc::new(graphics);
         }
         self.kitty_terminal_instance_id = Some(terminal_instance_id);
@@ -409,6 +500,7 @@ impl RenderState {
             default_colors,
             dirty_rows,
             kitty_graphics: self.kitty_graphics.clone(),
+            kitty_graphics_delta: self.kitty_graphics_delta.clone(),
             rows,
         })
     }
@@ -795,5 +887,21 @@ impl Drop for RenderState {
             sys::ghostty_render_state_row_iterator_free(self.rows);
             sys::ghostty_render_state_free(self.raw);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::image_generation_delta;
+
+    #[test]
+    fn image_generation_delta_is_linear_and_reports_upserts_and_removals() {
+        let previous = [(1, 10), (2, 20), (4, 40)];
+        let next = [(1, 11), (3, 30), (4, 40)];
+
+        let (changed, removed) = image_generation_delta(&previous, &next);
+
+        assert_eq!(changed, vec![1, 3]);
+        assert_eq!(removed, vec![2]);
     }
 }
