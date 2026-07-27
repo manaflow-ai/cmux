@@ -319,6 +319,8 @@ mod unix {
     static NEXT_HOST_NORMAL_CLEANUP_FAILURES: AtomicUsize = AtomicUsize::new(0);
     #[cfg(test)]
     static NEXT_HOST_PROCESS_REAPER_SPAWN_FAILURES: AtomicUsize = AtomicUsize::new(0);
+    #[cfg(test)]
+    static HOST_PROCESS_INLINE_WAITS: AtomicUsize = AtomicUsize::new(0);
 
     struct HostProcessReaper {
         sender: Sender<HostProcessReapRequest>,
@@ -520,6 +522,8 @@ mod unix {
         fn drop(&mut self) {
             if let Some(child) = self.child.as_mut() {
                 let _ = child.kill();
+                #[cfg(test)]
+                HOST_PROCESS_INLINE_WAITS.fetch_add(1, Ordering::AcqRel);
                 let _ = child.wait();
             }
         }
@@ -4155,6 +4159,24 @@ mod unix {
             let result = unsafe { libc::waitpid(pid, &raw mut status, libc::WNOHANG) };
             assert_eq!(result, -1);
             assert_eq!(std::io::Error::last_os_error().raw_os_error(), Some(libc::ECHILD));
+        }
+
+        #[test]
+        fn spawned_host_process_drop_transfers_waiting_to_the_shared_reaper() {
+            let _guard = HOST_REAP_TEST_LOCK.lock().unwrap();
+            HOST_PROCESS_INLINE_WAITS.store(0, Ordering::Release);
+            let child =
+                Command::new("/bin/sh").arg("-c").arg("exit 0").spawn().expect("spawn test child");
+            let (process, completed) = SpawnedHostProcess::new_for_test(child);
+
+            drop(process);
+
+            completed.recv_timeout(Duration::from_secs(1)).unwrap();
+            assert_eq!(
+                HOST_PROCESS_INLINE_WAITS.load(Ordering::Acquire),
+                0,
+                "dropping a launch guard waited for the child on the cancellation thread"
+            );
         }
 
         #[test]

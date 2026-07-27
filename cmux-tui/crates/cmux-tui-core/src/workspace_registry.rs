@@ -8,7 +8,7 @@
 use std::fs::{self, File, OpenOptions};
 use std::path::{Path, PathBuf};
 #[cfg(test)]
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use anyhow::Context;
 use fs4::FileExt;
@@ -179,6 +179,8 @@ pub struct WorkspaceRegistry {
     _lease: Option<SessionLease>,
     #[cfg(test)]
     terminal_snapshot_count: AtomicUsize,
+    #[cfg(test)]
+    fail_terminal_record_reads: AtomicBool,
 }
 
 impl std::fmt::Debug for WorkspaceRegistry {
@@ -307,6 +309,8 @@ impl WorkspaceRegistry {
             _lease: lease,
             #[cfg(test)]
             terminal_snapshot_count: AtomicUsize::new(0),
+            #[cfg(test)]
+            fail_terminal_record_reads: AtomicBool::new(false),
         })
     }
 
@@ -403,8 +407,17 @@ impl WorkspaceRegistry {
     /// Includes tombstones and is intended for reconciliation and idempotent
     /// close handling, not frontend materialization.
     pub fn terminal_record(&self, terminal_id: &str) -> anyhow::Result<Option<RegistryTerminal>> {
+        #[cfg(test)]
+        if self.fail_terminal_record_reads.load(Ordering::Relaxed) {
+            anyhow::bail!("forced terminal record read failure");
+        }
         validate_terminal_identity("terminal id", terminal_id)?;
         read_terminal(&self.connection, terminal_id)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_terminal_record_read_failure_for_test(&self, enabled: bool) {
+        self.fail_terminal_record_reads.store(enabled, Ordering::Relaxed);
     }
 
     pub(crate) fn terminal_ids_including_tombstones(&self) -> anyhow::Result<Vec<String>> {

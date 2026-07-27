@@ -1530,6 +1530,8 @@ pub struct Mux {
     browser_runtime_connect: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     shutdown_owner_capacity: AtomicUsize,
+    #[cfg(test)]
+    shutdown_attempt_timeout: Mutex<Option<Duration>>,
     browser_runtime: BrowserRuntimeSlot,
     cell_pixels: Mutex<(u16, u16)>,
     default_colors: Mutex<DefaultColors>,
@@ -1783,6 +1785,8 @@ impl Mux {
             browser_runtime_connect: Mutex::new(None),
             #[cfg(test)]
             shutdown_owner_capacity: AtomicUsize::new(usize::MAX),
+            #[cfg(test)]
+            shutdown_attempt_timeout: Mutex::new(None),
             browser_runtime: BrowserRuntimeSlot::default(),
             cell_pixels: Mutex::new((8, 16)),
             default_colors: Mutex::new(DefaultColors::default()),
@@ -4984,7 +4988,7 @@ impl Mux {
         self.browser_runtime.stop();
         #[cfg(unix)]
         self.request_terminal_adoption_stop();
-        let deadline = Instant::now() + crate::server::SERVER_SHUTDOWN_TIMEOUT;
+        let deadline = Instant::now() + self.shutdown_attempt_timeout();
         let Ok(_coordinator) = self.lock_shutdown_coordinator_until(deadline) else { return };
         let _ = self.surface_creations.stop_and_wait_until(deadline);
         let _ = self.async_surface_creations.stop_and_wait_until(deadline);
@@ -4998,6 +5002,19 @@ impl Mux {
         if let Some(runtime) = self.browser_runtime.take_for_shutdown() {
             let _ = runtime.shutdown_until(deadline);
         }
+    }
+
+    fn shutdown_attempt_timeout(&self) -> Duration {
+        #[cfg(test)]
+        if let Some(timeout) = *self.shutdown_attempt_timeout.lock().unwrap() {
+            return timeout;
+        }
+        crate::server::SERVER_SHUTDOWN_TIMEOUT
+    }
+
+    #[cfg(test)]
+    fn set_shutdown_attempt_timeout_for_test(&self, timeout: Duration) {
+        *self.shutdown_attempt_timeout.lock().unwrap() = Some(timeout);
     }
 
     pub fn request_shutdown(&self) {
@@ -12088,6 +12105,54 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn terminal_adoption_retries_when_the_registry_read_is_uncertain() {
+        use std::os::unix::fs::MetadataExt;
+
+        let root = std::env::temp_dir().join(format!(
+            "cmux-adoption-registry-error-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let terminal_id = TerminalId::random().unwrap().to_hex();
+        let record_path = root.join(format!("{terminal_id}.json"));
+        let record = crate::terminal_host_runtime::TerminalHostRecord {
+            record_version: 1,
+            terminal_id: terminal_id.clone(),
+            incarnation: crate::terminal_host::HostIncarnation::random().unwrap().to_hex(),
+            endpoint: format!(
+                "/tmp/cmux-th-{}/{}.sock",
+                std::fs::metadata(&root).unwrap().uid(),
+                terminal_id
+            ),
+            owner_token: "01".repeat(crate::terminal_host::CAPABILITY_TOKEN_LEN),
+            host_pid: 0,
+            host_start_nonce: String::new(),
+            workspace_key: String::new(),
+            supports_set_defaults: false,
+            supports_terminate_only: false,
+        };
+        let task = TerminalAdoptionTask {
+            options: SurfaceOptions::default(),
+            record,
+            record_path,
+            next_attempt: Instant::now(),
+            delay: Duration::from_millis(100),
+        };
+        let mux = Mux::new_for_test("adoption-registry-error", SurfaceOptions::default());
+        mux.workspace_registry.lock().unwrap().set_terminal_record_read_failure_for_test(true);
+
+        let complete = mux.try_terminal_adoption(&task);
+
+        mux.workspace_registry.lock().unwrap().set_terminal_record_read_failure_for_test(false);
+        let _ = std::fs::remove_dir_all(root);
+        assert!(
+            !complete,
+            "an uncertain registry read was treated as proof that the host should be cleaned up"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn blocked_terminal_adoption_does_not_stall_an_unrelated_terminal() {
         let options = SurfaceOptions::default();
         let mux = Mux::new_for_test("adoption-parallel-progress", options.clone());
@@ -12829,6 +12894,75 @@ mod tests {
         assert_eq!(shutdown_done_rx.recv_timeout(Duration::from_secs(1)).unwrap().unwrap(), 1);
         shutdown.join().unwrap();
         assert!(!mux.browser_runtime.has_runtime_for_test());
+    }
+
+    #[test]
+    fn daemon_exit_retries_until_async_browser_bootstrap_releases_ownership() {
+        let mux = test_mux();
+        mux.set_shutdown_attempt_timeout_for_test(Duration::from_millis(25));
+        let (bootstrap_reached_tx, bootstrap_reached_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_bootstrap_tx, release_bootstrap_rx) = std::sync::mpsc::sync_channel(1);
+        let release_bootstrap_rx = Arc::new(Mutex::new(release_bootstrap_rx));
+        *mux.browser_bootstrap_before_runtime.lock().unwrap() = Some(Arc::new({
+            move || {
+                bootstrap_reached_tx.send(()).unwrap();
+                release_bootstrap_rx.lock().unwrap().recv().unwrap();
+            }
+        }));
+        mux.new_browser_tab("about:blank".into(), None, Some((80, 24))).unwrap();
+        bootstrap_reached_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let (shutdown_done_tx, shutdown_done_rx) = std::sync::mpsc::sync_channel(1);
+        let shutdown = std::thread::spawn({
+            let mux = mux.clone();
+            move || {
+                mux.shutdown();
+                shutdown_done_tx.send(()).unwrap();
+            }
+        });
+        let finished_early = shutdown_done_rx.recv_timeout(Duration::from_millis(100)).is_ok();
+        release_bootstrap_tx.send(()).unwrap();
+        if !finished_early {
+            shutdown_done_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        }
+        shutdown.join().unwrap();
+
+        assert!(
+            !finished_early,
+            "daemon exit completed while browser bootstrap still owned in-flight work"
+        );
+        assert!(!mux.browser_runtime.has_runtime_for_test());
+    }
+
+    #[test]
+    fn daemon_exit_retains_active_local_owner_until_termination_succeeds() {
+        let mux = test_mux();
+        mux.set_shutdown_attempt_timeout_for_test(Duration::from_millis(25));
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let (failing, attempts) = surface.set_recovering_server_shutdown_for_test();
+        let (shutdown_done_tx, shutdown_done_rx) = std::sync::mpsc::sync_channel(1);
+        let shutdown = std::thread::spawn({
+            let mux = mux.clone();
+            move || {
+                mux.shutdown();
+                shutdown_done_tx.send(()).unwrap();
+            }
+        });
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while attempts.load(Ordering::Acquire) == 0 && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let retained = mux.shutdown_owners.len();
+
+        failing.store(false, Ordering::Release);
+        shutdown_done_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        shutdown.join().unwrap();
+
+        assert_eq!(
+            retained, 1,
+            "daemon exit discarded the active local process owner after termination failed"
+        );
+        assert!(mux.shutdown_owners.is_empty());
     }
 
     #[test]
