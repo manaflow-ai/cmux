@@ -721,6 +721,9 @@ fn process_snapshot(pid: libc::pid_t) -> io::Result<Option<ProcessSnapshot>> {
         return Err(io::Error::other("process metadata id mismatch"));
     }
     let fields = remainder.split_whitespace().collect::<Vec<_>>();
+    if fields.first() == Some(&"Z") {
+        return Ok(None);
+    }
     let parent = fields
         .get(1)
         .and_then(|value| value.parse::<libc::pid_t>().ok())

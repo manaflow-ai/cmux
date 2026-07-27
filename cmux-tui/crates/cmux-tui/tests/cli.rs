@@ -187,6 +187,21 @@ fn process_exists(pid: u32) -> bool {
     std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
 
+#[cfg(target_os = "linux")]
+fn process_is_active(pid: u32) -> bool {
+    let Ok(stat) = fs::read_to_string(format!("/proc/{pid}/stat")) else {
+        return false;
+    };
+    stat.rsplit_once(") ")
+        .and_then(|(_, fields)| fields.split_whitespace().next())
+        .map_or_else(|| process_exists(pid), |state| state != "Z")
+}
+
+#[cfg(all(unix, not(target_os = "linux")))]
+fn process_is_active(pid: u32) -> bool {
+    process_exists(pid)
+}
+
 #[cfg(unix)]
 fn process_group_exists(pid: u32) -> bool {
     let Ok(pid) = libc::pid_t::try_from(pid) else { return false };
@@ -1701,11 +1716,11 @@ fn server_stop_completes_when_the_last_legacy_surface_exits_with_its_server() {
     assert_success(&output);
     assert!(server.child.wait().unwrap().success());
     let deadline = Instant::now() + Duration::from_secs(5);
-    while process_exists(descendant_pid) && Instant::now() < deadline {
+    while process_is_active(descendant_pid) && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(10));
     }
     assert!(
-        !process_exists(descendant_pid),
+        !process_is_active(descendant_pid),
         "last-surface server exit leaked its captured PTY owner"
     );
 }

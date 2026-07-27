@@ -81,8 +81,25 @@ fn ensure_legacy_helper_active() -> anyhow::Result<()> {
 }
 
 #[cfg(unix)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LegacyConnectionPhase {
+    Listing,
+    Inspecting,
+    ClosingVerifiedSnapshot,
+}
+
+#[cfg(unix)]
 #[derive(Debug)]
-struct LegacyConnectionInterrupted;
+struct LegacyConnectionInterrupted {
+    phase: LegacyConnectionPhase,
+}
+
+#[cfg(unix)]
+impl LegacyConnectionInterrupted {
+    fn during(phase: LegacyConnectionPhase) -> Self {
+        Self { phase }
+    }
+}
 
 #[cfg(unix)]
 impl std::fmt::Display for LegacyConnectionInterrupted {
@@ -370,6 +387,7 @@ impl ServerLifecycle {
         let mut consecutive_empty_scans = 0;
         let mut owners = Vec::<CapturedProcessSession>::new();
         let mut owner_ids = HashSet::<libc::pid_t>::new();
+        let mut previous_snapshot_completed = false;
         for _ in 0..LEGACY_MAX_SCAN_ROUNDS {
             ensure_legacy_helper_active()?;
             if Instant::now() >= deadline {
@@ -384,13 +402,34 @@ impl ServerLifecycle {
                 deadline,
             ) {
                 Ok(closed) => closed,
-                Err(error) if error.downcast_ref::<LegacyConnectionInterrupted>().is_some() => {
-                    self.reconnect_legacy_server(expected, deadline)?;
+                Err(error) => {
+                    let Some(phase) = error
+                        .downcast_ref::<LegacyConnectionInterrupted>()
+                        .map(|error| error.phase)
+                    else {
+                        return Err(error);
+                    };
+                    let verified_exit = phase == LegacyConnectionPhase::ClosingVerifiedSnapshot
+                        || (phase == LegacyConnectionPhase::Listing && previous_snapshot_completed);
+                    if verified_exit && legacy_server_retired(expected, &self.path)? {
+                        return Ok(owners);
+                    }
+                    if let Err(reconnect_error) = self.reconnect_legacy_server(expected, deadline) {
+                        if verified_exit
+                            && wait_for_legacy_server_retirement_until(
+                                expected, &self.path, deadline,
+                            )?
+                        {
+                            return Ok(owners);
+                        }
+                        return Err(reconnect_error);
+                    }
                     consecutive_empty_scans = 0;
+                    previous_snapshot_completed = false;
                     continue;
                 }
-                Err(error) => return Err(error),
             };
+            previous_snapshot_completed = true;
             if closed == 0 {
                 consecutive_empty_scans += 1;
                 if consecutive_empty_scans == LEGACY_STABLE_EMPTY_SCANS {
@@ -436,14 +475,14 @@ impl ServerLifecycle {
     ) -> anyhow::Result<usize> {
         let list_request_id = take_legacy_request_id(next_request_id)?;
         set_transport_deadline(self.reader.get_mut().as_ref(), deadline)
-            .map_err(|_| LegacyConnectionInterrupted)?;
+            .map_err(|_| LegacyConnectionInterrupted::during(LegacyConnectionPhase::Listing))?;
         write_json_line(
             self.reader.get_mut(),
             &json!({"id": list_request_id, "cmd": "list-workspaces"}),
         )
-        .map_err(|_| LegacyConnectionInterrupted)?;
+        .map_err(|_| LegacyConnectionInterrupted::during(LegacyConnectionPhase::Listing))?;
         let response = read_response_until(&mut self.reader, list_request_id, deadline)
-            .map_err(|_| LegacyConnectionInterrupted)?;
+            .map_err(|_| LegacyConnectionInterrupted::during(LegacyConnectionPhase::Listing))?;
         let data = response_data(&response)?;
         let surfaces = legacy_surfaces(data)?;
 
@@ -452,9 +491,17 @@ impl ServerLifecycle {
             if surface.kind != "pty" {
                 anyhow::bail!(crate::localization::catalog().server.legacy_cleanup_failed);
             }
+        }
+
+        // Capture every process-backed surface before sending the first
+        // topology mutation. If the last close also exits the older server,
+        // the complete verified snapshot remains available for cleanup.
+        for surface in &surfaces {
+            ensure_legacy_helper_active()?;
             let process_request_id = take_legacy_request_id(next_request_id)?;
-            set_transport_deadline(self.reader.get_mut().as_ref(), deadline)
-                .map_err(|_| LegacyConnectionInterrupted)?;
+            set_transport_deadline(self.reader.get_mut().as_ref(), deadline).map_err(|_| {
+                LegacyConnectionInterrupted::during(LegacyConnectionPhase::Inspecting)
+            })?;
             write_json_line(
                 self.reader.get_mut(),
                 &json!({
@@ -463,10 +510,11 @@ impl ServerLifecycle {
                     "surface": surface.id,
                 }),
             )
-            .map_err(|_| LegacyConnectionInterrupted)?;
+            .map_err(|_| LegacyConnectionInterrupted::during(LegacyConnectionPhase::Inspecting))?;
             let process_response =
-                read_response_until(&mut self.reader, process_request_id, deadline)
-                    .map_err(|_| LegacyConnectionInterrupted)?;
+                read_response_until(&mut self.reader, process_request_id, deadline).map_err(
+                    |_| LegacyConnectionInterrupted::during(LegacyConnectionPhase::Inspecting),
+                )?;
             let process_data = response_data(&process_response)?;
             let pid = process_data
                 .get("pid")
@@ -487,17 +535,27 @@ impl ServerLifecycle {
             } else if !surface.dead {
                 anyhow::bail!(crate::localization::catalog().server.legacy_cleanup_failed);
             }
+        }
 
+        for surface in &surfaces {
+            ensure_legacy_helper_active()?;
             let request_id = take_legacy_request_id(next_request_id)?;
-            set_transport_deadline(self.reader.get_mut().as_ref(), deadline)
-                .map_err(|_| LegacyConnectionInterrupted)?;
+            set_transport_deadline(self.reader.get_mut().as_ref(), deadline).map_err(|_| {
+                LegacyConnectionInterrupted::during(LegacyConnectionPhase::ClosingVerifiedSnapshot)
+            })?;
             write_json_line(
                 self.reader.get_mut(),
                 &json!({"id": request_id, "cmd": "close-surface", "surface": surface.id}),
             )
-            .map_err(|_| LegacyConnectionInterrupted)?;
-            let _response = read_response_until(&mut self.reader, request_id, deadline)
-                .map_err(|_| LegacyConnectionInterrupted)?;
+            .map_err(|_| {
+                LegacyConnectionInterrupted::during(LegacyConnectionPhase::ClosingVerifiedSnapshot)
+            })?;
+            let _response =
+                read_response_until(&mut self.reader, request_id, deadline).map_err(|_| {
+                    LegacyConnectionInterrupted::during(
+                        LegacyConnectionPhase::ClosingVerifiedSnapshot,
+                    )
+                })?;
             // Older servers can commit topology removal, then report a late
             // runtime-cleanup error. Reconcile every close response against
             // subsequent authoritative workspace snapshots. A genuinely
@@ -673,6 +731,39 @@ fn verified_legacy_process(
     ProcessIdentity::capture(pid)
         .map_err(|_| anyhow::anyhow!(messages.legacy_peer_unavailable))?
         .ok_or_else(|| anyhow::anyhow!(messages.legacy_peer_mismatch))
+}
+
+#[cfg(unix)]
+fn legacy_process_exited(expected: ProcessIdentity) -> anyhow::Result<bool> {
+    let messages = &crate::localization::catalog().server;
+    match ProcessIdentity::capture(expected.pid()) {
+        Ok(None) => Ok(true),
+        Ok(Some(current)) if current == expected => Ok(false),
+        Ok(Some(_)) => Err(anyhow::anyhow!(messages.legacy_peer_mismatch)),
+        Err(_) => Err(anyhow::anyhow!(messages.legacy_peer_unavailable)),
+    }
+}
+
+#[cfg(unix)]
+fn legacy_server_retired(expected: ProcessIdentity, path: &Path) -> anyhow::Result<bool> {
+    Ok(!path.exists() && legacy_process_exited(expected)?)
+}
+
+#[cfg(unix)]
+fn wait_for_legacy_server_retirement_until(
+    expected: ProcessIdentity,
+    path: &Path,
+    deadline: Instant,
+) -> anyhow::Result<bool> {
+    loop {
+        if legacy_server_retired(expected, path)? {
+            return Ok(true);
+        }
+        let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+            return Ok(false);
+        };
+        std::thread::sleep(remaining.min(LEGACY_HELPER_POLL_INTERVAL));
+    }
 }
 
 #[cfg(all(unix, test))]
