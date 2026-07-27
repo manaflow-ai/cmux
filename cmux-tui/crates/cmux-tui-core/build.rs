@@ -9,7 +9,7 @@ use std::{ffi::OsStr, os::unix::ffi::OsStrExt};
 const FNV_OFFSET: u64 = 0xcbf29ce484222325;
 const FNV_PRIME: u64 = 0x100000001b3;
 const CMUX_TUI_SOURCE_PATHS: &[&str] = &["Cargo.toml", "Cargo.lock", "bindings/rust", "crates"];
-const GHOSTTY_SOURCE_PATHS: &[&str] = &["build.zig", "build.zig.zon", "include", "src"];
+const GHOSTTY_SOURCE_PATHS: &[&str] = &["build.zig", "build.zig.zon", "include", "pkg", "src"];
 
 fn main() {
     for name in [

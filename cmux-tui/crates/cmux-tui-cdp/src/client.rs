@@ -772,10 +772,22 @@ impl CdpClient {
             .get("targetInfos")
             .and_then(Value::as_array)
             .ok_or_else(|| anyhow::anyhow!("Target.getTargets response missing targetInfos"))?;
-        Ok(targets
+        targets
             .iter()
-            .filter_map(|target| target.get("targetId").and_then(Value::as_str).map(str::to_string))
-            .collect())
+            .enumerate()
+            .map(|(index, target)| {
+                target
+                    .get("targetId")
+                    .and_then(Value::as_str)
+                    .filter(|target_id| !target_id.is_empty())
+                    .map(str::to_string)
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "Target.getTargets targetInfos[{index}] missing a valid targetId"
+                        )
+                    })
+            })
+            .collect()
     }
 
     pub fn close_target_detached(&self, target_id: &str) -> anyhow::Result<()> {

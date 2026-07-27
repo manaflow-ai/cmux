@@ -1715,6 +1715,8 @@ impl Mux {
         let workspace_id_by_key =
             workspaces.iter().map(|workspace| (workspace.key.clone(), workspace.id)).collect();
         surface_options.browser_session_name = session.clone();
+        #[cfg(unix)]
+        crate::process_session::initialize_stable_process_signaling();
         let mux = Arc::new(Mux {
             workspace_registry: Mutex::new(registry),
             state: Mutex::new(State {

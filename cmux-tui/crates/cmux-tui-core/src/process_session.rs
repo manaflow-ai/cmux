@@ -30,6 +30,23 @@ const NATURAL_REAP_MAX_ATTEMPTS: usize = 3;
 static NATURAL_REAP_WORKERS: AtomicUsize = AtomicUsize::new(0);
 
 static NATURAL_REAPER: OnceLock<Mutex<Option<NaturalReaper>>> = OnceLock::new();
+static STABLE_PROCESS_SIGNALING: OnceLock<Result<(), StableProcessSignalingFailure>> =
+    OnceLock::new();
+
+struct StableProcessSignalingFailure {
+    kind: io::ErrorKind,
+    message: String,
+}
+
+impl StableProcessSignalingFailure {
+    fn from_error(error: io::Error) -> Self {
+        Self { kind: error.kind(), message: error.to_string() }
+    }
+
+    fn to_error(&self) -> io::Error {
+        io::Error::new(self.kind, self.message.clone())
+    }
+}
 
 #[cfg(test)]
 thread_local! {
@@ -982,6 +999,23 @@ impl StableProcessHandle {
 /// process instances before any PTY is spawned or shutdown topology mutates.
 pub fn require_stable_process_signaling() -> io::Result<()> {
     require_stable_process_signaling_until(Instant::now() + PROCESS_SESSION_PREFLIGHT_TIMEOUT)
+}
+
+/// Cache the process-level capability once per server generation. Startup,
+/// identity responses, and PTY creation share this result; shutdown still
+/// performs a fresh bounded preflight immediately before mutating topology.
+pub(crate) fn initialize_stable_process_signaling() {
+    let _ = stable_process_signaling();
+}
+
+pub(crate) fn require_cached_stable_process_signaling() -> io::Result<()> {
+    stable_process_signaling().as_ref().map_err(StableProcessSignalingFailure::to_error).copied()
+}
+
+fn stable_process_signaling() -> &'static Result<(), StableProcessSignalingFailure> {
+    STABLE_PROCESS_SIGNALING.get_or_init(|| {
+        require_stable_process_signaling().map_err(StableProcessSignalingFailure::from_error)
+    })
 }
 
 pub(crate) fn require_stable_process_signaling_until(deadline: Instant) -> io::Result<()> {
