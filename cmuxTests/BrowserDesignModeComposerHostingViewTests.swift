@@ -108,6 +108,85 @@ struct BrowserDesignModeComposerHostingViewTests {
         #expect(removedIdentity == "#hero")
     }
 
+    @Test func annotationTokenDisplaysCapturedRegionThumbnail() throws {
+        let screenshotURL = URL.temporaryDirectory
+            .appendingPathComponent("cmux-design-mode-token-\(UUID().uuidString).png")
+        defer { try? FileManager.default.removeItem(at: screenshotURL) }
+        let screenshot = try #require(
+            NSBitmapImageRep(
+                bitmapDataPlanes: nil,
+                pixelsWide: 48,
+                pixelsHigh: 32,
+                bitsPerSample: 8,
+                samplesPerPixel: 4,
+                hasAlpha: true,
+                isPlanar: false,
+                colorSpaceName: .deviceRGB,
+                bytesPerRow: 0,
+                bitsPerPixel: 0
+            )
+        )
+        for y in 0..<screenshot.pixelsHigh {
+            for x in 0..<screenshot.pixelsWide {
+                let isInk = abs(y - (x / 2 + 4)) <= 2
+                screenshot.setColor(
+                    isInk ? .magenta : NSColor(white: 0.25, alpha: 1),
+                    atX: x,
+                    y: y
+                )
+            }
+        }
+        let png = try #require(screenshot.representation(using: .png, properties: [:]))
+        try png.write(to: screenshotURL, options: .atomic)
+
+        let selection = BrowserDesignModeSelection(
+            selector: "@annotation(test-region)",
+            selectors: [],
+            color: "#1E90FF",
+            tagName: "region",
+            domSnippet: "",
+            textContent: "",
+            textEditable: false,
+            bounds: BrowserDesignModeRect(x: 10, y: 20, width: 200, height: 120),
+            viewport: BrowserDesignModeViewport(width: 800, height: 600),
+            computedStyles: [:]
+        )
+        let controller = makeController()
+        controller.annotationScreenshotPaths[selection.selector] = screenshotURL.path
+        controller.apply(
+            BrowserDesignModeSnapshot(
+                revision: 1,
+                enabled: true,
+                selection: selection,
+                edits: [],
+                cssDiff: ""
+            )
+        )
+        let host = NSHostingView(rootView: BrowserDesignModePopover(controller: controller))
+        host.frame = NSRect(x: 0, y: 0, width: 420, height: 160)
+        host.layoutSubtreeIfNeeded()
+        let rendered = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: rendered)
+
+        var foundThumbnailPixel = false
+        for y in 0..<rendered.pixelsHigh where !foundThumbnailPixel {
+            for x in 0..<rendered.pixelsWide {
+                guard let color = rendered.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { continue }
+                if color.redComponent > 0.8,
+                   color.greenComponent < 0.2,
+                   color.blueComponent > 0.8 {
+                    foundThumbnailPixel = true
+                    break
+                }
+            }
+        }
+
+        #expect(
+            foundThumbnailPixel,
+            "A drawn-region token must visibly render the ink from its captured screenshot"
+        )
+    }
+
     @Test func tokenHitTestingResolvesOnlyTheGlyphUnderThePointer() throws {
         let selection = BrowserDesignModeSelection(
             selector: "#hero",
