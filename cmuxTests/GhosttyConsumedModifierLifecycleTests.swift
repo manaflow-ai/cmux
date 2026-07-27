@@ -66,7 +66,7 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
 
         var capturedEvents: [CapturedGhosttyKeyIdentityEvent] = []
         GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
-            guard keyEvent.keycode == 45 else { return }
+            guard keyEvent.keycode == 0 else { return }
             capturedEvents.append(CapturedGhosttyKeyIdentityEvent(
                 action: keyEvent.action,
                 text: keyEvent.text.map { String(cString: $0) },
@@ -78,14 +78,14 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
         let press = try XCTUnwrap(NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
-            modifierFlags: [.option],
+            modifierFlags: [.shift],
             timestamp: timestamp,
             windowNumber: window.windowNumber,
             context: nil,
-            characters: "ñ",
-            charactersIgnoringModifiers: "n",
+            characters: "A",
+            charactersIgnoringModifiers: "a",
             isARepeat: false,
-            keyCode: 45
+            keyCode: 0
         ))
         let repeatEvent = try XCTUnwrap(NSEvent.keyEvent(
             with: .keyDown,
@@ -94,10 +94,10 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
             timestamp: timestamp + 0.1,
             windowNumber: window.windowNumber,
             context: nil,
-            characters: "n",
-            charactersIgnoringModifiers: "n",
+            characters: "a",
+            charactersIgnoringModifiers: "a",
             isARepeat: true,
-            keyCode: 45
+            keyCode: 0
         ))
         let release = try XCTUnwrap(NSEvent.keyEvent(
             with: .keyUp,
@@ -106,10 +106,10 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
             timestamp: timestamp + 0.2,
             windowNumber: window.windowNumber,
             context: nil,
-            characters: "n",
-            charactersIgnoringModifiers: "n",
+            characters: "a",
+            charactersIgnoringModifiers: "a",
             isARepeat: false,
-            keyCode: 45
+            keyCode: 0
         ))
 
         window.makeFirstResponder(view)
@@ -122,24 +122,24 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
         XCTAssertEqual(capturedEvents.count, 3)
         guard capturedEvents.count == 3 else { return }
         XCTAssertEqual(capturedEvents[0].action, GHOSTTY_ACTION_PRESS)
-        XCTAssertEqual(capturedEvents[0].text, "ñ")
-        XCTAssertEqual(capturedEvents[0].consumedModifiers, GHOSTTY_MODS_ALT.rawValue)
+        XCTAssertEqual(capturedEvents[0].text, "A")
+        XCTAssertEqual(capturedEvents[0].consumedModifiers, GHOSTTY_MODS_SHIFT.rawValue)
         XCTAssertEqual(capturedEvents[1].action, GHOSTTY_ACTION_REPEAT)
         XCTAssertEqual(
             capturedEvents[1].text,
-            "ñ",
+            "A",
             "A repeat must keep the initial press text after translation changes"
         )
         XCTAssertEqual(
             capturedEvents[1].consumedModifiers,
-            GHOSTTY_MODS_ALT.rawValue,
+            GHOSTTY_MODS_SHIFT.rawValue,
             "A repeat must keep the modifiers that produced its retained text"
         )
         XCTAssertEqual(capturedEvents[2].action, GHOSTTY_ACTION_RELEASE)
         XCTAssertNil(capturedEvents[2].text)
         XCTAssertEqual(
             capturedEvents[2].consumedModifiers,
-            GHOSTTY_MODS_ALT.rawValue,
+            GHOSTTY_MODS_SHIFT.rawValue,
             "A release must carry the same physical-key identity as its press"
         )
     }
