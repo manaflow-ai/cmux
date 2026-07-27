@@ -21,6 +21,7 @@ pub type StdoutLock = ReentrantMutex<()>;
 const MAX_LOCKED_GRAPHICS_WRITE_BYTES: usize = 64 * 1024;
 const CONTROL_STRING_CANCEL: u8 = 0x18;
 const DELETE_ALL_GRAPHICS: &[u8] = b"\x1b_Ga=d,d=A,q=2;\x1b\\";
+const TERMINATE_MULTIPART_GRAPHICS: &[u8] = b"\x1b_Gq=2,m=0;\x1b\\\x1b_Ga=d,d=A,q=2;\x1b\\";
 #[cfg(unix)]
 const OUTPUT_POLL_INTERVAL_MS: i32 = 20;
 #[cfg(unix)]
@@ -29,8 +30,18 @@ const CONTROL_STRING_ABORT_TIMEOUT: Duration = Duration::from_millis(200);
 trait GraphicsOutput: Send + 'static {
     /// Write one complete group of Kitty APC commands. `Ok(false)` means
     /// cancellation or snapshot supersession won before the complete group
-    /// was emitted.
-    fn write_segment(&mut self, bytes: &[u8], permit: &WritePermit<'_>) -> io::Result<bool>;
+    /// was emitted. `emitted` reports accepted bytes even when the write
+    /// stops early, so completed multipart chunks can still be recovered.
+    fn write_segment(
+        &mut self,
+        bytes: &[u8],
+        permit: &WritePermit<'_>,
+        emitted: &mut usize,
+    ) -> io::Result<bool>;
+
+    /// Write protocol recovery bytes without honoring the permit that caused
+    /// the interruption. Production implementations must keep this bounded.
+    fn write_recovery(&mut self, bytes: &[u8]) -> io::Result<()>;
 }
 
 #[cfg(unix)]
@@ -111,8 +122,14 @@ impl InterruptibleStdout {
 
 #[cfg(unix)]
 impl GraphicsOutput for InterruptibleStdout {
-    fn write_segment(&mut self, bytes: &[u8], permit: &WritePermit<'_>) -> io::Result<bool> {
+    fn write_segment(
+        &mut self,
+        bytes: &[u8],
+        permit: &WritePermit<'_>,
+        emitted: &mut usize,
+    ) -> io::Result<bool> {
         let mut offset = 0;
+        *emitted = 0;
         while offset < bytes.len() {
             if permit.should_abort() {
                 if offset != 0 {
@@ -129,6 +146,7 @@ impl GraphicsOutput for InterruptibleStdout {
             };
             if written > 0 {
                 offset += written as usize;
+                *emitted = offset;
                 continue;
             }
             if written == 0 {
@@ -160,6 +178,78 @@ impl GraphicsOutput for InterruptibleStdout {
         }
         Ok(true)
     }
+
+    fn write_recovery(&mut self, bytes: &[u8]) -> io::Result<()> {
+        let mut offset = 0;
+        let mut deadline = Instant::now() + CONTROL_STRING_ABORT_TIMEOUT;
+        let mut output_flushed = false;
+        while offset < bytes.len() {
+            let written = unsafe {
+                libc::write(
+                    self.fd.as_raw_fd(),
+                    bytes[offset..].as_ptr().cast(),
+                    bytes.len() - offset,
+                )
+            };
+            if written > 0 {
+                offset += written as usize;
+                continue;
+            }
+            if written == 0 {
+                if offset != 0 {
+                    let _ = self.abort_partial_control_string();
+                }
+                return Err(io::Error::new(
+                    io::ErrorKind::WriteZero,
+                    "terminal accepted zero recovery bytes",
+                ));
+            }
+            let error = io::Error::last_os_error();
+            match error.raw_os_error() {
+                Some(libc::EINTR) => continue,
+                Some(libc::EAGAIN) => {
+                    if Instant::now() >= deadline {
+                        if output_flushed
+                            || unsafe { libc::tcflush(self.fd.as_raw_fd(), libc::TCOFLUSH) } != 0
+                        {
+                            if offset != 0 {
+                                let _ = self.abort_partial_control_string();
+                            }
+                            return Err(io::Error::new(
+                                io::ErrorKind::TimedOut,
+                                "terminal stayed blocked while recovering a multipart image",
+                            ));
+                        }
+                        output_flushed = true;
+                        self.abort_partial_control_string()?;
+                        offset = 0;
+                        deadline = Instant::now() + CONTROL_STRING_ABORT_TIMEOUT;
+                        continue;
+                    }
+                    let mut poll_fd =
+                        libc::pollfd { fd: self.fd.as_raw_fd(), events: libc::POLLOUT, revents: 0 };
+                    let remaining = deadline.saturating_duration_since(Instant::now());
+                    let poll_ms = remaining
+                        .min(Duration::from_millis(OUTPUT_POLL_INTERVAL_MS as u64))
+                        .as_millis() as i32;
+                    let ready = unsafe { libc::poll(&mut poll_fd, 1, poll_ms) };
+                    if ready < 0 && io::Error::last_os_error().raw_os_error() != Some(libc::EINTR) {
+                        if offset != 0 {
+                            let _ = self.abort_partial_control_string();
+                        }
+                        return Err(io::Error::last_os_error());
+                    }
+                }
+                _ => {
+                    if offset != 0 {
+                        let _ = self.abort_partial_control_string();
+                    }
+                    return Err(error);
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 #[cfg(not(unix))]
@@ -174,13 +264,25 @@ impl InterruptibleStdout {
 
 #[cfg(not(unix))]
 impl GraphicsOutput for InterruptibleStdout {
-    fn write_segment(&mut self, bytes: &[u8], permit: &WritePermit<'_>) -> io::Result<bool> {
+    fn write_segment(
+        &mut self,
+        bytes: &[u8],
+        permit: &WritePermit<'_>,
+        emitted: &mut usize,
+    ) -> io::Result<bool> {
+        *emitted = 0;
         if permit.should_abort() {
             return Ok(false);
         }
         self.0.write_all(bytes)?;
         self.0.flush()?;
-        Ok(!permit.should_abort())
+        *emitted = bytes.len();
+        Ok(true)
+    }
+
+    fn write_recovery(&mut self, bytes: &[u8]) -> io::Result<()> {
+        self.0.write_all(bytes)?;
+        self.0.flush()
     }
 }
 
@@ -192,13 +294,25 @@ impl<W> GraphicsOutput for TestOutput<W>
 where
     W: Write + Send + 'static,
 {
-    fn write_segment(&mut self, bytes: &[u8], permit: &WritePermit<'_>) -> io::Result<bool> {
+    fn write_segment(
+        &mut self,
+        bytes: &[u8],
+        permit: &WritePermit<'_>,
+        emitted: &mut usize,
+    ) -> io::Result<bool> {
+        *emitted = 0;
         if permit.should_abort() {
             return Ok(false);
         }
         self.0.write_all(bytes)?;
         self.0.flush()?;
-        Ok(!permit.should_abort())
+        *emitted = bytes.len();
+        Ok(true)
+    }
+
+    fn write_recovery(&mut self, bytes: &[u8]) -> io::Result<()> {
+        self.0.write_all(bytes)?;
+        self.0.flush()
     }
 }
 
@@ -572,37 +686,151 @@ fn write_batch<O: GraphicsOutput>(
 ) -> BatchWriteOutcome {
     let permit = WritePermit { slot, control, revision };
     let mut offset = 0;
+    let mut multipart_active = false;
     while offset < batch.len() {
         if control.is_cancelled() {
-            return BatchWriteOutcome::Stopped;
+            return finish_interrupted_batch(
+                output,
+                stdout_lock,
+                multipart_active,
+                BatchWriteOutcome::Stopped,
+            );
         }
         if permit.superseded() {
-            return BatchWriteOutcome::Superseded;
+            return finish_interrupted_batch(
+                output,
+                stdout_lock,
+                multipart_active,
+                BatchWriteOutcome::Superseded,
+            );
         }
         let Some(end) = next_graphics_write_end(batch, offset) else {
-            return BatchWriteOutcome::Stopped;
+            return finish_interrupted_batch(
+                output,
+                stdout_lock,
+                multipart_active,
+                BatchWriteOutcome::Stopped,
+            );
         };
         #[cfg(test)]
         control.report_write_attempt();
         {
             let _guard = stdout_lock.lock();
             if control.is_cancelled() {
-                return BatchWriteOutcome::Stopped;
+                return finish_interrupted_batch(
+                    output,
+                    stdout_lock,
+                    multipart_active,
+                    BatchWriteOutcome::Stopped,
+                );
             }
             if permit.superseded() {
-                return BatchWriteOutcome::Superseded;
+                return finish_interrupted_batch(
+                    output,
+                    stdout_lock,
+                    multipart_active,
+                    BatchWriteOutcome::Superseded,
+                );
             }
-            match output.write_segment(&batch[offset..end], &permit) {
-                Ok(true) => {}
-                Ok(false) if permit.superseded() => {
-                    return BatchWriteOutcome::Superseded;
+            let mut emitted = 0;
+            let result = output.write_segment(&batch[offset..end], &permit, &mut emitted);
+            let emitted_end = offset.saturating_add(emitted).min(end);
+            multipart_active = multipart_state_after_complete_commands(
+                &batch[offset..emitted_end],
+                multipart_active,
+            );
+            match result {
+                Ok(true) if emitted == end - offset => {}
+                Ok(true) => {
+                    return finish_interrupted_batch(
+                        output,
+                        stdout_lock,
+                        multipart_active,
+                        BatchWriteOutcome::Stopped,
+                    );
                 }
-                Ok(false) | Err(_) => return BatchWriteOutcome::Stopped,
+                Ok(false) if permit.superseded() => {
+                    return finish_interrupted_batch(
+                        output,
+                        stdout_lock,
+                        multipart_active,
+                        BatchWriteOutcome::Superseded,
+                    );
+                }
+                Ok(false) | Err(_) => {
+                    return finish_interrupted_batch(
+                        output,
+                        stdout_lock,
+                        multipart_active,
+                        BatchWriteOutcome::Stopped,
+                    );
+                }
             }
         }
         offset = end;
+        if control.is_cancelled() {
+            return finish_interrupted_batch(
+                output,
+                stdout_lock,
+                multipart_active,
+                BatchWriteOutcome::Stopped,
+            );
+        }
+        if permit.superseded() {
+            return finish_interrupted_batch(
+                output,
+                stdout_lock,
+                multipart_active,
+                BatchWriteOutcome::Superseded,
+            );
+        }
     }
     BatchWriteOutcome::Complete
+}
+
+fn finish_interrupted_batch<O: GraphicsOutput>(
+    output: &mut O,
+    stdout_lock: &Arc<StdoutLock>,
+    multipart_active: bool,
+    outcome: BatchWriteOutcome,
+) -> BatchWriteOutcome {
+    if !multipart_active {
+        return outcome;
+    }
+    let _guard = stdout_lock.lock();
+    match output.write_recovery(TERMINATE_MULTIPART_GRAPHICS) {
+        Ok(()) => outcome,
+        Err(_) => BatchWriteOutcome::Stopped,
+    }
+}
+
+fn multipart_state_after_complete_commands(bytes: &[u8], mut active: bool) -> bool {
+    let mut offset = 0;
+    while let Some(start) =
+        bytes[offset..].windows(3).position(|window| window == b"\x1b_G").map(|at| offset + at)
+    {
+        let header_start = start + 3;
+        let Some(end) = bytes[header_start..]
+            .windows(2)
+            .position(|window| window == b"\x1b\\")
+            .map(|at| header_start + at)
+        else {
+            break;
+        };
+        if let Some(header_end) = bytes[header_start..end].iter().position(|byte| *byte == b';') {
+            for parameter in
+                bytes[header_start..header_start + header_end].split(|byte| *byte == b',')
+            {
+                match parameter {
+                    b"m=1" => active = true,
+                    b"m=0" => active = false,
+                    _ => {}
+                }
+            }
+        }
+        offset = end + 2;
+    }
+    active
 }
 
 fn next_graphics_write_end(batch: &[u8], start: usize) -> Option<usize> {
@@ -692,14 +920,54 @@ mod tests {
     }
 
     impl GraphicsOutput for SupersedingOutput {
-        fn write_segment(&mut self, bytes: &[u8], permit: &WritePermit<'_>) -> io::Result<bool> {
+        fn write_segment(
+            &mut self,
+            bytes: &[u8],
+            _permit: &WritePermit<'_>,
+            emitted: &mut usize,
+        ) -> io::Result<bool> {
+            *emitted = 0;
             self.bytes.lock().unwrap().extend_from_slice(bytes);
+            *emitted = bytes.len();
             let _ = self.flushed.try_send(());
             if let Some(entered) = self.entered.take() {
                 entered.send(()).unwrap();
                 self.release.take().unwrap().recv().unwrap();
             }
-            Ok(!permit.should_abort())
+            Ok(true)
+        }
+
+        fn write_recovery(&mut self, bytes: &[u8]) -> io::Result<()> {
+            self.bytes.lock().unwrap().extend_from_slice(bytes);
+            let _ = self.flushed.try_send(());
+            Ok(())
+        }
+    }
+
+    struct PrefixInterruptOutput {
+        bytes: Vec<u8>,
+    }
+
+    impl GraphicsOutput for PrefixInterruptOutput {
+        fn write_segment(
+            &mut self,
+            bytes: &[u8],
+            _permit: &WritePermit<'_>,
+            emitted: &mut usize,
+        ) -> io::Result<bool> {
+            let end = bytes
+                .windows(2)
+                .position(|window| window == b"\x1b\\")
+                .map(|at| at + 2)
+                .expect("graphics segment must contain a complete APC");
+            self.bytes.extend_from_slice(&bytes[..end]);
+            *emitted = end;
+            Ok(false)
+        }
+
+        fn write_recovery(&mut self, bytes: &[u8]) -> io::Result<()> {
+            self.bytes.extend_from_slice(bytes);
+            Ok(())
         }
     }
 
@@ -842,9 +1110,11 @@ mod tests {
         let worker_slot = slot;
         let worker = std::thread::spawn(move || {
             let mut output = InterruptibleStdout { fd: write_fd };
+            let mut emitted = 0;
             output.write_segment(
                 &command,
                 &WritePermit { slot: &worker_slot, control: &worker_control, revision: 1 },
+                &mut emitted,
             )
         });
 
@@ -925,9 +1195,11 @@ mod tests {
         let worker_slot = slot;
         let worker = std::thread::spawn(move || {
             let mut output = InterruptibleStdout { fd: write_fd };
+            let mut emitted = 0;
             output.write_segment(
                 &command,
                 &WritePermit { slot: &worker_slot, control: &worker_control, revision: 1 },
+                &mut emitted,
             )
         });
 
@@ -1205,6 +1477,43 @@ mod tests {
         let mut next = GraphicsState::default();
         let latest = rgba_placement(41, 1, 0, [0, 0, 255, 255]);
         for batch in next.frame_batches(&[latest]) {
+            host.vt_write(&batch);
+        }
+        let snapshot = host.kitty_graphics_snapshot().unwrap();
+        assert_eq!(snapshot.images.len(), 1, "{snapshot:?}");
+        assert_eq!(snapshot.images[0].data.as_ref(), &[0, 0, 255, 255]);
+        assert_eq!(snapshot.placements.len(), 1);
+    }
+
+    #[test]
+    fn partial_segment_progress_recovers_completed_multipart_chunks() {
+        let old = GraphicPlacement::browser(
+            0,
+            7,
+            Rect { x: 0, y: 0, width: 1, height: 1 },
+            1,
+            1,
+            1,
+            "A".repeat(4_096 * 2),
+        );
+        let mut graphics = GraphicsState::default();
+        let batch = graphics.frame_batches(&[old]).remove(0);
+        let slot =
+            Arc::new(Mutex::new(PendingGraphics { revision: 1, ..PendingGraphics::default() }));
+        let control = WriterControl::default();
+        let stdout_lock = Arc::new(StdoutLock::new(()));
+        let mut output = PrefixInterruptOutput { bytes: Vec::new() };
+
+        assert_eq!(
+            write_batch(&mut output, &stdout_lock, &slot, &control, 1, &batch),
+            BatchWriteOutcome::Stopped
+        );
+
+        let mut host = Terminal::new(8, 4, 0, Callbacks::default()).unwrap();
+        host.resize(8, 4, 1, 1).unwrap();
+        host.vt_write(&output.bytes);
+        let mut next = GraphicsState::default();
+        for batch in next.frame_batches(&[rgba_placement(41, 1, 0, [0, 0, 255, 255])]) {
             host.vt_write(&batch);
         }
         let snapshot = host.kitty_graphics_snapshot().unwrap();

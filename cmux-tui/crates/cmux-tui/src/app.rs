@@ -4328,7 +4328,7 @@ fn run_with_machine_updates_inner(
     let input_tx = tx.clone();
     std::thread::Builder::new().name("input".into()).spawn({
         move || {
-            for event in pending_input {
+            for event in crate::ui::graphics::finish_startup_input(pending_input) {
                 if input_tx.send(AppEvent::Input(event)).is_err() {
                     return;
                 }

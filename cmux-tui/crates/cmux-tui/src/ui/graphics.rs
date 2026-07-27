@@ -776,12 +776,29 @@ fn delete_image(image_id: u32) -> Vec<u8> {
 
 const FALLBACK_CELL_PIXELS: (u16, u16) = (8, 16);
 const TERMINAL_PROBE_TIMEOUT: Duration = Duration::from_millis(180);
+#[cfg(unix)]
+const STARTUP_INPUT_CONTINUATION_TIMEOUT: Duration = Duration::from_millis(100);
+
+#[derive(Debug, Default)]
+pub struct StartupTerminalInput {
+    events: Vec<crossterm::event::Event>,
+    incomplete: Vec<u8>,
+}
+
+impl StartupTerminalInput {
+    fn append(&mut self, bytes: &[u8]) {
+        self.incomplete.extend_from_slice(bytes);
+        let parsed = split_pending_input(&self.incomplete);
+        self.events.extend(parsed.events);
+        self.incomplete = parsed.incomplete;
+    }
+}
 
 #[derive(Debug)]
 pub struct StartupTerminalProbe {
     pub cell_pixels: (u16, u16),
     pub graphics_supported: bool,
-    pub pending_input: Vec<crossterm::event::Event>,
+    pub pending_input: StartupTerminalInput,
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -817,7 +834,7 @@ pub fn probe_terminal(known_cell_pixels: Option<(u16, u16)>) -> StartupTerminalP
     StartupTerminalProbe {
         cell_pixels: resolve_cell_pixels(known_cell_pixels, ioctl_pixels.or(queried_pixels)),
         graphics_supported: parsed.kitty_supported.unwrap_or(false),
-        pending_input: parse_pending_input(&parsed.pending_input),
+        pending_input: split_pending_input(&parsed.pending_input),
     }
 }
 
@@ -977,7 +994,26 @@ fn parse_kitty_probe_response(sequence: &[u8]) -> Option<bool> {
     Some(sequence[status_start..status_end].starts_with(b"OK"))
 }
 
+fn split_pending_input(bytes: &[u8]) -> StartupTerminalInput {
+    let mut events = Vec::new();
+    let mut offset = 0;
+    while offset < bytes.len() {
+        if let Some((event, consumed)) = parse_one_input_event(&bytes[offset..]) {
+            events.push(event);
+            offset += consumed;
+            continue;
+        }
+        break;
+    }
+    StartupTerminalInput { events, incomplete: bytes[offset..].to_vec() }
+}
+
+#[cfg(test)]
 fn parse_pending_input(bytes: &[u8]) -> Vec<crossterm::event::Event> {
+    split_pending_input(bytes).events
+}
+
+fn parse_incomplete_input_lossy(bytes: &[u8]) -> Vec<crossterm::event::Event> {
     let mut events = Vec::new();
     let mut offset = 0;
     while offset < bytes.len() {
@@ -998,6 +1034,55 @@ fn parse_pending_input(bytes: &[u8]) -> Vec<crossterm::event::Event> {
         offset += 1;
     }
     events
+}
+
+/// Finish an input sequence whose prefix was consumed while probing the host
+/// terminal, then return to crossterm for normal live input. Waiting is
+/// bounded so a literal Escape key cannot stall startup indefinitely.
+pub(crate) fn finish_startup_input(
+    mut pending: StartupTerminalInput,
+) -> Vec<crossterm::event::Event> {
+    #[cfg(unix)]
+    {
+        while !pending.incomplete.is_empty() {
+            let deadline = Instant::now() + STARTUP_INPUT_CONTINUATION_TIMEOUT;
+            let mut read_more = false;
+            while Instant::now() < deadline {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                let poll_ms = remaining.min(Duration::from_millis(20)).as_millis().max(1) as i32;
+                let mut fd =
+                    libc::pollfd { fd: libc::STDIN_FILENO, events: libc::POLLIN, revents: 0 };
+                let ready = unsafe { libc::poll(&mut fd, 1, poll_ms) };
+                if ready < 0 {
+                    if std::io::Error::last_os_error().raw_os_error() == Some(libc::EINTR) {
+                        continue;
+                    }
+                    break;
+                }
+                if ready == 0 {
+                    continue;
+                }
+                let mut bytes = [0_u8; 1024];
+                let count = unsafe {
+                    libc::read(libc::STDIN_FILENO, bytes.as_mut_ptr().cast(), bytes.len())
+                };
+                if count <= 0 {
+                    break;
+                }
+                pending.append(&bytes[..count as usize]);
+                read_more = true;
+                break;
+            }
+            if !read_more {
+                break;
+            }
+        }
+    }
+
+    if !pending.incomplete.is_empty() {
+        pending.events.extend(parse_incomplete_input_lossy(&pending.incomplete));
+    }
+    pending.events
 }
 
 fn parse_one_input_event(bytes: &[u8]) -> Option<(crossterm::event::Event, usize)> {
@@ -1085,11 +1170,13 @@ mod tests {
         let events = parse_pending_input(b"\x1b[");
         assert!(events.is_empty(), "an incomplete CSI became synthetic key events: {events:?}");
 
-        let completed = parse_pending_input(b"\x1b[A");
+        let mut pending = split_pending_input(b"\x1b[");
+        pending.append(b"A");
         assert!(matches!(
-            completed.as_slice(),
+            pending.events.as_slice(),
             [Event::Key(up)] if up.code == KeyCode::Up
         ));
+        assert!(pending.incomplete.is_empty());
     }
 
     #[test]

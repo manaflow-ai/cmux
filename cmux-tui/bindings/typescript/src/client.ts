@@ -484,9 +484,16 @@ export class CmuxClient {
   }
 
   async sendRaw(obj: JsonObject): Promise<CmuxResponse<unknown>> {
+    return this.sendRawWithTimeout(obj, this.timeoutMs);
+  }
+
+  private async sendRawWithTimeout(
+    obj: JsonObject,
+    timeoutMs: number,
+  ): Promise<CmuxResponse<unknown>> {
     const payload = this.dropUndefined({ ...obj });
     if (!("id" in payload)) payload.id = this.nextId();
-    return this.router.send(payload, this.timeoutMs);
+    return this.router.send(payload, timeoutMs);
   }
 
   request<C extends CmuxRequest>(request: C): Promise<CmuxResponseData<C>>;
@@ -561,7 +568,14 @@ export class CmuxClient {
   sidebarPlugin(cols: number, rows: number, relaunch?: boolean | null): Promise<SidebarPluginResult> {
     return this.request("sidebar-plugin", { cols, rows, relaunch });
   }
-  vtState(surface: Id): Promise<VtStateResult> { return this.request("vt-state", { surface }); }
+  async vtState(surface: Id): Promise<VtStateResult> {
+    const response = await this.sendRawWithTimeout(
+      { cmd: "vt-state", surface },
+      this.attachHandshakeTimeoutMs,
+    );
+    if (response.ok) return response.data as VtStateResult;
+    throw new CmuxCommandError(response.error || "unknown error", response.id, response);
+  }
   resolveTerminal(terminalId: string): Promise<ResolveTerminalResult> {
     return this.request("resolve-terminal", { terminal_id: terminalId });
   }
