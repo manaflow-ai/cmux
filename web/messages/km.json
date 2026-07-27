@@ -1571,7 +1571,7 @@
       "mapList": "lists cmux panes or workspaces",
       "authTitle": "Authentication across concurrent sessions",
       "authProblem": "Running several Claude Code sessions at once — teammate agents, or just many cmux workspaces each with their own claude — is where subscription logins get flaky. Every session shares one OAuth credential whose refresh token rotates on each renewal, so after an idle stretch one session refreshes, invalidates the token the others still hold, and the rest are forced to log in again.",
-      "authFix": "Avoid the rotation race by giving every session the same long-lived token. Generate one with claude setup-token (it opens your system browser and prints an sk-ant-oat01-… token that does not rotate), then export it so cmux passes it to every agent it launches:",
+      "authFix": "ជៀសវាងការប្រជែងប្តូរ token ដោយផ្តល់ token ដែលមានអាយុកាលវែងដូចគ្នាៗដល់គ្រប់ session។ បង្កើតវាដោយ claude setup-token (វាបើក system browser របស់អ្នក ហើយបង្ហាញ token sk-ant-oat01-… ដែលមិនត្រូវបានប្តូរវិញ) បន្ទាប់មក export វា ដើម្បីឲ្យ cmux ផ្ញើវាទៅ agent គ្រប់ตัวដែលវាបើក។ មុនពឹងផ្អែកលើ token នេះ សូមលុប credentials ដែលប៉ះទង្គិច ដូចជា ANTHROPIC_API_KEY និង Claude auth credentials ផ្សេងទៀត ចេញពី shell ឬ environment ដែលបើក cmux ព្រោះ Claude Code អាចជ្រើសវាមុន CLAUDE_CODE_OAUTH_TOKEN:",
       "authCodeCommentFile": "Add this line to ~/.zshenv by editing the file directly.",
       "authCodeCommentReplace": "Keep it out of shell history, and replace any earlier entry.",
       "authRestart": "Restart or reopen existing Claude sessions after updating the file. Only newly launched or restored agents inherit the fixed token, which stops them from rotating each other out.",
