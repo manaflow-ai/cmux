@@ -45,10 +45,11 @@ use crate::config::{Action, ChromeTheme, Config, ScrollbarPosition, SidebarView}
 use crate::keys;
 use crate::localization;
 use crate::machine::{
-    MachineActionResult, MachineController, MachineKey, MachineRailSelection, MachineRailTarget,
-    MachineRequest, MachineSession, MachineUiState, MachineUpdateStream, ManagedMachineDescriptor,
+    DurableNoticeDelivery, DurableProviderNotice, MachineActionResult, MachineConnectRoute,
+    MachineController, MachineKey, MachineRailSelection, MachineRailTarget, MachineRequest,
+    MachineSession, MachineUiState, MachineUpdate, MachineUpdateStream, ManagedMachineDescriptor,
     ManagedMachineStatus, ManagedWorkspaceDescriptor, ManagedWorkspaceSessionMutation,
-    ManagedWorkspaceStatus, ProviderActionInputError, WorkspaceCreationMode,
+    ManagedWorkspaceStatus, ProviderActionContext, ProviderActionInputError, WorkspaceCreationMode,
     WorkspaceCreationPolicy, validate_machine_session,
 };
 use crate::pty_input::{
@@ -56,8 +57,8 @@ use crate::pty_input::{
     PtyInputSender, PtyOperationDelivery, PtyOperationFailure,
 };
 use crate::session::{
-    ClientInfo, Session, SidebarPluginSurface, SurfaceHandle, TreeView, is_remote_timeout,
-    is_remote_transport_failure,
+    ClientInfo, Session, SidebarPluginSurface, SurfaceHandle, TreeView,
+    is_remote_surface_unavailable, is_remote_timeout, is_remote_transport_failure,
 };
 use crate::sidebar_files::{FileBrowser, FileCommand, file_url, shell_single_quote};
 use crate::ui::graphics::{GraphicPlacement, kitty_graphic_image, kitty_graphic_placement};
@@ -76,7 +77,10 @@ const BACKGROUND_REFRESH_RETRIES: u8 = 6;
 const APP_EVENT_CAPACITY: usize = 4_096;
 const PTY_FAILURE_CAPACITY: usize = 512;
 const MACHINE_PROVIDER_RECONNECT_MAX_BACKOFF_EXPONENT: u8 = 5;
-const MAX_CONCURRENT_REMOTE_SURFACE_ATTACHES: usize = 8;
+const DURABLE_NOTICE_RECENT_CAPACITY: usize = 64;
+const DURABLE_NOTICE_QUEUE_CAPACITY: usize = 64;
+const DURABLE_NOTICE_DISPLAY_DURATION: Duration = Duration::from_secs(4);
+const DURABLE_NOTICE_ACK_MAX_BACKOFF_EXPONENT: u8 = 5;
 
 pub enum AppEvent {
     SessionScoped {
@@ -119,9 +123,9 @@ pub enum AppEvent {
     },
     #[cfg(test)]
     MachineUiUpdated(Box<MachineUiState>),
-    MachineUiUpdatedForGeneration {
+    MachineUpdatedForGeneration {
         generation: u64,
-        update: Box<MachineUiState>,
+        update: Box<MachineUpdate>,
     },
     MachineControllerCompleted(Box<MachineControllerCompletion>),
 }
@@ -741,7 +745,7 @@ struct SurfaceResizeClaim {
 }
 
 struct SurfaceAttachClaim {
-    claims: Arc<Mutex<HashSet<SurfaceId>>>,
+    claims: Arc<Mutex<HashMap<SurfaceId, SurfaceAttachClaimState>>>,
     surface: SurfaceId,
 }
 
@@ -750,6 +754,14 @@ impl Drop for SurfaceAttachClaim {
         self.claims.lock().unwrap().remove(&self.surface);
     }
 }
+
+#[derive(Clone, Copy, Default)]
+struct SurfaceAttachClaimState {
+    retired: bool,
+}
+
+#[cfg(test)]
+type SurfaceAttachAfterObsoleteCheckHook = Arc<Mutex<Option<Arc<dyn Fn() + Send + Sync>>>>;
 
 #[derive(Clone, Copy)]
 struct SurfaceResizeClaimState {
@@ -800,30 +812,37 @@ fn surface_sync_failure_blocks(state: SurfaceSyncFailureState) -> bool {
 
 struct SurfaceAttachResult {
     outcome: SessionMutationOutcome,
-    lane_error: Option<anyhow::Error>,
 }
 
 fn perform_surface_attach(
     session: &Session,
     exited_surfaces: &Mutex<HashSet<SurfaceId>>,
+    attach_claims: &Mutex<HashMap<SurfaceId, SurfaceAttachClaimState>>,
     attach_failures: &Mutex<HashMap<SurfaceId, SurfaceSyncFailureState>>,
-    remote: bool,
     id: SurfaceId,
     size: Option<(u16, u16)>,
+    after_obsolete_check: impl FnOnce(),
 ) -> SurfaceAttachResult {
-    if exited_surfaces.lock().unwrap().contains(&id) || (remote && session.remote_tree_is_stale()) {
-        return SurfaceAttachResult {
-            outcome: SessionMutationOutcome::Success { tree: None },
-            lane_error: None,
-        };
+    let retired_before_attach = {
+        let exited_surfaces = exited_surfaces.lock().unwrap();
+        exited_surfaces.contains(&id)
+            || attach_claims.lock().unwrap().get(&id).is_some_and(|claim| claim.retired)
+    };
+    if retired_before_attach {
+        return SurfaceAttachResult { outcome: SessionMutationOutcome::Success { tree: None } };
     }
-    match session.try_surface_sized(id, size) {
+    after_obsolete_check();
+    let result = session.try_surface_sized(id, size);
+    let attach_claims = attach_claims.lock().unwrap();
+    let retired = attach_claims.get(&id).is_some_and(|claim| claim.retired);
+    match result {
         Ok(Some(_)) => {
             attach_failures.lock().unwrap().remove(&id);
-            SurfaceAttachResult {
-                outcome: SessionMutationOutcome::Success { tree: None },
-                lane_error: None,
-            }
+            SurfaceAttachResult { outcome: SessionMutationOutcome::Success { tree: None } }
+        }
+        Ok(None) if retired => {
+            attach_failures.lock().unwrap().remove(&id);
+            SurfaceAttachResult { outcome: SessionMutationOutcome::Success { tree: None } }
         }
         Ok(None) => {
             let mut failures = attach_failures.lock().unwrap();
@@ -836,8 +855,11 @@ fn perform_surface_attach(
                     error: format!("surface {id} is unavailable"),
                     reconnect_required: false,
                 },
-                lane_error: None,
             }
+        }
+        Err(error) if retired && is_remote_surface_unavailable(&error, id) => {
+            attach_failures.lock().unwrap().remove(&id);
+            SurfaceAttachResult { outcome: SessionMutationOutcome::Success { tree: None } }
         }
         Err(error) => {
             let timed_out = is_remote_timeout(&error);
@@ -854,7 +876,6 @@ fn perform_surface_attach(
                     error: message,
                     reconnect_required: timed_out,
                 },
-                lane_error: (timed_out || transport_failed).then_some(error),
             }
         }
     }
@@ -958,12 +979,14 @@ pub struct OrderedSession {
     surface_resize_claims: Arc<Mutex<HashMap<SurfaceId, SurfaceResizeClaimState>>>,
     surface_resize_claim_sequence: Arc<AtomicU64>,
     surface_resize_ownership: Arc<Mutex<HashMap<SurfaceId, SurfaceResizeOwnership>>>,
-    surface_attach_claims: Arc<Mutex<HashSet<SurfaceId>>>,
+    surface_attach_claims: Arc<Mutex<HashMap<SurfaceId, SurfaceAttachClaimState>>>,
     surface_attach_failures: Arc<Mutex<HashMap<SurfaceId, SurfaceSyncFailureState>>>,
     surface_resize_failures: Arc<Mutex<HashMap<SurfaceId, SurfaceResizeFailure>>>,
     config_generation: Arc<AtomicU64>,
     sidebar_plugin_sync: Arc<Mutex<SidebarPluginSyncState>>,
     exited_surfaces: Arc<Mutex<HashSet<SurfaceId>>>,
+    #[cfg(test)]
+    surface_attach_after_obsolete_check: SurfaceAttachAfterObsoleteCheckHook,
 }
 
 impl OrderedSession {
@@ -998,12 +1021,14 @@ impl OrderedSession {
             surface_resize_claims: Arc::new(Mutex::new(HashMap::new())),
             surface_resize_claim_sequence: Arc::new(AtomicU64::new(0)),
             surface_resize_ownership: Arc::new(Mutex::new(HashMap::new())),
-            surface_attach_claims: Arc::new(Mutex::new(HashSet::new())),
+            surface_attach_claims: Arc::new(Mutex::new(HashMap::new())),
             surface_attach_failures: Arc::new(Mutex::new(HashMap::new())),
             surface_resize_failures: Arc::new(Mutex::new(HashMap::new())),
             config_generation: Arc::new(AtomicU64::new(0)),
             sidebar_plugin_sync: Arc::new(Mutex::new(SidebarPluginSyncState::default())),
             exited_surfaces: Arc::new(Mutex::new(HashSet::new())),
+            #[cfg(test)]
+            surface_attach_after_obsolete_check: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -1088,27 +1113,27 @@ impl OrderedSession {
         self.client_refresh_generation.load(Ordering::Acquire)
     }
 
-    fn set_client_sizing(&self, client: u64, enabled: bool) {
+    fn set_client_sizing(&self, surface: SurfaceId, client: u64, enabled: bool) {
         self.enqueue_client_sizing_mutation(
             "set client sizing",
-            ("set client sizing", client),
-            move |session| session.set_client_sizing(client, enabled),
+            ("set client sizing", surface, client),
+            move |session| session.set_client_sizing(surface, client, enabled),
         );
     }
 
-    fn use_only_client_sizing(&self, client: u64) {
+    fn use_only_client_sizing(&self, surface: SurfaceId, client: u64) {
         self.enqueue_client_sizing_mutation(
             "use only client sizing",
-            ("use only client sizing", 0),
-            move |session| session.use_only_client_sizing(client),
+            ("use only client sizing", surface, 0),
+            move |session| session.use_only_client_sizing(surface, client),
         );
     }
 
-    fn use_all_client_sizing(&self) {
+    fn use_all_client_sizing(&self, surface: SurfaceId) {
         self.enqueue_client_sizing_mutation(
             "use all client sizing",
-            ("use all client sizing", 0),
-            |session| session.use_all_client_sizing(),
+            ("use all client sizing", surface, 0),
+            move |session| session.use_all_client_sizing(surface),
         );
     }
 
@@ -1149,10 +1174,14 @@ impl OrderedSession {
 
     fn forget_surface(&self, id: SurfaceId) {
         if self.remote {
-            self.exited_surfaces.lock().unwrap().insert(id);
+            let mut exited_surfaces = self.exited_surfaces.lock().unwrap();
+            let mut attach_claims = self.surface_attach_claims.lock().unwrap();
+            exited_surfaces.insert(id);
+            if let Some(claim) = attach_claims.get_mut(&id) {
+                claim.retired = true;
+            }
         }
         self.surface_attach_failures.lock().unwrap().remove(&id);
-        self.surface_attach_claims.lock().unwrap().remove(&id);
         self.surface_resize_failures.lock().unwrap().remove(&id);
         self.surface_resize_ownership.lock().unwrap().remove(&id);
         self.inner.forget_surface(id);
@@ -1182,11 +1211,24 @@ impl OrderedSession {
         if !self.can_attach_surface(id) {
             return;
         }
-        self.surface_attach_claims.lock().unwrap().insert(id);
+        {
+            let exited_surfaces = self.exited_surfaces.lock().unwrap();
+            if exited_surfaces.contains(&id) {
+                return;
+            }
+            let mut attach_claims = self.surface_attach_claims.lock().unwrap();
+            if attach_claims.contains_key(&id) {
+                return;
+            }
+            attach_claims.insert(id, SurfaceAttachClaimState::default());
+        }
         let claim = SurfaceAttachClaim { claims: self.surface_attach_claims.clone(), surface: id };
+        let attach_claims = self.surface_attach_claims.clone();
         let session = self.inner.clone();
         let exited_surfaces = self.exited_surfaces.clone();
         let attach_failures = self.surface_attach_failures.clone();
+        #[cfg(test)]
+        let attach_after_obsolete_check = self.surface_attach_after_obsolete_check.clone();
 
         if self.remote {
             // Attach is mirror synchronization, not an authoritative session
@@ -1194,16 +1236,26 @@ impl OrderedSession {
             // routing, input, resize, and close operations keep flowing.
             let events = self.events.clone();
             let failure_events = events.clone();
+            #[cfg(test)]
+            let remote_attach_after_obsolete_check = attach_after_obsolete_check.clone();
             let spawn =
                 std::thread::Builder::new().name(format!("surface-{id}-attach")).spawn(move || {
                     let _claim = claim;
                     let result = perform_surface_attach(
                         &session,
                         &exited_surfaces,
+                        &attach_claims,
                         &attach_failures,
-                        true,
                         id,
                         size,
+                        || {
+                            #[cfg(test)]
+                            if let Some(hook) =
+                                remote_attach_after_obsolete_check.lock().unwrap().clone()
+                            {
+                                hook();
+                            }
+                        },
                     );
                     let _ = events.send(AppEvent::SurfaceAttachSettled { outcome: result.outcome });
                 });
@@ -1231,22 +1283,87 @@ impl OrderedSession {
         let settlement = pending.clone();
         let enqueue_result = self.operations.enqueue_coalescing_mutation_with_settlement(
             "attach surface",
-            ("attach surface", id),
-            false,
+            ("attach surface", id, 0),
+            self.remote,
             move || superseded.supersede(),
             move || settlement.publish_deferred(),
             move || {
                 let _claim = claim;
-                let result = perform_surface_attach(
-                    &session,
-                    &exited_surfaces,
-                    &attach_failures,
-                    false,
-                    id,
-                    size,
-                );
-                pending.defer(result.outcome);
-                if let Some(error) = result.lane_error { Err(error) } else { Ok(()) }
+                let retired_before_attach = {
+                    let exited_surfaces = exited_surfaces.lock().unwrap();
+                    exited_surfaces.contains(&id)
+                        || attach_claims.lock().unwrap().get(&id).is_some_and(|claim| claim.retired)
+                };
+                if retired_before_attach {
+                    pending.defer(SessionMutationOutcome::Success { tree: None });
+                    return Ok(());
+                }
+                #[cfg(test)]
+                if let Some(hook) = attach_after_obsolete_check.lock().unwrap().clone() {
+                    hook();
+                }
+                let result = session.try_surface_sized(id, size);
+                // Retirement can race after the preflight above while the
+                // ordered worker is waiting to attach. In that case the
+                // missing mirror is the expected result of teardown, not a
+                // retryable synchronization failure.
+                let attach_claims = attach_claims.lock().unwrap();
+                let retired = attach_claims.get(&id).is_some_and(|claim| claim.retired);
+                match result {
+                    Ok(Some(_)) => {
+                        attach_failures.lock().unwrap().remove(&id);
+                        pending.defer(SessionMutationOutcome::Success { tree: None });
+                        drop(attach_claims);
+                        Ok(())
+                    }
+                    Ok(None) if retired => {
+                        attach_failures.lock().unwrap().remove(&id);
+                        pending.defer(SessionMutationOutcome::Success { tree: None });
+                        drop(attach_claims);
+                        Ok(())
+                    }
+                    Ok(None) => {
+                        let mut failures = attach_failures.lock().unwrap();
+                        let state =
+                            next_surface_sync_failure(failures.get(&id).copied(), false, false);
+                        failures.insert(id, state);
+                        drop(failures);
+                        pending.defer(SessionMutationOutcome::SurfaceSyncFailed {
+                            surface: id,
+                            operation: "attach",
+                            error: format!("surface {id} is unavailable"),
+                            reconnect_required: false,
+                        });
+                        drop(attach_claims);
+                        Ok(())
+                    }
+                    Err(error) if retired && is_remote_surface_unavailable(&error, id) => {
+                        attach_failures.lock().unwrap().remove(&id);
+                        pending.defer(SessionMutationOutcome::Success { tree: None });
+                        drop(attach_claims);
+                        Ok(())
+                    }
+                    Err(error) => {
+                        let timed_out = is_remote_timeout(&error);
+                        let transport_failed = is_remote_transport_failure(&error);
+                        let mut failures = attach_failures.lock().unwrap();
+                        let state = next_surface_sync_failure(
+                            failures.get(&id).copied(),
+                            transport_failed,
+                            timed_out,
+                        );
+                        failures.insert(id, state);
+                        drop(failures);
+                        pending.defer(SessionMutationOutcome::SurfaceSyncFailed {
+                            surface: id,
+                            operation: "attach",
+                            error: error.to_string(),
+                            reconnect_required: timed_out,
+                        });
+                        drop(attach_claims);
+                        if timed_out || transport_failed { Err(error) } else { Ok(()) }
+                    }
+                }
             },
         );
         if enqueue_result != PtyInputEnqueueResult::Accepted {
@@ -1258,22 +1375,19 @@ impl OrderedSession {
     }
 
     fn can_attach_surface(&self, id: SurfaceId) -> bool {
-        let attach_available = {
-            let attach_claims = self.surface_attach_claims.lock().unwrap();
-            !attach_claims.contains(&id)
-                && (!self.remote || attach_claims.len() < MAX_CONCURRENT_REMOTE_SURFACE_ATTACHES)
-        };
+        let failure_blocks = self
+            .surface_attach_failures
+            .lock()
+            .unwrap()
+            .get(&id)
+            .copied()
+            .is_some_and(surface_sync_failure_blocks);
+        let attach_claimed = self.surface_attach_claims.lock().unwrap().contains_key(&id);
         self.inner.cached_surface(id).is_none()
             && self.inner.can_attach_after_overflow(id)
             && !self.exited_surfaces.lock().unwrap().contains(&id)
-            && !self
-                .surface_attach_failures
-                .lock()
-                .unwrap()
-                .get(&id)
-                .copied()
-                .is_some_and(surface_sync_failure_blocks)
-            && attach_available
+            && !failure_blocks
+            && !attach_claimed
             && (!self.remote || !self.inner.remote_tree_is_stale())
     }
 
@@ -1532,7 +1646,7 @@ impl OrderedSession {
         let settlement = pending.clone();
         self.operations.enqueue_coalescing_mutation_with_settlement(
             label,
-            key,
+            (key.0, key.1, 0),
             remote,
             move || superseded.supersede(),
             move || settlement.publish_deferred(),
@@ -1556,7 +1670,7 @@ impl OrderedSession {
     fn enqueue_client_sizing_mutation(
         &self,
         label: &'static str,
-        key: (&'static str, u64),
+        key: (&'static str, SurfaceId, u64),
         operation: impl FnOnce(Session) -> anyhow::Result<()> + Send + 'static,
     ) {
         let session = self.inner.clone();
@@ -1597,7 +1711,7 @@ impl OrderedSession {
         let settlement = pending.clone();
         let result = self.operations.enqueue_coalescing_mutation_with_settlement(
             "release hidden surface sizing",
-            ("surface size release", surface),
+            ("surface size release", surface, 0),
             self.remote,
             move || superseded.supersede(),
             move || settlement.publish_deferred(),
@@ -1636,7 +1750,7 @@ impl OrderedSession {
         let settlement = pending.clone();
         let enqueue_result = self.operations.enqueue_coalescing_mutation_with_settlement(
             "resize PTY surface",
-            ("surface resize", surface_id),
+            ("surface resize", surface_id, 0),
             self.remote,
             move || superseded.supersede(),
             move || settlement.publish_deferred(),
@@ -1784,7 +1898,7 @@ impl OrderedSession {
         let settlement = pending.clone();
         self.operations.enqueue_coalescing_mutation_with_settlement(
             "apply config",
-            ("apply config", 0),
+            ("apply config", 0, 0),
             self.remote,
             move || superseded.supersede(),
             move || settlement.publish_deferred(),
@@ -1843,7 +1957,7 @@ impl OrderedSession {
         } else {
             self.operations.enqueue_coalescing_mutation_with_settlement(
                 "sync sidebar plugin",
-                ("sidebar plugin", 0),
+                ("sidebar plugin", 0, 0),
                 self.remote,
                 move || superseded.supersede(),
                 move || settlement.publish_deferred(),
@@ -2335,9 +2449,9 @@ pub enum MenuAction {
     ToggleSidebarCompact { compact: bool },
     FocusSidebar,
     ShowShortcuts,
-    SetClientSizing { client: u64, enabled: bool },
-    UseClientSize(u64),
-    RestoreAllClientSizing,
+    SetClientSizing { surface: SurfaceId, client: u64, enabled: bool },
+    UseClientSize { surface: SurfaceId, client: u64 },
+    RestoreAllClientSizing(SurfaceId),
     DisconnectClient(u64),
     SelectProviderScope(usize),
     InvokeProviderAction(usize),
@@ -2410,8 +2524,8 @@ impl MenuAction {
             }
             MenuAction::SetClientSizing { enabled: true, .. } => "Use for sizing",
             MenuAction::SetClientSizing { enabled: false, .. } => "Exclude from sizing",
-            MenuAction::UseClientSize(_) => "Use only this client size",
-            MenuAction::RestoreAllClientSizing => "Use all client sizes",
+            MenuAction::UseClientSize { .. } => "Use only this client size",
+            MenuAction::RestoreAllClientSizing(_) => "Use all client sizes",
             MenuAction::DisconnectClient(_) => "Disconnect",
             MenuAction::SelectProviderScope(_) | MenuAction::InvokeProviderAction(_) => {
                 "Provider action"
@@ -2813,29 +2927,31 @@ fn client_menu_item(clients: &[ClientInfo], surface: SurfaceId) -> Option<MenuIt
                 .iter()
                 .any(|size| size.surface == surface && size.cols.is_some() && size.rows.is_some())
     }) {
-        items.push(MenuItem::Action(MenuAction::UseClientSize(current.client)));
+        items.push(MenuItem::Action(MenuAction::UseClientSize { surface, client: current.client }));
     }
-    items.extend([MenuItem::Action(MenuAction::RestoreAllClientSizing), MenuItem::Separator]);
+    items.extend([
+        MenuItem::Action(MenuAction::RestoreAllClientSizing(surface)),
+        MenuItem::Separator,
+    ]);
     for client in clients {
-        let reported_size = client
-            .sizes
-            .iter()
-            .find(|size| size.surface == surface)
-            .and_then(|size| size.cols.zip(size.rows));
+        let size_info = client.sizes.iter().find(|size| size.surface == surface);
+        let reported_size = size_info.and_then(|size| size.cols.zip(size.rows));
+        let size_participating = size_info.is_none_or(|size| size.size_participating);
         let identity = client.kind.as_deref().or(client.name.as_deref()).unwrap_or("client");
         let size = reported_size
             .map(|(cols, rows)| format!("{cols}×{rows}"))
             .unwrap_or_else(|| "no grid".to_string());
         let self_label = if client.is_self { " · this client" } else { "" };
-        let sizing_label = if client.size_participating { "" } else { " · excluded" };
+        let sizing_label = if size_participating { "" } else { " · excluded" };
         let label = format!("#{} {identity} · {size}{self_label}{sizing_label}", client.client);
         let mut actions = Vec::new();
         if reported_size.is_some() {
             actions.extend([
-                MenuItem::Action(MenuAction::UseClientSize(client.client)),
+                MenuItem::Action(MenuAction::UseClientSize { surface, client: client.client }),
                 MenuItem::Action(MenuAction::SetClientSizing {
+                    surface,
                     client: client.client,
-                    enabled: !client.size_participating,
+                    enabled: !size_participating,
                 }),
             ]);
         }
@@ -2861,9 +2977,9 @@ pub enum PromptTarget {
     ConfirmPurgeManagedWorkspace(usize),
     Screen(cmux_tui_core::ScreenId),
     Surface(SurfaceId),
-    ConnectMachine,
+    ConnectMachine(MachineConnectRoute),
     ProviderAction(usize),
-    ConfirmProviderAction(usize),
+    ConfirmProviderAction,
 }
 
 /// Centered rename dialog: a text input with OK/Cancel buttons. The
@@ -3259,6 +3375,13 @@ pub struct App {
     pending_machine_replacement: Option<PendingMachineReplacement>,
     machine_update_pump: Option<MachineUpdatePump>,
     machine_update_generation: u64,
+    durable_notices: VecDeque<QueuedDurableNotice>,
+    recent_durable_notices: VecDeque<DurableNoticeDelivery>,
+    painted_durable_notice_this_frame: Option<DurableNoticeDelivery>,
+    pending_durable_notice_acks: VecDeque<DurableNoticeDelivery>,
+    durable_notice_ack_in_flight: Option<DurableNoticeDelivery>,
+    durable_notice_ack_failures: u8,
+    durable_notice_ack_retry_at: Option<Instant>,
     pub config: Config,
     pub chrome: ChromeTheme,
     default_colors: cmux_tui_core::DefaultColors,
@@ -3337,6 +3460,7 @@ pub struct App {
     pub clients: Vec<ClientInfo>,
     pub client_border_labels: HashMap<SurfaceId, String>,
     pub prompt: Option<Prompt>,
+    pending_provider_action: Option<MachineRequest>,
     pub pairing_dialog: Option<PairingDialog>,
     pairing_queue: VecDeque<PairingChallenge>,
     pub shortcut_help: Option<ShortcutHelp>,
@@ -3370,6 +3494,11 @@ pub struct App {
     encoder: KeyEncoder,
     encode_buf: Vec<u8>,
     quit: bool,
+}
+
+struct QueuedDurableNotice {
+    notice: DurableProviderNotice,
+    painted_at: Option<Instant>,
 }
 
 fn preserve_client_view(previous: &TreeView, next: &mut TreeView) {
@@ -3692,6 +3821,7 @@ struct MachineUpdatePump {
 enum MachineControllerCommand {
     Perform { request: MachineRequest, preparation: Box<MachineSessionPreparation> },
     SubscribeUpdates,
+    AcknowledgeDurableNotice(DurableNoticeDelivery),
     CommitReplacement(u64),
     AbortReplacement(u64),
 }
@@ -3743,6 +3873,10 @@ pub(crate) enum MachineControllerCompletion {
         updates: Option<Result<Option<MachineUpdateStream>, String>>,
     },
     Updates(Result<Option<MachineUpdateStream>, String>),
+    DurableNoticeAcknowledged {
+        delivery: DurableNoticeDelivery,
+        result: Result<(), String>,
+    },
 }
 
 struct MachineActionWorker {
@@ -3843,6 +3977,15 @@ impl MachineActionWorker {
                                 controller.subscribe_updates().map_err(|error| error.to_string()),
                             )
                         }
+                        MachineControllerCommand::AcknowledgeDurableNotice(delivery) => {
+                            let result = controller
+                                .acknowledge_durable_notice(&delivery)
+                                .map_err(|error| error.to_string());
+                            MachineControllerCompletion::DurableNoticeAcknowledged {
+                                delivery,
+                                result,
+                            }
+                        }
                         MachineControllerCommand::CommitReplacement(action_id) => {
                             match pending_replacement.take() {
                                 Some((pending_id, restart_updates)) if pending_id == action_id => {
@@ -3941,6 +4084,9 @@ impl MachineActionWorker {
                 MachineControllerCommand::SubscribeUpdates => {
                     unreachable!("perform returned a subscription command")
                 }
+                MachineControllerCommand::AcknowledgeDurableNotice(_) => {
+                    unreachable!("perform returned a durable notice acknowledgement")
+                }
                 MachineControllerCommand::CommitReplacement(_)
                 | MachineControllerCommand::AbortReplacement(_) => {
                     unreachable!("perform returned a replacement decision")
@@ -3951,6 +4097,9 @@ impl MachineActionWorker {
                     MachineControllerCommand::Perform { request, .. } => request,
                     MachineControllerCommand::SubscribeUpdates => {
                         unreachable!("perform returned a subscription command")
+                    }
+                    MachineControllerCommand::AcknowledgeDurableNotice(_) => {
+                        unreachable!("perform returned a durable notice acknowledgement")
                     }
                     MachineControllerCommand::CommitReplacement(_)
                     | MachineControllerCommand::AbortReplacement(_) => {
@@ -3965,6 +4114,27 @@ impl MachineActionWorker {
         self.sender.as_ref().is_some_and(|sender| {
             sender.try_send(MachineControllerCommand::SubscribeUpdates).is_ok()
         })
+    }
+
+    fn acknowledge_durable_notice(
+        &self,
+        delivery: DurableNoticeDelivery,
+    ) -> Result<(), DurableNoticeDelivery> {
+        let Some(sender) = self.sender.as_ref() else {
+            return Err(delivery);
+        };
+        match sender.try_send(MachineControllerCommand::AcknowledgeDurableNotice(delivery)) {
+            Ok(()) => Ok(()),
+            Err(TrySendError::Full(MachineControllerCommand::AcknowledgeDurableNotice(
+                delivery,
+            )))
+            | Err(TrySendError::Disconnected(
+                MachineControllerCommand::AcknowledgeDurableNotice(delivery),
+            )) => Err(delivery),
+            Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {
+                unreachable!("durable notice sender returned a different command")
+            }
+        }
     }
 
     fn commit_replacement(&self, action_id: u64) -> bool {
@@ -4079,13 +4249,13 @@ impl MachineUpdatePump {
                         Ok(update) => {
                             let mut update = Box::new(update);
                             loop {
-                                match app_events.try_send(AppEvent::MachineUiUpdatedForGeneration {
+                                match app_events.try_send(AppEvent::MachineUpdatedForGeneration {
                                     generation,
                                     update,
                                 }) {
                                     Ok(()) => break,
                                     Err(TrySendError::Full(
-                                        AppEvent::MachineUiUpdatedForGeneration {
+                                        AppEvent::MachineUpdatedForGeneration {
                                             update: returned,
                                             ..
                                         },
@@ -4363,6 +4533,13 @@ fn run_with_machine_updates_inner(
         pending_machine_replacement: None,
         machine_update_pump: None,
         machine_update_generation: 0,
+        durable_notices: VecDeque::new(),
+        recent_durable_notices: VecDeque::new(),
+        painted_durable_notice_this_frame: None,
+        pending_durable_notice_acks: VecDeque::new(),
+        durable_notice_ack_in_flight: None,
+        durable_notice_ack_failures: 0,
+        durable_notice_ack_retry_at: None,
         config,
         chrome,
         default_colors,
@@ -4421,6 +4598,7 @@ fn run_with_machine_updates_inner(
         clients: Vec::new(),
         client_border_labels: HashMap::new(),
         prompt: None,
+        pending_provider_action: None,
         pairing_dialog: None,
         pairing_queue: VecDeque::new(),
         shortcut_help: None,
@@ -4757,6 +4935,9 @@ impl App {
             if self.expire_toast() {
                 action = action.merge(RenderAction::Draw);
             }
+            if self.advance_expired_durable_notice() {
+                action = action.merge(RenderAction::Draw);
+            }
             self.retry_deferred_surface_attach();
             if self.browser_input.resize_retry_due() {
                 let mut visible_surfaces =
@@ -4825,6 +5006,7 @@ impl App {
     }
 
     fn process_machine_requests(&mut self) -> RenderAction {
+        self.submit_pending_durable_notice_ack();
         if self.machine_action_in_flight {
             return RenderAction::None;
         }
@@ -4910,6 +5092,34 @@ impl App {
         completion: MachineControllerCompletion,
     ) -> RenderAction {
         match completion {
+            MachineControllerCompletion::DurableNoticeAcknowledged { delivery, result } => {
+                let mut continue_acknowledgements = true;
+                if self.durable_notice_ack_in_flight.as_ref() == Some(&delivery) {
+                    self.durable_notice_ack_in_flight = None;
+                    match result {
+                        Ok(()) => {
+                            self.durable_notice_ack_failures = 0;
+                            self.durable_notice_ack_retry_at = None;
+                        }
+                        Err(_) => {
+                            continue_acknowledgements = false;
+                            self.durable_notice_ack_failures =
+                                self.durable_notice_ack_failures.saturating_add(1);
+                            let exponent = self
+                                .durable_notice_ack_failures
+                                .saturating_sub(1)
+                                .min(DURABLE_NOTICE_ACK_MAX_BACKOFF_EXPONENT);
+                            self.durable_notice_ack_retry_at =
+                                Some(Instant::now() + Duration::from_secs(1_u64 << exponent));
+                            self.schedule_machine_provider_reconnect();
+                        }
+                    }
+                }
+                if continue_acknowledgements {
+                    self.submit_pending_durable_notice_ack();
+                }
+                RenderAction::None
+            }
             MachineControllerCompletion::Updates(updates) => {
                 if let Err(error) = updates
                     .map_err(anyhow::Error::msg)
@@ -5143,7 +5353,7 @@ impl App {
                 matches!(
                     prompt.target,
                     PromptTarget::ProviderAction(_)
-                        | PromptTarget::ConfirmProviderAction(_)
+                        | PromptTarget::ConfirmProviderAction
                         | PromptTarget::ManagedWorkspace(_)
                         | PromptTarget::ConfirmPurgeManagedWorkspace(_)
                         | PromptTarget::ManagedMachine(_)
@@ -5152,6 +5362,7 @@ impl App {
                 )
             }) {
                 self.prompt = None;
+                self.pending_provider_action = None;
             }
         }
         if let Some(previous) = self.machine_ui.as_ref() {
@@ -5166,6 +5377,132 @@ impl App {
             self.status_message = Some(notice);
         }
         RenderAction::Draw
+    }
+
+    fn accept_durable_notice(&mut self, notice: DurableProviderNotice) -> RenderAction {
+        let delivery = notice.delivery.clone();
+        if let Some(queued) =
+            self.durable_notices.iter().find(|queued| queued.notice.delivery == delivery)
+        {
+            if queued.painted_at.is_some() {
+                self.queue_durable_notice_ack(delivery);
+            }
+            return RenderAction::None;
+        }
+        if self.recent_durable_notices.contains(&delivery) {
+            self.queue_durable_notice_ack(delivery);
+            return RenderAction::None;
+        }
+        if self.durable_notices.len() >= DURABLE_NOTICE_QUEUE_CAPACITY {
+            // A conforming provider has one delivery in flight, so this only
+            // trips for a broken or hostile stream. Leave the new delivery
+            // unacknowledged and reconnect so the durable cursor can replay it
+            // after queued notices drain.
+            self.schedule_machine_provider_reconnect();
+            return RenderAction::None;
+        }
+        self.durable_notices.push_back(QueuedDurableNotice { notice, painted_at: None });
+        RenderAction::Draw
+    }
+
+    pub(crate) fn durable_notice(&self) -> Option<&DurableProviderNotice> {
+        self.durable_notices.front().map(|queued| &queued.notice)
+    }
+
+    pub(crate) fn record_durable_notice_painted(&mut self, delivery: DurableNoticeDelivery) {
+        self.painted_durable_notice_this_frame = Some(delivery);
+    }
+
+    fn commit_successful_durable_notice_paint(&mut self) {
+        let Some(delivery) = self.painted_durable_notice_this_frame.take() else {
+            return;
+        };
+        let Some(front) = self.durable_notices.front_mut() else {
+            return;
+        };
+        if front.notice.delivery != delivery || front.painted_at.is_some() {
+            return;
+        }
+        front.painted_at = Some(Instant::now());
+        self.remember_durable_notice(delivery.clone());
+        self.queue_durable_notice_ack(delivery);
+    }
+
+    fn dismiss_painted_durable_notice(&mut self) -> bool {
+        if self.durable_notices.front().is_none_or(|front| front.painted_at.is_none()) {
+            return false;
+        }
+        self.durable_notices.pop_front();
+        true
+    }
+
+    fn durable_notice_banner_row(&self) -> Option<u16> {
+        self.durable_notices.front().and_then(|front| front.painted_at).and_then(|_| {
+            let content_bottom = self.content_area.y.saturating_add(self.content_area.height);
+            if self.surface_only.is_some() {
+                content_bottom.checked_sub(1)
+            } else {
+                Some(content_bottom)
+            }
+        })
+    }
+
+    fn advance_expired_durable_notice(&mut self) -> bool {
+        let expired = self.durable_notices.front().is_some_and(|front| {
+            front
+                .painted_at
+                .is_some_and(|painted_at| painted_at.elapsed() >= DURABLE_NOTICE_DISPLAY_DURATION)
+        });
+        if expired {
+            self.durable_notices.pop_front();
+        }
+        expired
+    }
+
+    fn remember_durable_notice(&mut self, delivery: DurableNoticeDelivery) {
+        if self.recent_durable_notices.contains(&delivery) {
+            return;
+        }
+        if self.recent_durable_notices.len() == DURABLE_NOTICE_RECENT_CAPACITY {
+            self.recent_durable_notices.pop_front();
+        }
+        self.recent_durable_notices.push_back(delivery);
+    }
+
+    fn queue_durable_notice_ack(&mut self, delivery: DurableNoticeDelivery) {
+        if self.durable_notice_ack_in_flight.as_ref() == Some(&delivery)
+            || self.pending_durable_notice_acks.contains(&delivery)
+        {
+            return;
+        }
+        self.pending_durable_notice_acks.push_back(delivery);
+    }
+
+    fn submit_pending_durable_notice_ack(&mut self) {
+        if self.durable_notice_ack_in_flight.is_some()
+            || self.machine_action_in_flight
+            || self.pending_machine_replacement.is_some()
+        {
+            return;
+        }
+        if let Some(retry_at) = self.durable_notice_ack_retry_at {
+            if Instant::now() < retry_at {
+                return;
+            }
+            self.durable_notice_ack_retry_at = None;
+        }
+        let Some(delivery) = self.pending_durable_notice_acks.pop_front() else {
+            return;
+        };
+        let Some(worker) = self.machine_action_worker.as_ref() else {
+            self.pending_durable_notice_acks.push_front(delivery);
+            return;
+        };
+        let in_flight = delivery.clone();
+        match worker.acknowledge_durable_notice(delivery) {
+            Ok(()) => self.durable_notice_ack_in_flight = Some(in_flight),
+            Err(delivery) => self.pending_durable_notice_acks.push_front(delivery),
+        }
     }
 
     fn install_prepared_machine_session(&mut self, prepared: PreparedMachineSession) {
@@ -5698,6 +6035,7 @@ impl App {
     ) -> anyhow::Result<()> {
         let lock = self.stdout_lock.clone();
         let _guard = lock.lock();
+        self.painted_durable_notice_this_frame = None;
         terminal.draw(|f| crate::ui::draw(self, f))?;
         if self.graphics_host_scene_reset_pending {
             if let Some(writer) = &self.graphics_writer {
@@ -5706,6 +6044,8 @@ impl App {
             self.graphics_scene_cache.invalidate();
             self.graphics_host_scene_reset_pending = false;
         }
+        self.commit_successful_durable_notice_paint();
+        self.submit_pending_durable_notice_ack();
         if let Some(sequence) =
             outer_cursor_escape_if_changed(self.applied_outer_cursor, self.desired_outer_cursor)
         {
@@ -6465,11 +6805,14 @@ impl App {
             }
             #[cfg(test)]
             AppEvent::MachineUiUpdated(update) => Ok(self.apply_machine_ui_update(*update)),
-            AppEvent::MachineUiUpdatedForGeneration { generation, update } => {
+            AppEvent::MachineUpdatedForGeneration { generation, update } => {
                 if generation != self.machine_update_generation {
                     return Ok(RenderAction::None);
                 }
-                Ok(self.apply_machine_ui_update(*update))
+                Ok(match *update {
+                    MachineUpdate::Ui(update) => self.apply_machine_ui_update(*update),
+                    MachineUpdate::DurableNotice(notice) => self.accept_durable_notice(notice),
+                })
             }
             AppEvent::MachineControllerCompleted(completion) => {
                 Ok(self.apply_machine_controller_completion(*completion))
@@ -6804,43 +7147,67 @@ impl App {
                 }
                 Ok(RenderAction::Draw)
             }
-            AppEvent::Input(Event::Key(key)) => self.handle_key(key),
-            AppEvent::Input(Event::Mouse(mouse)) => self.handle_mouse(mouse),
+            AppEvent::Input(Event::Key(key)) => {
+                let dismissed =
+                    key.kind != KeyEventKind::Release && self.dismiss_painted_durable_notice();
+                let action = self.handle_key(key)?;
+                Ok(if dismissed { action.merge(RenderAction::Draw) } else { action })
+            }
+            AppEvent::Input(Event::Mouse(mouse)) => {
+                if matches!(mouse.kind, MouseEventKind::Down(_))
+                    && self.durable_notice_banner_row() == Some(mouse.row)
+                    && self.dismiss_painted_durable_notice()
+                {
+                    return Ok(RenderAction::Draw);
+                }
+                let dismissed = matches!(
+                    mouse.kind,
+                    MouseEventKind::Down(_)
+                        | MouseEventKind::ScrollUp
+                        | MouseEventKind::ScrollDown
+                        | MouseEventKind::ScrollLeft
+                        | MouseEventKind::ScrollRight
+                ) && self.dismiss_painted_durable_notice();
+                let action = self.handle_mouse(mouse)?;
+                Ok(if dismissed { action.merge(RenderAction::Draw) } else { action })
+            }
             AppEvent::Input(Event::Paste(text)) => {
+                let dismissed = self.dismiss_painted_durable_notice();
                 self.status_message = None;
-                if self.pairing_dialog.is_some() || self.shortcut_help.is_some() {
-                    Ok(RenderAction::Draw)
+                let action = if self.pairing_dialog.is_some() || self.shortcut_help.is_some() {
+                    RenderAction::Draw
                 } else if let Some(prompt) = self.prompt.as_mut() {
                     prompt.input.insert_str(&text);
-                    Ok(RenderAction::Draw)
+                    RenderAction::Draw
                 } else if let Some(state) = self.omnibar.as_mut() {
                     clear_omnibar_selection(state);
                     state.input.insert_str(&text);
-                    Ok(RenderAction::Draw)
+                    RenderAction::Draw
                 } else if self.machine_sidebar_focused() {
-                    Ok(RenderAction::Draw)
+                    RenderAction::Draw
                 } else if self.workspace_sidebar_focused() {
                     if self.config.sidebar.plugin.is_some() {
                         self.paste_sidebar(&text);
-                        Ok(if self.status_message.is_some() {
+                        if self.status_message.is_some() {
                             RenderAction::Draw
                         } else {
                             RenderAction::None
-                        })
+                        }
                     } else {
                         if self.sidebar_view == SidebarView::Files {
                             self.sidebar_files.insert_filter_text(&text);
                         }
-                        Ok(RenderAction::Draw)
+                        RenderAction::Draw
                     }
                 } else {
                     self.paste(&text);
-                    Ok(if self.status_message.is_some() {
+                    if self.status_message.is_some() {
                         RenderAction::Draw
                     } else {
                         RenderAction::None
-                    })
-                }
+                    }
+                };
+                Ok(if dismissed { action.merge(RenderAction::Draw) } else { action })
             }
             AppEvent::Input(Event::FocusGained) => {
                 self.reassert_visible_surface_sizes();
@@ -7846,15 +8213,28 @@ impl App {
                 }
             }
             Some(MachineRailCommand::Connect) => {
-                self.prompt = Some(Prompt::new(
-                    localization::catalog().sidebar.connect_prompt,
-                    String::new(),
-                    PromptTarget::ConnectMachine,
-                ));
+                self.prompt = Some(self.connect_machine_prompt());
             }
             None => {}
         }
         RenderAction::Draw
+    }
+
+    fn connect_machine_prompt(&self) -> Prompt {
+        let messages = &localization::catalog().sidebar;
+        if self.machine_ui.as_ref().is_some_and(|ui| ui.connect_accepts_pairing_code) {
+            Prompt::new(
+                messages.connect_prompt,
+                String::new(),
+                PromptTarget::ConnectMachine(MachineConnectRoute::Provider),
+            )
+        } else {
+            Prompt::new(
+                messages.connect_host_prompt,
+                String::new(),
+                PromptTarget::ConnectMachine(MachineConnectRoute::Local),
+            )
+        }
     }
 
     fn open_provider_scope_menu(&mut self, x: u16, y: u16) {
@@ -7924,14 +8304,7 @@ impl App {
             return;
         };
         match action.fields.as_slice() {
-            [] if action.destructive => {
-                self.prompt = Some(Prompt::new(
-                    localization::catalog().sidebar.confirm_destructive_action,
-                    String::new(),
-                    PromptTarget::ConfirmProviderAction(index),
-                ));
-            }
-            [] => self.submit_provider_action(index, None),
+            [] => self.stage_provider_action(index, None),
             [field] => {
                 self.prompt = Some(Prompt::new(
                     field.label.clone(),
@@ -7947,15 +8320,61 @@ impl App {
         }
     }
 
-    fn submit_provider_action(&mut self, index: usize, input: Option<&str>) {
-        let result = self
-            .machine_ui
+    fn provider_action_context(&self) -> ProviderActionContext {
+        let Some(ui) = self.machine_ui.as_ref() else {
+            return ProviderActionContext::default();
+        };
+        let Some(active) = ui.snapshot.active.filter(|active| ui.is_provider_machine(*active))
+        else {
+            return ProviderActionContext::default();
+        };
+        let machine_id = ui
+            .snapshot
+            .machines
+            .iter()
+            .find(|machine| machine.key == active)
+            .map(|machine| machine.id.clone());
+        // Provider runtimes expose a session only while its machine matches
+        // the active provider machine. That ownership is sufficient for
+        // session-created workspaces that have no lifecycle-catalog entry.
+        let workspace_id = if ui.session_available {
+            self.tree
+                .active_workspace()
+                .map(|workspace| workspace.key.clone())
+                .filter(|id| !id.is_empty())
+        } else {
+            None
+        };
+        ProviderActionContext { machine_id, workspace_id }
+    }
+
+    fn bound_provider_action(
+        &self,
+        index: usize,
+        input: Option<&str>,
+    ) -> Option<Result<(MachineRequest, bool), ProviderActionInputError>> {
+        let context = self.provider_action_context();
+        self.machine_ui
             .as_ref()
             .and_then(|ui| ui.provider.as_ref())
             .and_then(|provider| provider.actions.get(index))
-            .map(|action| action.request(input));
+            .map(|action| {
+                action.request(input, &context).map(|request| (request, action.destructive))
+            })
+    }
+
+    fn stage_provider_action(&mut self, index: usize, input: Option<&str>) {
+        let result = self.bound_provider_action(index, input);
         match result {
-            Some(Ok(request)) => {
+            Some(Ok((request, true))) => {
+                self.pending_provider_action = Some(request);
+                self.prompt = Some(Prompt::new(
+                    localization::catalog().sidebar.confirm_destructive_action,
+                    String::new(),
+                    PromptTarget::ConfirmProviderAction,
+                ));
+            }
+            Some(Ok((request, false))) => {
                 if let Some(ui) = self.machine_ui.as_mut() {
                     ui.request = Some(request);
                 }
@@ -8102,11 +8521,12 @@ impl App {
     fn commit_prompt(&mut self) {
         let Some(prompt) = self.take_prompt() else { return };
         let input = prompt.input.as_str().to_string();
-        if matches!(prompt.target, PromptTarget::ConnectMachine) {
+        if let PromptTarget::ConnectMachine(route) = prompt.target {
             if !input.trim().is_empty()
                 && let Some(machine) = self.machine_ui.as_mut()
             {
-                machine.request = Some(MachineRequest::Connect(input.trim().to_string()));
+                machine.request =
+                    Some(MachineRequest::Connect { target: input.trim().to_string(), route });
             }
             return;
         }
@@ -8139,14 +8559,17 @@ impl App {
             return;
         }
         if let PromptTarget::ProviderAction(index) = prompt.target {
-            let result = self
-                .machine_ui
-                .as_ref()
-                .and_then(|ui| ui.provider.as_ref())
-                .and_then(|provider| provider.actions.get(index))
-                .map(|action| action.request(Some(&input)));
+            let result = self.bound_provider_action(index, Some(&input));
             match result {
-                Some(Ok(request)) => {
+                Some(Ok((request, true))) => {
+                    self.pending_provider_action = Some(request);
+                    self.prompt = Some(Prompt::new(
+                        localization::catalog().sidebar.confirm_destructive_action,
+                        String::new(),
+                        PromptTarget::ConfirmProviderAction,
+                    ));
+                }
+                Some(Ok((request, false))) => {
                     if let Some(ui) = self.machine_ui.as_mut() {
                         ui.request = Some(request);
                     }
@@ -8160,9 +8583,13 @@ impl App {
             }
             return;
         }
-        if let PromptTarget::ConfirmProviderAction(index) = prompt.target {
+        if let PromptTarget::ConfirmProviderAction = prompt.target {
             if input.trim() == "CONFIRM" {
-                self.submit_provider_action(index, None);
+                if let (Some(request), Some(ui)) =
+                    (self.pending_provider_action.take(), self.machine_ui.as_mut())
+                {
+                    ui.request = Some(request);
+                }
             } else {
                 self.status_message =
                     Some(localization::catalog().sidebar.confirmation_mismatch.to_string());
@@ -8207,12 +8634,12 @@ impl App {
             // Empty screen/tab names clear back to the default.
             PromptTarget::Screen(id) => self.session.rename_screen(id, input),
             PromptTarget::Surface(id) => self.session.rename_surface(id, input),
-            PromptTarget::ConnectMachine
+            PromptTarget::ConnectMachine(_)
             | PromptTarget::ManagedMachine(_)
             | PromptTarget::ConfirmDeleteManagedMachine(_)
             | PromptTarget::ConfirmPurgeManagedMachine(_)
             | PromptTarget::ProviderAction(_)
-            | PromptTarget::ConfirmProviderAction(_)
+            | PromptTarget::ConfirmProviderAction
             | PromptTarget::ManagedWorkspace(_)
             | PromptTarget::ConfirmPurgeManagedWorkspace(_) => {
                 unreachable!("handled before session mutation")
@@ -8228,6 +8655,7 @@ impl App {
     fn close_prompt(&mut self) {
         self.shake_frames = 0;
         self.prompt = None;
+        self.pending_provider_action = None;
     }
 
     fn handle_prompt_key(&mut self, key: KeyEvent) -> anyhow::Result<RenderAction> {
@@ -8996,14 +9424,14 @@ impl App {
             | MenuAction::ToggleSidebarCompact { .. }
             | MenuAction::FocusSidebar
             | MenuAction::ShowShortcuts => unreachable!("shared menu actions return above"),
-            MenuAction::SetClientSizing { client, enabled } => {
-                self.session.set_client_sizing(client, enabled);
+            MenuAction::SetClientSizing { surface, client, enabled } => {
+                self.session.set_client_sizing(surface, client, enabled);
             }
-            MenuAction::UseClientSize(client) => {
-                self.session.use_only_client_sizing(client);
+            MenuAction::UseClientSize { surface, client } => {
+                self.session.use_only_client_sizing(surface, client);
             }
-            MenuAction::RestoreAllClientSizing => {
-                self.session.use_all_client_sizing();
+            MenuAction::RestoreAllClientSizing(surface) => {
+                self.session.use_all_client_sizing(surface);
             }
             MenuAction::DisconnectClient(client) => {
                 if self.clients.iter().any(|info| info.client == client && info.is_self) {
@@ -10592,11 +11020,7 @@ impl App {
                     if let Some(machine) = self.machine_ui.as_mut() {
                         machine.rail_selection = MachineRailSelection::ConnectMachine;
                     }
-                    self.prompt = Some(Prompt::new(
-                        localization::catalog().sidebar.connect_prompt,
-                        String::new(),
-                        PromptTarget::ConnectMachine,
-                    ));
+                    self.prompt = Some(self.connect_machine_prompt());
                 }
                 Hit::ProviderScope => {
                     self.focus = FocusTarget::MachineRail;
@@ -11763,6 +12187,12 @@ fn provider_action_error_message(error: ProviderActionInputError) -> &'static st
         ProviderActionInputError::InvalidInteger => messages.action_invalid_integer,
         ProviderActionInputError::BelowMinimum => messages.action_below_minimum,
         ProviderActionInputError::AboveMaximum => messages.action_above_maximum,
+        ProviderActionInputError::MissingSelectedMachine => {
+            messages.action_missing_selected_machine
+        }
+        ProviderActionInputError::MissingSelectedWorkspace => {
+            messages.action_missing_selected_workspace
+        }
         ProviderActionInputError::UnsupportedFieldCount => {
             messages.action_multiple_fields_unsupported
         }
@@ -11824,25 +12254,26 @@ fn browser_key_mapping(
 mod tests {
     use super::{
         App, AppEvent, BACKGROUND_REFRESH_RETRIES, ContextMenu, DeferredInput, Drag, FocusTarget,
-        ForwardMuxOutcome, GraphicsSceneCache, MachineActionWorker, MenuAction, MenuItem,
-        MuxTitleIngress, OrderedSession, OuterCursorSpec, PaneArea, PaneEdge, PaneFocusHistory,
-        PendingSessionMutation, PendingSessionMutationState, PromptTarget, PtyFailureIngress,
-        PtyMousePressResult, RailKind, RenderAction, Selection, SessionCompletion,
-        SessionCompletionAction, SessionEventSender, ShortcutHelp, SidebarLayout,
-        SidebarPluginSyncClaim, SidebarPluginSyncState, StdoutLock, SurfaceResizeDecision,
-        SurfaceResizeOwnership, WorkspaceRailSelection, action_available_in_mode,
-        browser_content_size_for_rect, browser_hover_forward_allowed, canonical_terminal_content,
-        clamp_split_ratio_for_tab_bars, client_menu_item, forward_mux_event, forward_mux_events,
-        outer_cursor_escape, outer_cursor_escape_if_changed, pane_context_menu_groups,
-        pane_parts_for_rect, prepare_ordered_session, preserve_client_view, rail_drag_width,
-        record_surface_resize_dispatch_result, report_after_unwind, sidebar_layout_for,
-        sidebar_plugin_status_settles_passive_claim, start_ordered_session, with_panic_stdout_lock,
+        ForwardMuxOutcome, GraphicsSceneCache, MachineActionWorker, MachineConnectRoute,
+        MenuAction, MenuItem, MuxTitleIngress, OrderedSession, OuterCursorSpec, PaneArea, PaneEdge,
+        PaneFocusHistory, PendingSessionMutation, PendingSessionMutationState, PromptTarget,
+        PtyFailureIngress, PtyMousePressResult, RailKind, RenderAction, Selection,
+        SessionCompletion, SessionCompletionAction, SessionEventSender, ShortcutHelp,
+        SidebarLayout, SidebarPluginSyncClaim, SidebarPluginSyncState, StdoutLock,
+        SurfaceResizeDecision, SurfaceResizeOwnership, WorkspaceRailSelection,
+        action_available_in_mode, browser_content_size_for_rect, browser_hover_forward_allowed,
+        canonical_terminal_content, clamp_split_ratio_for_tab_bars, client_menu_item,
+        forward_mux_event, forward_mux_events, outer_cursor_escape, outer_cursor_escape_if_changed,
+        pane_context_menu_groups, pane_parts_for_rect, prepare_ordered_session,
+        preserve_client_view, rail_drag_width, record_surface_resize_dispatch_result,
+        report_after_unwind, sidebar_layout_for, sidebar_plugin_status_settles_passive_claim,
+        start_ordered_session, with_panic_stdout_lock,
     };
     use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
     use std::sync::mpsc::Receiver;
-    use std::sync::{Arc, Mutex};
+    use std::sync::{Arc, Barrier, Mutex};
     use std::time::{Duration, Instant};
 
     use cmux_tui_core::{
@@ -11866,13 +12297,15 @@ mod tests {
     };
     use crate::localization;
     use crate::machine::{
-        MachineActionResult, MachineCapabilities, MachineController, MachineDescriptor, MachineKey,
+        DurableNoticeDelivery, DurableNoticeLevel, DurableProviderNotice, MachineActionResult,
+        MachineCapabilities, MachineController, MachineDescriptor, MachineKey,
         MachineRailSelection, MachineRequest, MachineSnapshot, MachineStatus, MachineUiState,
-        ManagedMachineCapabilities, ManagedMachineDescriptor, ManagedMachineStatus,
+        MachineUpdate, ManagedMachineCapabilities, ManagedMachineDescriptor, ManagedMachineStatus,
         ManagedWorkspaceCapabilities, ManagedWorkspaceDescriptor, ManagedWorkspaceSessionMutation,
-        ManagedWorkspaceStatus, ProviderActionDescriptor, ProviderActionFieldDescriptor,
-        ProviderActionFieldKind, ProviderActionValue, ProviderPresentation,
-        ProviderScopeDescriptor, ProviderScopeKind, WorkspaceCreationMode, WorkspaceCreationPolicy,
+        ManagedWorkspaceStatus, ProviderActionContext, ProviderActionDescriptor,
+        ProviderActionFieldDescriptor, ProviderActionFieldKind, ProviderActionTarget,
+        ProviderActionValue, ProviderPresentation, ProviderScopeDescriptor, ProviderScopeKind,
+        WorkspaceCreationMode, WorkspaceCreationPolicy,
     };
     use crate::pty_input::{
         PtyInputBytes, PtyInputDispatcher, PtyInputEnqueueResult, PtyInputKind,
@@ -12199,9 +12632,13 @@ mod tests {
             kind: Some("tui".to_string()),
             connected_seconds: 1,
             attached: vec![surface.id],
-            sizes: vec![ClientSizeInfo { surface: surface.id, cols: Some(80), rows: Some(24) }],
+            sizes: vec![ClientSizeInfo {
+                surface: surface.id,
+                cols: Some(80),
+                rows: Some(24),
+                size_participating: true,
+            }],
             is_self: false,
-            size_participating: true,
         }];
         app.replace_tree(app.session.tree());
         app.sync_layout((120, 30));
@@ -13202,14 +13639,14 @@ mod tests {
             5,
             vec![vec![MenuItem::Submenu {
                 label: "Clients".to_string(),
-                items: vec![MenuItem::Action(MenuAction::RestoreAllClientSizing)],
+                items: vec![MenuItem::Action(MenuAction::RestoreAllClientSizing(31))],
             }]],
         );
         assert!(menu.open_selected_submenu());
         menu.levels[1].rect = Rect { x: 10, y: 5, width: 20, height: 3 };
 
         assert_eq!(menu.hit_at(10, 5), None);
-        assert_eq!(menu.selected_action(), Some(MenuAction::RestoreAllClientSizing));
+        assert_eq!(menu.selected_action(), Some(MenuAction::RestoreAllClientSizing(31)));
     }
 
     #[test]
@@ -13223,7 +13660,6 @@ mod tests {
             attached: Vec::new(),
             sizes: Vec::new(),
             is_self: false,
-            size_participating: true,
         };
         let Some(MenuItem::Submenu { items, .. }) = client_menu_item(&[client], 31) else {
             panic!("expected connected clients submenu");
@@ -13243,9 +13679,13 @@ mod tests {
             kind: Some("tui".to_string()),
             connected_seconds: 1,
             attached: vec![31],
-            sizes: vec![ClientSizeInfo { surface: 31, cols: Some(80), rows: Some(24) }],
+            sizes: vec![ClientSizeInfo {
+                surface: 31,
+                cols: Some(80),
+                rows: Some(24),
+                size_participating: true,
+            }],
             is_self: true,
-            size_participating: true,
         };
         let Some(MenuItem::Submenu { items, .. }) = client_menu_item(&[current], 31) else {
             panic!("expected connected clients submenu");
@@ -13253,8 +13693,8 @@ mod tests {
         assert_eq!(
             &items[..2],
             &[
-                MenuItem::Action(MenuAction::UseClientSize(7)),
-                MenuItem::Action(MenuAction::RestoreAllClientSizing),
+                MenuItem::Action(MenuAction::UseClientSize { surface: 31, client: 7 }),
+                MenuItem::Action(MenuAction::RestoreAllClientSizing(31)),
             ]
         );
     }
@@ -13272,7 +13712,6 @@ mod tests {
             attached: vec![],
             sizes: vec![],
             is_self: true,
-            size_participating: true,
         }];
 
         assert!(app.activate_menu(MenuAction::DisconnectClient(7)).is_ok());
@@ -13295,7 +13734,6 @@ mod tests {
             attached: vec![],
             sizes: vec![],
             is_self: false,
-            size_participating: true,
         }];
 
         assert!(app.activate_menu(MenuAction::DisconnectClient(7)).is_ok());
@@ -13322,9 +13760,13 @@ mod tests {
             kind: Some("tui".to_string()),
             connected_seconds: 1,
             attached: vec![31],
-            sizes: vec![ClientSizeInfo { surface: 31, cols: Some(80), rows: Some(24) }],
+            sizes: vec![ClientSizeInfo {
+                surface: 31,
+                cols: Some(80),
+                rows: Some(24),
+                size_participating: true,
+            }],
             is_self: true,
-            size_participating: true,
         };
         let Some(MenuItem::Submenu { items, .. }) = client_menu_item(&[local], 31) else {
             panic!("expected connected clients submenu");
@@ -13392,8 +13834,13 @@ mod tests {
 
     #[test]
     fn context_menu_scrolls_selection_and_hit_testing_through_tall_client_lists() {
-        let mut menu =
-            ContextMenu::at(10, 5, vec![(1..=8).map(MenuAction::UseClientSize).collect()]);
+        let mut menu = ContextMenu::at(
+            10,
+            5,
+            vec![
+                ((1..=8).map(|client| MenuAction::UseClientSize { surface: 31, client }).collect()),
+            ],
+        );
 
         menu.fit_to_rows(3);
         assert_eq!(menu.levels[0].rect.height, 5);
@@ -13403,7 +13850,10 @@ mod tests {
             menu.select_next();
         }
 
-        assert_eq!(menu.selected_action(), Some(MenuAction::UseClientSize(5)));
+        assert_eq!(
+            menu.selected_action(),
+            Some(MenuAction::UseClientSize { surface: 31, client: 5 })
+        );
         assert_eq!(menu.levels[0].scroll_offset, 2);
         assert_eq!(menu.item_at(10, 5), Some(2));
         assert_eq!(menu.item_at(10, 7), Some(4));
@@ -15480,6 +15930,159 @@ mod tests {
             app.session.surface_resize_decision(88, (100, 30), true),
             SurfaceResizeDecision::NeedsQueue(_)
         ));
+    }
+
+    #[test]
+    fn retiring_surface_during_inflight_attach_is_not_a_sync_failure() {
+        let mux = Mux::new("surface-retired-during-attach-test", SurfaceOptions::default());
+        let surface = 77;
+        let (mut app, events) = test_app_with_events(Session::Local(mux));
+        app.session.remote = true;
+        app.replace_tree(notify_tree(surface, false));
+
+        let reached = Arc::new(Barrier::new(2));
+        let release = Arc::new(Barrier::new(2));
+        let hook_reached = reached.clone();
+        let hook_release = release.clone();
+        *app.session.surface_attach_after_obsolete_check.lock().unwrap() =
+            Some(Arc::new(move || {
+                hook_reached.wait();
+                hook_release.wait();
+            }));
+
+        app.session.attach_surface(surface, Some((80, 24)));
+        reached.wait();
+        app.session.forget_surface(surface);
+        // The authoritative refresh can prune the general tombstone before
+        // the in-flight attach returns. Its claim must retain the retirement.
+        app.session.reconcile_exited_surfaces(&TreeView::default());
+        assert!(!app.session.exited_surfaces.lock().unwrap().contains(&surface));
+        release.wait();
+
+        let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(matches!(
+            &settled,
+            AppEvent::SurfaceAttachSettled {
+                outcome: super::SessionMutationOutcome::Success { tree: None }
+            }
+        ));
+        app.handle(settled).unwrap();
+        assert!(app.status_message.is_none());
+        assert!(!app.session.surface_attach_failures.lock().unwrap().contains_key(&surface));
+    }
+
+    #[test]
+    fn retiring_surface_does_not_swallow_attach_transport_failure() {
+        let surface = 77;
+        let reached = Arc::new(Barrier::new(2));
+        let release = Arc::new(Barrier::new(2));
+        let session = crate::session::test_remote_session_with_blocked_attach_transport_failure(
+            reached.clone(),
+            release.clone(),
+        );
+        assert!(session.take_remote_tree_stale());
+        let (mut app, events) = test_app_with_events(session);
+        app.replace_tree(notify_tree(surface, false));
+
+        app.session.attach_surface(surface, Some((80, 24)));
+        reached.wait();
+        app.session.forget_surface(surface);
+        app.session.reconcile_exited_surfaces(&TreeView::default());
+        release.wait();
+
+        let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(matches!(
+            &settled,
+            AppEvent::SurfaceAttachSettled {
+                outcome: super::SessionMutationOutcome::SurfaceSyncFailed {
+                    surface: 77,
+                    operation: "attach",
+                    error,
+                    ..
+                }
+            } if error.contains("remote transport write failed")
+        ));
+        app.handle(settled).unwrap();
+        assert!(app.session.surface_attach_failures.lock().unwrap().contains_key(&surface));
+    }
+
+    #[test]
+    fn unrelated_stale_tree_before_attach_request_preserves_the_sync_failure() {
+        let session = crate::session::test_remote_session_without_provider_authority();
+        assert!(session.take_remote_tree_stale());
+        let surface = 77;
+        let (mut app, events) = test_app_with_events(session);
+        app.replace_tree(notify_tree(surface, false));
+
+        let reached = Arc::new(Barrier::new(2));
+        let release = Arc::new(Barrier::new(2));
+        let hook_reached = reached.clone();
+        let hook_release = release.clone();
+        *app.session.surface_attach_after_obsolete_check.lock().unwrap() =
+            Some(Arc::new(move || {
+                hook_reached.wait();
+                hook_release.wait();
+            }));
+
+        app.session.attach_surface(surface, Some((80, 24)));
+        reached.wait();
+        app.session.invalidate_remote_tree();
+        app.session.begin_shutdown();
+        release.wait();
+
+        let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(matches!(
+            &settled,
+            AppEvent::SurfaceAttachSettled {
+                outcome: super::SessionMutationOutcome::SurfaceSyncFailed {
+                    surface: 77,
+                    operation: "attach",
+                    ..
+                }
+            }
+        ));
+        app.handle(settled).unwrap();
+        assert!(app.status_message.as_deref().is_some_and(|message| {
+            message.contains("surface 77 attach failed")
+                && message.contains("remote response wait canceled for shutdown")
+        }));
+        assert!(app.session.surface_attach_failures.lock().unwrap().contains_key(&surface));
+    }
+
+    #[test]
+    fn unrelated_stale_tree_during_attach_preserves_the_sync_failure() {
+        let session = crate::session::test_remote_session_without_provider_authority();
+        assert!(session.take_remote_tree_stale());
+        let surface = 77;
+        let (mut app, events) = test_app_with_events(session);
+        app.replace_tree(notify_tree(surface, false));
+
+        let session = app.session.inner.clone();
+        *app.session.surface_attach_after_obsolete_check.lock().unwrap() =
+            Some(Arc::new(move || {
+                session.invalidate_remote_tree();
+                session.begin_shutdown();
+            }));
+
+        app.session.attach_surface(surface, Some((80, 24)));
+
+        let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(matches!(
+            &settled,
+            AppEvent::SurfaceAttachSettled {
+                outcome: super::SessionMutationOutcome::SurfaceSyncFailed {
+                    surface: 77,
+                    operation: "attach",
+                    ..
+                }
+            }
+        ));
+        app.handle(settled).unwrap();
+        assert!(app.status_message.as_deref().is_some_and(|message| {
+            message.contains("surface 77 attach failed")
+                && message.contains("remote response wait canceled for shutdown")
+        }));
+        assert!(app.session.surface_attach_failures.lock().unwrap().contains_key(&surface));
     }
 
     #[test]
@@ -17961,6 +18564,7 @@ mod tests {
             active: Some(machine),
             capabilities: MachineCapabilities { create: true, connect: true },
         });
+        ui.connect_accepts_pairing_code = true;
         ui.session_available = false;
         ui.set_workspace_creation_policy(
             machine,
@@ -17991,6 +18595,7 @@ mod tests {
                 ProviderActionDescriptor {
                     id: "invite-member".into(),
                     label: "Invite member".into(),
+                    target: ProviderActionTarget::Scope,
                     destructive: false,
                     fields: vec![ProviderActionFieldDescriptor {
                         id: "email".into(),
@@ -18006,6 +18611,7 @@ mod tests {
                 ProviderActionDescriptor {
                     id: "manage-billing".into(),
                     label: "Manage billing".into(),
+                    target: ProviderActionTarget::Scope,
                     destructive: false,
                     fields: Vec::new(),
                 },
@@ -18095,9 +18701,137 @@ mod tests {
                     "email".into(),
                     ProviderActionValue::Text("person@example.com".into())
                 )]),
+                machine_id: None,
+                workspace_id: None,
             })
         );
         assert!(!app.quit);
+    }
+
+    #[test]
+    fn destructive_workspace_action_binds_context_before_confirmation() {
+        let mux = Mux::new("provider-workspace-action-test", SurfaceOptions::default());
+        let workspace_key = "00000000-0000-4000-8000-000000000123";
+        mux.create_empty_workspace(Some("ports".into()), Some(workspace_key.into()), None).unwrap();
+        let mut app = test_app(Session::Local(mux));
+        app.replace_tree(app.session.tree());
+        let mut ui = provider_controls_ui();
+        ui.provider.as_mut().unwrap().actions.push(ProviderActionDescriptor {
+            id: "workspace.port.make_public".into(),
+            label: "Make workspace port public".into(),
+            target: ProviderActionTarget::SelectedWorkspace,
+            destructive: true,
+            fields: vec![ProviderActionFieldDescriptor {
+                id: "port".into(),
+                label: "Port".into(),
+                kind: ProviderActionFieldKind::Integer,
+                required: true,
+                max_length: None,
+                minimum: Some(1),
+                maximum: Some(i64::from(u16::MAX)),
+                placeholder: None,
+            }],
+        });
+        ui.set_managed_workspaces(
+            MachineKey(41),
+            vec![ManagedWorkspaceDescriptor {
+                id: workspace_key.into(),
+                name: "ports".into(),
+                mode: WorkspaceCreationMode::Isolated,
+                status: ManagedWorkspaceStatus::Active,
+                version: 1,
+                recoverable_until: None,
+                capabilities: ManagedWorkspaceCapabilities::default(),
+            }],
+        );
+        ui.session_available = true;
+        app.machine_ui = Some(ui);
+
+        app.begin_provider_action(2);
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let input = app.prompt.as_ref().unwrap().input_rect;
+        terminal.backend_mut().assert_cursor_position((input.x, input.y));
+        app.prompt.as_mut().unwrap().input.insert_str("3000");
+        app.handle_prompt_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
+        assert!(matches!(
+            app.prompt.as_ref().map(|prompt| &prompt.target),
+            Some(PromptTarget::ConfirmProviderAction)
+        ));
+        assert!(
+            app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()).is_none(),
+            "destructive action must wait for explicit confirmation"
+        );
+
+        app.prompt.as_mut().unwrap().input.insert_str("CONFIRM");
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let ok = app.prompt.as_ref().unwrap().ok;
+        app.handle_prompt_click(ok.x, ok.y).unwrap();
+        assert_eq!(
+            app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
+            Some(&MachineRequest::InvokeProviderAction {
+                action_id: "workspace.port.make_public".into(),
+                values: BTreeMap::from([("port".into(), ProviderActionValue::Integer(3_000))]),
+                machine_id: Some("managed-41".into()),
+                workspace_id: Some(workspace_key.into()),
+            })
+        );
+    }
+
+    #[test]
+    fn provider_action_context_excludes_a_client_local_overlay_machine() {
+        let mux = Mux::new("provider-action-local-overlay-test", SurfaceOptions::default());
+        mux.create_empty_workspace(
+            Some("local".into()),
+            Some("00000000-0000-4000-8000-000000000123".into()),
+            None,
+        )
+        .unwrap();
+        let mut app = test_app(Session::Local(mux));
+        app.replace_tree(app.session.tree());
+        let mut ui = provider_controls_ui();
+        let local_key = MachineKey(crate::machine_runtime::CLIENT_MACHINE_KEY_START);
+        ui.snapshot.machines.push(MachineDescriptor {
+            key: local_key,
+            id: "managed-41".into(),
+            name: "Local".into(),
+            subtitle: "client local".into(),
+            status: MachineStatus::Running,
+        });
+        ui.snapshot.active = Some(local_key);
+        ui.selection = ui.snapshot.active_index().unwrap();
+        ui.session_available = true;
+        app.machine_ui = Some(ui);
+
+        assert_eq!(app.provider_action_context(), ProviderActionContext::default());
+    }
+
+    #[test]
+    fn provider_action_context_binds_only_the_active_provider_session_workspace() {
+        let mux = Mux::new("provider-action-workspace-ownership-test", SurfaceOptions::default());
+        let session_workspace = "00000000-0000-4000-8000-000000000123";
+        mux.create_empty_workspace(Some("active".into()), Some(session_workspace.into()), None)
+            .unwrap();
+        let mut app = test_app(Session::Local(mux));
+        app.replace_tree(app.session.tree());
+        let mut ui = provider_controls_ui();
+        ui.session_available = false;
+        app.machine_ui = Some(ui.clone());
+
+        assert_eq!(
+            app.provider_action_context(),
+            ProviderActionContext { machine_id: Some("managed-41".into()), workspace_id: None }
+        );
+
+        ui.session_available = true;
+        app.machine_ui = Some(ui);
+        assert_eq!(
+            app.provider_action_context(),
+            ProviderActionContext {
+                machine_id: Some("managed-41".into()),
+                workspace_id: Some(session_workspace.into()),
+            }
+        );
     }
 
     #[test]
@@ -18177,7 +18911,8 @@ mod tests {
         let text = buffer_text(terminal.backend().buffer());
         assert!(text.contains("machines"), "{text}");
         assert!(text.contains("no machines"), "{text}");
-        assert!(text.contains("new VM"), "{text}");
+        assert!(text.contains("new machine"), "{text}");
+        assert!(!text.contains("new VM"), "{text}");
         assert!(text.contains("connect machine"), "{text}");
         assert!(text.contains("workspaces"), "{text}");
         assert!(
@@ -18189,9 +18924,72 @@ mod tests {
         app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
         assert!(app.machine_ui.as_ref().is_some_and(|ui| ui.request.is_none()));
         assert!(app.prompt.is_some(), "connect machine is keyboard reachable");
+        assert_eq!(
+            app.prompt.as_ref().map(|prompt| prompt.label.as_str()),
+            Some(localization::catalog().sidebar.connect_host_prompt)
+        );
         app.prompt = None;
         app.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE)).unwrap();
         assert_eq!(app.focus, FocusTarget::WorkspaceRail);
+    }
+
+    #[test]
+    fn connect_machine_footer_captures_the_route_shown_by_each_entrypoint() {
+        let mux = Mux::new("connect-machine-footer-input-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sidebar_view = SidebarView::Workspaces;
+        app.machine_ui = Some(provider_machine_ui());
+        app.sync_layout((100, 16));
+        let mut terminal = Terminal::new(TestBackend::new(100, 16)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+
+        let connect = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(hit, super::Hit::ConnectMachine).then_some((rect.x, rect.y))
+            })
+            .unwrap();
+        app.handle_left_down(connect.0, connect.1, KeyModifiers::NONE).unwrap();
+        assert_eq!(
+            app.prompt.as_ref().map(|prompt| prompt.label.as_str()),
+            Some(localization::catalog().sidebar.connect_prompt)
+        );
+        app.prompt.as_mut().unwrap().input.insert_str("PAIR 4J7K");
+        let mut update = app.machine_ui.clone().unwrap();
+        update.connect_accepts_pairing_code = false;
+        app.apply_machine_ui_update(update);
+        app.commit_prompt();
+        assert_eq!(
+            app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
+            Some(&MachineRequest::Connect {
+                target: "PAIR 4J7K".into(),
+                route: MachineConnectRoute::Provider,
+            })
+        );
+
+        let machine = app.machine_ui.as_mut().unwrap();
+        machine.request = None;
+        machine.connect_accepts_pairing_code = false;
+        app.focus = FocusTarget::MachineRail;
+        app.handle_key(KeyEvent::new(KeyCode::End, KeyModifiers::NONE)).unwrap();
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
+        assert_eq!(
+            app.prompt.as_ref().map(|prompt| prompt.label.as_str()),
+            Some(localization::catalog().sidebar.connect_host_prompt)
+        );
+        app.prompt.as_mut().unwrap().input.insert_str("mini.local");
+        let mut update = app.machine_ui.clone().unwrap();
+        update.connect_accepts_pairing_code = true;
+        app.apply_machine_ui_update(update);
+        app.commit_prompt();
+        assert_eq!(
+            app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
+            Some(&MachineRequest::Connect {
+                target: "mini.local".into(),
+                route: MachineConnectRoute::Local,
+            })
+        );
     }
 
     #[test]
@@ -18754,6 +19552,14 @@ mod tests {
         )
     }
 
+    fn durable_notice(id: &str, sequence: u64, message: &str) -> DurableProviderNotice {
+        DurableProviderNotice {
+            delivery: DurableNoticeDelivery { notice_id: id.into(), sequence },
+            level: DurableNoticeLevel::Warning,
+            message: message.into(),
+        }
+    }
+
     fn install_machine_controller(app: &mut App, controller: Box<dyn MachineController>) {
         app.machine_action_worker =
             Some(MachineActionWorker::spawn(controller, app.app_events.clone()).unwrap());
@@ -18826,6 +19632,92 @@ mod tests {
             self.release.recv().expect("release blocked machine action");
             Ok(MachineActionResult::ui(provider_machine_ui()))
         }
+    }
+
+    struct AckMachineController {
+        acknowledgements: std::sync::mpsc::Sender<DurableNoticeDelivery>,
+        fail: bool,
+    }
+
+    impl MachineController for AckMachineController {
+        fn perform(&mut self, _request: MachineRequest) -> anyhow::Result<MachineActionResult> {
+            unreachable!("ack controller does not perform machine actions")
+        }
+
+        fn acknowledge_durable_notice(
+            &mut self,
+            delivery: &DurableNoticeDelivery,
+        ) -> anyhow::Result<()> {
+            self.acknowledgements.send(delivery.clone()).unwrap();
+            if self.fail {
+                anyhow::bail!("ack failed");
+            }
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn machine_worker_preserves_exact_durable_notice_ack_result() {
+        for fail in [false, true] {
+            let (events, event_receiver) = std::sync::mpsc::sync_channel(4);
+            let (acknowledgements, acknowledged) = std::sync::mpsc::channel();
+            let mut worker = MachineActionWorker::spawn(
+                Box::new(AckMachineController { acknowledgements, fail }),
+                events,
+            )
+            .unwrap();
+            let delivery =
+                DurableNoticeDelivery { notice_id: format!("notice-{fail}"), sequence: 41 };
+
+            worker.acknowledge_durable_notice(delivery.clone()).unwrap();
+
+            assert_eq!(acknowledged.recv_timeout(Duration::from_secs(1)).unwrap(), delivery);
+            let AppEvent::MachineControllerCompleted(completion) =
+                event_receiver.recv_timeout(Duration::from_secs(1)).unwrap()
+            else {
+                panic!("expected durable notice acknowledgement completion");
+            };
+            match *completion {
+                super::MachineControllerCompletion::DurableNoticeAcknowledged {
+                    delivery: completed,
+                    result,
+                } => {
+                    assert_eq!(completed, delivery);
+                    assert_eq!(result.is_err(), fail);
+                }
+                _ => panic!("expected durable notice acknowledgement completion"),
+            }
+            worker.shutdown();
+        }
+    }
+
+    #[test]
+    fn durable_notice_ack_waits_for_machine_action_settlement() {
+        let mux = Mux::new("durable-ack-action-order", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let (acknowledgements, acknowledged) = std::sync::mpsc::channel();
+        install_machine_controller(
+            &mut app,
+            Box::new(AckMachineController { acknowledgements, fail: false }),
+        );
+        let delivery =
+            DurableNoticeDelivery { notice_id: "usage-during-switch".into(), sequence: 42 };
+        app.queue_durable_notice_ack(delivery.clone());
+        app.machine_action_in_flight = true;
+
+        app.submit_pending_durable_notice_ack();
+
+        assert!(app.durable_notice_ack_in_flight.is_none());
+        assert_eq!(app.pending_durable_notice_acks.front(), Some(&delivery));
+        assert_eq!(
+            acknowledged.recv_timeout(Duration::from_millis(20)),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+        );
+
+        app.machine_action_in_flight = false;
+        app.submit_pending_durable_notice_ack();
+        assert_eq!(acknowledged.recv_timeout(Duration::from_secs(1)).unwrap(), delivery);
+        app.shutdown_background_workers();
     }
 
     struct OrderedBlockingMachineController {
@@ -19212,14 +20104,289 @@ mod tests {
         stale.notice = Some("stale provider update".into());
 
         let action = app
-            .handle(AppEvent::MachineUiUpdatedForGeneration {
+            .handle(AppEvent::MachineUpdatedForGeneration {
                 generation: 1,
-                update: Box::new(stale),
+                update: Box::new(MachineUpdate::Ui(Box::new(stale))),
             })
             .unwrap();
 
         assert_eq!(action, RenderAction::None);
         assert_ne!(app.status_message.as_deref(), Some("stale provider update"));
+    }
+
+    #[test]
+    fn durable_notices_wait_for_exact_successful_paint_and_advance_in_fifo_order() {
+        let mux = Mux::new("durable-notice-fifo", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let first = durable_notice("usage-80", 7, "Usage reached 80%");
+        let second = durable_notice("usage-90", 8, "Usage reached 90%");
+
+        assert_eq!(app.accept_durable_notice(first.clone()), RenderAction::Draw);
+        assert_eq!(app.accept_durable_notice(second.clone()), RenderAction::Draw);
+        assert!(!app.dismiss_painted_durable_notice());
+
+        let mut terminal = Terminal::new(TestBackend::new(16, 3)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+
+        assert_eq!(app.painted_durable_notice_this_frame.as_ref(), Some(&first.delivery));
+        assert!(app.pending_durable_notice_acks.is_empty());
+        assert_eq!(app.durable_notice().map(|notice| &notice.delivery), Some(&first.delivery));
+
+        app.commit_successful_durable_notice_paint();
+        assert_eq!(app.pending_durable_notice_acks.front(), Some(&first.delivery));
+        assert!(app.dismiss_painted_durable_notice());
+        assert_eq!(app.durable_notice().map(|notice| &notice.delivery), Some(&second.delivery));
+        assert!(!app.dismiss_painted_durable_notice());
+    }
+
+    #[test]
+    fn durable_notice_banner_overrides_prefix_and_empty_status_bar() {
+        let mux = Mux::new("durable-notice-banner", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let notice = durable_notice("usage-80", 9, "quota");
+        app.prefix_armed = true;
+        app.accept_durable_notice(notice.clone());
+
+        let mut terminal = Terminal::new(TestBackend::new(8, 3)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+
+        let buffer = terminal.backend().buffer();
+        let bottom = (0..8).map(|x| buffer[(x, 2)].symbol()).collect::<String>();
+        assert!(bottom.starts_with("! quota"), "{bottom:?}");
+        assert_eq!(buffer[(0, 2)].fg, app.chrome.status_bg);
+        assert_eq!(buffer[(0, 2)].bg, app.config.theme.notification_warning);
+        assert_eq!(app.painted_durable_notice_this_frame.as_ref(), Some(&notice.delivery));
+    }
+
+    #[test]
+    fn durable_notice_banner_is_visible_in_a_one_cell_terminal() {
+        let mux = Mux::new("durable-notice-one-cell", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let notice = durable_notice("usage-95", 10, "quota");
+        app.accept_durable_notice(notice.clone());
+
+        let mut terminal = Terminal::new(TestBackend::new(1, 1)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+
+        let cell = &terminal.backend().buffer()[(0, 0)];
+        assert_eq!(cell.symbol(), "!");
+        assert_eq!(cell.fg, app.chrome.status_bg);
+        assert_eq!(cell.bg, app.config.theme.notification_warning);
+        assert_eq!(app.painted_durable_notice_this_frame.as_ref(), Some(&notice.delivery));
+    }
+
+    #[test]
+    fn durable_notice_auto_advance_waits_until_after_a_readable_interval() {
+        let mux = Mux::new("durable-notice-auto-advance", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let first = durable_notice("usage-80", 10, "first");
+        let second = durable_notice("usage-90", 11, "second");
+        app.accept_durable_notice(first.clone());
+        app.accept_durable_notice(second.clone());
+        app.record_durable_notice_painted(first.delivery);
+        app.commit_successful_durable_notice_paint();
+
+        assert!(!app.advance_expired_durable_notice());
+        app.durable_notices.front_mut().unwrap().painted_at =
+            Some(Instant::now() - super::DURABLE_NOTICE_DISPLAY_DURATION);
+        assert!(app.advance_expired_durable_notice());
+        assert_eq!(app.durable_notice().map(|notice| &notice.delivery), Some(&second.delivery));
+    }
+
+    #[test]
+    fn durable_notice_dismissal_preserves_text_and_mouse_input() {
+        let mux = Mux::new("durable-notice-input", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.prompt = Some(super::Prompt::new(
+            "Rename",
+            String::new(),
+            PromptTarget::ConnectMachine(MachineConnectRoute::Local),
+        ));
+
+        let keyboard = durable_notice("keyboard", 12, "keyboard");
+        app.accept_durable_notice(keyboard.clone());
+        app.record_durable_notice_painted(keyboard.delivery);
+        app.commit_successful_durable_notice_paint();
+        app.handle(AppEvent::Input(Event::Key(KeyEvent::new(
+            KeyCode::Char('é'),
+            KeyModifiers::NONE,
+        ))))
+        .unwrap();
+        assert_eq!(app.prompt.as_ref().unwrap().input.as_str(), "é");
+        assert!(app.durable_notice().is_none());
+
+        let paste = durable_notice("paste", 13, "paste");
+        app.accept_durable_notice(paste.clone());
+        app.record_durable_notice_painted(paste.delivery);
+        app.commit_successful_durable_notice_paint();
+        app.handle(AppEvent::Input(Event::Paste("文".into()))).unwrap();
+        assert_eq!(app.prompt.as_ref().unwrap().input.as_str(), "é文");
+        assert!(app.durable_notice().is_none());
+
+        app.prompt = None;
+        app.machine_ui = Some(provider_machine_ui());
+        app.content_area = Rect { x: 0, y: 0, width: 5, height: 2 };
+        app.hits.push((Rect { x: 0, y: 0, width: 1, height: 1 }, super::Hit::ConnectMachine));
+        let outside_banner = durable_notice("mouse-outside", 14, "mouse");
+        app.accept_durable_notice(outside_banner.clone());
+        app.record_durable_notice_painted(outside_banner.delivery);
+        app.commit_successful_durable_notice_paint();
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 0,
+            row: 0,
+            modifiers: KeyModifiers::NONE,
+        })))
+        .unwrap();
+        assert!(app.durable_notice().is_some());
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 0,
+            row: 0,
+            modifiers: KeyModifiers::NONE,
+        })))
+        .unwrap();
+        assert!(app.durable_notice().is_none());
+        assert!(app.prompt.is_some(), "mouse presses outside the banner must be preserved");
+
+        app.prompt = None;
+        app.hits.clear();
+        app.hits.push((Rect { x: 0, y: 2, width: 1, height: 1 }, super::Hit::ConnectMachine));
+        let on_banner = durable_notice("mouse-banner", 15, "mouse");
+        app.accept_durable_notice(on_banner.clone());
+        app.record_durable_notice_painted(on_banner.delivery);
+        app.commit_successful_durable_notice_paint();
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 0,
+            row: 2,
+            modifiers: KeyModifiers::NONE,
+        })))
+        .unwrap();
+        assert!(app.durable_notice().is_none());
+        assert!(app.prompt.is_none(), "banner presses must not activate covered hits");
+    }
+
+    #[test]
+    fn durable_notice_recent_ledger_is_bounded_to_provider_retention() {
+        let mux = Mux::new("durable-notice-ledger", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        for sequence in 0..=super::DURABLE_NOTICE_RECENT_CAPACITY as u64 {
+            let notice = durable_notice(&format!("notice-{sequence}"), sequence, "notice");
+            app.accept_durable_notice(notice.clone());
+            app.record_durable_notice_painted(notice.delivery);
+            app.commit_successful_durable_notice_paint();
+            assert!(app.dismiss_painted_durable_notice());
+        }
+
+        assert_eq!(app.recent_durable_notices.len(), super::DURABLE_NOTICE_RECENT_CAPACITY);
+        assert_eq!(app.recent_durable_notices.front().map(|delivery| delivery.sequence), Some(1));
+    }
+
+    #[test]
+    fn durable_notice_queue_overflow_reconnects_without_acknowledging_or_growing() {
+        let mux = Mux::new("durable-notice-queue-bound", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.machine_ui = Some(provider_machine_ui());
+        for sequence in 1..=super::DURABLE_NOTICE_QUEUE_CAPACITY as u64 {
+            assert_eq!(
+                app.accept_durable_notice(durable_notice(
+                    &format!("notice-{sequence}"),
+                    sequence,
+                    "notice",
+                )),
+                RenderAction::Draw
+            );
+        }
+        assert_eq!(
+            app.accept_durable_notice(durable_notice(
+                "overflow",
+                super::DURABLE_NOTICE_QUEUE_CAPACITY as u64 + 1,
+                "overflow",
+            )),
+            RenderAction::None
+        );
+
+        assert_eq!(app.durable_notices.len(), super::DURABLE_NOTICE_QUEUE_CAPACITY);
+        assert!(app.pending_durable_notice_acks.is_empty());
+        assert!(app.machine_provider_reconnect_retry_at.is_some());
+        assert!(matches!(
+            app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
+            Some(MachineRequest::ReconnectProvider)
+        ));
+    }
+
+    #[test]
+    fn stale_durable_notice_is_neither_displayed_nor_acknowledged() {
+        let mux = Mux::new("stale-durable-notice", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.machine_update_generation = 2;
+        let notice = durable_notice("stale", 12, "stale");
+
+        let action = app
+            .handle(AppEvent::MachineUpdatedForGeneration {
+                generation: 1,
+                update: Box::new(MachineUpdate::DurableNotice(notice)),
+            })
+            .unwrap();
+
+        assert_eq!(action, RenderAction::None);
+        assert!(app.durable_notices.is_empty());
+        assert!(app.recent_durable_notices.is_empty());
+        assert!(app.pending_durable_notice_acks.is_empty());
+        assert!(app.durable_notice_ack_in_flight.is_none());
+    }
+
+    #[test]
+    fn failed_durable_notice_ack_reconnects_and_replay_is_not_redisplayed() {
+        let mux = Mux::new("failed-durable-notice-ack", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.machine_ui = Some(provider_machine_ui());
+        let notice = durable_notice("usage-80", 13, "quota");
+        app.remember_durable_notice(notice.delivery.clone());
+        app.durable_notice_ack_in_flight = Some(notice.delivery.clone());
+
+        app.apply_machine_controller_completion(
+            super::MachineControllerCompletion::DurableNoticeAcknowledged {
+                delivery: notice.delivery.clone(),
+                result: Err("permission revoked".into()),
+            },
+        );
+
+        assert!(app.durable_notice_ack_in_flight.is_none());
+        assert!(app.durable_notice_ack_retry_at.is_some());
+        assert!(app.machine_provider_reconnect_retry_at.is_some());
+        assert!(matches!(
+            app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
+            Some(MachineRequest::ReconnectProvider)
+        ));
+        assert_eq!(app.accept_durable_notice(notice.clone()), RenderAction::None);
+        assert!(app.durable_notices.is_empty());
+        assert_eq!(
+            app.pending_durable_notice_acks.iter().collect::<Vec<_>>(),
+            vec![&notice.delivery]
+        );
+
+        let ack_retry_at = app.durable_notice_ack_retry_at;
+        app.clear_machine_provider_reconnect();
+        assert_eq!(app.durable_notice_ack_retry_at, ack_retry_at);
+        assert_eq!(app.durable_notice_ack_failures, 1);
+
+        app.durable_notice_ack_retry_at = Some(Instant::now() - Duration::from_millis(1));
+        app.submit_pending_durable_notice_ack();
+        assert!(app.durable_notice_ack_retry_at.is_none());
+        assert_eq!(app.durable_notice_ack_failures, 1);
+
+        app.pending_durable_notice_acks.clear();
+        app.durable_notice_ack_in_flight = Some(notice.delivery.clone());
+        app.apply_machine_controller_completion(
+            super::MachineControllerCompletion::DurableNoticeAcknowledged {
+                delivery: notice.delivery,
+                result: Ok(()),
+            },
+        );
+        assert_eq!(app.durable_notice_ack_failures, 0);
+        assert!(app.durable_notice_ack_retry_at.is_none());
     }
 
     #[test]
@@ -19285,6 +20452,13 @@ mod tests {
             pending_machine_replacement: None,
             machine_update_pump: None,
             machine_update_generation: 0,
+            durable_notices: VecDeque::new(),
+            recent_durable_notices: VecDeque::new(),
+            painted_durable_notice_this_frame: None,
+            pending_durable_notice_acks: VecDeque::new(),
+            durable_notice_ack_in_flight: None,
+            durable_notice_ack_failures: 0,
+            durable_notice_ack_retry_at: None,
             config: Config::default(),
             chrome: ChromeTheme::dark(),
             default_colors: cmux_tui_core::DefaultColors::default(),
@@ -19343,6 +20517,7 @@ mod tests {
             clients: Vec::new(),
             client_border_labels: HashMap::new(),
             prompt: None,
+            pending_provider_action: None,
             pairing_dialog: None,
             pairing_queue: VecDeque::new(),
             shortcut_help: None,

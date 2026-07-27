@@ -17,6 +17,7 @@ path = "src/main.rs"
 [dependencies]
 ghostty-vt.workspace = true
 cmux-tui-core.workspace = true
+cmux-tui-machine-agent-protocol.workspace = true
 cmux-tui-machine-protocol.workspace = true
 ratatui.workspace = true
 crossterm.workspace = true

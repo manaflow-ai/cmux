@@ -54,6 +54,8 @@ export interface ClientSize {
   surface: Id;
   cols: number | null;
   rows: number | null;
+  /** Protocol v10; protocol v9 reports this on ClientInfo instead. */
+  size_participating?: boolean;
 }
 export interface ClientInfo {
   client: Id;
@@ -63,8 +65,9 @@ export interface ClientInfo {
   connected_seconds: number;
   attached: Id[];
   sizes: ClientSize[];
+  /** Protocol v9 compatibility; protocol v10 reports this per size entry. */
+  size_participating?: boolean;
   self: boolean;
-  size_participating: boolean;
 }
 export type ListClientsResult = ClientInfo[];
 
@@ -107,6 +110,7 @@ export interface TerminalEventsResult {
 export interface DetachClientRequest extends CmuxRequestBase { cmd: "detach-client"; client: Id }
 export interface SetClientSizingRequest extends CmuxRequestBase {
   cmd: "set-client-sizing";
+  surface: Id;
   client?: Id;
   enabled: boolean;
   exclusive?: boolean;
