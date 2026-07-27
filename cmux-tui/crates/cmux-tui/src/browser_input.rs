@@ -13,6 +13,9 @@
 //! - Consecutive mouse moves on the same surface are coalesced (latest
 //!   wins) before dispatch, so a stalled endpoint never builds a replay
 //!   backlog of stale hover/drag positions.
+//! - Consecutive browser presentation acknowledgements also coalesce to the
+//!   latest frame. Guarded pointer commands implicitly acknowledge their own
+//!   frame, so dropping a redundant acknowledgement cannot strand input.
 //! - A blocking request occupies one pool worker. Ready queues for other
 //!   surfaces continue on the remaining workers, while total worker
 //!   threads remain bounded.
@@ -113,6 +116,9 @@ impl BrowserKey {
 }
 
 pub enum BrowserInputKind {
+    Presented {
+        frame_seq: u64,
+    },
     Mouse {
         event_type: &'static str,
         x: f64,
@@ -216,6 +222,10 @@ fn failed_browser_resize_blocks(failure: FailedBrowserResize, desired: (u16, u16
 }
 
 impl BrowserInputKind {
+    fn is_presentation(&self) -> bool {
+        matches!(self, BrowserInputKind::Presented { .. })
+    }
+
     /// Mouse moves carry only a position; when several are queued for
     /// the same surface, only the newest matters.
     fn is_mouse_move(&self) -> bool {
@@ -1017,6 +1027,7 @@ fn coalesce_browser_events(batch: &mut Vec<BrowserInputEvent>) {
     while index + 1 < batch.len() {
         let same_coalescing_kind = (batch[index].kind.is_mouse_move()
             && batch[index + 1].kind.is_mouse_move())
+            || (batch[index].kind.is_presentation() && batch[index + 1].kind.is_presentation())
             || (batch[index].kind.is_resize() && batch[index + 1].kind.is_resize());
         let drop_current =
             same_coalescing_kind && batch[index].surface_id == batch[index + 1].surface_id;
@@ -1048,6 +1059,7 @@ fn append_sequenced_browser_events(
             let current = &previous.event;
             let next = &event.event;
             let same_coalescing_kind = (current.kind.is_mouse_move() && next.kind.is_mouse_move())
+                || (current.kind.is_presentation() && next.kind.is_presentation())
                 || (current.kind.is_resize() && next.kind.is_resize());
             same_coalescing_kind && current.surface_id == next.surface_id
         });
@@ -1062,6 +1074,9 @@ fn append_sequenced_browser_events(
 fn dispatch(event: &BrowserInputEvent) -> anyhow::Result<bool> {
     let surface = &event.surface;
     match &event.kind {
+        BrowserInputKind::Presented { frame_seq } => {
+            surface.browser_publish_pointer_frame(*frame_seq).map(|()| true)
+        }
         BrowserInputKind::Mouse { event_type, x, y, button, click_count, frame_seq } => surface
             .browser_mouse_event_for_frame(
                 event_type,
@@ -1159,6 +1174,14 @@ mod tests {
                 click_count: None,
                 frame_seq: 1,
             },
+        }
+    }
+
+    fn presentation_event(surface: SurfaceId, frame_seq: u64) -> BrowserInputEvent {
+        BrowserInputEvent {
+            surface_id: surface,
+            surface: SurfaceHandle::RemoteBrowserUnsupported,
+            kind: BrowserInputKind::Presented { frame_seq },
         }
     }
 
@@ -1757,6 +1780,16 @@ mod tests {
             BrowserInputKind::Mouse { x, .. } => assert_eq!(x, 3.0),
             _ => panic!("expected mouse event"),
         }
+    }
+
+    #[test]
+    fn consecutive_presentations_on_same_surface_keep_latest_only() {
+        let mut batch =
+            vec![presentation_event(1, 7), presentation_event(1, 8), presentation_event(1, 9)];
+        coalesce_browser_events(&mut batch);
+
+        assert_eq!(batch.len(), 1);
+        assert!(matches!(batch[0].kind, BrowserInputKind::Presented { frame_seq: 9 }));
     }
 
     #[test]

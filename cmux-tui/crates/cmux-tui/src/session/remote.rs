@@ -154,6 +154,7 @@ struct RemoteBrowserState {
     frame: Option<RemoteBrowserFrame>,
     pointer_frame_floor_seq: Option<u64>,
     pointer_frame_seq: Option<u64>,
+    presented_pointer_frame_seq: Option<u64>,
 }
 
 impl Default for RemoteBrowserState {
@@ -169,6 +170,7 @@ impl Default for RemoteBrowserState {
             frame: None,
             pointer_frame_floor_seq: None,
             pointer_frame_seq: None,
+            presented_pointer_frame_seq: None,
         }
     }
 }
@@ -549,10 +551,26 @@ impl RemoteSurface {
     pub fn browser_accepts_pointer_frame(&self, frame_seq: u64) -> bool {
         let browser = self.browser.lock().unwrap();
         matches!(browser.status, BrowserStatus::Live)
-            && browser
-                .pointer_frame_floor_seq
-                .zip(browser.pointer_frame_seq)
-                .is_some_and(|(floor, latest)| (floor..=latest).contains(&frame_seq))
+            && browser.presented_pointer_frame_seq == Some(frame_seq)
+            && pointer_frame_is_in_range(&browser, frame_seq)
+    }
+
+    pub fn browser_pointer_frame_is_in_current_route(&self, frame_seq: u64) -> bool {
+        let browser = self.browser.lock().unwrap();
+        matches!(browser.status, BrowserStatus::Live)
+            && pointer_frame_is_in_range(&browser, frame_seq)
+    }
+
+    pub fn acknowledge_browser_pointer_frame(&self, frame_seq: u64) -> bool {
+        let mut browser = self.browser.lock().unwrap();
+        if !matches!(browser.status, BrowserStatus::Live)
+            || !pointer_frame_is_in_range(&browser, frame_seq)
+            || browser.presented_pointer_frame_seq.is_some_and(|presented| presented > frame_seq)
+        {
+            return false;
+        }
+        browser.presented_pointer_frame_seq = Some(frame_seq);
+        true
     }
 
     pub fn browser_url(&self) -> Option<String> {
@@ -615,6 +633,7 @@ impl RemoteSurface {
             };
         (browser.pointer_frame_floor_seq, browser.pointer_frame_seq) = accepted_pointer_range
             .map_or((None, None), |(floor, latest)| (Some(floor), Some(latest)));
+        retain_presented_pointer_frame(&mut browser);
     }
 
     fn update_browser_frame(&self, value: &Value) {
@@ -635,8 +654,25 @@ impl RemoteSurface {
                 .flatten();
             (browser.pointer_frame_floor_seq, browser.pointer_frame_seq) =
                 pointer_range.map_or((None, None), |(floor, latest)| (Some(floor), Some(latest)));
+            retain_presented_pointer_frame(&mut browser);
             browser.frame = Some(frame);
         }
+    }
+}
+
+fn pointer_frame_is_in_range(browser: &RemoteBrowserState, frame_seq: u64) -> bool {
+    browser
+        .pointer_frame_floor_seq
+        .zip(browser.pointer_frame_seq)
+        .is_some_and(|(floor, latest)| (floor..=latest).contains(&frame_seq))
+}
+
+fn retain_presented_pointer_frame(browser: &mut RemoteBrowserState) {
+    if browser
+        .presented_pointer_frame_seq
+        .is_some_and(|frame_seq| !pointer_frame_is_in_range(browser, frame_seq))
+    {
+        browser.presented_pointer_frame_seq = None;
     }
 }
 
@@ -2142,6 +2178,7 @@ pub(super) fn test_session_with_browser_pointer_range(
             frame: Some(RemoteBrowserFrame { frame }),
             pointer_frame_floor_seq: Some(pointer_frame_floor_seq),
             pointer_frame_seq: Some(frame_seq),
+            presented_pointer_frame_seq: Some(pointer_frame_floor_seq),
             ..RemoteBrowserState::default()
         }),
     });
@@ -3631,6 +3668,31 @@ mod tests {
         );
         assert!(!surface.browser_accepts_pointer_frame(7));
         assert!(!surface.browser_accepts_pointer_frame(10));
+
+        assert!(surface.acknowledge_browser_pointer_frame(8));
+        assert!(surface.browser_accepts_pointer_frame(8));
+        assert!(!surface.browser_accepts_pointer_frame(9));
+
+        surface.update_browser_frame(&json!({
+            "seq": 10,
+            "width": 80,
+            "height": 40,
+            "data": "bmV3ZXN0",
+            "status": "live",
+            "pointer_frame_floor_seq": 8,
+            "pointer_frame_seq": 10,
+        }));
+        assert!(
+            surface.browser_accepts_pointer_frame(8),
+            "receiving a repaint must preserve the exact frame still on screen"
+        );
+        assert!(surface.acknowledge_browser_pointer_frame(10));
+        assert!(!surface.browser_accepts_pointer_frame(8));
+        assert!(surface.browser_accepts_pointer_frame(10));
+        assert!(
+            !surface.acknowledge_browser_pointer_frame(9),
+            "a delayed acknowledgement must not roll authority backward"
+        );
     }
 
     #[test]

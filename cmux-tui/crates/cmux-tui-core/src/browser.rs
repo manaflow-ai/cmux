@@ -145,8 +145,8 @@ impl BrowserStatus {
 pub struct BrowserFrameUpdate {
     pub frame: BrowserFrame,
     pub status: BrowserStatus,
-    /// Oldest exact bitmap token that is still valid for the current
-    /// document and coordinate mapping.
+    /// Oldest bitmap token in the current document and coordinate mapping.
+    /// Route membership alone does not authorize pointer input.
     pub pointer_frame_floor_seq: Option<u64>,
     pub pointer_frame_seq: Option<u64>,
 }
@@ -162,8 +162,8 @@ pub struct BrowserAttachState {
     /// Opaque pointer-authority token for this exact admitted bitmap.
     /// A later bitmap always carries a different token.
     pub pointer_frame_seq: Option<u64>,
-    /// Oldest exact bitmap token that remains valid for the current document
-    /// and coordinate mapping.
+    /// Oldest bitmap token in the current document and coordinate mapping.
+    /// Route membership alone does not authorize pointer input.
     pub pointer_frame_floor_seq: Option<u64>,
     pub frames_stalled: bool,
 }
@@ -218,11 +218,15 @@ struct BrowserState {
     /// Every later admissible bitmap rotates it.
     pointer_frame_seq: Option<u64>,
     /// First exact bitmap token admitted since the last document or geometry
-    /// invalidation. This bounds validation without retaining per-frame state.
+    /// invalidation. This proves route membership without granting input
+    /// authority by itself.
     pointer_frame_floor_seq: Option<u64>,
-    /// Changes whenever pointer admission changes, so a failed command can
-    /// restore its previous authority only if no asynchronous browser event won
-    /// the race in the meantime.
+    /// Exact bitmap last acknowledged as presented by each input owner.
+    /// One entry per active owner bounds authority without retaining frames.
+    presented_pointer_frames: HashMap<BrowserPointerOwner, u64>,
+    /// Changes whenever pointer route admission changes, so a failed command
+    /// can restore its previous route and presentation acknowledgements only
+    /// if no asynchronous browser event won the race in the meantime.
     pointer_frame_revision: u64,
     /// Release-ownership epoch for pointer captures. Unlike pointer authority,
     /// this survives ordinary repaints, geometry changes, and recoverable
@@ -294,6 +298,7 @@ struct BrowserReconfigureCommandError {
 struct PointerFrameInvalidation {
     previous: Option<u64>,
     previous_floor: Option<u64>,
+    previous_presented_pointer_frames: HashMap<BrowserPointerOwner, u64>,
     previous_latest_frame_seq: Option<u64>,
     previous_capture_generation: u64,
     previous_motion_generation: u64,
@@ -316,12 +321,15 @@ enum BrowserCommand {
         button: Option<String>,
         click_count: Option<u32>,
         frame_seq: Option<u64>,
+        pointer_admission: Option<BrowserPointerAdmission>,
     },
     Wheel {
+        input_owner: BrowserPointerOwner,
         x: f64,
         y: f64,
         delta_y: f64,
         frame_seq: Option<u64>,
+        pointer_admission: Option<BrowserPointerAdmission>,
     },
     Key {
         event_type: String,
@@ -394,11 +402,17 @@ impl BrowserCommandOrder {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub(crate) enum BrowserPointerOwner {
     Local,
     Legacy,
     Client(u64),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct BrowserPointerAdmission {
+    owner: BrowserPointerOwner,
+    frame_seq: Option<u64>,
 }
 
 pub(crate) struct BrowserMouseDispatch<'a> {
@@ -903,6 +917,7 @@ pub(crate) fn new_surface(
             pending_frame: None,
             pointer_frame_seq: None,
             pointer_frame_floor_seq: None,
+            presented_pointer_frames: HashMap::new(),
             pointer_frame_revision: 0,
             pointer_capture_generation: 0,
             pointer_motion_generation: 0,
@@ -1572,15 +1587,14 @@ fn run_browser_worker_command(
         BrowserCommand::Reconfigure { queued, .. } => Some(*queued),
         _ => None,
     };
-    if matches!(
-        &command,
-        BrowserCommand::Mouse {
-            input_owner: BrowserPointerOwner::Client(client),
-            ..
-        } if mux
-            .upgrade()
-            .is_none_or(|mux| !mux.control_clients.contains(*client))
-    ) {
+    let disconnected_pointer_client = match &command {
+        BrowserCommand::Mouse { input_owner: BrowserPointerOwner::Client(client), .. }
+        | BrowserCommand::Wheel { input_owner: BrowserPointerOwner::Client(client), .. } => {
+            mux.upgrade().is_none_or(|mux| !mux.control_clients.contains(*client))
+        }
+        _ => false,
+    };
+    if disconnected_pointer_client {
         return;
     }
     let result = {
@@ -1597,7 +1611,8 @@ fn run_browser_worker_command(
                 button,
                 click_count,
                 frame_seq,
-            } => browser.mouse_event_blocking(
+                pointer_admission,
+            } => browser.mouse_event_blocking_with_admission(
                 BrowserMouseDispatch {
                     input_owner,
                     event_type: &event_type,
@@ -1607,10 +1622,11 @@ fn run_browser_worker_command(
                     click_count,
                     frame_seq,
                 },
+                pointer_admission,
                 &mut failures.active_pointer_presses,
             ),
-            BrowserCommand::Wheel { x, y, delta_y, frame_seq } => {
-                browser.wheel_blocking(x, y, delta_y, frame_seq)
+            BrowserCommand::Wheel { input_owner, x, y, delta_y, frame_seq, pointer_admission } => {
+                browser.wheel_blocking(input_owner, x, y, delta_y, frame_seq, pointer_admission)
             }
             BrowserCommand::Key {
                 event_type,
@@ -1832,11 +1848,40 @@ impl BrowserSurface {
         self.exported_pointer_frame_seq_locked(&state)
     }
 
-    /// Return whether an exact bitmap token is still valid for the current
-    /// document and coordinate mapping.
+    /// Return whether the local input owner has acknowledged this exact
+    /// bitmap as its current presentation.
     pub fn accepts_pointer_frame(&self, frame_seq: u64) -> bool {
         let state = self.state.lock().unwrap();
-        self.pointer_frame_is_current_locked(&state, frame_seq)
+        self.presented_pointer_frame_is_current_locked(
+            &state,
+            BrowserPointerOwner::Local,
+            frame_seq,
+        )
+    }
+
+    /// Return whether a bitmap belongs to the current document and coordinate
+    /// mapping. Route membership does not authorize pointer input.
+    pub fn pointer_frame_is_in_current_route(&self, frame_seq: u64) -> bool {
+        let state = self.state.lock().unwrap();
+        self.pointer_frame_is_in_current_route_locked(&state, frame_seq)
+    }
+
+    /// Record that the local renderer presented this exact bitmap.
+    pub fn acknowledge_pointer_frame(&self, frame_seq: u64) -> bool {
+        self.acknowledge_pointer_frame_from(BrowserPointerOwner::Local, frame_seq)
+    }
+
+    pub(crate) fn acknowledge_pointer_frame_from(
+        &self,
+        owner: BrowserPointerOwner,
+        frame_seq: u64,
+    ) -> bool {
+        let mut state = self.state.lock().unwrap();
+        self.acknowledge_pointer_frame_locked(&mut state, owner, frame_seq)
+    }
+
+    pub(crate) fn forget_pointer_owner(&self, owner: BrowserPointerOwner) {
+        self.state.lock().unwrap().presented_pointer_frames.remove(&owner);
     }
 
     pub fn latest_frame_update(&self) -> Option<BrowserFrameUpdate> {
@@ -2577,7 +2622,11 @@ impl BrowserSurface {
             .flatten()
     }
 
-    fn pointer_frame_is_current_locked(&self, state: &BrowserState, frame_seq: u64) -> bool {
+    fn pointer_frame_is_in_current_route_locked(
+        &self,
+        state: &BrowserState,
+        frame_seq: u64,
+    ) -> bool {
         let Some((floor, latest)) = state.pointer_frame_floor_seq.zip(state.pointer_frame_seq)
         else {
             return false;
@@ -2585,35 +2634,125 @@ impl BrowserSurface {
         self.pointer_epoch_is_current_locked(state) && (floor..=latest).contains(&frame_seq)
     }
 
+    fn presented_pointer_frame_is_current_locked(
+        &self,
+        state: &BrowserState,
+        owner: BrowserPointerOwner,
+        frame_seq: u64,
+    ) -> bool {
+        state.presented_pointer_frames.get(&owner) == Some(&frame_seq)
+            && self.pointer_frame_is_in_current_route_locked(state, frame_seq)
+    }
+
+    fn acknowledge_pointer_frame_locked(
+        &self,
+        state: &mut BrowserState,
+        owner: BrowserPointerOwner,
+        frame_seq: u64,
+    ) -> bool {
+        if !self.pointer_frame_is_in_current_route_locked(state, frame_seq)
+            || state
+                .presented_pointer_frames
+                .get(&owner)
+                .is_some_and(|presented| *presented > frame_seq)
+        {
+            return false;
+        }
+        state.presented_pointer_frames.insert(owner, frame_seq);
+        true
+    }
+
+    fn admit_pointer_frame(
+        &self,
+        owner: BrowserPointerOwner,
+        frame_seq: Option<u64>,
+    ) -> Option<BrowserPointerAdmission> {
+        let mut state = self.state.lock().unwrap();
+        let admitted = match frame_seq {
+            Some(frame_seq) => self.acknowledge_pointer_frame_locked(&mut state, owner, frame_seq),
+            None => {
+                state.pointer_frame_seq.is_some() && self.pointer_epoch_is_current_locked(&state)
+            }
+        };
+        admitted.then_some(BrowserPointerAdmission { owner, frame_seq })
+    }
+
+    fn pointer_guard_is_current_locked(
+        &self,
+        state: &BrowserState,
+        owner: BrowserPointerOwner,
+        frame_seq: Option<u64>,
+        pointer_admission: Option<BrowserPointerAdmission>,
+    ) -> bool {
+        if pointer_admission != Some(BrowserPointerAdmission { owner, frame_seq }) {
+            return false;
+        }
+        match frame_seq {
+            Some(frame_seq) => self.pointer_frame_is_in_current_route_locked(state, frame_seq),
+            None => {
+                state.pointer_frame_seq.is_some() && self.pointer_epoch_is_current_locked(state)
+            }
+        }
+    }
+
+    fn scale_guarded_input_point_from(
+        &self,
+        owner: BrowserPointerOwner,
+        frame_seq: Option<u64>,
+        pointer_admission: Option<BrowserPointerAdmission>,
+        x: f64,
+        y: f64,
+    ) -> Option<(f64, f64)> {
+        let state = self.state.lock().unwrap();
+        if !self.pointer_guard_is_current_locked(&state, owner, frame_seq, pointer_admission) {
+            return None;
+        }
+        Some(Self::scale_input_point_locked(&state, x, y))
+    }
+
+    #[cfg(test)]
     fn scale_guarded_input_point(
         &self,
         frame_seq: Option<u64>,
         x: f64,
         y: f64,
     ) -> Option<(f64, f64)> {
-        let state = self.state.lock().unwrap();
-        let latest = state.pointer_frame_seq?;
-        if !self.pointer_epoch_is_current_locked(&state)
-            || frame_seq
-                .is_some_and(|frame_seq| !self.pointer_frame_is_current_locked(&state, frame_seq))
-            || frame_seq.is_none() && state.pointer_frame_floor_seq.is_none()
-        {
-            return None;
-        }
-        debug_assert!(state.pointer_frame_floor_seq.is_some_and(|floor| floor <= latest));
-        Some(Self::scale_input_point_locked(&state, x, y))
+        let admitted = frame_seq.is_none_or(|frame_seq| {
+            let state = self.state.lock().unwrap();
+            self.presented_pointer_frame_is_current_locked(
+                &state,
+                BrowserPointerOwner::Local,
+                frame_seq,
+            )
+        });
+        let pointer_admission = admitted
+            .then_some(BrowserPointerAdmission { owner: BrowserPointerOwner::Local, frame_seq });
+        self.scale_guarded_input_point_from(
+            BrowserPointerOwner::Local,
+            frame_seq,
+            pointer_admission,
+            x,
+            y,
+        )
     }
 
-    fn capture_guarded_input_point(
+    fn capture_guarded_input_point_from(
         &self,
+        owner: BrowserPointerOwner,
         frame_seq: u64,
+        pointer_admission: Option<BrowserPointerAdmission>,
         x: f64,
         y: f64,
     ) -> Option<((f64, f64), u64, u64, u64)> {
         let ingress_motion_generation = self.frame_epoch.pointer_motion_generation();
         let state = self.state.lock().unwrap();
         if !ingress_motion_generation.is_multiple_of(2)
-            || !self.pointer_frame_is_current_locked(&state, frame_seq)
+            || !self.pointer_guard_is_current_locked(
+                &state,
+                owner,
+                Some(frame_seq),
+                pointer_admission,
+            )
             || ingress_motion_generation != self.frame_epoch.pointer_motion_generation()
         {
             return None;
@@ -2624,6 +2763,34 @@ impl BrowserSurface {
             state.pointer_motion_generation,
             ingress_motion_generation,
         ))
+    }
+
+    #[cfg(test)]
+    fn capture_guarded_input_point(
+        &self,
+        frame_seq: u64,
+        x: f64,
+        y: f64,
+    ) -> Option<((f64, f64), u64, u64, u64)> {
+        let admitted = {
+            let state = self.state.lock().unwrap();
+            self.presented_pointer_frame_is_current_locked(
+                &state,
+                BrowserPointerOwner::Local,
+                frame_seq,
+            )
+        };
+        let pointer_admission = admitted.then_some(BrowserPointerAdmission {
+            owner: BrowserPointerOwner::Local,
+            frame_seq: Some(frame_seq),
+        });
+        self.capture_guarded_input_point_from(
+            BrowserPointerOwner::Local,
+            frame_seq,
+            pointer_admission,
+            x,
+            y,
+        )
     }
 
     #[cfg(test)]
@@ -2686,6 +2853,7 @@ impl BrowserSurface {
 
     fn set_pointer_frame_locked(state: &mut BrowserState, frame_seq: Option<u64>) {
         Self::set_pointer_frame_range_locked(state, frame_seq, frame_seq);
+        state.presented_pointer_frames.clear();
     }
 
     fn advance_pointer_frame_locked(state: &mut BrowserState, frame_seq: Option<u64>) {
@@ -2716,6 +2884,7 @@ impl BrowserSurface {
     ) -> PointerFrameInvalidation {
         let previous = state.pointer_frame_seq;
         let previous_floor = state.pointer_frame_floor_seq;
+        let previous_presented_pointer_frames = state.presented_pointer_frames.clone();
         let previous_latest_frame_seq = state.latest_frame.as_ref().map(|frame| frame.seq);
         let previous_capture_generation = state.pointer_capture_generation;
         let previous_motion_generation = state.pointer_motion_generation;
@@ -2734,6 +2903,7 @@ impl BrowserSurface {
         PointerFrameInvalidation {
             previous,
             previous_floor,
+            previous_presented_pointer_frames,
             previous_latest_frame_seq,
             previous_capture_generation,
             previous_motion_generation,
@@ -3370,6 +3540,7 @@ impl BrowserSurface {
             invalidation.previous_floor,
             invalidation.previous,
         );
+        state.presented_pointer_frames = invalidation.previous_presented_pointer_frames;
         let retained_frame = state.latest_frame.clone();
         self.set_pending_attach_frame_locked(&mut state, retained_frame);
         self.mark_state_dirty_locked(&mut state);
@@ -3427,6 +3598,24 @@ impl BrowserSurface {
         Self::scale_delta_locked(&self.state.lock().unwrap(), delta)
     }
 
+    fn scale_guarded_wheel_from(
+        &self,
+        owner: BrowserPointerOwner,
+        frame_seq: Option<u64>,
+        pointer_admission: Option<BrowserPointerAdmission>,
+        x: f64,
+        y: f64,
+        delta_y: f64,
+    ) -> Option<(f64, f64, f64)> {
+        let state = self.state.lock().unwrap();
+        if !self.pointer_guard_is_current_locked(&state, owner, frame_seq, pointer_admission) {
+            return None;
+        }
+        let (x, y) = Self::scale_input_point_locked(&state, x, y);
+        Some((x, y, Self::scale_delta_locked(&state, delta_y)))
+    }
+
+    #[cfg(test)]
     fn scale_guarded_wheel(
         &self,
         frame_seq: Option<u64>,
@@ -3434,17 +3623,24 @@ impl BrowserSurface {
         y: f64,
         delta_y: f64,
     ) -> Option<(f64, f64, f64)> {
-        let state = self.state.lock().unwrap();
-        state.pointer_frame_seq?;
-        if !self.pointer_epoch_is_current_locked(&state)
-            || frame_seq
-                .is_some_and(|frame_seq| !self.pointer_frame_is_current_locked(&state, frame_seq))
-            || frame_seq.is_none() && state.pointer_frame_floor_seq.is_none()
-        {
-            return None;
-        }
-        let (x, y) = Self::scale_input_point_locked(&state, x, y);
-        Some((x, y, Self::scale_delta_locked(&state, delta_y)))
+        let admitted = frame_seq.is_none_or(|frame_seq| {
+            let state = self.state.lock().unwrap();
+            self.presented_pointer_frame_is_current_locked(
+                &state,
+                BrowserPointerOwner::Local,
+                frame_seq,
+            )
+        });
+        let pointer_admission = admitted
+            .then_some(BrowserPointerAdmission { owner: BrowserPointerOwner::Local, frame_seq });
+        self.scale_guarded_wheel_from(
+            BrowserPointerOwner::Local,
+            frame_seq,
+            pointer_admission,
+            x,
+            y,
+            delta_y,
+        )
     }
 
     fn maybe_nudge_stalled_external(&self, session: &BrowserSession) {
@@ -3729,6 +3925,7 @@ impl BrowserSurface {
         &self,
         dispatch: BrowserMouseDispatch<'_>,
     ) -> anyhow::Result<()> {
+        let pointer_admission = self.admit_pointer_frame(dispatch.input_owner, dispatch.frame_seq);
         let command = BrowserCommand::Mouse {
             input_owner: dispatch.input_owner,
             event_type: dispatch.event_type.to_string(),
@@ -3737,6 +3934,7 @@ impl BrowserSurface {
             button: dispatch.button.map(ToOwned::to_owned),
             click_count: dispatch.click_count,
             frame_seq: dispatch.frame_seq,
+            pointer_admission,
         };
         if dispatch.event_type == "mouseReleased" {
             self.enqueue_pointer_release(command)
@@ -3745,9 +3943,10 @@ impl BrowserSurface {
         }
     }
 
-    fn mouse_event_blocking(
+    fn mouse_event_blocking_with_admission(
         &self,
         dispatch: BrowserMouseDispatch<'_>,
+        pointer_admission: Option<BrowserPointerAdmission>,
         active_pointer_presses: &mut HashMap<String, ActivePointerPress>,
     ) -> BrowserWorkerResult {
         let button = dispatch.button.unwrap_or("none");
@@ -3774,7 +3973,13 @@ impl BrowserSurface {
         let point = match (dispatch.event_type, dispatch.frame_seq) {
             ("mousePressed", Some(frame_seq)) => {
                 let Some((point, capture_generation, motion_generation, ingress_motion_generation)) =
-                    self.capture_guarded_input_point(frame_seq, dispatch.x, dispatch.y)
+                    self.capture_guarded_input_point_from(
+                        dispatch.input_owner,
+                        frame_seq,
+                        pointer_admission,
+                        dispatch.x,
+                        dispatch.y,
+                    )
                 else {
                     return Ok(BrowserWorkerSuccess::LocallySettled);
                 };
@@ -3840,11 +4045,29 @@ impl BrowserSurface {
                         }
                     }
                 } else {
-                    self.scale_guarded_input_point(dispatch.frame_seq, dispatch.x, dispatch.y)
+                    self.scale_guarded_input_point_from(
+                        dispatch.input_owner,
+                        dispatch.frame_seq,
+                        pointer_admission,
+                        dispatch.x,
+                        dispatch.y,
+                    )
                 }
             }
-            ("mouseReleased", None) => self.scale_guarded_input_point(None, dispatch.x, dispatch.y),
-            _ => self.scale_guarded_input_point(dispatch.frame_seq, dispatch.x, dispatch.y),
+            ("mouseReleased", None) => self.scale_guarded_input_point_from(
+                dispatch.input_owner,
+                None,
+                pointer_admission,
+                dispatch.x,
+                dispatch.y,
+            ),
+            _ => self.scale_guarded_input_point_from(
+                dispatch.input_owner,
+                dispatch.frame_seq,
+                pointer_admission,
+                dispatch.x,
+                dispatch.y,
+            ),
         };
         let Some((x, y)) = point else {
             return Ok(BrowserWorkerSuccess::LocallySettled);
@@ -3891,6 +4114,20 @@ impl BrowserSurface {
         Ok(BrowserWorkerSuccess::BrowserResponded)
     }
 
+    #[cfg(test)]
+    fn mouse_event_blocking(
+        &self,
+        dispatch: BrowserMouseDispatch<'_>,
+        active_pointer_presses: &mut HashMap<String, ActivePointerPress>,
+    ) -> BrowserWorkerResult {
+        let pointer_admission = self.admit_pointer_frame(dispatch.input_owner, dispatch.frame_seq);
+        self.mouse_event_blocking_with_admission(
+            dispatch,
+            pointer_admission,
+            active_pointer_presses,
+        )
+    }
+
     fn release_abandoned_pointer_press_blocking(
         &self,
         button: &str,
@@ -3926,19 +4163,42 @@ impl BrowserSurface {
         delta_y: f64,
         frame_seq: Option<u64>,
     ) -> anyhow::Result<()> {
-        self.enqueue_bounded(BrowserCommand::Wheel { x, y, delta_y, frame_seq })
+        self.wheel_for_frame_from(BrowserPointerOwner::Local, x, y, delta_y, frame_seq)
     }
 
-    fn wheel_blocking(
+    pub(crate) fn wheel_for_frame_from(
         &self,
+        input_owner: BrowserPointerOwner,
         x: f64,
         y: f64,
         delta_y: f64,
         frame_seq: Option<u64>,
+    ) -> anyhow::Result<()> {
+        let pointer_admission = self.admit_pointer_frame(input_owner, frame_seq);
+        self.enqueue_bounded(BrowserCommand::Wheel {
+            input_owner,
+            x,
+            y,
+            delta_y,
+            frame_seq,
+            pointer_admission,
+        })
+    }
+
+    fn wheel_blocking(
+        &self,
+        input_owner: BrowserPointerOwner,
+        x: f64,
+        y: f64,
+        delta_y: f64,
+        frame_seq: Option<u64>,
+        pointer_admission: Option<BrowserPointerAdmission>,
     ) -> BrowserWorkerResult {
         let session = self.require_live_session()?;
         self.maybe_nudge_stalled_external(&session);
-        let Some((x, y, delta_y)) = self.scale_guarded_wheel(frame_seq, x, y, delta_y) else {
+        let Some((x, y, delta_y)) =
+            self.scale_guarded_wheel_from(input_owner, frame_seq, pointer_admission, x, y, delta_y)
+        else {
             return Ok(BrowserWorkerSuccess::LocallySettled);
         };
         session
@@ -4953,6 +5213,13 @@ mod tests {
     fn test_surface() -> Arc<Surface> {
         let opts = SurfaceOptions::default();
         new_surface(1, "https://example.test".into(), (10, 5), (8, 16), &opts, Weak::new())
+    }
+
+    fn acknowledge_local_presentation(browser: &super::BrowserSurface, frame_seq: u64) {
+        assert!(
+            browser.acknowledge_pointer_frame(frame_seq),
+            "test frame {frame_seq} must belong to the current pointer route"
+        );
     }
 
     fn read_ws_json(ws: &mut tungstenite::WebSocket<TcpStream>) -> Value {
@@ -6305,10 +6572,20 @@ mod tests {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
         browser.store_frame(test_frame(1));
+        acknowledge_local_presentation(browser, 1);
         assert!(browser.scale_guarded_input_point(Some(1), 1.0, 1.0).is_some());
 
         browser.store_frame(test_frame(2));
         assert!(browser.scale_guarded_input_point(Some(1), 1.0, 1.0).is_some());
+        assert!(
+            browser.scale_guarded_input_point(Some(2), 1.0, 1.0).is_none(),
+            "receiving a replacement frame must not acknowledge its presentation"
+        );
+        acknowledge_local_presentation(browser, 2);
+        assert!(
+            browser.scale_guarded_input_point(Some(1), 1.0, 1.0).is_none(),
+            "acknowledging the replacement must retire the owner's previous exact token"
+        );
         assert!(browser.scale_guarded_input_point(Some(2), 1.0, 1.0).is_some());
 
         browser.mark_failed("failed".to_string());
@@ -6316,10 +6593,70 @@ mod tests {
     }
 
     #[test]
+    fn pointer_presentations_are_exact_and_scoped_to_each_input_owner() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        let first = super::BrowserPointerOwner::Client(7);
+        let second = super::BrowserPointerOwner::Client(8);
+        browser.store_frame(test_frame(1));
+
+        assert!(browser.acknowledge_pointer_frame_from(first, 1));
+        {
+            let state = browser.state.lock().unwrap();
+            assert!(browser.presented_pointer_frame_is_current_locked(&state, first, 1));
+            assert!(!browser.presented_pointer_frame_is_current_locked(&state, second, 1));
+        }
+
+        browser.store_frame(test_frame(2));
+        {
+            let state = browser.state.lock().unwrap();
+            assert!(browser.presented_pointer_frame_is_current_locked(&state, first, 1));
+            assert!(!browser.presented_pointer_frame_is_current_locked(&state, first, 2));
+        }
+        assert!(browser.acknowledge_pointer_frame_from(first, 2));
+        {
+            let state = browser.state.lock().unwrap();
+            assert!(!browser.presented_pointer_frame_is_current_locked(&state, first, 1));
+            assert!(browser.presented_pointer_frame_is_current_locked(&state, first, 2));
+            assert!(!browser.presented_pointer_frame_is_current_locked(&state, second, 2));
+        }
+        browser.forget_pointer_owner(first);
+        assert!(browser.state.lock().unwrap().presented_pointer_frames.is_empty());
+    }
+
+    #[test]
+    fn queued_pointer_admission_survives_only_same_route_repaints() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        let owner = super::BrowserPointerOwner::Client(7);
+        browser.store_frame(test_frame(1));
+        let admission =
+            browser.admit_pointer_frame(owner, Some(1)).expect("initial pointer admission");
+
+        browser.store_frame(test_frame(2));
+        assert!(browser.acknowledge_pointer_frame_from(owner, 2));
+        assert!(
+            browser
+                .scale_guarded_input_point_from(owner, Some(1), Some(admission), 1.0, 1.0)
+                .is_some(),
+            "a later presentation must not discard an already queued click"
+        );
+
+        browser.invalidate_pointer_frame();
+        assert!(
+            browser
+                .scale_guarded_input_point_from(owner, Some(1), Some(admission), 1.0, 1.0)
+                .is_none(),
+            "document or geometry invalidation must still revoke queued input"
+        );
+    }
+
+    #[test]
     fn ingress_navigation_epoch_revokes_pointer_before_surface_event_delivery() {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
         browser.store_frame(test_frame(1));
+        acknowledge_local_presentation(browser, 1);
         let (_, capture_generation, _, _) =
             browser.capture_guarded_input_point(1, 1.0, 1.0).expect("live pointer capture");
 
@@ -6344,6 +6681,7 @@ mod tests {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
         browser.store_frame(test_frame(1));
+        acknowledge_local_presentation(browser, 1);
         assert!(browser.scale_guarded_input_point(Some(1), 1.0, 1.0).is_some());
         assert_eq!(browser.latest_frame_seq(), Some(1));
 
@@ -6373,6 +6711,11 @@ mod tests {
         );
         assert!(browser.accept_document_paint(frame_epoch, frame_epoch, test_frame(2)));
         assert_eq!(browser.latest_frame_seq(), Some(2));
+        assert!(
+            browser.scale_guarded_input_point(Some(2), 1.0, 1.0).is_none(),
+            "verified pixels must still wait for the renderer presentation"
+        );
+        acknowledge_local_presentation(browser, 2);
         assert!(browser.scale_guarded_input_point(Some(2), 1.0, 1.0).is_some());
     }
 
@@ -7191,6 +7534,7 @@ mod tests {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
         browser.store_frame(test_frame(1));
+        acknowledge_local_presentation(browser, 1);
         let authority = browser.latest_frame_seq().expect("initial pointer authority");
         let (_, capture_generation, _, _) = browser
             .capture_guarded_input_point(authority, 1.0, 1.0)
@@ -7217,6 +7561,7 @@ mod tests {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
         browser.store_frame(test_frame(1));
+        acknowledge_local_presentation(browser, 1);
         let authority = browser.latest_frame_seq().expect("initial pointer authority");
         let (_, capture_generation, motion_generation, ingress_motion_generation) = browser
             .capture_guarded_input_point(authority, 1.0, 1.0)
@@ -7307,6 +7652,7 @@ mod tests {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
         browser.store_frame(test_frame(1));
+        acknowledge_local_presentation(browser, 1);
         let authority = browser.latest_frame_seq().expect("initial pointer authority");
         let (_, capture_generation, _, _) = browser
             .capture_guarded_input_point(authority, 1.0, 1.0)
@@ -7330,9 +7676,15 @@ mod tests {
             "a still-presented bitmap must remain guarded while its route geometry is current"
         );
         assert!(
-            browser.capture_guarded_input_point(2, 1.0, 1.0).is_some(),
-            "the newly admitted bitmap must accept guarded input"
+            browser.capture_guarded_input_point(2, 1.0, 1.0).is_none(),
+            "the newly admitted bitmap must wait for a presentation acknowledgement"
         );
+        acknowledge_local_presentation(browser, 2);
+        assert!(
+            browser.capture_guarded_input_point(authority, 1.0, 1.0).is_none(),
+            "the owner must retain only its exact latest acknowledged bitmap"
+        );
+        assert!(browser.capture_guarded_input_point(2, 1.0, 1.0).is_some());
         assert!(
             browser.scale_captured_input_point(capture_generation, 1.0, 1.0).is_some(),
             "rotating bitmap authority must preserve ownership of a balancing release"
@@ -7419,6 +7771,7 @@ mod tests {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
         browser.store_frame(test_frame(1));
+        acknowledge_local_presentation(browser, 1);
         let (_, capture_generation, motion_generation, ingress_motion_generation) = browser
             .capture_guarded_input_point(1, 1.0, 1.0)
             .expect("captured press under the original viewport");
@@ -8456,6 +8809,7 @@ mod tests {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
         browser.store_frame(test_frame(1));
+        acknowledge_local_presentation(browser, 1);
         let (_, capture_generation, _, _) =
             browser.capture_guarded_input_point(1, 1.0, 1.0).expect("initial pointer authority");
         let first = browser.begin_navigation_frame_transition().unwrap();
@@ -8722,6 +9076,7 @@ mod tests {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
         browser.store_frame(test_frame(1));
+        acknowledge_local_presentation(browser, 1);
         let (_, capture_generation, _, _) =
             browser.capture_guarded_input_point(1, 1.0, 1.0).expect("live pointer capture");
 
@@ -8914,6 +9269,7 @@ mod tests {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
         browser.store_frame(test_frame(1));
+        acknowledge_local_presentation(browser, 1);
         let (_, capture_generation, _, _) =
             browser.capture_guarded_input_point(1, 1.0, 1.0).expect("live press frame");
 
@@ -8970,6 +9326,7 @@ mod tests {
             session_id: "session-1".to_string(),
         });
         browser.store_frame(test_frame(1));
+        acknowledge_local_presentation(browser, 1);
         assert!(browser.scale_guarded_input_point(Some(1), 1.0, 1.0).is_some());
         let (_, capture_generation, _, _) =
             browser.capture_guarded_input_point(1, 1.0, 1.0).expect("live press frame");
@@ -9506,6 +9863,7 @@ mod tests {
             session_id: "session-1".to_string(),
         });
         browser.store_frame(test_frame(1));
+        acknowledge_local_presentation(browser, 1);
         let (_, capture_generation, _, _) =
             browser.capture_guarded_input_point(1, 1.0, 1.0).expect("live pointer capture");
         let queued = browser.reserve_reconfigure(11, 5).expect("changed geometry");

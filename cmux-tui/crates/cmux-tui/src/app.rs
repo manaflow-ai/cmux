@@ -6927,8 +6927,8 @@ impl App {
             (Some(processed), Some(pending)) if processed == pending => true,
             (Some(processed), Some(pending)) => {
                 self.session.surface(surface_id).is_some_and(|surface| {
-                    surface.browser_accepts_pointer_frame(processed)
-                        && surface.browser_accepts_pointer_frame(pending)
+                    surface.browser_pointer_frame_is_in_current_route(processed)
+                        && surface.browser_pointer_frame_is_in_current_route(pending)
                 })
             }
             (None, Some(_)) | (Some(_), None) => false,
@@ -7588,6 +7588,15 @@ impl App {
             self.rendered_pane_content_generations
                 .retain(|_, generation| !matches!(generation, PaneContentGeneration::Browser(_)));
             for (surface, generation) in current_browser_authorities {
+                if let Some(handle) = self.session.surface(surface)
+                    && handle.browser_acknowledge_pointer_frame(generation)
+                {
+                    let _ = self.browser_input.enqueue(BrowserInputEvent {
+                        surface_id: surface,
+                        surface: handle,
+                        kind: BrowserInputKind::Presented { frame_seq: generation },
+                    });
+                }
                 self.rendered_pane_content_generations
                     .insert(surface, PaneContentGeneration::Browser(generation));
             }
@@ -17715,7 +17724,7 @@ mod tests {
     }
 
     #[test]
-    fn final_browser_pointer_admission_accepts_rendered_frame_within_live_range() {
+    fn final_browser_pointer_admission_accepts_exact_presented_frame() {
         let surface_id = 7;
         let mut app = test_app(crate::session::test_remote_session_with_browser_pointer_range(
             surface_id, 41, 42,
@@ -19025,6 +19034,39 @@ mod tests {
         assert_eq!(app.pending_graphics_submission, Some(3));
         assert_eq!(app.pointer_route_phase, PointerRoutePhase::GraphicsProcessingPending);
         mux.close_surface(surface_id).unwrap();
+    }
+
+    #[test]
+    fn graphics_completion_acknowledges_one_exact_remote_presentation() {
+        let surface_id = 7;
+        let mut app = test_app(crate::session::test_remote_session_with_browser_pointer_range(
+            surface_id, 41, 42,
+        ));
+        let (dispatcher, blocked) = BrowserInputDispatcher::blocked(4);
+        app.browser_input = dispatcher;
+        assert!(
+            app.session
+                .surface(surface_id)
+                .is_some_and(|surface| surface.browser_accepts_pointer_frame(41))
+        );
+
+        app.commit_graphics_processing(crate::ui::graphics_writer::GraphicsProcessing {
+            id: 2,
+            session_generation: app.session_generation,
+            graphics: vec![crate::ui::graphics_writer::ProcessedGraphic {
+                surface: surface_id,
+                rect: Rect { x: 1, y: 2, width: 3, height: 4 },
+                seq: 42,
+                pointer_frame_seq: Some(42),
+            }],
+        });
+
+        let surface = app.session.surface(surface_id).expect("remote browser surface");
+        assert!(!surface.browser_accepts_pointer_frame(41));
+        assert!(surface.browser_accepts_pointer_frame(42));
+        let published =
+            blocked.recv_timeout(Duration::from_secs(1)).expect("presentation acknowledgement");
+        assert!(matches!(published.kind, BrowserInputKind::Presented { frame_seq: 42 }));
     }
 
     #[test]

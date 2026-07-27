@@ -32,7 +32,8 @@ pub use crate::browser::{
     BrowserStatus,
 };
 use crate::browser::{
-    BrowserMouseDispatch, BrowserResizeWaiter, BrowserSurface, PendingBrowserResize,
+    BrowserMouseDispatch, BrowserPointerOwner, BrowserResizeWaiter, BrowserSurface,
+    PendingBrowserResize,
 };
 #[cfg(unix)]
 use crate::terminal_host_protocol::{FLAG_COLORS_FOLLOW, Frame, MessageKind, PROTOCOL_VERSION};
@@ -2878,10 +2879,36 @@ impl Surface {
         self.as_browser().and_then(BrowserSurface::latest_frame_seq)
     }
 
-    /// Return whether an exact browser bitmap token is still valid for guarded
-    /// input in the current document and coordinate mapping.
+    /// Return whether the local renderer acknowledged this exact browser
+    /// bitmap as its current presentation.
     pub fn browser_accepts_pointer_frame(&self, frame_seq: u64) -> bool {
         self.as_browser().is_some_and(|browser| browser.accepts_pointer_frame(frame_seq))
+    }
+
+    /// Return whether a browser bitmap belongs to the current document and
+    /// coordinate mapping without granting it input authority.
+    pub fn browser_pointer_frame_is_in_current_route(&self, frame_seq: u64) -> bool {
+        self.as_browser()
+            .is_some_and(|browser| browser.pointer_frame_is_in_current_route(frame_seq))
+    }
+
+    pub fn browser_acknowledge_pointer_frame(&self, frame_seq: u64) -> bool {
+        self.as_browser().is_some_and(|browser| browser.acknowledge_pointer_frame(frame_seq))
+    }
+
+    pub(crate) fn browser_acknowledge_pointer_frame_from(
+        &self,
+        owner: BrowserPointerOwner,
+        frame_seq: u64,
+    ) -> bool {
+        self.as_browser()
+            .is_some_and(|browser| browser.acknowledge_pointer_frame_from(owner, frame_seq))
+    }
+
+    pub(crate) fn forget_browser_pointer_owner(&self, owner: BrowserPointerOwner) {
+        if let Some(browser) = self.as_browser() {
+            browser.forget_pointer_owner(owner);
+        }
     }
 
     pub fn browser_url(&self) -> Option<String> {
@@ -3010,6 +3037,20 @@ impl Surface {
             anyhow::bail!("PTY surface is not a browser surface");
         };
         browser.wheel_for_frame(x, y, delta_y, frame_seq)
+    }
+
+    pub(crate) fn browser_wheel_for_frame_from(
+        &self,
+        owner: BrowserPointerOwner,
+        x: f64,
+        y: f64,
+        delta_y: f64,
+        frame_seq: Option<u64>,
+    ) -> anyhow::Result<()> {
+        let Some(browser) = self.as_browser() else {
+            anyhow::bail!("PTY surface is not a browser surface");
+        };
+        browser.wheel_for_frame_from(owner, x, y, delta_y, frame_seq)
     }
 
     pub fn browser_navigate(&self, url: &str) -> anyhow::Result<()> {

@@ -1489,6 +1489,55 @@ impl SurfaceHandle {
         }
     }
 
+    pub fn browser_pointer_frame_is_in_current_route(&self, frame_seq: u64) -> bool {
+        match self {
+            SurfaceHandle::Local(surface, _) => {
+                surface.browser_pointer_frame_is_in_current_route(frame_seq)
+            }
+            SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Browser => {
+                surface.browser_pointer_frame_is_in_current_route(frame_seq)
+            }
+            SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => false,
+        }
+    }
+
+    /// Update the renderer-local presentation acknowledgement immediately.
+    pub fn browser_acknowledge_pointer_frame(&self, frame_seq: u64) -> bool {
+        match self {
+            SurfaceHandle::Local(surface, _) => {
+                surface.browser_acknowledge_pointer_frame(frame_seq)
+            }
+            SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Browser => {
+                surface.acknowledge_browser_pointer_frame(frame_seq)
+            }
+            SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => false,
+        }
+    }
+
+    /// Publish a renderer acknowledgement to the surface owner. Remote calls
+    /// perform control-socket I/O and must run off the app event loop.
+    pub fn browser_publish_pointer_frame(&self, frame_seq: u64) -> anyhow::Result<()> {
+        match self {
+            SurfaceHandle::Local(surface, _) => {
+                let _ = surface.browser_acknowledge_pointer_frame(frame_seq);
+                Ok(())
+            }
+            SurfaceHandle::Remote(surface, session) if surface.kind == SurfaceKind::Browser => {
+                session
+                    .request(json!({
+                        "cmd": "browser-frame-presented",
+                        "surface": surface.id,
+                        "frame_seq": frame_seq,
+                    }))
+                    .map(|_| ())
+            }
+            SurfaceHandle::Remote(_, _) => anyhow::bail!("PTY surface is not a browser surface"),
+            SurfaceHandle::RemoteBrowserUnsupported => {
+                anyhow::bail!("browser panes are not supported over attach yet")
+            }
+        }
+    }
+
     pub fn browser_url(&self) -> Option<String> {
         match self {
             SurfaceHandle::Local(surface, _) => surface.browser_url(),

@@ -678,6 +678,10 @@ enum Command {
         #[serde(alias = "height_px")]
         height_px: u16,
     },
+    BrowserFramePresented {
+        surface: SurfaceId,
+        frame_seq: u64,
+    },
     BrowserMouse {
         surface: SurfaceId,
         kind: String,
@@ -1051,6 +1055,7 @@ impl Command {
             | Self::ReportAgent { surface, .. }
             | Self::VtState { surface }
             | Self::MintTerminalRenderer { surface, .. }
+            | Self::BrowserFramePresented { surface, .. }
             | Self::BrowserMouse { surface, .. }
             | Self::BrowserMouseGuarded { surface, .. }
             | Self::BrowserWheel { surface, .. }
@@ -1088,6 +1093,7 @@ impl Command {
             Self::ClearHistory { .. }
                 | Self::Send { .. }
                 | Self::SendKey { .. }
+                | Self::BrowserFramePresented { .. }
                 | Self::BrowserMouse { .. }
                 | Self::BrowserMouseGuarded { .. }
                 | Self::BrowserWheel { .. }
@@ -2979,7 +2985,7 @@ fn disconnect_client(mux: &Mux, client: u64, send_detached: bool) -> bool {
         mux.remove_size_client_from_attached_surfaces(client, record.attached.keys().copied());
         record
     };
-    if matches!(record.browser_pointer_owner, Some(BrowserPointerOwner::Client(_))) {
+    if let Some(owner @ BrowserPointerOwner::Client(_)) = record.browser_pointer_owner {
         // Pointer commands do not require a frame-stream attachment, so any
         // browser worker may own this negotiated client. Disconnects are rare;
         // wake all browser workers after registry removal instead of polling
@@ -2993,6 +2999,7 @@ fn disconnect_client(mux: &Mux, client: u64, send_detached: bool) -> bool {
                 .collect::<Vec<_>>()
         });
         for surface in surfaces {
+            surface.forget_browser_pointer_owner(owner);
             surface.wake_browser_pointer_cleanup();
         }
     }
@@ -3589,6 +3596,25 @@ fn require_browser(surface: &crate::Surface) -> anyhow::Result<()> {
     }
 }
 
+fn handle_browser_frame_presented(
+    mux: &Mux,
+    client: u64,
+    surface: SurfaceId,
+    frame_seq: u64,
+) -> anyhow::Result<Value> {
+    if !mux.control_clients.supports_capability(client, GUARDED_BROWSER_POINTER_CAPABILITY) {
+        anyhow::bail!(
+            "browser frame presentation requires client capability \
+             {GUARDED_BROWSER_POINTER_CAPABILITY}"
+        );
+    }
+    let surface = get_surface(mux, surface)?;
+    require_browser(&surface)?;
+    let owner = mux.control_clients.browser_pointer_owner(client)?;
+    let accepted = surface.browser_acknowledge_pointer_frame_from(owner, frame_seq);
+    Ok(json!({ "accepted": accepted }))
+}
+
 struct BrowserMouseCommand<'a> {
     surface: SurfaceId,
     kind: &'a str,
@@ -3633,6 +3659,7 @@ fn handle_browser_mouse_command(
 
 fn handle_browser_wheel_command(
     mux: &Mux,
+    client: u64,
     surface: SurfaceId,
     x_px: f64,
     y_px: f64,
@@ -3643,7 +3670,8 @@ fn handle_browser_wheel_command(
         frame_seq.ok_or_else(|| anyhow::anyhow!("browser pointer input requires a frame guard"))?;
     let surface = get_surface(mux, surface)?;
     require_browser(&surface)?;
-    surface.browser_wheel_for_frame(x_px, y_px, delta_y_px, Some(frame_seq))?;
+    let input_owner = mux.control_clients.browser_pointer_owner(client)?;
+    surface.browser_wheel_for_frame_from(input_owner, x_px, y_px, delta_y_px, Some(frame_seq))?;
     Ok(json!({}))
 }
 
@@ -4761,6 +4789,9 @@ fn handle_command_with_cancellation(
                 .collect::<Vec<_>>();
             Ok(json!({"resizes": resizes, "failures": failures}))
         }
+        Command::BrowserFramePresented { surface, frame_seq } => {
+            handle_browser_frame_presented(mux, client, surface, frame_seq)
+        }
         Command::BrowserMouse { surface, kind, x_px, y_px, button, click_count, frame_seq } => {
             handle_browser_mouse_command(
                 mux,
@@ -4798,10 +4829,18 @@ fn handle_command_with_cancellation(
             },
         ),
         Command::BrowserWheel { surface, x_px, y_px, delta_y_px, frame_seq } => {
-            handle_browser_wheel_command(mux, surface, x_px, y_px, delta_y_px, frame_seq)
+            handle_browser_wheel_command(mux, client, surface, x_px, y_px, delta_y_px, frame_seq)
         }
         Command::BrowserWheelGuarded { surface, x_px, y_px, delta_y_px, frame_seq } => {
-            handle_browser_wheel_command(mux, surface, x_px, y_px, delta_y_px, Some(frame_seq))
+            handle_browser_wheel_command(
+                mux,
+                client,
+                surface,
+                x_px,
+                y_px,
+                delta_y_px,
+                Some(frame_seq),
+            )
         }
         Command::BrowserKey {
             surface,
@@ -6595,6 +6634,7 @@ mod tests {
     #[test]
     fn guarded_browser_pointer_input_overtakes_an_unrelated_clear_barrier() {
         for cmd in [
+            Command::BrowserFramePresented { surface: 2, frame_seq: 7 },
             Command::BrowserMouseGuarded {
                 surface: 2,
                 kind: "move".to_string(),
@@ -7111,6 +7151,35 @@ mod tests {
                 "{cmd} must keep accepting a legacy null frame guard"
             );
         }
+    }
+
+    #[test]
+    fn browser_frame_presentation_requires_a_numeric_guard_and_capability() {
+        let request = json!({
+            "id": 1,
+            "cmd": "browser-frame-presented",
+            "surface": 7,
+            "frame_seq": 9,
+        });
+        assert!(serde_json::from_value::<Request>(request.clone()).is_ok());
+        let mut missing_guard = request.clone();
+        missing_guard.as_object_mut().unwrap().remove("frame_seq");
+        assert!(serde_json::from_value::<Request>(missing_guard).is_err());
+        let mut null_guard = request;
+        null_guard["frame_seq"] = Value::Null;
+        assert!(serde_json::from_value::<Request>(null_guard).is_err());
+
+        let mux = test_mux();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let error = handle_command(
+            &mux,
+            client,
+            Command::BrowserFramePresented { surface: 99_999, frame_seq: 9 },
+            &writer,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains(GUARDED_BROWSER_POINTER_CAPABILITY));
     }
 
     #[test]
