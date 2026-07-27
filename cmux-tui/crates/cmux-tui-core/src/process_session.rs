@@ -1412,6 +1412,59 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     #[test]
+    fn shutdown_treats_zombie_members_as_drained_before_reserved_parent() {
+        use std::io::BufRead as _;
+
+        let mut command = Command::new("/bin/sh");
+        command
+            .args(["-c", "trap '' HUP TERM; sleep 60 & echo $!; wait"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
+        unsafe {
+            command.pre_exec(|| {
+                if libc::setsid() < 0 {
+                    return Err(io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        let mut leader = command.spawn().unwrap();
+        let session = libc::pid_t::try_from(leader.id()).unwrap();
+        let mut descendant = String::new();
+        io::BufReader::new(leader.stdout.take().unwrap()).read_line(&mut descendant).unwrap();
+        let descendant = descendant.trim().parse::<libc::pid_t>().unwrap();
+        let leader_handle = StableProcessHandle::capture(session).unwrap().unwrap();
+        assert!(leader_handle.signal(libc::SIGSTOP).unwrap());
+        let mut status = 0;
+        loop {
+            let waited = unsafe { libc::waitpid(session, &mut status, libc::WUNTRACED) };
+            if waited == session {
+                assert!(libc::WIFSTOPPED(status));
+                break;
+            }
+            assert_eq!(waited, -1);
+            let error = io::Error::last_os_error();
+            if error.kind() != io::ErrorKind::Interrupted {
+                panic!("could not observe reserved session leader stop: {error}");
+            }
+        }
+
+        let drained =
+            kill_until_only_reserved(session, session, Instant::now() + Duration::from_secs(1));
+
+        let _ = unsafe { libc::kill(descendant, libc::SIGKILL) };
+        let _ = leader_handle.signal(libc::SIGCONT);
+        let _ = leader.kill();
+        let _ = leader.wait();
+        assert_eq!(
+            drained.unwrap(),
+            true,
+            "an unreaped zombie kept a fully terminated PTY session pending"
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
     fn pidfd_open_denial_uses_an_exact_proc_handle() {
         const CHILD_ENV: &str = "CMUX_TUI_TEST_BLOCK_PIDFD_OPEN";
         if !enter_syscall_blocked_subprocess(
