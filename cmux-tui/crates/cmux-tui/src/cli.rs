@@ -1256,13 +1256,24 @@ fn build_undo_layout(flags: &FlagMap) -> Result<Value, UsageError> {
 }
 
 fn required_viewport_width(flags: &FlagMap) -> Result<f32, UsageError> {
-    let width = flags.required_f32("width")?;
+    required_viewport_width_with_messages(flags, &crate::localization::catalog().layout)
+}
+
+fn required_viewport_width_with_messages(
+    flags: &FlagMap,
+    messages: &LayoutMessages,
+) -> Result<f32, UsageError> {
+    let width = flags
+        .required("width")?
+        .parse::<f32>()
+        .map_err(|_| UsageError(messages.viewport_width_must_be_number.to_string()))?;
+    if !width.is_finite() {
+        return Err(UsageError(messages.viewport_width_must_be_finite.to_string()));
+    }
     if !(cmux_tui_core::MIN_VIEWPORT_PANE_WIDTH..=cmux_tui_core::MAX_VIEWPORT_PANE_WIDTH)
         .contains(&width)
     {
-        return Err(UsageError(
-            crate::localization::catalog().layout.viewport_width_out_of_range.to_string(),
-        ));
+        return Err(UsageError(messages.viewport_width_out_of_range.to_string()));
     }
     Ok(width)
 }
@@ -2033,15 +2044,20 @@ mod tests {
     #[test]
     fn viewport_width_builder_localizes_nonfinite_values() {
         let japanese = crate::localization::catalog_for_locale("ja_JP.UTF-8");
-        let flags = FlagMap {
-            values: BTreeMap::from([("width".to_string(), "NaN".to_string())]),
+        let flags = |width: &str| FlagMap {
+            values: BTreeMap::from([("width".to_string(), width.to_string())]),
             ..Default::default()
         };
 
-        let error = required_viewport_width_with_messages(&flags, &japanese.layout).unwrap_err();
+        let error =
+            required_viewport_width_with_messages(&flags("NaN"), &japanese.layout).unwrap_err();
 
         assert_eq!(error.0, japanese.layout.viewport_width_must_be_finite);
         assert!(!error.0.contains("must be a finite number"));
+
+        let error =
+            required_viewport_width_with_messages(&flags("wide"), &japanese.layout).unwrap_err();
+        assert_eq!(error.0, japanese.layout.viewport_width_must_be_number);
     }
 
     #[test]

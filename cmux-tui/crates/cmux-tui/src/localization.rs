@@ -92,6 +92,8 @@ pub(crate) struct LayoutMessages {
     pub resize_viewport_pane_operation: &'static str,
     pub viewport_pane_subject: &'static str,
     pub remote_viewport_panes_unsupported: &'static str,
+    pub viewport_width_must_be_number: &'static str,
+    pub viewport_width_must_be_finite: &'static str,
     pub viewport_width_out_of_range: &'static str,
     pane_without_resizable_column: &'static str,
     pub remote_viewport_resize_unsupported: &'static str,
@@ -462,6 +464,8 @@ edits shell files. Authenticate with the configured host before retrying.
         resize_viewport_pane_operation: "resize viewport pane",
         viewport_pane_subject: "viewport pane",
         remote_viewport_panes_unsupported: "remote cmux server does not support viewport panes; upgrade the server before using new-pane-right",
+        viewport_width_must_be_number: "--width must be a number",
+        viewport_width_must_be_finite: "--width must be a finite number",
         viewport_width_out_of_range: "viewport pane width must be between 0.1 and 1.0",
         pane_without_resizable_column: "pane {pane} has no resizable viewport column",
         remote_viewport_resize_unsupported: "remote cmux server does not support viewport pane resizing; upgrade the server",
@@ -655,6 +659,8 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
         resize_viewport_pane_operation: "ビューポートペインのサイズを変更",
         viewport_pane_subject: "ビューポートペイン",
         remote_viewport_panes_unsupported: "リモート cmux サーバーはビューポートペインに対応していません。new-pane-right を使用する前にサーバーをアップグレードしてください",
+        viewport_width_must_be_number: "--width には数値を指定してください",
+        viewport_width_must_be_finite: "--width には有限の数値を指定してください",
         viewport_width_out_of_range: "ビューポートペインの幅は 0.1 から 1.0 の範囲で指定してください",
         pane_without_resizable_column: "ペイン {pane} にはサイズ変更可能なビューポート列がありません",
         remote_viewport_resize_unsupported: "リモート cmux サーバーはビューポートペインのサイズ変更に対応していません。サーバーをアップグレードしてください",
@@ -955,6 +961,10 @@ mod tests {
         assert_eq!(
             japanese_layout.viewport_width_must_be_finite,
             "--width には有限の数値を指定してください"
+        );
+        assert_eq!(
+            japanese_layout.viewport_width_must_be_number,
+            "--width には数値を指定してください"
         );
         assert_eq!(
             japanese_layout.pane_without_resizable_column(42),
