@@ -12206,6 +12206,73 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn terminal_adoption_retries_when_the_running_transition_write_fails() {
+        let mux = test_mux();
+        let workspace =
+            mux.create_empty_workspace(Some("adoption-write-retry".into()), None, None).unwrap();
+        let terminal_id = TerminalId::random().unwrap().to_hex();
+        let incarnation = crate::terminal_host::HostIncarnation::random().unwrap().to_hex();
+        {
+            let mut registry = mux.workspace_registry.lock().unwrap();
+            commit_terminal_transition(
+                &mut registry,
+                "terminal-reserved",
+                "adoption-write-retry-reserve",
+                &RegistryTerminal {
+                    terminal_id: terminal_id.clone(),
+                    workspace_key: workspace.key,
+                    incarnation: None,
+                    lifecycle: TerminalLifecycle::Launching,
+                    launch_spec: serde_json::json!({}),
+                    exit: None,
+                },
+            )
+            .unwrap();
+            commit_terminal_lifecycle(
+                &mut registry,
+                "terminal-ready",
+                "adoption-write-retry-running",
+                &terminal_id,
+                TerminalLifecycle::Running,
+                Some(&incarnation),
+                None,
+            )
+            .unwrap();
+        }
+        let task = TerminalAdoptionTask {
+            options: SurfaceOptions::default(),
+            record: crate::terminal_host_runtime::TerminalHostRecord {
+                record_version: 2,
+                terminal_id: terminal_id.clone(),
+                incarnation,
+                endpoint: String::new(),
+                owner_token: "01".repeat(crate::terminal_host::CAPABILITY_TOKEN_LEN),
+                host_pid: 1,
+                host_start_nonce: "01".repeat(32),
+                workspace_key: String::new(),
+                supports_set_defaults: true,
+                supports_terminate_only: true,
+            },
+            record_path: std::path::PathBuf::new(),
+            next_attempt: Instant::now(),
+            delay: Duration::from_millis(100),
+        };
+        mux.set_terminal_close_failure_for_test(true).unwrap();
+
+        let complete = mux.try_terminal_adoption(&task);
+
+        mux.set_terminal_close_failure_for_test(false).unwrap();
+        let terminal =
+            mux.workspace_registry.lock().unwrap().terminal_record(&terminal_id).unwrap().unwrap();
+        assert_eq!(terminal.lifecycle, TerminalLifecycle::Running);
+        assert!(
+            !complete,
+            "a failed Running-to-Adopting write permanently completed the adoption task"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn blocked_terminal_adoption_does_not_stall_an_unrelated_terminal() {
         let options = SurfaceOptions::default();
         let mux = Mux::new_for_test("adoption-parallel-progress", options.clone());

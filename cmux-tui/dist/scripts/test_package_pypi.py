@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import os
 import unittest
+from unittest.mock import patch
 
 from package_pypi import wheel_bytes
 
@@ -25,6 +27,16 @@ class LauncherCommandTests(unittest.TestCase):
             ),
             "uvx cmux==1.2.3",
         )
+
+    def test_custom_uv_cache_restarts_the_same_version(self) -> None:
+        with patch.dict(os.environ, {"UV_CACHE_DIR": "/tmp/uv-cache"}):
+            self.assertEqual(
+                launcher_command(
+                    "1.2.3",
+                    "/tmp/uv-cache/archive-v0/abcdefgh/bin/cmux",
+                ),
+                "uvx cmux==1.2.3",
+            )
 
     def test_pipx_run_cache_restarts_the_same_version(self) -> None:
         self.assertEqual(
