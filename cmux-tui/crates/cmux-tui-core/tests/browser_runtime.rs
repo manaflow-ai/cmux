@@ -1010,6 +1010,9 @@ fn browser_capture_scale_applies_to_metrics_screencast_and_input() {
                 | "Input.dispatchMouseEvent" => {
                     write_json(&mut ws, json!({"id": id, "result": {}}));
                 }
+                "Target.getTargets" => {
+                    write_target_list(&mut ws, id, &["target-1"]);
+                }
                 "Target.closeTarget" => {
                     write_json(&mut ws, json!({"id": id, "result": {"success": true}}));
                     break;
@@ -1087,6 +1090,9 @@ fn stalled_external_browser_nudges_target_once_before_interaction() {
                 | "Page.bringToFront"
                 | "Input.dispatchMouseEvent" => {
                     write_json(&mut ws, json!({"id": id, "result": {}}));
+                }
+                "Target.getTargets" => {
+                    write_target_list(&mut ws, id, &["target-1"]);
                 }
                 "Target.closeTarget" => {
                     write_json(&mut ws, json!({"id": id, "result": {"success": true}}));
