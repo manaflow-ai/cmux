@@ -19067,6 +19067,22 @@ mod tests {
         let published =
             blocked.recv_timeout(Duration::from_secs(1)).expect("presentation acknowledgement");
         assert!(matches!(published.kind, BrowserInputKind::Presented { frame_seq: 42 }));
+
+        app.commit_graphics_processing(crate::ui::graphics_writer::GraphicsProcessing {
+            id: 3,
+            session_generation: app.session_generation,
+            graphics: vec![crate::ui::graphics_writer::ProcessedGraphic {
+                surface: surface_id,
+                rect: Rect { x: 1, y: 2, width: 3, height: 4 },
+                seq: 42,
+                pointer_frame_seq: Some(42),
+            }],
+        });
+
+        assert!(
+            blocked.recv_timeout(Duration::from_millis(20)).is_none(),
+            "an unchanged full graphics snapshot must not republish the same presentation"
+        );
     }
 
     #[test]
