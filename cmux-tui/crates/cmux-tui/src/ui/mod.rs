@@ -34,7 +34,7 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
     app.reset_frame_cursor_spec();
     let area = frame.area();
     let frame_size = (area.width, area.height);
-    if app.frame_layout_size.is_some_and(|layout_size| layout_size != frame_size) {
+    if app.frame_layout_size != Some(frame_size) {
         app.sync_layout(frame_size);
     }
     if area.height == 0 {

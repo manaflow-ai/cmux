@@ -11807,14 +11807,53 @@ mod tests {
         assert_eq!(layout.content.width, 0);
     }
 
+    fn assert_layout_within_frame(app: &App, size: (u16, u16)) {
+        let (width, height) = size;
+        assert_eq!(app.frame_layout_size, Some(size));
+        assert!(app.content_area.x.saturating_add(app.content_area.width) <= width);
+        assert!(app.content_area.y.saturating_add(app.content_area.height) <= height);
+        for area in &app.pane_areas {
+            assert!(area.rect.x.saturating_add(area.rect.width) <= width);
+            assert!(area.rect.y.saturating_add(area.rect.height) <= height);
+            assert!(area.content.x.saturating_add(area.content.width) <= width);
+            assert!(area.content.y.saturating_add(area.content.height) <= height);
+        }
+    }
+
     #[test]
-    fn draw_survives_host_shrinking_after_layout_sync() {
-        let mux = Mux::new("host-shrink-draw-test", SurfaceOptions::default());
+    fn draw_syncs_an_uninitialized_frame_layout() {
+        let mux = Mux::new("initial-frame-layout-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        assert_eq!(app.frame_layout_size, None);
+
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+
+        assert_layout_within_frame(&app, (80, 24));
+    }
+
+    #[test]
+    fn draw_survives_host_height_shrinking_after_layout_sync() {
+        let mux = Mux::new("host-height-shrink-draw-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         app.sync_layout((80, 25));
 
         let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
         terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+
+        assert_layout_within_frame(&app, (80, 24));
+    }
+
+    #[test]
+    fn draw_survives_host_width_shrinking_after_layout_sync() {
+        let mux = Mux::new("host-width-shrink-draw-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sync_layout((81, 24));
+
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+
+        assert_layout_within_frame(&app, (80, 24));
     }
 
     #[test]
