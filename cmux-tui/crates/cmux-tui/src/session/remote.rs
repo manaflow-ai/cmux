@@ -3600,7 +3600,7 @@ mod tests {
     }
 
     #[test]
-    fn browser_pointer_range_retains_an_older_presented_frame() {
+    fn browser_pointer_range_does_not_authorize_unacknowledged_presentations() {
         let surface = RemoteSurface {
             id: 1,
             kind: SurfaceKind::Browser,
@@ -3621,8 +3621,14 @@ mod tests {
             "pointer_frame_seq": 9,
         }));
 
-        assert!(surface.browser_accepts_pointer_frame(8));
-        assert!(surface.browser_accepts_pointer_frame(9));
+        assert!(
+            !surface.browser_accepts_pointer_frame(8),
+            "route membership must not imply that the client presented an older frame"
+        );
+        assert!(
+            !surface.browser_accepts_pointer_frame(9),
+            "receiving a frame must not acknowledge its presentation"
+        );
         assert!(!surface.browser_accepts_pointer_frame(7));
         assert!(!surface.browser_accepts_pointer_frame(10));
     }
