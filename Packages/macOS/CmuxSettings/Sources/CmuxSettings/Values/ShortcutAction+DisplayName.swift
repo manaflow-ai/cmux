@@ -38,8 +38,20 @@ extension ShortcutAction {
         case .triggerFlash: return "Flash Focused Panel"
         case .nextSurface: return "Next Surface"
         case .prevSurface: return "Previous Surface"
-        case .moveSurfaceLeft: return String(localized: "shortcut.moveSurfaceLeft.label", defaultValue: "Move Surface Left")
-        case .moveSurfaceRight: return String(localized: "shortcut.moveSurfaceRight.label", defaultValue: "Move Surface Right")
+        case .moveSurfaceLeft: return String(localized: "shortcut.moveSurfaceLeft.label", defaultValue: "Reorder Surface Left")
+        case .moveSurfaceRight: return String(localized: "shortcut.moveSurfaceRight.label", defaultValue: "Reorder Surface Right")
+        case .moveSurfaceToPreviousPane:
+            return String(localized: "shortcut.moveSurfaceToPreviousPane.label", defaultValue: "Move Surface to Previous Pane")
+        case .moveSurfaceToNextPane:
+            return String(localized: "shortcut.moveSurfaceToNextPane.label", defaultValue: "Move Surface to Next Pane")
+        case .moveSurfaceToPaneLeft:
+            return String(localized: "shortcut.moveSurfaceToPaneLeft.label", defaultValue: "Move Surface to Pane on Left")
+        case .moveSurfaceToPaneRight:
+            return String(localized: "shortcut.moveSurfaceToPaneRight.label", defaultValue: "Move Surface to Pane on Right")
+        case .moveSurfaceToPaneUp:
+            return String(localized: "shortcut.moveSurfaceToPaneUp.label", defaultValue: "Move Surface to Pane Above")
+        case .moveSurfaceToPaneDown:
+            return String(localized: "shortcut.moveSurfaceToPaneDown.label", defaultValue: "Move Surface to Pane Below")
         case .selectSurfaceByNumber: return "Select Surface 1…9"
         case .nextSidebarTab: return "Next Workspace"
         case .prevSidebarTab: return "Previous Workspace"
