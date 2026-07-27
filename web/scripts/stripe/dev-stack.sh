@@ -85,9 +85,9 @@ if [[ -z "$STRIPE_SECRET_KEY" || "$STRIPE_SECRET_KEY" != sk_test_* ]]; then
   exit 1
 fi
 
-web_log="$(mktemp "${TMPDIR:-/tmp}/cmux-stripe-web.XXXXXX.log")"
-stripe_log="$(mktemp "${TMPDIR:-/tmp}/cmux-stripe-listen.XXXXXX.log")"
-secret_log="$(mktemp "${TMPDIR:-/tmp}/cmux-stripe-secret.XXXXXX.log")"
+web_log="$(mktemp "${TMPDIR:-/tmp}/cmux-stripe-web.XXXXXX")"
+stripe_log="$(mktemp "${TMPDIR:-/tmp}/cmux-stripe-listen.XXXXXX")"
+secret_log="$(mktemp "${TMPDIR:-/tmp}/cmux-stripe-secret.XXXXXX")"
 web_pid=""
 stripe_pid=""
 secret_pid=""
