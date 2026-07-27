@@ -54,12 +54,18 @@ extension CLINotifyProcessIntegrationRegressionTests {
         private let threadsById: [String: [String: Any]]
         private let loadedThreadIdBatches: [[String]]
         private let loadedThreadPagesByCursor: [String: LoadedThreadPage]?
+        private let ignoredMethods: Set<String>
         private let lock = NSLock()
         private var connections: [NWConnection] = []
         private var loadedThreadListRequestCountValue = 0
         private var loadedThreadListRequestCursorsValue: [String?] = []
+        private var loadedThreadListRequestTimesValue: [TimeInterval] = []
 
-        init(threads: [[String: Any]], loadedThreadIdBatches: [[String]]) throws {
+        init(
+            threads: [[String: Any]],
+            loadedThreadIdBatches: [[String]],
+            ignoredMethods: Set<String> = []
+        ) throws {
             let parameters = NWParameters.tcp
             let webSocketOptions = NWProtocolWebSocket.Options()
             webSocketOptions.autoReplyPing = true
@@ -73,9 +79,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
             )
             self.loadedThreadIdBatches = loadedThreadIdBatches.isEmpty ? [[]] : loadedThreadIdBatches
             loadedThreadPagesByCursor = nil
+            self.ignoredMethods = ignoredMethods
         }
 
-        init(threads: [[String: Any]], loadedThreadPages: [LoadedThreadPage]) throws {
+        init(
+            threads: [[String: Any]],
+            loadedThreadPages: [LoadedThreadPage],
+            ignoredMethods: Set<String> = []
+        ) throws {
             let parameters = NWParameters.tcp
             let webSocketOptions = NWProtocolWebSocket.Options()
             webSocketOptions.autoReplyPing = true
@@ -93,6 +104,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     ($0.requestCursor ?? "", $0)
                 }
             )
+            self.ignoredMethods = ignoredMethods
         }
 
         func start(timeout: TimeInterval = 5) throws -> URL {
@@ -158,6 +170,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
             return value
         }
 
+        func loadedThreadListRequestTimes() -> [TimeInterval] {
+            lock.lock()
+            let value = loadedThreadListRequestTimesValue
+            lock.unlock()
+            return value
+        }
+
         private func accept(_ connection: NWConnection) {
             lock.lock()
             connections.append(connection)
@@ -194,6 +213,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         private func handle(_ request: [String: Any], on connection: NWConnection) {
             guard let method = request["method"] as? String else { return }
             guard let requestId = request["id"] else { return }
+            guard !ignoredMethods.contains(method) else { return }
             switch method {
             case "initialize":
                 send([["id": requestId, "result": [:]]], on: connection)
@@ -251,6 +271,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             let index = min(loadedThreadListRequestCountValue, loadedThreadIdBatches.count - 1)
             loadedThreadListRequestCountValue += 1
             loadedThreadListRequestCursorsValue.append(nil)
+            loadedThreadListRequestTimesValue.append(ProcessInfo.processInfo.systemUptime)
             let value = loadedThreadIdBatches[index]
             lock.unlock()
             return value
@@ -260,6 +281,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             lock.lock()
             loadedThreadListRequestCountValue += 1
             loadedThreadListRequestCursorsValue.append(cursor)
+            loadedThreadListRequestTimesValue.append(ProcessInfo.processInfo.systemUptime)
             lock.unlock()
         }
 
