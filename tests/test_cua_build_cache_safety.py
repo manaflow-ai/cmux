@@ -48,10 +48,15 @@ if [[ "${{1:-}}" == "-C" ]]; then
   shift 2
   case "${{1:-}}" in
     cat-file|checkout|clean|fetch) exit 0 ;;
+    remote)
+      echo "fake://cmux-cua"
+      exit 0
+      ;;
     rev-parse)
       echo "{sha}"
       exit 0
       ;;
+    status) exit 0 ;;
   esac
 fi
 exit 1
@@ -115,10 +120,28 @@ def test_stale_sibling_source_is_preserved(sha: str) -> None:
         assert sentinel.read_text() == "keep me", result.stderr
 
 
+def test_clean_legacy_source_is_adopted(sha: str) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-cua-cache-legacy-") as tmp:
+        root = Path(tmp)
+        cache_dir = root / "cache"
+        source_dir = cache_dir / f"src-{sha}"
+        (source_dir / ".git").mkdir(parents=True)
+        (source_dir / "libs/cua-driver/rust").mkdir(parents=True)
+        (source_dir / "libs/cua-driver/rust/Cargo.toml").touch()
+        (source_dir / ".cmux-last-used").touch()
+
+        result = run_until_compile(root, cache_dir, sha)
+
+        assert result.returncode == 42, result.stderr
+        owner = source_dir / ".cmux-cua-managed-source"
+        assert owner.read_text() == f"cmux-cua-driver-cache-v1 {sha}\n"
+
+
 def main() -> int:
     sha = pinned_sha()
     test_unmanaged_current_source_is_preserved(sha)
     test_stale_sibling_source_is_preserved(sha)
+    test_clean_legacy_source_is_adopted(sha)
     print("PASS: cua-driver builds preserve unmanaged cache contents")
     return 0
 
