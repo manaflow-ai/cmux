@@ -243,6 +243,45 @@ describe("RenderGraphics canvas resource policy", () => {
     expect(backingBytes).toBeLessThanOrEqual(RENDER_GRAPHIC_CANVAS_BACKING_BYTE_CAP);
   });
 
+  it("scans maximum-scale placements once when the backing budget fills early", () => {
+    let visibilityReads = 0;
+    const width = 1_024;
+    const height = 1_024;
+    const placementCount = 16_384;
+    const placements = Array.from({ length: placementCount }, (_, index) => {
+      const candidate = placement(index + 1, width, height);
+      Object.defineProperty(candidate, "viewport_visible", {
+        configurable: true,
+        enumerable: true,
+        get: () => {
+          visibilityReads += 1;
+          return true;
+        },
+      });
+      return candidate;
+    });
+    const graphics: RenderGraphicsModel = {
+      generation: 1,
+      images: [{
+        id: 1,
+        generation: 1,
+        width,
+        height,
+        format: "rgba",
+        data: zeroBytesBase64(width * height * 4),
+      }],
+      placements,
+    };
+
+    render(
+      <RenderGraphics graphics={graphics}>
+        <div>terminal</div>
+      </RenderGraphics>,
+    );
+
+    expect(visibilityReads).toBeLessThanOrEqual(placementCount * 2);
+  });
+
   it("preserves the topmost placement under the backing cap", async () => {
     const width = 1_024;
     const height = 1_024;
