@@ -98,6 +98,8 @@ struct SimulatorDeviceStage: View {
                 CGSize(width: chrome.portraitHeight, height: chrome.portraitWidth)
             }
         }
+        // The fallback caps the framebuffer itself. A later chrome profile adds
+        // only its measured insets around that same 1:1 framebuffer.
         guard display.scale.isFinite, display.scale > 0 else { return nil }
         let geometry = SimulatorOrientationGeometry(display: display)
         return CGSize(

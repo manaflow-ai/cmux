@@ -6,7 +6,14 @@ func simulatorFrameTransportDescriptor(
     width: Int = 390,
     height: Int = 844
 ) -> SimulatorFrameTransportDescriptor {
-    let layout = try! SimulatorFrameSharedMemoryLayout(width: width, height: height)
+    let layout: SimulatorFrameSharedMemoryLayout
+    do {
+        layout = try SimulatorFrameSharedMemoryLayout(width: width, height: height)
+    } catch {
+        preconditionFailure(
+            "Invalid Simulator frame fixture dimensions \(width)x\(height): \(error)"
+        )
+    }
     return SimulatorFrameTransportDescriptor(
         sharedMemoryName: String(
             format: "/cmux-sim-frame-%012llx",

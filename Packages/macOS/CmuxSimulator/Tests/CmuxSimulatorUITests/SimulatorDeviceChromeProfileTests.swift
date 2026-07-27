@@ -274,8 +274,8 @@ struct SimulatorDeviceChromeProfileTests {
     }
 
     @MainActor
-    @Test("iPhone stage never exceeds the device's logical size")
-    func iPhoneStageIsCappedAtLogicalDeviceSize() throws {
+    @Test("iPhone stage keeps its framebuffer at logical size while chrome loads")
+    func iPhoneStageKeepsFramebufferAtLogicalSizeWhileChromeLoads() throws {
         let phone = SimulatorDevice(
             id: "phone",
             name: "Phone",
@@ -299,24 +299,39 @@ struct SimulatorDeviceChromeProfileTests {
             orientation: .portrait,
             scale: 3
         )
-        coordinator.chromeProfile = profile
         coordinator.frameTransport = simulatorFrameTransportDescriptor(91)
-        let host = NSHostingView(rootView: SimulatorDeviceStage(
+        let screenOnlyHost = NSHostingView(rootView: SimulatorDeviceStage(
             coordinator: coordinator,
             backgroundColor: .black,
             allowsPointerInput: false,
             pointerEntryEventFilter: nil,
             onRequestPanelFocus: {}
         ))
-        host.frame = CGRect(x: 0, y: 0, width: 2_000, height: 2_000)
+        screenOnlyHost.frame = CGRect(x: 0, y: 0, width: 2_000, height: 2_000)
+        screenOnlyHost.layoutSubtreeIfNeeded()
+        let screenOnlySurface = try #require(
+            firstDescendant(of: SimulatorRemoteSurfaceView.self, in: screenOnlyHost)
+        )
+        let screenOnlyFrameSize = screenOnlySurface.displayRect.size
 
-        host.layoutSubtreeIfNeeded()
+        coordinator.chromeProfile = profile
+        let chromeHost = NSHostingView(rootView: SimulatorDeviceStage(
+            coordinator: coordinator,
+            backgroundColor: .black,
+            allowsPointerInput: false,
+            pointerEntryEventFilter: nil,
+            onRequestPanelFocus: {}
+        ))
+        chromeHost.frame = CGRect(x: 0, y: 0, width: 2_000, height: 2_000)
+        chromeHost.layoutSubtreeIfNeeded()
 
         let surface = try #require(
-            firstDescendant(of: SimulatorRemoteSurfaceView.self, in: host)
+            firstDescendant(of: SimulatorRemoteSurfaceView.self, in: chromeHost)
         )
         #expect(surface.bounds.width <= profile.portraitWidth + 0.5)
         #expect(surface.bounds.height <= profile.portraitHeight + 0.5)
+        #expect(abs(surface.displayRect.width - screenOnlyFrameSize.width) <= 0.5)
+        #expect(abs(surface.displayRect.height - screenOnlyFrameSize.height) <= 0.5)
     }
 
     private func profileFixture() -> SimulatorDeviceChromeProfile {
