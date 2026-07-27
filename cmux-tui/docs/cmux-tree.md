@@ -30,6 +30,10 @@ It appears as `Local Codex :4500` without configuration. A managed local daemon 
 
 Codex app-servers launched with the default `stdio://` transport cannot be attached because their input and output pipes belong to the parent client. Start a WebSocket listener or the managed daemon when cmux tree needs to observe it.
 
+When the managed daemon is listening at Codex's default Unix socket, cmux sends ordinary interactive and `resume` launches through Codex's native daemon-reuse path. The original terminal remains a full Codex chat client while `cmux-tree` observes the same server through a separate connection. This path performs one socket metadata check and starts no cmux CLI, probe, or hook processes. `exec`, explicit remote connections, profiles, and command-line config overrides keep the existing embedded-server hook path because Codex cannot replay their full launch configuration through a reused daemon.
+
+Persistent Codex event hooks are not required for `cmux-tree`. Its trajectory is built directly from app-server events.
+
 Authenticated listeners are not auto-added because discovery never reads credentials from another process's arguments. Add them manually with a protected bearer-token file.
 
 For another machine, bind app-server to that machine's Tailscale, LAN, or VPN address. Codex requires authentication on non-loopback listeners:
