@@ -114,17 +114,16 @@ public struct AgentsPanelView: View {
         }
     }
 
-    /// The action bundle for one account row. Switching stays local-only
-    /// (remote servers assign accounts per session); sign-in and remove
-    /// manage the local `sr` store, so they follow the same gate — and all
-    /// terminal-backed verbs also require a terminal-capable host.
+    /// The action bundle for one account row. Switching works against both
+    /// the local daemon (`sr` CLI) and remote servers (the daemon's
+    /// switch-account endpoint) through the store's single mutation path.
+    /// Sign-in and remove manage the local `sr` store, so they stay
+    /// local-only — and all terminal-backed verbs also require a
+    /// terminal-capable host.
     private func rowActions(
         account: SubrouterAccountUsageStatus,
         configuration: SubrouterConfiguration
     ) -> SubrouterAccountRowActions {
-        guard !configuration.isRemoteEndpoint else {
-            return SubrouterAccountRowActions()
-        }
         // Matches the popover's filter: a row whose auth check failed is a
         // sign-in candidate, not a switch target — activating it would
         // replace working credentials with an expired account.
@@ -132,6 +131,11 @@ public struct AgentsPanelView: View {
             && account.provider.supportsSwitching
             && (!account.authChecked || account.authValid)
             && store.pendingSwitch == nil
+        guard !configuration.isRemoteEndpoint else {
+            return SubrouterAccountRowActions(
+                onSwitch: canSwitch ? { switchAccount(account) } : nil
+            )
+        }
         return SubrouterAccountRowActions(
             onSwitch: canSwitch ? { switchAccount(account) } : nil,
             onSignIn: terminalAction(.signIn(account: account)),

@@ -81,8 +81,9 @@ public struct SubrouterAccountSwitcherPopoverView: View {
     }
 
     private func switchAction(for account: SubrouterAccountUsageStatus) -> (() -> Void)? {
-        guard !store.configuration.isRemoteEndpoint,
-              !account.isActive,
+        // No remote gate: the store routes remote switches through the
+        // daemon's switch-account endpoint.
+        guard !account.isActive,
               account.provider.supportsSwitching,
               store.pendingSwitch == nil else {
             return nil

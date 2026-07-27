@@ -241628,13 +241628,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Server %@ assigns accounts per session automatically; there is no global switch."
+            "value": "Server %@ does not support remote switching yet; update subrouter on the server."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サーバー %@ がセッションごとにアカウントを自動割り当てするため、全体の切り替えはありません。"
+            "value": "サーバー %@ はまだリモート切り替えに対応していません。サーバー側の subrouter を更新してください。"
           }
         }
       }

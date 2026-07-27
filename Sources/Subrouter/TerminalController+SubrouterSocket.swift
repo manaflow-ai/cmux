@@ -230,7 +230,7 @@ extension TerminalController {
         case .remoteServerManagesSelection(let serverName):
             return .err(
                 code: "remote_server_selection",
-                message: "Server '\(serverName)' assigns accounts per session automatically; there is no global switch. Use SUBROUTER_CODEX_ACCOUNT_ID to force an account for one session.",
+                message: "Server '\(serverName)' does not support remote switching (no /_subrouter/switch-account endpoint); update subrouter on the server, or use SUBROUTER_CODEX_ACCOUNT_ID to force an account for one session.",
                 data: nil
             )
         }

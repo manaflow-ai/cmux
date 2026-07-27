@@ -10,13 +10,17 @@ actor FakeSubrouterClient: SubrouterClienting {
     var sessionsResult: Result<[SubrouterSessionAssignment], SubrouterClientError> = .success([])
     var reloadResult: Result<SubrouterReloadResult, SubrouterClientError> =
         .success(SubrouterReloadResult(ok: true, accounts: 0, usageRefreshed: 0))
+    var switchResult: Result<SubrouterRemoteSwitchResult, SubrouterClientError> =
+        .success(SubrouterRemoteSwitchResult(ok: true))
 
     private(set) var healthCallCount = 0
     private(set) var accountsCallCount = 0
     private(set) var usageCallCount = 0
     private(set) var sessionsCallCount = 0
     private(set) var reloadCallCount = 0
+    private(set) var switchCallCount = 0
     private(set) var lastEndpoint: SubrouterEndpoint?
+    private(set) var lastSwitchRequest: (provider: SubrouterProvider, accountID: String)?
 
     func setHealthResult(_ result: Result<Bool, SubrouterClientError>) {
         healthResult = result
@@ -36,6 +40,10 @@ actor FakeSubrouterClient: SubrouterClienting {
 
     func setReloadResult(_ result: Result<SubrouterReloadResult, SubrouterClientError>) {
         reloadResult = result
+    }
+
+    func setSwitchResult(_ result: Result<SubrouterRemoteSwitchResult, SubrouterClientError>) {
+        switchResult = result
     }
 
     var totalFetchCallCount: Int {
@@ -70,5 +78,16 @@ actor FakeSubrouterClient: SubrouterClienting {
         reloadCallCount += 1
         lastEndpoint = endpoint
         return try reloadResult.get()
+    }
+
+    func switchAccount(
+        endpoint: SubrouterEndpoint,
+        provider: SubrouterProvider,
+        accountID: String
+    ) async throws -> SubrouterRemoteSwitchResult {
+        switchCallCount += 1
+        lastEndpoint = endpoint
+        lastSwitchRequest = (provider: provider, accountID: accountID)
+        return try switchResult.get()
     }
 }
