@@ -104,16 +104,38 @@ struct KeychainDeviceIdentityStore: DeviceIdentityStoring {
             // This call created the item; `desired` is now the persisted id.
             return desired
         case errSecDuplicateItem:
-            // A concurrent writer already persisted an id. Adopt whatever it
-            // stored so every racing caller converges on one id, never
-            // overwriting the winner. If the winner is somehow unreadable now,
-            // report failure rather than returning `desired` (which the store
-            // does not hold), so the caller defers instead of stranding a
-            // binding under an id the Keychain never kept.
-            if case .found(let existing) = read() {
+            // An item already exists. Resolve what it holds so racing callers
+            // converge on one id and a corrupt item cannot wedge minting forever.
+            switch read() {
+            case .found(let existing):
+                // A concurrent writer already persisted a usable id. Adopt it so
+                // every racing caller converges on one id, never overwriting the
+                // winner.
                 return existing
+            case .absent:
+                // `read()` maps a PRESENT-but-undecodable item to `.absent` (its
+                // documented contract: "report `.absent` so the caller re-mints
+                // and overwrites it"). Without overwriting, this deadlocks: the
+                // next `SecItemAdd` keeps returning `errSecDuplicateItem` while the
+                // garbage item squats and `read()` keeps returning `.absent`, so
+                // the device could never mint an id and iroh activation would be
+                // permanently disabled. Overwrite the corrupt item with `desired`.
+                // (A concurrent delete between add and read also lands here;
+                // `SecItemUpdate` then fails with `errSecItemNotFound` and we
+                // return `nil` so the caller retries a clean add.)
+                let attributes: [String: Any] = [
+                    kSecValueData as String: data,
+                    kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+                ]
+                let updateStatus = SecItemUpdate(baseQuery() as CFDictionary, attributes as CFDictionary)
+                return updateStatus == errSecSuccess ? desired : nil
+            case .unavailable:
+                // The item exists but the Keychain is locked before first unlock.
+                // Do not clobber a possibly-valid id under a garbage value; report
+                // failure so the caller defers and retries after unlock instead of
+                // stranding a binding under an id the Keychain never kept.
+                return nil
             }
-            return nil
         default:
             // Locked before first unlock (`errSecInteractionNotAllowed`) or any
             // other error: nothing was persisted, so the caller must not treat
@@ -130,44 +152,5 @@ struct KeychainDeviceIdentityStore: DeviceIdentityStoring {
             kSecAttrSynchronizable as String: false,
             kSecUseDataProtectionKeychain as String: true,
         ]
-    }
-}
-
-/// In-memory device-identity store for tests. Not for production use.
-final class InMemoryDeviceIdentityStore: DeviceIdentityStoring, @unchecked Sendable {
-    private let lock = NSLock()
-    private var value: String?
-    /// Simulates a store that cannot be read (e.g. a locked Keychain): `read()`
-    /// returns `.unavailable` regardless of the seed, exercising the caller's
-    /// fail-closed path.
-    private let isUnavailable: Bool
-    /// Simulates a store that can be read but never persists a write (e.g. a
-    /// Keychain that rejects `SecItemAdd`), exercising the caller's
-    /// do-not-advertise-as-durable path.
-    private let writeAlwaysFails: Bool
-
-    init(seed: String? = nil, unavailable: Bool = false, writeAlwaysFails: Bool = false) {
-        value = seed
-        isUnavailable = unavailable
-        self.writeAlwaysFails = writeAlwaysFails
-    }
-
-    func read() -> DeviceIdentityReadResult {
-        if isUnavailable { return .unavailable }
-        return lock.withLock {
-            guard let value, !value.isEmpty else { return .absent }
-            return .found(value)
-        }
-    }
-
-    func createOrAdopt(_ desired: String) -> String? {
-        if isUnavailable || writeAlwaysFails { return nil }
-        return lock.withLock {
-            // Adopt an already-persisted winner instead of overwriting it, so
-            // racing callers converge on one id.
-            if let value, !value.isEmpty { return value }
-            value = desired
-            return desired
-        }
     }
 }
