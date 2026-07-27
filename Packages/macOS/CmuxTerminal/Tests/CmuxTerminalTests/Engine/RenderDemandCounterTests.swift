@@ -72,6 +72,41 @@ struct RenderDemandCounterTests {
         #expect(!GhosttyMetalLayer.hasActiveRenderDemand(global: global, local: local))
     }
 
+    @Test func cursorDemandDoesNotRequestSharedFrameNotifications() {
+        let global = RenderDemandCounter()
+        let local = RenderDemandCounter()
+        let cursor = RenderDemandCounter()
+
+        #expect(
+            GhosttyMetalLayer.activeFrameDeliveryReasons(
+                global: global,
+                local: local,
+                keyboardCopyModeCursor: cursor
+            ).isEmpty
+        )
+
+        let cursorRetention = cursor.retain()
+        #expect(
+            GhosttyMetalLayer.activeFrameDeliveryReasons(
+                global: global,
+                local: local,
+                keyboardCopyModeCursor: cursor
+            ) == [.keyboardCopyModeCursor]
+        )
+
+        let localRetention = local.retain()
+        #expect(
+            GhosttyMetalLayer.activeFrameDeliveryReasons(
+                global: global,
+                local: local,
+                keyboardCopyModeCursor: cursor
+            ) == [.notification, .keyboardCopyModeCursor]
+        )
+
+        localRetention.release()
+        cursorRetention.release()
+    }
+
     @Test @MainActor
     func renderedFrameDeliveryBuffersOnlyTheNewestMainActorHop() {
         let demand = RenderDemandCounter()
