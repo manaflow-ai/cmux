@@ -1488,7 +1488,7 @@ import Testing
         let outputGroup = DispatchGroup()
         let outputFD = outputPipe.fileHandleForReading.fileDescriptor
         outputGroup.enter()
-        Thread.detachNewThread {
+        let outputThread = Thread {
             var data = Data()
             var buffer = [UInt8](repeating: 0, count: 16 * 1024)
             while true {
@@ -1509,12 +1509,16 @@ import Testing
             outputLock.unlock()
             outputGroup.leave()
         }
+        outputThread.qualityOfService = .userInitiated
+        outputThread.start()
 
         let exitSignal = DispatchSemaphore(value: 0)
-        Thread.detachNewThread {
+        let exitThread = Thread {
             process.waitUntilExit()
             exitSignal.signal()
         }
+        exitThread.qualityOfService = .userInitiated
+        exitThread.start()
 
         let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
         if timedOut {
