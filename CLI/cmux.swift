@@ -20464,9 +20464,27 @@ struct CMUXCLI {
         }
     }
 
+    private enum CodexTeamsAppServerConnectionError: LocalizedError {
+        case receiveTimedOut
+
+        var errorDescription: String? {
+            switch self {
+            case .receiveTimedOut:
+                return "Timed out waiting for Codex app-server response"
+            }
+        }
+    }
+
+    private final class CodexTeamsReceiveState: @unchecked Sendable {
+        let condition = NSCondition()
+        var isPending = false
+        var result: Result<URLSessionWebSocketTask.Message, Error>?
+    }
+
     private final class CodexTeamsAppServerConnection {
         private let session: URLSession
         private let task: URLSessionWebSocketTask
+        private let receiveState = CodexTeamsReceiveState()
         private var nextRequestId = 1
 
         init(url: URL) {
@@ -20574,24 +20592,40 @@ struct CMUXCLI {
         }
 
         func receiveObject(timeout: TimeInterval? = nil) throws -> [String: Any] {
-            let semaphore = DispatchSemaphore(value: 0)
-            let box = CodexTeamsAsyncBox<Result<URLSessionWebSocketTask.Message, Error>>()
-            task.receive { result in
-                box.set(result)
-                semaphore.signal()
+            let state = receiveState
+            state.condition.lock()
+            if !state.isPending {
+                state.isPending = true
+                task.receive { result in
+                    state.condition.lock()
+                    state.result = result
+                    state.condition.broadcast()
+                    state.condition.unlock()
+                }
             }
 
-            if let timeout,
-               semaphore.wait(timeout: .now() + timeout) == .timedOut {
-                task.cancel(with: .goingAway, reason: nil)
-                throw CLIError(message: "Timed out waiting for Codex app-server response")
+            if let timeout {
+                let deadline = Date().addingTimeInterval(timeout)
+                while state.result == nil {
+                    if !state.condition.wait(until: deadline),
+                       state.result == nil {
+                        state.condition.unlock()
+                        throw CodexTeamsAppServerConnectionError.receiveTimedOut
+                    }
+                }
+            } else {
+                while state.result == nil {
+                    state.condition.wait()
+                }
             }
-            if timeout == nil {
-                semaphore.wait()
-            }
-            guard let result = box.take() else {
+
+            guard let result = state.result else {
+                state.condition.unlock()
                 throw CLIError(message: "Codex app-server receive failed")
             }
+            state.result = nil
+            state.isPending = false
+            state.condition.unlock()
 
             switch result {
             case .success(.string(let text)):
@@ -20734,8 +20768,10 @@ struct CMUXCLI {
                         optOutNotificationMethods: CMUXCLI.codexTeamsWatcherResumeOptOutNotificationMethods
                     )
                     resetConnectionSubscriptions()
-                    try backfillLoadedThreads(connection: connection)
-                    try listenForNotifications(connection: connection)
+                    while true {
+                        try backfillLoadedThreads(connection: connection)
+                        try listenForNotifications(connection: connection)
+                    }
                 } catch {
                     cliWriteStderr("cmux codex-teams watcher connection failed: \(error)\n")
                 }
@@ -20766,8 +20802,16 @@ struct CMUXCLI {
         }
 
         private func listenForNotifications(connection: CodexTeamsAppServerConnection) throws {
+            let reconciliationDeadline = Date().addingTimeInterval(CMUXCLI.codexTeamsReconcileInterval)
             while true {
-                let message = try connection.receiveObject()
+                let remaining = reconciliationDeadline.timeIntervalSinceNow
+                guard remaining > 0 else { return }
+                let message: [String: Any]
+                do {
+                    message = try connection.receiveObject(timeout: remaining)
+                } catch CodexTeamsAppServerConnectionError.receiveTimedOut {
+                    return
+                }
                 try handleAppServerMessage(message, connection: connection)
             }
         }
