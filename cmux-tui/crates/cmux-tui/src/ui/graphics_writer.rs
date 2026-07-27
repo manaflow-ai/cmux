@@ -730,6 +730,7 @@ impl Drop for DoneOnDrop {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::graphics::delete_image;
     use cmux_tui_core::Rect;
 
     struct FailingOutput;
@@ -1046,6 +1047,63 @@ mod tests {
         assert!(first_processed, "one fence timeout must retry the accepted submission");
         assert!(second_accepted, "a transient timeout must not stop the graphics writer");
         assert!(second_processed, "the writer must process later graphics after recovery");
+    }
+
+    #[test]
+    fn timed_out_deletion_is_reemitted_until_acknowledged() {
+        let lock = Arc::new(StdoutLock::new(()));
+        let output = SharedOutput::default();
+        let attempts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+        let mut writer = GraphicsWriter::spawn_with_output_and_fence(
+            lock,
+            output.clone(),
+            move || match attempts.fetch_add(1, Ordering::AcqRel) {
+                0 | 3 => Ok(()),
+                _ => Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "injected ambiguous deletion timeout",
+                )),
+            },
+            move || {
+                ready_tx.send(()).unwrap();
+            },
+        )
+        .unwrap();
+        let placement = GraphicPlacement {
+            surface: 11,
+            rect: Rect { x: 1, y: 2, width: 3, height: 4 },
+            seq: 17,
+            pointer_frame_seq: Some(17),
+            data_b64: "AAAA".to_string(),
+        };
+
+        assert!(writer.submit(21, 1, vec![placement]));
+        ready_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(matches!(
+            writer.take_completion(),
+            Some(GraphicsCompletion::Processed(GraphicsProcessing { id: 21, .. }))
+        ));
+        assert!(writer.submit(22, 1, Vec::new()));
+        ready_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(matches!(
+            writer.take_completion(),
+            Some(GraphicsCompletion::TimedOut { id: 22, .. })
+        ));
+        assert!(writer.submit(23, 1, Vec::new()));
+        ready_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(matches!(
+            writer.take_completion(),
+            Some(GraphicsCompletion::Processed(GraphicsProcessing { id: 23, .. }))
+        ));
+        writer.shutdown(Duration::from_secs(1));
+
+        let deletion = delete_image(11);
+        assert_eq!(
+            occurrences(&output.bytes(), &deletion),
+            2,
+            "an ambiguous deletion must remain pending until a fence acknowledges its retry"
+        );
     }
 
     #[test]
