@@ -472,6 +472,7 @@ fn start_ordered_session_inner(
     let stop = Arc::new(AtomicBool::new(false));
     let start = Arc::new(AtomicBool::new(!paused));
     let events = SessionEventSender::scoped(app_events, generation, surface_filter, stop.clone());
+    let operations = operations.for_session_generation(generation);
     let session = OrderedSession::new_with_event_sender(inner, operations, events.clone());
     let mux_titles = Arc::new(MuxTitleIngress::default());
     let mux_recovery_generation = Arc::new(AtomicU64::new(0));
@@ -602,6 +603,7 @@ impl PtyFailureIngress {
         if failure.kind == Some(PtyInputKind::Motion)
             && let Some(existing) = state.failures.iter_mut().find(|existing| {
                 existing.kind == Some(PtyInputKind::Motion)
+                    && existing.session_generation == failure.session_generation
                     && existing.surface_id == failure.surface_id
             })
         {
@@ -1423,6 +1425,7 @@ impl OrderedSession {
             self.remote_refresh_queued.store(false, Ordering::Release);
             self.inner.invalidate_remote_tree();
             let _ = self.events.send(AppEvent::PtyOperationFailed(PtyOperationFailure {
+                session_generation: self.operations.session_generation(),
                 surface_id: None,
                 kind: None,
                 reservation_id: None,
@@ -5505,6 +5508,7 @@ impl App {
             session_available,
             color_error,
         } = prepared;
+        self.pty_input.activate_session_generation(generation);
         self.session_generation = generation;
         let previous_session = std::mem::replace(&mut self.session, session);
         let previous_worker = self.session_event_worker.replace(event_worker);
@@ -5728,6 +5732,9 @@ impl App {
     }
 
     fn apply_pty_operation_failure(&mut self, failure: PtyOperationFailure) -> RenderAction {
+        if failure.session_generation != self.session_generation {
+            return RenderAction::None;
+        }
         if failure.label == "relaunch sidebar plugin" {
             self.sidebar_focus_pending = false;
         }
@@ -15614,6 +15621,7 @@ mod tests {
         });
 
         app.handle(AppEvent::PtyOperationFailed(PtyOperationFailure {
+            session_generation: 1,
             surface_id: Some(42),
             kind: Some(PtyInputKind::Motion),
             reservation_id: None,
@@ -15668,6 +15676,7 @@ mod tests {
         assert!(!encode_test_mouse_motion(&handle, input).is_empty());
         assert!(encode_test_mouse_motion(&handle, input).is_empty());
         app.handle(AppEvent::PtyOperationFailed(PtyOperationFailure {
+            session_generation: 1,
             surface_id: Some(surface.id),
             kind: Some(PtyInputKind::Motion),
             reservation_id: None,
@@ -15680,6 +15689,7 @@ mod tests {
         assert!(encode_test_mouse_motion(&handle, input).is_empty());
 
         app.handle(AppEvent::PtyOperationFailed(PtyOperationFailure {
+            session_generation: 1,
             surface_id: Some(surface.id),
             kind: Some(PtyInputKind::Motion),
             reservation_id: None,
@@ -15709,6 +15719,7 @@ mod tests {
         });
 
         app.handle(AppEvent::PtyOperationFailed(PtyOperationFailure {
+            session_generation: 1,
             surface_id: Some(42),
             kind: Some(PtyInputKind::Motion),
             reservation_id: None,
@@ -15738,6 +15749,7 @@ mod tests {
         });
 
         app.handle(AppEvent::PtyOperationFailed(PtyOperationFailure {
+            session_generation: 1,
             surface_id: Some(42),
             kind: Some(PtyInputKind::Press),
             reservation_id: Some(7),
@@ -15767,6 +15779,7 @@ mod tests {
         });
 
         app.handle(AppEvent::PtyOperationFailed(PtyOperationFailure {
+            session_generation: 1,
             surface_id: Some(42),
             kind: Some(PtyInputKind::Press),
             reservation_id: Some(8),
@@ -15779,6 +15792,7 @@ mod tests {
         assert!(matches!(app.drag, Some(Drag::PtyMouse { reservation_id: 9, .. })));
 
         app.handle(AppEvent::PtyOperationFailed(PtyOperationFailure {
+            session_generation: 1,
             surface_id: Some(42),
             kind: Some(PtyInputKind::Press),
             reservation_id: Some(9),
@@ -15926,6 +15940,7 @@ mod tests {
         events.send(AppEvent::MuxTitlesReady).unwrap();
         for index in 0..1_000 {
             let wake = ingress.push(PtyOperationFailure {
+                session_generation: 1,
                 surface_id: Some(42),
                 kind: Some(PtyInputKind::Motion),
                 reservation_id: None,
@@ -15948,6 +15963,7 @@ mod tests {
         assert!(matches!(receiver.try_recv(), Ok(AppEvent::MuxTitlesReady)));
 
         assert!(ingress.push(PtyOperationFailure {
+            session_generation: 1,
             surface_id: Some(42),
             kind: Some(PtyInputKind::Motion),
             reservation_id: None,
@@ -21123,6 +21139,7 @@ mod tests {
 
         for (error, detail) in cases {
             app.apply_pty_operation_failure(PtyOperationFailure {
+                session_generation: 1,
                 surface_id: Some(1),
                 kind: None,
                 reservation_id: None,
@@ -21140,6 +21157,7 @@ mod tests {
         }
 
         app.apply_pty_operation_failure(PtyOperationFailure {
+            session_generation: 1,
             surface_id: Some(1),
             kind: None,
             reservation_id: None,

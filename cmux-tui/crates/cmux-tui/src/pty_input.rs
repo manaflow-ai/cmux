@@ -78,6 +78,7 @@ fn underlying_operation_error(error: &anyhow::Error) -> &anyhow::Error {
 }
 
 pub struct PtyInputEvent {
+    session_generation: u64,
     pub surface_id: SurfaceId,
     pub surface: SurfaceHandle,
     pub bytes: PtyInputBytes,
@@ -104,6 +105,7 @@ impl PtyInputEvent {
     ) -> Self {
         let remote = surface.is_remote();
         Self {
+            session_generation: 1,
             surface_id,
             surface,
             bytes,
@@ -171,6 +173,7 @@ impl PtyInputEvent {
         operation: impl FnOnce() -> anyhow::Result<()> + Send + 'static,
     ) -> Self {
         Self {
+            session_generation: 1,
             surface_id: 0,
             surface: SurfaceHandle::RemoteBrowserUnsupported,
             bytes: PtyInputBytes::new(),
@@ -200,10 +203,18 @@ impl PtyInputEvent {
             Some(self.surface_id)
         }
     }
+
+    fn ordering_lane(&self) -> Option<PtyInputLane> {
+        self.ordering_surface_id().map(|surface_id| PtyInputLane {
+            session_generation: self.session_generation,
+            surface_id,
+        })
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct PtyOperationFailure {
+    pub session_generation: u64,
     pub surface_id: Option<SurfaceId>,
     pub kind: Option<PtyInputKind>,
     pub reservation_id: Option<u64>,
@@ -213,23 +224,46 @@ pub struct PtyOperationFailure {
     pub delivery: PtyOperationDelivery,
 }
 
-#[derive(Default)]
 struct QueueState {
     events: VecDeque<PtyInputEvent>,
     queued_bytes: usize,
     release_reservations: ReleaseReservations,
     in_flight: Option<InFlightInput>,
-    in_flight_surface_operations: HashMap<SurfaceId, usize>,
-    failed_surfaces: HashSet<SurfaceId>,
+    in_flight_surface_operations: HashMap<PtyInputLane, usize>,
+    failed_lanes: HashSet<PtyInputLane>,
+    failed_remote_generations: HashSet<u64>,
+    active_session_generation: u64,
     closed: bool,
-    remote_failed: bool,
     shutdown_release_drain: bool,
+}
+
+impl Default for QueueState {
+    fn default() -> Self {
+        Self {
+            events: VecDeque::new(),
+            queued_bytes: 0,
+            release_reservations: ReleaseReservations::default(),
+            in_flight: None,
+            in_flight_surface_operations: HashMap::new(),
+            failed_lanes: HashSet::new(),
+            failed_remote_generations: HashSet::new(),
+            active_session_generation: 1,
+            closed: false,
+            shutdown_release_drain: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct PtyInputLane {
+    session_generation: u64,
+    surface_id: SurfaceId,
 }
 
 #[derive(Default)]
 struct ReleaseReservations {
     next_id: u64,
-    outstanding: HashMap<u64, SurfaceId>,
+    outstanding: HashMap<u64, PtyInputLane>,
 }
 
 impl ReleaseReservations {
@@ -237,24 +271,24 @@ impl ReleaseReservations {
         self.outstanding.len()
     }
 
-    fn reserve(&mut self, surface_id: SurfaceId) -> u64 {
+    fn reserve(&mut self, lane: PtyInputLane) -> u64 {
         self.next_id = self.next_id.wrapping_add(1);
         let id = self.next_id;
-        self.outstanding.insert(id, surface_id);
+        self.outstanding.insert(id, lane);
         id
     }
 
-    fn consume(&mut self, surface_id: SurfaceId) -> bool {
+    fn consume(&mut self, lane: PtyInputLane) -> bool {
         let id = self
             .outstanding
             .iter()
-            .filter_map(|(id, surface)| (*surface == surface_id).then_some(*id))
+            .filter_map(|(id, reserved_lane)| (*reserved_lane == lane).then_some(*id))
             .min();
         id.is_some_and(|id| self.outstanding.remove(&id).is_some())
     }
 
-    fn consume_id(&mut self, reservation_id: u64, surface_id: SurfaceId) -> bool {
-        if self.outstanding.get(&reservation_id) != Some(&surface_id) {
+    fn consume_id(&mut self, reservation_id: u64, lane: PtyInputLane) -> bool {
+        if self.outstanding.get(&reservation_id) != Some(&lane) {
             return false;
         }
         self.outstanding.remove(&reservation_id).is_some()
@@ -267,11 +301,15 @@ impl ReleaseReservations {
     fn clear(&mut self) {
         self.outstanding.clear();
     }
+
+    fn retain_generation(&mut self, session_generation: u64) {
+        self.outstanding.retain(|_, lane| lane.session_generation == session_generation);
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct InFlightInput {
-    surface_id: SurfaceId,
+    lane: Option<PtyInputLane>,
     kind: PtyInputKind,
 }
 
@@ -292,6 +330,7 @@ pub struct PtyInputDispatcher {
 pub struct PtyInputSender {
     queue: Arc<SharedQueue>,
     on_failure: Arc<dyn Fn(PtyOperationFailure) + Send + Sync>,
+    session_generation: u64,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -313,7 +352,10 @@ impl PtyInputDispatcher {
         let worker = std::thread::Builder::new()
             .name("mux-pty-input".into())
             .spawn(move || worker(worker_queue, worker_failure))?;
-        Ok(Self { sender: PtyInputSender { queue, on_failure }, worker: Some(worker) })
+        Ok(Self {
+            sender: PtyInputSender { queue, on_failure, session_generation: 1 },
+            worker: Some(worker),
+        })
     }
 
     #[cfg(test)]
@@ -330,6 +372,16 @@ impl PtyInputDispatcher {
 
     pub fn sender(&self) -> PtyInputSender {
         self.sender.clone()
+    }
+
+    pub fn activate_session_generation(&mut self, session_generation: u64) {
+        self.sender.session_generation = session_generation;
+        let mut state = self.sender.queue.state.lock().unwrap();
+        state.active_session_generation = session_generation;
+        state.failed_lanes.retain(|lane| lane.session_generation == session_generation);
+        state.failed_remote_generations.retain(|generation| *generation == session_generation);
+        state.release_reservations.retain_generation(session_generation);
+        self.sender.queue.changed.notify_all();
     }
 
     pub fn cancel_release_reservation(&self, reservation_id: u64) {
@@ -359,10 +411,16 @@ impl PtyInputDispatcher {
             Vec::new()
         } else {
             state.shutdown_release_drain = true;
-            let canceled = prune_to_recovery_releases(
-                &mut state,
-                "canceled after the shutdown drain timed out",
-            );
+            let generations =
+                state.events.iter().map(|event| event.session_generation).collect::<HashSet<_>>();
+            let mut canceled = Vec::new();
+            for generation in generations {
+                canceled.extend(prune_to_recovery_releases(
+                    &mut state,
+                    generation,
+                    "canceled after the shutdown drain timed out",
+                ));
+            }
             self.sender.queue.changed.notify_all();
             canceled
         };
@@ -378,6 +436,14 @@ impl PtyInputDispatcher {
 }
 
 impl PtyInputSender {
+    pub(crate) fn for_session_generation(&self, session_generation: u64) -> Self {
+        Self { queue: self.queue.clone(), on_failure: self.on_failure.clone(), session_generation }
+    }
+
+    pub(crate) fn session_generation(&self) -> u64 {
+        self.session_generation
+    }
+
     #[cfg(test)]
     pub fn set_after_operation_before_cleanup(&self, hook: Option<Arc<dyn Fn() + Send + Sync>>) {
         *self.queue.after_operation_before_cleanup.lock().unwrap() = hook;
@@ -394,18 +460,33 @@ impl PtyInputSender {
 
     fn enqueue_with_reservation(
         &self,
-        event: PtyInputEvent,
+        mut event: PtyInputEvent,
     ) -> (PtyInputEnqueueResult, Option<u64>) {
+        event.session_generation = self.session_generation;
         let mut state = self.queue.state.lock().unwrap();
         if state.closed {
             return (PtyInputEnqueueResult::Saturated, None);
         }
-        if state.remote_failed && event.remote {
+        if state.active_session_generation != self.session_generation {
             return (PtyInputEnqueueResult::Failed, None);
         }
-        if event
-            .ordering_surface_id()
-            .is_some_and(|surface| state.failed_surfaces.contains(&surface))
+        if state.failed_remote_generations.contains(&self.session_generation) && event.remote {
+            return (PtyInputEnqueueResult::Failed, None);
+        }
+        let ordering_lane = event.ordering_lane();
+        let reserved_recovery_release = event.kind == PtyInputKind::Release
+            && ordering_lane.is_some_and(|lane| match event.reservation_id {
+                Some(reservation_id) => {
+                    state.release_reservations.outstanding.get(&reservation_id) == Some(&lane)
+                }
+                None => state
+                    .release_reservations
+                    .outstanding
+                    .values()
+                    .any(|reserved| *reserved == lane),
+            });
+        if ordering_lane.is_some_and(|lane| state.failed_lanes.contains(&lane))
+            && !reserved_recovery_release
         {
             return (PtyInputEnqueueResult::Failed, None);
         }
@@ -566,6 +647,7 @@ impl PtyInputSender {
         ));
         if result != PtyInputEnqueueResult::Accepted {
             (self.on_failure)(PtyOperationFailure {
+                session_generation: self.session_generation,
                 surface_id: identity.failure_surface_id,
                 kind: None,
                 reservation_id: None,
@@ -639,7 +721,9 @@ fn enqueue_bounded_with_evictions(
     let mut replaced = None;
     if let Some(key) = event.coalesce_key {
         for index in (0..events.len()).rev() {
-            if events[index].coalesce_key == Some(key) {
+            if events[index].session_generation == event.session_generation
+                && events[index].coalesce_key == Some(key)
+            {
                 let previous = events.remove(index).unwrap();
                 *queued_bytes = queued_bytes.saturating_sub(previous.queued_byte_len());
                 replaced = Some((index, previous));
@@ -652,7 +736,9 @@ fn enqueue_bounded_with_evictions(
     }
     if event.kind == PtyInputKind::Motion
         && events.back().is_some_and(|previous| {
-            previous.kind == PtyInputKind::Motion && previous.surface_id == event.surface_id
+            previous.session_generation == event.session_generation
+                && previous.kind == PtyInputKind::Motion
+                && previous.surface_id == event.surface_id
         })
     {
         let previous_len = events.back().unwrap().queued_byte_len();
@@ -674,17 +760,19 @@ fn enqueue_bounded_with_evictions(
 
     let merge_stream = event.kind == PtyInputKind::Ordered
         && events.back().is_some_and(|previous| {
-            previous.kind == PtyInputKind::Ordered && previous.surface_id == event.surface_id
+            previous.session_generation == event.session_generation
+                && previous.kind == PtyInputKind::Ordered
+                && previous.surface_id == event.surface_id
         });
+    let lane = event.ordering_lane();
     let consumes_reservation = event.kind == PtyInputKind::Release
         && match event.reservation_id {
             Some(reservation_id) => {
-                release_reservations.outstanding.get(&reservation_id) == Some(&event.surface_id)
+                release_reservations.outstanding.get(&reservation_id) == lane.as_ref()
             }
-            None => release_reservations
-                .outstanding
-                .values()
-                .any(|surface| *surface == event.surface_id),
+            None => {
+                release_reservations.outstanding.values().any(|reserved| Some(*reserved) == lane)
+            }
         };
     let mut projected = events.len()
         + release_reservations.len()
@@ -714,6 +802,7 @@ fn enqueue_bounded_with_evictions(
         projected -= 1;
         projected_bytes = projected_bytes.saturating_sub(removed.queued_byte_len());
         evicted.push(PtyOperationFailure {
+            session_generation: removed.session_generation,
             surface_id: Some(removed.surface_id),
             kind: Some(PtyInputKind::Motion),
             reservation_id: removed.reservation_id,
@@ -725,12 +814,16 @@ fn enqueue_bounded_with_evictions(
     }
 
     if event.kind == PtyInputKind::Press {
-        event.reservation_id = Some(release_reservations.reserve(event.surface_id));
+        event.reservation_id = Some(
+            release_reservations
+                .reserve(lane.expect("terminal press has a generation-scoped surface lane")),
+        );
     } else if consumes_reservation {
+        let lane = lane.expect("terminal release has a generation-scoped surface lane");
         if let Some(reservation_id) = event.reservation_id {
-            release_reservations.consume_id(reservation_id, event.surface_id);
+            release_reservations.consume_id(reservation_id, lane);
         } else {
-            release_reservations.consume(event.surface_id);
+            release_reservations.consume(lane);
         }
     }
 
@@ -782,10 +875,10 @@ fn dequeue_ready_event(state: &mut QueueState) -> Option<PtyInputEvent> {
             // surface work keeps it from running, later input must wait too.
             break;
         }
-        let surface = event
-            .ordering_surface_id()
-            .expect("surface input and concurrent operations have an ordering surface");
-        if state.in_flight_surface_operations.contains_key(&surface) {
+        let lane = event
+            .ordering_lane()
+            .expect("surface input and concurrent operations have an ordering lane");
+        if state.in_flight_surface_operations.contains_key(&lane) {
             continue;
         }
         if event.concurrent_surface_operation
@@ -800,14 +893,11 @@ fn dequeue_ready_event(state: &mut QueueState) -> Option<PtyInputEvent> {
     let event = state.events.remove(index).unwrap();
     state.queued_bytes = state.queued_bytes.saturating_sub(event.queued_byte_len());
     if event.concurrent_surface_operation {
-        let surface = event
-            .ordering_surface_id()
-            .expect("concurrent surface operation has an ordering surface");
-        assert!(
-            state.in_flight_surface_operations.insert(surface, event.queued_byte_len()).is_none()
-        );
+        let lane =
+            event.ordering_lane().expect("concurrent surface operation has an ordering lane");
+        assert!(state.in_flight_surface_operations.insert(lane, event.queued_byte_len()).is_none());
     } else {
-        state.in_flight = Some(InFlightInput { surface_id: event.surface_id, kind: event.kind });
+        state.in_flight = Some(InFlightInput { lane: event.ordering_lane(), kind: event.kind });
     }
     Some(event)
 }
@@ -837,15 +927,15 @@ fn fail_surface_operation_spawn(
     mut event: PtyInputEvent,
     error: std::io::Error,
 ) {
-    let surface =
-        event.ordering_surface_id().expect("concurrent surface operation has an ordering surface");
+    let lane = event.ordering_lane().expect("concurrent surface operation has an ordering lane");
     let after_operation = event.after_operation.take();
     let mut state = queue.state.lock().unwrap();
-    state.in_flight_surface_operations.remove(&surface);
+    state.in_flight_surface_operations.remove(&lane);
     queue.changed.notify_all();
     drop(state);
     on_failure(PtyOperationFailure {
-        surface_id: Some(surface),
+        session_generation: event.session_generation,
+        surface_id: Some(lane.surface_id),
         kind: None,
         reservation_id: None,
         label: event.label,
@@ -864,9 +954,10 @@ fn process_event(
     mut event: PtyInputEvent,
 ) {
     let concurrent_surface = event.concurrent_surface_operation;
-    let ordering_surface = event.ordering_surface_id();
+    let ordering_lane = event.ordering_lane();
     let kind = (event.kind != PtyInputKind::Mutation).then_some(event.kind);
     let surface_id = kind.map(|_| event.surface_id).or(event.failure_surface_id);
+    let session_generation = event.session_generation;
     let remote = event.remote;
     let reservation_id = event.reservation_id;
     if remote && event.kind == PtyInputKind::Release {
@@ -908,12 +999,15 @@ fn process_event(
         ambiguous_release && event.remote_release_attempts < REMOTE_RELEASE_MAX_ATTEMPTS;
     let exhausted_ambiguous_release = ambiguous_release && !retry_ambiguous_release;
     let ambiguous_surface_failure = result.is_err()
-        && ordering_surface.is_some()
+        && ordering_lane.is_some()
         && !known_not_delivered
         && !remote_transport_failed
         && !remote_timed_out;
+    let timed_out_surface_lane =
+        remote_timed_out && ordering_lane.is_some() && !retry_ambiguous_release;
     let failure = result.err().and_then(|error| {
         (!suppress_mutation_timeout && !retry_ambiguous_release).then(|| PtyOperationFailure {
+            session_generation,
             surface_id,
             kind,
             reservation_id,
@@ -927,7 +1021,8 @@ fn process_event(
             },
             lane_failed: remote_transport_failed
                 || exhausted_ambiguous_release
-                || ambiguous_surface_failure,
+                || ambiguous_surface_failure
+                || timed_out_surface_lane,
             delivery: if known_not_delivered {
                 PtyOperationDelivery::KnownNotDelivered
             } else {
@@ -946,30 +1041,20 @@ fn process_event(
         state.release_reservations.outstanding.remove(&reservation_id);
     }
     if remote_transport_failed || exhausted_ambiguous_release {
-        // One dispatcher belongs to one local or remote App session. A
-        // failed socket write means every queued remote request shares the
-        // same dead transport, so cancel the backlog immediately. The
-        // failed request is ambiguous; queued requests never started.
-        state.remote_failed = true;
-        canceled.extend(state.events.drain(..).map(|event| {
-            PtyOperationFailure {
-                surface_id: (event.kind != PtyInputKind::Mutation)
-                    .then_some(event.surface_id)
-                    .or(event.failure_surface_id),
-                kind: (event.kind != PtyInputKind::Mutation).then_some(event.kind),
-                reservation_id: event.reservation_id,
-                label: event.label,
-                error: if exhausted_ambiguous_release {
-                    "canceled after mouse release recovery timed out; detach and reconnect".into()
-                } else {
-                    "canceled after the remote transport failed".into()
-                },
-                lane_failed: true,
-                delivery: PtyOperationDelivery::KnownNotDelivered,
-            }
-        }));
-        state.queued_bytes = 0;
-        state.release_reservations.clear();
+        // A failed socket write poisons only the remote session generation
+        // that owns it. A replacement session may reuse every surface id.
+        if state.active_session_generation == session_generation {
+            state.failed_remote_generations.insert(session_generation);
+        }
+        canceled.extend(prune_failed_generation(
+            &mut state,
+            session_generation,
+            if exhausted_ambiguous_release {
+                "canceled after mouse release recovery timed out; detach and reconnect"
+            } else {
+                "canceled after the remote transport failed"
+            },
+        ));
     } else if remote_timed_out {
         // A timeout does not prove the socket is dead. Acknowledged surface
         // operations cancel only their own followers; unrelated surfaces can
@@ -977,29 +1062,35 @@ fn process_event(
         if retry_ambiguous_release && (!state.closed || state.shutdown_release_drain) {
             requeue_ambiguous_release(&mut state, event);
         }
-        if concurrent_surface {
-            canceled.extend(prune_surface_to_recovery_releases(
+        if let Some(lane) = ordering_lane {
+            if !retry_ambiguous_release && state.active_session_generation == session_generation {
+                state.failed_lanes.insert(lane);
+            }
+            canceled.extend(prune_lane_to_recovery_releases(
                 &mut state,
-                ordering_surface.expect("concurrent operation has a surface"),
+                lane,
                 "canceled after a remote surface request timed out",
             ));
         } else {
             canceled.extend(prune_to_recovery_releases(
                 &mut state,
+                session_generation,
                 "canceled after a remote request timed out",
             ));
         }
     } else if ambiguous_surface_failure {
-        let surface = ordering_surface.expect("ambiguous surface failure has an ordering surface");
-        state.failed_surfaces.insert(surface);
-        canceled.extend(prune_failed_surface(
+        let lane = ordering_lane.expect("ambiguous surface failure has an ordering lane");
+        if state.active_session_generation == session_generation {
+            state.failed_lanes.insert(lane);
+        }
+        canceled.extend(prune_failed_lane(
             &mut state,
-            surface,
+            lane,
             "canceled after ambiguous surface delivery; detach and reconnect",
         ));
     }
-    if let Some(surface) = concurrent_surface.then_some(ordering_surface).flatten() {
-        state.in_flight_surface_operations.remove(&surface);
+    if let Some(lane) = concurrent_surface.then_some(ordering_lane).flatten() {
+        state.in_flight_surface_operations.remove(&lane);
     } else {
         state.in_flight = None;
     }
@@ -1024,61 +1115,23 @@ fn requeue_ambiguous_release(state: &mut QueueState, event: PtyInputEvent) {
     state.events.push_front(event);
 }
 
-fn prune_to_recovery_releases(
+fn prune_failed_generation(
     state: &mut QueueState,
-    error: &'static str,
-) -> Vec<PtyOperationFailure> {
-    let canceled_press_reservations = state
-        .events
-        .iter()
-        .filter(|event| event.kind == PtyInputKind::Press)
-        .filter_map(|event| event.reservation_id)
-        .collect::<HashSet<_>>();
-    let mut releases = VecDeque::new();
-    let mut canceled = Vec::new();
-    for event in state.events.drain(..) {
-        let retain_release = event.kind == PtyInputKind::Release
-            && event.reservation_id.is_some_and(|id| !canceled_press_reservations.contains(&id));
-        if retain_release {
-            releases.push_back(event);
-            continue;
-        }
-        if event.kind == PtyInputKind::Press
-            && let Some(reservation_id) = event.reservation_id
-        {
-            state.release_reservations.outstanding.remove(&reservation_id);
-        }
-        canceled.push(PtyOperationFailure {
-            surface_id: (event.kind != PtyInputKind::Mutation)
-                .then_some(event.surface_id)
-                .or(event.failure_surface_id),
-            kind: (event.kind != PtyInputKind::Mutation).then_some(event.kind),
-            reservation_id: event.reservation_id,
-            label: event.label,
-            error: error.into(),
-            lane_failed: false,
-            delivery: PtyOperationDelivery::KnownNotDelivered,
-        });
-    }
-    state.queued_bytes = releases.iter().map(PtyInputEvent::queued_byte_len).sum();
-    state.events = releases;
-    canceled
-}
-
-fn prune_failed_surface(
-    state: &mut QueueState,
-    surface: SurfaceId,
+    session_generation: u64,
     error: &'static str,
 ) -> Vec<PtyOperationFailure> {
     let mut retained = VecDeque::new();
     let mut canceled = Vec::new();
     for event in state.events.drain(..) {
-        if event.ordering_surface_id() != Some(surface) {
+        if event.session_generation != session_generation {
             retained.push_back(event);
             continue;
         }
         canceled.push(PtyOperationFailure {
-            surface_id: Some(surface),
+            session_generation: event.session_generation,
+            surface_id: (event.kind != PtyInputKind::Mutation)
+                .then_some(event.surface_id)
+                .or(event.failure_surface_id),
             kind: (event.kind != PtyInputKind::Mutation).then_some(event.kind),
             reservation_id: event.reservation_id,
             label: event.label,
@@ -1090,29 +1143,29 @@ fn prune_failed_surface(
     state
         .release_reservations
         .outstanding
-        .retain(|_, reserved_surface| *reserved_surface != surface);
+        .retain(|_, lane| lane.session_generation != session_generation);
     state.queued_bytes = retained.iter().map(PtyInputEvent::queued_byte_len).sum();
     state.events = retained;
     canceled
 }
 
-fn prune_surface_to_recovery_releases(
+fn prune_to_recovery_releases(
     state: &mut QueueState,
-    surface: SurfaceId,
+    session_generation: u64,
     error: &'static str,
 ) -> Vec<PtyOperationFailure> {
     let canceled_press_reservations = state
         .events
         .iter()
         .filter(|event| {
-            event.ordering_surface_id() == Some(surface) && event.kind == PtyInputKind::Press
+            event.session_generation == session_generation && event.kind == PtyInputKind::Press
         })
         .filter_map(|event| event.reservation_id)
         .collect::<HashSet<_>>();
     let mut retained = VecDeque::new();
     let mut canceled = Vec::new();
     for event in state.events.drain(..) {
-        if event.ordering_surface_id() != Some(surface) {
+        if event.session_generation != session_generation {
             retained.push_back(event);
             continue;
         }
@@ -1128,7 +1181,84 @@ fn prune_surface_to_recovery_releases(
             state.release_reservations.outstanding.remove(&reservation_id);
         }
         canceled.push(PtyOperationFailure {
-            surface_id: Some(surface),
+            session_generation: event.session_generation,
+            surface_id: (event.kind != PtyInputKind::Mutation)
+                .then_some(event.surface_id)
+                .or(event.failure_surface_id),
+            kind: (event.kind != PtyInputKind::Mutation).then_some(event.kind),
+            reservation_id: event.reservation_id,
+            label: event.label,
+            error: error.into(),
+            lane_failed: false,
+            delivery: PtyOperationDelivery::KnownNotDelivered,
+        });
+    }
+    state.queued_bytes = retained.iter().map(PtyInputEvent::queued_byte_len).sum();
+    state.events = retained;
+    canceled
+}
+
+fn prune_failed_lane(
+    state: &mut QueueState,
+    lane: PtyInputLane,
+    error: &'static str,
+) -> Vec<PtyOperationFailure> {
+    let mut retained = VecDeque::new();
+    let mut canceled = Vec::new();
+    for event in state.events.drain(..) {
+        if event.ordering_lane() != Some(lane) {
+            retained.push_back(event);
+            continue;
+        }
+        canceled.push(PtyOperationFailure {
+            session_generation: event.session_generation,
+            surface_id: Some(lane.surface_id),
+            kind: (event.kind != PtyInputKind::Mutation).then_some(event.kind),
+            reservation_id: event.reservation_id,
+            label: event.label,
+            error: error.into(),
+            lane_failed: true,
+            delivery: PtyOperationDelivery::KnownNotDelivered,
+        });
+    }
+    state.release_reservations.outstanding.retain(|_, reserved_lane| *reserved_lane != lane);
+    state.queued_bytes = retained.iter().map(PtyInputEvent::queued_byte_len).sum();
+    state.events = retained;
+    canceled
+}
+
+fn prune_lane_to_recovery_releases(
+    state: &mut QueueState,
+    lane: PtyInputLane,
+    error: &'static str,
+) -> Vec<PtyOperationFailure> {
+    let canceled_press_reservations = state
+        .events
+        .iter()
+        .filter(|event| event.ordering_lane() == Some(lane) && event.kind == PtyInputKind::Press)
+        .filter_map(|event| event.reservation_id)
+        .collect::<HashSet<_>>();
+    let mut retained = VecDeque::new();
+    let mut canceled = Vec::new();
+    for event in state.events.drain(..) {
+        if event.ordering_lane() != Some(lane) {
+            retained.push_back(event);
+            continue;
+        }
+        let retain_release = event.kind == PtyInputKind::Release
+            && event.reservation_id.is_some_and(|id| !canceled_press_reservations.contains(&id));
+        if retain_release {
+            retained.push_back(event);
+            continue;
+        }
+        if event.kind == PtyInputKind::Press
+            && let Some(reservation_id) = event.reservation_id
+        {
+            state.release_reservations.outstanding.remove(&reservation_id);
+        }
+        canceled.push(PtyOperationFailure {
+            session_generation: event.session_generation,
+            surface_id: Some(lane.surface_id),
             kind: (event.kind != PtyInputKind::Mutation).then_some(event.kind),
             reservation_id: event.reservation_id,
             label: event.label,
@@ -1145,6 +1275,10 @@ fn prune_surface_to_recovery_releases(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn lane(surface_id: SurfaceId) -> PtyInputLane {
+        PtyInputLane { session_generation: 1, surface_id }
+    }
 
     fn event(surface_id: SurfaceId, bytes: u8, kind: PtyInputKind) -> PtyInputEvent {
         PtyInputEvent::input(
@@ -1351,7 +1485,7 @@ mod tests {
             state.events.push_back(event(41, 1, PtyInputKind::Ordered));
             state.events.push_back(event(42, 2, PtyInputKind::Ordered));
             state.queued_bytes = 2;
-            state.in_flight_surface_operations.insert(41, 0);
+            state.in_flight_surface_operations.insert(lane(41), 0);
         }
         let failures = Arc::new(Mutex::new(Vec::new()));
         let captured_failures = failures.clone();
@@ -1379,9 +1513,9 @@ mod tests {
                 vec![Some(42)],
                 "same-surface input survived an ambiguous surface operation"
             );
-            assert!(!state.in_flight_surface_operations.contains_key(&41));
+            assert!(!state.in_flight_surface_operations.contains_key(&lane(41)));
         }
-        let sender = PtyInputSender { queue, on_failure };
+        let sender = PtyInputSender { queue, on_failure, session_generation: 1 };
         assert_eq!(
             sender.enqueue(event(41, 3, PtyInputKind::Ordered)),
             PtyInputEnqueueResult::Failed,
@@ -1445,6 +1579,78 @@ mod tests {
 
         unblock_tx.send(()).unwrap();
         same_surface_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    }
+
+    #[test]
+    fn replacement_generation_isolates_a_reused_surface_lane() {
+        let (failure_tx, failure_rx) = std::sync::mpsc::channel();
+        let mut dispatcher = PtyInputDispatcher::spawn(move |failure| {
+            failure_tx.send(failure).unwrap();
+        })
+        .unwrap();
+        let old_sender = dispatcher.sender();
+        let (old_started_tx, old_started_rx) = std::sync::mpsc::channel();
+        let (old_release_tx, old_release_rx) = std::sync::mpsc::channel();
+
+        assert_eq!(
+            old_sender.enqueue_surface_operation_with_retained_bytes(
+                "old session operation",
+                41,
+                false,
+                0,
+                move || {
+                    old_started_tx.send(()).unwrap();
+                    old_release_rx.recv().unwrap();
+                    Err(anyhow::anyhow!("ambiguous old session completion"))
+                },
+            ),
+            PtyInputEnqueueResult::Accepted
+        );
+        old_started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        dispatcher.activate_session_generation(2);
+        let new_sender = dispatcher.sender();
+        assert_eq!(
+            old_sender.enqueue(event(41, 1, PtyInputKind::Ordered)),
+            PtyInputEnqueueResult::Failed,
+            "a retired session sender remained active"
+        );
+
+        let (new_started_tx, new_started_rx) = std::sync::mpsc::channel();
+        let (new_release_tx, new_release_rx) = std::sync::mpsc::channel();
+        assert_eq!(
+            new_sender.enqueue_surface_operation_with_retained_bytes(
+                "new session operation",
+                41,
+                false,
+                0,
+                move || {
+                    new_started_tx.send(()).unwrap();
+                    new_release_rx.recv().unwrap();
+                    Ok(())
+                },
+            ),
+            PtyInputEnqueueResult::Accepted
+        );
+        new_started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let (follower_tx, follower_rx) = std::sync::mpsc::channel();
+        let mut follower = event(41, 2, PtyInputKind::Ordered);
+        follower.after_operation = Some(Box::new(move || follower_tx.send(()).unwrap()));
+        assert_eq!(new_sender.enqueue(follower), PtyInputEnqueueResult::Accepted);
+
+        old_release_tx.send(()).unwrap();
+        let old_failure = failure_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(old_failure.session_generation, 1);
+        assert!(old_failure.lane_failed);
+        assert!(
+            follower_rx.recv_timeout(Duration::from_millis(50)).is_err(),
+            "new-session input crossed its own surface barrier"
+        );
+
+        new_release_tx.send(()).unwrap();
+        follower_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(dispatcher.shutdown(Duration::from_secs(1)));
     }
 
     #[test]
@@ -1812,9 +2018,9 @@ mod tests {
     #[test]
     fn failed_consumed_press_does_not_cancel_a_newer_reservation() {
         let mut reservations = ReleaseReservations::default();
-        let first = reservations.reserve(7);
-        assert!(reservations.consume(7));
-        let second = reservations.reserve(7);
+        let first = reservations.reserve(lane(7));
+        assert!(reservations.consume(lane(7)));
+        let second = reservations.reserve(lane(7));
 
         reservations.outstanding.remove(&first);
 
@@ -1851,7 +2057,7 @@ mod tests {
         assert!(enqueue_bounded(&mut events, &mut queued_bytes, &mut releases, release, 8, 1024,));
 
         assert!(!releases.outstanding.contains_key(&first));
-        assert_eq!(releases.outstanding.get(&second), Some(&7));
+        assert_eq!(releases.outstanding.get(&second), Some(&lane(7)));
     }
 
     #[test]
@@ -1894,10 +2100,15 @@ mod tests {
             }));
             state.events.push_back(release);
             state.queued_bytes = 2;
-            state.in_flight = Some(InFlightInput { surface_id: 2, kind: PtyInputKind::Ordered });
+            state.in_flight =
+                Some(InFlightInput { lane: Some(lane(2)), kind: PtyInputKind::Ordered });
         }
         let mut dispatcher = PtyInputDispatcher {
-            sender: PtyInputSender { queue: queue.clone(), on_failure: Arc::new(|_| {}) },
+            sender: PtyInputSender {
+                queue: queue.clone(),
+                on_failure: Arc::new(|_| {}),
+                session_generation: 1,
+            },
             worker: None,
         };
 
@@ -1985,9 +2196,9 @@ mod tests {
         ambiguous_release.reservation_id = Some(12);
         state.events = VecDeque::from([press, paired_release, ambiguous_release]);
         state.queued_bytes = 3;
-        state.release_reservations.outstanding.insert(11, 7);
+        state.release_reservations.outstanding.insert(11, lane(7));
 
-        let canceled = prune_to_recovery_releases(&mut state, "timed out");
+        let canceled = prune_to_recovery_releases(&mut state, 1, "timed out");
 
         assert_eq!(canceled.len(), 2);
         assert_eq!(state.events.len(), 1);
@@ -2003,10 +2214,15 @@ mod tests {
             let mut state = queue.state.lock().unwrap();
             state.events.push_back(event(1, 1, PtyInputKind::Ordered));
             state.queued_bytes = 1;
-            state.in_flight = Some(InFlightInput { surface_id: 1, kind: PtyInputKind::Ordered });
+            state.in_flight =
+                Some(InFlightInput { lane: Some(lane(1)), kind: PtyInputKind::Ordered });
         }
         let mut dispatcher = PtyInputDispatcher {
-            sender: PtyInputSender { queue: queue.clone(), on_failure: Arc::new(|_| {}) },
+            sender: PtyInputSender {
+                queue: queue.clone(),
+                on_failure: Arc::new(|_| {}),
+                session_generation: 1,
+            },
             worker: None,
         };
 
