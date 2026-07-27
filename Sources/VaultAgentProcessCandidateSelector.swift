@@ -1,5 +1,6 @@
 import Foundation
 
+/// Chooses scoped processes whose argv and environment can affect agent restore.
 struct VaultAgentProcessCandidateSelector {
     let processIDs: Set<Int>
     private let unconstrainedArgumentNeedles: [[UInt8]]
@@ -24,10 +25,42 @@ struct VaultAgentProcessCandidateSelector {
         })
     }
 
-    func rawArgumentsMayMatchUnconstrainedRule(_ bytes: [UInt8]) -> Bool {
-        CmuxTopProcessSnapshot.processArgumentsContainAnyNeedle(
+    /// Extracts all lightweight filter fields in one traversal of a raw buffer.
+    func rawMetadata(
+        fromKernProcArgs bytes: [UInt8]
+    ) -> CmuxTopProcessFilterMetadata? {
+        CmuxTopProcessSnapshot.processFilterMetadata(
             fromKernProcArgs: bytes,
-            normalizedNeedles: unconstrainedArgumentNeedles
+            normalizedArgumentNeedles: unconstrainedArgumentNeedles
+        )
+    }
+
+    /// Admits raw argument matches and exact cmux-recorded custom executables.
+    func rawMetadataMayRequireFullDecode(
+        _ metadata: CmuxTopProcessFilterMetadata,
+        process: CmuxTopProcessInfo
+    ) -> Bool {
+        if metadata.argumentsContainAnyNeedle {
+            return true
+        }
+
+        guard let agentLaunchKind = metadata.agentLaunchKind,
+              let agentLaunchExecutable = metadata.agentLaunchExecutable else {
+            return false
+        }
+        let environment = [
+            "CMUX_AGENT_LAUNCH_KIND": agentLaunchKind,
+            "CMUX_AGENT_LAUNCH_EXECUTABLE": agentLaunchExecutable,
+        ]
+        let executableCandidates = [process.name, process.path].compactMap { $0 }
+        return CachedAgentProcessIdentityValidator.liveProcessMatchesLaunchExecutableEnvironment(
+            kind: .claude,
+            executableCandidates: executableCandidates,
+            environment: environment
+        ) || CachedAgentProcessIdentityValidator.liveProcessMatchesLaunchExecutableEnvironment(
+            kind: .codex,
+            executableCandidates: executableCandidates,
+            environment: environment
         )
     }
 

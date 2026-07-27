@@ -90,22 +90,23 @@ extension RestorableAgentSessionIndex {
         let selectorIsExhaustive = argumentCandidateProcessIDs.count == scopedProcesses.count
         if !usesInjectedProcessArguments, !selectorIsExhaustive {
             for process in scopedProcesses {
-                if registry.registrations.isEmpty,
-                   !argumentCandidateProcessIDs.contains(process.pid) {
-                    continue
-                }
                 guard let bytes = processArgumentBytesProvider(process.pid) else { continue }
+                let rawMetadata = initialArgumentCandidates.rawMetadata(
+                    fromKernProcArgs: bytes
+                )
                 if !registry.registrations.isEmpty {
-                    let workingDirectory = normalized(
-                        CmuxTopProcessSnapshot.processProjectWorkingDirectory(fromKernProcArgs: bytes)
-                    )
+                    let workingDirectory = normalized(rawMetadata?.projectWorkingDirectory)
                     let processRegistry = registryForWorkingDirectory(workingDirectory)
                     if processRegistry.registrations != registry.registrations {
                         argumentCandidateProcessIDs.insert(process.pid)
                     }
                 }
                 if !argumentCandidateProcessIDs.contains(process.pid),
-                   initialArgumentCandidates.rawArgumentsMayMatchUnconstrainedRule(bytes) {
+                   let rawMetadata,
+                   initialArgumentCandidates.rawMetadataMayRequireFullDecode(
+                       rawMetadata,
+                       process: process
+                   ) {
                     argumentCandidateProcessIDs.insert(process.pid)
                 }
                 if argumentCandidateProcessIDs.contains(process.pid) {

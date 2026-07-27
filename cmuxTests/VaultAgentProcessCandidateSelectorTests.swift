@@ -146,11 +146,26 @@ struct VaultAgentProcessCandidateSelectorTests {
     }
 
     @Test
-    func rawArgumentNeedleAdmitsUnknownBackgroundProcess() {
+    func rawArgumentNeedleAdmitsUnknownBackgroundProcess() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-raw-argument-candidate-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+        let workspace = root.appendingPathComponent("repo", isDirectory: true)
+        let sessionsRoot = root.appendingPathComponent("sessions", isDirectory: true)
+        let projectDirectory = try #require(PiSessionLocator.projectDirectoryName(for: workspace.path))
+        let projectSessions = sessionsRoot.appendingPathComponent(projectDirectory, isDirectory: true)
+        try fileManager.createDirectory(at: workspace, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: projectSessions, withIntermediateDirectories: true)
+        let session = projectSessions.appendingPathComponent("omp-session.jsonl")
+        try "{}\n".write(to: session, atomically: true, encoding: .utf8)
+
+        let workspaceID = UUID()
+        let panelID = UUID()
         let process = processInfo(
             pid: 40_000,
-            workspaceID: UUID(),
-            panelID: UUID(),
+            workspaceID: workspaceID,
+            panelID: panelID,
             name: "python3",
             path: "/usr/bin/python3"
         )
@@ -159,13 +174,16 @@ struct VaultAgentProcessCandidateSelectorTests {
                 "/usr/bin/python3",
                 "/opt/node_modules/@OH-MY-PI/pi-coding-agent/dist/cli.js",
             ],
-            environmentEntries: ["PWD=/"]
+            environmentEntries: [
+                "PWD=\(workspace.path)",
+                "PI_CODING_AGENT_SESSION_DIR=\(sessionsRoot.path)",
+            ]
         )
         var fullDecodeCount = 0
 
-        _ = RestorableAgentSessionIndex.processDetectedSnapshots(
+        let detected = RestorableAgentSessionIndex.processDetectedSnapshots(
             registry: builtInRegistry,
-            fileManager: .default,
+            fileManager: fileManager,
             processSnapshot: processSnapshot([process]),
             capturedAt: 42,
             processArgumentBytesProvider: { _ in bytes },
@@ -175,6 +193,13 @@ struct VaultAgentProcessCandidateSelectorTests {
             }
         )
 
+        let key = RestorableAgentSessionIndex.PanelKey(
+            workspaceId: workspaceID,
+            panelId: panelID
+        )
+        let entry = try #require(detected[key])
+        #expect(entry.snapshot.kind == .custom("omp"))
+        #expect((entry.snapshot.sessionId as NSString).standardizingPath == session.path)
         #expect(fullDecodeCount == 1)
     }
 
@@ -208,7 +233,7 @@ struct VaultAgentProcessCandidateSelectorTests {
         var fullDecodeCount = 0
 
         let detected = RestorableAgentSessionIndex.processDetectedSnapshots(
-            registry: builtInRegistry,
+            registry: CmuxVaultAgentRegistry(registrations: []),
             fileManager: .default,
             processSnapshot: processSnapshot([process]),
             capturedAt: 42,
@@ -228,6 +253,95 @@ struct VaultAgentProcessCandidateSelectorTests {
         #expect(entry.snapshot.sessionId == parentSessionID)
         #expect(entry.snapshot.launchCommand?.arguments == ["claude", "--model", "sonnet"])
         #expect(fullDecodeCount == 1)
+    }
+
+    @Test
+    func productionFilterPreservesCustomCodexForkFallback() throws {
+        let workspaceID = UUID()
+        let panelID = UUID()
+        let parentSessionID = "bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb"
+        let process = processInfo(
+            pid: 45_001,
+            workspaceID: workspaceID,
+            panelID: panelID,
+            name: "codex-custom",
+            path: "/opt/tools/codex-custom"
+        )
+        let bytes = kernProcArgs(
+            arguments: [
+                "/opt/tools/codex-custom",
+                "fork",
+                parentSessionID,
+                "--model",
+                "gpt-5",
+            ],
+            environmentEntries: [
+                "CMUX_AGENT_LAUNCH_KIND=codex",
+                "CMUX_AGENT_LAUNCH_EXECUTABLE=/opt/tools/codex-custom",
+                "PWD=/tmp/project",
+            ]
+        )
+        var fullDecodeCount = 0
+
+        let detected = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            fileManager: .default,
+            processSnapshot: processSnapshot([process]),
+            capturedAt: 42,
+            processArgumentBytesProvider: { _ in bytes },
+            processArgumentsDecoder: { bytes in
+                fullDecodeCount += 1
+                return CmuxTopProcessSnapshot.processArgumentsAndEnvironment(fromKernProcArgs: bytes)
+            }
+        )
+
+        let key = RestorableAgentSessionIndex.PanelKey(
+            workspaceId: workspaceID,
+            panelId: panelID
+        )
+        let entry = try #require(detected[key])
+        #expect(entry.snapshot.kind == .codex)
+        #expect(entry.snapshot.sessionId == parentSessionID)
+        #expect(fullDecodeCount == 1)
+    }
+
+    @Test
+    func productionFilterRejectsInheritedCustomAgentEnvironment() {
+        let process = processInfo(
+            pid: 45_002,
+            workspaceID: UUID(),
+            panelID: UUID(),
+            name: "some-tool",
+            path: "/opt/tools/some-tool"
+        )
+        let bytes = kernProcArgs(
+            arguments: [
+                "/opt/tools/some-tool",
+                "--resume",
+                "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa",
+                "--fork-session",
+            ],
+            environmentEntries: [
+                "CMUX_AGENT_LAUNCH_KIND=claude",
+                "CMUX_AGENT_LAUNCH_EXECUTABLE=/opt/tools/claude-custom",
+            ]
+        )
+        var fullDecodeCount = 0
+
+        let detected = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            fileManager: .default,
+            processSnapshot: processSnapshot([process]),
+            capturedAt: 42,
+            processArgumentBytesProvider: { _ in bytes },
+            processArgumentsDecoder: { bytes in
+                fullDecodeCount += 1
+                return CmuxTopProcessSnapshot.processArgumentsAndEnvironment(fromKernProcArgs: bytes)
+            }
+        )
+
+        #expect(detected.isEmpty)
+        #expect(fullDecodeCount == 0)
     }
 
     @Test

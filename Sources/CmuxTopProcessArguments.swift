@@ -6,6 +6,14 @@ struct CmuxTopProcessArguments: Sendable {
     let environment: [String: String]
 }
 
+/// Minimal KERN_PROCARGS2 fields needed to decide whether full decoding is useful.
+struct CmuxTopProcessFilterMetadata: Sendable {
+    let projectWorkingDirectory: String?
+    let argumentsContainAnyNeedle: Bool
+    let agentLaunchKind: String?
+    let agentLaunchExecutable: String?
+}
+
 extension CmuxTopProcessSnapshot {
     static func processArgumentsAndEnvironment(for pid: Int) -> CmuxTopProcessArguments? {
         guard pid > 0, pid <= Int(Int32.max),
@@ -60,126 +68,78 @@ extension CmuxTopProcessSnapshot {
     }
 
     static func processProjectWorkingDirectory(fromKernProcArgs bytes: [UInt8]) -> String? {
-        guard bytes.count > MemoryLayout<Int32>.size else { return nil }
-        return bytes.withUnsafeBufferPointer { buffer -> String? in
-            guard let baseAddress = buffer.baseAddress else { return nil }
-            var argcRaw: Int32 = 0
-            _ = withUnsafeMutablePointer(to: &argcRaw) {
-                memcpy($0, baseAddress, MemoryLayout<Int32>.size)
-            }
-            let argc = Int(Int32(littleEndian: argcRaw))
-            guard argc > 0 else { return nil }
+        processFilterMetadata(
+            fromKernProcArgs: bytes,
+            normalizedArgumentNeedles: []
+        )?.projectWorkingDirectory
+    }
 
-            var index = MemoryLayout<Int32>.size
-            guard skipCString(
-                baseAddress: baseAddress,
-                count: buffer.count,
-                index: &index
-            ) else {
-                return nil
-            }
-            skipNullBytes(baseAddress: baseAddress, count: buffer.count, index: &index)
-            for _ in 0..<argc {
-                guard skipCString(
-                    baseAddress: baseAddress,
-                    count: buffer.count,
-                    index: &index
-                ) else {
-                    return nil
+    /// Parses filter fields without constructing the complete argv or environment.
+    static func processFilterMetadata(
+        fromKernProcArgs bytes: [UInt8],
+        normalizedArgumentNeedles: [[UInt8]]
+    ) -> CmuxTopProcessFilterMetadata? {
+        var argumentsContainAnyNeedle = false
+        var launchWorkingDirectory: String?
+        var sawLaunchWorkingDirectory = false
+        var pwd: String?
+        var agentLaunchKind: String?
+        var agentLaunchExecutable: String?
+        let traversal = visitProcessArgumentsAndEnvironment(
+            fromKernProcArgs: bytes,
+            visitArgument: { baseAddress, length in
+                if !argumentsContainAnyNeedle {
+                    argumentsContainAnyNeedle = normalizedArgumentNeedles.contains {
+                        argumentContains(
+                            baseAddress: baseAddress,
+                            length: length,
+                            needle: $0
+                        )
+                    }
                 }
-                index += 1
-            }
-
-            var launchWorkingDirectory: String?
-            var sawLaunchWorkingDirectory = false
-            var pwd: String?
-            while index < buffer.count {
-                skipNullBytes(baseAddress: baseAddress, count: buffer.count, index: &index)
-                guard index < buffer.count else { break }
-                let start = index
-                guard skipCString(
-                    baseAddress: baseAddress,
-                    count: buffer.count,
-                    index: &index
-                ) else {
-                    break
-                }
-                let end = index
-                if baseAddress[start] == launchWorkingDirectoryEnvironmentPrefix[0],
+                return false
+            },
+            visitEnvironment: { baseAddress, length in
+                if baseAddress[0] == launchWorkingDirectoryEnvironmentPrefix[0],
                    let value = environmentValue(
                        baseAddress: baseAddress,
-                       start: start,
-                       end: end,
+                       length: length,
                        prefix: launchWorkingDirectoryEnvironmentPrefix
                    ) {
                     sawLaunchWorkingDirectory = true
                     launchWorkingDirectory = value
-                } else if baseAddress[start] == pwdEnvironmentPrefix[0],
+                } else if baseAddress[0] == pwdEnvironmentPrefix[0],
                           let value = environmentValue(
                               baseAddress: baseAddress,
-                              start: start,
-                              end: end,
+                              length: length,
                               prefix: pwdEnvironmentPrefix
                           ) {
                     pwd = value
+                } else if baseAddress[0] == launchKindEnvironmentPrefix[0],
+                          let value = environmentValue(
+                              baseAddress: baseAddress,
+                              length: length,
+                              prefix: launchKindEnvironmentPrefix
+                          ) {
+                    agentLaunchKind = value
+                } else if baseAddress[0] == launchExecutableEnvironmentPrefix[0],
+                          let value = environmentValue(
+                              baseAddress: baseAddress,
+                              length: length,
+                              prefix: launchExecutableEnvironmentPrefix
+                          ) {
+                    agentLaunchExecutable = value
                 }
-                index += 1
-            }
-
-            return sawLaunchWorkingDirectory ? launchWorkingDirectory : pwd
-        }
-    }
-
-    static func processArgumentsContainAnyNeedle(
-        fromKernProcArgs bytes: [UInt8],
-        normalizedNeedles: [[UInt8]]
-    ) -> Bool {
-        guard !normalizedNeedles.isEmpty,
-              bytes.count > MemoryLayout<Int32>.size else {
-            return false
-        }
-
-        return bytes.withUnsafeBufferPointer { buffer in
-            guard let baseAddress = buffer.baseAddress else { return false }
-            var argcRaw: Int32 = 0
-            _ = withUnsafeMutablePointer(to: &argcRaw) {
-                memcpy($0, baseAddress, MemoryLayout<Int32>.size)
-            }
-            let argc = Int(Int32(littleEndian: argcRaw))
-            guard argc > 0 else { return false }
-
-            var index = MemoryLayout<Int32>.size
-            guard skipCString(
-                baseAddress: baseAddress,
-                count: buffer.count,
-                index: &index
-            ) else {
                 return false
             }
-            skipNullBytes(baseAddress: baseAddress, count: buffer.count, index: &index)
-            for _ in 0..<argc {
-                let start = index
-                guard skipCString(
-                    baseAddress: baseAddress,
-                    count: buffer.count,
-                    index: &index
-                ) else {
-                    return false
-                }
-                let argumentLength = index - start
-                if normalizedNeedles.contains(where: {
-                    argumentContains(
-                        baseAddress: baseAddress.advanced(by: start),
-                        length: argumentLength,
-                        needle: $0
-                    )
-                }) {
-                    return true
-                }
-                index += 1
-            }
-            return false
-        }
+        )
+        guard traversal != nil else { return nil }
+        return CmuxTopProcessFilterMetadata(
+            projectWorkingDirectory: sawLaunchWorkingDirectory ? launchWorkingDirectory : pwd,
+            argumentsContainAnyNeedle: argumentsContainAnyNeedle,
+            agentLaunchKind: agentLaunchKind,
+            agentLaunchExecutable: agentLaunchExecutable
+        )
     }
 
     static func kernProcArgsBytes(for pid: Int) -> [UInt8]? {
@@ -201,18 +161,16 @@ extension CmuxTopProcessSnapshot {
 
     private static func environmentValue(
         baseAddress: UnsafePointer<UInt8>,
-        start: Int,
-        end: Int,
+        length: Int,
         prefix: [UInt8]
     ) -> String? {
-        let entryLength = end - start
-        guard entryLength >= prefix.count else {
+        guard length >= prefix.count else {
             return nil
         }
         let matches = prefix.withUnsafeBufferPointer { prefixBuffer in
             guard let prefixAddress = prefixBuffer.baseAddress else { return false }
             return memcmp(
-                baseAddress.advanced(by: start),
+                baseAddress,
                 prefixAddress,
                 prefixBuffer.count
             ) == 0
@@ -220,8 +178,8 @@ extension CmuxTopProcessSnapshot {
         guard matches else { return nil }
         return String(
             bytes: UnsafeBufferPointer(
-                start: baseAddress.advanced(by: start + prefix.count),
-                count: entryLength - prefix.count
+                start: baseAddress.advanced(by: prefix.count),
+                count: length - prefix.count
             ),
             encoding: .utf8
         )
@@ -230,7 +188,76 @@ extension CmuxTopProcessSnapshot {
     private static let launchWorkingDirectoryEnvironmentPrefix = Array(
         "CMUX_AGENT_LAUNCH_CWD=".utf8
     )
+    private static let launchKindEnvironmentPrefix = Array(
+        "CMUX_AGENT_LAUNCH_KIND=".utf8
+    )
+    private static let launchExecutableEnvironmentPrefix = Array(
+        "CMUX_AGENT_LAUNCH_EXECUTABLE=".utf8
+    )
     private static let pwdEnvironmentPrefix = Array("PWD=".utf8)
+
+    /// Visits KERN_PROCARGS2 argv and environment entries without allocating
+    /// decoded strings. Returns nil for malformed layouts, true when a visitor
+    /// requests an early stop, and false after a complete traversal.
+    private static func visitProcessArgumentsAndEnvironment(
+        fromKernProcArgs bytes: [UInt8],
+        visitArgument: (UnsafePointer<UInt8>, Int) -> Bool = { _, _ in false },
+        visitEnvironment: (UnsafePointer<UInt8>, Int) -> Bool = { _, _ in false }
+    ) -> Bool? {
+        guard bytes.count > MemoryLayout<Int32>.size else { return nil }
+        return bytes.withUnsafeBufferPointer { buffer -> Bool? in
+            guard let baseAddress = buffer.baseAddress else { return nil }
+            var argcRaw: Int32 = 0
+            _ = withUnsafeMutablePointer(to: &argcRaw) {
+                memcpy($0, baseAddress, MemoryLayout<Int32>.size)
+            }
+            let argc = Int(Int32(littleEndian: argcRaw))
+            guard argc > 0 else { return nil }
+
+            var index = MemoryLayout<Int32>.size
+            guard skipCString(
+                baseAddress: baseAddress,
+                count: buffer.count,
+                index: &index
+            ) else {
+                return nil
+            }
+            skipNullBytes(baseAddress: baseAddress, count: buffer.count, index: &index)
+
+            for _ in 0..<argc {
+                let start = index
+                guard skipCString(
+                    baseAddress: baseAddress,
+                    count: buffer.count,
+                    index: &index
+                ) else {
+                    return nil
+                }
+                if visitArgument(baseAddress.advanced(by: start), index - start) {
+                    return true
+                }
+                index += 1
+            }
+
+            while index < buffer.count {
+                skipNullBytes(baseAddress: baseAddress, count: buffer.count, index: &index)
+                guard index < buffer.count else { break }
+                let start = index
+                guard skipCString(
+                    baseAddress: baseAddress,
+                    count: buffer.count,
+                    index: &index
+                ) else {
+                    return nil
+                }
+                if visitEnvironment(baseAddress.advanced(by: start), index - start) {
+                    return true
+                }
+                index += 1
+            }
+            return false
+        }
+    }
 
     private static func argumentContains(
         baseAddress: UnsafePointer<UInt8>,
