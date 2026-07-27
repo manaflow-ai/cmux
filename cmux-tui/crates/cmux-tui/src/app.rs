@@ -13654,7 +13654,7 @@ mod tests {
         forward_mux_event, forward_mux_events, keyboard_protocol_accepts,
         layout_undo_error_completion, negotiate_host_keyboard_protocol_with, outer_cursor_escape,
         outer_cursor_escape_if_changed, pane_context_menu_groups, pane_parts_for_rect,
-        prepare_ordered_session, preserve_client_view, rail_drag_width,
+        prepare_ordered_session, preserve_client_view, rail_drag_width, rebuild_pane_areas,
         record_surface_resize_dispatch_result, should_claim_clear_history_shortcut,
         sidebar_layout_for, sidebar_plugin_status_settles_passive_claim, start_ordered_session,
         swept_viewport_size_leases, with_panic_stdout_lock,
@@ -13704,7 +13704,10 @@ mod tests {
         PtyInputBytes, PtyInputDispatcher, PtyInputEnqueueResult, PtyInputEvent, PtyInputKind,
         PtyOperationDelivery, PtyOperationFailure,
     };
-    use crate::session::tree::{PaneView, ScreenView, TabNotificationView, TabView, WorkspaceView};
+    use crate::session::tree::{
+        PaneView, ScreenView, TabNotificationView, TabView, WorkspaceView,
+        reset_screen_pane_scan_count, screen_pane_scan_count,
+    };
     use crate::session::{
         ClientInfo, ClientSizeInfo, RemoteSession, Session, SidebarPluginSurface, SurfaceHandle,
         TreeView,
@@ -15759,6 +15762,66 @@ mod tests {
         assert!(
             leases.is_none(),
             "a distant jump must not enqueue synchronization for every crossed pane"
+        );
+    }
+
+    #[test]
+    fn viewport_reclip_uses_linear_pane_lookup_work() {
+        let pane_count = 128u64;
+        let screen = ScreenView {
+            id: 4,
+            short_id: "s".to_string(),
+            name: None,
+            layout: Node::Leaf(1),
+            active_pane: 1,
+            zoomed_pane: None,
+            viewport_base_width: Some(1.0),
+            viewport_splits: BTreeMap::new(),
+            panes: (1..=pane_count)
+                .map(|id| PaneView {
+                    id,
+                    short_id: format!("p{id}"),
+                    name: None,
+                    tabs: vec![TabView {
+                        surface: 100 + id,
+                        short_id: format!("t{id}"),
+                        name: None,
+                        title: format!("pane {id}"),
+                        kind: SurfaceKind::Pty,
+                        browser_source: None,
+                        browser_frames_stalled: false,
+                        supports_clear_history_key_fallback: false,
+                        notification: None,
+                    }],
+                    active_tab: 0,
+                    focused_at: id,
+                })
+                .collect(),
+        };
+        let layout = (1..=pane_count)
+            .map(|id| (id, VirtualRect { x: (id - 1) * 80, y: 0, width: 80, height: 24 }))
+            .collect::<Vec<_>>();
+        let mut pane_areas = Vec::new();
+
+        reset_screen_pane_scan_count();
+        rebuild_pane_areas(
+            &mut pane_areas,
+            PaneAreaProjection {
+                screen: &screen,
+                layout: &layout,
+                stacked_headers: &HashSet::new(),
+                area: Rect { x: 0, y: 0, width: 80, height: 24 },
+                scrollbar_position: ScrollbarPosition::Column,
+                surface_only: None,
+                viewport_offset: Some(0),
+            },
+        );
+
+        assert_eq!(pane_areas.len(), 1);
+        assert!(
+            screen_pane_scan_count() <= pane_count as usize,
+            "one animation frame scanned {} pane entries for {pane_count} panes",
+            screen_pane_scan_count()
         );
     }
 
@@ -19376,6 +19439,62 @@ mod tests {
             .unwrap();
         assert!(!app.visible_size_surfaces.contains(&7));
         assert!(!app.pending_size_releases.contains(&7));
+    }
+
+    #[test]
+    fn reverse_viewport_sweep_cancels_a_queued_size_release_and_reasserts() {
+        let mux = Mux::new("reverse-animation-size-release-test", SurfaceOptions::default());
+        let first = mux.new_workspace(None, Some((78, 22))).unwrap();
+        let base = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let right = mux.new_pane_right(base, 1.0, Some((78, 22))).unwrap();
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.config.viewport.animation = false;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((80, 25));
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        assert_eq!(app.viewport_offset, 80);
+
+        mux.resize_surface_for_client(first.id, 0, 78, 22).unwrap();
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        app.session.operations.enqueue_session_mutation(
+            "block queued size release",
+            false,
+            move || {
+                started_tx.send(()).unwrap();
+                release_rx.recv().unwrap();
+                Ok(())
+            },
+        );
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        app.visible_size_surfaces.insert(first.id);
+        assert!(app.session.release_surface_size(first.id));
+        app.pending_size_releases.insert(first.id);
+        assert!(mux.focus_pane(base));
+        app.config.viewport.animation = true;
+        app.sync_layout((80, 25));
+
+        let reassert_queued =
+            app.session.surface_resize_ownership.lock().unwrap().contains_key(&first.id);
+        let release_canceled = !app.pending_size_releases.contains(&first.id);
+        release_tx.send(()).unwrap();
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+
+        assert!(release_canceled, "a visible surface must no longer be pending release");
+        assert!(reassert_queued, "the reverse sweep must queue an ordered size reassertion");
+        assert!(
+            app.session.has_surface_size_report(first.id),
+            "the stale release must not drop the visible surface's sizing lease"
+        );
+
+        mux.close_surface(first.id).unwrap();
+        mux.close_surface(right.id).unwrap();
     }
 
     #[test]

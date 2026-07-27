@@ -109,6 +109,13 @@ public final class JsonTest {
         assertEquals(null, sourceCompatibleTree.paneRevision(), "source-compatible tree pane revision");
         Pane sourceCompatiblePane = new Pane(7, "shell", 0, List.of(), false);
         assertEquals(0L, sourceCompatiblePane.focusedAt(), "source-compatible pane focus recency");
+        CmuxCommandException sourceCompatibleCommandError =
+            new CmuxCommandException("failed", 7L, null);
+        assertEquals(
+            null,
+            sourceCompatibleCommandError.errorDelivery(),
+            "source-compatible null delivery"
+        );
 
         CreateTerminalRequest terminalRequest = CreateTerminalRequest.builder()
             .key("stable")

@@ -169,6 +169,70 @@ test("decoded browser frames preserve encoded dimensions and fill legacy default
   await client.close();
 });
 
+test("browser frames reject missing, nonnumeric, and invalid dimensions", async () => {
+  const malformed = [
+    {
+      event: {
+        event: "frame",
+        surface: 7,
+        seq: 1,
+        height: 24,
+        data: "cG5n",
+      },
+      error: /frame width is not a positive integer/,
+    },
+    {
+      event: {
+        event: "frame",
+        surface: 7,
+        seq: 1,
+        width: "80",
+        height: 24,
+        data: "cG5n",
+      },
+      error: /frame width is not a positive integer/,
+    },
+    {
+      event: {
+        event: "browser-state",
+        surface: 7,
+        frame: {
+          seq: 1,
+          width: 80,
+          height: 24,
+          image_width: 0,
+          image_height: 48,
+          data: "cG5n",
+        },
+      },
+      error: /browser-state frame image_width is not a positive integer/,
+    },
+  ];
+
+  for (const sample of malformed) {
+    const transport = new ScriptedTransport((request, connection) => {
+      if (request.cmd === "identify") {
+        connection.emit({
+          id: request.id,
+          ok: true,
+          data: { app: "cmux-tui", version: "0.1.2", protocol: 10, session: "main", pid: 1 },
+        });
+        return;
+      }
+      connection.emit(sample.event);
+      connection.emit({ id: request.id, ok: true, data: {} });
+    });
+    const client = new CmuxClient({
+      transport,
+      timeoutMs: 100,
+      allowProtocolV6Attach: true,
+    });
+
+    await assert.rejects(() => client.attachSurface(7), sample.error);
+    await client.close();
+  }
+});
+
 test("async iteration reports buffered-event overflow before the first pull", async () => {
   const stream = new CmuxStream<{ event: string }>(100, () => undefined, 1);
   stream.push({ event: "first" });

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math"
 	"net"
 	"strings"
 	"sync"
@@ -141,6 +142,60 @@ func TestCreateTerminalPreservesExplicitlyEmptyArgv(t *testing.T) {
 	argv, ok := params["argv"].([]any)
 	if !ok || len(argv) != 0 {
 		t.Fatalf("argv = %#v, want explicitly supplied empty array", params["argv"])
+	}
+}
+
+func TestNewPaneRightRejectsInvalidWidthsWithoutSendingACommand(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	defer serverConn.Close()
+	protocol := uint32(10)
+	client := &Client{
+		timeout:      time.Second,
+		conn:         &jsonLineConn{conn: clientConn, reader: bufio.NewReader(clientConn)},
+		protocol:     &protocol,
+		capabilities: map[string]struct{}{"viewport-splits-v1": {}},
+	}
+	defer client.Close()
+
+	requests := make(chan map[string]any, 1)
+	go func() {
+		decoder := json.NewDecoder(serverConn)
+		encoder := json.NewEncoder(serverConn)
+		for {
+			var request map[string]any
+			if decoder.Decode(&request) != nil {
+				return
+			}
+			requests <- request
+			_ = encoder.Encode(map[string]any{
+				"id":   request["id"],
+				"ok":   true,
+				"data": map[string]any{"surface": 9},
+			})
+		}
+	}()
+
+	for _, width := range []float32{
+		float32(math.NaN()),
+		float32(math.Inf(1)),
+		float32(math.Inf(-1)),
+		0.09,
+		1.01,
+	} {
+		_, err := client.NewPaneRight(
+			context.Background(),
+			7,
+			NewPaneRightOptions{Width: &width},
+		)
+		if !errors.Is(err, ErrInvalidArgument) {
+			t.Fatalf("NewPaneRight(width=%v) error = %v, want invalid argument", width, err)
+		}
+	}
+
+	select {
+	case request := <-requests:
+		t.Fatalf("invalid width sent request: %#v", request)
+	default:
 	}
 }
 
