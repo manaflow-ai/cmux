@@ -163,8 +163,13 @@ def main() -> int:
         nonblocking_gated = root / "nonblocking-events-gated"
         nonblocking_overtake = root / "nonblocking-event-overtook-prompt"
         nonblocking_finished = root / "nonblocking-prompt-finished"
+        nonblocking_shutdown_finished = root / "nonblocking-shutdown-finished"
         nonblocking_release = root / "nonblocking-prompt-release"
+        queue_started = root / "queue-prompt-started"
+        queue_second_started = root / "queue-second-prompt-started"
+        queue_release = root / "queue-prompt-release"
         os.mkfifo(nonblocking_release)
+        os.mkfifo(queue_release)
         make_executable(
             fake_cmux,
             """#!/usr/bin/env bash
@@ -199,6 +204,13 @@ if printf '%s' "$payload" | grep -q 'pi-session-nonblocking'; then
     trap ': > "$CMUX_TEST_PI_NONBLOCKING_FINISHED"' EXIT
   elif [[ ! -e "$CMUX_TEST_PI_NONBLOCKING_FINISHED" ]]; then
     : > "$CMUX_TEST_PI_NONBLOCKING_OVERTAKE"
+  fi
+elif printf '%s' "$payload" | grep -q 'pi-session-queue-drain'; then
+  if printf '%s' "$payload" | grep -q '"prompt":"block queue"'; then
+    : > "$CMUX_TEST_PI_QUEUE_STARTED"
+    cat "$CMUX_TEST_PI_QUEUE_RELEASE" >/dev/null
+  elif printf '%s' "$payload" | grep -q '"prompt":"deliver queued"'; then
+    : > "$CMUX_TEST_PI_QUEUE_SECOND_STARTED"
   fi
 fi
 {
@@ -273,7 +285,11 @@ esac
         check_env["CMUX_TEST_PI_NONBLOCKING_GATED"] = str(nonblocking_gated)
         check_env["CMUX_TEST_PI_NONBLOCKING_OVERTAKE"] = str(nonblocking_overtake)
         check_env["CMUX_TEST_PI_NONBLOCKING_FINISHED"] = str(nonblocking_finished)
+        check_env["CMUX_TEST_PI_NONBLOCKING_SHUTDOWN_FINISHED"] = str(nonblocking_shutdown_finished)
         check_env["CMUX_TEST_PI_NONBLOCKING_RELEASE"] = str(nonblocking_release)
+        check_env["CMUX_TEST_PI_QUEUE_STARTED"] = str(queue_started)
+        check_env["CMUX_TEST_PI_QUEUE_SECOND_STARTED"] = str(queue_second_started)
+        check_env["CMUX_TEST_PI_QUEUE_RELEASE"] = str(queue_release)
         check_env["CMUX_TEST_PI_MODERN_SCRIPT_PATH"] = str(modern_cli)
         check_env["CMUX_TEST_PI_LEGACY_SCRIPT_PATH"] = str(legacy_pi)
         check_env["CMUX_TEST_PI_UNKNOWN_SCRIPT_PATH"] = str(root / "unknown-bin" / "pi")
@@ -318,10 +334,8 @@ const ctx = {
 };
 await handlers.get("before_agent_start")({ prompt: "do not block" }, ctx);
 await Bun.write(process.env.CMUX_TEST_PI_NONBLOCKING_RETURNED, "returned");
-// Queue another prompt so shutdown must discard work that has not started.
-await handlers.get("before_agent_start")({ prompt: "discard during shutdown" }, ctx);
 await handlers.get("tool_execution_start")({
-  toolCallId: "blocked-tool-call",
+  toolCallId: "active-tool-call",
   toolName: "bash",
   args: { command: "pwd" }
 }, ctx);
@@ -330,9 +344,17 @@ await handlers.get("agent_end")({
   stopReason: "completed"
 }, ctx);
 await handlers.get("agent_settled")({}, ctx);
+// Queue another turn and its event so shutdown must discard both together.
+await handlers.get("before_agent_start")({ prompt: "discard during shutdown" }, ctx);
+await handlers.get("tool_execution_start")({
+  toolCallId: "discarded-tool-call",
+  toolName: "bash",
+  args: { command: "echo discarded" }
+}, ctx);
 const shutdown = handlers.get("session_shutdown")({}, ctx);
 await Bun.write(process.env.CMUX_TEST_PI_NONBLOCKING_GATED, "queued");
 await shutdown;
+await Bun.write(process.env.CMUX_TEST_PI_NONBLOCKING_SHUTDOWN_FINISHED, "finished");
 """
         nonblocking_check = subprocess.Popen(
             [bun, "--eval", nonblocking_source],
@@ -355,8 +377,9 @@ await shutdown;
         returned_before_release = wait_for_path(nonblocking_returned, timeout=3.0)
         gated_before_release = wait_for_path(nonblocking_gated, timeout=3.0)
         event_overtook_prompt = wait_for_path(nonblocking_overtake, timeout=1.0)
+        shutdown_finished_before_release = nonblocking_shutdown_finished.exists()
         pre_release_args = fake_args_log.read_text(encoding="utf-8").splitlines()
-        if event_overtook_prompt or pre_release_args != ["hooks pi prompt-submit"]:
+        if event_overtook_prompt or shutdown_finished_before_release or pre_release_args != ["hooks pi prompt-submit"]:
             nonblocking_release.write_text("release", encoding="utf-8")
             nonblocking_check.kill()
             stdout, stderr = nonblocking_check.communicate(timeout=5)
@@ -378,10 +401,23 @@ await shutdown;
         if not gated_before_release:
             print("FAIL: Pi lifecycle handlers did not queue while the prompt hook was blocked")
             return 1
-        nonblocking_args = wait_for_text(fake_args_log, 5, timeout=5.0).splitlines()
+        if not nonblocking_finished.exists() or not nonblocking_shutdown_finished.exists():
+            print("FAIL: Pi shutdown returned before the active prompt hook finished")
+            return 1
+        if nonblocking_overtake.exists():
+            print("FAIL: Pi event overtook the active prompt hook after release")
+            return 1
+        nonblocking_args = wait_for_text(fake_args_log, 6, timeout=5.0).splitlines()
         # Shutdown must not start a prompt hook that was queued behind the active hook.
         if nonblocking_args.count("hooks pi prompt-submit") != 1:
             print(f"FAIL: queued Pi prompt hook started during shutdown: {nonblocking_args!r}")
+            return 1
+        nonblocking_payloads = payloads_from_log(wait_for_payload_text(fake_stdin_log, 6, timeout=5.0))
+        if any(payload.get("tool_call_id") == "discarded-tool-call" for payload in nonblocking_payloads):
+            print(f"FAIL: event for a discarded Pi prompt was delivered: {nonblocking_payloads!r}")
+            return 1
+        if not any(payload.get("tool_call_id") == "active-tool-call" for payload in nonblocking_payloads):
+            print(f"FAIL: event for the active Pi prompt was not delivered: {nonblocking_payloads!r}")
             return 1
         for expected in [
             "hooks feed --source pi --event PreToolUse",
@@ -399,6 +435,49 @@ await shutdown;
             < nonblocking_args.index(resume_clear)
         ):
             print(f"FAIL: completion hooks were out of order after prompt release: {nonblocking_args!r}")
+            return 1
+
+        queue_source = """
+const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
+const mod = await import(extensionPath);
+const handlers = new Map();
+mod.default({ on(name, handler) { handlers.set(name, handler); } });
+const ctx = {
+  cwd: "/tmp/pi-project",
+  isIdle() { return true; },
+  sessionManager: { getSessionId() { return "pi-session-queue-drain"; } }
+};
+await handlers.get("before_agent_start")({ prompt: "block queue" }, ctx);
+await handlers.get("before_agent_start")({ prompt: "deliver queued" }, ctx);
+const deadline = Date.now() + 20000;
+while (!(await Bun.file(process.env.CMUX_TEST_PI_QUEUE_SECOND_STARTED).exists())) {
+  if (Date.now() > deadline) throw new Error("timed out waiting for queued prompt hook");
+  await Bun.sleep(20);
+}
+"""
+        queue_check = subprocess.Popen(
+            [bun, "--eval", queue_source],
+            cwd=root,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=check_env,
+        )
+        if not wait_for_path(queue_started, timeout=20.0):
+            queue_check.kill()
+            stdout, stderr = queue_check.communicate(timeout=5)
+            print(f"FAIL: first queued Pi prompt hook did not start: {stderr.strip()}")
+            return 1
+        if queue_second_started.exists():
+            queue_release.write_text("release", encoding="utf-8")
+            queue_check.kill()
+            queue_check.communicate(timeout=5)
+            print("FAIL: second Pi prompt hook overtook the first hook")
+            return 1
+        queue_release.write_text("release", encoding="utf-8")
+        stdout, stderr = queue_check.communicate(timeout=20)
+        if queue_check.returncode != 0 or not queue_second_started.exists():
+            print(f"FAIL: queued Pi prompt hook was not delivered: {stderr.strip()}")
             return 1
 
         check_source = """
