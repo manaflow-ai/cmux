@@ -3581,6 +3581,28 @@ const VIEWPORT_ANIMATION_DURATION: Duration = Duration::from_millis(180);
 // crowd out its destination or subsequent input.
 const VIEWPORT_ANIMATION_SYNC_OPERATION_BUDGET: usize = PTY_OPERATION_QUEUE_CAPACITY / 8;
 
+#[cfg(test)]
+thread_local! {
+    static PANE_AREA_PROJECTION_WORK: std::cell::Cell<usize> = const {
+        std::cell::Cell::new(0)
+    };
+}
+
+#[cfg(test)]
+fn reset_pane_area_projection_work() {
+    PANE_AREA_PROJECTION_WORK.set(0);
+}
+
+#[cfg(test)]
+fn record_pane_area_projection_work(amount: usize) {
+    PANE_AREA_PROJECTION_WORK.set(PANE_AREA_PROJECTION_WORK.get().saturating_add(amount));
+}
+
+#[cfg(test)]
+fn pane_area_projection_work() -> usize {
+    PANE_AREA_PROJECTION_WORK.get()
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ViewportGeometry {
     active_span: Option<(u64, u64)>,
@@ -3840,8 +3862,12 @@ fn rebuild_pane_areas(pane_areas: &mut Vec<PaneArea>, projection: PaneAreaProjec
     } = projection;
     pane_areas.clear();
     let viewport_x = viewport_offset.map(|offset| u64::from(area.x).saturating_add(offset));
+    #[cfg(test)]
+    record_pane_area_projection_work(screen.panes.len());
     let panes = screen.panes.iter().map(|pane| (pane.id, pane)).collect::<HashMap<_, _>>();
     for &(pane_id, full_rect) in layout {
+        #[cfg(test)]
+        record_pane_area_projection_work(1);
         let Some(pane) = panes.get(&pane_id).copied() else { continue };
         let Some((surface_id, (full_bar, full_omnibar, full_content, full_track))) =
             full_pane_parts_for_layout(
@@ -13768,10 +13794,11 @@ mod tests {
         disable_host_keyboard_protocol, enable_host_keyboard_protocol, forward_host_input,
         forward_mux_event, forward_mux_events, keyboard_protocol_accepts,
         layout_undo_error_completion, negotiate_host_keyboard_protocol_with, outer_cursor_escape,
-        outer_cursor_escape_if_changed, pane_context_menu_groups, pane_parts_for_rect,
-        prepare_ordered_session, preserve_client_view, rail_drag_width, rebuild_pane_areas,
-        record_surface_resize_dispatch_result, should_claim_clear_history_shortcut,
-        sidebar_layout_for, sidebar_plugin_status_settles_passive_claim, start_ordered_session,
+        outer_cursor_escape_if_changed, pane_area_projection_work, pane_context_menu_groups,
+        pane_parts_for_rect, prepare_ordered_session, preserve_client_view, rail_drag_width,
+        record_surface_resize_dispatch_result, reset_pane_area_projection_work,
+        should_claim_clear_history_shortcut, sidebar_layout_for,
+        sidebar_plugin_status_settles_passive_claim, start_ordered_session,
         swept_viewport_size_leases, with_panic_stdout_lock,
     };
     use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
@@ -13819,10 +13846,7 @@ mod tests {
         PtyInputBytes, PtyInputDispatcher, PtyInputEnqueueResult, PtyInputEvent, PtyInputKind,
         PtyOperationDelivery, PtyOperationFailure,
     };
-    use crate::session::tree::{
-        PaneView, ScreenView, TabNotificationView, TabView, WorkspaceView,
-        reset_screen_pane_scan_count, screen_pane_scan_count,
-    };
+    use crate::session::tree::{PaneView, ScreenView, TabNotificationView, TabView, WorkspaceView};
     use crate::session::{
         ClientInfo, ClientSizeInfo, RemoteSession, Session, SidebarPluginSurface, SurfaceHandle,
         TreeView,
@@ -15881,7 +15905,7 @@ mod tests {
     }
 
     #[test]
-    fn viewport_reclip_uses_linear_pane_lookup_work() {
+    fn viewport_reclip_work_is_bounded_by_visible_panes() {
         let pane_count = 128u64;
         let screen = ScreenView {
             id: 4,
@@ -15916,27 +15940,35 @@ mod tests {
         let layout = (1..=pane_count)
             .map(|id| (id, VirtualRect { x: (id - 1) * 80, y: 0, width: 80, height: 24 }))
             .collect::<Vec<_>>();
-        let mut pane_areas = Vec::new();
+        let mux = Mux::new("viewport-reclip-work-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.content_area = Rect { x: 0, y: 0, width: 80, height: 24 };
+        app.viewport_layout = layout;
+        app.viewport_virtual_width = pane_count * 80;
+        app.tree = TreeView {
+            workspaces: vec![WorkspaceView {
+                id: 3,
+                key: "workspace".to_string(),
+                short_id: "w".to_string(),
+                name: "workspace".to_string(),
+                screens: vec![screen],
+                active_screen: 0,
+            }],
+            workspace_revision: 1,
+            pane_revision: Some(1),
+            active_workspace: 0,
+        };
 
-        reset_screen_pane_scan_count();
-        rebuild_pane_areas(
-            &mut pane_areas,
-            PaneAreaProjection {
-                screen: &screen,
-                layout: &layout,
-                stacked_headers: &HashSet::new(),
-                area: Rect { x: 0, y: 0, width: 80, height: 24 },
-                scrollbar_position: ScrollbarPosition::Column,
-                surface_only: None,
-                viewport_offset: Some(0),
-            },
-        );
+        app.reclip_viewport_panes();
+        app.viewport_offset = (pane_count - 1) * 80;
+        reset_pane_area_projection_work();
+        app.reclip_viewport_panes();
 
-        assert_eq!(pane_areas.len(), 1);
+        assert_eq!(app.pane_areas.len(), 1);
         assert!(
-            screen_pane_scan_count() <= pane_count as usize,
-            "one animation frame scanned {} pane entries for {pane_count} panes",
-            screen_pane_scan_count()
+            pane_area_projection_work() <= 2,
+            "one animation frame performed {} projection operations for one visible pane",
+            pane_area_projection_work()
         );
     }
 

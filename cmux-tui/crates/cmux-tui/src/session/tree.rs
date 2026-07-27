@@ -1,8 +1,6 @@
 //! Read-only tree snapshots shared by the renderer and input handling,
 //! plus the JSON parser for the remote `list-workspaces` shape.
 
-#[cfg(test)]
-use std::cell::Cell;
 use std::collections::{BTreeMap, HashMap};
 
 use cmux_tui_core::{
@@ -11,21 +9,6 @@ use cmux_tui_core::{
     assign_short_ids,
 };
 use serde_json::Value;
-
-#[cfg(test)]
-thread_local! {
-    static SCREEN_PANE_SCAN_COUNT: Cell<usize> = const { Cell::new(0) };
-}
-
-#[cfg(test)]
-pub(crate) fn reset_screen_pane_scan_count() {
-    SCREEN_PANE_SCAN_COUNT.set(0);
-}
-
-#[cfg(test)]
-pub(crate) fn screen_pane_scan_count() -> usize {
-    SCREEN_PANE_SCAN_COUNT.get()
-}
 
 #[derive(Clone, Default)]
 pub struct TreeView {
@@ -230,20 +213,7 @@ impl WorkspaceView {
 
 impl ScreenView {
     pub fn pane(&self, id: PaneId) -> Option<&PaneView> {
-        #[cfg(test)]
-        {
-            for pane in &self.panes {
-                SCREEN_PANE_SCAN_COUNT.set(SCREEN_PANE_SCAN_COUNT.get().saturating_add(1));
-                if pane.id == id {
-                    return Some(pane);
-                }
-            }
-            None
-        }
-        #[cfg(not(test))]
-        {
-            self.panes.iter().find(|pane| pane.id == id)
-        }
+        self.panes.iter().find(|pane| pane.id == id)
     }
 
     /// Display name: the user-assigned name, else its zero-based position.
