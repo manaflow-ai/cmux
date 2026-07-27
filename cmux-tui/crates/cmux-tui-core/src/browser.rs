@@ -280,6 +280,7 @@ struct PointerFrameInvalidation {
     previous_pending_frame_epoch: Option<u64>,
     previous_pending_navigation_epoch: Option<u64>,
     previous_pending_same_document_navigation: bool,
+    previous_accepted_navigation_epoch: u64,
     previous_pending_frame: Option<(u64, BrowserFrame)>,
     revision: u64,
     expected_frame_epoch: Option<u64>,
@@ -2584,6 +2585,7 @@ impl BrowserSurface {
         let previous_pending_frame_epoch = state.pending_frame_epoch;
         let previous_pending_navigation_epoch = state.pending_navigation_epoch;
         let previous_pending_same_document_navigation = state.pending_same_document_navigation;
+        let previous_accepted_navigation_epoch = state.accepted_navigation_epoch;
         let previous_pending_frame = state.pending_frame.clone();
         Self::set_pointer_frame_locked(state, None);
         self.set_pending_attach_frame_locked(state, None);
@@ -2598,6 +2600,7 @@ impl BrowserSurface {
             previous_pending_frame_epoch,
             previous_pending_navigation_epoch,
             previous_pending_same_document_navigation,
+            previous_accepted_navigation_epoch,
             previous_pending_frame,
             revision: state.pointer_frame_revision,
             expected_frame_epoch: None,
@@ -2697,6 +2700,12 @@ impl BrowserSurface {
             })
             .flatten()
             .cloned();
+        let verified_committed_frame_seq = (state.pending_document_epoch.is_none()
+            && matches!(state.status, BrowserStatus::Live)
+            && state.accepted_navigation_epoch == self.frame_epoch.latest_navigation()
+            && state.accepted_frame_epoch == current_frame_epoch)
+            .then(|| state.latest_frame.as_ref().map(|frame| frame.seq))
+            .flatten();
         state.pending_frame_epoch = None;
         state.pending_navigation_epoch = None;
         state.pending_document_epoch = None;
@@ -2704,6 +2713,17 @@ impl BrowserSurface {
         state.pending_failure_recovery = false;
         state.pending_frame = None;
         state.pending_navigation_rollback = None;
+        if preserved_rollback.is_none()
+            && let Some(frame_seq) = verified_committed_frame_seq
+        {
+            // stopLoading settled the command that kept this verified document
+            // behind its barrier. Reinstall its pointer token before the
+            // replacement invalidates it, so a rejected replacement can roll
+            // back to the pixels that are actually displayed.
+            Self::set_pointer_frame_locked(&mut state, Some(frame_seq));
+            let retained_frame = state.latest_frame.clone();
+            self.set_pending_attach_frame_locked(&mut state, retained_frame);
+        }
         Ok(match preserved_rollback {
             Some(rollback) => {
                 // Page.stopLoading is ordered after old lifecycle events on
@@ -2762,12 +2782,24 @@ impl BrowserSurface {
 
     fn observe_navigation_frame_epoch(&self, frame_epoch: u64) -> bool {
         let mut state = self.state.lock().unwrap();
-        if frame_epoch <= state.handled_navigation_epoch
-            || state
-                .pending_navigation_epoch
-                .is_some_and(|pending_epoch| frame_epoch < pending_epoch)
-        {
+        if frame_epoch <= state.handled_navigation_epoch {
             return false;
+        }
+        let precedes_pending_command =
+            state.pending_navigation_epoch.is_some_and(|pending_epoch| frame_epoch < pending_epoch);
+        if precedes_pending_command && frame_epoch != self.frame_epoch.latest_navigation() {
+            return false;
+        }
+        if precedes_pending_command {
+            // CDP ingress already committed this document before the newer
+            // command reserved its epoch. Retain that command's rollback and
+            // barrier, but expose the committed document for loader-verified
+            // paint. If the newer command fails, its rollback reconciles to
+            // this document instead of restoring the older page.
+            state.handled_navigation_epoch = frame_epoch;
+            state.pending_document_epoch = Some(frame_epoch);
+            self.mark_state_dirty_locked(&mut state);
+            return true;
         }
         if state.pending_navigation_epoch.is_none() {
             state.pending_failure_recovery = false;
@@ -2884,14 +2916,19 @@ impl BrowserSurface {
         {
             return false;
         }
-        let recovers_failure = state.pending_failure_recovery;
+        let precedes_pending_command = state
+            .pending_navigation_epoch
+            .is_some_and(|pending_epoch| navigation_epoch < pending_epoch);
+        let recovers_failure = state.pending_failure_recovery && !precedes_pending_command;
         state.pending_document_epoch = None;
-        state.pending_navigation_epoch = None;
-        state.pending_same_document_navigation = false;
-        state.pending_failure_recovery = false;
-        state.pending_frame_epoch = None;
-        state.pending_frame = None;
-        state.pending_navigation_rollback = None;
+        if !precedes_pending_command {
+            state.pending_navigation_epoch = None;
+            state.pending_same_document_navigation = false;
+            state.pending_failure_recovery = false;
+            state.pending_frame_epoch = None;
+            state.pending_frame = None;
+            state.pending_navigation_rollback = None;
+        }
         state.accepted_navigation_epoch = navigation_epoch;
         state.accepted_frame_epoch = frame_epoch;
         if state
@@ -3057,6 +3094,41 @@ impl BrowserSurface {
                 rollback.revision == invalidation.revision
                     && rollback.expected_frame_epoch == invalidation.expected_frame_epoch
             });
+        let committed_navigation_epoch = self.frame_epoch.latest_navigation();
+        let committed_navigation_precedes_failed_command = owns_navigation_rollback
+            && invalidation.expected_frame_epoch.is_some_and(|expected_epoch| {
+                committed_navigation_epoch > invalidation.previous_accepted_navigation_epoch
+                    && committed_navigation_epoch < expected_epoch
+                    && state.handled_navigation_epoch >= committed_navigation_epoch
+            });
+        if committed_navigation_precedes_failed_command {
+            state.pending_navigation_epoch = invalidation.previous_pending_navigation_epoch;
+            state.pending_same_document_navigation =
+                invalidation.previous_pending_same_document_navigation;
+            state.pending_failure_recovery = false;
+            state.pending_navigation_rollback = None;
+            state.pointer_capture_generation = invalidation.previous_capture_generation;
+            state.pending_frame = None;
+            if state.accepted_navigation_epoch == committed_navigation_epoch {
+                state.pointer_capture_generation =
+                    invalidation.previous_capture_generation.wrapping_add(1);
+                state.pending_frame_epoch = invalidation.previous_pending_frame_epoch;
+                let pointer_frame_seq = matches!(state.status, BrowserStatus::Live)
+                    .then(|| state.latest_frame.as_ref().map(|frame| frame.seq))
+                    .flatten();
+                Self::set_pointer_frame_locked(&mut state, pointer_frame_seq);
+                let retained_frame = state.latest_frame.clone();
+                self.set_pending_attach_frame_locked(&mut state, retained_frame);
+            } else {
+                state.pending_frame_epoch = state.pending_document_epoch.map(|navigation_epoch| {
+                    self.frame_epoch.current().max(navigation_epoch).max(state.accepted_frame_epoch)
+                });
+                Self::set_pointer_frame_locked(&mut state, None);
+                self.set_pending_attach_frame_locked(&mut state, None);
+            }
+            self.mark_state_dirty_locked(&mut state);
+            return;
+        }
         let restoring_failed_recovery =
             state.pending_failure_recovery && state.status.allows_navigation_recovery();
         if state.pointer_frame_revision != invalidation.revision
