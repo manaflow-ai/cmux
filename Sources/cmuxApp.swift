@@ -56,7 +56,7 @@ struct cmuxApp: App {
     @StateObject private var notificationStore = TerminalNotificationStore.shared
     @StateObject var closedItemHistoryStore = ClosedItemHistoryStore.shared
     @StateObject private var sidebarState = SidebarState()
-    @StateObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    @State private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
     @AppStorage(TitlebarControlsStyle.storageKey) private var titlebarControlsStyle = TitlebarControlsStyle.defaultRawValue
     @AppStorage(DevBuildBannerDebugSettings.sidebarBannerVisibleKey)
