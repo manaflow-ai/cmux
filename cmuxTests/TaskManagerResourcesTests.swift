@@ -410,6 +410,24 @@ final class TaskManagerResourcesTests: XCTestCase {
     func testCodingAgentMatcherUsesSupportedAgentNamesAndLaunchMetadata() {
         XCTAssertEqual(
             CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+                processName: "bun",
+                processPath: nil,
+                arguments: ["bun", "/usr/local/lib/node_modules/@gajae-code/coding-agent/dist/cli.js"],
+                environment: [:]
+            )?.id,
+            "gajae-code"
+        )
+        XCTAssertEqual(
+            CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+                processName: "node",
+                processPath: nil,
+                arguments: ["node", "agent.js"],
+                environment: ["CMUX_AGENT_LAUNCH_KIND": "gjc"]
+            )?.id,
+            "gajae-code"
+        )
+        XCTAssertEqual(
+            CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
                 processName: "node",
                 processPath: nil,
                 arguments: ["node", "/usr/local/lib/node_modules/@anthropic-ai/claude-code/cli.js"],
@@ -555,6 +573,7 @@ final class TaskManagerResourcesTests: XCTestCase {
             ("claude_code", "claude"),
             ("codex", "codex"),
             ("opencode", "opencode"),
+            ("gjc", "gajae-code"),
             ("pi", "pi"),
             ("pi-coding-agent", "pi"),
             ("amp", "amp"),

@@ -3,6 +3,37 @@ import Testing
 
 @Suite("AgentLaunchEnvironmentPolicy")
 struct AgentLaunchEnvironmentPolicyTests {
+    @Test("Preserves Gajae Code config and tmux selection without persisting worker identity or secrets")
+    func preservesGajaeCodeRestoreEnvironment() {
+        let selected = AgentLaunchEnvironmentPolicy().selectedEnvironment(
+            from: [
+                "GJC_CODING_AGENT_DIR": "/tmp/gjc-agent",
+                "GJC_CONFIG_DIR": ".custom-gjc",
+                "GJC_LAUNCH_POLICY": "tmux",
+                "GJC_PACKAGE_DIR": "/nix/store/gjc-package",
+                "GJC_PSMUX_DETECTION": "off",
+                "GJC_TEAM_TMUX_COMMAND": "/opt/homebrew/bin/tmux",
+                "GJC_TMUX_COMMAND": "/opt/homebrew/bin/tmux",
+                "GJC_TMUX_SESSION": "gajae_code_cmux_123",
+                "GJC_TEAM_WORKER": "team/worker-1",
+                "GJC_SESSION_ID": "secret-session",
+                "ANTHROPIC_API_KEY": "secret-should-not-persist",
+            ],
+            kind: "gajae-code"
+        )
+
+        #expect(selected == [
+            "GJC_CODING_AGENT_DIR": "/tmp/gjc-agent",
+            "GJC_CONFIG_DIR": ".custom-gjc",
+            "GJC_LAUNCH_POLICY": "tmux",
+            "GJC_PACKAGE_DIR": "/nix/store/gjc-package",
+            "GJC_PSMUX_DETECTION": "off",
+            "GJC_TEAM_TMUX_COMMAND": "/opt/homebrew/bin/tmux",
+            "GJC_TMUX_COMMAND": "/opt/homebrew/bin/tmux",
+            "GJC_TMUX_SESSION": "gajae_code_cmux_123",
+        ])
+    }
+
     @Test("Preserves OMP config roots without persisting secrets")
     func preservesOmpConfigRootsWithoutPersistingSecrets() {
         let selected = AgentLaunchEnvironmentPolicy().selectedEnvironment(

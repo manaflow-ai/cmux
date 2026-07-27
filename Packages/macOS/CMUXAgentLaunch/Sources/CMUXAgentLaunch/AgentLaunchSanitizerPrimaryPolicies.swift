@@ -267,6 +267,103 @@ extension AgentLaunchSanitizer {
         ]
     )
 
+    static let gajaeCodePolicy = Policy(
+        valueOptions: [
+            "--api-key",
+            "--append-system-prompt",
+            "--credential",
+            "--cwd",
+            "--fork",
+            "--mcp-config",
+            "--model",
+            "--models",
+            "--mpreset",
+            "--plan",
+            "--provider",
+            "--provider-session-id",
+            "--resume",
+            "--session",
+            "--session-dir",
+            "--slow",
+            "--smol",
+            "--system-prompt",
+            "--thinking",
+            "--tools",
+            "-r"
+        ],
+        booleanOptions: [
+            "--allow-home",
+            "--continue",
+            "--default",
+            "--no-lsp",
+            "--no-pty",
+            "--no-rules",
+            "--no-session",
+            "--no-title",
+            "--no-tools",
+            "--print",
+            "--tmux",
+            "-c",
+            "-h",
+            "-p",
+            "-v"
+        ],
+        nonRestorableCommands: [
+            "config",
+            "contribute-pr",
+            "daemon",
+            "gc",
+            "help",
+            "mcp",
+            "mcp-serve",
+            "migrate",
+            "notify",
+            "plugin",
+            "q",
+            "session",
+            "setup",
+            "skills",
+            "state",
+            "stats",
+            "team",
+            "update",
+            "web-search"
+        ],
+        droppedOptions: [
+            "--api-key",
+            "--continue",
+            "--credential",
+            "--cwd",
+            "--fork",
+            "--provider-session-id",
+            "--resume",
+            "--session",
+            "-c",
+            "-r"
+        ],
+        droppedOptionPrefixes: [
+            "--api-key=",
+            "--credential=",
+            "--cwd=",
+            "--fork=",
+            "--provider-session-id=",
+            "--resume=",
+            "--session="
+        ],
+        rejectOptions: [
+            "--export",
+            "--help",
+            "--list-models",
+            "--mode",
+            "--no-session",
+            "--print",
+            "--version",
+            "-h",
+            "-p",
+            "-v"
+        ]
+    )
+
     /// Campfire embeds vanilla pi and forwards unrecognized flags to it, so its
     /// policy is pi's plus the campfire-only surface. `--relay` is safe to
     /// replay (a relay URL, not a credential); `--join-as`/`--name` are

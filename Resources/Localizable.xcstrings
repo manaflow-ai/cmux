@@ -256685,6 +256685,176 @@
         }
       }
     },
+    "agent.gajaeCode.displayName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gajae Code"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gajae Code"
+          }
+        }
+      }
+    },
+    "cli.hooks.gajaeCode.aborted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aborted."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中止しました。"
+          }
+        }
+      }
+    },
+    "cli.hooks.gajaeCode.alreadyUpToDate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gajae Code hooks already up to date at %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gajae Codeフックは%@ですでに最新です"
+          }
+        }
+      }
+    },
+    "cli.hooks.gajaeCode.confirmProceed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\nProceed? [y/N] "
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\n続行しますか？ [y/N] "
+          }
+        }
+      }
+    },
+    "cli.hooks.gajaeCode.error.notCmuxExtension": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ exists and is not a cmux extension; leaving it alone"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ は存在しますがcmux拡張ではないため、そのまま残します"
+          }
+        }
+      }
+    },
+    "cli.hooks.gajaeCode.error.readFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to read %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の読み込みに失敗しました"
+          }
+        }
+      }
+    },
+    "cli.hooks.gajaeCode.installed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gajae Code hooks installed at %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gajae Codeフックを%@にインストールしました"
+          }
+        }
+      }
+    },
+    "cli.hooks.gajaeCode.noneFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Gajae Code cmux extension found at %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ にGajae Codeのcmux拡張はありません"
+          }
+        }
+      }
+    },
+    "cli.hooks.gajaeCode.refuseRemoveMissingMarker": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refusing to remove %@: missing cmux marker"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の削除を拒否しました：cmuxマーカーがありません"
+          }
+        }
+      }
+    },
+    "cli.hooks.gajaeCode.removed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removed Gajae Code cmux extension from %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gajae Codeのcmux拡張を%@から削除しました"
+          }
+        }
+      }
+    },
     "cli.workspaceGroup.help.overview": {
       "extractionState": "manual",
       "localizations": {

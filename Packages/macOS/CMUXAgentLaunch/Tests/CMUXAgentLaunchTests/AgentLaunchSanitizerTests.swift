@@ -340,6 +340,64 @@ struct AgentLaunchSanitizerTests {
         )
     }
 
+    @Test("Sanitizes Gajae Code restore arguments and preserves tmux")
+    func sanitizesGajaeCodeRestoreArguments() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "gjc",
+                    "launch",
+                    "--resume",
+                    "old-session",
+                    "--credential",
+                    "account@example.com",
+                    "--api-key",
+                    "secret",
+                    "--model",
+                    "anthropic/claude-sonnet-4-6",
+                    "--thinking",
+                    "high",
+                    "--tmux",
+                    "initial prompt should not replay",
+                ],
+                launcher: "gajae-code",
+                fallbackKind: "gajae-code"
+            ) == [
+                "gjc",
+                "--model",
+                "anthropic/claude-sonnet-4-6",
+                "--thinking",
+                "high",
+                "--tmux",
+            ]
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["gjc", "--resume=old-session", "--provider-session-id=secret-id", "--model=gpt-5.4"],
+                launcher: "gajae-code",
+                fallbackKind: "gajae-code"
+            ) == ["gjc", "--model=gpt-5.4"]
+        )
+    }
+
+    @Test("Rejects noninteractive Gajae Code launches")
+    func rejectsNoninteractiveGajaeCodeLaunches() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["gjc", "--print", "summarize"],
+                launcher: "gajae-code",
+                fallbackKind: "gajae-code"
+            ) == nil
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["gjc", "session", "list"],
+                launcher: "gajae-code",
+                fallbackKind: "gajae-code"
+            ) == nil
+        )
+    }
+
     @Test("Rejects noninteractive Antigravity launches")
     func rejectsNoninteractiveAntigravityLaunches() {
         #expect(
