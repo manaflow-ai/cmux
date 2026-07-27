@@ -4034,6 +4034,15 @@ mod tests {
 
     use super::*;
 
+    #[test]
+    fn surface_enum_keeps_terminal_state_out_of_line() {
+        assert!(
+            size_of::<Surface>() <= 768,
+            "Surface grew to {} bytes; keep the large libghostty terminal state out of line",
+            size_of::<Surface>()
+        );
+    }
+
     #[derive(Clone, Default)]
     struct CapturingWriter(Arc<Mutex<Vec<u8>>>);
 
