@@ -1502,6 +1502,7 @@ mod tests {
         let mux = Mux::new("server-guard-test", SurfaceOptions::default());
         let shutdown_watch = mux.watch_shutdown_request();
         let cleanup = Arc::new(ServerShutdownCleanup::new(mux));
+        *cleanup.state.lock().unwrap() = ServerShutdownCleanupState::Finished(Ok(()));
         let (completion, completed) = std::sync::mpsc::channel();
         let (replacement_tx, replacement_rx) = std::sync::mpsc::sync_channel(1);
         let replacement_path = socket_path.clone();
@@ -1526,6 +1527,40 @@ mod tests {
         drop(client);
         drop(replacement);
         drop(original);
+        cmux_tui_core::server::cleanup(&socket_path);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn incomplete_server_guard_retains_its_control_socket() {
+        use std::os::unix::net::{UnixListener, UnixStream};
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let suffix = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let socket_path = std::env::temp_dir()
+            .join(format!("cg-incomplete-{}-{suffix:x}.sock", std::process::id()));
+        let listener = UnixListener::bind(&socket_path).unwrap();
+        let mux = Mux::new("incomplete-server-guard-test", SurfaceOptions::default());
+        let shutdown_watch = mux.watch_shutdown_request();
+        let cleanup = Arc::new(ServerShutdownCleanup::new(mux));
+        let (completion, completed) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let _ = completed.recv();
+        });
+        let guard = ServerProcessShutdownGuard {
+            socket_path: socket_path.clone(),
+            shutdown_watch,
+            cleanup,
+            completion: Some(completion),
+            worker: Some(worker),
+        };
+
+        drop(guard);
+
+        let client = UnixStream::connect(&socket_path)
+            .expect("incomplete server guard released its control socket");
+        drop(client);
+        drop(listener);
         cmux_tui_core::server::cleanup(&socket_path);
     }
 
