@@ -1099,6 +1099,7 @@ fn process_event(
         canceled.extend(prune_failed_lane(
             &mut state,
             lane,
+            reservation_id.filter(|_| kind == Some(PtyInputKind::Press)),
             "canceled after ambiguous surface delivery; detach and reconnect",
         ));
     }
@@ -1214,12 +1215,20 @@ fn prune_to_recovery_releases(
 fn prune_failed_lane(
     state: &mut QueueState,
     lane: PtyInputLane,
+    recovery_reservation_id: Option<u64>,
     error: &'static str,
 ) -> Vec<PtyOperationFailure> {
     let mut retained = VecDeque::new();
     let mut canceled = Vec::new();
     for event in state.events.drain(..) {
         if event.ordering_lane() != Some(lane) {
+            retained.push_back(event);
+            continue;
+        }
+        let retain_recovery_release = event.kind == PtyInputKind::Release
+            && event.reservation_id == recovery_reservation_id
+            && recovery_reservation_id.is_some();
+        if retain_recovery_release {
             retained.push_back(event);
             continue;
         }
@@ -1234,7 +1243,9 @@ fn prune_failed_lane(
             delivery: PtyOperationDelivery::KnownNotDelivered,
         });
     }
-    state.release_reservations.outstanding.retain(|_, reserved_lane| *reserved_lane != lane);
+    state.release_reservations.outstanding.retain(|reservation_id, reserved_lane| {
+        *reserved_lane != lane || Some(*reservation_id) == recovery_reservation_id
+    });
     state.queued_bytes = retained.iter().map(PtyInputEvent::queued_byte_len).sum();
     state.events = retained;
     canceled
