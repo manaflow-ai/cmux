@@ -455,7 +455,7 @@ pub fn print_help(usage: &str) {
 fn write_help(usage: &str, messages: &LayoutMessages, out: &mut dyn Write) -> io::Result<()> {
     write!(out, "{usage}")?;
     writeln!(out)?;
-    writeln!(out, "VERB HELP")?;
+    writeln!(out, "{}", messages.verb_help_heading)?;
     for verb in VERBS {
         writeln!(out, "  {:<18} {}", verb.name, localized_verb_help(verb, messages))?;
     }

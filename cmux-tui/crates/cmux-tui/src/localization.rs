@@ -81,6 +81,7 @@ pub(crate) struct ShortcutMessages {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct LayoutMessages {
     pub startup_shortcuts: &'static str,
+    pub verb_help_heading: &'static str,
     pub new_pane_right_help: &'static str,
     pub set_viewport_pane_width_help: &'static str,
     pub undo_layout_help: &'static str,
@@ -450,6 +451,7 @@ edits shell files. Authenticate with the configured host before retrying.
     },
     layout: LayoutMessages {
         startup_shortcuts: "  g  new 2/3 column right   U    undo layout",
+        verb_help_heading: "VERB HELP",
         new_pane_right_help: "Create a viewport pane to the right (default width: two-thirds).",
         set_viewport_pane_width_help: "Set the viewport width of the column containing a pane.",
         undo_layout_help: "Undo the latest structural layout change.",
@@ -642,6 +644,7 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
     },
     layout: LayoutMessages {
         startup_shortcuts: "  g  右に 2/3 幅の列を追加   U    レイアウトを元に戻す",
+        verb_help_heading: "コマンドヘルプ",
         new_pane_right_help: "右側にビューポートペインを作成（既定の幅: 3 分の 2）。",
         set_viewport_pane_width_help: "ペインを含むビューポート列の幅を設定。",
         undo_layout_help: "直前のレイアウト変更を元に戻す。",

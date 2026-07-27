@@ -1,7 +1,6 @@
 use cmux_tui_core::{BrowserStatus, Rect, SurfaceKind};
 use ratatui::Frame;
 use ratatui::buffer::Buffer;
-use ratatui::layout::Rect as RatatuiRect;
 use ratatui::style::{Modifier, Style};
 use unicode_width::UnicodeWidthStr;
 
@@ -72,7 +71,7 @@ pub fn draw(app: &mut App, frame: &mut Frame, area: &PaneArea) -> Option<(u16, u
         .min(full_width.saturating_sub(source_x))
         .min(screen_right.saturating_sub(rect.x));
     let logical_rect = Rect { x: 0, y: 0, width: full_width, height: 1 };
-    let mut logical = Buffer::empty(RatatuiRect::new(0, 0, full_width, 1));
+    let mut logical = app.chrome_row_scratch.take(full_width);
     let cursor = if editing {
         draw_editing(app, &mut logical, Rect { x: source_x, width: visible_width, ..logical_rect })
     } else {
@@ -90,6 +89,7 @@ pub fn draw(app: &mut App, frame: &mut Frame, area: &PaneArea) -> Option<(u16, u
         frame.buffer_mut(),
         Rect { width: visible_width, height: 1, ..rect },
     );
+    app.chrome_row_scratch.put(logical);
     cursor
         .filter(|cursor_x| {
             *cursor_x >= source_x && *cursor_x < source_x.saturating_add(visible_width)

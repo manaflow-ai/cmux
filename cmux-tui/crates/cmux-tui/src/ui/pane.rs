@@ -11,8 +11,6 @@ use std::collections::{HashMap, HashSet};
 use cmux_tui_core::{BrowserStatus, Rect, SurfaceKind};
 use ghostty_vt::RenderState;
 use ratatui::Frame;
-use ratatui::buffer::Buffer;
-use ratatui::layout::Rect as RatatuiRect;
 use ratatui::style::{Color, Modifier, Style};
 use unicode_width::UnicodeWidthStr;
 
@@ -276,7 +274,7 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
     // their full logical geometry in a one-row scratch buffer, then use the
     // shared wide-glyph-safe crop path.
     let direct = area.viewport.is_none() && bar.width <= screen_right.saturating_sub(bar.x);
-    let mut logical = (!direct).then(|| Buffer::empty(RatatuiRect::new(0, 0, full_width, 1)));
+    let mut logical = (!direct).then(|| app.chrome_row_scratch.take(full_width));
     let (origin_x, origin_y) = if direct { (bar.x, bar.y) } else { (0, 0) };
     let buf = match logical.as_mut() {
         Some(logical) => logical,
@@ -385,15 +383,16 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
         hits.push((rect, Hit::NewTab { pane: pane_id }));
     }
 
-    if let Some(logical) = logical.as_ref() {
+    if let Some(logical) = logical.take() {
         let visible_width = visible_bar.width.min(full_width.saturating_sub(source_x));
         copy_buffer_row_cropped(
-            logical,
+            &logical,
             0,
             source_x,
             frame.buffer_mut(),
             Rect { width: visible_width, height: 1, ..bar },
         );
+        app.chrome_row_scratch.put(logical);
     }
     app.hits.extend(hits.into_iter().filter_map(|(rect, hit)| {
         clip_tab_bar_rect(rect, visible_bar, source_x).map(|rect| (rect, hit))

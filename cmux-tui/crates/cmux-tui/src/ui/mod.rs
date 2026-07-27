@@ -17,7 +17,7 @@ pub(crate) mod terminal_grid;
 use cmux_tui_core::Rect;
 use ratatui::Frame;
 use ratatui::buffer::Buffer;
-use ratatui::layout::Position;
+use ratatui::layout::{Position, Rect as RatatuiRect};
 use ratatui::style::{Color, Modifier, Style};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
@@ -32,6 +32,26 @@ pub(crate) use scrollbar::{
     horizontal_thumb_geometry, thumb_geometry, viewport_drag_offset, viewport_jump_offset,
     viewport_thumb_geometry,
 };
+
+#[derive(Default)]
+pub(crate) struct ReusableRowBuffer {
+    buffer: Option<Buffer>,
+}
+
+impl ReusableRowBuffer {
+    pub(crate) fn take(&mut self, width: u16) -> Buffer {
+        let mut buffer =
+            self.buffer.take().unwrap_or_else(|| Buffer::empty(RatatuiRect::default()));
+        buffer.resize(RatatuiRect::new(0, 0, width, 1));
+        buffer.reset();
+        buffer
+    }
+
+    pub(crate) fn put(&mut self, buffer: Buffer) {
+        debug_assert!(self.buffer.is_none(), "row scratch buffer returned twice");
+        self.buffer = Some(buffer);
+    }
+}
 
 /// Copy one logical buffer row into a visible destination slice.
 ///

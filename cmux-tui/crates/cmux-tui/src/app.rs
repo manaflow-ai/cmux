@@ -60,6 +60,7 @@ use crate::pty_input::{
     PtyInputBytes, PtyInputDispatcher, PtyInputEnqueueResult, PtyInputEvent, PtyInputKind,
     PtyInputSender, PtyOperationDelivery, PtyOperationFailure,
 };
+use crate::session::tree::ScreenView;
 use crate::session::{
     ClientInfo, Session, SidebarPluginSurface, SurfaceHandle, TreeView,
     is_remote_surface_unavailable, is_remote_timeout, is_remote_transport_failure,
@@ -69,8 +70,8 @@ use crate::ui::graphics::GraphicPlacement;
 use crate::ui::graphics_writer::{GraphicsWriter, StdoutLock};
 use crate::ui::input::{InputEvent, TextInput};
 use crate::ui::{
-    horizontal_drag_offset, horizontal_offset_at, horizontal_thumb_geometry, thumb_geometry,
-    viewport_drag_offset, viewport_jump_offset, viewport_thumb_geometry,
+    ReusableRowBuffer, horizontal_drag_offset, horizontal_offset_at, horizontal_thumb_geometry,
+    thumb_geometry, viewport_drag_offset, viewport_jump_offset, viewport_thumb_geometry,
 };
 
 const DEFERRED_INPUT_CAPACITY: usize = 512;
@@ -3509,6 +3510,120 @@ fn stacked_header_parts_for_virtual_rect(rect: VirtualRect) -> Option<PaneParts<
     ))
 }
 
+struct PaneAreaProjection<'a> {
+    screen: &'a ScreenView,
+    layout: &'a [(PaneId, VirtualRect)],
+    stacked_headers: &'a HashSet<PaneId>,
+    area: Rect,
+    scrollbar_position: ScrollbarPosition,
+    surface_only: Option<SurfaceId>,
+    viewport_offset: Option<u64>,
+}
+
+fn rebuild_pane_areas(pane_areas: &mut Vec<PaneArea>, projection: PaneAreaProjection<'_>) {
+    let PaneAreaProjection {
+        screen,
+        layout,
+        stacked_headers,
+        area,
+        scrollbar_position,
+        surface_only,
+        viewport_offset,
+    } = projection;
+    pane_areas.clear();
+    let viewport_x = viewport_offset.map(|offset| u64::from(area.x).saturating_add(offset));
+    for &(pane_id, full_rect) in layout {
+        let Some(pane) = screen.pane(pane_id) else {
+            continue;
+        };
+        let Some(surface_id) = pane.active_surface() else {
+            continue;
+        };
+        let has_browser_omnibar =
+            pane.tabs.get(pane.active_tab).is_some_and(|tab| tab.kind == SurfaceKind::Browser);
+        let Some((full_bar, full_omnibar, full_content, full_track)) = (if surface_only.is_some() {
+            Some((None, None, full_rect, None))
+        } else if stacked_headers.contains(&pane_id) {
+            stacked_header_parts_for_virtual_rect(full_rect)
+        } else {
+            pane_parts_for_virtual_rect(full_rect, scrollbar_position, has_browser_omnibar)
+        }) else {
+            continue;
+        };
+        let (rect, rect_source_x, bar, omnibar, omnibar_source_x, content, content_source_x, track) =
+            if let Some(viewport_x) = viewport_x {
+                let Some((rect, rect_source_x)) =
+                    clip_horizontal_rect(full_rect, viewport_x, area.width, area.x)
+                else {
+                    continue;
+                };
+                let bar = full_bar.and_then(|rect| {
+                    clip_horizontal_rect(rect, viewport_x, area.width, area.x).map(|(rect, _)| rect)
+                });
+                let (omnibar, omnibar_source_x) = full_omnibar
+                    .and_then(|rect| clip_horizontal_rect(rect, viewport_x, area.width, area.x))
+                    .map_or((None, 0), |(rect, source_x)| (Some(rect), source_x));
+                let (content, content_source_x) = clip_horizontal_rect(
+                    full_content,
+                    viewport_x,
+                    area.width,
+                    area.x,
+                )
+                .unwrap_or((
+                    Rect { x: rect.x, y: full_content.y, width: 0, height: full_content.height },
+                    0,
+                ));
+                let track = full_track.and_then(|rect| {
+                    clip_horizontal_rect(rect, viewport_x, area.width, area.x).map(|(rect, _)| rect)
+                });
+                (
+                    rect,
+                    rect_source_x,
+                    bar,
+                    omnibar,
+                    omnibar_source_x,
+                    content,
+                    content_source_x,
+                    track,
+                )
+            } else {
+                let Some(rect) = terminal_rect_from_virtual(full_rect) else {
+                    continue;
+                };
+                let bar = full_bar.and_then(terminal_rect_from_virtual);
+                let omnibar = full_omnibar.and_then(terminal_rect_from_virtual);
+                let Some(content) = terminal_rect_from_virtual(full_content) else {
+                    continue;
+                };
+                let track = full_track.and_then(terminal_rect_from_virtual);
+                (rect, 0, bar, omnibar, 0, content, 0, track)
+            };
+        let pane_viewport = viewport_x
+            .is_some()
+            .then_some(PaneViewportClip {
+                rect_source_x,
+                full_rect_width: u16::try_from(full_rect.width).unwrap_or(u16::MAX),
+                omnibar_source_x,
+                full_omnibar_width: full_omnibar
+                    .and_then(|rect| u16::try_from(rect.width).ok())
+                    .unwrap_or(0),
+                content_source_x,
+                full_content_width: u16::try_from(full_content.width).unwrap_or(u16::MAX),
+            })
+            .filter(|clip| clip.rect_source_x > 0 || rect.width < clip.full_rect_width);
+        pane_areas.push(PaneArea {
+            pane: pane_id,
+            surface: surface_id,
+            rect,
+            bar,
+            omnibar,
+            content,
+            track,
+            viewport: pane_viewport,
+        });
+    }
+}
+
 fn browser_source_crop(
     frame_width: u32,
     source_column: u16,
@@ -3602,6 +3717,7 @@ pub struct App {
     pub tree: TreeView,
     tab_locations: HashMap<SurfaceId, [usize; 4]>,
     pub render_states: HashMap<SurfaceId, RenderState>,
+    pub(crate) chrome_row_scratch: ReusableRowBuffer,
     /// Terminal grid dimensions from the frame actually drawn for each
     /// surface. Pointer routing uses this snapshot so resize transitions do
     /// not target blank pane margins or wait on the PTY's terminal lock.
@@ -3613,6 +3729,7 @@ pub struct App {
     stdout_lock: Arc<StdoutLock>,
     pub pane_areas: Vec<PaneArea>,
     viewport_layout: Vec<(PaneId, VirtualRect)>,
+    viewport_stacked_headers: HashSet<PaneId>,
     viewport_states: HashMap<ScreenId, ViewportMotion>,
     viewport_virtual_width: u64,
     viewport_offset: u64,
@@ -3620,7 +3737,7 @@ pub struct App {
     /// Terminal cells actually represented by the last rendered snapshot.
     /// Foreign-viewer padding outside these bounds is display-only.
     pub(crate) rendered_terminal_bounds: HashMap<SurfaceId, Rect>,
-    /// Surfaces whose active tabs were visible in the previous layout pass.
+    /// Surfaces whose active tabs occupy the current layout destination.
     /// Attach streams may outlive this set, but only members hold size leases.
     visible_size_surfaces: HashSet<SurfaceId>,
     /// Hidden leases stay owned until the server confirms their idempotent
@@ -4709,6 +4826,7 @@ pub fn run_with_machine_updates(
         tree: TreeView::default(),
         tab_locations: HashMap::new(),
         render_states: HashMap::new(),
+        chrome_row_scratch: ReusableRowBuffer::default(),
         rendered_terminal_sizes: HashMap::new(),
         desired_outer_cursor: OuterCursorSpec::Reset,
         applied_outer_cursor: None,
@@ -4717,6 +4835,7 @@ pub fn run_with_machine_updates(
         stdout_lock,
         pane_areas: Vec::new(),
         viewport_layout: Vec::new(),
+        viewport_stacked_headers: HashSet::new(),
         viewport_states: HashMap::new(),
         viewport_virtual_width: 0,
         viewport_offset: 0,
@@ -5113,9 +5232,7 @@ impl App {
             if self.expire_toast() {
                 action = action.merge(RenderAction::Draw);
             }
-            if self.tick_viewport_animation(Instant::now()) {
-                action = action.merge(RenderAction::Draw);
-            }
+            action = action.merge(self.advance_viewport_animation(Instant::now()));
             if self.advance_expired_durable_notice() {
                 action = action.merge(RenderAction::Draw);
             }
@@ -5738,6 +5855,7 @@ impl App {
         self.render_states.clear();
         self.pane_areas.clear();
         self.viewport_layout.clear();
+        self.viewport_stacked_headers.clear();
         self.viewport_states.clear();
         self.viewport_virtual_width = 0;
         self.viewport_offset = 0;
@@ -6453,18 +6571,54 @@ impl App {
 
     fn viewport_animation_active(&self) -> bool {
         self.config.viewport.animation
-            && self.viewport_states.values().any(ViewportMotion::animating)
+            && self
+                .active_screen_id()
+                .and_then(|screen| self.viewport_states.get(&screen))
+                .is_some_and(ViewportMotion::animating)
     }
 
-    fn tick_viewport_animation(&mut self, now: Instant) -> bool {
+    fn advance_viewport_animation(&mut self, now: Instant) -> RenderAction {
         if !self.config.viewport.animation {
-            return false;
+            return RenderAction::None;
         }
-        let mut changed = false;
-        for motion in self.viewport_states.values_mut() {
-            changed |= motion.update(now);
+        let Some(screen) = self.active_screen_id() else {
+            return RenderAction::None;
+        };
+        let maximum =
+            self.viewport_virtual_width.saturating_sub(u64::from(self.content_area.width));
+        let Some(motion) = self.viewport_states.get_mut(&screen) else {
+            return RenderAction::None;
+        };
+        let _ = motion.update(now);
+        let offset = motion.offset().min(maximum);
+        if offset == self.viewport_offset {
+            return RenderAction::None;
         }
-        changed
+        self.viewport_offset = offset;
+        self.reclip_viewport_panes();
+        RenderAction::Paint
+    }
+
+    fn reclip_viewport_panes(&mut self) {
+        if self.viewport_layout.is_empty() {
+            return;
+        }
+        let Some(screen) = self.tree.active_screen() else {
+            self.pane_areas.clear();
+            return;
+        };
+        rebuild_pane_areas(
+            &mut self.pane_areas,
+            PaneAreaProjection {
+                screen,
+                layout: &self.viewport_layout,
+                stacked_headers: &self.viewport_stacked_headers,
+                area: self.content_area,
+                scrollbar_position: self.config.scrollbar.position,
+                surface_only: self.surface_only,
+                viewport_offset: Some(self.viewport_offset),
+            },
+        );
     }
 
     fn sync_viewport_motion(
@@ -6558,6 +6712,7 @@ impl App {
         self.pane_areas.clear();
         let Some(screen) = self.tree.active_screen().cloned() else {
             self.viewport_layout.clear();
+            self.viewport_stacked_headers.clear();
             self.viewport_virtual_width = 0;
             self.viewport_offset = 0;
             let hidden = self
@@ -6594,6 +6749,8 @@ impl App {
         };
         let viewport_enabled = viewport_enabled && layout.virtual_width > u64::from(area.width);
         self.viewport_layout = if viewport_enabled { layout.panes.clone() } else { Vec::new() };
+        self.viewport_stacked_headers =
+            if viewport_enabled { layout.stacked_headers.clone() } else { HashSet::new() };
         self.viewport_virtual_width = layout.virtual_width;
         self.viewport_offset = if viewport_enabled {
             self.sync_viewport_motion(
@@ -6607,110 +6764,47 @@ impl App {
         } else {
             0
         };
-        let viewport_x = u64::from(area.x).saturating_add(self.viewport_offset);
-        let stacked_headers = layout.stacked_headers;
-        for (pane_id, full_rect) in layout.panes {
-            let Some(pane) = screen.pane(pane_id) else { continue };
-            let Some(surface_id) = pane.active_surface() else { continue };
-            let has_browser_omnibar =
-                pane.tabs.get(pane.active_tab).is_some_and(|tab| tab.kind == SurfaceKind::Browser);
-            let Some((full_bar, full_omnibar, full_content, full_track)) =
-                (if self.surface_only.is_some() {
-                    Some((None, None, full_rect, None))
-                } else if stacked_headers.contains(&pane_id) {
-                    stacked_header_parts_for_virtual_rect(full_rect)
-                } else {
-                    pane_parts_for_virtual_rect(
-                        full_rect,
-                        self.config.scrollbar.position,
-                        has_browser_omnibar,
-                    )
-                })
-            else {
-                continue;
-            };
-            let (
-                rect,
-                rect_source_x,
-                bar,
-                omnibar,
-                omnibar_source_x,
-                content,
-                content_source_x,
-                track,
-            ) = if viewport_enabled {
-                let Some((rect, rect_source_x)) =
-                    clip_horizontal_rect(full_rect, viewport_x, area.width, area.x)
-                else {
-                    continue;
-                };
-                let bar = full_bar.and_then(|rect| {
-                    clip_horizontal_rect(rect, viewport_x, area.width, area.x).map(|(rect, _)| rect)
-                });
-                let (omnibar, omnibar_source_x) = full_omnibar
-                    .and_then(|rect| clip_horizontal_rect(rect, viewport_x, area.width, area.x))
-                    .map_or((None, 0), |(rect, source_x)| (Some(rect), source_x));
-                let (content, content_source_x) = clip_horizontal_rect(
-                    full_content,
-                    viewport_x,
-                    area.width,
-                    area.x,
-                )
-                .unwrap_or((
-                    Rect { x: rect.x, y: full_content.y, width: 0, height: full_content.height },
-                    0,
-                ));
-                let track = full_track.and_then(|rect| {
-                    clip_horizontal_rect(rect, viewport_x, area.width, area.x).map(|(rect, _)| rect)
-                });
-                (
-                    rect,
-                    rect_source_x,
-                    bar,
-                    omnibar,
-                    omnibar_source_x,
-                    content,
-                    content_source_x,
-                    track,
-                )
-            } else {
-                let Some(rect) = terminal_rect_from_virtual(full_rect) else {
-                    continue;
-                };
-                let bar = full_bar.and_then(terminal_rect_from_virtual);
-                let omnibar = full_omnibar.and_then(terminal_rect_from_virtual);
-                let Some(content) = terminal_rect_from_virtual(full_content) else {
-                    continue;
-                };
-                let track = full_track.and_then(terminal_rect_from_virtual);
-                (rect, 0, bar, omnibar, 0, content, 0, track)
-            };
-            let pane_viewport = viewport_enabled
-                .then_some(PaneViewportClip {
-                    rect_source_x,
-                    full_rect_width: u16::try_from(full_rect.width).unwrap_or(u16::MAX),
-                    omnibar_source_x,
-                    full_omnibar_width: full_omnibar
-                        .and_then(|rect| u16::try_from(rect.width).ok())
-                        .unwrap_or(0),
-                    content_source_x,
-                    full_content_width: u16::try_from(full_content.width).unwrap_or(u16::MAX),
-                })
-                .filter(|clip| clip.rect_source_x > 0 || rect.width < clip.full_rect_width);
-            self.pane_areas.push(PaneArea {
-                pane: pane_id,
-                surface: surface_id,
-                rect,
-                bar,
-                omnibar,
-                content,
-                track,
-                viewport: pane_viewport,
-            });
+        rebuild_pane_areas(
+            &mut self.pane_areas,
+            PaneAreaProjection {
+                screen: &screen,
+                layout: &layout.panes,
+                stacked_headers: &layout.stacked_headers,
+                area,
+                scrollbar_position: self.config.scrollbar.position,
+                surface_only: self.surface_only,
+                viewport_offset: viewport_enabled.then_some(self.viewport_offset),
+            },
+        );
+
+        // Size and attach the animation destination up front. Paint-only
+        // ticks can then reveal cached surfaces without doing socket work.
+        let mut lease_areas = Vec::new();
+        let target_offset = viewport_enabled.then(|| {
+            let maximum = layout.virtual_width.saturating_sub(u64::from(area.width));
+            self.viewport_states
+                .get(&screen.id)
+                .map_or(self.viewport_offset, |motion| motion.target.round() as u64)
+                .min(maximum)
+        });
+        if target_offset == Some(self.viewport_offset) || !viewport_enabled {
+            lease_areas.extend_from_slice(&self.pane_areas);
+        } else {
+            rebuild_pane_areas(
+                &mut lease_areas,
+                PaneAreaProjection {
+                    screen: &screen,
+                    layout: &layout.panes,
+                    stacked_headers: &layout.stacked_headers,
+                    area,
+                    scrollbar_position: self.config.scrollbar.position,
+                    surface_only: self.surface_only,
+                    viewport_offset: target_offset,
+                },
+            );
         }
 
-        let visible = self
-            .pane_areas
+        let visible = lease_areas
             .iter()
             .filter(|area| area.content.width > 0 && area.content.height > 0)
             .map(|area| area.surface)
@@ -6734,10 +6828,9 @@ impl App {
         self.visible_size_surfaces.extend(visible);
 
         // Keep inactive tabs attached for instant rendering, but give only
-        // each pane's active tab a sizing lease. This makes visibility, not
-        // cached transport state, the shared-size ownership boundary.
-        for index in 0..self.pane_areas.len() {
-            let area = self.pane_areas[index];
+        // each destination pane's active tab a sizing lease. This makes the
+        // settled viewport, not cached transport state, the ownership boundary.
+        for area in lease_areas {
             if area.content.width == 0 || area.content.height == 0 {
                 continue;
             }
@@ -14249,19 +14342,81 @@ mod tests {
     #[test]
     fn viewport_animation_tick_reclips_without_authoritative_layout_draw() {
         let mux = Mux::new("viewport-animation-paint-test", SurfaceOptions::default());
-        let first = mux.new_workspace(None, Some((80, 24))).unwrap();
-        let base = mux.with_state(|state| state.pane_of(first.id).unwrap());
-        mux.new_pane_right(base, cmux_tui_core::DEFAULT_VIEWPORT_PANE_WIDTH, Some((51, 22)))
-            .unwrap();
-        let mut app = test_app(Session::Local(mux.clone()));
+        let mut app = test_app(Session::Local(mux));
         app.sidebar_visible = false;
-        app.replace_tree(app.session.tree());
-        app.sync_layout((80, 25));
+        app.content_area = Rect { x: 0, y: 0, width: 80, height: 24 };
+        app.viewport_layout = vec![
+            (1, VirtualRect { x: 0, y: 0, width: 80, height: 24 }),
+            (2, VirtualRect { x: 80, y: 0, width: 53, height: 24 }),
+        ];
+        app.viewport_virtual_width = 133;
+        app.tree = TreeView {
+            workspaces: vec![WorkspaceView {
+                id: 3,
+                key: "workspace".to_string(),
+                short_id: "w".to_string(),
+                name: "workspace".to_string(),
+                screens: vec![ScreenView {
+                    id: 4,
+                    short_id: "s".to_string(),
+                    name: None,
+                    layout: Node::Leaf(1),
+                    active_pane: 2,
+                    zoomed_pane: None,
+                    viewport_base_width: Some(1.0),
+                    viewport_splits: BTreeMap::new(),
+                    panes: vec![
+                        PaneView {
+                            id: 1,
+                            short_id: "p1".to_string(),
+                            name: None,
+                            tabs: vec![TabView {
+                                surface: 11,
+                                short_id: "t1".to_string(),
+                                name: None,
+                                title: "left".to_string(),
+                                kind: SurfaceKind::Pty,
+                                browser_source: None,
+                                browser_frames_stalled: false,
+                                notification: None,
+                            }],
+                            active_tab: 0,
+                            focused_at: 0,
+                        },
+                        PaneView {
+                            id: 2,
+                            short_id: "p2".to_string(),
+                            name: None,
+                            tabs: vec![TabView {
+                                surface: 12,
+                                short_id: "t2".to_string(),
+                                name: None,
+                                title: "right".to_string(),
+                                kind: SurfaceKind::Pty,
+                                browser_source: None,
+                                browser_frames_stalled: false,
+                                notification: None,
+                            }],
+                            active_tab: 0,
+                            focused_at: 1,
+                        },
+                    ],
+                }],
+                active_screen: 0,
+            }],
+            workspace_revision: 1,
+            pane_revision: Some(1),
+            active_workspace: 0,
+        };
+        let started_at = Instant::now();
+        let mut motion = ViewportMotion::new(started_at);
+        motion.retarget(53, true, started_at);
+        app.viewport_states.insert(4, motion);
+        app.reclip_viewport_panes();
 
-        let screen = app.tree.active_screen().unwrap().id;
-        let started_at = app.viewport_states[&screen].started_at;
         assert!(app.viewport_animation_active());
         assert_eq!(app.viewport_offset, 0);
+        assert_eq!(app.pane_areas.iter().find(|area| area.pane == 1).unwrap().rect.width, 80);
         app.tree.workspace_revision = u64::MAX;
 
         assert_eq!(
@@ -14269,16 +14424,15 @@ mod tests {
             RenderAction::Paint
         );
         assert!(app.viewport_offset > 0);
+        assert!(
+            app.pane_areas.iter().find(|area| area.pane == 1).unwrap().rect.width < 80,
+            "paint-only animation ticks must reclip cached pane geometry"
+        );
         assert_eq!(
             app.tree.workspace_revision,
             u64::MAX,
             "animation paint must preserve the cached authoritative tree"
         );
-
-        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
-        for surface in surfaces {
-            mux.close_surface(surface).unwrap();
-        }
     }
 
     #[test]
@@ -21761,6 +21915,7 @@ mod tests {
             tree: TreeView::default(),
             tab_locations: HashMap::new(),
             render_states: HashMap::<u64, RenderState>::new(),
+            chrome_row_scratch: crate::ui::ReusableRowBuffer::default(),
             rendered_terminal_sizes: HashMap::new(),
             desired_outer_cursor: OuterCursorSpec::Reset,
             applied_outer_cursor: None,
@@ -21769,6 +21924,7 @@ mod tests {
             stdout_lock: Arc::new(StdoutLock::new(())),
             pane_areas: Vec::new(),
             viewport_layout: Vec::new(),
+            viewport_stacked_headers: HashSet::new(),
             viewport_states: HashMap::new(),
             viewport_virtual_width: 0,
             viewport_offset: 0,
