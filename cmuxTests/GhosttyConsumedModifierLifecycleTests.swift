@@ -16,44 +16,25 @@ private struct CapturedGhosttyKeyIdentityEvent {
 
 @MainActor
 final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
-    func testRepeatUsesCurrentMeaningAndReleaseKeepsInitialIdentity() throws {
-        _ = NSApplication.shared
+    private struct HostedTerminal {
+        let surface: TerminalSurface
+        let hostedView: GhosttySurfaceScrollView
+        let surfaceView: GhosttyNSView
+        let window: NSWindow
+    }
 
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
-        let hostedView = surface.hostedView
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
+    func testRepeatUsesCurrentMeaningAndReleaseKeepsInitialIdentity() throws {
+        let terminal = try makeHostedTerminal()
         let previousInterpretHook = cjkIMEInterpretKeyEventsHook
         defer {
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
             cjkIMEInterpretKeyEventsHook = previousInterpretHook
-            window.orderOut(nil)
+            terminal.window.orderOut(nil)
         }
 
-        let contentView = try XCTUnwrap(window.contentView)
-        hostedView.frame = contentView.bounds
-        hostedView.autoresizingMask = [.width, .height]
-        contentView.addSubview(hostedView)
-        window.makeKeyAndOrderFront(nil)
-        window.displayIfNeeded()
-        contentView.layoutSubtreeIfNeeded()
-        hostedView.setVisibleInUI(true)
-        hostedView.setActive(true)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-
-        let view = try XCTUnwrap(findGhosttyNSView(in: hostedView))
         installCJKIMEInterpretKeyEventsSwizzle()
         cjkIMEInterpretKeyEventsHook = { candidateView, events in
-            guard candidateView === view,
+            guard candidateView === terminal.surfaceView,
                   let text = events.first?.characters else {
                 return false
             }
@@ -80,7 +61,7 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
             location: .zero,
             modifierFlags: [.shift],
             timestamp: timestamp,
-            windowNumber: window.windowNumber,
+            windowNumber: terminal.window.windowNumber,
             context: nil,
             characters: "A",
             charactersIgnoringModifiers: "a",
@@ -92,7 +73,7 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
             location: .zero,
             modifierFlags: [],
             timestamp: timestamp + 0.1,
-            windowNumber: window.windowNumber,
+            windowNumber: terminal.window.windowNumber,
             context: nil,
             characters: "a",
             charactersIgnoringModifiers: "a",
@@ -104,7 +85,7 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
             location: .zero,
             modifierFlags: [],
             timestamp: timestamp + 0.2,
-            windowNumber: window.windowNumber,
+            windowNumber: terminal.window.windowNumber,
             context: nil,
             characters: "a",
             charactersIgnoringModifiers: "a",
@@ -112,11 +93,11 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
             keyCode: 0
         ))
 
-        window.makeFirstResponder(view)
-        withExtendedLifetime(surface) {
-            view.keyDown(with: press)
-            view.keyDown(with: repeatEvent)
-            view.keyUp(with: release)
+        terminal.window.makeFirstResponder(terminal.surfaceView)
+        withExtendedLifetime(terminal.surface) {
+            terminal.surfaceView.keyDown(with: press)
+            terminal.surfaceView.keyDown(with: repeatEvent)
+            terminal.surfaceView.keyUp(with: release)
         }
 
         XCTAssertEqual(capturedEvents.count, 3)
@@ -141,6 +122,107 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
             capturedEvents[2].consumedModifiers,
             GHOSTTY_MODS_SHIFT.rawValue,
             "A release must carry the same physical-key identity as its press"
+        )
+    }
+
+    func testComposingPressForwardsMatchingRelease() throws {
+        let terminal = try makeHostedTerminal()
+        let previousInterpretHook = cjkIMEInterpretKeyEventsHook
+        defer {
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
+            cjkIMEInterpretKeyEventsHook = previousInterpretHook
+            terminal.window.orderOut(nil)
+        }
+
+        installCJKIMEInterpretKeyEventsSwizzle()
+        cjkIMEInterpretKeyEventsHook = { candidateView, _ in
+            candidateView === terminal.surfaceView
+        }
+        terminal.surfaceView.setMarkedText(
+            "ᄒ",
+            selectedRange: NSRange(location: 1, length: 0),
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        )
+
+        var capturedActions: [ghostty_input_action_e] = []
+        var capturedComposingStates: [Bool] = []
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            guard keyEvent.keycode == 4 else { return }
+            capturedActions.append(keyEvent.action)
+            capturedComposingStates.append(keyEvent.composing)
+        }
+
+        let timestamp = ProcessInfo.processInfo.systemUptime
+        let press = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: timestamp,
+            windowNumber: terminal.window.windowNumber,
+            context: nil,
+            characters: "h",
+            charactersIgnoringModifiers: "h",
+            isARepeat: false,
+            keyCode: 4
+        ))
+        let release = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyUp,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: timestamp + 0.1,
+            windowNumber: terminal.window.windowNumber,
+            context: nil,
+            characters: "h",
+            charactersIgnoringModifiers: "h",
+            isARepeat: false,
+            keyCode: 4
+        ))
+
+        terminal.window.makeFirstResponder(terminal.surfaceView)
+        withExtendedLifetime(terminal.surface) {
+            terminal.surfaceView.keyDown(with: press)
+            terminal.surfaceView.keyUp(with: release)
+        }
+
+        XCTAssertEqual(capturedActions, [
+            GHOSTTY_ACTION_PRESS,
+            GHOSTTY_ACTION_RELEASE,
+        ])
+        XCTAssertEqual(capturedComposingStates, [true, false])
+    }
+
+    private func makeHostedTerminal() throws -> HostedTerminal {
+        _ = NSApplication.shared
+
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = try XCTUnwrap(window.contentView)
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.setVisibleInUI(true)
+        hostedView.setActive(true)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        return HostedTerminal(
+            surface: surface,
+            hostedView: hostedView,
+            surfaceView: try XCTUnwrap(findGhosttyNSView(in: hostedView)),
+            window: window
         )
     }
 }
