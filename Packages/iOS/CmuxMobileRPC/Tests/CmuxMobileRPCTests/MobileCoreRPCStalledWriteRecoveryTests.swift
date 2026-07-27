@@ -176,6 +176,150 @@ import Testing
         await client.disconnect()
     }
 
+    @Test func cancelledInFlightWriteIsNotRecycledWithoutLaterDemand() async throws {
+        let stalled = StalledWriteTransport()
+        let recovery = ResponseTimeoutSurvivalTransport()
+        let factory = StalledWriteRecoveryTransportFactory(
+            stalled: stalled,
+            recovery: recovery
+        )
+        let route = try hostPortRoute(
+            kind: .debugLoopback,
+            host: "127.0.0.1",
+            port: 59135
+        )
+        let session = MobileCoreRPCSession(
+            cancelledWriteCompletionGraceNanoseconds: 10_000_000,
+            makeTransport: { try factory.makeTransport(for: route) }
+        )
+        let task = Task {
+            try await session.send(
+                payload: try inputRequest(id: "cancelled-idle-write", text: "a"),
+                requestID: "cancelled-idle-write",
+                deadlineUptimeNanoseconds: DispatchTime.now().uptimeNanoseconds
+                    + 60 * 1_000_000_000
+            )
+        }
+
+        await stalled.waitUntilSendStarted()
+        task.cancel()
+        _ = try? await task.value
+        try await Task.sleep(nanoseconds: 50_000_000)
+
+        #expect(factory.createdTransportCount() == 1)
+        #expect(!(await stalled.closed()))
+
+        await session.tearDown(error: .connectionClosed)
+        await stalled.failStalledSend()
+    }
+
+    @Test func cancelledWriteResolutionHonorsNextRequestDeadline() async throws {
+        let stalled = StalledWriteTransport()
+        let recovery = ResponseTimeoutSurvivalTransport()
+        let factory = StalledWriteRecoveryTransportFactory(
+            stalled: stalled,
+            recovery: recovery
+        )
+        let route = try hostPortRoute(
+            kind: .debugLoopback,
+            host: "127.0.0.1",
+            port: 59135
+        )
+        let session = MobileCoreRPCSession(
+            cancelledWriteCompletionGraceNanoseconds: 500_000_000,
+            makeTransport: { try factory.makeTransport(for: route) }
+        )
+        let firstTask = Task {
+            try await session.send(
+                payload: try inputRequest(id: "cancelled-before-deadline", text: "a"),
+                requestID: "cancelled-before-deadline",
+                deadlineUptimeNanoseconds: DispatchTime.now().uptimeNanoseconds
+                    + 60 * 1_000_000_000
+            )
+        }
+
+        await stalled.waitUntilSendStarted()
+        firstTask.cancel()
+        _ = try? await firstTask.value
+
+        let startedAt = ContinuousClock.now
+        do {
+            _ = try await session.send(
+                payload: try inputRequest(id: "deadline-behind-cancel", text: "b"),
+                requestID: "deadline-behind-cancel",
+                deadlineUptimeNanoseconds: DispatchTime.now().uptimeNanoseconds
+                    + 30_000_000
+            )
+            Issue.record("Expected the next request to honor its deadline")
+        } catch MobileShellConnectionError.requestTimedOut {
+        } catch {
+            Issue.record("Expected requestTimedOut, got \(error)")
+        }
+        let elapsed = startedAt.duration(to: .now)
+
+        #expect(elapsed < .milliseconds(200))
+        #expect(await stalled.closed())
+
+        await stalled.failStalledSend()
+        await session.tearDown(error: .connectionClosed)
+    }
+
+    @Test func cancelledWriteResolutionHonorsNextRequestCancellation() async throws {
+        let stalled = StalledWriteTransport()
+        let recovery = ResponseTimeoutSurvivalTransport()
+        let factory = StalledWriteRecoveryTransportFactory(
+            stalled: stalled,
+            recovery: recovery
+        )
+        let route = try hostPortRoute(
+            kind: .debugLoopback,
+            host: "127.0.0.1",
+            port: 59135
+        )
+        let session = MobileCoreRPCSession(
+            cancelledWriteCompletionGraceNanoseconds: 500_000_000,
+            makeTransport: { try factory.makeTransport(for: route) }
+        )
+        let firstTask = Task {
+            try await session.send(
+                payload: try inputRequest(id: "cancelled-before-cancel", text: "a"),
+                requestID: "cancelled-before-cancel",
+                deadlineUptimeNanoseconds: DispatchTime.now().uptimeNanoseconds
+                    + 60 * 1_000_000_000
+            )
+        }
+
+        await stalled.waitUntilSendStarted()
+        firstTask.cancel()
+        _ = try? await firstTask.value
+
+        let startedAt = ContinuousClock.now
+        let nextTask = Task {
+            try await session.send(
+                payload: try inputRequest(id: "cancel-behind-cancel", text: "b"),
+                requestID: "cancel-behind-cancel",
+                deadlineUptimeNanoseconds: DispatchTime.now().uptimeNanoseconds
+                    + 60 * 1_000_000_000
+            )
+        }
+        try await Task.sleep(nanoseconds: 20_000_000)
+        nextTask.cancel()
+        do {
+            _ = try await nextTask.value
+            Issue.record("Expected the waiting request to be cancelled")
+        } catch is CancellationError {
+        } catch {
+            Issue.record("Expected CancellationError, got \(error)")
+        }
+        let elapsed = startedAt.duration(to: .now)
+
+        #expect(elapsed < .milliseconds(200))
+        #expect(!(await stalled.closed()))
+
+        await session.tearDown(error: .connectionClosed)
+        await stalled.failStalledSend()
+    }
+
     @Test func teardownDoesNotWaitForHangingTransportClose() async throws {
         let stalled = StalledWriteTransport(hangsOnClose: true)
         let recovery = ResponseTimeoutSurvivalTransport()
