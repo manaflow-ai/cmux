@@ -804,15 +804,18 @@ fn snapshot_impl(
 }
 
 fn graphics_generation(graphics: sys::GhosttyKittyGraphics) -> Result<u64> {
-    let mut generation = 0_u64;
+    graphics_value(graphics, sys::GHOSTTY_KITTY_GRAPHICS_DATA_GENERATION)
+}
+
+fn graphics_value<T: Default>(
+    graphics: sys::GhosttyKittyGraphics,
+    data: sys::GhosttyKittyGraphicsData,
+) -> Result<T> {
+    let mut value = T::default();
     check(unsafe {
-        sys::ghostty_kitty_graphics_get(
-            graphics,
-            sys::GHOSTTY_KITTY_GRAPHICS_DATA_GENERATION,
-            (&mut generation as *mut u64).cast(),
-        )
+        sys::ghostty_kitty_graphics_get(graphics, data, (&mut value as *mut T).cast())
     })?;
-    Ok(generation)
+    Ok(value)
 }
 
 fn terminal_graphics(terminal: &Terminal) -> Result<Option<sys::GhosttyKittyGraphics>> {

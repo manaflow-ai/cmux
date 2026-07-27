@@ -14,6 +14,10 @@ namespace {
 
 constexpr size_t kClientHelloLength = 60;
 constexpr size_t kHostHelloLength = 40;
+constexpr uint64_t kMaxKittyImageBytes = 10'000'000;
+constexpr uint64_t kMaxKittyInflightBytes = 13'595'478;
+constexpr uint64_t kMaxKittyImages = 4'096;
+constexpr uint64_t kMaxKittyPlacements = 16'384;
 
 void AppendU16(std::vector<uint8_t>* output, uint16_t value) {
   output->push_back(static_cast<uint8_t>(value));
@@ -89,6 +93,12 @@ std::optional<TerminalHostMessageKind> ParseMessageKind(uint16_t value) {
       return TerminalHostMessageKind::kCapability;
     case 16:
       return TerminalHostMessageKind::kResizeAck;
+    case 17:
+      return TerminalHostMessageKind::kClearHistoryAck;
+    case 18:
+      return TerminalHostMessageKind::kCellPixelSizeAck;
+    case 19:
+      return TerminalHostMessageKind::kKittyGraphicsLimitsAck;
     case 100:
       return TerminalHostMessageKind::kInput;
     case 101:
@@ -101,6 +111,14 @@ std::optional<TerminalHostMessageKind> ParseMessageKind(uint16_t value) {
       return TerminalHostMessageKind::kTerminate;
     case 105:
       return TerminalHostMessageKind::kMintCapability;
+    case 106:
+      return TerminalHostMessageKind::kSetDefaults;
+    case 107:
+      return TerminalHostMessageKind::kClearHistory;
+    case 108:
+      return TerminalHostMessageKind::kSetCellPixelSize;
+    case 109:
+      return TerminalHostMessageKind::kSetKittyGraphicsLimits;
     default:
       return std::nullopt;
   }
@@ -226,6 +244,15 @@ class PayloadReader {
     return true;
   }
 
+  bool U64(uint64_t* value) {
+    std::string_view bytes;
+    if (!value || !Take(8, &bytes)) {
+      return false;
+    }
+    *value = ReadU64(bytes, 0);
+    return true;
+  }
+
   bool Bytes(size_t limit, std::string_view* bytes) {
     uint32_t length = 0;
     return U32(&length) && length <= limit && Take(length, bytes);
@@ -319,6 +346,55 @@ TerminalHostProtocolError ReadKittyImageAliases(
     return TerminalHostProtocolError::kMalformedPayload;
   }
   *aliases = std::move(decoded);
+  return TerminalHostProtocolError::kNone;
+}
+
+TerminalHostProtocolError ValidateKittyReplayState(
+    const TerminalHostKittyReplayState& state) {
+  if (state.limits.image_bytes > kMaxKittyImageBytes ||
+      state.limits.inflight_bytes > kMaxKittyInflightBytes ||
+      state.limits.images > kMaxKittyImages ||
+      state.limits.placements > kMaxKittyPlacements ||
+      state.replay_next_image_ids.primary == 0 ||
+      state.next_image_ids.primary == 0 ||
+      state.replay_next_image_ids.alternate == 0 ||
+      state.next_image_ids.alternate == 0) {
+    return TerminalHostProtocolError::kMalformedPayload;
+  }
+  return TerminalHostProtocolError::kNone;
+}
+
+void AppendKittyReplayState(std::vector<uint8_t>* output,
+                            const TerminalHostKittyReplayState& state) {
+  AppendU64(output, state.limits.image_bytes);
+  AppendU64(output, state.limits.inflight_bytes);
+  AppendU64(output, state.limits.images);
+  AppendU64(output, state.limits.placements);
+  AppendU32(output, state.replay_cursor_offset);
+  AppendU32(output, state.replay_next_image_ids.primary);
+  AppendU32(output, state.next_image_ids.primary);
+  AppendU32(output, state.replay_next_image_ids.alternate);
+  AppendU32(output, state.next_image_ids.alternate);
+}
+
+TerminalHostProtocolError ReadKittyReplayState(
+    PayloadReader* reader,
+    TerminalHostKittyReplayState* state) {
+  TerminalHostKittyReplayState decoded;
+  if (!reader || !state ||
+      !reader->U64(&decoded.limits.image_bytes) ||
+      !reader->U64(&decoded.limits.inflight_bytes) ||
+      !reader->U64(&decoded.limits.images) ||
+      !reader->U64(&decoded.limits.placements) ||
+      !reader->U32(&decoded.replay_cursor_offset) ||
+      !reader->U32(&decoded.replay_next_image_ids.primary) ||
+      !reader->U32(&decoded.next_image_ids.primary) ||
+      !reader->U32(&decoded.replay_next_image_ids.alternate) ||
+      !reader->U32(&decoded.next_image_ids.alternate) ||
+      ValidateKittyReplayState(decoded) != TerminalHostProtocolError::kNone) {
+    return TerminalHostProtocolError::kMalformedPayload;
+  }
+  *state = decoded;
   return TerminalHostProtocolError::kNone;
 }
 
@@ -929,6 +1005,26 @@ std::string EncodeTerminalHostId(const TerminalHostId& id) {
   return EncodeLowerHex(id);
 }
 
+bool TerminalHostKittyGraphicsLimits::operator==(
+    const TerminalHostKittyGraphicsLimits& other) const {
+  return image_bytes == other.image_bytes &&
+         inflight_bytes == other.inflight_bytes && images == other.images &&
+         placements == other.placements;
+}
+
+bool TerminalHostKittyImageIdCursors::operator==(
+    const TerminalHostKittyImageIdCursors& other) const {
+  return primary == other.primary && alternate == other.alternate;
+}
+
+bool TerminalHostKittyReplayState::operator==(
+    const TerminalHostKittyReplayState& other) const {
+  return limits == other.limits &&
+         replay_cursor_offset == other.replay_cursor_offset &&
+         replay_next_image_ids == other.replay_next_image_ids &&
+         next_image_ids == other.next_image_ids;
+}
+
 TerminalHostSnapshot::TerminalHostSnapshot() = default;
 TerminalHostSnapshot::TerminalHostSnapshot(const TerminalHostSnapshot&) =
     default;
@@ -944,7 +1040,8 @@ bool TerminalHostSnapshot::operator==(const TerminalHostSnapshot& other) const {
          cell_width == other.cell_width && cell_height == other.cell_height &&
          pid == other.pid && replay == other.replay && cwd == other.cwd &&
          command == other.command &&
-         kitty_image_aliases == other.kitty_image_aliases;
+         kitty_image_aliases == other.kitty_image_aliases &&
+         kitty_state == other.kitty_state;
 }
 
 TerminalHostProtocolError EncodeTerminalHostSnapshot(
@@ -961,6 +1058,14 @@ TerminalHostProtocolError EncodeTerminalHostSnapshot(
       ValidateKittyImageAliases(snapshot.kitty_image_aliases);
   if (aliases_error != TerminalHostProtocolError::kNone) {
     return aliases_error;
+  }
+  const TerminalHostProtocolError state_error =
+      ValidateKittyReplayState(snapshot.kitty_state);
+  if (state_error != TerminalHostProtocolError::kNone) {
+    return state_error;
+  }
+  if (snapshot.kitty_state.replay_cursor_offset > snapshot.replay.size()) {
+    return TerminalHostProtocolError::kMalformedPayload;
   }
   std::vector<uint8_t> encoded;
   AppendU16(&encoded, snapshot.cols);
@@ -983,6 +1088,7 @@ TerminalHostProtocolError EncodeTerminalHostSnapshot(
   AppendKittyImageAliases(&encoded, snapshot.kitty_image_aliases);
   AppendU16(&encoded, std::max<uint16_t>(snapshot.cell_width, 1));
   AppendU16(&encoded, std::max<uint16_t>(snapshot.cell_height, 1));
+  AppendKittyReplayState(&encoded, snapshot.kitty_state);
   if (encoded.size() > kTerminalHostMaxFramePayload) {
     return TerminalHostProtocolError::kPayloadTooLarge;
   }
@@ -1042,14 +1148,23 @@ TerminalHostProtocolError DecodeTerminalHostSnapshotForVersion(
     }
     decoded.command.push_back(std::move(argument));
   }
-  if (protocol_version >= kTerminalHostProtocolVersion &&
+  if (protocol_version >= kTerminalHostProtocolVersionV2 &&
       ReadKittyImageAliases(&reader, &decoded.kitty_image_aliases) !=
           TerminalHostProtocolError::kNone) {
     return TerminalHostProtocolError::kMalformedPayload;
   }
-  if (protocol_version >= kTerminalHostProtocolVersion &&
+  if (protocol_version >= kTerminalHostProtocolVersionV2 &&
       (!reader.U16(&decoded.cell_width) ||
        !reader.U16(&decoded.cell_height))) {
+    return TerminalHostProtocolError::kMalformedPayload;
+  }
+  if (protocol_version >= kTerminalHostProtocolVersion &&
+      ReadKittyReplayState(&reader, &decoded.kitty_state) !=
+          TerminalHostProtocolError::kNone) {
+    return TerminalHostProtocolError::kMalformedPayload;
+  }
+  if (protocol_version >= kTerminalHostProtocolVersion &&
+      decoded.kitty_state.replay_cursor_offset > decoded.replay.size()) {
     return TerminalHostProtocolError::kMalformedPayload;
   }
   decoded.cell_width = std::max<uint16_t>(decoded.cell_width, 1);
@@ -1074,7 +1189,8 @@ bool TerminalHostResize::operator==(const TerminalHostResize& other) const {
   return cols == other.cols && rows == other.rows &&
          cell_width == other.cell_width && cell_height == other.cell_height &&
          replay == other.replay &&
-         kitty_image_aliases == other.kitty_image_aliases;
+         kitty_image_aliases == other.kitty_image_aliases &&
+         kitty_state == other.kitty_state;
 }
 
 TerminalHostProtocolError EncodeTerminalHostResize(
@@ -1091,6 +1207,14 @@ TerminalHostProtocolError EncodeTerminalHostResize(
   if (aliases_error != TerminalHostProtocolError::kNone) {
     return aliases_error;
   }
+  const TerminalHostProtocolError state_error =
+      ValidateKittyReplayState(resize.kitty_state);
+  if (state_error != TerminalHostProtocolError::kNone) {
+    return state_error;
+  }
+  if (resize.kitty_state.replay_cursor_offset > resize.replay.size()) {
+    return TerminalHostProtocolError::kMalformedPayload;
+  }
   std::vector<uint8_t> encoded;
   encoded.reserve(14 + resize.replay.size() +
                   resize.kitty_image_aliases.size() * 8);
@@ -1101,6 +1225,7 @@ TerminalHostProtocolError EncodeTerminalHostResize(
   AppendKittyImageAliases(&encoded, resize.kitty_image_aliases);
   AppendU16(&encoded, std::max<uint16_t>(resize.cell_width, 1));
   AppendU16(&encoded, std::max<uint16_t>(resize.cell_height, 1));
+  AppendKittyReplayState(&encoded, resize.kitty_state);
   if (encoded.size() > kTerminalHostMaxFramePayload) {
     return TerminalHostProtocolError::kPayloadTooLarge;
   }
@@ -1136,14 +1261,23 @@ TerminalHostProtocolError DecodeTerminalHostResizeForVersion(
     return TerminalHostProtocolError::kMalformedPayload;
   }
   decoded.replay.assign(replay.begin(), replay.end());
-  if (protocol_version >= kTerminalHostProtocolVersion &&
+  if (protocol_version >= kTerminalHostProtocolVersionV2 &&
       ReadKittyImageAliases(&reader, &decoded.kitty_image_aliases) !=
           TerminalHostProtocolError::kNone) {
     return TerminalHostProtocolError::kMalformedPayload;
   }
-  if (protocol_version >= kTerminalHostProtocolVersion &&
+  if (protocol_version >= kTerminalHostProtocolVersionV2 &&
       (!reader.U16(&decoded.cell_width) ||
        !reader.U16(&decoded.cell_height))) {
+    return TerminalHostProtocolError::kMalformedPayload;
+  }
+  if (protocol_version >= kTerminalHostProtocolVersion &&
+      ReadKittyReplayState(&reader, &decoded.kitty_state) !=
+          TerminalHostProtocolError::kNone) {
+    return TerminalHostProtocolError::kMalformedPayload;
+  }
+  if (protocol_version >= kTerminalHostProtocolVersion &&
+      decoded.kitty_state.replay_cursor_offset > decoded.replay.size()) {
     return TerminalHostProtocolError::kMalformedPayload;
   }
   if (!reader.finished()) {

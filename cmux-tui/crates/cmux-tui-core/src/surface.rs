@@ -18,8 +18,9 @@ use std::sync::{Arc, Condvar, Mutex, TryLockError, Weak};
 use std::time::{Duration, Instant};
 
 use ghostty_vt::{
-    Callbacks, ClearHistoryOutcome, CursorShape, Dirty, KeyEncoder, KeyInput, MouseEncoders,
-    MouseInput, RenderFrame, RenderState, Rgb, Screen, Terminal, TerminalColorOverrides,
+    Callbacks, ClearHistoryOutcome, CursorShape, Dirty, KeyEncoder, KeyInput, KittyGraphicsLimits,
+    KittyReplayState, MouseEncoders, MouseInput, RenderFrame, RenderState, Rgb, Screen, Terminal,
+    TerminalColorOverrides,
 };
 use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 
@@ -205,6 +206,7 @@ pub struct AttachStream {
     pub rows: u16,
     pub replay: Arc<[u8]>,
     pub kitty_image_aliases: Vec<ghostty_vt::KittyImageAlias>,
+    pub kitty_state: KittyReplayState,
     pub colors: TerminalColors,
     pub stream: AttachFrameReceiver,
     pub(crate) lifecycle: AttachLifecycle,
@@ -224,6 +226,7 @@ pub enum AttachFrame {
         rows: u16,
         replay: Arc<[u8]>,
         kitty_image_aliases: Vec<ghostty_vt::KittyImageAlias>,
+        kitty_state: KittyReplayState,
     },
     /// One parser transition: `replay` is theme-portable, so `colors` is part
     /// of the same replacement snapshot rather than a subsequent callback.
@@ -232,6 +235,7 @@ pub enum AttachFrame {
         rows: u16,
         replay: Arc<[u8]>,
         kitty_image_aliases: Vec<ghostty_vt::KittyImageAlias>,
+        kitty_state: KittyReplayState,
         colors: Box<TerminalColors>,
     },
     ColorsChanged(Arc<TerminalColors>),
@@ -254,6 +258,7 @@ enum HostedTransition {
         cell_pixels: (u16, u16),
         replay: Vec<u8>,
         kitty_image_aliases: Vec<ghostty_vt::KittyImageAlias>,
+        kitty_state: KittyReplayState,
         colors: TerminalColorOverrides,
     },
     Metadata(MessageKind),
@@ -271,6 +276,7 @@ enum PendingHostedTransition {
         cell_pixels: (u16, u16),
         replay: Vec<u8>,
         kitty_image_aliases: Vec<ghostty_vt::KittyImageAlias>,
+        kitty_state: KittyReplayState,
     },
 }
 
@@ -322,12 +328,14 @@ impl HostedFrameStager {
                     cell_pixels,
                     replay,
                     kitty_image_aliases,
+                    kitty_state,
                 } => HostedTransition::ResizedWithColors {
                     cols,
                     rows,
                     cell_pixels,
                     replay,
                     kitty_image_aliases,
+                    kitty_state,
                     colors,
                 },
             }));
@@ -352,6 +360,7 @@ impl HostedFrameStager {
                     cell_pixels,
                     replay,
                     kitty_image_aliases,
+                    kitty_state,
                 } = crate::terminal_host_runtime::decode_host_resize_payload_for_version(
                     &frame.payload,
                     self.protocol_version,
@@ -363,6 +372,7 @@ impl HostedFrameStager {
                     cell_pixels,
                     replay,
                     kitty_image_aliases,
+                    kitty_state,
                 });
                 Ok(None)
             }
@@ -903,25 +913,6 @@ struct PtyGeometry {
     rows: u16,
     cell_width: u16,
     cell_height: u16,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct KittyGraphicsLimits {
-    bytes: u64,
-    inflight_bytes: u64,
-    images: u64,
-    placements: u64,
-}
-
-impl Default for KittyGraphicsLimits {
-    fn default() -> Self {
-        Self {
-            bytes: ghostty_vt::MAX_KITTY_IMAGE_BYTES as u64,
-            inflight_bytes: ghostty_vt::KITTY_INFLIGHT_REPLAY_MAX_BYTES as u64,
-            images: ghostty_vt::MAX_KITTY_IMAGES,
-            placements: ghostty_vt::MAX_KITTY_PLACEMENTS,
-        }
-    }
 }
 
 impl PtyGeometry {
@@ -1799,8 +1790,11 @@ impl Surface {
             term.set_default_palette(&colors.palette);
             replace_ghostty_cursor_defaults(&mut term, colors);
         }
-        term.vt_write(&snapshot.replay);
-        term.restore_kitty_image_aliases(&snapshot.kitty_image_aliases)?;
+        term.apply_vt_replay_parts(
+            &snapshot.replay,
+            &snapshot.kitty_image_aliases,
+            snapshot.kitty_state,
+        )?;
         let initial_color_delta = terminal_color_override_full_state(&snapshot.colors);
         if !initial_color_delta.is_empty() {
             term.vt_write(&initial_color_delta);
@@ -1840,7 +1834,7 @@ impl Surface {
                 cell_width: snapshot.cell_pixels.0,
                 cell_height: snapshot.cell_pixels.1,
             }),
-            kitty_graphics_limits: Box::new(Mutex::new(KittyGraphicsLimits::default())),
+            kitty_graphics_limits: Box::new(Mutex::new(snapshot.kitty_state.limits)),
             #[cfg(test)]
             geometry_test_hook: Mutex::new(None),
             #[cfg(test)]
@@ -1862,7 +1856,6 @@ impl Surface {
             render_generation: AtomicU64::new(1),
             frame_requests,
         }));
-        surface.register_kitty_image_budget()?;
         Self::install_deferred_cell_pixel_handler(&surface, &control_responses);
         spawn_frame_producer(&surface, frame_rx)?;
 
@@ -1891,6 +1884,7 @@ impl Surface {
                             frame.kind,
                             MessageKind::Capability
                                 | MessageKind::CellPixelSizeAck
+                                | MessageKind::KittyGraphicsLimitsAck
                                 | MessageKind::ClearHistoryAck
                         ) && frame.request_id != 0
                         {
@@ -2002,6 +1996,7 @@ impl Surface {
                                 cell_pixels,
                                 replay,
                                 kitty_image_aliases,
+                                kitty_state,
                                 colors,
                             } => {
                                 let mut geometry = pty.geometry.lock().unwrap();
@@ -2025,15 +2020,6 @@ impl Surface {
                                 else {
                                     break;
                                 };
-                                let kitty_limits = *pty.kitty_graphics_limits.lock().unwrap();
-                                if Self::configure_terminal_kitty_graphics_limits(
-                                    &mut replacement,
-                                    kitty_limits,
-                                )
-                                .is_err()
-                                {
-                                    break;
-                                }
                                 if replacement
                                     .resize(
                                         cols,
@@ -2052,9 +2038,12 @@ impl Surface {
                                 );
                                 replacement.set_default_palette(&defaults.palette);
                                 replace_ghostty_cursor_defaults(&mut replacement, defaults);
-                                replacement.vt_write(&replay);
                                 if replacement
-                                    .restore_kitty_image_aliases(&kitty_image_aliases)
+                                    .apply_vt_replay_parts(
+                                        &replay,
+                                        &kitty_image_aliases,
+                                        kitty_state,
+                                    )
                                     .is_err()
                                 {
                                     break;
@@ -2075,6 +2064,7 @@ impl Surface {
                                     *geometry = next_geometry;
                                     *pty.title.lock().unwrap() = title.clone();
                                     *pty.pwd.lock().unwrap() = pwd;
+                                    *pty.kitty_graphics_limits.lock().unwrap() = kitty_state.limits;
                                     applied_color_overrides = colors;
                                     let after = terminal_scroll_position(&term);
                                     if before != after {
@@ -2089,6 +2079,7 @@ impl Surface {
                                         rows,
                                         replay: replay.into(),
                                         kitty_image_aliases,
+                                        kitty_state,
                                         colors: Box::new(
                                             pty.terminal_colors_locked(&term, defaults),
                                         ),
@@ -2289,19 +2280,6 @@ impl Surface {
                             }
                             continue;
                         };
-                        let kitty_limits = *pty.kitty_graphics_limits.lock().unwrap();
-                        if Self::configure_terminal_kitty_graphics_limits(
-                            &mut replacement_term,
-                            kitty_limits,
-                        )
-                        .is_err()
-                        {
-                            if !wait_for_reconnect_after_geometry_failure(&mut retry, pty, geometry)
-                            {
-                                return;
-                            }
-                            continue;
-                        }
                         if replacement_term
                             .resize(
                                 next_geometry.cols,
@@ -2324,9 +2302,12 @@ impl Surface {
                         );
                         replacement_term.set_default_palette(&defaults.palette);
                         replace_ghostty_cursor_defaults(&mut replacement_term, defaults);
-                        replacement_term.vt_write(&replacement_snapshot.replay);
                         if replacement_term
-                            .restore_kitty_image_aliases(&replacement_snapshot.kitty_image_aliases)
+                            .apply_vt_replay_parts(
+                                &replacement_snapshot.replay,
+                                &replacement_snapshot.kitty_image_aliases,
+                                replacement_snapshot.kitty_state,
+                            )
                             .is_err()
                         {
                             if !wait_for_reconnect_after_geometry_failure(&mut retry, pty, geometry)
@@ -2350,12 +2331,15 @@ impl Surface {
                             *geometry = next_geometry;
                             *pty.title.lock().unwrap() = title.clone();
                             *pty.pwd.lock().unwrap() = pwd;
+                            *pty.kitty_graphics_limits.lock().unwrap() =
+                                replacement_snapshot.kitty_state.limits;
                             applied_color_overrides = replacement_snapshot.colors;
                             pty.broadcast_attach_frame(AttachFrame::ResizedWithColors {
                                 cols: replacement_snapshot.cols,
                                 rows: replacement_snapshot.rows,
                                 replay: replacement_snapshot.replay.into(),
                                 kitty_image_aliases: replacement_snapshot.kitty_image_aliases,
+                                kitty_state: replacement_snapshot.kitty_state,
                                 colors: Box::new(pty.terminal_colors_locked(&term, defaults)),
                             });
                             pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
@@ -2392,6 +2376,17 @@ impl Surface {
                 }
             }
         })?;
+        if let Err(error) = surface.register_kitty_image_budget() {
+            if let Some(pty) = surface.as_pty()
+                && let PtyRuntime::Hosted(host) = &*pty.runtime.lock().unwrap()
+            {
+                if terminate_on_error {
+                    let _ = host.terminate();
+                }
+                host.disconnect();
+            }
+            return Err(error);
+        }
         if terminate_on_error
             && let Some(pty) = surface.as_pty()
             && let PtyRuntime::Hosted(host) = &mut *pty.runtime.lock().unwrap()
@@ -2698,20 +2693,7 @@ impl Surface {
         terminal: &mut Terminal,
         limits: KittyGraphicsLimits,
     ) -> anyhow::Result<bool> {
-        let generation = terminal.kitty_graphics_generation()?;
-        terminal.set_kitty_inflight_storage_limit(limits.inflight_bytes);
-        terminal.set_kitty_image_count_limit(limits.images)?;
-        if terminal.set_kitty_placement_count_limit(limits.placements).is_err() {
-            // Placement reductions preserve visible state by default. Under
-            // process pressure, release the old scene before installing the
-            // lower limit so a surface cannot retain an unbounded exception.
-            terminal.set_kitty_image_storage_limit(0)?;
-            terminal.set_kitty_placement_count_limit(limits.placements)?;
-        }
-        // Run this after count eviction even when the byte value is unchanged:
-        // it also prunes the replay-side pixel cache against native ownership.
-        terminal.set_kitty_image_storage_limit(limits.bytes)?;
-        Ok(terminal.kitty_graphics_generation()? != generation)
+        terminal.set_kitty_graphics_limits(limits).map_err(Into::into)
     }
 
     pub(crate) fn set_kitty_graphics_limits(
@@ -2724,15 +2706,42 @@ impl Surface {
         let Some(pty) = self.as_pty() else {
             return Ok(());
         };
-        let next = KittyGraphicsLimits { bytes, inflight_bytes, images, placements };
-        let mut limits = pty.kitty_graphics_limits.lock().unwrap();
-        if *limits == next {
-            return Ok(());
-        }
+        let requested =
+            KittyGraphicsLimits { image_bytes: bytes, inflight_bytes, images, placements };
+        let requested = requested
+            .validate()
+            .map_err(|_| anyhow::anyhow!("Kitty graphics limits are out of range"))?;
+        #[cfg(unix)]
+        let next = {
+            let runtime = pty.runtime.lock().unwrap();
+            if let PtyRuntime::Hosted(host) = &*runtime {
+                if *pty.kitty_graphics_limits.lock().unwrap() == requested {
+                    return Ok(());
+                }
+                if host.send_kitty_graphics_limits(requested)? {
+                    // The host publishes a complete replacement before its
+                    // acknowledgement. The reader has therefore committed the
+                    // authoritative parser and cache before this returns.
+                    return Ok(());
+                }
+                // Older hosts cannot carry Kitty sidecar state. Keep the
+                // disposable mirror disabled so it cannot silently diverge.
+                KittyGraphicsLimits::disabled()
+            } else {
+                requested
+            }
+        };
+        #[cfg(not(unix))]
+        let next = requested;
         let graphics_changed = {
             let mut term = pty.term.lock().unwrap();
+            let mut limits = pty.kitty_graphics_limits.lock().unwrap();
+            if *limits == next {
+                return Ok(());
+            }
             let graphics_changed = Self::configure_terminal_kitty_graphics_limits(&mut term, next)?;
             *limits = next;
+            pty.resynchronize_attach_taps_locked(&mut term);
             if graphics_changed {
                 let mut render = pty.render.lock().unwrap();
                 render.state.clear_kitty_graphics_cache();
@@ -2741,7 +2750,6 @@ impl Surface {
             }
             graphics_changed
         };
-        drop(limits);
         if !graphics_changed {
             return Ok(());
         }
@@ -3385,6 +3393,7 @@ impl Surface {
             rows,
             replay: replay.bytes.into(),
             kitty_image_aliases: replay.kitty_image_aliases,
+            kitty_state: replay.kitty_state,
             colors,
             stream: AttachFrameReceiver {
                 receiver: rx,
@@ -3736,6 +3745,44 @@ impl PtySurface {
         self.taps.lock().unwrap().retain(|tap| tap.try_send(frame.clone()));
     }
 
+    /// Replace every byte-stream mirror after a sidecar-only state change.
+    /// Limit eviction has no PTY bytes, so continuing the old stream without
+    /// this replay would leave mirrors on a different Kitty scene.
+    fn resynchronize_attach_taps_locked(&self, term: &mut Terminal) {
+        {
+            let mut taps = self.taps.lock().unwrap();
+            taps.retain(|tap| !tap.lifecycle.is_canceled());
+            if taps.is_empty() {
+                return;
+            }
+        }
+        let replay = match term.vt_replay_bounded(VT_REPLAY_MAX_BYTES) {
+            Ok(replay) => replay,
+            Err(_) => {
+                let mut taps = self.taps.lock().unwrap();
+                for tap in &*taps {
+                    tap.lifecycle.cancel();
+                }
+                taps.clear();
+                return;
+            }
+        };
+        let defaults = self.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
+        let colors = Box::new(self.terminal_colors_locked(term, defaults));
+        self.attach_colors_pending.store(false, Ordering::Release);
+        self.attach_colors_force_pending.store(false, Ordering::Release);
+        *self.last_attach_colors.lock().unwrap() =
+            Some(Box::new(TerminalColors::from_pty_output(term, defaults)));
+        self.broadcast_attach_frame(AttachFrame::ResizedWithColors {
+            cols: term.cols(),
+            rows: term.rows(),
+            replay: replay.bytes.into(),
+            kitty_image_aliases: replay.kitty_image_aliases,
+            kitty_state: replay.kitty_state,
+            colors,
+        });
+    }
+
     /// Emit at most one latest effective palette snapshot per frame cadence.
     /// The caller holds `term`, so attach registration cannot interleave with
     /// the snapshot or miss a state transition.
@@ -4039,6 +4086,7 @@ impl PtySurface {
                 rows: next.rows,
                 replay: replay.bytes.into(),
                 kitty_image_aliases: replay.kitty_image_aliases,
+                kitty_state: replay.kitty_state,
                 colors,
             });
         }
@@ -4188,6 +4236,18 @@ mod tests {
     use base64::Engine as _;
 
     use super::*;
+
+    fn append_disabled_kitty_replay_state(payload: &mut Vec<u8>) {
+        for _ in 0..4 {
+            payload.extend_from_slice(&0u64.to_le_bytes());
+        }
+        payload.extend_from_slice(&0u32.to_le_bytes());
+        for _ in 0..4 {
+            payload.extend_from_slice(
+                &ghostty_vt::KittyImageIdCursors::DEFAULT_NEXT_IMAGE_ID.to_le_bytes(),
+            );
+        }
+    }
 
     #[test]
     fn surface_enum_keeps_terminal_state_out_of_line() {
@@ -4710,6 +4770,7 @@ mod tests {
             rows: 24,
             replay: vec![7; 1024].into(),
             kitty_image_aliases: Vec::new(),
+            kitty_state: KittyReplayState::disabled(),
             colors: Box::new(TerminalColors::default()),
         });
 
@@ -4739,6 +4800,7 @@ mod tests {
             payload.extend_from_slice(&0u16.to_le_bytes());
             payload.extend_from_slice(&9u16.to_le_bytes());
             payload.extend_from_slice(&18u16.to_le_bytes());
+            append_disabled_kitty_replay_state(&mut payload);
             payload
         });
         resize.flags = FLAG_COLORS_FOLLOW;
@@ -4766,6 +4828,7 @@ mod tests {
                 replay,
                 kitty_image_aliases,
                 colors: received,
+                ..
             } => {
                 assert_eq!((cols, rows), (101, 37));
                 assert_eq!(cell_pixels, (9, 18));
@@ -4803,6 +4866,7 @@ mod tests {
         payload.extend_from_slice(&77u32.to_le_bytes());
         payload.extend_from_slice(&9u16.to_le_bytes());
         payload.extend_from_slice(&18u16.to_le_bytes());
+        append_disabled_kitty_replay_state(&mut payload);
 
         let mut stager = HostedFrameStager::new(8);
         let mut resize = Frame::new(MessageKind::Resized, payload);
@@ -5275,7 +5339,7 @@ mod tests {
         surface.resize(81, 24).unwrap();
         let (cols, rows, replay, kitty_image_aliases) =
             match attach.stream.recv_timeout(Duration::from_secs(2)).unwrap() {
-                AttachFrame::Resized { cols, rows, replay, kitty_image_aliases }
+                AttachFrame::Resized { cols, rows, replay, kitty_image_aliases, .. }
                 | AttachFrame::ResizedWithColors {
                     cols, rows, replay, kitty_image_aliases, ..
                 } => (cols, rows, replay, kitty_image_aliases),

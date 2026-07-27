@@ -41,11 +41,125 @@ fn kitty_replay_image_encodings() -> usize {
     KITTY_REPLAY_IMAGE_ENCODINGS.get()
 }
 
-/// Terminal state replay plus Kitty aliases that cannot share one APC command.
+/// Per-terminal Kitty resource limits that every byte-stream emulator must
+/// share to make admission and eviction deterministic.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct KittyGraphicsLimits {
+    pub image_bytes: u64,
+    pub inflight_bytes: u64,
+    pub images: u64,
+    pub placements: u64,
+}
+
+impl KittyGraphicsLimits {
+    pub const fn disabled() -> Self {
+        Self { image_bytes: 0, inflight_bytes: 0, images: 0, placements: 0 }
+    }
+
+    pub fn validate(self) -> Result<Self> {
+        if self.image_bytes > MAX_KITTY_IMAGE_BYTES as u64
+            || self.inflight_bytes > KITTY_INFLIGHT_REPLAY_MAX_BYTES as u64
+            || self.images > MAX_KITTY_IMAGES
+            || self.placements > MAX_KITTY_PLACEMENTS
+        {
+            return Err(Error::InvalidValue);
+        }
+        Ok(self)
+    }
+}
+
+impl Default for KittyGraphicsLimits {
+    fn default() -> Self {
+        Self {
+            image_bytes: DEFAULT_KITTY_IMAGE_STORAGE_LIMIT,
+            inflight_bytes: KITTY_INFLIGHT_REPLAY_MAX_BYTES as u64,
+            images: DEFAULT_KITTY_IMAGE_COUNT_LIMIT,
+            placements: DEFAULT_KITTY_PLACEMENT_COUNT_LIMIT,
+        }
+    }
+}
+
+/// Per-screen automatic Kitty image-ID cursors.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct KittyImageIdCursors {
+    pub primary: u32,
+    pub alternate: u32,
+}
+
+impl KittyImageIdCursors {
+    pub const DEFAULT_NEXT_IMAGE_ID: u32 = 2_147_483_647;
+
+    pub const fn defaults() -> Self {
+        Self { primary: Self::DEFAULT_NEXT_IMAGE_ID, alternate: Self::DEFAULT_NEXT_IMAGE_ID }
+    }
+
+    fn validate(self) -> Result<Self> {
+        if self.primary == 0 || self.alternate == 0 {
+            return Err(Error::InvalidValue);
+        }
+        Ok(self)
+    }
+}
+
+impl Default for KittyImageIdCursors {
+    fn default() -> Self {
+        Self::defaults()
+    }
+}
+
+/// Kitty state that cannot be represented by protocol escape sequences.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct KittyReplayState {
+    pub limits: KittyGraphicsLimits,
+    /// Byte offset where replay must restore `replay_next_image_ids`.
+    /// Prefix bytes may contain a synthetic terminal reset; suffix bytes can
+    /// contain an in-flight upload that allocates an automatic ID.
+    pub replay_cursor_offset: u32,
+    /// Per-screen cursors installed at `replay_cursor_offset`. A cursor may
+    /// point at an automatic ID already reserved by an in-flight multipart upload.
+    pub replay_next_image_ids: KittyImageIdCursors,
+    /// Per-screen steady-state cursors restored after replay bytes and aliases.
+    pub next_image_ids: KittyImageIdCursors,
+}
+
+impl KittyReplayState {
+    pub const fn disabled() -> Self {
+        Self {
+            limits: KittyGraphicsLimits::disabled(),
+            replay_cursor_offset: 0,
+            replay_next_image_ids: KittyImageIdCursors::defaults(),
+            next_image_ids: KittyImageIdCursors::defaults(),
+        }
+    }
+
+    pub fn validate(self) -> Result<Self> {
+        self.limits.validate()?;
+        self.replay_next_image_ids.validate()?;
+        self.next_image_ids.validate()?;
+        Ok(self)
+    }
+
+    pub fn validate_for_replay(self, replay_len: usize) -> Result<Self> {
+        let state = self.validate()?;
+        if state.replay_cursor_offset as usize > replay_len {
+            return Err(Error::InvalidValue);
+        }
+        Ok(state)
+    }
+}
+
+impl Default for KittyReplayState {
+    fn default() -> Self {
+        Self::disabled()
+    }
+}
+
+/// Terminal state replay plus Kitty metadata that cannot share one APC command.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct VtReplay {
     pub bytes: Vec<u8>,
     pub kitty_image_aliases: Vec<KittyImageAlias>,
+    pub kitty_state: KittyReplayState,
 }
 
 /// RGB color triple.
@@ -2228,6 +2342,96 @@ impl Terminal {
         Ok(())
     }
 
+    /// Apply one complete replay sidecar and byte stream to this terminal.
+    pub fn apply_vt_replay(&mut self, replay: &VtReplay) -> Result<()> {
+        self.apply_vt_replay_parts(&replay.bytes, &replay.kitty_image_aliases, replay.kitty_state)
+    }
+
+    /// Apply replay bytes and their non-VT sidecar through the same ordering
+    /// used by owned [`VtReplay`] values.
+    pub fn apply_vt_replay_parts(
+        &mut self,
+        bytes: &[u8],
+        kitty_image_aliases: &[KittyImageAlias],
+        kitty_state: KittyReplayState,
+    ) -> Result<()> {
+        let kitty_state = kitty_state.validate_for_replay(bytes.len())?;
+        self.set_kitty_graphics_limits(kitty_state.limits)?;
+        let cursor_offset = kitty_state.replay_cursor_offset as usize;
+        self.vt_write(&bytes[..cursor_offset]);
+        self.set_kitty_image_id_cursors(kitty_state.replay_next_image_ids)?;
+        self.vt_write(&bytes[cursor_offset..]);
+        // Protocol-v1/v2 peers cannot carry the replay sidecar. Their safe
+        // compatibility state disables graphics, so aliases for discarded
+        // replay images must also be discarded.
+        if kitty_state.limits != KittyGraphicsLimits::disabled() {
+            self.restore_kitty_image_aliases(kitty_image_aliases)?;
+        }
+        self.set_kitty_image_id_cursors(kitty_state.next_image_ids)
+    }
+
+    fn kitty_replay_state(&self, replay_cursor_offset: u32) -> Result<KittyReplayState> {
+        let raw: sys::GhosttyTerminalKittyImageIdCursorState =
+            self.get(sys::GHOSTTY_TERMINAL_DATA_KITTY_IMAGE_ID_CURSORS)?;
+        Ok(KittyReplayState {
+            limits: self.kitty_graphics_limits()?,
+            replay_cursor_offset,
+            replay_next_image_ids: KittyImageIdCursors {
+                primary: raw.replay.primary,
+                alternate: raw.replay.alternate,
+            }
+            .validate()?,
+            next_image_ids: KittyImageIdCursors {
+                primary: raw.next.primary,
+                alternate: raw.next.alternate,
+            }
+            .validate()?,
+        })
+    }
+
+    fn set_kitty_image_id_cursors(&mut self, cursors: KittyImageIdCursors) -> Result<()> {
+        let cursors = cursors.validate()?;
+        let raw = sys::GhosttyTerminalKittyImageIdCursors {
+            primary: cursors.primary,
+            alternate: cursors.alternate,
+        };
+        check(unsafe {
+            sys::ghostty_terminal_set(
+                self.raw,
+                sys::GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_ID_CURSORS,
+                (&raw as *const sys::GhosttyTerminalKittyImageIdCursors).cast(),
+            )
+        })
+    }
+
+    pub fn kitty_graphics_limits(&self) -> Result<KittyGraphicsLimits> {
+        Ok(KittyGraphicsLimits {
+            image_bytes: self.kitty_image_storage_limit()?,
+            inflight_bytes: self.kitty_inflight_storage_limit(),
+            images: self.kitty_image_count_limit()?,
+            placements: self.kitty_placement_count_limit()?,
+        })
+    }
+
+    /// Apply all Kitty limits through one shared path. Returns whether native
+    /// image or placement content changed.
+    pub fn set_kitty_graphics_limits(&mut self, limits: KittyGraphicsLimits) -> Result<bool> {
+        let limits = limits.validate()?;
+        let generation = self.kitty_graphics_generation()?;
+        self.set_kitty_inflight_storage_limit(limits.inflight_bytes);
+        self.set_kitty_image_count_limit(limits.images)?;
+        if self.set_kitty_placement_count_limit(limits.placements).is_err() {
+            // Placement reductions preserve visible state by default. Under
+            // pressure, release the old scene before installing the bound.
+            self.set_kitty_image_storage_limit(0)?;
+            self.set_kitty_placement_count_limit(limits.placements)?;
+        }
+        // Run after count eviction even when the byte value is unchanged so
+        // the replay pixel cache is pruned against native ownership.
+        self.set_kitty_image_storage_limit(limits.image_bytes)?;
+        Ok(self.kitty_graphics_generation()? != generation)
+    }
+
     /// Set the active terminal's bounded Kitty image storage in bytes.
     pub fn set_kitty_image_storage_limit(&mut self, bytes: u64) -> Result<()> {
         check(unsafe {
@@ -2728,8 +2932,13 @@ impl Terminal {
         let mut bytes = Vec::with_capacity(total);
         bytes.extend_from_slice(&graphics.image_bytes);
         bytes.extend_from_slice(&interleaved);
+        let replay_cursor_offset = u32::try_from(bytes.len()).map_err(|_| Error::OutOfSpace)?;
         bytes.extend_from_slice(&inflight);
-        Ok(VtReplay { bytes, kitty_image_aliases: graphics.aliases })
+        Ok(VtReplay {
+            bytes,
+            kitty_image_aliases: graphics.aliases,
+            kitty_state: self.kitty_replay_state(replay_cursor_offset)?,
+        })
     }
 
     /// Bounded byte-only compatibility replay. This discards Kitty aliases.

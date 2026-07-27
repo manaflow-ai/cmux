@@ -7,7 +7,10 @@
 
 use std::path::{Path, PathBuf};
 
-use ghostty_vt::{KeyInput, KittyImageAlias, Rgb, TerminalColorOverrides};
+use ghostty_vt::{
+    KeyInput, KittyGraphicsLimits, KittyImageAlias, KittyImageIdCursors, KittyReplayState, Rgb,
+    TerminalColorOverrides,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::surface::{
@@ -43,12 +46,16 @@ const HOST_HANDSHAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_se
 const MAX_HOST_CLIENT_QUEUED_BYTES: usize = MAX_FRAME_PAYLOAD
     + MAX_TERMINAL_COLORS_PAYLOAD
     + CELL_PIXEL_SIZE_ENCODED_LEN
+    + KITTY_REPLAY_STATE_ENCODED_LEN
     + 3 * crate::terminal_host_protocol::HEADER_LEN;
 const HOST_START_NONCE_LEN: usize = 32;
 const TERMINAL_DIMENSION_MAX: u16 = 10_000;
 const TERMINAL_CELL_AREA_MAX: u64 = 4_000_000;
 const DEFAULT_CELL_PIXELS: (u16, u16) = (8, 16);
 const CELL_PIXEL_SIZE_ENCODED_LEN: usize = 2 * size_of::<u16>();
+const KITTY_GRAPHICS_LIMITS_ENCODED_LEN: usize = 4 * size_of::<u64>();
+const KITTY_REPLAY_STATE_ENCODED_LEN: usize =
+    KITTY_GRAPHICS_LIMITS_ENCODED_LEN + 5 * size_of::<u32>();
 const TERMINAL_COLORS_WIRE_VERSION_V1: u16 = 1;
 pub const TERMINAL_COLORS_WIRE_VERSION: u16 = 2;
 pub const MAX_TERMINAL_COLORS_PAYLOAD: usize = 8 + 3 * 3 + 2 + 256 * 4;
@@ -59,6 +66,7 @@ const _: () = assert!(
         + KITTY_IMAGE_ALIAS_COUNT_LEN
         + MAX_KITTY_IMAGE_ALIASES * KITTY_IMAGE_ALIAS_ENCODED_LEN
         + CELL_PIXEL_SIZE_ENCODED_LEN
+        + KITTY_REPLAY_STATE_ENCODED_LEN
         <= MAX_FRAME_PAYLOAD
 );
 
@@ -154,6 +162,7 @@ pub struct HostSnapshot {
     pub cell_pixels: (u16, u16),
     pub replay: Vec<u8>,
     pub kitty_image_aliases: Vec<KittyImageAlias>,
+    pub kitty_state: KittyReplayState,
     /// Global live-stream sequence at the atomic Snapshot/Colors boundary.
     pub sequence_boundary: u64,
     /// Complete application-authored color state at `sequence_boundary`.
@@ -985,6 +994,40 @@ mod unix {
             Ok(true)
         }
 
+        /// Commit Kitty resource limits in the authoritative host before
+        /// returning control to the disposable mirror. Protocol-v1/v2 hosts
+        /// cannot synchronize this sidecar state and therefore keep graphics
+        /// disabled in new mirrors.
+        pub fn send_kitty_graphics_limits(
+            &self,
+            limits: KittyGraphicsLimits,
+        ) -> anyhow::Result<bool> {
+            if self.protocol_version < 3 {
+                return Ok(false);
+            }
+            let limits = limits
+                .validate()
+                .map_err(|_| anyhow::anyhow!("Kitty graphics limits are out of range"))?;
+            let mut payload = Vec::with_capacity(KITTY_GRAPHICS_LIMITS_ENCODED_LEN);
+            encode_kitty_graphics_limits(&mut payload, limits)?;
+            let response = self
+                .send_control_request(
+                    MessageKind::SetKittyGraphicsLimits,
+                    MessageKind::KittyGraphicsLimitsAck,
+                    payload,
+                )
+                .map_err(ClearHistoryFailure::into_error)
+                .context("terminal host did not acknowledge Kitty graphics limits")?;
+            let mut decoder = PayloadDecoder::new(&response);
+            let acknowledged = decode_kitty_graphics_limits(&mut decoder)?;
+            decoder.finish()?;
+            if acknowledged != limits {
+                self.disconnect();
+                anyhow::bail!("terminal host acknowledged different Kitty graphics limits");
+            }
+            Ok(true)
+        }
+
         fn defer_or_receive_raced_cell_pixel_ack(
             &self,
             request_id: u64,
@@ -1593,29 +1636,21 @@ mod unix {
         record_path: PathBuf,
         handshake_timeout: Duration,
     ) -> anyhow::Result<HostAttachment> {
-        match connect_record_at_version(
-            record.clone(),
-            record_path.clone(),
-            handshake_timeout,
-            PROTOCOL_VERSION,
-        ) {
-            Ok(attachment) => Ok(attachment),
-            Err(current_error) if PROTOCOL_VERSION != LEGACY_PROTOCOL_VERSION => {
-                connect_record_at_version(
-                    record,
-                    record_path,
-                    handshake_timeout,
-                    LEGACY_PROTOCOL_VERSION,
-                )
-                .with_context(|| {
-                    format!(
-                        "terminal-host protocol {PROTOCOL_VERSION} handshake failed before the \
-                         protocol-{LEGACY_PROTOCOL_VERSION} adoption fallback: {current_error:#}"
-                    )
-                })
+        let mut failures = Vec::new();
+        for protocol_version in (LEGACY_PROTOCOL_VERSION..=PROTOCOL_VERSION).rev() {
+            match connect_record_at_version(
+                record.clone(),
+                record_path.clone(),
+                handshake_timeout,
+                protocol_version,
+            ) {
+                Ok(attachment) => return Ok(attachment),
+                Err(error) => {
+                    failures.push(format!("protocol {protocol_version}: {error:#}"));
+                }
             }
-            Err(error) => Err(error),
         }
+        anyhow::bail!("terminal-host adoption failed: {}", failures.join("; "))
     }
 
     fn connect_record_at_version(
@@ -2172,6 +2207,7 @@ mod unix {
                         &replay.bytes,
                         &replay.kitty_image_aliases,
                         next,
+                        replay.kitty_state,
                     )?,
                 );
                 resized.flags = FLAG_COLORS_FOLLOW;
@@ -2200,6 +2236,79 @@ mod unix {
                 &self.sequence,
                 &self.taps,
                 transition.into_iter().flatten(),
+                Some((target, ack)),
+            ))
+        }
+
+        fn set_kitty_graphics_limits(
+            &self,
+            limits: KittyGraphicsLimits,
+            request_id: u64,
+            target: &HostTap,
+        ) -> anyhow::Result<bool> {
+            let limits = limits
+                .validate()
+                .map_err(|_| anyhow::anyhow!("Kitty graphics limits are out of range"))?;
+            let size = *self.size.lock().unwrap();
+            let cell_pixels = *self.cell_pixels.lock().unwrap();
+            let mut term = self.term.lock().unwrap();
+            term.preflight_vt_replay_bounded(crate::surface::VT_REPLAY_MAX_BYTES)
+                .context("could not preflight terminal-host Kitty limit replay")?;
+            if let Err(error) = term.set_kitty_graphics_limits(limits) {
+                let mut taps = self.taps.lock().unwrap();
+                for tap in taps.values() {
+                    tap.close();
+                }
+                taps.clear();
+                target.close();
+                return Err(error.into());
+            }
+            let replay = match term
+                .vt_replay_bounded_theme_portable_with_aliases(crate::surface::VT_REPLAY_MAX_BYTES)
+            {
+                Ok(replay) => replay,
+                Err(error) => {
+                    // The authoritative limit change may already have evicted
+                    // state. Disconnect every mirror so none can continue from
+                    // the pre-eviction scene.
+                    let mut taps = self.taps.lock().unwrap();
+                    for tap in taps.values() {
+                        tap.close();
+                    }
+                    taps.clear();
+                    target.close();
+                    return Err(error.into());
+                }
+            };
+            let mut resized = Frame::new(
+                MessageKind::Resized,
+                encode_resize(
+                    size.0,
+                    size.1,
+                    &replay.bytes,
+                    &replay.kitty_image_aliases,
+                    cell_pixels,
+                    replay.kitty_state,
+                )?,
+            );
+            resized.flags = FLAG_COLORS_FOLLOW;
+            let mut ack_payload = Vec::with_capacity(KITTY_GRAPHICS_LIMITS_ENCODED_LEN);
+            encode_kitty_graphics_limits(&mut ack_payload, limits)?;
+            let mut ack = Frame::new(MessageKind::KittyGraphicsLimitsAck, ack_payload);
+            ack.request_id = request_id;
+            // The parser stays locked until all mirrors receive one complete
+            // replacement and the requester receives its acknowledgement.
+            Ok(publish_host_frames_and_targeted(
+                &self.broadcast_lock,
+                &self.sequence,
+                &self.taps,
+                [
+                    resized,
+                    Frame::new(
+                        MessageKind::Colors,
+                        encode_terminal_color_overrides(&term.color_overrides()),
+                    ),
+                ],
                 Some((target, ack)),
             ))
         }
@@ -2286,6 +2395,7 @@ mod unix {
                     &replay.bytes,
                     &replay.kitty_image_aliases,
                     *cell_pixels,
+                    replay.kitty_state,
                 )?,
             );
             resized.flags = FLAG_COLORS_FOLLOW;
@@ -3012,6 +3122,7 @@ mod unix {
                     cell_pixels,
                     replay: replay.bytes,
                     kitty_image_aliases: replay.kitty_image_aliases,
+                    kitty_state: replay.kitty_state,
                     sequence_boundary: 0,
                     colors: colors.clone(),
                     pid: host.pid,
@@ -3137,6 +3248,30 @@ mod unix {
                             break;
                         }
                     }
+                    MessageKind::SetKittyGraphicsLimits
+                        if frame.request_id != 0
+                            && frame.payload.len() == KITTY_GRAPHICS_LIMITS_ENCODED_LEN =>
+                    {
+                        if !granted_rights.contains(CapabilityRights::MINT_CAPABILITY) {
+                            break;
+                        }
+                        let mut decoder = PayloadDecoder::new(&frame.payload);
+                        let Ok(limits) = decode_kitty_graphics_limits(&mut decoder) else {
+                            break;
+                        };
+                        if decoder.finish().is_err()
+                            || !matches!(
+                                command_host.set_kitty_graphics_limits(
+                                    limits,
+                                    frame.request_id,
+                                    &command_sender,
+                                ),
+                                Ok(true)
+                            )
+                        {
+                            break;
+                        }
+                    }
                     MessageKind::ClearHistory => {
                         if !granted_rights.contains(CapabilityRights::INPUT)
                             || frame.request_id == 0
@@ -3257,6 +3392,10 @@ mod unix {
 
     fn encode_snapshot(snapshot: &HostSnapshot) -> anyhow::Result<Vec<u8>> {
         let (cols, rows) = normalize_terminal_geometry(snapshot.cols, snapshot.rows)?;
+        snapshot
+            .kitty_state
+            .validate_for_replay(snapshot.replay.len())
+            .map_err(|_| anyhow::anyhow!("terminal-host Kitty replay offset is invalid"))?;
         let mut output = Vec::new();
         output.extend_from_slice(&cols.to_le_bytes());
         output.extend_from_slice(&rows.to_le_bytes());
@@ -3273,6 +3412,7 @@ mod unix {
         encode_kitty_image_aliases(&mut output, &snapshot.kitty_image_aliases)?;
         output.extend_from_slice(&snapshot.cell_pixels.0.max(1).to_le_bytes());
         output.extend_from_slice(&snapshot.cell_pixels.1.max(1).to_le_bytes());
+        encode_kitty_replay_state(&mut output, snapshot.kitty_state)?;
         if output.len() > MAX_FRAME_PAYLOAD {
             anyhow::bail!("terminal-host snapshot payload is too large");
         }
@@ -3317,6 +3457,13 @@ mod unix {
         } else {
             DEFAULT_CELL_PIXELS
         };
+        let kitty_state = if protocol_version >= 3 {
+            decode_kitty_replay_state(&mut decoder)?
+                .validate_for_replay(replay.len())
+                .map_err(|_| anyhow::anyhow!("terminal-host Kitty replay offset is invalid"))?
+        } else {
+            KittyReplayState::disabled()
+        };
         pty_size(cols, rows, cell_pixels)?;
         decoder.finish()?;
         Ok(HostSnapshot {
@@ -3325,6 +3472,7 @@ mod unix {
             cell_pixels,
             replay,
             kitty_image_aliases,
+            kitty_state,
             sequence_boundary: 0,
             colors: TerminalColorOverrides::default(),
             pid,
@@ -3362,14 +3510,86 @@ mod unix {
         Ok(aliases)
     }
 
+    fn encode_kitty_graphics_limits(
+        output: &mut Vec<u8>,
+        limits: KittyGraphicsLimits,
+    ) -> anyhow::Result<()> {
+        let limits = limits
+            .validate()
+            .map_err(|_| anyhow::anyhow!("terminal-host Kitty graphics limits are out of range"))?;
+        output.extend_from_slice(&limits.image_bytes.to_le_bytes());
+        output.extend_from_slice(&limits.inflight_bytes.to_le_bytes());
+        output.extend_from_slice(&limits.images.to_le_bytes());
+        output.extend_from_slice(&limits.placements.to_le_bytes());
+        Ok(())
+    }
+
+    fn decode_kitty_graphics_limits(
+        decoder: &mut PayloadDecoder<'_>,
+    ) -> anyhow::Result<KittyGraphicsLimits> {
+        KittyGraphicsLimits {
+            image_bytes: decoder.u64()?,
+            inflight_bytes: decoder.u64()?,
+            images: decoder.u64()?,
+            placements: decoder.u64()?,
+        }
+        .validate()
+        .map_err(|_| anyhow::anyhow!("terminal-host Kitty graphics limits are out of range"))
+    }
+
+    fn encode_kitty_replay_state(
+        output: &mut Vec<u8>,
+        state: KittyReplayState,
+    ) -> anyhow::Result<()> {
+        let state = state
+            .validate()
+            .map_err(|_| anyhow::anyhow!("terminal-host Kitty replay state is invalid"))?;
+        encode_kitty_graphics_limits(output, state.limits)?;
+        output.extend_from_slice(&state.replay_cursor_offset.to_le_bytes());
+        output.extend_from_slice(&state.replay_next_image_ids.primary.to_le_bytes());
+        output.extend_from_slice(&state.next_image_ids.primary.to_le_bytes());
+        output.extend_from_slice(&state.replay_next_image_ids.alternate.to_le_bytes());
+        output.extend_from_slice(&state.next_image_ids.alternate.to_le_bytes());
+        Ok(())
+    }
+
+    fn decode_kitty_replay_state(
+        decoder: &mut PayloadDecoder<'_>,
+    ) -> anyhow::Result<KittyReplayState> {
+        let limits = decode_kitty_graphics_limits(decoder)?;
+        let replay_cursor_offset = decoder.u32()?;
+        let primary_replay_next_image_id = decoder.u32()?;
+        let primary_next_image_id = decoder.u32()?;
+        let alternate_replay_next_image_id = decoder.u32()?;
+        let alternate_next_image_id = decoder.u32()?;
+        KittyReplayState {
+            limits,
+            replay_cursor_offset,
+            replay_next_image_ids: KittyImageIdCursors {
+                primary: primary_replay_next_image_id,
+                alternate: alternate_replay_next_image_id,
+            },
+            next_image_ids: KittyImageIdCursors {
+                primary: primary_next_image_id,
+                alternate: alternate_next_image_id,
+            },
+        }
+        .validate()
+        .map_err(|_| anyhow::anyhow!("terminal-host Kitty replay state is invalid"))
+    }
+
     fn encode_resize(
         cols: u16,
         rows: u16,
         replay: &[u8],
         kitty_image_aliases: &[KittyImageAlias],
         cell_pixels: (u16, u16),
+        kitty_state: KittyReplayState,
     ) -> anyhow::Result<Vec<u8>> {
         let (cols, rows) = normalize_terminal_geometry(cols, rows)?;
+        kitty_state
+            .validate_for_replay(replay.len())
+            .map_err(|_| anyhow::anyhow!("terminal-host Kitty replay offset is invalid"))?;
         let cell_pixels = (cell_pixels.0.max(1), cell_pixels.1.max(1));
         pty_size(cols, rows, cell_pixels)?;
         if replay.len() > crate::surface::VT_REPLAY_MAX_BYTES {
@@ -3381,7 +3601,8 @@ mod unix {
             8 + replay.len()
                 + KITTY_IMAGE_ALIAS_COUNT_LEN
                 + kitty_image_aliases.len() * KITTY_IMAGE_ALIAS_ENCODED_LEN
-                + CELL_PIXEL_SIZE_ENCODED_LEN,
+                + CELL_PIXEL_SIZE_ENCODED_LEN
+                + KITTY_REPLAY_STATE_ENCODED_LEN,
         );
         output.extend_from_slice(&cols.to_le_bytes());
         output.extend_from_slice(&rows.to_le_bytes());
@@ -3390,6 +3611,7 @@ mod unix {
         encode_kitty_image_aliases(&mut output, kitty_image_aliases)?;
         output.extend_from_slice(&cell_pixels.0.to_le_bytes());
         output.extend_from_slice(&cell_pixels.1.to_le_bytes());
+        encode_kitty_replay_state(&mut output, kitty_state)?;
         if output.len() > MAX_FRAME_PAYLOAD {
             anyhow::bail!("terminal-host resize payload is too large");
         }
@@ -3403,6 +3625,7 @@ mod unix {
         pub cell_pixels: (u16, u16),
         pub replay: Vec<u8>,
         pub kitty_image_aliases: Vec<KittyImageAlias>,
+        pub kitty_state: KittyReplayState,
     }
 
     #[cfg(test)]
@@ -3430,9 +3653,16 @@ mod unix {
         } else {
             DEFAULT_CELL_PIXELS
         };
+        let kitty_state = if protocol_version >= 3 {
+            decode_kitty_replay_state(&mut decoder)?
+                .validate_for_replay(replay.len())
+                .map_err(|_| anyhow::anyhow!("terminal-host Kitty replay offset is invalid"))?
+        } else {
+            KittyReplayState::disabled()
+        };
         pty_size(cols, rows, cell_pixels)?;
         decoder.finish()?;
-        Ok(DecodedHostResize { cols, rows, cell_pixels, replay, kitty_image_aliases })
+        Ok(DecodedHostResize { cols, rows, cell_pixels, replay, kitty_image_aliases, kitty_state })
     }
 
     fn encode_resize_ack(cols: u16, rows: u16, canonical_changed: bool) -> Vec<u8> {
@@ -3550,6 +3780,10 @@ mod unix {
             Ok(u32::from_le_bytes(self.take(4)?.try_into().unwrap()))
         }
 
+        fn u64(&mut self) -> anyhow::Result<u64> {
+            Ok(u64::from_le_bytes(self.take(8)?.try_into().unwrap()))
+        }
+
         fn bytes_with_limit(&mut self, limit: usize) -> anyhow::Result<&'a [u8]> {
             let length = self.u32()? as usize;
             if length > limit {
@@ -3620,6 +3854,20 @@ mod unix {
     #[cfg(test)]
     mod tests {
         use super::*;
+
+        fn test_kitty_state() -> KittyReplayState {
+            KittyReplayState {
+                limits: KittyGraphicsLimits {
+                    image_bytes: 1,
+                    inflight_bytes: 2,
+                    images: 3,
+                    placements: 4,
+                },
+                replay_cursor_offset: 0,
+                replay_next_image_ids: KittyImageIdCursors { primary: 5, alternate: 7 },
+                next_image_ids: KittyImageIdCursors { primary: 6, alternate: 8 },
+            }
+        }
 
         struct TestHostMaster {
             size: Mutex<PtySize>,
@@ -3827,8 +4075,20 @@ mod unix {
         #[test]
         fn resized_payload_is_length_prefixed_for_cross_language_clients() {
             assert_eq!(
-                encode_resize(0x0123, 0x0456, &[0xaa, 0xbb, 0xcc], &[], (9, 18)).unwrap(),
-                vec![0x23, 0x01, 0x56, 0x04, 3, 0, 0, 0, 0xaa, 0xbb, 0xcc, 0, 0, 9, 0, 18, 0,]
+                encode_resize(
+                    0x0123,
+                    0x0456,
+                    &[0xaa, 0xbb, 0xcc],
+                    &[],
+                    (9, 18),
+                    test_kitty_state(),
+                )
+                .unwrap(),
+                vec![
+                    0x23, 0x01, 0x56, 0x04, 3, 0, 0, 0, 0xaa, 0xbb, 0xcc, 0, 0, 9, 0, 18, 0, 1, 0,
+                    0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 6, 0, 0, 0, 7, 0, 0, 0, 8, 0, 0, 0,
+                ]
             );
         }
 
@@ -3843,6 +4103,7 @@ mod unix {
                     KittyImageAlias { image_id: 41, image_number: 77 },
                     KittyImageAlias { image_id: 42, image_number: 77 },
                 ],
+                kitty_state: test_kitty_state(),
                 sequence_boundary: 0,
                 colors: TerminalColorOverrides::default(),
                 pid: Some(42),
@@ -3854,6 +4115,7 @@ mod unix {
             let decoded =
                 decode_snapshot(&payload).expect("snapshot decoder must retain Kitty aliases");
             assert_eq!(decoded.kitty_image_aliases, snapshot.kitty_image_aliases);
+            assert_eq!(decoded.kitty_state, snapshot.kitty_state);
             assert_eq!(decoded.cell_pixels, snapshot.cell_pixels);
             assert_eq!(
                 encode_snapshot(&decoded).unwrap(),
@@ -3863,13 +4125,14 @@ mod unix {
         }
 
         #[test]
-        fn snapshot_payload_matches_the_cross_language_v2_golden_bytes() {
+        fn snapshot_payload_matches_the_cross_language_v3_golden_bytes() {
             let snapshot = HostSnapshot {
                 cols: 1,
                 rows: 2,
                 cell_pixels: (9, 18),
                 replay: Vec::new(),
                 kitty_image_aliases: Vec::new(),
+                kitty_state: test_kitty_state(),
                 sequence_boundary: 0,
                 colors: TerminalColorOverrides::default(),
                 pid: None,
@@ -3879,47 +4142,94 @@ mod unix {
 
             assert_eq!(
                 encode_snapshot(&snapshot).unwrap(),
-                vec![1, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9, 0, 18, 0,]
+                vec![
+                    1, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9, 0, 18, 0, 1, 0, 0, 0, 0,
+                    0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 5, 0, 0, 0, 6, 0, 0, 0, 7, 0, 0, 0, 8, 0, 0, 0,
+                ]
             );
         }
 
         #[test]
-        fn protocol_one_snapshot_and_resize_decode_without_alias_tails() {
+        fn legacy_snapshots_and_resizes_decode_without_newer_tails() {
             let snapshot = HostSnapshot {
                 cols: 80,
                 rows: 24,
-                cell_pixels: DEFAULT_CELL_PIXELS,
+                cell_pixels: (9, 18),
                 replay: b"legacy replay".to_vec(),
-                kitty_image_aliases: Vec::new(),
+                kitty_image_aliases: vec![KittyImageAlias { image_id: 41, image_number: 77 }],
+                kitty_state: test_kitty_state(),
                 sequence_boundary: 0,
                 colors: TerminalColorOverrides::default(),
                 pid: Some(42),
                 command: vec!["/bin/cat".into()],
                 cwd: Some("/tmp".into()),
             };
-            let mut snapshot_payload = encode_snapshot(&snapshot).unwrap();
-            snapshot_payload.truncate(
-                snapshot_payload.len() - KITTY_IMAGE_ALIAS_COUNT_LEN - CELL_PIXEL_SIZE_ENCODED_LEN,
-            );
-            let decoded =
-                decode_snapshot_for_version(&snapshot_payload, LEGACY_PROTOCOL_VERSION).unwrap();
+            let snapshot_payload = encode_snapshot(&snapshot).unwrap();
+            let v2_snapshot_len = snapshot_payload.len() - KITTY_REPLAY_STATE_ENCODED_LEN;
+            let decoded = decode_snapshot_for_version(&snapshot_payload[..v2_snapshot_len], 2)
+                .expect("protocol-v2 snapshots end after cell metrics");
+            assert_eq!(decoded.replay, snapshot.replay);
+            assert_eq!(decoded.kitty_image_aliases, snapshot.kitty_image_aliases);
+            assert_eq!(decoded.cell_pixels, snapshot.cell_pixels);
+            assert_eq!(decoded.kitty_state, KittyReplayState::disabled());
+
+            let v1_snapshot_len = snapshot_payload.len()
+                - KITTY_IMAGE_ALIAS_COUNT_LEN
+                - snapshot.kitty_image_aliases.len() * KITTY_IMAGE_ALIAS_ENCODED_LEN
+                - CELL_PIXEL_SIZE_ENCODED_LEN
+                - KITTY_REPLAY_STATE_ENCODED_LEN;
+            let decoded = decode_snapshot_for_version(
+                &snapshot_payload[..v1_snapshot_len],
+                LEGACY_PROTOCOL_VERSION,
+            )
+            .expect("protocol-v1 snapshots end before Kitty aliases");
             assert_eq!(decoded.replay, snapshot.replay);
             assert!(decoded.kitty_image_aliases.is_empty());
+            assert_eq!(decoded.cell_pixels, DEFAULT_CELL_PIXELS);
+            assert_eq!(decoded.kitty_state, KittyReplayState::disabled());
 
-            let mut resize_payload =
-                encode_resize(81, 25, b"legacy resize", &[], DEFAULT_CELL_PIXELS).unwrap();
-            resize_payload.truncate(
-                resize_payload.len() - KITTY_IMAGE_ALIAS_COUNT_LEN - CELL_PIXEL_SIZE_ENCODED_LEN,
-            );
+            let resize_payload = encode_resize(
+                81,
+                25,
+                b"legacy resize",
+                &snapshot.kitty_image_aliases,
+                snapshot.cell_pixels,
+                test_kitty_state(),
+            )
+            .unwrap();
+            let v2_resize_len = resize_payload.len() - KITTY_REPLAY_STATE_ENCODED_LEN;
             assert_eq!(
-                decode_host_resize_payload_for_version(&resize_payload, LEGACY_PROTOCOL_VERSION,)
+                decode_host_resize_payload_for_version(&resize_payload[..v2_resize_len], 2)
                     .unwrap(),
+                DecodedHostResize {
+                    cols: 81,
+                    rows: 25,
+                    cell_pixels: snapshot.cell_pixels,
+                    replay: b"legacy resize".to_vec(),
+                    kitty_image_aliases: snapshot.kitty_image_aliases.clone(),
+                    kitty_state: KittyReplayState::disabled(),
+                }
+            );
+
+            let v1_resize_len = resize_payload.len()
+                - KITTY_IMAGE_ALIAS_COUNT_LEN
+                - snapshot.kitty_image_aliases.len() * KITTY_IMAGE_ALIAS_ENCODED_LEN
+                - CELL_PIXEL_SIZE_ENCODED_LEN
+                - KITTY_REPLAY_STATE_ENCODED_LEN;
+            assert_eq!(
+                decode_host_resize_payload_for_version(
+                    &resize_payload[..v1_resize_len],
+                    LEGACY_PROTOCOL_VERSION,
+                )
+                .unwrap(),
                 DecodedHostResize {
                     cols: 81,
                     rows: 25,
                     cell_pixels: DEFAULT_CELL_PIXELS,
                     replay: b"legacy resize".to_vec(),
                     kitty_image_aliases: Vec::new(),
+                    kitty_state: KittyReplayState::disabled(),
                 }
             );
         }
@@ -3927,7 +4237,8 @@ mod unix {
         #[test]
         fn resize_alias_section_preserves_number_history_and_rejects_malformed_data() {
             let alias = KittyImageAlias { image_id: 41, image_number: 77 };
-            let valid = encode_resize(80, 24, b"replay", &[alias], (9, 18)).unwrap();
+            let valid =
+                encode_resize(80, 24, b"replay", &[alias], (9, 18), test_kitty_state()).unwrap();
             assert_eq!(
                 decode_host_resize_payload(&valid).unwrap(),
                 DecodedHostResize {
@@ -3936,6 +4247,7 @@ mod unix {
                     cell_pixels: (9, 18),
                     replay: b"replay".to_vec(),
                     kitty_image_aliases: vec![alias],
+                    kitty_state: test_kitty_state(),
                 }
             );
 
@@ -3949,7 +4261,8 @@ mod unix {
                 KittyImageAlias { image_id: 42, image_number: 77 },
             ];
             let duplicate_numbers =
-                encode_resize(80, 24, b"replay", &duplicate_aliases, (9, 18)).unwrap();
+                encode_resize(80, 24, b"replay", &duplicate_aliases, (9, 18), test_kitty_state())
+                    .unwrap();
             assert_eq!(
                 decode_host_resize_payload(&duplicate_numbers).unwrap(),
                 DecodedHostResize {
@@ -3958,12 +4271,27 @@ mod unix {
                     cell_pixels: (9, 18),
                     replay: b"replay".to_vec(),
                     kitty_image_aliases: duplicate_aliases.to_vec(),
+                    kitty_state: test_kitty_state(),
                 }
             );
 
             let mut truncated = valid.clone();
             truncated.pop();
             assert!(decode_host_resize_payload(&truncated).is_err());
+
+            let mut invalid_offset = valid.clone();
+            let state_offset = alias_offset
+                + KITTY_IMAGE_ALIAS_COUNT_LEN
+                + KITTY_IMAGE_ALIAS_ENCODED_LEN
+                + CELL_PIXEL_SIZE_ENCODED_LEN;
+            invalid_offset[state_offset + KITTY_GRAPHICS_LIMITS_ENCODED_LEN
+                ..state_offset + KITTY_GRAPHICS_LIMITS_ENCODED_LEN + size_of::<u32>()]
+                .copy_from_slice(&7u32.to_le_bytes());
+            assert!(decode_host_resize_payload(&invalid_offset).is_err());
+
+            let mut invalid_state = test_kitty_state();
+            invalid_state.replay_cursor_offset = 7;
+            assert!(encode_resize(80, 24, b"replay", &[alias], (9, 18), invalid_state).is_err());
 
             let mut trailing = valid;
             trailing.push(0);
@@ -3989,6 +4317,7 @@ mod unix {
                     cell_pixels: DEFAULT_CELL_PIXELS,
                     replay: Vec::new(),
                     kitty_image_aliases: Vec::new(),
+                    kitty_state: test_kitty_state(),
                     sequence_boundary: 0,
                     colors: TerminalColorOverrides::default(),
                     pid: None,
@@ -4039,6 +4368,7 @@ mod unix {
                     cell_pixels: DEFAULT_CELL_PIXELS,
                     replay: Vec::new(),
                     kitty_image_aliases: Vec::new(),
+                    kitty_state: test_kitty_state(),
                     sequence_boundary: 0,
                     colors: TerminalColorOverrides::default(),
                     pid: None,
@@ -4254,6 +4584,7 @@ mod unix {
                     cell_pixels: DEFAULT_CELL_PIXELS,
                     replay: Vec::new(),
                     kitty_image_aliases: Vec::new(),
+                    kitty_state: test_kitty_state(),
                     sequence_boundary: 0,
                     colors: TerminalColorOverrides::default(),
                     pid: None,
@@ -4356,13 +4687,61 @@ mod unix {
             let resized = renderer_rx.recv_timeout(Duration::from_secs(1)).unwrap();
             assert_eq!(resized.kind, MessageKind::Resized);
             assert_eq!(resized.flags, FLAG_COLORS_FOLLOW);
-            assert_eq!(&resized.payload[resized.payload.len() - 4..], &[9, 0, 18, 0]);
+            assert_eq!(decode_host_resize_payload(&resized.payload).unwrap().cell_pixels, (9, 18));
             let colors = renderer_rx.recv_timeout(Duration::from_secs(1)).unwrap();
             assert_eq!(colors.kind, MessageKind::Colors);
             assert!(colors.sequence > resized.sequence);
             let ack = target_rx.recv_timeout(Duration::from_secs(1)).unwrap();
             assert_eq!(ack.kind, MessageKind::CellPixelSizeAck);
             assert_eq!(ack.request_id, 42);
+        }
+
+        #[test]
+        fn kitty_limit_commit_replaces_live_mirrors_before_ack() {
+            let host = test_host_shared();
+            host.term
+                .lock()
+                .unwrap()
+                .vt_write(b"\x1b_Ga=T,t=d,f=24,i=41,p=7,s=1,v=1,c=1,r=1,q=2;AAAA\x1b\\");
+            let (target_socket, _target_peer) = UnixStream::pair().unwrap();
+            let (target_tx, target_rx) = sync_channel(3);
+            let target = HostTap {
+                sender: target_tx,
+                queued_bytes: Arc::new(AtomicUsize::new(0)),
+                shutdown: Arc::new(target_socket),
+                max_queued_bytes: usize::MAX,
+            };
+            host.taps.lock().unwrap().insert(1, target.clone());
+            let limits = KittyGraphicsLimits::disabled();
+
+            assert!(host.set_kitty_graphics_limits(limits, 43, &target).unwrap());
+
+            let resized = target_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            assert_eq!(resized.kind, MessageKind::Resized);
+            assert_eq!(resized.flags, FLAG_COLORS_FOLLOW);
+            let decoded = decode_host_resize_payload(&resized.payload).unwrap();
+            assert_eq!(decoded.kitty_state.limits, limits);
+            let colors = target_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            assert_eq!(colors.kind, MessageKind::Colors);
+            assert!(colors.sequence > resized.sequence);
+            let ack = target_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            assert_eq!(ack.kind, MessageKind::KittyGraphicsLimitsAck);
+            assert_eq!(ack.request_id, 43);
+            let mut decoder = PayloadDecoder::new(&ack.payload);
+            assert_eq!(decode_kitty_graphics_limits(&mut decoder).unwrap(), limits);
+            decoder.finish().unwrap();
+
+            let mut mirror =
+                Terminal::new(decoded.cols, decoded.rows, 0, Callbacks::default()).unwrap();
+            mirror
+                .apply_vt_replay(&ghostty_vt::VtReplay {
+                    bytes: decoded.replay,
+                    kitty_image_aliases: decoded.kitty_image_aliases,
+                    kitty_state: decoded.kitty_state,
+                })
+                .unwrap();
+            assert!(mirror.kitty_graphics_snapshot().unwrap().images.is_empty());
+            assert_eq!(mirror.kitty_graphics_limits().unwrap(), limits);
         }
 
         #[test]
@@ -4379,11 +4758,12 @@ mod unix {
             let expected_replay = b"protocol-one-live-state".to_vec();
             let host_replay = expected_replay.clone();
             let fake_host = thread::spawn(move || {
-                let (mut first, _) = listener.accept().unwrap();
-                let first_hello = read_required_frame(&mut first, "current-version hello").unwrap();
-                assert_eq!(first_hello.kind, MessageKind::ClientHello);
-                assert_eq!(first_hello.version, PROTOCOL_VERSION);
-                drop(first);
+                for rejected_version in ((LEGACY_PROTOCOL_VERSION + 1)..=PROTOCOL_VERSION).rev() {
+                    let (mut rejected, _) = listener.accept().unwrap();
+                    let hello = read_required_frame(&mut rejected, "newer-version hello").unwrap();
+                    assert_eq!(hello.kind, MessageKind::ClientHello);
+                    assert_eq!(hello.version, rejected_version);
+                }
 
                 let (mut legacy, _) = listener.accept().unwrap();
                 let legacy_hello = read_required_frame(&mut legacy, "legacy hello").unwrap();
@@ -4412,6 +4792,7 @@ mod unix {
                     cell_pixels: DEFAULT_CELL_PIXELS,
                     replay: host_replay,
                     kitty_image_aliases: Vec::new(),
+                    kitty_state: test_kitty_state(),
                     sequence_boundary: 0,
                     colors: TerminalColorOverrides::default(),
                     pid: Some(42),
@@ -4420,7 +4801,10 @@ mod unix {
                 };
                 let mut payload = encode_snapshot(&snapshot).unwrap();
                 payload.truncate(
-                    payload.len() - KITTY_IMAGE_ALIAS_COUNT_LEN - CELL_PIXEL_SIZE_ENCODED_LEN,
+                    payload.len()
+                        - KITTY_IMAGE_ALIAS_COUNT_LEN
+                        - CELL_PIXEL_SIZE_ENCODED_LEN
+                        - KITTY_REPLAY_STATE_ENCODED_LEN,
                 );
                 let mut frame = Frame::new(MessageKind::Snapshot, payload);
                 frame.version = LEGACY_PROTOCOL_VERSION;

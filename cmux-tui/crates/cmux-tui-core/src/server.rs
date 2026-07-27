@@ -32,8 +32,8 @@ use std::time::{Duration, Instant};
 
 use base64::Engine;
 use ghostty_vt::{
-    Dirty, KeyAction, KeyEncoder, KeyInput, Mods, StyledRun, UnderlineStyle, key_input_from_chord,
-    rows_to_runs, sys,
+    Dirty, KeyAction, KeyEncoder, KeyInput, KittyReplayState, Mods, StyledRun, UnderlineStyle,
+    key_input_from_chord, rows_to_runs, sys,
 };
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -1607,6 +1607,8 @@ impl RenderService {
         }
         writer.write_all(b"\",\"kitty_image_aliases\":")?;
         write_kitty_image_aliases_json(&mut writer, &value.kitty_image_aliases)?;
+        writer.write_all(b",\"kitty_graphics_state\":")?;
+        write_kitty_replay_state_json(&mut writer, value.kitty_state)?;
         writer.write_all(b",\"colors\":")?;
         serde_json::to_writer(&mut writer, &value.colors).map_err(json_error_to_io)?;
         writer.write_all(b"}")?;
@@ -1633,7 +1635,7 @@ impl RenderService {
                     .map_err(json_error_to_io)?;
                 writer.write_all(b"}")?;
             }
-            AttachFrame::Resized { cols, rows, replay, kitty_image_aliases } => {
+            AttachFrame::Resized { cols, rows, replay, kitty_image_aliases, kitty_state } => {
                 write!(
                     writer,
                     "{{\"event\":\"resized\",\"surface\":{surface},\"cols\":{cols},\"rows\":{rows},\"replay\":\""
@@ -1641,9 +1643,18 @@ impl RenderService {
                 write_base64_json_string(&mut writer, replay)?;
                 writer.write_all(b"\",\"kitty_image_aliases\":")?;
                 write_kitty_image_aliases_json(&mut writer, kitty_image_aliases)?;
+                writer.write_all(b",\"kitty_graphics_state\":")?;
+                write_kitty_replay_state_json(&mut writer, *kitty_state)?;
                 writer.write_all(b"}")?;
             }
-            AttachFrame::ResizedWithColors { cols, rows, replay, kitty_image_aliases, colors } => {
+            AttachFrame::ResizedWithColors {
+                cols,
+                rows,
+                replay,
+                kitty_image_aliases,
+                kitty_state,
+                colors,
+            } => {
                 write!(
                     writer,
                     "{{\"event\":\"resized\",\"surface\":{surface},\"cols\":{cols},\"rows\":{rows},\"replay\":\""
@@ -1651,6 +1662,8 @@ impl RenderService {
                 write_base64_json_string(&mut writer, replay)?;
                 writer.write_all(b"\",\"kitty_image_aliases\":")?;
                 write_kitty_image_aliases_json(&mut writer, kitty_image_aliases)?;
+                writer.write_all(b",\"kitty_graphics_state\":")?;
+                write_kitty_replay_state_json(&mut writer, *kitty_state)?;
                 writer.write_all(b",\"colors\":")?;
                 serde_json::to_writer(&mut writer, &terminal_colors_json(**colors))
                     .map_err(json_error_to_io)?;
@@ -1701,6 +1714,30 @@ fn write_kitty_image_aliases_json(
         )?;
     }
     writer.write_all(b"]")
+}
+
+fn write_kitty_replay_state_json(
+    writer: &mut BudgetedJsonWriter,
+    state: KittyReplayState,
+) -> std::io::Result<()> {
+    write!(
+        writer,
+        concat!(
+            "{{\"image_bytes\":{},\"inflight_bytes\":{},\"images\":{},\"placements\":{},",
+            "\"replay_cursor_offset\":{},",
+            "\"primary_replay_next_image_id\":{},\"primary_next_image_id\":{},",
+            "\"alternate_replay_next_image_id\":{},\"alternate_next_image_id\":{}}}"
+        ),
+        state.limits.image_bytes,
+        state.limits.inflight_bytes,
+        state.limits.images,
+        state.limits.placements,
+        state.replay_cursor_offset,
+        state.replay_next_image_ids.primary,
+        state.next_image_ids.primary,
+        state.replay_next_image_ids.alternate,
+        state.next_image_ids.alternate,
+    )
 }
 
 #[derive(Clone)]
@@ -3576,6 +3613,7 @@ fn send_vt_state_command_response(
         rows,
         &replay.bytes,
         &replay.kitty_image_aliases,
+        replay.kitty_state,
     )?;
     writer.send_serialized_control(output.finish())?;
     Ok(())
@@ -3588,6 +3626,7 @@ fn write_vt_state_command_json(
     rows: u16,
     replay: &[u8],
     kitty_image_aliases: &[ghostty_vt::KittyImageAlias],
+    kitty_state: KittyReplayState,
 ) -> std::io::Result<()> {
     output.write_all(b"{")?;
     if let Some(id) = id {
@@ -3606,6 +3645,8 @@ fn write_vt_state_command_json(
     }
     output.write_all(b"\",\"kitty_image_aliases\":")?;
     write_kitty_image_aliases_json(output, kitty_image_aliases)?;
+    output.write_all(b",\"kitty_graphics_state\":")?;
+    write_kitty_replay_state_json(output, kitty_state)?;
     output.write_all(b"}}")?;
     Ok(())
 }
@@ -4210,6 +4251,7 @@ struct VtStateMessage {
     rows: u16,
     replay: Arc<[u8]>,
     kitty_image_aliases: Vec<ghostty_vt::KittyImageAlias>,
+    kitty_state: KittyReplayState,
     colors: Value,
 }
 
@@ -6352,6 +6394,7 @@ fn handle_command_with_cancellation(
                 rows: attach.rows,
                 replay: attach.replay.clone(),
                 kitty_image_aliases: attach.kitty_image_aliases.clone(),
+                kitty_state: attach.kitty_state,
                 colors: terminal_colors_json(attach.colors),
             };
             if let Err(error) = writer.send_initial_vt_state(&initial, &outbound_stream) {
@@ -7108,6 +7151,7 @@ mod tests {
             rows: 24,
             replay: replay.clone(),
             kitty_image_aliases: Vec::new(),
+            kitty_state: KittyReplayState::disabled(),
             colors: Value::Null,
         };
 
@@ -7125,7 +7169,16 @@ mod tests {
         let replay = vec![0_u8; crate::surface::VT_REPLAY_MAX_BYTES];
 
         let mut output = service.reserved_control_writer().unwrap();
-        write_vt_state_command_json(&mut output, Some(&json!(1)), 80, 24, &replay, &[]).unwrap();
+        write_vt_state_command_json(
+            &mut output,
+            Some(&json!(1)),
+            80,
+            24,
+            &replay,
+            &[],
+            KittyReplayState::disabled(),
+        )
+        .unwrap();
         let serialized = output.finish();
         assert!(serialized.len() < OUTBOUND_CONTROL_BYTE_RESERVE);
         assert_eq!(serialized.retained_bytes, OUTBOUND_CONTROL_BYTE_RESERVE);
@@ -7207,6 +7260,7 @@ mod tests {
             rows: 24,
             replay: Arc::from(vec![b'x'; 1024]),
             kitty_image_aliases: Vec::new(),
+            kitty_state: KittyReplayState::disabled(),
             colors: Value::Null,
         };
 
@@ -7233,6 +7287,7 @@ mod tests {
             rows: 24,
             replay: Arc::from(vec![b'x'; 1024]),
             kitty_image_aliases: Vec::new(),
+            kitty_state: KittyReplayState::disabled(),
         };
 
         let error = writer.send_attach_frame(7, &frame, &stream).unwrap_err();

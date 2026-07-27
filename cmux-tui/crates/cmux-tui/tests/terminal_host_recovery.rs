@@ -25,6 +25,8 @@ use cmux_tui_core::terminal_host_runtime::{
 };
 use ghostty_vt::{Rgb, TerminalColorOverrides};
 
+const KITTY_REPLAY_STATE_ENCODED_LEN: usize = 52;
+
 struct RecoveryHarness {
     child: Option<Child>,
     dir: PathBuf,
@@ -1972,9 +1974,9 @@ fn failed_terminate_and_rejected_resize_leave_live_record_discoverable() {
     assert_eq!(&resized.payload[..4], &[120, 0, 40, 0]);
     let replay_len = u32::from_le_bytes(resized.payload[4..8].try_into().unwrap()) as usize;
     let alias_count_offset = 8 + replay_len;
-    assert_eq!(resized.payload.len(), alias_count_offset + 6);
+    assert_eq!(resized.payload.len(), alias_count_offset + 6 + KITTY_REPLAY_STATE_ENCODED_LEN);
     assert_eq!(&resized.payload[alias_count_offset..alias_count_offset + 2], &0u16.to_le_bytes());
-    assert_eq!(&resized.payload[alias_count_offset + 2..], &[8, 0, 16, 0]);
+    assert_eq!(&resized.payload[alias_count_offset + 2..alias_count_offset + 6], &[8, 0, 16, 0]);
     let colors = read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
     assert_eq!(colors.sequence, renderer.next_sequence);
     renderer.next_sequence = renderer.next_sequence.wrapping_add(1);
@@ -2056,7 +2058,7 @@ fn direct_renderer_becomes_sole_viewer_after_control_client_disconnect() {
     assert_eq!(resized.kind, MessageKind::Resized);
     assert_eq!(resized.flags, FLAG_COLORS_FOLLOW);
     assert_eq!(&resized.payload[..4], &[120, 0, 40, 0]);
-    assert_eq!(&resized.payload[resized.payload.len() - 4..], &[9, 0, 18, 0]);
+    assert_eq!(resize_cell_pixels(&resized.payload), (9, 18));
     let colors = read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
     assert_eq!(colors.kind, MessageKind::Colors);
 
@@ -2169,7 +2171,7 @@ fn negotiated_viewer_size_ack_skips_unchanged_replay_and_follows_changed_pair() 
     assert_eq!(resized.request_id, 0);
     assert_eq!(resized.sequence, renderer.next_sequence);
     renderer.next_sequence = renderer.next_sequence.wrapping_add(1);
-    assert_eq!(&resized.payload[resized.payload.len() - 4..], &[11, 0, 22, 0]);
+    assert_eq!(resize_cell_pixels(&resized.payload), (11, 22));
     let colors = read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
     assert_eq!(colors.kind, MessageKind::Colors);
     assert_eq!(colors.request_id, 0);
@@ -2228,9 +2230,9 @@ fn negotiated_viewer_size_ack_skips_unchanged_replay_and_follows_changed_pair() 
     assert_eq!(&resized.payload[..4], &[70, 0, 20, 0]);
     let replay_len = u32::from_le_bytes(resized.payload[4..8].try_into().unwrap()) as usize;
     let alias_count_offset = 8 + replay_len;
-    assert_eq!(resized.payload.len(), alias_count_offset + 6);
+    assert_eq!(resized.payload.len(), alias_count_offset + 6 + KITTY_REPLAY_STATE_ENCODED_LEN);
     assert_eq!(&resized.payload[alias_count_offset..alias_count_offset + 2], &0u16.to_le_bytes());
-    assert_eq!(&resized.payload[alias_count_offset + 2..], &[11, 0, 22, 0]);
+    assert_eq!(&resized.payload[alias_count_offset + 2..alias_count_offset + 6], &[11, 0, 22, 0]);
     let colors = read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
     assert_eq!(colors.kind, MessageKind::Colors);
     assert_eq!(colors.flags, 0);
@@ -2791,11 +2793,34 @@ fn snapshot_replay(payload: &[u8]) -> &[u8] {
 }
 
 fn snapshot_cell_pixels(payload: &[u8]) -> (u16, u16) {
-    assert!(payload.len() >= 4, "Snapshot payload omitted cell geometry");
-    let offset = payload.len() - 4;
+    assert!(
+        payload.len() >= 4 + KITTY_REPLAY_STATE_ENCODED_LEN,
+        "Snapshot payload omitted cell geometry"
+    );
+    let offset = payload.len() - KITTY_REPLAY_STATE_ENCODED_LEN - 4;
     (
         u16::from_le_bytes(payload[offset..offset + 2].try_into().unwrap()),
-        u16::from_le_bytes(payload[offset + 2..].try_into().unwrap()),
+        u16::from_le_bytes(payload[offset + 2..offset + 4].try_into().unwrap()),
+    )
+}
+
+fn resize_cell_pixels(payload: &[u8]) -> (u16, u16) {
+    assert!(payload.len() >= 8, "Resized payload was truncated");
+    let replay_len = u32::from_le_bytes(payload[4..8].try_into().unwrap()) as usize;
+    let alias_count_offset = 8usize.checked_add(replay_len).expect("replay length overflow");
+    assert!(alias_count_offset + 2 <= payload.len(), "Resized payload omitted Kitty alias count");
+    let alias_count =
+        u16::from_le_bytes(payload[alias_count_offset..alias_count_offset + 2].try_into().unwrap())
+            as usize;
+    let offset = alias_count_offset + 2 + alias_count * 8;
+    assert_eq!(
+        payload.len(),
+        offset + 4 + KITTY_REPLAY_STATE_ENCODED_LEN,
+        "Resized payload has an invalid suffix"
+    );
+    (
+        u16::from_le_bytes(payload[offset..offset + 2].try_into().unwrap()),
+        u16::from_le_bytes(payload[offset + 2..offset + 4].try_into().unwrap()),
     )
 }
 

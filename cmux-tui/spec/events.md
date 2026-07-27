@@ -724,6 +724,7 @@ Meaning: One coalesced render frame. The cursor is always present; `rows` contai
 | status | implemented |
 | since | protocol 5 |
 | `colors` field | protocol 6 additive extension |
+| Kitty replay sidecars | protocol 9 aliases; protocol 10 graphics state |
 
 Payload:
 
@@ -734,6 +735,18 @@ object{
   cols:uint16,
   rows:uint16,
   data:Base64,
+  kitty_image_aliases?:array<object{image_id:uint32,image_number:uint32}>,
+  kitty_graphics_state?:object{
+    image_bytes:uint64,
+    inflight_bytes:uint64,
+    images:uint64,
+    placements:uint64,
+    replay_cursor_offset:uint32,
+    primary_replay_next_image_id:uint32,
+    primary_next_image_id:uint32,
+    alternate_replay_next_image_id:uint32,
+    alternate_next_image_id:uint32
+  },
   colors:object{
     fg:ColorHex|null,
     bg:ColorHex|null,
@@ -747,7 +760,7 @@ object{
 }
 ```
 
-Meaning: Initial VT replay for an attached PTY surface. Replaying `data` into a fresh Ghostty VT terminal with the supplied cell size reproduces current state. `colors` is captured with the replay and reports the surface's effective foreground, background, and cursor colors, including active OSC 10/11/12 overrides. Protocol v7 adds sparse `palette`, whose decimal string keys identify authored OSC 4 overrides; omitted indexes retain the frontend theme palette, and older servers omit the field. The additive protocol-v6 `cursor_style` and `cursor_blink` fields report the surface's current DECSCUSR-derived cursor state when available, then fall back to the session's Ghostty `cursor-style` and `cursor-style-blink` defaults. A field is `null` when the server cannot determine it; the current server does not track selection colors, so `selection_bg` and `selection_fg` are `null`. Ghostty's VT replay formatter does not emit DECSCUSR, so attach clients must apply the cursor metadata instead of inferring shape or blink from `data`.
+Meaning: Initial VT replay for an attached PTY surface. Replaying `data` into a fresh Ghostty VT terminal with the supplied cell size reproduces current state. Protocol v9 clients restore `kitty_image_aliases` after `data`. Protocol v10 clients apply the limits, consume `data` through `replay_cursor_offset`, install the `*_replay_next_image_id` cursors, consume the remaining `data`, restore aliases, then install the `*_next_image_id` cursors before live output. The primary and alternate cursor values are independent. `colors` is captured with the replay and reports the surface's effective foreground, background, and cursor colors, including active OSC 10/11/12 overrides. Protocol v7 adds sparse `palette`, whose decimal string keys identify authored OSC 4 overrides; omitted indexes retain the frontend theme palette, and older servers omit the field. The additive protocol-v6 `cursor_style` and `cursor_blink` fields report the surface's current DECSCUSR-derived cursor state when available, then fall back to the session's Ghostty `cursor-style` and `cursor-style-blink` defaults. A field is `null` when the server cannot determine it; the current server does not track selection colors, so `selection_bg` and `selection_fg` are `null`. Ghostty's VT replay formatter does not emit DECSCUSR, so attach clients must apply the cursor metadata instead of inferring shape or blink from `data`.
 
 Example:
 
@@ -788,10 +801,10 @@ Example:
 Payload:
 
 ```text
-object{event:"resized",surface:Id,cols:uint16,rows:uint16,replay?:Base64,data?:Base64,colors?:TerminalColors}
+object{event:"resized",surface:Id,cols:uint16,rows:uint16,replay?:Base64,data?:Base64,kitty_image_aliases?:array<KittyImageAlias>,kitty_graphics_state?:KittyGraphicsState,colors?:TerminalColors}
 ```
 
-Meaning: Protocol v6 attach-only event indicating that the authoritative surface size changed and the existing mirror must be replaced from the supplied replay. Protocol v7 sends the replay in `replay` and adds the fresh `colors` snapshot, including sparse palette overrides; protocol-v6 compatibility payloads use `data` and omit `colors`. Clients must accept either replay field, create a fresh terminal mirror at `cols` by `rows`, apply the replay, restore the supplied colors when present, then continue applying later `output` chunks.
+Meaning: Protocol v6 attach-only event indicating that the authoritative surface size changed and the existing mirror must be replaced from the supplied replay. Protocol v7 sends the replay in `replay` and adds the fresh `colors` snapshot, including sparse palette overrides; protocol-v6 compatibility payloads use `data` and omit `colors`. Protocol v9 and v10 clients apply the Kitty sidecars with the same ordering as `vt-state`. Clients must accept either replay field, create a fresh terminal mirror at `cols` by `rows`, apply the replay and sidecars, restore the supplied colors when present, then continue applying later `output` chunks.
 
 Example:
 

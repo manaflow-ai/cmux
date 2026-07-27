@@ -45,8 +45,7 @@ fn assert_inflight_replay_completes(
 
     let replay = source.vt_replay().unwrap();
     let mut mirror = terminal();
-    mirror.vt_write(&replay.bytes);
-    mirror.restore_kitty_image_aliases(&replay.kitty_image_aliases).unwrap();
+    mirror.apply_vt_replay(&replay).unwrap();
     mirror.vt_write(final_chunk);
 
     assert_eq!(
@@ -327,8 +326,7 @@ fn replay_preserves_the_next_automatic_image_id_after_eviction() {
 
     let replay = source.vt_replay().unwrap();
     let mut mirror = terminal();
-    mirror.vt_write(&replay.bytes);
-    mirror.restore_kitty_image_aliases(&replay.kitty_image_aliases).unwrap();
+    mirror.apply_vt_replay(&replay).unwrap();
 
     let next = kitty("a=t,t=d,f=24,I=2,s=1,v=1,q=2", "AP8A");
     source.vt_write(&next);
@@ -342,6 +340,49 @@ fn replay_preserves_the_next_automatic_image_id_after_eviction() {
 }
 
 #[test]
+fn replay_preserves_independent_automatic_image_ids_for_both_screens() {
+    let mut source = terminal();
+    for image_number in [1, 2] {
+        source.vt_write(&kitty(&format!("a=t,t=d,f=24,I={image_number},s=1,v=1,q=2"), "/wAA"));
+        let image_id = source.kitty_graphics_snapshot().unwrap().images[0].id;
+        source.vt_write(&kitty(&format!("a=d,d=I,i={image_id},q=2"), ""));
+    }
+
+    source.vt_write(b"\x1b[?1049h");
+    source.vt_write(&kitty("a=t,t=d,f=24,I=3,s=1,v=1,q=2", "/wAA"));
+    let alternate_image_id = source.kitty_graphics_snapshot().unwrap().images[0].id;
+    source.vt_write(&kitty(&format!("a=d,d=I,i={alternate_image_id},q=2"), ""));
+
+    let replay = source.vt_replay().unwrap();
+    assert_ne!(
+        replay.kitty_state.next_image_ids.primary, replay.kitty_state.next_image_ids.alternate,
+        "the test requires divergent primary and alternate cursors"
+    );
+    let mut mirror = terminal();
+    mirror.apply_vt_replay(&replay).unwrap();
+
+    let next_alternate = kitty("a=t,t=d,f=24,I=4,s=1,v=1,q=2", "AP8A");
+    source.vt_write(&next_alternate);
+    mirror.vt_write(&next_alternate);
+    assert_eq!(
+        mirror.kitty_graphics_snapshot().unwrap().images[0].id,
+        source.kitty_graphics_snapshot().unwrap().images[0].id,
+        "alternate-screen automatic IDs diverged after replay"
+    );
+
+    source.vt_write(b"\x1b[?1049l");
+    mirror.vt_write(b"\x1b[?1049l");
+    let next_primary = kitty("a=t,t=d,f=24,I=5,s=1,v=1,q=2", "AA8A");
+    source.vt_write(&next_primary);
+    mirror.vt_write(&next_primary);
+    assert_eq!(
+        mirror.kitty_graphics_snapshot().unwrap().images[0].id,
+        source.kitty_graphics_snapshot().unwrap().images[0].id,
+        "primary-screen automatic IDs diverged after replaying the alternate screen"
+    );
+}
+
+#[test]
 fn replay_preserves_the_automatic_id_of_an_inflight_upload() {
     let mut source = terminal();
     source.vt_write(&kitty("a=t,t=d,f=24,I=1,s=1,v=1,q=2", "/wAA"));
@@ -349,10 +390,11 @@ fn replay_preserves_the_automatic_id_of_an_inflight_upload() {
     source.vt_write(&kitty(&format!("a=d,d=I,i={first_id},q=2"), ""));
     source.vt_write(&kitty("a=t,t=d,f=24,I=2,s=1,v=2,m=1,q=2", "////"));
 
-    let replay = source.vt_replay().unwrap();
+    let mut replay = source.vt_replay().unwrap();
+    replay.bytes.splice(..0, b"\x1bc".iter().copied());
+    replay.kitty_state.replay_cursor_offset += 2;
     let mut mirror = terminal();
-    mirror.vt_write(&replay.bytes);
-    mirror.restore_kitty_image_aliases(&replay.kitty_image_aliases).unwrap();
+    mirror.apply_vt_replay(&replay).unwrap();
 
     let final_chunk = kitty("m=0,q=2", "////");
     source.vt_write(&final_chunk);
@@ -365,6 +407,29 @@ fn replay_preserves_the_automatic_id_of_an_inflight_upload() {
     );
     assert_eq!(mirror_image.number, source_image.number);
     assert_eq!(mirror_image.data, source_image.data);
+}
+
+#[test]
+fn replay_preserves_an_occupied_probe_that_is_later_deleted() {
+    const FIRST_AUTOMATIC_ID: u32 = 2_147_483_647;
+    let mut source = terminal();
+    source.vt_write(&kitty(&format!("a=t,t=d,f=24,i={FIRST_AUTOMATIC_ID},s=1,v=1,q=2"), "/wAA"));
+    let replay = source.vt_replay().unwrap();
+
+    let mut mirror = terminal();
+    mirror.apply_vt_replay(&replay).unwrap();
+
+    let delete_probe = kitty(&format!("a=d,d=I,i={FIRST_AUTOMATIC_ID},q=2"), "");
+    source.vt_write(&delete_probe);
+    mirror.vt_write(&delete_probe);
+    let next = kitty("a=t,t=d,f=24,I=2,s=1,v=1,q=2", "AP8A");
+    source.vt_write(&next);
+    mirror.vt_write(&next);
+
+    let source_id = source.kitty_graphics_snapshot().unwrap().images[0].id;
+    let mirror_id = mirror.kitty_graphics_snapshot().unwrap().images[0].id;
+    assert_eq!(source_id, FIRST_AUTOMATIC_ID);
+    assert_eq!(mirror_id, source_id, "replay lost the occupied raw image-ID cursor");
 }
 
 #[test]

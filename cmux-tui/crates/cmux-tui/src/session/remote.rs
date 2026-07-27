@@ -22,8 +22,8 @@ use cmux_tui_core::{
 };
 use cmux_tui_machine_protocol::BearerToken;
 use ghostty_vt::{
-    Callbacks, CursorShape, KeyInput, MouseEncoders, MouseInput, RenderState, Terminal,
-    TerminalColorOverrides, parse_color,
+    Callbacks, CursorShape, KeyInput, KittyGraphicsLimits, KittyImageIdCursors, KittyReplayState,
+    MouseEncoders, MouseInput, RenderState, Terminal, TerminalColorOverrides, parse_color,
 };
 use serde_json::{Value, json};
 use zeroize::Zeroize;
@@ -355,7 +355,7 @@ impl RemoteSurface {
         replay: Option<&[u8]>,
         kitty_image_aliases: &[ghostty_vt::KittyImageAlias],
     ) -> ghostty_vt::Result<()> {
-        self.apply_stream_resize_with_colors(cols, rows, replay, kitty_image_aliases, None)
+        self.apply_stream_resize_with_colors(cols, rows, replay, kitty_image_aliases, None, None)
     }
 
     /// Apply one authoritative replay and its coupled Kitty alias and color
@@ -366,6 +366,7 @@ impl RemoteSurface {
         rows: u16,
         replay: Option<&[u8]>,
         kitty_image_aliases: &[ghostty_vt::KittyImageAlias],
+        kitty_state: Option<KittyReplayState>,
         colors: Option<&RemoteTerminalColors>,
     ) -> ghostty_vt::Result<()> {
         #[cfg(test)]
@@ -379,8 +380,8 @@ impl RemoteSurface {
         if let Some(replay) = replay {
             let mut fresh = Terminal::new(cols, rows, 10_000, Callbacks::default())?;
             fresh.resize(cols, rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1))?;
-            fresh.vt_write(replay);
-            fresh.restore_kitty_image_aliases(kitty_image_aliases)?;
+            let kitty_state = kitty_state.unwrap_or_else(KittyReplayState::disabled);
+            fresh.apply_vt_replay_parts(replay, kitty_image_aliases, kitty_state)?;
             if let Some(colors) = colors {
                 apply_terminal_colors(&mut fresh, colors);
             }
@@ -388,7 +389,7 @@ impl RemoteSurface {
             self.sync_mouse_encoders(&term);
             return Ok(());
         }
-        if !kitty_image_aliases.is_empty() {
+        if !kitty_image_aliases.is_empty() || kitty_state.is_some() {
             return Err(ghostty_vt::Error::NoValue);
         }
         term.resize(cols, rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1))?;
@@ -1052,6 +1053,10 @@ impl RemoteSession {
                     self.disconnect_transport();
                     return;
                 };
+                let Ok(kitty_state) = parse_kitty_replay_state(&value) else {
+                    self.disconnect_transport();
+                    return;
+                };
                 if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
                     if surface
                         .apply_stream_resize_with_colors(
@@ -1059,6 +1064,7 @@ impl RemoteSession {
                             rows,
                             Some(&replay),
                             &kitty_image_aliases,
+                            Some(kitty_state),
                             colors.as_ref(),
                         )
                         .is_err()
@@ -1145,6 +1151,10 @@ impl RemoteSession {
                     self.disconnect_transport();
                     return;
                 };
+                let Ok(kitty_state) = parse_kitty_replay_state(&value) else {
+                    self.disconnect_transport();
+                    return;
+                };
                 let colors = value.get("colors").and_then(parse_terminal_colors);
                 self.log_frame(
                     id,
@@ -1160,6 +1170,7 @@ impl RemoteSession {
                             rows,
                             replay.as_deref(),
                             &kitty_image_aliases,
+                            Some(kitty_state),
                             colors.as_ref(),
                         )
                         .is_err()
@@ -2090,6 +2101,45 @@ fn parse_kitty_image_aliases(
     cmux_tui_core::terminal_host_runtime::validate_kitty_image_aliases(&aliases)
         .map_err(|_| "kitty_image_aliases violates terminal-host invariants")?;
     Ok(aliases)
+}
+
+fn parse_kitty_replay_state(value: &Value) -> Result<KittyReplayState, &'static str> {
+    let Some(state) = value.get("kitty_graphics_state") else {
+        return Ok(KittyReplayState::disabled());
+    };
+    let state = state.as_object().ok_or("kitty_graphics_state must be an object")?;
+    if state.len() != 9 {
+        return Err("kitty_graphics_state has unexpected fields");
+    }
+    let u64_field = |name| {
+        state.get(name).and_then(Value::as_u64).ok_or("kitty_graphics_state has an invalid limit")
+    };
+    let u32_field = |name| {
+        state
+            .get(name)
+            .and_then(Value::as_u64)
+            .and_then(|value| u32::try_from(value).ok())
+            .ok_or("kitty_graphics_state has an invalid image ID cursor")
+    };
+    KittyReplayState {
+        limits: KittyGraphicsLimits {
+            image_bytes: u64_field("image_bytes")?,
+            inflight_bytes: u64_field("inflight_bytes")?,
+            images: u64_field("images")?,
+            placements: u64_field("placements")?,
+        },
+        replay_cursor_offset: u32_field("replay_cursor_offset")?,
+        replay_next_image_ids: KittyImageIdCursors {
+            primary: u32_field("primary_replay_next_image_id")?,
+            alternate: u32_field("alternate_replay_next_image_id")?,
+        },
+        next_image_ids: KittyImageIdCursors {
+            primary: u32_field("primary_next_image_id")?,
+            alternate: u32_field("alternate_next_image_id")?,
+        },
+    }
+    .validate()
+    .map_err(|_| "kitty_graphics_state violates terminal limits")
 }
 
 fn dump_mirror(surface: &RemoteSurface) -> String {
@@ -4359,14 +4409,16 @@ mod tests {
         let previous = surface.term.lock().unwrap().plain_text().unwrap();
         let mut authoritative = Terminal::new(8, 4, 100, Callbacks::default()).unwrap();
         authoritative.vt_write(b"replacement");
-        let replay = authoritative.vt_replay_bytes().unwrap();
+        let replay = authoritative.vt_replay().unwrap();
 
         surface
-            .apply_stream_resize(
+            .apply_stream_resize_with_colors(
                 8,
                 4,
-                Some(&replay),
+                Some(&replay.bytes),
                 &[ghostty_vt::KittyImageAlias { image_id: 999, image_number: 77 }],
+                Some(replay.kitty_state),
+                None,
             )
             .unwrap_err();
 
@@ -4430,6 +4482,85 @@ mod tests {
         });
 
         assert!(parse_kitty_image_aliases(&value).is_err());
+    }
+
+    #[test]
+    fn remote_kitty_replay_state_is_bounded_and_strict() {
+        let limits = KittyGraphicsLimits::default();
+        let valid = json!({
+            "kitty_graphics_state": {
+                "image_bytes": limits.image_bytes,
+                "inflight_bytes": limits.inflight_bytes,
+                "images": limits.images,
+                "placements": limits.placements,
+                "replay_cursor_offset": 9,
+                "primary_replay_next_image_id": 41,
+                "primary_next_image_id": 42,
+                "alternate_replay_next_image_id": 43,
+                "alternate_next_image_id": 44,
+            }
+        });
+        assert_eq!(
+            parse_kitty_replay_state(&valid).unwrap(),
+            KittyReplayState {
+                limits,
+                replay_cursor_offset: 9,
+                replay_next_image_ids: KittyImageIdCursors { primary: 41, alternate: 43 },
+                next_image_ids: KittyImageIdCursors { primary: 42, alternate: 44 },
+            }
+        );
+        assert_eq!(parse_kitty_replay_state(&json!({})).unwrap(), KittyReplayState::disabled());
+
+        let mut oversized = valid.clone();
+        oversized["kitty_graphics_state"]["image_bytes"] = json!(u64::MAX);
+        assert!(parse_kitty_replay_state(&oversized).is_err());
+        let mut zero_cursor = valid.clone();
+        zero_cursor["kitty_graphics_state"]["alternate_next_image_id"] = json!(0);
+        assert!(parse_kitty_replay_state(&zero_cursor).is_err());
+        let mut extra = valid;
+        extra["kitty_graphics_state"]["future"] = json!(1);
+        assert!(parse_kitty_replay_state(&extra).is_err());
+    }
+
+    #[test]
+    fn resized_event_preserves_the_automatic_kitty_image_id_cursor() {
+        let session = test_session(Box::new(SilentWriter));
+        let surface = test_remote_pty_surface(7, 12, 4, (8, 16));
+        session.surfaces.lock().unwrap().insert(7, surface.clone());
+        let mut authoritative = Terminal::new(12, 4, 100, Callbacks::default()).unwrap();
+        authoritative.vt_write(b"\x1b_Ga=t,t=d,f=24,I=1,s=1,v=1,q=2;/wAA\x1b\\");
+        let first_id = authoritative.kitty_graphics_snapshot().unwrap().images[0].id;
+        authoritative.vt_write(format!("\x1b_Ga=d,d=I,i={first_id},q=2;\x1b\\").as_bytes());
+        let replay = authoritative.vt_replay().unwrap();
+        let state = replay.kitty_state;
+
+        session.handle_line(json!({
+            "event": "resized",
+            "surface": 7,
+            "cols": 12,
+            "rows": 4,
+            "replay": base64::engine::general_purpose::STANDARD.encode(&replay.bytes),
+            "kitty_image_aliases": [],
+            "kitty_graphics_state": {
+                "image_bytes": state.limits.image_bytes,
+                "inflight_bytes": state.limits.inflight_bytes,
+                "images": state.limits.images,
+                "placements": state.limits.placements,
+                "replay_cursor_offset": state.replay_cursor_offset,
+                "primary_replay_next_image_id": state.replay_next_image_ids.primary,
+                "primary_next_image_id": state.next_image_ids.primary,
+                "alternate_replay_next_image_id": state.replay_next_image_ids.alternate,
+                "alternate_next_image_id": state.next_image_ids.alternate,
+            },
+        }));
+
+        let next = b"\x1b_Ga=t,t=d,f=24,I=2,s=1,v=1,q=2;AP8A\x1b\\";
+        authoritative.vt_write(next);
+        surface.term.lock().unwrap().vt_write(next);
+        assert_eq!(
+            surface.term.lock().unwrap().kitty_graphics_snapshot().unwrap().images[0].id,
+            authoritative.kitty_graphics_snapshot().unwrap().images[0].id
+        );
     }
 
     #[cfg(unix)]

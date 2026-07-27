@@ -18,7 +18,8 @@ inline constexpr std::array<uint8_t, 4> kTerminalHostMagic = {'C', 'M', 'T',
                                                               'H'};
 inline constexpr size_t kTerminalHostHeaderLength = 32;
 inline constexpr uint16_t kTerminalHostProtocolVersionV1 = 1;
-inline constexpr uint16_t kTerminalHostProtocolVersion = 2;
+inline constexpr uint16_t kTerminalHostProtocolVersionV2 = 2;
+inline constexpr uint16_t kTerminalHostProtocolVersion = 3;
 inline constexpr uint32_t kTerminalHostFlagColorsFollow = 1u << 0;
 inline constexpr uint32_t kTerminalHostFlagViewerSizeAcks = 1u << 1;
 inline constexpr uint32_t kTerminalHostResizeAckCanonicalChanged = 1u << 0;
@@ -50,12 +51,19 @@ enum class TerminalHostMessageKind : uint16_t {
   kLaunch = 14,
   kCapability = 15,
   kResizeAck = 16,
+  kClearHistoryAck = 17,
+  kCellPixelSizeAck = 18,
+  kKittyGraphicsLimitsAck = 19,
   kInput = 100,
   kPaste = 101,
   kViewerSize = 102,
   kReleaseViewer = 103,
   kTerminate = 104,
   kMintCapability = 105,
+  kSetDefaults = 106,
+  kClearHistory = 107,
+  kSetCellPixelSize = 108,
+  kSetKittyGraphicsLimits = 109,
 };
 
 enum class TerminalHostProtocolError {
@@ -286,6 +294,31 @@ struct TerminalHostKittyImageAlias {
   }
 };
 
+struct TerminalHostKittyGraphicsLimits {
+  uint64_t image_bytes = 0;
+  uint64_t inflight_bytes = 0;
+  uint64_t images = 0;
+  uint64_t placements = 0;
+
+  bool operator==(const TerminalHostKittyGraphicsLimits& other) const;
+};
+
+struct TerminalHostKittyImageIdCursors {
+  uint32_t primary = 2'147'483'647;
+  uint32_t alternate = 2'147'483'647;
+
+  bool operator==(const TerminalHostKittyImageIdCursors& other) const;
+};
+
+struct TerminalHostKittyReplayState {
+  TerminalHostKittyGraphicsLimits limits;
+  uint32_t replay_cursor_offset = 0;
+  TerminalHostKittyImageIdCursors replay_next_image_ids;
+  TerminalHostKittyImageIdCursors next_image_ids;
+
+  bool operator==(const TerminalHostKittyReplayState& other) const;
+};
+
 struct TerminalHostSnapshot {
   TerminalHostSnapshot();
   TerminalHostSnapshot(const TerminalHostSnapshot&);
@@ -303,6 +336,7 @@ struct TerminalHostSnapshot {
   std::optional<std::string> cwd;
   std::vector<std::string> command;
   std::vector<TerminalHostKittyImageAlias> kitty_image_aliases;
+  TerminalHostKittyReplayState kitty_state;
 
   bool operator==(const TerminalHostSnapshot& other) const;
 };
@@ -332,6 +366,7 @@ struct TerminalHostResize {
   uint16_t cell_height = 16;
   std::vector<uint8_t> replay;
   std::vector<TerminalHostKittyImageAlias> kitty_image_aliases;
+  TerminalHostKittyReplayState kitty_state;
 
   bool operator==(const TerminalHostResize& other) const;
 };

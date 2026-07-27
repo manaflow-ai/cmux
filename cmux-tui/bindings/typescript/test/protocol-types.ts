@@ -104,6 +104,17 @@ const vtStateWithKittyAliases: VtStateResult = {
   rows: 24,
   data: "",
   kitty_image_aliases: [{ image_id: 7, image_number: 70 }],
+  kitty_graphics_state: {
+    image_bytes: 32000000,
+    inflight_bytes: 8000000,
+    images: 1024,
+    placements: 4096,
+    replay_cursor_offset: 0,
+    primary_replay_next_image_id: 41,
+    primary_next_image_id: 42,
+    alternate_replay_next_image_id: 43,
+    alternate_next_image_id: 44,
+  },
 };
 void vtStateWithKittyAliases;
 
@@ -171,6 +182,7 @@ const protocolV7Resize: KnownCmuxEvent = {
   replay: "cmVwbGF5",
   colors: colorsChanged,
   kitty_image_aliases: [{ image_id: 7, image_number: 70 }],
+  kitty_graphics_state: vtStateWithKittyAliases.kitty_graphics_state,
 };
 const clientEvents: KnownCmuxEvent[] = [
   { event: "client-attached", client: 2, transport: "ws", name: "browser", kind: "web" },

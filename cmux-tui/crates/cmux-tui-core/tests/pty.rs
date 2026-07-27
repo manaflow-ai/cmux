@@ -1142,21 +1142,37 @@ fn attach_resize_replay_preserves_an_inflight_kitty_transmission() {
     let mut initial =
         ghostty_vt::Terminal::new(attach.cols, attach.rows, 1000, ghostty_vt::Callbacks::default())
             .unwrap();
-    initial.vt_write(&attach.replay);
-    initial.restore_kitty_image_aliases(&attach.kitty_image_aliases).unwrap();
+    initial
+        .apply_vt_replay(&ghostty_vt::VtReplay {
+            bytes: attach.replay.to_vec(),
+            kitty_image_aliases: attach.kitty_image_aliases.clone(),
+            kitty_state: attach.kitty_state,
+        })
+        .unwrap();
 
     mux.resize_surface(surface.id, 21, 4).unwrap();
-    let (cols, rows, replay, aliases) = match attach.stream.recv_timeout(Duration::from_secs(2)) {
-        Ok(AttachFrame::Resized { cols, rows, replay, kitty_image_aliases })
-        | Ok(AttachFrame::ResizedWithColors { cols, rows, replay, kitty_image_aliases, .. }) => {
-            (cols, rows, replay, kitty_image_aliases)
-        }
-        other => panic!("missing ordered resize replay: {other:?}"),
-    };
+    let (cols, rows, replay, aliases, kitty_state) =
+        match attach.stream.recv_timeout(Duration::from_secs(2)) {
+            Ok(AttachFrame::Resized { cols, rows, replay, kitty_image_aliases, kitty_state })
+            | Ok(AttachFrame::ResizedWithColors {
+                cols,
+                rows,
+                replay,
+                kitty_image_aliases,
+                kitty_state,
+                ..
+            }) => (cols, rows, replay, kitty_image_aliases, kitty_state),
+            other => panic!("missing ordered resize replay: {other:?}"),
+        };
     let mut resized =
         ghostty_vt::Terminal::new(cols, rows, 1000, ghostty_vt::Callbacks::default()).unwrap();
-    resized.vt_write(&replay);
-    resized.restore_kitty_image_aliases(&aliases).unwrap();
+    resized
+        .apply_vt_replay(&ghostty_vt::VtReplay {
+            bytes: replay.to_vec(),
+            kitty_image_aliases: aliases,
+            kitty_state,
+        })
+        .unwrap();
 
     let final_chunk = b"\x1b_Gm=0,q=2;////\x1b\\";
     surface.try_with_terminal(|terminal| terminal.vt_write(final_chunk)).unwrap();

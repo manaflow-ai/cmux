@@ -9,6 +9,7 @@ import type {
   Id,
   IdRef,
   Json,
+  KittyGraphicsState,
   KittyImageAlias,
   NotificationLevel,
   PaneDirection,
@@ -327,6 +328,8 @@ export interface VtStateResult {
   data: Base64;
   /** Protocol v9 aliases needed to resolve Kitty image-number references in `data`. */
   kitty_image_aliases?: KittyImageAlias[];
+  /** Protocol v10 resource limits and per-screen automatic image-ID cursors. */
+  kitty_graphics_state?: KittyGraphicsState;
 }
 
 export interface ResolveTerminalRequest extends CmuxRequestBase {
