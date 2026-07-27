@@ -5308,7 +5308,7 @@ mod tests {
     }
 
     #[test]
-    fn runtime_restart_reuses_the_state_root_notice_identity() {
+    fn runtime_identity_lease_blocks_a_second_cursor_and_reuses_it_after_release() {
         let socket = TestProviderSocket::bind();
         let listener = socket.listener();
         let first_root = TestStateRoot::create("first");
@@ -5329,6 +5329,36 @@ mod tests {
 
         let first = connect_after_runtime_start(&socket.path, &first_root.path);
         let first_id = consumer_ids.recv_timeout(Duration::from_secs(2)).unwrap();
+
+        let blocked_socket = socket.path.clone();
+        let blocked_root = first_root.path.clone();
+        let (blocked_result, blocked_outcome) = mpsc::channel();
+        let blocked = thread::spawn(move || {
+            let result = ProviderMachineRuntime::connect_in_state_root(
+                blocked_socket,
+                token(),
+                &blocked_root,
+            );
+            blocked_result
+                .send(match result {
+                    Ok(runtime) => {
+                        drop(runtime);
+                        Ok(())
+                    }
+                    Err(error) => Err(error.to_string()),
+                })
+                .unwrap();
+        });
+        let blocked_error = blocked_outcome
+            .recv_timeout(Duration::from_secs(2))
+            .expect("second runtime did not fail before subscribing")
+            .expect_err("second runtime unexpectedly acquired the shared notice cursor");
+        assert!(blocked_error.contains("already running"));
+        blocked.join().unwrap();
+        assert!(consumer_ids.try_recv().is_err());
+
+        let first_ui = first.ui_state(false);
+        assert_eq!(first_ui.snapshot.machines[0].name, "Machine");
         drop(first);
         release.send(()).unwrap();
 
