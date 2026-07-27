@@ -1873,6 +1873,32 @@ mod tests {
     }
 
     #[test]
+    fn browser_frame_parses_image_dimensions_with_legacy_fallback() {
+        let frame = parse_browser_frame(&json!({
+            "seq": 1,
+            "width": 800,
+            "height": 600,
+            "image_width": 400,
+            "image_height": 300,
+            "data": "frame",
+        }))
+        .unwrap()
+        .frame;
+        assert_eq!((frame.css_width, frame.css_height), (800, 600));
+        assert_eq!((frame.image_width, frame.image_height), (400, 300));
+
+        let legacy = parse_browser_frame(&json!({
+            "seq": 2,
+            "width": 320,
+            "height": 200,
+            "data": "legacy",
+        }))
+        .unwrap()
+        .frame;
+        assert_eq!((legacy.image_width, legacy.image_height), (320, 200));
+    }
+
+    #[test]
     fn resolved_cursor_colors_force_the_active_screen_across_alt_screen_modes() {
         for mode in [47, 1047, 1049] {
             let mut terminal = Terminal::new(12, 3, 100, Callbacks::default()).unwrap();

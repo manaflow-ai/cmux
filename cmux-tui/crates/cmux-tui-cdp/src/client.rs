@@ -1045,6 +1045,19 @@ mod tests {
     }
 
     #[test]
+    fn screencast_frame_preserves_encoded_png_dimensions_separately_from_css_dimensions() {
+        let params = json!({
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAMAAAAC",
+            "sessionId": 7,
+            "metadata": {"deviceWidth": 80, "deviceHeight": 24}
+        });
+
+        let frame = screencast_frame(&params, "session-1").unwrap();
+        assert_eq!((frame.css_width, frame.css_height), (80, 24));
+        assert_eq!((frame.image_width, frame.image_height), (3, 2));
+    }
+
+    #[test]
     fn screencast_frame_rejects_noncanonical_padding_bits() {
         let params = json!({
             "data": "aGl=",

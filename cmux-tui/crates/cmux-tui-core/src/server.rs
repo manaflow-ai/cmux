@@ -4888,6 +4888,33 @@ mod tests {
     }
 
     #[test]
+    fn browser_state_serializes_css_and_encoded_image_dimensions() {
+        let state = crate::BrowserAttachState {
+            url: "https://example.com".to_string(),
+            title: "Example".to_string(),
+            cols: 80,
+            rows: 24,
+            status: crate::BrowserStatus::Live,
+            frame: Some(crate::BrowserFrame {
+                session_id: "browser-session".to_string(),
+                data_b64: "frame".to_string(),
+                css_width: 800,
+                css_height: 600,
+                image_width: 400,
+                image_height: 300,
+                seq: 7,
+            }),
+            frames_stalled: false,
+        };
+
+        let value = browser_state_json(3, &state, true);
+        assert_eq!(value["frame"]["width"], 800);
+        assert_eq!(value["frame"]["height"], 600);
+        assert_eq!(value["frame"]["image_width"], 400);
+        assert_eq!(value["frame"]["image_height"], 300);
+    }
+
+    #[test]
     fn stack_json_uses_the_stored_expansion_while_focus_is_elsewhere() {
         let stack = Node::stack_with_expanded(vec![1, 2, 3], 2).unwrap();
 

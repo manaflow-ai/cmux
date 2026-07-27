@@ -12886,14 +12886,15 @@ mod tests {
         SessionEventSender, ShortcutHelp, SidebarLayout, SidebarPluginSyncClaim,
         SidebarPluginSyncState, StdoutLock, SurfaceResizeDecision, SurfaceResizeOwnership,
         TextInput, VIEWPORT_ANIMATION_DURATION, ViewportMotion, WorkspaceRailSelection,
-        action_available_in_mode, browser_content_size_for_rect, browser_hover_forward_allowed,
-        browser_source_crop, canonical_terminal_content, catch_renderer_panic,
-        clamp_split_ratio_for_tab_bars, client_menu_item, clip_horizontal_rect, forward_host_input,
-        forward_mux_event, forward_mux_events, layout_undo_error_completion, outer_cursor_escape,
-        outer_cursor_escape_if_changed, pane_context_menu_groups, pane_parts_for_rect,
-        prepare_ordered_session, preserve_client_view, rail_drag_width,
-        record_surface_resize_dispatch_result, sidebar_layout_for,
-        sidebar_plugin_status_settles_passive_claim, start_ordered_session, with_panic_stdout_lock,
+        action_available_in_mode, browser_content_size_for_rect, browser_frame_source_crop,
+        browser_hover_forward_allowed, browser_source_crop, canonical_terminal_content,
+        catch_renderer_panic, clamp_split_ratio_for_tab_bars, client_menu_item,
+        clip_horizontal_rect, forward_host_input, forward_mux_event, forward_mux_events,
+        layout_undo_error_completion, outer_cursor_escape, outer_cursor_escape_if_changed,
+        pane_context_menu_groups, pane_parts_for_rect, prepare_ordered_session,
+        preserve_client_view, rail_drag_width, record_surface_resize_dispatch_result,
+        sidebar_layout_for, sidebar_plugin_status_settles_passive_claim, start_ordered_session,
+        with_panic_stdout_lock,
     };
     use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
     use std::path::PathBuf;
@@ -12903,8 +12904,8 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use cmux_tui_core::{
-        BrowserStatus, Direction, LayoutUndoError, Mux, MuxEvent, Node, Rect, SplitDir, SurfaceId,
-        SurfaceKind, SurfaceOptions, VirtualRect, ZoomMode, layout_screen,
+        BrowserFrame, BrowserStatus, Direction, LayoutUndoError, Mux, MuxEvent, Node, Rect,
+        SplitDir, SurfaceId, SurfaceKind, SurfaceOptions, VirtualRect, ZoomMode, layout_screen,
     };
     use crossterm::event::{
         Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
@@ -15459,6 +15460,74 @@ mod tests {
         assert_eq!(browser_source_crop(101, 20, 40, 100), Some((20, 41)));
         assert_eq!(browser_source_crop(50, 90, 20, 100), Some((45, 5)));
         assert_eq!(browser_source_crop(0, 20, 40, 100), None);
+    }
+
+    #[test]
+    fn browser_crop_uses_the_encoded_frame_width_instead_of_css_width() {
+        let frame = BrowserFrame {
+            session_id: "test".to_string(),
+            data_b64: "frame".to_string(),
+            css_width: 200,
+            css_height: 100,
+            image_width: 50,
+            image_height: 25,
+            seq: 1,
+        };
+
+        assert_eq!(browser_frame_source_crop(&frame, 20, 40, 100), Some((10, 20)));
+    }
+
+    #[test]
+    fn focus_loss_settles_an_active_split_resize_transaction() {
+        let mux = Mux::new("focus-lost-split-resize-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let transaction =
+            app.session.layout_resize_transaction.load(std::sync::atomic::Ordering::Acquire);
+        app.drag = Some(Drag::ResizeSplit {
+            horizontal: Some(PaneResizeDragTarget::ViewportColumn {
+                pane: 1,
+                edge: PaneEdge::Right,
+                column_x: 0,
+                viewport_x: 0,
+                viewport_width: 1,
+                viewport_offset: 0,
+            }),
+            vertical: None,
+        });
+
+        app.handle(AppEvent::Input(Event::FocusLost)).unwrap();
+
+        assert!(app.drag.is_none());
+        assert_ne!(
+            app.session.layout_resize_transaction.load(std::sync::atomic::Ordering::Acquire),
+            transaction
+        );
+    }
+
+    #[test]
+    fn a_new_left_press_settles_an_abandoned_split_resize_transaction() {
+        let mux = Mux::new("new-press-split-resize-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let transaction =
+            app.session.layout_resize_transaction.load(std::sync::atomic::Ordering::Acquire);
+        app.drag = Some(Drag::ResizeSplit {
+            horizontal: Some(PaneResizeDragTarget::ViewportColumn {
+                pane: 1,
+                edge: PaneEdge::Right,
+                column_x: 0,
+                viewport_x: 0,
+                viewport_width: 1,
+                viewport_offset: 0,
+            }),
+            vertical: None,
+        });
+
+        app.handle_left_down(0, 0, KeyModifiers::NONE).unwrap();
+
+        assert_ne!(
+            app.session.layout_resize_transaction.load(std::sync::atomic::Ordering::Acquire),
+            transaction
+        );
     }
 
     #[test]
