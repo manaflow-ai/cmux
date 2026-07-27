@@ -3454,6 +3454,9 @@ impl BrowserSurface {
         button: &str,
         press: ActivePointerPress,
     ) -> anyhow::Result<()> {
+        if !self.pointer_capture_is_current(press.capture_generation) {
+            return Ok(());
+        }
         let session = self.require_live_session()?;
         session.runtime.client.dispatch_mouse_event(
             &session.session_id,
