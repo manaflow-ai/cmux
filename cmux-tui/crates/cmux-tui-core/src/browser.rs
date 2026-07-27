@@ -5420,6 +5420,87 @@ mod tests {
     }
 
     #[test]
+    fn locally_discarded_pointer_input_preserves_browser_timeout_streak() {
+        let (runtime, server, dispatched, stop) = runtime_recording_mouse_dispatches();
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        *browser.session.lock().unwrap() = Some(BrowserSession {
+            runtime: runtime.clone(),
+            target_id: "target-1".to_string(),
+            session_id: "session-1".to_string(),
+        });
+        browser.store_frame(test_frame(1));
+        let mux = Mux::new("discarded-pointer-timeout-test", SurfaceOptions::default());
+        let events = mux.subscribe();
+        let weak = Arc::downgrade(&mux);
+        let mut failures = super::BrowserWorkerErrorState::default();
+
+        super::record_browser_worker_result(
+            &surface,
+            &weak,
+            surface.id,
+            false,
+            Err(anyhow::anyhow!("CDP call Page.navigate timed out")),
+            &mut failures,
+        );
+        while events.try_recv().is_ok() {}
+        browser.invalidate_pointer_frame();
+        let discarded = browser
+            .mouse_event_blocking(
+                super::BrowserMouseDispatch {
+                    input_owner: super::BrowserPointerOwner::Local,
+                    event_type: "mouseMoved",
+                    x: 1.0,
+                    y: 1.0,
+                    button: None,
+                    click_count: None,
+                    frame_seq: Some(1),
+                },
+                &mut failures.active_pointer_presses,
+            )
+            .map(|_| ());
+        super::record_browser_worker_result(
+            &surface,
+            &weak,
+            surface.id,
+            true,
+            discarded,
+            &mut failures,
+        );
+        let streak_after_discard = failures.consecutive_timeouts;
+
+        super::record_browser_worker_result(
+            &surface,
+            &weak,
+            surface.id,
+            false,
+            Err(anyhow::anyhow!("CDP call Page.reload timed out")),
+            &mut failures,
+        );
+        let reported_not_responding = events.try_iter().any(|event| {
+            matches!(
+                event,
+                MuxEvent::Status(message) if message == super::BROWSER_NOT_RESPONDING_MESSAGE
+            )
+        });
+        let dispatched_stale_input = dispatched.recv_timeout(Duration::from_millis(100)).is_ok();
+
+        stop.send(()).unwrap();
+        runtime.shutdown();
+        server.join().unwrap();
+
+        assert_eq!(
+            streak_after_discard, 1,
+            "a locally discarded pointer sample must not count as a browser response"
+        );
+        assert!(
+            reported_not_responding,
+            "the second real CDP timeout must still enter the visible recovery state"
+        );
+        assert!(!dispatched_stale_input, "stale pointer input must remain local");
+    }
+
+    #[test]
     fn frame_clearing_not_responding_rearms_timeout_notice() {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
