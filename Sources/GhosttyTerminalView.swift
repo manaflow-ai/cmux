@@ -5831,20 +5831,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     ) -> Bool {
         // Register before calling into Ghostty because a binding can change
         // focus reentrantly. Focus loss resets the lifecycle and removes this
-        // owner while the callback is on the stack.
+        // owner while the callback is on the stack. Ghostty's return value
+        // describes the result of the submitted event, not whether the physical
+        // press occurred or still owns its matching release.
         AppDelegate.shared?.recordTerminalKeyReleaseOwner(
             self,
             forKeyDown: event.keyCode
         )
-        var didSend = false
-        defer {
-            if !didSend {
-                AppDelegate.shared?.clearTerminalKeyReleaseOwner(
-                    self,
-                    forKey: event.keyCode
-                )
-            }
-        }
 
         var keyEvent = ghosttyKeyEvent(for: event, surface: surface)
         keyEvent.action = action
@@ -5865,15 +5858,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         guard let text, shouldSendText(text) else {
             keyEvent.text = nil
-            didSend = sendGhosttyKey(surface, keyEvent)
-            return didSend
+            return sendGhosttyKey(surface, keyEvent)
         }
 
-        didSend = text.withCString { pointer in
+        return text.withCString { pointer in
             keyEvent.text = pointer
             return sendGhosttyKey(surface, keyEvent)
         }
-        return didSend
     }
 
     fileprivate func sendCommittedText(

@@ -34,10 +34,10 @@ class KeyboardLayout {
         return nil
     }
 
-    /// Recovers printable text when AppKit reports a single C0 payload for a
-    /// physical key. AppKit gets the first retry with Control removed; if it
-    /// still returns control input, the active keyboard layout resolves the
-    /// same physical key and modifiers without classifying a language or key.
+    /// Recovers printable text when AppKit reports a single C0 or DEL payload
+    /// for a physical key. AppKit gets the first retry with Control removed;
+    /// if it still returns control input, the active keyboard layout resolves
+    /// the same physical key and modifiers without classifying a language or key.
     static func recoveredTextForControlCharacterEvent(
         _ event: NSEvent,
         appKitCharacterProvider: (NSEvent, NSEvent.ModifierFlags) -> String? = {
@@ -165,6 +165,7 @@ class KeyboardLayout {
             return true
         }
         return scalar.value >= 0x20 &&
+            scalar.value != 0x7F &&
             !(scalar.value >= 0xF700 && scalar.value <= 0xF8FF)
     }
 
