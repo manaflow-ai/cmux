@@ -67,6 +67,17 @@ struct ControlClientLineReaderTests {
         #expect(reader.nextLine(shouldContinueReading: { true }) == nil)
     }
 
+    @Test func assemblesMultiByteScalarAcrossPartialReads() throws {
+        let pair = try SocketPairFixture()
+        pair.write([0xE3, 0x81, 0x82, 0x0A]) // "あ" (U+3042) and newline.
+        pair.closeWriteEnd()
+
+        // The reader accepts at most `bufferSize - 1` bytes per read, forcing
+        // the scalar to straddle two read(2) calls.
+        let reader = ControlClientLineReader(socket: pair.readEnd, bufferSize: 3)
+        #expect(reader.nextLine(shouldContinueReading: { true }) == "あ")
+    }
+
     @Test func crlfIsNotALineTerminator() throws {
         let pair = try SocketPairFixture()
         // Legacy quirk, preserved: Swift strings treat "\r\n" as a single
@@ -92,10 +103,20 @@ struct ControlClientLineReaderTests {
         #expect(reader.nextLine(shouldContinueReading: { true }) == "ok")
     }
 
-    @Test func dropsChunkThatIsNotValidUTF8() throws {
+    @Test func dropsLineThatIsNotValidUTF8() throws {
         let pair = try SocketPairFixture()
-        // The legacy loop coalesced an undecodable chunk to "", losing the
-        // whole chunk including its newline.
+        // Malformed input is discarded rather than surfaced as an empty
+        // command, without discarding a valid line that follows it.
+        pair.write([0xFF, 0xFE, 0x0A] + Array("ok\n".utf8))
+        pair.closeWriteEnd()
+
+        let reader = ControlClientLineReader(socket: pair.readEnd)
+        #expect(reader.nextLine(shouldContinueReading: { true }) == "ok")
+        #expect(reader.nextLine(shouldContinueReading: { true }) == nil)
+    }
+
+    @Test func dropsMalformedOnlyLineAtEOF() throws {
+        let pair = try SocketPairFixture()
         pair.write([0xFF, 0xFE, 0x0A])
         pair.closeWriteEnd()
 

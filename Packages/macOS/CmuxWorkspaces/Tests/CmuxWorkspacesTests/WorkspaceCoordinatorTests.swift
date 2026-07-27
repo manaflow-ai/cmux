@@ -68,14 +68,14 @@ final class StubGroupHost: WorkspaceGroupHosting {
         initialBrowserOmnibarVisible: Bool,
         initialBrowserTransparentBackground: Bool,
         inheritWorkingDirectory: Bool,
-        select: Bool
+        select: Bool,
+        shouldApplyWorkspaceDirectoryCustomization: Bool
     ) -> CoordinatorStubTab {
         let tab = CoordinatorStubTab(currentDirectory: workingDirectory ?? "/tmp")
         model.tabs.append(tab)
         if select { model.selectedTabId = tab.id }
         return tab
     }
-
     func closeWorkspaceForGroupDeletion(_ tab: CoordinatorStubTab, recordHistory: Bool) {
         closedWorkspaceIds.append(tab.id)
         guard model.tabs.count > 1,
@@ -574,5 +574,104 @@ struct WorkspaceCoordinatorTests {
         #expect(model.workspaceGroups[0].anchorWorkspaceId == b.id)
         let memberIds = model.tabs.filter { $0.groupId == groupId }.map(\.id)
         #expect(memberIds.first == b.id)
+    }
+
+    /// Closing a group's anchor must delete only that workspace and keep the
+    /// group intact by promoting the next member, instead of scattering the
+    /// remaining members out to the ungrouped root tier.
+    @Test
+    func anchorClosePromotesNextMemberAndKeepsGroup() throws {
+        let (model, host, groups, _) = makeWorld()
+        _ = host
+        let a = CoordinatorStubTab()
+        let b = CoordinatorStubTab()
+        model.tabs = [a, b]
+        let groupId = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [a.id, b.id]))
+        let anchorId = model.workspaceGroups[0].anchorWorkspaceId
+        // createWorkspaceGroup mints a fresh synthetic anchor; `a`/`b` are members.
+        #expect(anchorId != a.id)
+        #expect(anchorId != b.id)
+        // `a` precedes `b` in tabs order, so `a` is the deterministic promotion
+        // target once the anchor is removed.
+        let aIndex = try #require(model.tabs.firstIndex(where: { $0.id == a.id }))
+        let bIndex = try #require(model.tabs.firstIndex(where: { $0.id == b.id }))
+        #expect(aIndex < bIndex)
+
+        // Simulate the close path: the anchor is removed from tabs, then the
+        // model's close-path group fixup runs.
+        if let index = model.tabs.firstIndex(where: { $0.id == anchorId }) {
+            model.tabs.remove(at: index)
+        }
+        model.promoteAnchorOrRemoveGroupsAnchoredBy(closedWorkspaceId: anchorId)
+
+        // The group survives with the FIRST remaining member in tabs order (`a`,
+        // not `b`) promoted to anchor; both members stay grouped and neither is
+        // released to root.
+        #expect(model.workspaceGroups.count == 1)
+        #expect(model.workspaceGroups.first?.id == groupId)
+        #expect(model.workspaceGroups.first?.anchorWorkspaceId == a.id)
+        #expect(a.groupId == groupId)
+        #expect(b.groupId == groupId)
+    }
+
+    /// Closing the anchor of a group with no other members removes the now-empty
+    /// group (nothing left to promote).
+    @Test
+    func anchorCloseRemovesGroupWhenNoMembersRemain() throws {
+        let (model, host, groups, _) = makeWorld()
+        _ = host
+        let outside = CoordinatorStubTab()
+        model.tabs = [outside]
+        _ = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: []))
+        let anchorId = model.workspaceGroups[0].anchorWorkspaceId
+
+        if let index = model.tabs.firstIndex(where: { $0.id == anchorId }) {
+            model.tabs.remove(at: index)
+        }
+        model.promoteAnchorOrRemoveGroupsAnchoredBy(closedWorkspaceId: anchorId)
+
+        #expect(model.workspaceGroups.isEmpty)
+        #expect(model.tabs.map(\.id) == [outside.id])
+    }
+
+    /// If the snapshot anchor is closed while the Delete Group confirmation is
+    /// open, the group promotes its next member to anchor. On acceptance the
+    /// batch close must drain that *live* anchor last, not the stale snapshot
+    /// anchor: closing the live anchor mid-batch would re-promote and
+    /// renormalize the whole collection on every step (the O(k x totalTabs)
+    /// churn `anchorLastCloseOrder` prevents). Proven by the close order.
+    @Test
+    func deleteGroupDrainsLiveAnchorLastWhenSnapshotAnchorClosedDuringConfirmation() throws {
+        let (model, host, groups, _) = makeWorld()
+        let a = CoordinatorStubTab()
+        let b = CoordinatorStubTab()
+        let outside = CoordinatorStubTab()
+        model.tabs = [a, b, outside]
+        let groupId = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [a.id, b.id]))
+
+        // Snapshot the confirmation while the original synthetic anchor is live.
+        let confirmation = try #require(groups.deletionConfirmation(groupId: groupId))
+        let snapshotAnchorId = confirmation.anchorWorkspaceId
+        #expect(snapshotAnchorId != a.id)
+        #expect(snapshotAnchorId != b.id)
+
+        // Another entrypoint closes the snapshot anchor during the modal loop:
+        // `a` (first remaining member in tabs order) is promoted to live anchor.
+        let anchorIndex = try #require(model.tabs.firstIndex(where: { $0.id == snapshotAnchorId }))
+        model.tabs.remove(at: anchorIndex)
+        model.promoteAnchorOrRemoveGroupsAnchoredBy(closedWorkspaceId: snapshotAnchorId)
+        #expect(model.workspaceGroups.first(where: { $0.id == groupId })?.anchorWorkspaceId == a.id)
+
+        // Accept the original confirmation. Only `a`/`b` remain in the confirmed
+        // set; `a` is now the live anchor and must be closed LAST so no further
+        // promotion runs. Sorting against the stale snapshot anchor would close
+        // `a` first (by confirmed order) and re-promote `b`.
+        groups.deleteWorkspaceGroup(confirmed: confirmation)
+
+        let closedGroupMembers = host.closedWorkspaceIds.filter { $0 == a.id || $0 == b.id }
+        #expect(closedGroupMembers == [b.id, a.id])
+        #expect(host.closedWorkspaceIds.last == a.id)
+        #expect(model.workspaceGroups.isEmpty)
+        #expect(model.tabs.contains(where: { $0.id == outside.id }))
     }
 }

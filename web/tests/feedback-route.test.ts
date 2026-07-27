@@ -1,13 +1,4 @@
-const priorSkipEnvValidation = process.env.SKIP_ENV_VALIDATION;
-const priorResendApiKey = process.env.RESEND_API_KEY;
-const priorFeedbackFromEmail = process.env.CMUX_FEEDBACK_FROM_EMAIL;
-const priorFeedbackRateLimitId = process.env.CMUX_FEEDBACK_RATE_LIMIT_ID;
 const priorVercel = process.env.VERCEL;
-
-process.env.SKIP_ENV_VALIDATION = "1";
-process.env.RESEND_API_KEY = "resend-test-key";
-process.env.CMUX_FEEDBACK_FROM_EMAIL = "feedback@example.test";
-process.env.CMUX_FEEDBACK_RATE_LIMIT_ID = "feedback-rate-limit-test";
 
 import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
 import {
@@ -39,10 +30,6 @@ afterEach(() => {
 });
 
 afterAll(() => {
-  restoreEnv("SKIP_ENV_VALIDATION", priorSkipEnvValidation);
-  restoreEnv("RESEND_API_KEY", priorResendApiKey);
-  restoreEnv("CMUX_FEEDBACK_FROM_EMAIL", priorFeedbackFromEmail);
-  restoreEnv("CMUX_FEEDBACK_RATE_LIMIT_ID", priorFeedbackRateLimitId);
   restoreEnv("VERCEL", priorVercel);
 });
 

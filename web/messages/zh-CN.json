@@ -867,8 +867,6 @@
       "concepts": "核心概念",
       "anchorTitle": "锚点工作区",
       "anchorDesc": "每个分组都恰好由一个称为锚点的工作区拥有。侧边栏中的分组标题栏就是锚点的呈现形式——锚点没有单独的行。点击标题名称区域会聚焦到锚点的面板；点击箭头则切换折叠状态。",
-      "anchorNew": "创建分组时，锚点始终是全新的。它们永远不会从已有的工作区提升而来。锚点的工作目录：在对选中项进行分组时继承自第一个选中的工作区，在通过 CLI 创建而未指定 --cwd 时则继承自当前活动的工作区。",
-      "anchorClose": "关闭锚点工作区会解散该分组：其余每个成员都会变成未分组的工作区并保留在标签页列表中。除了锚点本身，不会关闭其他任何内容。在此操作发生前，应用会显示一个带有“不再询问”开关的确认对话框。",
       "identityTitle": "分组标识",
       "identityDesc": "一个分组拥有名称、图标（一个 SF Symbol，默认为 folder.fill）以及一个可选的自定义颜色。这些与锚点工作区自身的自定义设置相互独立。锚点的颜色和图标在创建时取自分组，但之后两者可以各自变化。",
       "pinningTitle": "固定",
@@ -995,7 +993,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "每个操作可选的上下文谓词（VS Code 风格的 `when` 子句），按 cmux 操作 id 索引。每个值都是基于上下文键的布尔表达式，可用 !、&&、|| 和括号组合。布尔键：sidebarFocus、browserFocus、markdownFocus、filePreviewTextEditorFocus、terminalFocus、commandPaletteVisible、terminalFindVisible、workspaceCanvasLayout。类型化键支持比较：字符串 sidebarMode（files、find、sessions、feed 或 dock）以及整数 paneCount 和 workspaceCount。比较运算符为 ==、!=、=~（正则表达式）、<、<=、>、>= 和 `in [a, b]`；未知或不存在的键按 false 处理。也接受布尔字面量 true 和 false；`key == false` 等同于 `!key`。只有当子句成立时，该操作的快捷键才会触发，也只会在这种情况下与其他快捷键冲突。示例：{ \"selectWorkspaceByNumber\": \"!sidebarFocus\" } 让 Ctrl+1–9 在右侧边栏未聚焦时选择工作区；{ \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } 在工作区有多个窗格时将绑定限定在查找侧边栏。",
+          "when": "每个操作可选的上下文谓词（VS Code 风格的 `when` 子句），按 cmux 操作 id 索引。每个值都是基于上下文键的布尔表达式，可用 !、&&、|| 和括号组合。布尔键：sidebarFocus、browserFocus、markdownFocus、filePreviewTextEditorFocus、simulatorFocus、terminalFocus、commandPaletteVisible、terminalFindVisible、workspaceCanvasLayout。类型化键支持比较：字符串 sidebarMode（files、find、sessions、feed 或 dock）以及整数 paneCount 和 workspaceCount。比较运算符为 ==、!=、=~（正则表达式）、<、<=、>、>= 和 `in [a, b]`；未知或不存在的键按 false 处理。也接受布尔字面量 true 和 false；`key == false` 等同于 `!key`。只有当子句成立时，该操作的快捷键才会触发，也只会在这种情况下与其他快捷键冲突。示例：{ \"selectWorkspaceByNumber\": \"!sidebarFocus\" } 让 Ctrl+1–9 在右侧边栏未聚焦时选择工作区；{ \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } 在工作区有多个窗格时将绑定限定在查找侧边栏。",
           "showModifierHoldHints": "在按住 Cmd 或 Control 时显示快捷键提示标签。"
         }
       },
