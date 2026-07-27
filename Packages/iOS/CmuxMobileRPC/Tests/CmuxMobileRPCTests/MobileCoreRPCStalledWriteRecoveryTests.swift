@@ -263,6 +263,53 @@ import Testing
         await session.tearDown(error: .connectionClosed)
     }
 
+    @Test func expiredNextRequestRecyclesCancelledStalledWrite() async throws {
+        let stalled = StalledWriteTransport()
+        let recovery = ResponseTimeoutSurvivalTransport()
+        let factory = StalledWriteRecoveryTransportFactory(
+            stalled: stalled,
+            recovery: recovery
+        )
+        let route = try hostPortRoute(
+            kind: .debugLoopback,
+            host: "127.0.0.1",
+            port: 59135
+        )
+        let session = MobileCoreRPCSession(
+            cancelledWriteCompletionGraceNanoseconds: 500_000_000,
+            makeTransport: { try factory.makeTransport(for: route) }
+        )
+        let firstTask = Task {
+            try await session.send(
+                payload: try inputRequest(id: "cancelled-before-expiry", text: "a"),
+                requestID: "cancelled-before-expiry",
+                deadlineUptimeNanoseconds: DispatchTime.now().uptimeNanoseconds
+                    + 60 * 1_000_000_000
+            )
+        }
+
+        await stalled.waitUntilSendStarted()
+        firstTask.cancel()
+        _ = try? await firstTask.value
+
+        do {
+            _ = try await session.send(
+                payload: try inputRequest(id: "expired-behind-cancel", text: "b"),
+                requestID: "expired-behind-cancel",
+                deadlineUptimeNanoseconds: DispatchTime.now().uptimeNanoseconds
+            )
+            Issue.record("Expected the expired request to time out")
+        } catch MobileShellConnectionError.requestTimedOut {
+        } catch {
+            Issue.record("Expected requestTimedOut, got \(error)")
+        }
+
+        #expect(await stalled.closed())
+
+        await stalled.failStalledSend()
+        await session.tearDown(error: .connectionClosed)
+    }
+
     @Test func cancelledWriteResolutionHonorsNextRequestCancellation() async throws {
         let stalled = StalledWriteTransport()
         let recovery = ResponseTimeoutSurvivalTransport()
