@@ -684,9 +684,10 @@ impl Screen {
             column.root.restore_stack_expansions(&stack_expansions);
         }
         self.root = snapshot.root;
-        self.active_pane =
-            if self.root.contains(active_pane) { active_pane } else { snapshot.active_pane };
-        self.zoomed_pane = snapshot.zoomed_pane;
+        self.zoomed_pane = snapshot.zoomed_pane.filter(|pane| self.root.contains(*pane));
+        self.active_pane = self.zoomed_pane.unwrap_or_else(|| {
+            if self.root.contains(active_pane) { active_pane } else { snapshot.active_pane }
+        });
         self.zellij_auto_layout = snapshot.zellij_auto_layout;
         self.viewport_splits = snapshot.viewport_splits;
         self.viewport_base_width = snapshot.viewport_base_width;

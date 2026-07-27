@@ -3865,7 +3865,14 @@ fn preserve_client_view(previous: &TreeView, next: &mut TreeView) {
             else {
                 continue;
             };
-            if next_screen.panes.iter().any(|pane| pane.id == previous_screen.active_pane) {
+            if let Some(zoomed_pane) = next_screen
+                .zoomed_pane
+                .filter(|zoomed| next_screen.panes.iter().any(|pane| pane.id == *zoomed))
+            {
+                next_screen.active_pane = zoomed_pane;
+            } else if next_screen.zoomed_pane.is_none()
+                && next_screen.panes.iter().any(|pane| pane.id == previous_screen.active_pane)
+            {
                 next_screen.active_pane = previous_screen.active_pane;
             }
 
