@@ -1,12 +1,16 @@
 import AppKit
-import ApplicationServices
 import Foundation
 import Observation
 
-/// A CMUX surface backed by a captured native application window.
+/// A cmux pane that selects, captures, and controls one native application window.
 @MainActor
 @Observable
 final class ApplicationPanel: Panel {
+    struct CaptureTarget: Equatable {
+        let windowID: CGWindowID
+        let processID: pid_t
+    }
+
     enum CaptureState: Equatable {
         case starting
         case streaming
@@ -19,12 +23,17 @@ final class ApplicationPanel: Panel {
     let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .application
     let workspaceId: UUID
-    let windowID: CGWindowID
-    let processID: pid_t
     let targetFrameRate: Int
-    private(set) var captureState: CaptureState = .starting
+    let runtime: any ApplicationSurfaceRuntime
+    @ObservationIgnored
+    let pickerModel = ApplicationSurfacePickerModel()
 
-    private let title: String
+    private(set) var windowID: CGWindowID?
+    private(set) var processID: pid_t?
+    private(set) var captureState: CaptureState = .starting
+    private(set) var captureGeneration = UUID()
+
+    private var targetTitle: String?
     @ObservationIgnored
     private weak var hostedView: ApplicationCaptureView?
     @ObservationIgnored
@@ -35,55 +44,201 @@ final class ApplicationPanel: Panel {
     private var captureVisibleInUI = false
     @ObservationIgnored
     private var canvasRendering = true
+    @ObservationIgnored
+    private var runtimeLease: ApplicationSurfaceRuntimeLease?
+    @ObservationIgnored
+    private var pickerTask: Task<Void, Never>?
+    @ObservationIgnored
+    private var pickerRequestID = UUID()
+    @ObservationIgnored
+    private var isClosed = false
+    @ObservationIgnored
+    private var displayTitleDidChange: ((String) -> Void)?
 
-    var displayTitle: String { title }
+    var captureTarget: CaptureTarget? {
+        guard let windowID, let processID else { return nil }
+        return CaptureTarget(windowID: windowID, processID: processID)
+    }
+
+    var displayTitle: String {
+        targetTitle
+            ?? String(localized: "panel.application.defaultTitle", defaultValue: "Application")
+    }
+
+    var selectedWindowTitle: String {
+        targetTitle ?? displayTitle
+    }
+
     var displayIcon: String? { "macwindow" }
     var isCaptureViewInWindow: Bool { hostedView?.window != nil }
     var captureStateDescription: String {
+        guard captureTarget != nil else {
+            switch pickerModel.phase {
+            case .idle, .ready:
+                return "selecting"
+            case .loading:
+                return "loading_windows"
+            case .permissionRequired:
+                return "permission_required"
+            case .helperUnavailable:
+                return "helper_unavailable"
+            case .failed:
+                return "failed"
+            }
+        }
         switch captureState {
-        case .starting: "starting"
-        case .streaming: "streaming"
-        case .permissionRequired: "permission_required"
-        case .windowUnavailable: "window_unavailable"
-        case .failed: "failed"
+        case .starting: return "starting"
+        case .streaming: return "streaming"
+        case .permissionRequired: return "permission_required"
+        case .windowUnavailable: return "window_unavailable"
+        case .failed: return "failed"
         }
     }
     var captureFailureDetail: String? {
-        captureState == .failed ? "capture_failed" : nil
+        if case .failed(let detail) = pickerModel.phase {
+            return detail
+        }
+        return captureState == .failed ? "capture_failed" : nil
     }
 
     init?(
         id: UUID = UUID(),
         workspaceId: UUID,
-        windowID: CGWindowID,
-        processID: pid_t,
-        title: String,
-        targetFrameRate: Int
+        windowID: CGWindowID? = nil,
+        processID: pid_t? = nil,
+        title: String? = nil,
+        targetFrameRate: Int,
+        runtime: any ApplicationSurfaceRuntime,
+        runtimeLease: ApplicationSurfaceRuntimeLease? = nil
     ) {
-        guard windowID > 0, processID > 0, (1...120).contains(targetFrameRate) else {
-            return nil
+        guard (1...120).contains(targetFrameRate) else { return nil }
+        guard (windowID == nil) == (processID == nil) else { return nil }
+        if let windowID, let processID {
+            guard windowID > 0, processID > 0 else { return nil }
         }
+
         self.id = id
         self.workspaceId = workspaceId
         self.windowID = windowID
         self.processID = processID
-        self.title = title
+        targetTitle = title
         self.targetFrameRate = min(max(targetFrameRate, 1), 120)
+        self.runtime = runtime
+        self.runtimeLease = runtimeLease
+        if windowID == nil {
+            captureState = .starting
+        }
+    }
+
+    func beginWindowSelectionIfNeeded() {
+        guard captureTarget == nil, pickerModel.phase == .idle else { return }
+        refreshAvailableWindows()
+    }
+
+    func refreshAvailableWindows() {
+        guard !isClosed, captureTarget == nil else { return }
+        pickerTask?.cancel()
+        let requestID = UUID()
+        pickerRequestID = requestID
+        pickerModel.phase = .loading
+        pickerTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                if self.pickerRequestID == requestID {
+                    self.pickerTask = nil
+                }
+            }
+            guard let lease = await self.applicationSurfaceLease() else {
+                guard self.pickerRequestID == requestID, !Task.isCancelled else {
+                    return
+                }
+                self.pickerModel.phase = .helperUnavailable
+                return
+            }
+            do {
+                let currentProcessID = Int32(ProcessInfo.processInfo.processIdentifier)
+                let windows = try await self.runtime
+                    .listApplicationWindows(lease: lease)
+                    .filter { window in
+                        window.processID != currentProcessID
+                            && NSRunningApplication(
+                                processIdentifier: pid_t(window.processID)
+                            )?.activationPolicy == .regular
+                    }
+                guard
+                    self.pickerRequestID == requestID,
+                    !Task.isCancelled,
+                    self.captureTarget == nil
+                else {
+                    return
+                }
+                self.pickerModel.replaceWindows(windows)
+                self.pickerModel.phase = .ready
+            } catch is CancellationError {
+                return
+            } catch ApplicationSurfaceRuntimeError.permissionRequired {
+                guard self.pickerRequestID == requestID, !Task.isCancelled else {
+                    return
+                }
+                self.pickerModel.phase = .permissionRequired
+            } catch {
+                guard self.pickerRequestID == requestID, !Task.isCancelled else {
+                    return
+                }
+                self.pickerModel.phase = .failed(error.localizedDescription)
+            }
+        }
+    }
+
+    func selectWindow(_ window: ApplicationWindowDescriptor) {
+        guard !isClosed, window.windowID > 0, window.processID > 0 else { return }
+        pickerTask?.cancel()
+        pickerTask = nil
+        pickerRequestID = UUID()
+        stopHostedCapture()
+        windowID = CGWindowID(window.windowID)
+        processID = pid_t(window.processID)
+        targetTitle = window.title
+        displayTitleDidChange?(displayTitle)
+        pickerModel.selectedWindowID = window.windowID
+        captureState = .starting
+        captureGeneration = UUID()
+    }
+
+    func chooseAnotherWindow() {
+        guard !isClosed else { return }
+        stopHostedCapture()
+        windowID = nil
+        processID = nil
+        targetTitle = nil
+        displayTitleDidChange?(displayTitle)
+        captureState = .starting
+        captureGeneration = UUID()
+        pickerModel.query = ""
+        pickerModel.phase = .idle
+        beginWindowSelectionIfNeeded()
+    }
+
+    func retryWindowLoadingAfterPermissions() {
+        guard captureTarget == nil else {
+            retryCaptureAfterPermissions()
+            return
+        }
+        pickerModel.phase = .idle
+        beginWindowSelectionIfNeeded()
     }
 
     func beginCaptureSession() -> UUID {
-        if let hostedView, let activeCaptureToken {
-            detach(hostedView, token: activeCaptureToken)
-        } else {
-            hostedView?.stopCapture()
-            hostedView = nil
-            activeCaptureToken = nil
-        }
+        stopHostedCapture()
         captureVisibleInUI = false
         canvasRendering = true
         let token = UUID()
         activeCaptureToken = token
         return token
+    }
+
+    func setDisplayTitleChangeHandler(_ handler: @escaping (String) -> Void) {
+        displayTitleDidChange = handler
     }
 
     func attach(_ view: ApplicationCaptureView, token: UUID) {
@@ -101,7 +256,7 @@ final class ApplicationPanel: Panel {
             view.stopCapture()
             return
         }
-        view.stopCapture()
+        view.teardown()
         hostedView = nil
         activeCaptureToken = nil
         captureVisibleInUI = false
@@ -129,15 +284,16 @@ final class ApplicationPanel: Panel {
     }
 
     func close() {
+        guard !isClosed else { return }
+        isClosed = true
+        pickerTask?.cancel()
+        pickerTask = nil
+        pickerRequestID = UUID()
         pendingFocus = false
-        if let hostedView, let activeCaptureToken {
-            detach(hostedView, token: activeCaptureToken)
-        } else {
-            hostedView?.stopCapture()
-            hostedView = nil
-            activeCaptureToken = nil
-            captureVisibleInUI = false
-        }
+        stopHostedCapture()
+        runtimeLease?.release()
+        runtimeLease = nil
+        displayTitleDidChange = nil
     }
 
     func focus() {
@@ -157,29 +313,47 @@ final class ApplicationPanel: Panel {
         guard let parsed = ApplicationCaptureView.parseNamedKey(name) else {
             return .unknownKey
         }
-        guard Self.hasLiveTarget(windowID: windowID, processID: processID),
-              AXIsProcessTrusted(),
-              let down = CGEvent(
-                keyboardEventSource: nil,
-                virtualKey: parsed.keyCode,
-                keyDown: true
-              ),
-              let up = CGEvent(
-                keyboardEventSource: nil,
-                virtualKey: parsed.keyCode,
-                keyDown: false
-              ) else {
+        guard hostedView?.sendNamedKey(
+            keyCode: parsed.keyCode,
+            flags: parsed.flags
+        ) == true else {
             return .surfaceUnavailable
         }
-        down.flags = parsed.flags
-        up.flags = parsed.flags
-        down.postToPid(processID)
-        up.postToPid(processID)
         return .sent
+    }
+
+    func applicationSurfaceLease() async -> ApplicationSurfaceRuntimeLease? {
+        guard !isClosed else { return nil }
+        if let runtimeLease {
+            return runtimeLease
+        }
+        let lease = await runtime.acquireApplicationSurfaceLease()
+        guard !isClosed else {
+            lease?.release()
+            return nil
+        }
+        runtimeLease = lease
+        return lease
+    }
+
+    func retryCaptureAfterPermissions() {
+        captureState = .starting
+        applyCaptureVisibility()
     }
 
     func triggerFlash(reason: WorkspaceAttentionFlashReason) {
         _ = reason
+    }
+
+    private func stopHostedCapture() {
+        if let hostedView, let activeCaptureToken {
+            detach(hostedView, token: activeCaptureToken)
+        } else {
+            hostedView?.teardown()
+            hostedView = nil
+            activeCaptureToken = nil
+            captureVisibleInUI = false
+        }
     }
 
     private func fulfillPendingFocusIfPossible() {
@@ -190,22 +364,5 @@ final class ApplicationPanel: Panel {
 
     private func applyCaptureVisibility() {
         hostedView?.setCaptureActive(captureVisibleInUI && canvasRendering)
-    }
-
-    static func hasLiveTarget(windowID: CGWindowID, processID: pid_t) -> Bool {
-        let windows = CGWindowListCopyWindowInfo(
-            [.optionIncludingWindow],
-            windowID
-        ) as? [[String: Any]]
-        guard let window = windows?.first,
-              let ownerPID = window[kCGWindowOwnerPID as String] as? Int,
-              pid_t(ownerPID) == processID,
-              let bounds = window[kCGWindowBounds as String] as? NSDictionary else {
-            return false
-        }
-        var frame = CGRect.zero
-        return CGRectMakeWithDictionaryRepresentation(bounds, &frame)
-            && frame.width > 0
-            && frame.height > 0
     }
 }

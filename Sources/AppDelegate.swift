@@ -791,6 +791,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// observes inside the sidebar.
     var settingsRuntime: SettingsRuntime?
     private var computerUseRuntimeService: ComputerUseRuntimeService?
+    var applicationSurfaceRuntimeService: ComputerUseRuntimeService? {
+        computerUseRuntimeService
+    }
     weak var fileExplorerState: FileExplorerState?
     weak var fullscreenControlsViewModel: TitlebarControlsViewModel?
     weak var sidebarSelectionState: SidebarSelectionState?
@@ -2193,6 +2196,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         isTerminatingApp = true
         _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
         ClosedItemHistoryStore.shared.flushPendingSaves()
+    }
+
+    func presentNewApplicationSurface(
+        tabManager preferredTabManager: TabManager? = nil,
+        preferredWindow: NSWindow? = nil
+    ) {
+        guard
+            let tabManager = preferredTabManager
+                ?? synchronizeActiveMainWindowContext(preferredWindow: preferredWindow),
+            let workspace = tabManager.selectedWorkspace,
+            let paneID = workspace.bonsplitController.focusedPaneId
+                ?? workspace.bonsplitController.allPaneIds.first,
+            workspace.newApplicationSurface(
+                inPane: paneID,
+                focus: true
+            ) != nil
+        else {
+            NSSound.beep()
+            return
+        }
+    }
+
+    func presentApplicationSurfacePermissions(
+        onCompleted: @escaping @MainActor () -> Void
+    ) {
+        let status = computerUseRuntimeService?.status() ?? (
+            accessibility: false,
+            screenRecording: false
+        )
+        computerUseUXCoordinator.presentOnboarding(
+            startingAt: status.accessibility ? .screenRecording : .accessibility,
+            onCompleted: onCompleted
+        )
     }
 
     func configure(

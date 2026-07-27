@@ -1,6 +1,27 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "applicationSurface.error.helperUnavailable": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The cmux Computer Use helper is unavailable."}},"ja":{"stringUnit":{"state":"translated","value":"cmux Computer Useヘルパーを利用できません。"}}}},
+    "applicationSurface.error.invalidResponse": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The cmux Computer Use helper returned an invalid response."}},"ja":{"stringUnit":{"state":"translated","value":"cmux Computer Useヘルパーから無効な応答が返されました。"}}}},
+    "applicationSurface.error.permissionRequired": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Application panes need Accessibility and Screen Recording access."}},"ja":{"stringUnit":{"state":"translated","value":"アプリケーションペインにはアクセシビリティと画面収録の許可が必要です。"}}}},
+    "applicationSurface.error.windowUnavailable": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The selected application window is no longer available."}},"ja":{"stringUnit":{"state":"translated","value":"選択したアプリケーションウインドウは利用できなくなりました。"}}}},
+    "applicationSurface.picker.empty": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"No matching application windows"}},"ja":{"stringUnit":{"state":"translated","value":"一致するアプリケーションウインドウがありません"}}}},
+    "applicationSurface.picker.emptyDetail": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Open a window in another app, then refresh."}},"ja":{"stringUnit":{"state":"translated","value":"別のアプリでウインドウを開いてから、更新してください。"}}}},
+    "applicationSurface.picker.helperUnavailable": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"cmux could not start the Computer Use helper."}},"ja":{"stringUnit":{"state":"translated","value":"cmux Computer Useヘルパーを起動できませんでした。"}}}},
+    "applicationSurface.picker.loading": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Loading application windows…"}},"ja":{"stringUnit":{"state":"translated","value":"アプリケーションウインドウを読み込み中…"}}}},
+    "applicationSurface.picker.permissionTitle": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Set up application panes"}},"ja":{"stringUnit":{"state":"translated","value":"アプリケーションペインを設定"}}}},
+    "applicationSurface.picker.permissionsIncomplete": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Accessibility and Screen Recording access are both required."}},"ja":{"stringUnit":{"state":"translated","value":"アクセシビリティと画面収録の両方の許可が必要です。"}}}},
+    "applicationSurface.picker.refresh": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Refresh"}},"ja":{"stringUnit":{"state":"translated","value":"更新"}}}},
+    "applicationSurface.picker.search": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Search windows"}},"ja":{"stringUnit":{"state":"translated","value":"ウインドウを検索"}}}},
+    "applicationSurface.picker.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Choose an application window"}},"ja":{"stringUnit":{"state":"translated","value":"アプリケーションウインドウを選択"}}}},
+    "applicationSurface.picker.tryAgain": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Try Again"}},"ja":{"stringUnit":{"state":"translated","value":"もう一度試す"}}}},
+    "command.newApplicationPane.subtitle": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Mirror and control a Mac window"}},"ja":{"stringUnit":{"state":"translated","value":"Macのウインドウを表示して操作"}}}},
+    "command.newApplicationPane.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"New Application Pane"}},"ja":{"stringUnit":{"state":"translated","value":"新規アプリケーションペイン"}}}},
+    "menu.file.newApplicationPane": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"New Application Pane"}},"ja":{"stringUnit":{"state":"translated","value":"新規アプリケーションペイン"}}}},
+    "panel.application.chooseAnother": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Choose Another Window"}},"ja":{"stringUnit":{"state":"translated","value":"別のウインドウを選択"}}}},
+    "panel.application.status.needsAttention": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Needs Attention"}},"ja":{"stringUnit":{"state":"translated","value":"確認が必要"}}}},
+    "panel.application.status.starting": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Starting"}},"ja":{"stringUnit":{"state":"translated","value":"起動中"}}}},
+    "panel.application.status.streaming": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Live"}},"ja":{"stringUnit":{"state":"translated","value":"ライブ"}}}},
     "computerUse.cursorOverlay.accessibilityLabel": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Computer-use cursor"}},"ja":{"stringUnit":{"state":"translated","value":"コンピュータ操作カーソル"}}}},
     "computerUse.menu.backgroundStatus": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"cmux Computer Use — Running in Background"}},"ja":{"stringUnit":{"state":"translated","value":"cmux Computer Use — バックグラウンドで実行中"}}}},
     "computerUse.menu.continueInBackground": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Continue in Background"}},"ja":{"stringUnit":{"state":"translated","value":"バックグラウンドで続行"}}}},
@@ -134608,13 +134629,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "CMUX could not capture this application window. Close the surface and try again."
+            "value": "cmux could not capture this window. Try again or choose another window."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "CMUXでこのアプリケーションウィンドウをキャプチャできませんでした。サーフェスを閉じて、もう一度お試しください。"
+            "value": "cmuxでこのウインドウをキャプチャできませんでした。もう一度試すか、別のウインドウを選択してください。"
           }
         }
       }
@@ -134625,13 +134646,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Allow Screen Recording for CMUX in System Settings, then restart CMUX."
+            "value": "Allow Accessibility and Screen Recording for cmux Computer Use."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "システム設定でCMUXの画面収録を許可してから、CMUXを再起動してください。"
+            "value": "cmux Computer Useにアクセシビリティと画面収録を許可してください。"
           }
         }
       }
@@ -134642,13 +134663,30 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Screen Recording permission required"
+            "value": "Permissions required"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "画面収録の許可が必要です"
+            "value": "権限が必要です"
+          }
+        }
+      }
+    },
+    "panel.application.permissionRequired.action": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set Up Permissions"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "権限を設定"
           }
         }
       }
@@ -225646,13 +225684,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Application input is unavailable. Check CMUX Accessibility permission and reopen the application surface."
+            "value": "Application input is unavailable. Set up Accessibility for cmux Computer Use, then retry."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "アプリケーション入力を利用できません。CMUXのアクセシビリティ権限を確認し、アプリケーションサーフェスを開き直してください。"
+            "value": "アプリケーション入力を利用できません。cmux Computer Useのアクセシビリティを設定してから、もう一度お試しください。"
           }
         }
       }

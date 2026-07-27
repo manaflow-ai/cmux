@@ -1,17 +1,9 @@
 import AppKit
-import ApplicationServices
-import AVFoundation
 import Carbon.HIToolbox
-import CoreMedia
-import os
-import ScreenCaptureKit
+import CmuxSimulatorUI
 
 @MainActor
 final class ApplicationCaptureView: NSView {
-    private static let logger = Logger(
-        subsystem: Bundle.main.bundleIdentifier ?? "com.cmux",
-        category: "ApplicationCapture"
-    )
     private static let namedKeyCodes: [String: CGKeyCode] = [
         "a": CGKeyCode(kVK_ANSI_A), "b": CGKeyCode(kVK_ANSI_B),
         "c": CGKeyCode(kVK_ANSI_C), "d": CGKeyCode(kVK_ANSI_D),
@@ -50,30 +42,43 @@ final class ApplicationCaptureView: NSView {
         "down": CGKeyCode(kVK_DownArrow), "up": CGKeyCode(kVK_UpArrow),
     ]
 
-    private let sourceWindowID: CGWindowID
-    private let processID: pid_t
+    private let sourceWindowID: UInt32
+    private let processID: Int32
     private let targetFrameRate: Int
+    private let runtime: any ApplicationSurfaceRuntime
+    private let leaseProvider: @MainActor () async -> ApplicationSurfaceRuntimeLease?
     private let onStateChanged: (ApplicationPanel.CaptureState) -> Void
     private let onMovedToWindow: (ApplicationCaptureView) -> Void
-    private let displayLayer = AVSampleBufferDisplayLayer()
-    private lazy var streamOutput = ApplicationCaptureStreamOutput(
-        displayLayer: displayLayer
-    ) { [weak self] frame in
-        self?.captureFrameDidArrive(frame)
-    }
-    private lazy var streamDelegate = ApplicationCaptureStreamDelegate { [weak self] streamID in
-        Task { @MainActor [weak self] in
-            self?.handleUnexpectedStreamStop(streamID: streamID)
+    private let remoteFrameView = CmuxRemoteFrameView(frame: .zero)
+    private lazy var inputPump = ApplicationSurfaceInputPump { [weak self] event in
+        guard
+            let self,
+            let lease = self.lease,
+            let sessionID = self.session?.sessionID
+        else {
+            return
+        }
+        do {
+            try await self.runtime.sendApplicationSurfaceEvent(
+                lease: lease,
+                sessionID: sessionID,
+                event: event
+            )
+        } catch ApplicationSurfaceRuntimeError.pointOutsideContent {
+            return
+        } catch ApplicationSurfaceRuntimeError.windowUnavailable {
+            self.handleRuntimeFailure(.windowUnavailable)
+        } catch ApplicationSurfaceRuntimeError.permissionRequired {
+            self.handleRuntimeFailure(.permissionRequired)
+        } catch {
+            self.handleRuntimeFailure(.failed)
         }
     }
+
+    private var lease: ApplicationSurfaceRuntimeLease?
+    private var session: ApplicationSurfaceSessionDescriptor?
     private var captureTask: Task<Void, Never>?
-    private var teardownTask: Task<Void, Never>?
-    private var configurationUpdateTask: Task<Void, Never>?
-    private var configurationUpdateToken: UUID?
-    private var startupToken: UUID?
-    private var stream: SCStream?
-    private var sourceFrame: CGRect = .zero
-    private var configuredCapturePixelSize: CGSize = .zero
+    private var captureGeneration = UUID()
     private var captureDesired = false
     private var targetUnavailable = false
     private var pendingScrollX = 0.0
@@ -85,23 +90,38 @@ final class ApplicationCaptureView: NSView {
     override var isFlipped: Bool { true }
 
     init(
-        windowID: CGWindowID,
-        processID: pid_t,
+        windowID: UInt32,
+        processID: Int32,
         targetFrameRate: Int,
+        runtime: any ApplicationSurfaceRuntime,
+        leaseProvider: @escaping @MainActor () async -> ApplicationSurfaceRuntimeLease?,
         onStateChanged: @escaping (ApplicationPanel.CaptureState) -> Void,
         onMovedToWindow: @escaping (ApplicationCaptureView) -> Void
     ) {
-        self.sourceWindowID = windowID
+        sourceWindowID = windowID
         self.processID = processID
         self.targetFrameRate = targetFrameRate
+        self.runtime = runtime
+        self.leaseProvider = leaseProvider
         self.onStateChanged = onStateChanged
         self.onMovedToWindow = onMovedToWindow
         super.init(frame: .zero)
         wantsLayer = true
-        layer = CALayer()
         layer?.backgroundColor = NSColor.black.cgColor
-        displayLayer.videoGravity = .resizeAspect
-        layer?.addSublayer(displayLayer)
+        addSubview(remoteFrameView)
+        remoteFrameView.onFirstFrame = { [weak self] in
+            guard let self, self.captureDesired, self.session != nil else { return }
+            self.onStateChanged(.streaming)
+        }
+        remoteFrameView.onTransportFailure = { [weak self] error in
+            guard let self else { return }
+            cmuxDebugLog(
+                "applicationSurface.transport.failed"
+                    + " window=\(self.sourceWindowID)"
+                    + " error=\(error.localizedDescription)"
+            )
+            self.handleRuntimeFailure(.failed)
+        }
     }
 
     @available(*, unavailable)
@@ -133,15 +153,13 @@ final class ApplicationCaptureView: NSView {
 
     override func layout() {
         super.layout()
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        displayLayer.frame = bounds
-        CATransaction.commit()
+        remoteFrameView.frame = bounds
     }
 
     func setCaptureActive(_ active: Bool) {
+        captureDesired = active
+        remoteFrameView.setActive(active)
         if active {
-            captureDesired = true
             startCapture()
         } else {
             stopCapture()
@@ -149,159 +167,151 @@ final class ApplicationCaptureView: NSView {
     }
 
     func startCapture() {
-        guard captureDesired, !targetUnavailable, captureTask == nil, stream == nil else { return }
-        let token = UUID()
-        startupToken = token
-        let previousTeardown = teardownTask
-        captureTask = Task { [weak self] in
-            await previousTeardown?.value
+        guard captureDesired, !targetUnavailable, captureTask == nil, session == nil else {
+            return
+        }
+        let generation = UUID()
+        captureGeneration = generation
+        onStateChanged(.starting)
+        captureTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            if self.captureDesired,
-               self.startupToken == token,
-               !Task.isCancelled {
-                await self.beginCapture(token: token)
+            defer {
+                if self.captureGeneration == generation {
+                    self.captureTask = nil
+                }
             }
-            let restartAfterCleanup = Task.isCancelled && self.captureDesired
-            guard self.startupToken == token else { return }
-            self.startupToken = nil
-            self.captureTask = nil
-            if restartAfterCleanup {
-                self.startCapture()
+            let lease: ApplicationSurfaceRuntimeLease?
+            if let existingLease = self.lease {
+                lease = existingLease
+            } else {
+                lease = await self.leaseProvider()
+            }
+            guard
+                !Task.isCancelled,
+                self.captureDesired,
+                self.captureGeneration == generation,
+                let lease
+            else {
+                return
+            }
+            self.lease = lease
+            do {
+                let session = try await self.runtime.startApplicationSurface(
+                    lease: lease,
+                    windowID: self.sourceWindowID,
+                    processID: self.processID,
+                    frameRate: self.targetFrameRate
+                )
+                guard
+                    !Task.isCancelled,
+                    self.captureDesired,
+                    self.captureGeneration == generation
+                else {
+                    await self.runtime.stopApplicationSurface(
+                        lease: lease,
+                        sessionID: session.sessionID
+                    )
+                    return
+                }
+                self.session = session
+                self.remoteFrameView.adopt(session.frameTransport)
+                self.remoteFrameView.setActive(true)
+            } catch ApplicationSurfaceRuntimeError.permissionRequired {
+                self.onStateChanged(.permissionRequired)
+            } catch ApplicationSurfaceRuntimeError.windowUnavailable {
+                self.targetUnavailable = true
+                self.onStateChanged(.windowUnavailable)
+            } catch {
+                cmuxDebugLog(
+                    "applicationSurface.start.failed"
+                        + " window=\(self.sourceWindowID)"
+                        + " error=\(error.localizedDescription)"
+                )
+                self.onStateChanged(.failed)
             }
         }
     }
 
     func stopCapture() {
         captureDesired = false
+        captureGeneration = UUID()
         captureTask?.cancel()
-        configurationUpdateTask?.cancel()
-        configurationUpdateTask = nil
-        configurationUpdateToken = nil
-        sourceFrame = .zero
-        configuredCapturePixelSize = .zero
+        captureTask = nil
+        remoteFrameView.setActive(false)
+        inputPump.cancelPending()
         pendingScrollX = 0
         pendingScrollY = 0
         pressedModifierKeyCodes.removeAll()
-
-        let activeStream = stream
-        stream = nil
-        displayLayer.flushAndRemoveImage()
-        guard let activeStream else { return }
-
-        streamDelegate.expectStop(activeStream)
-        // A startup generation also stops its own stream after startCapture()
-        // resolves. Retaining captureTask prevents a replacement from starting
-        // until that post-start teardown completes.
-        let previousTeardown = teardownTask
-        teardownTask = Task {
-            await previousTeardown?.value
-            defer { streamDelegate.finishExpectedStop(activeStream) }
-            do {
-                try await activeStream.stopCapture()
-            } catch {
-                Self.logger.error("ScreenCaptureKit stopCapture failed")
-            }
+        guard let session, let lease else {
+            self.session = nil
+            return
+        }
+        self.session = nil
+        Task { @MainActor [runtime] in
+            await runtime.stopApplicationSurface(
+                lease: lease,
+                sessionID: session.sessionID
+            )
         }
     }
 
-    private func beginCapture(token: UUID) async {
-        var attemptedStream: SCStream?
-        onStateChanged(.starting)
-        guard CGPreflightScreenCaptureAccess() || CGRequestScreenCaptureAccess() else {
-            onStateChanged(.permissionRequired)
-            return
-        }
-        guard captureDesired, startupToken == token, !Task.isCancelled else { return }
+    func teardown() {
+        stopCapture()
+        remoteFrameView.teardown()
+        lease = nil
+    }
 
-        do {
-            let content = try await SCShareableContent.excludingDesktopWindows(
-                false,
-                onScreenWindowsOnly: false
-            )
-            guard captureDesired, startupToken == token, !Task.isCancelled else { return }
-            guard let sourceWindow = content.windows.first(where: {
-                $0.windowID == sourceWindowID
-            }),
-            sourceWindow.owningApplication?.processID == processID else {
-                handleWindowUnavailable()
-                return
-            }
-
-            sourceFrame = sourceWindow.frame
-            let filter = SCContentFilter(desktopIndependentWindow: sourceWindow)
-            let sourceSize = sourceWindow.frame.size
-            let configuration = streamConfiguration(for: sourceSize)
-
-            let newStream = SCStream(
-                filter: filter,
-                configuration: configuration,
-                delegate: streamDelegate
-            )
-            attemptedStream = newStream
-            try newStream.addStreamOutput(
-                streamOutput,
-                type: .screen,
-                sampleHandlerQueue: streamOutput.sampleQueue
-            )
-            stream = newStream
-            configuredCapturePixelSize = Self.capturePixelSize(for: sourceSize)
-            try await newStream.startCapture()
-            guard captureDesired, startupToken == token, !Task.isCancelled else {
-                if stream === newStream {
-                    stream = nil
-                }
-                streamDelegate.expectStop(newStream)
-                defer { streamDelegate.finishExpectedStop(newStream) }
-                do {
-                    try await newStream.stopCapture()
-                } catch {
-                    Self.logger.error("ScreenCaptureKit cancelled-start teardown failed")
-                }
-                return
-            }
-            onStateChanged(.streaming)
-        } catch {
-            if let attemptedStream, stream === attemptedStream {
-                stream = nil
-                configuredCapturePixelSize = .zero
-            }
-            if captureDesired, startupToken == token, !Task.isCancelled {
-                onStateChanged(.failed)
-            }
-        }
+    func sendNamedKey(
+        keyCode: CGKeyCode,
+        flags: CGEventFlags
+    ) -> Bool {
+        guard captureDesired, session != nil, lease != nil else { return false }
+        inputPump.enqueue(ApplicationSurfaceInputEvent(
+            kind: .key,
+            keyCode: keyCode,
+            keyDown: true,
+            modifiers: flags.rawValue
+        ))
+        inputPump.enqueue(ApplicationSurfaceInputEvent(
+            kind: .key,
+            keyCode: keyCode,
+            keyDown: false,
+            modifiers: flags.rawValue
+        ))
+        return true
     }
 
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
-        postMouse(event, type: .leftMouseDown, button: .left)
+        enqueueMouse(event, kind: .leftMouseDown)
     }
 
     override func mouseUp(with event: NSEvent) {
-        postMouse(event, type: .leftMouseUp, button: .left)
+        enqueueMouse(event, kind: .leftMouseUp)
     }
 
     override func rightMouseDown(with event: NSEvent) {
-        postMouse(event, type: .rightMouseDown, button: .right)
+        enqueueMouse(event, kind: .rightMouseDown)
     }
 
     override func rightMouseUp(with event: NSEvent) {
-        postMouse(event, type: .rightMouseUp, button: .right)
+        enqueueMouse(event, kind: .rightMouseUp)
     }
 
     override func mouseMoved(with event: NSEvent) {
-        postMouse(event, type: .mouseMoved, button: .left)
+        enqueueMouse(event, kind: .mouseMoved)
     }
 
     override func mouseDragged(with event: NSEvent) {
-        postMouse(event, type: .leftMouseDragged, button: .left)
+        enqueueMouse(event, kind: .leftMouseDragged)
     }
 
     override func rightMouseDragged(with event: NSEvent) {
-        postMouse(event, type: .rightMouseDragged, button: .right)
+        enqueueMouse(event, kind: .rightMouseDragged)
     }
 
     override func scrollWheel(with event: NSEvent) {
-        guard validatedSourceFrame() != nil, AXIsProcessTrusted() else { return }
+        guard let point = normalizedPoint(for: event) else { return }
         pendingScrollX += event.scrollingDeltaX
         pendingScrollY += event.scrollingDeltaY
         let scrollX = pendingScrollX.rounded(.towardZero)
@@ -309,23 +319,22 @@ final class ApplicationCaptureView: NSView {
         pendingScrollX -= scrollX
         pendingScrollY -= scrollY
         guard scrollX != 0 || scrollY != 0 else { return }
-        guard let cgEvent = CGEvent(
-            scrollWheelEvent2Source: nil,
-            units: .pixel,
-            wheelCount: 2,
-            wheel1: Int32(scrollY),
-            wheel2: Int32(scrollX),
-            wheel3: 0
-        ) else { return }
-        cgEvent.postToPid(processID)
+        inputPump.enqueue(ApplicationSurfaceInputEvent(
+            kind: .scroll,
+            x: point.x,
+            y: point.y,
+            modifiers: UInt64(event.modifierFlags.rawValue),
+            deltaX: scrollX,
+            deltaY: scrollY
+        ))
     }
 
     override func keyDown(with event: NSEvent) {
-        postKey(event, keyDown: true)
+        enqueueKey(event, keyDown: true)
     }
 
     override func keyUp(with event: NSEvent) {
-        postKey(event, keyDown: false)
+        enqueueKey(event, keyDown: false)
     }
 
     override func flagsChanged(with event: NSEvent) {
@@ -343,7 +352,58 @@ final class ApplicationCaptureView: NSView {
             keyCode: event.keyCode,
             pressedKeyCodes: &pressedModifierKeyCodes
         )
-        postKey(event, keyDown: keyDown)
+        enqueueKey(event, keyDown: keyDown)
+    }
+
+    private func enqueueMouse(_ event: NSEvent, kind: ApplicationSurfaceInputEvent.Kind) {
+        guard let point = normalizedPoint(for: event) else { return }
+        inputPump.enqueue(ApplicationSurfaceInputEvent(
+            kind: kind,
+            x: point.x,
+            y: point.y,
+            modifiers: UInt64(event.modifierFlags.rawValue),
+            clickCount: event.clickCount
+        ))
+    }
+
+    private func enqueueKey(_ event: NSEvent, keyDown: Bool) {
+        guard captureDesired, session != nil, lease != nil else { return }
+        inputPump.enqueue(ApplicationSurfaceInputEvent(
+            kind: .key,
+            keyCode: event.keyCode,
+            keyDown: keyDown,
+            modifiers: UInt64(event.modifierFlags.rawValue)
+        ))
+    }
+
+    private func normalizedPoint(for event: NSEvent) -> CGPoint? {
+        guard captureDesired, session != nil, lease != nil else { return nil }
+        let point = convert(event.locationInWindow, from: nil)
+        let frameSize = remoteFrameView.framePixelSize
+        guard
+            let source = Self.sourcePoint(
+                for: point,
+                in: bounds,
+                sourceFrame: CGRect(origin: .zero, size: frameSize)
+            ),
+            frameSize.width > 0,
+            frameSize.height > 0
+        else {
+            return nil
+        }
+        return CGPoint(
+            x: source.x / frameSize.width,
+            y: source.y / frameSize.height
+        )
+    }
+
+    private func handleRuntimeFailure(_ state: ApplicationPanel.CaptureState) {
+        guard captureDesired else { return }
+        if state == .windowUnavailable {
+            targetUnavailable = true
+        }
+        onStateChanged(state)
+        stopCapture()
     }
 
     static func parseNamedKey(_ name: String) -> (keyCode: CGKeyCode, flags: CGEventFlags)? {
@@ -351,8 +411,10 @@ final class ApplicationCaptureView: NSView {
             .lowercased()
             .replacingOccurrences(of: "+", with: "-")
         var components = normalized.split(separator: "-").map(String.init)
-        guard let keyName = components.popLast(),
-              let keyCode = Self.namedKeyCodes[keyName] else {
+        guard
+            let keyName = components.popLast(),
+            let keyCode = namedKeyCodes[keyName]
+        else {
             return nil
         }
         var flags: CGEventFlags = []
@@ -379,38 +441,23 @@ final class ApplicationCaptureView: NSView {
         return true
     }
 
-    private func postMouse(_ event: NSEvent, type: CGEventType, button: CGMouseButton) {
-        guard let sourceFrame = validatedSourceFrame(), AXIsProcessTrusted() else { return }
-        let point = convert(event.locationInWindow, from: nil)
-        guard let sourcePoint = Self.sourcePoint(
-            for: point,
-            in: bounds,
-            sourceFrame: sourceFrame
-        ) else { return }
-        guard let cgEvent = CGEvent(
-            mouseEventSource: nil,
-            mouseType: type,
-            mouseCursorPosition: sourcePoint,
-            mouseButton: button
-        ) else { return }
-        cgEvent.flags = CGEventFlags(rawValue: UInt64(event.modifierFlags.rawValue))
-        cgEvent.setIntegerValueField(
-            .mouseEventClickState,
-            value: Int64(event.clickCount)
-        )
-        cgEvent.postToPid(processID)
-    }
-
     static func sourcePoint(
         for point: CGPoint,
         in bounds: CGRect,
         sourceFrame: CGRect
     ) -> CGPoint? {
-        guard bounds.width > 0,
-              bounds.height > 0,
-              sourceFrame.width > 0,
-              sourceFrame.height > 0 else { return nil }
-        let scale = min(bounds.width / sourceFrame.width, bounds.height / sourceFrame.height)
+        guard
+            bounds.width > 0,
+            bounds.height > 0,
+            sourceFrame.width > 0,
+            sourceFrame.height > 0
+        else {
+            return nil
+        }
+        let scale = min(
+            bounds.width / sourceFrame.width,
+            bounds.height / sourceFrame.height
+        )
         guard scale > 0 else { return nil }
         let renderedSize = CGSize(
             width: sourceFrame.width * scale,
@@ -429,129 +476,57 @@ final class ApplicationCaptureView: NSView {
         )
     }
 
-    static func capturePixelSize(for sourceSize: CGSize) -> CGSize {
-        let captureScale = min(
-            2,
-            4_096 / max(sourceSize.width, 1),
-            2_304 / max(sourceSize.height, 1)
-        )
-        return CGSize(
-            width: CGFloat(max(Int(sourceSize.width * captureScale), 1)),
-            height: CGFloat(max(Int(sourceSize.height * captureScale), 1))
-        )
+}
+
+@MainActor
+private final class ApplicationSurfaceInputPump {
+    typealias Sender = @MainActor (ApplicationSurfaceInputEvent) async -> Void
+
+    private let sender: Sender
+    private var queue: [ApplicationSurfaceInputEvent] = []
+    private var drainTask: Task<Void, Never>?
+    private var generation = UUID()
+
+    init(sender: @escaping Sender) {
+        self.sender = sender
     }
 
-    private func streamConfiguration(for sourceSize: CGSize) -> SCStreamConfiguration {
-        let pixelSize = Self.capturePixelSize(for: sourceSize)
-        let configuration = SCStreamConfiguration()
-        configuration.width = Int(pixelSize.width)
-        configuration.height = Int(pixelSize.height)
-        configuration.minimumFrameInterval = CMTime(
-            value: 1,
-            timescale: CMTimeScale(targetFrameRate)
-        )
-        configuration.queueDepth = 3
-        configuration.showsCursor = true
-        configuration.pixelFormat = kCVPixelFormatType_32BGRA
-        return configuration
+    func enqueue(_ event: ApplicationSurfaceInputEvent) {
+        if event.kind.isCoalescibleMotion,
+           let lastIndex = queue.indices.last,
+           queue[lastIndex].kind.isCoalescibleMotion {
+            queue[lastIndex] = event
+        } else {
+            queue.append(event)
+        }
+        if queue.count > 64 {
+            queue.removeAll(where: { $0.kind.isCoalescibleMotion })
+        }
+        startDrainIfNeeded()
     }
 
-    private func updateStreamConfigurationIfNeeded(
-        for sourceSize: CGSize,
-        activeStream: SCStream
-    ) -> Bool {
-        let requestedPixelSize = Self.capturePixelSize(for: sourceSize)
-        guard requestedPixelSize != configuredCapturePixelSize else { return true }
-        guard configurationUpdateTask == nil else { return false }
+    func cancelPending() {
+        generation = UUID()
+        drainTask?.cancel()
+        drainTask = nil
+        queue.removeAll()
+    }
 
-        let configuration = streamConfiguration(for: sourceSize)
-        let token = UUID()
-        configurationUpdateToken = token
-        configurationUpdateTask = Task { [weak self, weak activeStream] in
+    private func startDrainIfNeeded() {
+        guard drainTask == nil else { return }
+        let generation = generation
+        drainTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            defer {
-                if self.configurationUpdateToken == token {
-                    self.configurationUpdateToken = nil
-                    self.configurationUpdateTask = nil
+            while !Task.isCancelled, self.generation == generation, !self.queue.isEmpty {
+                let event = self.queue.removeFirst()
+                await self.sender(event)
+            }
+            if self.generation == generation {
+                self.drainTask = nil
+                if !self.queue.isEmpty {
+                    self.startDrainIfNeeded()
                 }
             }
-            guard let activeStream else { return }
-            do {
-                try await activeStream.updateConfiguration(configuration)
-                guard self.stream === activeStream else { return }
-                self.configuredCapturePixelSize = requestedPixelSize
-            } catch {
-                Self.logger.error("ScreenCaptureKit updateConfiguration failed")
-            }
-        }
-        return false
-    }
-
-    private func captureFrameDidArrive(_ frame: CGRect) {
-        guard captureDesired, let activeStream = stream else { return }
-        sourceFrame = frame
-        _ = updateStreamConfigurationIfNeeded(
-            for: frame.size,
-            activeStream: activeStream
-        )
-    }
-
-    private func validatedSourceFrame() -> CGRect? {
-        guard captureDesired, stream != nil, sourceFrame.width > 0, sourceFrame.height > 0 else {
-            return nil
-        }
-        guard let activeStream = stream,
-              updateStreamConfigurationIfNeeded(
-                for: sourceFrame.size,
-                activeStream: activeStream
-              ) else {
-            return nil
-        }
-        return sourceFrame
-    }
-
-    private func postKey(_ event: NSEvent, keyDown: Bool) {
-        guard validatedSourceFrame() != nil, AXIsProcessTrusted() else { return }
-        guard let cgEvent = CGEvent(
-            keyboardEventSource: nil,
-            virtualKey: CGKeyCode(event.keyCode),
-            keyDown: keyDown
-        ) else { return }
-        cgEvent.flags = CGEventFlags(rawValue: UInt64(event.modifierFlags.rawValue))
-        cgEvent.postToPid(processID)
-    }
-
-    private func handleWindowUnavailable() {
-        targetUnavailable = true
-        sourceFrame = .zero
-        onStateChanged(.windowUnavailable)
-        stopCapture()
-    }
-
-    private func handleUnexpectedStreamStop(streamID: ObjectIdentifier) {
-        guard let activeStream = stream,
-              ObjectIdentifier(activeStream) == streamID else { return }
-        let targetStillAvailable = ApplicationPanel.hasLiveTarget(
-            windowID: sourceWindowID,
-            processID: processID
-        )
-        stream = nil
-        captureDesired = false
-        captureTask?.cancel()
-        configurationUpdateTask?.cancel()
-        configurationUpdateTask = nil
-        configurationUpdateToken = nil
-        sourceFrame = .zero
-        configuredCapturePixelSize = .zero
-        pendingScrollX = 0
-        pendingScrollY = 0
-        pressedModifierKeyCodes.removeAll()
-        displayLayer.flushAndRemoveImage()
-        if targetStillAvailable {
-            onStateChanged(.failed)
-        } else {
-            targetUnavailable = true
-            onStateChanged(.windowUnavailable)
         }
     }
 }

@@ -76,6 +76,8 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
     private var presentationState: ComputerUseOnboardingPresentationState?
     private var expandedPresentationTask: Task<Void, Never>?
     private var completionDismissTask: Task<Void, Never>?
+    private var completionHandler: (@MainActor () -> Void)?
+    private var dismissalHandler: (@MainActor () -> Void)?
 
     init(runtimeService: ComputerUseRuntimeService) {
         self.runtimeService = runtimeService
@@ -99,11 +101,17 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
 
     var isVisible: Bool { window?.isVisible ?? false }
 
-    func present(startingAt startingPoint: StartingPoint = .overview) {
+    func present(
+        startingAt startingPoint: StartingPoint = .overview,
+        onCompleted: (@MainActor () -> Void)? = nil,
+        onDismissed: (@MainActor () -> Void)? = nil
+    ) {
         stopSystemSettingsObservation()
         completionDismissTask?.cancel()
         completionDismissTask = nil
         window?.close()
+        completionHandler = onCompleted
+        dismissalHandler = onDismissed
         let window = makeWindow(startingAt: startingPoint)
         self.window = window
         window.delegate = self
@@ -174,6 +182,10 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         stopSystemSettingsObservation()
         closingWindow.delegate = nil
         window = nil
+        completionHandler = nil
+        let dismissalHandler = dismissalHandler
+        self.dismissalHandler = nil
+        dismissalHandler?()
     }
 
     private func stopSystemSettingsObservation() {
@@ -483,7 +495,11 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
                 }
                 guard let self, !Task.isCancelled else { return }
                 self.completionDismissTask = nil
+                let completionHandler = self.completionHandler
+                self.completionHandler = nil
+                self.dismissalHandler = nil
                 self.dismiss()
+                completionHandler?()
             }
         }
     }

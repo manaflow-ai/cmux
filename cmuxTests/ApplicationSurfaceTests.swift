@@ -11,18 +11,23 @@ import Testing
 @Suite("Application surfaces")
 struct ApplicationSurfaceTests {
     @Test func focusIntentWaitsForCaptureViewWindow() {
+        let runtime = FakeApplicationSurfaceRuntime()
         let panel = ApplicationPanel(
             workspaceId: UUID(),
             windowID: 42,
             processID: 43,
             title: "Preview",
-            targetFrameRate: 60
+            targetFrameRate: 60,
+            runtime: runtime
         )!
+        let target = panel.captureTarget!
         let token = panel.beginCaptureSession()
         let view = ApplicationCaptureView(
-            windowID: panel.windowID,
-            processID: panel.processID,
+            windowID: target.windowID,
+            processID: target.processID,
             targetFrameRate: panel.targetFrameRate,
+            runtime: runtime,
+            leaseProvider: { nil },
             onStateChanged: { _ in },
             onMovedToWindow: { view in
                 panel.captureViewDidMoveToWindow(view, token: token)
@@ -61,15 +66,6 @@ struct ApplicationSurfaceTests {
         ) == CGPoint(x: 1_050, y: 550))
     }
 
-    @Test func capturePixelSizeTracksSourceAspectRatioAndCapsResolution() {
-        #expect(ApplicationCaptureView.capturePixelSize(
-            for: CGSize(width: 800, height: 600)
-        ) == CGSize(width: 1_600, height: 1_200))
-        #expect(ApplicationCaptureView.capturePixelSize(
-            for: CGSize(width: 4_000, height: 1_000)
-        ) == CGSize(width: 4_096, height: 1_024))
-    }
-
     @Test func applicationNamedKeysAcceptTerminalSeparators() {
         let plus = ApplicationCaptureView.parseNamedKey("ctrl+c")
         let dash = ApplicationCaptureView.parseNamedKey("ctrl-c")
@@ -102,4 +98,104 @@ struct ApplicationSurfaceTests {
         ))
         #expect(pressed.isEmpty)
     }
+
+    @Test func pickerSearchMatchesOwnerAndWindowTitle() {
+        let model = ApplicationSurfacePickerModel()
+        model.replaceWindows([
+            ApplicationWindowDescriptor(
+                windowID: 1,
+                processID: 10,
+                owner: "Calculator",
+                title: "Calculator",
+                width: 400,
+                height: 600
+            ),
+            ApplicationWindowDescriptor(
+                windowID: 2,
+                processID: 20,
+                owner: "Preview",
+                title: "Release Notes.pdf",
+                width: 800,
+                height: 600
+            ),
+        ])
+
+        #expect(model.selectedWindowID == 1)
+        model.query = "release"
+        #expect(model.filteredWindows.map(\.windowID) == [2])
+        model.query = "calculator"
+        #expect(model.filteredWindows.map(\.windowID) == [1])
+    }
+
+    @Test func applicationPaneOwnsWindowSelection() {
+        let runtime = FakeApplicationSurfaceRuntime()
+        let panel = ApplicationPanel(
+            workspaceId: UUID(),
+            targetFrameRate: 60,
+            runtime: runtime
+        )!
+        let panelID = panel.id
+        var titleChanges: [String] = []
+        panel.setDisplayTitleChangeHandler { titleChanges.append($0) }
+
+        #expect(panel.captureTarget == nil)
+        #expect(panel.captureStateDescription == "selecting")
+
+        panel.selectWindow(ApplicationWindowDescriptor(
+            windowID: 88,
+            processID: 99,
+            owner: "Calculator",
+            title: "Calculator",
+            width: 674,
+            height: 408
+        ))
+
+        #expect(panel.id == panelID)
+        #expect(panel.captureTarget == ApplicationPanel.CaptureTarget(
+            windowID: 88,
+            processID: 99
+        ))
+        #expect(panel.displayTitle == "Calculator")
+        #expect(panel.selectedWindowTitle == "Calculator")
+
+        panel.chooseAnotherWindow()
+
+        #expect(panel.id == panelID)
+        #expect(panel.captureTarget == nil)
+        #expect(panel.displayTitle == "Application")
+        #expect(titleChanges == ["Calculator", "Application"])
+    }
+}
+
+@MainActor
+private final class FakeApplicationSurfaceRuntime: ApplicationSurfaceRuntime {
+    func acquireApplicationSurfaceLease() async -> ApplicationSurfaceRuntimeLease? {
+        nil
+    }
+
+    func listApplicationWindows(
+        lease: ApplicationSurfaceRuntimeLease
+    ) async throws -> [ApplicationWindowDescriptor] {
+        []
+    }
+
+    func startApplicationSurface(
+        lease: ApplicationSurfaceRuntimeLease,
+        windowID: UInt32,
+        processID: Int32,
+        frameRate: Int
+    ) async throws -> ApplicationSurfaceSessionDescriptor {
+        throw ApplicationSurfaceRuntimeError.helperUnavailable
+    }
+
+    func stopApplicationSurface(
+        lease: ApplicationSurfaceRuntimeLease,
+        sessionID: String
+    ) async {}
+
+    func sendApplicationSurfaceEvent(
+        lease: ApplicationSurfaceRuntimeLease,
+        sessionID: String,
+        event: ApplicationSurfaceInputEvent
+    ) async throws {}
 }

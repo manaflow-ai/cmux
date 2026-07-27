@@ -1,5 +1,6 @@
 import AppKit
 import CmuxControlSocket
+import CmuxSimulator
 import Darwin
 import Foundation
 import Security
@@ -10,7 +11,7 @@ import Security
 /// driver binary. It installs the helper, launches that app through
 /// LaunchServices, and reads permission status exclusively over the daemon UDS.
 @MainActor
-final class ComputerUseRuntimeService {
+final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
     static let helperAppName = "cmux Computer Use"
     nonisolated private static let helperExecutableName = "cmux Computer Use"
 
@@ -32,11 +33,17 @@ final class ComputerUseRuntimeService {
     private var cachedStatus = ComputerUsePermissionStatus.unknown
     private var permissionRefreshGeneration = 0
     private var acceptsNewLaunches = true
-    private var desiredEnabled = false
+    private var computerUseEnabled = false
+    private var applicationSurfaceLeaseIdentifiers: Set<UUID> = []
+    private var applicationSurfaceSessionIDsByLease: [UUID: Set<String>] = [:]
     private var runningHelperProcesses:
         [ComputerUseDaemonProfile: AgentPIDProcessIdentity] = [:]
     private var missedHelperHealthChecks = 0
     private var expectedTerminationProcessIdentifiers: Set<pid_t> = []
+
+    private var desiredEnabled: Bool {
+        computerUseEnabled || !applicationSurfaceLeaseIdentifiers.isEmpty
+    }
 
     init(
         bundle: Bundle = .main,
@@ -125,22 +132,12 @@ final class ComputerUseRuntimeService {
     func setEnabled(_ newValue: Bool) async {
         guard acceptsNewLaunches, !Task.isCancelled else { return }
         permissionRefreshGeneration &+= 1
-        desiredEnabled = newValue
-        if newValue {
+        computerUseEnabled = newValue
+        if desiredEnabled {
             await startIfNeeded()
             startMonitoringHelperHealth()
         } else {
-            helperHealthTask?.cancel()
-            helperHealthTask = nil
-            missedHelperHealthChecks = 0
-            recoveryTask?.cancel()
-            recoveryTask = nil
-            await serializeHelperLifecycle(cancelledResult: ()) { [weak self] in
-                guard let self else { return }
-                _ = await self.stopDaemon()
-            }
-            try? FileManager.default.removeItem(at: paths.authenticationTokenFileURL)
-            cachedStatus = .unknown
+            await stopHelperAfterLastDemand()
         }
     }
 
@@ -283,6 +280,269 @@ final class ComputerUseRuntimeService {
             return .unknown
         }
         return .accepted
+    }
+
+    func acquireApplicationSurfaceLease() async -> ApplicationSurfaceRuntimeLease? {
+        guard acceptsNewLaunches, !Task.isCancelled else { return nil }
+        let identifier = UUID()
+        applicationSurfaceLeaseIdentifiers.insert(identifier)
+        applicationSurfaceSessionIDsByLease[identifier] = []
+        permissionRefreshGeneration &+= 1
+        await startIfNeeded()
+        startMonitoringHelperHealth()
+        guard
+            applicationSurfaceLeaseIdentifiers.contains(identifier),
+            let identity = processIdentity(for: .native),
+            AgentPIDProcessIdentity(pid: identity.pid) == identity
+        else {
+            applicationSurfaceLeaseIdentifiers.remove(identifier)
+            applicationSurfaceSessionIDsByLease.removeValue(forKey: identifier)
+            await stopHelperAfterLastDemand()
+            return nil
+        }
+        return ApplicationSurfaceRuntimeLease(service: self, identifier: identifier)
+    }
+
+    func releaseApplicationSurfaceLease(_ identifier: UUID) async {
+        guard applicationSurfaceLeaseIdentifiers.contains(identifier) else { return }
+        if let identity = processIdentity(for: .native),
+           AgentPIDProcessIdentity(pid: identity.pid) == identity {
+            for sessionID in applicationSurfaceSessionIDsByLease[identifier] ?? [] {
+                await requestApplicationSurfaceStop(
+                    sessionID: sessionID,
+                    expectedPeerIdentity: identity
+                )
+            }
+        }
+        applicationSurfaceSessionIDsByLease.removeValue(forKey: identifier)
+        applicationSurfaceLeaseIdentifiers.remove(identifier)
+        permissionRefreshGeneration &+= 1
+        await stopHelperAfterLastDemand()
+    }
+
+    func listApplicationWindows(
+        lease: ApplicationSurfaceRuntimeLease
+    ) async throws -> [ApplicationWindowDescriptor] {
+        let identity = try validatedApplicationSurfaceIdentity(lease: lease)
+        guard let response = await Self.sendDaemonRequest(
+            ["method": "application_windows"],
+            paths: paths,
+            transport: transport,
+            timeout: 8,
+            expectedPeerIdentity: identity,
+            socketURL: paths.daemonSocketURL
+        ) else {
+            throw ApplicationSurfaceRuntimeError.helperUnavailable
+        }
+        try Self.throwApplicationSurfaceResponseError(response)
+        guard
+            let result = response["result"] as? [String: Any],
+            let rawWindows = result["windows"] as? [[String: Any]]
+        else {
+            throw ApplicationSurfaceRuntimeError.invalidResponse
+        }
+        return rawWindows.compactMap(Self.applicationWindowDescriptor)
+    }
+
+    func startApplicationSurface(
+        lease: ApplicationSurfaceRuntimeLease,
+        windowID: UInt32,
+        processID: Int32,
+        frameRate: Int
+    ) async throws -> ApplicationSurfaceSessionDescriptor {
+        guard (1...120).contains(frameRate), windowID > 0, processID > 0 else {
+            throw ApplicationSurfaceRuntimeError.windowUnavailable
+        }
+        let identity = try validatedApplicationSurfaceIdentity(lease: lease)
+        guard let response = await Self.sendDaemonRequest(
+            [
+                "method": "application_surface_start",
+                "args": [
+                    "window_id": Int(windowID),
+                    "process_id": Int(processID),
+                    "frame_rate": frameRate,
+                ],
+            ],
+            paths: paths,
+            transport: transport,
+            timeout: 8,
+            expectedPeerIdentity: identity,
+            socketURL: paths.daemonSocketURL
+        ) else {
+            throw ApplicationSurfaceRuntimeError.helperUnavailable
+        }
+        try Self.throwApplicationSurfaceResponseError(response)
+        guard
+            let result = response["result"] as? [String: Any],
+            let sessionID = result["sessionId"] as? String,
+            !sessionID.isEmpty,
+            let frame = result["frameTransport"] as? [String: Any],
+            let sharedMemoryName = frame["sharedMemoryName"] as? String,
+            let width = frame["width"] as? Int,
+            let height = frame["height"] as? Int,
+            let bytesPerRow = frame["bytesPerRow"] as? Int,
+            let slotCount = frame["slotCount"] as? Int,
+            let sharedMemoryByteCount = frame["sharedMemoryByteCount"] as? Int
+        else {
+            throw ApplicationSurfaceRuntimeError.invalidResponse
+        }
+        let descriptor = ApplicationSurfaceSessionDescriptor(
+            sessionID: sessionID,
+            frameTransport: SimulatorFrameTransportDescriptor(
+                sharedMemoryName: sharedMemoryName,
+                width: width,
+                height: height,
+                bytesPerRow: bytesPerRow,
+                slotCount: slotCount,
+                sharedMemoryByteCount: sharedMemoryByteCount
+            )
+        )
+        guard applicationSurfaceLeaseIdentifiers.contains(lease.identifier) else {
+            await requestApplicationSurfaceStop(
+                sessionID: sessionID,
+                expectedPeerIdentity: identity
+            )
+            throw ApplicationSurfaceRuntimeError.helperUnavailable
+        }
+        applicationSurfaceSessionIDsByLease[lease.identifier, default: []]
+            .insert(sessionID)
+        return descriptor
+    }
+
+    func stopApplicationSurface(
+        lease: ApplicationSurfaceRuntimeLease,
+        sessionID: String
+    ) async {
+        guard
+            !sessionID.isEmpty,
+            let identity = try? validatedApplicationSurfaceIdentity(lease: lease)
+        else {
+            return
+        }
+        await requestApplicationSurfaceStop(
+            sessionID: sessionID,
+            expectedPeerIdentity: identity
+        )
+        applicationSurfaceSessionIDsByLease[lease.identifier]?.remove(sessionID)
+    }
+
+    func sendApplicationSurfaceEvent(
+        lease: ApplicationSurfaceRuntimeLease,
+        sessionID: String,
+        event: ApplicationSurfaceInputEvent
+    ) async throws {
+        let identity = try validatedApplicationSurfaceIdentity(lease: lease)
+        guard !sessionID.isEmpty else {
+            throw ApplicationSurfaceRuntimeError.helperUnavailable
+        }
+        let args: [String: Any] = [
+            "session": sessionID,
+            "kind": event.kind.rawValue,
+            "x": event.x,
+            "y": event.y,
+            "key_code": Int(event.keyCode),
+            "key_down": event.keyDown,
+            "modifiers": event.modifiers,
+            "click_count": event.clickCount,
+            "delta_x": event.deltaX,
+            "delta_y": event.deltaY,
+        ]
+        guard let response = await Self.sendDaemonRequest(
+            [
+                "method": "application_surface_event",
+                "args": args,
+            ],
+            paths: paths,
+            transport: transport,
+            timeout: 3,
+            expectedPeerIdentity: identity,
+            socketURL: paths.daemonSocketURL
+        ) else {
+            throw ApplicationSurfaceRuntimeError.helperUnavailable
+        }
+        try Self.throwApplicationSurfaceResponseError(response)
+    }
+
+    private func validatedApplicationSurfaceIdentity(
+        lease: ApplicationSurfaceRuntimeLease
+    ) throws -> AgentPIDProcessIdentity {
+        guard
+            lease.service === self,
+            applicationSurfaceLeaseIdentifiers.contains(lease.identifier),
+            desiredEnabled,
+            acceptsNewLaunches,
+            let identity = processIdentity(for: .native),
+            AgentPIDProcessIdentity(pid: identity.pid) == identity
+        else {
+            throw ApplicationSurfaceRuntimeError.helperUnavailable
+        }
+        return identity
+    }
+
+    private func requestApplicationSurfaceStop(
+        sessionID: String,
+        expectedPeerIdentity: AgentPIDProcessIdentity
+    ) async {
+        _ = await Self.sendDaemonRequest(
+            [
+                "method": "application_surface_stop",
+                "args": ["session": sessionID],
+            ],
+            paths: paths,
+            transport: transport,
+            timeout: 3,
+            expectedPeerIdentity: expectedPeerIdentity,
+            socketURL: paths.daemonSocketURL
+        )
+    }
+
+    nonisolated private static func applicationWindowDescriptor(
+        _ value: [String: Any]
+    ) -> ApplicationWindowDescriptor? {
+        guard
+            let rawWindowID = value["window_id"] as? NSNumber,
+            let rawProcessID = value["process_id"] as? NSNumber,
+            rawWindowID.uint64Value <= UInt32.max,
+            rawProcessID.int64Value > 0,
+            rawProcessID.int64Value <= Int32.max,
+            let owner = value["owner"] as? String,
+            let title = value["title"] as? String,
+            let width = value["width"] as? NSNumber,
+            let height = value["height"] as? NSNumber
+        else {
+            return nil
+        }
+        return ApplicationWindowDescriptor(
+            windowID: rawWindowID.uint32Value,
+            processID: rawProcessID.int32Value,
+            owner: owner,
+            title: title,
+            width: width.doubleValue,
+            height: height.doubleValue
+        )
+    }
+
+    nonisolated private static func throwApplicationSurfaceResponseError(
+        _ response: [String: Any]
+    ) throws {
+        guard response["ok"] as? Bool == true else {
+            let detail = response["error"] as? String ?? ""
+            if detail.contains("permission_required") {
+                throw ApplicationSurfaceRuntimeError.permissionRequired
+            }
+            if detail.contains("window_unavailable") {
+                throw ApplicationSurfaceRuntimeError.windowUnavailable
+            }
+            if detail.contains("point_outside_content") {
+                throw ApplicationSurfaceRuntimeError.pointOutsideContent
+            }
+            if detail.contains("session_unavailable") {
+                throw ApplicationSurfaceRuntimeError.helperUnavailable
+            }
+            throw detail.isEmpty
+                ? ApplicationSurfaceRuntimeError.invalidResponse
+                : ApplicationSurfaceRuntimeError.failed(detail)
+        }
     }
 
     /// Ends one exact cmux-managed proxy generation through the authenticated
@@ -435,6 +695,22 @@ final class ComputerUseRuntimeService {
             guard let self else { return }
             await self.startIfNeededWithinLifecycle()
         }
+    }
+
+    private func stopHelperAfterLastDemand() async {
+        guard !desiredEnabled else { return }
+        helperHealthTask?.cancel()
+        helperHealthTask = nil
+        missedHelperHealthChecks = 0
+        recoveryTask?.cancel()
+        recoveryTask = nil
+        await serializeHelperLifecycle(cancelledResult: ()) { [weak self] in
+            guard let self, !self.desiredEnabled else { return }
+            _ = await self.stopDaemon()
+        }
+        guard !desiredEnabled else { return }
+        try? FileManager.default.removeItem(at: paths.authenticationTokenFileURL)
+        cachedStatus = .unknown
     }
 
     private func serializeHelperLifecycle<Result: Sendable>(
@@ -787,7 +1063,9 @@ final class ComputerUseRuntimeService {
     /// Synchronously prevents relaunch and stops the out-of-process helper.
     /// App termination cannot rely on an unstructured async task surviving exit.
     func stopForTermination() {
-        desiredEnabled = false
+        computerUseEnabled = false
+        applicationSurfaceLeaseIdentifiers.removeAll()
+        applicationSurfaceSessionIDsByLease.removeAll()
         acceptsNewLaunches = false
         permissionRefreshGeneration &+= 1
         for cancel in helperLifecycleCancellationActions.values {

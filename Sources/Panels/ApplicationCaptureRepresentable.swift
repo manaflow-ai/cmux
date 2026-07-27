@@ -3,6 +3,8 @@ import SwiftUI
 
 struct ApplicationCaptureRepresentable: NSViewRepresentable {
     let panel: ApplicationPanel
+    let windowID: CGWindowID
+    let processID: pid_t
     let isVisibleInUI: Bool
 
     final class Coordinator {
@@ -19,9 +21,13 @@ struct ApplicationCaptureRepresentable: NSViewRepresentable {
         context.coordinator.panel = panel
         context.coordinator.captureToken = captureToken
         let view = ApplicationCaptureView(
-            windowID: panel.windowID,
-            processID: panel.processID,
+            windowID: windowID,
+            processID: processID,
             targetFrameRate: panel.targetFrameRate,
+            runtime: panel.runtime,
+            leaseProvider: { [weak panel] in
+                await panel?.applicationSurfaceLease()
+            },
             onStateChanged: { [weak panel] state in
                 panel?.updateCaptureState(state, token: captureToken)
             },

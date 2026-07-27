@@ -201,12 +201,13 @@
 		D1320AA0D1320AA0D1320AA1 /* AppIconDockTilePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1320AA0D1320AA0D1320AA4 /* AppIconDockTilePlugin.swift */; };
 		A5001621 /* AppleScriptSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001620 /* AppleScriptSupport.swift */; };
 		A88100000000000000000002 /* ApplicationCaptureRepresentable.swift in Sources */ = {isa = PBXBuildFile; fileRef = A88100000000000000000001 /* ApplicationCaptureRepresentable.swift */; };
-		A88100000000000000000004 /* ApplicationCaptureStreamDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A88100000000000000000003 /* ApplicationCaptureStreamDelegate.swift */; };
-		A88100000000000000000006 /* ApplicationCaptureStreamOutput.swift in Sources */ = {isa = PBXBuildFile; fileRef = A88100000000000000000005 /* ApplicationCaptureStreamOutput.swift */; };
 		2689CA2841799FCD2BEDD8F5 /* ApplicationCaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C9E9ACA5B0AD0E936281E89 /* ApplicationCaptureView.swift */; };
 		A88100000000000000000008 /* ApplicationNamedKeySendResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = A88100000000000000000007 /* ApplicationNamedKeySendResult.swift */; };
 		B9C454C9A61C652B239187F5 /* ApplicationPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB02C91CE0E90EF1C486B9EB /* ApplicationPanel.swift */; };
 		86EA36CE72323E5D628A65A2 /* ApplicationPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B78BEC351B28EBD42C1DCA8 /* ApplicationPanelView.swift */; };
+		A88300000000000000000006 /* ApplicationSurfaceCommandPaletteIntegration.swift in Sources */ = {isa = PBXBuildFile; fileRef = A88300000000000000000005 /* ApplicationSurfaceCommandPaletteIntegration.swift */; };
+		A88300000000000000000004 /* ApplicationSurfacePickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A88300000000000000000003 /* ApplicationSurfacePickerView.swift */; };
+		A88300000000000000000002 /* ApplicationSurfaceRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = A88300000000000000000001 /* ApplicationSurfaceRuntime.swift */; };
 		A88200000000000000000002 /* ApplicationSurfaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A88200000000000000000001 /* ApplicationSurfaceTests.swift */; };
 		A5001A02A1B2C3D4E5F60718 /* AppWindowBackdropControllerDependencies.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001A03A1B2C3D4E5F60718 /* AppWindowBackdropControllerDependencies.swift */; };
 		A5001A00A1B2C3D4E5F60718 /* AppWindowChromeComposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001A01A1B2C3D4E5F60718 /* AppWindowChromeComposition.swift */; };
@@ -2623,12 +2624,13 @@
 		D1320AA0D1320AA0D1320AA4 /* AppIconDockTilePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIconDockTilePlugin.swift; sourceTree = "<group>"; };
 		A5001620 /* AppleScriptSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleScriptSupport.swift; sourceTree = "<group>"; };
 		A88100000000000000000001 /* ApplicationCaptureRepresentable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ApplicationCaptureRepresentable.swift; sourceTree = "<group>"; };
-		A88100000000000000000003 /* ApplicationCaptureStreamDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ApplicationCaptureStreamDelegate.swift; sourceTree = "<group>"; };
-		A88100000000000000000005 /* ApplicationCaptureStreamOutput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ApplicationCaptureStreamOutput.swift; sourceTree = "<group>"; };
 		3C9E9ACA5B0AD0E936281E89 /* ApplicationCaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ApplicationCaptureView.swift; sourceTree = "<group>"; };
 		A88100000000000000000007 /* ApplicationNamedKeySendResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ApplicationNamedKeySendResult.swift; sourceTree = "<group>"; };
 		FB02C91CE0E90EF1C486B9EB /* ApplicationPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ApplicationPanel.swift; sourceTree = "<group>"; };
 		1B78BEC351B28EBD42C1DCA8 /* ApplicationPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ApplicationPanelView.swift; sourceTree = "<group>"; };
+		A88300000000000000000005 /* ApplicationSurfaceCommandPaletteIntegration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationSurfaceCommandPaletteIntegration.swift; sourceTree = "<group>"; };
+		A88300000000000000000003 /* ApplicationSurfacePickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ApplicationSurfacePickerView.swift; sourceTree = "<group>"; };
+		A88300000000000000000001 /* ApplicationSurfaceRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ApplicationSurfaceRuntime.swift; sourceTree = "<group>"; };
 		A88200000000000000000001 /* ApplicationSurfaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationSurfaceTests.swift; sourceTree = "<group>"; };
 		A5001A03A1B2C3D4E5F60718 /* AppWindowBackdropControllerDependencies.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Windowing/AppWindowBackdropControllerDependencies.swift; sourceTree = "<group>"; };
 		A5001A01A1B2C3D4E5F60718 /* AppWindowChromeComposition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Windowing/AppWindowChromeComposition.swift; sourceTree = "<group>"; };
@@ -5346,6 +5348,7 @@
 					C0A710C30000000000000001 /* ComputerUsePermissionStatus.swift */,
 					C0A710C10000000000000001 /* ComputerUseRuntimePaths.swift */,
 					C0A710010000000000000001 /* ComputerUseRuntimeService.swift */,
+					A88300000000000000000001 /* ApplicationSurfaceRuntime.swift */,
 					C0A710030000000000000001 /* ComputerUseSessionScope.swift */,
 					C0A710050000000000000001 /* ComputerUseStateRepository.swift */,
 					C0A710A10000000000000001 /* AgentCursorPointerView.swift */,
@@ -6136,8 +6139,7 @@
 				FB02C91CE0E90EF1C486B9EB /* ApplicationPanel.swift */,
 				1B78BEC351B28EBD42C1DCA8 /* ApplicationPanelView.swift */,
 				A88100000000000000000001 /* ApplicationCaptureRepresentable.swift */,
-				A88100000000000000000003 /* ApplicationCaptureStreamDelegate.swift */,
-				A88100000000000000000005 /* ApplicationCaptureStreamOutput.swift */,
+				A88300000000000000000003 /* ApplicationSurfacePickerView.swift */,
 				3C9E9ACA5B0AD0E936281E89 /* ApplicationCaptureView.swift */,
 				A88100000000000000000007 /* ApplicationNamedKeySendResult.swift */,
 				C51A710000000000000000A2 /* SimulatorPanel.swift */,
@@ -6301,6 +6303,7 @@
 				468140000000000000000008 /* CmuxNotificationHookParsedConfig.swift */,
 				C0DE43000000000000000004 /* CmuxSurfaceTabBarBuiltInAction+Codable.swift */,
 				C10D00040000000000000004 /* CmuxSurfaceTabBarBuiltInAction.swift */,
+				A88300000000000000000005 /* ApplicationSurfaceCommandPaletteIntegration.swift */,
 				C51A720000000000000000A2 /* SimulatorCommandPaletteIntegration.swift */,
 				C51A720000000000000001A2 /* ContentView+CommandPaletteSurfaceMetadata.swift */,
 				A5FB120E /* Workspace+CustomLayout.swift */,
@@ -7787,12 +7790,13 @@
 				A11EAB000000000000000000 /* AppearanceSettings.swift in Sources */,
 				A5001621 /* AppleScriptSupport.swift in Sources */,
 				A88100000000000000000002 /* ApplicationCaptureRepresentable.swift in Sources */,
-				A88100000000000000000004 /* ApplicationCaptureStreamDelegate.swift in Sources */,
-				A88100000000000000000006 /* ApplicationCaptureStreamOutput.swift in Sources */,
 				2689CA2841799FCD2BEDD8F5 /* ApplicationCaptureView.swift in Sources */,
 				A88100000000000000000008 /* ApplicationNamedKeySendResult.swift in Sources */,
 				B9C454C9A61C652B239187F5 /* ApplicationPanel.swift in Sources */,
 				86EA36CE72323E5D628A65A2 /* ApplicationPanelView.swift in Sources */,
+				A88300000000000000000006 /* ApplicationSurfaceCommandPaletteIntegration.swift in Sources */,
+				A88300000000000000000004 /* ApplicationSurfacePickerView.swift in Sources */,
+				A88300000000000000000002 /* ApplicationSurfaceRuntime.swift in Sources */,
 				A5001A02A1B2C3D4E5F60718 /* AppWindowBackdropControllerDependencies.swift in Sources */,
 				A5001A00A1B2C3D4E5F60718 /* AppWindowChromeComposition.swift in Sources */,
 					D9FEC58D5BACCF76459F1BBE /* AuthEnvironment.swift in Sources */,

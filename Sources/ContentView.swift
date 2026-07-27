@@ -7035,6 +7035,7 @@ struct ContentView: View {
         if CmuxFeatureFlags.shared.isSimulatorEnabled {
             contributions.append(.newSimulatorPane)
         }
+        contributions.append(.newApplicationPane)
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.closeTab",
@@ -8243,6 +8244,12 @@ struct ContentView: View {
             }
         }
         registry.registerNewSimulatorPane(tabManager: tabManager, windowId: windowId)
+        registry.registerNewApplicationPane(
+            tabManager: tabManager,
+            preferredWindow: { [weak observedWindow] in
+                observedWindow ?? AppDelegate.shared?.mainWindow(for: windowId)
+            }
+        )
         registry.register(commandId: "palette.closeTab") {
             tabManager.closeCurrentPanelWithConfirmation()
         }

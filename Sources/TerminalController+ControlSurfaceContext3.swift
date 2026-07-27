@@ -388,7 +388,7 @@ extension TerminalController {
            let applicationPanel = target.panel as? ApplicationPanel {
             let unavailableMessage = String(
                 localized: "socket.application.inputUnavailable",
-                defaultValue: "Application input is unavailable. Check CMUX Accessibility permission and reopen the application surface."
+                defaultValue: "Application input is unavailable. Set up Accessibility for cmux Computer Use, then retry."
             )
             guard socketServer.accessMode != .allowAll else {
                 return .applicationInputUnavailable(target.surfaceID, message: unavailableMessage)

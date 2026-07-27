@@ -7814,20 +7814,30 @@ final class Workspace: Identifiable, ObservableObject {
     @discardableResult
     func newApplicationSurface(
         inPane paneId: PaneID,
-        windowID: CGWindowID,
-        processID: pid_t,
-        title: String,
+        windowID: CGWindowID? = nil,
+        processID: pid_t? = nil,
+        title: String? = nil,
         targetFrameRate: Int = 60,
-        focus: Bool = false
+        focus: Bool = false,
+        runtime: (any ApplicationSurfaceRuntime)? = nil,
+        runtimeLease: ApplicationSurfaceRuntimeLease? = nil
     ) -> ApplicationPanel? {
         if isRemoteTmuxMirror { return nil }
+        guard
+            let runtime = runtime
+                ?? AppDelegate.shared?.applicationSurfaceRuntimeService
+        else {
+            return nil
+        }
 
         guard let applicationPanel = ApplicationPanel(
             workspaceId: id,
             windowID: windowID,
             processID: processID,
             title: title,
-            targetFrameRate: targetFrameRate
+            targetFrameRate: targetFrameRate,
+            runtime: runtime,
+            runtimeLease: runtimeLease
         ) else { return nil }
         panels[applicationPanel.id] = applicationPanel
         panelTitles[applicationPanel.id] = applicationPanel.displayTitle
@@ -7849,6 +7859,10 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         bindSurface(newTabId, toPanelId: applicationPanel.id)
+        applicationPanel.setDisplayTitleChangeHandler { [weak self, weak applicationPanel] title in
+            guard let self, let applicationPanel else { return }
+            _ = self.updatePanelTitle(panelId: applicationPanel.id, title: title)
+        }
         publishCmuxSurfaceCreated(
             applicationPanel.id,
             paneId: paneId,
