@@ -29,6 +29,12 @@ public final class CmuxRemoteFrameView: NSView {
         layer?.masksToBounds = true
     }
 
+    /// The frame view only presents pixels. Its host owns pointer input and
+    /// translates it for the remote surface.
+    public override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
     @available(*, unavailable)
     public required init?(coder: NSCoder) {
         nil
