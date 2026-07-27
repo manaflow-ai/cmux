@@ -358,6 +358,85 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
         )
     }
 
+    func testCommandReleaseFromAppMonitorUsesTerminalThatSentPhysicalPress() throws {
+        let originalTerminal = try makeHostedTerminal()
+        let eventWindowTerminal = try makeHostedTerminal()
+        defer {
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
+            originalTerminal.window.orderOut(nil)
+            eventWindowTerminal.window.orderOut(nil)
+        }
+        let appDelegate = try XCTUnwrap(AppDelegate.shared)
+
+        originalTerminal.surfaceView.textInputEventHandler = { _ in false }
+        originalTerminal.surfaceView.unshiftedCodepointResolver = { event in
+            event.type == .keyUp ? 0x0446 : nil
+        }
+        eventWindowTerminal.surfaceView.unshiftedCodepointResolver = { event in
+            event.type == .keyUp ? 0x0441 : nil
+        }
+
+        var capturedEvents: [CapturedGhosttyKeyIdentityEvent] = []
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            guard keyEvent.keycode == 7 else { return }
+            capturedEvents.append(CapturedGhosttyKeyIdentityEvent(
+                action: keyEvent.action,
+                keycode: keyEvent.keycode,
+                text: keyEvent.text.map { String(cString: $0) },
+                modifiers: keyEvent.mods.rawValue,
+                consumedModifiers: keyEvent.consumed_mods.rawValue,
+                unshiftedCodepoint: keyEvent.unshifted_codepoint,
+                composing: keyEvent.composing
+            ))
+        }
+
+        let timestamp = ProcessInfo.processInfo.systemUptime
+        let press = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.control],
+            timestamp: timestamp,
+            windowNumber: originalTerminal.window.windowNumber,
+            context: nil,
+            characters: "\u{18}",
+            charactersIgnoringModifiers: "x",
+            isARepeat: false,
+            keyCode: 7
+        ))
+        let release = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyUp,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: timestamp + 0.1,
+            windowNumber: eventWindowTerminal.window.windowNumber,
+            context: nil,
+            characters: "x",
+            charactersIgnoringModifiers: "x",
+            isARepeat: false,
+            keyCode: 7
+        ))
+
+        originalTerminal.window.makeFirstResponder(originalTerminal.surfaceView)
+        eventWindowTerminal.window.makeFirstResponder(eventWindowTerminal.surfaceView)
+        withExtendedLifetime((originalTerminal.surface, eventWindowTerminal.surface)) {
+            originalTerminal.surfaceView.keyDown(with: press)
+            XCTAssertTrue(
+                appDelegate.debugHandleShortcutMonitorEvent(event: release),
+                "A physical terminal press must register its exact release owner"
+            )
+        }
+
+        XCTAssertEqual(capturedEvents.map(\.action), [
+            GHOSTTY_ACTION_PRESS,
+            GHOSTTY_ACTION_RELEASE,
+        ])
+        XCTAssertEqual(
+            capturedEvents.last?.unshiftedCodepoint,
+            "x".unicodeScalars.first?.value,
+            "The release must keep the sending terminal's physical identity when Command is pressed later"
+        )
+    }
+
     func testTerminalLifecycleResetClearsAppMonitorReleaseOwnership() throws {
         let terminal = try makeHostedTerminal()
         defer {
