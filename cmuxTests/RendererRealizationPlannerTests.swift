@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import CmuxSettings
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -11,6 +12,19 @@ import Testing
 /// offscreen terminal surfaces release their GPU renderer (Metal swap chain /
 /// IOSurface) while keeping their PTY alive.
 struct RendererRealizationPlannerTests {
+    @Test func catalogDefaultsMatchRuntimeReclamationPolicy() {
+        let terminal = SettingCatalog().terminal
+
+        #expect(
+            terminal.rendererRealizationIdleSeconds.defaultValue
+                == RendererRealizationSettings.defaultIdleSeconds
+        )
+        #expect(
+            terminal.rendererRealizationMaxWarmRenderers.defaultValue
+                == RendererRealizationSettings.defaultMaxWarmRenderers
+        )
+    }
+
     private func input(
         _ id: UUID,
         visible: Bool = false,
