@@ -57,6 +57,7 @@ const SHUTDOWN_TERMINATION_TIMEOUT: Duration = Duration::from_millis(100);
 const SHUTDOWN_FANOUT_WORKERS: usize = 32;
 const SHUTDOWN_RECONCILE_INITIAL_DELAY: Duration = Duration::from_millis(25);
 const SHUTDOWN_RECONCILE_MAX_DELAY: Duration = Duration::from_secs(1);
+const SERVER_EXIT_RETRY_DELAY: Duration = Duration::from_millis(25);
 const SHUTDOWN_OWNER_CAPACITY: usize = 4_096;
 #[cfg(unix)]
 const TERMINAL_ADOPTION_QUEUE_CAPACITY: usize = SHUTDOWN_OWNER_CAPACITY;
@@ -2503,8 +2504,10 @@ impl Mux {
     #[cfg(unix)]
     fn try_terminal_adoption(self: &Arc<Self>, task: &TerminalAdoptionTask) -> bool {
         let terminal_id = &task.record.terminal_id;
-        let terminal =
-            self.workspace_registry.lock().unwrap().terminal_record(terminal_id).ok().flatten();
+        let terminal = match self.workspace_registry.lock().unwrap().terminal_record(terminal_id) {
+            Ok(terminal) => terminal,
+            Err(_) => return false,
+        };
         let Some(terminal) = terminal else {
             return cleanup_terminal_host_record(&task.record, &task.record_path);
         };
@@ -4983,24 +4986,113 @@ impl Mux {
             .collect()
     }
 
-    pub fn shutdown(&self) {
+    fn shutdown_browser_runtimes_until(&self, deadline: Instant) -> bool {
+        let retained = self.shutdown_owners.snapshot();
+        let current_browser_runtime = self.browser_runtime.take_for_shutdown();
+        let mut browser_runtimes = Vec::new();
+        for runtime in retained.iter().filter_map(|(_, owner)| owner.browser_runtime()) {
+            if !browser_runtimes.iter().any(|candidate| Arc::ptr_eq(candidate, runtime)) {
+                browser_runtimes.push(runtime.clone());
+            }
+        }
+        if let Some(runtime) = &current_browser_runtime
+            && !browser_runtimes.iter().any(|candidate| Arc::ptr_eq(candidate, runtime))
+        {
+            browser_runtimes.push(runtime.clone());
+        }
+
+        let mut failed = false;
+        for runtime in browser_runtimes {
+            let is_current = current_browser_runtime
+                .as_ref()
+                .is_some_and(|current| Arc::ptr_eq(current, &runtime));
+            let surface_failed = retained.iter().any(|(_, owner)| {
+                owner
+                    .browser_runtime()
+                    .is_some_and(|owner_runtime| Arc::ptr_eq(owner_runtime, &runtime))
+            });
+            if surface_failed && runtime.source() == BrowserSource::External {
+                if is_current {
+                    self.browser_runtime.restore_for_shutdown(runtime);
+                }
+                continue;
+            }
+            if runtime.shutdown_until(deadline) {
+                if runtime.source() == BrowserSource::Launched {
+                    self.shutdown_owners.remove_browser_runtime(&runtime);
+                }
+            } else {
+                failed = true;
+                if is_current {
+                    self.browser_runtime.restore_for_shutdown(runtime);
+                }
+            }
+        }
+        failed
+    }
+
+    fn shutdown_once_until(&self, deadline: Instant) -> anyhow::Result<()> {
         self.shutting_down.store(true, Ordering::Release);
         self.browser_runtime.stop();
         #[cfg(unix)]
         self.request_terminal_adoption_stop();
-        let deadline = Instant::now() + self.shutdown_attempt_timeout();
-        let Ok(_coordinator) = self.lock_shutdown_coordinator_until(deadline) else { return };
-        let _ = self.surface_creations.stop_and_wait_until(deadline);
-        let _ = self.async_surface_creations.stop_and_wait_until(deadline);
         #[cfg(unix)]
-        let _ = self.wait_for_terminal_adoption_workers_until(deadline);
+        crate::process_session::require_stable_process_signaling_until(deadline)
+            .context("preflight process control for daemon exit")?;
+        let _coordinator = self.lock_shutdown_coordinator_until(deadline)?;
+        if !self.surface_creations.stop_and_wait_until(deadline) {
+            anyhow::bail!("surface creation remains active at the daemon exit deadline");
+        }
+        if !self.async_surface_creations.stop_and_wait_until(deadline) {
+            anyhow::bail!("browser bootstrap remains active at the daemon exit deadline");
+        }
+        #[cfg(unix)]
+        if !self.wait_for_terminal_adoption_workers_until(deadline) {
+            anyhow::bail!("terminal adoption remains active at the daemon exit deadline");
+        }
         let surfaces = self.state.lock().unwrap().surfaces.values().cloned().collect::<Vec<_>>();
+        for surface in &surfaces {
+            match surface.shutdown_owner_identity() {
+                Some(SurfaceShutdownOwnerIdentity::Surface) => {
+                    anyhow::ensure!(
+                        self.shutdown_owners.stage_surface(surface).is_some(),
+                        "surface {} lost its shutdown owner during daemon exit",
+                        surface.id
+                    );
+                }
+                #[cfg(unix)]
+                Some(SurfaceShutdownOwnerIdentity::Hosted { .. }) | None => {}
+                #[cfg(not(unix))]
+                None => {}
+            }
+        }
         for surface in &surfaces {
             surface.disconnect_for_daemon_shutdown();
         }
         self.terminate_staged_shutdown_owners_until(deadline);
-        if let Some(runtime) = self.browser_runtime.take_for_shutdown() {
-            let _ = runtime.shutdown_until(deadline);
+        let browser_runtime_failed = self.shutdown_browser_runtimes_until(deadline);
+        let retained = self.shutdown_owners.len();
+        if retained != 0 || browser_runtime_failed {
+            anyhow::bail!(
+                "daemon exit retained {retained} surface owner(s); browser runtime failure: \
+                 {browser_runtime_failed}"
+            );
+        }
+        Ok(())
+    }
+
+    /// Finish every fallible cleanup phase before allowing the server process
+    /// to release its socket. Each attempt is bounded, but the process keeps
+    /// exact ownership and retries until all local work has stopped or moved
+    /// to its durable external host.
+    pub fn shutdown(&self) {
+        self.shutdown_owner_reconciler.stop();
+        loop {
+            let deadline = Instant::now() + self.shutdown_attempt_timeout();
+            if self.shutdown_once_until(deadline).is_ok() {
+                return;
+            }
+            std::thread::sleep(SERVER_EXIT_RETRY_DELAY);
         }
     }
 
@@ -5223,46 +5315,7 @@ impl Mux {
             let _ = self.shutdown_owners.stage(key, owner);
         }
         self.terminate_staged_shutdown_owners_until(deadline);
-        let retained = self.shutdown_owners.snapshot();
-        let current_browser_runtime = self.browser_runtime.take_for_shutdown();
-        let mut browser_runtimes = Vec::new();
-        for runtime in retained.iter().filter_map(|(_, owner)| owner.browser_runtime()) {
-            if !browser_runtimes.iter().any(|candidate| Arc::ptr_eq(candidate, runtime)) {
-                browser_runtimes.push(runtime.clone());
-            }
-        }
-        if let Some(runtime) = &current_browser_runtime
-            && !browser_runtimes.iter().any(|candidate| Arc::ptr_eq(candidate, runtime))
-        {
-            browser_runtimes.push(runtime.clone());
-        }
-        let mut browser_runtime_failed = false;
-        for runtime in browser_runtimes {
-            let is_current = current_browser_runtime
-                .as_ref()
-                .is_some_and(|current| Arc::ptr_eq(current, &runtime));
-            let surface_failed = retained.iter().any(|(_, owner)| {
-                owner
-                    .browser_runtime()
-                    .is_some_and(|owner_runtime| Arc::ptr_eq(owner_runtime, &runtime))
-            });
-            if surface_failed && runtime.source() == BrowserSource::External {
-                if is_current {
-                    self.browser_runtime.restore_for_shutdown(runtime);
-                }
-                continue;
-            }
-            if runtime.shutdown_until(deadline) {
-                if runtime.source() == BrowserSource::Launched {
-                    self.shutdown_owners.remove_browser_runtime(&runtime);
-                }
-            } else {
-                browser_runtime_failed = true;
-                if is_current {
-                    self.browser_runtime.restore_for_shutdown(runtime);
-                }
-            }
-        }
+        let browser_runtime_failed = self.shutdown_browser_runtimes_until(deadline);
 
         let retained = self.shutdown_owners.snapshot();
         let mut failed_surface_ids = retained

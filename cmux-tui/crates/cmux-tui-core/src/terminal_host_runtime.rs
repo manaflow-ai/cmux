@@ -520,12 +520,11 @@ mod unix {
 
     impl Drop for SpawnedHostProcess {
         fn drop(&mut self) {
-            if let Some(child) = self.child.as_mut() {
-                let _ = child.kill();
-                #[cfg(test)]
-                HOST_PROCESS_INLINE_WAITS.fetch_add(1, Ordering::AcqRel);
-                let _ = child.wait();
-            }
+            let Some(mut child) = self.child.take() else { return };
+            let _ = child.kill();
+            let reaper =
+                self.reaper.take().expect("spawned terminal host retains its reaper reservation");
+            enqueue_host_process_reaper(reaper, child);
         }
     }
 
@@ -916,8 +915,9 @@ mod unix {
         }
 
         /// Commit the launch ownership handoff after every fallible Surface
-        /// setup step succeeds. Until then, dropping this attachment exact-
-        /// kills and waits the child process through SpawnedHostProcess.
+        /// setup step succeeds. Until then, dropping this attachment asks the
+        /// host to exit, exact-kills it after the bounded rollback window, and
+        /// transfers the remaining wait to the shared process reaper.
         pub(crate) fn commit_launched_host(&mut self) {
             let Some(process) = self.launch_process.take() else { return };
             process.detach_reaper();
