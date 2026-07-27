@@ -1,4 +1,6 @@
 use std::collections::HashSet;
+#[cfg(unix)]
+use std::ffi::CString;
 use std::ffi::OsStr;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -68,6 +70,47 @@ static LEGACY_HELPER_REAPER: OnceLock<Option<LegacyHelperReaper>> = OnceLock::ne
 static LEGACY_HELPER_REAPER_TEST_LOCK: Mutex<()> = Mutex::new(());
 
 #[cfg(unix)]
+fn atomic_rename_noreplace(from: &Path, to: &Path) -> std::io::Result<()> {
+    use std::os::unix::ffi::OsStrExt as _;
+
+    let from = CString::new(from.as_os_str().as_bytes()).map_err(|_| {
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, "source path contains a NUL byte")
+    })?;
+    let to = CString::new(to.as_os_str().as_bytes()).map_err(|_| {
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, "target path contains a NUL byte")
+    })?;
+    #[cfg(target_vendor = "apple")]
+    let result = unsafe {
+        libc::renameatx_np(
+            libc::AT_FDCWD,
+            from.as_ptr(),
+            libc::AT_FDCWD,
+            to.as_ptr(),
+            libc::RENAME_EXCL,
+        )
+    };
+    #[cfg(target_os = "linux")]
+    let result = unsafe {
+        libc::syscall(
+            libc::SYS_renameat2,
+            libc::AT_FDCWD,
+            from.as_ptr(),
+            libc::AT_FDCWD,
+            to.as_ptr(),
+            libc::RENAME_NOREPLACE,
+        )
+    };
+    #[cfg(not(any(target_vendor = "apple", target_os = "linux")))]
+    let result = {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "atomic no-replace rename is unavailable on this platform",
+        ));
+    };
+    if result == 0 { Ok(()) } else { Err(std::io::Error::last_os_error()) }
+}
+
+#[cfg(unix)]
 struct LegacySocketQuarantine {
     original: PathBuf,
     quarantined: PathBuf,
@@ -101,44 +144,58 @@ impl LegacySocketQuarantine {
                 "legacy control socket has no parent directory",
             )
         })?;
+        let mut quarantined = None;
         for _ in 0..64 {
             let sequence = LEGACY_SOCKET_QUARANTINE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-            let quarantined = parent.join(format!(".cs-{:x}-{sequence:x}", std::process::id()));
-            match std::fs::hard_link(original, &quarantined) {
-                Ok(()) => {
-                    transfer_hook();
-                    if let Err(error) = std::fs::remove_file(original) {
-                        let _ = std::fs::remove_file(&quarantined);
-                        return Err(error);
-                    }
-                    let moved = std::fs::symlink_metadata(&quarantined)?;
-                    if moved.dev() != metadata.dev()
-                        || moved.ino() != metadata.ino()
-                        || !moved.file_type().is_socket()
-                    {
-                        let _ = std::fs::hard_link(&quarantined, original);
-                        let _ = std::fs::remove_file(&quarantined);
-                        return Err(std::io::Error::new(
-                            std::io::ErrorKind::InvalidData,
-                            "legacy control socket identity changed during quarantine",
-                        ));
-                    }
-                    return Ok(Self {
-                        original: original.to_path_buf(),
-                        quarantined,
-                        device: metadata.dev(),
-                        inode: metadata.ino(),
-                        armed: true,
-                    });
+            let candidate = parent.join(format!(".cs-{:x}-{sequence:x}", std::process::id()));
+            match std::fs::symlink_metadata(&candidate) {
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    quarantined = Some(candidate);
+                    break;
                 }
-                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Ok(_) => {}
                 Err(error) => return Err(error),
             }
         }
-        Err(std::io::Error::new(
-            std::io::ErrorKind::AlreadyExists,
-            "could not reserve a private legacy control socket path",
-        ))
+        let quarantined = quarantined.ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::AlreadyExists,
+                "could not reserve a private legacy control socket path",
+            )
+        })?;
+        transfer_hook();
+        atomic_rename_noreplace(original, &quarantined)?;
+        let moved = match std::fs::symlink_metadata(&quarantined) {
+            Ok(moved) => moved,
+            Err(error) => {
+                let _ = atomic_rename_noreplace(&quarantined, original);
+                return Err(error);
+            }
+        };
+        if moved.dev() != metadata.dev()
+            || moved.ino() != metadata.ino()
+            || !moved.file_type().is_socket()
+        {
+            atomic_rename_noreplace(&quarantined, original).map_err(|restore_error| {
+                std::io::Error::new(
+                    restore_error.kind(),
+                    format!(
+                        "legacy control socket identity changed and its replacement could not be restored: {restore_error}"
+                    ),
+                )
+            })?;
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "legacy control socket identity changed during quarantine",
+            ));
+        }
+        Ok(Self {
+            original: original.to_path_buf(),
+            quarantined,
+            device: metadata.dev(),
+            inode: metadata.ino(),
+            armed: true,
+        })
     }
 
     fn adopt(
@@ -185,8 +242,7 @@ impl LegacySocketQuarantine {
             }
             (Some(true), None) => {}
             (None, Some(true)) => {
-                std::fs::hard_link(&self.quarantined, &self.original)?;
-                std::fs::remove_file(&self.quarantined)?;
+                atomic_rename_noreplace(&self.quarantined, &self.original)?;
             }
             (Some(false), _) | (_, Some(false)) => {
                 return Err(std::io::Error::new(
@@ -209,17 +265,29 @@ impl LegacySocketQuarantine {
         if !self.armed {
             return Ok(());
         }
-        for path in [&self.quarantined, &self.original] {
-            match self.matches(path)? {
-                Some(true) => std::fs::remove_file(path)?,
-                Some(false) => {
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::AlreadyExists,
-                        "legacy control socket path was replaced during shutdown",
-                    ));
-                }
-                None => {}
+        let original = self.matches(&self.original)?;
+        let quarantined = self.matches(&self.quarantined)?;
+        if original == Some(false) || quarantined == Some(false) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::AlreadyExists,
+                "legacy control socket path was replaced during shutdown",
+            ));
+        }
+        if original == Some(true) {
+            if quarantined == Some(true) {
+                std::fs::remove_file(&self.quarantined)?;
             }
+            atomic_rename_noreplace(&self.original, &self.quarantined)?;
+            if self.matches(&self.quarantined)? != Some(true) {
+                let _ = atomic_rename_noreplace(&self.quarantined, &self.original);
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "legacy control socket identity changed during removal",
+                ));
+            }
+        }
+        if self.matches(&self.quarantined)? == Some(true) {
+            std::fs::remove_file(&self.quarantined)?;
         }
         self.armed = false;
         Ok(())
@@ -247,8 +315,33 @@ struct LegacyHelperReaper {
 }
 
 #[cfg(unix)]
-struct LegacyHelperReap {
+struct LegacyHelperChild {
     child: Child,
+    quarantine: LegacySocketQuarantine,
+}
+
+#[cfg(unix)]
+impl LegacyHelperChild {
+    fn id(&self) -> u32 {
+        self.child.id()
+    }
+
+    fn try_wait(&mut self) -> std::io::Result<Option<ExitStatus>> {
+        self.child.try_wait()
+    }
+
+    fn settle(mut self, status: ExitStatus) -> std::io::Result<()> {
+        if status.success() { self.quarantine.commit() } else { self.quarantine.restore() }
+    }
+
+    fn restore(mut self) {
+        let _ = self.quarantine.restore();
+    }
+}
+
+#[cfg(unix)]
+struct LegacyHelperReap {
+    helper: LegacyHelperChild,
     _lease: LegacyHelperReaperLease,
     next_attempt: Instant,
     retry_delay: Duration,
@@ -269,11 +362,11 @@ impl Drop for LegacyHelperReaperLease {
 
 #[cfg(unix)]
 impl LegacyHelperReaperLease {
-    fn retain_reap_ownership(self, child: Child) {
+    fn retain_shutdown_ownership(self, helper: LegacyHelperChild) {
         let pending = self.pending.clone();
         pending.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(
             LegacyHelperReap {
-                child,
+                helper,
                 _lease: self,
                 next_attempt: Instant::now(),
                 retry_delay: LEGACY_HELPER_POLL_INTERVAL,
@@ -347,10 +440,14 @@ fn run_legacy_helper_reaper(pending: Arc<(Mutex<Vec<LegacyHelperReap>>, Condvar)
                 index += 1;
                 continue;
             }
-            match pending_children[index].child.try_wait() {
-                Ok(Some(_)) => drop(pending_children.swap_remove(index)),
+            match pending_children[index].helper.try_wait() {
+                Ok(Some(status)) => {
+                    let entry = pending_children.swap_remove(index);
+                    let _ = entry.helper.settle(status);
+                }
                 Err(error) if error.raw_os_error() == Some(libc::ECHILD) => {
-                    drop(pending_children.swap_remove(index));
+                    let entry = pending_children.swap_remove(index);
+                    entry.helper.restore();
                 }
                 Ok(None) | Err(_) => {
                     let entry = &mut pending_children[index];
@@ -944,7 +1041,7 @@ fn take_legacy_request_id(next_request_id: &mut u64) -> anyhow::Result<u64> {
 
 #[cfg(unix)]
 fn run_detached_legacy_stop(
-    mut quarantine: LegacySocketQuarantine,
+    quarantine: LegacySocketQuarantine,
     expected: ProcessIdentity,
 ) -> anyhow::Result<()> {
     use std::os::unix::process::CommandExt;
@@ -978,36 +1075,36 @@ fn run_detached_legacy_stop(
         anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
     })?;
     let deadline = Instant::now() + LEGACY_SHUTDOWN_TIMEOUT + LEGACY_HELPER_WAIT_MARGIN;
-    let status = wait_for_child_until(helper, reaper, deadline)?;
+    let status =
+        wait_for_child_until(LegacyHelperChild { child: helper, quarantine }, reaper, deadline)?;
     if status.success() {
-        quarantine.commit().map_err(|_| {
-            anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
-        })?;
         return Ok(());
     }
-    quarantine.restore().map_err(|_| {
-        anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
-    })?;
     anyhow::bail!(crate::localization::catalog().server.legacy_cleanup_failed)
 }
 
 #[cfg(unix)]
 fn wait_for_child_until(
-    mut child: Child,
+    mut helper: LegacyHelperChild,
     reaper: LegacyHelperReaperLease,
     deadline: Instant,
 ) -> anyhow::Result<ExitStatus> {
     loop {
-        match child.try_wait() {
-            Ok(Some(status)) => return Ok(status),
+        match helper.try_wait() {
+            Ok(Some(status)) => {
+                helper.settle(status).map_err(|_| {
+                    anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
+                })?;
+                return Ok(status);
+            }
             Ok(None) => {}
             Err(_) => {
-                reaper.retain_reap_ownership(child);
+                reaper.retain_shutdown_ownership(helper);
                 anyhow::bail!(crate::localization::catalog().server.legacy_cleanup_failed);
             }
         }
         if Instant::now() >= deadline {
-            let pid = libc::pid_t::try_from(child.id()).ok();
+            let pid = libc::pid_t::try_from(helper.id()).ok();
             if let Some(pid) = pid {
                 // The helper installs a cooperative handler so Rust cleanup
                 // can thaw any exact process identities currently fenced.
@@ -1015,13 +1112,18 @@ fn wait_for_child_until(
             }
             let cancel_deadline = Instant::now() + LEGACY_HELPER_CANCEL_MARGIN;
             while Instant::now() < cancel_deadline {
-                match child.try_wait() {
-                    Ok(Some(_)) => {
+                match helper.try_wait() {
+                    Ok(Some(status)) => {
+                        helper.settle(status).map_err(|_| {
+                            anyhow::anyhow!(
+                                crate::localization::catalog().server.legacy_cleanup_failed
+                            )
+                        })?;
                         anyhow::bail!(crate::localization::catalog().server.legacy_cleanup_failed);
                     }
                     Ok(None) => {}
                     Err(_) => {
-                        reaper.retain_reap_ownership(child);
+                        reaper.retain_shutdown_ownership(helper);
                         anyhow::bail!(crate::localization::catalog().server.legacy_cleanup_failed);
                     }
                 }
@@ -1031,7 +1133,7 @@ fn wait_for_child_until(
                         .min(LEGACY_HELPER_POLL_INTERVAL),
                 );
             }
-            reaper.retain_reap_ownership(child);
+            reaper.retain_shutdown_ownership(helper);
             anyhow::bail!(crate::localization::catalog().server.legacy_cleanup_failed);
         }
         std::thread::sleep(
@@ -1608,6 +1710,20 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
+    fn quarantined_test_listener(
+        name: &str,
+    ) -> (std::os::unix::net::UnixListener, LegacySocketQuarantine, PathBuf) {
+        let path = PathBuf::from("/tmp").join(format!(
+            "{name}-{}-{}.sock",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+        let quarantine = LegacySocketQuarantine::acquire(&path).unwrap();
+        (listener, quarantine, path)
+    }
+
     #[test]
     fn mismatch_message_contains_both_release_identities_and_stop_command() {
         let identity = ServerIdentity {
@@ -1803,6 +1919,7 @@ mod tests {
         use std::io::BufRead as _;
 
         let _serial = LEGACY_HELPER_REAPER_TEST_LOCK.lock().unwrap();
+        let (listener, quarantine, path) = quarantined_test_listener("cq-reap");
         let mut helper = Command::new("/bin/sh")
             .arg("-c")
             .arg("trap '' TERM; printf 'ready\\n'; while :; do sleep 1; done")
@@ -1817,9 +1934,12 @@ mod tests {
         let started = Instant::now();
         let reaper = reserve_legacy_helper_reaper().unwrap();
 
-        let error =
-            wait_for_child_until(helper, reaper, Instant::now() + Duration::from_millis(50))
-                .unwrap_err();
+        let error = wait_for_child_until(
+            LegacyHelperChild { child: helper, quarantine },
+            reaper,
+            Instant::now() + Duration::from_millis(50),
+        )
+        .unwrap_err();
         let elapsed = started.elapsed();
         // SAFETY: helper_pid names this exact test-owned child.
         unsafe {
@@ -1846,6 +1966,8 @@ mod tests {
         );
         assert_eq!(reaped, -1, "timed-out helper lost its reaping owner");
         assert_eq!(reaped_error.and_then(|error| error.raw_os_error()), Some(libc::ECHILD));
+        drop(listener);
+        let _ = std::fs::remove_file(path);
     }
 
     #[cfg(unix)]
@@ -1884,16 +2006,10 @@ mod tests {
     #[test]
     fn legacy_helper_timeout_keeps_the_socket_quarantined_until_helper_exit() {
         use std::io::BufRead as _;
-        use std::os::unix::net::{UnixListener, UnixStream};
+        use std::os::unix::net::UnixStream;
 
         let _serial = LEGACY_HELPER_REAPER_TEST_LOCK.lock().unwrap();
-        let path = PathBuf::from("/tmp").join(format!(
-            "cq-help-{}-{}.sock",
-            std::process::id(),
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
-        ));
-        let listener = UnixListener::bind(&path).unwrap();
-        let quarantine = LegacySocketQuarantine::acquire(&path).unwrap();
+        let (listener, quarantine, path) = quarantined_test_listener("cq-help");
         let mut helper = Command::new("/bin/sh")
             .arg("-c")
             .arg("trap '' TERM; printf 'ready\\n'; while :; do sleep 1; done")
@@ -1908,10 +2024,12 @@ mod tests {
         let baseline = active_legacy_helper_reapers_for_test();
         let reaper = reserve_legacy_helper_reaper().unwrap();
 
-        let error =
-            wait_for_child_until(helper, reaper, Instant::now() + Duration::from_millis(50))
-                .unwrap_err();
-        drop(quarantine);
+        let error = wait_for_child_until(
+            LegacyHelperChild { child: helper, quarantine },
+            reaper,
+            Instant::now() + Duration::from_millis(50),
+        )
+        .unwrap_err();
         let hidden_while_helper_alive = UnixStream::connect(&path).is_err();
         // SAFETY: helper_pid names this exact test-owned child.
         unsafe {
@@ -1941,6 +2059,7 @@ mod tests {
     #[test]
     fn legacy_reaper_releases_children_with_lost_wait_ownership() {
         let _serial = LEGACY_HELPER_REAPER_TEST_LOCK.lock().unwrap();
+        let (listener, quarantine, path) = quarantined_test_listener("cq-lost");
         let child = Command::new("/usr/bin/true")
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -1955,7 +2074,7 @@ mod tests {
         let baseline = active_legacy_helper_reapers_for_test();
         let reaper = reserve_legacy_helper_reaper().unwrap();
         assert_eq!(active_legacy_helper_reapers_for_test(), baseline + 1);
-        reaper.retain_reap_ownership(child);
+        reaper.retain_shutdown_ownership(LegacyHelperChild { child, quarantine });
 
         let deadline = Instant::now() + Duration::from_millis(250);
         while active_legacy_helper_reapers_for_test() != baseline && Instant::now() < deadline {
@@ -1967,6 +2086,12 @@ mod tests {
             baseline,
             "legacy reaper retained a child after the kernel reported no wait ownership"
         );
+        assert!(
+            std::os::unix::net::UnixStream::connect(&path).is_ok(),
+            "lost wait ownership did not release the admission fence after helper exit"
+        );
+        drop(listener);
+        let _ = std::fs::remove_file(path);
     }
 
     #[cfg(unix)]
