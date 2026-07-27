@@ -37,6 +37,12 @@ static RETAINED_SIZE_CALLS: AtomicU64 = AtomicU64::new(0);
 static NEXT_RESOLVE_DELAY_MS: AtomicU64 = AtomicU64::new(0);
 #[cfg(test)]
 static NEXT_RESOLVER_INIT_DELAY_MS: AtomicU64 = AtomicU64::new(0);
+#[cfg(test)]
+type TestHostResolver = Arc<
+    dyn Fn(&str, u16) -> std::io::Result<Vec<SocketAddr>> + Send + Sync,
+>;
+#[cfg(test)]
+static TEST_HOST_RESOLVER: Mutex<Option<TestHostResolver>> = Mutex::new(None);
 
 static CDP_RESOLVER: std::sync::OnceLock<Mutex<Option<Arc<CdpResolver>>>> =
     std::sync::OnceLock::new();
@@ -1770,6 +1776,28 @@ mod tests {
             elapsed < Duration::from_millis(200),
             "the next DNS request waited behind expired work: {elapsed:?}"
         );
+    }
+
+    #[test]
+    fn local_network_endpoint_uses_the_host_resolver() {
+        let _guard = RESOLVE_TEST_LOCK.lock().unwrap();
+        let called = Arc::new(AtomicBool::new(false));
+        let called_from_resolver = called.clone();
+        *TEST_HOST_RESOLVER.lock().unwrap() = Some(Arc::new(move |host, port| {
+            called_from_resolver.store(true, Ordering::Release);
+            assert_eq!(host, "cmux-host-resolver.invalid");
+            Ok(vec![SocketAddr::from(([127, 0, 0, 1], port))])
+        }));
+
+        let result = resolve_socket_addr_until(
+            "cmux-host-resolver.invalid",
+            9222,
+            Instant::now() + Duration::from_secs(2),
+        );
+        *TEST_HOST_RESOLVER.lock().unwrap() = None;
+
+        assert_eq!(result.unwrap(), SocketAddr::from(([127, 0, 0, 1], 9222)));
+        assert!(called.load(Ordering::Acquire), "host resolver was bypassed");
     }
 
     #[test]
