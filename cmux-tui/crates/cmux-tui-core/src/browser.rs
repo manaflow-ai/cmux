@@ -7132,6 +7132,73 @@ mod tests {
     }
 
     #[test]
+    fn loaderless_navigation_snapshot_failure_settles_the_transition() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut ws = accept(stream).unwrap();
+            let discover = read_ws_json(&mut ws);
+            assert_eq!(discover["method"], "Target.setDiscoverTargets");
+            write_ws_json(&mut ws, json!({"id": discover["id"], "result": {}}));
+            let navigate = read_ws_json(&mut ws);
+            assert_eq!(navigate["method"], "Page.navigate");
+            write_ws_json(
+                &mut ws,
+                json!({"id": navigate["id"], "result": {"frameId": "main-frame"}}),
+            );
+            let snapshot = read_ws_json(&mut ws);
+            assert_eq!(snapshot["method"], "Page.getFrameTree");
+            write_ws_json(
+                &mut ws,
+                json!({
+                    "id": snapshot["id"],
+                    "error": {"code": -32000, "message": "snapshot unavailable"}
+                }),
+            );
+        });
+        let runtime = super::BrowserRuntime::connect_to_endpoint(
+            &format!("ws://{addr}/devtools/browser/fake"),
+            None,
+            BrowserSource::External,
+        )
+        .unwrap();
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        runtime.client.register_frame_epoch("session-1", browser.frame_epoch.clone());
+        *browser.session.lock().unwrap() = Some(BrowserSession {
+            runtime: runtime.clone(),
+            target_id: "target-1".to_string(),
+            session_id: "session-1".to_string(),
+        });
+        browser.store_frame(test_frame(1));
+
+        let result = browser.navigate_blocking("https://example.test#same-document");
+        let state = browser.state.lock().unwrap();
+        let pending_frame_epoch = state.pending_frame_epoch;
+        let pending_navigation_epoch = state.pending_navigation_epoch;
+        let pending_same_document_navigation = state.pending_same_document_navigation;
+        let status = state.status.clone();
+        drop(state);
+        let retry = browser.begin_targeted_navigation_frame_transition();
+        runtime.shutdown();
+        server.join().unwrap();
+
+        assert!(result.is_err(), "the failed snapshot must be reported");
+        assert_eq!(pending_frame_epoch, None);
+        assert_eq!(pending_navigation_epoch, None);
+        assert!(!pending_same_document_navigation);
+        assert!(
+            matches!(status.failure(), Some(super::BrowserFailure::UpdatedPageVerification(_))),
+            "the retryable terminal failure must remain visible"
+        );
+        assert!(
+            retry.is_ok(),
+            "a transient loaderless snapshot failure must not block later navigation controls"
+        );
+    }
+
+    #[test]
     fn download_navigation_restores_current_document_pointer_authority() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
