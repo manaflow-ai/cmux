@@ -405,6 +405,34 @@ test("newPaneRight rejects invalid widths before transport", async () => {
   await client.close();
 });
 
+test("newPaneRight preserves the typed null width default", async () => {
+  const requests: Record<string, unknown>[] = [];
+  const transport = new ScriptedTransport((request, connection) => {
+    if (request.cmd === "identify") {
+      connection.emit({
+        id: request.id,
+        ok: true,
+        data: {
+          app: "cmux-tui",
+          version: "0.1.2",
+          protocol: 10,
+          capabilities: ["viewport-splits-v1"],
+          session: "main",
+          pid: 1,
+        },
+      });
+      return;
+    }
+    requests.push(request);
+    connection.emit({ id: request.id, ok: true, data: { surface: 9 } });
+  });
+  const client = new CmuxClient({ transport, timeoutMs: 100 });
+
+  assert.deepEqual(await client.newPaneRight(7, { width: null }), { surface: 9 });
+  assert.deepEqual(requests, [{ id: 2, cmd: "new-pane-right", pane: 7, width: null }]);
+  await client.close();
+});
+
 test("clearHistory rejects servers without the advertised capability", async () => {
   let clearRequests = 0;
   const transport = new ScriptedTransport((request, connection) => {
