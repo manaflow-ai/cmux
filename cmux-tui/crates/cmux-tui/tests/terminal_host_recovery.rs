@@ -916,10 +916,27 @@ fn adopted_legacy_host_rejects_clear_history_fallback() {
     };
     assert!(wait_for_screen(&harness.socket, adopted_surface, "ready").contains("ready"));
 
+    let tree =
+        request(&harness.socket, serde_json::json!({"id": 3, "cmd": "list-workspaces"}));
+    let adopted_tab = tree["workspaces"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|workspace| workspace["screens"].as_array().into_iter().flatten())
+        .flat_map(|screen| screen["panes"].as_array().into_iter().flatten())
+        .flat_map(|pane| pane["tabs"].as_array().into_iter().flatten())
+        .find(|tab| tab["surface"].as_u64() == Some(adopted_surface))
+        .expect("adopted terminal missing from workspace tree");
+    assert_eq!(
+        adopted_tab["supports_clear_history_key_fallback"].as_bool(),
+        Some(false),
+        "legacy terminal host was advertised as safe for atomic clear-history fallback"
+    );
+
     let unsupported = request_response(
         &harness.socket,
         serde_json::json!({
-            "id": 3,
+            "id": 4,
             "cmd": "clear-history",
             "surface": adopted_surface,
             "fallback_key": {
@@ -955,7 +972,7 @@ fn adopted_legacy_host_rejects_clear_history_fallback() {
     std::thread::sleep(Duration::from_millis(100));
     let screen = request(
         &harness.socket,
-        serde_json::json!({"id": 4, "cmd": "read-screen", "surface": adopted_surface}),
+        serde_json::json!({"id": 5, "cmd": "read-screen", "surface": adopted_surface}),
     )["text"]
         .as_str()
         .unwrap()
@@ -966,7 +983,7 @@ fn adopted_legacy_host_rejects_clear_history_fallback() {
     request(
         &harness.socket,
         serde_json::json!({
-            "id": 5,
+            "id": 6,
             "cmd": "close-terminal",
             "terminal_id": terminal_id,
             "terminal_incarnation": incarnation,
