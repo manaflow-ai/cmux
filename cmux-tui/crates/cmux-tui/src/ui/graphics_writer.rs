@@ -774,6 +774,21 @@ mod tests {
         }
     }
 
+    struct BackpressuredOutput {
+        attempts: Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    impl Write for BackpressuredOutput {
+        fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
+            self.attempts.fetch_add(1, Ordering::AcqRel);
+            Err(std::io::Error::from(std::io::ErrorKind::WouldBlock))
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
     fn occurrences(haystack: &[u8], needle: &[u8]) -> usize {
         haystack.windows(needle.len()).filter(|window| *window == needle).count()
     }
@@ -1005,6 +1020,57 @@ mod tests {
     }
 
     #[test]
+    fn shutdown_cancels_backpressured_output_and_releases_stdout_lock() {
+        let lock = Arc::new(StdoutLock::new(()));
+        let attempts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+        let mut writer = GraphicsWriter::spawn_with_output(
+            lock.clone(),
+            BackpressuredOutput { attempts: attempts.clone() },
+            move || {
+                ready_tx.send(()).unwrap();
+            },
+        )
+        .unwrap();
+
+        assert!(writer.submit(
+            8,
+            1,
+            vec![GraphicPlacement {
+                surface: 11,
+                rect: Rect { x: 1, y: 2, width: 3, height: 4 },
+                seq: 14,
+                pointer_frame_seq: Some(8),
+                data_b64: "AAAA".to_string(),
+            }]
+        ));
+        let attempt_deadline = Instant::now() + Duration::from_secs(1);
+        while attempts.load(Ordering::Acquire) == 0 {
+            assert!(
+                Instant::now() < attempt_deadline,
+                "writer never attempted backpressured output"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let completed_before_shutdown = ready_rx.recv_timeout(Duration::from_millis(50)).is_ok();
+
+        writer.shutdown(Duration::from_millis(200));
+        let stopped = writer.handle.as_ref().is_none_or(|handle| handle.is_finished());
+        let lock_released = lock.try_lock().is_some();
+
+        assert!(
+            !completed_before_shutdown,
+            "temporary stdout backpressure must remain retryable until cancellation or deadline"
+        );
+        assert!(
+            attempts.load(Ordering::Acquire) > 1,
+            "the writer must retry temporary stdout backpressure"
+        );
+        assert!(stopped, "shutdown must cancel a backpressured graphics write within its budget");
+        assert!(lock_released, "canceled graphics output must release the shared stdout lock");
+    }
+
+    #[test]
     fn transient_processing_timeout_retries_without_stopping_writer() {
         let lock = Arc::new(StdoutLock::new(()));
         let attempts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -1169,6 +1235,55 @@ mod tests {
             occurrences(&output.bytes(), &deletion),
             3,
             "disabling graphics must make one final best-effort deletion of every known image"
+        );
+    }
+
+    #[test]
+    fn persistent_fence_loss_cleans_every_unacknowledged_image() {
+        let lock = Arc::new(StdoutLock::new(()));
+        let output = SharedOutput::default();
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+        let mut writer = GraphicsWriter::spawn_with_output_and_fence(
+            lock,
+            output.clone(),
+            || {
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "injected persistent fence timeout",
+                ))
+            },
+            move || {
+                ready_tx.send(()).unwrap();
+            },
+        )
+        .unwrap();
+        let placement = |surface, seq| GraphicPlacement {
+            surface,
+            rect: Rect { x: 1, y: 2, width: 3, height: 4 },
+            seq,
+            pointer_frame_seq: Some(seq),
+            data_b64: "AAAA".to_string(),
+        };
+
+        assert!(writer.submit(34, 1, vec![placement(13, 19)]));
+        ready_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(matches!(
+            writer.take_completion(),
+            Some(GraphicsCompletion::TimedOut { id: 34, .. })
+        ));
+        assert!(writer.submit(35, 1, vec![placement(14, 20)]));
+        ready_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(writer.take_completion(), Some(GraphicsCompletion::Failed));
+        writer.shutdown(Duration::from_secs(1));
+
+        let bytes = output.bytes();
+        assert!(
+            occurrences(&bytes, &delete_image(13)) >= 1,
+            "final cleanup must delete an image whose first submission was never acknowledged"
+        );
+        assert!(
+            occurrences(&bytes, &delete_image(14)) >= 1,
+            "final cleanup must delete an image whose last submission was never acknowledged"
         );
     }
 
