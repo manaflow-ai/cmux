@@ -535,6 +535,48 @@ mod tests {
             Node::Stack { ref panes, expanded: 1 } if panes.as_slice() == [1]
         ));
     }
+
+    #[test]
+    fn legacy_projection_preserves_many_equal_viewport_column_widths() {
+        let mut screen = Screen {
+            id: 1,
+            name: None,
+            root: Node::Leaf(1),
+            active_pane: 21,
+            zoomed_pane: None,
+            zellij_auto_layout: None,
+            viewport_splits: BTreeMap::new(),
+            viewport_base_width: None,
+            layout_columns: (1..=21)
+                .map(|pane| LayoutColumn {
+                    id: 100 + pane,
+                    width: 1.0,
+                    root: Node::Leaf(pane),
+                    zellij_auto_layout: None,
+                })
+                .collect(),
+            layout_revision: 0,
+            layout_undo: VecDeque::new(),
+        };
+
+        screen.sync_layout_column_projection();
+
+        let layout = crate::layout::layout_screen(
+            &screen.root,
+            crate::layout::Rect { x: 0, y: 0, width: 2_100, height: 24 },
+            Some(screen.active_pane),
+        );
+        assert_eq!(layout.panes.len(), 21);
+        assert!(
+            layout.panes.iter().all(|(_, rect)| rect.width == 100),
+            "legacy clients should receive the authoritative equal-width projection: {:?}",
+            layout.panes
+        );
+        let Node::Split { ratio, .. } = screen.root else {
+            panic!("multiple columns should produce a compatibility split");
+        };
+        assert!((ratio - (20.0 / 21.0)).abs() < f32::EPSILON);
+    }
 }
 
 /// A split-tree leaf: an ordered list of tabs (surfaces) with one active.
