@@ -3183,14 +3183,40 @@ impl BrowserSurface {
         let tx = self.command_sender()?;
         let mut order = self.command_order.lock().unwrap();
         let command = order.sequence(command);
-        *self.latest_authority.lock().unwrap() = Some(command);
+        let displaced = self.latest_authority.lock().unwrap().replace(command);
         let wake = order.sequence(BrowserCommand::WakeLatest);
-        match tx.try_send(wake) {
-            Ok(()) | Err(TrySendError::Full(_)) => Ok(()),
+        let (result, rejected) = match tx.try_send(wake) {
+            Ok(()) | Err(TrySendError::Full(_)) => (Ok(()), None),
             Err(TrySendError::Disconnected(_)) => {
-                self.latest_authority.lock().unwrap().take();
-                anyhow::bail!("browser command worker is closed")
+                let rejected = self.latest_authority.lock().unwrap().take();
+                (Err(anyhow::anyhow!("browser command worker is closed")), rejected)
             }
+        };
+        drop(order);
+        self.release_screencast_capture_command(displaced);
+        self.release_screencast_capture_command(rejected);
+        result
+    }
+
+    fn release_screencast_capture_command(&self, command: Option<SequencedBrowserCommand>) {
+        let Some(BrowserCommand::AuthorizeScreencastCapture {
+            session_id,
+            reservation_id,
+            frame_epoch,
+            navigation_epoch,
+            ..
+        }) = command.map(|queued| queued.command)
+        else {
+            return;
+        };
+        self.cancel_screencast_capture(reservation_id);
+        if let Some(session) = self.session.lock().unwrap().clone() {
+            let _ = session.runtime.client.settle_timestampless_screencast_capture(
+                &session_id,
+                reservation_id,
+                frame_epoch,
+                navigation_epoch,
+            );
         }
     }
 
