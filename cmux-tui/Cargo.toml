@@ -67,6 +67,9 @@ parking_lot = "0.12"
 # text while parsing CSI-u input. cmux needs those fields to preserve keyboard
 # layouts across its shortcut layer and nested terminals.
 crossterm = { path = "vendor/crossterm" }
+# The cmux Crossterm patch adds `Event::EnhancedKey`. Keep the adapter's
+# exhaustive event mapping in the same source-controlled compatibility layer.
+terminput-crossterm = { path = "vendor/terminput-crossterm" }
 
 [profile.release]
 lto = "thin"

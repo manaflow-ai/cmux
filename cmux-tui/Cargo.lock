@@ -1832,8 +1832,6 @@ dependencies = [
 [[package]]
 name = "terminput-crossterm"
 version = "0.4.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4859bd96659d1b761e03789bb1fb07c7615b1b0b2e65ef38500b62e7d84feb7f"
 dependencies = [
  "crossterm",
  "terminput",
