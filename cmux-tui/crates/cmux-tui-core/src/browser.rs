@@ -9817,6 +9817,27 @@ mod tests {
     }
 
     #[test]
+    fn pending_attach_state_inherits_newer_frame_authority() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        browser.store_frame(test_frame(1));
+        let (_state, stream) = browser.attach_frames();
+
+        assert!(browser.set_title("queued state".to_string()));
+        browser.store_frame(test_frame(2));
+
+        stream.notify.recv_timeout(Duration::from_secs(1)).unwrap();
+        let update = std::mem::take(&mut *stream.slot.lock().unwrap());
+        let state = update.state.expect("pending state");
+        let frame = update.frame.expect("newer pending frame");
+        assert_eq!(
+            state.pointer_frame_seq, frame.pointer_frame_seq,
+            "a state queued before a newer frame must inherit that frame's pointer authority"
+        );
+        assert_eq!(frame.frame.seq, 2);
+    }
+
+    #[test]
     fn pointer_admission_barriers_order_pending_attach_frames() {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
