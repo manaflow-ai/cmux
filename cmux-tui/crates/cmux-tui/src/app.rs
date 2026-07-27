@@ -1021,6 +1021,14 @@ impl OrderedSession {
         self.pending_mutation_with_routing(false)
     }
 
+    fn supports_clear_history_key_fallback(&self) -> bool {
+        self.inner.supports_clear_history_key_fallback()
+    }
+
+    fn retire_surface_input(&self, surface: SurfaceId) {
+        self.operations.retire_surface(surface);
+    }
+
     fn pending_mutation_with_routing(&self, routing: bool) -> PendingSessionMutation {
         self.pending_mutations.fetch_add(1, Ordering::AcqRel);
         if routing {
@@ -4752,6 +4760,13 @@ fn classify_clear_history_failure(failure: ClearHistoryFailure) -> anyhow::Error
     }
 }
 
+fn should_claim_clear_history_shortcut(
+    surface_kind: SurfaceKind,
+    supports_atomic_fallback: bool,
+) -> bool {
+    surface_kind == SurfaceKind::Pty && supports_atomic_fallback
+}
+
 impl App {
     pub fn is_surface_only(&self) -> bool {
         self.surface_only.is_some()
@@ -5916,6 +5931,7 @@ impl App {
         self.visible_size_surfaces.remove(&surface);
         self.pending_size_releases.remove(&surface);
         self.mux_titles.remove(surface);
+        self.session.retire_surface_input(surface);
         self.session.forget_surface(surface);
         if self.sidebar_plugin_surface == Some(surface) {
             self.session.invalidate_sidebar_plugin_sync();
@@ -9527,7 +9543,10 @@ impl App {
         let Some(surface_id) = self.active_surface() else {
             return RenderAction::None;
         };
-        if self.tree.surface_kind(surface_id) != SurfaceKind::Pty {
+        if !should_claim_clear_history_shortcut(
+            self.tree.surface_kind(surface_id),
+            self.session.supports_clear_history_key_fallback(),
+        ) {
             self.replace_selection(None);
             self.forward_key(input);
             return if self.status_message.is_some() {
@@ -12334,8 +12353,9 @@ mod tests {
         keyboard_protocol_accepts, negotiate_host_keyboard_protocol_with, outer_cursor_escape,
         outer_cursor_escape_if_changed, pane_context_menu_groups, pane_parts_for_rect,
         prepare_ordered_session, preserve_client_view, rail_drag_width,
-        record_surface_resize_dispatch_result, sidebar_layout_for,
-        sidebar_plugin_status_settles_passive_claim, start_ordered_session, with_panic_stdout_lock,
+        record_surface_resize_dispatch_result, should_claim_clear_history_shortcut,
+        sidebar_layout_for, sidebar_plugin_status_settles_passive_claim, start_ordered_session,
+        with_panic_stdout_lock,
     };
     use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
     use std::path::PathBuf;
@@ -21179,6 +21199,53 @@ mod tests {
 
         let _ = first.close_surface(first_surface.id);
         let _ = second.close_surface(second_surface.id);
+    }
+
+    #[test]
+    fn retiring_surface_state_releases_its_failed_input_lane() {
+        let mux = Mux::new("retired-surface-input-lane-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let (mut app, _events) = test_app_with_events(Session::Local(mux.clone()));
+
+        assert_eq!(
+            app.session.operations.enqueue_coalescing_surface_operation(
+                "failed surface operation",
+                surface.id,
+                false,
+                || Err(anyhow::anyhow!("ambiguous delivery")),
+            ),
+            PtyInputEnqueueResult::Accepted
+        );
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while app.pty_failures.state.lock().unwrap().failures.is_empty()
+            && Instant::now() < deadline
+        {
+            std::thread::yield_now();
+        }
+        assert!(!app.pty_failures.state.lock().unwrap().failures.is_empty());
+        assert!(
+            !app.enqueue_pty_bytes(
+                surface.id,
+                app.session.surface(surface.id).unwrap(),
+                PtyInputBytes::from_slice(b"x"),
+                PtyInputKind::Ordered,
+            )
+            .accepted
+        );
+
+        app.retire_surface_state(surface.id);
+
+        assert!(
+            app.enqueue_pty_bytes(
+                surface.id,
+                app.session.surface(surface.id).unwrap(),
+                PtyInputBytes::from_slice(b"x"),
+                PtyInputKind::Ordered,
+            )
+            .accepted
+        );
+        assert!(app.pty_input.shutdown(Duration::from_secs(1)));
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]

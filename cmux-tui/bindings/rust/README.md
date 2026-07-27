@@ -36,6 +36,8 @@ so deserialization stays compatible with older servers.
 Use `clear_history_with_fallback(surface, &TerminalKeyInput { ... })` only when
 `IdentifyDetails.capabilities` contains `clear-history-key-v1`. The SDK rejects
 fallback `utf8` fields above the 4 KiB protocol limit before sending.
+`CmuxError::Command.delivery` exposes `ErrorDelivery::KnownNotDelivered` or
+`ErrorDelivery::Ambiguous` when the server classifies a failure.
 
 ## E2E
 

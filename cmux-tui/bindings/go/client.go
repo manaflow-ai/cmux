@@ -37,13 +37,34 @@ func validateWorkspaceSelector(workspace *uint64, key *string) error {
 }
 
 type CommandError struct {
-	Message string
-	ID      any
+	Message  string
+	ID       any
+	Delivery ErrorDelivery
 }
 
 func (e *CommandError) Error() string { return e.Message }
 func (e *CommandError) Is(target error) bool {
 	return target == ErrCommand
+}
+
+type ErrorDelivery string
+
+const (
+	ErrorDeliveryKnownNotDelivered ErrorDelivery = "known-not-delivered"
+	ErrorDeliveryAmbiguous         ErrorDelivery = "ambiguous"
+)
+
+func commandErrorFromResponse(response map[string]any) *CommandError {
+	msg, _ := response["error"].(string)
+	if msg == "" {
+		msg = "unknown error"
+	}
+	delivery, _ := response["error_delivery"].(string)
+	return &CommandError{
+		Message:  msg,
+		ID:       response["id"],
+		Delivery: ErrorDelivery(delivery),
+	}
 }
 
 type connectionError struct{ msg string }
@@ -196,11 +217,7 @@ func (c *Client) request(ctx context.Context, cmd string, params map[string]any,
 		}
 		return nil
 	}
-	msg, _ := response["error"].(string)
-	if msg == "" {
-		msg = "unknown error"
-	}
-	return &CommandError{Message: msg, ID: response["id"]}
+	return commandErrorFromResponse(response)
 }
 
 func (c *Client) nextRequestID() uint64 {
@@ -652,12 +669,8 @@ func (c *Client) openStream(ctx context.Context, request map[string]any) (*Strea
 		if ok, _ := response["ok"].(bool); ok {
 			return &Stream{conn: conn, timeout: c.timeout, buffered: buffered}, nil
 		}
-		msg, _ := response["error"].(string)
-		if msg == "" {
-			msg = "unknown error"
-		}
 		_ = conn.Close()
-		return nil, &CommandError{Message: msg, ID: response["id"]}
+		return nil, commandErrorFromResponse(response)
 	}
 }
 

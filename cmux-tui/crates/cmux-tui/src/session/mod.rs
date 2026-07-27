@@ -803,6 +803,13 @@ impl Session {
         }
     }
 
+    pub fn supports_clear_history_key_fallback(&self) -> bool {
+        match self {
+            Session::Local(_) => cfg!(unix),
+            Session::Remote(remote) => remote.supports_clear_history_key_fallback(),
+        }
+    }
+
     pub fn clear_history_or_send_key_classified(
         &self,
         surface: SurfaceId,

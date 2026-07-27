@@ -1259,17 +1259,18 @@ impl RemoteSession {
         self.clear_history_request_classified(surface, None)
     }
 
+    pub fn supports_clear_history_key_fallback(&self) -> bool {
+        let capabilities = self.capabilities.lock().unwrap();
+        capabilities.contains(CLEAR_HISTORY_CAPABILITY)
+            && capabilities.contains(CLEAR_HISTORY_KEY_CAPABILITY)
+    }
+
     pub fn clear_history_or_send_key_classified(
         &self,
         surface: SurfaceId,
         fallback_key: &KeyInput,
     ) -> Result<(), ClearHistoryFailure> {
-        let supports_atomic_clear = {
-            let capabilities = self.capabilities.lock().unwrap();
-            capabilities.contains(CLEAR_HISTORY_CAPABILITY)
-                && capabilities.contains(CLEAR_HISTORY_KEY_CAPABILITY)
-        };
-        if supports_atomic_clear {
+        if self.supports_clear_history_key_fallback() {
             let fallback_key = ProtocolKeyInput::try_from(fallback_key)
                 .map_err(ClearHistoryFailure::known_not_delivered)?;
             return self.clear_history_request_classified(surface, Some(fallback_key));

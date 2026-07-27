@@ -34,7 +34,8 @@ try (CmuxClient client = CmuxClient.builder().build()) {
 
 The `clearHistory(surface, TerminalKeyInput)` overload requires the server
 capability `clear-history-key-v1`. It rejects fallback `utf8` fields above the
-4 KiB protocol limit before sending.
+4 KiB protocol limit before sending. `CmuxCommandException.errorDelivery()`
+returns the server's `CmuxErrorDelivery` classification when present.
 
 ## E2E
 

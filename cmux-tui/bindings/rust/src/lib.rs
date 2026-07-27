@@ -14,7 +14,7 @@ pub const TERMINAL_KEY_TEXT_MAX_BYTES: usize = 4 * 1024;
 
 #[derive(Debug)]
 pub enum CmuxError {
-    Command { message: String, id: Option<Value> },
+    Command { message: String, id: Option<Value>, delivery: Option<ErrorDelivery> },
     Decode(String),
     Connection(String),
     Timeout(String),
@@ -36,6 +36,20 @@ impl fmt::Display for CmuxError {
 }
 
 impl std::error::Error for CmuxError {}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ErrorDelivery {
+    KnownNotDelivered,
+    Ambiguous,
+}
+
+fn error_delivery(response: &Value) -> Option<ErrorDelivery> {
+    match response.get("error_delivery").and_then(Value::as_str) {
+        Some("known-not-delivered") => Some(ErrorDelivery::KnownNotDelivered),
+        Some("ambiguous") => Some(ErrorDelivery::Ambiguous),
+        _ => None,
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct ClientConfig {
@@ -654,6 +668,7 @@ impl CmuxClient {
                     .unwrap_or("unknown error")
                     .to_string(),
                 id: response.get("id").cloned(),
+                delivery: error_delivery(&response),
             })
         }
     }
@@ -1160,6 +1175,7 @@ impl CmuxStream {
                     .unwrap_or("unknown error")
                     .to_string(),
                 id: response.get("id").cloned(),
+                delivery: error_delivery(&response),
             });
         }
     }

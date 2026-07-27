@@ -71,6 +71,20 @@ pub const PER_SURFACE_CLIENT_SIZING_PROTOCOL_VERSION: u32 = 10;
 pub const PROTOCOL_VERSION: u32 = PER_SURFACE_CLIENT_SIZING_PROTOCOL_VERSION;
 const PROTOCOL_KEY_TEXT_MAX_BYTES: usize = CLEAR_HISTORY_KEY_TEXT_MAX_BYTES;
 
+fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&'static str> {
+    let mut capabilities = vec![
+        ATTACH_INITIAL_SIZE_CAPABILITY,
+        WORKSPACE_REGISTRY_CAPABILITY,
+        CLEAR_HISTORY_CAPABILITY,
+        SURFACE_SUBSCRIBE_FILTER_CAPABILITY,
+        PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
+    ];
+    if bounded_clear_history_fallback_writes {
+        capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);
+    }
+    capabilities
+}
+
 macro_rules! protocol_keys {
     ($($variant:ident => $constant:ident),+ $(,)?) => {
         #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
@@ -3969,14 +3983,7 @@ fn handle_command_with_cancellation(
                 "build_commit": stamped_build_commit(),
                 "ghostty_commit": stamped_ghostty_commit(),
                 "protocol": PROTOCOL_VERSION,
-                "capabilities": [
-                    ATTACH_INITIAL_SIZE_CAPABILITY,
-                    WORKSPACE_REGISTRY_CAPABILITY,
-                    CLEAR_HISTORY_CAPABILITY,
-                    CLEAR_HISTORY_KEY_CAPABILITY,
-                    SURFACE_SUBSCRIBE_FILTER_CAPABILITY,
-                    PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY
-                ],
+                "capabilities": advertised_capabilities(cfg!(unix)),
                 "session": mux.session,
                 "pid": std::process::id(),
                 "registry_id": registry_id,

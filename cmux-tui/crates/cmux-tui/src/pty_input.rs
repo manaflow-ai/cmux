@@ -244,6 +244,7 @@ struct QueueState {
     in_flight: Option<InFlightInput>,
     in_flight_surface_operations: HashMap<PtyInputLane, usize>,
     failed_lanes: HashSet<PtyInputLane>,
+    retired_in_flight_lanes: HashSet<PtyInputLane>,
     failed_remote_generations: HashSet<u64>,
     active_session_generation: u64,
     closed: bool,
@@ -259,6 +260,7 @@ impl Default for QueueState {
             in_flight: None,
             in_flight_surface_operations: HashMap::new(),
             failed_lanes: HashSet::new(),
+            retired_in_flight_lanes: HashSet::new(),
             failed_remote_generations: HashSet::new(),
             active_session_generation: 1,
             closed: false,
@@ -392,6 +394,7 @@ impl PtyInputDispatcher {
         let mut state = self.sender.queue.state.lock().unwrap();
         state.active_session_generation = session_generation;
         state.failed_lanes.retain(|lane| lane.session_generation == session_generation);
+        state.retired_in_flight_lanes.retain(|lane| lane.session_generation == session_generation);
         state.failed_remote_generations.retain(|generation| *generation == session_generation);
         state.release_reservations.retain_generation(session_generation);
         self.sender.queue.changed.notify_all();
@@ -540,6 +543,23 @@ impl PtyInputSender {
     pub fn cancel_release_reservation(&self, reservation_id: u64) {
         let mut state = self.queue.state.lock().unwrap();
         state.release_reservations.cancel(reservation_id);
+        self.queue.changed.notify_all();
+    }
+
+    pub fn retire_surface(&self, surface_id: SurfaceId) {
+        let lane = PtyInputLane { session_generation: self.session_generation, surface_id };
+        let mut state = self.queue.state.lock().unwrap();
+        state.failed_lanes.remove(&lane);
+        let is_in_flight = state.in_flight.is_some_and(|input| input.lane == Some(lane))
+            || state.in_flight_surface_operations.contains_key(&lane);
+        if is_in_flight {
+            state.retired_in_flight_lanes.insert(lane);
+        } else {
+            state.retired_in_flight_lanes.remove(&lane);
+        }
+        state.events.retain(|event| event.ordering_lane() != Some(lane));
+        state.release_reservations.outstanding.retain(|_, reserved_lane| *reserved_lane != lane);
+        state.queued_bytes = state.events.iter().map(PtyInputEvent::queued_byte_len).sum();
         self.queue.changed.notify_all();
     }
 
@@ -952,6 +972,7 @@ fn fail_surface_operation_spawn(
     let after_operation = event.after_operation.take();
     let mut state = queue.state.lock().unwrap();
     state.in_flight_surface_operations.remove(&lane);
+    state.retired_in_flight_lanes.remove(&lane);
     queue.changed.notify_all();
     drop(state);
     on_failure(PtyOperationFailure {
@@ -1052,6 +1073,8 @@ fn process_event(
         })
     });
     let mut state = queue.state.lock().unwrap();
+    let retired_lane =
+        ordering_lane.is_some_and(|lane| state.retired_in_flight_lanes.remove(&lane));
     let mut canceled = Vec::new();
     if failure
         .as_ref()
@@ -1061,7 +1084,7 @@ fn process_event(
     {
         state.release_reservations.outstanding.remove(&reservation_id);
     }
-    if remote_transport_failed || exhausted_ambiguous_release {
+    if remote_transport_failed || (exhausted_ambiguous_release && !retired_lane) {
         // A failed socket write poisons only the remote session generation
         // that owns it. A replacement session may reuse every surface id.
         if state.active_session_generation == session_generation {
@@ -1080,18 +1103,24 @@ fn process_event(
         // A timeout does not prove the socket is dead. Acknowledged surface
         // operations cancel only their own followers; unrelated surfaces can
         // continue using the live transport.
-        if retry_ambiguous_release && (!state.closed || state.shutdown_release_drain) {
+        if !retired_lane
+            && retry_ambiguous_release
+            && (!state.closed || state.shutdown_release_drain)
+        {
             requeue_ambiguous_release(&mut state, event);
         }
         if let Some(lane) = ordering_lane {
-            if !retry_ambiguous_release && state.active_session_generation == session_generation {
-                state.failed_lanes.insert(lane);
+            if !retired_lane {
+                if !retry_ambiguous_release && state.active_session_generation == session_generation
+                {
+                    state.failed_lanes.insert(lane);
+                }
+                canceled.extend(prune_lane_to_recovery_releases(
+                    &mut state,
+                    lane,
+                    "canceled after a remote surface request timed out",
+                ));
             }
-            canceled.extend(prune_lane_to_recovery_releases(
-                &mut state,
-                lane,
-                "canceled after a remote surface request timed out",
-            ));
         } else {
             canceled.extend(prune_to_recovery_releases(
                 &mut state,
@@ -1101,15 +1130,17 @@ fn process_event(
         }
     } else if ambiguous_surface_failure {
         let lane = ordering_lane.expect("ambiguous surface failure has an ordering lane");
-        if state.active_session_generation == session_generation {
-            state.failed_lanes.insert(lane);
+        if !retired_lane {
+            if state.active_session_generation == session_generation {
+                state.failed_lanes.insert(lane);
+            }
+            canceled.extend(prune_failed_lane(
+                &mut state,
+                lane,
+                reservation_id.filter(|_| kind == Some(PtyInputKind::Press)),
+                "canceled after ambiguous surface delivery; detach and reconnect",
+            ));
         }
-        canceled.extend(prune_failed_lane(
-            &mut state,
-            lane,
-            reservation_id.filter(|_| kind == Some(PtyInputKind::Press)),
-            "canceled after ambiguous surface delivery; detach and reconnect",
-        ));
     }
     if let Some(lane) = concurrent_surface.then_some(ordering_lane).flatten() {
         state.in_flight_surface_operations.remove(&lane);
@@ -1600,7 +1631,10 @@ mod tests {
 
         sender.retire_surface(41);
 
-        assert!(!sender.queue.state.lock().unwrap().failed_lanes.contains(&lane(41)));
+        let state = sender.queue.state.lock().unwrap();
+        assert!(!state.failed_lanes.contains(&lane(41)));
+        assert!(!state.retired_in_flight_lanes.contains(&lane(41)));
+        drop(state);
         assert_eq!(
             sender.enqueue(event(41, 2, PtyInputKind::Ordered)),
             PtyInputEnqueueResult::Accepted
@@ -1639,7 +1673,10 @@ mod tests {
         assert!(failure.lane_failed);
         sender.set_after_operation_before_cleanup(None);
 
-        assert!(!sender.queue.state.lock().unwrap().failed_lanes.contains(&lane(41)));
+        let state = sender.queue.state.lock().unwrap();
+        assert!(!state.failed_lanes.contains(&lane(41)));
+        assert!(!state.retired_in_flight_lanes.contains(&lane(41)));
+        drop(state);
         assert_eq!(
             sender.enqueue(event(41, 2, PtyInputKind::Ordered)),
             PtyInputEnqueueResult::Accepted

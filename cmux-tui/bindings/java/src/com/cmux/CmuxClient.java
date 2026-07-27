@@ -495,7 +495,11 @@ public final class CmuxClient implements AutoCloseable {
             }
             return new LinkedHashMap<>();
         }
-        throw new CmuxCommandException(asString(response.getOrDefault("error", "unknown error")), response.get("id"));
+        throw new CmuxCommandException(
+            asString(response.getOrDefault("error", "unknown error")),
+            response.get("id"),
+            CmuxErrorDelivery.fromWire(response.get("error_delivery"))
+        );
     }
 
     private List<?> requestList(String cmd, Map<String, Object> params) throws CmuxException {
@@ -512,7 +516,8 @@ public final class CmuxClient implements AutoCloseable {
         }
         throw new CmuxCommandException(
             asString(response.getOrDefault("error", "unknown error")),
-            response.get("id")
+            response.get("id"),
+            CmuxErrorDelivery.fromWire(response.get("error_delivery"))
         );
     }
 
@@ -729,7 +734,11 @@ public final class CmuxClient implements AutoCloseable {
                     return new CmuxStream(connection, buffered);
                 }
                 if (Boolean.FALSE.equals(response.get("ok"))) {
-                    throw new CmuxCommandException(asString(response.get("error")), response.get("id"));
+                    throw new CmuxCommandException(
+                        asString(response.get("error")),
+                        response.get("id"),
+                        CmuxErrorDelivery.fromWire(response.get("error_delivery"))
+                    );
                 }
             }
         }

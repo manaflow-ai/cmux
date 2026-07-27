@@ -442,7 +442,12 @@ export class CmuxClient {
       : requestOrCommand;
     const response = await this.sendRaw(request as unknown as JsonObject);
     if (response.ok) return response.data as CmuxResponseDataFor<C>;
-    throw new CmuxCommandError(response.error || "unknown error", response.id, response);
+    throw new CmuxCommandError(
+      response.error || "unknown error",
+      response.id,
+      response,
+      response.error_delivery,
+    );
   }
 
   async identify(): Promise<IdentifyResult> {
@@ -787,7 +792,12 @@ export class CmuxClient {
     });
     if (!response.ok) {
       stream.close();
-      throw new CmuxCommandError(response.error || "unknown error", response.id, response);
+      throw new CmuxCommandError(
+        response.error || "unknown error",
+        response.id,
+        response,
+        response.error_delivery,
+      );
     }
     const terminalError = streamError ?? stream.error;
     if (terminalError) throw terminalError;
