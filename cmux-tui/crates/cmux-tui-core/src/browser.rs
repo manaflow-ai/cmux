@@ -6646,6 +6646,10 @@ mod tests {
             }),
         )
         .expect("recovery URL");
+        assert!(
+            browser.require_live_session().is_err(),
+            "ordinary browser input must remain blocked until retry pixels are verified"
+        );
 
         let recovery =
             browser.authorize_same_document_paint_blocking("session-1", "main-frame", "loader-1");
