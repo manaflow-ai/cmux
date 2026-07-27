@@ -5768,6 +5768,23 @@
         }
       }
     },
+    "agentSession.codex.error.receiveTimedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Timed out waiting for Codex app-server response."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex app-server の応答を待機中にタイムアウトしました。"
+          }
+        }
+      }
+    },
     "agentSession.codex.error.repeatedLoadedThreadCursor": {
       "extractionState": "manual",
       "localizations": {
@@ -6139,6 +6156,23 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Request from Codex app-server is not supported: %@"
+          }
+        }
+      }
+    },
+    "agentSession.codex.warning.persistThreadFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux codex-teams watcher could not persist thread %1$@: %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux codex-teams ウォッチャーはスレッド %1$@ を保存できませんでした: %2$@"
           }
         }
       }

@@ -20464,15 +20464,20 @@ struct CMUXCLI {
         }
     }
 
-    private enum CodexTeamsAppServerConnectionError: LocalizedError {
+    private enum CodexTeamsAppServerConnectionError: LocalizedError, CustomStringConvertible {
         case receiveTimedOut
 
-        var errorDescription: String? {
+        var description: String {
             switch self {
             case .receiveTimedOut:
-                return "Timed out waiting for Codex app-server response"
+                return CMUXCLILocalization.string(
+                    "agentSession.codex.error.receiveTimedOut",
+                    defaultValue: "Timed out waiting for Codex app-server response."
+                )
             }
         }
+
+        var errorDescription: String? { description }
     }
 
     private final class CodexTeamsReceiveState: @unchecked Sendable {
@@ -20727,6 +20732,8 @@ struct CMUXCLI {
         private var approvalItemOrder: [String] = []
         private var suppressedApprovalKeys = Set<String>()
         private var suppressedApprovalOrder: [String] = []
+        private var reconciliationCursor: String?
+        private var reconciliationSeenCursors = Set<String>()
 
         init(
             appServerURL: String,
@@ -20768,9 +20775,11 @@ struct CMUXCLI {
                         optOutNotificationMethods: CMUXCLI.codexTeamsWatcherResumeOptOutNotificationMethods
                     )
                     resetConnectionSubscriptions()
+                    resetReconciliationPagination()
+                    try backfillLoadedThreads(connection: connection)
                     while true {
-                        try backfillLoadedThreads(connection: connection)
                         try listenForNotifications(connection: connection)
+                        try reconcileNextLoadedThreadPage(connection: connection)
                     }
                 } catch {
                     cliWriteStderr("cmux codex-teams watcher connection failed: \(error)\n")
@@ -20783,44 +20792,70 @@ struct CMUXCLI {
             var cursor: String?
             var seenCursors = Set<String>()
             while true {
-                var params: [String: Any] = ["limit": 200]
-                if let cursor {
-                    params["cursor"] = cursor
-                }
-                let loaded = try connection.request(
-                    method: "thread/loaded/list",
-                    params: params,
-                    notificationHandler: { [weak self] message in
-                        try self?.handleAppServerMessage(
-                            message,
-                            connection: connection,
-                            allowThreadSubscribe: false
-                        )
-                    }
-                )
-                let threadIds = loaded["data"] as? [String] ?? []
-                for threadId in threadIds {
-                    do {
-                        try subscribeToThreadIfNeeded(threadId, connection: connection)
-                    } catch {
-                        cliWriteStderr("cmux codex-teams watcher skipped thread \(threadId): \(error)\n")
-                    }
-                }
-                guard let rawNextCursor = loaded["nextCursor"] as? String else {
-                    return
-                }
-                let nextCursor = rawNextCursor.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !nextCursor.isEmpty else {
-                    return
-                }
+                guard let nextCursor = try loadThreadPage(cursor: cursor, connection: connection) else { return }
                 guard seenCursors.insert(nextCursor).inserted else {
-                    throw CLIError(message: CMUXCLILocalization.string(
-                        "agentSession.codex.error.repeatedLoadedThreadCursor",
-                        defaultValue: "Codex app-server repeated a loaded-thread cursor."
-                    ))
+                    throw repeatedLoadedThreadCursorError()
                 }
                 cursor = nextCursor
             }
+        }
+
+        private func reconcileNextLoadedThreadPage(connection: CodexTeamsAppServerConnection) throws {
+            guard let nextCursor = try loadThreadPage(
+                cursor: reconciliationCursor,
+                connection: connection
+            ) else {
+                resetReconciliationPagination()
+                return
+            }
+            guard reconciliationSeenCursors.insert(nextCursor).inserted else {
+                throw repeatedLoadedThreadCursorError()
+            }
+            reconciliationCursor = nextCursor
+        }
+
+        private func loadThreadPage(
+            cursor: String?,
+            connection: CodexTeamsAppServerConnection
+        ) throws -> String? {
+            var params: [String: Any] = ["limit": 200]
+            if let cursor {
+                params["cursor"] = cursor
+            }
+            let loaded = try connection.request(
+                method: "thread/loaded/list",
+                params: params,
+                notificationHandler: { [weak self] message in
+                    try self?.handleAppServerMessage(
+                        message,
+                        connection: connection,
+                        allowThreadSubscribe: false
+                    )
+                }
+            )
+            let threadIds = loaded["data"] as? [String] ?? []
+            for threadId in threadIds {
+                do {
+                    try subscribeToThreadIfNeeded(threadId, connection: connection)
+                } catch {
+                    cliWriteStderr("cmux codex-teams watcher skipped thread \(threadId): \(error)\n")
+                }
+            }
+            guard let rawNextCursor = loaded["nextCursor"] as? String else { return nil }
+            let nextCursor = rawNextCursor.trimmingCharacters(in: .whitespacesAndNewlines)
+            return nextCursor.isEmpty ? nil : nextCursor
+        }
+
+        private func resetReconciliationPagination() {
+            reconciliationCursor = nil
+            reconciliationSeenCursors.removeAll(keepingCapacity: true)
+        }
+
+        private func repeatedLoadedThreadCursorError() -> CLIError {
+            CLIError(message: CMUXCLILocalization.string(
+                "agentSession.codex.error.repeatedLoadedThreadCursor",
+                defaultValue: "Codex app-server repeated a loaded-thread cursor."
+            ))
         }
 
         private func listenForNotifications(connection: CodexTeamsAppServerConnection) throws {
@@ -21106,7 +21141,16 @@ struct CMUXCLI {
                     cwd: thread.cwd
                 )
             } catch {
-                cliWriteStderr("cmux codex-teams watcher could not persist thread \(thread.id): \(error)\n")
+                let format = CMUXCLILocalization.string(
+                    "agentSession.codex.warning.persistThreadFailed",
+                    defaultValue: "cmux codex-teams watcher could not persist thread %1$@: %2$@"
+                )
+                let warning = String(
+                    format: format,
+                    locale: Locale.current,
+                    arguments: [thread.id, String(describing: error)]
+                )
+                cliWriteStderr("\(warning)\n")
             }
         }
 
