@@ -253,6 +253,11 @@ public struct ExpressionEvaluator: Sendable {
             return .value(.null)
         }
 
+        if let tuple = expr.as(TupleExprSyntax.self), tuple.elements.count == 1,
+           let inner = tuple.elements.first?.expression {
+            return evalEqualityOperand(inner, env)
+        }
+
         if let member = expr.as(MemberAccessExprSyntax.self), let baseExpr = member.base {
             let baseOperand = evalEqualityOperand(baseExpr, env)
             guard case let .value(base) = baseOperand else { return baseOperand }

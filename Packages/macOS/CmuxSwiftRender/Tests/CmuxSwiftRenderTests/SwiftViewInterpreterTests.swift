@@ -257,7 +257,10 @@ import Testing
             Text("missing field: \\(workspaces[0].note == nil)")
             Text("nested missing: \\(workspaces[0].meta.note == nil)")
             Text("nested present: \\(workspaces[1].meta.note != nil)")
+            Text("paren missing: \\((workspaces[0].note) == nil)")
+            Text("paren present: \\((workspaces[1].meta.note) != nil)")
             Text("bad subscript: \\(workspaces[3] == nil)")
+            Text("paren bad subscript: \\((workspaces[3]) == nil)")
             Text("bad conversion: \\(Int("nope") == nil)")
             Text("unsupported: \\(unknownThing() == nil)")
         }
@@ -266,7 +269,10 @@ import Testing
             "missing field: true",
             "nested missing: true",
             "nested present: true",
+            "paren missing: true",
+            "paren present: true",
             "bad subscript: ",
+            "paren bad subscript: ",
             "bad conversion: ",
             "unsupported: ",
         ])
