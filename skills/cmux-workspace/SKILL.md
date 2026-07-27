@@ -176,6 +176,25 @@ cmux clear-status build --workspace "${CMUX_WORKSPACE_ID:-}"
 cmux clear-progress --workspace "${CMUX_WORKSPACE_ID:-}"
 ```
 
+## Backup and Resume
+
+When the user asks to back up or resurrect workspaces, capture the complete live envelope before interpreting activity:
+
+```bash
+cmux --json --id-format both identify > identify.json
+cmux --json --id-format both tree --all > tree.json
+cmux --json --id-format both top --all --processes > top.json
+cmux --json --id-format both list-workspaces > workspaces.json
+```
+
+- Enumerate the requested set from `tree.json`; report `DELIVERED X of N` before claiming breadth.
+- For cross-workspace reads, pass both stable workspace and surface UUIDs. Short `surface:N` refs can resolve as “not a terminal” outside the focused workspace: `cmux read-screen --workspace <workspace-uuid> --surface <surface-uuid> --scrollback --lines 250`.
+- Capture `cmux surface resume show --workspace <workspace-uuid> --surface <surface-uuid> --json` for every surface. A missing binding is evidence of no public coder resume command, not permission to invent one.
+- Compare live workspace/pane/surface counts with `~/Library/Application Support/cmux/session-<bundle_identifier>.json`. Preserve the current file before replacing it.
+- Store backups under an owner-only directory (`umask 077`, no group/other bits), include raw topology/process/resume data and a per-surface ledger of directory, CLI, state, and resume command, then verify every artifact with local-basename SHA-256 checksums.
+- Let `cmux restore-session` run first. `AUTO` means cmux owns the saved binding; `RUN` is a manual coder resume only when the coder is missing; `NONE` means issue no manual duplicate command. A saved `auto_resume=true` binding may still be honored by native restore, so `NONE` never means “disable cmux’s policy.”
+- Never claim unreadable scrollback was recovered. Record the exact surface refs and cmux error while retaining topology, process, cwd, and Git evidence.
+
 ## Contributor Reloads
 
 For cmux app/runtime changes in a cmux source checkout, use tagged reloads from the active worktree. A tagged reload creates an isolated app name, bundle ID, debug socket, and DerivedData path.
