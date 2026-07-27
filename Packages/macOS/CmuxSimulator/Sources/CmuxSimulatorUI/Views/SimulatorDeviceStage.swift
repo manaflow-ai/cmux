@@ -49,7 +49,9 @@ struct SimulatorDeviceStage: View {
         display: SimulatorDisplayMetadata,
         frameTransport: SimulatorFrameTransportDescriptor
     ) -> some View {
-        ZStack {
+        let family = selectedFamily
+        let maximumSize = maximumDeviceSize(for: display, family: family)
+        return ZStack {
             SimulatorRemoteSurface(
                 coordinator: coordinator,
                 frameTransport: frameTransport,
@@ -90,10 +92,38 @@ struct SimulatorDeviceStage: View {
                 ?? SimulatorOrientationGeometry(display: display).displayAspectRatio,
             contentMode: .fit
         )
-        .clipShape(.rect(cornerRadius: coordinator.chromeProfile == nil ? deviceCornerRadius : 0))
+        .frame(maxWidth: maximumSize?.width, maxHeight: maximumSize?.height)
+        .clipShape(.rect(
+            cornerRadius: coordinator.chromeProfile == nil
+                ? deviceCornerRadius(for: family)
+                : 0
+        ))
         .shadow(color: .black.opacity(0.28), radius: 18, y: 8)
         .padding(simulatorDeviceStagePadding)
         .accessibilityLabel(simulatorStrings.simulator)
+    }
+
+    private func maximumDeviceSize(
+        for display: SimulatorDisplayMetadata,
+        family: SimulatorDeviceFamily?
+    ) -> CGSize? {
+        guard family == .iPhone else { return nil }
+        if let chrome = coordinator.chromeProfile {
+            return switch display.orientation {
+            case .portrait, .portraitUpsideDown:
+                CGSize(width: chrome.portraitWidth, height: chrome.portraitHeight)
+            case .landscapeLeft, .landscapeRight:
+                CGSize(width: chrome.portraitHeight, height: chrome.portraitWidth)
+            }
+        }
+        // The fallback caps the framebuffer itself. A later chrome profile adds
+        // only its measured insets around that same 1:1 framebuffer.
+        guard display.scale.isFinite, display.scale > 0 else { return nil }
+        let geometry = SimulatorOrientationGeometry(display: display)
+        return CGSize(
+            width: Double(geometry.displayWidth) / display.scale,
+            height: Double(geometry.displayHeight) / display.scale
+        )
     }
 
     @ViewBuilder
@@ -132,8 +162,10 @@ struct SimulatorDeviceStage: View {
         }
     }
 
-    private var deviceCornerRadius: CGFloat {
-        selectedFamily == .iPad ? 22 : 34
+    private func deviceCornerRadius(
+        for family: SimulatorDeviceFamily?
+    ) -> CGFloat {
+        family == .iPad ? 22 : 34
     }
 
     private var selectedFamily: SimulatorDeviceFamily? {

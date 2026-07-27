@@ -159,6 +159,8 @@ pub(crate) struct SidebarMessages {
     pub confirm_destructive_action: &'static str,
     pub confirmation_mismatch: &'static str,
     pub initial_machine_connection_failed: &'static str,
+    pub provider_notice_identity_unavailable: &'static str,
+    pub provider_connection_already_running: &'static str,
     pub machine_provider_disconnected: &'static str,
     pub machine_action_failed: &'static str,
     pub provider_action_open_url: &'static str,
@@ -399,6 +401,8 @@ edits shell files. Authenticate with the configured host before retrying.
         confirm_destructive_action: "Type CONFIRM to continue",
         confirmation_mismatch: "Type CONFIRM exactly to run this action",
         initial_machine_connection_failed: "Could not connect",
+        provider_notice_identity_unavailable: "Could not prepare the connection. Try again; if the problem persists, restart cmux.",
+        provider_connection_already_running: "Another connection is already running. Close it and try again.",
         machine_provider_disconnected: "Machine provider disconnected; reconnecting",
         machine_action_failed: "Machine action failed",
         provider_action_open_url: "Open",
@@ -548,6 +552,8 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
         confirm_destructive_action: "続行するには CONFIRM と入力",
         confirmation_mismatch: "この操作を実行するには CONFIRM と正確に入力してください",
         initial_machine_connection_failed: "マシンに接続できませんでした",
+        provider_notice_identity_unavailable: "接続を準備できませんでした。もう一度お試しください。問題が解決しない場合は、cmux を再起動してください。",
+        provider_connection_already_running: "別の接続がすでに実行中です。終了してから、もう一度お試しください。",
         machine_provider_disconnected: "マシンプロバイダーから切断されました。再接続しています",
         machine_action_failed: "マシン操作に失敗しました",
         provider_action_open_url: "リンクを開く",
@@ -686,6 +692,14 @@ mod tests {
             "Machine action failed"
         );
         assert_eq!(
+            catalog_for_locale("en_US.UTF-8").sidebar.provider_notice_identity_unavailable,
+            "Could not prepare the connection. Try again; if the problem persists, restart cmux."
+        );
+        assert_eq!(
+            catalog_for_locale("en_US.UTF-8").sidebar.provider_connection_already_running,
+            "Another connection is already running. Close it and try again."
+        );
+        assert_eq!(
             catalog_for_locale("en_US.UTF-8").sidebar.connect_prompt,
             "Host address or pairing code"
         );
@@ -700,6 +714,14 @@ mod tests {
         assert_eq!(
             catalog_for_locale("ja_JP.UTF-8").sidebar.machine_action_failed,
             "マシン操作に失敗しました"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").sidebar.provider_notice_identity_unavailable,
+            "接続を準備できませんでした。もう一度お試しください。問題が解決しない場合は、cmux を再起動してください。"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").sidebar.provider_connection_already_running,
+            "別の接続がすでに実行中です。終了してから、もう一度お試しください。"
         );
         assert_eq!(
             catalog_for_locale("ja_JP.UTF-8").sidebar.machine_provider_external_connect_ambiguous,
