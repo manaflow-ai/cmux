@@ -10,12 +10,14 @@ actor RenderedFrameDeliveryCoordinator {
     nonisolated private let continuation: AsyncStream<Void>.Continuation
     nonisolated private let renderDemand: (any RenderDemandGating)?
     nonisolated private let localRenderDemand: (any RenderDemandGating)?
+    nonisolated private let keyboardCopyModeCursorDemand: (any RenderDemandGating)?
     private let frames: AsyncStream<Void>
     private weak var receiver: (any TerminalRenderedFrameReceiving)?
 
     init(
         renderDemand: (any RenderDemandGating)? = nil,
         localRenderDemand: (any RenderDemandGating)? = nil,
+        keyboardCopyModeCursorDemand: (any RenderDemandGating)? = nil,
         receiver: (any TerminalRenderedFrameReceiving)? = nil,
         startConsumer: Bool = true
     ) {
@@ -27,6 +29,7 @@ actor RenderedFrameDeliveryCoordinator {
         self.continuation = continuation
         self.renderDemand = renderDemand
         self.localRenderDemand = localRenderDemand
+        self.keyboardCopyModeCursorDemand = keyboardCopyModeCursorDemand
         self.receiver = receiver
         if startConsumer {
             Task { [weak self] in
@@ -44,10 +47,7 @@ actor RenderedFrameDeliveryCoordinator {
     /// stream had stopped.
     @discardableResult
     nonisolated func requestFrame() -> Bool {
-        guard GhosttyMetalLayer.hasActiveRenderDemand(
-            global: renderDemand,
-            local: localRenderDemand
-        ) else { return false }
+        guard !activeDeliveryReasons.isEmpty else { return false }
         switch continuation.yield(()) {
         case .enqueued:
             return true
@@ -58,12 +58,23 @@ actor RenderedFrameDeliveryCoordinator {
         }
     }
 
+    /// Surface-scoped work requested by the currently active demand leases.
+    nonisolated var activeDeliveryReasons: TerminalRenderedFrameDeliveryReasons {
+        var reasons: TerminalRenderedFrameDeliveryReasons = []
+        if renderDemand?.isActive == true
+            || localRenderDemand?.isActive == true {
+            reasons.insert(.notification)
+        }
+        if keyboardCopyModeCursorDemand?.isActive == true {
+            reasons.insert(.keyboardCopyModeCursor)
+        }
+        return reasons
+    }
+
     private func deliverFrameIfDemanded() async {
-        guard GhosttyMetalLayer.hasActiveRenderDemand(
-            global: renderDemand,
-            local: localRenderDemand
-        ), let receiver else { return }
-        await receiver.enqueueRenderedFrameUpdate()
+        let reasons = activeDeliveryReasons
+        guard !reasons.isEmpty, let receiver else { return }
+        await receiver.enqueueRenderedFrameUpdate(reasons: reasons)
     }
 
     deinit {

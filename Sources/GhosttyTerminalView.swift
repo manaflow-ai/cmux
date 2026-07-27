@@ -3153,10 +3153,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var _scrollbarFlushScheduled = false
     private let _scrollbarLock = NSLock()
     private var _renderedFrameFlushScheduled = false
-    private let _renderedFrameLock = NSLock()
+    private var _pendingRenderedFrameDeliveryReasons:
+        TerminalRenderedFrameDeliveryReasons = []
     /// Pane-local frame demand lets a terminal-specific consumer observe a
     /// late render without enabling notifications on every terminal surface.
     let localRenderedFrameNotificationDemand = RenderDemandCounter()
+    /// Copy-mode cursor demand stays local to this view and never publishes
+    /// the shared rendered-frame notification.
+    private let keyboardCopyModeRenderedFrameDemand = RenderDemandCounter()
     nonisolated let selectionAccessibilitySignal = TerminalSelectionAccessibilitySignal()
     private var selectionAccessibilityNotifier: TerminalSelectionAccessibilityNotifier?
     var cellSize: CGSize = .zero
@@ -3258,14 +3262,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return true
     }
 
-    func enqueueRenderedFrameUpdate() {
-        guard renderedFrameNotificationDemandIsActive else { return }
-        _renderedFrameLock.lock()
+    func enqueueRenderedFrameUpdate(
+        reasons: TerminalRenderedFrameDeliveryReasons
+    ) {
+        guard !reasons.isEmpty else { return }
+        _pendingRenderedFrameDeliveryReasons.formUnion(reasons)
         let needsSchedule = !_renderedFrameFlushScheduled
         if needsSchedule {
             _renderedFrameFlushScheduled = true
         }
-        _renderedFrameLock.unlock()
 
         guard needsSchedule else { return }
         DispatchQueue.main.async { [weak self] in
@@ -3274,18 +3279,22 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func flushRenderedFrameUpdate() {
-        _renderedFrameLock.lock()
         _renderedFrameFlushScheduled = false
-        _renderedFrameLock.unlock()
+        let reasons = _pendingRenderedFrameDeliveryReasons
+        _pendingRenderedFrameDeliveryReasons = []
 
-        guard renderedFrameNotificationDemandIsActive else { return }
-        if keyboardCopyModeActive, let surface {
+        if reasons.contains(.keyboardCopyModeCursor),
+           keyboardCopyModeActive,
+           let surface {
             syncKeyboardCopyModeCursorOverlay(surface: surface)
         }
-        NotificationCenter.default.post(
-            name: .ghosttyDidRenderFrame,
-            object: self
-        )
+        if reasons.contains(.notification),
+           renderedFrameNotificationDemandIsActive {
+            NotificationCenter.default.post(
+                name: .ghosttyDidRenderFrame,
+                object: self
+            )
+        }
     }
 
     var desiredFocus: Bool = false
@@ -3306,7 +3315,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var imeConsumedKeyUps: Set<UInt16> = []
     private var keyboardCopyModeInputState = TerminalKeyboardCopyModeInputState()
     private var keyboardCopyModeCursor: TerminalKeyboardCopyModeCursor?
-    private var keyboardCopyModeRenderedFrameNotificationRelease: (() -> Void)?
+    private var keyboardCopyModeRenderedFrameDemandRelease: (() -> Void)?
     private var keyboardCopyModeSelectionKind: KeyboardCopyModeSelectionKind?
     private var keyboardCopyModeVisualActive: Bool { keyboardCopyModeSelectionKind != nil }
     private var keyboardCopyModeVisualLineActive: Bool { keyboardCopyModeSelectionKind == .line }
@@ -3394,6 +3403,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let metalLayer = GhosttyMetalLayer(
             renderDemand: GhosttyApp.renderedFrameNotificationDemand,
             localRenderDemand: localRenderedFrameNotificationDemand,
+            keyboardCopyModeCursorDemand: keyboardCopyModeRenderedFrameDemand,
             receiver: self
         )
         metalLayer.pixelFormat = .bgra8Unorm
@@ -4066,15 +4076,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     private func setKeyboardCopyModeRenderedFrameTrackingActive(_ active: Bool) {
         if active {
-            if keyboardCopyModeRenderedFrameNotificationRelease == nil {
-                keyboardCopyModeRenderedFrameNotificationRelease =
-                    retainLocalRenderedFrameNotifications()
+            if keyboardCopyModeRenderedFrameDemandRelease == nil {
+                let retention = keyboardCopyModeRenderedFrameDemand.retain()
+                keyboardCopyModeRenderedFrameDemandRelease = {
+                    retention.release()
+                }
             }
             return
         }
 
-        keyboardCopyModeRenderedFrameNotificationRelease?()
-        keyboardCopyModeRenderedFrameNotificationRelease = nil
+        keyboardCopyModeRenderedFrameDemandRelease?()
+        keyboardCopyModeRenderedFrameDemandRelease = nil
     }
 
     private func initializeKeyboardCopyModeCursor(surface: ghostty_surface_t) -> Bool {
@@ -4378,8 +4390,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func hasCopyableTerminalSelection(surface: ghostty_surface_t) -> Bool {
-        keyboardCopyModeSelectionKind != nil
-            || ghostty_surface_has_selection(surface)
+        ghostty_surface_has_selection(surface)
     }
 
     /// Keep the standard Copy shortcut a native no-op when AppKit disables
@@ -7000,7 +7011,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
     }
     deinit {
-        keyboardCopyModeRenderedFrameNotificationRelease?()
+        keyboardCopyModeRenderedFrameDemandRelease?()
         selectionAccessibilitySignal.finish()
         if titleUpdateSurfaceKey != nil {
             titleUpdateIngress.retireCurrentAttachment()

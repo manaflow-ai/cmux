@@ -76,31 +76,24 @@ struct RenderDemandCounterTests {
         let global = RenderDemandCounter()
         let local = RenderDemandCounter()
         let cursor = RenderDemandCounter()
-
-        #expect(
-            GhosttyMetalLayer.activeFrameDeliveryReasons(
-                global: global,
-                local: local,
-                keyboardCopyModeCursor: cursor
-            ).isEmpty
+        let coordinator = RenderedFrameDeliveryCoordinator(
+            renderDemand: global,
+            localRenderDemand: local,
+            keyboardCopyModeCursorDemand: cursor,
+            startConsumer: false
         )
+
+        #expect(coordinator.activeDeliveryReasons.isEmpty)
 
         let cursorRetention = cursor.retain()
         #expect(
-            GhosttyMetalLayer.activeFrameDeliveryReasons(
-                global: global,
-                local: local,
-                keyboardCopyModeCursor: cursor
-            ) == [.keyboardCopyModeCursor]
+            coordinator.activeDeliveryReasons == [.keyboardCopyModeCursor]
         )
 
         let localRetention = local.retain()
         #expect(
-            GhosttyMetalLayer.activeFrameDeliveryReasons(
-                global: global,
-                local: local,
-                keyboardCopyModeCursor: cursor
-            ) == [.notification, .keyboardCopyModeCursor]
+            coordinator.activeDeliveryReasons
+                == [.notification, .keyboardCopyModeCursor]
         )
 
         localRetention.release()

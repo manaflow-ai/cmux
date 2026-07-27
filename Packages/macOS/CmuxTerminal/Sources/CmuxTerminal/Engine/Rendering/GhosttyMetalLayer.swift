@@ -13,6 +13,7 @@ internal import Foundation
 public final class GhosttyMetalLayer: CAMetalLayer {
     private let renderDemand: (any RenderDemandGating)?
     private let localRenderDemand: (any RenderDemandGating)?
+    private let keyboardCopyModeCursorDemand: (any RenderDemandGating)?
     private let frameDeliveryCoordinator: RenderedFrameDeliveryCoordinator
     private let drawableCount: AtomicUInt64Value
     private let lastDrawableTimeBits: AtomicUInt64Value
@@ -22,13 +23,16 @@ public final class GhosttyMetalLayer: CAMetalLayer {
     public init(
         renderDemand: (any RenderDemandGating)?,
         localRenderDemand: (any RenderDemandGating)?,
+        keyboardCopyModeCursorDemand: (any RenderDemandGating)?,
         receiver: (any TerminalRenderedFrameReceiving)?
     ) {
         self.renderDemand = renderDemand
         self.localRenderDemand = localRenderDemand
+        self.keyboardCopyModeCursorDemand = keyboardCopyModeCursorDemand
         self.frameDeliveryCoordinator = RenderedFrameDeliveryCoordinator(
             renderDemand: renderDemand,
             localRenderDemand: localRenderDemand,
+            keyboardCopyModeCursorDemand: keyboardCopyModeCursorDemand,
             receiver: receiver
         )
         self.drawableCount = AtomicUInt64Value()
@@ -40,12 +44,14 @@ public final class GhosttyMetalLayer: CAMetalLayer {
         if let source = layer as? GhosttyMetalLayer {
             self.renderDemand = source.renderDemand
             self.localRenderDemand = source.localRenderDemand
+            self.keyboardCopyModeCursorDemand = source.keyboardCopyModeCursorDemand
             self.frameDeliveryCoordinator = source.frameDeliveryCoordinator
             self.drawableCount = source.drawableCount
             self.lastDrawableTimeBits = source.lastDrawableTimeBits
         } else {
             self.renderDemand = nil
             self.localRenderDemand = nil
+            self.keyboardCopyModeCursorDemand = nil
             self.frameDeliveryCoordinator = RenderedFrameDeliveryCoordinator()
             self.drawableCount = AtomicUInt64Value()
             self.lastDrawableTimeBits = AtomicUInt64Value()
@@ -57,6 +63,7 @@ public final class GhosttyMetalLayer: CAMetalLayer {
     public required init?(coder: NSCoder) {
         self.renderDemand = nil
         self.localRenderDemand = nil
+        self.keyboardCopyModeCursorDemand = nil
         self.frameDeliveryCoordinator = RenderedFrameDeliveryCoordinator()
         self.drawableCount = AtomicUInt64Value()
         self.lastDrawableTimeBits = AtomicUInt64Value()
