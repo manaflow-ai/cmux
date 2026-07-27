@@ -249,6 +249,10 @@ public struct ExpressionEvaluator: Sendable {
     }
 
     private func evalEqualityOperand(_ expr: ExprSyntax, _ env: EvalEnvironment) -> EqualityOperand {
+        env.budget.enter()
+        defer { env.budget.leave() }
+        guard !env.budget.exceeded else { return .failed }
+
         if expr.is(NilLiteralExprSyntax.self) {
             return .value(.null)
         }

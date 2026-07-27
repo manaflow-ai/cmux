@@ -278,6 +278,18 @@ import Testing
         ])
     }
 
+    @Test func deeplyNestedNilComparisonRespectsRecursionBudget() {
+        let nested = String(repeating: "(", count: 450)
+            + "workspaces[0].note"
+            + String(repeating: ")", count: 450)
+        let node = interp.evaluate("""
+        VStack {
+            Text("budget: \\(\(nested) == nil)")
+        }
+        """, state: ["workspaces": .array([.object(["title": .string("alpha")])])])
+        #expect(node?.children.first?.text == "budget: ")
+    }
+
     @Test func labelFormButtonCapturesActionAndLabel() {
         let node = interp.evaluate("""
         VStack {
@@ -717,12 +729,14 @@ import Testing
             Text(tint(a)).foregroundColor(tint(a))
             Text(name(a))
             Text(name(b))
+            Text(name(c))
         }
         """, state: [
             "a": .object(["state": .string("queued"), "title": .string("Alpha")]),
             "b": .object(["state": .string("running")]),
+            "c": .object(["state": .string("running"), "title": .null]),
         ])
-        #expect(node?.children.map(\.text) == ["#7AA2F7", "Alpha", "untitled"])
+        #expect(node?.children.map(\.text) == ["#7AA2F7", "Alpha", "untitled", "untitled"])
     }
 
     @Test func ifLetOptionalBindingRendersWhenPresent() {
@@ -741,6 +755,14 @@ import Testing
         }
         """, state: ["ws": absent])
         #expect(node2?.children.first?.text == "no branch")
+
+        let explicitNil = SwiftValue.object(["branch": .null])
+        let node3 = interp.evaluate("""
+        VStack {
+            if let b = ws.branch { Text("on \\(b)") } else { Text("no branch") }
+        }
+        """, state: ["ws": explicitNil])
+        #expect(node3?.children.first?.text == "no branch")
     }
 
     @Test func switchSelectsMatchingCase() {
