@@ -106,6 +106,9 @@ struct WorkspaceListView: View {
     var isInitialConnectionLoading = false
     var initialConnectionTimedOut = false
     var retryInitialConnection: (() -> Void)?
+    /// Shared across the normal workspace tab and its native search
+    /// presentation so filters compose with the active query.
+    let filterState: WorkspaceListFilterState
     /// The query is owned by ``WorkspaceListSearchHost`` so authoritative
     /// workspace refreshes cannot recreate the native search presentation.
     var searchText = ""
@@ -114,9 +117,6 @@ struct WorkspaceListView: View {
     @State private var settingsPairingScannerHandoff = SettingsPairingScannerHandoff()
     @State private var showingDeviceTree = false
     @State private var changesSheetTarget: WorkspaceChangesSheetTarget? = nil
-    /// The active row filter (All / Unread), shared-model state behind the
-    /// toolbar ``WorkspaceListFilterMenu``. Session-transient like a search.
-    @State var filter: MobileWorkspaceListFilter = .all
     @State private var macTitlePickerSwitchTask: Task<Void, Never>?
     @State private var macTitlePickerSwitchIsCancellation = false
     @State private var macTitlePickerSwitchGeneration: UInt64 = 0
@@ -150,6 +150,11 @@ struct WorkspaceListView: View {
     /// Bumped when a supersede or failure invalidates the pending chain, so
     /// queued moves computed against overruled predictions abort unsent.
     @State var workspaceMoveEpoch: UInt64 = 0
+
+    var filter: MobileWorkspaceListFilter {
+        get { filterState.filter }
+        nonmutating set { filterState.filter = newValue }
+    }
 
     var trimmedQuery: String {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines)

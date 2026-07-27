@@ -6,8 +6,10 @@ import os
 import socket
 import tempfile
 import threading
-from dataclasses import dataclass
-from typing import Any, Dict, Iterator, List, Optional
+from dataclasses import dataclass, field
+from typing import Any, Dict, Iterator, List, Literal, Optional
+
+TERMINAL_KEY_TEXT_MAX_BYTES = 4 * 1024
 
 
 class CmuxError(Exception):
@@ -45,6 +47,183 @@ class EmptyResult:
     pass
 
 
+TerminalKey = Literal[
+    "unidentified",
+    "backquote",
+    "backslash",
+    "bracket-left",
+    "bracket-right",
+    "comma",
+    "digit0",
+    "digit1",
+    "digit2",
+    "digit3",
+    "digit4",
+    "digit5",
+    "digit6",
+    "digit7",
+    "digit8",
+    "digit9",
+    "equal",
+    "a",
+    "b",
+    "c",
+    "d",
+    "e",
+    "f",
+    "g",
+    "h",
+    "i",
+    "j",
+    "k",
+    "l",
+    "m",
+    "n",
+    "o",
+    "p",
+    "q",
+    "r",
+    "s",
+    "t",
+    "u",
+    "v",
+    "w",
+    "x",
+    "y",
+    "z",
+    "minus",
+    "period",
+    "quote",
+    "semicolon",
+    "slash",
+    "backspace",
+    "enter",
+    "space",
+    "tab",
+    "delete",
+    "end",
+    "home",
+    "insert",
+    "page-down",
+    "page-up",
+    "arrow-down",
+    "arrow-left",
+    "arrow-right",
+    "arrow-up",
+    "numpad0",
+    "numpad1",
+    "numpad2",
+    "numpad3",
+    "numpad4",
+    "numpad5",
+    "numpad6",
+    "numpad7",
+    "numpad8",
+    "numpad9",
+    "numpad-add",
+    "numpad-backspace",
+    "numpad-comma",
+    "numpad-decimal",
+    "numpad-divide",
+    "numpad-enter",
+    "numpad-equal",
+    "numpad-multiply",
+    "numpad-subtract",
+    "numpad-up",
+    "numpad-down",
+    "numpad-right",
+    "numpad-left",
+    "numpad-begin",
+    "numpad-home",
+    "numpad-end",
+    "numpad-insert",
+    "numpad-delete",
+    "numpad-page-up",
+    "numpad-page-down",
+    "escape",
+    "f1",
+    "f2",
+    "f3",
+    "f4",
+    "f5",
+    "f6",
+    "f7",
+    "f8",
+    "f9",
+    "f10",
+    "f11",
+    "f12",
+    "f13",
+    "f14",
+    "f15",
+    "f16",
+    "f17",
+    "f18",
+    "f19",
+    "f20",
+]
+TerminalKeyAction = Literal["press", "release", "repeat"]
+
+
+@dataclass(frozen=True)
+class TerminalModifiers:
+    shift: bool = False
+    control: bool = False
+    alt: bool = False
+    super_key: bool = False
+    caps_lock: bool = False
+    num_lock: bool = False
+
+    def to_wire(self) -> Dict[str, bool]:
+        return {
+            "shift": self.shift,
+            "control": self.control,
+            "alt": self.alt,
+            "super": self.super_key,
+            "caps_lock": self.caps_lock,
+            "num_lock": self.num_lock,
+        }
+
+    @classmethod
+    def from_wire(cls, value: Dict[str, Any]) -> TerminalModifiers:
+        return cls(
+            shift=bool(value["shift"]),
+            control=bool(value["control"]),
+            alt=bool(value["alt"]),
+            super_key=bool(value["super"]),
+            caps_lock=bool(value["caps_lock"]),
+            num_lock=bool(value["num_lock"]),
+        )
+
+
+@dataclass(frozen=True)
+class TerminalKeyInput:
+    key: TerminalKey
+    mods: TerminalModifiers = field(default_factory=TerminalModifiers)
+    consumed_mods: TerminalModifiers = field(default_factory=TerminalModifiers)
+    composing: bool = False
+    utf8: str = ""
+    unshifted_codepoint: Optional[str] = None
+    shifted_codepoint: Optional[str] = None
+    base_layout_codepoint: Optional[str] = None
+    action: Optional[TerminalKeyAction] = None
+    macos_option_as_alt: bool = True
+
+    def to_wire(self) -> Dict[str, Any]:
+        return {
+            "key": self.key,
+            "mods": self.mods.to_wire(),
+            "consumed_mods": self.consumed_mods.to_wire(),
+            "composing": self.composing,
+            "utf8": self.utf8,
+            "unshifted_codepoint": self.unshifted_codepoint,
+            "shifted_codepoint": self.shifted_codepoint,
+            "base_layout_codepoint": self.base_layout_codepoint,
+            "action": self.action,
+            "macos_option_as_alt": self.macos_option_as_alt,
+        }
+
+
 @dataclass(frozen=True)
 class ResizeSurfaceResult:
     accepted: bool
@@ -61,6 +240,26 @@ class IdentifyResult:
     build_commit: Optional[str] = None
     ghostty_commit: Optional[str] = None
     capabilities: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class ClientSurfaceSize:
+    surface: int
+    cols: Optional[int]
+    rows: Optional[int]
+    size_participating: Optional[bool]
+
+
+@dataclass(frozen=True)
+class ClientInfo:
+    client: int
+    transport: str
+    name: Optional[str]
+    kind: Optional[str]
+    connected_seconds: int
+    attached: List[int]
+    sizes: List[ClientSurfaceSize]
+    is_self: bool
 
 
 @dataclass(frozen=True)
@@ -399,6 +598,62 @@ class CmuxClient:
     def list_workspaces(self) -> Tree:
         return _parse_tree(self._request("list-workspaces"))
 
+    def list_clients(self) -> List[ClientInfo]:
+        clients = self._request("list-clients")
+        return [
+            ClientInfo(
+                client=int(item["client"]),
+                transport=str(item["transport"]),
+                name=str(item["name"]) if item.get("name") is not None else None,
+                kind=str(item["kind"]) if item.get("kind") is not None else None,
+                connected_seconds=int(item["connected_seconds"]),
+                attached=[int(surface) for surface in item.get("attached", [])],
+                sizes=[
+                    ClientSurfaceSize(
+                        surface=int(size["surface"]),
+                        cols=int(size["cols"]) if size.get("cols") is not None else None,
+                        rows=int(size["rows"]) if size.get("rows") is not None else None,
+                        size_participating=(
+                            bool(size["size_participating"])
+                            if "size_participating" in size
+                            else item.get("size_participating", True) is not False
+                        ),
+                    )
+                    for size in item.get("sizes", [])
+                ],
+                is_self=bool(item["self"]),
+            )
+            for item in clients
+        ]
+
+    def set_client_sizing(
+        self, surface: int, client: int, enabled: bool
+    ) -> EmptyResult:
+        self._require_protocol(10, "set-client-sizing")
+        self._request(
+            "set-client-sizing",
+            surface=surface,
+            client=client,
+            enabled=enabled,
+        )
+        return EmptyResult()
+
+    def use_only_client_size(self, surface: int, client: int) -> EmptyResult:
+        self._require_protocol(10, "set-client-sizing")
+        self._request(
+            "set-client-sizing",
+            surface=surface,
+            client=client,
+            enabled=True,
+            exclusive=True,
+        )
+        return EmptyResult()
+
+    def use_all_client_sizes(self, surface: int) -> EmptyResult:
+        self._require_protocol(10, "set-client-sizing")
+        self._request("set-client-sizing", surface=surface, enabled=True)
+        return EmptyResult()
+
     def export_layout(self, screen: Optional[int] = None) -> Dict[str, Any]:
         return self._request("export-layout", screen=screen)
 
@@ -422,6 +677,21 @@ class CmuxClient:
         else:
             encoded = bytes_data
         self._request("send", surface=surface, text=text, bytes=encoded)
+        return EmptyResult()
+
+    def clear_history(
+        self,
+        surface: int,
+        fallback_key: Optional[TerminalKeyInput] = None,
+    ) -> EmptyResult:
+        self._require_capability("clear-history-v1", "clear-history")
+        params: Dict[str, Any] = {"surface": surface}
+        if fallback_key is not None:
+            self._require_capability("clear-history-key-v1", "clear-history key fallback")
+            if len(fallback_key.utf8.encode("utf-8")) > TERMINAL_KEY_TEXT_MAX_BYTES:
+                raise ValueError("terminal key text exceeds the 4 KiB protocol limit")
+            params["fallback_key"] = fallback_key.to_wire()
+        self._request("clear-history", **params)
         return EmptyResult()
 
     def read_screen(self, surface: int) -> ReadScreenResult:
