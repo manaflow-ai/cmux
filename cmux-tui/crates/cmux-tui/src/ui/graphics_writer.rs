@@ -1225,24 +1225,23 @@ mod tests {
     }
 
     #[test]
-    fn canceled_processing_fence_replays_buffered_apc_input() {
+    fn impossible_graphics_response_prefix_replays_during_active_fence() {
         let (waiter, notifier) = graphics_fence_channel();
         let mut filter = GraphicsResponseFilter::new(notifier);
         let id = processing_fence_id(12);
         waiter.prepare(id);
         let boundary = key('_', KeyModifiers::ALT);
-        let buffered = key('x', KeyModifiers::NONE);
+        let impossible_prefix = key('x', KeyModifiers::NONE);
         assert!(filter.filter(boundary.clone()).is_empty());
-        assert!(filter.filter(buffered.clone()).is_empty());
-
-        waiter.cancel(id);
-        let following = key('z', KeyModifiers::NONE);
 
         assert_eq!(
-            filter.filter(following.clone()),
-            vec![boundary, buffered, following],
-            "canceling a fence must stop its partial APC from consuming later input"
+            filter.filter(impossible_prefix.clone()),
+            vec![boundary, impossible_prefix],
+            "an impossible APC prefix must not wait for the active fence to expire"
         );
+        let following = key('z', KeyModifiers::NONE);
+        assert_eq!(filter.filter(following.clone()), vec![following]);
+        waiter.cancel(id);
     }
 
     #[test]
