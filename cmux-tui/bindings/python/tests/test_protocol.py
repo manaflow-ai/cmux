@@ -182,7 +182,9 @@ class ProtocolTests(unittest.TestCase):
         fallback = TerminalKeyInput(
             key="k",
             mods=TerminalModifiers(super_key=True),
+            composing=False,
             unshifted_codepoint="k",
+            shifted_codepoint=None,
             base_layout_codepoint="k",
             action="press",
         )
@@ -221,8 +223,10 @@ class ProtocolTests(unittest.TestCase):
                                 "caps_lock": False,
                                 "num_lock": False,
                             },
+                            "composing": False,
                             "utf8": "",
                             "unshifted_codepoint": "k",
+                            "shifted_codepoint": None,
                             "base_layout_codepoint": "k",
                             "action": "press",
                             "macos_option_as_alt": True,

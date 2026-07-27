@@ -277,8 +277,10 @@ export interface TerminalKeyInput {
   key: TerminalKey;
   mods: TerminalModifiers;
   consumed_mods: TerminalModifiers;
+  composing: boolean;
   utf8: string;
   unshifted_codepoint: string | null;
+  shifted_codepoint: string | null;
   base_layout_codepoint: string | null;
   action: "press" | "release" | "repeat" | null;
   macos_option_as_alt: boolean;

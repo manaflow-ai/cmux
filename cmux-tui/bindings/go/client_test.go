@@ -322,7 +322,9 @@ func TestClearHistoryFallbackRequiresCapabilityAndPreservesKey(t *testing.T) {
 	if !ok ||
 		key["key"] != "k" ||
 		mods["super"] != true ||
+		key["composing"] != false ||
 		key["unshifted_codepoint"] != "k" ||
+		key["shifted_codepoint"] != nil ||
 		key["base_layout_codepoint"] != "k" ||
 		key["action"] != "press" ||
 		key["macos_option_as_alt"] != true {

@@ -275,8 +275,12 @@ pub struct ProtocolKeyInput {
     key: ProtocolKey,
     mods: ProtocolModifiers,
     consumed_mods: ProtocolModifiers,
+    #[serde(default)]
+    composing: bool,
     utf8: String,
     unshifted_codepoint: Option<char>,
+    #[serde(default)]
+    shifted_codepoint: Option<char>,
     #[serde(default)]
     base_layout_codepoint: Option<char>,
     action: Option<ProtocolKeyAction>,
@@ -313,6 +317,13 @@ impl TryFrom<&KeyInput> for ProtocolKeyInput {
                     .ok_or_else(|| anyhow::anyhow!("invalid unshifted key codepoint"))?,
             ),
         };
+        let shifted_codepoint = match input.shifted_codepoint {
+            0 => None,
+            codepoint => Some(
+                char::from_u32(codepoint)
+                    .ok_or_else(|| anyhow::anyhow!("invalid shifted key codepoint"))?,
+            ),
+        };
         let base_layout_codepoint = match input.base_layout_codepoint {
             0 => None,
             codepoint => Some(
@@ -324,8 +335,10 @@ impl TryFrom<&KeyInput> for ProtocolKeyInput {
             key: ProtocolKey::try_from(input.key)?,
             mods: ProtocolModifiers::try_from_ghostty(input.mods)?,
             consumed_mods: ProtocolModifiers::try_from_ghostty(input.consumed_mods)?,
+            composing: input.composing,
             utf8: input.utf8.clone(),
             unshifted_codepoint,
+            shifted_codepoint,
             base_layout_codepoint,
             action: input.action.map(|action| match action {
                 KeyAction::Press => ProtocolKeyAction::Press,
@@ -356,8 +369,10 @@ impl TryFrom<ProtocolKeyInput> for KeyInput {
             key: input.key.into(),
             mods,
             consumed_mods,
+            composing: input.composing,
             utf8: input.utf8,
             unshifted_codepoint: input.unshifted_codepoint.map_or(0, char::into),
+            shifted_codepoint: input.shifted_codepoint.map_or(0, char::into),
             base_layout_codepoint: input.base_layout_codepoint.map_or(0, char::into),
             action: input.action.map(|action| match action {
                 ProtocolKeyAction::Press => KeyAction::Press,
@@ -8335,8 +8350,10 @@ mod tests {
             key: sys::GHOSTTY_KEY_NUMPAD_ENTER,
             mods: Mods::SHIFT | Mods::CTRL | Mods::ALT | Mods::CAPS_LOCK | Mods::NUM_LOCK,
             consumed_mods: Mods::SHIFT | Mods::ALT,
+            composing: true,
             utf8: "ß".to_string(),
             unshifted_codepoint: 's' as u32,
+            shifted_codepoint: 'S' as u32,
             base_layout_codepoint: '1' as u32,
             action: Some(KeyAction::Repeat),
             macos_option_as_alt: false,
@@ -8344,7 +8361,9 @@ mod tests {
 
         let value = serde_json::to_value(ProtocolKeyInput::try_from(&input).unwrap()).unwrap();
         assert_eq!(value["key"], "numpad-enter");
+        assert_eq!(value["composing"], true);
         assert_eq!(value["unshifted_codepoint"], "s");
+        assert_eq!(value["shifted_codepoint"], "S");
         assert_eq!(value["base_layout_codepoint"], "1");
         let decoded = serde_json::from_value::<ProtocolKeyInput>(value).unwrap();
         let decoded = KeyInput::try_from(decoded).unwrap();
@@ -8352,8 +8371,10 @@ mod tests {
         assert_eq!(decoded.key, input.key);
         assert_eq!(decoded.mods, input.mods);
         assert_eq!(decoded.consumed_mods, input.consumed_mods);
+        assert_eq!(decoded.composing, input.composing);
         assert_eq!(decoded.utf8, input.utf8);
         assert_eq!(decoded.unshifted_codepoint, input.unshifted_codepoint);
+        assert_eq!(decoded.shifted_codepoint, input.shifted_codepoint);
         assert_eq!(decoded.base_layout_codepoint, input.base_layout_codepoint);
         assert_eq!(decoded.action, input.action);
         assert_eq!(decoded.macos_option_as_alt, input.macos_option_as_alt);
@@ -8435,6 +8456,10 @@ mod tests {
         invalid_codepoint["unshifted_codepoint"] = json!("ss");
         assert!(serde_json::from_value::<ProtocolKeyInput>(invalid_codepoint).is_err());
 
+        let mut invalid_shifted_codepoint = valid.clone();
+        invalid_shifted_codepoint["shifted_codepoint"] = json!("SS");
+        assert!(serde_json::from_value::<ProtocolKeyInput>(invalid_shifted_codepoint).is_err());
+
         let mut invalid_base_layout_codepoint = valid.clone();
         invalid_base_layout_codepoint["base_layout_codepoint"] = json!("11");
         assert!(serde_json::from_value::<ProtocolKeyInput>(invalid_base_layout_codepoint).is_err());
@@ -8456,6 +8481,8 @@ mod tests {
         assert!(ProtocolKeyInput::try_from(&invalid_mods).is_err());
         let invalid_codepoint = KeyInput { unshifted_codepoint: 0xD800, ..input.clone() };
         assert!(ProtocolKeyInput::try_from(&invalid_codepoint).is_err());
+        let invalid_shifted = KeyInput { shifted_codepoint: 0xD800, ..input.clone() };
+        assert!(ProtocolKeyInput::try_from(&invalid_shifted).is_err());
         let oversized_text =
             KeyInput { utf8: "x".repeat(PROTOCOL_KEY_TEXT_MAX_BYTES + 1), ..input };
         assert!(ProtocolKeyInput::try_from(&oversized_text).is_err());

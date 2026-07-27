@@ -201,8 +201,10 @@ class TerminalKeyInput:
     key: TerminalKey
     mods: TerminalModifiers = field(default_factory=TerminalModifiers)
     consumed_mods: TerminalModifiers = field(default_factory=TerminalModifiers)
+    composing: bool = False
     utf8: str = ""
     unshifted_codepoint: Optional[str] = None
+    shifted_codepoint: Optional[str] = None
     base_layout_codepoint: Optional[str] = None
     action: Optional[TerminalKeyAction] = None
     macos_option_as_alt: bool = True
@@ -212,8 +214,10 @@ class TerminalKeyInput:
             "key": self.key,
             "mods": self.mods.to_wire(),
             "consumed_mods": self.consumed_mods.to_wire(),
+            "composing": self.composing,
             "utf8": self.utf8,
             "unshifted_codepoint": self.unshifted_codepoint,
+            "shifted_codepoint": self.shifted_codepoint,
             "base_layout_codepoint": self.base_layout_codepoint,
             "action": self.action,
             "macos_option_as_alt": self.macos_option_as_alt,

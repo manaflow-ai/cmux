@@ -5744,14 +5744,19 @@ impl App {
         {
             surface.reset_mouse_motion_dedupe();
         }
-        let failed_active_press = failure.kind == Some(PtyInputKind::Press)
-            && failure.delivery == PtyOperationDelivery::KnownNotDelivered
-            && failure.surface_id.zip(failure.reservation_id).is_some_and(
+        let matches_active_press =
+            failure.surface_id.zip(failure.reservation_id).is_some_and(
                 |(surface, reservation_id)| {
                     matches!(&self.drag, Some(Drag::PtyMouse { surface: active_surface, reservation_id: active_reservation, .. }) if *active_surface == surface && *active_reservation == reservation_id)
                 },
             );
-        if failed_active_press || failure.lane_failed {
+        let failed_active_press = failure.kind == Some(PtyInputKind::Press)
+            && failure.delivery == PtyOperationDelivery::KnownNotDelivered
+            && matches_active_press;
+        let recovery_release_required = failure.kind == Some(PtyInputKind::Press)
+            && failure.delivery == PtyOperationDelivery::Ambiguous
+            && matches_active_press;
+        if failed_active_press || (failure.lane_failed && !recovery_release_required) {
             self.drag = None;
         }
         self.status_message = Some(

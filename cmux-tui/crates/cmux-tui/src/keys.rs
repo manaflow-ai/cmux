@@ -152,6 +152,7 @@ impl KeyboardInput {
                 self.base_layout_key,
                 self.associated_text,
                 self.alt_generated_text,
+                self.suppress_alt_shortcut,
             )
         } else {
             key_input_from(&self.key_event)
@@ -429,6 +430,7 @@ fn key_input_from_parts(
     base_layout_key: Option<char>,
     associated_text: String,
     alt_generated_text: bool,
+    suppress_alt_shortcut: bool,
 ) -> Option<KeyInput> {
     let mut input = key_input_from_event(event, false)?;
 
@@ -441,6 +443,10 @@ fn key_input_from_parts(
         }
         input.unshifted_codepoint = unshifted as u32;
     }
+    if let Some(shifted_key) = shifted_key {
+        input.shifted_codepoint = shifted_key as u32;
+    }
+    input.composing = suppress_alt_shortcut && associated_text.is_empty();
 
     if !associated_text.is_empty() {
         input.utf8 = associated_text;
@@ -450,16 +456,6 @@ fn key_input_from_parts(
         if alt_generated_text {
             input.consumed_mods = input.consumed_mods | Mods::ALT;
             input.macos_option_as_alt = false;
-        }
-    } else if let KeyCode::Char(unshifted) = event.code {
-        let produced = shifted_key
-            .filter(|_| input.mods.contains(Mods::SHIFT))
-            .or_else(|| (!input.mods.contains(Mods::CTRL)).then_some(unshifted));
-        if let Some(produced) = produced {
-            input.utf8 = produced.to_string();
-            if input.mods.contains(Mods::SHIFT) {
-                input.consumed_mods = input.consumed_mods | Mods::SHIFT;
-            }
         }
     }
     Some(input)
@@ -499,6 +495,9 @@ mod tests {
             text: String::new(),
         };
         let input = key_input_from_enhanced(&event).unwrap();
+        assert_eq!(input.shifted_codepoint, '\u{427}' as u32);
+        assert_eq!(input.base_layout_codepoint, ';' as u32);
+        assert!(input.utf8.is_empty());
         let mut terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
         terminal.vt_write(b"\x1b[>29u");
         let mut encoder = KeyEncoder::new().unwrap();
@@ -525,18 +524,11 @@ mod tests {
     }
 
     #[test]
-    fn alt_shift_base_keys_preserve_shifted_text_for_legacy_terminals() {
-        let encode = |code, shifted| {
-            let event = EnhancedKeyEvent {
-                key_event: KeyEvent::new(
-                    KeyCode::Char(code),
-                    KeyModifiers::ALT | KeyModifiers::SHIFT,
-                ),
-                shifted_key: Some(shifted),
-                base_layout_key: Some(code),
-                text: String::new(),
-            };
-            let input = key_input_from_enhanced(&event).unwrap();
+    fn legacy_alt_shift_events_preserve_reported_text() {
+        let encode = |shifted| {
+            let event =
+                KeyEvent::new(KeyCode::Char(shifted), KeyModifiers::ALT | KeyModifiers::SHIFT);
+            let input = key_input_from(&event).unwrap();
             let mut terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
             terminal.vt_write(b"\x1b[?1036h");
             let mut encoder = KeyEncoder::new().unwrap();
@@ -548,8 +540,9 @@ mod tests {
 
         for (base, shifted) in [('d', 'D'), ('1', '!')] {
             assert_eq!(
-                encode(base, shifted),
-                [b"\x1b".as_slice(), shifted.to_string().as_bytes()].concat()
+                encode(shifted),
+                [b"\x1b".as_slice(), shifted.to_string().as_bytes()].concat(),
+                "legacy Alt-Shift-{base} lost its reported text"
             );
         }
     }
@@ -743,6 +736,14 @@ mod tests {
         .unwrap();
 
         assert!(input.utf8.is_empty());
+        assert!(input.composing);
+        let mut terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(b"\x1b[?1036h");
+        let mut encoder = KeyEncoder::new().unwrap();
+        encoder.sync_from_terminal(&terminal);
+        let mut encoded = Vec::new();
+        encoder.encode(&input, &mut encoded).unwrap();
+        assert!(encoded.is_empty());
     }
 
     #[test]

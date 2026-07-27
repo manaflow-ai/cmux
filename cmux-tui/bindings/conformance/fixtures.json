@@ -366,8 +366,10 @@
                 "caps_lock": false,
                 "num_lock": false
               },
+              "composing": false,
               "utf8": "",
               "unshifted_codepoint": "k",
+              "shifted_codepoint": null,
               "base_layout_codepoint": "k",
               "action": "press",
               "macos_option_as_alt": true

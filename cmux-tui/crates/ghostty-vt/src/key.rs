@@ -171,11 +171,15 @@ pub struct KeyInput {
     pub mods: Mods,
     /// Modifiers already consumed to produce `utf8` (e.g. shift for 'A').
     pub consumed_mods: Mods,
+    /// Whether this key is part of an uncommitted composition sequence.
+    pub composing: bool,
     /// Text the key produces on the current layout, before Ctrl/Meta
     /// transformations. Must not contain C0 controls.
     pub utf8: String,
     /// Codepoint of the key without shift applied, when known.
     pub unshifted_codepoint: u32,
+    /// Shifted logical identity reported by an outer CSI-u terminal.
+    pub shifted_codepoint: u32,
     /// Explicit PC-101 base-layout identity reported by an outer CSI-u
     /// terminal, or zero when no identity was reported.
     pub base_layout_codepoint: u32,
@@ -191,8 +195,10 @@ impl Default for KeyInput {
             key: sys::GHOSTTY_KEY_UNIDENTIFIED,
             mods: Mods::default(),
             consumed_mods: Mods::default(),
+            composing: false,
             utf8: String::new(),
             unshifted_codepoint: 0,
+            shifted_codepoint: 0,
             base_layout_codepoint: 0,
             action: None,
             macos_option_as_alt: true,
@@ -251,7 +257,7 @@ impl KeyEncoder {
             sys::ghostty_key_event_set_key(self.event, input.key);
             sys::ghostty_key_event_set_mods(self.event, input.mods.0);
             sys::ghostty_key_event_set_consumed_mods(self.event, input.consumed_mods.0);
-            sys::ghostty_key_event_set_composing(self.event, false);
+            sys::ghostty_key_event_set_composing(self.event, input.composing);
             sys::ghostty_key_event_set_unshifted_codepoint(self.event, input.unshifted_codepoint);
             // The event borrows the utf8 buffer; `input` outlives the
             // encode call below, so the borrow is valid for its lifetime.
@@ -298,13 +304,12 @@ impl KeyEncoder {
     }
 }
 
-/// Ghostty's public key-event ABI accepts the physical key but not an
-/// explicitly reported CSI-u base-layout codepoint. Its encoder can therefore
-/// omit a third alternate when it equals the shifted alternate. Restore that
-/// lossless identity only on CSI-u output that already reports one alternate.
-/// Decimal rendering stays on the stack and output is appended in one pass.
+/// Ghostty's public key-event ABI accepts the physical key but not explicitly
+/// reported CSI-u shifted or base-layout codepoints. Restore missing
+/// alternates only on CSI-u output that already has alternate slots. Decimal
+/// rendering stays on the stack and output is appended in one pass.
 fn append_encoded_key(input: &KeyInput, encoded: &[u8], out: &mut Vec<u8>) {
-    if input.base_layout_codepoint == 0 {
+    if input.shifted_codepoint == 0 && input.base_layout_codepoint == 0 {
         out.extend_from_slice(encoded);
         return;
     }
@@ -314,19 +319,45 @@ fn append_encoded_key(input: &KeyInput, encoded: &[u8], out: &mut Vec<u8>) {
     }
     let key_field_end = encoded.iter().position(|byte| *byte == b';').unwrap_or(encoded.len() - 1);
     let key_field = &encoded[2..key_field_end];
-    if key_field.iter().filter(|byte| **byte == b':').count() != 1
+    let colon_count = key_field.iter().filter(|byte| **byte == b':').count();
+    if !(1..=2).contains(&colon_count)
         || !key_field.iter().all(|byte| byte.is_ascii_digit() || *byte == b':')
     {
         out.extend_from_slice(encoded);
         return;
     }
 
-    let mut decimal = [0u8; 10];
-    let digits = decimal_u32(input.base_layout_codepoint, &mut decimal);
-    out.reserve(encoded.len() + 1 + digits.len());
-    out.extend_from_slice(&encoded[..key_field_end]);
-    out.push(b':');
-    out.extend_from_slice(digits);
+    let shifted_separator = key_field.iter().position(|byte| *byte == b':').unwrap();
+    let shifted_start = shifted_separator + 1;
+    let base_separator = key_field[shifted_start..]
+        .iter()
+        .position(|byte| *byte == b':')
+        .map(|index| shifted_start + index);
+    let shifted_end = base_separator.unwrap_or(key_field.len());
+    let reported_shifted = &key_field[shifted_start..shifted_end];
+    let mut shifted_decimal = [0u8; 10];
+    let shifted_digits = (reported_shifted.is_empty() && input.shifted_codepoint != 0)
+        .then(|| decimal_u32(input.shifted_codepoint, &mut shifted_decimal));
+    let mut base_decimal = [0u8; 10];
+    let base_digits = (base_separator.is_none() && input.base_layout_codepoint != 0)
+        .then(|| decimal_u32(input.base_layout_codepoint, &mut base_decimal));
+    out.reserve(
+        encoded.len()
+            + shifted_digits.map_or(0, <[u8]>::len)
+            + base_digits.map_or(0, |digits| 1 + digits.len()),
+    );
+    out.extend_from_slice(&encoded[..2 + shifted_start]);
+    if let Some(digits) = shifted_digits {
+        out.extend_from_slice(digits);
+    } else {
+        out.extend_from_slice(reported_shifted);
+    }
+    if let Some(separator) = base_separator {
+        out.extend_from_slice(&key_field[separator..]);
+    } else if let Some(digits) = base_digits {
+        out.push(b':');
+        out.extend_from_slice(digits);
+    }
     out.extend_from_slice(&encoded[key_field_end..]);
 }
 
@@ -412,5 +443,22 @@ mod tests {
         out.clear();
         enc.encode(&up, &mut out).unwrap();
         assert_eq!(out, b"\x1bOA");
+    }
+
+    #[test]
+    fn restores_reported_shifted_and_base_layout_alternates() {
+        let input = KeyInput {
+            shifted_codepoint: '\u{427}' as u32,
+            base_layout_codepoint: ';' as u32,
+            ..Default::default()
+        };
+        let mut out = Vec::new();
+
+        append_encoded_key(&input, b"\x1b[1095:;6u", &mut out);
+
+        assert_eq!(out, b"\x1b[1095:1063:59;6u");
+        out.clear();
+        append_encoded_key(&input, b"\x1b[1095::59;6u", &mut out);
+        assert_eq!(out, b"\x1b[1095:1063:59;6u");
     }
 }
