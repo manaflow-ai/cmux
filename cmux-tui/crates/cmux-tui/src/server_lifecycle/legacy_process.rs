@@ -12,6 +12,8 @@ const PROCESS_TREE_RETRY_TIMEOUT: Duration = Duration::from_secs(1);
 #[cfg(test)]
 thread_local! {
     static RAW_PID_SIGNAL_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static STABLE_HANDLE_CAPTURE_BUDGET: std::cell::Cell<Option<usize>> =
+        const { std::cell::Cell::new(None) };
 }
 
 fn ensure_helper_active() -> io::Result<()> {
@@ -88,6 +90,19 @@ impl ProcessIdentity {
     }
 
     fn stable_handle(self) -> io::Result<Option<StableProcessHandle>> {
+        #[cfg(test)]
+        STABLE_HANDLE_CAPTURE_BUDGET.with(|budget| {
+            if let Some(remaining) = budget.get() {
+                if remaining == 0 {
+                    return Err(io::Error::new(
+                        io::ErrorKind::PermissionDenied,
+                        "forced stable-handle capture failure",
+                    ));
+                }
+                budget.set(Some(remaining - 1));
+            }
+            Ok(())
+        })?;
         let Some(process) = StableProcessHandle::capture(self.pid)? else {
             return Ok(None);
         };
@@ -826,6 +841,61 @@ mod tests {
             raw_signals, 0,
             "legacy cleanup used a reusable PID instead of a stable process identity"
         );
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn frozen_tree_drop_resumes_with_its_original_process_proof() {
+        use std::io::Read as _;
+        use std::os::fd::AsRawFd as _;
+
+        let mut child =
+            Command::new("yes").stdout(Stdio::piped()).stderr(Stdio::null()).spawn().unwrap();
+        let mut stdout = child.stdout.take().unwrap();
+        let descriptor = stdout.as_raw_fd();
+        let flags = unsafe { libc::fcntl(descriptor, libc::F_GETFL) };
+        assert!(flags >= 0);
+        assert_eq!(unsafe { libc::fcntl(descriptor, libc::F_SETFL, flags | libc::O_NONBLOCK) }, 0);
+        let pid = libc::pid_t::try_from(child.id()).unwrap();
+        let process = ProcessIdentity::capture(pid).unwrap().unwrap();
+        STABLE_HANDLE_CAPTURE_BUDGET.set(Some(1));
+
+        let tree =
+            FrozenProcessTree::freeze(process, Instant::now() + Duration::from_secs(1)).unwrap();
+        let mut output = [0_u8; 4_096];
+        loop {
+            match stdout.read(&mut output) {
+                Ok(0) => break,
+                Ok(_) => {}
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
+                Err(error) => panic!("failed to drain stopped child output: {error}"),
+            }
+        }
+        drop(tree);
+        let deadline = Instant::now() + Duration::from_millis(250);
+        let mut resumed = false;
+        while Instant::now() < deadline {
+            match stdout.read(&mut output) {
+                Ok(0) => break,
+                Ok(_) => {
+                    resumed = true;
+                    break;
+                }
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
+                Err(error) => panic!("failed to read resumed child output: {error}"),
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+
+        STABLE_HANDLE_CAPTURE_BUDGET.set(None);
+        // SAFETY: only the exact test-owned child can still use this unreaped PID.
+        unsafe {
+            libc::kill(pid, libc::SIGCONT);
+        }
+        let _ = child.kill();
+        let _ = child.wait();
+
+        assert!(resumed, "dropping a process fence left its exact process stopped");
     }
 
     #[test]
