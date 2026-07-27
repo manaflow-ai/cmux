@@ -2556,14 +2556,11 @@ struct TerminalKeyboardCopyModeCursorAppearanceTests {
 
     @Test func wideCursorOutlineSpansBothAlignedGridCells() {
         let metrics = GhosttyNSView.KeyboardCopyModeGridMetrics(
-            rows: 10,
-            columns: 20,
             cellWidth: 9.5,
             cellHeight: 18,
             xInset: 4,
             yInset: 6,
-            viewHeight: 200,
-            terminalCursor: nil
+            viewHeight: 200
         )
         let cell = GhosttyNSView.KeyboardCopyModeResolvedCell(
             cursor: TerminalKeyboardCopyModeCursor(row: 2, column: 3),
