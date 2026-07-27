@@ -37,6 +37,17 @@ func validateWorkspaceSelector(workspace *uint64, key *string) error {
 	return nil
 }
 
+func validateViewportPaneWidth(width float32) error {
+	value := float64(width)
+	if math.IsNaN(value) || math.IsInf(value, 0) || value < 0.1 || value > 1.0 {
+		return fmt.Errorf(
+			"%w: viewport pane width must be between 0.1 and 1.0",
+			ErrInvalidArgument,
+		)
+	}
+	return nil
+}
+
 type CommandError struct {
 	Message   string
 	ID        any
@@ -446,12 +457,8 @@ func (c *Client) NewPane(ctx context.Context, pane uint64, opts NewPaneOptions) 
 
 func (c *Client) NewPaneRight(ctx context.Context, pane uint64, opts NewPaneRightOptions) (SurfaceResult, error) {
 	if opts.Width != nil {
-		width := float64(*opts.Width)
-		if math.IsNaN(width) || math.IsInf(width, 0) || width < 0.1 || width > 1.0 {
-			return SurfaceResult{}, fmt.Errorf(
-				"%w: viewport pane width must be between 0.1 and 1.0",
-				ErrInvalidArgument,
-			)
+		if err := validateViewportPaneWidth(*opts.Width); err != nil {
+			return SurfaceResult{}, err
 		}
 	}
 	if err := c.requireCapability(ctx, "viewport-splits-v1", "viewport panes"); err != nil {
@@ -513,6 +520,9 @@ func (c *Client) SetViewportPaneWidthInTransaction(ctx context.Context, pane uin
 }
 
 func (c *Client) setViewportPaneWidth(ctx context.Context, pane uint64, width float32, transaction *uint64) error {
+	if err := validateViewportPaneWidth(width); err != nil {
+		return err
+	}
 	if err := c.requireCapability(ctx, "viewport-column-resize-v1", "viewport pane resizing"); err != nil {
 		return err
 	}
