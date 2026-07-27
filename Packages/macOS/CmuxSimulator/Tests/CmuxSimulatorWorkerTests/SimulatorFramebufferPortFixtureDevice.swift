@@ -14,13 +14,3 @@ final class SimulatorFramebufferPortFixtureDevice: NSObject {
     @objc dynamic func io() -> AnyObject { client }
     @objc dynamic func deviceType() -> AnyObject { type }
 }
-
-private final class SimulatorFramebufferPortFixtureDeviceType: NSObject {
-    private let scale: Double
-
-    init(mainScreenScale: Double) {
-        scale = mainScreenScale
-    }
-
-    @objc dynamic func mainScreenScale() -> Double { scale }
-}
