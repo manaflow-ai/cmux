@@ -867,8 +867,6 @@
       "concepts": "Koncepti",
       "anchorTitle": "Sidreni radni prostor",
       "anchorDesc": "Svaku grupu posjeduje tačno jedan radni prostor koji se naziva sidro. Zaglavlje grupe u bočnoj traci predstavlja sidro — za njega ne postoji poseban red. Klikom na područje naziva u zaglavlju fokusiraju se paneli sidra; klikom na strelicu prebacuje se sklapanje.",
-      "anchorNew": "Sidra su uvijek potpuno nova kada se grupa kreira. Nikada se ne promovišu iz postojećeg radnog prostora. Radni direktorij sidra nasljeđuje se od prvog odabranog radnog prostora prilikom grupisanja odabira, ili od aktivnog radnog prostora prilikom kreiranja putem CLI bez --cwd.",
-      "anchorClose": "Zatvaranje sidrenog radnog prostora raspušta grupu: svaki drugi član postaje razgrupisani radni prostor i ostaje na listi kartica. Ništa se ne zatvara osim samog sidra. Aplikacija prije toga prikazuje dijalog za potvrdu s prekidačem \"Ne pitaj ponovo\".",
       "identityTitle": "Identitet grupe",
       "identityDesc": "Grupa ima naziv, ikonu (SF Symbol, podrazumijevano folder.fill) i opcionalnu prilagođenu boju. Oni su nezavisni od vlastitih prilagođavanja sidrenog radnog prostora. Boja i ikona sidra se prilikom kreiranja preuzimaju iz grupe, ali se nakon toga mogu razlikovati.",
       "pinningTitle": "Prikvačivanje",
