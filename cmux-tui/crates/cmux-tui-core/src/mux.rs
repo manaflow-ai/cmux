@@ -889,6 +889,7 @@ pub struct Mux {
     next_id: AtomicU64,
     next_notification_id: AtomicU64,
     next_active_at: AtomicU64,
+    next_in_process_resize_owner: AtomicU64,
     surface_options: Mutex<SurfaceOptions>,
     provider_workspace: Mutex<ProviderWorkspaceState>,
     workspace_lifecycles: Mutex<HashMap<WorkspaceId, Weak<Mutex<()>>>>,
@@ -1115,6 +1116,7 @@ impl Mux {
             next_id: AtomicU64::new(next_id),
             next_notification_id: AtomicU64::new(1),
             next_active_at: AtomicU64::new(1),
+            next_in_process_resize_owner: AtomicU64::new(1),
             surface_options: Mutex::new(surface_options),
             provider_workspace: Mutex::new(provider_workspace),
             workspace_lifecycles: Mutex::new(HashMap::new()),
@@ -1798,6 +1800,18 @@ impl Mux {
 
     fn next_notification_id(&self) -> u64 {
         self.next_notification_id.fetch_add(1, Ordering::Relaxed)
+    }
+
+    /// Allocate an undo-coalescing owner for one in-process frontend.
+    ///
+    /// Layout undo is in-memory state, so this namespace intentionally follows
+    /// the mux lifecycle rather than durable workspace identity.
+    pub fn allocate_in_process_resize_owner(&self) -> u64 {
+        self.next_in_process_resize_owner
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |owner| {
+                Some(owner.wrapping_add(1).max(1))
+            })
+            .expect("in-process resize owner allocation cannot fail")
     }
 
     fn new_workspace_key() -> anyhow::Result<String> {
@@ -6506,7 +6520,9 @@ impl Mux {
                     return None;
                 }
                 let split = screen.root.deepest_split_for_pane(pane, dir)?;
-                if screen.root.split_ratio(split) == Some(ratio) {
+                if !screen.is_projected_viewport_split(split)
+                    && screen.root.split_ratio(split) == Some(ratio)
+                {
                     return Some(RatioOutcome::Unchanged);
                 }
                 let before = screen.layout_snapshot();
@@ -6646,7 +6662,9 @@ impl Mux {
                 return Err(LayoutRatioError::UnknownSplit { split });
             }
             let screen = &mut state.workspaces[workspace_index].screens[screen_index];
-            if screen.root.split_ratio(split) == Some(ratio) {
+            if !screen.is_projected_viewport_split(split)
+                && screen.root.split_ratio(split) == Some(ratio)
+            {
                 return Ok(());
             }
             let coalesce = transaction
@@ -10363,7 +10381,11 @@ mod tests {
         (mux, right_pane, split)
     }
 
-    fn assert_clamped_projection_resize_applied(mux: &Mux, expected_width: f32) {
+    fn assert_clamped_projection_resize_applied(
+        mux: &Mux,
+        expected_width: f32,
+        undo_count_before: usize,
+    ) {
         mux.with_state(|state| {
             let screen = &state.workspaces[0].screens[0];
             assert!(
@@ -10371,7 +10393,7 @@ mod tests {
                 "projected ratio should update authoritative width: {:?}",
                 screen.layout_columns
             );
-            assert_eq!(screen.layout_undo.len(), 3);
+            assert_eq!(screen.layout_undo.len(), undo_count_before + 1);
             assert!(screen.layout_column_projection_is_consistent());
         });
     }
@@ -10380,20 +10402,29 @@ mod tests {
     fn clamped_projected_split_ratio_still_resizes_authoritative_column() {
         let (mux, _right_pane, split) = seed_clamped_viewport_projection();
         let expected_width = 2.0 * (1.0 - 0.95) / 0.95;
+        let undo_count_before =
+            mux.with_state(|state| state.workspaces[0].screens[0].layout_undo.len());
+        let events = mux.subscribe();
 
         assert!(mux.set_split_ratio_checked(split, 0.95).is_ok());
 
-        assert_clamped_projection_resize_applied(&mux, expected_width);
+        assert_clamped_projection_resize_applied(&mux, expected_width, undo_count_before);
+        assert!(matches!(events.try_recv(), Ok(MuxEvent::LayoutChanged(_))));
     }
 
     #[test]
     fn clamped_pane_addressed_ratio_still_resizes_authoritative_column() {
         let (mux, right_pane, _split) = seed_clamped_viewport_projection();
         let expected_width = 2.0 * (1.0 - 0.95) / 0.95;
+        let undo_count_before =
+            mux.with_state(|state| state.workspaces[0].screens[0].layout_undo.len());
+        let events = mux.subscribe();
 
         assert!(mux.set_ratio_checked(right_pane, SplitDir::Right, 0.95).is_ok());
 
-        assert_clamped_projection_resize_applied(&mux, expected_width);
+        assert_clamped_projection_resize_applied(&mux, expected_width, undo_count_before);
+        assert!(matches!(events.try_recv(), Ok(MuxEvent::TreeChanged)));
+        assert!(matches!(events.try_recv(), Ok(MuxEvent::LayoutChanged(_))));
     }
 
     #[test]
@@ -10845,6 +10876,16 @@ mod tests {
         mux.with_state(|state| {
             assert_eq!(state.workspaces[0].screens[0].layout_columns[1].width, 0.5);
         });
+    }
+
+    #[test]
+    fn in_process_resize_owner_allocation_is_mux_scoped() {
+        let first = test_mux();
+        assert_eq!(first.allocate_in_process_resize_owner(), 1);
+        assert_eq!(first.allocate_in_process_resize_owner(), 2);
+
+        let second = test_mux();
+        assert_eq!(second.allocate_in_process_resize_owner(), 1);
     }
 
     #[test]

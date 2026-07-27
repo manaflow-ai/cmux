@@ -246,6 +246,15 @@ pub enum SurfaceHandle {
 }
 
 impl Session {
+    pub(crate) fn allocate_layout_resize_owner(&self) -> u64 {
+        match self {
+            Session::Local(mux) => mux.allocate_in_process_resize_owner(),
+            // Remote layout transactions are scoped by the server-assigned
+            // control-client ID, so this local value is never serialized.
+            Session::Remote(_) => 0,
+        }
+    }
+
     pub fn clients(&self) -> anyhow::Result<Vec<ClientInfo>> {
         let value = match self {
             Session::Local(mux) => mux.control_clients_json(0),

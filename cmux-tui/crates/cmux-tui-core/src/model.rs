@@ -697,6 +697,10 @@ impl Screen {
         !self.layout_columns.is_empty()
     }
 
+    pub(crate) fn is_projected_viewport_split(&self, split: SplitId) -> bool {
+        self.layout_columns.iter().skip(1).any(|column| column.id == split)
+    }
+
     pub(crate) fn layout_column_for_pane_mut(&mut self, pane: PaneId) -> Option<&mut LayoutColumn> {
         self.layout_columns.iter_mut().find(|column| column.root.contains(pane))
     }

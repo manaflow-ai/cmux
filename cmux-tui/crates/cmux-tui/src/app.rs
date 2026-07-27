@@ -86,7 +86,6 @@ const DURABLE_NOTICE_RECENT_CAPACITY: usize = 64;
 const DURABLE_NOTICE_QUEUE_CAPACITY: usize = 64;
 const DURABLE_NOTICE_DISPLAY_DURATION: Duration = Duration::from_secs(4);
 const DURABLE_NOTICE_ACK_MAX_BACKOFF_EXPONENT: u8 = 5;
-static NEXT_IN_PROCESS_RESIZE_OWNER: AtomicU64 = AtomicU64::new(1);
 
 pub enum AppEvent {
     SessionScoped {
@@ -422,7 +421,13 @@ fn start_ordered_session_inner(
     let stop = Arc::new(AtomicBool::new(false));
     let start = Arc::new(AtomicBool::new(!paused));
     let events = SessionEventSender::scoped(app_events, generation, surface_filter, stop.clone());
-    let session = OrderedSession::new_with_event_sender(inner, operations, events.clone());
+    let layout_resize_owner = inner.allocate_layout_resize_owner();
+    let session = OrderedSession::new_with_event_sender(
+        inner,
+        operations,
+        events.clone(),
+        layout_resize_owner,
+    );
     let mux_titles = Arc::new(MuxTitleIngress::default());
     let mux_recovery_generation = Arc::new(AtomicU64::new(0));
     let event_source = session.inner.clone();
@@ -937,14 +942,25 @@ pub struct OrderedSession {
 
 impl OrderedSession {
     #[cfg(test)]
-    fn new(inner: Session, operations: PtyInputSender, events: SyncSender<AppEvent>) -> Self {
-        Self::new_with_event_sender(inner, operations, SessionEventSender::unscoped(events))
+    fn new(
+        inner: Session,
+        operations: PtyInputSender,
+        events: SyncSender<AppEvent>,
+        layout_resize_owner: u64,
+    ) -> Self {
+        Self::new_with_event_sender(
+            inner,
+            operations,
+            SessionEventSender::unscoped(events),
+            layout_resize_owner,
+        )
     }
 
     fn new_with_event_sender(
         inner: Session,
         operations: PtyInputSender,
         events: SessionEventSender,
+        layout_resize_owner: u64,
     ) -> Self {
         let remote = matches!(inner, Session::Remote(_));
         Self {
@@ -973,7 +989,7 @@ impl OrderedSession {
             config_generation: Arc::new(AtomicU64::new(0)),
             sidebar_plugin_sync: Arc::new(Mutex::new(SidebarPluginSyncState::default())),
             exited_surfaces: Arc::new(Mutex::new(HashSet::new())),
-            layout_resize_owner: NEXT_IN_PROCESS_RESIZE_OWNER.fetch_add(1, Ordering::Relaxed),
+            layout_resize_owner,
             layout_resize_transaction: Arc::new(AtomicU64::new(1)),
             #[cfg(test)]
             surface_attach_after_obsolete_check: Arc::new(Mutex::new(None)),
@@ -21459,7 +21475,9 @@ mod tests {
     fn test_app_with_events(session: Session) -> (App, Receiver<AppEvent>) {
         let pty_input = PtyInputDispatcher::spawn(|_| {}).unwrap();
         let (events, receiver) = std::sync::mpsc::sync_channel(4_096);
-        let session = OrderedSession::new(session, pty_input.sender(), events.clone());
+        let layout_resize_owner = session.allocate_layout_resize_owner();
+        let session =
+            OrderedSession::new(session, pty_input.sender(), events.clone(), layout_resize_owner);
         let app = App {
             session,
             session_event_worker: None,
