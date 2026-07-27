@@ -22,6 +22,7 @@ import {
   applyDelta,
   applySnapshot,
   releaseRenderModelGraphicsBudget,
+  subscribeRenderModelGraphicsBudget,
   type RenderModel,
 } from "../lib/renderModel";
 import {
@@ -149,6 +150,7 @@ export function useRenderTerminal({
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
     let stableTimer: ReturnType<typeof setTimeout> | undefined;
     let wakeRetry: (() => void) | null = null;
+    let graphicsResnapshotRequested = false;
     const frames = new Set<number>();
     const stage = host.closest<HTMLElement>(".terminal-stage");
     const scroller = host.querySelector<HTMLElement>("[data-render-scroll]");
@@ -168,6 +170,15 @@ export function useRenderTerminal({
           resolve();
         }, delayMs);
       });
+    const unsubscribeGraphicsBudget = subscribeRenderModelGraphicsBudget(
+      graphicsBudget,
+      graphicsBudgetOwner,
+      () => {
+        if (cancelled || graphicsResnapshotRequested) return;
+        graphicsResnapshotRequested = true;
+        stream?.close();
+      },
+    );
 
     dispatch({ type: "bind", client, surface });
     const frameBatch = createFrameBatch<void>(() => {
@@ -464,6 +475,12 @@ export function useRenderTerminal({
         for (;;) {
           stream = await client.attachSurface(surface, { mode: "render" });
           if (cancelled) return;
+          if (graphicsResnapshotRequested) {
+            stream.close();
+            stream = null;
+            graphicsResnapshotRequested = false;
+            continue;
+          }
           // Closing the previous attachment removes this client's report on
           // the server. Re-publish even when the viewport did not change.
           reportedFit = null;
@@ -474,11 +491,15 @@ export function useRenderTerminal({
               event = await stream.next();
             } catch (error) {
               if (cancelled) return;
+              if (graphicsResnapshotRequested) break;
               if (error instanceof CmuxTimeoutError) continue;
               throw error;
             }
             if (cancelled) return;
-            if (event.event === "detached") return;
+            if (event.event === "detached") {
+              if (graphicsResnapshotRequested) break;
+              return;
+            }
             if (event.event === "render-state") {
               currentModel = applySnapshot(
                 event as RenderStateEvent,
@@ -539,6 +560,10 @@ export function useRenderTerminal({
           }
           stream.close();
           stream = null;
+          if (graphicsResnapshotRequested) {
+            graphicsResnapshotRequested = false;
+            continue;
+          }
           if (!overflowed) return;
           const delayMs = attachRecoveryDelay(recoveryAttempt++);
           if (delayMs === null) throw new Error(t("attachOverflowRecoveryFailed"));
@@ -563,6 +588,7 @@ export function useRenderTerminal({
     sendResize();
     return () => {
       cancelled = true;
+      unsubscribeGraphicsBudget();
       observer.disconnect();
       window.visualViewport?.removeEventListener("resize", sendResize);
       window.visualViewport?.removeEventListener("scroll", sendResize);

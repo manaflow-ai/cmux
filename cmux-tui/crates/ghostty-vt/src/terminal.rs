@@ -10,7 +10,8 @@ use ghostty_vt_sys as sys;
 
 use crate::kitty::{
     self, KittyGraphicsSnapshot, KittyImage, KittyImageAlias, KittyInFlightTracker, KittyPlacement,
-    KittyPlacementAnchor, KittyReplaySnapshot, MAX_KITTY_IMAGE_BYTES,
+    KittyPlacementAnchor, KittyReplaySnapshot, MAX_KITTY_IMAGE_BYTES, MAX_KITTY_IMAGES,
+    MAX_KITTY_PLACEMENTS,
 };
 use crate::render::{Cell, CursorShape, read_grid_ref_cell, terminal_palette};
 use crate::{Error, Result, check};
@@ -18,8 +19,8 @@ use crate::{Error, Result, check};
 static NEXT_TERMINAL_ID: AtomicU64 = AtomicU64::new(1);
 const VT_REPLAY_ESTIMATED_BYTES_PER_CELL: u64 = 32;
 const DEFAULT_KITTY_IMAGE_STORAGE_LIMIT: u64 = MAX_KITTY_IMAGE_BYTES as u64;
-const DEFAULT_KITTY_IMAGE_COUNT_LIMIT: u64 = 4_096;
-const DEFAULT_KITTY_PLACEMENT_COUNT_LIMIT: u64 = 16_384;
+const DEFAULT_KITTY_IMAGE_COUNT_LIMIT: u64 = MAX_KITTY_IMAGES;
+const DEFAULT_KITTY_PLACEMENT_COUNT_LIMIT: u64 = MAX_KITTY_PLACEMENTS;
 const KITTY_REPLAY_CHUNK: usize = 4096;
 const KITTY_REPLAY_RAW_CHUNK: usize = KITTY_REPLAY_CHUNK / 4 * 3;
 const MAX_COLOR_OSC_BYTES: usize = 16 * 1024;

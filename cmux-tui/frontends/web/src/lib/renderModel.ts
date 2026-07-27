@@ -46,36 +46,113 @@ export const RENDER_GRAPHIC_ENCODED_BYTE_CAP = 64 * 1024 * 1024;
 
 interface EncodedGraphicsBudgetState {
   owners: Map<object, number>;
+  pendingOwners: Set<object>;
+  listeners: Map<object, Set<() => void>>;
+  scheduledOwners: Set<object>;
   total: number;
 }
 
 const encodedGraphicsBudgets = new WeakMap<object, EncodedGraphicsBudgetState>();
 
+function encodedGraphicsBudgetState(budget: object): EncodedGraphicsBudgetState {
+  let state = encodedGraphicsBudgets.get(budget);
+  if (state === undefined) {
+    state = {
+      owners: new Map(),
+      pendingOwners: new Set(),
+      listeners: new Map(),
+      scheduledOwners: new Set(),
+      total: 0,
+    };
+    encodedGraphicsBudgets.set(budget, state);
+  }
+  return state;
+}
+
+function deleteEncodedGraphicsBudgetIfEmpty(
+  budget: object,
+  state: EncodedGraphicsBudgetState,
+): void {
+  if (state.owners.size === 0
+    && state.listeners.size === 0
+    && state.scheduledOwners.size === 0) {
+    encodedGraphicsBudgets.delete(budget);
+  }
+}
+
+function schedulePendingGraphicsRecoveries(
+  budget: object,
+  state: EncodedGraphicsBudgetState,
+  except?: object,
+): void {
+  for (const owner of state.pendingOwners) {
+    if (owner === except
+      || state.scheduledOwners.has(owner)
+      || !state.listeners.has(owner)) continue;
+    state.scheduledOwners.add(owner);
+    queueMicrotask(() => {
+      state.scheduledOwners.delete(owner);
+      if (encodedGraphicsBudgets.get(budget) !== state
+        || !state.pendingOwners.has(owner)) {
+        deleteEncodedGraphicsBudgetIfEmpty(budget, state);
+        return;
+      }
+      for (const listener of [...(state.listeners.get(owner) ?? [])]) listener();
+      deleteEncodedGraphicsBudgetIfEmpty(budget, state);
+    });
+  }
+}
+
 function admitEncodedImages(
   images: readonly RenderGraphicImage[],
   budget: object | undefined,
   owner: object | undefined,
+  authoritative: boolean,
 ): readonly RenderGraphicImage[] {
   if (budget === undefined || owner === undefined) return images;
-  let state = encodedGraphicsBudgets.get(budget);
-  if (state === undefined) {
-    state = { owners: new Map(), total: 0 };
-    encodedGraphicsBudgets.set(budget, state);
-  }
+  const state = encodedGraphicsBudgetState(budget);
   const previous = state.owners.get(owner) ?? 0;
   const otherOwners = state.total - previous;
   const available = Math.max(0, RENDER_GRAPHIC_ENCODED_BYTE_CAP - otherOwners);
   let admittedBytes = 0;
+  let rejected = false;
   const admitted: RenderGraphicImage[] = [];
   for (const image of images) {
     const encodedBytes = image.data.length;
-    if (encodedBytes > available - admittedBytes) continue;
+    if (encodedBytes > available - admittedBytes) {
+      rejected = true;
+      continue;
+    }
     admitted.push(image);
     admittedBytes += encodedBytes;
   }
   state.total = otherOwners + admittedBytes;
   state.owners.set(owner, admittedBytes);
+  if (rejected) state.pendingOwners.add(owner);
+  else if (authoritative) state.pendingOwners.delete(owner);
+  if (admittedBytes < previous) {
+    schedulePendingGraphicsRecoveries(budget, state, authoritative ? owner : undefined);
+  }
   return admitted.length === images.length ? images : admitted;
+}
+
+export function subscribeRenderModelGraphicsBudget(
+  budget: object,
+  owner: object,
+  listener: () => void,
+): () => void {
+  const state = encodedGraphicsBudgetState(budget);
+  let listeners = state.listeners.get(owner);
+  if (listeners === undefined) {
+    listeners = new Set();
+    state.listeners.set(owner, listeners);
+  }
+  listeners.add(listener);
+  return () => {
+    listeners?.delete(listener);
+    if (listeners?.size === 0) state.listeners.delete(owner);
+    deleteEncodedGraphicsBudgetIfEmpty(budget, state);
+  };
 }
 
 export function releaseRenderModelGraphicsBudget(budget: object, owner: object): void {
@@ -84,8 +161,10 @@ export function releaseRenderModelGraphicsBudget(budget: object, owner: object):
   const released = state.owners.get(owner);
   if (released === undefined) return;
   state.owners.delete(owner);
+  state.pendingOwners.delete(owner);
   state.total -= released;
-  if (state.owners.size === 0) encodedGraphicsBudgets.delete(budget);
+  if (released > 0) schedulePendingGraphicsRecoveries(budget, state);
+  deleteEncodedGraphicsBudgetIfEmpty(budget, state);
 }
 
 function emptyRow(row: number): RenderRow {
@@ -216,12 +295,12 @@ function snapshotGraphics(
   owner?: object,
 ): RenderGraphicsModel {
   if (graphics === undefined) {
-    admitEncodedImages([], budget, owner);
+    admitEncodedImages([], budget, owner, true);
     return { generation: 0, images: [], placements: [] };
   }
   const sourceImages = graphics.images ?? [];
   validateAuthoritativeImages(sourceImages);
-  const admitted = admitEncodedImages(sourceImages, budget, owner);
+  const admitted = admitEncodedImages(sourceImages, budget, owner, true);
   const images = Object.freeze(
     admitted.map((image) => Object.freeze({ ...image })),
   );
@@ -286,7 +365,7 @@ function applyGraphicsDelta(
   if (mergedImages !== previous.images || !validatedImageMetadata.has(mergedImages)) {
     validateAuthoritativeImages(mergedImages, previous.images);
   }
-  const admitted = admitEncodedImages(mergedImages, budget, owner);
+  const admitted = admitEncodedImages(mergedImages, budget, owner, false);
   const images = admitted === mergedImages
     ? mergedImages
     : Object.freeze([...admitted]);

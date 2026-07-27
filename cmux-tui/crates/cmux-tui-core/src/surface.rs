@@ -894,6 +894,23 @@ struct PtyGeometry {
     cell_height: u16,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct KittyGraphicsLimits {
+    bytes: u64,
+    images: u64,
+    placements: u64,
+}
+
+impl Default for KittyGraphicsLimits {
+    fn default() -> Self {
+        Self {
+            bytes: ghostty_vt::MAX_KITTY_IMAGE_BYTES as u64,
+            images: ghostty_vt::MAX_KITTY_IMAGES,
+            placements: ghostty_vt::MAX_KITTY_PLACEMENTS,
+        }
+    }
+}
+
 impl PtyGeometry {
     fn pty_size(self) -> anyhow::Result<PtySize> {
         let pixel_width = self.cols.checked_mul(self.cell_width.max(1)).ok_or_else(|| {
@@ -943,7 +960,7 @@ pub struct PtySurface {
     title: Mutex<String>,
     pwd: Mutex<Option<String>>,
     geometry: Mutex<PtyGeometry>,
-    kitty_image_storage_limit: AtomicU64,
+    kitty_graphics_limits: Box<Mutex<KittyGraphicsLimits>>,
     #[cfg(test)]
     geometry_test_hook: Mutex<Option<PtyGeometryTestHook>>,
     #[cfg(test)]
@@ -1515,7 +1532,7 @@ impl Surface {
             title: Mutex::new(String::new()),
             pwd: Mutex::new(None),
             geometry: Mutex::new(initial_geometry),
-            kitty_image_storage_limit: AtomicU64::new(ghostty_vt::MAX_KITTY_IMAGE_BYTES as u64),
+            kitty_graphics_limits: Box::new(Mutex::new(KittyGraphicsLimits::default())),
             #[cfg(test)]
             geometry_test_hook: Mutex::new(None),
             #[cfg(test)]
@@ -1810,7 +1827,7 @@ impl Surface {
                 cell_width: snapshot.cell_pixels.0,
                 cell_height: snapshot.cell_pixels.1,
             }),
-            kitty_image_storage_limit: AtomicU64::new(ghostty_vt::MAX_KITTY_IMAGE_BYTES as u64),
+            kitty_graphics_limits: Box::new(Mutex::new(KittyGraphicsLimits::default())),
             #[cfg(test)]
             geometry_test_hook: Mutex::new(None),
             #[cfg(test)]
@@ -1995,11 +2012,12 @@ impl Surface {
                                 else {
                                     break;
                                 };
-                                if replacement
-                                    .set_kitty_image_storage_limit(
-                                        pty.kitty_image_storage_limit.load(Ordering::Acquire),
-                                    )
-                                    .is_err()
+                                let kitty_limits = *pty.kitty_graphics_limits.lock().unwrap();
+                                if Self::configure_terminal_kitty_graphics_limits(
+                                    &mut replacement,
+                                    kitty_limits,
+                                )
+                                .is_err()
                                 {
                                     break;
                                 }
@@ -2258,11 +2276,12 @@ impl Surface {
                             }
                             continue;
                         };
-                        if replacement_term
-                            .set_kitty_image_storage_limit(
-                                pty.kitty_image_storage_limit.load(Ordering::Acquire),
-                            )
-                            .is_err()
+                        let kitty_limits = *pty.kitty_graphics_limits.lock().unwrap();
+                        if Self::configure_terminal_kitty_graphics_limits(
+                            &mut replacement_term,
+                            kitty_limits,
+                        )
+                        .is_err()
                         {
                             if !wait_for_reconnect_after_geometry_failure(&mut retry, pty, geometry)
                             {
@@ -2437,7 +2456,7 @@ impl Surface {
                 cell_width: cell_pixels.0,
                 cell_height: cell_pixels.1,
             }),
-            kitty_image_storage_limit: AtomicU64::new(ghostty_vt::MAX_KITTY_IMAGE_BYTES as u64),
+            kitty_graphics_limits: Box::new(Mutex::new(KittyGraphicsLimits::default())),
             #[cfg(test)]
             geometry_test_hook: Mutex::new(None),
             #[cfg(test)]
@@ -2531,7 +2550,7 @@ impl Surface {
             title: Mutex::new(String::new()),
             pwd: Mutex::new(None),
             geometry: Mutex::new(initial_geometry),
-            kitty_image_storage_limit: AtomicU64::new(ghostty_vt::MAX_KITTY_IMAGE_BYTES as u64),
+            kitty_graphics_limits: Box::new(Mutex::new(KittyGraphicsLimits::default())),
             geometry_test_hook: Mutex::new(None),
             test_master_control: Some(test_master_control),
             vt_replay_builds: AtomicUsize::new(0),
@@ -2662,17 +2681,42 @@ impl Surface {
         Some(result)
     }
 
-    pub(crate) fn set_kitty_image_storage_limit(&self, bytes: u64) -> anyhow::Result<()> {
+    fn configure_terminal_kitty_graphics_limits(
+        terminal: &mut Terminal,
+        limits: KittyGraphicsLimits,
+    ) -> anyhow::Result<()> {
+        terminal.set_kitty_image_count_limit(limits.images)?;
+        if terminal.set_kitty_placement_count_limit(limits.placements).is_err() {
+            // Placement reductions preserve visible state by default. Under
+            // process pressure, release the old scene before installing the
+            // lower limit so a surface cannot retain an unbounded exception.
+            terminal.set_kitty_image_storage_limit(0)?;
+            terminal.set_kitty_placement_count_limit(limits.placements)?;
+        }
+        // Run this after count eviction even when the byte value is unchanged:
+        // it also prunes the replay-side pixel cache against native ownership.
+        terminal.set_kitty_image_storage_limit(limits.bytes)?;
+        Ok(())
+    }
+
+    pub(crate) fn set_kitty_graphics_limits(
+        &self,
+        bytes: u64,
+        images: u64,
+        placements: u64,
+    ) -> anyhow::Result<()> {
         let Some(pty) = self.as_pty() else {
             return Ok(());
         };
-        if pty.kitty_image_storage_limit.load(Ordering::Acquire) == bytes {
+        let next = KittyGraphicsLimits { bytes, images, placements };
+        let mut limits = pty.kitty_graphics_limits.lock().unwrap();
+        if *limits == next {
             return Ok(());
         }
         {
             let mut term = pty.term.lock().unwrap();
-            term.set_kitty_image_storage_limit(bytes)?;
-            pty.kitty_image_storage_limit.store(bytes, Ordering::Release);
+            Self::configure_terminal_kitty_graphics_limits(&mut term, next)?;
+            *limits = next;
             let mut render = pty.render.lock().unwrap();
             render.state.clear_kitty_graphics_cache();
             render.latest = None;

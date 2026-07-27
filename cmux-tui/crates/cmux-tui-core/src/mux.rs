@@ -48,6 +48,8 @@ const KITTY_IMAGE_PROCESS_BUDGET_BYTES: u64 = 128 * 1024 * 1024;
 // keeps one replay pixel cache and one render pixel cache per PTY surface.
 // A grayscale native image expands by up to 3x in either RGB pixel cache.
 const KITTY_IMAGE_PERSISTENT_COPIES_PER_SURFACE: u64 = 2 + 3 + 3;
+const KITTY_IMAGE_PROCESS_BUDGET_COUNT: u64 = ghostty_vt::MAX_KITTY_IMAGES;
+const KITTY_PLACEMENT_PROCESS_BUDGET_COUNT: u64 = ghostty_vt::MAX_KITTY_PLACEMENTS;
 
 pub(crate) struct RenderAttachmentPermit {
     active: Arc<AtomicUsize>,
@@ -4061,7 +4063,7 @@ impl Mux {
 
     pub(crate) fn unregister_kitty_image_surface(&self, surface: &Surface) -> anyhow::Result<()> {
         let mut registered = self.kitty_image_surfaces.lock().unwrap();
-        surface.set_kitty_image_storage_limit(0)?;
+        surface.set_kitty_graphics_limits(0, 0, 0)?;
         registered.retain(|candidate| {
             candidate.upgrade().is_some_and(|candidate| !std::ptr::eq(candidate.as_ref(), surface))
         });
@@ -4082,12 +4084,22 @@ impl Mux {
             return Ok(());
         }
         let surface_count = u64::try_from(surfaces.len()).unwrap_or(u64::MAX);
-        let share = KITTY_IMAGE_PROCESS_BUDGET_BYTES
-            .checked_div(surface_count.saturating_mul(KITTY_IMAGE_PERSISTENT_COPIES_PER_SURFACE))
+        let persistent_owners =
+            surface_count.saturating_mul(KITTY_IMAGE_PERSISTENT_COPIES_PER_SURFACE);
+        let byte_share = KITTY_IMAGE_PROCESS_BUDGET_BYTES
+            .checked_div(persistent_owners)
             .unwrap_or(0)
             .min(ghostty_vt::MAX_KITTY_IMAGE_BYTES as u64);
+        let image_share = KITTY_IMAGE_PROCESS_BUDGET_COUNT
+            .checked_div(surface_count)
+            .unwrap_or(0)
+            .min(ghostty_vt::MAX_KITTY_IMAGES);
+        let placement_share = KITTY_PLACEMENT_PROCESS_BUDGET_COUNT
+            .checked_div(surface_count)
+            .unwrap_or(0)
+            .min(ghostty_vt::MAX_KITTY_PLACEMENTS);
         for surface in surfaces {
-            surface.set_kitty_image_storage_limit(share)?;
+            surface.set_kitty_graphics_limits(byte_share, image_share, placement_share)?;
         }
         Ok(())
     }
