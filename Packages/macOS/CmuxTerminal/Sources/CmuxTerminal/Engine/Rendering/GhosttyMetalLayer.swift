@@ -1,44 +1,18 @@
 public import CmuxTerminalCore
 public import QuartzCore
-internal import Foundation
+internal import CmuxFoundation
 
 /// Lightweight instrumentation to detect whether Ghostty is actually requesting Metal drawables.
 /// This helps catch "frozen until refocus" regressions without relying on screenshots (which can
 /// mask redraw issues by forcing a window server flush).
 ///
-/// Isolation design: `nextDrawable()` is invoked by the ghostty renderer on
-/// its own thread, so the layer cannot be `@MainActor`; the mutable
-/// instrumentation state is guarded by one lock (the sanctioned shape for
-/// tiny values read by synchronous off-isolation code), and frame
-/// notifications hop to the main actor before touching the receiver.
+/// `nextDrawable()` runs on Ghostty's renderer thread. Lock-free atomics hold
+/// synchronous instrumentation, while an actor owns receiver and demand state
+/// behind a bounded newest-value ingress.
 public final class GhosttyMetalLayer: CAMetalLayer {
-    private let lock = NSLock()
-    private let frameDeliveryGate = RenderedFrameDeliveryGate()
-    // SAFETY: all four are guarded by `lock`; written/read from the renderer
-    // thread (`nextDrawable()`) and the main actor (configuration, debug HUD).
-    nonisolated(unsafe) private var drawableCount: Int = 0
-    nonisolated(unsafe) private var lastDrawableTime: CFTimeInterval = 0
-    nonisolated(unsafe) private weak var frameReceiver: (any TerminalRenderedFrameReceiving)?
-    nonisolated(unsafe) private var renderDemand: (any RenderDemandGating)?
-    nonisolated(unsafe) private var localRenderDemand: (any RenderDemandGating)?
-
-    /// Injects the rendered-frame demand gate that decides whether vending a
-    /// drawable should notify the receiver.
-    public func setRenderDemand(_ renderDemand: (any RenderDemandGating)?) {
-        lock.lock()
-        self.renderDemand = renderDemand
-        lock.unlock()
-        frameDeliveryGate.cancel()
-    }
-
-    /// Injects receiver-local demand. A drawable notifies when either the
-    /// process-wide gate or this layer-local gate is active.
-    public func setLocalRenderDemand(_ localRenderDemand: (any RenderDemandGating)?) {
-        lock.lock()
-        self.localRenderDemand = localRenderDemand
-        lock.unlock()
-        frameDeliveryGate.cancel()
-    }
+    private let frameDeliveryCoordinator = RenderedFrameDeliveryCoordinator()
+    private let drawableCount = AtomicUInt64Value()
+    private let lastDrawableTimeBits = AtomicUInt64Value()
 
     /// Whether either gate currently requests rendered-frame delivery.
     /// Kept as one shared predicate so the renderer hot path and its focused
@@ -50,45 +24,37 @@ public final class GhosttyMetalLayer: CAMetalLayer {
         global?.isActive == true || local?.isActive == true
     }
 
-    /// Attaches the view that receives coalesced rendered-frame updates.
-    public func setFrameReceiver(_ frameReceiver: (any TerminalRenderedFrameReceiving)?) {
-        lock.lock()
-        self.frameReceiver = frameReceiver
-        lock.unlock()
-        frameDeliveryGate.cancel()
+    /// Configures the demand gates and view that receive coalesced frame
+    /// updates.
+    public func configureFrameDelivery(
+        renderDemand: (any RenderDemandGating)?,
+        localRenderDemand: (any RenderDemandGating)?,
+        receiver: (any TerminalRenderedFrameReceiving)?
+    ) {
+        let coordinator = frameDeliveryCoordinator
+        Task {
+            await coordinator.configure(
+                renderDemand: renderDemand,
+                localRenderDemand: localRenderDemand,
+                receiver: receiver
+            )
+        }
     }
 
     /// The number of drawables vended so far and the media time of the last
     /// one, for debug HUDs.
     public func debugStats() -> (count: Int, last: CFTimeInterval) {
-        lock.lock()
-        defer { lock.unlock() }
-        return (drawableCount, lastDrawableTime)
+        (
+            Int(clamping: drawableCount.loadRelaxed()),
+            CFTimeInterval(bitPattern: lastDrawableTimeBits.loadRelaxed())
+        )
     }
 
     override public func nextDrawable() -> (any CAMetalDrawable)? {
         guard let drawable = super.nextDrawable() else { return nil }
-        // One critical section for the instrumentation write and both
-        // injected-collaborator reads; the render thread takes this lock once
-        // per vended drawable.
-        lock.lock()
-        drawableCount += 1
-        lastDrawableTime = CACurrentMediaTime()
-        let renderDemand = renderDemand
-        let localRenderDemand = localRenderDemand
-        let frameReceiver = frameReceiver
-        lock.unlock()
-        guard Self.hasActiveRenderDemand(global: renderDemand, local: localRenderDemand) else {
-            frameDeliveryGate.cancel()
-            return drawable
-        }
-        guard let frameReceiver,
-              let ticket = frameDeliveryGate.claim() else { return drawable }
-        let deliveryGate = frameDeliveryGate
-        Task { @MainActor [weak frameReceiver, deliveryGate] in
-            guard deliveryGate.consume(ticket) else { return }
-            frameReceiver?.enqueueRenderedFrameUpdate()
-        }
+        _ = drawableCount.wrappingIncrementRelaxed()
+        lastDrawableTimeBits.storeRelaxed(CACurrentMediaTime().bitPattern)
+        frameDeliveryCoordinator.requestFrame()
         return drawable
     }
 }

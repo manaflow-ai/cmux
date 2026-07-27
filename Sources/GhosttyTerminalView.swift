@@ -3303,10 +3303,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var keyboardCopyModeInputState = TerminalKeyboardCopyModeInputState()
     private var keyboardCopyModeCursor: TerminalKeyboardCopyModeCursor?
     private var keyboardCopyModeRenderedFrameNotificationRelease: (() -> Void)?
-    private enum KeyboardCopyModeSelectionKind {
-        case character
-        case line
-    }
     private var keyboardCopyModeSelectionKind: KeyboardCopyModeSelectionKind?
     private var keyboardCopyModeVisualActive: Bool { keyboardCopyModeSelectionKind != nil }
     private var keyboardCopyModeVisualLineActive: Bool { keyboardCopyModeSelectionKind == .line }
@@ -3392,9 +3388,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func makeBackingLayer() -> CALayer {
         let metalLayer = GhosttyMetalLayer()
-        metalLayer.setFrameReceiver(self)
-        metalLayer.setRenderDemand(GhosttyApp.renderedFrameNotificationDemand)
-        metalLayer.setLocalRenderDemand(localRenderedFrameNotificationDemand)
+        metalLayer.configureFrameDelivery(
+            renderDemand: GhosttyApp.renderedFrameNotificationDemand,
+            localRenderDemand: localRenderedFrameNotificationDemand,
+            receiver: self
+        )
         metalLayer.pixelFormat = .bgra8Unorm
         metalLayer.isOpaque = false
         Task { @MainActor [weak self] in self?.reconcileSurfaceSizeAfterMetalLayerAttachIfNeeded() }
@@ -4109,42 +4107,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         var performed = true
         for _ in 0 ..< terminalKeyboardCopyModeClampCount(repeatCount) { performed = performBindingAction(action) && performed }
         return performed
-    }
-
-    struct KeyboardCopyModeResolvedCell {
-        let cursor: TerminalKeyboardCopyModeCursor
-        let widthCells: Int
-        let color: NSColor
-    }
-
-    struct KeyboardCopyModeGridMetrics {
-        let cellWidth: CGFloat
-        let cellHeight: CGFloat
-        let xInset: CGFloat
-        let yInset: CGFloat
-        let viewHeight: CGFloat
-
-        func topOriginRect(for cell: KeyboardCopyModeResolvedCell) -> CGRect {
-            CGRect(
-                x: xInset + (CGFloat(cell.cursor.column) * cellWidth),
-                y: yInset + (CGFloat(cell.cursor.row) * cellHeight),
-                width: cellWidth * CGFloat(max(cell.widthCells, 1)),
-                height: cellHeight
-            )
-        }
-
-        func appKitRect(for cell: KeyboardCopyModeResolvedCell) -> CGRect {
-            let topOrigin = topOriginRect(for: cell)
-            let rawY = viewHeight - topOrigin.maxY
-            let maxY = max(viewHeight - topOrigin.height, 0)
-            return CGRect(
-                x: topOrigin.minX,
-                y: min(max(rawY, 0), maxY),
-                width: topOrigin.width,
-                height: topOrigin.height
-            )
-        }
-
     }
 
     private func keyboardCopyModeGridMetrics(surface: ghostty_surface_t) -> KeyboardCopyModeGridMetrics? {
@@ -7420,14 +7382,6 @@ extension Notification.Name {
     static let workspaceRemoteConnectionPresentationDidChange = Notification.Name(
         "cmux.workspaceRemoteConnectionPresentationDidChange"
     )
-}
-
-final class GhosttyFlashOverlayView: NSView {
-    override var acceptsFirstResponder: Bool { false }
-
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        nil
-    }
 }
 
 private final class TerminalViewportBorderOverlayView: NSView {

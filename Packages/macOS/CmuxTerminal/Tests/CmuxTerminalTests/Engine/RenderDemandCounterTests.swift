@@ -72,24 +72,12 @@ struct RenderDemandCounterTests {
         #expect(!GhosttyMetalLayer.hasActiveRenderDemand(global: global, local: local))
     }
 
-    @Test func renderedFrameDeliveryAllowsOnlyOnePendingMainActorHop() throws {
-        let gate = RenderedFrameDeliveryGate()
+    @Test @MainActor
+    func renderedFrameDeliveryBuffersOnlyTheNewestMainActorHop() {
+        let coordinator = RenderedFrameDeliveryCoordinator(startConsumer: false)
 
-        let first = try #require(gate.claim())
-        #expect(gate.claim() == nil)
-        #expect(gate.claim() == nil)
-
-        #expect(gate.consume(first))
-        #expect(gate.claim() != nil)
-    }
-
-    @Test func cancellingRenderedFrameDeliveryInvalidatesOnlyTheOldTicket() throws {
-        let gate = RenderedFrameDeliveryGate()
-        let stale = try #require(gate.claim())
-
-        gate.cancel()
-        let current = try #require(gate.claim())
-        #expect(!gate.consume(stale))
-        #expect(gate.consume(current))
+        #expect(coordinator.requestFrame())
+        #expect(!coordinator.requestFrame())
+        #expect(!coordinator.requestFrame())
     }
 }

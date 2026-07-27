@@ -105,7 +105,7 @@ extension TerminalPasteboardService: TerminalClipboardWriting {
 
             if let capture {
                 let value = representations.first(where: {
-                    Self.normalizedMIMEType($0.mimeType) == "text/plain"
+                    normalizedTerminalClipboardMIMEType($0.mimeType) == "text/plain"
                 })?.string ?? representations[0].string
                 capture.capture(value)
                 return
@@ -117,7 +117,7 @@ extension TerminalPasteboardService: TerminalClipboardWriting {
         for representation in representations {
             _ = item.setString(
                 representation.string,
-                forType: Self.pasteboardType(forMIMEType: representation.mimeType)
+                forType: terminalPasteboardType(forMIMEType: representation.mimeType)
             )
         }
         pasteboard.clearContents()
@@ -154,24 +154,27 @@ extension TerminalPasteboardService: TerminalClipboardWriting {
         return capture.value
     }
 
-    private static func normalizedMIMEType(_ mimeType: String) -> String {
-        let base = mimeType.split(separator: ";", maxSplits: 1).first ?? Substring(mimeType)
-        return String(base)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-    }
+}
 
-    private static func pasteboardType(forMIMEType mimeType: String) -> NSPasteboard.PasteboardType {
-        switch normalizedMIMEType(mimeType) {
-        case "text/plain":
-            return .string
-        case "text/html":
-            return .html
-        case "text/rtf":
-            return .rtf
-        default:
-            return NSPasteboard.PasteboardType(mimeType)
-        }
+private func normalizedTerminalClipboardMIMEType(_ mimeType: String) -> String {
+    let base = mimeType.split(separator: ";", maxSplits: 1).first ?? Substring(mimeType)
+    return String(base)
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .lowercased()
+}
+
+private func terminalPasteboardType(
+    forMIMEType mimeType: String
+) -> NSPasteboard.PasteboardType {
+    switch normalizedTerminalClipboardMIMEType(mimeType) {
+    case "text/plain":
+        return .string
+    case "text/html":
+        return .html
+    case "text/rtf":
+        return .rtf
+    default:
+        return NSPasteboard.PasteboardType(mimeType)
     }
 }
 
