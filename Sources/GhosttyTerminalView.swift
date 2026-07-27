@@ -10910,9 +10910,9 @@ final class GhosttySurfaceScrollView: NSView {
         let width = max(0, surfaceView.frame.width)
         let height = surfaceView.frame.height
         guard width > 0, height > 0 else { return false }
+        defer { surfaceView.terminalSurface?.rendererPresentationReadinessDidChange() }
         return surfaceView.pushTargetSurfaceSize(CGSize(width: width, height: height))
     }
-
     private func updateNotificationRingPath() {
         updateOverlayRingPath(
             layer: notificationRingLayer,
