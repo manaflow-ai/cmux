@@ -1,6 +1,6 @@
 import AppKit
 import CmuxTerminal
-import Testing
+import XCTest
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -15,10 +15,8 @@ private struct CapturedGhosttyKeyIdentityEvent {
 }
 
 @MainActor
-@Suite(.serialized)
-struct GhosttyConsumedModifierLifecycleTests {
-    @Test
-    func repeatAndReleaseKeepConsumedModifiersFromInitialPress() throws {
+final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
+    func testRepeatAndReleaseKeepConsumedModifiersFromInitialPress() throws {
         _ = NSApplication.shared
 
         let surface = TerminalSurface(
@@ -41,7 +39,7 @@ struct GhosttyConsumedModifierLifecycleTests {
             window.orderOut(nil)
         }
 
-        let contentView = try #require(window.contentView)
+        let contentView = try XCTUnwrap(window.contentView)
         hostedView.frame = contentView.bounds
         hostedView.autoresizingMask = [.width, .height]
         contentView.addSubview(hostedView)
@@ -52,7 +50,7 @@ struct GhosttyConsumedModifierLifecycleTests {
         hostedView.setActive(true)
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 
-        let view = try #require(findGhosttyNSView(in: hostedView))
+        let view = try XCTUnwrap(findGhosttyNSView(in: hostedView))
         installCJKIMEInterpretKeyEventsSwizzle()
         cjkIMEInterpretKeyEventsHook = { candidateView, events in
             guard candidateView === view,
@@ -77,7 +75,7 @@ struct GhosttyConsumedModifierLifecycleTests {
         }
 
         let timestamp = ProcessInfo.processInfo.systemUptime
-        let press = try #require(NSEvent.keyEvent(
+        let press = try XCTUnwrap(NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
             modifierFlags: [.option],
@@ -89,7 +87,7 @@ struct GhosttyConsumedModifierLifecycleTests {
             isARepeat: false,
             keyCode: 45
         ))
-        let repeatEvent = try #require(NSEvent.keyEvent(
+        let repeatEvent = try XCTUnwrap(NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
             modifierFlags: [],
@@ -101,7 +99,7 @@ struct GhosttyConsumedModifierLifecycleTests {
             isARepeat: true,
             keyCode: 45
         ))
-        let release = try #require(NSEvent.keyEvent(
+        let release = try XCTUnwrap(NSEvent.keyEvent(
             with: .keyUp,
             location: .zero,
             modifierFlags: [],
@@ -121,23 +119,27 @@ struct GhosttyConsumedModifierLifecycleTests {
             view.keyUp(with: release)
         }
 
-        #expect(capturedEvents.count == 3)
-        #expect(capturedEvents[0].action == GHOSTTY_ACTION_PRESS)
-        #expect(capturedEvents[0].text == "ñ")
-        #expect(capturedEvents[0].consumedModifiers == GHOSTTY_MODS_ALT.rawValue)
-        #expect(capturedEvents[1].action == GHOSTTY_ACTION_REPEAT)
-        #expect(
-            capturedEvents[1].text == "ñ",
+        XCTAssertEqual(capturedEvents.count, 3)
+        guard capturedEvents.count == 3 else { return }
+        XCTAssertEqual(capturedEvents[0].action, GHOSTTY_ACTION_PRESS)
+        XCTAssertEqual(capturedEvents[0].text, "ñ")
+        XCTAssertEqual(capturedEvents[0].consumedModifiers, GHOSTTY_MODS_ALT.rawValue)
+        XCTAssertEqual(capturedEvents[1].action, GHOSTTY_ACTION_REPEAT)
+        XCTAssertEqual(
+            capturedEvents[1].text,
+            "ñ",
             "A repeat must keep the initial press text after translation changes"
         )
-        #expect(
-            capturedEvents[1].consumedModifiers == GHOSTTY_MODS_ALT.rawValue,
+        XCTAssertEqual(
+            capturedEvents[1].consumedModifiers,
+            GHOSTTY_MODS_ALT.rawValue,
             "A repeat must keep the modifiers that produced its retained text"
         )
-        #expect(capturedEvents[2].action == GHOSTTY_ACTION_RELEASE)
-        #expect(capturedEvents[2].text == nil)
-        #expect(
-            capturedEvents[2].consumedModifiers == GHOSTTY_MODS_ALT.rawValue,
+        XCTAssertEqual(capturedEvents[2].action, GHOSTTY_ACTION_RELEASE)
+        XCTAssertNil(capturedEvents[2].text)
+        XCTAssertEqual(
+            capturedEvents[2].consumedModifiers,
+            GHOSTTY_MODS_ALT.rawValue,
             "A release must carry the same physical-key identity as its press"
         )
     }
