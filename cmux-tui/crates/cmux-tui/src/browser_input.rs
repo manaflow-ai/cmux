@@ -1680,6 +1680,26 @@ mod tests {
     }
 
     #[test]
+    fn synthetic_key_press_respects_the_surface_lane_capacity() {
+        let dispatcher = BrowserInputDispatcher::spawn(|_| {}, |_| {}).unwrap();
+        let releases = block_all_browser_input_workers(&dispatcher);
+
+        for _ in 0..QUEUE_CAPACITY {
+            assert!(
+                dispatcher.enqueue_key_press(key_event(1, "keyDown"), key_event(1, "keyUp")),
+                "a surface lane rejected a key press before reaching its capacity"
+            );
+        }
+        assert!(
+            !dispatcher.enqueue_key_press(key_event(1, "keyDown"), key_event(1, "keyUp")),
+            "one stalled surface bypassed its lane capacity with retained key pairs"
+        );
+        for release in releases {
+            let _ = release.send(());
+        }
+    }
+
+    #[test]
     fn idle_surface_lanes_do_not_exhaust_scheduler_admission() {
         let dispatcher = BrowserInputDispatcher::spawn(|_| {}, |_| {}).unwrap();
         let (observed_tx, observed_rx) = std::sync::mpsc::channel();

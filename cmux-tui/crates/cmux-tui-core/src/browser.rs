@@ -4611,6 +4611,58 @@ mod tests {
         (runtime, server)
     }
 
+    fn runtime_recording_key_dispatches() -> (
+        Arc<super::BrowserRuntime>,
+        thread::JoinHandle<()>,
+        mpsc::Receiver<Vec<String>>,
+        mpsc::Sender<()>,
+    ) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (observed_tx, observed_rx) = mpsc::channel();
+        let (start_tx, start_rx) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            stream.set_read_timeout(Some(Duration::from_millis(250))).unwrap();
+            let mut ws = accept(stream).unwrap();
+            let discover = read_ws_json(&mut ws);
+            assert_eq!(discover["method"], "Target.setDiscoverTargets");
+            write_ws_json(&mut ws, json!({"id": discover["id"], "result": {}}));
+
+            start_rx.recv().unwrap();
+            let mut event_types = Vec::new();
+            while event_types.len() < 2 {
+                let request = match ws.read() {
+                    Ok(Message::Text(text)) => serde_json::from_str::<Value>(&text).ok(),
+                    Ok(Message::Binary(bytes)) => serde_json::from_slice::<Value>(&bytes).ok(),
+                    Ok(_) => None,
+                    Err(tungstenite::Error::Io(error))
+                        if matches!(
+                            error.kind(),
+                            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                        ) =>
+                    {
+                        break;
+                    }
+                    Err(_) => break,
+                };
+                let Some(request) = request else { continue };
+                if request["method"] == "Input.dispatchKeyEvent" {
+                    event_types.push(request["params"]["type"].as_str().unwrap().to_string());
+                }
+                write_ws_json(&mut ws, json!({"id": request["id"], "result": {}}));
+            }
+            observed_tx.send(event_types).unwrap();
+        });
+        let runtime = super::BrowserRuntime::connect_to_endpoint(
+            &format!("ws://{addr}/devtools/browser/fake"),
+            None,
+            BrowserSource::External,
+        )
+        .unwrap();
+        (runtime, server, observed_rx, start_tx)
+    }
+
     fn runtime_recording_mouse_dispatches()
     -> (Arc<super::BrowserRuntime>, thread::JoinHandle<()>, mpsc::Receiver<Value>, mpsc::Sender<()>)
     {
@@ -9586,6 +9638,44 @@ mod tests {
         assert!(
             settled_while_full,
             "retaining a release must not block the shared browser input producer"
+        );
+    }
+
+    #[test]
+    fn synthesized_key_press_survives_the_final_core_queue_boundary() {
+        let (runtime, server, observed, start) = runtime_recording_key_dispatches();
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        let done = browser.take_worker_done_for_test();
+        browser
+            .mark_live(BrowserSession {
+                runtime: runtime.clone(),
+                target_id: "target-1".to_string(),
+                session_id: "session-1".to_string(),
+            })
+            .unwrap();
+        let (entered, started) = mpsc::channel();
+        let (release_worker, held) = mpsc::channel();
+        assert!(browser.enqueue_test_command(BrowserCommand::Hold { entered, release: held }));
+        started.recv_timeout(Duration::from_secs(1)).unwrap();
+        for _ in 0..BROWSER_COMMAND_QUEUE_CAPACITY - 1 {
+            assert!(browser.enqueue_test_command(BrowserCommand::WakeLatest));
+        }
+
+        surface.browser_key_event("keyDown", "j", "KeyJ", 74, 1, None).unwrap();
+        surface.browser_key_event("keyUp", "j", "KeyJ", 74, 1, None).unwrap();
+        start.send(()).unwrap();
+        release_worker.send(()).unwrap();
+
+        let event_types = observed.recv_timeout(Duration::from_secs(1)).unwrap();
+        browser.kill();
+        done.recv_timeout(Duration::from_secs(1)).expect("browser worker exited after release");
+        runtime.shutdown();
+        server.join().unwrap();
+        assert_eq!(
+            event_types,
+            vec!["keyDown", "keyUp"],
+            "the final bounded queue split a synthesized key press"
         );
     }
 
