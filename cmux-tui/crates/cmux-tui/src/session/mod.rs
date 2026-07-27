@@ -53,7 +53,7 @@ pub(crate) fn is_remote_surface_unavailable(error: &anyhow::Error, surface: Surf
     error.downcast_ref::<remote::RemoteRequestError>().is_some_and(|error| {
         matches!(
             error,
-            remote::RemoteRequestError::Rejected(message)
+            remote::RemoteRequestError::Rejected { error: message, .. }
                 if message == &format!("unknown surface {surface}")
         )
     })
@@ -80,7 +80,7 @@ pub(crate) fn test_remote_rejected_error() -> anyhow::Error {
 
 #[cfg(test)]
 pub(crate) fn test_remote_rejected_error_with_message(message: &str) -> anyhow::Error {
-    remote::RemoteRequestError::Rejected(message.to_string()).into()
+    remote::RemoteRequestError::Rejected { error: message.to_string(), delivery: None }.into()
 }
 
 pub struct SidebarPluginSurface {

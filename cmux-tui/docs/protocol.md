@@ -19,11 +19,11 @@ $TMPDIR/cmux-tui-<uid>/<session>.sock
 {"id":1,"ok":true,"data":{"app":"cmux-tui","version":"...","protocol":10,"capabilities":["attach-initial-size","workspace-registry-v1","clear-history-v1","clear-history-key-v1","provider-managed-workspace-authority-v2"],"session":"main","pid":12345}}
 ```
 
-Responses have this shape:
+Responses have this shape. The second example is a failed `clear-history` request:
 
 ```json
 {"id":1,"ok":true,"data":{}}
-{"id":2,"ok":false,"error":"unknown surface 99"}
+{"id":2,"ok":false,"error":"unknown surface 99","error_delivery":"known-not-delivered"}
 ```
 
 Bad JSON returns `ok:false` with no request id.
@@ -39,6 +39,8 @@ common flows rather than duplicating the exhaustive command list.
 Clients must require the `clear-history-v1` capability before sending `clear-history` to a protocol-v9 server.
 
 Clients may include the structured `fallback_key` defined in `spec/commands.md` only when `identify` also advertises `clear-history-key-v1`. The server clears a primary screen without using the fallback. On an alternate screen it leaves both screens intact and encodes the fallback with the authoritative terminal keyboard modes.
+
+Failed `clear-history` responses add `error_delivery`. `known-not-delivered` proves that no clear or fallback input reached the terminal. `ambiguous` means delivery may have started. Missing or unknown values must be treated as ambiguous.
 
 `provider-managed-workspace-authority-v2` means the mux was provider-locked before its first control client and accepts private mirror commits only with its pre-provisioned authority. `mark-workspaces-provider-managed` validates that authority without changing ownership. Ordinary `close-workspace` and `rename-workspace` requests always fail on that mux. The provider-aware TUI sends an authorized `close-provider-managed-workspace` or `rename-provider-managed-workspace` only after the external provider accepts the corresponding lifecycle request. Provider-aware clients must refuse provider-owned mode when the server does not advertise this capability.
 

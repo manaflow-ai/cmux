@@ -46,7 +46,9 @@ use zeroize::Zeroize;
 use crate::model::{Screen, State, Workspace};
 use crate::mux::clamp_terminal_size;
 use crate::platform::{self, transport};
-use crate::surface::{AttachLifecycle, CLEAR_HISTORY_KEY_TEXT_MAX_BYTES};
+use crate::surface::{
+    AttachLifecycle, CLEAR_HISTORY_KEY_TEXT_MAX_BYTES, ClearHistoryDelivery, ClearHistoryFailure,
+};
 use crate::{
     AgentRecord, AgentSource, AgentState, AttachFrame, DefaultColors, Direction, LayoutLeafSpec,
     LayoutSpec, Mux, MuxEvent, Node, NotificationLevel, PairingDecision, PaneId, RenderAttachFrame,
@@ -1047,6 +1049,55 @@ struct Response {
     data: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error_delivery: Option<ResponseErrorDelivery>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "kebab-case")]
+enum ResponseErrorDelivery {
+    KnownNotDelivered,
+    Ambiguous,
+}
+
+impl From<ClearHistoryDelivery> for ResponseErrorDelivery {
+    fn from(delivery: ClearHistoryDelivery) -> Self {
+        match delivery {
+            ClearHistoryDelivery::KnownNotDelivered => Self::KnownNotDelivered,
+            ClearHistoryDelivery::Ambiguous => Self::Ambiguous,
+        }
+    }
+}
+
+#[derive(Debug)]
+struct DeliveryClassifiedError {
+    error: anyhow::Error,
+    delivery: ResponseErrorDelivery,
+}
+
+impl DeliveryClassifiedError {
+    fn known_not_delivered(error: anyhow::Error) -> anyhow::Error {
+        anyhow::Error::new(Self { error, delivery: ResponseErrorDelivery::KnownNotDelivered })
+    }
+}
+
+impl From<ClearHistoryFailure> for DeliveryClassifiedError {
+    fn from(failure: ClearHistoryFailure) -> Self {
+        let delivery = failure.delivery().into();
+        Self { error: failure.into_error(), delivery }
+    }
+}
+
+impl std::fmt::Display for DeliveryClassifiedError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.error.fmt(formatter)
+    }
+}
+
+impl std::error::Error for DeliveryClassifiedError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.error.source()
+    }
 }
 
 const STREAM_DISCONNECT_POLL: Duration = Duration::from_millis(100);
@@ -1342,36 +1393,39 @@ impl ConnectionSurfaceScheduler {
         if state.closed {
             return Some(false);
         }
+        let is_clear_history = request.as_ref().unwrap().cmd.is_clear_history();
         let over_count = state.requests.len() >= CONNECTION_SURFACE_QUEUE_CAPACITY;
         let over_bytes = retained_bytes
             > CONNECTION_SURFACE_QUEUE_BYTE_CAPACITY.saturating_sub(state.queued_bytes);
         if over_count || over_bytes {
             drop(state);
-            return Some(send_request_error(
+            return Some(send_request_error_with_delivery(
                 &writer,
                 request.take().unwrap().id,
                 "surface request queue is full; request was not executed",
+                is_clear_history.then_some(ResponseErrorDelivery::KnownNotDelivered),
             ));
         }
-        let is_clear_history = request.as_ref().unwrap().cmd.is_clear_history();
         let request_id = request.as_ref().unwrap().id.clone();
         let (worker_permit, bytes_permit) = if is_clear_history {
             match self.admission.try_reserve_worker_and_bytes(retained_bytes) {
                 Ok((worker, bytes)) => (Some(worker), bytes),
                 Err(ServerSurfaceAdmissionError::WorkerCapacity) => {
                     drop(state);
-                    return Some(send_request_error(
+                    return Some(send_request_error_with_delivery(
                         &writer,
                         request.take().unwrap().id,
                         "too many clear-history operations are already in progress",
+                        Some(ResponseErrorDelivery::KnownNotDelivered),
                     ));
                 }
                 Err(ServerSurfaceAdmissionError::RetainedByteCapacity) => {
                     drop(state);
-                    return Some(send_request_error(
+                    return Some(send_request_error_with_delivery(
                         &writer,
                         request.take().unwrap().id,
                         "server surface-operation byte budget is full; request was not executed",
+                        Some(ResponseErrorDelivery::KnownNotDelivered),
                     ));
                 }
             }
@@ -1403,10 +1457,11 @@ impl ConnectionSurfaceScheduler {
         if start_dispatcher && let Err(error) = self.start_dispatcher(mux, client, writer.clone()) {
             self.finish_dispatcher();
             self.close();
-            return Some(send_request_error(
+            return Some(send_request_error_with_delivery(
                 &writer,
                 request_id,
                 &format!("could not start connection request dispatcher: {error}"),
+                is_clear_history.then_some(ResponseErrorDelivery::KnownNotDelivered),
             ));
         }
         Some(true)
@@ -1442,11 +1497,6 @@ impl ConnectionSurfaceScheduler {
     fn next_request(&self) -> Option<PendingSurfaceRequest> {
         let mut state = self.state.lock().unwrap();
         loop {
-            if state.closed {
-                state.dispatcher_done = true;
-                self.changed.notify_all();
-                return None;
-            }
             if let Some(index) = Self::next_runnable_index(&state) {
                 let pending = state.requests.remove(index).unwrap();
                 state.queued_bytes = state.queued_bytes.saturating_sub(pending.retained_bytes);
@@ -1460,6 +1510,11 @@ impl ConnectionSurfaceScheduler {
                     assert!(inserted, "a clear worker cannot overlap its surface");
                 }
                 return Some(pending);
+            }
+            if state.closed && state.requests.is_empty() {
+                state.dispatcher_done = true;
+                self.changed.notify_all();
+                return None;
             }
             state = self.changed.wait(state).unwrap();
         }
@@ -1497,16 +1552,34 @@ impl ConnectionSurfaceScheduler {
         }
     }
 
-    fn close_and_wait(&self, timeout: Duration) -> bool {
-        let deadline = Instant::now() + timeout;
-        self.close();
+    fn finish(&self) {
         let mut state = self.state.lock().unwrap();
-        while (!state.dispatcher_done || !state.active_clear_surfaces.is_empty())
-            && Instant::now() < deadline
-        {
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            let (next, _) = self.changed.wait_timeout(state, remaining).unwrap();
-            state = next;
+        state.closed = true;
+        let dispatcher_never_started = !state.dispatcher_started;
+        if dispatcher_never_started {
+            state.dispatcher_done = true;
+        }
+        self.changed.notify_all();
+        drop(state);
+        if dispatcher_never_started {
+            self.connection_permit.lock().unwrap().take();
+        }
+    }
+
+    fn wait_for_completion(&self, timeout: Option<Duration>) -> bool {
+        let deadline = timeout.map(|timeout| Instant::now() + timeout);
+        let mut state = self.state.lock().unwrap();
+        while !state.dispatcher_done || !state.active_clear_surfaces.is_empty() {
+            if let Some(deadline) = deadline {
+                if Instant::now() >= deadline {
+                    break;
+                }
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                let (next, _) = self.changed.wait_timeout(state, remaining).unwrap();
+                state = next;
+            } else {
+                state = self.changed.wait(state).unwrap();
+            }
         }
         let drained = state.dispatcher_done && state.active_clear_surfaces.is_empty();
         drop(state);
@@ -1514,6 +1587,17 @@ impl ConnectionSurfaceScheduler {
             let _ = dispatcher.join();
         }
         drained
+    }
+
+    fn finish_and_wait(&self) {
+        self.finish();
+        let drained = self.wait_for_completion(None);
+        debug_assert!(drained, "unbounded graceful drain must settle");
+    }
+
+    fn close_and_wait(&self, timeout: Duration) -> bool {
+        self.close();
+        self.wait_for_completion(Some(timeout))
     }
 }
 
@@ -1586,10 +1670,11 @@ fn run_connection_surface_dispatcher(
                 let id = pending.request.id.clone();
                 drop(pending);
                 scheduler.finish_clear(surface);
-                if !send_request_error(
+                if !send_request_error_with_delivery(
                     &writer,
                     id,
                     &format!("could not start clear-history worker: {error}"),
+                    Some(ResponseErrorDelivery::KnownNotDelivered),
                 ) {
                     scheduler.close();
                     return;
@@ -2560,8 +2645,15 @@ fn handle_connection_with_permit(
         connection_permit.clone(),
     ));
     let reader = BufReader::new(stream);
+    let mut drain_accepted = true;
     for line in reader.lines() {
-        let Ok(mut line) = line else { break };
+        let mut line = match line {
+            Ok(line) => line,
+            Err(_) => {
+                drain_accepted = false;
+                break;
+            }
+        };
         if line.trim().is_empty() {
             zeroize_string(&mut line);
             continue;
@@ -2569,10 +2661,15 @@ fn handle_connection_with_permit(
         let keep_open = handle_connection_message(&mux, client, &line, &writer, &surface_scheduler);
         zeroize_string(&mut line);
         if !keep_open {
+            drain_accepted = false;
             break;
         }
     }
-    let _ = surface_scheduler.close_and_wait(CONNECTION_SURFACE_SHUTDOWN_TIMEOUT);
+    if drain_accepted {
+        surface_scheduler.finish_and_wait();
+    } else {
+        let _ = surface_scheduler.close_and_wait(CONNECTION_SURFACE_SHUTDOWN_TIMEOUT);
+    }
     disconnect_client(&mux, client, false);
     let _ = writer_thread.join();
     drop(connection_permit);
@@ -2813,8 +2910,12 @@ fn handle_request_with_cancellation(
     let detach_self = matches!(&cmd, Command::DetachClient { client: target } if *target == client);
     let shutdown_daemon = matches!(&cmd, Command::ShutdownDaemon { .. });
     let response = match handle_command_with_cancellation(mux, client, cmd, writer, cancellation) {
-        Ok(data) => Response { id, ok: true, data: Some(data), error: None },
-        Err(error) => Response { id, ok: false, data: None, error: Some(error.to_string()) },
+        Ok(data) => Response { id, ok: true, data: Some(data), error: None, error_delivery: None },
+        Err(error) => {
+            let error_delivery =
+                error.downcast_ref::<DeliveryClassifiedError>().map(|error| error.delivery);
+            Response { id, ok: false, data: None, error: Some(error.to_string()), error_delivery }
+        }
     };
     let response_ok = response.ok;
     let sent = send_response(writer, response);
@@ -2836,7 +2937,19 @@ fn handle_request_with_cancellation(
 }
 
 fn send_request_error(writer: &MessageWriter, id: Option<Value>, error: &str) -> bool {
-    send_response(writer, Response { id, ok: false, data: None, error: Some(error.to_string()) })
+    send_request_error_with_delivery(writer, id, error, None)
+}
+
+fn send_request_error_with_delivery(
+    writer: &MessageWriter,
+    id: Option<Value>,
+    error: &str,
+    error_delivery: Option<ResponseErrorDelivery>,
+) -> bool {
+    send_response(
+        writer,
+        Response { id, ok: false, data: None, error: Some(error.to_string()), error_delivery },
+    )
 }
 
 fn send_response(writer: &MessageWriter, response: Response) -> bool {
@@ -4095,10 +4208,16 @@ fn handle_command_with_cancellation(
             Ok(json!({ "text": text }))
         }
         Command::ClearHistory { surface, fallback_key } => {
-            let surface = get_surface(mux, surface)?;
-            require_pty(&surface)?;
-            let fallback_key = fallback_key.map(KeyInput::try_from).transpose()?;
-            surface.clear_history_or_encode_key(fallback_key.as_ref())?;
+            let surface =
+                get_surface(mux, surface).map_err(DeliveryClassifiedError::known_not_delivered)?;
+            require_pty(&surface).map_err(DeliveryClassifiedError::known_not_delivered)?;
+            let fallback_key = fallback_key
+                .map(KeyInput::try_from)
+                .transpose()
+                .map_err(DeliveryClassifiedError::known_not_delivered)?;
+            surface
+                .clear_history_or_encode_key_classified(fallback_key.as_ref())
+                .map_err(DeliveryClassifiedError::from)?;
             Ok(json!({}))
         }
         Command::ReadScrollback { surface, start, count } => {

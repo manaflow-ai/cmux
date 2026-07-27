@@ -13,9 +13,9 @@ use std::time::{Duration, Instant};
 
 use base64::Engine;
 use cmux_tui_core::{
-    BrowserFrame, BrowserSource, BrowserStatus, ClearHistoryFailure, DefaultColors, MuxEvent,
-    MuxEventBroadcaster, MuxEventReceiver, NotificationEvent, NotificationLevel, PairingChallenge,
-    Rgb, SurfaceId, SurfaceKind,
+    BrowserFrame, BrowserSource, BrowserStatus, ClearHistoryDelivery, ClearHistoryFailure,
+    DefaultColors, MuxEvent, MuxEventBroadcaster, MuxEventReceiver, NotificationEvent,
+    NotificationLevel, PairingChallenge, Rgb, SurfaceId, SurfaceKind,
     platform::transport,
     server::{CLEAR_HISTORY_CAPABILITY, CLEAR_HISTORY_KEY_CAPABILITY, ProtocolKeyInput},
 };
@@ -95,7 +95,7 @@ pub(crate) enum RemoteRequestError {
     Encode(serde_json::Error),
     Transport(io::Error),
     Timeout,
-    Rejected(String),
+    Rejected { error: String, delivery: Option<ClearHistoryDelivery> },
     Shutdown,
 }
 
@@ -115,7 +115,7 @@ impl std::fmt::Display for RemoteRequestError {
             Self::Encode(error) => write!(formatter, "could not encode remote request: {error}"),
             Self::Transport(error) => write!(formatter, "remote transport write failed: {error}"),
             Self::Timeout => write!(formatter, "remote session did not respond"),
-            Self::Rejected(error) => write!(formatter, "remote command rejected: {error}"),
+            Self::Rejected { error, .. } => write!(formatter, "remote command rejected: {error}"),
             Self::Shutdown => write!(formatter, "remote response wait canceled for shutdown"),
         }
     }
@@ -1183,7 +1183,10 @@ impl RemoteSession {
     }
 
     fn subscription_recovery_is_retryable(error: &anyhow::Error) -> bool {
-        matches!(error.downcast_ref::<RemoteRequestError>(), Some(RemoteRequestError::Rejected(_)))
+        matches!(
+            error.downcast_ref::<RemoteRequestError>(),
+            Some(RemoteRequestError::Rejected { .. })
+        )
     }
 
     fn log_frame(&self, surface: SurfaceId, line: String) {
@@ -1238,7 +1241,12 @@ impl RemoteSession {
             Ok(response.get("data").cloned().unwrap_or(Value::Null))
         } else {
             let error = response.get("error").and_then(|v| v.as_str()).unwrap_or("unknown error");
-            Err(RemoteRequestError::Rejected(error.to_string()).into())
+            let delivery = match response.get("error_delivery").and_then(Value::as_str) {
+                Some("known-not-delivered") => Some(ClearHistoryDelivery::KnownNotDelivered),
+                Some("ambiguous") => Some(ClearHistoryDelivery::Ambiguous),
+                _ => None,
+            };
+            Err(RemoteRequestError::Rejected { error: error.to_string(), delivery }.into())
         }
     }
 
@@ -1294,10 +1302,15 @@ impl RemoteSession {
         }))
         .map(|_| ())
         .map_err(|error| {
-            if matches!(
+            let known_not_delivered = matches!(
                 error.downcast_ref::<RemoteRequestError>(),
                 Some(RemoteRequestError::Encode(_))
-            ) {
+                    | Some(RemoteRequestError::Rejected {
+                        delivery: Some(ClearHistoryDelivery::KnownNotDelivered),
+                        ..
+                    })
+            );
+            if known_not_delivered {
                 ClearHistoryFailure::known_not_delivered(error)
             } else {
                 ClearHistoryFailure::ambiguous(error)
@@ -2395,7 +2408,7 @@ mod tests {
 
         let failure = session.clear_history_classified(7).unwrap_err();
 
-        assert_eq!(failure.delivery(), cmux_tui_core::ClearHistoryDelivery::Ambiguous);
+        assert_eq!(failure.delivery(), ClearHistoryDelivery::Ambiguous);
     }
 
     #[test]
@@ -2449,7 +2462,7 @@ mod tests {
 
         let failure = session.clear_history_classified(7).unwrap_err();
 
-        assert_eq!(failure.delivery(), cmux_tui_core::ClearHistoryDelivery::KnownNotDelivered);
+        assert_eq!(failure.delivery(), ClearHistoryDelivery::KnownNotDelivered);
     }
 
     fn acknowledging_provider_session() -> Arc<RemoteSession> {
@@ -3505,7 +3518,10 @@ mod tests {
 
     #[test]
     fn subscription_recovery_retries_only_explicit_rejection() {
-        let rejected = anyhow::Error::new(RemoteRequestError::Rejected("no capacity".to_string()));
+        let rejected = anyhow::Error::new(RemoteRequestError::Rejected {
+            error: "no capacity".to_string(),
+            delivery: None,
+        });
         let timeout = anyhow::Error::new(RemoteRequestError::Timeout);
         let shutdown = anyhow::Error::new(RemoteRequestError::Shutdown);
 
