@@ -188,12 +188,10 @@ import Testing
     @Test func repeatKeepsStableBindingIdentityAcrossLayoutChanges() {
         var tracker = TerminalKeyInputLifecycleTracker()
         let initialIdentity = TerminalKeyInputPhysicalIdentity(
-            unshiftedCodepoint: 0x63,
-            consumedModifierMask: 0x04
+            unshiftedCodepoint: 0x63
         )
         let repeatIdentity = TerminalKeyInputPhysicalIdentity(
-            unshiftedCodepoint: 0x0441,
-            consumedModifierMask: 0
+            unshiftedCodepoint: 0x0441
         )
         _ = tracker.actions(
             for: physicalPlan(text: "c"),
@@ -234,8 +232,7 @@ import Testing
         _ = tracker.physicalIdentity(
             forKeyDown: 8,
             resolvedIdentity: TerminalKeyInputPhysicalIdentity(
-                unshiftedCodepoint: 0x63,
-                consumedModifierMask: 0x04
+                unshiftedCodepoint: 0x63
             ),
             isRepeat: false
         )

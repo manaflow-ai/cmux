@@ -56,18 +56,23 @@ public struct TerminalKeyInputLifecycleTracker: Sendable {
         }
     }
 
-    /// Uses current translation metadata for repeats while retaining the
-    /// initial press metadata for the eventual release.
+    /// Keeps Ghostty's binding identity stable for press, repeats, and release.
+    ///
+    /// Repeat text and consumed modifiers are event-local semantics. The
+    /// unshifted codepoint participates in Ghostty's consumed-binding release
+    /// hash, so it must remain paired with the initial press while the key is
+    /// held, even if the active layout changes.
     public mutating func physicalIdentity(
         forKeyDown keyCode: UInt16,
         resolvedIdentity: TerminalKeyInputPhysicalIdentity,
         isRepeat: Bool
     ) -> TerminalKeyInputPhysicalIdentity {
         if isRepeat, var lifecycle = lifecycles[keyCode] {
-            if lifecycle.physicalIdentity == nil {
-                lifecycle.physicalIdentity = resolvedIdentity
-                lifecycles[keyCode] = lifecycle
+            if let physicalIdentity = lifecycle.physicalIdentity {
+                return physicalIdentity
             }
+            lifecycle.physicalIdentity = resolvedIdentity
+            lifecycles[keyCode] = lifecycle
             return resolvedIdentity
         }
 

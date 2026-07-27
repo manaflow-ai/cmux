@@ -5708,9 +5708,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
             switch inputAction {
             case .sendCommittedText(let text):
-                _ = sendCommittedPreeditText(
+                sendCommittedText(
                     text,
-                    action: action,
                     surface: surface
                 )
             case .sendCommittedKey(let text):
@@ -5770,15 +5769,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let physicalIdentity = terminalKeyInputLifecycleTracker.physicalIdentity(
             forKeyDown: event.keyCode,
             resolvedIdentity: TerminalKeyInputPhysicalIdentity(
-                unshiftedCodepoint: keyEvent.unshifted_codepoint,
-                consumedModifierMask: resolvedConsumedModifiers.rawValue
+                unshiftedCodepoint: keyEvent.unshifted_codepoint
             ),
             isRepeat: event.isARepeat
         )
         keyEvent.unshifted_codepoint = physicalIdentity.unshiftedCodepoint
-        keyEvent.consumed_mods = ghostty_input_mods_e(
-            rawValue: physicalIdentity.consumedModifierMask
-        )
+        keyEvent.consumed_mods = resolvedConsumedModifiers
 
         guard let text, shouldSendText(text) else {
             keyEvent.text = nil
@@ -5791,24 +5787,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
     }
 
-    @discardableResult
-    private func sendCommittedPreeditText(
+    private func sendCommittedText(
         _ text: String,
-        action: ghostty_input_action_e,
         surface: ghostty_surface_t
-    ) -> Bool {
-        var keyEvent = ghostty_input_key_s()
-        keyEvent.action = action
-        keyEvent.keycode = 0
-        keyEvent.text = nil
-        keyEvent.composing = false
-        keyEvent.mods = GHOSTTY_MODS_NONE
-        keyEvent.consumed_mods = GHOSTTY_MODS_NONE
-        keyEvent.unshifted_codepoint = 0
-
-        return text.withCString { pointer in
-            keyEvent.text = pointer
-            return sendGhosttyKey(surface, keyEvent)
+    ) {
+        let byteCount = text.utf8.count
+        text.withCString { pointer in
+            ghostty_surface_text_input(surface, pointer, UInt(byteCount))
         }
     }
 
@@ -5875,9 +5860,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         var keyEvent = ghosttyKeyEvent(for: event, surface: surface)
         if let physicalIdentity = release.physicalIdentity {
             keyEvent.unshifted_codepoint = physicalIdentity.unshiftedCodepoint
-            keyEvent.consumed_mods = ghostty_input_mods_e(
-                rawValue: physicalIdentity.consumedModifierMask
-            )
         }
         keyEvent.action = GHOSTTY_ACTION_RELEASE
         keyEvent.text = nil

@@ -12,6 +12,7 @@ private struct CapturedGhosttyKeyIdentityEvent {
     let action: ghostty_input_action_e
     let text: String?
     let consumedModifiers: UInt32
+    let unshiftedCodepoint: UInt32
 }
 
 @MainActor
@@ -23,7 +24,7 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
         let window: NSWindow
     }
 
-    func testRepeatUsesCurrentMeaningAndReleaseKeepsInitialIdentity() throws {
+    func testRepeatUsesCurrentTextAndStableBindingIdentity() throws {
         let terminal = try makeHostedTerminal()
         let previousInterpretHook = cjkIMEInterpretKeyEventsHook
         defer {
@@ -51,7 +52,8 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
             capturedEvents.append(CapturedGhosttyKeyIdentityEvent(
                 action: keyEvent.action,
                 text: keyEvent.text.map { String(cString: $0) },
-                consumedModifiers: keyEvent.consumed_mods.rawValue
+                consumedModifiers: keyEvent.consumed_mods.rawValue,
+                unshiftedCodepoint: keyEvent.unshifted_codepoint
             ))
         }
 
@@ -75,8 +77,8 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
             timestamp: timestamp + 0.1,
             windowNumber: terminal.window.windowNumber,
             context: nil,
-            characters: "a",
-            charactersIgnoringModifiers: "a",
+            characters: "ф",
+            charactersIgnoringModifiers: "ф",
             isARepeat: true,
             keyCode: 0
         ))
@@ -105,10 +107,11 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
         XCTAssertEqual(capturedEvents[0].action, GHOSTTY_ACTION_PRESS)
         XCTAssertEqual(capturedEvents[0].text, "A")
         XCTAssertEqual(capturedEvents[0].consumedModifiers, GHOSTTY_MODS_SHIFT.rawValue)
+        XCTAssertEqual(capturedEvents[0].unshiftedCodepoint, 0x61)
         XCTAssertEqual(capturedEvents[1].action, GHOSTTY_ACTION_REPEAT)
         XCTAssertEqual(
             capturedEvents[1].text,
-            "a",
+            "ф",
             "A repeat must use the current AppKit text after translation changes"
         )
         XCTAssertEqual(
@@ -116,12 +119,22 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
             GHOSTTY_MODS_NONE.rawValue,
             "A repeat must use the modifiers that produced its current text"
         )
+        XCTAssertEqual(
+            capturedEvents[1].unshiftedCodepoint,
+            capturedEvents[0].unshiftedCodepoint,
+            "A repeat must keep the binding identity established by its press"
+        )
         XCTAssertEqual(capturedEvents[2].action, GHOSTTY_ACTION_RELEASE)
         XCTAssertNil(capturedEvents[2].text)
         XCTAssertEqual(
             capturedEvents[2].consumedModifiers,
-            GHOSTTY_MODS_SHIFT.rawValue,
-            "A release must carry the same physical-key identity as its press"
+            GHOSTTY_MODS_NONE.rawValue,
+            "Consumed modifiers are event-local text metadata, not release identity"
+        )
+        XCTAssertEqual(
+            capturedEvents[2].unshiftedCodepoint,
+            capturedEvents[0].unshiftedCodepoint,
+            "A release must carry the same binding identity as its press and repeats"
         )
     }
 
