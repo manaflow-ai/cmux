@@ -9440,6 +9440,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
         // The operator's FOCUSED pane is surface A (what system.identify returns).
         let focusedWorkspace = "11111111-1111-1111-1111-111111111111"
         let focusedSurface = "22222222-2222-2222-2222-222222222222"
+        let focusedPane = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+        let focusedWindow = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+        let launchWorkspace = "33333333-3333-3333-3333-333333333333"
+        let launchSurface = "44444444-4444-4444-4444-444444444444"
+        let launchPane = "cccccccc-cccc-cccc-cccc-cccccccccccc"
+        let launchWindow = "dddddddd-dddd-dddd-dddd-dddddddddddd"
         let handled = startMockServer(listenerFD: listenerFD, state: state) { line in
             guard let payload = self.jsonObject(line),
                   let id = payload["id"] as? String,
@@ -9451,18 +9457,30 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     "focused": [
                         "workspace_id": focusedWorkspace,
                         "surface_id": focusedSurface,
-                        "pane_id": "%1",
+                        "pane_id": focusedPane,
+                        "window_id": focusedWindow,
                     ],
                 ])
             }
-            // resolveWorkspaceId / tmuxCanonicalPaneId fail gracefully (CLI uses try?).
+            if method == "surface.list" {
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["workspace_id"] as? String, launchWorkspace)
+                return self.v2Response(id: id, ok: true, result: [
+                    "window_id": launchWindow,
+                    "surfaces": [[
+                        "id": launchSurface,
+                        "ref": "surface:2",
+                        "pane_id": launchPane,
+                        "pane_ref": "pane:2",
+                    ]],
+                ])
+            }
+            // Any unexpected launch-context query fails closed.
             return self.v2Response(id: id, ok: false, error: ["code": "unsupported", "message": method])
         }
 
         // ...but the launcher RUNS in surface B (its own inherited env). Tab id is surface-scoped, so
         // it is distinct from the workspace id.
-        let launchWorkspace = "33333333-3333-3333-3333-333333333333"
-        let launchSurface = "44444444-4444-4444-4444-444444444444"
         let launchTab = "55555555-5555-5555-5555-555555555555"
         let result = runProcess(
             executablePath: cliPath,
@@ -9480,6 +9498,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
         wait(for: [handled], timeout: 30)
 
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["surface.list"],
+            "a complete launch identity must resolve without consulting mutable global focus"
+        )
+
         XCTAssertTrue(
             result.stdout.contains("CMUX_SURFACE_ID=\(launchSurface)"),
             "launcher must stamp the LAUNCH surface; stdout:\n\(result.stdout)\nstderr:\n\(result.stderr)"
@@ -9489,9 +9513,31 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "launcher must NOT stamp the focused surface; stdout:\n\(result.stdout)"
         )
         XCTAssertTrue(result.stdout.contains("CMUX_WORKSPACE_ID=\(launchWorkspace)"), result.stdout)
+        XCTAssertTrue(
+            result.stdout.contains("TMUX=/tmp/cmux-debug/\(launchWorkspace),\(launchWindow),"),
+            "fake tmux session/window identity must come from the launch surface; stdout:\n\(result.stdout)"
+        )
+        XCTAssertFalse(
+            result.stdout.contains("TMUX=/tmp/cmux-debug/\(focusedWorkspace),\(focusedWindow),"),
+            "fake tmux identity must not follow global focus; stdout:\n\(result.stdout)"
+        )
+        XCTAssertTrue(
+            result.stdout.contains("TMUX_PANE=%\(stableTmuxNumericId(launchPane))"),
+            "TMUX_PANE must identify the launch surface's pane; stdout:\n\(result.stdout)"
+        )
         // Matched-pair invariant: SURFACE == PANEL (the desync is exactly the bug). The surface-scoped
         // tab id passes through untouched.
         XCTAssertTrue(result.stdout.contains("CMUX_PANEL_ID=\(launchSurface)"), result.stdout)
         XCTAssertTrue(result.stdout.contains("CMUX_TAB_ID=\(launchTab)"), result.stdout)
+    }
+
+    private func stableTmuxNumericId(_ raw: String) -> String {
+        var hash: UInt64 = 14_695_981_039_346_656_037
+        for byte in raw.utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* 1_099_511_628_211
+        }
+        let value = hash & 0x7fff_ffff_ffff_ffff
+        return String(value == 0 ? 1 : value)
     }
 }

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Regression test: `cmux claude-teams` reuses an existing tmux shim.
+Regression test: `cmux claude-teams` prefers the managed per-surface shim root.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-teams-shim-") as td:
         tmp = Path(td)
         home = tmp / "home"
-        cmux_shim_bin = tmp / "cmux-shim-bin"
+        cmux_shim_bin = tmp / "cmux-cli-shims" / "surface-1"
         real_bin = tmp / "real-bin"
         home.mkdir(parents=True, exist_ok=True)
         cmux_shim_bin.mkdir(parents=True, exist_ok=True)
@@ -88,13 +88,13 @@ printf 'shim=%s\\n' "$(command -v tmux)"
             print(f"stderr={proc.stderr.strip()}")
             return 1
 
-        expected = str(shim_path)
+        expected = str(cmux_shim_bin / "tmux")
         actual = proc.stdout.strip()
         if actual != f"shim={expected}":
-            print(f"FAIL: expected existing shim path {expected!r}, got {actual!r}")
+            print(f"FAIL: expected managed shim path {expected!r}, got {actual!r}")
             return 1
 
-    print("PASS: cmux claude-teams reuses an existing tmux shim")
+    print("PASS: cmux claude-teams installs tmux beside the managed command shims")
     return 0
 
 

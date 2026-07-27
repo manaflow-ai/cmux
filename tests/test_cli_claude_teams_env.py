@@ -40,6 +40,7 @@ def run_claude_teams(
         sandboxed_log = tmp / "sandboxed.log"
         marker_log = tmp / "sandboxed-marker.log"
         tmux_log = tmp / "tmux-path.log"
+        tmux_shim_log = tmp / "tmux-shim.log"
         cmux_bin_log = tmp / "cmux-bin.log"
         argv_log = tmp / "argv.log"
         tmux_env_log = tmp / "tmux-env.log"
@@ -52,7 +53,14 @@ def run_claude_teams(
         runtime_node_options_log = tmp / "runtime-node-options.log"
         child_node_options_log = tmp / "child-node-options.log"
         fake_home = tmp / "home"
+        wrapper_shim_bin = tmp / "cmux-cli-shims" / "surface-1"
         fake_home.mkdir(parents=True, exist_ok=True)
+        wrapper_shim_bin.mkdir(parents=True, exist_ok=True)
+
+        make_executable(
+            wrapper_shim_bin / "claude",
+            "#!/usr/bin/env bash\necho managed-claude-shim-must-not-run >&2\nexit 42\n",
+        )
 
         make_executable(
             real_bin / "claude",
@@ -61,7 +69,12 @@ set -euo pipefail
 printf '%s\\n' "${CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS-__UNSET__}" > "$FAKE_AGENT_TEAMS_LOG"
 printf '%s\\n' "${CLAUDE_CODE_SANDBOXED-__UNSET__}" > "$FAKE_SANDBOXED_LOG"
 printf '%s\\n' "${CMUX_CLAUDE_TEAMS_SANDBOXED-__UNSET__}" > "$FAKE_SANDBOXED_MARKER_LOG"
+# Claude Code restores a shell snapshot before invoking tmux. The snapshot's
+# full PATH assignment can discard the launcher-only claude-teams-bin entry,
+# while cmux's managed per-surface wrapper root remains available.
+export PATH="$FAKE_SHELL_SNAPSHOT_PATH"
 command -v tmux > "$FAKE_TMUX_PATH_LOG"
+printf '%s\\n' "${CMUX_CLAUDE_TEAMS_TMUX_SHIM-__UNSET__}" > "$FAKE_TMUX_SHIM_LOG"
 printf '%s\\n' "${CMUX_CLAUDE_TEAMS_CMUX_BIN-__UNSET__}" > "$FAKE_CMUX_BIN_LOG"
 printf '%s\\n' "$@" > "$FAKE_ARGV_LOG"
 printf '%s\\n' "${TMUX-__UNSET__}" > "$FAKE_TMUX_ENV_LOG"
@@ -73,6 +86,11 @@ printf '%s\\n' "${CMUX_SOCKET_PASSWORD-__UNSET__}" > "$FAKE_SOCKET_PASSWORD_LOG"
 printf '%s\\n' "${NODE_OPTIONS-__UNSET__}" > "$FAKE_NODE_OPTIONS_LOG"
 exec node "$FAKE_REAL_NODE_SCRIPT" "$@"
 """,
+        )
+
+        make_executable(
+            real_bin / "tmux",
+            "#!/usr/bin/env bash\necho real-tmux-must-not-run >&2\nexit 42\n",
         )
 
         make_executable(
@@ -116,6 +134,7 @@ fs.writeFileSync(
         env["FAKE_SANDBOXED_LOG"] = str(sandboxed_log)
         env["FAKE_SANDBOXED_MARKER_LOG"] = str(marker_log)
         env["FAKE_TMUX_PATH_LOG"] = str(tmux_log)
+        env["FAKE_TMUX_SHIM_LOG"] = str(tmux_shim_log)
         env["FAKE_CMUX_BIN_LOG"] = str(cmux_bin_log)
         env["FAKE_ARGV_LOG"] = str(argv_log)
         env["FAKE_TMUX_ENV_LOG"] = str(tmux_env_log)
@@ -128,6 +147,9 @@ fs.writeFileSync(
         env["FAKE_RUNTIME_NODE_OPTIONS_LOG"] = str(runtime_node_options_log)
         env["FAKE_CHILD_NODE_OPTIONS_LOG"] = str(child_node_options_log)
         env["FAKE_REAL_NODE_SCRIPT"] = str(real_bin / "claude-real.js")
+        env["FAKE_SHELL_SNAPSHOT_PATH"] = f"{wrapper_shim_bin}:{env['PATH']}"
+        env["CMUX_CLAUDE_WRAPPER_SHIM"] = str(wrapper_shim_bin / "claude")
+        env["CMUX_CLAUDE_WRAPPER_SHIM_ROOT"] = str(wrapper_shim_bin)
         env["TMUX"] = "__HOST_TMUX__"
         env["TMUX_PANE"] = "%999"
         env["TERM"] = "xterm-256color"
@@ -193,12 +215,24 @@ fs.writeFileSync(
             print(f"FAIL: expected tmux shim path to end with 'tmux', got {tmux_path!r}")
             raise SystemExit(1)
 
-        if "claude-teams-bin" not in tmux_path:
-            print(f"FAIL: expected stable tmux shim path, got {tmux_path!r}")
+        expected_tmux_path = str(wrapper_shim_bin / "tmux")
+        if tmux_path != expected_tmux_path:
+            print(
+                "FAIL: expected Claude's restored PATH to resolve the tmux shim "
+                f"at {expected_tmux_path!r}, got {tmux_path!r}"
+            )
             raise SystemExit(1)
 
         if tmux_path.startswith(str(real_bin)):
             print(f"FAIL: expected cmux tmux shim to shadow PATH, got {tmux_path!r}")
+            raise SystemExit(1)
+
+        tmux_shim_value = read_text(tmux_shim_log)
+        if tmux_shim_value != expected_tmux_path:
+            print(
+                f"FAIL: expected CMUX_CLAUDE_TEAMS_TMUX_SHIM={expected_tmux_path!r}, "
+                f"got {tmux_shim_value!r}"
+            )
             raise SystemExit(1)
 
         cmux_bin_value = read_text(cmux_bin_log)
