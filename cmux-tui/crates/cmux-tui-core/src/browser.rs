@@ -626,7 +626,7 @@ const BROWSER_RECONFIGURE_RETRY_DELAYS: [Duration; 2] =
 #[cfg(not(test))]
 const NAVIGATION_COMMIT_WAIT: Duration = Duration::from_millis(250);
 #[cfg(test)]
-const NAVIGATION_COMMIT_WAIT: Duration = Duration::from_millis(25);
+const NAVIGATION_COMMIT_WAIT: Duration = Duration::from_millis(100);
 
 impl BrowserRuntime {
     pub fn connect(opts: &SurfaceOptions) -> anyhow::Result<Arc<Self>> {
@@ -5225,6 +5225,16 @@ mod tests {
             "recovered attach state still shows the stale failure title"
         );
         assert_eq!(recovered.title, "https://recovered.test");
+        let recovered_frame =
+            stream.slot.lock().unwrap().frame.clone().expect("recovery must publish the frame");
+        assert_eq!(
+            recovered.pointer_frame_seq, recovered_frame.pointer_frame_seq,
+            "coalesced recovery state must not revoke the frame's pointer authority"
+        );
+        assert!(
+            recovered.pointer_frame_seq.is_some(),
+            "the recovery snapshot must expose the fresh frame's pointer authority"
+        );
     }
 
     #[test]
@@ -7025,6 +7035,7 @@ mod tests {
         const ONE_PIXEL_PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
+        let (post_navigate_delay_tx, post_navigate_delay_rx) = mpsc::channel();
         let server = thread::spawn(move || {
             let (stream, _) = listener.accept().unwrap();
             let mut ws = accept(stream).unwrap();
@@ -7037,6 +7048,7 @@ mod tests {
                 &mut ws,
                 json!({"id": navigate["id"], "result": {"frameId": "main-frame"}}),
             );
+            let navigate_response_at = Instant::now();
             for expected in [
                 "Page.getFrameTree",
                 "Page.stopScreencast",
@@ -7048,6 +7060,9 @@ mod tests {
                 "Page.getFrameTree",
             ] {
                 let request = read_ws_json(&mut ws);
+                if expected == "Page.getFrameTree" {
+                    post_navigate_delay_tx.send(navigate_response_at.elapsed()).unwrap();
+                }
                 assert_eq!(request["method"], expected);
                 let result = match expected {
                     "Page.getFrameTree" => json!({
@@ -7086,6 +7101,8 @@ mod tests {
         browser.store_frame(test_frame(1));
 
         let result = browser.navigate_blocking("https://example.test#same-document");
+        let post_navigate_delay =
+            post_navigate_delay_rx.recv_timeout(Duration::from_secs(1)).unwrap();
         let state = browser.state.lock().unwrap();
         let pending_frame_epoch = state.pending_frame_epoch;
         let pending_navigation_epoch = state.pending_navigation_epoch;
@@ -7104,6 +7121,10 @@ mod tests {
             pointer_frame_seq,
             Some(2),
             "the unchanged document must regain authority through freshly captured pixels"
+        );
+        assert!(
+            post_navigate_delay < super::NAVIGATION_COMMIT_WAIT / 2,
+            "loaderless same-document navigation waited {post_navigate_delay:?} for an epoch that cannot advance"
         );
     }
 
