@@ -8654,6 +8654,31 @@ mod tests {
             "per-terminal limits allow {} bytes across native screen storage and copied caches",
             configured.saturating_mul(KITTY_IMAGE_PERSISTENT_COPIES_PER_SURFACE)
         );
+
+        let configured_images = surfaces
+            .iter()
+            .map(|surface| {
+                surface
+                    .with_terminal(|terminal| terminal.kitty_image_count_limit().unwrap())
+                    .unwrap()
+            })
+            .sum::<u64>();
+        let configured_placements = surfaces
+            .iter()
+            .map(|surface| {
+                surface
+                    .with_terminal(|terminal| terminal.kitty_placement_count_limit().unwrap())
+                    .unwrap()
+            })
+            .sum::<u64>();
+        assert!(
+            configured_images <= 4_096,
+            "per-terminal limits allow {configured_images} native image records process-wide"
+        );
+        assert!(
+            configured_placements <= 16_384,
+            "per-terminal limits allow {configured_placements} native placements process-wide"
+        );
     }
 
     #[test]
@@ -8665,24 +8690,51 @@ mod tests {
         for _ in 1..8 {
             surfaces.push(mux.new_tab(Some(pane), None, Some((80, 24))).unwrap());
         }
-        let constrained =
-            first.with_terminal(|terminal| terminal.kitty_image_storage_limit().unwrap()).unwrap();
+        let constrained = first
+            .with_terminal(|terminal| {
+                (
+                    terminal.kitty_image_storage_limit().unwrap(),
+                    terminal.kitty_image_count_limit().unwrap(),
+                    terminal.kitty_placement_count_limit().unwrap(),
+                )
+            })
+            .unwrap();
 
         for surface in surfaces.iter().skip(1) {
             assert!(mux.close_surface(surface.id).unwrap());
         }
 
-        let survivor_limit =
-            first.with_terminal(|terminal| terminal.kitty_image_storage_limit().unwrap()).unwrap();
+        let survivor_limit = first
+            .with_terminal(|terminal| {
+                (
+                    terminal.kitty_image_storage_limit().unwrap(),
+                    terminal.kitty_image_count_limit().unwrap(),
+                    terminal.kitty_placement_count_limit().unwrap(),
+                )
+            })
+            .unwrap();
         let expected = KITTY_IMAGE_PROCESS_BUDGET_BYTES
             .checked_div(KITTY_IMAGE_PERSISTENT_COPIES_PER_SURFACE)
             .unwrap()
             .min(ghostty_vt::MAX_KITTY_IMAGE_BYTES as u64);
         assert!(
-            survivor_limit > constrained,
-            "surviving terminal kept its peak-surface quota of {survivor_limit} bytes"
+            survivor_limit.0 > constrained.0,
+            "surviving terminal kept its peak-surface quota of {} bytes",
+            survivor_limit.0
         );
-        assert_eq!(survivor_limit, expected);
+        assert_eq!(survivor_limit.0, expected);
+        assert!(
+            survivor_limit.1 > constrained.1,
+            "surviving terminal kept its peak-surface image count of {}",
+            survivor_limit.1
+        );
+        assert!(
+            survivor_limit.2 > constrained.2,
+            "surviving terminal kept its peak-surface placement count of {}",
+            survivor_limit.2
+        );
+        assert_eq!(survivor_limit.1, 4_096);
+        assert_eq!(survivor_limit.2, 16_384);
     }
 
     #[test]

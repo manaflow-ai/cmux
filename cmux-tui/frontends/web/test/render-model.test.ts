@@ -8,6 +8,7 @@ import type {
   RenderStateEvent,
 } from "cmux/browser";
 import { decodeRenderGraphicImage } from "../src/lib/renderGraphics";
+import * as renderModelApi from "../src/lib/renderModel";
 import {
   applyDelta,
   applySnapshot,
@@ -248,7 +249,7 @@ describe("render model", () => {
     });
   });
 
-  it("bounds encoded image payloads across every model in one app root", () => {
+  it("bounds encoded image payloads and requests a resnapshot when capacity returns", async () => {
     const encodedBudget = {};
     const budgetedApplySnapshot = applySnapshot as unknown as (
       event: RenderStateEvent,
@@ -282,7 +283,37 @@ describe("render model", () => {
     expect(retained).toBeLessThanOrEqual(64 * 1024 * 1024);
     expect(models.some((model) => model.graphics.images.length === 0)).toBe(true);
 
+    const subscribe = (
+      renderModelApi as unknown as {
+        subscribeRenderModelGraphicsBudget?: (
+          budget: object,
+          owner: object,
+          listener: () => void,
+        ) => () => void;
+      }
+    ).subscribeRenderModelGraphicsBudget;
+    if (subscribe === undefined) {
+      throw new Error("encoded graphics budget does not expose recovery subscriptions");
+    }
+    const requestResnapshot = vi.fn();
+    const unsubscribe = subscribe(encodedBudget, owners.at(-1)!, requestResnapshot);
+    const budgetedApplyDelta = applyDelta as unknown as (
+      model: ReturnType<typeof applySnapshot>,
+      event: RenderDeltaEvent,
+      budget: object,
+      owner: object,
+    ) => ReturnType<typeof applyDelta>;
+    budgetedApplyDelta(
+      models.at(-1)!,
+      delta({ graphics: { generation: 2, placements: [] } }),
+      encodedBudget,
+      owners.at(-1)!,
+    );
     releaseRenderModelGraphicsBudget(encodedBudget, owners[0]!);
+    await Promise.resolve();
+    expect(requestResnapshot).toHaveBeenCalledTimes(1);
+    unsubscribe();
+
     const recovered = budgetedApplySnapshot(
       snapshot([], { generation: 2, images: [image], placements: [] }),
       encodedBudget,
