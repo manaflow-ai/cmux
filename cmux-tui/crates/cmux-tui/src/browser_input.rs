@@ -6,16 +6,16 @@
 //! the socket lock), or a JSON request over the control socket (10s
 //! timeout) for remote ones. A wedged Chrome or half-open session must
 //! never freeze the TUI event loop just because the mouse moved, so
-//! input events are handed to a fixed pool of bounded worker lanes.
-//! Surfaces map to one stable lane, which preserves their command order
-//! without creating an OS thread for every surface:
+//! input events enter bounded per-surface queues scheduled fairly over a
+//! fixed worker pool. One surface is never dispatched concurrently, so
+//! its command order is preserved without creating an OS thread for it:
 //!
 //! - Consecutive mouse moves on the same surface are coalesced (latest
 //!   wins) before dispatch, so a stalled endpoint never builds a replay
 //!   backlog of stale hover/drag positions.
-//! - A blocking request stalls only its fixed shard. Surfaces on other
-//!   shards keep dispatching independently, while total worker threads
-//!   remain bounded.
+//! - A blocking request occupies one pool worker. Ready queues for other
+//!   surfaces continue on the remaining workers, while total worker
+//!   threads remain bounded.
 //! - When the queue is full (the worker is stuck inside a blocking
 //!   call), pointer and key events are dropped instead of blocking the
 //!   UI. Releases that close accepted pointer interactions are retained
@@ -29,10 +29,10 @@
 //! browser lane. Discrete browser controls report failures separately so user
 //! actions cannot disappear silently under backpressure.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use cmux_tui_core::SurfaceId;
@@ -43,8 +43,8 @@ use crate::session::SurfaceHandle;
 /// (drag + key repeat) never drop while a healthy worker drains, but a
 /// blocked worker caps queued work at a few hundred events.
 const QUEUE_CAPACITY: usize = 512;
-/// Stable sharding bounds OS-thread and queue growth while retaining enough
-/// parallel lanes that one blocked browser does not freeze all browser input.
+/// A fixed pool bounds OS-thread growth while retaining enough parallelism
+/// that one blocked browser does not freeze all browser input.
 const BROWSER_INPUT_WORKER_COUNT: usize = 8;
 /// At most the ordinary queue plus its one in-flight event can contain
 /// accepted presses awaiting releases while the browser worker is wedged.
@@ -133,6 +133,8 @@ struct SequencedBrowserInputEvent {
 #[derive(Default)]
 struct BrowserEnqueueOrder {
     next_sequence: u64,
+    /// Accepted work generation used to close the worker rescheduling race.
+    accepted_generation: u64,
     /// Successfully queued non-resize input separates resize runs.
     barrier_epoch: u64,
     /// Browser presses accepted into the ordinary lane and still awaiting the
@@ -225,10 +227,31 @@ impl BrowserInputKind {
 }
 
 pub struct BrowserInputDispatcher {
-    lanes: Vec<SurfaceInputLane>,
+    lanes: Mutex<HashMap<SurfaceId, Arc<ScheduledSurfaceInputLane>>>,
+    scheduler: Option<Arc<BrowserInputScheduler>>,
     failed_resizes: Arc<Mutex<HashMap<SurfaceId, FailedBrowserResize>>>,
     #[cfg(test)]
     blocked_lane: Option<SurfaceInputLane>,
+}
+
+struct BrowserInputScheduler {
+    ready: Mutex<ReadySurfaceLanes>,
+    available: Condvar,
+    failed_resizes: Arc<Mutex<HashMap<SurfaceId, FailedBrowserResize>>>,
+    on_resize_failure: Arc<dyn Fn(BrowserResizeFailure) + Send + Sync>,
+    on_control_failure: Arc<dyn Fn(String) + Send + Sync>,
+}
+
+#[derive(Default)]
+struct ReadySurfaceLanes {
+    lanes: VecDeque<Arc<ScheduledSurfaceInputLane>>,
+    shutdown: bool,
+}
+
+struct ScheduledSurfaceInputLane {
+    lane: SurfaceInputLane,
+    rx: Mutex<Receiver<SequencedBrowserInputEvent>>,
+    scheduled: AtomicBool,
 }
 
 struct SurfaceInputLane {
@@ -280,18 +303,15 @@ impl BrowserInputDispatcher {
         let on_resize_failure = Arc::new(on_resize_failure);
         let on_control_failure = Arc::new(on_control_failure);
         let failed_resizes = Arc::new(Mutex::new(HashMap::new()));
-        let mut lanes = Vec::with_capacity(BROWSER_INPUT_WORKER_COUNT);
-        for worker_index in 0..BROWSER_INPUT_WORKER_COUNT {
-            lanes.push(SurfaceInputLane::spawn_shard(
-                worker_index,
-                QUEUE_CAPACITY,
-                failed_resizes.clone(),
-                on_resize_failure.clone(),
-                on_control_failure.clone(),
-            )?);
-        }
+        let scheduler = BrowserInputScheduler::spawn(
+            BROWSER_INPUT_WORKER_COUNT,
+            failed_resizes.clone(),
+            on_resize_failure,
+            on_control_failure,
+        )?;
         Ok(Self {
-            lanes,
+            lanes: Mutex::new(HashMap::new()),
+            scheduler: Some(scheduler),
             failed_resizes,
             #[cfg(test)]
             blocked_lane: None,
@@ -303,7 +323,8 @@ impl BrowserInputDispatcher {
         let (lane, blocked) = SurfaceInputLane::blocked_for_any_surface(capacity);
         (
             Self {
-                lanes: Vec::new(),
+                lanes: Mutex::new(HashMap::new()),
+                scheduler: None,
                 failed_resizes: Arc::new(Mutex::new(HashMap::new())),
                 blocked_lane: Some(lane),
             },
@@ -326,7 +347,25 @@ impl BrowserInputDispatcher {
             return lane.enqueue(event);
         }
         let surface_id = event.surface_id;
-        self.lane(surface_id).enqueue(event)
+        let is_release = event.kind.closes_pointer_interaction();
+        let lane = {
+            let mut lanes = self.lanes.lock().unwrap();
+            if is_release && !lanes.contains_key(&surface_id) {
+                return false;
+            }
+            lanes
+                .entry(surface_id)
+                .or_insert_with(|| ScheduledSurfaceInputLane::new(surface_id, QUEUE_CAPACITY))
+                .clone()
+        };
+        let accepted = lane.lane.enqueue(event);
+        if accepted {
+            self.scheduler
+                .as_ref()
+                .expect("production browser input has a scheduler")
+                .schedule(lane);
+        }
+        accepted
     }
 
     pub fn resize_failed(&self, surface_id: SurfaceId, desired: (u16, u16)) -> bool {
@@ -372,7 +411,9 @@ impl BrowserInputDispatcher {
             self.failed_resizes.lock().unwrap().remove(&surface_id);
             return;
         }
-        self.lane(surface_id).cancel_surface(surface_id);
+        if let Some(lane) = self.lanes.lock().unwrap().remove(&surface_id) {
+            lane.lane.cancel_surface(surface_id);
+        }
         self.failed_resizes.lock().unwrap().remove(&surface_id);
     }
 
@@ -386,57 +427,148 @@ impl BrowserInputDispatcher {
             return lane.tracks_surface(surface_id)
                 || self.failed_resizes.lock().unwrap().contains_key(&surface_id);
         }
-        self.lane(surface_id).tracks_surface(surface_id)
+        self.lanes
+            .lock()
+            .unwrap()
+            .get(&surface_id)
+            .is_some_and(|lane| lane.lane.tracks_surface(surface_id))
             || self.failed_resizes.lock().unwrap().contains_key(&surface_id)
     }
 
     #[cfg(test)]
     fn worker_count(&self) -> usize {
-        self.lanes.len()
+        self.scheduler.as_ref().map_or(0, |_| BROWSER_INPUT_WORKER_COUNT)
+    }
+}
+
+impl Drop for BrowserInputDispatcher {
+    fn drop(&mut self) {
+        if let Some(scheduler) = &self.scheduler {
+            scheduler.shutdown();
+        }
+    }
+}
+
+impl BrowserInputScheduler {
+    fn spawn(
+        worker_count: usize,
+        failed_resizes: Arc<Mutex<HashMap<SurfaceId, FailedBrowserResize>>>,
+        on_resize_failure: Arc<dyn Fn(BrowserResizeFailure) + Send + Sync>,
+        on_control_failure: Arc<dyn Fn(String) + Send + Sync>,
+    ) -> std::io::Result<Arc<Self>> {
+        debug_assert!(worker_count > 0);
+        let scheduler = Arc::new(Self {
+            ready: Mutex::new(ReadySurfaceLanes::default()),
+            available: Condvar::new(),
+            failed_resizes,
+            on_resize_failure,
+            on_control_failure,
+        });
+        for worker_index in 0..worker_count {
+            let worker = scheduler.clone();
+            if let Err(error) = std::thread::Builder::new()
+                .name(format!("mux-browser-input-{worker_index}"))
+                .spawn(move || worker.run())
+            {
+                scheduler.shutdown();
+                return Err(error);
+            }
+        }
+        Ok(scheduler)
     }
 
-    fn lane(&self, surface_id: SurfaceId) -> &SurfaceInputLane {
-        let index = (surface_id % self.lanes.len() as u64) as usize;
-        &self.lanes[index]
+    fn run(self: Arc<Self>) {
+        while let Some(lane) = self.next_lane() {
+            let processed_generation = lane.process_one(&self);
+            lane.scheduled.store(false, Ordering::Release);
+            if lane.has_work_after(processed_generation) {
+                self.schedule(lane);
+            }
+        }
+    }
+
+    fn next_lane(&self) -> Option<Arc<ScheduledSurfaceInputLane>> {
+        let mut ready = self.ready.lock().unwrap();
+        loop {
+            if ready.shutdown {
+                return None;
+            }
+            if let Some(lane) = ready.lanes.pop_front() {
+                return Some(lane);
+            }
+            ready = self.available.wait(ready).unwrap();
+        }
+    }
+
+    fn schedule(&self, lane: Arc<ScheduledSurfaceInputLane>) {
+        if lane
+            .scheduled
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return;
+        }
+        let mut ready = self.ready.lock().unwrap();
+        if ready.shutdown {
+            lane.scheduled.store(false, Ordering::Release);
+            return;
+        }
+        ready.lanes.push_back(lane);
+        drop(ready);
+        self.available.notify_one();
+    }
+
+    fn shutdown(&self) {
+        let mut ready = self.ready.lock().unwrap();
+        ready.shutdown = true;
+        drop(ready);
+        self.available.notify_all();
+    }
+}
+
+impl ScheduledSurfaceInputLane {
+    fn new(surface_id: SurfaceId, capacity: usize) -> Arc<Self> {
+        let (lane, rx) = SurfaceInputLane::channel(Some(surface_id), capacity);
+        Arc::new(Self { lane, rx: Mutex::new(rx), scheduled: AtomicBool::new(false) })
+    }
+
+    fn process_one(&self, scheduler: &BrowserInputScheduler) -> u64 {
+        let rx = self.rx.lock().unwrap();
+        process_surface_batch(
+            &rx,
+            &self.lane.order,
+            &self.lane.latest_resizes,
+            &self.lane.retained_releases,
+            &scheduler.failed_resizes,
+            scheduler.on_resize_failure.as_ref(),
+            scheduler.on_control_failure.as_ref(),
+        )
+        .unwrap_or_else(|| self.lane.order.lock().unwrap().accepted_generation)
+    }
+
+    fn has_work_after(&self, processed_generation: u64) -> bool {
+        self.lane.order.lock().unwrap().accepted_generation != processed_generation
     }
 }
 
 impl SurfaceInputLane {
-    fn spawn_shard(
-        worker_index: usize,
+    fn channel(
+        expected_surface_id: Option<SurfaceId>,
         capacity: usize,
-        failed_resizes: Arc<Mutex<HashMap<SurfaceId, FailedBrowserResize>>>,
-        on_resize_failure: Arc<dyn Fn(BrowserResizeFailure) + Send + Sync>,
-        on_control_failure: Arc<dyn Fn(String) + Send + Sync>,
-    ) -> std::io::Result<Self> {
+    ) -> (Self, Receiver<SequencedBrowserInputEvent>) {
         let (tx, rx) = sync_channel(capacity);
-        let order = Arc::new(Mutex::new(BrowserEnqueueOrder::default()));
-        let latest_resizes = Arc::new(Mutex::new(HashMap::new()));
         let retained_releases = Arc::new(Mutex::new(Vec::new()));
-        let worker_order = order.clone();
-        let worker_resizes = latest_resizes.clone();
-        let worker_releases = retained_releases.clone();
-        std::thread::Builder::new().name(format!("mux-browser-input-{worker_index}")).spawn(
-            move || {
-                surface_worker(
-                    rx,
-                    worker_order,
-                    worker_resizes,
-                    worker_releases,
-                    failed_resizes,
-                    on_resize_failure,
-                    on_control_failure,
-                );
+        (
+            Self {
+                expected_surface_id,
+                tx,
+                order: Arc::new(Mutex::new(BrowserEnqueueOrder::default())),
+                latest_resizes: Arc::new(Mutex::new(HashMap::new())),
+                retained_releases,
+                surface_lifetimes: Mutex::new(HashMap::new()),
             },
-        )?;
-        Ok(Self {
-            expected_surface_id: None,
-            tx,
-            order,
-            latest_resizes,
-            retained_releases,
-            surface_lifetimes: Mutex::new(HashMap::new()),
-        })
+            rx,
+        )
     }
 
     #[cfg(test)]
@@ -454,19 +586,9 @@ impl SurfaceInputLane {
         expected_surface_id: Option<SurfaceId>,
         capacity: usize,
     ) -> (Self, BlockedBrowserInput) {
-        let (tx, rx) = sync_channel(capacity);
-        let retained_releases = Arc::new(Mutex::new(Vec::new()));
-        (
-            Self {
-                expected_surface_id,
-                tx,
-                order: Arc::new(Mutex::new(BrowserEnqueueOrder::default())),
-                latest_resizes: Arc::new(Mutex::new(HashMap::new())),
-                retained_releases: retained_releases.clone(),
-                surface_lifetimes: Mutex::new(HashMap::new()),
-            },
-            BlockedBrowserInput { rx, retained_releases },
-        )
+        let (lane, rx) = Self::channel(expected_surface_id, capacity);
+        let retained_releases = lane.retained_releases.clone();
+        (lane, BlockedBrowserInput { rx, retained_releases })
     }
 
     fn enqueue(&self, event: BrowserInputEvent) -> bool {
@@ -505,7 +627,7 @@ impl SurfaceInputLane {
         let sequence = order.next_sequence;
         order.next_sequence = order.next_sequence.saturating_add(1);
         let event = SequencedBrowserInputEvent { sequence, event, lifetime };
-        match self.tx.try_send(event) {
+        let accepted = match self.tx.try_send(event) {
             Ok(()) if !is_resize => {
                 if let Some(press) = press {
                     order.accepted_pointer_presses.insert(press);
@@ -531,7 +653,11 @@ impl SurfaceInputLane {
             }
             Ok(()) => true,
             Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => false,
+        };
+        if accepted {
+            order.accepted_generation = order.accepted_generation.wrapping_add(1);
         }
+        accepted
     }
 
     fn cancel_surface(&self, surface_id: SurfaceId) {
@@ -553,77 +679,78 @@ impl SurfaceInputLane {
     }
 }
 
-fn surface_worker(
-    rx: Receiver<SequencedBrowserInputEvent>,
-    order: Arc<Mutex<BrowserEnqueueOrder>>,
-    latest_resizes: Arc<Mutex<HashMap<(SurfaceId, u64), SequencedBrowserInputEvent>>>,
-    retained_releases: Arc<Mutex<Vec<SequencedBrowserInputEvent>>>,
-    failed_resizes: Arc<Mutex<HashMap<SurfaceId, FailedBrowserResize>>>,
-    on_resize_failure: Arc<dyn Fn(BrowserResizeFailure) + Send + Sync>,
-    on_control_failure: Arc<dyn Fn(String) + Send + Sync>,
-) {
-    while let Ok(event) = rx.recv() {
-        let mut batch = vec![event];
-        finish_ordered_batch(&rx, &order, &latest_resizes, &retained_releases, &mut batch);
-        coalesce_sequenced_browser_events(&mut batch);
-        for mut event in batch {
-            if event.lifetime.load(Ordering::Acquire) {
-                continue;
+fn process_surface_batch(
+    rx: &Receiver<SequencedBrowserInputEvent>,
+    order: &Mutex<BrowserEnqueueOrder>,
+    latest_resizes: &Mutex<HashMap<(SurfaceId, u64), SequencedBrowserInputEvent>>,
+    retained_releases: &Mutex<Vec<SequencedBrowserInputEvent>>,
+    failed_resizes: &Mutex<HashMap<SurfaceId, FailedBrowserResize>>,
+    on_resize_failure: &(dyn Fn(BrowserResizeFailure) + Send + Sync),
+    on_control_failure: &(dyn Fn(String) + Send + Sync),
+) -> Option<u64> {
+    let event = rx.try_recv().ok()?;
+    let mut batch = vec![event];
+    let processed_generation =
+        finish_ordered_batch(rx, order, latest_resizes, retained_releases, &mut batch);
+    coalesce_sequenced_browser_events(&mut batch);
+    for mut event in batch {
+        if event.lifetime.load(Ordering::Acquire) {
+            continue;
+        }
+        let desired = event.event.kind.resize_dimensions();
+        if desired.is_some_and(|desired| {
+            failed_resizes
+                .lock()
+                .unwrap()
+                .get(&event.event.surface_id)
+                .copied()
+                .is_some_and(|failure| failed_browser_resize_blocks(failure, desired))
+        }) {
+            continue;
+        }
+        let result = match &mut event.event.kind {
+            BrowserInputKind::Resize { cols, rows, reassert, on_result, .. } => {
+                let report = on_result.take().unwrap_or_else(|| Box::new(|_| {}));
+                event.event.surface.resize_reporting_acceptance(*cols, *rows, *reassert, report)
             }
-            let desired = event.event.kind.resize_dimensions();
-            if desired.is_some_and(|desired| {
-                failed_resizes
-                    .lock()
-                    .unwrap()
-                    .get(&event.event.surface_id)
-                    .copied()
-                    .is_some_and(|failure| failed_browser_resize_blocks(failure, desired))
-            }) {
-                continue;
+            _ => dispatch(&event.event),
+        };
+        let Some((cols, rows)) = desired else {
+            if event.event.kind.is_control()
+                && let Err(error) = result
+            {
+                on_control_failure(format!("browser command failed: {error}"));
             }
-            let result = match &mut event.event.kind {
-                BrowserInputKind::Resize { cols, rows, reassert, on_result, .. } => {
-                    let report = on_result.take().unwrap_or_else(|| Box::new(|_| {}));
-                    event.event.surface.resize_reporting_acceptance(*cols, *rows, *reassert, report)
-                }
-                _ => dispatch(&event.event),
-            };
-            let Some((cols, rows)) = desired else {
-                if event.event.kind.is_control()
-                    && let Err(error) = result
-                {
-                    on_control_failure(format!("browser command failed: {error}"));
-                }
-                continue;
-            };
-            if event.lifetime.load(Ordering::Acquire) {
-                continue;
+            continue;
+        };
+        if event.lifetime.load(Ordering::Acquire) {
+            continue;
+        }
+        match result {
+            Ok(_) => {
+                failed_resizes.lock().unwrap().remove(&event.event.surface_id);
             }
-            match result {
-                Ok(_) => {
-                    failed_resizes.lock().unwrap().remove(&event.event.surface_id);
-                }
-                Err(error) => {
-                    let desired = (cols, rows);
-                    let mut failures = failed_resizes.lock().unwrap();
-                    let failure = next_failed_browser_resize(
-                        failures.get(&event.event.surface_id).copied(),
-                        desired,
-                    );
-                    failures.insert(event.event.surface_id, failure);
-                    drop(failures);
-                    let failure = BrowserResizeFailure {
-                        surface_id: event.event.surface_id,
-                        cols,
-                        rows,
-                        error: error.to_string(),
-                    };
-                    drop(event);
-                    on_resize_failure(failure);
-                }
+            Err(error) => {
+                let desired = (cols, rows);
+                let mut failures = failed_resizes.lock().unwrap();
+                let failure = next_failed_browser_resize(
+                    failures.get(&event.event.surface_id).copied(),
+                    desired,
+                );
+                failures.insert(event.event.surface_id, failure);
+                drop(failures);
+                let failure = BrowserResizeFailure {
+                    surface_id: event.event.surface_id,
+                    cols,
+                    rows,
+                    error: error.to_string(),
+                };
+                drop(event);
+                on_resize_failure(failure);
             }
         }
     }
+    Some(processed_generation)
 }
 
 fn finish_ordered_batch(
@@ -632,7 +759,7 @@ fn finish_ordered_batch(
     latest_resizes: &Mutex<HashMap<(SurfaceId, u64), SequencedBrowserInputEvent>>,
     retained_releases: &Mutex<Vec<SequencedBrowserInputEvent>>,
     batch: &mut Vec<SequencedBrowserInputEvent>,
-) {
+) -> u64 {
     // Block new sequence assignments while establishing the batch cut.
     // Every earlier accepted event is drained before fallbacks are collected.
     let order_guard = order.lock().unwrap();
@@ -641,8 +768,10 @@ fn finish_ordered_batch(
     }
     let latest = std::mem::take(&mut *latest_resizes.lock().unwrap());
     let releases = std::mem::take(&mut *retained_releases.lock().unwrap());
+    let processed_generation = order_guard.accepted_generation;
     drop(order_guard);
     merge_fallback_events(batch, latest, releases);
+    processed_generation
 }
 
 fn merge_fallback_events(
