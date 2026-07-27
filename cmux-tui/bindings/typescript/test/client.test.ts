@@ -216,6 +216,27 @@ test("attach stream can acknowledge after the ordinary request deadline", async 
   await client.close();
 });
 
+test("vtState uses the size-aware snapshot deadline", async () => {
+  const transport = new ScriptedTransport((request, connection) => {
+    assert.equal(request.cmd, "vt-state");
+    setTimeout(() => {
+      connection.emit({
+        id: request.id,
+        ok: true,
+        data: { cols: 80, rows: 24, data: "" },
+      });
+    }, 30);
+  });
+  const client = new CmuxClient({
+    transport,
+    timeoutMs: 10,
+    attachHandshakeTimeoutMs: 100,
+  });
+
+  assert.deepEqual(await client.vtState(7), { cols: 80, rows: 24, data: "" });
+  await client.close();
+});
+
 test("legacy resize response defaults to accepted", async () => {
   const transport = new ScriptedTransport((request, connection) => {
     connection.emit({ id: request.id, ok: true, data: {} });

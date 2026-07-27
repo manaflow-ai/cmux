@@ -1083,10 +1083,12 @@ mod tests {
         use crossterm::event::{Event, KeyCode};
 
         let events = parse_pending_input(b"\x1b[");
+        assert!(events.is_empty(), "an incomplete CSI became synthetic key events: {events:?}");
+
+        let completed = parse_pending_input(b"\x1b[A");
         assert!(matches!(
-            events.as_slice(),
-            [Event::Key(escape), Event::Key(bracket)]
-                if escape.code == KeyCode::Esc && bracket.code == KeyCode::Char('[')
+            completed.as_slice(),
+            [Event::Key(up)] if up.code == KeyCode::Up
         ));
     }
 

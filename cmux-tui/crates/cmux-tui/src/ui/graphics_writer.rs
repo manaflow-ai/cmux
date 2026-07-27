@@ -1122,6 +1122,98 @@ mod tests {
     }
 
     #[test]
+    fn superseding_a_multipart_upload_does_not_poison_the_next_image() {
+        let bytes = Arc::new(Mutex::new(Vec::new()));
+        let (entered_tx, entered_rx) = sync_channel(1);
+        let (release_tx, release_rx) = sync_channel(1);
+        let (flushed_tx, flushed_rx) = sync_channel(8);
+        let output = SupersedingOutput {
+            bytes: bytes.clone(),
+            entered: Some(entered_tx),
+            release: Some(release_rx),
+            flushed: flushed_tx,
+        };
+        let mut writer =
+            GraphicsWriter::spawn_with_graphics_output(Arc::new(StdoutLock::new(())), output)
+                .unwrap();
+        let old = GraphicPlacement::browser(
+            0,
+            7,
+            Rect { x: 0, y: 0, width: 1, height: 1 },
+            1,
+            1,
+            1,
+            "A".repeat(MAX_LOCKED_GRAPHICS_WRITE_BYTES * 2),
+        );
+        let latest = rgba_placement(41, 1, 0, [0, 0, 255, 255]);
+
+        writer.submit(vec![old]);
+        entered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        writer.submit(vec![latest]);
+        release_tx.send(()).unwrap();
+
+        wait_for_output(&flushed_rx, &bytes, |bytes| {
+            bytes.windows(DELETE_ALL_GRAPHICS.len()).any(|window| window == DELETE_ALL_GRAPHICS)
+                && String::from_utf8_lossy(bytes).contains("AAD//w==")
+        });
+        let emitted = bytes.lock().unwrap().clone();
+        let mut host = Terminal::new(8, 4, 0, Callbacks::default()).unwrap();
+        host.resize(8, 4, 1, 1).unwrap();
+        host.vt_write(&emitted);
+        let snapshot = host.kitty_graphics_snapshot().unwrap();
+        assert_eq!(snapshot.images.len(), 1, "{snapshot:?}");
+        assert_eq!(snapshot.images[0].data.as_ref(), &[0, 0, 255, 255]);
+        assert_eq!(snapshot.placements.len(), 1);
+        writer.shutdown(Duration::from_secs(1));
+    }
+
+    #[test]
+    fn cancellation_terminates_a_completed_multipart_chunk() {
+        let bytes = Arc::new(Mutex::new(Vec::new()));
+        let (entered_tx, entered_rx) = sync_channel(1);
+        let (release_tx, release_rx) = sync_channel(1);
+        let (flushed_tx, _flushed_rx) = sync_channel(8);
+        let output = SupersedingOutput {
+            bytes: bytes.clone(),
+            entered: Some(entered_tx),
+            release: Some(release_rx),
+            flushed: flushed_tx,
+        };
+        let mut writer =
+            GraphicsWriter::spawn_with_graphics_output(Arc::new(StdoutLock::new(())), output)
+                .unwrap();
+        let shutdown = writer.shutdown_control();
+        writer.submit(vec![GraphicPlacement::browser(
+            0,
+            7,
+            Rect { x: 0, y: 0, width: 1, height: 1 },
+            1,
+            1,
+            1,
+            "A".repeat(MAX_LOCKED_GRAPHICS_WRITE_BYTES * 2),
+        )]);
+        entered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let cleanup = std::thread::spawn(move || writer.shutdown(Duration::ZERO));
+        shutdown.wait_until_cancelled();
+        release_tx.send(()).unwrap();
+        cleanup.join().unwrap();
+
+        let mut host = Terminal::new(8, 4, 0, Callbacks::default()).unwrap();
+        host.resize(8, 4, 1, 1).unwrap();
+        host.vt_write(&bytes.lock().unwrap());
+        let mut next = GraphicsState::default();
+        let latest = rgba_placement(41, 1, 0, [0, 0, 255, 255]);
+        for batch in next.frame_batches(&[latest]) {
+            host.vt_write(&batch);
+        }
+        let snapshot = host.kitty_graphics_snapshot().unwrap();
+        assert_eq!(snapshot.images.len(), 1, "{snapshot:?}");
+        assert_eq!(snapshot.images[0].data.as_ref(), &[0, 0, 255, 255]);
+        assert_eq!(snapshot.placements.len(), 1);
+    }
+
+    #[test]
     fn shutdown_quiesces_a_blocked_writer_before_terminal_restore() {
         let (entered_tx, entered_rx) = sync_channel(1);
         let (release_tx, release_rx) = sync_channel(1);
