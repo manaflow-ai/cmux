@@ -5160,6 +5160,45 @@ mod tests {
     }
 
     #[test]
+    fn replacing_queued_screencast_authority_releases_its_reservation() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        let done = browser.take_worker_done_for_test();
+        let (entered, started) = mpsc::channel();
+        let (release, held) = mpsc::channel();
+        assert!(browser.enqueue_test_command(BrowserCommand::Hold { entered, release: held }));
+        started.recv_timeout(Duration::from_secs(1)).unwrap();
+        browser.store_frame(test_frame(1));
+        let frame_epoch = browser.frame_epoch.current();
+        let navigation_epoch = browser.frame_epoch.latest_navigation();
+        let reservation_id = 71;
+        assert!(browser.reserve_screencast_capture(reservation_id, frame_epoch, navigation_epoch,));
+        browser
+            .enqueue_latest_authority(BrowserCommand::AuthorizeScreencastCapture {
+                session_id: "session-1".to_string(),
+                frame_id: "main-frame".to_string(),
+                loader_id: "loader-1".to_string(),
+                reservation_id,
+                frame_epoch,
+                navigation_epoch,
+            })
+            .unwrap();
+        browser
+            .enqueue_latest_authority(BrowserCommand::AuthorizeSameDocumentPaint {
+                session_id: "session-1".to_string(),
+                frame_id: "main-frame".to_string(),
+                loader_id: "loader-1".to_string(),
+            })
+            .unwrap();
+
+        let released = browser.state.lock().unwrap().pending_screencast_capture.is_none();
+        browser.kill();
+        release.send(()).unwrap();
+        done.recv_timeout(Duration::from_secs(1)).expect("browser worker exited after kill");
+        assert!(released, "replacing a queued recovery must not retain its ownership token");
+    }
+
+    #[test]
     fn kill_drops_sender_and_worker_exits() {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
