@@ -3,6 +3,8 @@ import Foundation
 
 /// Preserves accepted paste commands in a bounded FIFO outside the main actor.
 actor TerminalImageTransferPreparationService {
+    /// Cancellation must return only after any owned work terminates and is
+    /// reaped so the service's single-operation resource bound remains true.
     typealias Operation = @Sendable (
         TerminalPastePreparationRequest
     ) async throws -> TerminalPastePreparationResult
@@ -236,6 +238,8 @@ actor TerminalImageTransferPreparationService {
 
         resume(&job, returning: .failure(failure))
         let operationTask = job.operationTask
+        // Keep the lane occupied until cancellation finishes terminating and
+        // reaping its worker; advancing sooner could overlap wedged workers.
         activeJob = job
         operationTask?.cancel()
     }
