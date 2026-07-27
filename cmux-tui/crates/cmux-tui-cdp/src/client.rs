@@ -2045,6 +2045,115 @@ mod tests {
     }
 
     #[test]
+    fn seed_main_frame_retries_snapshot_invalidated_by_navigation() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            stream.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+            let mut ws = accept(stream).unwrap();
+            let first = loop {
+                match ws.read().unwrap() {
+                    Message::Text(text) => break serde_json::from_str::<Value>(&text).unwrap(),
+                    Message::Binary(bytes) => {
+                        break serde_json::from_slice::<Value>(&bytes).unwrap();
+                    }
+                    _ => {}
+                }
+            };
+            assert_eq!(first["method"], "Page.getFrameTree");
+            ws.send(Message::Text(
+                json!({
+                    "method": "Page.frameNavigated",
+                    "sessionId": "session-1",
+                    "params": {
+                        "frame": {
+                            "id": "new-frame",
+                            "loaderId": "new-loader",
+                            "url": "https://new.example.test"
+                        }
+                    }
+                })
+                .to_string()
+                .into(),
+            ))
+            .unwrap();
+            ws.send(Message::Text(
+                json!({
+                    "id": first["id"],
+                    "result": {
+                        "frameTree": {
+                            "frame": {
+                                "id": "stale-frame",
+                                "loaderId": "stale-loader",
+                                "url": "https://stale.example.test"
+                            }
+                        }
+                    }
+                })
+                .to_string()
+                .into(),
+            ))
+            .unwrap();
+
+            let retry = loop {
+                match ws.read() {
+                    Ok(Message::Text(text)) => {
+                        break Some(serde_json::from_str::<Value>(&text).unwrap());
+                    }
+                    Ok(Message::Binary(bytes)) => {
+                        break Some(serde_json::from_slice::<Value>(&bytes).unwrap());
+                    }
+                    Ok(_) => {}
+                    Err(tungstenite::Error::Io(error))
+                        if matches!(
+                            error.kind(),
+                            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                        ) =>
+                    {
+                        break None;
+                    }
+                    Err(_) => break None,
+                }
+            };
+            let Some(retry) = retry else { return false };
+            assert_eq!(retry["method"], "Page.getFrameTree");
+            ws.send(Message::Text(
+                json!({
+                    "id": retry["id"],
+                    "result": {
+                        "frameTree": {
+                            "frame": {
+                                "id": "new-frame",
+                                "loaderId": "new-loader",
+                                "url": "https://new.example.test"
+                            }
+                        }
+                    }
+                })
+                .to_string()
+                .into(),
+            ))
+            .unwrap();
+            true
+        });
+        let (event_tx, _event_rx) = sync_channel(2);
+        let client =
+            CdpClient::connect(&format!("ws://{addr}/devtools/browser/fake"), event_tx).unwrap();
+        client.register_frame_epoch("session-1", Arc::new(FrameEpoch::default()));
+
+        let result = client.seed_main_frame("session-1");
+
+        drop(client);
+        let retried = server.join().unwrap();
+        assert!(
+            result.is_ok(),
+            "bootstrap rejected a snapshot invalidated by normal navigation: {result:?}"
+        );
+        assert!(retried, "bootstrap did not request a fresh post-navigation snapshot");
+    }
+
+    #[test]
     fn replayed_load_lifecycle_reconciles_pending_document_authority() {
         let (inner, _outbound_rx) = test_inner();
         inner.frame_epochs.lock().unwrap().insert(
