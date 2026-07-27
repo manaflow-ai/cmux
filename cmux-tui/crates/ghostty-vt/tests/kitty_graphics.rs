@@ -529,6 +529,39 @@ fn bounded_replay_uses_the_full_cap_for_a_large_visible_image() {
 }
 
 #[test]
+fn bounded_replay_trims_scrollback_before_a_visible_image() {
+    let pixels = vec![96; 80 * 40 * 3];
+
+    let mut visible_only = terminal();
+    visible_only.vt_write(b"visible image");
+    visible_only
+        .vt_write(&kitty("a=T,t=d,f=24,i=97,p=1,s=80,v=40,c=10,r=4,q=2", &encode_base64(&pixels)));
+    let budget = visible_only.vt_replay().unwrap().bytes.len();
+
+    let mut source = terminal();
+    for row in 0..200 {
+        source
+            .vt_write(format!("history row {row:03} fills the terminal scrollback\r\n").as_bytes());
+    }
+    source.vt_write(b"\x1b[2J\x1b[Hvisible image");
+    source
+        .vt_write(&kitty("a=T,t=d,f=24,i=97,p=1,s=80,v=40,c=10,r=4,q=2", &encode_base64(&pixels)));
+
+    let replay = source.vt_replay_bounded(budget).unwrap();
+    assert!(replay.bytes.len() <= budget);
+    let mut mirror = terminal();
+    mirror.vt_write(&replay.bytes);
+    mirror.restore_kitty_image_aliases(&replay.kitty_image_aliases).unwrap();
+
+    let snapshot = mirror.kitty_graphics_snapshot().unwrap();
+    assert_eq!(
+        &*snapshot.image(97).expect("visible image must displace old scrollback").data,
+        &pixels
+    );
+    assert_eq!(snapshot.placements.len(), 1);
+}
+
+#[test]
 fn bounded_replay_prioritizes_a_visible_image_over_an_older_unplaced_image() {
     let pixels = vec![64; 600 * 3];
     let mut visible_only = terminal();

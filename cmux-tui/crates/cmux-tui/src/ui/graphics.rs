@@ -1245,6 +1245,20 @@ mod tests {
     }
 
     #[test]
+    fn terminal_probe_bounds_an_unfinished_startup_paste() {
+        const EXPECTED_MAX_INCOMPLETE_BYTES: usize = 4 * 1024;
+
+        let mut pending = split_pending_input(b"\x1b[200~");
+        pending.append(&vec![b'x'; EXPECTED_MAX_INCOMPLETE_BYTES + 1]);
+
+        assert!(
+            pending.incomplete.len() <= EXPECTED_MAX_INCOMPLETE_BYTES,
+            "an unfinished startup sequence retained {} bytes",
+            pending.incomplete.len()
+        );
+    }
+
+    #[test]
     fn existing_base64_graphic_payload_is_borrowed() {
         let encoded: Arc<str> = Arc::from("AAAAAA==");
         let data = GraphicData::Base64(encoded.clone());

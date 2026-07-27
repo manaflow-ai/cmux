@@ -8346,6 +8346,23 @@ mod tests {
     }
 
     #[test]
+    fn closing_the_last_failed_surface_publishes_pending_cell_pixels() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        *mux.pending_cell_pixels.lock().unwrap() = Some(PendingCellPixelUpdate {
+            target: (9, 18),
+            failures: HashSet::from([surface.id]),
+            use_for_creation: false,
+        });
+
+        assert_eq!(mux.cell_pixel_size(), (8, 16));
+        assert!(mux.close_surface(surface.id).unwrap());
+
+        assert_eq!(mux.cell_pixel_size(), (9, 18));
+        assert!(mux.pending_cell_pixels.lock().unwrap().is_none());
+    }
+
+    #[test]
     fn failed_viewer_resize_preserves_previous_report_and_creation_default() {
         let mux = test_mux();
         let missing_surface = 99_999;

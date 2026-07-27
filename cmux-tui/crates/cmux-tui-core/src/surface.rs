@@ -4320,6 +4320,23 @@ mod tests {
     }
 
     #[test]
+    fn render_attachments_are_bounded_across_a_mux() {
+        const EXPECTED_MAX_ATTACHMENTS: usize = 64;
+
+        let mux = Mux::new_for_test("render-tap-cap", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let mut attachments = Vec::with_capacity(EXPECTED_MAX_ATTACHMENTS);
+        for _ in 0..EXPECTED_MAX_ATTACHMENTS {
+            attachments.push(surface.attach_render_stream().unwrap());
+        }
+
+        assert!(matches!(surface.attach_render_stream(), Err(ghostty_vt::Error::OutOfSpace)));
+        attachments.pop();
+        assert!(surface.attach_render_stream().is_ok());
+    }
+
+    #[test]
     fn geometry_updates_skip_vt_replay_without_byte_attach_subscribers() {
         let mux = Mux::new_for_test("resize-without-byte-attach", SurfaceOptions::default());
         let surface =

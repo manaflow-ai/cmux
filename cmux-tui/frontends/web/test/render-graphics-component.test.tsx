@@ -199,6 +199,50 @@ describe("RenderGraphics canvas resource policy", () => {
     expect(container.querySelector("[data-graphic-placement='2:2:0']")).toBeNull();
   });
 
+  it("bounds aggregate browser-thread decoding after worker failure", async () => {
+    class FailingWorker {
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      onerror: ((event: ErrorEvent) => void) | null = null;
+      onmessageerror: ((event: MessageEvent) => void) | null = null;
+
+      postMessage(): void {
+        setTimeout(() => this.onerror?.(new ErrorEvent("error")), 0);
+      }
+
+      terminate(): void {}
+    }
+    vi.stubGlobal("Worker", FailingWorker);
+    const width = 256;
+    const height = 128;
+    const byteLength = width * height * 4;
+    const graphics: RenderGraphicsModel = {
+      generation: 1,
+      images: Array.from({ length: 3 }, (_, index) => ({
+        id: index + 1,
+        generation: 1,
+        width,
+        height,
+        format: "rgba" as const,
+        data: zeroBytesBase64(byteLength),
+      })),
+      placements: Array.from(
+        { length: 3 },
+        (_, index) => ({ ...placement(index + 1, width, height), image_id: index + 1 }),
+      ),
+    };
+
+    const { container } = render(
+      <RenderGraphics graphics={graphics}>
+        <div>terminal</div>
+      </RenderGraphics>,
+    );
+
+    await waitFor(() => {
+      expect(container.querySelectorAll("[data-graphic-placement]")).toHaveLength(2);
+    });
+    expect(container.querySelector("[data-graphic-placement='3:3:0']")).toBeNull();
+  });
+
   it("decodes asynchronously and bounds aggregate backing for repeated large placements", async () => {
     const width = 1_000;
     const height = 1_000;
