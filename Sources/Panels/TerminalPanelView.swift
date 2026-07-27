@@ -84,6 +84,8 @@ struct TerminalPanelView: View {
                 showsUnreadNotificationRing: hasUnreadNotification && notificationPaneRingEnabled,
                 inactiveOverlayColor: appearance.unfocusedOverlayNSColor,
                 inactiveOverlayOpacity: appearance.unfocusedOverlayOpacity,
+                copyModeCursorColor: appearance.cursorColor,
+                copyModeSelectionColor: appearance.selectionColor,
                 searchState: panel.searchState,
                 reattachToken: panel.viewReattachToken,
                 sessionContentWidthPresentation: sessionContentWidthPresentation,
@@ -348,6 +350,28 @@ struct PanelAppearance {
     let unfocusedOverlayNSColor: NSColor
     let unfocusedOverlayOpacity: Double
     let usesClearContentBackground: Bool
+    let cursorColor: NSColor
+    let selectionColor: NSColor
+
+    init(
+        backgroundColor: NSColor,
+        foregroundColor: NSColor,
+        dividerColor: Color,
+        unfocusedOverlayNSColor: NSColor,
+        unfocusedOverlayOpacity: Double,
+        usesClearContentBackground: Bool,
+        cursorColor: NSColor? = nil,
+        selectionColor: NSColor? = nil
+    ) {
+        self.backgroundColor = backgroundColor
+        self.foregroundColor = foregroundColor
+        self.dividerColor = dividerColor
+        self.unfocusedOverlayNSColor = unfocusedOverlayNSColor
+        self.unfocusedOverlayOpacity = unfocusedOverlayOpacity
+        self.usesClearContentBackground = usesClearContentBackground
+        self.cursorColor = cursorColor ?? foregroundColor
+        self.selectionColor = selectionColor ?? foregroundColor
+    }
 
     var contentBackgroundColor: NSColor {
         usesClearContentBackground ? .clear : backgroundColor
@@ -383,7 +407,9 @@ struct PanelAppearance {
                 opacity: config.backgroundOpacity,
                 usesGhosttyGlassStyle: config.backgroundBlur.isMacOSGlassStyle,
                 usesTransparentWindow: usesTransparentWindow
-            )
+            ),
+            cursorColor: config.cursorColor,
+            selectionColor: config.selectionBackground
         )
     }
 

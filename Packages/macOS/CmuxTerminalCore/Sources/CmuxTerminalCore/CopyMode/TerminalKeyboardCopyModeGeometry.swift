@@ -1,5 +1,25 @@
 import Foundation
 
+/// Converts a Ghostty cell dimension from device pixels to AppKit points.
+///
+/// Ghostty reports cell dimensions in device pixels, while copy-mode overlays
+/// are laid out in AppKit points. Prefer the latest cell-size action and fall
+/// back to the surface size when that action has not arrived yet.
+public func terminalKeyboardCopyModeCellDimensionPoints(
+    reportedCellDimensionPixels: Double,
+    surfaceCellDimensionPixels: Double,
+    backingScaleFactor: Double
+) -> Double {
+    let scale = backingScaleFactor.isFinite && backingScaleFactor > 0
+        ? backingScaleFactor
+        : 1
+    let pixels = reportedCellDimensionPixels.isFinite && reportedCellDimensionPixels > 0
+        ? reportedCellDimensionPixels
+        : surfaceCellDimensionPixels
+    guard pixels.isFinite, pixels > 0 else { return 0 }
+    return pixels / scale
+}
+
 /// Resolves the row count that is actually visible in the terminal host view.
 ///
 /// Ghostty can report a backing grid that is taller than the clipped AppKit
@@ -97,49 +117,4 @@ public func terminalKeyboardCopyModeInitialViewportColumn(
 
     let estimatedColumn = Int(floor((imePointX - leftPadding) / imeCellWidth))
     return max(0, min(clampedColumns - 1, estimatedColumn))
-}
-
-/// Chooses a nonzero horizontal drag range within a visible cursor cell.
-///
-/// The terminal host uses this range when it has to synthesize a drag inside the
-/// current copy-mode cursor cell. The returned range is clamped to the view
-/// bounds and keeps `startX < endX` so callers can issue a normal left-to-right
-/// drag even when the cell is partially clipped.
-///
-/// ```swift
-/// let range = terminalKeyboardCopyModeCursorSelectionXRange(
-///     rectMinX: 20,
-///     rectMaxX: 30,
-///     boundsWidth: 100
-/// )
-/// ```
-///
-/// - Parameters:
-///   - rectMinX: The cell's left edge in view coordinates.
-///   - rectMaxX: The cell's right edge in view coordinates.
-///   - boundsWidth: The containing view width.
-/// - Returns: A start/end X pair for synthetic selection, or `nil` when the view is too narrow.
-public func terminalKeyboardCopyModeCursorSelectionXRange(
-    rectMinX: Double,
-    rectMaxX: Double,
-    boundsWidth: Double
-) -> (startX: Double, endX: Double)? {
-    let maxX = boundsWidth - 1
-    guard maxX > 0 else { return nil }
-
-    let visibleMinX = min(max(rectMinX, 0), maxX)
-    let visibleMaxX = min(max(rectMaxX, 0), maxX)
-    let startX = min(max(visibleMinX + 0.5, 0), maxX)
-    let endX = min(max(visibleMaxX - 0.5, 0), maxX)
-    if endX > startX {
-        return (startX, endX)
-    }
-
-    let midpointX = min(max((visibleMinX + visibleMaxX) / 2, 0), maxX)
-    if midpointX < maxX {
-        return (midpointX, min(midpointX + 1, maxX))
-    }
-    let fallbackEndX = max(midpointX - 1, 0)
-    guard fallbackEndX < midpointX else { return nil }
-    return (fallbackEndX, midpointX)
 }

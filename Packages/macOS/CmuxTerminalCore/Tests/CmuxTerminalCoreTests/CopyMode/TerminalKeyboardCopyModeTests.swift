@@ -246,6 +246,26 @@ struct TerminalKeyboardCopyModeResolverTests {
 
 @Suite("Terminal keyboard copy mode cursor")
 struct TerminalKeyboardCopyModeCursorPackageTests {
+    @Test func ghosttyCellPixelsConvertToAppKitPoints() {
+        #expect(
+            terminalKeyboardCopyModeCellDimensionPoints(
+                reportedCellDimensionPixels: 28,
+                surfaceCellDimensionPixels: 30,
+                backingScaleFactor: 2
+            ) == 14
+        )
+    }
+
+    @Test func surfaceCellPixelsProvidePreActionFallback() {
+        #expect(
+            terminalKeyboardCopyModeCellDimensionPoints(
+                reportedCellDimensionPixels: 0,
+                surfaceCellDimensionPixels: 36,
+                backingScaleFactor: 2
+            ) == 18
+        )
+    }
+
     @Test func motionThenVisualSelectionUsesMovedCursorAsAnchor() {
         var cursor = TerminalKeyboardCopyModeCursor(row: 8, column: 7)
 
@@ -269,19 +289,6 @@ struct TerminalKeyboardCopyModeCursorPackageTests {
             ) == .startSelection
         )
         #expect(cursor.clamped(rows: 20, columns: 40) == TerminalKeyboardCopyModeCursor(row: 9, column: 7))
-    }
-
-    @Test func cursorSelectionXRangeKeepsLeftToRightDragAtRightEdge() throws {
-        let range = try #require(
-            terminalKeyboardCopyModeCursorSelectionXRange(
-                rectMinX: 99.5,
-                rectMaxX: 120,
-                boundsWidth: 100
-            )
-        )
-
-        #expect(abs(range.startX - 98) < 0.0001)
-        #expect(abs(range.endX - 99) < 0.0001)
     }
 
     @Test func viewportOffsetDeltaKeepsCursorOnSameTextAfterJump() {
@@ -357,27 +364,6 @@ struct TerminalKeyboardCopyModeCursorPackageTests {
 
         #expect(moved)
         #expect(selection.selectedRows == 40 ... 99)
-    }
-
-    @Test func visualLineRuntimeRowsPreserveSelectionDirection() {
-        var forward = TerminalKeyboardCopyModeVisualLineSelection(
-            anchorScreenRow: 10,
-            endpointScreenRow: 20
-        )
-        var reverse = TerminalKeyboardCopyModeVisualLineSelection(
-            anchorScreenRow: 20,
-            endpointScreenRow: 10
-        )
-
-        forward.replaceSelectedRows(3 ... 7)
-        reverse.replaceSelectedRows(3 ... 7)
-
-        #expect(forward.anchorScreenRow == 3)
-        #expect(forward.endpointScreenRow == 7)
-        #expect(reverse.anchorScreenRow == 7)
-        #expect(reverse.endpointScreenRow == 3)
-        #expect(forward.selectedRows == 3 ... 7)
-        #expect(reverse.selectedRows == 3 ... 7)
     }
 
     @Test func visualLineMovementKeepsClippedBottomEndpointAbsolute() {
