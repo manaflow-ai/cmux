@@ -875,6 +875,9 @@ type CellPixelBeforePublishHook = Arc<dyn Fn((u16, u16)) + Send + Sync>;
 #[cfg(test)]
 type CellPixelOperationHook =
     Arc<dyn Fn(&Arc<Surface>, (u16, u16), Instant) -> anyhow::Result<Option<u64>> + Send + Sync>;
+#[cfg(test)]
+type KittyImageBudgetOperationHook =
+    Arc<dyn Fn(&Arc<Surface>, ghostty_vt::KittyGraphicsLimits) -> anyhow::Result<()> + Send + Sync>;
 
 type CellPixelSurfaceResult = (SurfaceId, (u16, u16), anyhow::Result<Option<u64>>, bool);
 
@@ -975,9 +978,13 @@ pub struct Mux {
     terminal_create_after_materialization_lock: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     terminal_create_after_workspace_reservation: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    #[cfg(test)]
+    terminal_spawn_after_cell_pixel_snapshot: Mutex<Option<Arc<dyn Fn(bool) + Send + Sync>>>,
     browser_runtime: Mutex<Option<Arc<BrowserRuntime>>>,
     active_render_attachments: Arc<AtomicUsize>,
     kitty_image_surfaces: Mutex<Vec<Weak<Surface>>>,
+    #[cfg(test)]
+    kitty_image_budget_operation: Mutex<Option<KittyImageBudgetOperationHook>>,
     cell_pixel_lifecycle: Mutex<()>,
     cell_pixels: Mutex<(u16, u16)>,
     pending_cell_pixels: Mutex<Option<PendingCellPixelUpdate>>,
@@ -1211,9 +1218,13 @@ impl Mux {
             terminal_create_after_materialization_lock: Mutex::new(None),
             #[cfg(test)]
             terminal_create_after_workspace_reservation: Mutex::new(None),
+            #[cfg(test)]
+            terminal_spawn_after_cell_pixel_snapshot: Mutex::new(None),
             browser_runtime: Mutex::new(None),
             active_render_attachments: Arc::new(AtomicUsize::new(0)),
             kitty_image_surfaces: Mutex::new(Vec::new()),
+            #[cfg(test)]
+            kitty_image_budget_operation: Mutex::new(None),
             cell_pixel_lifecycle: Mutex::new(()),
             cell_pixels: Mutex::new((8, 16)),
             pending_cell_pixels: Mutex::new(None),
@@ -2489,6 +2500,10 @@ impl Mux {
         reservation: Option<TerminalReservationRequest>,
     ) -> anyhow::Result<Arc<Surface>> {
         let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
+        #[cfg(test)]
+        if let Some(hook) = self.terminal_spawn_after_cell_pixel_snapshot.lock().unwrap().clone() {
+            hook(self.cell_pixel_lifecycle.try_lock().is_ok());
+        }
         let id = self.next_id();
         let mut opts = self.surface_options.lock().unwrap().clone();
         if cwd.is_some() {
@@ -4072,15 +4087,16 @@ impl Mux {
         registered.retain(|candidate| {
             candidate.upgrade().is_some_and(|candidate| !std::ptr::eq(candidate.as_ref(), surface))
         });
-        Self::rebalance_registered_kitty_image_surfaces(&mut registered)
+        self.rebalance_registered_kitty_image_surfaces(&mut registered)
     }
 
     pub(crate) fn rebalance_kitty_image_surfaces(&self) -> anyhow::Result<()> {
         let mut registered = self.kitty_image_surfaces.lock().unwrap();
-        Self::rebalance_registered_kitty_image_surfaces(&mut registered)
+        self.rebalance_registered_kitty_image_surfaces(&mut registered)
     }
 
     fn rebalance_registered_kitty_image_surfaces(
+        &self,
         registered: &mut Vec<Weak<Surface>>,
     ) -> anyhow::Result<()> {
         let surfaces = registered.iter().filter_map(Weak::upgrade).collect::<Vec<_>>();
@@ -4105,6 +4121,19 @@ impl Mux {
             .unwrap_or(0)
             .min(ghostty_vt::MAX_KITTY_PLACEMENTS);
         for surface in surfaces {
+            #[cfg(test)]
+            if let Some(operation) = self.kitty_image_budget_operation.lock().unwrap().clone() {
+                operation(
+                    &surface,
+                    ghostty_vt::KittyGraphicsLimits {
+                        image_bytes: byte_share,
+                        inflight_bytes: inflight_share,
+                        images: image_share,
+                        placements: placement_share,
+                    },
+                )?;
+                continue;
+            }
             surface.set_kitty_graphics_limits(
                 byte_share,
                 inflight_share,
@@ -8653,6 +8682,28 @@ mod tests {
     }
 
     #[test]
+    fn terminal_spawn_releases_cell_pixel_lifecycle_and_reconciles_before_publish() {
+        let mux = test_mux();
+        let observed_unlocked = Arc::new(Mutex::new(Vec::new()));
+        *mux.terminal_spawn_after_cell_pixel_snapshot.lock().unwrap() = Some(Arc::new({
+            let mux = Arc::downgrade(&mux);
+            let observed_unlocked = observed_unlocked.clone();
+            move |unlocked| {
+                observed_unlocked.lock().unwrap().push(unlocked);
+                if unlocked {
+                    mux.upgrade().unwrap().set_cell_pixel_size(9, 18);
+                }
+            }
+        }));
+
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+
+        assert_eq!(*observed_unlocked.lock().unwrap(), vec![true]);
+        assert_eq!(mux.cell_pixel_size(), (9, 18));
+        assert_eq!(surface.test_cell_pixel_size(), (9, 18));
+    }
+
+    #[test]
     fn kitty_image_storage_and_copied_pixels_share_one_process_budget() {
         let mux = test_mux();
         let first = mux.new_workspace(None, Some((80, 24))).unwrap();
@@ -8802,6 +8853,106 @@ mod tests {
         );
         assert_eq!(survivor_limit.1, 2_048);
         assert_eq!(survivor_limit.2, 8_192);
+    }
+
+    #[test]
+    fn kitty_quota_updates_do_not_block_terminal_creation() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let gate = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
+        *mux.kitty_image_budget_operation.lock().unwrap() = Some(Arc::new({
+            let gate = gate.clone();
+            move |surface, limits| {
+                if surface.id == first.id {
+                    let (released, changed) = &*gate;
+                    let mut released = released.lock().unwrap();
+                    while !*released {
+                        released = changed.wait(released).unwrap();
+                    }
+                }
+                surface.set_kitty_graphics_limits(
+                    limits.image_bytes,
+                    limits.inflight_bytes,
+                    limits.images,
+                    limits.placements,
+                )
+            }
+        }));
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let creating_mux = mux.clone();
+        let creator = std::thread::spawn(move || {
+            let result = creating_mux.new_tab(Some(pane), None, Some((80, 24)));
+            let _ = sender.send(result);
+        });
+
+        let created_without_waiting = receiver.recv_timeout(Duration::from_millis(250)).ok();
+        let returned_before_release = created_without_waiting.is_some();
+        {
+            let (released, changed) = &*gate;
+            *released.lock().unwrap() = true;
+            changed.notify_all();
+        }
+        let surface = match created_without_waiting {
+            Some(result) => result.unwrap(),
+            None => receiver.recv_timeout(Duration::from_secs(2)).unwrap().unwrap(),
+        };
+        creator.join().unwrap();
+        *mux.kitty_image_budget_operation.lock().unwrap() = None;
+
+        assert!(
+            returned_before_release,
+            "terminal creation waited for a process-wide Kitty quota sweep"
+        );
+        assert!(mux.close_surface(surface.id).unwrap());
+    }
+
+    #[test]
+    fn kitty_quota_restoration_uses_linear_bucket_updates() {
+        let mux = test_mux();
+        let applications = Arc::new(AtomicUsize::new(0));
+        *mux.kitty_image_budget_operation.lock().unwrap() = Some(Arc::new({
+            let applications = applications.clone();
+            move |surface, limits| {
+                applications.fetch_add(1, Ordering::AcqRel);
+                surface.set_kitty_graphics_limits(
+                    limits.image_bytes,
+                    limits.inflight_bytes,
+                    limits.images,
+                    limits.placements,
+                )
+            }
+        }));
+        let first = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let mut surfaces = vec![first];
+        for _ in 1..16 {
+            surfaces.push(mux.new_tab(Some(pane), None, Some((80, 24))).unwrap());
+        }
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            let limits = surfaces
+                .iter()
+                .map(|surface| {
+                    surface
+                        .with_terminal(|terminal| terminal.kitty_image_storage_limit().unwrap())
+                        .unwrap()
+                })
+                .collect::<Vec<_>>();
+            if limits[0] > 0 && limits.iter().all(|limit| *limit == limits[0]) {
+                break;
+            }
+            assert!(Instant::now() < deadline, "Kitty quota worker did not converge");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+
+        let applied = applications.load(Ordering::Acquire);
+        assert!(
+            applied <= surfaces.len() * 4,
+            "restoring {} terminals applied {applied} Kitty quota updates",
+            surfaces.len()
+        );
     }
 
     #[test]
