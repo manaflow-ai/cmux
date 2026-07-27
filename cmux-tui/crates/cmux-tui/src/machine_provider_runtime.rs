@@ -2052,13 +2052,13 @@ fn provider_presentation(snapshot: &protocol::SnapshotResult) -> ProviderPresent
 
 #[cfg(test)]
 mod tests {
-    use std::io::{BufRead, BufReader, Write};
-    use std::os::unix::fs::DirBuilderExt;
+    use std::io::{BufRead, BufReader, ErrorKind as IoErrorKind, Write};
+    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
     use std::os::unix::net::{UnixListener, UnixStream};
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::mpsc;
     use std::thread;
-    use std::time::Duration;
+    use std::time::{Duration, Instant as TestInstant};
 
     use serde::Serialize;
     use serde::de::DeserializeOwned;
@@ -2172,7 +2172,15 @@ mod tests {
         snapshot: protocol::SnapshotResult,
         additional_capabilities: &[&str],
     ) -> (UnixStream, BufReader<UnixStream>) {
-        let (mut stream, _) = listener.accept().unwrap();
+        let (stream, _) = listener.accept().unwrap();
+        serve_initial_snapshot_on_stream(stream, snapshot, additional_capabilities)
+    }
+
+    fn serve_initial_snapshot_on_stream(
+        mut stream: UnixStream,
+        snapshot: protocol::SnapshotResult,
+        additional_capabilities: &[&str],
+    ) -> (UnixStream, BufReader<UnixStream>) {
         let mut reader = BufReader::new(stream.try_clone().unwrap());
         let hello: protocol::RequestEnvelope = read_frame(&mut reader);
         let protocol::ProviderRequest::Hello(params) = hello.request else {
@@ -2207,6 +2215,26 @@ mod tests {
         );
         serve_machine_lifecycle_snapshot(&mut stream, &mut reader, &snapshot);
         (stream, reader)
+    }
+
+    fn accept_with_timeout(listener: &UnixListener) -> Option<UnixStream> {
+        listener.set_nonblocking(true).unwrap();
+        let deadline = TestInstant::now() + Duration::from_secs(2);
+        loop {
+            match listener.accept() {
+                Ok((stream, _)) => {
+                    stream.set_nonblocking(false).unwrap();
+                    return Some(stream);
+                }
+                Err(error) if error.kind() == IoErrorKind::WouldBlock => {
+                    if TestInstant::now() >= deadline {
+                        return None;
+                    }
+                    thread::sleep(Duration::from_millis(10));
+                }
+                Err(error) => panic!("accept provider connection: {error}"),
+            }
+        }
     }
 
     fn serve_initial_durable_snapshot(
@@ -5316,6 +5344,89 @@ mod tests {
         finish.send(()).unwrap();
         drop(runtime);
         server.join().unwrap();
+    }
+
+    #[test]
+    fn legacy_provider_does_not_require_notice_identity_state() {
+        let socket = TestProviderSocket::bind();
+        let listener = socket.listener();
+        let state = TestStateRoot::create("legacy-without-identity");
+        let identity_parent = state.path.join("device");
+        std::fs::DirBuilder::new().mode(0o755).create(&identity_parent).unwrap();
+        std::fs::set_permissions(&identity_parent, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let server = thread::spawn(move || {
+            let Some(stream) = accept_with_timeout(&listener) else { return false };
+            let (stream, reader) = serve_initial_snapshot_on_stream(
+                stream,
+                snapshot(1, "Legacy", protocol::MachineStatus::Running),
+                &[],
+            );
+            drop(reader);
+            drop(stream);
+            true
+        });
+
+        let runtime =
+            ProviderMachineRuntime::connect_in_state_root(&socket.path, token(), &state.path);
+        assert!(
+            server.join().unwrap(),
+            "legacy provider was not contacted before identity state was accessed"
+        );
+        let runtime = runtime.expect("legacy provider should not require durable identity state");
+        assert_eq!(runtime.ui_state(false).snapshot.machines[0].name, "Legacy");
+    }
+
+    #[test]
+    fn unavailable_notice_identity_preserves_localized_context_after_durable_handshake() {
+        let socket = TestProviderSocket::bind();
+        let listener = socket.listener();
+        let state = TestStateRoot::create("unavailable-identity");
+        let identity_parent = state.path.join("device");
+        std::fs::DirBuilder::new().mode(0o755).create(&identity_parent).unwrap();
+        std::fs::set_permissions(&identity_parent, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let server = thread::spawn(move || {
+            let Some(mut stream) = accept_with_timeout(&listener) else { return false };
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let hello: protocol::RequestEnvelope = read_frame(&mut reader);
+            assert!(matches!(hello.request, protocol::ProviderRequest::Hello(_)));
+            write_frame(
+                &mut stream,
+                &protocol::ResponseEnvelope::success(
+                    hello.id,
+                    protocol::HelloResult {
+                        provider_id: id("test-provider"),
+                        provider_name: "Test Provider".into(),
+                        negotiated_version: protocol::Version,
+                    },
+                )
+                .with_capabilities([protocol::DURABLE_NOTICES_CAPABILITY]),
+            );
+
+            let mut next = String::new();
+            assert_eq!(
+                reader.read_line(&mut next).unwrap(),
+                0,
+                "identity failure did not stop before durable subscription: {next}"
+            );
+            true
+        });
+
+        let error =
+            ProviderMachineRuntime::connect_in_state_root(&socket.path, token(), &state.path)
+                .err()
+                .expect("permissive identity state unexpectedly connected");
+        assert!(
+            server.join().unwrap(),
+            "durable capability was not negotiated before identity state was accessed"
+        );
+        assert_eq!(
+            error.to_string(),
+            localization::catalog().sidebar.provider_notice_identity_unavailable
+        );
+        assert!(
+            format!("{error:?}")
+                .contains("provider notice identity directory must not be accessible")
+        );
     }
 
     #[test]

@@ -697,7 +697,7 @@ mod tests {
         );
         assert_eq!(
             catalog_for_locale("en_US.UTF-8").sidebar.provider_connection_already_running,
-            "Another cmux-tui connection is already running. Close it and try again."
+            "Another connection is already running. Close it and try again."
         );
         assert_eq!(
             catalog_for_locale("en_US.UTF-8").sidebar.connect_prompt,
@@ -721,7 +721,7 @@ mod tests {
         );
         assert_eq!(
             catalog_for_locale("ja_JP.UTF-8").sidebar.provider_connection_already_running,
-            "別の cmux-tui 接続がすでに実行中です。終了してから、もう一度お試しください。"
+            "別の接続がすでに実行中です。終了してから、もう一度お試しください。"
         );
         assert_eq!(
             catalog_for_locale("ja_JP.UTF-8").sidebar.machine_provider_external_connect_ambiguous,
