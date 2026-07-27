@@ -15,6 +15,9 @@ struct SharedLiveAgentIndexLoader {
     private let processSnapshotProvider: () -> CmuxTopProcessSnapshot
     private let capturedAtProvider: () -> TimeInterval
     private let processArgumentsProvider: (Int) -> CmuxTopProcessArguments?
+    private let injectedProcessArgumentsProvider: ((Int) -> CmuxTopProcessArguments?)?
+    private let processArgumentBytesProvider: (Int) -> [UInt8]?
+    private let processArgumentsDecoder: ([UInt8]) -> CmuxTopProcessArguments?
     private let processIdentityProvider: (Int) -> AgentPIDProcessIdentity?
     private let cachedAgentProcessValidator: CachedAgentProcessIdentityValidator
 
@@ -28,8 +31,12 @@ struct SharedLiveAgentIndexLoader {
         capturedAtProvider: @escaping () -> TimeInterval = {
             Date().timeIntervalSince1970
         },
-        processArgumentsProvider: @escaping (Int) -> CmuxTopProcessArguments? = {
-            CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
+        processArgumentsProvider: ((Int) -> CmuxTopProcessArguments?)? = nil,
+        processArgumentBytesProvider: @escaping (Int) -> [UInt8]? = {
+            CmuxTopProcessSnapshot.kernProcArgsBytes(for: $0)
+        },
+        processArgumentsDecoder: @escaping ([UInt8]) -> CmuxTopProcessArguments? = {
+            CmuxTopProcessSnapshot.processArgumentsAndEnvironment(fromKernProcArgs: $0)
         },
         processIdentityProvider: @escaping (Int) -> AgentPIDProcessIdentity? = {
             guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
@@ -42,7 +49,12 @@ struct SharedLiveAgentIndexLoader {
         self.registry = registry
         self.processSnapshotProvider = processSnapshotProvider
         self.capturedAtProvider = capturedAtProvider
-        self.processArgumentsProvider = processArgumentsProvider
+        self.injectedProcessArgumentsProvider = processArgumentsProvider
+        self.processArgumentsProvider = processArgumentsProvider ?? {
+            CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
+        }
+        self.processArgumentBytesProvider = processArgumentBytesProvider
+        self.processArgumentsDecoder = processArgumentsDecoder
         self.processIdentityProvider = processIdentityProvider
         self.cachedAgentProcessValidator = cachedAgentProcessValidator
     }
@@ -60,7 +72,9 @@ struct SharedLiveAgentIndexLoader {
             fileManager: fileManager,
             processSnapshot: processSnapshot,
             capturedAt: capturedAtProvider(),
-            processArgumentsProvider: processArgumentsProvider
+            processArgumentsProvider: injectedProcessArgumentsProvider,
+            processArgumentBytesProvider: processArgumentBytesProvider,
+            processArgumentsDecoder: processArgumentsDecoder
         )
         let index = RestorableAgentSessionIndex.load(
             homeDirectory: homeDirectory,
