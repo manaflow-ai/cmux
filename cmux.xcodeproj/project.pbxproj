@@ -951,6 +951,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A5001004 /* GhosttyConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001014 /* GhosttyConfig.swift */; };
 		A11EB0000000000000000000 /* GhosttyConfigPathResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11EB0000000000000000001 /* GhosttyConfigPathResolverTests.swift */; };
 		F4000000A1B2C3D4E5F60718 /* GhosttyConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4000001A1B2C3D4E5F60718 /* GhosttyConfigTests.swift */; };
+		F56B0000A1B2C3D4E5F60718 /* GhosttyConsumedModifierLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F56B0001A1B2C3D4E5F60718 /* GhosttyConsumedModifierLifecycleTests.swift */; };
 		C3873001C3873001C3873001 /* GhosttyCrashBreadcrumb.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3873002C3873002C3873002 /* GhosttyCrashBreadcrumb.swift */; };
 		C3873003C3873003C3873003 /* GhosttyCrashReportMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3873004C3873004C3873004 /* GhosttyCrashReportMetadata.swift */; };
 		D78975000000000000000001 /* GhosttyCurrentDirectoryAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = D78975000000000000000002 /* GhosttyCurrentDirectoryAction.swift */; };
@@ -3256,6 +3257,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A5001014 /* GhosttyConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyConfig.swift; sourceTree = "<group>"; };
 		A11EB0000000000000000001 /* GhosttyConfigPathResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyConfigPathResolverTests.swift; sourceTree = "<group>"; };
 		F4000001A1B2C3D4E5F60718 /* GhosttyConfigTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyConfigTests.swift; sourceTree = "<group>"; };
+		F56B0001A1B2C3D4E5F60718 /* GhosttyConsumedModifierLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyConsumedModifierLifecycleTests.swift; sourceTree = "<group>"; };
 		C3873002C3873002C3873002 /* GhosttyCrashBreadcrumb.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyCrashBreadcrumb.swift; sourceTree = "<group>"; };
 		C3873004C3873004C3873004 /* GhosttyCrashReportMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyCrashReportMetadata.swift; sourceTree = "<group>"; };
 		D78975000000000000000002 /* GhosttyCurrentDirectoryAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyCurrentDirectoryAction.swift; sourceTree = "<group>"; };
@@ -6430,6 +6432,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A11CE0020000000000000001 /* AboutLicensesResourceTests.swift */,
 				F2000001A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift */,
 				F3000001A1B2C3D4E5F60718 /* CJKIMEInputTests.swift */,
+				F56B0001A1B2C3D4E5F60718 /* GhosttyConsumedModifierLifecycleTests.swift */,
 				D3571003A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift */,
 				D5935002A1B2C3D4E5F60718 /* GhosttyDECCKMArrowKeyTests.swift */,
 				C75740010000000000000002 /* CloudVMMenuItemMetricsTests.swift */,
@@ -9387,6 +9390,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				1718C0DE1718C0DE17180002 /* GhosttyCommandShiftForwardingTests.swift in Sources */,
 				A11EB0000000000000000000 /* GhosttyConfigPathResolverTests.swift in Sources */,
 				F4000000A1B2C3D4E5F60718 /* GhosttyConfigTests.swift in Sources */,
+				F56B0000A1B2C3D4E5F60718 /* GhosttyConsumedModifierLifecycleTests.swift in Sources */,
 				D78976000000000000000001 /* GhosttyCurrentDirectoryActionDispatcherTests.swift in Sources */,
 				D5935001A1B2C3D4E5F60718 /* GhosttyDECCKMArrowKeyTests.swift in Sources */,
 				468130000000000000000001 /* GhosttyDesktopNotificationIngressTests.swift in Sources */,
