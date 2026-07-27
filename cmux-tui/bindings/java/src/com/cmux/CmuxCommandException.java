@@ -10,10 +10,6 @@ public final class CmuxCommandException extends CmuxException {
         this(serverMessage, commandId, null, null);
     }
 
-    public CmuxCommandException(String serverMessage, Object commandId, String errorCode) {
-        this(serverMessage, commandId, errorCode, null);
-    }
-
     public CmuxCommandException(
         String serverMessage,
         Object commandId,

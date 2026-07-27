@@ -9,7 +9,6 @@ import {
 import type {
   ApplyLayoutResult,
   AttachEvent,
-  BrowserFrame,
   CmuxCommand,
   CmuxRequest,
   CmuxRequestParams,
@@ -19,6 +18,7 @@ import type {
   ColorHex,
   CopyMode,
   CopyResult,
+  DecodedBrowserFrame,
   DecodedAttachEvent,
   EmptyResult,
   ExportLayoutResult,
@@ -864,22 +864,17 @@ export class CmuxClient {
         return { ...event, data, replay: data } as DecodedAttachEvent;
       }
       case "frame": {
-        this.validateAttachEncodedData(event.data, "frame");
-        return this.normalizeBrowserFrame(event as unknown as BrowserFrame) as DecodedAttachEvent;
+        return {
+          ...event,
+          ...this.decodeBrowserFrame(event, "frame"),
+        } as DecodedAttachEvent;
       }
       case "browser-state": {
         const frame = event.frame;
         if (frame !== undefined && frame !== null) {
-          if (typeof frame !== "object" || Array.isArray(frame)) {
-            throw new CmuxProtocolError("browser-state frame is not an object");
-          }
-          this.validateAttachEncodedData(
-            (frame as { data?: unknown }).data,
-            "browser-state frame",
-          );
           return {
             ...event,
-            frame: this.normalizeBrowserFrame(frame as BrowserFrame),
+            frame: this.decodeBrowserFrame(frame, "browser-state frame"),
           } as DecodedAttachEvent;
         }
         return event as DecodedAttachEvent;
@@ -892,14 +887,48 @@ export class CmuxClient {
     return decodeBase64(this.validateAttachEncodedData(value, eventName));
   }
 
-  private normalizeBrowserFrame<T extends BrowserFrame>(
-    frame: T,
-  ): T & { image_width: number; image_height: number } {
+  private decodeBrowserFrame(value: unknown, eventName: string): DecodedBrowserFrame {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+      throw new CmuxProtocolError(`${eventName} is not an object`);
+    }
+    const frame = value as Record<string, unknown>;
+    const seq = this.validateFrameSequence(frame.seq, eventName);
+    const width = this.validateFrameDimension(frame.width, eventName, "width");
+    const height = this.validateFrameDimension(frame.height, eventName, "height");
+    const imageWidth = frame.image_width === undefined
+      ? width
+      : this.validateFrameDimension(frame.image_width, eventName, "image_width");
+    const imageHeight = frame.image_height === undefined
+      ? height
+      : this.validateFrameDimension(frame.image_height, eventName, "image_height");
+    const data = this.validateAttachEncodedData(frame.data, eventName);
     return {
       ...frame,
-      image_width: typeof frame.image_width === "number" ? frame.image_width : frame.width,
-      image_height: typeof frame.image_height === "number" ? frame.image_height : frame.height,
-    };
+      seq,
+      width,
+      height,
+      image_width: imageWidth,
+      image_height: imageHeight,
+      data,
+    } as DecodedBrowserFrame;
+  }
+
+  private validateFrameSequence(value: unknown, eventName: string): number {
+    if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+      throw new CmuxProtocolError(`${eventName} seq is not a nonnegative integer`);
+    }
+    return value;
+  }
+
+  private validateFrameDimension(
+    value: unknown,
+    eventName: string,
+    field: string,
+  ): number {
+    if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
+      throw new CmuxProtocolError(`${eventName} ${field} is not a positive integer`);
+    }
+    return value;
   }
 
   private validateAttachEncodedData(value: unknown, eventName: string): string {

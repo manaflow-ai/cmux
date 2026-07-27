@@ -64,7 +64,7 @@ use crate::pty_input::{
     PtyInputEvent, PtyInputKind, PtyInputSender, PtyOperationDelivery, PtyOperationFailure,
     mark_operation_known_not_delivered,
 };
-use crate::session::tree::ScreenView;
+use crate::session::tree::{PaneView, ScreenView};
 use crate::session::{
     CLEAR_HISTORY_UNSUPPORTED_ERROR, ClientInfo, Session, SidebarPluginSurface, SurfaceHandle,
     TreeView, is_remote_surface_unavailable, is_remote_timeout, is_remote_transport_failure,
@@ -1742,7 +1742,51 @@ impl OrderedSession {
         rows: u16,
         reassert: bool,
         claim: SurfaceResizeClaim,
-    ) {
+    ) -> bool {
+        self.resize_surface_with_key(
+            surface_id,
+            surface,
+            cols,
+            rows,
+            reassert,
+            claim,
+            "resize PTY surface",
+            ("surface resize", surface_id, 0),
+        )
+    }
+
+    fn reclaim_surface_size(
+        &self,
+        surface_id: SurfaceId,
+        surface: SurfaceHandle,
+        cols: u16,
+        rows: u16,
+        claim: SurfaceResizeClaim,
+    ) -> bool {
+        self.resize_surface_with_key(
+            surface_id,
+            surface,
+            cols,
+            rows,
+            true,
+            claim,
+            "reclaim visible PTY surface sizing",
+            ("surface size release", surface_id, 0),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn resize_surface_with_key(
+        &self,
+        surface_id: SurfaceId,
+        surface: SurfaceHandle,
+        cols: u16,
+        rows: u16,
+        reassert: bool,
+        claim: SurfaceResizeClaim,
+        label: &'static str,
+        key: (&'static str, SurfaceId, u64),
+    ) -> bool {
         let pending = self.pending_mutation();
         let failures = self.surface_resize_failures.clone();
         let enqueue_failures = failures.clone();
@@ -1750,8 +1794,8 @@ impl OrderedSession {
         let superseded = pending.clone();
         let settlement = pending.clone();
         let enqueue_result = self.operations.enqueue_coalescing_mutation_with_settlement(
-            "resize PTY surface",
-            ("surface resize", surface_id, 0),
+            label,
+            key,
             self.remote,
             move || superseded.supersede(),
             move || settlement.publish_deferred(),
@@ -1800,6 +1844,7 @@ impl OrderedSession {
             let state = next_surface_sync_failure(previous, transient, false);
             failures.insert(surface_id, SurfaceResizeFailure { desired: (cols, rows), state });
         }
+        enqueue_result == PtyInputEnqueueResult::Accepted
     }
 
     fn confirm_surface_resize(
@@ -1863,6 +1908,29 @@ impl OrderedSession {
         desired: (u16, u16),
         surface_needs_resize: bool,
     ) -> SurfaceResizeDecision {
+        self.surface_resize_decision_with_claim_policy(
+            surface_id,
+            desired,
+            surface_needs_resize,
+            false,
+        )
+    }
+
+    fn surface_resize_reclaim_decision(
+        &self,
+        surface_id: SurfaceId,
+        desired: (u16, u16),
+    ) -> SurfaceResizeDecision {
+        self.surface_resize_decision_with_claim_policy(surface_id, desired, true, true)
+    }
+
+    fn surface_resize_decision_with_claim_policy(
+        &self,
+        surface_id: SurfaceId,
+        desired: (u16, u16),
+        surface_needs_resize: bool,
+        supersede_existing_claim: bool,
+    ) -> SurfaceResizeDecision {
         let mut failures = self.surface_resize_failures.lock().unwrap();
         if let Some(failure) = failures.get(&surface_id).copied()
             && failure.desired == desired
@@ -1875,7 +1943,9 @@ impl OrderedSession {
         }
         drop(failures);
         let mut claims = self.surface_resize_claims.lock().unwrap();
-        if claims.get(&surface_id).is_some_and(|claim| claim.desired == desired) {
+        if !supersede_existing_claim
+            && claims.get(&surface_id).is_some_and(|claim| claim.desired == desired)
+        {
             return SurfaceResizeDecision::AlreadyClaimed;
         }
         if !claims.contains_key(&surface_id) && !surface_needs_resize {
@@ -3673,20 +3743,18 @@ struct PaneAreaProjection<'a> {
 }
 
 fn full_pane_parts_for_layout(
-    screen: &ScreenView,
-    pane_id: PaneId,
+    pane: &PaneView,
     full_rect: VirtualRect,
     stacked_headers: &HashSet<PaneId>,
     scrollbar_position: ScrollbarPosition,
     surface_only: Option<SurfaceId>,
 ) -> Option<(SurfaceId, PaneParts<VirtualRect>)> {
-    let pane = screen.pane(pane_id)?;
     let surface_id = pane.active_surface()?;
     let has_browser_omnibar =
         pane.tabs.get(pane.active_tab).is_some_and(|tab| tab.kind == SurfaceKind::Browser);
     let parts = if surface_only.is_some() {
         (None, None, full_rect, None)
-    } else if stacked_headers.contains(&pane_id) {
+    } else if stacked_headers.contains(&pane.id) {
         stacked_header_parts_for_virtual_rect(full_rect)?
     } else {
         pane_parts_for_virtual_rect(full_rect, scrollbar_position, has_browser_omnibar)?
@@ -3712,12 +3780,13 @@ fn swept_viewport_size_leases(
     let swept_right = u64::from(area.x)
         .saturating_add(current_offset.max(target_offset))
         .saturating_add(u64::from(area.width));
+    let panes = screen.panes.iter().map(|pane| (pane.id, pane)).collect::<HashMap<_, _>>();
     let mut operation_cost = 0usize;
     let mut leases = Vec::new();
     for &(pane_id, full_rect) in layout {
+        let Some(pane) = panes.get(&pane_id).copied() else { continue };
         let Some((surface, (_, _, content, _))) = full_pane_parts_for_layout(
-            screen,
-            pane_id,
+            pane,
             full_rect,
             stacked_headers,
             scrollbar_position,
@@ -3733,7 +3802,6 @@ fn swept_viewport_size_leases(
         {
             continue;
         }
-        let Some(pane) = screen.pane(pane_id) else { continue };
         // One possible attach per tab and one resize for the active surface.
         operation_cost = operation_cost.saturating_add(pane.tabs.len().saturating_add(1));
         if operation_cost > VIEWPORT_ANIMATION_SYNC_OPERATION_BUDGET {
@@ -3772,11 +3840,12 @@ fn rebuild_pane_areas(pane_areas: &mut Vec<PaneArea>, projection: PaneAreaProjec
     } = projection;
     pane_areas.clear();
     let viewport_x = viewport_offset.map(|offset| u64::from(area.x).saturating_add(offset));
+    let panes = screen.panes.iter().map(|pane| (pane.id, pane)).collect::<HashMap<_, _>>();
     for &(pane_id, full_rect) in layout {
+        let Some(pane) = panes.get(&pane_id).copied() else { continue };
         let Some((surface_id, (full_bar, full_omnibar, full_content, full_track))) =
             full_pane_parts_for_layout(
-                screen,
-                pane_id,
+                pane,
                 full_rect,
                 stacked_headers,
                 scrollbar_position,
@@ -7298,9 +7367,12 @@ impl App {
                 self.pending_size_releases.insert(surface);
             }
         }
-        let newly_visible =
+        let resurfaced =
+            visible.intersection(&self.pending_size_releases).copied().collect::<HashSet<_>>();
+        let mut newly_visible =
             visible.difference(&self.visible_size_surfaces).copied().collect::<HashSet<_>>();
-        self.visible_size_surfaces.extend(visible);
+        newly_visible.extend(resurfaced.iter().copied());
+        self.visible_size_surfaces.extend(visible.iter().copied());
 
         // Keep inactive tabs attached for instant rendering, but give only
         // active tabs in the swept viewport a sizing lease. The settling draw
@@ -7334,18 +7406,35 @@ impl App {
             let needs = newly_visible.contains(&lease.surface)
                 || !self.session.has_surface_size_report(lease.surface)
                 || surface.resize_needed(content_size.0, content_size.1, false);
-            if let SurfaceResizeDecision::NeedsQueue(claim) =
+            let resize_decision = if resurfaced.contains(&lease.surface) {
+                self.session.surface_resize_reclaim_decision(lease.surface, desired)
+            } else {
                 self.session.surface_resize_decision(lease.surface, desired, needs)
+            };
+            if let SurfaceResizeDecision::NeedsQueue(claim) = resize_decision
                 && self.prepare_pty_input_before_mutation()
             {
-                self.enqueue_surface_resize(
-                    lease.surface,
-                    surface,
-                    content_size.0,
-                    content_size.1,
-                    false,
-                    Some(claim),
-                );
+                let accepted = if resurfaced.contains(&lease.surface) {
+                    self.enqueue_surface_size_reclaim(
+                        lease.surface,
+                        surface,
+                        content_size.0,
+                        content_size.1,
+                        Some(claim),
+                    )
+                } else {
+                    self.enqueue_surface_resize(
+                        lease.surface,
+                        surface,
+                        content_size.0,
+                        content_size.1,
+                        false,
+                        Some(claim),
+                    )
+                };
+                if accepted && resurfaced.contains(&lease.surface) {
+                    self.pending_size_releases.remove(&lease.surface);
+                }
             }
         }
     }
@@ -7787,18 +7876,26 @@ impl App {
                         }
                     }
                     SessionMutationOutcome::SurfaceSizeReleased { surface } => {
-                        self.pending_size_releases.remove(&surface);
-                        self.visible_size_surfaces.remove(&surface);
+                        let expected = self.pending_size_releases.remove(&surface);
+                        if expected {
+                            self.visible_size_surfaces.remove(&surface);
+                        } else if self.visible_size_surfaces.remove(&surface) {
+                            // A release already in flight can settle after the
+                            // pane becomes visible. Force the next draw to
+                            // reclaim its lease even if geometry is unchanged.
+                            self.session.invalidate_surface_size_report(surface);
+                        }
                     }
                     SessionMutationOutcome::SurfaceSizeReleaseFailed { surface, error } => {
-                        self.pending_size_releases.remove(&surface);
-                        self.session.invalidate_surface_size_report(surface);
-                        if self.pane_areas.iter().any(|area| area.surface == surface) {
-                            self.visible_size_surfaces.remove(&surface);
+                        if self.pending_size_releases.remove(&surface) {
+                            self.session.invalidate_surface_size_report(surface);
+                            if self.pane_areas.iter().any(|area| area.surface == surface) {
+                                self.visible_size_surfaces.remove(&surface);
+                            }
+                            self.status_message = Some(format!(
+                                "surface {surface} size release failed; retrying on the next layout: {error}"
+                            ));
                         }
-                        self.status_message = Some(format!(
-                            "surface {surface} size release failed; retrying on the next layout: {error}"
-                        ));
                     }
                     SessionMutationOutcome::SurfaceSizeReleaseCanceled { surface } => {
                         self.pending_size_releases.remove(&surface);
@@ -8398,11 +8495,11 @@ impl App {
         rows: u16,
         reassert: bool,
         claim: Option<SurfaceResizeClaim>,
-    ) {
+    ) -> bool {
         if surface.kind() == SurfaceKind::Browser {
-            let Some(claim) = claim else { return };
+            let Some(claim) = claim else { return false };
             let ownership = self.session.surface_resize_ownership.clone();
-            let _ = self.browser_input.enqueue(BrowserInputEvent {
+            self.browser_input.enqueue(BrowserInputEvent {
                 surface_id,
                 surface,
                 kind: BrowserInputKind::Resize {
@@ -8419,10 +8516,26 @@ impl App {
                         );
                     })),
                 },
-            });
+            })
         } else {
-            let Some(claim) = claim else { return };
-            self.session.resize_surface(surface_id, surface, cols, rows, reassert, claim);
+            let Some(claim) = claim else { return false };
+            self.session.resize_surface(surface_id, surface, cols, rows, reassert, claim)
+        }
+    }
+
+    fn enqueue_surface_size_reclaim(
+        &mut self,
+        surface_id: SurfaceId,
+        surface: SurfaceHandle,
+        cols: u16,
+        rows: u16,
+        claim: Option<SurfaceResizeClaim>,
+    ) -> bool {
+        if surface.kind() == SurfaceKind::Browser {
+            self.enqueue_surface_resize(surface_id, surface, cols, rows, true, claim)
+        } else {
+            let Some(claim) = claim else { return false };
+            self.session.reclaim_surface_size(surface_id, surface, cols, rows, claim)
         }
     }
 
@@ -19472,14 +19585,22 @@ mod tests {
         started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
 
         app.visible_size_surfaces.insert(first.id);
+        let surface = app.session.surface(first.id).unwrap();
+        let prior_claim = match app.session.surface_resize_decision(first.id, (78, 22), true) {
+            SurfaceResizeDecision::NeedsQueue(claim) => claim,
+            _ => panic!("the queued resize must claim the surface"),
+        };
+        assert!(app.session.resize_surface(first.id, surface, 78, 22, false, prior_claim));
+        let prior_claim_token =
+            app.session.surface_resize_claims.lock().unwrap().get(&first.id).unwrap().token;
         assert!(app.session.release_surface_size(first.id));
         app.pending_size_releases.insert(first.id);
         assert!(mux.focus_pane(base));
         app.config.viewport.animation = true;
         app.sync_layout((80, 25));
 
-        let reassert_queued =
-            app.session.surface_resize_ownership.lock().unwrap().contains_key(&first.id);
+        let reassert_claim_token =
+            app.session.surface_resize_claims.lock().unwrap().get(&first.id).unwrap().token;
         let release_canceled = !app.pending_size_releases.contains(&first.id);
         release_tx.send(()).unwrap();
         while app.session.has_pending_mutations() {
@@ -19487,7 +19608,10 @@ mod tests {
         }
 
         assert!(release_canceled, "a visible surface must no longer be pending release");
-        assert!(reassert_queued, "the reverse sweep must queue an ordered size reassertion");
+        assert_ne!(
+            reassert_claim_token, prior_claim_token,
+            "the reverse sweep must supersede an older resize claim"
+        );
         assert!(
             app.session.has_surface_size_report(first.id),
             "the stale release must not drop the visible surface's sizing lease"

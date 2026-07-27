@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"os"
 	"path/filepath"
@@ -444,11 +445,28 @@ func (c *Client) NewPane(ctx context.Context, pane uint64, opts NewPaneOptions) 
 }
 
 func (c *Client) NewPaneRight(ctx context.Context, pane uint64, opts NewPaneRightOptions) (SurfaceResult, error) {
+	if opts.Width != nil {
+		width := float64(*opts.Width)
+		if math.IsNaN(width) || math.IsInf(width, 0) || width < 0.1 || width > 1.0 {
+			return SurfaceResult{}, fmt.Errorf(
+				"%w: viewport pane width must be between 0.1 and 1.0",
+				ErrInvalidArgument,
+			)
+		}
+	}
 	if err := c.requireCapability(ctx, "viewport-splits-v1", "viewport panes"); err != nil {
 		return SurfaceResult{}, err
 	}
-	params := commandMap(opts)
-	params["pane"] = pane
+	params := map[string]any{"pane": pane}
+	if opts.Width != nil {
+		params["width"] = *opts.Width
+	}
+	if opts.Cols != nil {
+		params["cols"] = *opts.Cols
+	}
+	if opts.Rows != nil {
+		params["rows"] = *opts.Rows
+	}
 	var result SurfaceResult
 	return result, c.request(ctx, "new-pane-right", params, &result)
 }

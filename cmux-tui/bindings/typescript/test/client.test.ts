@@ -299,7 +299,7 @@ test("attach buffering enforces aggregate bytes and browser-frame limits", async
       { event: "output", surface: 7, data: "YWJj" },
       { event: "output", surface: 7, data: "ZGVm" },
     ],
-    [{ event: "frame", surface: 7, data: "AAAAA" }],
+    [{ event: "frame", surface: 7, seq: 1, width: 80, height: 24, data: "AAAAA" }],
     [{
       event: "browser-state",
       surface: 7,
