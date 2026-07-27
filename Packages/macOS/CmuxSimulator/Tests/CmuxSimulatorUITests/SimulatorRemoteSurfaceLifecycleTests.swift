@@ -402,6 +402,53 @@ struct SimulatorRemoteSurfaceLifecycleTests {
         ) == 0xFF_00_BB_00)
     }
 
+    @Test("A resized transport preserves the last frame until its replacement is ready")
+    func resizedTransportPreservesFrameUntilReplacementIsReady() async throws {
+        let oldDescriptor = simulatorFrameTransportDescriptor(93)
+        let newDescriptor = simulatorFrameTransportDescriptor(
+            94,
+            width: 360,
+            height: 779
+        )
+        let oldSource = EmptySimulatorFrameSurfaceSource(snapshot: simulatorFrameSnapshot(
+            pixel: 0xFF_11_22_33,
+            sequence: 1
+        ))
+        let newSource = BlockingSimulatorFrameSurfaceSource(snapshot: simulatorFrameSnapshot(
+            pixel: 0xFF_44_55_66,
+            sequence: 1
+        ))
+        let view = SimulatorRemoteSurfaceView(frameSourceFactory: {
+            descriptor -> any SimulatorFrameSurfaceReading in
+            descriptor == oldDescriptor ? oldSource : newSource
+        })
+        defer { view.teardown() }
+        view.update(
+            frameTransport: oldDescriptor,
+            display: simulatorTestDisplay,
+            chrome: nil
+        )
+        try await waitUntil {
+            simulatorFrameImageFirstPixel(view.frameLayer?.contents) == 0xFF_11_22_33
+        }
+
+        view.update(
+            frameTransport: newDescriptor,
+            display: simulatorTestDisplay,
+            chrome: nil
+        )
+        try await waitUntil { await newSource.hasStarted() }
+
+        #expect(simulatorFrameImageFirstPixel(
+            view.frameLayer?.contents
+        ) == 0xFF_11_22_33)
+
+        await newSource.release()
+        try await waitUntil {
+            simulatorFrameImageFirstPixel(view.frameLayer?.contents) == 0xFF_44_55_66
+        }
+    }
+
     @Test("A released copy cannot restore a torn-down frame layer")
     func teardownRejectsStaleCopyCompletion() async throws {
         let source = BlockingSimulatorFrameSurfaceSource(snapshot: simulatorFrameSnapshot(
