@@ -58,6 +58,51 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
     }
 }
 
+private final class BlockingNativeFreeGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private let releaseSemaphore = DispatchSemaphore(value: 0)
+    private var started = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var observedMainThread: Bool?
+
+    var startedOnMainThread: Bool? {
+        lock.withLock { observedMainThread }
+    }
+
+    func block() {
+        let waiters = lock.withLock {
+            started = true
+            observedMainThread = Thread.isMainThread
+            let waiters = startWaiters
+            startWaiters.removeAll()
+            return waiters
+        }
+        for waiter in waiters {
+            waiter.resume()
+        }
+        _ = releaseSemaphore.wait(timeout: .now() + 15)
+    }
+
+    func waitUntilBlocked() async {
+        await withCheckedContinuation { continuation in
+            let shouldResume = lock.withLock {
+                if started {
+                    return true
+                }
+                startWaiters.append(continuation)
+                return false
+            }
+            if shouldResume {
+                continuation.resume()
+            }
+        }
+    }
+
+    func release() {
+        releaseSemaphore.signal()
+    }
+}
+
 @Suite struct TerminalSurfaceRuntimeTeardownCoordinatorTests {
     @Test func enqueuedTeardownInvokesInjectedFreeWithTheSamePointer() async {
         let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
@@ -105,6 +150,71 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
 
         await recorder.waitForFreeCount(surfaces.count)
         #expect(await Set(recorder.freed) == Set(surfaces.map { UInt(bitPattern: $0) }))
+    }
+
+    @Test func blockedNativeFreeStaysOffMainAndSerializesFollowingFree() async throws {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
+        let recorder = TeardownLifetimeRecorder()
+        let gate = BlockingNativeFreeGate()
+        let firstSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        let secondSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        defer {
+            gate.release()
+            firstSurface.deallocate()
+            secondSurface.deallocate()
+        }
+
+        coordinator.enqueueRuntimeTeardown(
+            id: UUID(),
+            workspaceId: UUID(),
+            reason: "test.blockedFirst",
+            surface: firstSurface,
+            callbackContext: nil,
+            freeSurface: { _ in
+                gate.block()
+                recorder.record("first.free")
+            }
+        )
+        await gate.waitUntilBlocked()
+
+        let ranOnMainThread = gate.startedOnMainThread
+        #expect(ranOnMainThread == false, "native free must run on the utility teardown worker")
+        guard ranOnMainThread == false else {
+            gate.release()
+            return
+        }
+
+        coordinator.enqueueRuntimeTeardown(
+            id: UUID(),
+            workspaceId: UUID(),
+            reason: "test.queuedSecond",
+            surface: secondSurface,
+            callbackContext: nil,
+            freeSurface: { _ in
+                recorder.record("second.free")
+            }
+        )
+
+        let mainActorProbeStarted = ContinuousClock.now
+        let mainActorResponded = await MainActor.run { Thread.isMainThread }
+        let mainActorProbeDuration = ContinuousClock.now - mainActorProbeStarted
+        #expect(mainActorResponded)
+        #expect(
+            mainActorProbeDuration < .milliseconds(500),
+            "a blocked native free must not delay main-actor work"
+        )
+
+        try await Task.sleep(for: .seconds(6))
+        #expect(
+            recorder.snapshot().isEmpty,
+            "the first free must remain blocked and the following free must stay serialized"
+        )
+
+        gate.release()
+        for await event in recorder.events where event == "second.free" {
+            break
+        }
+        #expect(recorder.snapshot() == ["first.free", "second.free"])
     }
 
     @Test func byteTeeCallbackOwnerIsReleasedOnlyAfterNativeFreeReturns() async {
