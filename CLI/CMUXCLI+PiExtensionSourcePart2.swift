@@ -296,7 +296,7 @@ function sendFeed(eventName: "PreToolUse" | "PostToolUse", ctx: ExtensionContext
     } catch (_) {}
   };
   // Feed telemetry follows the prompt hook that establishes the active turn.
-  const pendingPrompt = pendingPromptHooks.get(sessionId);
+  const pendingPrompt = promptHookQueues.get(sessionId)?.tail;
   if (pendingPrompt) void pendingPrompt.then(deliver);
   else deliver();
 }
@@ -318,7 +318,7 @@ function publishPendingCompletion(ctx: ExtensionContext, sessionId: string): voi
     sendHook("stop", ctx, stopPayload);
   };
   // Completion follows the prompt hook that establishes the active turn.
-  const pendingPrompt = pendingPromptHooks.get(sessionId);
+  const pendingPrompt = promptHookQueues.get(sessionId)?.tail;
   if (pendingPrompt) void pendingPrompt.then(publish);
   else publish();
 }
@@ -328,6 +328,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     const sessionId = sessionIdFrom(ctx);
     const cwd = cwdFrom(ctx);
     if (sessionId) {
+      // Start each session with a new hook queue generation.
+      promptHookQueues.delete(sessionId);
       const state = stateFor(sessionId);
       state.pendingCompletion = undefined;
       state.stopped = false;
@@ -338,14 +340,22 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
   pi.on("before_agent_start", async (event, ctx) => {
     const sessionId = sessionIdFrom(ctx);
-    const turnId = sessionId ? beginTurn(sessionId, event) : undefined;
     if (!sessionId) return;
-    const previous = pendingPromptHooks.get(sessionId) ?? Promise.resolve(true);
+    const existingQueue = promptHookQueues.get(sessionId);
+    if (existingQueue?.closed) return;
+    const queue = existingQueue ?? { closed: false, tail: Promise.resolve(true) };
+    if (!existingQueue) promptHookQueues.set(sessionId, queue);
+    const turnId = beginTurn(sessionId, event);
     // Keep prompt hooks ordered without holding Pi's lifecycle callback.
-    const pending = previous.then(() => sendPromptHookAsync(ctx, { prompt: event.prompt, turn_id: turnId }));
-    pendingPromptHooks.set(sessionId, pending);
+    const pending = queue.tail.then(() => {
+      if (queue.closed) return true;
+      return sendPromptHookAsync(ctx, { prompt: event.prompt, turn_id: turnId });
+    });
+    queue.tail = pending;
     void pending.finally(() => {
-      if (pendingPromptHooks.get(sessionId) === pending) pendingPromptHooks.delete(sessionId);
+      if (!queue.closed && promptHookQueues.get(sessionId) === queue && queue.tail === pending) {
+        promptHookQueues.delete(sessionId);
+      }
     });
   });
 
@@ -385,7 +395,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
   pi.on("session_shutdown", async (event, ctx) => {
     const sessionId = sessionIdFrom(ctx);
     if (!sessionId) return;
-    await pendingPromptHooks.get(sessionId);
+    const queue = promptHookQueues.get(sessionId);
+    if (queue) {
+      // Finish the active hook and discard hooks that have not started.
+      queue.closed = true;
+      await queue.tail;
+    }
     const state = stateFor(sessionId);
     const cwd = cwdFrom(ctx);
     if (!state.stopped) {

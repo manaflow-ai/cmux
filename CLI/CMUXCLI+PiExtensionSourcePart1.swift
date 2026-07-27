@@ -33,8 +33,13 @@ interface CommandResult {
   error?: unknown;
 }
 
+interface PromptHookQueue {
+  closed: boolean;
+  tail: Promise<boolean>;
+}
+
 const sessionStates = new Map<string, SessionState>();
-const pendingPromptHooks = new Map<string, Promise<boolean>>();
+const promptHookQueues = new Map<string, PromptHookQueue>();
 
 function firstString(...values: unknown[]): string | null {
   for (const value of values) {
