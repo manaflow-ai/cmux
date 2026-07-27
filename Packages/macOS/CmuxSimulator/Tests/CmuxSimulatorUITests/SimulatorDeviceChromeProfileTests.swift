@@ -1,6 +1,7 @@
 import AppKit
 import CmuxSimulator
 import Foundation
+import SwiftUI
 import Testing
 @testable import CmuxSimulatorUI
 
@@ -272,6 +273,52 @@ struct SimulatorDeviceChromeProfileTests {
         #expect(profile?.buttons.isEmpty == false)
     }
 
+    @MainActor
+    @Test("iPhone stage never exceeds the device's logical size")
+    func iPhoneStageIsCappedAtLogicalDeviceSize() throws {
+        let phone = SimulatorDevice(
+            id: "phone",
+            name: "Phone",
+            runtimeIdentifier: "runtime",
+            runtimeName: "iOS 26.5",
+            deviceTypeIdentifier: "phone-type",
+            family: .iPhone,
+            state: .booted,
+            isAvailable: true,
+            lastBootedAt: nil
+        )
+        let coordinator = SimulatorPaneCoordinator(
+            client: SimulatorPaneClientSpy(devices: [phone])
+        )
+        let profile = profileFixture()
+        coordinator.devices = [phone]
+        coordinator.selectedDeviceID = phone.id
+        coordinator.display = SimulatorDisplayMetadata(
+            width: 1_200,
+            height: 2_400,
+            orientation: .portrait,
+            scale: 3
+        )
+        coordinator.chromeProfile = profile
+        coordinator.frameTransport = simulatorFrameTransportDescriptor(91)
+        let host = NSHostingView(rootView: SimulatorDeviceStage(
+            coordinator: coordinator,
+            backgroundColor: .black,
+            allowsPointerInput: false,
+            pointerEntryEventFilter: nil,
+            onRequestPanelFocus: {}
+        ))
+        host.frame = CGRect(x: 0, y: 0, width: 2_000, height: 2_000)
+
+        host.layoutSubtreeIfNeeded()
+
+        let surface = try #require(
+            firstDescendant(of: SimulatorRemoteSurfaceView.self, in: host)
+        )
+        #expect(surface.bounds.width <= profile.portraitWidth + 0.5)
+        #expect(surface.bounds.height <= profile.portraitHeight + 0.5)
+    }
+
     private func profileFixture() -> SimulatorDeviceChromeProfile {
         SimulatorDeviceChromeProfile(
             screenWidth: 400,
@@ -284,6 +331,20 @@ struct SimulatorDeviceChromeProfileTests {
             compositeURL: nil,
             buttons: []
         )
+    }
+
+    @MainActor
+    private func firstDescendant<View: NSView>(
+        of type: View.Type,
+        in root: NSView
+    ) -> View? {
+        if let match = root as? View { return match }
+        for child in root.subviews {
+            if let match = firstDescendant(of: type, in: child) {
+                return match
+            }
+        }
+        return nil
     }
 
     private func writePlist(_ value: [String: Any], to url: URL) throws {

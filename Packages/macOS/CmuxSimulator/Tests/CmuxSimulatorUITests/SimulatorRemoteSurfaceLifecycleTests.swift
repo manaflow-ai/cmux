@@ -324,6 +324,38 @@ struct SimulatorRemoteSurfaceLifecycleTests {
         ) == 8_333_333)
     }
 
+    @Test("Frame presentation does not request a second smoothing pass")
+    func framePresentationAvoidsSecondInterpolation() throws {
+        let presentation = try #require(SimulatorFramePresentation(
+            snapshot: simulatorFrameSnapshot(pixel: 0xFF_12_34_56, sequence: 1)
+        ))
+
+        #expect(!presentation.image.shouldInterpolate)
+    }
+
+    @Test("The managed frame layer preserves one-to-one backing pixels")
+    func frameLayerPreservesBackingPixels() throws {
+        let source = EmptySimulatorFrameSurfaceSource()
+        let view = SimulatorRemoteSurfaceView(frameSourceFactory: { _ in source })
+        defer { view.teardown() }
+        view.layer?.contentsScale = 2
+
+        view.update(
+            frameTransport: simulatorFrameTransportDescriptor(92),
+            display: SimulatorDisplayMetadata(
+                width: 1_200,
+                height: 2_400,
+                orientation: .portrait,
+                scale: 3
+            ),
+            chrome: nil
+        )
+
+        #expect(view.frameLayer?.contentsScale == 2)
+        #expect(view.frameLayer?.minificationFilter == .nearest)
+        #expect(view.frameLayer?.magnificationFilter == .nearest)
+    }
+
     @Test("A released stale copy cannot replace a newer transport frame")
     func replacementRejectsStaleCopyCompletion() async throws {
         let oldDescriptor = simulatorFrameTransportDescriptor(44)
