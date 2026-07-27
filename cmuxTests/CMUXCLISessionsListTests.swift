@@ -318,7 +318,7 @@ extension CMUXCLIErrorOutputRegressionTests {
 
     @Test func agentsDoNotFocusWindowBeforeReadOnlyInspection() throws {
         let cliPath = try bundledCLIPath()
-        let responder = try agentsInstanceResponder(workspaces: [:])
+        let responder = try agentsInstanceResponder(workspaces: ["workspace-local": []])
         defer { responder.stop() }
 
         var environment = agentsTestEnvironment()
@@ -806,7 +806,7 @@ extension CMUXCLIErrorOutputRegressionTests {
 
     @Test func agentsTreeRejectsBlankAgentValues() throws {
         let cliPath = try bundledCLIPath()
-        let responder = try agentsInstanceResponder(workspaces: [:])
+        let responder = try agentsInstanceResponder(workspaces: ["workspace-local": []])
         defer { responder.stop() }
 
         var environment = agentsTestEnvironment()

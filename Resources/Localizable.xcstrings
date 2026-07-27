@@ -46952,6 +46952,23 @@
         }
       }
     },
+    "cli.agents.error.invalidTopology": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents: target socket returned empty or malformed topology"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents: 対象ソケットから空または不正なトポロジが返されました"
+          }
+        }
+      }
+    },
     "cli.agents.error.unknownSubcommand": {
       "extractionState": "manual",
       "localizations": {

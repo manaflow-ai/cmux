@@ -6,12 +6,12 @@ struct CMUXAgentInstanceScope {
     let surfaceIDs: Set<String>
 
     func contains(_ record: ClaudeHookSessionRecord) -> Bool {
-        let surfaceID = record.surfaceId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if !surfaceID.isEmpty, surfaceIDs.contains(surfaceID) {
-            return true
-        }
         let workspaceID = record.workspaceId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return !workspaceID.isEmpty && workspaceIDs.contains(workspaceID)
+        if !workspaceID.isEmpty {
+            return workspaceIDs.contains(workspaceID)
+        }
+        let surfaceID = record.surfaceId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return !surfaceID.isEmpty && surfaceIDs.contains(surfaceID)
     }
 }
 
@@ -493,8 +493,10 @@ extension CMUXCLI {
             homeDirectory: sessionsListExpandedPath(processEnv["HOME"] ?? NSHomeDirectory())
         )
         var candidateNodes: [(node: [String: Any], matchesFilters: Bool, defaultVisible: Bool)] = []
-        var nodesByRunKey: [String: [[String: Any]]] = [:]
-        var nodesBySessionKey: [String: [[String: Any]]] = [:]
+        var nodeByID: [String: [String: Any]] = [:]
+        var nodeIDsByRunKey: [String: Set<String>] = [:]
+        var nodeIDsBySessionKey: [String: Set<String>] = [:]
+        var nodeIDsBySessionAndRunKey: [String: Set<String>] = [:]
 
         for spec in selectedSpecs {
             let storeURL = URL(fileURLWithPath: stateDirectory, isDirectory: true)
@@ -562,43 +564,78 @@ extension CMUXCLI {
                     matchesFilters: matchesFilters,
                     defaultVisible: activeForWorkspace || activeForSurface || restoreAuthority
                 ))
-                nodesByRunKey[agentSessionGraphKey(agent: spec.name, identifier: runID), default: []].append(outputNode)
-                nodesBySessionKey[agentSessionGraphKey(agent: spec.name, identifier: record.sessionId), default: []].append(outputNode)
+                if nodeByID[nodeID] == nil {
+                    nodeByID[nodeID] = outputNode
+                }
+                nodeIDsByRunKey[
+                    agentSessionGraphKey(agent: spec.name, identifier: runID),
+                    default: []
+                ].insert(nodeID)
+                var sessionIdentifiers = [record.sessionId]
                 if rawRecord.sessionId != record.sessionId {
-                    nodesBySessionKey[
-                        agentSessionGraphKey(agent: spec.name, identifier: rawRecord.sessionId),
+                    sessionIdentifiers.append(rawRecord.sessionId)
+                }
+                for sessionIdentifier in sessionIdentifiers {
+                    nodeIDsBySessionKey[
+                        agentSessionGraphKey(agent: spec.name, identifier: sessionIdentifier),
                         default: []
-                    ].append(outputNode)
+                    ].insert(nodeID)
+                    nodeIDsBySessionAndRunKey[
+                        agentSessionGraphKey(
+                            agent: spec.name,
+                            sessionIdentifier: sessionIdentifier,
+                            runIdentifier: runID
+                        ),
+                        default: []
+                    ].insert(nodeID)
                 }
             }
         }
 
-        func resolvedParent(for node: [String: Any]) -> [String: Any]? {
-            guard let agent = node["agent"] as? String else { return nil }
+        func resolvedParentNodeID(for node: [String: Any]) -> String? {
+            guard let agent = node["agent"] as? String,
+                  let childNodeID = node["node_id"] as? String else {
+                return nil
+            }
             let parentSessionID = node["parent_session_id"] as? String
             let parentRunID = node["parent_run_id"] as? String
-            let sessionParents = parentSessionID.map {
-                nodesBySessionKey[agentSessionGraphKey(agent: agent, identifier: $0)] ?? []
-            } ?? []
-            let runParents = parentRunID.map {
-                nodesByRunKey[agentSessionGraphKey(agent: agent, identifier: $0)] ?? []
-            } ?? []
-            if parentSessionID != nil, parentRunID != nil {
-                let runParentNodeIDs = Set(runParents.compactMap { $0["node_id"] as? String })
-                let intersection = sessionParents.filter { parent in
-                    guard let nodeID = parent["node_id"] as? String else { return false }
-                    return runParentNodeIDs.contains(nodeID)
-                }
-                return intersection.count == 1 ? intersection[0] : nil
+            let candidates: Set<String>
+            if let parentSessionID, let parentRunID {
+                candidates = nodeIDsBySessionAndRunKey[
+                    agentSessionGraphKey(
+                        agent: agent,
+                        sessionIdentifier: parentSessionID,
+                        runIdentifier: parentRunID
+                    )
+                ] ?? []
+            } else if let parentSessionID {
+                candidates = nodeIDsBySessionKey[
+                    agentSessionGraphKey(agent: agent, identifier: parentSessionID)
+                ] ?? []
+            } else if let parentRunID {
+                candidates = nodeIDsByRunKey[
+                    agentSessionGraphKey(agent: agent, identifier: parentRunID)
+                ] ?? []
+            } else {
+                return nil
             }
-            if parentSessionID != nil {
-                return sessionParents.count == 1 ? sessionParents[0] : nil
+            guard candidates.count == 1,
+                  let parentNodeID = candidates.first,
+                  parentNodeID != childNodeID else {
+                return nil
             }
-            if parentRunID != nil {
-                return runParents.count == 1 ? runParents[0] : nil
-            }
-            return nil
+            return parentNodeID
         }
+
+        var resolvedParentNodeIDByChildID: [String: String] = [:]
+        for childNodeID in nodeByID.keys.sorted() {
+            guard let childNode = nodeByID[childNodeID],
+                  let parentNodeID = resolvedParentNodeID(for: childNode) else {
+                continue
+            }
+            resolvedParentNodeIDByChildID[childNodeID] = parentNodeID
+        }
+        let parentNodeIDByChildID = agentSessionAcyclicParentMap(resolvedParentNodeIDByChildID)
 
         var selectedNodeIDs = Set(candidateNodes.compactMap { candidate -> String? in
             guard candidate.matchesFilters,
@@ -607,38 +644,31 @@ extension CMUXCLI {
             }
             return candidate.node["node_id"] as? String
         })
-        var ancestorQueue = candidateNodes.compactMap { candidate -> [String: Any]? in
+        var ancestorQueue = candidateNodes.compactMap { candidate -> String? in
             guard let nodeID = candidate.node["node_id"] as? String,
                   selectedNodeIDs.contains(nodeID) else {
                 return nil
             }
-            return candidate.node
+            return nodeID
         }
         var ancestorIndex = 0
         while ancestorIndex < ancestorQueue.count {
-            let node = ancestorQueue[ancestorIndex]
+            let childNodeID = ancestorQueue[ancestorIndex]
             ancestorIndex += 1
-            guard let parent = resolvedParent(for: node),
-                  let parentNodeID = parent["node_id"] as? String,
+            guard let parentNodeID = parentNodeIDByChildID[childNodeID],
                   selectedNodeIDs.insert(parentNodeID).inserted else {
                 continue
             }
             guard selectedNodeIDs.count <= maximumNodes else {
                 throw agentSessionNodeLimitError(maximumNodes)
             }
-            ancestorQueue.append(parent)
+            ancestorQueue.append(parentNodeID)
         }
         guard selectedNodeIDs.count <= maximumNodes else {
             throw agentSessionNodeLimitError(maximumNodes)
         }
 
-        var nodes = candidateNodes.compactMap { candidate -> [String: Any]? in
-            guard let nodeID = candidate.node["node_id"] as? String,
-                  selectedNodeIDs.contains(nodeID) else {
-                return nil
-            }
-            return candidate.node
-        }
+        var nodes = selectedNodeIDs.compactMap { nodeByID[$0] }
         nodes.sort {
             let lhs = ($0["started_at_unix"] as? TimeInterval) ?? 0
             let rhs = ($1["started_at_unix"] as? TimeInterval) ?? 0
@@ -649,13 +679,11 @@ extension CMUXCLI {
             guard let childNodeID = node["node_id"] as? String,
                   let childRunID = node["run_id"] as? String,
                   let childSessionID = node["session_id"] as? String else { return nil }
-            let parent = resolvedParent(for: node)
-            guard let parent,
-                  let parentNodeID = parent["node_id"] as? String,
+            guard let parentNodeID = parentNodeIDByChildID[childNodeID],
+                  let parent = nodeByID[parentNodeID],
                   let parentRunID = parent["run_id"] as? String,
                   let parentSessionID = parent["session_id"] as? String,
-                  selectedNodeIDs.contains(parentNodeID),
-                  parentNodeID != childNodeID else { return nil }
+                  selectedNodeIDs.contains(parentNodeID) else { return nil }
             return [
                 "from_node_id": parentNodeID,
                 "to_node_id": childNodeID,
@@ -744,14 +772,18 @@ extension CMUXCLI {
         let payload: [String: Any]
         do {
             payload = try client.sendV2(method: "system.tree", params: params)
-        } catch let error as CLIError where error.message.hasPrefix("method_not_found:") {
+        } catch let error as CLIError where error.v2Code == "method_not_found"
+                || error.v2Code == "unrecognized_method" {
             return try agentsLegacyInstanceScope(client: client)
         }
-        return agentsInstanceScope(socketPath: client.socketPath, treePayload: payload)
+        return try agentsInstanceScope(socketPath: client.socketPath, treePayload: payload)
     }
 
     private func agentsLegacyInstanceScope(client: SocketClient) throws -> CMUXAgentInstanceScope {
-        let windows = try client.sendV2(method: "window.list")["windows"] as? [[String: Any]] ?? []
+        let windowPayload = try client.sendV2(method: "window.list")
+        guard let windows = windowPayload["windows"] as? [[String: Any]], !windows.isEmpty else {
+            throw agentsInvalidTopologyError()
+        }
         var workspaceIDs = Set<String>()
         var surfaceIDs = Set<String>()
         for window in windows {
@@ -760,19 +792,35 @@ extension CMUXCLI {
                 params["window_id"] = windowID
             } else if let windowRef = sessionsListNormalized(window["ref"] as? String) {
                 params["window_id"] = windowRef
+            } else {
+                throw agentsInvalidTopologyError()
             }
-            let workspaces = try client.sendV2(method: "workspace.list", params: params)["workspaces"] as? [[String: Any]] ?? []
+            let workspacePayload = try client.sendV2(method: "workspace.list", params: params)
+            guard let workspaces = workspacePayload["workspaces"] as? [[String: Any]] else {
+                throw agentsInvalidTopologyError()
+            }
             for workspace in workspaces {
-                guard let workspaceID = sessionsListNormalized(workspace["id"] as? String) else { continue }
+                guard let workspaceID = sessionsListNormalized(workspace["id"] as? String) else {
+                    throw agentsInvalidTopologyError()
+                }
                 workspaceIDs.insert(workspaceID.lowercased())
-                let surfaces = try client.sendV2(
+                let surfacePayload = try client.sendV2(
                     method: "surface.list",
                     params: ["workspace_id": workspaceID]
-                )["surfaces"] as? [[String: Any]] ?? []
-                surfaceIDs.formUnion(surfaces.compactMap { surface in
-                    sessionsListNormalized(surface["id"] as? String)?.lowercased()
-                })
+                )
+                guard let surfaces = surfacePayload["surfaces"] as? [[String: Any]] else {
+                    throw agentsInvalidTopologyError()
+                }
+                for surface in surfaces {
+                    guard let surfaceID = sessionsListNormalized(surface["id"] as? String) else {
+                        throw agentsInvalidTopologyError()
+                    }
+                    surfaceIDs.insert(surfaceID.lowercased())
+                }
             }
+        }
+        guard !workspaceIDs.isEmpty else {
+            throw agentsInvalidTopologyError()
         }
         return CMUXAgentInstanceScope(
             socketPath: client.socketPath,
@@ -784,30 +832,50 @@ extension CMUXCLI {
     private func agentsInstanceScope(
         socketPath: String,
         treePayload: [String: Any]
-    ) -> CMUXAgentInstanceScope {
-        let windows = treePayload["windows"] as? [[String: Any]] ?? []
+    ) throws -> CMUXAgentInstanceScope {
+        guard let windows = treePayload["windows"] as? [[String: Any]], !windows.isEmpty else {
+            throw agentsInvalidTopologyError()
+        }
         var workspaceIDs = Set<String>()
         var surfaceIDs = Set<String>()
         for window in windows {
-            let workspaces = window["workspaces"] as? [[String: Any]] ?? []
+            guard let workspaces = window["workspaces"] as? [[String: Any]] else {
+                throw agentsInvalidTopologyError()
+            }
             for workspace in workspaces {
-                if let workspaceID = sessionsListNormalized(workspace["id"] as? String) {
-                    workspaceIDs.insert(workspaceID.lowercased())
+                guard let workspaceID = sessionsListNormalized(workspace["id"] as? String),
+                      let panes = workspace["panes"] as? [[String: Any]] else {
+                    throw agentsInvalidTopologyError()
                 }
-                let panes = workspace["panes"] as? [[String: Any]] ?? []
+                workspaceIDs.insert(workspaceID.lowercased())
                 for pane in panes {
-                    let surfaces = pane["surfaces"] as? [[String: Any]] ?? []
-                    surfaceIDs.formUnion(surfaces.compactMap { surface in
-                        sessionsListNormalized(surface["id"] as? String)?.lowercased()
-                    })
+                    guard let surfaces = pane["surfaces"] as? [[String: Any]] else {
+                        throw agentsInvalidTopologyError()
+                    }
+                    for surface in surfaces {
+                        guard let surfaceID = sessionsListNormalized(surface["id"] as? String) else {
+                            throw agentsInvalidTopologyError()
+                        }
+                        surfaceIDs.insert(surfaceID.lowercased())
+                    }
                 }
             }
+        }
+        guard !workspaceIDs.isEmpty else {
+            throw agentsInvalidTopologyError()
         }
         return CMUXAgentInstanceScope(
             socketPath: socketPath,
             workspaceIDs: workspaceIDs,
             surfaceIDs: surfaceIDs
         )
+    }
+
+    private func agentsInvalidTopologyError() -> CLIError {
+        CLIError(message: String(
+            localized: "cli.agents.error.invalidTopology",
+            defaultValue: "agents: target socket returned empty or malformed topology"
+        ))
     }
 
     private func agentsInstanceScopePayload(_ scope: CMUXAgentInstanceScope) -> [String: Any] {
@@ -848,6 +916,45 @@ extension CMUXCLI {
         agent + "\u{1F}" + identifier
     }
 
+    private func agentSessionGraphKey(
+        agent: String,
+        sessionIdentifier: String,
+        runIdentifier: String
+    ) -> String {
+        agentSessionGraphKey(
+            agent: agent,
+            identifier: sessionIdentifier + "\u{1E}" + runIdentifier
+        )
+    }
+
+    private func agentSessionAcyclicParentMap(
+        _ parentNodeIDByChildID: [String: String]
+    ) -> [String: String] {
+        var finalizedNodeIDs = Set<String>()
+        var cyclicChildNodeIDs = Set<String>()
+
+        for startNodeID in parentNodeIDByChildID.keys.sorted() where !finalizedNodeIDs.contains(startNodeID) {
+            var path: [String] = []
+            var pathIndexByNodeID: [String: Int] = [:]
+            var currentNodeID: String? = startNodeID
+
+            while let nodeID = currentNodeID, !finalizedNodeIDs.contains(nodeID) {
+                if let cycleStartIndex = pathIndexByNodeID[nodeID] {
+                    cyclicChildNodeIDs.formUnion(path[cycleStartIndex...])
+                    break
+                }
+                pathIndexByNodeID[nodeID] = path.count
+                path.append(nodeID)
+                currentNodeID = parentNodeIDByChildID[nodeID]
+            }
+            finalizedNodeIDs.formUnion(path)
+        }
+
+        return parentNodeIDByChildID.filter { childNodeID, _ in
+            !cyclicChildNodeIDs.contains(childNodeID)
+        }
+    }
+
     private func agentSessionTreeLines(
         nodes: [[String: Any]],
         edges: [[String: Any]],
@@ -874,32 +981,46 @@ extension CMUXCLI {
             }
         }
 
-        func appendNode(
-            _ nodeID: String,
-            prefix: String,
-            connector: String,
-            relationship: String,
-            depth: Int
-        ) {
-            guard let node = nodesByID[nodeID], visited.insert(nodeID).inserted else { return }
-            let agent = (node["agent"] as? String) ?? "unknown"
-            let sessionID = (node["session_id"] as? String) ?? "unknown"
-            let relationshipLabel = agentSessionRelationshipLabel(relationship)
-            lines.append("\(prefix)\(connector)\(relationshipLabel) \(agent) \(sessionID)")
-            guard depth < maximumDepth else { return }
-            let children = (childrenByParent[nodeID] ?? []).compactMap { edge -> (String, String)? in
-                guard let childID = edge["to_node_id"] as? String else { return nil }
-                return (childID, (edge["relationship"] as? String) ?? "spawned")
-            }.sorted { $0.0 < $1.0 }
-            for (index, child) in children.enumerated() {
-                let isLast = index == children.count - 1
-                appendNode(
-                    child.0,
-                    prefix: prefix + (connector.isEmpty ? "" : (connector == "└── " ? "    " : "│   ")),
-                    connector: isLast ? "└── " : "├── ",
-                    relationship: child.1,
-                    depth: depth + 1
+        func appendSubtree(from rootNodeID: String, relationship: String) {
+            var pending: [(
+                nodeID: String,
+                prefix: String,
+                connector: String,
+                relationship: String,
+                depth: Int
+            )] = [(rootNodeID, "", "", relationship, 0)]
+
+            while let frame = pending.popLast() {
+                guard let node = nodesByID[frame.nodeID],
+                      visited.insert(frame.nodeID).inserted else {
+                    continue
+                }
+                let agent = (node["agent"] as? String) ?? "unknown"
+                let sessionID = (node["session_id"] as? String) ?? "unknown"
+                let relationshipLabel = agentSessionRelationshipLabel(frame.relationship)
+                lines.append("\(frame.prefix)\(frame.connector)\(relationshipLabel) \(agent) \(sessionID)")
+                guard frame.depth < maximumDepth else { continue }
+
+                let children = (childrenByParent[frame.nodeID] ?? []).compactMap { edge -> (String, String)? in
+                    guard let childID = edge["to_node_id"] as? String else { return nil }
+                    return (childID, (edge["relationship"] as? String) ?? "spawned")
+                }.sorted { $0.0 < $1.0 }
+                let childPrefix = frame.prefix + (
+                    frame.connector.isEmpty
+                        ? ""
+                        : (frame.connector == "└── " ? "    " : "│   ")
                 )
+                for index in children.indices.reversed() {
+                    let child = children[index]
+                    let isLast = index == children.count - 1
+                    pending.append((
+                        nodeID: child.0,
+                        prefix: childPrefix,
+                        connector: isLast ? "└── " : "├── ",
+                        relationship: child.1,
+                        depth: frame.depth + 1
+                    ))
+                }
             }
         }
 
@@ -908,12 +1029,11 @@ extension CMUXCLI {
             .sorted()
         for root in roots {
             markStructurallyCovered(from: root)
-            appendNode(root, prefix: "", connector: "", relationship: "root", depth: 0)
+            appendSubtree(from: root, relationship: "root")
         }
         for nodeID in nodesByID.keys.sorted() where !structurallyCovered.contains(nodeID) {
             markStructurallyCovered(from: nodeID)
-            let relationship = (nodesByID[nodeID]?["relationship"] as? String) ?? "root"
-            appendNode(nodeID, prefix: "", connector: "", relationship: relationship, depth: 0)
+            appendSubtree(from: nodeID, relationship: "root")
         }
         return lines
     }
