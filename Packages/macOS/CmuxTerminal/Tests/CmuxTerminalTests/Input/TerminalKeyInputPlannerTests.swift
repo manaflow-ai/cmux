@@ -196,6 +196,17 @@ import Testing
         #expect(actions == [.sendCommittedKey("~")])
     }
 
+    @Test func committedControlPayloadUsesRecoveredPrintableText() {
+        let actions = planner.actions(for: snapshot(
+            textInputConsumed: true,
+            committedText: ["\u{001B}"],
+            translatedText: "~",
+            rawText: "\u{001B}"
+        ))
+
+        #expect(actions == [.sendCommittedKey("~")])
+    }
+
     @Test func distinctCommandCallbackStillFollowsCommittedText() {
         let actions = planner.actions(for: snapshot(
             textInputConsumed: true,
