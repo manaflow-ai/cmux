@@ -30,7 +30,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertNotNil(properties["actions"])
         XCTAssertNotNil(properties["inputs"])
         let constraints = try XCTUnwrap(schema["allOf"] as? [[String: Any]])
-        let waitConstraint = try XCTUnwrap(constraints.first)
+        let waitConstraint = try XCTUnwrap(constraints.first { constraint in
+            guard let ifSchema = constraint["if"] as? [String: Any],
+                  let ifProperties = ifSchema["properties"] as? [String: Any],
+                  let waitSchema = ifProperties["wait"] as? [String: Any] else {
+                return false
+            }
+            return waitSchema["const"] as? Bool == true
+        })
         let thenSchema = try XCTUnwrap(waitConstraint["then"] as? [String: Any])
         let thenProperties = try XCTUnwrap(thenSchema["properties"] as? [String: Any])
         let timeoutSchema = try XCTUnwrap(thenProperties["timeout"] as? [String: Any])
@@ -85,6 +92,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 timeout: 5
             )
 
+            // The CLI connects before command-specific parsing. Invalid specs
+            // must close that connection without sending a request line.
             wait(for: [serverHandled], timeout: 5)
             XCTAssertFalse(result.timedOut, result.stderr)
             XCTAssertNotEqual(result.status, 0, spec)
