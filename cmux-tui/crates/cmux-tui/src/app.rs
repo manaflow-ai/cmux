@@ -16908,6 +16908,46 @@ mod tests {
     }
 
     #[test]
+    fn remote_attach_admission_failure_uses_the_selected_locale() {
+        const CHILD_ENV: &str = "CMUX_REMOTE_ATTACH_ADMISSION_LOCALE_CHILD";
+        if std::env::var_os(CHILD_ENV).is_none() {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .arg("app::tests::remote_attach_admission_failure_uses_the_selected_locale")
+                .arg("--exact")
+                .arg("--nocapture")
+                .env(CHILD_ENV, "1")
+                .env("LC_ALL", "ja_JP.UTF-8")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "Japanese remote attach admission child failed:\nstdout:\n{}\nstderr:\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+
+        let mux = Mux::new("remote-attach-admission-locale-test", SurfaceOptions::default());
+        let (mut app, events) = test_app_with_events(Session::Local(mux));
+        app.session.remote = true;
+        let executor = super::RemoteSurfaceAttachExecutor::new().unwrap();
+        executor.shutdown();
+        *app.session.remote_surface_attaches.lock().unwrap() = Some(executor);
+
+        app.session.attach_surface(77, None);
+        app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some(
+                "サーフェス 77 の接続に失敗しました。再試行は制限されています: \
+                 リモートサーフェス接続キューがいっぱいです"
+            )
+        );
+    }
+
+    #[test]
     fn explicit_sidebar_relaunch_is_a_barrier_before_passive_sync() {
         let mux = Mux::new("sidebar-plugin-relaunch-barrier-test", SurfaceOptions::default());
         let (mut app, events) = test_app_with_events(Session::Local(mux));

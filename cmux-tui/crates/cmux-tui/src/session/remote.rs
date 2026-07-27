@@ -4015,6 +4015,38 @@ mod tests {
         assert_eq!(mirror.plain_text().unwrap(), previous);
     }
 
+    #[test]
+    fn remote_kitty_alias_sidecar_rejects_more_than_the_terminal_host_limit() {
+        let aliases = (1..=cmux_tui_core::terminal_host_protocol::MAX_KITTY_IMAGE_ALIASES + 1)
+            .map(|image_id| json!({"image_id": image_id, "image_number": image_id}))
+            .collect::<Vec<_>>();
+        let value = json!({"kitty_image_aliases": aliases});
+
+        assert!(parse_kitty_image_aliases(&value).is_err());
+    }
+
+    #[test]
+    fn remote_kitty_alias_sidecar_rejects_zero_values() {
+        for alias in
+            [json!({"image_id": 0, "image_number": 1}), json!({"image_id": 1, "image_number": 0})]
+        {
+            let value = json!({"kitty_image_aliases": [alias]});
+            assert!(parse_kitty_image_aliases(&value).is_err());
+        }
+    }
+
+    #[test]
+    fn remote_kitty_alias_sidecar_rejects_duplicate_image_ids() {
+        let value = json!({
+            "kitty_image_aliases": [
+                {"image_id": 7, "image_number": 41},
+                {"image_id": 7, "image_number": 42},
+            ],
+        });
+
+        assert!(parse_kitty_image_aliases(&value).is_err());
+    }
+
     #[cfg(unix)]
     #[test]
     fn resized_event_decodes_protocol_replay_field() {
