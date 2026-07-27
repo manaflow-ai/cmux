@@ -194,7 +194,6 @@ pub(crate) fn reserved_child_needs_cleanup(sync: ReservedChildReap<'_>) -> bool 
     let _signal = sync.signal_lock.lock().unwrap();
     !sync.cleanup_complete.load(Ordering::Acquire)
         && !sync.termination_started.load(Ordering::Acquire)
-        && sync.pty_drained.load(Ordering::Acquire)
 }
 
 pub(crate) fn poll_reserved_session_leader(
@@ -202,29 +201,19 @@ pub(crate) fn poll_reserved_session_leader(
     cleanup_succeeded: bool,
     reap: impl FnOnce(),
 ) -> bool {
-    let should_attempt_cleanup = {
-        let _signal = sync.signal_lock.lock().unwrap();
-        if sync.cleanup_complete.load(Ordering::Acquire) {
-            reap();
-            sync.child_reaped.store(true, Ordering::Release);
-            return true;
+    let _signal = sync.signal_lock.lock().unwrap();
+    if !sync.cleanup_complete.load(Ordering::Acquire) {
+        if sync.termination_started.load(Ordering::Acquire) || !cleanup_succeeded {
+            return false;
         }
-        !sync.termination_started.load(Ordering::Acquire)
-            && sync.pty_drained.load(Ordering::Acquire)
-    };
-
-    if should_attempt_cleanup {
-        let _signal = sync.signal_lock.lock().unwrap();
-        let cleanup_claimed = sync.cleanup_complete.load(Ordering::Acquire);
-        let termination_started = sync.termination_started.load(Ordering::Acquire);
-        if cleanup_claimed || (cleanup_succeeded && !termination_started) {
-            sync.cleanup_complete.store(true, Ordering::Release);
-            reap();
-            sync.child_reaped.store(true, Ordering::Release);
-            return true;
-        }
+        sync.cleanup_complete.store(true, Ordering::Release);
     }
-    false
+    if !sync.pty_drained.load(Ordering::Acquire) {
+        return false;
+    }
+    reap();
+    sync.child_reaped.store(true, Ordering::Release);
+    true
 }
 
 fn run_natural_reaper(

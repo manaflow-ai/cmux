@@ -3,9 +3,11 @@ use std::ffi::OsStr;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 #[cfg(unix)]
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, ExitStatus, Stdio};
 #[cfg(unix)]
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+#[cfg(unix)]
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use cmux_tui_core::platform::transport;
@@ -47,6 +49,8 @@ const LEGACY_HELPER_WAIT_MARGIN: Duration = Duration::from_millis(250);
 const LEGACY_HELPER_POLL_INTERVAL: Duration = Duration::from_millis(10);
 #[cfg(unix)]
 const LEGACY_HELPER_CANCEL_MARGIN: Duration = Duration::from_millis(100);
+#[cfg(unix)]
+const LEGACY_HELPER_REAPER_CAPACITY: usize = 64;
 const LAUNCHER_COMMAND_ENV: &str = "CMUX_TUI_LAUNCHER_COMMAND";
 const MAX_LAUNCHER_COMMAND_BYTES: usize = 4096;
 
@@ -54,6 +58,103 @@ type TransportReader = BufReader<Box<dyn transport::Stream>>;
 
 #[cfg(unix)]
 static LEGACY_HELPER_CANCELLED: AtomicBool = AtomicBool::new(false);
+#[cfg(unix)]
+static LEGACY_HELPER_REAPER: OnceLock<Option<LegacyHelperReaper>> = OnceLock::new();
+
+#[cfg(unix)]
+struct LegacyHelperReaper {
+    pending: Arc<(Mutex<Vec<LegacyHelperReap>>, Condvar)>,
+    active: Arc<AtomicUsize>,
+    _worker: std::thread::JoinHandle<()>,
+}
+
+#[cfg(unix)]
+struct LegacyHelperReap {
+    child: Child,
+    _lease: LegacyHelperReaperLease,
+}
+
+#[cfg(unix)]
+struct LegacyHelperReaperLease {
+    pending: Arc<(Mutex<Vec<LegacyHelperReap>>, Condvar)>,
+    active: Arc<AtomicUsize>,
+}
+
+#[cfg(unix)]
+impl Drop for LegacyHelperReaperLease {
+    fn drop(&mut self) {
+        self.active.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+#[cfg(unix)]
+impl LegacyHelperReaperLease {
+    fn retain_reap_ownership(self, child: Child) {
+        let pending = self.pending.clone();
+        pending
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(LegacyHelperReap { child, _lease: self });
+        pending.1.notify_one();
+    }
+}
+
+#[cfg(unix)]
+impl LegacyHelperReaper {
+    fn start() -> std::io::Result<Self> {
+        let pending = Arc::new((Mutex::new(Vec::new()), Condvar::new()));
+        let active = Arc::new(AtomicUsize::new(0));
+        let worker_pending = pending.clone();
+        let worker = std::thread::Builder::new()
+            .name("cmux-legacy-helper-reaper".into())
+            .spawn(move || run_legacy_helper_reaper(worker_pending))?;
+        Ok(Self { pending, active, _worker: worker })
+    }
+
+    fn reserve(&self) -> Option<LegacyHelperReaperLease> {
+        self.active
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |active| {
+                (active < LEGACY_HELPER_REAPER_CAPACITY).then_some(active + 1)
+            })
+            .ok()?;
+        Some(LegacyHelperReaperLease { pending: self.pending.clone(), active: self.active.clone() })
+    }
+}
+
+#[cfg(unix)]
+fn reserve_legacy_helper_reaper() -> anyhow::Result<LegacyHelperReaperLease> {
+    let reaper = LEGACY_HELPER_REAPER.get_or_init(|| LegacyHelperReaper::start().ok());
+    reaper
+        .as_ref()
+        .and_then(LegacyHelperReaper::reserve)
+        .ok_or_else(|| anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed))
+}
+
+#[cfg(unix)]
+fn run_legacy_helper_reaper(pending: Arc<(Mutex<Vec<LegacyHelperReap>>, Condvar)>) {
+    let mut pending_children = pending.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    loop {
+        while pending_children.is_empty() {
+            pending_children =
+                pending.1.wait(pending_children).unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+        let mut index = 0;
+        while index < pending_children.len() {
+            match pending_children[index].child.try_wait() {
+                Ok(Some(_)) => drop(pending_children.swap_remove(index)),
+                Ok(None) | Err(_) => index += 1,
+            }
+        }
+        if !pending_children.is_empty() {
+            let waited = pending
+                .1
+                .wait_timeout(pending_children, LEGACY_HELPER_POLL_INTERVAL)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            pending_children = waited.0;
+        }
+    }
+}
 
 #[cfg(unix)]
 extern "C" fn handle_legacy_helper_signal(_: libc::c_int) {
@@ -587,6 +688,7 @@ fn take_legacy_request_id(next_request_id: &mut u64) -> anyhow::Result<u64> {
 fn run_detached_legacy_stop(path: &Path, expected: ProcessIdentity) -> anyhow::Result<()> {
     use std::os::unix::process::CommandExt;
 
+    let reaper = reserve_legacy_helper_reaper()?;
     let executable = std::env::current_exe().map_err(|_| {
         anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
     })?;
@@ -608,11 +710,11 @@ fn run_detached_legacy_stop(path: &Path, expected: ProcessIdentity) -> anyhow::R
             Ok(())
         });
     }
-    let mut helper = command.spawn().map_err(|_| {
+    let helper = command.spawn().map_err(|_| {
         anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
     })?;
     let deadline = Instant::now() + LEGACY_SHUTDOWN_TIMEOUT + LEGACY_HELPER_WAIT_MARGIN;
-    let status = wait_for_child_until(&mut helper, deadline)?;
+    let status = wait_for_child_until(helper, reaper, deadline)?;
     if status.success() {
         return Ok(());
     }
@@ -621,14 +723,18 @@ fn run_detached_legacy_stop(path: &Path, expected: ProcessIdentity) -> anyhow::R
 
 #[cfg(unix)]
 fn wait_for_child_until(
-    child: &mut std::process::Child,
+    mut child: Child,
+    reaper: LegacyHelperReaperLease,
     deadline: Instant,
-) -> anyhow::Result<std::process::ExitStatus> {
+) -> anyhow::Result<ExitStatus> {
     loop {
-        if let Some(status) = child.try_wait().map_err(|_| {
-            anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
-        })? {
-            return Ok(status);
+        match child.try_wait() {
+            Ok(Some(status)) => return Ok(status),
+            Ok(None) => {}
+            Err(_) => {
+                reaper.retain_reap_ownership(child);
+                anyhow::bail!(crate::localization::catalog().server.legacy_cleanup_failed);
+            }
         }
         if Instant::now() >= deadline {
             let pid = libc::pid_t::try_from(child.id()).ok();
@@ -639,14 +745,15 @@ fn wait_for_child_until(
             }
             let cancel_deadline = Instant::now() + LEGACY_HELPER_CANCEL_MARGIN;
             while Instant::now() < cancel_deadline {
-                if child
-                    .try_wait()
-                    .map_err(|_| {
-                        anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
-                    })?
-                    .is_some()
-                {
-                    break;
+                match child.try_wait() {
+                    Ok(Some(_)) => {
+                        anyhow::bail!(crate::localization::catalog().server.legacy_cleanup_failed);
+                    }
+                    Ok(None) => {}
+                    Err(_) => {
+                        reaper.retain_reap_ownership(child);
+                        anyhow::bail!(crate::localization::catalog().server.legacy_cleanup_failed);
+                    }
                 }
                 std::thread::sleep(
                     cancel_deadline
@@ -654,6 +761,7 @@ fn wait_for_child_until(
                         .min(LEGACY_HELPER_POLL_INTERVAL),
                 );
             }
+            reaper.retain_reap_ownership(child);
             anyhow::bail!(crate::localization::catalog().server.legacy_cleanup_failed);
         }
         std::thread::sleep(
@@ -1401,11 +1509,12 @@ mod tests {
         assert_eq!(ready, "ready\n");
         let helper_pid = libc::pid_t::try_from(helper.id()).unwrap();
         let started = Instant::now();
+        let reaper = reserve_legacy_helper_reaper().unwrap();
 
-        let error = wait_for_child_until(&mut helper, Instant::now() + Duration::from_millis(50))
-            .unwrap_err();
+        let error =
+            wait_for_child_until(helper, reaper, Instant::now() + Duration::from_millis(50))
+                .unwrap_err();
         let elapsed = started.elapsed();
-        drop(helper);
         // SAFETY: helper_pid names this exact test-owned child.
         unsafe {
             libc::kill(helper_pid, libc::SIGKILL);
