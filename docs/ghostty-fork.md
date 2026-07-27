@@ -12,7 +12,7 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `517a4c75a`, the head of
+The submodule pinned by this branch is `921d4efaa`, the head of
 https://github.com/manaflow-ai/ghostty/pull/153. It adds lossless hidden-tab
 renderer reclamation on top of the teardown-safe action lease release from
 https://github.com/manaflow-ai/ghostty/pull/152, transactional menu-owned key
@@ -57,8 +57,8 @@ and the product-main renderer/link fixes described below. It also bounds each
 renderer mailbox drain turn so continuous producers cannot starve lifecycle
 processing or rendering.
 
-The pinned `517a4c75a` universal ReleaseFast GhosttyKit archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-517a4c75ade201eae5d362cdde75196a4011ade1-crashsubdir-cmux-crash-v1
+The pinned `921d4efaa` universal ReleaseFast GhosttyKit archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-921d4efaac3daf63e6a2d6e83b15e5c55fda2c1e-crashsubdir-cmux-crash-v1
 and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### Hidden macOS renderer reclamation
@@ -68,15 +68,24 @@ and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
 - Commits:
   - `1de584d1e` (test: require lossless renderer realization requests)
   - `517a4c75a` (renderer: reclaim hidden macOS tab GPU memory)
+  - `cc4ac8141` (test: require shared standard Metal pipelines)
+  - `921d4efaa` (renderer: share standard Metal pipelines)
 - Files:
-  - `include/ghostty.h`
+  - `macos/Sources/Features/Terminal/BaseTerminalController.swift`
   - `macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift`
-  - `macos/Sources/Ghostty/Surface View/SurfaceView.swift`
+  - `macos/Tests/Ghostty/RendererTabSelectionTests.swift`
   - `src/apprt/embedded.zig`
   - `src/renderer.zig`
+  - `src/renderer/Metal.zig`
   - `src/renderer/Thread.zig`
+  - `src/renderer/generic.zig`
+  - `src/renderer/message.zig`
   - `src/renderer/metal/IOSurfaceLayer.zig`
-  - `src/renderer/metal/SwapChain.zig`
+  - `src/renderer/metal/Target.zig`
+  - `src/renderer/metal/Texture.zig`
+  - `src/renderer/metal/api.zig`
+  - `src/renderer/metal/buffer.zig`
+  - `src/renderer/metal/shaders.zig`
 - Summary:
   - Reclaims a hidden native tab's renderer after five seconds while retaining
     its PTY, terminal state, scrollback, and surface.
@@ -84,12 +93,16 @@ and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
     slot, preserving the newest request when the renderer mailbox is full.
   - Drains outstanding frame leases and detaches the compositor layer before
     releasing teardown-only Metal resources.
+  - Shares immutable standard shader pipelines by Metal device and pixel
+    format, preventing restored tabs from recompiling driver-owned pipeline
+    state. Custom shader source remains renderer-owned.
   - Observes native tab selection directly and treats ambiguous selection as
     visible, preventing transient AppKit state from reclaiming the active tab.
   - Conflict note: future renderer lifecycle work must preserve lossless
     realization publication and conservative tab selection. Do not mark Metal
     resources purgeable during ordinary resize or replacement, and do not rely
     only on window occlusion or a bounded mailbox for realization state.
+    Standard pipeline sharing must remain device- and pixel-format-scoped.
 
 ### Bounded renderer mailbox turns and continuation recovery
 
