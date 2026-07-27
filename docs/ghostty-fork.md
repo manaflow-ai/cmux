@@ -12,7 +12,7 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `7b24d1c5d`, the head of
+The submodule pinned by this branch is `232b24bf2`, the head of
 https://github.com/manaflow-ai/ghostty/pull/153. It adds lossless hidden-tab
 renderer reclamation on top of the teardown-safe action lease release from
 https://github.com/manaflow-ai/ghostty/pull/152, transactional menu-owned key
@@ -57,8 +57,8 @@ and the product-main renderer/link fixes described below. It also bounds each
 renderer mailbox drain turn so continuous producers cannot starve lifecycle
 processing or rendering.
 
-The pinned `7b24d1c5d` universal ReleaseFast GhosttyKit archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-7b24d1c5d14921d5cdfda4325997189a62eee542-crashsubdir-cmux-crash-v1
+The pinned `232b24bf2` universal ReleaseFast GhosttyKit archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-232b24bf2db2f05538a3e034d88f53a4fc548d56-crashsubdir-cmux-crash-v1
 and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### Hidden macOS renderer reclamation
@@ -82,6 +82,8 @@ and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
   - `7d0009af6` (macos: reclaim deselected tab renderers immediately)
   - `68ffad656` (test: prevent main-queue renderer teardown deadlock)
   - `7b24d1c5d` (renderer: avoid main-queue teardown deadlock)
+  - `0f2b10bad` (test: require renderer-owned Metal resource lifetimes)
+  - `232b24bf2` (renderer: release duplicate Metal resource retention)
 - Files:
   - `macos/Sources/Features/Terminal/BaseTerminalController.swift`
   - `macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift`
@@ -93,6 +95,7 @@ and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
   - `src/renderer/generic.zig`
   - `src/renderer/message.zig`
   - `src/renderer/metal/IOSurfaceLayer.zig`
+  - `src/renderer/metal/Frame.zig`
   - `src/renderer/metal/Target.zig`
   - `src/renderer/metal/Texture.zig`
   - `src/renderer/metal/api.zig`
@@ -110,6 +113,10 @@ and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
     handoffs. Custom shader source remains renderer-owned.
   - Releases renderer-owned Metal command queues while tabs are hidden and
     recreates them when their renderers return.
+  - Uses the renderer's exact-slot frame lease instead of Metal's duplicate
+    resource-retention table for ordinary terminal frames. Background images,
+    terminal images, and custom shaders keep Metal retention because their
+    resources can change while an earlier frame remains in flight.
   - Observes native tab selection directly and treats ambiguous selection as
     visible, preventing transient AppKit state from reclaiming the active tab.
   - Clears the compositor asynchronously after frame leases drain when teardown
@@ -121,7 +128,8 @@ and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
     ordinary resize or replacement, and do not rely only on window occlusion or
     a bounded mailbox for realization state. Standard pipeline sharing must
     remain device- and pixel-format-scoped, and off-main teardown must not wait
-    synchronously for the main queue.
+    synchronously for the main queue. Unretained command buffers must remain
+    limited to frames whose encoded resources are frame-owned or process-wide.
 
 ### Bounded renderer mailbox turns and continuation recovery
 
