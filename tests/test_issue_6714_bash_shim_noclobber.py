@@ -60,9 +60,19 @@ INTEGRATION = REPO_ROOT / "Resources/shell-integration/cmux-bash-integration.bas
 # source time), so the only writes are our two explicit calls. The prompt hooks
 # the integration registers never fire under `bash -c` (non-interactive, no
 # prompt), keeping the scenario focused on the shim writer.
+#
+# Sourcing is deliberately *not* stderr-suppressed: with the clean environment
+# below the integration sources silently, so any initialization noise is a real
+# signal and must fail the test rather than hide behind `2>/dev/null`. The
+# explicit `declare -F` guard then fails loudly (exit 90) if the shim writer is
+# missing, so a broken driver can never look like a passing scenario.
 DRIVER = r"""
 set -o noclobber
-source "$CMUX_BASH_INTEGRATION" 2>/dev/null
+source "$CMUX_BASH_INTEGRATION"
+if ! declare -F _cmux_install_cli_command_shim >/dev/null 2>&1; then
+    printf '%s\n' 'driver: _cmux_install_cli_command_shim undefined after sourcing' >&2
+    exit 90
+fi
 export TMPDIR="$CMUX_TEST_TMPDIR"
 export CMUX_SURFACE_ID="$CMUX_TEST_SURFACE_ID"
 _cmux_install_cli_command_shim claude "$CMUX_TEST_WRAPPER_A"
@@ -116,6 +126,14 @@ def test_bash_shim_refresh_is_silent_and_refreshes_under_noclobber() -> None:
             f"\nexit={proc.returncode}"
             f"\n--- driver stdout ---\n{proc.stdout}"
             f"\n--- driver stderr ---\n{proc.stderr}"
+        )
+
+        # Fail fast on a broken driver: a non-zero exit means sourcing or the
+        # `declare -F` precondition failed, so nothing below would be testing
+        # the scenario we think it is.
+        assert proc.returncode == 0, (
+            "driver did not complete cleanly; the noclobber scenario never ran"
+            + debug
         )
 
         # The reported symptom: bash refuses to clobber the existing shim and
