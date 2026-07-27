@@ -15368,6 +15368,19 @@ struct CMUXCLI {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "type": "object",
           "additionalProperties": false,
+          "allOf": [
+            {
+              "if": {
+                "properties": { "wait": { "const": true } },
+                "required": ["wait"]
+              },
+              "then": {
+                "properties": {
+                  "timeout": { "exclusiveMinimum": 0 }
+                }
+              }
+            }
+          ],
           "properties": {
             "version": { "type": "integer", "const": 1, "default": 1 },
             "title": { "type": "string" },

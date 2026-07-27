@@ -1999,7 +1999,7 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
-    private func routeNotificationDelivery(
+    func routeNotificationDelivery(
         _ notification: TerminalNotification,
         effects: TerminalNotificationPolicyEffects
     ) {
@@ -2032,8 +2032,8 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func configureDynamicNotchDelivery(
-        present: @escaping (TerminalNotification) -> Void,
-        dismiss: @escaping (UUID) -> Void
+        present: ((TerminalNotification) -> Void)?,
+        dismiss: ((UUID) -> Void)?
     ) {
         dynamicNotchDeliveryHandler = present
         dynamicNotchDismissalHandler = dismiss
@@ -2327,18 +2327,6 @@ final class TerminalNotificationStore: ObservableObject {
         notificationDeliveryHandler = { store, notification, effects in
             store.routeNotificationDelivery(notification, effects: effects)
         }
-    }
-
-    func routeNotificationDeliveryForTesting(
-        _ notification: TerminalNotification,
-        effects: TerminalNotificationPolicyEffects
-    ) {
-        routeNotificationDelivery(notification, effects: effects)
-    }
-
-    func resetDynamicNotchDeliveryForTesting() {
-        dynamicNotchDeliveryHandler = nil
-        dynamicNotchDismissalHandler = nil
     }
 
     func configureNativeNotificationDeliveryHooksForTesting(

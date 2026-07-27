@@ -191,7 +191,7 @@ struct NativeNotificationFallbackCommandTests {
             isRead: false
         )
 
-        store.routeNotificationDeliveryForTesting(notification, effects: effects)
+        store.routeNotificationDelivery(notification, effects: effects)
 
         #expect(presentedIDs == [notification.id])
         #expect(!authorizationAttempted.value)
@@ -245,7 +245,7 @@ struct NativeNotificationFallbackCommandTests {
             presentation: TerminalNotificationPresentation(delivery: .system)
         )
 
-        store.routeNotificationDeliveryForTesting(notification, effects: effects)
+        store.routeNotificationDelivery(notification, effects: effects)
 
         #expect(presentedIDs.isEmpty)
         #expect(authorizationAttempted.value)
@@ -302,7 +302,7 @@ struct NativeNotificationFallbackCommandTests {
         store.resetUserNotificationSchedulerForTesting()
         store.resetNotificationCommandRunnerForTesting()
         store.resetSuppressedNotificationFeedbackHandlerForTesting()
-        store.resetDynamicNotchDeliveryForTesting()
+        store.configureDynamicNotchDelivery(present: nil, dismiss: nil)
         AppFocusState.overrideIsFocused = originalAppFocusOverride
     }
 }

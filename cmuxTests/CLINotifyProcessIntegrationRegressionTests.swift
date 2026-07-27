@@ -29,30 +29,70 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let properties = try XCTUnwrap(schema["properties"] as? [String: Any])
         XCTAssertNotNil(properties["actions"])
         XCTAssertNotNil(properties["inputs"])
+        let constraints = try XCTUnwrap(schema["allOf"] as? [[String: Any]])
+        let waitConstraint = try XCTUnwrap(constraints.first)
+        let thenSchema = try XCTUnwrap(waitConstraint["then"] as? [String: Any])
+        let thenProperties = try XCTUnwrap(thenSchema["properties"] as? [String: Any])
+        let timeoutSchema = try XCTUnwrap(thenProperties["timeout"] as? [String: Any])
+        XCTAssertEqual((timeoutSchema["exclusiveMinimum"] as? NSNumber)?.doubleValue, 0)
     }
 
-    func testNotifyRuntimeSpecRejectsInvalidControlsBeforeConnecting() throws {
+    func testNotifyRuntimeSpecRejectsInvalidControlsBeforeSendingACommand() throws {
         let cliPath = try bundledCLIPath()
         let invalidSpecs = [
-            #"{"version":1,"actions":[{"id":"approve","label":"Approve","command":"deploy"}]}"#,
-            #"{"version":1,"inputs":[{"id":"reason","label":"Reason","secure":1}]}"#,
-            #"{"version":1,"actions":[{"id":"承認","label":"Approve"}]}"#,
+            (
+                #"{"version":1,"actions":[{"id":"approve","label":"Approve","command":"deploy"}]}"#,
+                "Invalid --action"
+            ),
+            (
+                #"{"version":1,"inputs":[{"id":"reason","label":"Reason","secure":1}]}"#,
+                "Invalid input"
+            ),
+            (
+                #"{"version":1,"actions":[{"id":"承認","label":"Approve"}]}"#,
+                "Invalid --action"
+            ),
+            (
+                #"{"version":1,"wait":true,"timeout":0}"#,
+                "--wait requires a positive --timeout"
+            ),
         ]
 
-        for spec in invalidSpecs {
+        for (index, invalidSpec) in invalidSpecs.enumerated() {
+            let (spec, expectedError) = invalidSpec
+            let socketPath = makeSocketPath("notify-invalid-\(index)")
+            let listenerFD = try bindUnixSocket(at: socketPath)
+            let state = MockSocketServerState()
+            let serverHandled = startMockServer(
+                listenerFD: listenerFD,
+                state: state
+            ) { line in
+                self.malformedRequestResponse(raw: line)
+            }
+            defer {
+                Darwin.close(listenerFD)
+                unlink(socketPath)
+            }
+
             let result = runProcess(
                 executablePath: cliPath,
                 arguments: ["notify", "--spec", spec],
                 environment: [
                     "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-                    "CMUX_SOCKET_PATH": "/tmp/cmux-notification-invalid-spec-\(UUID().uuidString).sock",
+                    "CMUX_SOCKET_PATH": socketPath,
                     "CMUX_CLI_SENTRY_DISABLED": "1",
                 ],
                 timeout: 5
             )
 
+            wait(for: [serverHandled], timeout: 5)
             XCTAssertFalse(result.timedOut, result.stderr)
             XCTAssertNotEqual(result.status, 0, spec)
+            XCTAssertTrue(result.stderr.contains(expectedError), result.stderr)
+            XCTAssertTrue(
+                state.snapshot().isEmpty,
+                "Invalid spec sent a socket command: \(state.snapshot())"
+            )
         }
     }
 
