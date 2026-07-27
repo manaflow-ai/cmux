@@ -232,6 +232,37 @@ import Testing
         #expect(recovered == "Ж")
     }
 
+    @Test func controlTextRecoveryFallsThroughRawDELToLayout() throws {
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.control],
+            timestamp: 1,
+            windowNumber: 0,
+            context: nil,
+            characters: "\u{007F}",
+            charactersIgnoringModifiers: "\u{007F}",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_X)
+        ))
+
+        let recovered = KeyboardLayout.recoveredTextForControlCharacterEvent(
+            event,
+            appKitCharacterProvider: { candidateEvent, modifiers in
+                #expect(candidateEvent === event)
+                #expect(modifiers.isEmpty)
+                return "\u{007F}"
+            },
+            layoutCharacterProvider: { keyCode, modifiers in
+                #expect(keyCode == UInt16(kVK_ANSI_X))
+                #expect(modifiers.isEmpty)
+                return "x"
+            }
+        )
+
+        #expect(recovered == "x")
+    }
+
     @Test func controlTextRecoveryPrefersAppKitReinterpretation() throws {
         let event = try #require(NSEvent.keyEvent(
             with: .keyDown,

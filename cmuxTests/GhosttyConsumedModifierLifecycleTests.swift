@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import CmuxTerminal
 import XCTest
 
@@ -435,6 +436,67 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
             "x".unicodeScalars.first?.value,
             "The release must keep the sending terminal's physical identity when Command is pressed later"
         )
+    }
+
+    func testIgnoredGhosttyPressKeepsCommandReleaseOwner() throws {
+        let terminal = try makeHostedTerminal()
+        defer {
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
+            terminal.window.orderOut(nil)
+        }
+        let appDelegate = try XCTUnwrap(AppDelegate.shared)
+
+        terminal.surfaceView.textInputEventHandler = { _ in false }
+        var capturedActions: [ghostty_input_action_e] = []
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            guard keyEvent.keycode == UInt32(kVK_ANSI_Y) else { return }
+            capturedActions.append(keyEvent.action)
+        }
+
+        let timestamp = ProcessInfo.processInfo.systemUptime
+        let press = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: timestamp,
+            windowNumber: terminal.window.windowNumber,
+            context: nil,
+            characters: "y",
+            charactersIgnoringModifiers: "y",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_Y)
+        ))
+        let release = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyUp,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: timestamp + 0.1,
+            windowNumber: terminal.window.windowNumber,
+            context: nil,
+            characters: "y",
+            charactersIgnoringModifiers: "y",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_Y)
+        ))
+
+        terminal.window.makeFirstResponder(terminal.surfaceView)
+        withExtendedLifetime(terminal.surface) {
+            terminal.surfaceView.keyDown(with: press)
+            XCTAssertEqual(
+                capturedActions,
+                [GHOSTTY_ACTION_PRESS],
+                "The unmatched physical press must still be submitted to Ghostty"
+            )
+            XCTAssertTrue(
+                appDelegate.debugHandleShortcutMonitorEvent(event: release),
+                "An ignored Ghostty result must not discard the exact terminal that owns Command key-up"
+            )
+        }
+
+        XCTAssertEqual(capturedActions, [
+            GHOSTTY_ACTION_PRESS,
+            GHOSTTY_ACTION_RELEASE,
+        ])
     }
 
     func testTerminalLifecycleResetClearsAppMonitorReleaseOwnership() throws {
