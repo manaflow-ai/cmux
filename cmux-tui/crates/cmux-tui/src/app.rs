@@ -14099,6 +14099,15 @@ mod tests {
             .expect("wide viewport should render a horizontal scrollbar");
         assert!(track.x + track.width < 70, "track must end before the 10-cell status label");
 
+        app.status_message = Some("status failure details ".repeat(20));
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let rendered = buffer_text(terminal.backend().buffer());
+        let status_row = rendered.lines().last().unwrap();
+        assert!(
+            status_row.contains('…'),
+            "an exact-fit truncated status label must remain visible: {status_row:?}"
+        );
+
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
             mux.close_surface(surface).unwrap();
