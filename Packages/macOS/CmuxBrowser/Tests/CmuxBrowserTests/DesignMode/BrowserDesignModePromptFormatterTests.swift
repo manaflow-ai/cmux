@@ -443,7 +443,10 @@ import Testing
                 edits: [],
                 cssDiff: ""
             ),
-            screenshotPaths: [nil, nil],
+            screenshotPaths: [
+                "/tmp/cmux-browser-design-mode/first.png",
+                "/tmp/cmux-browser-design-mode/second.png",
+            ],
             requestedChange: "make this look like that",
             prompt: [
                 .text("make this "),
@@ -458,10 +461,68 @@ import Testing
 
         // Composed order survives: text, selection 1, text, selection 0; the
         // unresolvable pill is dropped without breaking adjacent segments.
-        #expect(output.prompt.isEmpty)
+        let makeThis = try #require(output.prompt.range(of: "make this "))
+        let secondPath = try #require(output.prompt.range(of: "/tmp/cmux-browser-design-mode/second.png"))
+        let lookLike = try #require(output.prompt.range(of: " look like "))
+        let firstPath = try #require(output.prompt.range(of: "/tmp/cmux-browser-design-mode/first.png"))
+        #expect(makeThis.lowerBound < secondPath.lowerBound)
+        #expect(secondPath.lowerBound < lookLike.lowerBound)
+        #expect(lookLike.lowerBound < firstPath.lowerBound)
+        #expect(!output.prompt.contains("#missing"))
         #expect(payload.prompt.map(\.text) == ["make this ", nil, " look like ", nil])
         #expect(payload.prompt.map(\.selection) == [nil, 1, nil, 0])
         #expect(payload.requestedChange == "make this look like that")
+    }
+
+    @Test func separatesAdjacentScreenshotPathsWithoutReorderingText() throws {
+        func selection(_ selector: String) -> BrowserDesignModeSelection {
+            BrowserDesignModeSelection(
+                selector: selector,
+                selectors: [selector],
+                tagName: "div",
+                domSnippet: "<div></div>",
+                textContent: "",
+                textEditable: false,
+                bounds: BrowserDesignModeRect(x: 0, y: 0, width: 10, height: 10),
+                viewport: BrowserDesignModeViewport(width: 100, height: 100),
+                computedStyles: [:]
+            )
+        }
+        let first = selection("#first")
+        let second = selection("#second")
+        let third = selection("#third")
+        let context = BrowserDesignModePromptContext(
+            pageURL: "https://example.com",
+            snapshot: BrowserDesignModeSnapshot(
+                revision: 1,
+                enabled: true,
+                selection: third,
+                selections: [first, second, third],
+                edits: [],
+                cssDiff: ""
+            ),
+            screenshotPaths: [
+                "/tmp/cmux-browser-design-mode/first.png",
+                "/tmp/cmux-browser-design-mode/second.png",
+                "/tmp/cmux-browser-design-mode/third.png",
+            ],
+            requestedChange: "middleend",
+            prompt: [
+                .token("#first"),
+                .token("#second"),
+                .text("middle"),
+                .token("#third"),
+                .text("end"),
+            ]
+        )
+
+        let prompt = try handoff(for: context).prompt
+
+        #expect(prompt.hasPrefix(
+            "/tmp/cmux-browser-design-mode/first.png "
+                + "/tmp/cmux-browser-design-mode/second.png middle "
+                + "/tmp/cmux-browser-design-mode/third.png end"
+        ))
     }
 
     @Test func omitsPromptWhenNoPillResolves() throws {
