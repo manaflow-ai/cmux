@@ -6,14 +6,16 @@
 //! the socket lock), or a JSON request over the control socket (10s
 //! timeout) for remote ones. A wedged Chrome or half-open session must
 //! never freeze the TUI event loop just because the mouse moved, so
-//! input events are handed to one bounded worker lane per browser
-//! surface:
+//! input events are handed to a fixed pool of bounded worker lanes.
+//! Surfaces map to one stable lane, which preserves their command order
+//! without creating an OS thread for every surface:
 //!
 //! - Consecutive mouse moves on the same surface are coalesced (latest
 //!   wins) before dispatch, so a stalled endpoint never builds a replay
 //!   backlog of stale hover/drag positions.
-//! - A blocking request stalls only its own surface lane. Other browser
-//!   surfaces keep dispatching independently.
+//! - A blocking request stalls only its fixed shard. Surfaces on other
+//!   shards keep dispatching independently, while total worker threads
+//!   remain bounded.
 //! - When the queue is full (the worker is stuck inside a blocking
 //!   call), pointer and key events are dropped instead of blocking the
 //!   UI. Releases that close accepted pointer interactions are retained
@@ -41,6 +43,9 @@ use crate::session::SurfaceHandle;
 /// (drag + key repeat) never drop while a healthy worker drains, but a
 /// blocked worker caps queued work at a few hundred events.
 const QUEUE_CAPACITY: usize = 512;
+/// Stable sharding bounds OS-thread and queue growth while retaining enough
+/// parallel lanes that one blocked browser does not freeze all browser input.
+const BROWSER_INPUT_WORKER_COUNT: usize = 8;
 /// At most the ordinary queue plus its one in-flight event can contain
 /// accepted presses awaiting releases while the browser worker is wedged.
 const RETAINED_RELEASE_CAPACITY: usize = QUEUE_CAPACITY + 1;
@@ -220,10 +225,7 @@ impl BrowserInputKind {
 }
 
 pub struct BrowserInputDispatcher {
-    lanes: Mutex<HashMap<SurfaceId, SurfaceInputLane>>,
-    lane_capacity: usize,
-    on_resize_failure: Arc<dyn Fn(BrowserResizeFailure) + Send + Sync>,
-    on_control_failure: Arc<dyn Fn(String) + Send + Sync>,
+    lanes: Vec<SurfaceInputLane>,
     failed_resizes: Arc<Mutex<HashMap<SurfaceId, FailedBrowserResize>>>,
     #[cfg(test)]
     blocked_lane: Option<SurfaceInputLane>,
@@ -275,12 +277,22 @@ impl BrowserInputDispatcher {
         on_resize_failure: impl Fn(BrowserResizeFailure) + Send + Sync + 'static,
         on_control_failure: impl Fn(String) + Send + Sync + 'static,
     ) -> anyhow::Result<Self> {
+        let on_resize_failure = Arc::new(on_resize_failure);
+        let on_control_failure = Arc::new(on_control_failure);
+        let failed_resizes = Arc::new(Mutex::new(HashMap::new()));
+        let mut lanes = Vec::with_capacity(BROWSER_INPUT_WORKER_COUNT);
+        for worker_index in 0..BROWSER_INPUT_WORKER_COUNT {
+            lanes.push(SurfaceInputLane::spawn_shard(
+                worker_index,
+                QUEUE_CAPACITY,
+                failed_resizes.clone(),
+                on_resize_failure.clone(),
+                on_control_failure.clone(),
+            )?);
+        }
         Ok(Self {
-            lanes: Mutex::new(HashMap::new()),
-            lane_capacity: QUEUE_CAPACITY,
-            on_resize_failure: Arc::new(on_resize_failure),
-            on_control_failure: Arc::new(on_control_failure),
-            failed_resizes: Arc::new(Mutex::new(HashMap::new())),
+            lanes,
+            failed_resizes,
             #[cfg(test)]
             blocked_lane: None,
         })
@@ -291,10 +303,7 @@ impl BrowserInputDispatcher {
         let (lane, blocked) = SurfaceInputLane::blocked_for_any_surface(capacity);
         (
             Self {
-                lanes: Mutex::new(HashMap::new()),
-                lane_capacity: capacity,
-                on_resize_failure: Arc::new(|_| {}),
-                on_control_failure: Arc::new(|_| {}),
+                lanes: Vec::new(),
                 failed_resizes: Arc::new(Mutex::new(HashMap::new())),
                 blocked_lane: Some(lane),
             },
@@ -317,34 +326,7 @@ impl BrowserInputDispatcher {
             return lane.enqueue(event);
         }
         let surface_id = event.surface_id;
-        let is_control = event.kind.is_control();
-        let is_release = event.kind.closes_pointer_interaction();
-        let mut lanes = self.lanes.lock().unwrap();
-        if is_release && !lanes.contains_key(&surface_id) {
-            return false;
-        }
-        if !lanes.contains_key(&surface_id) {
-            let lane = match SurfaceInputLane::spawn(
-                surface_id,
-                self.lane_capacity,
-                self.failed_resizes.clone(),
-                self.on_resize_failure.clone(),
-                self.on_control_failure.clone(),
-            ) {
-                Ok(lane) => lane,
-                Err(error) => {
-                    drop(lanes);
-                    if is_control {
-                        (self.on_control_failure)(format!(
-                            "browser command failed: could not start input lane: {error}"
-                        ));
-                    }
-                    return false;
-                }
-            };
-            lanes.insert(surface_id, lane);
-        }
-        lanes.get(&surface_id).is_some_and(|lane| lane.enqueue(event))
+        self.lane(surface_id).enqueue(event)
     }
 
     pub fn resize_failed(&self, surface_id: SurfaceId, desired: (u16, u16)) -> bool {
@@ -390,9 +372,7 @@ impl BrowserInputDispatcher {
             self.failed_resizes.lock().unwrap().remove(&surface_id);
             return;
         }
-        if let Some(lane) = self.lanes.lock().unwrap().remove(&surface_id) {
-            lane.cancel_surface(surface_id);
-        }
+        self.lane(surface_id).cancel_surface(surface_id);
         self.failed_resizes.lock().unwrap().remove(&surface_id);
     }
 
@@ -406,19 +386,24 @@ impl BrowserInputDispatcher {
             return lane.tracks_surface(surface_id)
                 || self.failed_resizes.lock().unwrap().contains_key(&surface_id);
         }
-        self.lanes.lock().unwrap().contains_key(&surface_id)
+        self.lane(surface_id).tracks_surface(surface_id)
             || self.failed_resizes.lock().unwrap().contains_key(&surface_id)
     }
 
     #[cfg(test)]
     fn worker_count(&self) -> usize {
-        self.lanes.lock().unwrap().len()
+        self.lanes.len()
+    }
+
+    fn lane(&self, surface_id: SurfaceId) -> &SurfaceInputLane {
+        let index = (surface_id % self.lanes.len() as u64) as usize;
+        &self.lanes[index]
     }
 }
 
 impl SurfaceInputLane {
-    fn spawn(
-        surface_id: SurfaceId,
+    fn spawn_shard(
+        worker_index: usize,
         capacity: usize,
         failed_resizes: Arc<Mutex<HashMap<SurfaceId, FailedBrowserResize>>>,
         on_resize_failure: Arc<dyn Fn(BrowserResizeFailure) + Send + Sync>,
@@ -431,7 +416,7 @@ impl SurfaceInputLane {
         let worker_order = order.clone();
         let worker_resizes = latest_resizes.clone();
         let worker_releases = retained_releases.clone();
-        std::thread::Builder::new().name(format!("mux-browser-input-{surface_id}")).spawn(
+        std::thread::Builder::new().name(format!("mux-browser-input-{worker_index}")).spawn(
             move || {
                 surface_worker(
                     rx,
@@ -445,7 +430,7 @@ impl SurfaceInputLane {
             },
         )?;
         Ok(Self {
-            expected_surface_id: Some(surface_id),
+            expected_surface_id: None,
             tx,
             order,
             latest_resizes,
