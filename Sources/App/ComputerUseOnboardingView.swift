@@ -28,6 +28,7 @@ struct ComputerUseOnboardingView: View {
     @State private var helperIcon: NSImage?
     @State private var initialPermissionFlowStarted = false
     @State private var permissionSetupInFlight = false
+    @State private var pendingPermissionSetupStep: ComputerUseOnboardingStep?
     @State private var settingsOpened: Set<ComputerUseSystemPermission> = []
 
     init(
@@ -377,28 +378,13 @@ struct ComputerUseOnboardingView: View {
             Button {
                 beginPermissionSetup(for: permissionStep)
             } label: {
-                Group {
-                    if permissionSetupInFlight, step == permissionStep {
-                        ProgressView()
-                            .controlSize(.small)
-                            .tint(.white)
-                    } else {
-                        Text(
-                            action == .allow
-                                ? String(
-                                    localized: "computerUse.onboarding.allow",
-                                    defaultValue: "Allow"
-                                )
-                                : String(
-                                    localized: "computerUse.onboarding.openSystemSettings",
-                                    defaultValue: "Open System Settings"
-                                )
-                        )
-                        .font(.system(size: 13, weight: .medium))
-                    }
-                }
+                Text(String(
+                    localized: "computerUse.onboarding.allow",
+                    defaultValue: "Allow"
+                ))
+                .font(.system(size: 13, weight: .medium))
                 .frame(
-                    width: action == .allow ? 57 : 132,
+                    width: 57,
                     height: 24
                 )
                 .foregroundStyle(.white)
@@ -419,6 +405,30 @@ struct ComputerUseOnboardingView: View {
     }
 
     private var permissionCompanion: some View {
+        Group {
+            if presentationState.onboardingComplete {
+                permissionCompanionCompletion
+            } else {
+                permissionCompanionInstructions
+            }
+        }
+        .frame(width: 472, height: 112)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(
+                    Color(nsColor: .separatorColor).opacity(0.5),
+                    lineWidth: 0.5
+                )
+        }
+        .onAppear {
+            if presentationState.markPermissionCompanionLayoutReady() {
+                onPermissionCompanionLayoutReady()
+            }
+        }
+    }
+
+    private var permissionCompanionInstructions: some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 10) {
                 Image(systemName: "arrow.up")
@@ -481,20 +491,43 @@ struct ComputerUseOnboardingView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .frame(width: 472, height: 112)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(
-                    Color(nsColor: .separatorColor).opacity(0.5),
-                    lineWidth: 0.5
-                )
-        }
-        .onAppear {
-            if presentationState.markPermissionCompanionLayoutReady() {
-                onPermissionCompanionLayoutReady()
+    }
+
+    private var permissionCompanionCompletion: some View {
+        HStack(spacing: 13) {
+            ZStack {
+                Circle()
+                    .fill(Color.green.gradient)
+                Image(systemName: "checkmark")
+                    .font(.system(size: 19, weight: .bold))
+                    .foregroundStyle(.white)
             }
+            .frame(width: 42, height: 42)
+            .shadow(color: .black.opacity(0.16), radius: 4, y: 2)
+            .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(String(
+                    localized: "computerUse.onboarding.done.title",
+                    defaultValue: "cmux Computer Use Is Ready"
+                ))
+                .font(.callout.weight(.semibold))
+                .foregroundStyle(.primary)
+
+                Text(String(
+                    localized: "computerUse.onboarding.done.detailReady",
+                    defaultValue: "Setup is complete. You can now ask cmux to use apps on your Mac."
+                ))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+            }
+            .accessibilityElement(children: .combine)
+
+            Spacer(minLength: 0)
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
     }
 
     /// A file-URL drag source accepted by the macOS permission lists.
@@ -631,11 +664,14 @@ struct ComputerUseOnboardingView: View {
         guard !permissionStatusIsKnown || !granted else { return }
 
         step = permissionStep
+        if pendingPermissionSetupStep == permissionStep {
+            pendingPermissionSetupStep = nil
+        }
         permissionSetupInFlight = true
         permissionCheckArmed = true
         onPermissionSetupStarted()
         Task { @MainActor in
-            defer { permissionSetupInFlight = false }
+            defer { finishPermissionSetup() }
             _ = await runtimeService.ensureStandaloneHelperInstalled()
             let status = await runtimeService.refreshHelperStatus()
             guard !Task.isCancelled else { return }
@@ -714,7 +750,15 @@ struct ComputerUseOnboardingView: View {
         accessibilityGranted = newAccessibilityGranted
         screenRecordingGranted = newScreenRecordingGranted
 
-        if statusIsKnown, newAccessibilityGranted, newScreenRecordingGranted {
+        guard let nextStep = ComputerUseOnboardingStep.nextMissingPermission(
+            statusIsKnown: statusIsKnown,
+            accessibilityGranted: newAccessibilityGranted,
+            screenRecordingGranted: newScreenRecordingGranted
+        ) else {
+            return
+        }
+
+        if nextStep == .complete {
             if step != .complete {
                 step = .complete
                 onOnboardingCompleted()
@@ -729,8 +773,20 @@ struct ComputerUseOnboardingView: View {
                         || (step == .screenRecording && newScreenRecordingGranted)
                 )
         if activePermissionWasGranted {
-            step = .overview
-            onExpandedRequested()
+            step = nextStep
+            if permissionSetupInFlight {
+                pendingPermissionSetupStep = nextStep
+            } else {
+                beginPermissionSetup(for: nextStep)
+            }
         }
+    }
+
+    private func finishPermissionSetup() {
+        permissionSetupInFlight = false
+        guard let pendingStep = pendingPermissionSetupStep else { return }
+        pendingPermissionSetupStep = nil
+        guard step == pendingStep else { return }
+        beginPermissionSetup(for: pendingStep)
     }
 }
