@@ -16,12 +16,57 @@ public actor ChatArtifactGalleryRowCountCache {
 
     private let maximumAge: TimeInterval
     private var entries: [Key: Entry] = [:]
+    private var inFlightComputations: [Key: Task<Int, Never>] = [:]
 
     /// Creates a gallery row count cache.
     ///
     /// - Parameter maximumAge: Maximum age of a cached stat-derived count.
     public init(maximumAge: TimeInterval = 2) {
         self.maximumAge = max(0, maximumAge)
+    }
+
+    /// Returns the cached total, computing it at most once under concurrent
+    /// misses: callers that land on the same (session, generation, filters)
+    /// key await one shared sweep instead of issuing overlapping ones.
+    public func total(
+        sessionID: String,
+        generation: String,
+        includeDirectories: Bool,
+        includeMissing: Bool,
+        now: Date,
+        compute: @escaping @Sendable () -> Int
+    ) async -> Int {
+        if let cached = total(
+            sessionID: sessionID,
+            generation: generation,
+            includeDirectories: includeDirectories,
+            includeMissing: includeMissing,
+            now: now
+        ) {
+            return cached
+        }
+        let key = Key(
+            sessionID: sessionID,
+            generation: generation,
+            includeDirectories: includeDirectories,
+            includeMissing: includeMissing
+        )
+        if let inFlight = inFlightComputations[key] {
+            return await inFlight.value
+        }
+        let task = Task<Int, Never>(priority: .utility) { compute() }
+        inFlightComputations[key] = task
+        let computed = await task.value
+        inFlightComputations[key] = nil
+        store(
+            computed,
+            sessionID: sessionID,
+            generation: generation,
+            includeDirectories: includeDirectories,
+            includeMissing: includeMissing,
+            now: Date()
+        )
+        return computed
     }
 
     /// Returns a fresh cached total for an exact snapshot and filter key.

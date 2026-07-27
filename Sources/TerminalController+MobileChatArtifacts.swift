@@ -95,33 +95,23 @@ extension TerminalController {
         includeDirectories: Bool,
         includeMissing: Bool
     ) async -> Int {
-        if let cached = await TerminalControllerChatArtifactIndexProvider.rowCounts.total(
+        // Counting is order-independent, so the ordering cache is skipped;
+        // the sweep is existence-only over the raw snapshot, runs off the
+        // caller inside the cache actor, and concurrent misses on the same
+        // (session, generation, filters) key share one computation.
+        await TerminalControllerChatArtifactIndexProvider.rowCounts.total(
             sessionID: sessionID,
             generation: generation,
             includeDirectories: includeDirectories,
             includeMissing: includeMissing,
             now: Date()
         ) {
-            return cached
-        }
-        // Counting is order-independent, so skip the ordering cache entirely;
-        // the count is a stat-only sweep over the raw snapshot.
-        let total = await Task.detached(priority: .utility) {
             ChatArtifactGalleryRowEligibility().defaultRowCount(
                 artifacts,
                 includeDirectories: includeDirectories,
                 includeMissing: includeMissing
             )
-        }.value
-        await TerminalControllerChatArtifactIndexProvider.rowCounts.store(
-            total,
-            sessionID: sessionID,
-            generation: generation,
-            includeDirectories: includeDirectories,
-            includeMissing: includeMissing,
-            now: Date()
-        )
-        return total
+        }
     }
 
     func v2MobileChatArtifactStat(params: [String: Any]) async -> V2CallResult {

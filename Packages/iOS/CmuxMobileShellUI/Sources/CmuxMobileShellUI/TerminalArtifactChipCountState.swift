@@ -140,7 +140,6 @@ struct TerminalArtifactChipCountState: Sendable {
             lastAuthoritativeTotal = nil
             lastAuthoritativeSessionID = nil
         }
-        }
 
         let outcome: CompletionOutcome
         if request.surfaceGeneration == currentSurfaceGeneration {
