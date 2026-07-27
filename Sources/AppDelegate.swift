@@ -12670,16 +12670,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 forKey: event.keyCode
             )
         }
-        return shortcutKeyPressLifecycle.shortcutConsumesKeyDown(
+        let decision = shortcutKeyPressLifecycle.prepareKeyDown(
             keyCode: event.keyCode,
             eventIdentity: ShortcutKeyEventIdentity(
                 timestampBitPattern: event.timestamp.bitPattern,
                 windowNumber: event.windowNumber,
                 zeroTimestampEventToken: zeroTimestampEventToken
             ),
-            isRepeat: event.isARepeat,
-            dispatchShortcut: dispatchShortcut
+            isRepeat: event.isARepeat
         )
+        switch decision {
+        case .passThrough:
+            return false
+        case .consume:
+            return true
+        case .dispatch(let dispatch):
+            let handled = dispatchShortcut()
+            return shortcutKeyPressLifecycle.completeKeyDownDispatch(
+                dispatch,
+                handled: handled
+            )
+        }
     }
 
     private func shortcutConsumesKeyUp(_ event: NSEvent) -> Bool {
