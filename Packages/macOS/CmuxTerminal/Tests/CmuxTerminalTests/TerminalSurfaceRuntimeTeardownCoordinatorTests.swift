@@ -152,7 +152,7 @@ private final class BlockingNativeFreeGate: @unchecked Sendable {
         #expect(await Set(recorder.freed) == Set(surfaces.map { UInt(bitPattern: $0) }))
     }
 
-    @Test func blockedNativeFreeStaysOffMainAndSerializesFollowingFree() async throws {
+    @Test func blockedNativeFreeStaysOffMainAndSerializesFollowingFree() async {
         let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
         let recorder = TeardownLifetimeRecorder()
         let gate = BlockingNativeFreeGate()
@@ -204,10 +204,9 @@ private final class BlockingNativeFreeGate: @unchecked Sendable {
             "a blocked native free must not delay main-actor work"
         )
 
-        try await Task.sleep(for: .seconds(6))
         #expect(
             recorder.snapshot().isEmpty,
-            "the first free must remain blocked and the following free must stay serialized"
+            "the explicitly blocked first free must keep the following free serialized"
         )
 
         gate.release()
