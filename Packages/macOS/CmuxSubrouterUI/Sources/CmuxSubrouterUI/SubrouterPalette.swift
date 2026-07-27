@@ -8,10 +8,14 @@ internal import SwiftUI
 enum SubrouterPalette {
     static let blue = Color(red: 0x2D / 255, green: 0x8C / 255, blue: 0xFF / 255)
 
+    /// The used-percent threshold where a window needs attention — the
+    /// `sr` CLI's red threshold.
+    static let attentionThreshold: Double = 90
+
     /// The color for a window's severity: blue with headroom, red once
     /// the window needs attention.
     static func usageTier(for usedPercent: Double) -> Color {
-        usedPercent >= 90 ? .red : blue
+        usedPercent >= attentionThreshold ? .red : blue
     }
 
     /// The flat fill for a usage bar.
@@ -22,5 +26,13 @@ enum SubrouterPalette {
     /// The text color paired with ``usageFill(for:)``.
     static func usageAccent(for usedPercent: Double) -> Color {
         usageTier(for: usedPercent)
+    }
+
+    /// The row-summary label color. The mini gauge next to the label
+    /// already carries the tier hue, so a wall of rows stays quiet:
+    /// secondary text until the window crosses the attention threshold,
+    /// red after.
+    static func summaryText(for usedPercent: Double) -> Color {
+        usedPercent >= attentionThreshold ? .red : Color.secondary
     }
 }

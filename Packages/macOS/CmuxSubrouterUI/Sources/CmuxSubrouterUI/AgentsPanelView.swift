@@ -81,7 +81,11 @@ public struct AgentsPanelView: View {
                             serverName: configuration.isRemoteEndpoint
                                 ? (configuration.serverName ?? configuration.endpoint.baseURL.host())
                                 : nil
-                        ))
+                        )),
+                        // A remote pool is load-balanced per session: no
+                        // account is "the selected one", so rows carry no
+                        // checkmark or switch glyph there.
+                        showsSelectionState: !configuration.isRemoteEndpoint
                     )
                 }
             }
@@ -114,16 +118,21 @@ public struct AgentsPanelView: View {
         }
     }
 
-    /// The action bundle for one account row. Switching works against both
-    /// the local daemon (`sr` CLI) and remote servers (the daemon's
-    /// switch-account endpoint) through the store's single mutation path.
-    /// Sign-in and remove manage the local `sr` store, so they stay
-    /// local-only — and all terminal-backed verbs also require a
-    /// terminal-capable host.
+    /// The action bundle for one account row. Remote pools get no row
+    /// actions: the daemon load-balances accounts per session, so the UI
+    /// never presents one as selected or switchable (the daemon's
+    /// switch-account endpoint stays reachable via `cmux subrouter switch`
+    /// for whoever explicitly wants to move the server host's active
+    /// credentials). Sign-in and remove manage the local `sr` store, so
+    /// they are local-only too — and all terminal-backed verbs also
+    /// require a terminal-capable host.
     private func rowActions(
         account: SubrouterAccountUsageStatus,
         configuration: SubrouterConfiguration
     ) -> SubrouterAccountRowActions {
+        guard !configuration.isRemoteEndpoint else {
+            return SubrouterAccountRowActions()
+        }
         // Matches the popover's filter: a row whose auth check failed is a
         // sign-in candidate, not a switch target — activating it would
         // replace working credentials with an expired account.
@@ -131,11 +140,6 @@ public struct AgentsPanelView: View {
             && account.provider.supportsSwitching
             && (!account.authChecked || account.authValid)
             && store.pendingSwitch == nil
-        guard !configuration.isRemoteEndpoint else {
-            return SubrouterAccountRowActions(
-                onSwitch: canSwitch ? { switchAccount(account) } : nil
-            )
-        }
         return SubrouterAccountRowActions(
             onSwitch: canSwitch ? { switchAccount(account) } : nil,
             onSignIn: terminalAction(.signIn(account: account)),

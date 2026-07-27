@@ -18,6 +18,10 @@ public struct SubrouterProviderSectionView: View {
     /// Opens a terminal running the provider's add-account login, or `nil`
     /// when adding is unavailable (remote server mode, unknown provider).
     private let onAddAccount: (() -> Void)?
+    /// Whether rows render the active checkmark / radio switch glyph.
+    /// Off for remote pools: the daemon load-balances accounts per
+    /// session, so no single account is "the selected one".
+    private let showsSelectionState: Bool
     /// Signed-out accounts collapse behind a disclosure so a pile of stale
     /// logins (the common long-lived daemon state) never buries the usable
     /// rows. Local UI state only; resets with the panel, which is fine.
@@ -30,13 +34,16 @@ public struct SubrouterProviderSectionView: View {
     ///   - pendingSwitch: The provider-scoped identity of an in-flight switch.
     ///   - actionsForAccount: Action-bundle factory for each account row.
     ///   - onAddAccount: The add-account action, or `nil` when unavailable.
+    ///   - showsSelectionState: Whether rows mark the active account and
+    ///     offer click-to-switch glyphs; off for remote pools.
     public init(
         provider: SubrouterProvider,
         accounts: [SubrouterAccountUsageStatus],
         usageHistory: SubrouterUsageHistory = SubrouterUsageHistory(),
         pendingSwitch: SubrouterPendingSwitch?,
         actionsForAccount: @escaping (SubrouterAccountUsageStatus) -> SubrouterAccountRowActions,
-        onAddAccount: (() -> Void)?
+        onAddAccount: (() -> Void)?,
+        showsSelectionState: Bool = true
     ) {
         self.provider = provider
         self.accounts = accounts
@@ -44,6 +51,7 @@ public struct SubrouterProviderSectionView: View {
         self.pendingSwitch = pendingSwitch
         self.actionsForAccount = actionsForAccount
         self.onAddAccount = onAddAccount
+        self.showsSelectionState = showsSelectionState
     }
 
     public var body: some View {
@@ -83,7 +91,8 @@ public struct SubrouterProviderSectionView: View {
                     isSwitchPending: pendingSwitch
                         == SubrouterPendingSwitch(provider: account.provider, accountID: account.id),
                     actions: actionsForAccount(account),
-                    switchNote: provider.switchSideEffectNote
+                    switchNote: provider.switchSideEffectNote,
+                    showsSelectionState: showsSelectionState
                 )
             }
             if !signedOutAccounts.isEmpty {
@@ -111,7 +120,8 @@ public struct SubrouterProviderSectionView: View {
                             isSwitchPending: pendingSwitch
                         == SubrouterPendingSwitch(provider: account.provider, accountID: account.id),
                             actions: actionsForAccount(account),
-                            switchNote: provider.switchSideEffectNote
+                            switchNote: provider.switchSideEffectNote,
+                            showsSelectionState: showsSelectionState
                         )
                     }
                 }
@@ -164,18 +174,27 @@ public struct SubrouterProviderSectionView: View {
         }
     }
 
-    /// The rows shown by default: the active account first, then switchable
-    /// healthy accounts ordered most-headroom-first so the best switch
-    /// target sits directly under the active row. The active account always
-    /// stays visible even when its sign-in expired.
+    /// The rows shown by default. With selection state: the active account
+    /// first, then switchable healthy accounts ordered most-headroom-first
+    /// so the best switch target sits directly under the active row (the
+    /// active account stays visible even when its sign-in expired). For a
+    /// pool without selection, every healthy account ranks purely by
+    /// headroom — no row gets pole position for a flag the UI hides.
     private var usableAccounts: [SubrouterAccountUsageStatus] {
+        guard showsSelectionState else {
+            let healthy = accounts.filter { !($0.authChecked && !$0.authValid) }
+            return SubrouterAccountUsageStatus.sortedByHeadroom(healthy)
+        }
         let active = accounts.filter(\.isActive)
         let healthy = accounts.filter { !$0.isActive && !($0.authChecked && !$0.authValid) }
         return active + SubrouterAccountUsageStatus.sortedByHeadroom(healthy)
     }
 
-    /// Non-active accounts whose auth check failed; collapsed by default.
+    /// Accounts whose auth check failed; collapsed by default. In selection
+    /// mode the active account is exempt (it stays pinned in the main list).
     private var signedOutAccounts: [SubrouterAccountUsageStatus] {
-        accounts.filter { !$0.isActive && $0.authChecked && !$0.authValid }
+        accounts.filter {
+            (showsSelectionState ? !$0.isActive : true) && $0.authChecked && !$0.authValid
+        }
     }
 }

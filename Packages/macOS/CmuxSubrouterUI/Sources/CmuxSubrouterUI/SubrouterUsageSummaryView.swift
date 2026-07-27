@@ -22,8 +22,8 @@ struct SubrouterUsageSummaryView: View {
             .frame(width: 44, height: 4)
             .accessibilityHidden(true)
             Text(trailingText(window: window, percent: percent))
-                .font(.system(size: 9, weight: .semibold).monospacedDigit())
-                .foregroundStyle(SubrouterPalette.usageAccent(for: percent))
+                .font(.system(size: 9, weight: .medium).monospacedDigit())
+                .foregroundStyle(SubrouterPalette.summaryText(for: percent))
                 .help(account.quotaAssessment.detailText ?? "")
         }
     }

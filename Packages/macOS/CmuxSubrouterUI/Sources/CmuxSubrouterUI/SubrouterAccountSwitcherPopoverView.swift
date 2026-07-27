@@ -54,8 +54,11 @@ public struct SubrouterAccountSwitcherPopoverView: View {
         // The popover is the quick-switch surface: signed-out accounts are
         // not useful switch targets, so only the active account and healthy
         // candidates appear here. The Agents panel keeps the full list.
-        let active = accounts.filter(\.isActive)
-        let healthy = accounts.filter { !$0.isActive && !($0.authChecked && !$0.authValid) }
+        let showsSelectionState = !store.configuration.isRemoteEndpoint
+        let active = showsSelectionState ? accounts.filter(\.isActive) : []
+        let healthy = accounts.filter {
+            (showsSelectionState ? !$0.isActive : true) && !($0.authChecked && !$0.authValid)
+        }
         let usable = active + healthy
         VStack(alignment: .leading, spacing: 3) {
             Text(provider.displayName)
@@ -66,7 +69,8 @@ public struct SubrouterAccountSwitcherPopoverView: View {
                     account: account,
                     isSwitchPending: store.pendingSwitch
                         == SubrouterPendingSwitch(provider: account.provider, accountID: account.id),
-                    onSwitch: switchAction(for: account)
+                    onSwitch: switchAction(for: account),
+                    showsSelectionState: showsSelectionState
                 )
             }
             if usable.isEmpty && !accounts.isEmpty {
@@ -81,9 +85,11 @@ public struct SubrouterAccountSwitcherPopoverView: View {
     }
 
     private func switchAction(for account: SubrouterAccountUsageStatus) -> (() -> Void)? {
-        // No remote gate: the store routes remote switches through the
-        // daemon's switch-account endpoint.
-        guard !account.isActive,
+        // Remote pools offer no switch here: the daemon load-balances per
+        // session, so presenting a switch would misread as selection (the
+        // daemon endpoint stays reachable via `cmux subrouter switch`).
+        guard !store.configuration.isRemoteEndpoint,
+              !account.isActive,
               account.provider.supportsSwitching,
               store.pendingSwitch == nil else {
             return nil
@@ -99,29 +105,37 @@ public struct SubrouterAccountSwitcherPopoverView: View {
 }
 
 /// One compact popover row: active dot, name, cooked chip, switch button.
-/// Receives value snapshots plus a closure only.
+/// Receives value snapshots plus a closure only. `showsSelectionState`
+/// drops the active/radio glyph column for remote pools, where the daemon
+/// assigns accounts per session and nothing is "selected".
 struct SubrouterPopoverAccountRow: View {
     let account: SubrouterAccountUsageStatus
     let isSwitchPending: Bool
     let onSwitch: (() -> Void)?
+    var showsSelectionState = true
 
     var body: some View {
         HStack(spacing: 5) {
-            if account.isActive {
-                Image(systemName: "checkmark")
-                    .font(.system(size: 8, weight: .bold))
-                    .foregroundStyle(SubrouterPalette.blue)
-                    .frame(width: 9)
-                    .accessibilityHidden(true)
-            } else {
-                Circle()
-                    .fill(Color.primary.opacity(0.15))
-                    .frame(width: 5, height: 5)
-                    .frame(width: 9)
-                    .accessibilityHidden(true)
+            if showsSelectionState {
+                if account.isActive {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(SubrouterPalette.blue)
+                        .frame(width: 9)
+                        .accessibilityHidden(true)
+                } else {
+                    Circle()
+                        .fill(Color.primary.opacity(0.15))
+                        .frame(width: 5, height: 5)
+                        .frame(width: 9)
+                        .accessibilityHidden(true)
+                }
             }
             Text(account.displayName)
-                .font(.system(size: 10, weight: account.isActive ? .semibold : .regular))
+                .font(.system(
+                    size: 10,
+                    weight: showsSelectionState && account.isActive ? .semibold : .regular
+                ))
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer(minLength: 4)

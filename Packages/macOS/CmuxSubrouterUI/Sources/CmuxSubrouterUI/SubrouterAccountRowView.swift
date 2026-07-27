@@ -43,6 +43,7 @@ public struct SubrouterAccountRowView: View {
     private let isSwitchPending: Bool
     private let actions: SubrouterAccountRowActions
     private let switchNote: String?
+    private let showsSelectionState: Bool
     /// Local UI state only; keyed by the `ForEach` account id, so it
     /// survives snapshot refreshes and resets with the panel.
     @State private var isExpanded = false
@@ -55,18 +56,24 @@ public struct SubrouterAccountRowView: View {
     ///   - actions: The available management actions.
     ///   - switchNote: An optional side-effect note shown as the Switch
     ///     button's tooltip.
+    ///   - showsSelectionState: Whether the active checkmark and radio
+    ///     switch glyph render. Off for remote pools, where the daemon
+    ///     load-balances accounts per session and marking one "active"
+    ///     would misread as a selection.
     public init(
         account: SubrouterAccountUsageStatus,
         usageHistory: SubrouterUsageHistory = SubrouterUsageHistory(),
         isSwitchPending: Bool,
         actions: SubrouterAccountRowActions = SubrouterAccountRowActions(),
-        switchNote: String? = nil
+        switchNote: String? = nil,
+        showsSelectionState: Bool = true
     ) {
         self.account = account
         self.usageHistory = usageHistory
         self.isSwitchPending = isSwitchPending
         self.actions = actions
         self.switchNote = switchNote
+        self.showsSelectionState = showsSelectionState
     }
 
     private var isAuthExpired: Bool {
@@ -81,6 +88,11 @@ public struct SubrouterAccountRowView: View {
             }
         }
         .padding(.vertical, 3)
+        .padding(.horizontal, 4)
+        .background(
+            RoundedRectangle(cornerRadius: 5)
+                .fill(Color.primary.opacity(isHovering ? 0.05 : 0))
+        )
         // Expired accounts stay listed (they are still sign-in and remove
         // targets) but recede so healthy accounts carry the panel.
         .opacity(isAuthExpired ? 0.55 : 1)
@@ -91,8 +103,14 @@ public struct SubrouterAccountRowView: View {
 
     private var headerLine: some View {
         HStack(spacing: 5) {
-            statusGlyph
-                .frame(width: 10)
+            // In selection mode every row reserves the glyph column so
+            // names align under the checkmark. Without selection state the
+            // column disappears entirely (uniform pool rows); only the
+            // expired warning still claims it.
+            if showsSelectionState || isAuthExpired {
+                statusGlyph
+                    .frame(width: 10)
+            }
             // The expand/collapse tap targets exclude the controls (the
             // radio glyph and the hover-revealed Switch button): SwiftUI's
             // parent-gesture-vs-nested-button click routing has changed
@@ -101,7 +119,10 @@ public struct SubrouterAccountRowView: View {
             // toggle; the glyph and trailing summary own their clicks.
             HStack(spacing: 5) {
                 Text(account.displayName)
-                    .font(.system(size: 11, weight: account.isActive ? .semibold : .regular))
+                    .font(.system(
+                        size: 11,
+                        weight: showsSelectionState && account.isActive ? .semibold : .regular
+                    ))
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Spacer(minLength: 4)
@@ -112,6 +133,9 @@ public struct SubrouterAccountRowView: View {
             Image(systemName: "chevron.right")
                 .font(.system(size: 7, weight: .semibold))
                 .foregroundStyle(.tertiary)
+                // The disclosure is row furniture, not data: recede until
+                // the pointer arrives (or the row is open).
+                .opacity(isHovering || isExpanded ? 1 : 0.35)
                 .rotationEffect(.degrees(isExpanded ? 90 : 0))
                 .contentShape(Rectangle().inset(by: -4))
                 .onTapGesture { isExpanded.toggle() }
@@ -128,7 +152,7 @@ public struct SubrouterAccountRowView: View {
     /// account on click when switching is available (dim inert dot when not).
     @ViewBuilder
     private var statusGlyph: some View {
-        if account.isActive {
+        if showsSelectionState && account.isActive {
             Image(systemName: "checkmark")
                 .font(.system(size: 9, weight: .bold))
                 .foregroundStyle(SubrouterPalette.blue)
@@ -308,7 +332,7 @@ public struct SubrouterAccountRowView: View {
 
     private var accessibilityHeaderLabel: String {
         var parts = [account.displayName]
-        if account.isActive {
+        if showsSelectionState && account.isActive {
             parts.append(String(localized: "subrouter.account.active", defaultValue: "Active"))
         }
         if isAuthExpired {
