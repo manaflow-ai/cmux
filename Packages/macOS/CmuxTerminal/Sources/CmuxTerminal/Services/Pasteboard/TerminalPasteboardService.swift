@@ -86,9 +86,14 @@ public final class TerminalPasteboardService: Sendable {
 }
 
 extension TerminalPasteboardService: TerminalClipboardWriting {
-    /// Writes a string to the given ghostty clipboard location, honoring an
-    /// armed one-shot capture for the standard location.
-    public func writeString(_ string: String, to location: ghostty_clipboard_e) {
+    /// Publishes all textual representations as one pasteboard item, honoring
+    /// an armed one-shot capture for the standard location.
+    public func writeRepresentations(
+        _ representations: [TerminalClipboardRepresentation],
+        to location: ghostty_clipboard_e
+    ) {
+        guard !representations.isEmpty else { return }
+
         if location == GHOSTTY_CLIPBOARD_STANDARD {
             var capture: ClipboardWriteCapture?
             standardClipboardWriteCaptureLock.lock()
@@ -99,14 +104,33 @@ extension TerminalPasteboardService: TerminalClipboardWriting {
             standardClipboardWriteCaptureLock.unlock()
 
             if let capture {
-                capture.capture(string)
+                let value = representations.first(where: {
+                    Self.normalizedMIMEType($0.mimeType) == "text/plain"
+                })?.string ?? representations[0].string
+                capture.capture(value)
                 return
             }
         }
 
         guard let pasteboard = pasteboard(for: location) else { return }
+        let item = NSPasteboardItem()
+        for representation in representations {
+            _ = item.setString(
+                representation.string,
+                forType: Self.pasteboardType(forMIMEType: representation.mimeType)
+            )
+        }
         pasteboard.clearContents()
-        pasteboard.setString(string, forType: .string)
+        _ = pasteboard.writeObjects([item])
+    }
+
+    /// Writes a string to the given ghostty clipboard location, honoring an
+    /// armed one-shot capture for the standard location.
+    public func writeString(_ string: String, to location: ghostty_clipboard_e) {
+        writeRepresentations(
+            [.init(mimeType: "text/plain", string: string)],
+            to: location
+        )
     }
 
     /// Arms a one-shot diversion of the next standard-clipboard write that
@@ -128,6 +152,26 @@ extension TerminalPasteboardService: TerminalClipboardWriting {
 
         guard action() else { return nil }
         return capture.value
+    }
+
+    private static func normalizedMIMEType(_ mimeType: String) -> String {
+        let base = mimeType.split(separator: ";", maxSplits: 1).first ?? Substring(mimeType)
+        return String(base)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+    }
+
+    private static func pasteboardType(forMIMEType mimeType: String) -> NSPasteboard.PasteboardType {
+        switch normalizedMIMEType(mimeType) {
+        case "text/plain":
+            return .string
+        case "text/html":
+            return .html
+        case "text/rtf":
+            return .rtf
+        default:
+            return NSPasteboard.PasteboardType(mimeType)
+        }
     }
 }
 

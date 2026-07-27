@@ -877,31 +877,35 @@ class GhosttyApp {
             }
         }
         runtimeConfig.write_clipboard_cb = { _, location, content, len, _ in
-            // Write clipboard
             guard let content = content, len > 0 else { return }
             let buffer = UnsafeBufferPointer(start: content, count: Int(len))
 
             var fallback: String?
+            var representations: [TerminalClipboardRepresentation] = []
+            representations.reserveCapacity(Int(len))
             for item in buffer {
                 guard let dataPtr = item.data else { continue }
                 let value = String(cString: dataPtr)
 
                 if let mimePtr = item.mime {
-                    let mime = String(cString: mimePtr)
-                    if mime.hasPrefix("text/plain") {
-                        GhosttyApp.terminalPasteboard.writeString(value, to: location)
-                        return
-                    }
-                }
-
-                if fallback == nil {
+                    representations.append(.init(
+                        mimeType: String(cString: mimePtr),
+                        string: value
+                    ))
+                } else if fallback == nil {
                     fallback = value
                 }
             }
 
-            if let fallback {
-                GhosttyApp.terminalPasteboard.writeString(fallback, to: location)
+            if representations.isEmpty, let fallback {
+                representations.append(.init(mimeType: "text/plain", string: fallback))
+            } else if let fallback,
+                      !representations.contains(where: {
+                          $0.mimeType.lowercased().hasPrefix("text/plain")
+                      }) {
+                representations.append(.init(mimeType: "text/plain", string: fallback))
             }
+            GhosttyApp.terminalPasteboard.writeRepresentations(representations, to: location)
         }
         runtimeConfig.close_surface_cb = { userdata, needsConfirmClose in
             guard let callbackContext = GhosttyApp.callbackContext(from: userdata) else { return }

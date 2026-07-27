@@ -98,7 +98,7 @@ struct PasteboardTextContentsTests {
     }
 }
 
-@Suite("Clipboard write capture")
+@Suite("Clipboard write capture", .serialized)
 struct ClipboardWriteCaptureTests {
     @Test func capturesStandardWriteWithoutTouchingPasteboard() {
         let service = TerminalPasteboardService()
@@ -107,6 +107,21 @@ struct ClipboardWriteCaptureTests {
             return true
         }
         #expect(captured == "captured-value")
+    }
+
+    @Test func mixedCapturePrefersPlainText() {
+        let service = TerminalPasteboardService()
+        let captured = service.captureNextStandardClipboardWrite {
+            service.writeRepresentations(
+                [
+                    .init(mimeType: "text/html", string: "<strong>captured</strong>"),
+                    .init(mimeType: "text/plain", string: "captured"),
+                ],
+                to: GHOSTTY_CLIPBOARD_STANDARD
+            )
+            return true
+        }
+        #expect(captured == "captured")
     }
 
     @Test func returnsNilWhenActionFails() {
@@ -131,8 +146,8 @@ struct ClipboardWriteCaptureTests {
 
         service.writeRepresentations(
             [
-                (mimeType: "text/plain", string: marker),
-                (mimeType: "text/html", string: html),
+                .init(mimeType: "text/plain; charset=utf-8", string: marker),
+                .init(mimeType: "text/html", string: html),
             ],
             to: GHOSTTY_CLIPBOARD_SELECTION
         )
