@@ -5064,20 +5064,37 @@ impl Mux {
         #[cfg(unix)]
         let terminal_host_records = {
             let root = self.surface_options.lock().unwrap().terminal_host_root.clone();
-            let required = self
-                .state
-                .lock()
-                .unwrap()
-                .surfaces
-                .values()
-                .filter(|surface| !surface.is_dead())
-                .filter_map(|surface| surface.terminal_host_identity())
-                .collect::<Vec<_>>();
-            match root {
+            let capacity = self.shutdown_owner_capacity();
+            let (required, surface_owner_keys) = {
+                let state = self.state.lock().unwrap();
+                let required = state
+                    .surfaces
+                    .values()
+                    .filter(|surface| !surface.is_dead())
+                    .filter_map(|surface| surface.terminal_host_identity())
+                    .collect::<Vec<_>>();
+                let surface_owner_keys = state
+                    .surfaces
+                    .values()
+                    .filter_map(|surface| {
+                        surface.shutdown_owner().map(|owner| shutdown_owner_key(surface.id, &owner))
+                    })
+                    .collect::<Vec<_>>();
+                (required, surface_owner_keys)
+            };
+            let mut owner_keys = self
+                .shutdown_owners
+                .snapshot()
+                .into_iter()
+                .map(|(key, _)| key)
+                .collect::<HashSet<_>>();
+            owner_keys.extend(surface_owner_keys);
+            let records = match root {
                 Some(root) => {
-                    let records =
-                        crate::terminal_host_runtime::load_terminal_host_records_strict(&root)
-                            .context("load terminal hosts for server shutdown")?;
+                    let records = crate::terminal_host_runtime::load_terminal_host_records_strict(
+                        &root, capacity, deadline,
+                    )
+                    .context("load terminal hosts for server shutdown")?;
                     let available = records
                         .iter()
                         .map(|(_, record)| {
@@ -5102,7 +5119,19 @@ impl Mux {
                 None => anyhow::bail!(
                     "load terminal hosts for server shutdown: terminal-host root is unavailable"
                 ),
+            };
+            owner_keys.extend(records.iter().map(|(_, record)| ShutdownOwnerKey::Hosted {
+                terminal_id: record.terminal_id.clone(),
+                incarnation: record.incarnation.clone(),
+            }));
+            if owner_keys.len() > capacity {
+                anyhow::bail!(
+                    "load terminal hosts for server shutdown: shutdown owner capacity \
+                     {capacity} cannot retain {} unique owners",
+                    owner_keys.len()
+                );
             }
+            records
         };
 
         let (surfaces, retained_count, tree_changed) = {

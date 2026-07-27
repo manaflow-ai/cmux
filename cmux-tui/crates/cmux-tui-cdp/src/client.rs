@@ -1,7 +1,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
 use std::mem::size_of;
-use std::net::{IpAddr, SocketAddr, TcpStream, ToSocketAddrs};
+use std::net::{IpAddr, SocketAddr, TcpStream};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{
     Receiver, Sender, SyncSender, TryRecvError, TrySendError, channel, sync_channel,
@@ -9,7 +9,10 @@ use std::sync::mpsc::{
 use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
+use hickory_resolver::TokioResolver;
 use serde_json::{Value, json};
+use tokio::runtime::{Builder as RuntimeBuilder, Runtime};
+use tokio::sync::Semaphore;
 use tungstenite::client::IntoClientRequest;
 use tungstenite::{Error as WsError, Message, WebSocket, client};
 
@@ -33,39 +36,88 @@ static RETAINED_SIZE_CALLS: AtomicU64 = AtomicU64::new(0);
 #[cfg(test)]
 static NEXT_RESOLVE_DELAY_MS: AtomicU64 = AtomicU64::new(0);
 
-static CDP_RESOLVER: std::sync::OnceLock<Mutex<Option<CdpResolver>>> = std::sync::OnceLock::new();
+static CDP_RESOLVER: std::sync::OnceLock<Mutex<Option<Arc<CdpResolver>>>> =
+    std::sync::OnceLock::new();
 
 struct CdpResolver {
-    requests: SyncSender<ResolveRequest>,
-    _worker: std::thread::JoinHandle<()>,
+    resolver: TokioResolver,
+    permits: Arc<Semaphore>,
+    runtime: Runtime,
 }
 
 struct ResolveRequest {
     host: String,
     port: u16,
+    deadline: Instant,
     response: SyncSender<std::io::Result<Vec<SocketAddr>>>,
+    #[cfg(test)]
+    delay: Duration,
 }
 
 impl CdpResolver {
     fn spawn() -> std::io::Result<Self> {
-        let (requests, receiver) = sync_channel::<ResolveRequest>(CDP_RESOLVER_QUEUE_CAPACITY);
-        let worker =
-            std::thread::Builder::new().name("cmux-tui-cdp-resolver".into()).spawn(move || {
-                while let Ok(request) = receiver.recv() {
+        let runtime = RuntimeBuilder::new_multi_thread()
+            .worker_threads(1)
+            .thread_name("cmux-tui-cdp-resolver")
+            .enable_all()
+            .build()?;
+        let resolver = {
+            let _runtime = runtime.enter();
+            hickory_resolver::Resolver::builder_tokio()
+                .map_err(|error| std::io::Error::other(error.to_string()))?
+                .build()
+                .map_err(|error| std::io::Error::other(error.to_string()))?
+        };
+        Ok(Self {
+            resolver,
+            permits: Arc::new(Semaphore::new(CDP_RESOLVER_QUEUE_CAPACITY)),
+            runtime,
+        })
+    }
+
+    fn submit(&self, request: ResolveRequest) -> anyhow::Result<()> {
+        let permit = self
+            .permits
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| anyhow::anyhow!("CDP resolver queue is full"))?;
+        let resolver = self.resolver.clone();
+        let _task = self.runtime.spawn(async move {
+            let deadline = tokio::time::Instant::from_std(request.deadline);
+            let result = if deadline <= tokio::time::Instant::now() {
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "CDP address resolution deadline expired",
+                ))
+            } else {
+                let lookup = async {
                     #[cfg(test)]
-                    {
-                        let delay_ms = NEXT_RESOLVE_DELAY_MS.swap(0, Ordering::AcqRel);
-                        if delay_ms != 0 {
-                            std::thread::sleep(Duration::from_millis(delay_ms));
-                        }
+                    if !request.delay.is_zero() {
+                        tokio::time::sleep(request.delay).await;
                     }
-                    let result = (request.host.as_str(), request.port)
-                        .to_socket_addrs()
-                        .map(Iterator::collect);
-                    let _ = request.response.send(result);
+                    resolver
+                        .lookup_ip(request.host)
+                        .await
+                        .map(|addresses| {
+                            addresses
+                                .iter()
+                                .map(|address| SocketAddr::new(address, request.port))
+                                .collect()
+                        })
+                        .map_err(|error| std::io::Error::other(error.to_string()))
+                };
+                match tokio::time::timeout_at(deadline, lookup).await {
+                    Ok(result) => result,
+                    Err(_) => Err(std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "CDP address resolution deadline expired",
+                    )),
                 }
-            })?;
-        Ok(Self { requests, _worker: worker })
+            };
+            let _ = request.response.send(result);
+            drop(permit);
+        });
+        Ok(())
     }
 }
 
@@ -396,24 +448,16 @@ fn remaining_until(deadline: Instant, expired: &str) -> anyhow::Result<Duration>
         .ok_or_else(|| anyhow::anyhow!("{expired}"))
 }
 
-fn submit_resolve_request(mut request: ResolveRequest) -> anyhow::Result<()> {
+fn submit_resolve_request(request: ResolveRequest) -> anyhow::Result<()> {
     let resolver = CDP_RESOLVER.get_or_init(|| Mutex::new(None));
-    let mut resolver = resolver.lock().unwrap();
-    if resolver.is_none() {
-        *resolver = Some(CdpResolver::spawn()?);
-    }
-    match resolver.as_ref().unwrap().requests.try_send(request) {
-        Ok(()) => Ok(()),
-        Err(TrySendError::Full(_)) => anyhow::bail!("CDP resolver queue is full"),
-        Err(TrySendError::Disconnected(returned)) => {
-            request = returned;
-            *resolver = Some(CdpResolver::spawn()?);
-            resolver.as_ref().unwrap().requests.try_send(request).map_err(|error| match error {
-                TrySendError::Full(_) => anyhow::anyhow!("CDP resolver queue is full"),
-                TrySendError::Disconnected(_) => anyhow::anyhow!("CDP resolver worker stopped"),
-            })
+    let resolver = {
+        let mut state = resolver.lock().unwrap();
+        if state.is_none() {
+            *state = Some(Arc::new(CdpResolver::spawn()?));
         }
-    }
+        state.as_ref().unwrap().clone()
+    };
+    resolver.submit(request)
 }
 
 fn resolve_socket_addr_until(
@@ -427,7 +471,14 @@ fn resolve_socket_addr_until(
     }
 
     let (response, receiver) = sync_channel(1);
-    submit_resolve_request(ResolveRequest { host: host.to_string(), port, response })?;
+    submit_resolve_request(ResolveRequest {
+        host: host.to_string(),
+        port,
+        deadline,
+        response,
+        #[cfg(test)]
+        delay: Duration::from_millis(NEXT_RESOLVE_DELAY_MS.swap(0, Ordering::AcqRel)),
+    })?;
     let remaining = remaining_until(deadline, "CDP address resolution deadline expired")?;
     let addresses = match receiver.recv_timeout(remaining) {
         Ok(result) => result?,
@@ -1304,6 +1355,11 @@ mod tests {
 
     static RESOLVE_TEST_LOCK: Mutex<()> = Mutex::new(());
 
+    fn warm_resolver() {
+        resolve_socket_addr_until("localhost", 0, Instant::now() + Duration::from_secs(5))
+            .expect("initialize test resolver");
+    }
+
     #[test]
     fn screencast_frame_rejects_terminal_control_bytes() {
         let params = json!({
@@ -1541,6 +1597,7 @@ mod tests {
     #[test]
     fn websocket_resolution_uses_the_connection_deadline() {
         let _guard = RESOLVE_TEST_LOCK.lock().unwrap();
+        warm_resolver();
         NEXT_RESOLVE_DELAY_MS.store(300, Ordering::Release);
         let (events, _receiver) = sync_channel(1);
 
@@ -1551,10 +1608,6 @@ mod tests {
             Duration::from_millis(50),
         );
         let elapsed = started.elapsed();
-        // A bounded resolver may still be finishing this injected operation
-        // after the caller's deadline. Let it drain before another test can
-        // use the process-wide resolver.
-        thread::sleep(Duration::from_millis(350));
         NEXT_RESOLVE_DELAY_MS.store(0, Ordering::Release);
 
         assert!(result.is_err(), "invalid local endpoint unexpectedly connected");
@@ -1567,6 +1620,7 @@ mod tests {
     #[test]
     fn expired_resolution_does_not_block_the_next_request() {
         let _guard = RESOLVE_TEST_LOCK.lock().unwrap();
+        warm_resolver();
         NEXT_RESOLVE_DELAY_MS.store(300, Ordering::Release);
 
         let first =

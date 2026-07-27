@@ -1076,6 +1076,9 @@ impl LocalPtyProcess {
             self.exited.1.notify_all();
             crate::process_session::wake_child_reaper();
             if child_reaped {
+                if self.group_escalation_complete.load(Ordering::Acquire) {
+                    return true;
+                }
                 let Some(session) = self.pid.and_then(|pid| libc::pid_t::try_from(pid).ok()) else {
                     self.abandon_termination();
                     return false;

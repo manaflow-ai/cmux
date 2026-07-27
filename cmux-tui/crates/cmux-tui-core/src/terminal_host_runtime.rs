@@ -307,6 +307,7 @@ mod unix {
     const HOST_PROCESS_REAPER_CAPACITY: usize = 4_096;
     const HOST_PROCESS_REAPER_POLL: Duration = Duration::from_millis(25);
     const HOST_PROCESS_REAPER_RETRY_MAX: Duration = Duration::from_secs(1);
+    const MAX_TERMINAL_HOST_RECORD_BYTES: usize = MAX_LAUNCH_PAYLOAD;
     static HOST_PROCESS_REAPER: OnceLock<Mutex<Option<HostProcessReaper>>> = OnceLock::new();
     #[cfg(test)]
     static HOST_REAP_TEST_LOCK: Mutex<()> = Mutex::new(());
@@ -1677,7 +1678,10 @@ mod unix {
     /// for every record before it discards topology.
     pub fn load_terminal_host_records_strict(
         root: &Path,
+        max_records: usize,
+        deadline: Instant,
     ) -> anyhow::Result<Vec<(PathBuf, TerminalHostRecord)>> {
+        ensure_terminal_host_scan_before(deadline)?;
         let mut records = Vec::new();
         let mut identities = HashSet::new();
         let entries = match fs::read_dir(root) {
@@ -1686,17 +1690,18 @@ mod unix {
             Err(error) => return Err(error.into()),
         };
         for entry in entries {
+            ensure_terminal_host_scan_before(deadline)?;
             let entry = entry?;
             let path = entry.path();
             if path.extension().and_then(|value| value.to_str()) != Some("json") {
                 continue;
             }
-            let bytes = fs::read(&path)
-                .with_context(|| format!("read terminal-host record {}", path.display()))?;
-            let record = serde_json::from_slice::<TerminalHostRecord>(&bytes)
-                .with_context(|| format!("decode terminal-host record {}", path.display()))?;
-            validate_terminal_host_record(&path, &record)
-                .with_context(|| format!("validate terminal-host record {}", path.display()))?;
+            if records.len() >= max_records {
+                anyhow::bail!(
+                    "terminal-host record count exceeds shutdown owner capacity {max_records}"
+                );
+            }
+            let record = read_terminal_host_record_until(&path, deadline)?;
             if !identities.insert((record.terminal_id.clone(), record.incarnation.clone())) {
                 anyhow::bail!(
                     "duplicate terminal-host identity {}:{}",
@@ -1706,8 +1711,78 @@ mod unix {
             }
             records.push((path, record));
         }
+        ensure_terminal_host_scan_before(deadline)?;
         records.sort_by(|left, right| left.0.cmp(&right.0));
         Ok(records)
+    }
+
+    fn ensure_terminal_host_scan_before(deadline: Instant) -> anyhow::Result<()> {
+        if Instant::now() >= deadline {
+            anyhow::bail!("terminal-host record scan exceeded the shutdown deadline");
+        }
+        Ok(())
+    }
+
+    fn read_terminal_host_record_until(
+        path: &Path,
+        deadline: Instant,
+    ) -> anyhow::Result<TerminalHostRecord> {
+        ensure_terminal_host_scan_before(deadline)?;
+        let mut file = OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK)
+            .open(path)
+            .with_context(|| format!("open terminal-host record {}", path.display()))?;
+        let metadata = file
+            .metadata()
+            .with_context(|| format!("inspect terminal-host record {}", path.display()))?;
+        let expected_uid = fs::metadata(
+            path.parent()
+                .ok_or_else(|| anyhow::anyhow!("terminal-host record has no parent directory"))?,
+        )?
+        .uid();
+        if !metadata.file_type().is_file()
+            || metadata.uid() != expected_uid
+            || metadata.nlink() != 1
+            || metadata.mode() & 0o077 != 0
+        {
+            anyhow::bail!("terminal-host record permissions or ownership are unsafe");
+        }
+        if metadata.len() > MAX_TERMINAL_HOST_RECORD_BYTES as u64 {
+            anyhow::bail!("terminal-host record {} exceeds size limit", path.display());
+        }
+
+        let mut bytes = Vec::with_capacity(metadata.len() as usize);
+        let mut buffer = [0u8; 8 * 1024];
+        loop {
+            ensure_terminal_host_scan_before(deadline)?;
+            let remaining = MAX_TERMINAL_HOST_RECORD_BYTES + 1 - bytes.len();
+            let read_len = buffer.len().min(remaining);
+            let read = file
+                .read(&mut buffer[..read_len])
+                .with_context(|| format!("read terminal-host record {}", path.display()))?;
+            if read == 0 {
+                break;
+            }
+            bytes.extend_from_slice(&buffer[..read]);
+            if bytes.len() > MAX_TERMINAL_HOST_RECORD_BYTES {
+                anyhow::bail!("terminal-host record {} exceeds size limit", path.display());
+            }
+        }
+        ensure_terminal_host_scan_before(deadline)?;
+        let current = fs::symlink_metadata(path)
+            .with_context(|| format!("reinspect terminal-host record {}", path.display()))?;
+        if !current.file_type().is_file()
+            || current.dev() != metadata.dev()
+            || current.ino() != metadata.ino()
+        {
+            anyhow::bail!("terminal-host record changed while being read");
+        }
+        let record = serde_json::from_slice::<TerminalHostRecord>(&bytes)
+            .with_context(|| format!("decode terminal-host record {}", path.display()))?;
+        validate_terminal_host_record(path, &record)
+            .with_context(|| format!("validate terminal-host record {}", path.display()))?;
+        Ok(record)
     }
 
     /// Terminate one exact host incarnation and retain its discovery record
@@ -3937,7 +4012,11 @@ mod unix {
             let loader_root = root.clone();
             let (result_tx, result_rx) = sync_channel(1);
             let loader = thread::spawn(move || {
-                let _ = result_tx.send(load_terminal_host_records_strict(&loader_root));
+                let _ = result_tx.send(load_terminal_host_records_strict(
+                    &loader_root,
+                    1,
+                    Instant::now() + Duration::from_secs(1),
+                ));
             });
             let completed = match result_rx.recv_timeout(Duration::from_millis(500)) {
                 Ok(result) => Some(result),
@@ -3967,7 +4046,12 @@ mod unix {
             fs::write(&path, vec![b'x'; MAX_LAUNCH_PAYLOAD + 1]).unwrap();
             fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
 
-            let error = load_terminal_host_records_strict(&root).unwrap_err();
+            let error = load_terminal_host_records_strict(
+                &root,
+                1,
+                Instant::now() + Duration::from_secs(1),
+            )
+            .unwrap_err();
             let _ = fs::remove_dir_all(&root);
 
             assert!(
