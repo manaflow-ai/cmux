@@ -8,7 +8,11 @@ import type {
   RenderStateEvent,
 } from "cmux/browser";
 import { decodeRenderGraphicImage } from "../src/lib/renderGraphics";
-import { applyDelta, applySnapshot } from "../src/lib/renderModel";
+import {
+  applyDelta,
+  applySnapshot,
+  releaseRenderModelGraphicsBudget,
+} from "../src/lib/renderModel";
 
 const cursor: RenderCursor = {
   x: 1,
@@ -261,11 +265,12 @@ describe("render model", () => {
       data,
     };
 
-    const models = Array.from({ length: 7 }, () =>
+    const owners = Array.from({ length: 7 }, () => ({}));
+    const models = owners.map((owner) =>
       budgetedApplySnapshot(
         snapshot([], { generation: 1, images: [image], placements: [] }),
         encodedBudget,
-        {},
+        owner,
       )
     );
     const retained = models.reduce(
@@ -276,6 +281,14 @@ describe("render model", () => {
 
     expect(retained).toBeLessThanOrEqual(64 * 1024 * 1024);
     expect(models.some((model) => model.graphics.images.length === 0)).toBe(true);
+
+    releaseRenderModelGraphicsBudget(encodedBudget, owners[0]!);
+    const recovered = budgetedApplySnapshot(
+      snapshot([], { generation: 2, images: [image], placements: [] }),
+      encodedBudget,
+      owners.at(-1)!,
+    );
+    expect(recovered.graphics.images).toHaveLength(1);
   });
 
   it("rejects snapshots whose retained images exceed the decoded byte budget", () => {

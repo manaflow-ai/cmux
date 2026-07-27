@@ -931,6 +931,7 @@ pub struct PtySurface {
     title: Mutex<String>,
     pwd: Mutex<Option<String>>,
     geometry: Mutex<PtyGeometry>,
+    kitty_image_storage_limit: AtomicU64,
     #[cfg(test)]
     geometry_test_hook: Mutex<Option<PtyGeometryTestHook>>,
     #[cfg(test)]
@@ -1502,6 +1503,7 @@ impl Surface {
             title: Mutex::new(String::new()),
             pwd: Mutex::new(None),
             geometry: Mutex::new(initial_geometry),
+            kitty_image_storage_limit: AtomicU64::new(ghostty_vt::MAX_KITTY_IMAGE_BYTES as u64),
             #[cfg(test)]
             geometry_test_hook: Mutex::new(None),
             #[cfg(test)]
@@ -1524,6 +1526,7 @@ impl Surface {
             frame_requests,
         }));
 
+        surface.register_kitty_image_budget()?;
         spawn_frame_producer(&surface, frame_rx)?;
 
         // PTY reader: pty bytes -> terminal state -> SurfaceOutput events.
@@ -1795,6 +1798,7 @@ impl Surface {
                 cell_width: snapshot.cell_pixels.0,
                 cell_height: snapshot.cell_pixels.1,
             }),
+            kitty_image_storage_limit: AtomicU64::new(ghostty_vt::MAX_KITTY_IMAGE_BYTES as u64),
             #[cfg(test)]
             geometry_test_hook: Mutex::new(None),
             #[cfg(test)]
@@ -1816,6 +1820,7 @@ impl Surface {
             render_generation: AtomicU64::new(1),
             frame_requests,
         }));
+        surface.register_kitty_image_budget()?;
         Self::install_deferred_cell_pixel_handler(&surface, &control_responses);
         spawn_frame_producer(&surface, frame_rx)?;
 
@@ -1978,6 +1983,14 @@ impl Surface {
                                 else {
                                     break;
                                 };
+                                if replacement
+                                    .set_kitty_image_storage_limit(
+                                        pty.kitty_image_storage_limit.load(Ordering::Acquire),
+                                    )
+                                    .is_err()
+                                {
+                                    break;
+                                }
                                 if replacement
                                     .resize(
                                         cols,
@@ -2233,6 +2246,17 @@ impl Surface {
                             continue;
                         };
                         if replacement_term
+                            .set_kitty_image_storage_limit(
+                                pty.kitty_image_storage_limit.load(Ordering::Acquire),
+                            )
+                            .is_err()
+                        {
+                            if !retry.wait_or_fail(pty) {
+                                return;
+                            }
+                            continue;
+                        }
+                        if replacement_term
                             .resize(
                                 next_geometry.cols,
                                 next_geometry.rows,
@@ -2397,6 +2421,7 @@ impl Surface {
                 cell_width: cell_pixels.0,
                 cell_height: cell_pixels.1,
             }),
+            kitty_image_storage_limit: AtomicU64::new(ghostty_vt::MAX_KITTY_IMAGE_BYTES as u64),
             #[cfg(test)]
             geometry_test_hook: Mutex::new(None),
             #[cfg(test)]
@@ -2418,6 +2443,7 @@ impl Surface {
             render_generation: AtomicU64::new(1),
             frame_requests,
         }));
+        surface.register_kitty_image_budget()?;
         spawn_frame_producer(&surface, frame_rx)?;
         Ok(surface)
     }
@@ -2464,7 +2490,7 @@ impl Surface {
         let (frame_requests, _frame_rx) = sync_channel(1);
         let test_master_control = Arc::new(TestMasterPtyControl::default());
 
-        Ok(Arc::new(Surface::Pty(PtySurface {
+        let surface = Arc::new(Surface::Pty(PtySurface {
             meta: SurfaceMeta { id, name: Mutex::new(None), selection: Mutex::new(None) },
             term: Mutex::new(Box::new(term)),
             stream_progress: Box::new(TerminalStreamProgress::default()),
@@ -2489,6 +2515,7 @@ impl Surface {
             title: Mutex::new(String::new()),
             pwd: Mutex::new(None),
             geometry: Mutex::new(initial_geometry),
+            kitty_image_storage_limit: AtomicU64::new(ghostty_vt::MAX_KITTY_IMAGE_BYTES as u64),
             geometry_test_hook: Mutex::new(None),
             test_master_control: Some(test_master_control),
             vt_replay_builds: AtomicUsize::new(0),
@@ -2506,7 +2533,16 @@ impl Surface {
             }),
             render_generation: AtomicU64::new(1),
             frame_requests,
-        })))
+        }));
+        surface.register_kitty_image_budget()?;
+        Ok(surface)
+    }
+
+    fn register_kitty_image_budget(self: &Arc<Self>) -> anyhow::Result<()> {
+        let Some(mux) = self.as_pty().and_then(|pty| pty.mux.upgrade()) else {
+            return Ok(());
+        };
+        mux.register_kitty_image_surface(self)
     }
 
     fn as_pty(&self) -> Option<&PtySurface> {
@@ -2608,6 +2644,27 @@ impl Surface {
         let result = f(&mut term);
         pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
         Some(result)
+    }
+
+    pub(crate) fn set_kitty_image_storage_limit(&self, bytes: u64) -> anyhow::Result<()> {
+        let Some(pty) = self.as_pty() else {
+            return Ok(());
+        };
+        if pty.kitty_image_storage_limit.load(Ordering::Acquire) == bytes {
+            return Ok(());
+        }
+        {
+            let mut term = pty.term.lock().unwrap();
+            term.set_kitty_image_storage_limit(bytes)?;
+            pty.kitty_image_storage_limit.store(bytes, Ordering::Release);
+            let mut render = pty.render.lock().unwrap();
+            render.state.clear_kitty_graphics_cache();
+            render.latest = None;
+            render.initial_graphics = None;
+        }
+        let generation = pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
+        pty.request_frame(generation);
+        Ok(())
     }
 
     #[cfg(test)]
@@ -3084,6 +3141,16 @@ impl Surface {
                 (geometry.cols, geometry.rows)
             }
             Surface::Browser(browser) => browser.size(),
+        }
+    }
+
+    pub(crate) fn cell_pixel_size(&self) -> (u16, u16) {
+        match self {
+            Surface::Pty(pty) => {
+                let geometry = *pty.geometry.lock().unwrap();
+                (geometry.cell_width, geometry.cell_height)
+            }
+            Surface::Browser(browser) => browser.cell_pixel_size(),
         }
     }
 

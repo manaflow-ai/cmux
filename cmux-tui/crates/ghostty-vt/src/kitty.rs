@@ -10,7 +10,7 @@ use ghostty_vt_sys as sys;
 use crate::terminal::Terminal;
 use crate::{Error, Result, check};
 
-pub(crate) const MAX_KITTY_IMAGE_BYTES: usize = 10_000_000;
+pub const MAX_KITTY_IMAGE_BYTES: usize = 10_000_000;
 /// Maximum retained byte prefix for a valid incomplete direct Kitty upload.
 pub const KITTY_INFLIGHT_REPLAY_MAX_BYTES: usize =
     (MAX_KITTY_IMAGE_BYTES * 4).div_ceil(3) + 256 * 1024;

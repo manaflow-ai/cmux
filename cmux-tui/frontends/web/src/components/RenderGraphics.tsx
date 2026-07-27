@@ -139,11 +139,10 @@ function heapPop<T>(
 }
 
 class RenderGraphicCandidateSource {
-  private readonly candidatePositions: number[] = [];
+  private readonly candidateCache:
+    (RenderGraphicCandidate | null | undefined)[];
   private readonly minimumBackingBytes: number[];
-  private readonly ordered: RenderGraphicCandidate[] = [];
   private readonly placementIndexes: number[];
-  private nextPlacementPosition = 0;
 
   constructor(
     private readonly placements: readonly RenderGraphicPlacement[],
@@ -163,6 +162,7 @@ class RenderGraphicCandidateSource {
         right,
       )
     );
+    this.candidateCache = new Array(this.placementIndexes.length);
 
     // Store only bounded protocol indexes, not geometry plans. The one-time
     // ordering avoids rescanning all placements for each 512-candidate page,
@@ -176,43 +176,40 @@ class RenderGraphicCandidateSource {
     }
   }
 
-  candidateAt(index: number): RenderGraphicCandidate | undefined {
-    while (this.ordered.length <= index) {
-      const candidate = this.nextCandidate();
-      if (candidate === undefined) break;
-      this.ordered.push(candidate.candidate);
-      this.candidatePositions.push(candidate.position);
-    }
-    return this.ordered[index];
+  canFitBackingFrom(position: number, availableBytes: number): boolean {
+    return (this.minimumBackingBytes[position] ?? Number.POSITIVE_INFINITY) <= availableBytes;
   }
 
-  canFitBackingFrom(index: number, availableBytes: number): boolean {
-    const position = this.candidatePositions[index]
-      ?? (index === this.ordered.length ? this.nextPlacementPosition : undefined);
-    return position !== undefined
-      && (this.minimumBackingBytes[position] ?? Number.POSITIVE_INFINITY) <= availableBytes;
-  }
-
-  private nextCandidate():
-    | { candidate: RenderGraphicCandidate; position: number }
+  candidateFrom(
+    startPosition: number,
+    rejectedImages: ReadonlySet<string>,
+  ):
+    | { candidate: RenderGraphicCandidate; nextPosition: number }
     | undefined {
-    while (this.nextPlacementPosition < this.placementIndexes.length) {
-      const position = this.nextPlacementPosition++;
+    for (let position = startPosition; position < this.placementIndexes.length; position += 1) {
       const order = this.placementIndexes[position]!;
       const rawPlacement = this.placements[order]!;
       const image = this.images.get(rawPlacement.image_id);
       if (image === undefined) continue;
-      const placement = planRenderGraphicPlacement(image.image, rawPlacement);
-      if (placement === null) continue;
+      if (rejectedImages.has(renderGraphicImageKey(image.image))) continue;
+      let candidate = this.candidateCache[position];
+      if (candidate === undefined) {
+        const placement = planRenderGraphicPlacement(image.image, rawPlacement);
+        candidate = placement === null
+          ? null
+          : {
+            image: image.image,
+            placement,
+            order,
+            z: rawPlacement.z,
+            decodedBytes: image.decodedBytes,
+          };
+        this.candidateCache[position] = candidate;
+      }
+      if (candidate === null) continue;
       return {
-        candidate: {
-          image: image.image,
-          placement,
-          order,
-          z: rawPlacement.z,
-          decodedBytes: image.decodedBytes,
-        },
-        position,
+        candidate,
+        nextPosition: position + 1,
       };
     }
     return undefined;
@@ -228,7 +225,7 @@ interface GlobalCandidateCursor {
   owner: symbol;
   ownerOrder: number;
   candidate: RenderGraphicCandidate;
-  index: number;
+  nextPosition: number;
 }
 
 class GraphicsBudgetRegistry {
@@ -286,9 +283,11 @@ class GraphicsBudgetRegistry {
   private recalculate(): void {
     const nextPlacements = new Map<symbol, Set<RenderGraphicCandidate>>();
     const nextImages = new Map<symbol, Set<string>>();
+    const rejectedImages = new Map<symbol, Set<string>>();
     for (const owner of this.candidates.keys()) {
       nextPlacements.set(owner, new Set());
       nextImages.set(owner, new Set());
+      rejectedImages.set(owner, new Set());
     }
     const compareGlobal = (
       left: GlobalCandidateCursor,
@@ -297,13 +296,13 @@ class GraphicsBudgetRegistry {
       || right.ownerOrder - left.ownerOrder;
     const cursors: GlobalCandidateCursor[] = [];
     for (const [owner, state] of this.candidates) {
-      const candidate = state.source.candidateAt(0);
-      if (candidate !== undefined) {
+      const next = state.source.candidateFrom(0, rejectedImages.get(owner)!);
+      if (next !== undefined) {
         heapPush(cursors, {
           owner,
           ownerOrder: state.order,
-          candidate,
-          index: 0,
+          candidate: next.candidate,
+          nextPosition: next.nextPosition,
         }, compareGlobal);
       }
     }
@@ -311,7 +310,7 @@ class GraphicsBudgetRegistry {
     let backingBytes = 0;
     let decodedBytes = 0;
     while (cursors.length > 0 && admitted < RENDER_GRAPHIC_CANVAS_COUNT_CAP) {
-      const { owner, ownerOrder, candidate, index } = heapPop(cursors, compareGlobal)!;
+      const { owner, ownerOrder, candidate, nextPosition } = heapPop(cursors, compareGlobal)!;
       if (candidate.placement.backingBytes
         <= RENDER_GRAPHIC_CANVAS_BACKING_BYTE_CAP - backingBytes) {
         const images = nextImages.get(owner)!;
@@ -325,23 +324,24 @@ class GraphicsBudgetRegistry {
           }
           backingBytes += candidate.placement.backingBytes;
           admitted += 1;
+        } else {
+          rejectedImages.get(owner)!.add(imageKey);
         }
       }
       if (admitted >= RENDER_GRAPHIC_CANVAS_COUNT_CAP) continue;
-      const nextIndex = index + 1;
       const source = this.candidates.get(owner)?.source;
       if (source === undefined
         || !source.canFitBackingFrom(
-          nextIndex,
+          nextPosition,
           RENDER_GRAPHIC_CANVAS_BACKING_BYTE_CAP - backingBytes,
         )) continue;
-      const nextCandidate = source.candidateAt(nextIndex);
-      if (nextCandidate !== undefined) {
+      const next = source.candidateFrom(nextPosition, rejectedImages.get(owner)!);
+      if (next !== undefined) {
         heapPush(cursors, {
           owner,
           ownerOrder,
-          candidate: nextCandidate,
-          index: nextIndex,
+          candidate: next.candidate,
+          nextPosition: next.nextPosition,
         }, compareGlobal);
       }
     }
@@ -370,9 +370,11 @@ class GraphicsBudgetRegistry {
 interface RenderGraphicsResources {
   budget: GraphicsBudgetRegistry;
   decoder: RenderGraphicsDecodeScheduler;
+  modelBudget: object;
 }
 
 const GraphicsResourcesContext = createContext<RenderGraphicsResources | null>(null);
+const defaultModelBudget = {};
 
 function useDecoderLifetime(decoder: RenderGraphicsDecodeScheduler): void {
   useEffect(() => {
@@ -385,6 +387,7 @@ export function RenderGraphicsBudgetProvider({ children }: { children: ReactNode
   const [resources] = useState<RenderGraphicsResources>(() => ({
     budget: new GraphicsBudgetRegistry(),
     decoder: new RenderGraphicsDecodeScheduler(),
+    modelBudget: {},
   }));
   useDecoderLifetime(resources.decoder);
   return (
@@ -400,6 +403,10 @@ function useGraphicsResources(): RenderGraphicsResources {
     throw new Error("RenderGraphics requires RenderGraphicsBudgetProvider");
   }
   return resources;
+}
+
+export function useRenderGraphicsModelBudget(): object {
+  return useContext(GraphicsResourcesContext)?.modelBudget ?? defaultModelBudget;
 }
 
 function RenderGraphicCanvas({ decoded, placement }: RenderGraphicCanvasProps) {

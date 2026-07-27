@@ -2235,7 +2235,18 @@ impl Terminal {
                 sys::GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_STORAGE_LIMIT,
                 (&bytes as *const u64).cast(),
             )
-        })
+        })?;
+
+        // Lowering libghostty's limit evicts native images immediately. Keep
+        // the replay-side pixel copy at the same boundary instead of waiting
+        // for some later replay to notice those evictions.
+        let mut pixel_cache = std::mem::take(&mut self.kitty_replay_pixel_cache.0);
+        let snapshot = kitty::snapshot(self, &mut pixel_cache, true);
+        if snapshot.is_err() {
+            pixel_cache.clear();
+        }
+        self.kitty_replay_pixel_cache.0 = pixel_cache;
+        snapshot.map(|_| ())
     }
 
     pub fn kitty_image_storage_limit(&self) -> Result<u64> {

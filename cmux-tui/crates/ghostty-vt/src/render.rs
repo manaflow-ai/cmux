@@ -260,6 +260,15 @@ impl RenderState {
         Ok(Arc::new(kitty::snapshot(terminal, &mut self.kitty_pixel_cache, include_unplaced)?))
     }
 
+    /// Release renderer-owned Kitty pixels after the process owner lowers a
+    /// terminal's native storage share. The next update rebuilds only images
+    /// that survived libghostty's eviction.
+    pub fn clear_kitty_graphics_cache(&mut self) {
+        self.kitty_graphics = Arc::new(KittyGraphicsSnapshot::default());
+        self.kitty_pixel_cache.clear();
+        self.kitty_terminal_instance_id = None;
+    }
+
     fn get<T: Default>(&self, data: sys::GhosttyRenderStateData) -> Result<T> {
         let mut out = T::default();
         check(unsafe {

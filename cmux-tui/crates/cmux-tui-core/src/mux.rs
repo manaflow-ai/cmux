@@ -43,6 +43,11 @@ const PROVIDER_WORKSPACE_AUTHORITY_MIN_BYTES: usize = 32;
 const PROVIDER_WORKSPACE_AUTHORITY_MAX_BYTES: usize = 512;
 const CELL_PIXEL_FANOUT_MAX_WORKERS: usize = 32;
 pub(crate) const RENDER_ATTACHMENT_LIMIT: usize = 64;
+const KITTY_IMAGE_PROCESS_BUDGET_BYTES: u64 = 128 * 1024 * 1024;
+// libghostty owns independent primary and alternate screen stores. cmux also
+// keeps one replay pixel cache and one render pixel cache per PTY surface.
+// A grayscale native image expands by up to 3x in either RGB pixel cache.
+const KITTY_IMAGE_PERSISTENT_COPIES_PER_SURFACE: u64 = 2 + 3 + 3;
 
 pub(crate) struct RenderAttachmentPermit {
     active: Arc<AtomicUsize>,
@@ -862,7 +867,7 @@ impl ClientSizingState {
 type CellPixelBeforePublishHook = Arc<dyn Fn((u16, u16)) + Send + Sync>;
 #[cfg(test)]
 type CellPixelOperationHook =
-    Arc<dyn Fn(SurfaceId, (u16, u16), Instant) -> anyhow::Result<Option<u64>> + Send + Sync>;
+    Arc<dyn Fn(&Arc<Surface>, (u16, u16), Instant) -> anyhow::Result<Option<u64>> + Send + Sync>;
 
 type CellPixelSurfaceResult = (SurfaceId, (u16, u16), anyhow::Result<Option<u64>>, bool);
 
@@ -893,23 +898,40 @@ fn apply_cell_pixel_size_until(
     let callback = report.clone();
     #[cfg(test)]
     if let Some(hook) = operation_hook {
-        let result = hook(id, target, deadline);
+        let result =
+            validate_cell_pixel_convergence(surface, target, hook(surface, target, deadline));
         callback(id, size, result.as_ref().ok().copied().flatten());
         let deferred = result.as_ref().err().is_some_and(|error| {
             error.downcast_ref::<crate::terminal_host_runtime::DeferredCellPixelAck>().is_some()
         });
         return (id, size, result, deferred);
     }
-    let result = surface.set_cell_pixel_size_reporting_until(
-        target.0,
-        target.1,
-        deadline,
-        Box::new(move |accepted| callback(id, size, accepted)),
+    let result = validate_cell_pixel_convergence(
+        surface,
+        target,
+        surface.set_cell_pixel_size_reporting_until(
+            target.0,
+            target.1,
+            deadline,
+            Box::new(move |accepted| callback(id, size, accepted)),
+        ),
     );
     let deferred = result.as_ref().err().is_some_and(|error| {
         error.downcast_ref::<crate::terminal_host_runtime::DeferredCellPixelAck>().is_some()
     });
     (id, size, result, deferred)
+}
+
+fn validate_cell_pixel_convergence(
+    surface: &Surface,
+    target: (u16, u16),
+    result: anyhow::Result<Option<u64>>,
+) -> anyhow::Result<Option<u64>> {
+    let reservation = result?;
+    if reservation.is_none() && surface.cell_pixel_size() != target {
+        anyhow::bail!("cell pixel update did not converge to {}x{} pixels", target.0, target.1);
+    }
+    Ok(reservation)
 }
 
 /// The multiplexer. Shared by frontends and the control socket server.
@@ -948,6 +970,7 @@ pub struct Mux {
     terminal_create_after_workspace_reservation: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     browser_runtime: Mutex<Option<Arc<BrowserRuntime>>>,
     active_render_attachments: Arc<AtomicUsize>,
+    kitty_image_surfaces: Mutex<Vec<Weak<Surface>>>,
     cell_pixel_lifecycle: Mutex<()>,
     cell_pixels: Mutex<(u16, u16)>,
     pending_cell_pixels: Mutex<Option<PendingCellPixelUpdate>>,
@@ -1183,6 +1206,7 @@ impl Mux {
             terminal_create_after_workspace_reservation: Mutex::new(None),
             browser_runtime: Mutex::new(None),
             active_render_attachments: Arc::new(AtomicUsize::new(0)),
+            kitty_image_surfaces: Mutex::new(Vec::new()),
             cell_pixel_lifecycle: Mutex::new(()),
             cell_pixels: Mutex::new((8, 16)),
             pending_cell_pixels: Mutex::new(None),
@@ -4008,6 +4032,49 @@ impl Mux {
             })
             .ok()?;
         Some(RenderAttachmentPermit { active: self.active_render_attachments.clone() })
+    }
+
+    pub(crate) fn register_kitty_image_surface(
+        &self,
+        surface: &Arc<Surface>,
+    ) -> anyhow::Result<()> {
+        {
+            let mut registered = self.kitty_image_surfaces.lock().unwrap();
+            registered.retain(|candidate| candidate.strong_count() > 0);
+            if !registered.iter().any(|candidate| {
+                candidate.upgrade().is_some_and(|candidate| Arc::ptr_eq(&candidate, surface))
+            }) {
+                registered.push(Arc::downgrade(surface));
+            }
+        }
+        if let Err(error) = self.rebalance_kitty_image_surfaces() {
+            let mut registered = self.kitty_image_surfaces.lock().unwrap();
+            registered.retain(|candidate| {
+                candidate.upgrade().is_some_and(|candidate| !Arc::ptr_eq(&candidate, surface))
+            });
+            drop(registered);
+            let _ = self.rebalance_kitty_image_surfaces();
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn rebalance_kitty_image_surfaces(&self) -> anyhow::Result<()> {
+        let mut registered = self.kitty_image_surfaces.lock().unwrap();
+        let surfaces = registered.iter().filter_map(Weak::upgrade).collect::<Vec<_>>();
+        registered.retain(|candidate| candidate.strong_count() > 0);
+        if surfaces.is_empty() {
+            return Ok(());
+        }
+        let surface_count = u64::try_from(surfaces.len()).unwrap_or(u64::MAX);
+        let share = KITTY_IMAGE_PROCESS_BUDGET_BYTES
+            .checked_div(surface_count.saturating_mul(KITTY_IMAGE_PERSISTENT_COPIES_PER_SURFACE))
+            .unwrap_or(0)
+            .min(ghostty_vt::MAX_KITTY_IMAGE_BYTES as u64);
+        for surface in surfaces {
+            surface.set_kitty_image_storage_limit(share)?;
+        }
+        Ok(())
     }
 
     pub(crate) fn cell_pixel_creation_size(&self) -> (u16, u16) {
@@ -8531,8 +8598,7 @@ mod tests {
     fn unchanged_cell_pixel_result_must_match_the_requested_metric() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
-        *mux.cell_pixel_operation.lock().unwrap() =
-            Some(Arc::new(|_, _, _| Ok(None)));
+        *mux.cell_pixel_operation.lock().unwrap() = Some(Arc::new(|_, _, _| Ok(None)));
 
         let update = mux.set_cell_pixel_size(9, 18);
 
@@ -8550,9 +8616,6 @@ mod tests {
 
     #[test]
     fn kitty_image_storage_and_copied_pixels_share_one_process_budget() {
-        const PROCESS_BUDGET: u64 = 64 * 1024 * 1024;
-        const PERSISTENT_COPIES_PER_SURFACE: u64 = 4;
-
         let mux = test_mux();
         let first = mux.new_workspace(None, Some((80, 24))).unwrap();
         let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
@@ -8571,9 +8634,10 @@ mod tests {
             .sum::<u64>();
 
         assert!(
-            configured.saturating_mul(PERSISTENT_COPIES_PER_SURFACE) <= PROCESS_BUDGET,
+            configured.saturating_mul(KITTY_IMAGE_PERSISTENT_COPIES_PER_SURFACE)
+                <= KITTY_IMAGE_PROCESS_BUDGET_BYTES,
             "per-terminal limits allow {} bytes across native screen storage and copied caches",
-            configured.saturating_mul(PERSISTENT_COPIES_PER_SURFACE)
+            configured.saturating_mul(KITTY_IMAGE_PERSISTENT_COPIES_PER_SURFACE)
         );
     }
 
@@ -8654,21 +8718,21 @@ mod tests {
         *mux.cell_pixel_fanout_timeout.lock().unwrap() = Some(Duration::from_millis(50));
         *mux.cell_pixel_operation.lock().unwrap() = Some(Arc::new({
             let last_attempts = last_attempts.clone();
-            move |surface, _, deadline| {
-                if surface != last_surface {
+            move |surface, target, deadline| {
+                if surface.id != last_surface {
                     std::thread::sleep(
                         deadline.saturating_duration_since(Instant::now())
                             + Duration::from_millis(10),
                     );
-                    return Ok(None);
+                } else {
+                    last_attempts.fetch_add(1, Ordering::AcqRel);
+                    if Instant::now() >= deadline {
+                        return Err(
+                            crate::terminal_host_runtime::CellPixelRequestDeadlineElapsed.into()
+                        );
+                    }
                 }
-                last_attempts.fetch_add(1, Ordering::AcqRel);
-                if Instant::now() >= deadline {
-                    return Err(
-                        crate::terminal_host_runtime::CellPixelRequestDeadlineElapsed.into()
-                    );
-                }
-                Ok(None)
+                surface.set_cell_pixel_size(target.0, target.1).map(|changed| changed.then_some(0))
             }
         }));
 

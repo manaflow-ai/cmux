@@ -9,6 +9,7 @@ import {
   type RenderRow,
   type RenderStateEvent,
 } from "cmux/browser";
+import { useRenderGraphicsModelBudget } from "../components/RenderGraphics";
 import { ATTACH_RECOVERY_STABLE_MS, attachRecoveryDelay } from "../lib/attachRecovery";
 import { debounce } from "../lib/debounce";
 import { t } from "../i18n";
@@ -17,7 +18,12 @@ import { nextFitSize, type TerminalSize } from "../lib/fit";
 import { createFrameBatch } from "../lib/frameBatch";
 import { encodeTerminalKey } from "../lib/keyEncoding";
 import { beginTerminalSelection, clampTerminalSelection, releaseTerminalSelection } from "../lib/terminalSelection";
-import { applyDelta, applySnapshot, type RenderModel } from "../lib/renderModel";
+import {
+  applyDelta,
+  applySnapshot,
+  releaseRenderModelGraphicsBudget,
+  type RenderModel,
+} from "../lib/renderModel";
 import {
   createScrollbackWindow,
   latestScrollbackRequest,
@@ -114,6 +120,8 @@ export function useRenderTerminal({
   const [host, setHost] = useState<HTMLDivElement | null>(null);
   const [state, dispatch] = useReducer(renderTerminalViewReducer, initialState);
   const controllerRef = useRef<RenderTerminalController | null>(null);
+  const graphicsBudget = useRenderGraphicsModelBudget();
+  const graphicsBudgetOwner = useRef<object>({}).current;
   const activeRef = useRef(active);
   activeRef.current = active;
   const terminalRef = useCallback((node: HTMLDivElement | null) => setHost(node), []);
@@ -472,7 +480,11 @@ export function useRenderTerminal({
             if (cancelled) return;
             if (event.event === "detached") return;
             if (event.event === "render-state") {
-              currentModel = applySnapshot(event as RenderStateEvent);
+              currentModel = applySnapshot(
+                event as RenderStateEvent,
+                graphicsBudget,
+                graphicsBudgetOwner,
+              );
               resetHistoryCache(currentModel.scrollbackRows, false);
               applySurfaceBackground(currentModel.defaultBg);
               applyFit();
@@ -485,7 +497,12 @@ export function useRenderTerminal({
             } else if (event.event === "render-delta" && currentModel !== null) {
               const renderDelta = event as RenderDeltaEvent;
               const previous: RenderModel = currentModel;
-              const nextModel: RenderModel = applyDelta(previous, renderDelta);
+              const nextModel: RenderModel = applyDelta(
+                previous,
+                renderDelta,
+                graphicsBudget,
+                graphicsBudgetOwner,
+              );
               currentModel = nextModel;
               if (nextModel === previous) continue;
               const reconciliation = reconcileScrollbackWindow(
@@ -575,10 +592,19 @@ export function useRenderTerminal({
       void client.releaseSurfaceSize(surface).catch(onError);
       stage?.style.removeProperty("--surface-background");
       releaseTerminalSelection(host);
+      releaseRenderModelGraphicsBudget(graphicsBudget, graphicsBudgetOwner);
       if (controllerRef.current === controller) controllerRef.current = null;
       dispatch({ type: "reset", client, surface });
     };
-  }, [client, focusOnMount, host, onError, surface]);
+  }, [
+    client,
+    focusOnMount,
+    graphicsBudget,
+    graphicsBudgetOwner,
+    host,
+    onError,
+    surface,
+  ]);
 
   const backToLive = useCallback(() => controllerRef.current?.backToLive(), []);
   const sendKey = useCallback((key: string) => controllerRef.current?.sendKey(key), []);

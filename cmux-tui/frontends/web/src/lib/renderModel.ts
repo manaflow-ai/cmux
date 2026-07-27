@@ -40,6 +40,54 @@ const validatedImageMetadata = new WeakMap<
   ReadonlyMap<number, ValidatedImageMetadata>
 >();
 
+// Base64 payloads are retained before workers or canvases see them. Bound
+// those immutable strings across every render model owned by one app root.
+export const RENDER_GRAPHIC_ENCODED_BYTE_CAP = 64 * 1024 * 1024;
+
+interface EncodedGraphicsBudgetState {
+  owners: Map<object, number>;
+  total: number;
+}
+
+const encodedGraphicsBudgets = new WeakMap<object, EncodedGraphicsBudgetState>();
+
+function admitEncodedImages(
+  images: readonly RenderGraphicImage[],
+  budget: object | undefined,
+  owner: object | undefined,
+): readonly RenderGraphicImage[] {
+  if (budget === undefined || owner === undefined) return images;
+  let state = encodedGraphicsBudgets.get(budget);
+  if (state === undefined) {
+    state = { owners: new Map(), total: 0 };
+    encodedGraphicsBudgets.set(budget, state);
+  }
+  const previous = state.owners.get(owner) ?? 0;
+  const otherOwners = state.total - previous;
+  const available = Math.max(0, RENDER_GRAPHIC_ENCODED_BYTE_CAP - otherOwners);
+  let admittedBytes = 0;
+  const admitted: RenderGraphicImage[] = [];
+  for (const image of images) {
+    const encodedBytes = image.data.length;
+    if (encodedBytes > available - admittedBytes) continue;
+    admitted.push(image);
+    admittedBytes += encodedBytes;
+  }
+  state.total = otherOwners + admittedBytes;
+  state.owners.set(owner, admittedBytes);
+  return admitted.length === images.length ? images : admitted;
+}
+
+export function releaseRenderModelGraphicsBudget(budget: object, owner: object): void {
+  const state = encodedGraphicsBudgets.get(budget);
+  if (state === undefined) return;
+  const released = state.owners.get(owner);
+  if (released === undefined) return;
+  state.owners.delete(owner);
+  state.total -= released;
+  if (state.owners.size === 0) encodedGraphicsBudgets.delete(budget);
+}
+
 function emptyRow(row: number): RenderRow {
   return { row, runs: [] };
 }
@@ -164,16 +212,27 @@ function validateAuthoritativeImages(
 
 function snapshotGraphics(
   graphics: RenderGraphics | undefined,
+  budget?: object,
+  owner?: object,
 ): RenderGraphicsModel {
-  if (graphics === undefined) return { generation: 0, images: [], placements: [] };
+  if (graphics === undefined) {
+    admitEncodedImages([], budget, owner);
+    return { generation: 0, images: [], placements: [] };
+  }
+  const sourceImages = graphics.images ?? [];
+  validateAuthoritativeImages(sourceImages);
+  const admitted = admitEncodedImages(sourceImages, budget, owner);
   const images = Object.freeze(
-    (graphics.images ?? []).map((image) => Object.freeze({ ...image })),
+    admitted.map((image) => Object.freeze({ ...image })),
   );
   validateAuthoritativeImages(images);
+  const imageIds = new Set(images.map((image) => image.id));
   return {
     generation: graphics.generation,
     images,
-    placements: (graphics.placements ?? []).map((placement) => ({ ...placement })),
+    placements: (graphics.placements ?? [])
+      .filter((placement) => imageIds.has(placement.image_id))
+      .map((placement) => ({ ...placement })),
   };
 }
 
@@ -215,27 +274,47 @@ function mergeImages(
 function applyGraphicsDelta(
   previous: RenderGraphicsModel,
   graphics: RenderGraphicsDelta | undefined,
+  budget?: object,
+  owner?: object,
 ): RenderGraphicsModel {
   if (graphics === undefined) return previous;
-  const images = mergeImages(
+  const mergedImages = mergeImages(
     previous.images,
     graphics.images ?? [],
     graphics.removed_image_ids ?? [],
   );
-  if (images !== previous.images || !validatedImageMetadata.has(images)) {
-    validateAuthoritativeImages(images, previous.images);
+  if (mergedImages !== previous.images || !validatedImageMetadata.has(mergedImages)) {
+    validateAuthoritativeImages(mergedImages, previous.images);
   }
-  const placements = graphics.placements === undefined
+  const admitted = admitEncodedImages(mergedImages, budget, owner);
+  const images = admitted === mergedImages
+    ? mergedImages
+    : Object.freeze([...admitted]);
+  if (!validatedImageMetadata.has(images)) {
+    validateAuthoritativeImages(images, mergedImages);
+  }
+  const candidatePlacements = graphics.placements === undefined
     || samePlacements(previous.placements, graphics.placements)
     ? previous.placements
     : graphics.placements.map((placement) => ({ ...placement }));
+  const imageIds = new Set(images.map((image) => image.id));
+  const filteredPlacements = candidatePlacements.filter(
+    (placement) => imageIds.has(placement.image_id),
+  );
+  const placements = filteredPlacements.length === candidatePlacements.length
+    ? candidatePlacements
+    : filteredPlacements;
   if (graphics.generation === previous.generation
     && images === previous.images
     && placements === previous.placements) return previous;
   return { generation: graphics.generation, images, placements };
 }
 
-export function applySnapshot(snapshot: RenderStateEvent): RenderModel {
+export function applySnapshot(
+  snapshot: RenderStateEvent,
+  graphicsBudget?: object,
+  graphicsBudgetOwner?: object,
+): RenderModel {
   return {
     surface: snapshot.surface,
     size: { ...snapshot.size },
@@ -244,11 +323,16 @@ export function applySnapshot(snapshot: RenderStateEvent): RenderModel {
     defaultBg: snapshot.default_bg,
     scrollbackRows: snapshot.scrollback_rows,
     rows: normalizeRows(snapshot.rows, snapshot.size.rows),
-    graphics: snapshotGraphics(snapshot.graphics),
+    graphics: snapshotGraphics(snapshot.graphics, graphicsBudget, graphicsBudgetOwner),
   };
 }
 
-export function applyDelta(model: RenderModel, delta: RenderDeltaEvent): RenderModel {
+export function applyDelta(
+  model: RenderModel,
+  delta: RenderDeltaEvent,
+  graphicsBudget?: object,
+  graphicsBudgetOwner?: object,
+): RenderModel {
   // Attachment streams are ordered, but a stale event can still be buffered
   // after a surface switch. Never let it mutate the replacement attachment.
   if (delta.surface !== model.surface) return model;
@@ -275,6 +359,11 @@ export function applyDelta(model: RenderModel, delta: RenderDeltaEvent): RenderM
     defaultBg: delta.default_bg ?? model.defaultBg,
     scrollbackRows: delta.scrollback_rows ?? model.scrollbackRows,
     rows,
-    graphics: applyGraphicsDelta(model.graphics, delta.graphics),
+    graphics: applyGraphicsDelta(
+      model.graphics,
+      delta.graphics,
+      graphicsBudget,
+      graphicsBudgetOwner,
+    ),
   };
 }

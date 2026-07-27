@@ -16,7 +16,7 @@ pub use ghostty_vt_sys as sys;
 pub use key::{KeyAction, KeyEncoder, KeyInput, Mods, key_input_from_chord};
 pub use kitty::{
     KITTY_INFLIGHT_REPLAY_MAX_BYTES, KittyGraphicsSnapshot, KittyImage, KittyImageAlias,
-    KittyImageFormat, KittyPlacement, KittyPlacementKey,
+    KittyImageFormat, KittyPlacement, KittyPlacementKey, MAX_KITTY_IMAGE_BYTES,
 };
 pub use mouse::{MouseAction, MouseButton, MouseEncoder, MouseEncoders, MouseInput};
 pub use render::{
