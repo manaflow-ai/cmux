@@ -179,6 +179,58 @@ struct VaultAgentProcessCandidateSelectorTests {
     }
 
     @Test
+    func productionFilterPreservesCustomClaudeForkFallback() throws {
+        let workspaceID = UUID()
+        let panelID = UUID()
+        let parentSessionID = "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa"
+        let process = processInfo(
+            pid: 45_000,
+            workspaceID: workspaceID,
+            panelID: panelID,
+            name: "claude-custom",
+            path: "/opt/tools/claude-custom"
+        )
+        let bytes = kernProcArgs(
+            arguments: [
+                "/opt/tools/claude-custom",
+                "--resume",
+                parentSessionID,
+                "--fork-session",
+                "--model",
+                "sonnet",
+            ],
+            environmentEntries: [
+                "CMUX_AGENT_LAUNCH_KIND=claude",
+                "CMUX_AGENT_LAUNCH_EXECUTABLE=/opt/tools/claude-custom",
+                "PWD=/tmp/project",
+            ]
+        )
+        var fullDecodeCount = 0
+
+        let detected = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: builtInRegistry,
+            fileManager: .default,
+            processSnapshot: processSnapshot([process]),
+            capturedAt: 42,
+            processArgumentBytesProvider: { _ in bytes },
+            processArgumentsDecoder: { bytes in
+                fullDecodeCount += 1
+                return CmuxTopProcessSnapshot.processArgumentsAndEnvironment(fromKernProcArgs: bytes)
+            }
+        )
+
+        let key = RestorableAgentSessionIndex.PanelKey(
+            workspaceId: workspaceID,
+            panelId: panelID
+        )
+        let entry = try #require(detected[key])
+        #expect(entry.snapshot.kind == .claude)
+        #expect(entry.snapshot.sessionId == parentSessionID)
+        #expect(entry.snapshot.launchCommand?.arguments == ["claude", "--model", "sonnet"])
+        #expect(fullDecodeCount == 1)
+    }
+
+    @Test
     func projectRuleAdmitsUnknownBackgroundProcess() throws {
         let fileManager = FileManager.default
         let projectRoot = fileManager.temporaryDirectory
