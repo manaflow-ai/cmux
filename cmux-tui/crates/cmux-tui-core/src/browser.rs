@@ -410,6 +410,14 @@ struct BrowserWorkerErrorState {
     active_pointer_presses: HashMap<String, ActivePointerPress>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BrowserWorkerSuccess {
+    BrowserResponded,
+    LocallySettled,
+}
+
+type BrowserWorkerResult = anyhow::Result<BrowserWorkerSuccess>;
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct ActivePointerPress {
     input_owner: BrowserPointerOwner,
@@ -1440,9 +1448,10 @@ fn release_abandoned_pointer_presses(
         let Some(press) = failures.active_pointer_presses.remove(&button) else {
             continue;
         };
-        let result = surface.as_browser().map_or(Ok(()), |browser| {
-            browser.release_abandoned_pointer_press_blocking(&button, press)
-        });
+        let result =
+            surface.as_browser().map_or(Ok(BrowserWorkerSuccess::LocallySettled), |browser| {
+                browser.release_abandoned_pointer_press_blocking(&button, press)
+            });
         if press.release_retry_at.is_none()
             && result.as_ref().is_err_and(|error| is_cdp_timeout_error(&error.to_string()))
         {
@@ -1514,7 +1523,7 @@ fn run_browser_worker_command(
             return;
         };
         match command {
-            BrowserCommand::WakeLatest => Ok(()),
+            BrowserCommand::WakeLatest => Ok(BrowserWorkerSuccess::LocallySettled),
             BrowserCommand::Mouse {
                 input_owner,
                 event_type,
@@ -1545,20 +1554,34 @@ fn run_browser_worker_command(
                 windows_virtual_key_code,
                 modifiers,
                 text,
-            } => browser.key_event_blocking(
-                &event_type,
-                &key,
-                &code,
-                windows_virtual_key_code,
-                modifiers,
-                text.as_deref(),
-            ),
-            BrowserCommand::InsertText(text) => browser.insert_text_blocking(&text),
-            BrowserCommand::Navigate(url) => browser.navigate_blocking(&url),
-            BrowserCommand::Back => browser.back_blocking(),
-            BrowserCommand::Forward => browser.forward_blocking(),
-            BrowserCommand::Reload => browser.reload_blocking(),
-            BrowserCommand::Activate => browser.activate_blocking(),
+            } => browser
+                .key_event_blocking(
+                    &event_type,
+                    &key,
+                    &code,
+                    windows_virtual_key_code,
+                    modifiers,
+                    text.as_deref(),
+                )
+                .map(|_| BrowserWorkerSuccess::BrowserResponded),
+            BrowserCommand::InsertText(text) => {
+                browser.insert_text_blocking(&text).map(|_| BrowserWorkerSuccess::BrowserResponded)
+            }
+            BrowserCommand::Navigate(url) => {
+                browser.navigate_blocking(&url).map(|_| BrowserWorkerSuccess::BrowserResponded)
+            }
+            BrowserCommand::Back => {
+                browser.back_blocking().map(|_| BrowserWorkerSuccess::BrowserResponded)
+            }
+            BrowserCommand::Forward => {
+                browser.forward_blocking().map(|_| BrowserWorkerSuccess::BrowserResponded)
+            }
+            BrowserCommand::Reload => {
+                browser.reload_blocking().map(|_| BrowserWorkerSuccess::BrowserResponded)
+            }
+            BrowserCommand::Activate => {
+                browser.activate_blocking().map(|_| BrowserWorkerSuccess::BrowserResponded)
+            }
             BrowserCommand::AuthorizeDocumentPaint {
                 session_id,
                 frame_id,
@@ -1594,7 +1617,10 @@ fn run_browser_worker_command(
             #[cfg(test)]
             BrowserCommand::Hold { entered, release } => {
                 let _ = entered.send(());
-                release.recv().map_err(anyhow::Error::msg)
+                release
+                    .recv()
+                    .map(|_| BrowserWorkerSuccess::LocallySettled)
+                    .map_err(anyhow::Error::msg)
             }
         }
     };
@@ -1645,12 +1671,16 @@ fn record_browser_worker_result(
     mux: &Weak<Mux>,
     id: SurfaceId,
     is_input: bool,
-    result: anyhow::Result<()>,
+    result: BrowserWorkerResult,
     failures: &mut BrowserWorkerErrorState,
 ) {
     match result {
-        Ok(()) => {
-            failures.consecutive_timeouts = 0;
+        Ok(success) => {
+            // Superseded and stale work is intentionally successful at the
+            // queue boundary, but it carries no evidence that CDP recovered.
+            if success == BrowserWorkerSuccess::BrowserResponded {
+                failures.consecutive_timeouts = 0;
+            }
             if !is_input {
                 emit_browser_dirty(mux, id);
             }
@@ -1828,16 +1858,16 @@ impl BrowserSurface {
         Ok(Some(queued.id))
     }
 
-    fn reconfigure_reserved_blocking(&self, queued: QueuedBrowserGeometry) -> anyhow::Result<()> {
+    fn reconfigure_reserved_blocking(&self, queued: QueuedBrowserGeometry) -> BrowserWorkerResult {
         let invalidation = self.begin_reconfigure_frame_transition();
         let result = self.reconfigure_blocking(
             queued.geometry.capture_pixels.0,
             queued.geometry.capture_pixels.1,
         );
         match result {
-            Ok(frame_epoch) => {
+            Ok((frame_epoch, success)) => {
                 self.confirm_reconfigure(queued, frame_epoch);
-                Ok(())
+                Ok(success)
             }
             Err(failure) => {
                 if failure.definitely_unchanged {
@@ -2011,12 +2041,12 @@ impl BrowserSurface {
         &self,
         width: u32,
         height: u32,
-    ) -> Result<u64, BrowserReconfigureCommandError> {
+    ) -> Result<(u64, BrowserWorkerSuccess), BrowserReconfigureCommandError> {
         let Some(session) = self.live_session().map_err(|error| {
             BrowserReconfigureCommandError { error, definitely_unchanged: true }
         })?
         else {
-            return Ok(self.frame_epoch.advance());
+            return Ok((self.frame_epoch.advance(), BrowserWorkerSuccess::LocallySettled));
         };
         if let Err(error) =
             session.runtime.client.set_device_metrics(&session.session_id, width, height)
@@ -2029,6 +2059,7 @@ impl BrowserSurface {
             .runtime
             .client
             .start_screencast_with_frame_barrier(&session.session_id, width, height)
+            .map(|frame_epoch| (frame_epoch, BrowserWorkerSuccess::BrowserResponded))
             .map_err(|error| BrowserReconfigureCommandError { error, definitely_unchanged: false })
     }
 
@@ -3347,13 +3378,13 @@ impl BrowserSurface {
         &self,
         dispatch: BrowserMouseDispatch<'_>,
         active_pointer_presses: &mut HashMap<String, ActivePointerPress>,
-    ) -> anyhow::Result<()> {
+    ) -> BrowserWorkerResult {
         let button = dispatch.button.unwrap_or("none");
         if let Some(press) = active_pointer_presses.get(button).copied()
             && press.input_owner != dispatch.input_owner
         {
             if self.pointer_capture_is_current(press.capture_generation) {
-                return Ok(());
+                return Ok(BrowserWorkerSuccess::LocallySettled);
             }
             active_pointer_presses.remove(button);
         }
@@ -3368,7 +3399,7 @@ impl BrowserSurface {
                 let Some((point, generation)) =
                     self.capture_guarded_input_point(frame_seq, dispatch.x, dispatch.y)
                 else {
-                    return Ok(());
+                    return Ok(BrowserWorkerSuccess::LocallySettled);
                 };
                 captured_press = Some(ActivePointerPress::new(
                     dispatch.input_owner,
@@ -3382,7 +3413,7 @@ impl BrowserSurface {
             }
             ("mouseReleased", Some(dispatch_frame_seq)) => {
                 let Some(press) = active_pointer_presses.get(button).copied() else {
-                    return Ok(());
+                    return Ok(BrowserWorkerSuccess::LocallySettled);
                 };
                 let point = match self.captured_pointer_route(
                     press.capture_generation,
@@ -3435,7 +3466,9 @@ impl BrowserSurface {
             ("mouseReleased", None) => self.scale_guarded_input_point(None, dispatch.x, dispatch.y),
             _ => self.scale_guarded_input_point(dispatch.frame_seq, dispatch.x, dispatch.y),
         };
-        let Some((x, y)) = point else { return Ok(()) };
+        let Some((x, y)) = point else {
+            return Ok(BrowserWorkerSuccess::LocallySettled);
+        };
         let replaced_press = captured_press
             .map(|generation| active_pointer_presses.insert(button.to_string(), generation));
         let result = session.runtime.client.dispatch_mouse_event(
@@ -3475,26 +3508,30 @@ impl BrowserSurface {
         if captured_release {
             active_pointer_presses.remove(button);
         }
-        Ok(())
+        Ok(BrowserWorkerSuccess::BrowserResponded)
     }
 
     fn release_abandoned_pointer_press_blocking(
         &self,
         button: &str,
         press: ActivePointerPress,
-    ) -> anyhow::Result<()> {
+    ) -> BrowserWorkerResult {
         if !self.pointer_capture_is_current(press.capture_generation) {
-            return Ok(());
+            return Ok(BrowserWorkerSuccess::LocallySettled);
         }
         let session = self.require_live_session()?;
-        session.runtime.client.dispatch_mouse_event(
-            &session.session_id,
-            "mouseReleased",
-            press.last_target_x,
-            press.last_target_y,
-            Some(button),
-            press.click_count,
-        )
+        session
+            .runtime
+            .client
+            .dispatch_mouse_event(
+                &session.session_id,
+                "mouseReleased",
+                press.last_target_x,
+                press.last_target_y,
+                Some(button),
+                press.click_count,
+            )
+            .map(|_| BrowserWorkerSuccess::BrowserResponded)
     }
 
     pub fn wheel(&self, x: f64, y: f64, delta_y: f64) -> anyhow::Result<()> {
@@ -3518,13 +3555,17 @@ impl BrowserSurface {
         y: f64,
         delta_y: f64,
         frame_seq: Option<u64>,
-    ) -> anyhow::Result<()> {
+    ) -> BrowserWorkerResult {
         let session = self.require_live_session()?;
         self.maybe_nudge_stalled_external(&session);
         let Some((x, y, delta_y)) = self.scale_guarded_wheel(frame_seq, x, y, delta_y) else {
-            return Ok(());
+            return Ok(BrowserWorkerSuccess::LocallySettled);
         };
-        session.runtime.client.dispatch_wheel(&session.session_id, x, y, delta_y)
+        session
+            .runtime
+            .client
+            .dispatch_wheel(&session.session_id, x, y, delta_y)
+            .map(|_| BrowserWorkerSuccess::BrowserResponded)
     }
 
     pub fn key_event(
@@ -3579,22 +3620,22 @@ impl BrowserSurface {
         frame_id: &str,
         loader_id: &str,
         navigation_epoch: u64,
-    ) -> anyhow::Result<()> {
+    ) -> BrowserWorkerResult {
         if !self.needs_document_paint(navigation_epoch)
             || self.frame_epoch.latest_navigation() != navigation_epoch
         {
-            return Ok(());
+            return Ok(BrowserWorkerSuccess::LocallySettled);
         }
         let session = self.require_live_session()?;
         if session.session_id != session_id {
-            return Ok(());
+            return Ok(BrowserWorkerSuccess::LocallySettled);
         }
         let mut last_error = None;
         for _ in 0..AUTHORITY_CAPTURE_ATTEMPTS {
             if !self.needs_document_paint(navigation_epoch)
                 || self.frame_epoch.latest_navigation() != navigation_epoch
             {
-                return Ok(());
+                return Ok(BrowserWorkerSuccess::LocallySettled);
             }
             match self.capture_main_frame_after_restart(&session, frame_id, loader_id) {
                 Ok((frame_epoch, captured)) => {
@@ -3606,9 +3647,11 @@ impl BrowserSurface {
                     if accepted {
                         self.dirty.store(true, Ordering::Release);
                     }
-                    return Ok(());
+                    return Ok(BrowserWorkerSuccess::BrowserResponded);
                 }
-                Err(_) if self.frame_epoch.latest_navigation() != navigation_epoch => return Ok(()),
+                Err(_) if self.frame_epoch.latest_navigation() != navigation_epoch => {
+                    return Ok(BrowserWorkerSuccess::LocallySettled);
+                }
                 Err(error) => {
                     let timed_out = is_cdp_timeout_error(&error.to_string());
                     last_error = Some(error);
@@ -3628,18 +3671,18 @@ impl BrowserSurface {
         session_id: &str,
         frame_id: &str,
         loader_id: &str,
-    ) -> anyhow::Result<()> {
+    ) -> BrowserWorkerResult {
         if !self.needs_same_document_paint() {
-            return Ok(());
+            return Ok(BrowserWorkerSuccess::LocallySettled);
         }
         let session = self.require_live_session()?;
         if session.session_id != session_id {
-            return Ok(());
+            return Ok(BrowserWorkerSuccess::LocallySettled);
         }
         let mut last_error = None;
         for _ in 0..AUTHORITY_CAPTURE_ATTEMPTS {
             if !self.needs_same_document_paint() {
-                return Ok(());
+                return Ok(BrowserWorkerSuccess::LocallySettled);
             }
             match self.capture_main_frame_after_restart(&session, frame_id, loader_id) {
                 Ok((frame_epoch, captured)) => {
@@ -3650,7 +3693,7 @@ impl BrowserSurface {
                     if accepted {
                         self.dirty.store(true, Ordering::Release);
                     }
-                    return Ok(());
+                    return Ok(BrowserWorkerSuccess::BrowserResponded);
                 }
                 Err(error) => {
                     let timed_out = is_cdp_timeout_error(&error.to_string());
@@ -3674,7 +3717,7 @@ impl BrowserSurface {
         reservation_id: u64,
         frame_epoch: u64,
         navigation_epoch: u64,
-    ) -> anyhow::Result<()> {
+    ) -> BrowserWorkerResult {
         if !self.may_need_screencast_capture(reservation_id, frame_epoch, navigation_epoch) {
             self.cancel_screencast_capture(reservation_id);
             if let Some(session) = self.session.lock().unwrap().clone() {
@@ -3685,7 +3728,7 @@ impl BrowserSurface {
                     navigation_epoch,
                 );
             }
-            return Ok(());
+            return Ok(BrowserWorkerSuccess::LocallySettled);
         }
         let session = match self.require_live_session() {
             Ok(session) => session,
@@ -3710,7 +3753,7 @@ impl BrowserSurface {
                 frame_epoch,
                 navigation_epoch,
             );
-            return Ok(());
+            return Ok(BrowserWorkerSuccess::LocallySettled);
         }
         let mut last_error = None;
         for _ in 0..AUTHORITY_CAPTURE_ATTEMPTS {
@@ -3722,7 +3765,7 @@ impl BrowserSurface {
                     frame_epoch,
                     navigation_epoch,
                 );
-                return Ok(());
+                return Ok(BrowserWorkerSuccess::LocallySettled);
             }
             match session
                 .runtime
@@ -3745,7 +3788,7 @@ impl BrowserSurface {
                         frame_epoch,
                         navigation_epoch,
                     );
-                    return Ok(());
+                    return Ok(BrowserWorkerSuccess::BrowserResponded);
                 }
                 Err(error) => {
                     let timed_out = is_cdp_timeout_error(&error.to_string());
@@ -3840,6 +3883,7 @@ impl BrowserSurface {
                 }
             };
         self.authorize_same_document_paint_blocking(&session.session_id, &frame_id, &loader_id)
+            .map(|_| ())
     }
 
     fn navigate_blocking(&self, url: &str) -> anyhow::Result<()> {
@@ -5445,20 +5489,19 @@ mod tests {
         );
         while events.try_recv().is_ok() {}
         browser.invalidate_pointer_frame();
-        let discarded = browser
-            .mouse_event_blocking(
-                super::BrowserMouseDispatch {
-                    input_owner: super::BrowserPointerOwner::Local,
-                    event_type: "mouseMoved",
-                    x: 1.0,
-                    y: 1.0,
-                    button: None,
-                    click_count: None,
-                    frame_seq: Some(1),
-                },
-                &mut failures.active_pointer_presses,
-            )
-            .map(|_| ());
+        let discarded = browser.mouse_event_blocking(
+            super::BrowserMouseDispatch {
+                input_owner: super::BrowserPointerOwner::Local,
+                event_type: "mouseMoved",
+                x: 1.0,
+                y: 1.0,
+                button: None,
+                click_count: None,
+                frame_seq: Some(1),
+            },
+            &mut failures.active_pointer_presses,
+        );
+        assert_eq!(discarded.as_ref().unwrap(), &super::BrowserWorkerSuccess::LocallySettled);
         super::record_browser_worker_result(
             &surface,
             &weak,
