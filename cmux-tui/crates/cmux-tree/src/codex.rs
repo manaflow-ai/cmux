@@ -23,11 +23,14 @@ use crate::localization::{Catalog, DiagnosticAction, Locale};
 use crate::model::{Conversation, ThreadSummary, Turn};
 
 const THREAD_PAGE_SIZE: u32 = 100;
+const MAX_RECENT_THREADS: usize = 200;
+const TRAJECTORY_TURN_LIMIT: u32 = 25;
+const TURN_ITEM_LIMIT: u32 = 25;
 const RPC_TIMEOUT: Duration = Duration::from_secs(15);
 const RECONNECT_DELAY: Duration = Duration::from_secs(2);
-const THREAD_REFRESH_INTERVAL: Duration = Duration::from_secs(2);
-const ACTIVE_TRAJECTORY_INTERVAL: Duration = Duration::from_millis(350);
-const IDLE_TRAJECTORY_INTERVAL: Duration = Duration::from_secs(2);
+const THREAD_REFRESH_INTERVAL: Duration = Duration::from_secs(10);
+const NOTIFICATION_REFRESH_DELAY: Duration = Duration::from_millis(500);
+const TRAJECTORY_REFRESH_INTERVAL: Duration = Duration::from_secs(30);
 
 enum CodexSocket {
     Tcp(Box<WebSocket<MaybeTlsStream<TcpStream>>>),
@@ -85,17 +88,48 @@ pub enum ConnectionState {
 
 #[derive(Debug, Clone)]
 pub enum NetworkEvent {
-    Connection { machine_id: String, state: ConnectionState },
-    Threads { machine_id: String, threads: Vec<ThreadSummary> },
-    Conversation { machine_id: String, thread_id: String, conversation: Conversation },
-    Notification { machine_id: String, method: String, params: Value },
-    Error { machine_id: String, message: String },
+    Connection {
+        machine_id: String,
+        state: ConnectionState,
+    },
+    Threads {
+        machine_id: String,
+        threads: Vec<ThreadSummary>,
+    },
+    Conversation {
+        machine_id: String,
+        thread_id: String,
+        conversation: Conversation,
+    },
+    TurnItems {
+        machine_id: String,
+        thread_id: String,
+        turn_id: String,
+        items: Vec<Value>,
+        truncated: bool,
+    },
+    TurnItemsFailed {
+        machine_id: String,
+        thread_id: String,
+        turn_id: String,
+    },
+    Notification {
+        machine_id: String,
+        method: String,
+        params: Value,
+    },
+    Error {
+        machine_id: String,
+        message: String,
+    },
 }
 
 #[derive(Debug)]
 enum NetworkCommand {
     SelectThread(Option<String>),
+    LoadTurnItems { thread_id: String, turn_id: String },
     Refresh,
+    RefreshTrajectory,
     Shutdown,
 }
 
@@ -151,6 +185,18 @@ impl NetworkHub {
         }
     }
 
+    pub fn load_turn_items(&self, machine_id: &str, thread_id: String, turn_id: String) {
+        if let Some(worker) = self.workers.get(machine_id) {
+            let _ = worker.sender.send(NetworkCommand::LoadTurnItems { thread_id, turn_id });
+        }
+    }
+
+    pub fn refresh_trajectory(&self, machine_id: &str) {
+        if let Some(worker) = self.workers.get(machine_id) {
+            let _ = worker.sender.send(NetworkCommand::RefreshTrajectory);
+        }
+    }
+
     pub fn drain(&self) -> impl Iterator<Item = NetworkEvent> + '_ {
         self.event_receiver.try_iter()
     }
@@ -192,7 +238,6 @@ fn run_machine_worker(
         let mut next_id = 10_u64;
         let mut next_threads_at = Instant::now();
         let mut next_trajectory_at = Instant::now();
-        let mut selected_is_active = false;
         let mut should_reconnect = false;
 
         while !should_reconnect {
@@ -202,9 +247,52 @@ fn run_machine_worker(
                         selected_thread = thread_id;
                         next_trajectory_at = Instant::now();
                     }
+                    Ok(NetworkCommand::LoadTurnItems { thread_id, turn_id }) => {
+                        if selected_thread.as_deref() == Some(&thread_id) {
+                            match read_turn_items(
+                                &mut socket,
+                                &mut next_id,
+                                &machine.id,
+                                &thread_id,
+                                &turn_id,
+                                &events,
+                            ) {
+                                Ok((items, truncated)) => {
+                                    let _ = events.send(NetworkEvent::TurnItems {
+                                        machine_id: machine.id.clone(),
+                                        thread_id: thread_id.clone(),
+                                        turn_id,
+                                        items,
+                                        truncated,
+                                    });
+                                }
+                                Err(CallError::Server { message, .. }) => {
+                                    let _ = events.send(NetworkEvent::TurnItemsFailed {
+                                        machine_id: machine.id.clone(),
+                                        thread_id: thread_id.clone(),
+                                        turn_id,
+                                    });
+                                    emit_error(&events, &machine.id, message);
+                                }
+                                Err(CallError::Transport(error)) => {
+                                    let _ = events.send(NetworkEvent::TurnItemsFailed {
+                                        machine_id: machine.id.clone(),
+                                        thread_id: thread_id.clone(),
+                                        turn_id,
+                                    });
+                                    emit_error(&events, &machine.id, format!("{error:#}"));
+                                    should_reconnect = true;
+                                }
+                            }
+                        }
+                    }
                     Ok(NetworkCommand::Refresh) => {
                         next_threads_at = Instant::now();
                         next_trajectory_at = Instant::now();
+                    }
+                    Ok(NetworkCommand::RefreshTrajectory) => {
+                        next_trajectory_at =
+                            next_trajectory_at.min(Instant::now() + NOTIFICATION_REFRESH_DELAY);
                     }
                     Ok(NetworkCommand::Shutdown) | Err(TryRecvError::Disconnected) => {
                         let _ = socket.close(None);
@@ -215,19 +303,20 @@ fn run_machine_worker(
             }
 
             if Instant::now() >= next_threads_at {
-                let load_all = thread_cache.is_empty();
-                match list_threads(&mut socket, &mut next_id, &machine.id, &events, load_all) {
+                let load_initial_window = thread_cache.is_empty();
+                match list_threads(
+                    &mut socket,
+                    &mut next_id,
+                    &machine.id,
+                    &events,
+                    load_initial_window,
+                ) {
                     Ok(threads) => {
-                        if load_all {
+                        if load_initial_window {
                             thread_cache = threads;
                         } else {
                             merge_threads(&mut thread_cache, threads);
                         }
-                        selected_is_active = selected_thread.as_ref().is_some_and(|selected| {
-                            thread_cache
-                                .iter()
-                                .any(|thread| &thread.id == selected && thread.is_active())
-                        });
                         let _ = events.send(NetworkEvent::Threads {
                             machine_id: machine.id.clone(),
                             threads: thread_cache.clone(),
@@ -265,12 +354,7 @@ fn run_machine_worker(
                         should_reconnect = true;
                     }
                 }
-                next_trajectory_at = Instant::now()
-                    + if selected_is_active {
-                        ACTIVE_TRAJECTORY_INTERVAL
-                    } else {
-                        IDLE_TRAJECTORY_INTERVAL
-                    };
+                next_trajectory_at = Instant::now() + TRAJECTORY_REFRESH_INTERVAL;
             }
 
             if !should_reconnect {
@@ -307,7 +391,8 @@ fn wait_for_reconnect(
         let remaining = deadline.saturating_duration_since(Instant::now());
         match commands.recv_timeout(remaining) {
             Ok(NetworkCommand::SelectThread(thread_id)) => *selected_thread = thread_id,
-            Ok(NetworkCommand::Refresh) => return false,
+            Ok(NetworkCommand::LoadTurnItems { .. }) => return false,
+            Ok(NetworkCommand::Refresh | NetworkCommand::RefreshTrajectory) => return false,
             Ok(NetworkCommand::Shutdown) | Err(mpsc::RecvTimeoutError::Disconnected) => {
                 return true;
             }
@@ -436,7 +521,7 @@ fn list_threads(
     next_id: &mut u64,
     machine_id: &str,
     events: &Sender<NetworkEvent>,
-    load_all: bool,
+    load_initial_window: bool,
 ) -> Result<Vec<ThreadSummary>, CallError> {
     let catalog = Catalog::new(Locale::detect());
     let mut cursor = None;
@@ -478,15 +563,23 @@ fn list_threads(
             )
         })?;
         threads.extend(page.data);
-        let is_last_page = page.next_cursor.is_none();
-        if load_all && (page_index == 0 || page_index % 5 == 4 || is_last_page) {
+        if threads.len() >= MAX_RECENT_THREADS {
+            threads.truncate(MAX_RECENT_THREADS);
+        }
+        let should_continue = should_continue_thread_pagination(
+            load_initial_window,
+            threads.len(),
+            page.next_cursor.is_some(),
+        );
+        let is_last_page = !should_continue;
+        if load_initial_window && (page_index == 0 || page_index % 5 == 4 || is_last_page) {
             sort_threads(&mut threads);
             let _ = events.send(NetworkEvent::Threads {
                 machine_id: machine_id.to_string(),
                 threads: threads.clone(),
             });
         }
-        if !load_all {
+        if is_last_page {
             break;
         }
         let Some(next_cursor) = page.next_cursor else { break };
@@ -500,6 +593,14 @@ fn list_threads(
     }
     sort_threads(&mut threads);
     Ok(threads)
+}
+
+fn should_continue_thread_pagination(
+    load_initial_window: bool,
+    thread_count: usize,
+    has_next_cursor: bool,
+) -> bool {
+    load_initial_window && thread_count < MAX_RECENT_THREADS && has_next_cursor
 }
 
 fn sort_threads(threads: &mut [ThreadSummary]) {
@@ -522,6 +623,7 @@ fn merge_threads(cached: &mut Vec<ThreadSummary>, updates: Vec<ThreadSummary>) {
         }
     }
     sort_threads(cached);
+    cached.truncate(MAX_RECENT_THREADS);
 }
 
 fn read_conversation(
@@ -531,36 +633,19 @@ fn read_conversation(
     thread_id: &str,
     events: &Sender<NetworkEvent>,
 ) -> Result<Conversation, CallError> {
-    let catalog = Catalog::new(Locale::detect());
-    match rpc(
-        socket,
-        next_id,
-        machine_id,
-        events,
-        "thread/read",
-        json!({"threadId": thread_id, "includeTurns": true}),
-    ) {
-        Ok(result) => serde_json::from_value(result.get("thread").cloned().unwrap_or(Value::Null))
-            .map_err(|error| {
-                CallError::transport(
-                    anyhow::Error::new(error)
-                        .context(catalog.diagnostic(DiagnosticAction::DecodeThreadRead, None)),
-                )
-            }),
-        Err(CallError::Server { code, message })
-            if code == -32601
-                || message.contains("paginated")
-                || message.contains("includeTurns") =>
-        {
-            read_paginated_conversation(socket, next_id, machine_id, thread_id, events)
-        }
-        Err(error) => Err(error),
-    }
+    read_paginated_conversation(socket, next_id, machine_id, thread_id, events)
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct TurnsPage {
+    #[serde(default)]
+    data: Vec<Turn>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CursorTurnsPage {
     #[serde(default)]
     data: Vec<Turn>,
     #[serde(default)]
@@ -593,10 +678,106 @@ fn read_paginated_conversation(
         )
     })?;
 
+    let result = rpc(
+        socket,
+        next_id,
+        machine_id,
+        events,
+        "thread/turns/list",
+        conversation_turns_params(thread_id),
+    )?;
+    let page: TurnsPage = serde_json::from_value(result).map_err(|error| {
+        CallError::transport(
+            anyhow::Error::new(error)
+                .context(catalog.diagnostic(DiagnosticAction::DecodeThreadTurns, None)),
+        )
+    })?;
+    let mut turns = page.data;
+    turns.reverse();
+    conversation.turns = turns;
+    Ok(conversation)
+}
+
+fn conversation_turns_params(thread_id: &str) -> Value {
+    json!({
+        "threadId": thread_id,
+        "cursor": null,
+        "limit": TRAJECTORY_TURN_LIMIT,
+        "sortDirection": "desc",
+        "itemsView": "summary"
+    })
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TurnItemsPage {
+    #[serde(default)]
+    data: Vec<TurnItemEntry>,
+    #[serde(default)]
+    next_cursor: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TurnItemEntry {
+    item: Value,
+}
+
+fn read_turn_items(
+    socket: &mut CodexSocket,
+    next_id: &mut u64,
+    machine_id: &str,
+    thread_id: &str,
+    turn_id: &str,
+    events: &Sender<NetworkEvent>,
+) -> Result<(Vec<Value>, bool), CallError> {
+    let catalog = Catalog::new(Locale::detect());
+    let result = match rpc(
+        socket,
+        next_id,
+        machine_id,
+        events,
+        "thread/items/list",
+        json!({
+            "threadId": thread_id,
+            "turnId": turn_id,
+            "cursor": null,
+            "limit": TURN_ITEM_LIMIT,
+            "sortDirection": "desc"
+        }),
+    ) {
+        Ok(result) => result,
+        Err(CallError::Server { code, message })
+            if code == -32601 || message.contains("not supported") =>
+        {
+            return read_legacy_turn_items(socket, next_id, machine_id, thread_id, turn_id, events);
+        }
+        Err(error) => return Err(error),
+    };
+    let page: TurnItemsPage = serde_json::from_value(result).map_err(|error| {
+        CallError::transport(
+            anyhow::Error::new(error)
+                .context(catalog.diagnostic(DiagnosticAction::DecodeThreadItems, None)),
+        )
+    })?;
+    let mut items = page.data.into_iter().map(|entry| entry.item).collect::<Vec<_>>();
+    items.reverse();
+    Ok((items, page.next_cursor.is_some()))
+}
+
+fn read_legacy_turn_items(
+    socket: &mut CodexSocket,
+    next_id: &mut u64,
+    machine_id: &str,
+    thread_id: &str,
+    turn_id: &str,
+    events: &Sender<NetworkEvent>,
+) -> Result<(Vec<Value>, bool), CallError> {
+    let catalog = Catalog::new(Locale::detect());
     let mut cursor = None;
-    let mut turns = Vec::new();
     let mut seen_cursors = HashSet::new();
-    loop {
+    for _ in 0..TRAJECTORY_TURN_LIMIT {
+        let page_cursor = cursor.clone();
         let result = rpc(
             socket,
             next_id,
@@ -605,19 +786,43 @@ fn read_paginated_conversation(
             "thread/turns/list",
             json!({
                 "threadId": thread_id,
-                "cursor": cursor,
-                "limit": THREAD_PAGE_SIZE,
+                "cursor": page_cursor,
+                "limit": 1,
                 "sortDirection": "desc",
-                "itemsView": "full"
+                "itemsView": "notLoaded"
             }),
         )?;
-        let page: TurnsPage = serde_json::from_value(result).map_err(|error| {
+        let page: CursorTurnsPage = serde_json::from_value(result).map_err(|error| {
             CallError::transport(
                 anyhow::Error::new(error)
                     .context(catalog.diagnostic(DiagnosticAction::DecodeThreadTurns, None)),
             )
         })?;
-        turns.extend(page.data);
+        let Some(turn) = page.data.first() else { break };
+        if turn.id == turn_id {
+            let result = rpc(
+                socket,
+                next_id,
+                machine_id,
+                events,
+                "thread/turns/list",
+                json!({
+                    "threadId": thread_id,
+                    "cursor": cursor,
+                    "limit": 1,
+                    "sortDirection": "desc",
+                    "itemsView": "full"
+                }),
+            )?;
+            let mut page: CursorTurnsPage = serde_json::from_value(result).map_err(|error| {
+                CallError::transport(
+                    anyhow::Error::new(error)
+                        .context(catalog.diagnostic(DiagnosticAction::DecodeThreadTurns, None)),
+                )
+            })?;
+            let items = page.data.pop().map(|turn| turn.items).unwrap_or_default();
+            return Ok(retain_recent_items(items));
+        }
         let Some(next_cursor) = page.next_cursor else { break };
         if !seen_cursors.insert(next_cursor.clone()) {
             return Err(CallError::transport(anyhow::anyhow!(
@@ -626,9 +831,16 @@ fn read_paginated_conversation(
         }
         cursor = Some(next_cursor);
     }
-    turns.reverse();
-    conversation.turns = turns;
-    Ok(conversation)
+    Err(CallError::Server { code: -32000, message: catalog.turn_details_unavailable().to_string() })
+}
+
+fn retain_recent_items(mut items: Vec<Value>) -> (Vec<Value>, bool) {
+    let limit = TURN_ITEM_LIMIT as usize;
+    let truncated = items.len() > limit;
+    if truncated {
+        items.drain(..items.len() - limit);
+    }
+    (items, truncated)
 }
 
 #[derive(Debug)]
@@ -856,5 +1068,55 @@ mod tests {
             vec!["recent", "new", "older"]
         );
         assert_eq!(cached[0].updated_at, 40);
+    }
+
+    #[test]
+    fn thread_cache_remains_bounded_after_incremental_refreshes() {
+        let mut cached = (0..MAX_RECENT_THREADS)
+            .map(|index| ThreadSummary {
+                id: format!("old-{index}"),
+                updated_at: index as i64,
+                ..ThreadSummary::default()
+            })
+            .collect::<Vec<_>>();
+        merge_threads(
+            &mut cached,
+            vec![ThreadSummary {
+                id: "new".into(),
+                updated_at: 10_000,
+                ..ThreadSummary::default()
+            }],
+        );
+
+        assert_eq!(cached.len(), MAX_RECENT_THREADS);
+        assert_eq!(cached[0].id, "new");
+    }
+
+    #[test]
+    fn initial_thread_load_is_bounded_to_two_pages() {
+        assert!(should_continue_thread_pagination(true, THREAD_PAGE_SIZE as usize, true));
+        assert!(!should_continue_thread_pagination(true, MAX_RECENT_THREADS, true));
+        assert!(!should_continue_thread_pagination(false, THREAD_PAGE_SIZE as usize, true));
+        assert!(!should_continue_thread_pagination(true, THREAD_PAGE_SIZE as usize, false));
+    }
+
+    #[test]
+    fn trajectory_background_read_is_summary_only_and_bounded() {
+        let params = conversation_turns_params("thread");
+
+        assert_eq!(params["limit"], TRAJECTORY_TURN_LIMIT);
+        assert_eq!(params["itemsView"], "summary");
+        assert_eq!(params["sortDirection"], "desc");
+    }
+
+    #[test]
+    fn legacy_turn_detail_retention_keeps_only_recent_items() {
+        let items = (0..TURN_ITEM_LIMIT + 3).map(|id| json!({"id": id})).collect::<Vec<_>>();
+
+        let (items, truncated) = retain_recent_items(items);
+
+        assert!(truncated);
+        assert_eq!(items.len(), TURN_ITEM_LIMIT as usize);
+        assert_eq!(items[0]["id"], 3);
     }
 }

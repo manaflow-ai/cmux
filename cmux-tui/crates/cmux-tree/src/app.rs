@@ -7,17 +7,20 @@ use crossterm::event::{
     KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
 use ratatui::layout::Rect;
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use crate::codex::{ConnectionState, NetworkEvent, NetworkHub};
 use crate::config::{Config, ConfigStore, MachineConfig};
 use crate::discovery::{DiscoveredServer, DiscoveredTransport, LocalDiscovery, endpoint_key};
 use crate::localization::{Catalog, Locale};
-use crate::model::{Conversation, ThreadSummary, ThreadTreeRow, flatten_thread_tree};
+use crate::model::{
+    Conversation, ThreadSummary, ThreadTreeRow, Turn, flatten_thread_tree, item_type,
+};
 use crate::trajectory::{ExpansionState, TrajectoryView};
 
 const STATUS_TTL: Duration = Duration::from_secs(6);
 const LIST_ROW_STRIDE: usize = 3;
+const MAX_RETAINED_ITEM_FIELD_CHARS: usize = 20_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Focus {
@@ -222,6 +225,13 @@ impl App {
                     ConnectionState::Connecting | ConnectionState::Connected => None,
                 };
                 if let Some(machine) = self.machine_by_id_mut(&machine_id) {
+                    if matches!(state, ConnectionState::Disconnected(_))
+                        && let Some(conversation) = machine.conversation.as_mut()
+                    {
+                        for turn in &mut conversation.turns {
+                            reset_loading_items(turn);
+                        }
+                    }
                     machine.connection = state;
                     machine.error = error;
                 }
@@ -264,11 +274,41 @@ impl App {
                     {
                         conversation.status = thread.status.clone();
                     }
-                    machine.conversation = Some(conversation);
+                    bound_conversation_items(&mut conversation);
+                    machine.conversation = Some(merge_conversation_snapshot(
+                        machine.conversation.take(),
+                        conversation,
+                    ));
                     machine.error = None;
                     if is_selected_machine {
                         self.clamp_trajectory_cursor();
                     }
+                }
+            }
+            NetworkEvent::TurnItems { machine_id, thread_id, turn_id, items, truncated } => {
+                let is_selected_machine =
+                    self.selected_machine().is_some_and(|machine| machine.config.id == machine_id);
+                if let Some(machine) = self.machine_by_id_mut(&machine_id)
+                    && machine.selected_thread_id.as_deref() == Some(&thread_id)
+                    && let Some(conversation) = machine.conversation.as_mut()
+                    && let Some(turn) =
+                        conversation.turns.iter_mut().find(|turn| turn.id == turn_id)
+                {
+                    hydrate_turn_items(turn, items, truncated);
+                    machine.error = None;
+                    if is_selected_machine {
+                        self.clamp_trajectory_cursor();
+                    }
+                }
+            }
+            NetworkEvent::TurnItemsFailed { machine_id, thread_id, turn_id } => {
+                if let Some(machine) = self.machine_by_id_mut(&machine_id)
+                    && machine.selected_thread_id.as_deref() == Some(&thread_id)
+                    && let Some(conversation) = machine.conversation.as_mut()
+                    && let Some(turn) =
+                        conversation.turns.iter_mut().find(|turn| turn.id == turn_id)
+                {
+                    reset_loading_items(turn);
                 }
             }
             NetworkEvent::Notification { machine_id, method, params } => {
@@ -318,13 +358,20 @@ impl App {
             self.machine_by_id(machine_id).and_then(|machine| machine.selected_thread_id.as_deref())
                 == Some(thread_id)
         });
-        if method.starts_with("thread/")
-            || (affects_selected
-                && (method.starts_with("item/")
-                    || method.starts_with("turn/")
-                    || method == "error"))
-        {
+        let applied_incrementally = affects_selected
+            && self
+                .machine_by_id_mut(machine_id)
+                .and_then(|machine| machine.conversation.as_mut())
+                .is_some_and(|conversation| {
+                    apply_conversation_notification(conversation, method, &params)
+                });
+        if method.starts_with("thread/") {
             self.network.refresh(machine_id);
+        } else if affects_selected
+            && !applied_incrementally
+            && (method.starts_with("item/") || method.starts_with("turn/") || method == "error")
+        {
+            self.network.refresh_trajectory(machine_id);
         }
     }
 
@@ -605,6 +652,31 @@ impl App {
             return;
         };
         self.expansion.toggle(&accordion.key, accordion.default_expanded);
+        let is_expanded = self.expansion.is_expanded(&accordion.key, accordion.default_expanded);
+        if is_expanded
+            && let Some(turn_id) =
+                accordion.key.strip_prefix("turn:").and_then(|key| key.strip_suffix(":work"))
+        {
+            self.load_turn_items(turn_id);
+        }
+    }
+
+    fn load_turn_items(&mut self, turn_id: &str) {
+        let request = {
+            let Some(machine) = self.selected_machine_mut() else { return };
+            let Some(thread_id) = machine.selected_thread_id.clone() else { return };
+            let Some(conversation) = machine.conversation.as_mut() else { return };
+            let Some(turn) = conversation.turns.iter_mut().find(|turn| turn.id == turn_id) else {
+                return;
+            };
+            if !turn.needs_item_hydration() {
+                return;
+            }
+            turn.items_view = "loading".to_string();
+            (machine.config.id.clone(), thread_id)
+        };
+        let (machine_id, thread_id) = request;
+        self.network.load_turn_items(&machine_id, thread_id, turn_id.to_string());
     }
 
     fn page_scroll(&mut self, direction: isize) {
@@ -791,6 +863,308 @@ impl App {
     }
 }
 
+fn merge_conversation_snapshot(
+    existing: Option<Conversation>,
+    mut snapshot: Conversation,
+) -> Conversation {
+    let Some(existing) = existing else { return snapshot };
+    for turn in &mut snapshot.turns {
+        let Some(previous) = existing.turns.iter().find(|previous| previous.id == turn.id) else {
+            continue;
+        };
+        if turn.needs_item_hydration() && previous.has_item_detail() {
+            let mut items = previous.items.clone();
+            merge_summary_messages(&mut items, std::mem::take(&mut turn.items));
+            turn.items = items;
+            turn.items_view = previous.items_view.clone();
+            turn.items_truncated = previous.items_truncated;
+        }
+    }
+    snapshot
+}
+
+fn hydrate_turn_items(turn: &mut Turn, mut items: Vec<Value>, truncated: bool) {
+    for item in &mut items {
+        bound_json_strings(item);
+    }
+    let summary_messages = turn
+        .items
+        .iter()
+        .filter(|item| matches!(item_type(item), "userMessage" | "agentMessage"))
+        .cloned()
+        .collect::<Vec<_>>();
+    merge_summary_messages(&mut items, summary_messages);
+    turn.items = items;
+    turn.items_view = "full".to_string();
+    turn.items_truncated = truncated;
+}
+
+fn reset_loading_items(turn: &mut Turn) {
+    if !turn.is_loading_items() {
+        return;
+    }
+    turn.items_view = if turn.internal_items().next().is_some() {
+        "partial".to_string()
+    } else {
+        "summary".to_string()
+    };
+}
+
+fn merge_summary_messages(items: &mut Vec<Value>, summaries: Vec<Value>) {
+    for summary in summaries {
+        let summary_id = json_item_id(&summary);
+        if let Some(index) = summary_id.and_then(|id| {
+            items
+                .iter()
+                .position(|item| json_item_id(item).is_some_and(|candidate| candidate == id))
+        }) {
+            items[index] = summary;
+            continue;
+        }
+        match item_type(&summary) {
+            "userMessage" => items.insert(0, summary),
+            "agentMessage" => items.push(summary),
+            _ => {}
+        }
+    }
+}
+
+fn json_item_id(item: &Value) -> Option<&str> {
+    item.get("id").and_then(Value::as_str).filter(|id| !id.is_empty())
+}
+
+fn bound_conversation_items(conversation: &mut Conversation) {
+    for turn in &mut conversation.turns {
+        for item in &mut turn.items {
+            bound_json_strings(item);
+        }
+    }
+}
+
+fn bound_json_strings(value: &mut Value) {
+    match value {
+        Value::String(text) => {
+            *text = bounded_text(text, MAX_RETAINED_ITEM_FIELD_CHARS);
+        }
+        Value::Array(values) => {
+            for value in values {
+                bound_json_strings(value);
+            }
+        }
+        Value::Object(values) => {
+            for value in values.values_mut() {
+                bound_json_strings(value);
+            }
+        }
+        Value::Null | Value::Bool(_) | Value::Number(_) => {}
+    }
+}
+
+fn bounded_text(value: &str, max_chars: usize) -> String {
+    if value.len() <= max_chars || value.chars().count() <= max_chars {
+        return value.to_string();
+    }
+    let side = max_chars.saturating_sub(3) / 2;
+    let head = value.chars().take(side).collect::<String>();
+    let tail = value.chars().rev().take(side).collect::<String>().chars().rev().collect::<String>();
+    format!("{head}\n…\n{tail}")
+}
+
+fn apply_conversation_notification(
+    conversation: &mut Conversation,
+    method: &str,
+    params: &Value,
+) -> bool {
+    match method {
+        "turn/started" | "turn/completed" => {
+            let Some(turn_value) = params.get("turn").cloned() else { return false };
+            let Ok(mut incoming) = serde_json::from_value::<Turn>(turn_value) else { return false };
+            for item in &mut incoming.items {
+                bound_json_strings(item);
+            }
+            if let Some(existing) =
+                conversation.turns.iter_mut().find(|turn| turn.id == incoming.id)
+            {
+                if incoming.needs_item_hydration() && existing.has_item_detail() {
+                    let mut items = existing.items.clone();
+                    merge_summary_messages(&mut items, std::mem::take(&mut incoming.items));
+                    incoming.items = items;
+                    incoming.items_view = existing.items_view.clone();
+                    incoming.items_truncated = existing.items_truncated;
+                }
+                *existing = incoming;
+            } else {
+                conversation.turns.push(incoming);
+            }
+            true
+        }
+        "item/started" | "item/completed" => {
+            let Some(turn_id) = params.get("turnId").and_then(Value::as_str) else {
+                return false;
+            };
+            let Some(mut item) = params.get("item").cloned() else { return false };
+            bound_json_strings(&mut item);
+            let turn = ensure_turn(conversation, turn_id);
+            if turn.needs_item_hydration() {
+                turn.items_view = "partial".to_string();
+                turn.items_truncated = true;
+            }
+            upsert_item(turn, item);
+            true
+        }
+        "item/agentMessage/delta" => {
+            append_item_delta(conversation, params, "agentMessage", "text", None)
+        }
+        "item/plan/delta" => append_item_delta(conversation, params, "plan", "text", None),
+        "item/commandExecution/outputDelta" => {
+            append_item_delta(conversation, params, "commandExecution", "aggregatedOutput", None)
+        }
+        "item/reasoning/summaryTextDelta" => append_item_delta(
+            conversation,
+            params,
+            "reasoning",
+            "summary",
+            params.get("summaryIndex").and_then(Value::as_u64).map(|value| value as usize),
+        ),
+        "item/reasoning/textDelta" => append_item_delta(
+            conversation,
+            params,
+            "reasoning",
+            "content",
+            params.get("contentIndex").and_then(Value::as_u64).map(|value| value as usize),
+        ),
+        "item/reasoning/summaryPartAdded" => {
+            let Some(turn_id) = params.get("turnId").and_then(Value::as_str) else {
+                return false;
+            };
+            let Some(item_id) = params.get("itemId").and_then(Value::as_str) else {
+                return false;
+            };
+            let Some(index) =
+                params.get("summaryIndex").and_then(Value::as_u64).map(|value| value as usize)
+            else {
+                return false;
+            };
+            let turn = ensure_turn(conversation, turn_id);
+            let item = ensure_item(turn, item_id, "reasoning");
+            ensure_string_array_slot(item, "summary", index);
+            true
+        }
+        "item/fileChange/patchUpdated" => {
+            let Some(turn_id) = params.get("turnId").and_then(Value::as_str) else {
+                return false;
+            };
+            let Some(item_id) = params.get("itemId").and_then(Value::as_str) else {
+                return false;
+            };
+            let Some(mut changes) = params.get("changes").cloned() else { return false };
+            bound_json_strings(&mut changes);
+            let turn = ensure_turn(conversation, turn_id);
+            let item = ensure_item(turn, item_id, "fileChange");
+            item["changes"] = changes;
+            true
+        }
+        "error" => {
+            let Some(turn_id) = params.get("turnId").and_then(Value::as_str) else {
+                return false;
+            };
+            let Some(mut error) = params.get("error").cloned() else { return false };
+            bound_json_strings(&mut error);
+            ensure_turn(conversation, turn_id).error = Some(error);
+            true
+        }
+        _ => false,
+    }
+}
+
+fn ensure_turn<'a>(conversation: &'a mut Conversation, turn_id: &str) -> &'a mut Turn {
+    if let Some(index) = conversation.turns.iter().position(|turn| turn.id == turn_id) {
+        return &mut conversation.turns[index];
+    }
+    conversation.turns.push(Turn {
+        id: turn_id.to_string(),
+        status: "inProgress".to_string(),
+        items_view: "live".to_string(),
+        ..Turn::default()
+    });
+    conversation.turns.last_mut().expect("turn was just appended")
+}
+
+fn upsert_item(turn: &mut Turn, item: Value) {
+    if let Some(id) = json_item_id(&item)
+        && let Some(index) =
+            turn.items.iter().position(|candidate| json_item_id(candidate) == Some(id))
+    {
+        turn.items[index] = item;
+        return;
+    }
+    turn.items.push(item);
+}
+
+fn ensure_item<'a>(turn: &'a mut Turn, item_id: &str, kind: &str) -> &'a mut Value {
+    if let Some(index) =
+        turn.items.iter().position(|candidate| json_item_id(candidate) == Some(item_id))
+    {
+        return &mut turn.items[index];
+    }
+    turn.items.push(json!({
+        "id": item_id,
+        "type": kind,
+        "status": "inProgress"
+    }));
+    turn.items.last_mut().expect("item was just appended")
+}
+
+fn append_item_delta(
+    conversation: &mut Conversation,
+    params: &Value,
+    kind: &str,
+    field: &str,
+    index: Option<usize>,
+) -> bool {
+    let Some(turn_id) = params.get("turnId").and_then(Value::as_str) else { return false };
+    let Some(item_id) = params.get("itemId").and_then(Value::as_str) else { return false };
+    let Some(delta) = params.get("delta").and_then(Value::as_str) else { return false };
+    let turn = ensure_turn(conversation, turn_id);
+    let item = ensure_item(turn, item_id, kind);
+    if let Some(index) = index {
+        ensure_string_array_slot(item, field, index);
+        let Some(value) = item
+            .get_mut(field)
+            .and_then(Value::as_array_mut)
+            .and_then(|values| values.get_mut(index))
+        else {
+            return false;
+        };
+        append_bounded_string(value, delta);
+    } else {
+        if item.get(field).and_then(Value::as_str).is_none() {
+            item[field] = Value::String(String::new());
+        }
+        let Some(value) = item.get_mut(field) else { return false };
+        append_bounded_string(value, delta);
+    }
+    true
+}
+
+fn ensure_string_array_slot(item: &mut Value, field: &str, index: usize) {
+    if item.get(field).and_then(Value::as_array).is_none() {
+        item[field] = Value::Array(Vec::new());
+    }
+    let Some(values) = item.get_mut(field).and_then(Value::as_array_mut) else { return };
+    while values.len() <= index {
+        values.push(Value::String(String::new()));
+    }
+}
+
+fn append_bounded_string(value: &mut Value, delta: &str) {
+    let text = value.as_str().unwrap_or_default();
+    let mut updated = String::with_capacity(text.len().saturating_add(delta.len()));
+    updated.push_str(text);
+    updated.push_str(delta);
+    *value = Value::String(bounded_text(&updated, MAX_RETAINED_ITEM_FIELD_CHARS));
+}
+
 fn reveal_fixed_row(offset: &mut usize, index: usize, viewport: usize) {
     let start = index * LIST_ROW_STRIDE;
     let end = start + 2;
@@ -879,5 +1253,118 @@ mod tests {
         let mut offset = 0;
         reveal_fixed_row(&mut offset, 4, 6);
         assert_eq!(offset, 9);
+    }
+
+    #[test]
+    fn summary_refresh_preserves_incremental_tool_items() {
+        let existing = Conversation {
+            id: "thread".into(),
+            turns: vec![Turn {
+                id: "turn".into(),
+                items: vec![
+                    json!({"type": "userMessage", "id": "user", "content": []}),
+                    json!({"type": "commandExecution", "id": "tool", "command": "cargo test"}),
+                ],
+                items_view: "live".into(),
+                status: "inProgress".into(),
+                ..Turn::default()
+            }],
+            ..Conversation::default()
+        };
+        let snapshot = Conversation {
+            id: "thread".into(),
+            turns: vec![Turn {
+                id: "turn".into(),
+                items: vec![
+                    json!({"type": "userMessage", "id": "user", "content": []}),
+                    json!({"type": "agentMessage", "id": "agent", "text": "Done"}),
+                ],
+                items_view: "summary".into(),
+                status: "completed".into(),
+                ..Turn::default()
+            }],
+            ..Conversation::default()
+        };
+
+        let merged = merge_conversation_snapshot(Some(existing), snapshot);
+
+        assert_eq!(merged.turns[0].items_view, "live");
+        assert!(merged.turns[0].items.iter().any(|item| json_item_id(item) == Some("tool")));
+        assert!(merged.turns[0].items.iter().any(|item| json_item_id(item) == Some("agent")));
+    }
+
+    #[test]
+    fn completed_item_notification_replaces_live_item_without_refresh() {
+        let mut conversation = Conversation {
+            id: "thread".into(),
+            turns: vec![Turn {
+                id: "turn".into(),
+                items_view: "live".into(),
+                status: "inProgress".into(),
+                ..Turn::default()
+            }],
+            ..Conversation::default()
+        };
+        assert!(apply_conversation_notification(
+            &mut conversation,
+            "item/started",
+            &json!({
+                "threadId": "thread",
+                "turnId": "turn",
+                "item": {
+                    "type": "commandExecution",
+                    "id": "tool",
+                    "command": "cargo test",
+                    "status": "inProgress"
+                }
+            }),
+        ));
+        assert!(apply_conversation_notification(
+            &mut conversation,
+            "item/commandExecution/outputDelta",
+            &json!({
+                "threadId": "thread",
+                "turnId": "turn",
+                "itemId": "tool",
+                "delta": "ok"
+            }),
+        ));
+
+        assert_eq!(conversation.turns[0].items[0]["aggregatedOutput"], "ok");
+    }
+
+    #[test]
+    fn explicit_hydration_is_bounded_in_retained_state() {
+        let mut turn = Turn {
+            id: "turn".into(),
+            items: vec![
+                json!({"type": "userMessage", "id": "user", "content": []}),
+                json!({"type": "agentMessage", "id": "agent", "text": "Done"}),
+            ],
+            items_view: "summary".into(),
+            ..Turn::default()
+        };
+        hydrate_turn_items(
+            &mut turn,
+            vec![json!({
+                "type": "commandExecution",
+                "id": "tool",
+                "aggregatedOutput": "x".repeat(MAX_RETAINED_ITEM_FIELD_CHARS * 2)
+            })],
+            true,
+        );
+
+        assert_eq!(turn.items_view, "full");
+        assert!(turn.items_truncated);
+        assert!(turn.items.iter().any(|item| json_item_id(item) == Some("user")));
+        assert!(turn.items.iter().any(|item| json_item_id(item) == Some("agent")));
+        let output = turn
+            .items
+            .iter()
+            .find(|item| json_item_id(item) == Some("tool"))
+            .and_then(|item| item.get("aggregatedOutput"))
+            .and_then(Value::as_str)
+            .unwrap();
+        assert!(output.chars().count() <= MAX_RETAINED_ITEM_FIELD_CHARS);
     }
 }

@@ -16,9 +16,9 @@ pub enum DiagnosticAction {
     SendInitialized,
     ReadBearerToken,
     DecodeThreadList,
-    DecodeThreadRead,
     DecodeThreadMetadata,
     DecodeThreadTurns,
+    DecodeThreadItems,
     DecodeAppServerJson,
     EncodeAppServerJson,
     WriteAppServerMessage,
@@ -262,9 +262,9 @@ impl Catalog {
             (Locale::English, DiagnosticAction::SendInitialized) => "send initialized notification",
             (Locale::English, DiagnosticAction::ReadBearerToken) => "read bearer token",
             (Locale::English, DiagnosticAction::DecodeThreadList) => "decode thread/list response",
-            (Locale::English, DiagnosticAction::DecodeThreadRead) => "decode thread/read response",
             (Locale::English, DiagnosticAction::DecodeThreadMetadata) => "decode thread metadata",
             (Locale::English, DiagnosticAction::DecodeThreadTurns) => "decode thread turns",
+            (Locale::English, DiagnosticAction::DecodeThreadItems) => "decode thread items",
             (Locale::English, DiagnosticAction::DecodeAppServerJson) => "decode app-server JSON",
             (Locale::English, DiagnosticAction::EncodeAppServerJson) => "encode app-server JSON",
             (Locale::English, DiagnosticAction::WriteAppServerMessage) => {
@@ -278,11 +278,11 @@ impl Catalog {
             (Locale::Japanese, DiagnosticAction::SendInitialized) => "initialized 通知を送信",
             (Locale::Japanese, DiagnosticAction::ReadBearerToken) => "Bearer token を読み取り",
             (Locale::Japanese, DiagnosticAction::DecodeThreadList) => "thread/list 応答をデコード",
-            (Locale::Japanese, DiagnosticAction::DecodeThreadRead) => "thread/read 応答をデコード",
             (Locale::Japanese, DiagnosticAction::DecodeThreadMetadata) => {
                 "スレッドのメタデータをデコード"
             }
             (Locale::Japanese, DiagnosticAction::DecodeThreadTurns) => "スレッドのターンをデコード",
+            (Locale::Japanese, DiagnosticAction::DecodeThreadItems) => "スレッドの項目をデコード",
             (Locale::Japanese, DiagnosticAction::DecodeAppServerJson) => {
                 "app-server JSON をデコード"
             }
@@ -308,6 +308,13 @@ impl Catalog {
             Locale::English => format!("{method} repeated a pagination cursor"),
             Locale::Japanese => format!("{method} が同じページカーソルを返しました"),
         }
+    }
+
+    pub const fn turn_details_unavailable(self) -> &'static str {
+        self.pick(
+            "selected turn details are outside the recent trajectory window",
+            "選択したターンの詳細は最近の軌跡の範囲外です",
+        )
     }
 
     pub fn app_server_response_error(self, code: i64, message: &str) -> String {
@@ -346,6 +353,14 @@ impl Catalog {
 
     pub const fn steps(self) -> &'static str {
         self.pick("steps", "ステップ")
+    }
+
+    pub const fn load_details(self) -> &'static str {
+        self.pick("load details", "詳細を読み込む")
+    }
+
+    pub const fn older_items_omitted(self) -> &'static str {
+        self.pick("older items omitted", "以前の項目は省略")
     }
 
     pub const fn you(self) -> &'static str {

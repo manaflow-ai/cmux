@@ -20,6 +20,10 @@ The default config is `~/.config/cmux-tree/config.json`. Set `CMUX_TREE_CONFIG` 
 
 `cmux-tree` scans local Codex processes every 10 seconds. It discovers TCP WebSocket listeners, verifies them through `/healthz`, and discovers running Codex daemon Unix sockets. Press `r` to scan immediately.
 
+Each machine loads its 200 most recent conversations. The selected conversation loads a summary of its 25 most recent turns. These bounds avoid walking a large Codex archive or retaining thousands of thread and item records in either process.
+
+App-server notifications update live messages, thinking, and tool calls in memory without another request. A lightweight summary refresh runs every 30 seconds as a recovery path. Stored tool details are fetched only after the user opens that turn's work accordion, and that request is limited to the 25 most recent items. Older items are marked as omitted. Each retained text field is capped at 20,000 characters, matching the trajectory renderer's detail limit.
+
 For a local TCP listener:
 
 ```bash
@@ -32,7 +36,7 @@ Codex app-servers launched with the default `stdio://` transport cannot be attac
 
 When the managed daemon is listening at Codex's default Unix socket, cmux sends ordinary interactive and `resume` launches through Codex's native daemon-reuse path. The original terminal remains a full Codex chat client while `cmux-tree` observes the same server through a separate connection. This path performs one socket metadata check and starts no cmux CLI, probe, or hook processes. `exec`, explicit remote connections, profiles, and command-line config overrides keep the existing embedded-server hook path because Codex cannot replay their full launch configuration through a reused daemon.
 
-Persistent Codex event hooks are not required for `cmux-tree`. Its trajectory is built directly from app-server events.
+Persistent Codex event hooks are not required for `cmux-tree`. Its trajectory is built directly from app-server events. Watching a conversation does not run a hook command, probe cmux, or hydrate stored tool output in the background.
 
 Authenticated listeners are not auto-added because discovery never reads credentials from another process's arguments. Add them manually with a protected bearer-token file.
 

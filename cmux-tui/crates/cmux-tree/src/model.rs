@@ -187,6 +187,10 @@ pub struct Turn {
     pub id: String,
     #[serde(default)]
     pub items: Vec<Value>,
+    #[serde(default = "default_items_view")]
+    pub items_view: String,
+    #[serde(skip)]
+    pub items_truncated: bool,
     #[serde(default)]
     pub status: String,
     #[serde(default)]
@@ -203,6 +207,22 @@ impl Turn {
     pub fn internal_items(&self) -> impl Iterator<Item = &Value> {
         self.items.iter().filter(|item| is_internal_item(item_type(item)))
     }
+
+    pub fn needs_item_hydration(&self) -> bool {
+        matches!(self.items_view.as_str(), "notLoaded" | "summary" | "partial")
+    }
+
+    pub fn is_loading_items(&self) -> bool {
+        self.items_view == "loading"
+    }
+
+    pub fn has_item_detail(&self) -> bool {
+        !matches!(self.items_view.as_str(), "notLoaded" | "summary")
+    }
+}
+
+fn default_items_view() -> String {
+    "full".to_string()
 }
 
 pub fn item_type(item: &Value) -> &str {

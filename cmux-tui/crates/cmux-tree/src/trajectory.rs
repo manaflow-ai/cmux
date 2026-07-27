@@ -128,6 +128,8 @@ pub fn build_trajectory(
         }
         if !rendered_internals && !internals.is_empty() {
             render_work_group(&mut view, turn, &internals, stopped, width, catalog, expansion);
+        } else if !rendered_internals && (turn.needs_item_hydration() || turn.is_loading_items()) {
+            render_unloaded_work(&mut view, turn, width, catalog, expansion);
         }
         if let Some(error) = turn.error.as_ref() {
             let message = error
@@ -169,6 +171,31 @@ fn render_work_group(
 
     for item in items {
         render_internal_item(view, turn, item, width, catalog, expansion);
+    }
+    if turn.items_truncated {
+        view.lines.push(line(catalog.older_items_omitted(), 1, LineTone::Dim));
+    }
+}
+
+fn render_unloaded_work(
+    view: &mut TrajectoryView,
+    turn: &Turn,
+    width: usize,
+    catalog: Catalog,
+    expansion: &ExpansionState,
+) {
+    let key = format!("turn:{}:work", turn.id);
+    let expanded = expansion.is_expanded(&key, false);
+    let marker = if expanded { "▾" } else { "▸" };
+    let state = if turn.is_loading_items() { catalog.loading() } else { catalog.load_details() };
+    view.lines.push(TrajectoryLine {
+        text: format!("{marker} {} · {state}", catalog.work()),
+        indent: 0,
+        tone: LineTone::Dim,
+        accordion: Some(AccordionLine { key, default_expanded: false }),
+    });
+    if expanded {
+        push_wrapped(view, state, width, 1, LineTone::Dim);
     }
 }
 
@@ -534,5 +561,32 @@ mod tests {
         );
 
         assert!(view.lines.iter().any(|line| line.text.contains("building…")));
+    }
+
+    #[test]
+    fn summary_turn_loads_work_only_when_accordion_opens() {
+        let conversation = Conversation {
+            id: "thread".into(),
+            status: serde_json::json!({"type": "idle"}),
+            turns: vec![Turn {
+                id: "turn".into(),
+                items: vec![
+                    serde_json::json!({"type": "userMessage", "id": "user", "content": [{"type": "text", "text": "Inspect"}]}),
+                    serde_json::json!({"type": "agentMessage", "id": "agent", "text": "Done."}),
+                ],
+                items_view: "summary".into(),
+                status: "completed".into(),
+                ..Turn::default()
+            }],
+        };
+        let view = build_trajectory(
+            &conversation,
+            80,
+            Catalog::new(crate::localization::Locale::English),
+            &ExpansionState::default(),
+        );
+
+        assert!(view.lines.iter().any(|line| line.text.contains("work · load details")));
+        assert_eq!(view.accordions[0].key, "turn:turn:work");
     }
 }
