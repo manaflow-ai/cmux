@@ -68,7 +68,7 @@ The focused regression suite covers:
 
 ## CI and build evidence
 
-Final code and test commit `772dacfd9e` was validated on GitHub-hosted macOS:
+The first complete code-and-test checkpoint, `772dacfd9e`, was validated on GitHub-hosted macOS:
 
 - [macOS Compatibility run 30210823264](https://github.com/usr-bin-roygbiv/cmux/actions/runs/30210823264) checked out that exact commit and compiled the application and test targets. On macOS 15, the active-viewport, external-split, workspace-rebind, portal-anchor, and single-entry lifecycle regressions all passed. The two arm64 jobs continued into the repository-wide suite until the 60-minute job limit, and the Intel macOS 14 job could not start because that runner class was unavailable under the account spending limit. The run therefore is not presented as a full-suite green result; unrelated suites also reported failures before timeout.
 - [Tagged application build 30213748000](https://github.com/usr-bin-roygbiv/cmux/actions/runs/30213748000) successfully built the exact final code and test commit as `cmux DEV browser-perf-final-772dacf` on macOS 15.
