@@ -1,4 +1,14 @@
 import type { Transport, Unsubscribe } from "./transport.js";
+import {
+  MAX_INBOUND_MESSAGE_BYTES,
+  MAX_OUTBOUND_MESSAGE_BYTES,
+  MAX_PENDING_BYTES,
+  MAX_PENDING_MESSAGES,
+  MAX_PREAUTH_MESSAGE_BYTES,
+  positiveLimit,
+  utf8ByteLength,
+} from "./transport-limits.js";
+import { parseWireJson } from "./wire-json.js";
 
 interface WebSocketEventMap {
   open: unknown;
@@ -41,10 +51,15 @@ export interface WebSocketTransportOptions {
   onAuthenticationRejected?(): void;
   /** Inject a compatible constructor such as the Node `ws` package. */
   WebSocket?: WebSocketConstructor;
+  maxInboundMessageBytes?: number;
+  maxOutboundMessageBytes?: number;
+  maxPendingBytes?: number;
+  maxPendingMessages?: number;
+  maxPreauthenticationMessageBytes?: number;
 }
 
 export interface PairingChallenge {
-  id: number;
+  id: bigint;
   code: string;
   peer: string;
   expiresIn: number;
@@ -61,16 +76,49 @@ export class WebSocketTransport implements Transport {
   private readonly onPairingChallenge: ((challenge: PairingChallenge) => void) | undefined;
   private readonly onPairingCredential: ((credential: string) => void) | undefined;
   private readonly onAuthenticationRejected: (() => void) | undefined;
+  private readonly maxInboundMessageBytes: number;
+  private readonly maxOutboundMessageBytes: number;
+  private readonly maxPendingBytes: number;
+  private readonly maxPendingMessages: number;
+  private readonly maxPreauthenticationMessageBytes: number;
+  private pendingBytes = 0;
   private authenticated = false;
   private closed = false;
 
   constructor(url: string | URL, options: WebSocketTransportOptions | WebSocketConstructor = {}) {
-    const normalized = typeof options === "function" ? { WebSocket: options } : options;
+    const normalized: WebSocketTransportOptions = typeof options === "function"
+      ? { WebSocket: options }
+      : options;
     const Constructor = normalized.WebSocket ?? this.globalConstructor();
     this.authToken = normalized.authToken;
     this.onPairingChallenge = normalized.onPairingChallenge;
     this.onPairingCredential = normalized.onPairingCredential;
     this.onAuthenticationRejected = normalized.onAuthenticationRejected;
+    this.maxInboundMessageBytes = positiveLimit(
+      "maxInboundMessageBytes",
+      normalized.maxInboundMessageBytes,
+      MAX_INBOUND_MESSAGE_BYTES,
+    );
+    this.maxOutboundMessageBytes = positiveLimit(
+      "maxOutboundMessageBytes",
+      normalized.maxOutboundMessageBytes,
+      MAX_OUTBOUND_MESSAGE_BYTES,
+    );
+    this.maxPendingBytes = positiveLimit(
+      "maxPendingBytes",
+      normalized.maxPendingBytes,
+      MAX_PENDING_BYTES,
+    );
+    this.maxPendingMessages = positiveLimit(
+      "maxPendingMessages",
+      normalized.maxPendingMessages,
+      MAX_PENDING_MESSAGES,
+    );
+    this.maxPreauthenticationMessageBytes = positiveLimit(
+      "maxPreauthenticationMessageBytes",
+      normalized.maxPreauthenticationMessageBytes,
+      MAX_PREAUTH_MESSAGE_BYTES,
+    );
     this.socket = new Constructor(url, normalized.protocols);
     this.listen("open", () => this.flush());
     this.listen("message", (event) => this.receive(event));
@@ -80,8 +128,21 @@ export class WebSocketTransport implements Transport {
 
   send(json: string): void {
     if (this.closed) throw new Error("WebSocket transport is closed");
+    const bytes = utf8ByteLength(json);
+    if (bytes > this.maxOutboundMessageBytes) {
+      throw new Error(`outbound message exceeds ${this.maxOutboundMessageBytes} bytes`);
+    }
     if (this.socket.readyState === 1 && this.authenticated) this.socket.send(json);
-    else this.pending.push(json);
+    else {
+      if (
+        this.pending.length >= this.maxPendingMessages
+        || bytes > this.maxPendingBytes - this.pendingBytes
+      ) {
+        throw new Error("pending WebSocket message buffer is full");
+      }
+      this.pending.push(json);
+      this.pendingBytes += bytes;
+    }
   }
 
   onMessage(handler: (json: string) => void): Unsubscribe {
@@ -138,13 +199,25 @@ export class WebSocketTransport implements Transport {
   }
 
   private flushPending(): void {
-    while (this.pending.length > 0) this.socket.send(this.pending.shift()!);
+    while (this.pending.length > 0) {
+      const message = this.pending.shift()!;
+      this.pendingBytes -= utf8ByteLength(message);
+      this.socket.send(message);
+    }
   }
 
   private receive(event: WebSocketEventMap["message"] | unknown): void {
     const data = event && typeof event === "object" && "data" in event ? (event as { data: unknown }).data : event;
     if (typeof data !== "string") {
       this.fail(new Error("WebSocket server sent a non-text frame"));
+      return;
+    }
+    const maximum = this.authenticated
+      ? this.maxInboundMessageBytes
+      : this.maxPreauthenticationMessageBytes;
+    if (utf8ByteLength(data) > maximum) {
+      this.fail(new Error(`WebSocket message exceeds ${maximum} bytes`));
+      this.socket.close(1009, "message too large");
       return;
     }
     if (!this.authenticated) {
@@ -157,7 +230,7 @@ export class WebSocketTransport implements Transport {
   private receivePairing(json: string): void {
     let value: unknown;
     try {
-      value = JSON.parse(json);
+      value = parseWireJson(json);
     } catch {
       this.fail(new Error("WebSocket server sent invalid pairing data"));
       return;
@@ -170,13 +243,16 @@ export class WebSocketTransport implements Transport {
     if (message.pairing && typeof message.pairing === "object") {
       const pairing = message.pairing as Record<string, unknown>;
       if (
-        typeof pairing.id === "number"
+        (
+          typeof pairing.id === "bigint"
+          || (typeof pairing.id === "number" && Number.isSafeInteger(pairing.id))
+        )
         && typeof pairing.code === "string"
         && typeof pairing.peer === "string"
         && typeof pairing.expires_in === "number"
       ) {
         this.onPairingChallenge?.({
-          id: pairing.id,
+          id: typeof pairing.id === "bigint" ? pairing.id : BigInt(pairing.id),
           code: pairing.code,
           peer: pairing.peer,
           expiresIn: pairing.expires_in,
@@ -219,6 +295,7 @@ export class WebSocketTransport implements Transport {
     if (this.closed) return;
     this.closed = true;
     this.pending.length = 0;
+    this.pendingBytes = 0;
     if (event?.code === 1008 && event.reason === "authentication failed") {
       this.onAuthenticationRejected?.();
     }

@@ -1,4 +1,11 @@
-import { CmuxClient, CmuxCommandError, CmuxTimeoutError, Tree } from "../src/index.js";
+import {
+  CmuxClient,
+  CmuxCommandError,
+  CmuxTimeoutError,
+  stringifyWireJson,
+  type Id,
+  type Tree,
+} from "../src/index.js";
 
 async function main(): Promise<void> {
   const socketPath = process.env.CMUX_TUI_SOCKET || process.env.CMUX_MUX_SOCKET;
@@ -44,11 +51,11 @@ async function main(): Promise<void> {
     const title = `${marker}-title`;
     await client.send(created.surface, { text: `printf '\\033]2;${title}\\007'; sleep 5\r` });
     const titleChanged = await nextTitleChanged(events, created.surface, title, 3000);
-    assert(titleChanged.title === title, `bad title event ${JSON.stringify(titleChanged)}`);
+    assert(titleChanged.title === title, `bad title event ${stringifyWireJson(titleChanged)}`);
     await client.send(created.surface, { text: "\x03" });
     await client.resizeSurface(created.surface, 100, 31);
     const resized = await nextSurfaceResized(events, created.surface, 1000);
-    assert(resized.cols === 100 && resized.rows === 31, `bad resize event ${JSON.stringify(resized)}`);
+    assert(resized.cols === 100 && resized.rows === 31, `bad resize event ${stringifyWireJson(resized)}`);
     await client.resizeSurface(created.surface, 100, 31);
     const duplicate = await nextSurfaceResized(events, created.surface, 500).catch((err) => {
       if (err instanceof CmuxTimeoutError) return null;
@@ -90,10 +97,10 @@ async function main(): Promise<void> {
 
 async function nextTitleChanged(
   events: Awaited<ReturnType<CmuxClient["subscribe"]>>,
-  surface: number,
+  surface: Id,
   title: string,
   timeoutMs: number,
-): Promise<{ event: "title-changed"; surface: number; title: string }> {
+): Promise<{ event: "title-changed"; surface: Id; title: string }> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const event = await events.next(Math.max(1, deadline - Date.now()));
@@ -110,7 +117,7 @@ async function nextTitleChanged(
   throw new Error("title-changed event not observed");
 }
 
-async function waitForMarker(client: CmuxClient, surface: number, marker: string): Promise<void> {
+async function waitForMarker(client: CmuxClient, surface: Id, marker: string): Promise<void> {
   const deadline = Date.now() + 5000;
   let last = "";
   while (Date.now() < deadline) {
@@ -121,7 +128,7 @@ async function waitForMarker(client: CmuxClient, surface: number, marker: string
   throw new Error(`marker not found; last screen: ${JSON.stringify(last)}`);
 }
 
-async function nextSurfaceResized(events: Awaited<ReturnType<CmuxClient["subscribe"]>>, surface: number, timeoutMs: number) {
+async function nextSurfaceResized(events: Awaited<ReturnType<CmuxClient["subscribe"]>>, surface: Id, timeoutMs: number) {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const remaining = deadline - Date.now();
@@ -141,7 +148,7 @@ async function nextAttachOutput(attach: Awaited<ReturnType<CmuxClient["attachSur
   }
 }
 
-function findWorkspaceForSurface(tree: Tree, surface: number): number | undefined {
+function findWorkspaceForSurface(tree: Tree, surface: Id): Id | undefined {
   for (const workspace of tree.workspaces) {
     for (const screen of workspace.screens) {
       for (const pane of screen.panes) {
@@ -152,7 +159,7 @@ function findWorkspaceForSurface(tree: Tree, surface: number): number | undefine
   return undefined;
 }
 
-function findPaneForSurface(tree: Tree, surface: number): number | undefined {
+function findPaneForSurface(tree: Tree, surface: Id): Id | undefined {
   for (const workspace of tree.workspaces) {
     for (const screen of workspace.screens) {
       for (const pane of screen.panes) {
@@ -163,7 +170,7 @@ function findPaneForSurface(tree: Tree, surface: number): number | undefined {
   return undefined;
 }
 
-function findLayoutForSurface(tree: Tree, surface: number) {
+function findLayoutForSurface(tree: Tree, surface: Id) {
   for (const workspace of tree.workspaces) {
     for (const screen of workspace.screens) {
       if (screen.panes.some((pane) => "tabs" in pane && pane.tabs.some((tab) => tab.surface === surface))) {
@@ -176,7 +183,7 @@ function findLayoutForSurface(tree: Tree, surface: number) {
 
 function findClientSurfaceSize(
   clients: Awaited<ReturnType<CmuxClient["listClients"]>>,
-  surface: number,
+  surface: Id,
 ) {
   for (const client of clients) {
     const size = client.sizes.find((candidate) => candidate.surface === surface);

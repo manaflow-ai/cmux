@@ -9,7 +9,22 @@ cmux-sdk-vX.Y.Z
 Historical releases used `mux-sdk-vX.Y.Z`; the publish workflows still accept
 that prefix so old release history remains connected. These tags are separate
 from app release tags such as `vX.Y.Z`. Current SDK package versions are
-`0.3.0`.
+`0.4.0`.
+
+## Support matrix
+
+| SDK | Minimum toolchain/runtime | Runtime dependencies | Distribution |
+| --- | --- | --- | --- |
+| TypeScript | Node.js 20; browser ESM for the browser entry | none | npm package |
+| Python | CPython 3.9 | none | PyPI wheel and source distribution |
+| Rust | Rust 1.88 | `libc`, `serde`, `serde_json` | crates.io crate |
+| Go | Go 1.22 | standard library only | Go module tag |
+| Java | Java 17 | standard library only | Maven artifact |
+| C++ | C++20 and CMake 3.20 | standard library and platform socket APIs | installable CMake package |
+| Zig | Zig 0.15.2 | standard library only | source package |
+
+All packages target mux protocol 10 and expose the same 83 commands and 44
+events. The shared conformance suite verifies their common wire behavior.
 
 ## One-time registry setup
 
@@ -35,25 +50,31 @@ from app release tags such as `vX.Y.Z`. Current SDK package versions are
   are done.
 - Go: there is no registry publish step. Once the tag exists, users can install
   with `go get github.com/manaflow-ai/cmux/cmux-tui/bindings/go@cmux-sdk-vX.Y.Z`.
+- C++: install the CMake package from source or consume a release archive. The
+  installed target is `cmux::sdk`.
+- Zig: use the release source tree as a package dependency with Zig 0.15.2.
 
 ## Cutting a release
 
-1. Update all SDK manifests to the same version:
-   `cmux-tui/bindings/typescript/package.json`,
-   `cmux-tui/bindings/python/pyproject.toml`, and
-   `cmux-tui/bindings/rust/Cargo.toml`.
-2. Run the cmux-tui binding tests locally or wait for `.github/workflows/cmux-tui.yml` on
+1. Update TypeScript, Python, Rust, Java, C++, and Zig package metadata to the
+   same version. Go follows the shared Git tag.
+2. Verify synchronized versions:
+
+   ```bash
+   python3 cmux-tui/bindings/check-versions.py --expected X.Y.Z
+   ```
+3. Run the cmux-tui binding tests locally or wait for `.github/workflows/cmux-tui.yml` on
    the release PR. The publish workflows also run the language conformance gate
    before publishing.
-3. Merge the version bump.
-4. Create and push the namespaced SDK tag:
+4. Merge the version bump.
+5. Create and push the namespaced SDK tag:
 
    ```bash
    git tag cmux-sdk-vX.Y.Z
    git push origin cmux-sdk-vX.Y.Z
    ```
 
-5. Watch the SDK workflows. Python and Rust publish automatically after their
+6. Watch the SDK workflows. Python and Rust publish automatically after their
    conformance gates pass. Go validates only. Java reports the Maven Central
    TODO. npm validates on tag push but does not publish until a maintainer runs
    `sdk publish npm` manually with `confirm_npm_cmux: true`.

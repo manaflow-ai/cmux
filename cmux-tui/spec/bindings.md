@@ -1,6 +1,10 @@
 # Binding Contract
 
-Bindings live under `cmux-tui/bindings/<lang>/`. The checked-in TypeScript, Python, Rust, Go, and Java clients predate a deterministic generator and have unequal typed coverage. [`inventory.json`](inventory.json) and the normative protocol files are authoritative when a binding disagrees.
+Bindings live under `cmux-tui/bindings/<lang>/`. The checked-in TypeScript,
+Python, Rust, C++, Zig, Go, and Java clients combine generated wire models with
+handwritten transports and ergonomic helpers. [`sdk-schema.json`](sdk-schema.json)
+is the reviewed generator input. [`inventory.json`](inventory.json) and the
+normative protocol files remain authoritative when the SDK IR disagrees.
 
 Every supported binding must expose every implemented protocol v10 command and
 event allowed by its selected profile, including stable split ids, stack
@@ -34,13 +38,13 @@ Bindings must:
 
 | Binding | Unix | WebSocket | Public raw request | Typed v10 inventory |
 | --- | --- | --- | --- | --- |
-| TypeScript | yes | yes | yes | incomplete |
-| Python | yes | no | yes | incomplete |
-| Rust | yes | no | yes | incomplete |
-| Go | yes | no | yes | incomplete |
-| Java | yes | no | yes | incomplete |
-
-The conformance runner currently uses private Python request access for some commands. That behavior records wire compatibility only and must not be reported as public SDK coverage.
+| TypeScript | yes | yes | yes | 83 commands, 44 events |
+| Python | yes | no | yes | 83 commands, 44 events |
+| Rust | yes | no | yes | 83 commands, 44 events |
+| C++ | yes | injected transport | yes | 83 commands, 44 events |
+| Zig | yes | no | yes | 83 commands, 44 events |
+| Go | yes | no | yes | 83 commands, 44 events |
+| Java | yes | no | yes | 83 commands, 44 events |
 
 ## Language rollout
 
@@ -142,208 +146,55 @@ Swift bindings use `Codable` value types, a `Sendable` client, `async throws` co
 
 ## Deterministic generation
 
-The target generator consumes reviewed machine-readable protocol IR and emits only declared owned files. It must:
+The generator consumes the reviewed schema-v2 protocol IR and emits only
+manifest-owned files. It:
 
-1. Run without a language model, network lookup, timestamps, random ordering, or machine-specific paths.
-2. Generate into a temporary directory, validate the complete file manifest, format, compile, and run binding tests before replacing output.
-3. Emit the inventory revision and protocol-domain versions into each package.
-4. Regenerate twice in CI and compare byte-for-byte output.
-5. Fail when an implemented inventory entry lacks a typed method, result, event, profile decision, and conformance fixture.
+1. Runs without a language model, network lookup, timestamps, random ordering, or machine-specific paths.
+2. Renders every selected language twice in independent temporary directories and requires byte-for-byte equality.
+3. Stages every selected language before changing the working tree.
+4. Writes atomically and deletes only stale paths owned by the previous manifest.
+5. Emits schema, protocol, profile, command, event, and IR-hash metadata into each package.
+6. Fails in CI when generated output differs from the reviewed schema.
 
-`bindings/generate.sh` is an experimental prompt harness until it meets this contract. Release automation must not treat its output as reproducible generated code.
-
-## Conformance Suite
-
-Every generated binding and CLI implementation must pass the same conformance suite against a real headless server. The suite lives under `cmux-tui/bindings/conformance/` and is run with:
+Regenerate every SDK with:
 
 ```bash
-python3 cmux-tui/bindings/conformance/runner.py
+cmux-tui/bindings/generate.sh
 ```
 
-### Fixture File Format
+Verify checked-in output without writing with:
 
-Conformance fixtures use a file wrapper:
-
-```text
-object{
-  defaults?: object{timeout_ms?: uint64},
-  fixtures: array<Fixture>
-}
+```bash
+cmux-tui/bindings/generate.sh --check
 ```
 
-`Fixture`:
+## Conformance suite
 
-```text
-object{
-  name: string,
-  requires?: object{commands?: array<string>},
-  timeout_ms?: uint64,
-  steps: array<Step>
-}
+Every binding must pass the same public-SDK contract in
+`cmux-tui/bindings/conformance/`. The language-neutral fixture document has a
+`contract_version`, 21 `fake_cases`, and three `real_cases`. Each adapter
+accepts one JSON request on standard input and returns one JSON result on
+standard output, as defined by
+[`adapter-protocol.md`](../bindings/conformance/adapter-protocol.md).
+
+The metadata audit requires all 83 commands and 44 events. Fake cases cover
+framing, exact `uint64` values, missing versus nullable fields, limits,
+timeouts, pre-acknowledgement events, unknown events, overflow, close
+behavior, every stream mode, all authority profiles, and provider denial with
+zero bytes written. Real cases start an isolated headless server and cover
+`identify`, `ping`, workspace and terminal creation, send, wait, read, ordered
+delta events, rename, close, and disappearance.
+
+Run every required adapter against a prebuilt server with:
+
+```bash
+python3 cmux-tui/bindings/conformance/runner.py \
+  --require python,typescript,rust,go,java,cpp,zig \
+  --cmux-tui-bin cmux-tui/target/debug/cmux-tui
 ```
 
-`requires.commands` is a fixture-level skip gate. Before running the fixture, the runner probes each command. If the server lacks a required command, the fixture is reported as `SKIP`, not `PASS` and not `FAIL`. Skipped fixtures are counted separately in the summary and indicate an honest coverage gap for the tested server.
-
-A command step sends one command and checks the response:
-
-```text
-object{
-  type: "command",
-  request: object,
-  expect: object,
-  match?: "exact"|"partial",
-  bind?: object<string,string>,
-  timeout_ms?: uint64
-}
-```
-
-`match:"exact"` requires exact JSON equality. `match:"partial"` requires the expected object to be a recursive subset of the actual object. For arrays in partial mode, expected entries match by index and extra actual entries are ignored.
-
-`bind` maps variable names to JSON paths evaluated against that step's command response. Paths are dot-separated and start at the response object, such as `data.surface` or `data.workspaces[0].screens[0].panes[0].id`. A later request, expectation, or event predicate may use `"$name"` to substitute the bound JSON value. Missing paths fail the fixture.
-
-Every step has a timeout. `timeout_ms` on the step wins; otherwise the fixture runner uses `defaults.timeout_ms`; otherwise it uses 5000 ms.
-
-A `wait_contains` step repeats a command until the response value at `path` contains `contains` or the timeout expires:
-
-```text
-object{
-  type: "wait_contains",
-  request: object,
-  path: string,
-  contains: string,
-  timeout_ms?: uint64
-}
-```
-
-This is used for PTY output assertions where `send` and terminal rendering are asynchronous.
-
-### Event Transcript Format
-
-Event expectation steps use `type:"expect_events"`, a stream name, and an `expect` array. Matching is an in-order subsequence over the event stream. Each expected event is a partial match: specified fields must equal after variable substitution, unspecified fields are ignored. Unrelated interleaved events are tolerated. The step fails if the subsequence is not observed before timeout.
-
-A stream step opens a persistent stream, usually by sending `subscribe`:
-
-```json
-{"type":"stream","name":"events","request":{"id":3,"cmd":"subscribe"},"expect":{"id":3,"ok":true},"match":"partial"}
-```
-
-### Worked Fixture: Subscribe And New Tab
-
-This fixture uses only protocol v5 commands and can run against a headless server.
-
-```json
-{
-  "defaults": { "timeout_ms": 5000 },
-  "fixtures": [
-    {
-      "name": "subscribe-new-tab",
-      "steps": [
-        {
-          "type": "command",
-          "request": { "id": 1, "cmd": "new-workspace", "cols": 80, "rows": 24 },
-          "expect": { "id": 1, "ok": true },
-          "match": "partial",
-          "bind": { "surface0": "data.surface" }
-        },
-        {
-          "type": "command",
-          "request": { "id": 2, "cmd": "list-workspaces" },
-          "expect": { "id": 2, "ok": true },
-          "match": "partial",
-          "bind": {
-            "workspace0": "data.workspaces[0].id",
-            "screen0": "data.workspaces[0].screens[0].id",
-            "pane0": "data.workspaces[0].screens[0].panes[0].id"
-          }
-        },
-        {
-          "type": "stream",
-          "name": "events",
-          "request": { "id": 3, "cmd": "subscribe" },
-          "expect": { "id": 3, "ok": true },
-          "match": "partial"
-        },
-        {
-          "type": "command",
-          "request": { "id": 4, "cmd": "new-tab", "pane": "$pane0" },
-          "expect": { "id": 4, "ok": true },
-          "match": "partial",
-          "bind": { "surface1": "data.surface" }
-        },
-        {
-          "type": "expect_events",
-          "stream": "events",
-          "expect": [
-            { "event": "tree-changed" }
-          ]
-        },
-        {
-          "type": "command",
-          "request": { "id": 5, "cmd": "list-workspaces" },
-          "expect": {
-            "id": 5,
-            "ok": true,
-            "data": {
-              "workspaces": [
-                {
-                  "id": "$workspace0",
-                  "screens": [
-                    {
-                      "id": "$screen0",
-                      "panes": [
-                        {
-                          "id": "$pane0",
-                          "active_tab": 1,
-                          "tabs": [
-                            { "surface": "$surface0" },
-                            { "surface": "$surface1" }
-                          ]
-                        }
-                      ]
-                    }
-                  ]
-                }
-              ]
-            }
-          },
-          "match": "partial"
-        }
-      ]
-    }
-  ]
-}
-```
-
-### Attach Transcript Format
-
-Attach fixtures validate the replay ordering contract:
-
-```json
-{
-  "name": "attach-replay-then-live",
-  "surface_setup": {"cmd": "run", "command": "printf before; read x; printf after"},
-  "attach": {"cmd": "attach-surface", "surface": "$surface0"},
-  "expect_prefix": [{"event": "vt-state", "surface": "$surface0"}],
-  "actions": [{"cmd": "send", "surface": "$surface0", "text": "x\r"}],
-  "expect_later": [{"event": "output", "surface": "$surface0"}]
-}
-```
-
-For protocol v5, setup uses implemented commands rather than proposed `run`.
-
-### End-to-End Scenario
-
-Each binding must replay this scenario against a real headless server:
-
-1. Connect to the server and call `identify`.
-2. Create a workspace with `new-workspace`.
-3. Send a shell command that prints a unique marker.
-4. Wait for the marker using either proposed `wait-for` when available or a `read-screen` polling loop on v5.
-5. Read the screen and assert the marker is present.
-6. Rename the surface.
-7. Subscribe and trigger a resize.
-8. Assert one `surface-resized` event arrives for the changed size and no second event arrives for the same size.
-9. Attach to the surface and assert `vt-state` precedes live `output`.
-10. Close the workspace and assert the tree no longer contains it.
-
-The suite must fail if a binding drops unknown events, loses command ids, cannot distinguish command errors from transport failures, or assumes `attach-surface` response arrives before `vt-state` on a v5 server.
+The suite fails on stale generated output, missing required toolchains,
+metadata gaps, adapter build failures, response mismatches, unexpected
+authority writes, or live lifecycle failures. The complete fixture and runner
+contract is documented in
+[`bindings/conformance/README.md`](../bindings/conformance/README.md).

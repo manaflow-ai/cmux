@@ -14,15 +14,27 @@ test("Unix transport preserves JSON-lines request and response framing", async (
     let buffered = "";
     socket.on("data", (chunk: string) => {
       buffered += chunk;
-      const newline = buffered.indexOf("\n");
-      if (newline < 0) return;
-      const request = JSON.parse(buffered.slice(0, newline)) as Record<string, unknown>;
-      assert.deepEqual(request, { id: 1, cmd: "ping" });
-      socket.write(`${JSON.stringify({
-        id: request.id,
-        ok: true,
-        data: { ok: true, version: "0.1.2", protocol: 6 },
-      })}\n`);
+      for (;;) {
+        const newline = buffered.indexOf("\n");
+        if (newline < 0) return;
+        const request = JSON.parse(buffered.slice(0, newline)) as Record<string, unknown>;
+        buffered = buffered.slice(newline + 1);
+        if (request.cmd === "identify") {
+          assert.deepEqual(request, { id: 1, cmd: "identify" });
+          socket.write(`${JSON.stringify({
+            id: request.id,
+            ok: true,
+            data: { app: "cmux-tui", version: "0.1.2", protocol: 6, session: "main", pid: 1 },
+          })}\n`);
+          continue;
+        }
+        assert.deepEqual(request, { id: 2, cmd: "ping" });
+        socket.write(`${JSON.stringify({
+          id: request.id,
+          ok: true,
+          data: { ok: true, version: "0.1.2", protocol: 6 },
+        })}\n`);
+      }
     });
   });
 

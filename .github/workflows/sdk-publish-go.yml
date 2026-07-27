@@ -71,6 +71,7 @@ jobs:
               raise SystemExit(1)
           print(f"All package versions match {expected}")
           PY
+          python3 cmux-tui/bindings/check-versions.py --expected "$version"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
   bindings-e2e-go:
@@ -112,11 +113,8 @@ jobs:
         working-directory: cmux-tui
         run: cargo build -p cmux-tui
 
-      - name: Python conformance fixtures
-        run: python3 cmux-tui/bindings/conformance/runner.py
-
-      - name: Go binding e2e
-        run: bash cmux-tui/bindings/conformance/e2e.sh --require go
+      - name: Go SDK conformance
+        run: python3 cmux-tui/bindings/conformance/runner.py --language go --require go
 
   validate-go-module:
     needs: bindings-e2e-go

@@ -1,0 +1,14 @@
+{
+  "files": [
+    {
+      "path": "protocol.zig",
+      "sha256": "bb713187b0cbd4eeb42b0c083d4e6ae7af50b355c9da1a5e33e00d74bf32e667",
+      "size": 111205
+    }
+  ],
+  "format": 1,
+  "ir_sha256": "2006a175f8506aeeca40689c7a61651a6685a7b03b3c9c52c38cd5259c3a9a96",
+  "language": "zig",
+  "mux_protocol": 10,
+  "schema_version": 2
+}

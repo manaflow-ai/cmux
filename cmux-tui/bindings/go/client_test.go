@@ -2,15 +2,43 @@ package cmux
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
+	"os"
+	"path/filepath"
+	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 )
+
+func TestGeneratedInventoryHasTypedMethodForEveryCommand(t *testing.T) {
+	commands := AllCommandMetadata()
+	if len(commands) != 83 {
+		t.Fatalf("generated commands = %d, want 83", len(commands))
+	}
+	clientType := reflect.TypeOf((*Client)(nil))
+	for _, command := range commands {
+		if command.Since < 5 || command.Since > MuxProtocolVersion {
+			t.Errorf("%s since = %d", command.Name, command.Since)
+		}
+		if command.Authority == "" {
+			t.Errorf("%s has no authority", command.Name)
+		}
+		if _, ok := clientType.MethodByName(command.GoMethod); !ok {
+			t.Errorf("%s has no typed Client.%s method", command.Name, command.GoMethod)
+		}
+	}
+	if events := AllEventMetadata(); len(events) != 44 {
+		t.Fatalf("generated events = %d, want 44", len(events))
+	}
+}
 
 func TestLegacyResizeResponseDefaultsToAccepted(t *testing.T) {
 	var result ResizeSurfaceResult
@@ -22,115 +50,35 @@ func TestLegacyResizeResponseDefaultsToAccepted(t *testing.T) {
 	}
 }
 
-func TestResizeResponsePreservesReservationIdentity(t *testing.T) {
-	var result ResizeSurfaceResult
-	if err := json.Unmarshal([]byte(`{"accepted":true,"reservation_id":41}`), &result); err != nil {
+func TestJSONMapRoundTripPreservesUint64Boundary(t *testing.T) {
+	const encoded = `{"id":18446744073709551615,"data":{"value":18446744073709551615}}`
+	var envelope map[string]any
+	if err := decodeJSON([]byte(encoded), &envelope); err != nil {
 		t.Fatal(err)
 	}
-	if result.ReservationID == nil || *result.ReservationID != 41 {
-		t.Fatalf("reservation id = %v, want 41", result.ReservationID)
+	if got, ok := envelope["id"].(json.Number); !ok ||
+		got.String() != "18446744073709551615" {
+		t.Fatalf("id = %#v, want exact json.Number", envelope["id"])
+	}
+	data, err := json.Marshal(envelope["data"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result struct {
+		Value uint64 `json:"value"`
+	}
+	if err := decodeJSON(data, &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Value != ^uint64(0) {
+		t.Fatalf("value = %d, want %d", result.Value, ^uint64(0))
+	}
+	if !sameJSONValue(json.Number("18446744073709551615"), ^uint64(0)) {
+		t.Fatal("request id correlation lost uint64 precision")
 	}
 }
 
-func TestClientInfoNormalizesProtocolNineSizingParticipation(t *testing.T) {
-	var result ClientInfo
-	if err := json.Unmarshal([]byte(`{
-		"client":7,
-		"transport":"ws",
-		"connected_seconds":12,
-		"attached":[31,32],
-		"sizes":[
-			{"surface":31,"cols":126,"rows":38},
-			{"surface":32,"cols":100,"rows":30,"size_participating":true}
-		],
-		"size_participating":false,
-		"self":true
-	}`), &result); err != nil {
-		t.Fatal(err)
-	}
-	if result.Sizes[0].SizeParticipating == nil || *result.Sizes[0].SizeParticipating {
-		t.Fatalf("legacy participation = %v, want false", result.Sizes[0].SizeParticipating)
-	}
-	if result.Sizes[1].SizeParticipating == nil || !*result.Sizes[1].SizeParticipating {
-		t.Fatalf("surface participation = %v, want true", result.Sizes[1].SizeParticipating)
-	}
-}
-
-func TestWorkspaceRegistryTypesDecode(t *testing.T) {
-	var tree Tree
-	if err := json.Unmarshal([]byte(`{"workspace_revision":4,"pane_revision":7,"workspaces":[{"id":1,"key":"stable","name":"one","active":true,"screens":[]}]}`), &tree); err != nil {
-		t.Fatal(err)
-	}
-	if tree.WorkspaceRevision != 4 || tree.PaneRevision == nil || *tree.PaneRevision != 7 || tree.Workspaces[0].Key != "stable" {
-		t.Fatalf("tree = %#v", tree)
-	}
-	var legacyTree Tree
-	if err := json.Unmarshal([]byte(`{"workspaces":[]}`), &legacyTree); err != nil {
-		t.Fatal(err)
-	}
-	if legacyTree.PaneRevision != nil {
-		t.Fatalf("legacy pane revision = %v, want nil", legacyTree.PaneRevision)
-	}
-
-	var placement WorkspacePlacement
-	if err := json.Unmarshal([]byte(`{"workspace":1,"key":"stable","index":0,"workspace_revision":5}`), &placement); err != nil {
-		t.Fatal(err)
-	}
-	if placement.WorkspaceRevision != 5 {
-		t.Fatalf("placement = %#v", placement)
-	}
-
-	var mutation WorkspaceMutation
-	if err := json.Unmarshal([]byte(`{"workspace":1,"key":"stable","workspace_revision":6}`), &mutation); err != nil {
-		t.Fatal(err)
-	}
-	if mutation.WorkspaceRevision != 6 {
-		t.Fatalf("mutation = %#v", mutation)
-	}
-}
-
-func TestCreateTerminalPreservesExplicitlyEmptyArgv(t *testing.T) {
-	if _, ok := commandMap(CreateTerminalOptions{})["argv"]; ok {
-		t.Fatal("nil argv must remain absent for backward compatibility")
-	}
-	params := commandMap(CreateTerminalOptions{Argv: []string{}})
-	argv, ok := params["argv"].([]any)
-	if !ok || len(argv) != 0 {
-		t.Fatalf("argv = %#v, want explicitly supplied empty array", params["argv"])
-	}
-}
-
-func TestWorkspaceRegistrySelectorsRejectMissingAndEmptyKeysLocally(t *testing.T) {
-	if err := validateWorkspaceSelector(nil, nil); !errors.Is(err, ErrInvalidArgument) {
-		t.Fatalf("missing selector error = %v", err)
-	}
-	empty := "  "
-	if err := validateWorkspaceSelector(nil, &empty); !errors.Is(err, ErrInvalidArgument) {
-		t.Fatalf("empty key error = %v", err)
-	}
-	workspace := uint64(1)
-	if err := validateWorkspaceSelector(&workspace, nil); err != nil {
-		t.Fatalf("workspace selector error = %v", err)
-	}
-	key := "stable"
-	if err := validateWorkspaceSelector(nil, &key); err != nil {
-		t.Fatalf("key selector error = %v", err)
-	}
-}
-
-func TestAttachSurfaceRejectsPartialInitialSizeLocally(t *testing.T) {
-	cols := uint16(80)
-	_, err := (&Client{}).AttachSurfaceWithOptions(
-		context.Background(),
-		1,
-		AttachSurfaceOptions{Cols: &cols},
-	)
-	if !errors.Is(err, ErrInvalidArgument) {
-		t.Fatalf("partial attach size error = %v", err)
-	}
-}
-
-func TestIdentifyCapabilityStateIsConcurrentSafe(t *testing.T) {
+func TestTypedCommandPreservesUint64RequestAndResult(t *testing.T) {
 	clientConn, serverConn := net.Pipe()
 	defer serverConn.Close()
 	client := &Client{
@@ -141,126 +89,138 @@ func TestIdentifyCapabilityStateIsConcurrentSafe(t *testing.T) {
 
 	go func() {
 		decoder := json.NewDecoder(serverConn)
-		encoder := json.NewEncoder(serverConn)
-		for {
-			var request map[string]any
-			if decoder.Decode(&request) != nil {
-				return
-			}
-			if encoder.Encode(map[string]any{
-				"id": request["id"],
-				"ok": true,
-				"data": map[string]any{
-					"app": "cmux-tui", "version": "test", "protocol": 7,
-					"capabilities": []string{"attach-initial-size"},
-					"session":      "test", "pid": 1,
-				},
-			}) != nil {
-				return
-			}
+		decoder.UseNumber()
+		var request map[string]any
+		if decoder.Decode(&request) != nil {
+			return
 		}
+		_ = json.NewEncoder(serverConn).Encode(map[string]any{
+			"id": request["id"],
+			"ok": true,
+			"data": map[string]any{
+				"registry_id":        "registry",
+				"generation":         "generation",
+				"workspace_revision": ^uint64(0),
+				"terminal_revision":  ^uint64(0),
+				"pane_revision":      ^uint64(0),
+				"workspaces":         []any{},
+			},
+		})
 	}()
 
-	var wait sync.WaitGroup
-	wait.Add(2)
-	go func() {
-		defer wait.Done()
-		for range 100 {
-			if _, err := client.Identify(context.Background()); err != nil {
-				t.Errorf("Identify() error = %v", err)
-				return
-			}
-		}
-	}()
-	go func() {
-		defer wait.Done()
-		for range 10_000 {
-			_ = client.hasCapability("attach-initial-size")
-		}
-	}()
-	wait.Wait()
-}
-
-func TestIdentifyDetailsPreservesArtifactRevisions(t *testing.T) {
-	var result IdentifyDetails
-	if err := json.Unmarshal([]byte(`{"app":"cmux-tui","version":"0.1.2","build_commit":"cmux-sha","ghostty_commit":"ghostty-sha","protocol":7,"session":"main","pid":42}`), &result); err != nil {
-		t.Fatal(err)
-	}
-	if result.BuildCommit == nil || *result.BuildCommit != "cmux-sha" {
-		t.Fatalf("build commit = %v, want cmux-sha", result.BuildCommit)
-	}
-	if result.GhosttyCommit == nil || *result.GhosttyCommit != "ghostty-sha" {
-		t.Fatalf("ghostty commit = %v, want ghostty-sha", result.GhosttyCommit)
-	}
-}
-
-func TestIdentifyDetailsAcceptsMissingArtifactRevisions(t *testing.T) {
-	var result IdentifyDetails
-	if err := json.Unmarshal([]byte(`{"app":"cmux-tui","version":"0.1.2","protocol":7,"session":"main","pid":42}`), &result); err != nil {
-		t.Fatal(err)
-	}
-	if result.BuildCommit != nil || result.GhosttyCommit != nil {
-		t.Fatalf("artifact revisions = %v, %v; want nil", result.BuildCommit, result.GhosttyCommit)
-	}
-}
-
-func TestIdentifyResultPreservesPositionalLiteralCompatibility(t *testing.T) {
-	result := IdentifyResult{"cmux-tui", "0.1.2", 7, "main", 42}
-	if result.Protocol != 7 || result.PID != 42 {
-		t.Fatalf("legacy positional identify result = %#v", result)
-	}
-}
-
-func TestSetSplitRatioRejectsServersOlderThanProtocolEight(t *testing.T) {
-	protocol := uint32(7)
-	client := &Client{protocol: &protocol}
-	err := client.SetSplitRatio(context.Background(), 1, 0.5)
-	if err == nil || !errors.Is(err, ErrProtocolMismatch) {
-		t.Fatalf("SetSplitRatio() error = %v, want protocol mismatch", err)
-	}
-}
-
-func TestSetSplitRatioAcceptsNewerAdditiveProtocols(t *testing.T) {
-	protocol := uint32(9)
-	client := &Client{protocol: &protocol}
-	if err := client.requireProtocol(context.Background(), 8, "set-split-ratio"); err != nil {
-		t.Fatalf("requireProtocol() error = %v, want protocol 9 accepted", err)
-	}
-}
-
-func TestNewPaneRejectsServersOlderThanProtocolNine(t *testing.T) {
-	protocol := uint32(8)
-	client := &Client{protocol: &protocol}
-	_, err := client.NewPane(context.Background(), 1, NewPaneOptions{})
-	if err == nil || !errors.Is(err, ErrProtocolMismatch) {
-		t.Fatalf("NewPane() error = %v, want protocol mismatch", err)
-	}
-}
-
-func TestStreamYieldsBufferedOverflowOnceThenStops(t *testing.T) {
-	client, server := net.Pipe()
-	defer server.Close()
-	stream := &Stream{
-		conn:     &jsonLineConn{conn: client, reader: bufio.NewReader(client)},
-		buffered: []Event{OverflowEvent{Error: "fell behind"}},
-	}
-
-	event, err := stream.Recv(context.Background())
+	result, err := client.ListWorkspaces(context.Background())
 	if err != nil {
-		t.Fatalf("first Recv() error = %v", err)
+		t.Fatal(err)
 	}
-	if _, ok := event.(OverflowEvent); !ok {
-		t.Fatalf("first Recv() event = %#v", event)
-	}
-	if _, err := stream.Recv(context.Background()); !errors.Is(err, io.EOF) {
-		t.Fatalf("second Recv() error = %v, want io.EOF", err)
+	if result.WorkspaceRevision == nil || *result.WorkspaceRevision != ^uint64(0) {
+		t.Fatalf("workspace revision = %v", result.WorkspaceRevision)
 	}
 }
 
-func TestStreamCloseIsConcurrentSafe(t *testing.T) {
-	client, server := net.Pipe()
-	defer server.Close()
-	stream := &Stream{conn: &jsonLineConn{conn: client, reader: bufio.NewReader(client)}}
+func TestSocketResolutionUsesNormativePrecedence(t *testing.T) {
+	t.Setenv("CMUX_TUI_SOCKET", "")
+	t.Setenv("CMUX_MUX_SOCKET", "")
+	t.Setenv("XDG_RUNTIME_DIR", "/run/user-test")
+	t.Setenv("TMPDIR", "/tmp/ignored")
+
+	path, err := ResolveSocketPath("", "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(
+		"/run/user-test",
+		fmt.Sprintf("cmux-tui-%d", os.Getuid()),
+		"main.sock",
+	)
+	if path != want {
+		t.Fatalf("resolved path = %q, want %q", path, want)
+	}
+
+	t.Setenv("CMUX_MUX_SOCKET", "/tmp/legacy.sock")
+	path, err = ResolveSocketPath("", "main")
+	if err != nil || path != "/tmp/legacy.sock" {
+		t.Fatalf("legacy env path = %q, %v", path, err)
+	}
+	t.Setenv("CMUX_TUI_SOCKET", "/tmp/current.sock")
+	path, err = ResolveSocketPath("", "main")
+	if err != nil || path != "/tmp/current.sock" {
+		t.Fatalf("current env path = %q, %v", path, err)
+	}
+	path, err = ResolveSocketPath("/tmp/explicit.sock", "main")
+	if err != nil || path != "/tmp/explicit.sock" {
+		t.Fatalf("explicit path = %q, %v", path, err)
+	}
+}
+
+func TestSocketResolutionFallsBackWhenUnixPathIsTooLong(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", "/"+string(bytes.Repeat([]byte{'x'}, 150)))
+	t.Setenv("TMPDIR", "")
+	path := DefaultSocketPath("main")
+	want := filepath.Join(
+		"/tmp",
+		fmt.Sprintf("cmux-tui-%d", os.Getuid()),
+		"main.sock",
+	)
+	if path != want {
+		t.Fatalf("fallback path = %q, want %q", path, want)
+	}
+}
+
+func TestSocketResolutionRejectsUnsafeSessionNames(t *testing.T) {
+	t.Setenv("CMUX_TUI_SOCKET", "")
+	t.Setenv("CMUX_MUX_SOCKET", "")
+	for _, session := range []string{"", ".", "..", "../other", "contains space", "a/b"} {
+		if _, err := ResolveSocketPath("", session); !errors.Is(err, ErrInvalidArgument) {
+			t.Errorf("session %q error = %v, want invalid argument", session, err)
+		}
+	}
+}
+
+func TestClientCloseUnblocksPendingRead(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	defer serverConn.Close()
+	client := &Client{
+		timeout: time.Hour,
+		conn:    &jsonLineConn{conn: clientConn, reader: bufio.NewReader(clientConn)},
+	}
+	result := make(chan error, 1)
+	go func() {
+		_, err := client.SendRaw(
+			context.Background(),
+			map[string]any{"cmd": "identify"},
+		)
+		result <- err
+	}()
+
+	var request map[string]any
+	if err := json.NewDecoder(serverConn).Decode(&request); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-result:
+		if !errors.Is(err, ErrConnection) {
+			t.Fatalf("pending read error = %v, want connection error", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Client.Close did not unblock the pending read")
+	}
+}
+
+func TestStreamCloseIsConcurrentSafeAndUnblocksRead(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	defer serverConn.Close()
+	stream := &Stream{
+		timeout: time.Hour,
+		conn:    &jsonLineConn{conn: clientConn, reader: bufio.NewReader(clientConn)},
+	}
+	result := make(chan error, 1)
+	go func() {
+		_, err := stream.Recv(context.Background())
+		result <- err
+	}()
 
 	var wait sync.WaitGroup
 	for range 16 {
@@ -273,8 +233,344 @@ func TestStreamCloseIsConcurrentSafe(t *testing.T) {
 		}()
 	}
 	wait.Wait()
-
-	if _, err := stream.Recv(context.Background()); !errors.Is(err, io.EOF) {
-		t.Fatalf("Recv() error = %v, want io.EOF", err)
+	select {
+	case err := <-result:
+		if !errors.Is(err, io.EOF) {
+			t.Fatalf("Recv() error = %v, want EOF", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Stream.Close did not unblock Recv")
 	}
+}
+
+func TestBoundedLineRejectsOversizeFrames(t *testing.T) {
+	reader := bufio.NewReaderSize(bytes.NewBufferString("123456789\n"), 4)
+	if _, err := readBoundedLine(reader, 8); !errors.Is(err, ErrMessageTooLarge) {
+		t.Fatalf("oversize error = %v, want message too large", err)
+	}
+}
+
+func TestClientOptionsApplyPerClientCommandLimits(t *testing.T) {
+	t.Run("request", func(t *testing.T) {
+		listener, socket := testUnixListener(t)
+		client, err := NewClient(Options{
+			SocketPath:      socket,
+			MaxRequestBytes: 128,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer client.Close()
+		if client.maxRequestBytes != 128 ||
+			client.maxResponseBytes != MaxResponseBytes ||
+			client.maxBufferedStreamEvents != MaxBufferedStreamEvents {
+			t.Fatalf(
+				"resolved limits = %d, %d, %d",
+				client.maxRequestBytes,
+				client.maxResponseBytes,
+				client.maxBufferedStreamEvents,
+			)
+		}
+		_, err = client.SendRaw(context.Background(), map[string]any{
+			"cmd":     "future-command",
+			"payload": strings.Repeat("x", 512),
+		})
+		if !errors.Is(err, ErrMessageTooLarge) {
+			t.Fatalf("oversize request error = %v", err)
+		}
+		_ = listener.Close()
+	})
+
+	t.Run("response", func(t *testing.T) {
+		listener, socket := testUnixListener(t)
+		serverDone := make(chan error, 1)
+		go func() {
+			conn, err := listener.Accept()
+			if err != nil {
+				serverDone <- err
+				return
+			}
+			defer conn.Close()
+			var request map[string]any
+			if err := json.NewDecoder(conn).Decode(&request); err != nil {
+				serverDone <- err
+				return
+			}
+			serverDone <- json.NewEncoder(conn).Encode(map[string]any{
+				"id": request["id"],
+				"ok": true,
+				"data": map[string]any{
+					"payload": strings.Repeat("x", 4096),
+				},
+			})
+		}()
+		client, err := NewClient(Options{
+			SocketPath:       socket,
+			MaxResponseBytes: 1024,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer client.Close()
+		_, err = client.SendRaw(
+			context.Background(),
+			map[string]any{"cmd": "future-command"},
+		)
+		if !errors.Is(err, ErrMessageTooLarge) {
+			t.Fatalf("oversize response error = %v", err)
+		}
+		if err := <-serverDone; err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	for _, options := range []Options{
+		{SocketPath: "/unused", MaxRequestBytes: -1},
+		{SocketPath: "/unused", MaxResponseBytes: -1},
+		{SocketPath: "/unused", MaxBufferedStreamEvents: -1},
+	} {
+		if _, err := NewClient(options); !errors.Is(err, ErrInvalidArgument) {
+			t.Errorf("negative limit error = %v", err)
+		}
+	}
+}
+
+func TestClientOptionsApplyToDedicatedStreams(t *testing.T) {
+	t.Run("response", func(t *testing.T) {
+		listener, socket := testUnixListener(t)
+		serverDone := make(chan error, 1)
+		go serveStreamHandshake(
+			listener,
+			[]map[string]any{{
+				"event":   "tree-changed",
+				"payload": strings.Repeat("x", 4096),
+			}},
+			false,
+			serverDone,
+		)
+		client, err := NewClient(Options{
+			SocketPath:       socket,
+			MaxResponseBytes: 1024,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer client.Close()
+		if _, err := client.Subscribe(context.Background()); !errors.Is(
+			err,
+			ErrMessageTooLarge,
+		) {
+			t.Fatalf("oversize stream response error = %v", err)
+		}
+		if err := <-serverDone; err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("buffer", func(t *testing.T) {
+		listener, socket := testUnixListener(t)
+		serverDone := make(chan error, 1)
+		go serveStreamHandshake(
+			listener,
+			[]map[string]any{
+				{"event": "tree-changed"},
+				{"event": "tree-changed"},
+			},
+			true,
+			serverDone,
+		)
+		client, err := NewClient(Options{
+			SocketPath:              socket,
+			MaxBufferedStreamEvents: 1,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer client.Close()
+		if _, err := client.Subscribe(context.Background()); !errors.Is(
+			err,
+			ErrBufferFull,
+		) {
+			t.Fatalf("stream buffer error = %v", err)
+		}
+		if err := <-serverDone; err != nil &&
+			!errors.Is(err, net.ErrClosed) &&
+			!errors.Is(err, io.ErrClosedPipe) {
+			t.Fatal(err)
+		}
+	})
+}
+
+func TestProtocolTenAttachIsEnabledByDefault(t *testing.T) {
+	protocol := uint32(10)
+	client := &Client{
+		socketPath: "/does/not/exist",
+		timeout:    time.Millisecond,
+		protocol:   &protocol,
+	}
+	_, err := client.AttachSurface(context.Background(), 1)
+	if errors.Is(err, ErrProtocolMismatch) {
+		t.Fatalf("default attach rejected current protocol: %v", err)
+	}
+	if !errors.Is(err, ErrConnection) {
+		t.Fatalf("attach error = %v, want connection attempt", err)
+	}
+}
+
+func TestVersionedMethodFailsLocally(t *testing.T) {
+	protocol := uint32(7)
+	client := &Client{protocol: &protocol}
+	if err := client.SetSplitRatio(context.Background(), 1, 0.5); !errors.Is(
+		err,
+		ErrProtocolMismatch,
+	) {
+		t.Fatalf("SetSplitRatio error = %v", err)
+	}
+}
+
+func TestGeneratedEventDecodingAndUnknownFallback(t *testing.T) {
+	event := parseEvent(map[string]any{
+		"event":          "surface-resize-failed",
+		"surface":        json.Number("18446744073709551615"),
+		"cols":           json.Number("120"),
+		"rows":           json.Number("40"),
+		"error":          "browser is not responding",
+		"retry_after_ms": json.Number("250"),
+	})
+	failed, ok := event.(SurfaceResizeFailedEvent)
+	if !ok || failed.Surface != ^uint64(0) ||
+		failed.RetryAfterMs == nil || *failed.RetryAfterMs != 250 {
+		t.Fatalf("decoded event = %#v", event)
+	}
+
+	unknown := parseEvent(map[string]any{
+		"event": "future-event",
+		"seq":   json.Number("18446744073709551615"),
+	})
+	future, ok := unknown.(UnknownEvent)
+	if !ok || future.Raw["seq"].(json.Number).String() != "18446744073709551615" {
+		t.Fatalf("unknown event = %#v", unknown)
+	}
+	if _, ok := any(future).(ByteAttachEvent); !ok {
+		t.Fatal("unknown events must survive typed stream fallbacks")
+	}
+}
+
+func TestProtocolSixResizedAliasDecodes(t *testing.T) {
+	event, ok := parseEvent(map[string]any{
+		"event":   "resized",
+		"surface": json.Number("7"),
+		"cols":    json.Number("80"),
+		"rows":    json.Number("24"),
+		"data":    "cmVwbGF5",
+	}).(ResizedEvent)
+	if !ok || event.Data == nil || string(*event.Data) != "cmVwbGF5" {
+		t.Fatalf("resized event = %#v", event)
+	}
+}
+
+func TestGeneratedPaneAndLayoutUnionsAreTyped(t *testing.T) {
+	var live Pane
+	if err := json.Unmarshal(
+		[]byte(`{"id":1,"name":null,"active_tab":0,"tabs":[]}`),
+		&live,
+	); err != nil {
+		t.Fatal(err)
+	}
+	livePane, ok := live.AsLivePane()
+	if !ok || livePane.ID != 1 {
+		t.Fatalf("live pane = %#v", live)
+	}
+
+	var dead Pane
+	if err := json.Unmarshal([]byte(`{"id":2,"dead":true}`), &dead); err != nil {
+		t.Fatal(err)
+	}
+	deadPane, ok := dead.AsDeadPane()
+	if !ok || deadPane.ID != 2 || !deadPane.Dead {
+		t.Fatalf("dead pane = %#v", dead)
+	}
+
+	var layout Layout
+	if err := json.Unmarshal(
+		[]byte(`{"type":"split","split":18446744073709551615,"dir":"right","ratio":0.5,"a":{"type":"leaf","pane":1},"b":{"type":"leaf","pane":2}}`),
+		&layout,
+	); err != nil {
+		t.Fatal(err)
+	}
+	split, ok := layout.AsSplit()
+	if !ok || split.Split == nil || *split.Split != ^uint64(0) {
+		t.Fatalf("layout = %#v", layout)
+	}
+	leaf := NewLayoutLeaf(LayoutLeaf{Pane: 9})
+	encoded, err := json.Marshal(leaf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(encoded, []byte(`"type":"leaf"`)) {
+		t.Fatalf("encoded layout = %s", encoded)
+	}
+}
+
+func testUnixListener(t *testing.T) (net.Listener, string) {
+	t.Helper()
+	directory, err := os.MkdirTemp("/tmp", "cmux-go-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.RemoveAll(directory)
+	})
+	socket := filepath.Join(directory, "cmux.sock")
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = listener.Close()
+	})
+	return listener, socket
+}
+
+func serveStreamHandshake(
+	listener net.Listener,
+	events []map[string]any,
+	sendResponse bool,
+	done chan<- error,
+) {
+	commandConn, err := listener.Accept()
+	if err != nil {
+		done <- err
+		return
+	}
+	defer commandConn.Close()
+	streamConn, err := listener.Accept()
+	if err != nil {
+		done <- err
+		return
+	}
+	defer streamConn.Close()
+	var request map[string]any
+	if err := json.NewDecoder(streamConn).Decode(&request); err != nil {
+		done <- err
+		return
+	}
+	encoder := json.NewEncoder(streamConn)
+	for _, event := range events {
+		if err := encoder.Encode(event); err != nil {
+			done <- err
+			return
+		}
+	}
+	if sendResponse {
+		if err := encoder.Encode(map[string]any{
+			"id":   request["id"],
+			"ok":   true,
+			"data": map[string]any{},
+		}); err != nil {
+			done <- err
+			return
+		}
+	}
+	done <- nil
 }

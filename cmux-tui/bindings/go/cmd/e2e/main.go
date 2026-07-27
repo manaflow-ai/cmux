@@ -113,20 +113,30 @@ func run() error {
 		if err != nil {
 			return err
 		}
-		if !ok || size.SizeParticipating == nil || !*size.SizeParticipating {
+		if !ok || !size.SizeParticipating {
 			return fmt.Errorf("protocol 10 surface sizing state missing: %+v", size)
 		}
-		if err := client.SetClientSizing(ctx, created.Surface, sizingClient, false); err != nil {
+		if err := client.SetClientSizing(
+			ctx,
+			created.Surface,
+			false,
+			cmux.SetClientSizingOptions{Client: &sizingClient},
+		); err != nil {
 			return err
 		}
 		_, size, ok, err = findClientSurfaceSize(ctx, client, created.Surface)
 		if err != nil {
 			return err
 		}
-		if !ok || size.SizeParticipating == nil || *size.SizeParticipating {
+		if !ok || size.SizeParticipating {
 			return fmt.Errorf("surface sizing mutation was not reflected: %+v", size)
 		}
-		if err := client.SetClientSizing(ctx, created.Surface, sizingClient, true); err != nil {
+		if err := client.SetClientSizing(
+			ctx,
+			created.Surface,
+			true,
+			cmux.SetClientSizingOptions{Client: &sizingClient},
+		); err != nil {
 			return err
 		}
 	}
@@ -137,7 +147,7 @@ func run() error {
 	if err := nextAttachOutput(attach, 3*time.Second); err != nil {
 		return err
 	}
-	if err := client.CloseWorkspace(ctx, workspace); err != nil {
+	if _, err := client.CloseWorkspaceByID(ctx, workspace); err != nil {
 		return err
 	}
 	afterClose, err := client.ListWorkspaces(ctx)
@@ -211,7 +221,11 @@ func findWorkspaceForSurface(tree cmux.Tree, surface uint64) (uint64, bool) {
 	for _, workspace := range tree.Workspaces {
 		for _, screen := range workspace.Screens {
 			for _, pane := range screen.Panes {
-				for _, tab := range pane.Tabs {
+				live, ok := pane.AsLivePane()
+				if !ok {
+					continue
+				}
+				for _, tab := range live.Tabs {
 					if tab.Surface == surface {
 						return workspace.ID, true
 					}

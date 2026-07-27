@@ -17,7 +17,7 @@ def main() -> int:
         raise SystemExit("CMUX_TUI_SOCKET is required")
     marker = f"CMUX_PY_E2E_{os.getpid()}_{time.time_ns()}"
     later = f"{marker}_ATTACH"
-    with CmuxClient(socket_path=socket_path, timeout=5.0, allow_protocol_v6_attach=True) as client:
+    with CmuxClient(socket_path=socket_path, timeout=5.0) as client:
         info = client.identify()
         assert info.app == "cmux-tui", info
         assert 5 <= info.protocol <= 10, info
@@ -54,15 +54,19 @@ def main() -> int:
             if info.protocol >= 10:
                 sizing_client, size = find_client_surface_size(client, created.surface)
                 assert size.size_participating is True, size
-                client.set_client_sizing(created.surface, sizing_client, False)
+                client.set_client_sizing(
+                    created.surface, False, client=sizing_client
+                )
                 _, size = find_client_surface_size(client, created.surface)
                 assert size.size_participating is False, size
-                client.set_client_sizing(created.surface, sizing_client, True)
+                client.set_client_sizing(
+                    created.surface, True, client=sizing_client
+                )
             client.send(created.surface, text=f"printf '{later}\\n'\r")
             next_attach_output(attach, 3.0)
         finally:
             attach.close()
-        client.close_workspace(workspace)
+        client.close_workspace(workspace=workspace)
         assert find_workspace_for_surface(client.list_workspaces(), created.surface) is None
         try:
             client.read_screen(created.surface)
@@ -86,26 +90,26 @@ def wait_for_marker(client: CmuxClient, surface: int, marker: str) -> None:
 
 def next_resized(stream, surface: int, timeout: float):
     deadline = time.time() + timeout
-    old_timeout = stream._conn.sock.gettimeout()
-    stream._conn.sock.settimeout(timeout)
+    old_timeout = stream.timeout
+    stream.timeout = timeout
     try:
         while time.time() < deadline:
-            stream._conn.sock.settimeout(max(deadline - time.time(), 0.001))
+            stream.timeout = max(deadline - time.time(), 0.001)
             event = next(stream)
             if event.event == "surface-resized" and event.surface == surface:
                 return event
     finally:
-        stream._conn.sock.settimeout(old_timeout)
+        stream.timeout = old_timeout
     raise CmuxTimeoutError("surface-resized not observed")
 
 
 def next_title_changed(stream, surface: int, title: str, timeout: float):
     deadline = time.time() + timeout
-    old_timeout = stream._conn.sock.gettimeout()
-    stream._conn.sock.settimeout(timeout)
+    old_timeout = stream.timeout
+    stream.timeout = timeout
     try:
         while time.time() < deadline:
-            stream._conn.sock.settimeout(max(deadline - time.time(), 0.001))
+            stream.timeout = max(deadline - time.time(), 0.001)
             event = next(stream)
             if (
                 event.event == "title-changed"
@@ -114,22 +118,22 @@ def next_title_changed(stream, surface: int, title: str, timeout: float):
             ):
                 return event
     finally:
-        stream._conn.sock.settimeout(old_timeout)
+        stream.timeout = old_timeout
     raise CmuxTimeoutError("title-changed not observed")
 
 
 def next_attach_output(stream, timeout: float) -> None:
     deadline = time.time() + timeout
-    old_timeout = stream._conn.sock.gettimeout()
-    stream._conn.sock.settimeout(timeout)
+    old_timeout = stream.timeout
+    stream.timeout = timeout
     try:
         while time.time() < deadline:
-            stream._conn.sock.settimeout(max(deadline - time.time(), 0.001))
+            stream.timeout = max(deadline - time.time(), 0.001)
             event = next(stream)
             if event.event in ("output", "resized"):
                 return
     finally:
-        stream._conn.sock.settimeout(old_timeout)
+        stream.timeout = old_timeout
     raise CmuxTimeoutError("attach output not observed")
 
 

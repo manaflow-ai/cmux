@@ -23,7 +23,7 @@ permissions:
 jobs:
   inventory:
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -34,3 +34,17 @@ jobs:
 
       - name: Check protocol and TUI action inventory
         run: python3 cmux-tui/scripts/check-spec-inventory.py
+
+      - name: Test deterministic SDK generator
+        env:
+          PYTHONPATH: cmux-tui/bindings
+        run: python3 -m unittest discover -s cmux-tui/bindings/codegen/tests -v
+
+      - name: Test SDK schema checker
+        run: python3 cmux-tui/scripts/test_check_sdk_schema.py
+
+      - name: Check SDK schema against runtime inventory
+        run: python3 cmux-tui/scripts/check-sdk-schema.py
+
+      - name: Check generated SDK wire layers
+        run: python3 cmux-tui/bindings/codegen/generate.py --check

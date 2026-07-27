@@ -1,389 +1,454 @@
 {
-  "defaults": { "timeout_ms": 5000 },
-  "fixtures": [
+  "contract_version": 1,
+  "fake_cases": [
     {
-      "name": "identify",
-      "steps": [
-        {
-          "type": "command",
-          "request": { "id": 1, "cmd": "identify" },
-          "expect": { "id": 1, "ok": true, "data": { "app": "cmux-tui", "protocol": 10 } },
-          "match": "partial"
-        }
-      ]
-    },
-    {
-      "name": "server-client-control",
-      "steps": [
-        {
-          "type": "command",
-          "request": { "id": 1, "cmd": "ping" },
-          "expect": { "id": 1, "ok": true, "data": { "ok": true, "protocol": 10 } },
-          "match": "partial"
-        },
-        {
-          "type": "command",
-          "request": { "id": 2, "cmd": "set-window-title", "title": "cmux-conformance" },
-          "expect": { "id": 2, "ok": true, "data": {} },
-          "match": "exact"
-        },
-        {
-          "type": "command",
-          "request": { "id": 3, "cmd": "clear-window-title" },
-          "expect": { "id": 3, "ok": true, "data": {} },
-          "match": "exact"
-        }
-      ]
-    },
-    {
-      "name": "workspace-tab-split-rename",
-      "steps": [
-        {
-          "type": "command",
-          "request": { "id": 1, "cmd": "new-workspace", "name": "conf-tree", "cols": 80, "rows": 24 },
-          "expect": { "id": 1, "ok": true },
-          "match": "partial",
-          "bind": { "surface0": "data.surface" }
-        },
-        {
-          "type": "command",
-          "request": { "id": 2, "cmd": "list-workspaces" },
-          "expect": { "id": 2, "ok": true },
-          "match": "partial",
-          "bind": {
-            "workspace0": "data.workspaces[0].id",
-            "pane0": "data.workspaces[0].screens[0].panes[0].id",
-            "focused0": "data.workspaces[0].screens[0].panes[0].focused_at",
-            "pane_revision0": "data.pane_revision"
-          }
-        },
-        {
-          "type": "command",
-          "request": { "id": 3, "cmd": "new-tab", "pane": "$pane0" },
-          "expect": { "id": 3, "ok": true },
-          "match": "partial",
-          "bind": { "surface1": "data.surface" }
-        },
-        {
-          "type": "command",
-          "request": { "id": 4, "cmd": "split", "pane": "$pane0", "dir": "right" },
-          "expect": { "id": 4, "ok": true },
-          "match": "partial",
-          "bind": { "surface2": "data.surface" }
-        },
-        {
-          "type": "command",
-          "request": { "id": 5, "cmd": "rename-surface", "surface": "$surface1", "name": "renamed-tab" },
-          "expect": { "id": 5, "ok": true },
-          "match": "partial"
-        },
-        {
-          "type": "command",
-          "request": { "id": 6, "cmd": "list-workspaces" },
-          "expect": { "id": 6, "ok": true },
-          "match": "partial"
-        }
-      ]
-    },
-    {
-      "name": "move-tab-same-position",
-      "requires": { "commands": ["move-tab"] },
-      "steps": [
-        {
-          "type": "command",
-          "request": { "id": 1, "cmd": "new-workspace", "name": "conf-move-tab", "cols": 80, "rows": 24 },
-          "expect": { "id": 1, "ok": true },
-          "match": "partial",
-          "bind": { "surface0": "data.surface" }
-        },
-        {
-          "type": "command",
-          "request": { "id": 2, "cmd": "list-workspaces" },
-          "expect": { "id": 2, "ok": true },
-          "match": "partial",
-          "bind": { "pane0": "data.workspaces[1].screens[0].panes[0].id" }
-        },
-        {
-          "type": "command",
-          "request": { "id": 3, "cmd": "move-tab", "surface": "$surface0", "pane": "$pane0", "index": 0 },
-          "expect": { "id": 3, "ok": true },
-          "match": "partial"
-        }
-      ]
-    },
-    {
-      "name": "window-manager-layout-ops",
-      "requires": { "commands": ["export-layout", "set-split-ratio", "pane-neighbor", "zoom-pane"] },
-      "steps": [
-        {
-          "type": "command",
-          "request": { "id": 1, "cmd": "new-workspace", "name": "conf-wm", "cols": 80, "rows": 24 },
-          "expect": { "id": 1, "ok": true },
-          "match": "partial"
-        },
-        {
-          "type": "command",
-          "request": { "id": 2, "cmd": "list-workspaces" },
-          "expect": { "id": 2, "ok": true },
-          "match": "partial",
-          "bind": { "pane0": "data.workspaces[2].screens[0].panes[0].id" }
-        },
-        {
-          "type": "command",
-          "request": { "id": 3, "cmd": "split", "pane": "$pane0", "dir": "right" },
-          "expect": { "id": 3, "ok": true },
-          "match": "partial"
-        },
-        {
-          "type": "command",
-          "request": { "id": 4, "cmd": "list-workspaces" },
-          "expect": { "id": 4, "ok": true },
-          "match": "partial",
-          "bind": {
-            "pane1": "data.workspaces[2].screens[0].panes[1].id",
-            "split0": "data.workspaces[2].screens[0].layout.split"
-          }
-        },
-        {
-          "type": "command",
-          "request": { "id": 5, "cmd": "export-layout" },
-          "expect": {
-            "id": 5,
-            "ok": true,
-            "data": {
-              "layout": { "type": "split", "split": "$split0", "dir": "right", "ratio": 0.5 },
-              "panes": [{ "pane": "$pane0" }, { "pane": "$pane1" }]
-            }
-          },
-          "match": "partial"
-        },
-        {
-          "type": "command",
-          "request": { "id": 6, "cmd": "set-split-ratio", "split": "$split0", "ratio": 0.75 },
-          "expect": { "id": 6, "ok": true, "data": {} },
-          "match": "partial"
-        },
-        {
-          "type": "command",
-          "request": { "id": 7, "cmd": "export-layout" },
-          "expect": { "id": 7, "ok": true, "data": { "layout": { "split": "$split0", "ratio": 0.75 } } },
-          "match": "partial"
-        },
-        {
-          "type": "command",
-          "request": { "id": 8, "cmd": "pane-neighbor", "pane": "$pane0", "dir": "right" },
-          "expect": { "id": 8, "ok": true, "data": { "pane": "$pane1" } },
-          "match": "partial"
-        },
-        {
-          "type": "command",
-          "request": { "id": 9, "cmd": "zoom-pane", "pane": "$pane1", "mode": "toggle" },
-          "expect": { "id": 9, "ok": true, "data": { "pane": "$pane1", "zoomed": true, "zoomed_pane": "$pane1" } },
-          "match": "partial"
-        }
-      ]
-    },
-    {
-      "name": "subscribe-tree-changed",
-      "steps": [
-        {
-          "type": "stream",
-          "name": "events",
-          "request": { "id": 1, "cmd": "subscribe" },
-          "expect": { "id": 1, "ok": true },
-          "match": "partial"
-        },
-        {
-          "type": "command",
-          "request": { "id": 2, "cmd": "new-workspace", "name": "conf-events", "cols": 80, "rows": 24 },
-          "expect": { "id": 2, "ok": true },
-          "match": "partial"
-        },
-        {
-          "type": "expect_events",
-          "stream": "events",
-          "expect": [
-            { "event": "tree-changed" }
-          ]
-        }
-      ]
-    },
-    {
-      "name": "subscribe-title-changed-carries-title",
-      "steps": [
-        {
-          "type": "command",
-          "request": { "id": 1, "cmd": "new-workspace", "name": "conf-title", "cols": 80, "rows": 24 },
-          "expect": { "id": 1, "ok": true },
-          "match": "partial",
-          "bind": { "surface0": "data.surface" }
-        },
-        {
-          "type": "stream",
-          "name": "events",
-          "request": { "id": 2, "cmd": "subscribe" },
-          "expect": { "id": 2, "ok": true },
-          "match": "partial"
-        },
-        {
-          "type": "command",
-          "request": { "id": 3, "cmd": "send", "surface": "$surface0", "text": "printf '\\033]2;conformance title\\007'; sleep 30\r" },
-          "expect": { "id": 3, "ok": true },
-          "match": "partial"
-        },
-        {
-          "type": "expect_events",
-          "stream": "events",
-          "expect": [
-            { "event": "title-changed", "surface": "$surface0", "title": "conformance title" }
-          ]
-        },
-        {
-          "type": "command",
-          "request": { "id": 4, "cmd": "send", "surface": "$surface0", "text": "\u0003" },
-          "expect": { "id": 4, "ok": true },
-          "match": "partial"
-        }
-      ]
-    },
-    {
-      "name": "attach-resize-carries-replay",
-      "steps": [
-        {
-          "type": "command",
-          "request": { "id": 1, "cmd": "new-workspace", "name": "conf-attach-resize", "cols": 80, "rows": 24 },
-          "expect": { "id": 1, "ok": true },
-          "match": "partial",
-          "bind": { "surface0": "data.surface" }
-        },
-        {
-          "type": "stream",
-          "name": "attach",
-          "request": { "cmd": "attach-surface", "surface": "$surface0" },
-          "expect": { "ok": true },
-          "match": "partial"
-        },
-        {
-          "type": "command",
-          "request": { "id": 2, "cmd": "resize-surface", "surface": "$surface0", "cols": 100, "rows": 31 },
-          "expect": { "id": 2, "ok": true, "data": { "accepted": true } },
-          "match": "partial"
-        },
-        {
-          "type": "expect_events",
-          "stream": "attach",
-          "expect": [
-            {
-              "event": "resized",
-              "surface": "$surface0",
-              "cols": 100,
-              "rows": 31,
-              "replay": { "__match__": "nonempty-string" }
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "name": "send-read-screen-round-trip",
-      "steps": [
-        {
-          "type": "command",
-          "request": { "id": 1, "cmd": "new-workspace", "name": "conf-io", "cols": 80, "rows": 24 },
-          "expect": { "id": 1, "ok": true },
-          "match": "partial",
-          "bind": { "surface0": "data.surface" }
-        },
-        {
-          "type": "command",
-          "request": { "id": 2, "cmd": "send", "surface": "$surface0", "text": "printf 'cmux-conformance-marker\\n'\r" },
-          "expect": { "id": 2, "ok": true },
-          "match": "partial"
-        },
-        {
-          "type": "wait_contains",
-          "request": { "id": 3, "cmd": "read-screen", "surface": "$surface0" },
-          "path": "data.text",
-          "contains": "cmux-conformance-marker",
-          "timeout_ms": 10000
-        }
-      ]
-    },
-    {
-      "name": "overflow-event-schema",
-      "steps": [
-        {
-          "type": "parse_event",
-          "event": { "event": "overflow", "error": "subscriber fell behind", "scope": "surface", "surface": 7 },
-          "expect": { "event": "overflow", "error": "subscriber fell behind", "scope": "surface", "surface": 7 },
-          "match": "partial"
-        }
-      ]
-    },
-    {
-      "name": "implemented-verbs-json",
-      "requires": {
-        "commands": ["run", "wait-for", "send-key", "copy", "ids", "notify", "list-agents", "report-agent"]
+      "name": "partial-frames",
+      "adapter": {
+        "op": "identify",
+        "timeout_ms": 1000,
+        "max_frame_bytes": 16777216
       },
-      "steps": [
-        {
-          "type": "command",
-          "request": { "id": 1, "cmd": "run", "command": "printf 'cmux-run-marker\\n'; cat", "name": "conf-run", "cols": 80, "rows": 24 },
-          "expect": { "id": 1, "ok": true },
-          "match": "partial",
-          "bind": { "surface0": "data.surface" }
-        },
-        {
-          "type": "wait_contains",
-          "request": { "id": 2, "cmd": "copy", "surface": "$surface0", "mode": "screen" },
-          "path": "data.text",
-          "contains": "cmux-run-marker",
-          "timeout_ms": 10000
-        },
-        {
-          "type": "command",
-          "request": { "id": 3, "cmd": "wait-for", "surface": "$surface0", "pattern": "cmux-run-marker", "timeout_ms": 5000 },
-          "expect": { "id": 3, "ok": true, "data": { "matched": true } },
-          "match": "partial"
-        },
-        {
-          "type": "command",
-          "request": { "id": 4, "cmd": "ids", "kind": "surface" },
-          "expect": { "id": 4, "ok": true },
-          "match": "partial"
-        },
-        {
-          "type": "command",
-          "request": { "id": 5, "cmd": "notify", "title": "Build", "body": "ok", "level": "info", "surface": "$surface0" },
-          "expect": { "id": 5, "ok": true },
-          "match": "partial"
-        },
-        {
-          "type": "command",
-          "request": { "id": 6, "cmd": "report-agent", "surface": "$surface0", "state": "working", "source": "socket", "session": "conf" },
-          "expect": { "id": 6, "ok": true, "data": { "state": "working", "source": "socket", "session": "conf" } },
-          "match": "partial"
-        },
-        {
-          "type": "command",
-          "request": { "id": 7, "cmd": "list-agents", "surface": "$surface0", "state": "working" },
-          "expect": { "id": 7, "ok": true, "data": { "agents": [ { "surface": "$surface0", "state": "working", "source": "socket", "session": "conf" } ] } },
-          "match": "partial"
-        },
-        {
-          "type": "command",
-          "request": { "id": 8, "cmd": "send-key", "surface": "$surface0", "keys": ["h", "i", "enter"] },
-          "expect": { "id": 8, "ok": true, "data": {} },
-          "match": "partial"
-        },
-        {
-          "type": "wait_contains",
-          "request": { "id": 9, "cmd": "copy", "surface": "$surface0", "mode": "scrollback" },
-          "path": "data.text",
-          "contains": "hi",
-          "timeout_ms": 10000
+      "server": {
+        "behavior": "identify",
+        "chunks": [1, 2, 3, 5, 8, 13]
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "protocol": 10,
+          "workspace_revision": "0",
+          "terminal_revision": "18446744073709551615"
         }
-      ]
+      }
+    },
+    {
+      "name": "exact-uint64-boundaries",
+      "adapter": {
+        "op": "identify",
+        "timeout_ms": 1000,
+        "max_frame_bytes": 16777216
+      },
+      "server": {
+        "behavior": "identify"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "workspace_revision": "0",
+          "terminal_revision": "18446744073709551615"
+        }
+      }
+    },
+    {
+      "name": "nullable-literal-null",
+      "adapter": {
+        "op": "nullable-literal",
+        "timeout_ms": 1000
+      },
+      "server": {
+        "behavior": "terminal-placement",
+        "lifecycle": null
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "lifecycle": null
+        }
+      }
+    },
+    {
+      "name": "nullable-literal-running",
+      "adapter": {
+        "op": "nullable-literal",
+        "timeout_ms": 1000
+      },
+      "server": {
+        "behavior": "terminal-placement",
+        "lifecycle": "running"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "lifecycle": "running"
+        }
+      }
+    },
+    {
+      "name": "oversized-response",
+      "adapter": {
+        "op": "identify",
+        "timeout_ms": 1000,
+        "max_frame_bytes": 1024
+      },
+      "server": {
+        "behavior": "oversized-identify",
+        "response_bytes": 4096
+      },
+      "expect_error": "limit"
+    },
+    {
+      "name": "invalid-utf8",
+      "adapter": {
+        "op": "identify",
+        "timeout_ms": 1000,
+        "max_frame_bytes": 16777216
+      },
+      "server": {
+        "behavior": "invalid-utf8"
+      },
+      "expect_error": "decode"
+    },
+    {
+      "name": "command-timeout",
+      "adapter": {
+        "op": "identify",
+        "timeout_ms": 100,
+        "max_frame_bytes": 16777216
+      },
+      "server": {
+        "behavior": "timeout",
+        "hold_ms": 500
+      },
+      "expect_error": "timeout"
+    },
+    {
+      "name": "event-before-ack",
+      "adapter": {
+        "op": "stream",
+        "stream": "subscribe-coarse",
+        "events": 1,
+        "timeout_ms": 1000
+      },
+      "server": {
+        "behavior": "stream",
+        "before_ack": [
+          {"event": "empty"}
+        ]
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "events": [
+            {"event": "empty"}
+          ]
+        }
+      }
+    },
+    {
+      "name": "unknown-event",
+      "adapter": {
+        "op": "stream",
+        "stream": "subscribe-coarse",
+        "events": 1,
+        "timeout_ms": 1000
+      },
+      "server": {
+        "behavior": "stream",
+        "after_ack": [
+          {"event": "future-event", "meaning": 42}
+        ]
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "events": [
+            {"event": "future-event", "unknown": true, "raw": {"event": "future-event", "meaning": 42}}
+          ]
+        }
+      }
+    },
+    {
+      "name": "overflow-terminates-subscribe",
+      "adapter": {
+        "op": "stream",
+        "stream": "subscribe-coarse",
+        "events": 2,
+        "timeout_ms": 1000
+      },
+      "server": {
+        "behavior": "stream",
+        "after_ack": [
+          {"event": "overflow", "scope": "surface", "error": "subscriber fell behind"}
+        ]
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "events": [
+            {"event": "overflow", "scope": "surface", "error": "subscriber fell behind"}
+          ],
+          "terminal": true
+        }
+      }
+    },
+    {
+      "name": "close-unblocks-pending-read",
+      "adapter": {
+        "op": "close-pending-stream",
+        "stream": "subscribe-coarse",
+        "close_after_ms": 50,
+        "deadline_ms": 1000
+      },
+      "server": {
+        "behavior": "stream",
+        "hold_ms": 1200
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "unblocked": true
+        }
+      }
+    },
+    {
+      "name": "subscribe-coarse-mode",
+      "adapter": {
+        "op": "stream",
+        "stream": "subscribe-coarse",
+        "events": 1,
+        "timeout_ms": 1000
+      },
+      "server": {
+        "behavior": "stream",
+        "after_ack": [
+          {"event": "tree-changed"}
+        ]
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "events": [
+            {"event": "tree-changed"}
+          ]
+        }
+      }
+    },
+    {
+      "name": "subscribe-deltas-mode",
+      "adapter": {
+        "op": "stream",
+        "stream": "subscribe-deltas",
+        "events": 1,
+        "timeout_ms": 1000
+      },
+      "server": {
+        "behavior": "stream",
+        "after_ack": [
+          {"event": "tree-changed"}
+        ]
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "events": [
+            {"event": "tree-changed"}
+          ]
+        }
+      }
+    },
+    {
+      "name": "attach-byte-mode",
+      "adapter": {
+        "op": "stream",
+        "stream": "attach-byte",
+        "surface": "18446744073709551615",
+        "events": 1,
+        "timeout_ms": 1000
+      },
+      "server": {
+        "behavior": "stream",
+        "before_ack": [
+          {"event": "output", "surface": 18446744073709551615, "data": "aGk="}
+        ]
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "events": [
+            {"event": "output", "surface": "18446744073709551615", "data": "aGk="}
+          ]
+        }
+      }
+    },
+    {
+      "name": "attach-render-mode",
+      "adapter": {
+        "op": "stream",
+        "stream": "attach-render",
+        "surface": "7",
+        "events": 1,
+        "timeout_ms": 1000
+      },
+      "server": {
+        "behavior": "stream",
+        "after_ack": [
+          {"event": "detached", "surface": 7}
+        ]
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "events": [
+            {"event": "detached", "surface": "7"}
+          ],
+          "terminal": true
+        }
+      }
+    },
+    {
+      "name": "attach-browser-mode",
+      "adapter": {
+        "op": "stream",
+        "stream": "attach-browser",
+        "surface": "8",
+        "events": 1,
+        "timeout_ms": 1000
+      },
+      "server": {
+        "behavior": "stream",
+        "after_ack": [
+          {"event": "browser-state", "surface": 8, "cols": 80, "rows": 24, "url": "https://example.test", "title": "Example", "status": "live", "error": null, "frames_stalled": false}
+        ]
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "events": [
+            {"event": "browser-state", "surface": "8", "status": "live"}
+          ]
+        }
+      }
+    },
+    {
+      "name": "control-authority",
+      "adapter": {
+        "op": "authority",
+        "authority": "control",
+        "timeout_ms": 1000
+      },
+      "server": {
+        "behavior": "authority"
+      },
+      "expect": {
+        "ok": true,
+        "value": {"command": "ping"}
+      }
+    },
+    {
+      "name": "frontend-authority",
+      "adapter": {
+        "op": "authority",
+        "authority": "frontend",
+        "timeout_ms": 1000
+      },
+      "server": {
+        "behavior": "authority"
+      },
+      "expect": {
+        "ok": true,
+        "value": {"command": "browser-back"}
+      }
+    },
+    {
+      "name": "local-admin-authority",
+      "adapter": {
+        "op": "authority",
+        "authority": "local-admin",
+        "timeout_ms": 1000
+      },
+      "server": {
+        "behavior": "authority"
+      },
+      "expect": {
+        "ok": true,
+        "value": {"command": "pairing-response"}
+      }
+    },
+    {
+      "name": "provider-authority",
+      "adapter": {
+        "op": "authority",
+        "authority": "provider-authority",
+        "timeout_ms": 1000
+      },
+      "server": {
+        "behavior": "authority"
+      },
+      "expect": {
+        "ok": true,
+        "value": {"command": "mark-workspaces-provider-managed"}
+      }
+    },
+    {
+      "name": "provider-authority-default-denied-no-write",
+      "adapter": {
+        "op": "authority-denied",
+        "timeout_ms": 1000
+      },
+      "server": {
+        "behavior": "no-write"
+      },
+      "expect": {
+        "ok": true,
+        "value": {"denied": true}
+      }
+    }
+  ],
+  "real_cases": [
+    {
+      "name": "headless-identify",
+      "adapter": {
+        "op": "identify",
+        "timeout_ms": 5000,
+        "max_frame_bytes": 16777216
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "app": "cmux-tui",
+          "protocol": 10
+        }
+      }
+    },
+    {
+      "name": "headless-ping",
+      "adapter": {
+        "op": "authority",
+        "authority": "control",
+        "timeout_ms": 5000
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "command": "ping"
+        }
+      }
+    },
+    {
+      "name": "headless-lifecycle",
+      "adapter": {
+        "op": "real-flow",
+        "timeout_ms": 5000,
+        "max_frame_bytes": 16777216,
+        "marker": "cmux-sdk-conformance-marker",
+        "workspace_name": "sdk-conformance-workspace",
+        "renamed_name": "sdk-conformance-renamed"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "identified": true,
+          "workspace_created": true,
+          "terminal_created": true,
+          "marker_sent": true,
+          "wait_matched": true,
+          "read_contains_marker": true,
+          "stream_ordered": true,
+          "renamed": true,
+          "closed": true,
+          "disappeared": true
+        }
+      }
     }
   ]
 }

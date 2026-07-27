@@ -1,39 +1,71 @@
 package com.cmux;
 
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.net.StandardProtocolFamily;
-import java.net.UnixDomainSocketAddress;
-import java.nio.ByteBuffer;
-import java.nio.channels.SelectionKey;
-import java.nio.channels.Selector;
-import java.nio.channels.SocketChannel;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
+import com.cmux.generated.Authority;
+import com.cmux.generated.BrowserAttachEvent;
+import com.cmux.generated.ByteAttachEvent;
+import com.cmux.generated.CommandMetadata;
+import com.cmux.generated.Commands;
+import com.cmux.generated.CreateWorkspaceRequest;
+import com.cmux.generated.DeltaStreamEvent;
+import com.cmux.generated.GeneratedCmuxClient;
+import com.cmux.generated.ProtocolEvent;
+import com.cmux.generated.ReadScrollbackRequest;
+import com.cmux.generated.ReadScrollbackResult;
+import com.cmux.generated.RenderAttachEvent;
+import com.cmux.generated.StreamKind;
+import com.cmux.generated.SubscribeEvent;
+import com.cmux.generated.WorkspaceMutationResult;
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.nio.file.Path;
 import java.time.Duration;
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.Base64;
+import java.util.Collections;
+import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
-public final class CmuxClient implements AutoCloseable {
-    private final String socketPath;
+/**
+ * Dependency-free Java 17 client for the cmux-tui protocol.
+ *
+ * <p>Generated typed commands are inherited from {@link GeneratedCmuxClient}.
+ * Each event stream owns a dedicated socket so closing it cancels that stream
+ * without interfering with command calls.
+ */
+public final class CmuxClient extends GeneratedCmuxClient implements AutoCloseable {
+    public static final int DEFAULT_MAX_BUFFERED_STREAM_EVENTS = 1_024;
+    public static final int MAX_SCROLLBACK_PAGE_ROWS = 65_535;
+
+    private final Path socketPath;
     private final Duration timeout;
-    private final boolean allowProtocolV6Attach;
+    private final int maxRequestBytes;
+    private final int maxResponseBytes;
+    private final int maxJsonDepth;
+    private final int maxBufferedStreamEvents;
+    private final Set<Authority> authorities;
     private final JsonLineConnection connection;
-    private long nextId = 1;
-    private Integer protocol;
-    private Set<String> capabilities = Set.of();
+    private final AtomicLong nextId = new AtomicLong(1);
+    private final AtomicBoolean closed = new AtomicBoolean();
+    private final Object commandLock = new Object();
+    private volatile Integer protocol;
+    private volatile Set<String> capabilities = Set.of();
 
     private CmuxClient(Builder builder) throws CmuxException {
-        this.socketPath = builder.socketPath != null ? builder.socketPath : resolvedSocketPath(builder.session);
-        this.timeout = builder.timeout;
-        this.allowProtocolV6Attach = builder.allowProtocolV6Attach;
-        this.connection = JsonLineConnection.connect(socketPath);
+        this.socketPath = SocketDiscovery.resolve(builder.socketPath, builder.session);
+        this.timeout = positive(builder.timeout, "timeout");
+        this.maxRequestBytes = positive(builder.maxRequestBytes, "maxRequestBytes");
+        this.maxResponseBytes = positive(builder.maxResponseBytes, "maxResponseBytes");
+        this.maxJsonDepth = positive(builder.maxJsonDepth, "maxJsonDepth");
+        this.maxBufferedStreamEvents = positive(
+            builder.maxBufferedStreamEvents,
+            "maxBufferedStreamEvents"
+        );
+        this.authorities = Collections.unmodifiableSet(EnumSet.copyOf(builder.authorities));
+        this.connection = connect();
     }
 
     public static Builder builder() {
@@ -41,705 +73,463 @@ public final class CmuxClient implements AutoCloseable {
     }
 
     public static String defaultSocketPath(String session) {
-        String base = System.getenv("TMPDIR");
-        if (base == null || base.isBlank()) {
-            base = System.getProperty("java.io.tmpdir");
-        }
-        return Path.of(base, "cmux-tui-" + currentUid(), session + ".sock").toString();
-    }
-
-    public static String envSocketPath() {
-        String socket = System.getenv("CMUX_TUI_SOCKET");
-        if (socket != null && !socket.isBlank()) {
-            return socket;
-        }
-        socket = System.getenv("CMUX_MUX_SOCKET");
-        return socket == null || socket.isBlank() ? null : socket;
+        return SocketDiscovery.defaultSocketPath(session).toString();
     }
 
     public static String resolvedSocketPath(String session) {
-        String socket = envSocketPath();
-        return socket != null ? socket : defaultSocketPath(session);
+        return SocketDiscovery.resolve(null, session).toString();
     }
 
-    private static String currentUid() {
-        Path probe = null;
-        try {
-            probe = Files.createTempFile("cmux-tui-uid", ".tmp");
-            return String.valueOf(Files.getAttribute(probe, "unix:uid"));
-        } catch (IOException | UnsupportedOperationException err) {
-            String uid = System.getenv("UID");
-            return uid == null || uid.isBlank() ? System.getProperty("user.name", "0") : uid;
-        } finally {
-            if (probe != null) {
-                try {
-                    Files.deleteIfExists(probe);
-                } catch (IOException ignored) {
-                    // best-effort cleanup
+    public Path socketPath() {
+        return socketPath;
+    }
+
+    public Duration timeout() {
+        return timeout;
+    }
+
+    public Set<Authority> authorities() {
+        return authorities;
+    }
+
+    public Integer negotiatedProtocol() {
+        return protocol;
+    }
+
+    public Set<String> capabilities() {
+        return capabilities;
+    }
+
+    /**
+     * Reads up to {@code count} rows from the current end of retained scrollback.
+     *
+     * <p>This best-effort helper first sends a zero-count probe to learn the
+     * current total, then requests one page ending at that total when
+     * {@code count} is nonzero. Scrollback eviction or resize reflow between
+     * those two snapshots can shift the returned range. One protocol page is limited to
+     * {@value #MAX_SCROLLBACK_PAGE_ROWS} rows.
+     */
+    public ReadScrollbackResult readScrollbackTail(UInt64 surface, int count)
+        throws CmuxException {
+        Objects.requireNonNull(surface, "surface");
+        if (count < 0 || count > MAX_SCROLLBACK_PAGE_ROWS) {
+            throw new IllegalArgumentException(
+                "count must be between 0 and " + MAX_SCROLLBACK_PAGE_ROWS
+            );
+        }
+        ReadScrollbackResult probe = readScrollback(
+            ReadScrollbackRequest.builder()
+                .surface(surface)
+                .start(0)
+                .count(0)
+                .build()
+        );
+        if (count == 0) {
+            return probe;
+        }
+        long start = Math.max(0L, probe.total() - count);
+        return readScrollback(
+            ReadScrollbackRequest.builder()
+                .surface(surface)
+                .start(start)
+                .count(count)
+                .build()
+        );
+    }
+
+    /** Creates a workspace and returns an idempotently closeable owner for it. */
+    public WorkspaceLease createWorkspaceLease(CreateWorkspaceRequest request)
+        throws CmuxException {
+        WorkspaceMutationResult creation = createWorkspace(
+            Objects.requireNonNull(request, "request")
+        );
+        return new WorkspaceLease(this, creation);
+    }
+
+    /** Creates an unnamed workspace and returns an idempotently closeable owner for it. */
+    public WorkspaceLease createWorkspaceLease() throws CmuxException {
+        return createWorkspaceLease(CreateWorkspaceRequest.builder().build());
+    }
+
+    /**
+     * Sends a complete request envelope. The client adds an id when absent and
+     * returns the complete response envelope without decoding command data.
+     */
+    public Map<String, Object> rawRequest(Map<String, Object> request) throws CmuxException {
+        Objects.requireNonNull(request, "request");
+        synchronized (commandLock) {
+            ensureOpen();
+            LinkedHashMap<String, Object> payload = new LinkedHashMap<>(request);
+            if (!(payload.get("cmd") instanceof String)) {
+                throw new IllegalArgumentException("raw request requires string cmd");
+            }
+            payload.putIfAbsent("id", nextRequestId());
+            Object id = payload.get("id");
+            connection.send(payload);
+            while (true) {
+                Map<String, Object> response = connection.receive(timeout);
+                if (response.containsKey("event")) {
+                    continue;
+                }
+                if (!response.containsKey("id") || idsEqual(response.get("id"), id)) {
+                    return response;
                 }
             }
         }
     }
 
-    public IdentifyResult identify() throws CmuxException {
-        Map<String, Object> data = request("identify", new LinkedHashMap<>());
-        IdentifyResult result = IdentifyResult.from(data);
-        protocol = result.protocol();
-        capabilities = Set.copyOf(result.capabilities());
-        return result;
+    @Override
+    protected Object execute(
+        CommandMetadata metadata,
+        Map<String, Object> params
+    ) throws CmuxException {
+        if (metadata.streamKind() != StreamKind.NONE) {
+            throw new IllegalArgumentException(metadata.wireName() + " is a stream command");
+        }
+        checkAuthority(metadata);
+        checkVersion(metadata, params);
+        LinkedHashMap<String, Object> request = new LinkedHashMap<>(params);
+        request.put("cmd", metadata.wireName());
+        Map<String, Object> response = rawRequest(request);
+        if (!Boolean.TRUE.equals(response.get("ok"))) {
+            throw commandError(response);
+        }
+        Object data = response.get("data");
+        if ("identify".equals(metadata.wireName()) || "ping".equals(metadata.wireName())) {
+            recordNegotiation(data);
+        }
+        return data;
     }
 
-    private void requireProtocol(int minimum, String feature) throws CmuxException {
-        int negotiated = protocol != null ? protocol : identify().protocol();
-        if (negotiated < minimum) {
-            throw new CmuxProtocolMismatchException(
-                feature + " requires protocol " + minimum + "; server uses protocol " + negotiated
+    @Override
+    protected CmuxStream<ProtocolEvent> openStream(
+        CommandMetadata metadata,
+        Map<String, Object> params
+    ) throws CmuxException {
+        return openTypedStream(metadata, params, ProtocolEvent.class);
+    }
+
+    /** Coarse subscription with typed events and unknown-event fallback. */
+    public CmuxStream<SubscribeEvent> subscribeEvents() throws CmuxException {
+        return subscribeEvents(false);
+    }
+
+    /** Lifecycle-delta subscription, including tree-changed resync events. */
+    public CmuxStream<DeltaStreamEvent> subscribeDeltas() throws CmuxException {
+        LinkedHashMap<String, Object> params = new LinkedHashMap<>();
+        params.put("tree_events", "deltas");
+        return openTypedStream(Commands.SUBSCRIBE, params, DeltaStreamEvent.class);
+    }
+
+    public CmuxStream<SubscribeEvent> subscribeEvents(boolean deltas) throws CmuxException {
+        LinkedHashMap<String, Object> params = new LinkedHashMap<>();
+        if (deltas) {
+            params.put("tree_events", "deltas");
+        }
+        Class<? extends SubscribeEvent> type = deltas
+            ? DeltaStreamEvent.class
+            : SubscribeEvent.class;
+        @SuppressWarnings({"rawtypes", "unchecked"})
+        CmuxStream<SubscribeEvent> stream = (CmuxStream) openTypedStream(
+            Commands.SUBSCRIBE,
+            params,
+            type
+        );
+        return stream;
+    }
+
+    public CmuxStream<ByteAttachEvent> attachBytes(UInt64 surface) throws CmuxException {
+        return attachBytes(surface, null, null);
+    }
+
+    public CmuxStream<ByteAttachEvent> attachBytes(
+        UInt64 surface,
+        Integer cols,
+        Integer rows
+    ) throws CmuxException {
+        return attach(surface, null, cols, rows, ByteAttachEvent.class);
+    }
+
+    public CmuxStream<RenderAttachEvent> attachRender(UInt64 surface) throws CmuxException {
+        return attach(surface, "render", null, null, RenderAttachEvent.class);
+    }
+
+    public CmuxStream<BrowserAttachEvent> attachBrowser(UInt64 surface) throws CmuxException {
+        return attach(surface, null, null, null, BrowserAttachEvent.class);
+    }
+
+    private <E extends ProtocolEvent> CmuxStream<E> attach(
+        UInt64 surface,
+        String mode,
+        Integer cols,
+        Integer rows,
+        Class<E> eventType
+    ) throws CmuxException {
+        Objects.requireNonNull(surface, "surface");
+        if ((cols == null) != (rows == null)) {
+            throw new IllegalArgumentException("attach cols and rows must be supplied together");
+        }
+        LinkedHashMap<String, Object> params = new LinkedHashMap<>();
+        params.put("surface", surface);
+        if (mode != null) {
+            params.put("mode", mode);
+        }
+        if (cols != null) {
+            params.put("cols", cols);
+            params.put("rows", rows);
+        }
+        return openTypedStream(Commands.ATTACH_SURFACE, params, eventType);
+    }
+
+    private <E extends ProtocolEvent> CmuxStream<E> openTypedStream(
+        CommandMetadata metadata,
+        Map<String, Object> params,
+        Class<E> eventType
+    ) throws CmuxException {
+        if (metadata.streamKind() == StreamKind.NONE) {
+            throw new IllegalArgumentException(metadata.wireName() + " is not a stream command");
+        }
+        checkAuthority(metadata);
+        checkVersion(metadata, params);
+        LinkedHashMap<String, Object> request = new LinkedHashMap<>(params);
+        request.put("id", nextRequestId());
+        request.put("cmd", metadata.wireName());
+        JsonLineConnection streamConnection = connect();
+        return CmuxStream.open(
+            streamConnection,
+            timeout,
+            request,
+            eventType,
+            maxBufferedStreamEvents
+        );
+    }
+
+    private void checkAuthority(CommandMetadata metadata) throws CmuxAuthorityException {
+        if (!authorities.contains(metadata.authority())) {
+            throw new CmuxAuthorityException(
+                metadata.wireName() + " requires " + metadata.authority().wireValue()
             );
         }
     }
 
-    public Tree listWorkspaces() throws CmuxException {
-        return Tree.from(request("list-workspaces", new LinkedHashMap<>()));
-    }
-
-    public List<ClientInfo> listClients() throws CmuxException {
-        List<ClientInfo> clients = new ArrayList<>();
-        for (Object item : requestList("list-clients", new LinkedHashMap<>())) {
-            if (item instanceof Map<?, ?> map) {
-                @SuppressWarnings("unchecked")
-                Map<String, Object> client = (Map<String, Object>) map;
-                clients.add(ClientInfo.from(client));
+    private void checkVersion(
+        CommandMetadata metadata,
+        Map<String, Object> params
+    ) throws CmuxException {
+        if ("identify".equals(metadata.wireName()) || "ping".equals(metadata.wireName())) {
+            return;
+        }
+        ensureNegotiated();
+        if (protocol < metadata.since()) {
+            throw new CmuxProtocolMismatchException(
+                metadata.wireName() + " requires protocol " + metadata.since()
+                    + "; server uses protocol " + protocol
+            );
+        }
+        if (metadata.capability() != null && !capabilities.contains(metadata.capability())) {
+            throw new CmuxProtocolMismatchException(
+                metadata.wireName() + " requires capability " + metadata.capability()
+            );
+        }
+        for (Map.Entry<String, Long> field : metadata.fieldSince().entrySet()) {
+            if (params.get(field.getKey()) != null && protocol < field.getValue()) {
+                throw new CmuxProtocolMismatchException(
+                    metadata.wireName() + "." + field.getKey()
+                        + " requires protocol " + field.getValue()
+                        + "; server uses protocol " + protocol
+                );
             }
         }
-        return List.copyOf(clients);
-    }
-
-    public void setClientSizing(long surface, long client, boolean enabled) throws CmuxException {
-        requireProtocol(10, "set-client-sizing");
-        Map<String, Object> params = surfaceParams(surface);
-        params.put("client", client);
-        params.put("enabled", enabled);
-        request("set-client-sizing", params);
-    }
-
-    public void useOnlyClientSize(long surface, long client) throws CmuxException {
-        requireProtocol(10, "set-client-sizing");
-        Map<String, Object> params = surfaceParams(surface);
-        params.put("client", client);
-        params.put("enabled", true);
-        params.put("exclusive", true);
-        request("set-client-sizing", params);
-    }
-
-    public void useAllClientSizes(long surface) throws CmuxException {
-        requireProtocol(10, "set-client-sizing");
-        Map<String, Object> params = surfaceParams(surface);
-        params.put("enabled", true);
-        request("set-client-sizing", params);
-    }
-
-    public void send(long surface, String text) throws CmuxException {
-        send(surface, text, null);
-    }
-
-    public void send(long surface, String text, byte[] bytes) throws CmuxException {
-        Map<String, Object> params = surfaceParams(surface);
-        if (text != null) {
-            params.put("text", text);
+        for (Map.Entry<String, String> field : metadata.fieldCapabilities().entrySet()) {
+            if (params.get(field.getKey()) != null && !capabilities.contains(field.getValue())) {
+                throw new CmuxProtocolMismatchException(
+                    metadata.wireName() + "." + field.getKey()
+                        + " requires capability " + field.getValue()
+                );
+            }
         }
-        if (bytes != null) {
-            params.put("bytes", Base64.getEncoder().encodeToString(bytes));
-        }
-        request("send", params);
-    }
-
-    public void sendBase64(long surface, String text, String base64Bytes) throws CmuxException {
-        Map<String, Object> params = surfaceParams(surface);
-        if (text != null) {
-            params.put("text", text);
-        }
-        if (base64Bytes != null) {
-            params.put("bytes", base64Bytes);
-        }
-        request("send", params);
-    }
-
-    public ReadScreenResult readScreen(long surface) throws CmuxException {
-        return new ReadScreenResult(asString(request("read-screen", surfaceParams(surface)).get("text")));
-    }
-
-    public VtStateResult vtState(long surface) throws CmuxException {
-        Map<String, Object> data = request("vt-state", surfaceParams(surface));
-        return new VtStateResult((int) asLong(data.get("cols")), (int) asLong(data.get("rows")), asString(data.get("data")));
-    }
-
-    public SurfaceResult newTab(Long pane, String cwd, Integer cols, Integer rows) throws CmuxException {
-        Map<String, Object> params = new LinkedHashMap<>();
-        putIfNotNull(params, "pane", pane);
-        putIfNotNull(params, "cwd", cwd);
-        putIfNotNull(params, "cols", cols);
-        putIfNotNull(params, "rows", rows);
-        return new SurfaceResult(asLong(request("new-tab", params).get("surface")));
-    }
-
-    public SurfaceResult newBrowserTab(String url, Long pane, Integer cols, Integer rows) throws CmuxException {
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("url", url);
-        putIfNotNull(params, "pane", pane);
-        putIfNotNull(params, "cols", cols);
-        putIfNotNull(params, "rows", rows);
-        return new SurfaceResult(asLong(request("new-browser-tab", params).get("surface")));
-    }
-
-    public SurfaceResult newWorkspace(NewWorkspaceRequest request) throws CmuxException {
-        return new SurfaceResult(asLong(request("new-workspace", request.toMap()).get("surface")));
-    }
-
-    public WorkspacePlacement createWorkspace(CreateWorkspaceRequest createRequest) throws CmuxException {
-        requireCapability("workspace-registry-v1", "workspace registry");
-        Map<String, Object> data = request("create-workspace", createRequest.toMap());
-        return new WorkspacePlacement(
-            asLong(data.get("workspace")),
-            asString(data.get("key")),
-            (int) asLong(data.get("index")),
-            asLong(data.get("workspace_revision"))
-        );
-    }
-
-    public TerminalPlacement createTerminal(CreateTerminalRequest createRequest) throws CmuxException {
-        requireCapability("workspace-registry-v1", "workspace registry");
-        Map<String, Object> data = request("create-terminal", createRequest.toMap());
-        return new TerminalPlacement(
-            asLong(data.get("surface")),
-            asLong(data.get("pane")),
-            asLong(data.get("screen")),
-            asLong(data.get("workspace")),
-            asString(data.get("key"))
-        );
-    }
-
-    public SurfaceResult newScreen(Long workspace, Integer cols, Integer rows) throws CmuxException {
-        Map<String, Object> params = new LinkedHashMap<>();
-        putIfNotNull(params, "workspace", workspace);
-        putIfNotNull(params, "cols", cols);
-        putIfNotNull(params, "rows", rows);
-        return new SurfaceResult(asLong(request("new-screen", params).get("surface")));
-    }
-
-    public SurfaceResult newPane(long pane, Integer cols, Integer rows) throws CmuxException {
-        requireProtocol(9, "new-pane");
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("pane", pane);
-        putIfNotNull(params, "cols", cols);
-        putIfNotNull(params, "rows", rows);
-        return new SurfaceResult(asLong(request("new-pane", params).get("surface")));
-    }
-
-    public SurfaceResult split(long pane, String dir, Integer cols, Integer rows) throws CmuxException {
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("pane", pane);
-        params.put("dir", dir);
-        putIfNotNull(params, "cols", cols);
-        putIfNotNull(params, "rows", rows);
-        return new SurfaceResult(asLong(request("split", params).get("surface")));
-    }
-
-    public void setRatio(long pane, String dir, double ratio) throws CmuxException {
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("pane", pane);
-        params.put("dir", dir);
-        params.put("ratio", ratio);
-        request("set-ratio", params);
-    }
-
-    public void setSplitRatio(long split, double ratio) throws CmuxException {
-        requireProtocol(8, "set-split-ratio");
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("split", split);
-        params.put("ratio", ratio);
-        request("set-split-ratio", params);
-    }
-
-    public void setDefaultColors(String fg, String bg) throws CmuxException {
-        Map<String, Object> params = new LinkedHashMap<>();
-        putIfNotNull(params, "fg", fg);
-        putIfNotNull(params, "bg", bg);
-        request("set-default-colors", params);
-    }
-
-    public void closeSurface(long surface) throws CmuxException {
-        request("close-surface", surfaceParams(surface));
-    }
-
-    public void closePane(long pane) throws CmuxException {
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("pane", pane);
-        request("close-pane", params);
-    }
-
-    public void closeScreen(long screen) throws CmuxException {
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("screen", screen);
-        request("close-screen", params);
-    }
-
-    public void renameSurface(long surface, String name) throws CmuxException {
-        Map<String, Object> params = surfaceParams(surface);
-        params.put("name", name);
-        request("rename-surface", params);
-    }
-
-    public void renamePane(long pane, String name) throws CmuxException {
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("pane", pane);
-        params.put("name", name);
-        request("rename-pane", params);
-    }
-
-    public void renameScreen(long screen, String name) throws CmuxException {
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("screen", screen);
-        params.put("name", name);
-        request("rename-screen", params);
-    }
-
-    public void renameWorkspace(long workspace, String name) throws CmuxException {
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("workspace", workspace);
-        params.put("name", name);
-        request("rename-workspace", params);
-    }
-
-    public WorkspaceMutation renameWorkspaceRegistry(WorkspaceSelectorRequest selector, String name) throws CmuxException {
-        requireCapability("workspace-registry-v1", "workspace registry");
-        Map<String, Object> params = selector.toMap();
-        params.put("name", name);
-        return workspaceMutation(request("rename-workspace", params));
-    }
-
-    public ResizeSurfaceResult resizeSurface(long surface, int cols, int rows) throws CmuxException {
-        Map<String, Object> params = surfaceParams(surface);
-        params.put("cols", cols);
-        params.put("rows", rows);
-        return ResizeSurfaceResult.from(request("resize-surface", params));
-    }
-
-    public void closeWorkspace(long workspace) throws CmuxException {
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("workspace", workspace);
-        request("close-workspace", params);
-    }
-
-    public WorkspaceMutation closeWorkspaceRegistry(WorkspaceSelectorRequest selector) throws CmuxException {
-        requireCapability("workspace-registry-v1", "workspace registry");
-        return workspaceMutation(request("close-workspace", selector.toMap()));
-    }
-
-    public void focusPane(long pane) throws CmuxException {
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("pane", pane);
-        request("focus-pane", params);
-    }
-
-    public void selectTab(Long pane, Integer index, Integer delta) throws CmuxException {
-        Map<String, Object> params = new LinkedHashMap<>();
-        putIfNotNull(params, "pane", pane);
-        putIfNotNull(params, "index", index);
-        putIfNotNull(params, "delta", delta);
-        request("select-tab", params);
-    }
-
-    public void selectScreen(Integer index, Integer delta) throws CmuxException {
-        Map<String, Object> params = new LinkedHashMap<>();
-        putIfNotNull(params, "index", index);
-        putIfNotNull(params, "delta", delta);
-        request("select-screen", params);
-    }
-
-    public void selectWorkspace(Integer index, Integer delta) throws CmuxException {
-        Map<String, Object> params = new LinkedHashMap<>();
-        putIfNotNull(params, "index", index);
-        putIfNotNull(params, "delta", delta);
-        request("select-workspace", params);
-    }
-
-    public void moveTab(long surface, long pane, int index) throws CmuxException {
-        Map<String, Object> params = surfaceParams(surface);
-        params.put("pane", pane);
-        params.put("index", index);
-        request("move-tab", params);
-    }
-
-    public void moveWorkspace(long workspace, int index) throws CmuxException {
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("workspace", workspace);
-        params.put("index", index);
-        request("move-workspace", params);
-    }
-
-    public WorkspaceMutation moveWorkspaceRegistry(WorkspaceSelectorRequest selector, int index) throws CmuxException {
-        requireCapability("workspace-registry-v1", "workspace registry");
-        Map<String, Object> params = selector.toMap();
-        params.put("index", index);
-        return workspaceMutation(request("move-workspace", params));
-    }
-
-    private static WorkspaceMutation workspaceMutation(Map<String, Object> data) {
-        return new WorkspaceMutation(
-            asLong(data.get("workspace")),
-            asString(data.get("key")),
-            asLong(data.get("workspace_revision"))
-        );
-    }
-
-    public void scrollSurface(long surface, int delta) throws CmuxException {
-        Map<String, Object> params = surfaceParams(surface);
-        params.put("delta", delta);
-        request("scroll-surface", params);
-    }
-
-    public CmuxStream subscribe() throws CmuxException {
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("id", nextId());
-        params.put("cmd", "subscribe");
-        return CmuxStream.open(socketPath, timeout, params);
-    }
-
-    public CmuxStream attachSurface(long surface) throws CmuxException {
-        return attachSurface(surface, null, null);
-    }
-
-    public CmuxStream attachSurface(long surface, Integer cols, Integer rows) throws CmuxException {
-        if ((cols == null) != (rows == null)) {
+        if ("attach-surface".equals(metadata.wireName())
+                && ((params.get("cols") != null) != (params.get("rows") != null))) {
             throw new IllegalArgumentException(
                 "attach-surface cols and rows must be supplied together"
             );
         }
-        int negotiated = protocol != null ? protocol : identify().protocol();
-        if (negotiated > 5 && !allowProtocolV6Attach) {
-            throw new CmuxProtocolMismatchException("unsupported attach protocol " + negotiated);
-        }
-        if ((cols != null || rows != null) && !capabilities.contains("attach-initial-size")) {
+        if ("attach-surface".equals(metadata.wireName())
+                && (params.get("cols") != null || params.get("rows") != null)
+                && !capabilities.contains("attach-initial-size")) {
             throw new CmuxProtocolMismatchException(
-                "initial attach sizing is not supported by this server"
+                "initial attach sizing requires capability attach-initial-size"
             );
         }
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("cmd", "attach-surface");
-        params.put("surface", surface);
-        if (cols != null) params.put("cols", cols);
-        if (rows != null) params.put("rows", rows);
-        params.put("id", nextId());
-        return CmuxStream.open(socketPath, timeout, params);
     }
 
-    private void requireCapability(String capability, String feature) throws CmuxException {
-        if (protocol == null) {
-            identify();
+    private void ensureNegotiated() throws CmuxException {
+        if (protocol != null) {
+            return;
         }
-        if (!capabilities.contains(capability)) {
-            throw new CmuxProtocolMismatchException(feature + " is not supported by this server");
+        LinkedHashMap<String, Object> request = new LinkedHashMap<>();
+        request.put("cmd", "identify");
+        Map<String, Object> response = rawRequest(request);
+        if (!Boolean.TRUE.equals(response.get("ok"))) {
+            throw commandError(response);
         }
+        recordNegotiation(response.get("data"));
     }
 
-    @SuppressWarnings("unchecked")
-    public Map<String, Object> sendRaw(Map<String, Object> request) throws CmuxException {
-        Map<String, Object> payload = new LinkedHashMap<>(request);
-        if (!payload.containsKey("id")) {
-            payload.put("id", nextId());
-        }
-        Object id = payload.get("id");
-        connection.send(payload);
-        while (true) {
-            Map<String, Object> response = connection.recv(timeout);
-            if (response.containsKey("event")) {
-                continue;
-            }
-            if (response.containsKey("id") && !idsEqual(response.get("id"), id)) {
-                continue;
-            }
-            return response;
+    private void recordNegotiation(Object value) {
+        Map<String, Object> data = Wire.object(value, "identify result");
+        this.protocol = Wire.int32(Wire.required(data, "protocol"), "identify.protocol");
+        Object rawCapabilities = Wire.optional(data, "capabilities");
+        if (Wire.isMissing(rawCapabilities) || rawCapabilities == null) {
+            this.capabilities = Set.of();
+        } else {
+            this.capabilities = Set.copyOf(
+                Wire.array(rawCapabilities, "identify.capabilities", item ->
+                    Wire.string(item, "identify.capabilities item")
+                )
+            );
         }
     }
 
-    @SuppressWarnings("unchecked")
-    private Map<String, Object> request(String cmd, Map<String, Object> params) throws CmuxException {
-        Map<String, Object> request = new LinkedHashMap<>(params);
-        request.put("id", nextId());
-        request.put("cmd", cmd);
-        Map<String, Object> response = sendRaw(request);
-        if (Boolean.TRUE.equals(response.get("ok"))) {
-            Object data = response.get("data");
-            if (data instanceof Map<?, ?> map) {
-                return (Map<String, Object>) map;
-            }
-            return new LinkedHashMap<>();
-        }
-        throw new CmuxCommandException(asString(response.getOrDefault("error", "unknown error")), response.get("id"));
-    }
-
-    private List<?> requestList(String cmd, Map<String, Object> params) throws CmuxException {
-        Map<String, Object> request = new LinkedHashMap<>(params);
-        request.put("id", nextId());
-        request.put("cmd", cmd);
-        Map<String, Object> response = sendRaw(request);
-        if (Boolean.TRUE.equals(response.get("ok"))) {
-            Object data = response.get("data");
-            if (data instanceof List<?> list) {
-                return list;
-            }
-            throw new CmuxDecodeException(cmd + " returned non-array data", null);
-        }
-        throw new CmuxCommandException(
-            asString(response.getOrDefault("error", "unknown error")),
+    private CmuxCommandException commandError(Map<String, Object> response) {
+        return new CmuxCommandException(
+            String.valueOf(response.getOrDefault("error", "unknown error")),
             response.get("id")
         );
     }
 
-    private long nextId() {
-        return nextId++;
+    private JsonLineConnection connect() throws CmuxTransportException {
+        return JsonLineConnection.connect(
+            socketPath,
+            maxRequestBytes,
+            maxResponseBytes,
+            maxJsonDepth
+        );
     }
 
-    @Override
-    public void close() throws CmuxException {
-        connection.close();
-    }
-
-    static Map<String, Object> surfaceParams(long surface) {
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("surface", surface);
-        return params;
-    }
-
-    static void putIfNotNull(Map<String, Object> params, String key, Object value) {
-        if (value != null) {
-            params.put(key, value);
+    private String nextRequestId() {
+        long value = nextId.getAndIncrement();
+        if (value <= 0) {
+            throw new IllegalStateException("request id space exhausted");
         }
-    }
-
-    static String asString(Object value) {
-        return value == null ? "" : String.valueOf(value);
-    }
-
-    static long asLong(Object value) {
-        if (value instanceof Number number) {
-            return number.longValue();
-        }
-        return Long.parseLong(String.valueOf(value));
+        return "java-" + value;
     }
 
     static boolean idsEqual(Object left, Object right) {
-        if (left instanceof Number leftNumber && right instanceof Number rightNumber) {
-            return Double.compare(leftNumber.doubleValue(), rightNumber.doubleValue()) == 0;
+        if (left == null || right == null) {
+            return left == right;
         }
-        return left == null ? right == null : left.equals(right);
+        if (left instanceof Number && right instanceof Number) {
+            try {
+                return new BigDecimal(left.toString()).compareTo(new BigDecimal(right.toString())) == 0;
+            } catch (NumberFormatException ignored) {
+                return false;
+            }
+        }
+        return left.equals(right);
     }
 
-    static final class JsonLineConnection implements AutoCloseable {
-        private final SocketChannel channel;
-        private final ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-
-        private JsonLineConnection(SocketChannel channel) {
-            this.channel = channel;
+    private void ensureOpen() throws CmuxTransportException {
+        if (closed.get()) {
+            throw new CmuxTransportException("client is closed");
         }
+    }
 
-        static JsonLineConnection connect(String socketPath) throws CmuxException {
-            try {
-                SocketChannel channel = SocketChannel.open(StandardProtocolFamily.UNIX);
-                channel.connect(UnixDomainSocketAddress.of(socketPath));
-                return new JsonLineConnection(channel);
-            } catch (IOException err) {
-                throw new CmuxTransportException("cannot connect to session socket " + socketPath, err);
-            }
+    @Override
+    public void close() {
+        if (closed.compareAndSet(false, true)) {
+            connection.close();
         }
+    }
 
-        void send(Map<String, Object> value) throws CmuxException {
-            byte[] data = (Json.stringify(value) + "\n").getBytes(StandardCharsets.UTF_8);
-            try {
-                ByteBuffer byteBuffer = ByteBuffer.wrap(data);
-                while (byteBuffer.hasRemaining()) {
-                    channel.write(byteBuffer);
-                }
-            } catch (IOException err) {
-                throw new CmuxTransportException("socket write failed", err);
-            }
+    private static Duration positive(Duration value, String name) {
+        Objects.requireNonNull(value, name);
+        if (value.isNegative() || value.isZero()) {
+            throw new IllegalArgumentException(name + " must be positive");
         }
+        return value;
+    }
 
-        @SuppressWarnings("unchecked")
-        Map<String, Object> recv(Duration timeout) throws CmuxException {
-            long deadline = System.nanoTime() + timeout.toNanos();
-            try {
-                Selector selector = null;
-                SelectionKey key = null;
-                channel.configureBlocking(false);
-                try {
-                    selector = Selector.open();
-                    key = channel.register(selector, SelectionKey.OP_READ);
-                    while (System.nanoTime() < deadline) {
-                        String line = takeLine();
-                        if (line != null) {
-                            Object value = Json.parse(line);
-                            if (value instanceof Map<?, ?> map) {
-                                return (Map<String, Object>) map;
-                            }
-                            throw new CmuxDecodeException("server sent non-object JSON", null);
-                        }
-                        long remainingNanos = deadline - System.nanoTime();
-                        if (remainingNanos <= 0) {
-                            break;
-                        }
-                        int ready = selector.select(Math.max(1, Duration.ofNanos(remainingNanos).toMillis()));
-                        if (ready == 0) {
-                            continue;
-                        }
-                        selector.selectedKeys().clear();
-                        ByteBuffer bytes = ByteBuffer.allocate(4096);
-                        int read = channel.read(bytes);
-                        if (read < 0) {
-                            throw new CmuxTransportException("session socket closed");
-                        }
-                        if (read == 0) {
-                            continue;
-                        }
-                        bytes.flip();
-                        while (bytes.hasRemaining()) {
-                            buffer.write(bytes.get());
-                        }
-                    }
-                    throw new CmuxTimeoutException("session did not respond");
-                } finally {
-                    if (key != null) {
-                        key.cancel();
-                    }
-                    if (selector != null) {
-                        selector.close();
-                    }
-                    channel.configureBlocking(true);
-                }
-            } catch (JsonException err) {
-                throw new CmuxDecodeException("bad JSON from server", err);
-            } catch (IOException err) {
-                throw new CmuxTransportException("socket read failed", err);
-            }
+    private static int positive(int value, String name) {
+        if (value < 1) {
+            throw new IllegalArgumentException(name + " must be positive");
         }
-
-        private String takeLine() {
-            byte[] bytes = buffer.toByteArray();
-            for (int i = 0; i < bytes.length; i++) {
-                if (bytes[i] == '\n') {
-                    String line = new String(bytes, 0, i, StandardCharsets.UTF_8);
-                    buffer.reset();
-                    buffer.write(bytes, i + 1, bytes.length - i - 1);
-                    return line;
-                }
-            }
-            return null;
-        }
-
-        @Override
-        public void close() throws CmuxException {
-            try {
-                channel.close();
-            } catch (IOException err) {
-                throw new CmuxTransportException("socket close failed", err);
-            }
-        }
+        return value;
     }
 
     public static final class Builder {
-        private String socketPath;
+        private Path socketPath;
         private String session = "main";
         private Duration timeout = Duration.ofSeconds(10);
-        private boolean allowProtocolV6Attach = true;
+        private int maxRequestBytes = JsonLineConnection.DEFAULT_MAX_REQUEST_BYTES;
+        private int maxResponseBytes = JsonLineConnection.DEFAULT_MAX_RESPONSE_BYTES;
+        private int maxJsonDepth = Json.DEFAULT_MAX_DEPTH;
+        private int maxBufferedStreamEvents = DEFAULT_MAX_BUFFERED_STREAM_EVENTS;
+        private final EnumSet<Authority> authorities = EnumSet.of(
+            Authority.CONTROL,
+            Authority.FRONTEND,
+            Authority.LOCAL_ADMIN
+        );
 
         public Builder socketPath(String socketPath) {
-            this.socketPath = socketPath;
+            this.socketPath = Path.of(socketPath);
+            return this;
+        }
+
+        public Builder socketPath(Path socketPath) {
+            this.socketPath = Objects.requireNonNull(socketPath, "socketPath");
             return this;
         }
 
         public Builder session(String session) {
+            SocketDiscovery.validateSession(session);
             this.session = session;
             return this;
         }
 
         public Builder timeout(Duration timeout) {
-            this.timeout = timeout;
+            this.timeout = positive(timeout, "timeout");
             return this;
         }
 
-        public Builder allowProtocolV6Attach(boolean allowProtocolV6Attach) {
-            this.allowProtocolV6Attach = allowProtocolV6Attach;
+        public Builder maxRequestBytes(int maxRequestBytes) {
+            this.maxRequestBytes = positive(maxRequestBytes, "maxRequestBytes");
+            return this;
+        }
+
+        public Builder maxResponseBytes(int maxResponseBytes) {
+            this.maxResponseBytes = positive(maxResponseBytes, "maxResponseBytes");
+            return this;
+        }
+
+        public Builder maxJsonDepth(int maxJsonDepth) {
+            this.maxJsonDepth = positive(maxJsonDepth, "maxJsonDepth");
+            return this;
+        }
+
+        public Builder maxBufferedStreamEvents(int maxBufferedStreamEvents) {
+            this.maxBufferedStreamEvents = positive(
+                maxBufferedStreamEvents,
+                "maxBufferedStreamEvents"
+            );
+            return this;
+        }
+
+        public Builder authorities(Authority... values) {
+            authorities.clear();
+            for (Authority value : values) {
+                authorities.add(Objects.requireNonNull(value, "authority"));
+            }
+            return this;
+        }
+
+        public Builder enableProviderAuthority() {
+            authorities.add(Authority.PROVIDER_AUTHORITY);
             return this;
         }
 
         public CmuxClient build() throws CmuxException {
             return new CmuxClient(this);
-        }
-    }
-
-    public static final class CmuxStream implements AutoCloseable {
-        private final JsonLineConnection connection;
-        private final ArrayDeque<CmuxEvent> buffered;
-        private boolean finished;
-
-        private CmuxStream(JsonLineConnection connection, ArrayDeque<CmuxEvent> buffered) {
-            this.connection = connection;
-            this.buffered = buffered;
-        }
-
-        static CmuxStream open(String socketPath, Duration timeout, Map<String, Object> request) throws CmuxException {
-            JsonLineConnection connection = JsonLineConnection.connect(socketPath);
-            connection.send(request);
-            ArrayDeque<CmuxEvent> buffered = new ArrayDeque<>();
-            Object id = request.get("id");
-            while (true) {
-                Map<String, Object> response = connection.recv(timeout);
-                if (response.containsKey("event")) {
-                    CmuxEvent event = CmuxEvent.from(response);
-                    buffered.add(event);
-                    if ("attach-surface".equals(request.get("cmd")) && event instanceof VtStateEvent) {
-                        return new CmuxStream(connection, buffered);
-                    }
-                    continue;
-                }
-                if (response.containsKey("id") && !idsEqual(response.get("id"), id)) {
-                    continue;
-                }
-                if (Boolean.TRUE.equals(response.get("ok"))) {
-                    return new CmuxStream(connection, buffered);
-                }
-                if (Boolean.FALSE.equals(response.get("ok"))) {
-                    throw new CmuxCommandException(asString(response.get("error")), response.get("id"));
-                }
-            }
-        }
-
-        public CmuxEvent next(Duration timeout) throws CmuxException {
-            if (finished) {
-                throw new CmuxException("stream is closed");
-            }
-            if (!buffered.isEmpty()) {
-                return finishTerminal(buffered.removeFirst());
-            }
-            while (true) {
-                Map<String, Object> response = connection.recv(timeout);
-                if (response.containsKey("event")) {
-                    return finishTerminal(CmuxEvent.from(response));
-                }
-            }
-        }
-
-        private CmuxEvent finishTerminal(CmuxEvent event) throws CmuxException {
-            if (event instanceof OverflowEvent || "detached".equals(event.event())) {
-                finished = true;
-                connection.close();
-            }
-            return event;
-        }
-
-        @Override
-        public void close() throws CmuxException {
-            connection.close();
         }
     }
 }

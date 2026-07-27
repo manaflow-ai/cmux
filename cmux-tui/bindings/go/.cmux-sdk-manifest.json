@@ -1,0 +1,29 @@
+{
+  "files": [
+    {
+      "path": "generated_commands.go",
+      "sha256": "f0800a2760337d0fdb5555f69968a76cb5c4cff02e14b9d6705b85034c6c07e2",
+      "size": 56556
+    },
+    {
+      "path": "generated_events.go",
+      "sha256": "6bd034db1b271325e6165a94e203d309985c69e9609c7a79ac1a56ac88012a78",
+      "size": 26957
+    },
+    {
+      "path": "generated_metadata.go",
+      "sha256": "70581f77190e3ae8d220d049007552d601ac9f915141ca5241490aa48df14953",
+      "size": 40528
+    },
+    {
+      "path": "generated_types.go",
+      "sha256": "aa250ffcabfdc17a9fd4d9ed31a20c5ffd4d81cc58413e051f5c541ea3c1b1a9",
+      "size": 22709
+    }
+  ],
+  "format": 1,
+  "ir_sha256": "2006a175f8506aeeca40689c7a61651a6685a7b03b3c9c52c38cd5259c3a9a96",
+  "language": "go",
+  "mux_protocol": 10,
+  "schema_version": 2
+}
