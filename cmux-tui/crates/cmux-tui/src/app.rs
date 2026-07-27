@@ -15051,7 +15051,7 @@ mod tests {
         let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
         let attach = surface.attach_stream().unwrap();
         let deadline = Instant::now() + Duration::from_secs(1);
-        let mut output = attach.replay.clone();
+        let mut output = attach.replay.to_vec();
         while !output.windows(5).any(|window| window == b"ready") {
             match attach.stream.recv_timeout(Duration::from_millis(20)) {
                 Ok(cmux_tui_core::AttachFrame::Output(bytes)) => output.extend_from_slice(&bytes),
@@ -15111,7 +15111,7 @@ mod tests {
         let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
         let attach = surface.attach_stream().unwrap();
         let deadline = Instant::now() + Duration::from_secs(1);
-        let mut output = attach.replay.clone();
+        let mut output = attach.replay.to_vec();
         while !output.windows(5).any(|window| window == b"ready") {
             match attach.stream.recv_timeout(Duration::from_millis(20)) {
                 Ok(cmux_tui_core::AttachFrame::Output(bytes)) => output.extend_from_slice(&bytes),
@@ -15205,7 +15205,7 @@ mod tests {
         let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
         let attach = surface.attach_stream().unwrap();
         let deadline = Instant::now() + Duration::from_secs(1);
-        let mut output = attach.replay.clone();
+        let mut output = attach.replay.to_vec();
         while !output.windows(5).any(|window| window == b"ready") {
             match attach.stream.recv_timeout(Duration::from_millis(20)) {
                 Ok(cmux_tui_core::AttachFrame::Output(bytes)) => output.extend_from_slice(&bytes),
@@ -15276,7 +15276,7 @@ mod tests {
         let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
         let attach = surface.attach_stream().unwrap();
         let deadline = Instant::now() + Duration::from_secs(1);
-        let mut output = attach.replay.clone();
+        let mut output = attach.replay.to_vec();
         while !output.windows(5).any(|window| window == b"ready") {
             match attach.stream.recv_timeout(Duration::from_millis(20)) {
                 Ok(cmux_tui_core::AttachFrame::Output(bytes)) => output.extend_from_slice(&bytes),

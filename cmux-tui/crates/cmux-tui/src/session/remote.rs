@@ -4228,7 +4228,10 @@ mod tests {
 
         assert!(matches!(
             error.downcast_ref::<RemoteRequestError>(),
-            Some(RemoteRequestError::Rejected(message)) if message == "injected rejection"
+            Some(RemoteRequestError::Rejected {
+                error,
+                delivery: None,
+            }) if error == "injected rejection"
         ));
         assert_eq!(*session.cell_pixels.lock().unwrap(), (8, 16));
         assert_eq!(*surface.cell_pixels.lock().unwrap(), (8, 16));
