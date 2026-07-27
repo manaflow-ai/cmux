@@ -9,6 +9,34 @@ private let secondaryPromotionLog = Logger(
 
 @MainActor
 extension MobileShellComposite {
+    /// Change a retained focused client to control-only ownership after its
+    /// terminal subscription has been removed. The workspace snapshot stays in
+    /// `workspacesByMac`, so the aggregate never blinks while roles change.
+    func installControlConnection(from connection: MacConnection) {
+        let subscription = SecondaryMacSubscription(
+            macDeviceID: connection.macDeviceID,
+            client: connection.client,
+            route: connection.route,
+            ticket: connection.ticket,
+            storedInstanceTag: connection.instanceTag,
+            authenticatedInstanceTag: connection.instanceTag,
+            supportedHostCapabilities: connection.supportedHostCapabilities,
+            actionCapabilities: connection.actionCapabilities,
+            displayName: connection.displayName
+        )
+        connections[connection.macDeviceID] = nil
+        secondaryMacSubscriptions[connection.macDeviceID] = subscription
+        startSecondaryEventConsumer(
+            subscription,
+            displayName: connection.displayName
+        )
+        scheduleSecondaryNotificationFeedRefresh(
+            macDeviceID: connection.macDeviceID,
+            client: connection.client,
+            displayName: connection.displayName
+        )
+    }
+
     /// Reuse a live secondary client only while both pre- and post-probe store
     /// reads retain the authority authenticated for that client.
     func promoteSecondaryToForeground(
@@ -108,28 +136,7 @@ extension MobileShellComposite {
         if let previousForegroundID,
            previousForegroundID != macID,
            let previousForegroundConnection {
-            let previousControl = SecondaryMacSubscription(
-                macDeviceID: previousForegroundID,
-                client: previousForegroundConnection.client,
-                route: previousForegroundConnection.route,
-                ticket: previousForegroundConnection.ticket,
-                storedInstanceTag: previousForegroundConnection.instanceTag,
-                authenticatedInstanceTag: previousForegroundConnection.instanceTag,
-                supportedHostCapabilities:
-                    previousForegroundConnection.supportedHostCapabilities,
-                actionCapabilities: previousForegroundConnection.actionCapabilities,
-                displayName: previousForegroundConnection.displayName
-            )
-            secondaryMacSubscriptions[previousForegroundID] = previousControl
-            startSecondaryEventConsumer(
-                previousControl,
-                displayName: previousForegroundConnection.displayName
-            )
-            scheduleSecondaryNotificationFeedRefresh(
-                macDeviceID: previousForegroundID,
-                client: previousForegroundConnection.client,
-                displayName: previousForegroundConnection.displayName
-            )
+            installControlConnection(from: previousForegroundConnection)
         }
         // Promotion reuses the live client without a fresh `mobile.host.status`
         // probe, so the previous foreground Mac's update hint would otherwise

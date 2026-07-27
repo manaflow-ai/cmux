@@ -907,8 +907,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
     /// The in-flight multi-Mac aggregation pass, tracked so sign-out / account
     /// switch can cancel it; its scope guards then bail before any cross-account
-    /// write. Replaced (cancelling the prior) on each scheduled pass.
+    /// write. Repeated presence pushes set a trailing-pass bit instead of
+    /// cancelling an authenticated Iroh handshake mid-flight.
     private var secondaryAggregationTask: Task<Void, Never>?
+    private var secondaryAggregationTaskGeneration = UUID()
+    private var secondaryAggregationPending = false
     /// Coalesced retry after a live control stream ends. One task covers all
     /// online Macs so simultaneous cellular path loss does not fan out timers.
     private var secondaryAggregationRetryTask: Task<Void, Never>?
@@ -3637,10 +3640,28 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// Launch the multi-Mac aggregation in a tracked task so sign-out / account
     /// switch can cancel it (its scope guards then bail before any cross-account
-    /// write). Replaces any prior in-flight pass.
+    /// write). Presence can publish several rows for one heartbeat; coalesce those
+    /// triggers into one in-flight pass plus one trailing pass so a valid connect
+    /// is never starved by cancel/restart churn.
     func scheduleSecondaryAggregation() {
-        secondaryAggregationTask?.cancel()
-        secondaryAggregationTask = Task { [weak self] in await self?.refreshSecondaryMacWorkspaces() }
+        guard secondaryAggregationTask == nil else {
+            secondaryAggregationPending = true
+            return
+        }
+        let taskGeneration = UUID()
+        secondaryAggregationTaskGeneration = taskGeneration
+        secondaryAggregationTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            repeat {
+                self.secondaryAggregationPending = false
+                await self.refreshSecondaryMacWorkspaces()
+            } while self.secondaryAggregationTaskGeneration == taskGeneration
+                && self.secondaryAggregationPending
+                && !Task.isCancelled
+            guard self.secondaryAggregationTaskGeneration == taskGeneration else { return }
+            self.secondaryAggregationTask = nil
+            self.secondaryAggregationPending = false
+        }
     }
     func refreshSecondaryMacWorkspaces() async {
         guard let pairedMacStore, multiMacAggregationEnabled else { return }
@@ -4072,7 +4093,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 return
             }
             self.secondaryAggregationRetryTask = nil
-            await self.refreshSecondaryMacWorkspaces()
+            self.scheduleSecondaryAggregation()
         }
     }
 
@@ -4262,6 +4283,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func teardownSecondaryMacSubscriptions() {
         secondaryAggregationTask?.cancel()
         secondaryAggregationTask = nil
+        secondaryAggregationTaskGeneration = UUID()
+        secondaryAggregationPending = false
         secondaryAggregationRetryTask?.cancel()
         secondaryAggregationRetryTask = nil
         secondaryAggregationRetryDelay = .seconds(2)
@@ -5498,6 +5521,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         ifStillCurrent: (() -> Bool)? = nil
     ) async throws -> MobilePairingFailureCategory? {
         let generation = UUID()
+        let ticketMacDeviceID = ticket.macDeviceID
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let requestedMacDeviceID = pairedMacDeviceID
+            ?? (ticketMacDeviceID.isEmpty ? nil : ticketMacDeviceID)
+        let previousFocusedConnection: MacConnection? = foregroundMacDeviceID.flatMap { macID in
+            guard let connection = connections[macID],
+                  connection.client === remoteClient,
+                  requestedMacDeviceID.map({
+                      cmxCanonicalDeviceID($0) != cmxCanonicalDeviceID(macID)
+                  }) ?? true else { return nil }
+            return connection
+        }
         func isConnectCurrent() -> Bool {
             isCurrentConnectionAttempt(generation) && (ifStillCurrent?() ?? true)
         }
@@ -5531,7 +5566,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         activeTicket = ticket
         activeRoute = firstRoute
         connectedHostName = placeholderHostName(for: ticket, firstRoute: firstRoute)
-        replaceRemoteClient(with: nil)
+        // Keep the current Mac alive while a different Mac authenticates. On
+        // success it is demoted in-place to control-only; on failure the caller
+        // can still tear it down through the ordinary connection-error path.
+        // Retiring it here would strand an Iroh control owner long enough for the
+        // replacement background dial to time out against that same peer.
+        if previousFocusedConnection == nil {
+            replaceRemoteClient(with: nil)
+        }
 
         guard let runtime else {
             guard isConnectCurrent() else { return nil }
@@ -5720,7 +5762,27 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         await client.disconnect()
                         return nil
                     }
-                    replaceRemoteClient(with: client)
+                    let resolvedForegroundMacID = resolvedTicket.foregroundMacID(
+                        hint: pairedMacDeviceID
+                    )
+                    if let previousFocusedConnection,
+                       !resolvedForegroundMacID.isEmpty,
+                       cmxCanonicalDeviceID(previousFocusedConnection.macDeviceID)
+                           != cmxCanonicalDeviceID(resolvedForegroundMacID) {
+                        // The new Mac is fully authenticated. Remove the old
+                        // terminal registration before exposing the new focused
+                        // client, then reuse the old connection for aggregate
+                        // state and commands without a second Iroh handshake.
+                        stopTerminalRefreshPolling()
+                        clearPendingTerminalInputForFocusChange()
+                        await unsubscribeTerminalEventStream(
+                            on: previousFocusedConnection.client
+                        )
+                        installControlConnection(from: previousFocusedConnection)
+                        adoptPooledRemoteClient(client)
+                    } else {
+                        replaceRemoteClient(with: client)
+                    }
                     activeMacInstanceTag = resolvedInstanceTag
                     prepareTerminalThemeRevisionAuthority(
                         macInstanceTag: resolvedInstanceTag, producerEpoch: status.terminalThemeRevisionEpoch,
@@ -5753,7 +5815,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     // snapshot. Anonymous (empty-id) tickets keep the anonymous key. A
                     // manual fallback ticket carries a synthetic `manual-…` id, so
                     // prefer the caller's real paired-Mac id when it is known.
-                    let resolvedForegroundMacID = resolvedTicket.foregroundMacID(hint: pairedMacDeviceID)
                     let previousForegroundKey = foregroundMacKey
                     if !resolvedForegroundMacID.isEmpty {
                         foregroundMacDeviceID = resolvedForegroundMacID
