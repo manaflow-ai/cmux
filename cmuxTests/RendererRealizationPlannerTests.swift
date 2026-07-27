@@ -88,6 +88,31 @@ struct RendererRealizationPlannerTests {
         #expect(selected.contains(ids[4])) // oldest released
     }
 
+    @Test func defaultFiveTabBaselineReclaimsFourHiddenRenderers() {
+        let now: TimeInterval = 1000
+        let visible = UUID()
+        let hidden = (0..<4).map { _ in UUID() }
+        let inputs = [
+            input(visible, visible: true, lastVisibleAt: now),
+        ] + hidden.map {
+            input(
+                $0,
+                lastVisibleAt: now - RendererRealizationSettings.defaultIdleSeconds
+            )
+        }
+        let selected = RendererRealizationPlanner.selectedSurfaceIds(
+            inputs: inputs,
+            settings: .init(
+                enabled: RendererRealizationSettings.defaultEnabled,
+                idleSeconds: RendererRealizationSettings.defaultIdleSeconds,
+                maxWarmRenderers: RendererRealizationSettings.defaultMaxWarmRenderers
+            ),
+            now: now
+        )
+
+        #expect(selected == Set(hidden))
+    }
+
     @Test func onlyRealizedSurfacesAreConsidered() {
         let now: TimeInterval = 1000
         let unrealized = UUID()
