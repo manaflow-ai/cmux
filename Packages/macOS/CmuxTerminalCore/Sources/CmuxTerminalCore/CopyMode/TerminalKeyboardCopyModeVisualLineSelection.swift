@@ -41,6 +41,20 @@ public struct TerminalKeyboardCopyModeVisualLineSelection: Equatable, Sendable {
         min(anchorScreenRow, endpointScreenRow) ... max(anchorScreenRow, endpointScreenRow)
     }
 
+    /// Replaces the selected rows while preserving the selection direction.
+    ///
+    /// - Parameter selectedRows: The inclusive row range reported by the
+    ///   runtime's tracked selection pins.
+    public mutating func replaceSelectedRows(_ selectedRows: ClosedRange<UInt64>) {
+        if anchorScreenRow <= endpointScreenRow {
+            anchorScreenRow = selectedRows.lowerBound
+            endpointScreenRow = selectedRows.upperBound
+        } else {
+            anchorScreenRow = selectedRows.upperBound
+            endpointScreenRow = selectedRows.lowerBound
+        }
+    }
+
     /// Moves the endpoint to a known scrollback boundary.
     ///
     /// - Parameters:

@@ -246,26 +246,6 @@ struct TerminalKeyboardCopyModeResolverTests {
 
 @Suite("Terminal keyboard copy mode cursor")
 struct TerminalKeyboardCopyModeCursorPackageTests {
-    @Test func ghosttyCellPixelsConvertToAppKitPoints() {
-        #expect(
-            terminalKeyboardCopyModeCellDimensionPoints(
-                reportedCellDimensionPixels: 28,
-                surfaceCellDimensionPixels: 30,
-                backingScaleFactor: 2
-            ) == 14
-        )
-    }
-
-    @Test func surfaceCellPixelsProvidePreActionFallback() {
-        #expect(
-            terminalKeyboardCopyModeCellDimensionPoints(
-                reportedCellDimensionPixels: 0,
-                surfaceCellDimensionPixels: 36,
-                backingScaleFactor: 2
-            ) == 18
-        )
-    }
-
     @Test func initialCursorRowUsesTheNearestGridBoundary() {
         #expect(
             terminalKeyboardCopyModeInitialViewportRow(
@@ -277,19 +257,21 @@ struct TerminalKeyboardCopyModeCursorPackageTests {
         )
     }
 
-    @Test func nativeCursorPointCalibratesExactGridInsets() throws {
-        let insets = try #require(
-            terminalKeyboardCopyModeGridInsets(
-                cursor: TerminalKeyboardCopyModeCursor(row: 46, column: 80),
-                imePointX: 605.75,
-                imePointY: 660,
-                cellWidth: 7.5,
-                cellHeight: 14
-            )
+    @Test func initialCursorConversionClampsExtremeFiniteInputs() {
+        #expect(
+            terminalKeyboardCopyModeInitialViewportRow(
+                rows: 47,
+                imePointY: Double.greatestFiniteMagnitude,
+                imeCellHeight: Double.leastNonzeroMagnitude
+            ) == 46
         )
-
-        #expect(abs(insets.left - 2) < 0.0001)
-        #expect(abs(insets.top - 2) < 0.0001)
+        #expect(
+            terminalKeyboardCopyModeInitialViewportColumn(
+                columns: 80,
+                imePointX: -Double.greatestFiniteMagnitude,
+                imeCellWidth: Double.leastNonzeroMagnitude
+            ) == 0
+        )
     }
 
     @Test func motionThenVisualSelectionUsesMovedCursorAsAnchor() {
@@ -392,6 +374,27 @@ struct TerminalKeyboardCopyModeCursorPackageTests {
         #expect(selection.selectedRows == 40 ... 99)
     }
 
+    @Test func visualLineRuntimeRowsPreserveSelectionDirection() {
+        var forward = TerminalKeyboardCopyModeVisualLineSelection(
+            anchorScreenRow: 10,
+            endpointScreenRow: 20
+        )
+        var reverse = TerminalKeyboardCopyModeVisualLineSelection(
+            anchorScreenRow: 20,
+            endpointScreenRow: 10
+        )
+
+        forward.replaceSelectedRows(3 ... 7)
+        reverse.replaceSelectedRows(3 ... 7)
+
+        #expect(forward.anchorScreenRow == 3)
+        #expect(forward.endpointScreenRow == 7)
+        #expect(reverse.anchorScreenRow == 7)
+        #expect(reverse.endpointScreenRow == 3)
+        #expect(forward.selectedRows == 3 ... 7)
+        #expect(reverse.selectedRows == 3 ... 7)
+    }
+
     @Test func visualLineMovementKeepsClippedBottomEndpointAbsolute() {
         var selection = TerminalKeyboardCopyModeVisualLineSelection(
             anchorScreenRow: 40,
@@ -411,75 +414,5 @@ struct TerminalKeyboardCopyModeCursorPackageTests {
         #expect(selection.selectedRows == 40 ... 96)
         #expect(move.cursor == TerminalKeyboardCopyModeCursor(row: 19, column: 4))
         #expect(move.scrollDelta == 1)
-    }
-
-    @Test func visualSelectionStartsAsExactlyOneCell() {
-        let cell = TerminalKeyboardCopyModeVisualSelection.Cell(screenRow: 8, column: 7)
-        let selection = TerminalKeyboardCopyModeVisualSelection(anchor: cell, endpoint: cell)
-
-        #expect(
-            selection.visibleSegments(
-                scrollOffset: 0,
-                viewportRows: 20,
-                viewportColumns: 40
-            ) == [
-                .init(viewportRow: 8, startColumn: 7, endColumn: 7)
-            ]
-        )
-    }
-
-    @Test func reverseVisualSelectionNormalizesVisibleSegments() {
-        let selection = TerminalKeyboardCopyModeVisualSelection(
-            anchor: .init(screenRow: 12, column: 4),
-            endpoint: .init(screenRow: 10, column: 6)
-        )
-
-        #expect(
-            selection.visibleSegments(
-                scrollOffset: 10,
-                viewportRows: 10,
-                viewportColumns: 8
-            ) == [
-                .init(viewportRow: 0, startColumn: 6, endColumn: 7),
-                .init(viewportRow: 1, startColumn: 0, endColumn: 7),
-                .init(viewportRow: 2, startColumn: 0, endColumn: 4),
-            ]
-        )
-    }
-
-    @Test func visualSelectionMovementOwnsItsAbsoluteEndpoint() {
-        var selection = TerminalKeyboardCopyModeVisualSelection(
-            anchor: .init(screenRow: 19, column: 3),
-            endpoint: .init(screenRow: 19, column: 3)
-        )
-
-        let move = selection.moveEndpoint(
-            .down,
-            count: 1,
-            viewportRows: 10,
-            viewportColumns: 8,
-            scrollOffset: 10,
-            totalRows: 100
-        )
-
-        #expect(selection.endpoint == .init(screenRow: 20, column: 3))
-        #expect(move.scrollDelta == 1)
-        #expect(move.cursor == TerminalKeyboardCopyModeCursor(row: 9, column: 3))
-    }
-
-    @Test func visualSelectionEndpointFollowsViewportJump() {
-        var selection = TerminalKeyboardCopyModeVisualSelection(
-            anchor: .init(screenRow: 20, column: 3),
-            endpoint: .init(screenRow: 20, column: 3)
-        )
-
-        selection.updateEndpoint(
-            from: TerminalKeyboardCopyModeCursor(row: 4, column: 7),
-            viewportRows: 20,
-            scrollOffset: 100,
-            totalRows: 200
-        )
-
-        #expect(selection.endpoint == .init(screenRow: 104, column: 7))
     }
 }

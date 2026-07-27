@@ -885,13 +885,26 @@ tend to conflict together during rebases.
   - `46bd03a7` (surface: add absolute screen row text read)
   - `edad0cfec` (surface: format screen row clipboard text)
   - `e81fb65f` (surface: bound screen clipboard text formatting)
+  - `aeed68c44` (Expose native keyboard selection geometry)
+- PR: https://github.com/manaflow-ai/ghostty/pull/154
 - Files:
   - `include/ghostty.h`
   - `src/apprt/embedded.zig`
   - `src/Surface.zig`
+  - `src/terminal/Screen.zig`
+  - `src/terminal/Selection.zig`
+  - `src/terminal/render.zig`
 - Summary:
   - Restores `ghostty_surface_select_cursor_cell` and `ghostty_surface_clear_selection`.
   - Keeps cmux keyboard copy mode working against the refreshed Ghostty base after upstream removed those exports.
+  - Exposes exact grid dimensions, asymmetric padding, cursor position, and cursor cell width through `ghostty_surface_grid_metrics`.
+  - Resolves viewport cells to canonical glyph coordinates so wide and wrapped glyphs use their actual leading cell and width.
+  - Adds tracked character and linewise viewport selection APIs. Ghostty owns selection rendering, reflow, scrolling, and clipboard formatting while cmux moves logical endpoints.
+  - Preserves selection mode and direction through snapshots, screen clones, reflow, and renderer caching.
+- Conflict notes:
+  - Reconcile the exported C declarations with `src/apprt/embedded.zig` whenever the embedded surface API changes.
+  - Keep character-cell canonicalization aligned with wide-cell and wrapped-spacer behavior in `src/terminal/Selection.zig`.
+  - Linewise endpoints remain logical row pins. Full-row bounds are derived for rendering and copying, rather than stored in the selection.
 
 ### 7) macos-background-from-layer config flag
 

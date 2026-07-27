@@ -2545,15 +2545,6 @@ struct TerminalKeyboardCopyModeCursorAppearanceTests {
         #expect(borderColor?.hexString() == cursorColor.hexString())
     }
 
-    @Test func selectionUsesConfiguredTerminalSelectionColor() {
-        var config = GhosttyConfig()
-        config.selectionBackground = NSColor(hex: "#993366")!
-
-        let appearance = PanelAppearance.fromConfig(config, usesTransparentWindow: false)
-
-        #expect(appearance.selectionColor.hexString() == "#993366")
-    }
-
     @Test func cursorUsesConfiguredTerminalCursorColor() {
         var config = GhosttyConfig()
         config.cursorColor = NSColor(hex: "#336699")!
@@ -2561,6 +2552,32 @@ struct TerminalKeyboardCopyModeCursorAppearanceTests {
         let appearance = PanelAppearance.fromConfig(config, usesTransparentWindow: false)
 
         #expect(appearance.cursorColor.hexString() == "#336699")
+    }
+
+    @Test func wideCursorOutlineSpansBothAlignedGridCells() {
+        let metrics = GhosttyNSView.KeyboardCopyModeGridMetrics(
+            rows: 10,
+            columns: 20,
+            cellWidth: 9.5,
+            cellHeight: 18,
+            xInset: 4,
+            yInset: 6,
+            viewHeight: 200,
+            terminalCursor: nil
+        )
+        let cell = GhosttyNSView.KeyboardCopyModeResolvedCell(
+            cursor: TerminalKeyboardCopyModeCursor(row: 2, column: 3),
+            widthCells: 2
+        )
+
+        #expect(
+            metrics.topOriginRect(for: cell)
+                == CGRect(x: 32.5, y: 42, width: 19, height: 18)
+        )
+        #expect(
+            metrics.appKitRect(for: cell)
+                == CGRect(x: 32.5, y: 140, width: 19, height: 18)
+        )
     }
 }
 
