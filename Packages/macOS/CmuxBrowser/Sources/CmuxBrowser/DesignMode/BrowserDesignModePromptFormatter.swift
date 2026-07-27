@@ -44,41 +44,15 @@ public struct BrowserDesignModePromptFormatter: Sendable {
             "",
             String(
                 localized: "browser.designMode.handoff.pageURL",
-                defaultValue: "Page URL: \(context.pageURL)"
+                defaultValue: "Page: \(context.pageURL)"
             ),
         ]
-        if let pageScreenshotPath = context.pageScreenshotPath,
-           !pageScreenshotPath.isEmpty {
-            lines.append(String(
-                localized: "browser.designMode.handoff.pageScreenshot",
-                defaultValue: "Full-page screenshot: \(pageScreenshotPath)"
-            ))
-        }
-
-        for (index, selection) in selections.enumerated() {
-            let tagName = quotedOneLine(selection.tagName)
-            let selector = quotedOneLine(selection.selector)
-            lines.append(
-                String(
-                    localized: "browser.designMode.handoff.selection",
-                    defaultValue: "Selection \(index + 1) (tag: \(tagName), selector: \(selector)): \(screenshotPaths[index])"
-                )
-            )
-        }
+        lines.append(contentsOf: screenshotPaths)
 
         lines.append(String(
             localized: "browser.designMode.handoff.contextJSON",
-            defaultValue: "Full context JSON: \(contextJSONPath)"
+            defaultValue: "Details: \(contextJSONPath)"
         ))
         return lines.joined(separator: "\n")
-    }
-
-    private func quotedOneLine(_ value: String) -> String {
-        let oneLine = value.split(whereSeparator: \.isWhitespace).joined(separator: " ")
-        guard let data = try? JSONEncoder().encode(oneLine),
-              let quoted = String(data: data, encoding: .utf8) else {
-            return "\"\""
-        }
-        return quoted
     }
 }

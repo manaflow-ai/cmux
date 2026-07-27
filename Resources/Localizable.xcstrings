@@ -20632,13 +20632,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Full context JSON: %1$@"
+            "value": "Details: %1$@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "完全なコンテキストJSON: %1$@"
+            "value": "詳細: %1$@"
           }
         }
       }
@@ -20660,53 +20660,19 @@
         }
       }
     },
-    "browser.designMode.handoff.pageScreenshot": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Full-page screenshot: %1$@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ページ全体のスクリーンショット: %1$@"
-          }
-        }
-      }
-    },
     "browser.designMode.handoff.pageURL": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Page URL: %1$@"
+            "value": "Page: %1$@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ページURL: %1$@"
-          }
-        }
-      }
-    },
-    "browser.designMode.handoff.selection": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Selection %1$lld (tag: %2$@, selector: %3$@): %4$@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "選択 %1$lld（タグ: %2$@、セレクター: %3$@）: %4$@"
+            "value": "ページ: %1$@"
           }
         }
       }
