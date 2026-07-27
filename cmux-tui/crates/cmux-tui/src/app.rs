@@ -13906,6 +13906,44 @@ mod tests {
     }
 
     #[test]
+    fn horizontal_status_bar_reserves_terminal_cells_for_wide_messages() {
+        let (mux, first) = test_mux("wide-status-message-test", None);
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        mux.new_pane_right(first_pane, cmux_tui_core::DEFAULT_VIEWPORT_PANE_WIDTH, Some((51, 22)))
+            .unwrap();
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.config.viewport.animation = false;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((80, 25));
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        app.status_message = Some("復元失敗".to_string());
+
+        let mut terminal = Terminal::new(TestBackend::new(80, 25)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let buffer = terminal.backend().buffer();
+        let expected = [(71, "復"), (73, "元"), (75, "失"), (77, "敗")];
+        for (x, symbol) in expected {
+            assert_eq!(buffer[(x, 24)].symbol(), symbol);
+        }
+        let track = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(hit, super::Hit::HorizontalScrollbar { .. }).then_some(*rect)
+            })
+            .expect("wide viewport should render a horizontal scrollbar");
+        assert!(track.x + track.width < 70, "track must end before the 10-cell status label");
+
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface).unwrap();
+        }
+    }
+
+    #[test]
     fn viewport_columns_resize_with_shortcuts_and_mouse_drag() {
         let mux = Mux::new("viewport-pane-resize-test", SurfaceOptions::default());
         mux.new_workspace(None, Some((80, 24))).unwrap();
