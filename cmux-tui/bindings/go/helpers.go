@@ -2,7 +2,6 @@ package cmux
 
 import (
 	"encoding/base64"
-	"encoding/json"
 )
 
 // IdentifyDetails is retained as an alias for the now-complete generated
@@ -16,13 +15,12 @@ type ClientSurfaceSize = ClientSize
 // screen and workspace selection.
 type SelectOptions = SelectWorkspaceOptions
 
-// SendOptions accepts either already encoded wire bytes or ordinary Go bytes.
-// Text is sent first when Text and Bytes are both present.
+// SendOptions preserves omitted, null, and value states for the nullable text
+// and bytes wire fields. Use EncodeBase64 before wrapping ordinary bytes.
 type SendOptions struct {
-	Text        *string
-	Bytes       []byte
-	Base64Bytes Base64
-	Paste       bool
+	Text  Presence[string]
+	Bytes Presence[Base64]
+	Paste *bool
 }
 
 type TreeEventMode string
@@ -33,8 +31,8 @@ const (
 )
 
 type SubscribeOptions struct {
-	TreeEvents TreeEventMode
-	Surface    *ID
+	TreeEvents Presence[TreeEventMode]
+	Surface    Presence[ID]
 }
 
 type AttachMode string
@@ -45,9 +43,9 @@ const (
 )
 
 type AttachSurfaceOptions struct {
-	Mode AttachMode
-	Cols *uint16
-	Rows *uint16
+	Mode Presence[AttachMode]
+	Cols Presence[uint16]
+	Rows Presence[uint16]
 }
 
 // DecodeBase64 decodes an exact base64 wire field.
@@ -58,14 +56,4 @@ func DecodeBase64(value Base64) ([]byte, error) {
 // EncodeBase64 encodes bytes for an exact base64 wire field.
 func EncodeBase64(value []byte) Base64 {
 	return Base64(base64.StdEncoding.EncodeToString(value))
-}
-
-func (result *ResizeSurfaceResult) UnmarshalJSON(data []byte) error {
-	type wireResult ResizeSurfaceResult
-	decoded := wireResult{Accepted: true}
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	*result = ResizeSurfaceResult(decoded)
-	return nil
 }

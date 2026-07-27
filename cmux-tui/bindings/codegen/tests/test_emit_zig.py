@@ -1,11 +1,28 @@
 from __future__ import annotations
 
+import json
 import unittest
+from collections.abc import Mapping
+from pathlib import Path
 
-from codegen.emit_zig import render
-from codegen.ir import load_ir_document
+from codegen.emit_zig import ZigEmitter, render
+from codegen.ir import load_ir, load_ir_document
 
 from support import schema_document
+
+
+def count_optional_non_null_fields(value: object) -> int:
+    if isinstance(value, Mapping):
+        count = int(
+            value.get("presence") == "optional"
+            and value.get("nullable") is False
+        )
+        return count + sum(
+            count_optional_non_null_fields(item) for item in value.values()
+        )
+    if isinstance(value, (tuple, list)):
+        return sum(count_optional_non_null_fields(item) for item in value)
+    return 0
 
 
 class ZigEmitterTests(unittest.TestCase):
@@ -100,6 +117,81 @@ class ZigEmitterTests(unittest.TestCase):
 }""",
             source,
         )
+
+    def test_struct_marker_only_lists_optional_non_null_fields(self) -> None:
+        document = schema_document()
+        document["types"]["Workspace"]["fields"].update(
+            {
+                "optional_nonnull": {
+                    "type": {"kind": "scalar", "name": "string"},
+                    "presence": "optional",
+                    "nullable": False,
+                },
+                "optional_nullable": {
+                    "type": {"kind": "scalar", "name": "string"},
+                    "presence": "optional",
+                    "nullable": True,
+                },
+                "required_nullable": {
+                    "type": {"kind": "scalar", "name": "string"},
+                    "presence": "required",
+                    "nullable": True,
+                },
+            }
+        )
+
+        generated = render(load_ir_document(document))
+        source = generated["protocol.zig"]
+
+        self.assertIn(
+            """pub const Workspace = struct {
+    id: Id,
+    optional_nonnull: ?[]const u8 = null,
+    optional_nullable: wire.Field([]const u8) = .absent,
+    required_nullable: wire.Nullable([]const u8),
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "optional_nonnull",
+    };
+};""",
+            source,
+        )
+        self.assertIn(
+            "expectExplicitNullRejected(protocol.Workspace, "
+            '"optional_nonnull");',
+            generated["presence_test.zig"],
+        )
+
+    def test_every_optional_non_null_field_uses_shared_strict_decode_path(
+        self,
+    ) -> None:
+        schema = Path(__file__).resolve().parents[3] / "spec" / "sdk-schema.json"
+        ir = load_ir(schema)
+        emitter = ZigEmitter(ir)
+        protocol = emitter.render()
+        presence_test = emitter.render_presence_test()
+        expected = count_optional_non_null_fields(ir.document)
+
+        self.assertGreater(expected, 0)
+        self.assertEqual(len(emitter.optional_nonnull_cases), expected)
+        self.assertEqual(len(set(emitter.optional_nonnull_cases)), expected)
+        self.assertEqual(
+            presence_test.count("    try expectExplicitNullRejected("),
+            expected,
+        )
+        for owner_name, wire_name in emitter.optional_nonnull_cases:
+            with self.subTest(owner=owner_name, field=wire_name):
+                self.assertIn(
+                    f"protocol.{owner_name}, {json.dumps(wire_name)}",
+                    presence_test,
+                )
+
+        self.assertIn(
+            "capabilities: ?[]const []const u8 = null,",
+            protocol,
+        )
+        self.assertIn("focused_at: ?u64 = null,", protocol)
+        self.assertIn("replayed: ?bool = null,", protocol)
 
 
 if __name__ == "__main__":

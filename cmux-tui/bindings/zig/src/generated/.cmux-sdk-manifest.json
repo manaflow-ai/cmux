@@ -1,9 +1,14 @@
 {
   "files": [
     {
+      "path": "presence_test.zig",
+      "sha256": "a7b353a8de4901fddbd2e8606d1a22e537798735bef12a7f7dc1736660f4b08c",
+      "size": 4090
+    },
+    {
       "path": "protocol.zig",
-      "sha256": "bb713187b0cbd4eeb42b0c083d4e6ae7af50b355c9da1a5e33e00d74bf32e667",
-      "size": 111205
+      "sha256": "44433055f9e7b851e8541525d1767daedd58be3d5fe9a6436b5d8ded8f9e35e5",
+      "size": 114292
     }
   ],
   "format": 1,

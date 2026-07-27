@@ -413,10 +413,10 @@ fn validateIdentity(identity: cmux.protocol.IdentifyResult) !void {
     if (identity.protocol < minimum_provider_protocol) {
         return error.UnsupportedProtocol;
     }
-    for (identity.capabilities) |capability| {
-        if (std.mem.eql(u8, capability, provider_capability)) return;
+    const server_capabilities = identity.capabilities orelse &.{};
+    if (!cmux.hasCapability(server_capabilities, provider_capability)) {
+        return error.MissingProviderCapability;
     }
-    return error.MissingProviderCapability;
 }
 
 fn validateTree(

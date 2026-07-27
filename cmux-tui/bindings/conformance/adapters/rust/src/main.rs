@@ -4,7 +4,7 @@ use cmux_client::{
     AttachBuilder, BrowserBackRequest, COMMANDS, ClientConfig, CloseWorkspaceRequest, CmuxClient,
     CmuxError, CreateTerminalRequest, EVENTS, Event, MarkWorkspacesProviderManagedRequest,
     Optional, PairingResponseRequest, Pane, PingRequest, RenameWorkspaceRequest,
-    SubscriptionBuilder, TabKind, WaitForRequest,
+    SetClientInfoRequest, SubscriptionBuilder, TabKind, WaitForRequest,
 };
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
@@ -43,6 +43,8 @@ struct Request {
     workspace_name: String,
     #[serde(default)]
     renamed_name: String,
+    #[serde(default)]
+    presence: String,
 }
 
 fn main() {
@@ -82,7 +84,11 @@ fn dispatch(request: &Request) -> Result<Value, CmuxError> {
         "metadata" => Ok(metadata()),
         "identify" => identify(request),
         "nullable-literal" => nullable_literal(request),
+        "optional-non-null-response" => optional_non_null_response(request),
+        "optional-nullable-request" => optional_nullable_request(request),
         "stream" => run_stream(request),
+        "required-nullable-event" => required_nullable_event(request),
+        "optional-non-null-event" => optional_non_null_event(request),
         "close-pending-stream" => close_pending_stream(request),
         "authority" => authority(request),
         "authority-denied" => authority_denied(request),
@@ -143,6 +149,26 @@ fn nullable_literal(request: &Request) -> Result<Value, CmuxError> {
     Ok(json!({"lifecycle": placement.lifecycle.into_option()}))
 }
 
+fn optional_non_null_response(request: &Request) -> Result<Value, CmuxError> {
+    let mut client = CmuxClient::connect(config(request))?;
+    let value = client.identify_server()?;
+    Ok(json!({"present": value.capabilities.is_some()}))
+}
+
+fn optional_nullable_request(request: &Request) -> Result<Value, CmuxError> {
+    let name = match request.presence.as_str() {
+        "omitted" => Optional::Missing,
+        "null" => Optional::Null,
+        "value" => Optional::Value("conformance-client".into()),
+        presence => {
+            return Err(CmuxError::InvalidArgument(format!("unknown presence {presence:?}")));
+        }
+    };
+    let mut client = CmuxClient::connect(config(request))?;
+    client.set_client_info(SetClientInfoRequest { kind: Optional::Missing, name })?;
+    Ok(json!({"presence": request.presence}))
+}
+
 fn surface(request: &Request) -> Result<u64, CmuxError> {
     request
         .surface
@@ -182,6 +208,39 @@ fn run_stream(request: &Request) -> Result<Value, CmuxError> {
         }
     }
     Ok(json!({"events": events, "terminal": terminal}))
+}
+
+fn required_nullable_event(request: &Request) -> Result<Value, CmuxError> {
+    let mut client = CmuxClient::connect(config(request))?;
+    let mut stream = open_stream(&mut client, request)?;
+    let timeout_ms = if request.timeout_ms == 0 { 1_000 } else { request.timeout_ms };
+    match stream.recv_timeout(Duration::from_millis(timeout_ms))? {
+        Event::ClientChanged(event) => Ok(json!({"name": event.name.into_option()})),
+        Event::Unknown(unknown) if unknown.name.as_deref() == Some("client-changed") => {
+            Err(CmuxError::Decode(
+                unknown
+                    .decode_error
+                    .unwrap_or_else(|| "client-changed event failed typed decoding".into()),
+            ))
+        }
+        event => Err(CmuxError::Decode(format!(
+            "expected client-changed event, received {:?}",
+            event.wire_name()
+        ))),
+    }
+}
+
+fn optional_non_null_event(request: &Request) -> Result<Value, CmuxError> {
+    let mut client = CmuxClient::connect(config(request))?;
+    let mut stream = open_stream(&mut client, request)?;
+    let timeout_ms = if request.timeout_ms == 0 { 1_000 } else { request.timeout_ms };
+    match stream.recv_timeout(Duration::from_millis(timeout_ms))? {
+        Event::Output(event) => Ok(json!({"present": event.colors.is_some()})),
+        event => Err(CmuxError::Decode(format!(
+            "expected output event, received {:?}",
+            event.wire_name()
+        ))),
+    }
 }
 
 fn event_value(event: Event) -> Value {

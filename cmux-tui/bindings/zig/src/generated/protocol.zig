@@ -285,10 +285,14 @@ pub const FrontendProjection = struct {
     frontend: []const u8,
     projection: wire.Nullable(JsonValue),
     projection_revision: u64,
-    replayed: bool = false,
+    replayed: ?bool = null,
     schema_version: u32,
     scope: []const u8,
     subject_key: []const u8,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "replayed",
+    };
 };
 
 pub const Id = u64;
@@ -326,7 +330,7 @@ pub const IdMapping = struct {
 pub const IdentifyResult = struct {
     app: []const u8,
     build_commit: wire.Field([]const u8) = .absent,
-    capabilities: []const []const u8 = &.{},
+    capabilities: ?[]const []const u8 = null,
     daemon_handoff: i64,
     generation: []const u8,
     ghostty_commit: wire.Field([]const u8) = .absent,
@@ -337,6 +341,10 @@ pub const IdentifyResult = struct {
     terminal_revision: u64,
     version: []const u8,
     workspace_revision: u64,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "capabilities",
+    };
 };
 
 pub const IdsResult = struct {
@@ -357,6 +365,10 @@ pub const LayoutSplit = struct {
     ratio: f32,
     /// Stable for the lifetime of this split node.
     split: ?Id = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "split",
+    };
 };
 
 pub const LayoutStack = struct {
@@ -407,11 +419,16 @@ pub const ListTerminalsResult = struct {
 
 pub const LivePane = struct {
     active_tab: u64,
-    focused_at: u64 = 0,
+    focused_at: ?u64 = null,
     id: Id,
     name: wire.Nullable([]const u8),
     short_id: ?[]const u8 = null,
     tabs: []const Tab,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "focused_at",
+        "short_id",
+    };
 };
 
 pub const MintTerminalRendererResult = struct {
@@ -570,6 +587,11 @@ pub const RenderRun = struct {
     text: []const u8,
     underline: ?RenderUnderline = null,
     width_hint: ?u16 = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "underline",
+        "width_hint",
+    };
 };
 
 pub const RenderUnderline = enum {
@@ -642,6 +664,10 @@ pub const Screen = struct {
     panes: []const Pane,
     short_id: ?[]const u8 = null,
     zoomed_pane: wire.Nullable(Id),
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "short_id",
+    };
 };
 
 pub const SetCellPixelsResult = struct {
@@ -762,6 +788,10 @@ pub const Tab = struct {
     terminal_id: wire.Field([]const u8) = .absent,
     terminal_incarnation: wire.Field([]const u8) = .absent,
     title: []const u8,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "short_id",
+    };
 };
 
 pub const TerminalColors = struct {
@@ -773,6 +803,10 @@ pub const TerminalColors = struct {
     palette: ?wire.Map(ColorHex) = null,
     selection_bg: wire.Nullable(ColorHex),
     selection_fg: wire.Nullable(ColorHex),
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "palette",
+    };
 };
 
 pub const TerminalEventsResult = struct {
@@ -850,6 +884,14 @@ pub const Tree = struct {
     terminal_revision: ?u64 = null,
     workspace_revision: ?u64 = null,
     workspaces: []const Workspace,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "generation",
+        "pane_revision",
+        "registry_id",
+        "terminal_revision",
+        "workspace_revision",
+    };
 };
 
 pub const VtStateResult = struct {
@@ -871,6 +913,11 @@ pub const Workspace = struct {
     name: []const u8,
     screens: []const Screen,
     short_id: ?[]const u8 = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "key",
+        "short_id",
+    };
 };
 
 pub const WorkspaceMutationResult = struct {
@@ -882,6 +929,10 @@ pub const WorkspaceMutationResult = struct {
     replayed: bool,
     workspace: Id,
     workspace_revision: u64,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "changed",
+    };
 };
 
 pub const ZoomPaneResult = struct {
@@ -1666,6 +1717,10 @@ pub fn markWorkspacesProviderManaged(client: anytype, request: MarkWorkspacesPro
 pub const MintTerminalRendererRequest = struct {
     surface: Id,
     ttl_ms: ?u64 = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "ttl_ms",
+    };
 };
 
 pub fn mintTerminalRenderer(client: anytype, request: MintTerminalRendererRequest) !wire.Decoded(MintTerminalRendererResult) {
@@ -2239,6 +2294,10 @@ pub const RunRequest = struct {
     new_workspace: ?bool = null,
     pane: wire.Field(Id) = .absent,
     rows: wire.Field(u16) = .absent,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "new_workspace",
+    };
 };
 
 pub fn run(client: anytype, request: RunRequest) !wire.Decoded(RunResult) {
@@ -2343,6 +2402,10 @@ pub const SendRequest = struct {
     paste: ?bool = null,
     surface: Id,
     text: wire.Field([]const u8) = .absent,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "paste",
+    };
 };
 
 pub const SendResult = EmptyResult;
@@ -2426,6 +2489,10 @@ pub const SetClientSizingRequest = struct {
     enabled: bool,
     exclusive: ?bool = null,
     surface: Id,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "exclusive",
+    };
 };
 
 pub const SetClientSizingResult = EmptyResult;
@@ -2453,6 +2520,10 @@ pub const SetDefaultColorsRequest = struct {
     palette: wire.Field(wire.Map(ColorHex)) = .absent,
     selection_bg: wire.Field(ColorHex) = .absent,
     selection_fg: wire.Field(ColorHex) = .absent,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "complete",
+    };
 };
 
 pub const SetDefaultColorsResult = EmptyResult;
@@ -2561,6 +2632,10 @@ pub const SidebarPluginRequest = struct {
     cols: u16,
     relaunch: ?bool = null,
     rows: u16,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "relaunch",
+    };
 };
 
 pub fn sidebarPlugin(client: anytype, request: SidebarPluginRequest) !wire.Decoded(SidebarPluginResult) {
@@ -2663,6 +2738,10 @@ pub fn swapPane(client: anytype, request: SwapPaneRequest) !wire.Decoded(SwapPan
 
 pub const TerminalEventsRequest = struct {
     after_revision: ?u64 = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "after_revision",
+    };
 };
 
 pub fn terminalEvents(client: anytype, request: TerminalEventsRequest) !wire.Decoded(TerminalEventsResult) {
@@ -2847,6 +2926,11 @@ pub const ColorsChangedEvent = struct {
     selection_bg: wire.Nullable(ColorHex),
     selection_fg: wire.Nullable(ColorHex),
     surface: ?Id = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "palette",
+        "surface",
+    };
 };
 
 pub const ConfigReloadRequestedEvent = struct {
@@ -2900,6 +2984,10 @@ pub const OutputEvent = struct {
     data: Base64,
     event: []const u8,
     surface: Id,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "colors",
+    };
 };
 
 pub const OverflowEvent = struct {
@@ -2907,6 +2995,11 @@ pub const OverflowEvent = struct {
     event: []const u8,
     scope: ?[]const u8 = null,
     surface: ?Id = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "scope",
+        "surface",
+    };
 };
 
 pub const PairingRequestedEvent = struct {
@@ -2950,6 +3043,13 @@ pub const RenderDeltaEvent = struct {
     scrollback_rows: ?u32 = null,
     size: ?Size = null,
     surface: Id,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "default_bg",
+        "default_fg",
+        "scrollback_rows",
+        "size",
+    };
 };
 
 pub const RenderStateEvent = struct {
@@ -2972,6 +3072,12 @@ pub const ResizedEvent = struct {
     replay: ?Base64 = null,
     rows: u16,
     surface: Id,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "colors",
+        "data",
+        "replay",
+    };
 };
 
 pub const ScreenAddedEvent = struct {
@@ -3078,6 +3184,10 @@ pub const TitleChangedEvent = struct {
     event: []const u8,
     surface: Id,
     title: ?[]const u8 = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "title",
+    };
 };
 
 pub const TreeChangedEvent = struct {
@@ -3091,6 +3201,10 @@ pub const VtStateEvent = struct {
     event: []const u8,
     rows: u16,
     surface: Id,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "colors",
+    };
 };
 
 pub const WindowTitleRequestedEvent = struct {
@@ -3108,6 +3222,11 @@ pub const WorkspaceAddedEvent = struct {
     registry_id: []const u8,
     workspace: Id,
     workspace_revision: u64,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "mutation_id",
+        "origin",
+    };
 };
 
 pub const WorkspaceClosedEvent = struct {
@@ -3120,6 +3239,11 @@ pub const WorkspaceClosedEvent = struct {
     registry_id: []const u8,
     workspace: Id,
     workspace_revision: u64,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "mutation_id",
+        "origin",
+    };
 };
 
 pub const WorkspaceMovedEvent = struct {
@@ -3132,6 +3256,11 @@ pub const WorkspaceMovedEvent = struct {
     registry_id: []const u8,
     workspace: Id,
     workspace_revision: u64,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "mutation_id",
+        "origin",
+    };
 };
 
 pub const WorkspaceRenamedEvent = struct {
@@ -3143,6 +3272,11 @@ pub const WorkspaceRenamedEvent = struct {
     registry_id: []const u8,
     workspace: Id,
     workspace_revision: u64,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "mutation_id",
+        "origin",
+    };
 };
 
 pub const UnknownEvent = struct {

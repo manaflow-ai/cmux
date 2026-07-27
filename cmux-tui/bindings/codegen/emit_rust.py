@@ -122,6 +122,27 @@ def _doc(text: str | None, indent: str = "") -> list[str]:
     return [f"{indent}/// {words}"]
 
 
+def _serde_field_options(
+    wire_name: str, field: Mapping[str, Any]
+) -> list[str]:
+    _, renamed = _field_identifier(wire_name)
+    options: list[str] = []
+    if renamed:
+        options.append(f"rename = {_string(wire_name)}")
+    for alias in field.get("aliases", ()):
+        options.append(f"alias = {_string(str(alias))}")
+    if field["presence"] == "optional":
+        options.append("default")
+        if field["nullable"]:
+            options.append('skip_serializing_if = "Optional::is_missing"')
+        else:
+            options.append(
+                'deserialize_with = "crate::presence::deserialize_optional_non_null"'
+            )
+            options.append('skip_serializing_if = "Option::is_none"')
+    return options
+
+
 def _header(ir: SdkIR) -> str:
     return (
         "// This file is generated. Do not edit by hand.\n"
@@ -275,19 +296,9 @@ class _Definitions:
             derives += ", Default"
         lines = ["#[rustfmt::skip]", f"#[derive({derives})]", f"pub struct {name} {{"]
         for wire_name, field in fields:
-            field_name, renamed = _field_identifier(wire_name)
+            field_name, _ = _field_identifier(wire_name)
             lines.extend(_doc(field.get("description"), "    "))
-            serde_options: list[str] = []
-            if renamed:
-                serde_options.append(f"rename = {_string(wire_name)}")
-            for alias in field.get("aliases", ()):
-                serde_options.append(f"alias = {_string(str(alias))}")
-            if field["presence"] == "optional":
-                serde_options.append("default")
-                if field["nullable"]:
-                    serde_options.append('skip_serializing_if = "Optional::is_missing"')
-                else:
-                    serde_options.append('skip_serializing_if = "Option::is_none"')
+            serde_options = _serde_field_options(wire_name, field)
             if serde_options:
                 lines.append(f"    #[serde({', '.join(serde_options)})]")
             field_context = f"{name}{_pascal(wire_name)}"
@@ -335,22 +346,8 @@ class _Definitions:
                     continue
                 lines.append(f"    {variant_name} {{")
                 for field_name, field in payload_fields:
-                    identifier, renamed = _field_identifier(field_name)
-                    serde_options: list[str] = []
-                    if renamed:
-                        serde_options.append(f"rename = {_string(field_name)}")
-                    for alias in field.get("aliases", ()):
-                        serde_options.append(f"alias = {_string(str(alias))}")
-                    if field["presence"] == "optional":
-                        serde_options.append("default")
-                        if field["nullable"]:
-                            serde_options.append(
-                                'skip_serializing_if = "Optional::is_missing"'
-                            )
-                        else:
-                            serde_options.append(
-                                'skip_serializing_if = "Option::is_none"'
-                            )
+                    identifier, _ = _field_identifier(field_name)
+                    serde_options = _serde_field_options(field_name, field)
                     if serde_options:
                         lines.append(f"        #[serde({', '.join(serde_options)})]")
                     rendered = self.field_type(

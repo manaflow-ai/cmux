@@ -45,12 +45,20 @@ func run() error {
 		return fmt.Errorf("unexpected identify result: %+v", info)
 	}
 	cols, rows := uint16(80), uint16(24)
-	created, err := client.NewWorkspace(ctx, cmux.NewWorkspaceOptions{Name: &marker, Cols: &cols, Rows: &rows})
+	created, err := client.NewWorkspace(ctx, cmux.NewWorkspaceOptions{
+		Name: cmux.Value(marker),
+		Cols: cmux.Value(cols),
+		Rows: cmux.Value(rows),
+	})
 	if err != nil {
 		return err
 	}
 	text := fmt.Sprintf("printf '%s\\n'\r", marker)
-	if err := client.Send(ctx, created.Surface, cmux.SendOptions{Text: &text}); err != nil {
+	if err := client.Send(
+		ctx,
+		created.Surface,
+		cmux.SendOptions{Text: cmux.Value(text)},
+	); err != nil {
 		return err
 	}
 	if err := waitForMarker(ctx, client, created.Surface, marker); err != nil {
@@ -96,7 +104,14 @@ func run() error {
 		return fmt.Errorf("same-size resize emitted event or failed oddly: %v", err)
 	}
 
-	attach, err := client.AttachSurfaceWithOptions(ctx, created.Surface, cmux.AttachSurfaceOptions{Cols: &cols, Rows: &rows})
+	attach, err := client.AttachSurfaceWithOptions(
+		ctx,
+		created.Surface,
+		cmux.AttachSurfaceOptions{
+			Cols: cmux.Value(cols),
+			Rows: cmux.Value(rows),
+		},
+	)
 	if err != nil {
 		return err
 	}
@@ -120,7 +135,7 @@ func run() error {
 			ctx,
 			created.Surface,
 			false,
-			cmux.SetClientSizingOptions{Client: &sizingClient},
+			cmux.SetClientSizingOptions{Client: cmux.Value(sizingClient)},
 		); err != nil {
 			return err
 		}
@@ -135,13 +150,17 @@ func run() error {
 			ctx,
 			created.Surface,
 			true,
-			cmux.SetClientSizingOptions{Client: &sizingClient},
+			cmux.SetClientSizingOptions{Client: cmux.Value(sizingClient)},
 		); err != nil {
 			return err
 		}
 	}
 	outputText := fmt.Sprintf("printf '%s\\n'\r", later)
-	if err := client.Send(ctx, created.Surface, cmux.SendOptions{Text: &outputText}); err != nil {
+	if err := client.Send(
+		ctx,
+		created.Surface,
+		cmux.SendOptions{Text: cmux.Value(outputText)},
+	); err != nil {
 		return err
 	}
 	if err := nextAttachOutput(attach, 3*time.Second); err != nil {

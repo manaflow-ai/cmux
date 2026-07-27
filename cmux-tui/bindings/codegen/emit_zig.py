@@ -116,6 +116,7 @@ class ZigEmitter:
         self.ir = ir
         self.document = mutable_document(ir)
         self.named = set(self.document["types"])
+        self.optional_nonnull_cases: list[tuple[str, str]] = []
 
     def type_expr(
         self,
@@ -168,7 +169,6 @@ class ZigEmitter:
         *,
         owner_name: str,
         wire_name: str,
-        honor_nonnull_default: bool,
         recursive_name: str | None,
     ) -> tuple[str, str]:
         inline_name = (
@@ -184,23 +184,6 @@ class ZigEmitter:
         )
         presence = field["presence"]
         nullable = field["nullable"]
-        if (
-            honor_nonnull_default
-            and presence == "optional"
-            and not nullable
-            and "default" in field
-        ):
-            default = field["default"]
-            if default == []:
-                return base, " = &.{}"
-            if isinstance(default, bool):
-                return base, " = " + ("true" if default else "false")
-            if isinstance(default, (int, float)):
-                return base, f" = {default}"
-            if isinstance(default, str) and field["type"]["kind"] == "enum":
-                return base, f" = .{_identifier(default)}"
-            if isinstance(default, str):
-                return base, f" = {_quote(default)}"
         if presence == "optional" and nullable:
             return f"wire.Field({base})", " = .absent"
         if presence == "optional":
@@ -247,7 +230,6 @@ class ZigEmitter:
         expression: Mapping[str, Any],
         description: str | None = None,
         *,
-        honor_nonnull_defaults: bool = False,
         skip_fields: frozenset[str] = frozenset(),
         recursive_name: str | None = None,
     ) -> list[str]:
@@ -281,10 +263,28 @@ class ZigEmitter:
                 field,
                 owner_name=name,
                 wire_name=wire_name,
-                honor_nonnull_default=honor_nonnull_defaults,
                 recursive_name=recursive_name,
             )
             lines.append(f"    {_identifier(wire_name)}: {rendered}{default},")
+        optional_nonnull_fields = [
+            wire_name
+            for wire_name, field in rendered_fields
+            if field["presence"] == "optional" and not field["nullable"]
+        ]
+        if optional_nonnull_fields:
+            self.optional_nonnull_cases.extend(
+                (name, wire_name) for wire_name in optional_nonnull_fields
+            )
+            lines.extend(
+                [
+                    "",
+                    "    pub const cmux_wire_optional_nonnull_fields = "
+                    "[_][]const u8{",
+                ]
+            )
+            for wire_name in optional_nonnull_fields:
+                lines.append(f"        {_quote(wire_name)},")
+            lines.append("    };")
         lines.extend(["};", ""])
         return lines
 
@@ -432,7 +432,6 @@ class ZigEmitter:
                         name,
                         expression,
                         expression.get("description"),
-                        honor_nonnull_defaults=True,
                     )
                 )
             elif kind == "alias":
@@ -786,6 +785,7 @@ class ZigEmitter:
         return lines
 
     def render(self) -> str:
+        self.optional_nonnull_cases.clear()
         command_lines, command_descriptors = self.render_commands()
         event_lines, event_descriptors = self.render_events()
         lines = [
@@ -806,9 +806,44 @@ class ZigEmitter:
         lines.extend(self.render_event_metadata(event_descriptors))
         return "\n".join(lines).rstrip() + "\n"
 
+    def render_presence_test(self) -> str:
+        lines = [
+            HEADER,
+            'const std = @import("std");',
+            'const wire = @import("../wire.zig");',
+            'const protocol = @import("protocol.zig");',
+            "",
+            "fn expectExplicitNullRejected(",
+            "    comptime T: type,",
+            "    field_name: []const u8,",
+            ") !void {",
+            "    var object = wire.Object.init(std.testing.allocator);",
+            "    defer object.deinit();",
+            "    try object.put(field_name, .null);",
+            "    try std.testing.expectError(",
+            "        error.UnexpectedNull,",
+            "        wire.decode(T, std.testing.allocator, .{ .object = object }),",
+            "    );",
+            "}",
+            "",
+            'test "every generated optional non-null field rejects explicit null" {',
+        ]
+        for owner_name, wire_name in self.optional_nonnull_cases:
+            lines.append(
+                "    try expectExplicitNullRejected("
+                f"protocol.{owner_name}, {_quote(wire_name)});"
+            )
+        lines.extend(["}", ""])
+        return "\n".join(lines)
+
 
 def render(ir: SdkIR) -> Mapping[str | PurePosixPath, str | bytes]:
-    return {"protocol.zig": ZigEmitter(ir).render()}
+    emitter = ZigEmitter(ir)
+    protocol = emitter.render()
+    return {
+        "presence_test.zig": emitter.render_presence_test(),
+        "protocol.zig": protocol,
+    }
 
 
 EMITTER = Emitter(

@@ -25,13 +25,18 @@ Allowed categories are `timeout`, `limit`, `command`, `decode`, and
 `transport`. Protocol `uint64` values in normalized adapter output are
 decimal strings.
 
-Operations are `metadata`, `identify`, `nullable-literal`, `stream`,
+Operations are `metadata`, `identify`, `nullable-literal`,
+`optional-nullable-request`, `required-nullable-event`,
+`optional-non-null-response`, `optional-non-null-event`, `stream`,
 `close-pending-stream`, `authority`, `authority-denied`, and `real-flow`.
-Adapters must call public typed SDK methods. `metadata` must use public
-generated inventory. `authority-denied` uses the default client, catches the
-SDK's typed local authority error, and reports `{"denied":true}`; the harness
-independently asserts that the fake server received no bytes. `authority`
-opts into provider authority only for its positive provider case.
+Adapters must call public typed SDK methods. The presence operations expose
+whether public types preserve the schema's missing, null, and value
+boundaries. The harness supplies literal fixture objects without consulting
+generated schema data. `metadata` must use public generated inventory.
+`authority-denied` uses the default client, catches the SDK's typed local
+authority error, and reports `{"denied":true}`; the harness independently
+asserts that the fake server received no bytes. `authority` opts into provider
+authority only for its positive provider case.
 
 `real-flow` runs against an isolated ephemeral server. It identifies the
 server, subscribes to delta events, creates a named workspace and PTY,

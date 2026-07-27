@@ -87,7 +87,7 @@ func (bot *Bot) openByteStream(ctx context.Context, surface cmux.ID) (*cmux.Stre
 		stream, err = client.AttachSurfaceWithOptions(
 			ctx,
 			surface,
-			cmux.AttachSurfaceOptions{Mode: cmux.AttachBytes},
+			cmux.AttachSurfaceOptions{Mode: cmux.Value(cmux.AttachBytes)},
 		)
 		return err
 	})

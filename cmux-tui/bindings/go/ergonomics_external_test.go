@@ -325,7 +325,8 @@ func TestGeneratedFieldCompatibilityRejectsActualCommandWrite(t *testing.T) {
 			protocol: 6,
 			feature:  "send.paste",
 			call: func(ctx context.Context, client *cmux.Client) error {
-				return client.Send(ctx, 9, cmux.SendOptions{Paste: true})
+				paste := true
+				return client.Send(ctx, 9, cmux.SendOptions{Paste: &paste})
 			},
 		},
 		{
@@ -333,8 +334,22 @@ func TestGeneratedFieldCompatibilityRejectsActualCommandWrite(t *testing.T) {
 			protocol: 8,
 			feature:  "run.key",
 			call: func(ctx context.Context, client *cmux.Client) error {
-				key := testWorkspaceKey
-				_, err := client.Run(ctx, cmux.RunOptions{Key: &key})
+				_, err := client.Run(
+					ctx,
+					cmux.RunOptions{Key: cmux.Value(testWorkspaceKey)},
+				)
+				return err
+			},
+		},
+		{
+			name:     "run workspace key explicit null",
+			protocol: 8,
+			feature:  "run.key",
+			call: func(ctx context.Context, client *cmux.Client) error {
+				_, err := client.Run(
+					ctx,
+					cmux.RunOptions{Key: cmux.Null[string]()},
+				)
 				return err
 			},
 		},
@@ -343,10 +358,11 @@ func TestGeneratedFieldCompatibilityRejectsActualCommandWrite(t *testing.T) {
 			protocol: 8,
 			feature:  "set-default-colors.cursor",
 			call: func(ctx context.Context, client *cmux.Client) error {
-				color := cmux.ColorHex("#ffffff")
 				return client.SetDefaultColors(
 					ctx,
-					cmux.SetDefaultColorsOptions{Cursor: &color},
+					cmux.SetDefaultColorsOptions{
+						Cursor: cmux.Value(cmux.ColorHex("#ffffff")),
+					},
 				)
 			},
 		},
@@ -355,10 +371,11 @@ func TestGeneratedFieldCompatibilityRejectsActualCommandWrite(t *testing.T) {
 			protocol: 8,
 			feature:  "set-default-colors.cursor_blink",
 			call: func(ctx context.Context, client *cmux.Client) error {
-				blink := true
 				return client.SetDefaultColors(
 					ctx,
-					cmux.SetDefaultColorsOptions{CursorBlink: &blink},
+					cmux.SetDefaultColorsOptions{
+						CursorBlink: cmux.Value(true),
+					},
 				)
 			},
 		},
@@ -367,10 +384,11 @@ func TestGeneratedFieldCompatibilityRejectsActualCommandWrite(t *testing.T) {
 			protocol: 8,
 			feature:  "set-default-colors.cursor_style",
 			call: func(ctx context.Context, client *cmux.Client) error {
-				style := cmux.CursorStyleBar
 				return client.SetDefaultColors(
 					ctx,
-					cmux.SetDefaultColorsOptions{CursorStyle: &style},
+					cmux.SetDefaultColorsOptions{
+						CursorStyle: cmux.Value(cmux.CursorStyleBar),
+					},
 				)
 			},
 		},
@@ -379,10 +397,35 @@ func TestGeneratedFieldCompatibilityRejectsActualCommandWrite(t *testing.T) {
 			protocol: cmux.MuxProtocolVersion,
 			feature:  "subscribe.surface",
 			call: func(ctx context.Context, client *cmux.Client) error {
-				surface := cmux.ID(9)
 				_, err := client.SubscribeWithOptions(
 					ctx,
-					cmux.SubscribeOptions{Surface: &surface},
+					cmux.SubscribeOptions{Surface: cmux.Value(cmux.ID(9))},
+				)
+				return err
+			},
+		},
+		{
+			name:     "subscribe surface filter explicit null",
+			protocol: cmux.MuxProtocolVersion,
+			feature:  "subscribe.surface",
+			call: func(ctx context.Context, client *cmux.Client) error {
+				_, err := client.SubscribeWithOptions(
+					ctx,
+					cmux.SubscribeOptions{Surface: cmux.Null[cmux.ID]()},
+				)
+				return err
+			},
+		},
+		{
+			name:     "subscribe tree mode explicit null",
+			protocol: 6,
+			feature:  "subscribe.tree_events",
+			call: func(ctx context.Context, client *cmux.Client) error {
+				_, err := client.SubscribeWithOptions(
+					ctx,
+					cmux.SubscribeOptions{
+						TreeEvents: cmux.Null[cmux.TreeEventMode](),
+					},
 				)
 				return err
 			},
@@ -397,7 +440,26 @@ func TestGeneratedFieldCompatibilityRejectsActualCommandWrite(t *testing.T) {
 				_, err := client.AttachSurfaceWithOptions(
 					ctx,
 					9,
-					cmux.AttachSurfaceOptions{Cols: &cols, Rows: &rows},
+					cmux.AttachSurfaceOptions{
+						Cols: cmux.Value(cols),
+						Rows: cmux.Value(rows),
+					},
+				)
+				return err
+			},
+		},
+		{
+			name:     "attach initial size explicit null",
+			protocol: cmux.MuxProtocolVersion,
+			feature:  "attach-surface.cols",
+			call: func(ctx context.Context, client *cmux.Client) error {
+				_, err := client.AttachSurfaceWithOptions(
+					ctx,
+					9,
+					cmux.AttachSurfaceOptions{
+						Cols: cmux.Null[uint16](),
+						Rows: cmux.Null[uint16](),
+					},
 				)
 				return err
 			},
@@ -407,10 +469,11 @@ func TestGeneratedFieldCompatibilityRejectsActualCommandWrite(t *testing.T) {
 			protocol: 7,
 			feature:  "close-workspace.key",
 			call: func(ctx context.Context, client *cmux.Client) error {
-				key := testWorkspaceKey
 				_, err := client.CloseWorkspace(
 					ctx,
-					cmux.CloseWorkspaceOptions{Key: &key},
+					cmux.CloseWorkspaceOptions{
+						Key: cmux.Value(testWorkspaceKey),
+					},
 				)
 				return err
 			},
@@ -508,6 +571,24 @@ func TestGeneratedFieldCompatibilityRejectsActualCommandWrite(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestUnsetRequiredNullableRequestWritesNothing(t *testing.T) {
+	assertExternalNoWrite(t, func(client *cmux.Client) error {
+		_, err := client.PutFrontendProjection(
+			context.Background(),
+			cmux.PutFrontendProjectionRequest{
+				Frontend:      "test",
+				Scope:         "workspace",
+				SubjectKey:    testWorkspaceKey,
+				SchemaVersion: 1,
+			},
+		)
+		if !errors.Is(err, cmux.ErrInvalidArgument) {
+			t.Fatalf("error = %v, want ErrInvalidArgument", err)
+		}
+		return nil
+	})
 }
 
 func TestPublicCommandMetadataFieldMapsAreDefensiveCopies(t *testing.T) {
@@ -1060,11 +1141,10 @@ func externalWriteSuccess(conn net.Conn, id any, data any) error {
 }
 
 func externalIdentifyResult(capabilities []string) map[string]any {
-	return map[string]any{
+	result := map[string]any{
 		"app":                "cmux-tui",
 		"version":            "test",
 		"protocol":           cmux.MuxProtocolVersion,
-		"capabilities":       capabilities,
 		"session":            "go-test",
 		"pid":                1,
 		"registry_id":        "registry-1",
@@ -1073,6 +1153,10 @@ func externalIdentifyResult(capabilities []string) map[string]any {
 		"terminal_revision":  1,
 		"daemon_handoff":     1,
 	}
+	if capabilities != nil {
+		result["capabilities"] = capabilities
+	}
+	return result
 }
 
 func externalRenderRow(row uint32, text string) map[string]any {

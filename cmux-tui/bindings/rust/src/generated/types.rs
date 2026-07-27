@@ -238,7 +238,7 @@ pub struct FrontendProjection {
     pub frontend: String,
     pub projection: Nullable<JsonValue>,
     pub projection_revision: u64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub replayed: Option<bool>,
     pub schema_version: u32,
     pub scope: String,
@@ -272,7 +272,7 @@ pub struct IdentifyResult {
     pub app: String,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub build_commit: Optional<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<Vec<String>>,
     pub daemon_handoff: u64,
     pub generation: String,
@@ -307,7 +307,7 @@ pub enum Layout {
         b: Box<Layout>,
         dir: SplitDirection,
         ratio: f32,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
         split: Option<Id>,
     },
     #[serde(rename = "stack")]
@@ -336,11 +336,11 @@ pub struct ListTerminalsResult {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LivePane {
     pub active_tab: u64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub focused_at: Option<u64>,
     pub id: Id,
     pub name: Nullable<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub short_id: Option<String>,
     pub tabs: Vec<Tab>,
 }
@@ -493,9 +493,9 @@ pub struct RenderRun {
     pub bg: Nullable<ColorHex>,
     pub fg: Nullable<ColorHex>,
     pub text: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub underline: Option<RenderUnderline>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub width_hint: Option<u16>,
 }
 
@@ -565,7 +565,7 @@ pub struct Screen {
     pub layout: Layout,
     pub name: Nullable<String>,
     pub panes: Vec<Pane>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub short_id: Option<String>,
     pub zoomed_pane: Nullable<Id>,
 }
@@ -663,7 +663,7 @@ pub struct Tab {
     pub name: Nullable<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub notification: Optional<NotificationMarker>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub short_id: Option<String>,
     pub size: Nullable<Size>,
     pub surface: Id,
@@ -685,7 +685,7 @@ pub struct TerminalColors {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub cursor_style: Optional<CursorStyle>,
     pub fg: Nullable<ColorHex>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub palette: Option<BTreeMap<String, ColorHex>>,
     pub selection_bg: Nullable<ColorHex>,
     pub selection_fg: Nullable<ColorHex>,
@@ -758,15 +758,15 @@ pub struct TerminalRegistryEvent {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Tree {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub generation: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub pane_revision: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub registry_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub terminal_revision: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub workspace_revision: Option<u64>,
     pub workspaces: Vec<Workspace>,
 }
@@ -792,18 +792,18 @@ pub struct WaitForResult {
 pub struct Workspace {
     pub active: bool,
     pub id: Id,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub key: Option<String>,
     pub name: String,
     pub screens: Vec<Screen>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub short_id: Option<String>,
 }
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WorkspaceMutationResult {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub changed: Option<bool>,
     pub generation: String,
     pub index: u64,

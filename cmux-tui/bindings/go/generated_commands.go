@@ -3,30 +3,386 @@
 
 package cmux
 
-import "context"
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+)
 
 // ApplyLayoutRequest is the exact apply-layout wire payload.
 type ApplyLayoutRequest struct {
-	Cols      *uint16           `json:"cols,omitempty"`
+	Cols      Presence[uint16]  `json:"-"`
 	Layout    DeclarativeLayout `json:"layout"`
-	Name      *string           `json:"name,omitempty"`
-	Rows      *uint16           `json:"rows,omitempty"`
-	Workspace *ID               `json:"workspace,omitempty"`
+	Name      Presence[string]  `json:"-"`
+	Rows      Presence[uint16]  `json:"-"`
+	Workspace Presence[ID]      `json:"-"`
+}
+
+func (value ApplyLayoutRequest) MarshalJSON() ([]byte, error) {
+	type wire ApplyLayoutRequest
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Cols.IsAbsent() {
+		delete(object, "cols")
+	} else if value.Cols.IsNull() {
+		object["cols"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Cols.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode ApplyLayoutRequest.Cols: %w", err)
+		}
+		object["cols"] = encodedField
+	}
+	if value.Name.IsAbsent() {
+		delete(object, "name")
+	} else if value.Name.IsNull() {
+		object["name"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Name.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode ApplyLayoutRequest.Name: %w", err)
+		}
+		object["name"] = encodedField
+	}
+	if value.Rows.IsAbsent() {
+		delete(object, "rows")
+	} else if value.Rows.IsNull() {
+		object["rows"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Rows.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode ApplyLayoutRequest.Rows: %w", err)
+		}
+		object["rows"] = encodedField
+	}
+	if value.Workspace.IsAbsent() {
+		delete(object, "workspace")
+	} else if value.Workspace.IsNull() {
+		object["workspace"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Workspace.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode ApplyLayoutRequest.Workspace: %w", err)
+		}
+		object["workspace"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *ApplyLayoutRequest) UnmarshalJSON(data []byte) error {
+	type wire ApplyLayoutRequest
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawCols, hasCols := object["cols"]
+	if !hasCols {
+		decoded.Cols = Presence[uint16]{}
+	} else if isJSONNull(rawCols) {
+		decoded.Cols = Null[uint16]()
+	} else {
+		var fieldValue uint16
+		if err := json.Unmarshal(rawCols, &fieldValue); err != nil {
+			return fmt.Errorf("decode ApplyLayoutRequest.Cols: %w", err)
+		}
+		decoded.Cols = Value(fieldValue)
+	}
+	rawName, hasName := object["name"]
+	if !hasName {
+		decoded.Name = Presence[string]{}
+	} else if isJSONNull(rawName) {
+		decoded.Name = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawName, &fieldValue); err != nil {
+			return fmt.Errorf("decode ApplyLayoutRequest.Name: %w", err)
+		}
+		decoded.Name = Value(fieldValue)
+	}
+	rawRows, hasRows := object["rows"]
+	if !hasRows {
+		decoded.Rows = Presence[uint16]{}
+	} else if isJSONNull(rawRows) {
+		decoded.Rows = Null[uint16]()
+	} else {
+		var fieldValue uint16
+		if err := json.Unmarshal(rawRows, &fieldValue); err != nil {
+			return fmt.Errorf("decode ApplyLayoutRequest.Rows: %w", err)
+		}
+		decoded.Rows = Value(fieldValue)
+	}
+	rawWorkspace, hasWorkspace := object["workspace"]
+	if !hasWorkspace {
+		decoded.Workspace = Presence[ID]{}
+	} else if isJSONNull(rawWorkspace) {
+		decoded.Workspace = Null[ID]()
+	} else {
+		var fieldValue ID
+		if err := json.Unmarshal(rawWorkspace, &fieldValue); err != nil {
+			return fmt.Errorf("decode ApplyLayoutRequest.Workspace: %w", err)
+		}
+		decoded.Workspace = Value(fieldValue)
+	}
+	*value = ApplyLayoutRequest(decoded)
+	return nil
 }
 
 type ApplyLayoutOptions struct {
-	Cols      *uint16 `json:"cols,omitempty"`
-	Name      *string `json:"name,omitempty"`
-	Rows      *uint16 `json:"rows,omitempty"`
-	Workspace *ID     `json:"workspace,omitempty"`
+	Cols      Presence[uint16] `json:"-"`
+	Name      Presence[string] `json:"-"`
+	Rows      Presence[uint16] `json:"-"`
+	Workspace Presence[ID]     `json:"-"`
+}
+
+func (value ApplyLayoutOptions) MarshalJSON() ([]byte, error) {
+	type wire ApplyLayoutOptions
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Cols.IsAbsent() {
+		delete(object, "cols")
+	} else if value.Cols.IsNull() {
+		object["cols"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Cols.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode ApplyLayoutOptions.Cols: %w", err)
+		}
+		object["cols"] = encodedField
+	}
+	if value.Name.IsAbsent() {
+		delete(object, "name")
+	} else if value.Name.IsNull() {
+		object["name"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Name.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode ApplyLayoutOptions.Name: %w", err)
+		}
+		object["name"] = encodedField
+	}
+	if value.Rows.IsAbsent() {
+		delete(object, "rows")
+	} else if value.Rows.IsNull() {
+		object["rows"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Rows.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode ApplyLayoutOptions.Rows: %w", err)
+		}
+		object["rows"] = encodedField
+	}
+	if value.Workspace.IsAbsent() {
+		delete(object, "workspace")
+	} else if value.Workspace.IsNull() {
+		object["workspace"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Workspace.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode ApplyLayoutOptions.Workspace: %w", err)
+		}
+		object["workspace"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *ApplyLayoutOptions) UnmarshalJSON(data []byte) error {
+	type wire ApplyLayoutOptions
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawCols, hasCols := object["cols"]
+	if !hasCols {
+		decoded.Cols = Presence[uint16]{}
+	} else if isJSONNull(rawCols) {
+		decoded.Cols = Null[uint16]()
+	} else {
+		var fieldValue uint16
+		if err := json.Unmarshal(rawCols, &fieldValue); err != nil {
+			return fmt.Errorf("decode ApplyLayoutOptions.Cols: %w", err)
+		}
+		decoded.Cols = Value(fieldValue)
+	}
+	rawName, hasName := object["name"]
+	if !hasName {
+		decoded.Name = Presence[string]{}
+	} else if isJSONNull(rawName) {
+		decoded.Name = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawName, &fieldValue); err != nil {
+			return fmt.Errorf("decode ApplyLayoutOptions.Name: %w", err)
+		}
+		decoded.Name = Value(fieldValue)
+	}
+	rawRows, hasRows := object["rows"]
+	if !hasRows {
+		decoded.Rows = Presence[uint16]{}
+	} else if isJSONNull(rawRows) {
+		decoded.Rows = Null[uint16]()
+	} else {
+		var fieldValue uint16
+		if err := json.Unmarshal(rawRows, &fieldValue); err != nil {
+			return fmt.Errorf("decode ApplyLayoutOptions.Rows: %w", err)
+		}
+		decoded.Rows = Value(fieldValue)
+	}
+	rawWorkspace, hasWorkspace := object["workspace"]
+	if !hasWorkspace {
+		decoded.Workspace = Presence[ID]{}
+	} else if isJSONNull(rawWorkspace) {
+		decoded.Workspace = Null[ID]()
+	} else {
+		var fieldValue ID
+		if err := json.Unmarshal(rawWorkspace, &fieldValue); err != nil {
+			return fmt.Errorf("decode ApplyLayoutOptions.Workspace: %w", err)
+		}
+		decoded.Workspace = Value(fieldValue)
+	}
+	*value = ApplyLayoutOptions(decoded)
+	return nil
 }
 
 // AttachSurfaceRequest is the exact attach-surface wire payload.
+type AttachSurfaceRequestMode string
+
+const (
+	AttachSurfaceRequestModeBytes  AttachSurfaceRequestMode = "bytes"
+	AttachSurfaceRequestModeRender AttachSurfaceRequestMode = "render"
+)
+
 type AttachSurfaceRequest struct {
-	Cols    *uint16 `json:"cols,omitempty"`
-	Mode    *string `json:"mode,omitempty"`
-	Rows    *uint16 `json:"rows,omitempty"`
-	Surface ID      `json:"surface"`
+	Cols    Presence[uint16]                   `json:"-"`
+	Mode    Presence[AttachSurfaceRequestMode] `json:"-"`
+	Rows    Presence[uint16]                   `json:"-"`
+	Surface ID                                 `json:"surface"`
+}
+
+func (value AttachSurfaceRequest) MarshalJSON() ([]byte, error) {
+	type wire AttachSurfaceRequest
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Cols.IsAbsent() {
+		delete(object, "cols")
+	} else if value.Cols.IsNull() {
+		object["cols"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Cols.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode AttachSurfaceRequest.Cols: %w", err)
+		}
+		object["cols"] = encodedField
+	}
+	if value.Mode.IsAbsent() {
+		delete(object, "mode")
+	} else if value.Mode.IsNull() {
+		object["mode"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Mode.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode AttachSurfaceRequest.Mode: %w", err)
+		}
+		object["mode"] = encodedField
+	}
+	if value.Rows.IsAbsent() {
+		delete(object, "rows")
+	} else if value.Rows.IsNull() {
+		object["rows"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Rows.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode AttachSurfaceRequest.Rows: %w", err)
+		}
+		object["rows"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *AttachSurfaceRequest) UnmarshalJSON(data []byte) error {
+	type wire AttachSurfaceRequest
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawCols, hasCols := object["cols"]
+	if !hasCols {
+		decoded.Cols = Presence[uint16]{}
+	} else if isJSONNull(rawCols) {
+		decoded.Cols = Null[uint16]()
+	} else {
+		var fieldValue uint16
+		if err := json.Unmarshal(rawCols, &fieldValue); err != nil {
+			return fmt.Errorf("decode AttachSurfaceRequest.Cols: %w", err)
+		}
+		decoded.Cols = Value(fieldValue)
+	}
+	rawMode, hasMode := object["mode"]
+	if !hasMode {
+		decoded.Mode = Presence[AttachSurfaceRequestMode]{}
+	} else if isJSONNull(rawMode) {
+		decoded.Mode = Null[AttachSurfaceRequestMode]()
+	} else {
+		var fieldValue AttachSurfaceRequestMode
+		if err := json.Unmarshal(rawMode, &fieldValue); err != nil {
+			return fmt.Errorf("decode AttachSurfaceRequest.Mode: %w", err)
+		}
+		decoded.Mode = Value(fieldValue)
+	}
+	rawRows, hasRows := object["rows"]
+	if !hasRows {
+		decoded.Rows = Presence[uint16]{}
+	} else if isJSONNull(rawRows) {
+		decoded.Rows = Null[uint16]()
+	} else {
+		var fieldValue uint16
+		if err := json.Unmarshal(rawRows, &fieldValue); err != nil {
+			return fmt.Errorf("decode AttachSurfaceRequest.Rows: %w", err)
+		}
+		decoded.Rows = Value(fieldValue)
+	}
+	*value = AttachSurfaceRequest(decoded)
+	return nil
 }
 
 type AttachSurfaceResult = EmptyResult
@@ -62,36 +418,288 @@ type BrowserInsertTextResult = EmptyResult
 
 // BrowserKeyRequest is the exact browser-key wire payload.
 type BrowserKeyRequest struct {
-	Code                  string  `json:"code"`
-	Key                   string  `json:"key"`
-	Kind                  string  `json:"kind"`
-	Modifiers             uint32  `json:"modifiers"`
-	Surface               ID      `json:"surface"`
-	Text                  *string `json:"text,omitempty"`
-	WindowsVirtualKeyCode uint32  `json:"windows_virtual_key_code"`
+	Code                  string           `json:"code"`
+	Key                   string           `json:"key"`
+	Kind                  string           `json:"kind"`
+	Modifiers             uint32           `json:"modifiers"`
+	Surface               ID               `json:"surface"`
+	Text                  Presence[string] `json:"-"`
+	WindowsVirtualKeyCode uint32           `json:"windows_virtual_key_code"`
+}
+
+func (value BrowserKeyRequest) MarshalJSON() ([]byte, error) {
+	type wire BrowserKeyRequest
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Text.IsAbsent() {
+		delete(object, "text")
+	} else if value.Text.IsNull() {
+		object["text"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Text.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode BrowserKeyRequest.Text: %w", err)
+		}
+		object["text"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *BrowserKeyRequest) UnmarshalJSON(data []byte) error {
+	type wire BrowserKeyRequest
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawText, hasText := object["text"]
+	if !hasText {
+		decoded.Text = Presence[string]{}
+	} else if isJSONNull(rawText) {
+		decoded.Text = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawText, &fieldValue); err != nil {
+			return fmt.Errorf("decode BrowserKeyRequest.Text: %w", err)
+		}
+		decoded.Text = Value(fieldValue)
+	}
+	*value = BrowserKeyRequest(decoded)
+	return nil
 }
 
 type BrowserKeyResult = EmptyResult
 
 type BrowserKeyOptions struct {
-	Text *string `json:"text,omitempty"`
+	Text Presence[string] `json:"-"`
+}
+
+func (value BrowserKeyOptions) MarshalJSON() ([]byte, error) {
+	type wire BrowserKeyOptions
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Text.IsAbsent() {
+		delete(object, "text")
+	} else if value.Text.IsNull() {
+		object["text"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Text.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode BrowserKeyOptions.Text: %w", err)
+		}
+		object["text"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *BrowserKeyOptions) UnmarshalJSON(data []byte) error {
+	type wire BrowserKeyOptions
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawText, hasText := object["text"]
+	if !hasText {
+		decoded.Text = Presence[string]{}
+	} else if isJSONNull(rawText) {
+		decoded.Text = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawText, &fieldValue); err != nil {
+			return fmt.Errorf("decode BrowserKeyOptions.Text: %w", err)
+		}
+		decoded.Text = Value(fieldValue)
+	}
+	*value = BrowserKeyOptions(decoded)
+	return nil
 }
 
 // BrowserMouseRequest is the exact browser-mouse wire payload.
 type BrowserMouseRequest struct {
-	Button     *string `json:"button,omitempty"`
-	ClickCount *uint32 `json:"click_count,omitempty"`
-	Kind       string  `json:"kind"`
-	Surface    ID      `json:"surface"`
-	XPx        float64 `json:"x_px"`
-	YPx        float64 `json:"y_px"`
+	Button     Presence[string] `json:"-"`
+	ClickCount Presence[uint32] `json:"-"`
+	Kind       string           `json:"kind"`
+	Surface    ID               `json:"surface"`
+	XPx        float64          `json:"x_px"`
+	YPx        float64          `json:"y_px"`
+}
+
+func (value BrowserMouseRequest) MarshalJSON() ([]byte, error) {
+	type wire BrowserMouseRequest
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Button.IsAbsent() {
+		delete(object, "button")
+	} else if value.Button.IsNull() {
+		object["button"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Button.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode BrowserMouseRequest.Button: %w", err)
+		}
+		object["button"] = encodedField
+	}
+	if value.ClickCount.IsAbsent() {
+		delete(object, "click_count")
+	} else if value.ClickCount.IsNull() {
+		object["click_count"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.ClickCount.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode BrowserMouseRequest.ClickCount: %w", err)
+		}
+		object["click_count"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *BrowserMouseRequest) UnmarshalJSON(data []byte) error {
+	type wire BrowserMouseRequest
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawButton, hasButton := object["button"]
+	if !hasButton {
+		decoded.Button = Presence[string]{}
+	} else if isJSONNull(rawButton) {
+		decoded.Button = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawButton, &fieldValue); err != nil {
+			return fmt.Errorf("decode BrowserMouseRequest.Button: %w", err)
+		}
+		decoded.Button = Value(fieldValue)
+	}
+	rawClickCount, hasClickCount := object["click_count"]
+	if !hasClickCount {
+		decoded.ClickCount = Presence[uint32]{}
+	} else if isJSONNull(rawClickCount) {
+		decoded.ClickCount = Null[uint32]()
+	} else {
+		var fieldValue uint32
+		if err := json.Unmarshal(rawClickCount, &fieldValue); err != nil {
+			return fmt.Errorf("decode BrowserMouseRequest.ClickCount: %w", err)
+		}
+		decoded.ClickCount = Value(fieldValue)
+	}
+	*value = BrowserMouseRequest(decoded)
+	return nil
 }
 
 type BrowserMouseResult = EmptyResult
 
 type BrowserMouseOptions struct {
-	Button     *string `json:"button,omitempty"`
-	ClickCount *uint32 `json:"click_count,omitempty"`
+	Button     Presence[string] `json:"-"`
+	ClickCount Presence[uint32] `json:"-"`
+}
+
+func (value BrowserMouseOptions) MarshalJSON() ([]byte, error) {
+	type wire BrowserMouseOptions
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Button.IsAbsent() {
+		delete(object, "button")
+	} else if value.Button.IsNull() {
+		object["button"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Button.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode BrowserMouseOptions.Button: %w", err)
+		}
+		object["button"] = encodedField
+	}
+	if value.ClickCount.IsAbsent() {
+		delete(object, "click_count")
+	} else if value.ClickCount.IsNull() {
+		object["click_count"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.ClickCount.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode BrowserMouseOptions.ClickCount: %w", err)
+		}
+		object["click_count"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *BrowserMouseOptions) UnmarshalJSON(data []byte) error {
+	type wire BrowserMouseOptions
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawButton, hasButton := object["button"]
+	if !hasButton {
+		decoded.Button = Presence[string]{}
+	} else if isJSONNull(rawButton) {
+		decoded.Button = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawButton, &fieldValue); err != nil {
+			return fmt.Errorf("decode BrowserMouseOptions.Button: %w", err)
+		}
+		decoded.Button = Value(fieldValue)
+	}
+	rawClickCount, hasClickCount := object["click_count"]
+	if !hasClickCount {
+		decoded.ClickCount = Presence[uint32]{}
+	} else if isJSONNull(rawClickCount) {
+		decoded.ClickCount = Null[uint32]()
+	} else {
+		var fieldValue uint32
+		if err := json.Unmarshal(rawClickCount, &fieldValue); err != nil {
+			return fmt.Errorf("decode BrowserMouseOptions.ClickCount: %w", err)
+		}
+		decoded.ClickCount = Value(fieldValue)
+	}
+	*value = BrowserMouseOptions(decoded)
+	return nil
 }
 
 // BrowserNavigateRequest is the exact browser-navigate wire payload.
@@ -157,41 +765,677 @@ type CloseSurfaceResult = EmptyResult
 
 // CloseTerminalRequest is the exact close-terminal wire payload.
 type CloseTerminalRequest struct {
-	ExpectedGeneration  *string `json:"expected_generation,omitempty"`
-	ExpectedRevision    *uint64 `json:"expected_revision,omitempty"`
-	MutationID          *string `json:"mutation_id,omitempty"`
-	Origin              *string `json:"origin,omitempty"`
-	TerminalID          string  `json:"terminal_id"`
-	TerminalIncarnation *string `json:"terminal_incarnation,omitempty"`
+	ExpectedGeneration  Presence[string] `json:"-"`
+	ExpectedRevision    Presence[uint64] `json:"-"`
+	MutationID          Presence[string] `json:"-"`
+	Origin              Presence[string] `json:"-"`
+	TerminalID          string           `json:"terminal_id"`
+	TerminalIncarnation Presence[string] `json:"-"`
+}
+
+func (value CloseTerminalRequest) MarshalJSON() ([]byte, error) {
+	type wire CloseTerminalRequest
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.ExpectedGeneration.IsAbsent() {
+		delete(object, "expected_generation")
+	} else if value.ExpectedGeneration.IsNull() {
+		object["expected_generation"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.ExpectedGeneration.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CloseTerminalRequest.ExpectedGeneration: %w", err)
+		}
+		object["expected_generation"] = encodedField
+	}
+	if value.ExpectedRevision.IsAbsent() {
+		delete(object, "expected_revision")
+	} else if value.ExpectedRevision.IsNull() {
+		object["expected_revision"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.ExpectedRevision.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CloseTerminalRequest.ExpectedRevision: %w", err)
+		}
+		object["expected_revision"] = encodedField
+	}
+	if value.MutationID.IsAbsent() {
+		delete(object, "mutation_id")
+	} else if value.MutationID.IsNull() {
+		object["mutation_id"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.MutationID.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CloseTerminalRequest.MutationID: %w", err)
+		}
+		object["mutation_id"] = encodedField
+	}
+	if value.Origin.IsAbsent() {
+		delete(object, "origin")
+	} else if value.Origin.IsNull() {
+		object["origin"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Origin.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CloseTerminalRequest.Origin: %w", err)
+		}
+		object["origin"] = encodedField
+	}
+	if value.TerminalIncarnation.IsAbsent() {
+		delete(object, "terminal_incarnation")
+	} else if value.TerminalIncarnation.IsNull() {
+		object["terminal_incarnation"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.TerminalIncarnation.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CloseTerminalRequest.TerminalIncarnation: %w", err)
+		}
+		object["terminal_incarnation"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *CloseTerminalRequest) UnmarshalJSON(data []byte) error {
+	type wire CloseTerminalRequest
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawExpectedGeneration, hasExpectedGeneration := object["expected_generation"]
+	if !hasExpectedGeneration {
+		decoded.ExpectedGeneration = Presence[string]{}
+	} else if isJSONNull(rawExpectedGeneration) {
+		decoded.ExpectedGeneration = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawExpectedGeneration, &fieldValue); err != nil {
+			return fmt.Errorf("decode CloseTerminalRequest.ExpectedGeneration: %w", err)
+		}
+		decoded.ExpectedGeneration = Value(fieldValue)
+	}
+	rawExpectedRevision, hasExpectedRevision := object["expected_revision"]
+	if !hasExpectedRevision {
+		decoded.ExpectedRevision = Presence[uint64]{}
+	} else if isJSONNull(rawExpectedRevision) {
+		decoded.ExpectedRevision = Null[uint64]()
+	} else {
+		var fieldValue uint64
+		if err := json.Unmarshal(rawExpectedRevision, &fieldValue); err != nil {
+			return fmt.Errorf("decode CloseTerminalRequest.ExpectedRevision: %w", err)
+		}
+		decoded.ExpectedRevision = Value(fieldValue)
+	}
+	rawMutationID, hasMutationID := object["mutation_id"]
+	if !hasMutationID {
+		decoded.MutationID = Presence[string]{}
+	} else if isJSONNull(rawMutationID) {
+		decoded.MutationID = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawMutationID, &fieldValue); err != nil {
+			return fmt.Errorf("decode CloseTerminalRequest.MutationID: %w", err)
+		}
+		decoded.MutationID = Value(fieldValue)
+	}
+	rawOrigin, hasOrigin := object["origin"]
+	if !hasOrigin {
+		decoded.Origin = Presence[string]{}
+	} else if isJSONNull(rawOrigin) {
+		decoded.Origin = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawOrigin, &fieldValue); err != nil {
+			return fmt.Errorf("decode CloseTerminalRequest.Origin: %w", err)
+		}
+		decoded.Origin = Value(fieldValue)
+	}
+	rawTerminalIncarnation, hasTerminalIncarnation := object["terminal_incarnation"]
+	if !hasTerminalIncarnation {
+		decoded.TerminalIncarnation = Presence[string]{}
+	} else if isJSONNull(rawTerminalIncarnation) {
+		decoded.TerminalIncarnation = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawTerminalIncarnation, &fieldValue); err != nil {
+			return fmt.Errorf("decode CloseTerminalRequest.TerminalIncarnation: %w", err)
+		}
+		decoded.TerminalIncarnation = Value(fieldValue)
+	}
+	*value = CloseTerminalRequest(decoded)
+	return nil
 }
 
 type CloseTerminalOptions struct {
-	ExpectedGeneration  *string `json:"expected_generation,omitempty"`
-	ExpectedRevision    *uint64 `json:"expected_revision,omitempty"`
-	MutationID          *string `json:"mutation_id,omitempty"`
-	Origin              *string `json:"origin,omitempty"`
-	TerminalIncarnation *string `json:"terminal_incarnation,omitempty"`
+	ExpectedGeneration  Presence[string] `json:"-"`
+	ExpectedRevision    Presence[uint64] `json:"-"`
+	MutationID          Presence[string] `json:"-"`
+	Origin              Presence[string] `json:"-"`
+	TerminalIncarnation Presence[string] `json:"-"`
+}
+
+func (value CloseTerminalOptions) MarshalJSON() ([]byte, error) {
+	type wire CloseTerminalOptions
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.ExpectedGeneration.IsAbsent() {
+		delete(object, "expected_generation")
+	} else if value.ExpectedGeneration.IsNull() {
+		object["expected_generation"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.ExpectedGeneration.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CloseTerminalOptions.ExpectedGeneration: %w", err)
+		}
+		object["expected_generation"] = encodedField
+	}
+	if value.ExpectedRevision.IsAbsent() {
+		delete(object, "expected_revision")
+	} else if value.ExpectedRevision.IsNull() {
+		object["expected_revision"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.ExpectedRevision.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CloseTerminalOptions.ExpectedRevision: %w", err)
+		}
+		object["expected_revision"] = encodedField
+	}
+	if value.MutationID.IsAbsent() {
+		delete(object, "mutation_id")
+	} else if value.MutationID.IsNull() {
+		object["mutation_id"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.MutationID.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CloseTerminalOptions.MutationID: %w", err)
+		}
+		object["mutation_id"] = encodedField
+	}
+	if value.Origin.IsAbsent() {
+		delete(object, "origin")
+	} else if value.Origin.IsNull() {
+		object["origin"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Origin.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CloseTerminalOptions.Origin: %w", err)
+		}
+		object["origin"] = encodedField
+	}
+	if value.TerminalIncarnation.IsAbsent() {
+		delete(object, "terminal_incarnation")
+	} else if value.TerminalIncarnation.IsNull() {
+		object["terminal_incarnation"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.TerminalIncarnation.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CloseTerminalOptions.TerminalIncarnation: %w", err)
+		}
+		object["terminal_incarnation"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *CloseTerminalOptions) UnmarshalJSON(data []byte) error {
+	type wire CloseTerminalOptions
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawExpectedGeneration, hasExpectedGeneration := object["expected_generation"]
+	if !hasExpectedGeneration {
+		decoded.ExpectedGeneration = Presence[string]{}
+	} else if isJSONNull(rawExpectedGeneration) {
+		decoded.ExpectedGeneration = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawExpectedGeneration, &fieldValue); err != nil {
+			return fmt.Errorf("decode CloseTerminalOptions.ExpectedGeneration: %w", err)
+		}
+		decoded.ExpectedGeneration = Value(fieldValue)
+	}
+	rawExpectedRevision, hasExpectedRevision := object["expected_revision"]
+	if !hasExpectedRevision {
+		decoded.ExpectedRevision = Presence[uint64]{}
+	} else if isJSONNull(rawExpectedRevision) {
+		decoded.ExpectedRevision = Null[uint64]()
+	} else {
+		var fieldValue uint64
+		if err := json.Unmarshal(rawExpectedRevision, &fieldValue); err != nil {
+			return fmt.Errorf("decode CloseTerminalOptions.ExpectedRevision: %w", err)
+		}
+		decoded.ExpectedRevision = Value(fieldValue)
+	}
+	rawMutationID, hasMutationID := object["mutation_id"]
+	if !hasMutationID {
+		decoded.MutationID = Presence[string]{}
+	} else if isJSONNull(rawMutationID) {
+		decoded.MutationID = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawMutationID, &fieldValue); err != nil {
+			return fmt.Errorf("decode CloseTerminalOptions.MutationID: %w", err)
+		}
+		decoded.MutationID = Value(fieldValue)
+	}
+	rawOrigin, hasOrigin := object["origin"]
+	if !hasOrigin {
+		decoded.Origin = Presence[string]{}
+	} else if isJSONNull(rawOrigin) {
+		decoded.Origin = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawOrigin, &fieldValue); err != nil {
+			return fmt.Errorf("decode CloseTerminalOptions.Origin: %w", err)
+		}
+		decoded.Origin = Value(fieldValue)
+	}
+	rawTerminalIncarnation, hasTerminalIncarnation := object["terminal_incarnation"]
+	if !hasTerminalIncarnation {
+		decoded.TerminalIncarnation = Presence[string]{}
+	} else if isJSONNull(rawTerminalIncarnation) {
+		decoded.TerminalIncarnation = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawTerminalIncarnation, &fieldValue); err != nil {
+			return fmt.Errorf("decode CloseTerminalOptions.TerminalIncarnation: %w", err)
+		}
+		decoded.TerminalIncarnation = Value(fieldValue)
+	}
+	*value = CloseTerminalOptions(decoded)
+	return nil
 }
 
 // CloseWorkspaceRequest is the exact close-workspace wire payload.
 type CloseWorkspaceRequest struct {
-	ExpectedGeneration *string `json:"expected_generation,omitempty"`
-	ExpectedRevision   *uint64 `json:"expected_revision,omitempty"`
-	Key                *string `json:"key,omitempty"`
-	MutationID         *string `json:"mutation_id,omitempty"`
-	Origin             *string `json:"origin,omitempty"`
-	Workspace          *ID     `json:"workspace,omitempty"`
+	ExpectedGeneration Presence[string] `json:"-"`
+	ExpectedRevision   Presence[uint64] `json:"-"`
+	Key                Presence[string] `json:"-"`
+	MutationID         Presence[string] `json:"-"`
+	Origin             Presence[string] `json:"-"`
+	Workspace          Presence[ID]     `json:"-"`
+}
+
+func (value CloseWorkspaceRequest) MarshalJSON() ([]byte, error) {
+	type wire CloseWorkspaceRequest
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.ExpectedGeneration.IsAbsent() {
+		delete(object, "expected_generation")
+	} else if value.ExpectedGeneration.IsNull() {
+		object["expected_generation"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.ExpectedGeneration.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CloseWorkspaceRequest.ExpectedGeneration: %w", err)
+		}
+		object["expected_generation"] = encodedField
+	}
+	if value.ExpectedRevision.IsAbsent() {
+		delete(object, "expected_revision")
+	} else if value.ExpectedRevision.IsNull() {
+		object["expected_revision"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.ExpectedRevision.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CloseWorkspaceRequest.ExpectedRevision: %w", err)
+		}
+		object["expected_revision"] = encodedField
+	}
+	if value.Key.IsAbsent() {
+		delete(object, "key")
+	} else if value.Key.IsNull() {
+		object["key"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Key.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CloseWorkspaceRequest.Key: %w", err)
+		}
+		object["key"] = encodedField
+	}
+	if value.MutationID.IsAbsent() {
+		delete(object, "mutation_id")
+	} else if value.MutationID.IsNull() {
+		object["mutation_id"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.MutationID.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CloseWorkspaceRequest.MutationID: %w", err)
+		}
+		object["mutation_id"] = encodedField
+	}
+	if value.Origin.IsAbsent() {
+		delete(object, "origin")
+	} else if value.Origin.IsNull() {
+		object["origin"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Origin.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CloseWorkspaceRequest.Origin: %w", err)
+		}
+		object["origin"] = encodedField
+	}
+	if value.Workspace.IsAbsent() {
+		delete(object, "workspace")
+	} else if value.Workspace.IsNull() {
+		object["workspace"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Workspace.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CloseWorkspaceRequest.Workspace: %w", err)
+		}
+		object["workspace"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *CloseWorkspaceRequest) UnmarshalJSON(data []byte) error {
+	type wire CloseWorkspaceRequest
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawExpectedGeneration, hasExpectedGeneration := object["expected_generation"]
+	if !hasExpectedGeneration {
+		decoded.ExpectedGeneration = Presence[string]{}
+	} else if isJSONNull(rawExpectedGeneration) {
+		decoded.ExpectedGeneration = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawExpectedGeneration, &fieldValue); err != nil {
+			return fmt.Errorf("decode CloseWorkspaceRequest.ExpectedGeneration: %w", err)
+		}
+		decoded.ExpectedGeneration = Value(fieldValue)
+	}
+	rawExpectedRevision, hasExpectedRevision := object["expected_revision"]
+	if !hasExpectedRevision {
+		decoded.ExpectedRevision = Presence[uint64]{}
+	} else if isJSONNull(rawExpectedRevision) {
+		decoded.ExpectedRevision = Null[uint64]()
+	} else {
+		var fieldValue uint64
+		if err := json.Unmarshal(rawExpectedRevision, &fieldValue); err != nil {
+			return fmt.Errorf("decode CloseWorkspaceRequest.ExpectedRevision: %w", err)
+		}
+		decoded.ExpectedRevision = Value(fieldValue)
+	}
+	rawKey, hasKey := object["key"]
+	if !hasKey {
+		decoded.Key = Presence[string]{}
+	} else if isJSONNull(rawKey) {
+		decoded.Key = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawKey, &fieldValue); err != nil {
+			return fmt.Errorf("decode CloseWorkspaceRequest.Key: %w", err)
+		}
+		decoded.Key = Value(fieldValue)
+	}
+	rawMutationID, hasMutationID := object["mutation_id"]
+	if !hasMutationID {
+		decoded.MutationID = Presence[string]{}
+	} else if isJSONNull(rawMutationID) {
+		decoded.MutationID = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawMutationID, &fieldValue); err != nil {
+			return fmt.Errorf("decode CloseWorkspaceRequest.MutationID: %w", err)
+		}
+		decoded.MutationID = Value(fieldValue)
+	}
+	rawOrigin, hasOrigin := object["origin"]
+	if !hasOrigin {
+		decoded.Origin = Presence[string]{}
+	} else if isJSONNull(rawOrigin) {
+		decoded.Origin = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawOrigin, &fieldValue); err != nil {
+			return fmt.Errorf("decode CloseWorkspaceRequest.Origin: %w", err)
+		}
+		decoded.Origin = Value(fieldValue)
+	}
+	rawWorkspace, hasWorkspace := object["workspace"]
+	if !hasWorkspace {
+		decoded.Workspace = Presence[ID]{}
+	} else if isJSONNull(rawWorkspace) {
+		decoded.Workspace = Null[ID]()
+	} else {
+		var fieldValue ID
+		if err := json.Unmarshal(rawWorkspace, &fieldValue); err != nil {
+			return fmt.Errorf("decode CloseWorkspaceRequest.Workspace: %w", err)
+		}
+		decoded.Workspace = Value(fieldValue)
+	}
+	*value = CloseWorkspaceRequest(decoded)
+	return nil
 }
 
 type CloseWorkspaceResult = WorkspaceMutationResult
 
 type CloseWorkspaceOptions struct {
-	ExpectedGeneration *string `json:"expected_generation,omitempty"`
-	ExpectedRevision   *uint64 `json:"expected_revision,omitempty"`
-	Key                *string `json:"key,omitempty"`
-	MutationID         *string `json:"mutation_id,omitempty"`
-	Origin             *string `json:"origin,omitempty"`
-	Workspace          *ID     `json:"workspace,omitempty"`
+	ExpectedGeneration Presence[string] `json:"-"`
+	ExpectedRevision   Presence[uint64] `json:"-"`
+	Key                Presence[string] `json:"-"`
+	MutationID         Presence[string] `json:"-"`
+	Origin             Presence[string] `json:"-"`
+	Workspace          Presence[ID]     `json:"-"`
+}
+
+func (value CloseWorkspaceOptions) MarshalJSON() ([]byte, error) {
+	type wire CloseWorkspaceOptions
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.ExpectedGeneration.IsAbsent() {
+		delete(object, "expected_generation")
+	} else if value.ExpectedGeneration.IsNull() {
+		object["expected_generation"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.ExpectedGeneration.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CloseWorkspaceOptions.ExpectedGeneration: %w", err)
+		}
+		object["expected_generation"] = encodedField
+	}
+	if value.ExpectedRevision.IsAbsent() {
+		delete(object, "expected_revision")
+	} else if value.ExpectedRevision.IsNull() {
+		object["expected_revision"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.ExpectedRevision.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CloseWorkspaceOptions.ExpectedRevision: %w", err)
+		}
+		object["expected_revision"] = encodedField
+	}
+	if value.Key.IsAbsent() {
+		delete(object, "key")
+	} else if value.Key.IsNull() {
+		object["key"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Key.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CloseWorkspaceOptions.Key: %w", err)
+		}
+		object["key"] = encodedField
+	}
+	if value.MutationID.IsAbsent() {
+		delete(object, "mutation_id")
+	} else if value.MutationID.IsNull() {
+		object["mutation_id"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.MutationID.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CloseWorkspaceOptions.MutationID: %w", err)
+		}
+		object["mutation_id"] = encodedField
+	}
+	if value.Origin.IsAbsent() {
+		delete(object, "origin")
+	} else if value.Origin.IsNull() {
+		object["origin"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Origin.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CloseWorkspaceOptions.Origin: %w", err)
+		}
+		object["origin"] = encodedField
+	}
+	if value.Workspace.IsAbsent() {
+		delete(object, "workspace")
+	} else if value.Workspace.IsNull() {
+		object["workspace"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Workspace.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CloseWorkspaceOptions.Workspace: %w", err)
+		}
+		object["workspace"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *CloseWorkspaceOptions) UnmarshalJSON(data []byte) error {
+	type wire CloseWorkspaceOptions
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawExpectedGeneration, hasExpectedGeneration := object["expected_generation"]
+	if !hasExpectedGeneration {
+		decoded.ExpectedGeneration = Presence[string]{}
+	} else if isJSONNull(rawExpectedGeneration) {
+		decoded.ExpectedGeneration = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawExpectedGeneration, &fieldValue); err != nil {
+			return fmt.Errorf("decode CloseWorkspaceOptions.ExpectedGeneration: %w", err)
+		}
+		decoded.ExpectedGeneration = Value(fieldValue)
+	}
+	rawExpectedRevision, hasExpectedRevision := object["expected_revision"]
+	if !hasExpectedRevision {
+		decoded.ExpectedRevision = Presence[uint64]{}
+	} else if isJSONNull(rawExpectedRevision) {
+		decoded.ExpectedRevision = Null[uint64]()
+	} else {
+		var fieldValue uint64
+		if err := json.Unmarshal(rawExpectedRevision, &fieldValue); err != nil {
+			return fmt.Errorf("decode CloseWorkspaceOptions.ExpectedRevision: %w", err)
+		}
+		decoded.ExpectedRevision = Value(fieldValue)
+	}
+	rawKey, hasKey := object["key"]
+	if !hasKey {
+		decoded.Key = Presence[string]{}
+	} else if isJSONNull(rawKey) {
+		decoded.Key = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawKey, &fieldValue); err != nil {
+			return fmt.Errorf("decode CloseWorkspaceOptions.Key: %w", err)
+		}
+		decoded.Key = Value(fieldValue)
+	}
+	rawMutationID, hasMutationID := object["mutation_id"]
+	if !hasMutationID {
+		decoded.MutationID = Presence[string]{}
+	} else if isJSONNull(rawMutationID) {
+		decoded.MutationID = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawMutationID, &fieldValue); err != nil {
+			return fmt.Errorf("decode CloseWorkspaceOptions.MutationID: %w", err)
+		}
+		decoded.MutationID = Value(fieldValue)
+	}
+	rawOrigin, hasOrigin := object["origin"]
+	if !hasOrigin {
+		decoded.Origin = Presence[string]{}
+	} else if isJSONNull(rawOrigin) {
+		decoded.Origin = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawOrigin, &fieldValue); err != nil {
+			return fmt.Errorf("decode CloseWorkspaceOptions.Origin: %w", err)
+		}
+		decoded.Origin = Value(fieldValue)
+	}
+	rawWorkspace, hasWorkspace := object["workspace"]
+	if !hasWorkspace {
+		decoded.Workspace = Presence[ID]{}
+	} else if isJSONNull(rawWorkspace) {
+		decoded.Workspace = Null[ID]()
+	} else {
+		var fieldValue ID
+		if err := json.Unmarshal(rawWorkspace, &fieldValue); err != nil {
+			return fmt.Errorf("decode CloseWorkspaceOptions.Workspace: %w", err)
+		}
+		decoded.Workspace = Value(fieldValue)
+	}
+	*value = CloseWorkspaceOptions(decoded)
+	return nil
 }
 
 // CopyRequest is the exact copy wire payload.
@@ -202,58 +1446,1078 @@ type CopyRequest struct {
 
 // CreateTerminalRequest is the exact create-terminal wire payload.
 type CreateTerminalRequest struct {
-	Argv               *[]string `json:"argv,omitempty"`
-	Cols               *uint16   `json:"cols,omitempty"`
-	Command            *string   `json:"command,omitempty"`
-	Cwd                *string   `json:"cwd,omitempty"`
-	ExpectedGeneration *string   `json:"expected_generation,omitempty"`
-	ExpectedRevision   *uint64   `json:"expected_revision,omitempty"`
-	Key                *string   `json:"key,omitempty"`
-	MutationID         *string   `json:"mutation_id,omitempty"`
-	Name               *string   `json:"name,omitempty"`
-	Origin             *string   `json:"origin,omitempty"`
-	Rows               *uint16   `json:"rows,omitempty"`
-	TerminalID         *string   `json:"terminal_id,omitempty"`
-	Workspace          *ID       `json:"workspace,omitempty"`
+	Argv               Presence[[]string] `json:"-"`
+	Cols               Presence[uint16]   `json:"-"`
+	Command            Presence[string]   `json:"-"`
+	Cwd                Presence[string]   `json:"-"`
+	ExpectedGeneration Presence[string]   `json:"-"`
+	ExpectedRevision   Presence[uint64]   `json:"-"`
+	Key                Presence[string]   `json:"-"`
+	MutationID         Presence[string]   `json:"-"`
+	Name               Presence[string]   `json:"-"`
+	Origin             Presence[string]   `json:"-"`
+	Rows               Presence[uint16]   `json:"-"`
+	TerminalID         Presence[string]   `json:"-"`
+	Workspace          Presence[ID]       `json:"-"`
+}
+
+func (value CreateTerminalRequest) MarshalJSON() ([]byte, error) {
+	type wire CreateTerminalRequest
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Argv.IsAbsent() {
+		delete(object, "argv")
+	} else if value.Argv.IsNull() {
+		object["argv"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Argv.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CreateTerminalRequest.Argv: %w", err)
+		}
+		object["argv"] = encodedField
+	}
+	if value.Cols.IsAbsent() {
+		delete(object, "cols")
+	} else if value.Cols.IsNull() {
+		object["cols"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Cols.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CreateTerminalRequest.Cols: %w", err)
+		}
+		object["cols"] = encodedField
+	}
+	if value.Command.IsAbsent() {
+		delete(object, "command")
+	} else if value.Command.IsNull() {
+		object["command"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Command.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CreateTerminalRequest.Command: %w", err)
+		}
+		object["command"] = encodedField
+	}
+	if value.Cwd.IsAbsent() {
+		delete(object, "cwd")
+	} else if value.Cwd.IsNull() {
+		object["cwd"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Cwd.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CreateTerminalRequest.Cwd: %w", err)
+		}
+		object["cwd"] = encodedField
+	}
+	if value.ExpectedGeneration.IsAbsent() {
+		delete(object, "expected_generation")
+	} else if value.ExpectedGeneration.IsNull() {
+		object["expected_generation"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.ExpectedGeneration.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CreateTerminalRequest.ExpectedGeneration: %w", err)
+		}
+		object["expected_generation"] = encodedField
+	}
+	if value.ExpectedRevision.IsAbsent() {
+		delete(object, "expected_revision")
+	} else if value.ExpectedRevision.IsNull() {
+		object["expected_revision"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.ExpectedRevision.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CreateTerminalRequest.ExpectedRevision: %w", err)
+		}
+		object["expected_revision"] = encodedField
+	}
+	if value.Key.IsAbsent() {
+		delete(object, "key")
+	} else if value.Key.IsNull() {
+		object["key"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Key.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CreateTerminalRequest.Key: %w", err)
+		}
+		object["key"] = encodedField
+	}
+	if value.MutationID.IsAbsent() {
+		delete(object, "mutation_id")
+	} else if value.MutationID.IsNull() {
+		object["mutation_id"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.MutationID.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CreateTerminalRequest.MutationID: %w", err)
+		}
+		object["mutation_id"] = encodedField
+	}
+	if value.Name.IsAbsent() {
+		delete(object, "name")
+	} else if value.Name.IsNull() {
+		object["name"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Name.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CreateTerminalRequest.Name: %w", err)
+		}
+		object["name"] = encodedField
+	}
+	if value.Origin.IsAbsent() {
+		delete(object, "origin")
+	} else if value.Origin.IsNull() {
+		object["origin"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Origin.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CreateTerminalRequest.Origin: %w", err)
+		}
+		object["origin"] = encodedField
+	}
+	if value.Rows.IsAbsent() {
+		delete(object, "rows")
+	} else if value.Rows.IsNull() {
+		object["rows"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Rows.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CreateTerminalRequest.Rows: %w", err)
+		}
+		object["rows"] = encodedField
+	}
+	if value.TerminalID.IsAbsent() {
+		delete(object, "terminal_id")
+	} else if value.TerminalID.IsNull() {
+		object["terminal_id"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.TerminalID.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CreateTerminalRequest.TerminalID: %w", err)
+		}
+		object["terminal_id"] = encodedField
+	}
+	if value.Workspace.IsAbsent() {
+		delete(object, "workspace")
+	} else if value.Workspace.IsNull() {
+		object["workspace"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Workspace.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CreateTerminalRequest.Workspace: %w", err)
+		}
+		object["workspace"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *CreateTerminalRequest) UnmarshalJSON(data []byte) error {
+	type wire CreateTerminalRequest
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawArgv, hasArgv := object["argv"]
+	if !hasArgv {
+		decoded.Argv = Presence[[]string]{}
+	} else if isJSONNull(rawArgv) {
+		decoded.Argv = Null[[]string]()
+	} else {
+		var fieldValue []string
+		if err := json.Unmarshal(rawArgv, &fieldValue); err != nil {
+			return fmt.Errorf("decode CreateTerminalRequest.Argv: %w", err)
+		}
+		decoded.Argv = Value(fieldValue)
+	}
+	rawCols, hasCols := object["cols"]
+	if !hasCols {
+		decoded.Cols = Presence[uint16]{}
+	} else if isJSONNull(rawCols) {
+		decoded.Cols = Null[uint16]()
+	} else {
+		var fieldValue uint16
+		if err := json.Unmarshal(rawCols, &fieldValue); err != nil {
+			return fmt.Errorf("decode CreateTerminalRequest.Cols: %w", err)
+		}
+		decoded.Cols = Value(fieldValue)
+	}
+	rawCommand, hasCommand := object["command"]
+	if !hasCommand {
+		decoded.Command = Presence[string]{}
+	} else if isJSONNull(rawCommand) {
+		decoded.Command = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawCommand, &fieldValue); err != nil {
+			return fmt.Errorf("decode CreateTerminalRequest.Command: %w", err)
+		}
+		decoded.Command = Value(fieldValue)
+	}
+	rawCwd, hasCwd := object["cwd"]
+	if !hasCwd {
+		decoded.Cwd = Presence[string]{}
+	} else if isJSONNull(rawCwd) {
+		decoded.Cwd = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawCwd, &fieldValue); err != nil {
+			return fmt.Errorf("decode CreateTerminalRequest.Cwd: %w", err)
+		}
+		decoded.Cwd = Value(fieldValue)
+	}
+	rawExpectedGeneration, hasExpectedGeneration := object["expected_generation"]
+	if !hasExpectedGeneration {
+		decoded.ExpectedGeneration = Presence[string]{}
+	} else if isJSONNull(rawExpectedGeneration) {
+		decoded.ExpectedGeneration = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawExpectedGeneration, &fieldValue); err != nil {
+			return fmt.Errorf("decode CreateTerminalRequest.ExpectedGeneration: %w", err)
+		}
+		decoded.ExpectedGeneration = Value(fieldValue)
+	}
+	rawExpectedRevision, hasExpectedRevision := object["expected_revision"]
+	if !hasExpectedRevision {
+		decoded.ExpectedRevision = Presence[uint64]{}
+	} else if isJSONNull(rawExpectedRevision) {
+		decoded.ExpectedRevision = Null[uint64]()
+	} else {
+		var fieldValue uint64
+		if err := json.Unmarshal(rawExpectedRevision, &fieldValue); err != nil {
+			return fmt.Errorf("decode CreateTerminalRequest.ExpectedRevision: %w", err)
+		}
+		decoded.ExpectedRevision = Value(fieldValue)
+	}
+	rawKey, hasKey := object["key"]
+	if !hasKey {
+		decoded.Key = Presence[string]{}
+	} else if isJSONNull(rawKey) {
+		decoded.Key = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawKey, &fieldValue); err != nil {
+			return fmt.Errorf("decode CreateTerminalRequest.Key: %w", err)
+		}
+		decoded.Key = Value(fieldValue)
+	}
+	rawMutationID, hasMutationID := object["mutation_id"]
+	if !hasMutationID {
+		decoded.MutationID = Presence[string]{}
+	} else if isJSONNull(rawMutationID) {
+		decoded.MutationID = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawMutationID, &fieldValue); err != nil {
+			return fmt.Errorf("decode CreateTerminalRequest.MutationID: %w", err)
+		}
+		decoded.MutationID = Value(fieldValue)
+	}
+	rawName, hasName := object["name"]
+	if !hasName {
+		decoded.Name = Presence[string]{}
+	} else if isJSONNull(rawName) {
+		decoded.Name = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawName, &fieldValue); err != nil {
+			return fmt.Errorf("decode CreateTerminalRequest.Name: %w", err)
+		}
+		decoded.Name = Value(fieldValue)
+	}
+	rawOrigin, hasOrigin := object["origin"]
+	if !hasOrigin {
+		decoded.Origin = Presence[string]{}
+	} else if isJSONNull(rawOrigin) {
+		decoded.Origin = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawOrigin, &fieldValue); err != nil {
+			return fmt.Errorf("decode CreateTerminalRequest.Origin: %w", err)
+		}
+		decoded.Origin = Value(fieldValue)
+	}
+	rawRows, hasRows := object["rows"]
+	if !hasRows {
+		decoded.Rows = Presence[uint16]{}
+	} else if isJSONNull(rawRows) {
+		decoded.Rows = Null[uint16]()
+	} else {
+		var fieldValue uint16
+		if err := json.Unmarshal(rawRows, &fieldValue); err != nil {
+			return fmt.Errorf("decode CreateTerminalRequest.Rows: %w", err)
+		}
+		decoded.Rows = Value(fieldValue)
+	}
+	rawTerminalID, hasTerminalID := object["terminal_id"]
+	if !hasTerminalID {
+		decoded.TerminalID = Presence[string]{}
+	} else if isJSONNull(rawTerminalID) {
+		decoded.TerminalID = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawTerminalID, &fieldValue); err != nil {
+			return fmt.Errorf("decode CreateTerminalRequest.TerminalID: %w", err)
+		}
+		decoded.TerminalID = Value(fieldValue)
+	}
+	rawWorkspace, hasWorkspace := object["workspace"]
+	if !hasWorkspace {
+		decoded.Workspace = Presence[ID]{}
+	} else if isJSONNull(rawWorkspace) {
+		decoded.Workspace = Null[ID]()
+	} else {
+		var fieldValue ID
+		if err := json.Unmarshal(rawWorkspace, &fieldValue); err != nil {
+			return fmt.Errorf("decode CreateTerminalRequest.Workspace: %w", err)
+		}
+		decoded.Workspace = Value(fieldValue)
+	}
+	*value = CreateTerminalRequest(decoded)
+	return nil
 }
 
 type CreateTerminalResult = TerminalPlacement
 
 type CreateTerminalOptions struct {
-	Argv               *[]string `json:"argv,omitempty"`
-	Cols               *uint16   `json:"cols,omitempty"`
-	Command            *string   `json:"command,omitempty"`
-	Cwd                *string   `json:"cwd,omitempty"`
-	ExpectedGeneration *string   `json:"expected_generation,omitempty"`
-	ExpectedRevision   *uint64   `json:"expected_revision,omitempty"`
-	Key                *string   `json:"key,omitempty"`
-	MutationID         *string   `json:"mutation_id,omitempty"`
-	Name               *string   `json:"name,omitempty"`
-	Origin             *string   `json:"origin,omitempty"`
-	Rows               *uint16   `json:"rows,omitempty"`
-	TerminalID         *string   `json:"terminal_id,omitempty"`
-	Workspace          *ID       `json:"workspace,omitempty"`
+	Argv               Presence[[]string] `json:"-"`
+	Cols               Presence[uint16]   `json:"-"`
+	Command            Presence[string]   `json:"-"`
+	Cwd                Presence[string]   `json:"-"`
+	ExpectedGeneration Presence[string]   `json:"-"`
+	ExpectedRevision   Presence[uint64]   `json:"-"`
+	Key                Presence[string]   `json:"-"`
+	MutationID         Presence[string]   `json:"-"`
+	Name               Presence[string]   `json:"-"`
+	Origin             Presence[string]   `json:"-"`
+	Rows               Presence[uint16]   `json:"-"`
+	TerminalID         Presence[string]   `json:"-"`
+	Workspace          Presence[ID]       `json:"-"`
+}
+
+func (value CreateTerminalOptions) MarshalJSON() ([]byte, error) {
+	type wire CreateTerminalOptions
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Argv.IsAbsent() {
+		delete(object, "argv")
+	} else if value.Argv.IsNull() {
+		object["argv"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Argv.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CreateTerminalOptions.Argv: %w", err)
+		}
+		object["argv"] = encodedField
+	}
+	if value.Cols.IsAbsent() {
+		delete(object, "cols")
+	} else if value.Cols.IsNull() {
+		object["cols"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Cols.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CreateTerminalOptions.Cols: %w", err)
+		}
+		object["cols"] = encodedField
+	}
+	if value.Command.IsAbsent() {
+		delete(object, "command")
+	} else if value.Command.IsNull() {
+		object["command"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Command.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CreateTerminalOptions.Command: %w", err)
+		}
+		object["command"] = encodedField
+	}
+	if value.Cwd.IsAbsent() {
+		delete(object, "cwd")
+	} else if value.Cwd.IsNull() {
+		object["cwd"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Cwd.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CreateTerminalOptions.Cwd: %w", err)
+		}
+		object["cwd"] = encodedField
+	}
+	if value.ExpectedGeneration.IsAbsent() {
+		delete(object, "expected_generation")
+	} else if value.ExpectedGeneration.IsNull() {
+		object["expected_generation"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.ExpectedGeneration.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CreateTerminalOptions.ExpectedGeneration: %w", err)
+		}
+		object["expected_generation"] = encodedField
+	}
+	if value.ExpectedRevision.IsAbsent() {
+		delete(object, "expected_revision")
+	} else if value.ExpectedRevision.IsNull() {
+		object["expected_revision"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.ExpectedRevision.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CreateTerminalOptions.ExpectedRevision: %w", err)
+		}
+		object["expected_revision"] = encodedField
+	}
+	if value.Key.IsAbsent() {
+		delete(object, "key")
+	} else if value.Key.IsNull() {
+		object["key"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Key.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CreateTerminalOptions.Key: %w", err)
+		}
+		object["key"] = encodedField
+	}
+	if value.MutationID.IsAbsent() {
+		delete(object, "mutation_id")
+	} else if value.MutationID.IsNull() {
+		object["mutation_id"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.MutationID.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CreateTerminalOptions.MutationID: %w", err)
+		}
+		object["mutation_id"] = encodedField
+	}
+	if value.Name.IsAbsent() {
+		delete(object, "name")
+	} else if value.Name.IsNull() {
+		object["name"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Name.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CreateTerminalOptions.Name: %w", err)
+		}
+		object["name"] = encodedField
+	}
+	if value.Origin.IsAbsent() {
+		delete(object, "origin")
+	} else if value.Origin.IsNull() {
+		object["origin"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Origin.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CreateTerminalOptions.Origin: %w", err)
+		}
+		object["origin"] = encodedField
+	}
+	if value.Rows.IsAbsent() {
+		delete(object, "rows")
+	} else if value.Rows.IsNull() {
+		object["rows"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Rows.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CreateTerminalOptions.Rows: %w", err)
+		}
+		object["rows"] = encodedField
+	}
+	if value.TerminalID.IsAbsent() {
+		delete(object, "terminal_id")
+	} else if value.TerminalID.IsNull() {
+		object["terminal_id"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.TerminalID.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CreateTerminalOptions.TerminalID: %w", err)
+		}
+		object["terminal_id"] = encodedField
+	}
+	if value.Workspace.IsAbsent() {
+		delete(object, "workspace")
+	} else if value.Workspace.IsNull() {
+		object["workspace"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Workspace.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CreateTerminalOptions.Workspace: %w", err)
+		}
+		object["workspace"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *CreateTerminalOptions) UnmarshalJSON(data []byte) error {
+	type wire CreateTerminalOptions
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawArgv, hasArgv := object["argv"]
+	if !hasArgv {
+		decoded.Argv = Presence[[]string]{}
+	} else if isJSONNull(rawArgv) {
+		decoded.Argv = Null[[]string]()
+	} else {
+		var fieldValue []string
+		if err := json.Unmarshal(rawArgv, &fieldValue); err != nil {
+			return fmt.Errorf("decode CreateTerminalOptions.Argv: %w", err)
+		}
+		decoded.Argv = Value(fieldValue)
+	}
+	rawCols, hasCols := object["cols"]
+	if !hasCols {
+		decoded.Cols = Presence[uint16]{}
+	} else if isJSONNull(rawCols) {
+		decoded.Cols = Null[uint16]()
+	} else {
+		var fieldValue uint16
+		if err := json.Unmarshal(rawCols, &fieldValue); err != nil {
+			return fmt.Errorf("decode CreateTerminalOptions.Cols: %w", err)
+		}
+		decoded.Cols = Value(fieldValue)
+	}
+	rawCommand, hasCommand := object["command"]
+	if !hasCommand {
+		decoded.Command = Presence[string]{}
+	} else if isJSONNull(rawCommand) {
+		decoded.Command = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawCommand, &fieldValue); err != nil {
+			return fmt.Errorf("decode CreateTerminalOptions.Command: %w", err)
+		}
+		decoded.Command = Value(fieldValue)
+	}
+	rawCwd, hasCwd := object["cwd"]
+	if !hasCwd {
+		decoded.Cwd = Presence[string]{}
+	} else if isJSONNull(rawCwd) {
+		decoded.Cwd = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawCwd, &fieldValue); err != nil {
+			return fmt.Errorf("decode CreateTerminalOptions.Cwd: %w", err)
+		}
+		decoded.Cwd = Value(fieldValue)
+	}
+	rawExpectedGeneration, hasExpectedGeneration := object["expected_generation"]
+	if !hasExpectedGeneration {
+		decoded.ExpectedGeneration = Presence[string]{}
+	} else if isJSONNull(rawExpectedGeneration) {
+		decoded.ExpectedGeneration = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawExpectedGeneration, &fieldValue); err != nil {
+			return fmt.Errorf("decode CreateTerminalOptions.ExpectedGeneration: %w", err)
+		}
+		decoded.ExpectedGeneration = Value(fieldValue)
+	}
+	rawExpectedRevision, hasExpectedRevision := object["expected_revision"]
+	if !hasExpectedRevision {
+		decoded.ExpectedRevision = Presence[uint64]{}
+	} else if isJSONNull(rawExpectedRevision) {
+		decoded.ExpectedRevision = Null[uint64]()
+	} else {
+		var fieldValue uint64
+		if err := json.Unmarshal(rawExpectedRevision, &fieldValue); err != nil {
+			return fmt.Errorf("decode CreateTerminalOptions.ExpectedRevision: %w", err)
+		}
+		decoded.ExpectedRevision = Value(fieldValue)
+	}
+	rawKey, hasKey := object["key"]
+	if !hasKey {
+		decoded.Key = Presence[string]{}
+	} else if isJSONNull(rawKey) {
+		decoded.Key = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawKey, &fieldValue); err != nil {
+			return fmt.Errorf("decode CreateTerminalOptions.Key: %w", err)
+		}
+		decoded.Key = Value(fieldValue)
+	}
+	rawMutationID, hasMutationID := object["mutation_id"]
+	if !hasMutationID {
+		decoded.MutationID = Presence[string]{}
+	} else if isJSONNull(rawMutationID) {
+		decoded.MutationID = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawMutationID, &fieldValue); err != nil {
+			return fmt.Errorf("decode CreateTerminalOptions.MutationID: %w", err)
+		}
+		decoded.MutationID = Value(fieldValue)
+	}
+	rawName, hasName := object["name"]
+	if !hasName {
+		decoded.Name = Presence[string]{}
+	} else if isJSONNull(rawName) {
+		decoded.Name = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawName, &fieldValue); err != nil {
+			return fmt.Errorf("decode CreateTerminalOptions.Name: %w", err)
+		}
+		decoded.Name = Value(fieldValue)
+	}
+	rawOrigin, hasOrigin := object["origin"]
+	if !hasOrigin {
+		decoded.Origin = Presence[string]{}
+	} else if isJSONNull(rawOrigin) {
+		decoded.Origin = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawOrigin, &fieldValue); err != nil {
+			return fmt.Errorf("decode CreateTerminalOptions.Origin: %w", err)
+		}
+		decoded.Origin = Value(fieldValue)
+	}
+	rawRows, hasRows := object["rows"]
+	if !hasRows {
+		decoded.Rows = Presence[uint16]{}
+	} else if isJSONNull(rawRows) {
+		decoded.Rows = Null[uint16]()
+	} else {
+		var fieldValue uint16
+		if err := json.Unmarshal(rawRows, &fieldValue); err != nil {
+			return fmt.Errorf("decode CreateTerminalOptions.Rows: %w", err)
+		}
+		decoded.Rows = Value(fieldValue)
+	}
+	rawTerminalID, hasTerminalID := object["terminal_id"]
+	if !hasTerminalID {
+		decoded.TerminalID = Presence[string]{}
+	} else if isJSONNull(rawTerminalID) {
+		decoded.TerminalID = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawTerminalID, &fieldValue); err != nil {
+			return fmt.Errorf("decode CreateTerminalOptions.TerminalID: %w", err)
+		}
+		decoded.TerminalID = Value(fieldValue)
+	}
+	rawWorkspace, hasWorkspace := object["workspace"]
+	if !hasWorkspace {
+		decoded.Workspace = Presence[ID]{}
+	} else if isJSONNull(rawWorkspace) {
+		decoded.Workspace = Null[ID]()
+	} else {
+		var fieldValue ID
+		if err := json.Unmarshal(rawWorkspace, &fieldValue); err != nil {
+			return fmt.Errorf("decode CreateTerminalOptions.Workspace: %w", err)
+		}
+		decoded.Workspace = Value(fieldValue)
+	}
+	*value = CreateTerminalOptions(decoded)
+	return nil
 }
 
 // CreateWorkspaceRequest is the exact create-workspace wire payload.
 type CreateWorkspaceRequest struct {
-	ExpectedGeneration *string `json:"expected_generation,omitempty"`
-	ExpectedRevision   *uint64 `json:"expected_revision,omitempty"`
-	Key                *string `json:"key,omitempty"`
-	MutationID         *string `json:"mutation_id,omitempty"`
-	Name               *string `json:"name,omitempty"`
-	Origin             *string `json:"origin,omitempty"`
+	ExpectedGeneration Presence[string] `json:"-"`
+	ExpectedRevision   Presence[uint64] `json:"-"`
+	Key                Presence[string] `json:"-"`
+	MutationID         Presence[string] `json:"-"`
+	Name               Presence[string] `json:"-"`
+	Origin             Presence[string] `json:"-"`
+}
+
+func (value CreateWorkspaceRequest) MarshalJSON() ([]byte, error) {
+	type wire CreateWorkspaceRequest
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.ExpectedGeneration.IsAbsent() {
+		delete(object, "expected_generation")
+	} else if value.ExpectedGeneration.IsNull() {
+		object["expected_generation"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.ExpectedGeneration.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CreateWorkspaceRequest.ExpectedGeneration: %w", err)
+		}
+		object["expected_generation"] = encodedField
+	}
+	if value.ExpectedRevision.IsAbsent() {
+		delete(object, "expected_revision")
+	} else if value.ExpectedRevision.IsNull() {
+		object["expected_revision"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.ExpectedRevision.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CreateWorkspaceRequest.ExpectedRevision: %w", err)
+		}
+		object["expected_revision"] = encodedField
+	}
+	if value.Key.IsAbsent() {
+		delete(object, "key")
+	} else if value.Key.IsNull() {
+		object["key"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Key.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CreateWorkspaceRequest.Key: %w", err)
+		}
+		object["key"] = encodedField
+	}
+	if value.MutationID.IsAbsent() {
+		delete(object, "mutation_id")
+	} else if value.MutationID.IsNull() {
+		object["mutation_id"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.MutationID.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CreateWorkspaceRequest.MutationID: %w", err)
+		}
+		object["mutation_id"] = encodedField
+	}
+	if value.Name.IsAbsent() {
+		delete(object, "name")
+	} else if value.Name.IsNull() {
+		object["name"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Name.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CreateWorkspaceRequest.Name: %w", err)
+		}
+		object["name"] = encodedField
+	}
+	if value.Origin.IsAbsent() {
+		delete(object, "origin")
+	} else if value.Origin.IsNull() {
+		object["origin"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Origin.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CreateWorkspaceRequest.Origin: %w", err)
+		}
+		object["origin"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *CreateWorkspaceRequest) UnmarshalJSON(data []byte) error {
+	type wire CreateWorkspaceRequest
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawExpectedGeneration, hasExpectedGeneration := object["expected_generation"]
+	if !hasExpectedGeneration {
+		decoded.ExpectedGeneration = Presence[string]{}
+	} else if isJSONNull(rawExpectedGeneration) {
+		decoded.ExpectedGeneration = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawExpectedGeneration, &fieldValue); err != nil {
+			return fmt.Errorf("decode CreateWorkspaceRequest.ExpectedGeneration: %w", err)
+		}
+		decoded.ExpectedGeneration = Value(fieldValue)
+	}
+	rawExpectedRevision, hasExpectedRevision := object["expected_revision"]
+	if !hasExpectedRevision {
+		decoded.ExpectedRevision = Presence[uint64]{}
+	} else if isJSONNull(rawExpectedRevision) {
+		decoded.ExpectedRevision = Null[uint64]()
+	} else {
+		var fieldValue uint64
+		if err := json.Unmarshal(rawExpectedRevision, &fieldValue); err != nil {
+			return fmt.Errorf("decode CreateWorkspaceRequest.ExpectedRevision: %w", err)
+		}
+		decoded.ExpectedRevision = Value(fieldValue)
+	}
+	rawKey, hasKey := object["key"]
+	if !hasKey {
+		decoded.Key = Presence[string]{}
+	} else if isJSONNull(rawKey) {
+		decoded.Key = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawKey, &fieldValue); err != nil {
+			return fmt.Errorf("decode CreateWorkspaceRequest.Key: %w", err)
+		}
+		decoded.Key = Value(fieldValue)
+	}
+	rawMutationID, hasMutationID := object["mutation_id"]
+	if !hasMutationID {
+		decoded.MutationID = Presence[string]{}
+	} else if isJSONNull(rawMutationID) {
+		decoded.MutationID = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawMutationID, &fieldValue); err != nil {
+			return fmt.Errorf("decode CreateWorkspaceRequest.MutationID: %w", err)
+		}
+		decoded.MutationID = Value(fieldValue)
+	}
+	rawName, hasName := object["name"]
+	if !hasName {
+		decoded.Name = Presence[string]{}
+	} else if isJSONNull(rawName) {
+		decoded.Name = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawName, &fieldValue); err != nil {
+			return fmt.Errorf("decode CreateWorkspaceRequest.Name: %w", err)
+		}
+		decoded.Name = Value(fieldValue)
+	}
+	rawOrigin, hasOrigin := object["origin"]
+	if !hasOrigin {
+		decoded.Origin = Presence[string]{}
+	} else if isJSONNull(rawOrigin) {
+		decoded.Origin = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawOrigin, &fieldValue); err != nil {
+			return fmt.Errorf("decode CreateWorkspaceRequest.Origin: %w", err)
+		}
+		decoded.Origin = Value(fieldValue)
+	}
+	*value = CreateWorkspaceRequest(decoded)
+	return nil
 }
 
 type CreateWorkspaceResult = WorkspaceMutationResult
 
 type CreateWorkspaceOptions struct {
-	ExpectedGeneration *string `json:"expected_generation,omitempty"`
-	ExpectedRevision   *uint64 `json:"expected_revision,omitempty"`
-	Key                *string `json:"key,omitempty"`
-	MutationID         *string `json:"mutation_id,omitempty"`
-	Name               *string `json:"name,omitempty"`
-	Origin             *string `json:"origin,omitempty"`
+	ExpectedGeneration Presence[string] `json:"-"`
+	ExpectedRevision   Presence[uint64] `json:"-"`
+	Key                Presence[string] `json:"-"`
+	MutationID         Presence[string] `json:"-"`
+	Name               Presence[string] `json:"-"`
+	Origin             Presence[string] `json:"-"`
+}
+
+func (value CreateWorkspaceOptions) MarshalJSON() ([]byte, error) {
+	type wire CreateWorkspaceOptions
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.ExpectedGeneration.IsAbsent() {
+		delete(object, "expected_generation")
+	} else if value.ExpectedGeneration.IsNull() {
+		object["expected_generation"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.ExpectedGeneration.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CreateWorkspaceOptions.ExpectedGeneration: %w", err)
+		}
+		object["expected_generation"] = encodedField
+	}
+	if value.ExpectedRevision.IsAbsent() {
+		delete(object, "expected_revision")
+	} else if value.ExpectedRevision.IsNull() {
+		object["expected_revision"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.ExpectedRevision.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CreateWorkspaceOptions.ExpectedRevision: %w", err)
+		}
+		object["expected_revision"] = encodedField
+	}
+	if value.Key.IsAbsent() {
+		delete(object, "key")
+	} else if value.Key.IsNull() {
+		object["key"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Key.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CreateWorkspaceOptions.Key: %w", err)
+		}
+		object["key"] = encodedField
+	}
+	if value.MutationID.IsAbsent() {
+		delete(object, "mutation_id")
+	} else if value.MutationID.IsNull() {
+		object["mutation_id"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.MutationID.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CreateWorkspaceOptions.MutationID: %w", err)
+		}
+		object["mutation_id"] = encodedField
+	}
+	if value.Name.IsAbsent() {
+		delete(object, "name")
+	} else if value.Name.IsNull() {
+		object["name"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Name.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CreateWorkspaceOptions.Name: %w", err)
+		}
+		object["name"] = encodedField
+	}
+	if value.Origin.IsAbsent() {
+		delete(object, "origin")
+	} else if value.Origin.IsNull() {
+		object["origin"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Origin.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode CreateWorkspaceOptions.Origin: %w", err)
+		}
+		object["origin"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *CreateWorkspaceOptions) UnmarshalJSON(data []byte) error {
+	type wire CreateWorkspaceOptions
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawExpectedGeneration, hasExpectedGeneration := object["expected_generation"]
+	if !hasExpectedGeneration {
+		decoded.ExpectedGeneration = Presence[string]{}
+	} else if isJSONNull(rawExpectedGeneration) {
+		decoded.ExpectedGeneration = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawExpectedGeneration, &fieldValue); err != nil {
+			return fmt.Errorf("decode CreateWorkspaceOptions.ExpectedGeneration: %w", err)
+		}
+		decoded.ExpectedGeneration = Value(fieldValue)
+	}
+	rawExpectedRevision, hasExpectedRevision := object["expected_revision"]
+	if !hasExpectedRevision {
+		decoded.ExpectedRevision = Presence[uint64]{}
+	} else if isJSONNull(rawExpectedRevision) {
+		decoded.ExpectedRevision = Null[uint64]()
+	} else {
+		var fieldValue uint64
+		if err := json.Unmarshal(rawExpectedRevision, &fieldValue); err != nil {
+			return fmt.Errorf("decode CreateWorkspaceOptions.ExpectedRevision: %w", err)
+		}
+		decoded.ExpectedRevision = Value(fieldValue)
+	}
+	rawKey, hasKey := object["key"]
+	if !hasKey {
+		decoded.Key = Presence[string]{}
+	} else if isJSONNull(rawKey) {
+		decoded.Key = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawKey, &fieldValue); err != nil {
+			return fmt.Errorf("decode CreateWorkspaceOptions.Key: %w", err)
+		}
+		decoded.Key = Value(fieldValue)
+	}
+	rawMutationID, hasMutationID := object["mutation_id"]
+	if !hasMutationID {
+		decoded.MutationID = Presence[string]{}
+	} else if isJSONNull(rawMutationID) {
+		decoded.MutationID = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawMutationID, &fieldValue); err != nil {
+			return fmt.Errorf("decode CreateWorkspaceOptions.MutationID: %w", err)
+		}
+		decoded.MutationID = Value(fieldValue)
+	}
+	rawName, hasName := object["name"]
+	if !hasName {
+		decoded.Name = Presence[string]{}
+	} else if isJSONNull(rawName) {
+		decoded.Name = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawName, &fieldValue); err != nil {
+			return fmt.Errorf("decode CreateWorkspaceOptions.Name: %w", err)
+		}
+		decoded.Name = Value(fieldValue)
+	}
+	rawOrigin, hasOrigin := object["origin"]
+	if !hasOrigin {
+		decoded.Origin = Presence[string]{}
+	} else if isJSONNull(rawOrigin) {
+		decoded.Origin = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawOrigin, &fieldValue); err != nil {
+			return fmt.Errorf("decode CreateWorkspaceOptions.Origin: %w", err)
+		}
+		decoded.Origin = Value(fieldValue)
+	}
+	*value = CreateWorkspaceOptions(decoded)
+	return nil
 }
 
 // DetachClientRequest is the exact detach-client wire payload.
@@ -265,21 +2529,225 @@ type DetachClientResult = EmptyResult
 
 // ExportLayoutRequest is the exact export-layout wire payload.
 type ExportLayoutRequest struct {
-	Screen *ID `json:"screen,omitempty"`
+	Screen Presence[ID] `json:"-"`
+}
+
+func (value ExportLayoutRequest) MarshalJSON() ([]byte, error) {
+	type wire ExportLayoutRequest
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Screen.IsAbsent() {
+		delete(object, "screen")
+	} else if value.Screen.IsNull() {
+		object["screen"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Screen.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode ExportLayoutRequest.Screen: %w", err)
+		}
+		object["screen"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *ExportLayoutRequest) UnmarshalJSON(data []byte) error {
+	type wire ExportLayoutRequest
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawScreen, hasScreen := object["screen"]
+	if !hasScreen {
+		decoded.Screen = Presence[ID]{}
+	} else if isJSONNull(rawScreen) {
+		decoded.Screen = Null[ID]()
+	} else {
+		var fieldValue ID
+		if err := json.Unmarshal(rawScreen, &fieldValue); err != nil {
+			return fmt.Errorf("decode ExportLayoutRequest.Screen: %w", err)
+		}
+		decoded.Screen = Value(fieldValue)
+	}
+	*value = ExportLayoutRequest(decoded)
+	return nil
 }
 
 type ExportLayoutOptions struct {
-	Screen *ID `json:"screen,omitempty"`
+	Screen Presence[ID] `json:"-"`
+}
+
+func (value ExportLayoutOptions) MarshalJSON() ([]byte, error) {
+	type wire ExportLayoutOptions
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Screen.IsAbsent() {
+		delete(object, "screen")
+	} else if value.Screen.IsNull() {
+		object["screen"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Screen.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode ExportLayoutOptions.Screen: %w", err)
+		}
+		object["screen"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *ExportLayoutOptions) UnmarshalJSON(data []byte) error {
+	type wire ExportLayoutOptions
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawScreen, hasScreen := object["screen"]
+	if !hasScreen {
+		decoded.Screen = Presence[ID]{}
+	} else if isJSONNull(rawScreen) {
+		decoded.Screen = Null[ID]()
+	} else {
+		var fieldValue ID
+		if err := json.Unmarshal(rawScreen, &fieldValue); err != nil {
+			return fmt.Errorf("decode ExportLayoutOptions.Screen: %w", err)
+		}
+		decoded.Screen = Value(fieldValue)
+	}
+	*value = ExportLayoutOptions(decoded)
+	return nil
 }
 
 // FocusDirectionRequest is the exact focus-direction wire payload.
 type FocusDirectionRequest struct {
 	Dir  PaneDirection `json:"dir"`
-	Pane *ID           `json:"pane,omitempty"`
+	Pane Presence[ID]  `json:"-"`
+}
+
+func (value FocusDirectionRequest) MarshalJSON() ([]byte, error) {
+	type wire FocusDirectionRequest
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Pane.IsAbsent() {
+		delete(object, "pane")
+	} else if value.Pane.IsNull() {
+		object["pane"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Pane.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode FocusDirectionRequest.Pane: %w", err)
+		}
+		object["pane"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *FocusDirectionRequest) UnmarshalJSON(data []byte) error {
+	type wire FocusDirectionRequest
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawPane, hasPane := object["pane"]
+	if !hasPane {
+		decoded.Pane = Presence[ID]{}
+	} else if isJSONNull(rawPane) {
+		decoded.Pane = Null[ID]()
+	} else {
+		var fieldValue ID
+		if err := json.Unmarshal(rawPane, &fieldValue); err != nil {
+			return fmt.Errorf("decode FocusDirectionRequest.Pane: %w", err)
+		}
+		decoded.Pane = Value(fieldValue)
+	}
+	*value = FocusDirectionRequest(decoded)
+	return nil
 }
 
 type FocusDirectionOptions struct {
-	Pane *ID `json:"pane,omitempty"`
+	Pane Presence[ID] `json:"-"`
+}
+
+func (value FocusDirectionOptions) MarshalJSON() ([]byte, error) {
+	type wire FocusDirectionOptions
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Pane.IsAbsent() {
+		delete(object, "pane")
+	} else if value.Pane.IsNull() {
+		object["pane"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Pane.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode FocusDirectionOptions.Pane: %w", err)
+		}
+		object["pane"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *FocusDirectionOptions) UnmarshalJSON(data []byte) error {
+	type wire FocusDirectionOptions
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawPane, hasPane := object["pane"]
+	if !hasPane {
+		decoded.Pane = Presence[ID]{}
+	} else if isJSONNull(rawPane) {
+		decoded.Pane = Null[ID]()
+	} else {
+		var fieldValue ID
+		if err := json.Unmarshal(rawPane, &fieldValue); err != nil {
+			return fmt.Errorf("decode FocusDirectionOptions.Pane: %w", err)
+		}
+		decoded.Pane = Value(fieldValue)
+	}
+	*value = FocusDirectionOptions(decoded)
+	return nil
 }
 
 // FocusPaneRequest is the exact focus-pane wire payload.
@@ -303,23 +2771,293 @@ type IdentifyRequest struct {
 }
 
 // IDsRequest is the exact ids wire payload.
+type IDsRequestKind string
+
+const (
+	IDsRequestKindWorkspace IDsRequestKind = "workspace"
+	IDsRequestKindScreen    IDsRequestKind = "screen"
+	IDsRequestKindPane      IDsRequestKind = "pane"
+	IDsRequestKindSurface   IDsRequestKind = "surface"
+)
+
 type IDsRequest struct {
-	Kind *string `json:"kind,omitempty"`
+	Kind Presence[IDsRequestKind] `json:"-"`
 }
 
+func (value IDsRequest) MarshalJSON() ([]byte, error) {
+	type wire IDsRequest
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Kind.IsAbsent() {
+		delete(object, "kind")
+	} else if value.Kind.IsNull() {
+		object["kind"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Kind.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode IDsRequest.Kind: %w", err)
+		}
+		object["kind"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *IDsRequest) UnmarshalJSON(data []byte) error {
+	type wire IDsRequest
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawKind, hasKind := object["kind"]
+	if !hasKind {
+		decoded.Kind = Presence[IDsRequestKind]{}
+	} else if isJSONNull(rawKind) {
+		decoded.Kind = Null[IDsRequestKind]()
+	} else {
+		var fieldValue IDsRequestKind
+		if err := json.Unmarshal(rawKind, &fieldValue); err != nil {
+			return fmt.Errorf("decode IDsRequest.Kind: %w", err)
+		}
+		decoded.Kind = Value(fieldValue)
+	}
+	*value = IDsRequest(decoded)
+	return nil
+}
+
+type IDsOptionsKind string
+
+const (
+	IDsOptionsKindWorkspace IDsOptionsKind = "workspace"
+	IDsOptionsKindScreen    IDsOptionsKind = "screen"
+	IDsOptionsKindPane      IDsOptionsKind = "pane"
+	IDsOptionsKindSurface   IDsOptionsKind = "surface"
+)
+
 type IDsOptions struct {
-	Kind *string `json:"kind,omitempty"`
+	Kind Presence[IDsOptionsKind] `json:"-"`
+}
+
+func (value IDsOptions) MarshalJSON() ([]byte, error) {
+	type wire IDsOptions
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Kind.IsAbsent() {
+		delete(object, "kind")
+	} else if value.Kind.IsNull() {
+		object["kind"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Kind.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode IDsOptions.Kind: %w", err)
+		}
+		object["kind"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *IDsOptions) UnmarshalJSON(data []byte) error {
+	type wire IDsOptions
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawKind, hasKind := object["kind"]
+	if !hasKind {
+		decoded.Kind = Presence[IDsOptionsKind]{}
+	} else if isJSONNull(rawKind) {
+		decoded.Kind = Null[IDsOptionsKind]()
+	} else {
+		var fieldValue IDsOptionsKind
+		if err := json.Unmarshal(rawKind, &fieldValue); err != nil {
+			return fmt.Errorf("decode IDsOptions.Kind: %w", err)
+		}
+		decoded.Kind = Value(fieldValue)
+	}
+	*value = IDsOptions(decoded)
+	return nil
 }
 
 // ListAgentsRequest is the exact list-agents wire payload.
 type ListAgentsRequest struct {
-	State   *AgentState `json:"state,omitempty"`
-	Surface *ID         `json:"surface,omitempty"`
+	State   Presence[AgentState] `json:"-"`
+	Surface Presence[ID]         `json:"-"`
+}
+
+func (value ListAgentsRequest) MarshalJSON() ([]byte, error) {
+	type wire ListAgentsRequest
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.State.IsAbsent() {
+		delete(object, "state")
+	} else if value.State.IsNull() {
+		object["state"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.State.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode ListAgentsRequest.State: %w", err)
+		}
+		object["state"] = encodedField
+	}
+	if value.Surface.IsAbsent() {
+		delete(object, "surface")
+	} else if value.Surface.IsNull() {
+		object["surface"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Surface.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode ListAgentsRequest.Surface: %w", err)
+		}
+		object["surface"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *ListAgentsRequest) UnmarshalJSON(data []byte) error {
+	type wire ListAgentsRequest
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawState, hasState := object["state"]
+	if !hasState {
+		decoded.State = Presence[AgentState]{}
+	} else if isJSONNull(rawState) {
+		decoded.State = Null[AgentState]()
+	} else {
+		var fieldValue AgentState
+		if err := json.Unmarshal(rawState, &fieldValue); err != nil {
+			return fmt.Errorf("decode ListAgentsRequest.State: %w", err)
+		}
+		decoded.State = Value(fieldValue)
+	}
+	rawSurface, hasSurface := object["surface"]
+	if !hasSurface {
+		decoded.Surface = Presence[ID]{}
+	} else if isJSONNull(rawSurface) {
+		decoded.Surface = Null[ID]()
+	} else {
+		var fieldValue ID
+		if err := json.Unmarshal(rawSurface, &fieldValue); err != nil {
+			return fmt.Errorf("decode ListAgentsRequest.Surface: %w", err)
+		}
+		decoded.Surface = Value(fieldValue)
+	}
+	*value = ListAgentsRequest(decoded)
+	return nil
 }
 
 type ListAgentsOptions struct {
-	State   *AgentState `json:"state,omitempty"`
-	Surface *ID         `json:"surface,omitempty"`
+	State   Presence[AgentState] `json:"-"`
+	Surface Presence[ID]         `json:"-"`
+}
+
+func (value ListAgentsOptions) MarshalJSON() ([]byte, error) {
+	type wire ListAgentsOptions
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.State.IsAbsent() {
+		delete(object, "state")
+	} else if value.State.IsNull() {
+		object["state"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.State.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode ListAgentsOptions.State: %w", err)
+		}
+		object["state"] = encodedField
+	}
+	if value.Surface.IsAbsent() {
+		delete(object, "surface")
+	} else if value.Surface.IsNull() {
+		object["surface"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Surface.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode ListAgentsOptions.Surface: %w", err)
+		}
+		object["surface"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *ListAgentsOptions) UnmarshalJSON(data []byte) error {
+	type wire ListAgentsOptions
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawState, hasState := object["state"]
+	if !hasState {
+		decoded.State = Presence[AgentState]{}
+	} else if isJSONNull(rawState) {
+		decoded.State = Null[AgentState]()
+	} else {
+		var fieldValue AgentState
+		if err := json.Unmarshal(rawState, &fieldValue); err != nil {
+			return fmt.Errorf("decode ListAgentsOptions.State: %w", err)
+		}
+		decoded.State = Value(fieldValue)
+	}
+	rawSurface, hasSurface := object["surface"]
+	if !hasSurface {
+		decoded.Surface = Presence[ID]{}
+	} else if isJSONNull(rawSurface) {
+		decoded.Surface = Null[ID]()
+	} else {
+		var fieldValue ID
+		if err := json.Unmarshal(rawSurface, &fieldValue); err != nil {
+			return fmt.Errorf("decode ListAgentsOptions.Surface: %w", err)
+		}
+		decoded.Surface = Value(fieldValue)
+	}
+	*value = ListAgentsOptions(decoded)
+	return nil
 }
 
 // ListClientsRequest is the exact list-clients wire payload.
@@ -351,8 +3089,42 @@ type MintTerminalRendererRequest struct {
 	TtlMs   *uint64 `json:"ttl_ms,omitempty"`
 }
 
+func (value *MintTerminalRendererRequest) UnmarshalJSON(data []byte) error {
+	type wire MintTerminalRendererRequest
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	if raw, exists := object["ttl_ms"]; exists && isJSONNull(raw) {
+		return fmt.Errorf("decode MintTerminalRendererRequest: non-nullable field ttl_ms is null")
+	}
+	*value = MintTerminalRendererRequest(decoded)
+	return nil
+}
+
 type MintTerminalRendererOptions struct {
 	TtlMs *uint64 `json:"ttl_ms,omitempty"`
+}
+
+func (value *MintTerminalRendererOptions) UnmarshalJSON(data []byte) error {
+	type wire MintTerminalRendererOptions
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	if raw, exists := object["ttl_ms"]; exists && isJSONNull(raw) {
+		return fmt.Errorf("decode MintTerminalRendererOptions: non-nullable field ttl_ms is null")
+	}
+	*value = MintTerminalRendererOptions(decoded)
+	return nil
 }
 
 // MoveTabRequest is the exact move-tab wire payload.
@@ -366,133 +3138,1909 @@ type MoveTabResult = EmptyResult
 
 // MoveTerminalRequest is the exact move-terminal wire payload.
 type MoveTerminalRequest struct {
-	ExpectedGeneration  *string `json:"expected_generation,omitempty"`
-	ExpectedRevision    *uint64 `json:"expected_revision,omitempty"`
-	MutationID          *string `json:"mutation_id,omitempty"`
-	Origin              *string `json:"origin,omitempty"`
-	TerminalID          string  `json:"terminal_id"`
-	TerminalIncarnation *string `json:"terminal_incarnation,omitempty"`
-	WorkspaceKey        string  `json:"workspace_key"`
+	ExpectedGeneration  Presence[string] `json:"-"`
+	ExpectedRevision    Presence[uint64] `json:"-"`
+	MutationID          Presence[string] `json:"-"`
+	Origin              Presence[string] `json:"-"`
+	TerminalID          string           `json:"terminal_id"`
+	TerminalIncarnation Presence[string] `json:"-"`
+	WorkspaceKey        string           `json:"workspace_key"`
+}
+
+func (value MoveTerminalRequest) MarshalJSON() ([]byte, error) {
+	type wire MoveTerminalRequest
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.ExpectedGeneration.IsAbsent() {
+		delete(object, "expected_generation")
+	} else if value.ExpectedGeneration.IsNull() {
+		object["expected_generation"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.ExpectedGeneration.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode MoveTerminalRequest.ExpectedGeneration: %w", err)
+		}
+		object["expected_generation"] = encodedField
+	}
+	if value.ExpectedRevision.IsAbsent() {
+		delete(object, "expected_revision")
+	} else if value.ExpectedRevision.IsNull() {
+		object["expected_revision"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.ExpectedRevision.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode MoveTerminalRequest.ExpectedRevision: %w", err)
+		}
+		object["expected_revision"] = encodedField
+	}
+	if value.MutationID.IsAbsent() {
+		delete(object, "mutation_id")
+	} else if value.MutationID.IsNull() {
+		object["mutation_id"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.MutationID.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode MoveTerminalRequest.MutationID: %w", err)
+		}
+		object["mutation_id"] = encodedField
+	}
+	if value.Origin.IsAbsent() {
+		delete(object, "origin")
+	} else if value.Origin.IsNull() {
+		object["origin"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Origin.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode MoveTerminalRequest.Origin: %w", err)
+		}
+		object["origin"] = encodedField
+	}
+	if value.TerminalIncarnation.IsAbsent() {
+		delete(object, "terminal_incarnation")
+	} else if value.TerminalIncarnation.IsNull() {
+		object["terminal_incarnation"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.TerminalIncarnation.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode MoveTerminalRequest.TerminalIncarnation: %w", err)
+		}
+		object["terminal_incarnation"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *MoveTerminalRequest) UnmarshalJSON(data []byte) error {
+	type wire MoveTerminalRequest
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawExpectedGeneration, hasExpectedGeneration := object["expected_generation"]
+	if !hasExpectedGeneration {
+		decoded.ExpectedGeneration = Presence[string]{}
+	} else if isJSONNull(rawExpectedGeneration) {
+		decoded.ExpectedGeneration = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawExpectedGeneration, &fieldValue); err != nil {
+			return fmt.Errorf("decode MoveTerminalRequest.ExpectedGeneration: %w", err)
+		}
+		decoded.ExpectedGeneration = Value(fieldValue)
+	}
+	rawExpectedRevision, hasExpectedRevision := object["expected_revision"]
+	if !hasExpectedRevision {
+		decoded.ExpectedRevision = Presence[uint64]{}
+	} else if isJSONNull(rawExpectedRevision) {
+		decoded.ExpectedRevision = Null[uint64]()
+	} else {
+		var fieldValue uint64
+		if err := json.Unmarshal(rawExpectedRevision, &fieldValue); err != nil {
+			return fmt.Errorf("decode MoveTerminalRequest.ExpectedRevision: %w", err)
+		}
+		decoded.ExpectedRevision = Value(fieldValue)
+	}
+	rawMutationID, hasMutationID := object["mutation_id"]
+	if !hasMutationID {
+		decoded.MutationID = Presence[string]{}
+	} else if isJSONNull(rawMutationID) {
+		decoded.MutationID = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawMutationID, &fieldValue); err != nil {
+			return fmt.Errorf("decode MoveTerminalRequest.MutationID: %w", err)
+		}
+		decoded.MutationID = Value(fieldValue)
+	}
+	rawOrigin, hasOrigin := object["origin"]
+	if !hasOrigin {
+		decoded.Origin = Presence[string]{}
+	} else if isJSONNull(rawOrigin) {
+		decoded.Origin = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawOrigin, &fieldValue); err != nil {
+			return fmt.Errorf("decode MoveTerminalRequest.Origin: %w", err)
+		}
+		decoded.Origin = Value(fieldValue)
+	}
+	rawTerminalIncarnation, hasTerminalIncarnation := object["terminal_incarnation"]
+	if !hasTerminalIncarnation {
+		decoded.TerminalIncarnation = Presence[string]{}
+	} else if isJSONNull(rawTerminalIncarnation) {
+		decoded.TerminalIncarnation = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawTerminalIncarnation, &fieldValue); err != nil {
+			return fmt.Errorf("decode MoveTerminalRequest.TerminalIncarnation: %w", err)
+		}
+		decoded.TerminalIncarnation = Value(fieldValue)
+	}
+	*value = MoveTerminalRequest(decoded)
+	return nil
 }
 
 type MoveTerminalOptions struct {
-	ExpectedGeneration  *string `json:"expected_generation,omitempty"`
-	ExpectedRevision    *uint64 `json:"expected_revision,omitempty"`
-	MutationID          *string `json:"mutation_id,omitempty"`
-	Origin              *string `json:"origin,omitempty"`
-	TerminalIncarnation *string `json:"terminal_incarnation,omitempty"`
+	ExpectedGeneration  Presence[string] `json:"-"`
+	ExpectedRevision    Presence[uint64] `json:"-"`
+	MutationID          Presence[string] `json:"-"`
+	Origin              Presence[string] `json:"-"`
+	TerminalIncarnation Presence[string] `json:"-"`
+}
+
+func (value MoveTerminalOptions) MarshalJSON() ([]byte, error) {
+	type wire MoveTerminalOptions
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.ExpectedGeneration.IsAbsent() {
+		delete(object, "expected_generation")
+	} else if value.ExpectedGeneration.IsNull() {
+		object["expected_generation"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.ExpectedGeneration.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode MoveTerminalOptions.ExpectedGeneration: %w", err)
+		}
+		object["expected_generation"] = encodedField
+	}
+	if value.ExpectedRevision.IsAbsent() {
+		delete(object, "expected_revision")
+	} else if value.ExpectedRevision.IsNull() {
+		object["expected_revision"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.ExpectedRevision.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode MoveTerminalOptions.ExpectedRevision: %w", err)
+		}
+		object["expected_revision"] = encodedField
+	}
+	if value.MutationID.IsAbsent() {
+		delete(object, "mutation_id")
+	} else if value.MutationID.IsNull() {
+		object["mutation_id"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.MutationID.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode MoveTerminalOptions.MutationID: %w", err)
+		}
+		object["mutation_id"] = encodedField
+	}
+	if value.Origin.IsAbsent() {
+		delete(object, "origin")
+	} else if value.Origin.IsNull() {
+		object["origin"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Origin.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode MoveTerminalOptions.Origin: %w", err)
+		}
+		object["origin"] = encodedField
+	}
+	if value.TerminalIncarnation.IsAbsent() {
+		delete(object, "terminal_incarnation")
+	} else if value.TerminalIncarnation.IsNull() {
+		object["terminal_incarnation"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.TerminalIncarnation.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode MoveTerminalOptions.TerminalIncarnation: %w", err)
+		}
+		object["terminal_incarnation"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *MoveTerminalOptions) UnmarshalJSON(data []byte) error {
+	type wire MoveTerminalOptions
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawExpectedGeneration, hasExpectedGeneration := object["expected_generation"]
+	if !hasExpectedGeneration {
+		decoded.ExpectedGeneration = Presence[string]{}
+	} else if isJSONNull(rawExpectedGeneration) {
+		decoded.ExpectedGeneration = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawExpectedGeneration, &fieldValue); err != nil {
+			return fmt.Errorf("decode MoveTerminalOptions.ExpectedGeneration: %w", err)
+		}
+		decoded.ExpectedGeneration = Value(fieldValue)
+	}
+	rawExpectedRevision, hasExpectedRevision := object["expected_revision"]
+	if !hasExpectedRevision {
+		decoded.ExpectedRevision = Presence[uint64]{}
+	} else if isJSONNull(rawExpectedRevision) {
+		decoded.ExpectedRevision = Null[uint64]()
+	} else {
+		var fieldValue uint64
+		if err := json.Unmarshal(rawExpectedRevision, &fieldValue); err != nil {
+			return fmt.Errorf("decode MoveTerminalOptions.ExpectedRevision: %w", err)
+		}
+		decoded.ExpectedRevision = Value(fieldValue)
+	}
+	rawMutationID, hasMutationID := object["mutation_id"]
+	if !hasMutationID {
+		decoded.MutationID = Presence[string]{}
+	} else if isJSONNull(rawMutationID) {
+		decoded.MutationID = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawMutationID, &fieldValue); err != nil {
+			return fmt.Errorf("decode MoveTerminalOptions.MutationID: %w", err)
+		}
+		decoded.MutationID = Value(fieldValue)
+	}
+	rawOrigin, hasOrigin := object["origin"]
+	if !hasOrigin {
+		decoded.Origin = Presence[string]{}
+	} else if isJSONNull(rawOrigin) {
+		decoded.Origin = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawOrigin, &fieldValue); err != nil {
+			return fmt.Errorf("decode MoveTerminalOptions.Origin: %w", err)
+		}
+		decoded.Origin = Value(fieldValue)
+	}
+	rawTerminalIncarnation, hasTerminalIncarnation := object["terminal_incarnation"]
+	if !hasTerminalIncarnation {
+		decoded.TerminalIncarnation = Presence[string]{}
+	} else if isJSONNull(rawTerminalIncarnation) {
+		decoded.TerminalIncarnation = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawTerminalIncarnation, &fieldValue); err != nil {
+			return fmt.Errorf("decode MoveTerminalOptions.TerminalIncarnation: %w", err)
+		}
+		decoded.TerminalIncarnation = Value(fieldValue)
+	}
+	*value = MoveTerminalOptions(decoded)
+	return nil
 }
 
 // MoveWorkspaceRequest is the exact move-workspace wire payload.
 type MoveWorkspaceRequest struct {
-	ExpectedGeneration *string `json:"expected_generation,omitempty"`
-	ExpectedRevision   *uint64 `json:"expected_revision,omitempty"`
-	Index              uint64  `json:"index"`
-	Key                *string `json:"key,omitempty"`
-	MutationID         *string `json:"mutation_id,omitempty"`
-	Origin             *string `json:"origin,omitempty"`
-	Workspace          *ID     `json:"workspace,omitempty"`
+	ExpectedGeneration Presence[string] `json:"-"`
+	ExpectedRevision   Presence[uint64] `json:"-"`
+	Index              uint64           `json:"index"`
+	Key                Presence[string] `json:"-"`
+	MutationID         Presence[string] `json:"-"`
+	Origin             Presence[string] `json:"-"`
+	Workspace          Presence[ID]     `json:"-"`
+}
+
+func (value MoveWorkspaceRequest) MarshalJSON() ([]byte, error) {
+	type wire MoveWorkspaceRequest
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.ExpectedGeneration.IsAbsent() {
+		delete(object, "expected_generation")
+	} else if value.ExpectedGeneration.IsNull() {
+		object["expected_generation"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.ExpectedGeneration.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode MoveWorkspaceRequest.ExpectedGeneration: %w", err)
+		}
+		object["expected_generation"] = encodedField
+	}
+	if value.ExpectedRevision.IsAbsent() {
+		delete(object, "expected_revision")
+	} else if value.ExpectedRevision.IsNull() {
+		object["expected_revision"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.ExpectedRevision.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode MoveWorkspaceRequest.ExpectedRevision: %w", err)
+		}
+		object["expected_revision"] = encodedField
+	}
+	if value.Key.IsAbsent() {
+		delete(object, "key")
+	} else if value.Key.IsNull() {
+		object["key"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Key.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode MoveWorkspaceRequest.Key: %w", err)
+		}
+		object["key"] = encodedField
+	}
+	if value.MutationID.IsAbsent() {
+		delete(object, "mutation_id")
+	} else if value.MutationID.IsNull() {
+		object["mutation_id"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.MutationID.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode MoveWorkspaceRequest.MutationID: %w", err)
+		}
+		object["mutation_id"] = encodedField
+	}
+	if value.Origin.IsAbsent() {
+		delete(object, "origin")
+	} else if value.Origin.IsNull() {
+		object["origin"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Origin.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode MoveWorkspaceRequest.Origin: %w", err)
+		}
+		object["origin"] = encodedField
+	}
+	if value.Workspace.IsAbsent() {
+		delete(object, "workspace")
+	} else if value.Workspace.IsNull() {
+		object["workspace"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Workspace.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode MoveWorkspaceRequest.Workspace: %w", err)
+		}
+		object["workspace"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *MoveWorkspaceRequest) UnmarshalJSON(data []byte) error {
+	type wire MoveWorkspaceRequest
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawExpectedGeneration, hasExpectedGeneration := object["expected_generation"]
+	if !hasExpectedGeneration {
+		decoded.ExpectedGeneration = Presence[string]{}
+	} else if isJSONNull(rawExpectedGeneration) {
+		decoded.ExpectedGeneration = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawExpectedGeneration, &fieldValue); err != nil {
+			return fmt.Errorf("decode MoveWorkspaceRequest.ExpectedGeneration: %w", err)
+		}
+		decoded.ExpectedGeneration = Value(fieldValue)
+	}
+	rawExpectedRevision, hasExpectedRevision := object["expected_revision"]
+	if !hasExpectedRevision {
+		decoded.ExpectedRevision = Presence[uint64]{}
+	} else if isJSONNull(rawExpectedRevision) {
+		decoded.ExpectedRevision = Null[uint64]()
+	} else {
+		var fieldValue uint64
+		if err := json.Unmarshal(rawExpectedRevision, &fieldValue); err != nil {
+			return fmt.Errorf("decode MoveWorkspaceRequest.ExpectedRevision: %w", err)
+		}
+		decoded.ExpectedRevision = Value(fieldValue)
+	}
+	rawKey, hasKey := object["key"]
+	if !hasKey {
+		decoded.Key = Presence[string]{}
+	} else if isJSONNull(rawKey) {
+		decoded.Key = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawKey, &fieldValue); err != nil {
+			return fmt.Errorf("decode MoveWorkspaceRequest.Key: %w", err)
+		}
+		decoded.Key = Value(fieldValue)
+	}
+	rawMutationID, hasMutationID := object["mutation_id"]
+	if !hasMutationID {
+		decoded.MutationID = Presence[string]{}
+	} else if isJSONNull(rawMutationID) {
+		decoded.MutationID = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawMutationID, &fieldValue); err != nil {
+			return fmt.Errorf("decode MoveWorkspaceRequest.MutationID: %w", err)
+		}
+		decoded.MutationID = Value(fieldValue)
+	}
+	rawOrigin, hasOrigin := object["origin"]
+	if !hasOrigin {
+		decoded.Origin = Presence[string]{}
+	} else if isJSONNull(rawOrigin) {
+		decoded.Origin = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawOrigin, &fieldValue); err != nil {
+			return fmt.Errorf("decode MoveWorkspaceRequest.Origin: %w", err)
+		}
+		decoded.Origin = Value(fieldValue)
+	}
+	rawWorkspace, hasWorkspace := object["workspace"]
+	if !hasWorkspace {
+		decoded.Workspace = Presence[ID]{}
+	} else if isJSONNull(rawWorkspace) {
+		decoded.Workspace = Null[ID]()
+	} else {
+		var fieldValue ID
+		if err := json.Unmarshal(rawWorkspace, &fieldValue); err != nil {
+			return fmt.Errorf("decode MoveWorkspaceRequest.Workspace: %w", err)
+		}
+		decoded.Workspace = Value(fieldValue)
+	}
+	*value = MoveWorkspaceRequest(decoded)
+	return nil
 }
 
 type MoveWorkspaceResult = WorkspaceMutationResult
 
 type MoveWorkspaceOptions struct {
-	ExpectedGeneration *string `json:"expected_generation,omitempty"`
-	ExpectedRevision   *uint64 `json:"expected_revision,omitempty"`
-	Key                *string `json:"key,omitempty"`
-	MutationID         *string `json:"mutation_id,omitempty"`
-	Origin             *string `json:"origin,omitempty"`
-	Workspace          *ID     `json:"workspace,omitempty"`
+	ExpectedGeneration Presence[string] `json:"-"`
+	ExpectedRevision   Presence[uint64] `json:"-"`
+	Key                Presence[string] `json:"-"`
+	MutationID         Presence[string] `json:"-"`
+	Origin             Presence[string] `json:"-"`
+	Workspace          Presence[ID]     `json:"-"`
+}
+
+func (value MoveWorkspaceOptions) MarshalJSON() ([]byte, error) {
+	type wire MoveWorkspaceOptions
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.ExpectedGeneration.IsAbsent() {
+		delete(object, "expected_generation")
+	} else if value.ExpectedGeneration.IsNull() {
+		object["expected_generation"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.ExpectedGeneration.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode MoveWorkspaceOptions.ExpectedGeneration: %w", err)
+		}
+		object["expected_generation"] = encodedField
+	}
+	if value.ExpectedRevision.IsAbsent() {
+		delete(object, "expected_revision")
+	} else if value.ExpectedRevision.IsNull() {
+		object["expected_revision"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.ExpectedRevision.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode MoveWorkspaceOptions.ExpectedRevision: %w", err)
+		}
+		object["expected_revision"] = encodedField
+	}
+	if value.Key.IsAbsent() {
+		delete(object, "key")
+	} else if value.Key.IsNull() {
+		object["key"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Key.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode MoveWorkspaceOptions.Key: %w", err)
+		}
+		object["key"] = encodedField
+	}
+	if value.MutationID.IsAbsent() {
+		delete(object, "mutation_id")
+	} else if value.MutationID.IsNull() {
+		object["mutation_id"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.MutationID.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode MoveWorkspaceOptions.MutationID: %w", err)
+		}
+		object["mutation_id"] = encodedField
+	}
+	if value.Origin.IsAbsent() {
+		delete(object, "origin")
+	} else if value.Origin.IsNull() {
+		object["origin"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Origin.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode MoveWorkspaceOptions.Origin: %w", err)
+		}
+		object["origin"] = encodedField
+	}
+	if value.Workspace.IsAbsent() {
+		delete(object, "workspace")
+	} else if value.Workspace.IsNull() {
+		object["workspace"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Workspace.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode MoveWorkspaceOptions.Workspace: %w", err)
+		}
+		object["workspace"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *MoveWorkspaceOptions) UnmarshalJSON(data []byte) error {
+	type wire MoveWorkspaceOptions
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawExpectedGeneration, hasExpectedGeneration := object["expected_generation"]
+	if !hasExpectedGeneration {
+		decoded.ExpectedGeneration = Presence[string]{}
+	} else if isJSONNull(rawExpectedGeneration) {
+		decoded.ExpectedGeneration = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawExpectedGeneration, &fieldValue); err != nil {
+			return fmt.Errorf("decode MoveWorkspaceOptions.ExpectedGeneration: %w", err)
+		}
+		decoded.ExpectedGeneration = Value(fieldValue)
+	}
+	rawExpectedRevision, hasExpectedRevision := object["expected_revision"]
+	if !hasExpectedRevision {
+		decoded.ExpectedRevision = Presence[uint64]{}
+	} else if isJSONNull(rawExpectedRevision) {
+		decoded.ExpectedRevision = Null[uint64]()
+	} else {
+		var fieldValue uint64
+		if err := json.Unmarshal(rawExpectedRevision, &fieldValue); err != nil {
+			return fmt.Errorf("decode MoveWorkspaceOptions.ExpectedRevision: %w", err)
+		}
+		decoded.ExpectedRevision = Value(fieldValue)
+	}
+	rawKey, hasKey := object["key"]
+	if !hasKey {
+		decoded.Key = Presence[string]{}
+	} else if isJSONNull(rawKey) {
+		decoded.Key = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawKey, &fieldValue); err != nil {
+			return fmt.Errorf("decode MoveWorkspaceOptions.Key: %w", err)
+		}
+		decoded.Key = Value(fieldValue)
+	}
+	rawMutationID, hasMutationID := object["mutation_id"]
+	if !hasMutationID {
+		decoded.MutationID = Presence[string]{}
+	} else if isJSONNull(rawMutationID) {
+		decoded.MutationID = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawMutationID, &fieldValue); err != nil {
+			return fmt.Errorf("decode MoveWorkspaceOptions.MutationID: %w", err)
+		}
+		decoded.MutationID = Value(fieldValue)
+	}
+	rawOrigin, hasOrigin := object["origin"]
+	if !hasOrigin {
+		decoded.Origin = Presence[string]{}
+	} else if isJSONNull(rawOrigin) {
+		decoded.Origin = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawOrigin, &fieldValue); err != nil {
+			return fmt.Errorf("decode MoveWorkspaceOptions.Origin: %w", err)
+		}
+		decoded.Origin = Value(fieldValue)
+	}
+	rawWorkspace, hasWorkspace := object["workspace"]
+	if !hasWorkspace {
+		decoded.Workspace = Presence[ID]{}
+	} else if isJSONNull(rawWorkspace) {
+		decoded.Workspace = Null[ID]()
+	} else {
+		var fieldValue ID
+		if err := json.Unmarshal(rawWorkspace, &fieldValue); err != nil {
+			return fmt.Errorf("decode MoveWorkspaceOptions.Workspace: %w", err)
+		}
+		decoded.Workspace = Value(fieldValue)
+	}
+	*value = MoveWorkspaceOptions(decoded)
+	return nil
 }
 
 // NewBrowserTabRequest is the exact new-browser-tab wire payload.
 type NewBrowserTabRequest struct {
-	Cols *uint16 `json:"cols,omitempty"`
-	Pane *ID     `json:"pane,omitempty"`
-	Rows *uint16 `json:"rows,omitempty"`
-	URL  string  `json:"url"`
+	Cols Presence[uint16] `json:"-"`
+	Pane Presence[ID]     `json:"-"`
+	Rows Presence[uint16] `json:"-"`
+	URL  string           `json:"url"`
+}
+
+func (value NewBrowserTabRequest) MarshalJSON() ([]byte, error) {
+	type wire NewBrowserTabRequest
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Cols.IsAbsent() {
+		delete(object, "cols")
+	} else if value.Cols.IsNull() {
+		object["cols"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Cols.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode NewBrowserTabRequest.Cols: %w", err)
+		}
+		object["cols"] = encodedField
+	}
+	if value.Pane.IsAbsent() {
+		delete(object, "pane")
+	} else if value.Pane.IsNull() {
+		object["pane"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Pane.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode NewBrowserTabRequest.Pane: %w", err)
+		}
+		object["pane"] = encodedField
+	}
+	if value.Rows.IsAbsent() {
+		delete(object, "rows")
+	} else if value.Rows.IsNull() {
+		object["rows"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Rows.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode NewBrowserTabRequest.Rows: %w", err)
+		}
+		object["rows"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *NewBrowserTabRequest) UnmarshalJSON(data []byte) error {
+	type wire NewBrowserTabRequest
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawCols, hasCols := object["cols"]
+	if !hasCols {
+		decoded.Cols = Presence[uint16]{}
+	} else if isJSONNull(rawCols) {
+		decoded.Cols = Null[uint16]()
+	} else {
+		var fieldValue uint16
+		if err := json.Unmarshal(rawCols, &fieldValue); err != nil {
+			return fmt.Errorf("decode NewBrowserTabRequest.Cols: %w", err)
+		}
+		decoded.Cols = Value(fieldValue)
+	}
+	rawPane, hasPane := object["pane"]
+	if !hasPane {
+		decoded.Pane = Presence[ID]{}
+	} else if isJSONNull(rawPane) {
+		decoded.Pane = Null[ID]()
+	} else {
+		var fieldValue ID
+		if err := json.Unmarshal(rawPane, &fieldValue); err != nil {
+			return fmt.Errorf("decode NewBrowserTabRequest.Pane: %w", err)
+		}
+		decoded.Pane = Value(fieldValue)
+	}
+	rawRows, hasRows := object["rows"]
+	if !hasRows {
+		decoded.Rows = Presence[uint16]{}
+	} else if isJSONNull(rawRows) {
+		decoded.Rows = Null[uint16]()
+	} else {
+		var fieldValue uint16
+		if err := json.Unmarshal(rawRows, &fieldValue); err != nil {
+			return fmt.Errorf("decode NewBrowserTabRequest.Rows: %w", err)
+		}
+		decoded.Rows = Value(fieldValue)
+	}
+	*value = NewBrowserTabRequest(decoded)
+	return nil
 }
 
 type NewBrowserTabResult = SurfaceResult
 
 type NewBrowserTabOptions struct {
-	Cols *uint16 `json:"cols,omitempty"`
-	Pane *ID     `json:"pane,omitempty"`
-	Rows *uint16 `json:"rows,omitempty"`
+	Cols Presence[uint16] `json:"-"`
+	Pane Presence[ID]     `json:"-"`
+	Rows Presence[uint16] `json:"-"`
+}
+
+func (value NewBrowserTabOptions) MarshalJSON() ([]byte, error) {
+	type wire NewBrowserTabOptions
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Cols.IsAbsent() {
+		delete(object, "cols")
+	} else if value.Cols.IsNull() {
+		object["cols"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Cols.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode NewBrowserTabOptions.Cols: %w", err)
+		}
+		object["cols"] = encodedField
+	}
+	if value.Pane.IsAbsent() {
+		delete(object, "pane")
+	} else if value.Pane.IsNull() {
+		object["pane"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Pane.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode NewBrowserTabOptions.Pane: %w", err)
+		}
+		object["pane"] = encodedField
+	}
+	if value.Rows.IsAbsent() {
+		delete(object, "rows")
+	} else if value.Rows.IsNull() {
+		object["rows"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Rows.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode NewBrowserTabOptions.Rows: %w", err)
+		}
+		object["rows"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *NewBrowserTabOptions) UnmarshalJSON(data []byte) error {
+	type wire NewBrowserTabOptions
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawCols, hasCols := object["cols"]
+	if !hasCols {
+		decoded.Cols = Presence[uint16]{}
+	} else if isJSONNull(rawCols) {
+		decoded.Cols = Null[uint16]()
+	} else {
+		var fieldValue uint16
+		if err := json.Unmarshal(rawCols, &fieldValue); err != nil {
+			return fmt.Errorf("decode NewBrowserTabOptions.Cols: %w", err)
+		}
+		decoded.Cols = Value(fieldValue)
+	}
+	rawPane, hasPane := object["pane"]
+	if !hasPane {
+		decoded.Pane = Presence[ID]{}
+	} else if isJSONNull(rawPane) {
+		decoded.Pane = Null[ID]()
+	} else {
+		var fieldValue ID
+		if err := json.Unmarshal(rawPane, &fieldValue); err != nil {
+			return fmt.Errorf("decode NewBrowserTabOptions.Pane: %w", err)
+		}
+		decoded.Pane = Value(fieldValue)
+	}
+	rawRows, hasRows := object["rows"]
+	if !hasRows {
+		decoded.Rows = Presence[uint16]{}
+	} else if isJSONNull(rawRows) {
+		decoded.Rows = Null[uint16]()
+	} else {
+		var fieldValue uint16
+		if err := json.Unmarshal(rawRows, &fieldValue); err != nil {
+			return fmt.Errorf("decode NewBrowserTabOptions.Rows: %w", err)
+		}
+		decoded.Rows = Value(fieldValue)
+	}
+	*value = NewBrowserTabOptions(decoded)
+	return nil
 }
 
 // NewPaneRequest is the exact new-pane wire payload.
 type NewPaneRequest struct {
-	Cols *uint16 `json:"cols,omitempty"`
-	Pane ID      `json:"pane"`
-	Rows *uint16 `json:"rows,omitempty"`
+	Cols Presence[uint16] `json:"-"`
+	Pane ID               `json:"pane"`
+	Rows Presence[uint16] `json:"-"`
+}
+
+func (value NewPaneRequest) MarshalJSON() ([]byte, error) {
+	type wire NewPaneRequest
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Cols.IsAbsent() {
+		delete(object, "cols")
+	} else if value.Cols.IsNull() {
+		object["cols"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Cols.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode NewPaneRequest.Cols: %w", err)
+		}
+		object["cols"] = encodedField
+	}
+	if value.Rows.IsAbsent() {
+		delete(object, "rows")
+	} else if value.Rows.IsNull() {
+		object["rows"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Rows.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode NewPaneRequest.Rows: %w", err)
+		}
+		object["rows"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *NewPaneRequest) UnmarshalJSON(data []byte) error {
+	type wire NewPaneRequest
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawCols, hasCols := object["cols"]
+	if !hasCols {
+		decoded.Cols = Presence[uint16]{}
+	} else if isJSONNull(rawCols) {
+		decoded.Cols = Null[uint16]()
+	} else {
+		var fieldValue uint16
+		if err := json.Unmarshal(rawCols, &fieldValue); err != nil {
+			return fmt.Errorf("decode NewPaneRequest.Cols: %w", err)
+		}
+		decoded.Cols = Value(fieldValue)
+	}
+	rawRows, hasRows := object["rows"]
+	if !hasRows {
+		decoded.Rows = Presence[uint16]{}
+	} else if isJSONNull(rawRows) {
+		decoded.Rows = Null[uint16]()
+	} else {
+		var fieldValue uint16
+		if err := json.Unmarshal(rawRows, &fieldValue); err != nil {
+			return fmt.Errorf("decode NewPaneRequest.Rows: %w", err)
+		}
+		decoded.Rows = Value(fieldValue)
+	}
+	*value = NewPaneRequest(decoded)
+	return nil
 }
 
 type NewPaneResult = SurfaceResult
 
 type NewPaneOptions struct {
-	Cols *uint16 `json:"cols,omitempty"`
-	Rows *uint16 `json:"rows,omitempty"`
+	Cols Presence[uint16] `json:"-"`
+	Rows Presence[uint16] `json:"-"`
+}
+
+func (value NewPaneOptions) MarshalJSON() ([]byte, error) {
+	type wire NewPaneOptions
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Cols.IsAbsent() {
+		delete(object, "cols")
+	} else if value.Cols.IsNull() {
+		object["cols"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Cols.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode NewPaneOptions.Cols: %w", err)
+		}
+		object["cols"] = encodedField
+	}
+	if value.Rows.IsAbsent() {
+		delete(object, "rows")
+	} else if value.Rows.IsNull() {
+		object["rows"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Rows.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode NewPaneOptions.Rows: %w", err)
+		}
+		object["rows"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *NewPaneOptions) UnmarshalJSON(data []byte) error {
+	type wire NewPaneOptions
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawCols, hasCols := object["cols"]
+	if !hasCols {
+		decoded.Cols = Presence[uint16]{}
+	} else if isJSONNull(rawCols) {
+		decoded.Cols = Null[uint16]()
+	} else {
+		var fieldValue uint16
+		if err := json.Unmarshal(rawCols, &fieldValue); err != nil {
+			return fmt.Errorf("decode NewPaneOptions.Cols: %w", err)
+		}
+		decoded.Cols = Value(fieldValue)
+	}
+	rawRows, hasRows := object["rows"]
+	if !hasRows {
+		decoded.Rows = Presence[uint16]{}
+	} else if isJSONNull(rawRows) {
+		decoded.Rows = Null[uint16]()
+	} else {
+		var fieldValue uint16
+		if err := json.Unmarshal(rawRows, &fieldValue); err != nil {
+			return fmt.Errorf("decode NewPaneOptions.Rows: %w", err)
+		}
+		decoded.Rows = Value(fieldValue)
+	}
+	*value = NewPaneOptions(decoded)
+	return nil
 }
 
 // NewScreenRequest is the exact new-screen wire payload.
 type NewScreenRequest struct {
-	Cols      *uint16 `json:"cols,omitempty"`
-	Rows      *uint16 `json:"rows,omitempty"`
-	Workspace *ID     `json:"workspace,omitempty"`
+	Cols      Presence[uint16] `json:"-"`
+	Rows      Presence[uint16] `json:"-"`
+	Workspace Presence[ID]     `json:"-"`
+}
+
+func (value NewScreenRequest) MarshalJSON() ([]byte, error) {
+	type wire NewScreenRequest
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Cols.IsAbsent() {
+		delete(object, "cols")
+	} else if value.Cols.IsNull() {
+		object["cols"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Cols.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode NewScreenRequest.Cols: %w", err)
+		}
+		object["cols"] = encodedField
+	}
+	if value.Rows.IsAbsent() {
+		delete(object, "rows")
+	} else if value.Rows.IsNull() {
+		object["rows"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Rows.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode NewScreenRequest.Rows: %w", err)
+		}
+		object["rows"] = encodedField
+	}
+	if value.Workspace.IsAbsent() {
+		delete(object, "workspace")
+	} else if value.Workspace.IsNull() {
+		object["workspace"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Workspace.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode NewScreenRequest.Workspace: %w", err)
+		}
+		object["workspace"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *NewScreenRequest) UnmarshalJSON(data []byte) error {
+	type wire NewScreenRequest
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawCols, hasCols := object["cols"]
+	if !hasCols {
+		decoded.Cols = Presence[uint16]{}
+	} else if isJSONNull(rawCols) {
+		decoded.Cols = Null[uint16]()
+	} else {
+		var fieldValue uint16
+		if err := json.Unmarshal(rawCols, &fieldValue); err != nil {
+			return fmt.Errorf("decode NewScreenRequest.Cols: %w", err)
+		}
+		decoded.Cols = Value(fieldValue)
+	}
+	rawRows, hasRows := object["rows"]
+	if !hasRows {
+		decoded.Rows = Presence[uint16]{}
+	} else if isJSONNull(rawRows) {
+		decoded.Rows = Null[uint16]()
+	} else {
+		var fieldValue uint16
+		if err := json.Unmarshal(rawRows, &fieldValue); err != nil {
+			return fmt.Errorf("decode NewScreenRequest.Rows: %w", err)
+		}
+		decoded.Rows = Value(fieldValue)
+	}
+	rawWorkspace, hasWorkspace := object["workspace"]
+	if !hasWorkspace {
+		decoded.Workspace = Presence[ID]{}
+	} else if isJSONNull(rawWorkspace) {
+		decoded.Workspace = Null[ID]()
+	} else {
+		var fieldValue ID
+		if err := json.Unmarshal(rawWorkspace, &fieldValue); err != nil {
+			return fmt.Errorf("decode NewScreenRequest.Workspace: %w", err)
+		}
+		decoded.Workspace = Value(fieldValue)
+	}
+	*value = NewScreenRequest(decoded)
+	return nil
 }
 
 type NewScreenResult = SurfaceResult
 
 type NewScreenOptions struct {
-	Cols      *uint16 `json:"cols,omitempty"`
-	Rows      *uint16 `json:"rows,omitempty"`
-	Workspace *ID     `json:"workspace,omitempty"`
+	Cols      Presence[uint16] `json:"-"`
+	Rows      Presence[uint16] `json:"-"`
+	Workspace Presence[ID]     `json:"-"`
+}
+
+func (value NewScreenOptions) MarshalJSON() ([]byte, error) {
+	type wire NewScreenOptions
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Cols.IsAbsent() {
+		delete(object, "cols")
+	} else if value.Cols.IsNull() {
+		object["cols"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Cols.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode NewScreenOptions.Cols: %w", err)
+		}
+		object["cols"] = encodedField
+	}
+	if value.Rows.IsAbsent() {
+		delete(object, "rows")
+	} else if value.Rows.IsNull() {
+		object["rows"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Rows.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode NewScreenOptions.Rows: %w", err)
+		}
+		object["rows"] = encodedField
+	}
+	if value.Workspace.IsAbsent() {
+		delete(object, "workspace")
+	} else if value.Workspace.IsNull() {
+		object["workspace"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Workspace.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode NewScreenOptions.Workspace: %w", err)
+		}
+		object["workspace"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *NewScreenOptions) UnmarshalJSON(data []byte) error {
+	type wire NewScreenOptions
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawCols, hasCols := object["cols"]
+	if !hasCols {
+		decoded.Cols = Presence[uint16]{}
+	} else if isJSONNull(rawCols) {
+		decoded.Cols = Null[uint16]()
+	} else {
+		var fieldValue uint16
+		if err := json.Unmarshal(rawCols, &fieldValue); err != nil {
+			return fmt.Errorf("decode NewScreenOptions.Cols: %w", err)
+		}
+		decoded.Cols = Value(fieldValue)
+	}
+	rawRows, hasRows := object["rows"]
+	if !hasRows {
+		decoded.Rows = Presence[uint16]{}
+	} else if isJSONNull(rawRows) {
+		decoded.Rows = Null[uint16]()
+	} else {
+		var fieldValue uint16
+		if err := json.Unmarshal(rawRows, &fieldValue); err != nil {
+			return fmt.Errorf("decode NewScreenOptions.Rows: %w", err)
+		}
+		decoded.Rows = Value(fieldValue)
+	}
+	rawWorkspace, hasWorkspace := object["workspace"]
+	if !hasWorkspace {
+		decoded.Workspace = Presence[ID]{}
+	} else if isJSONNull(rawWorkspace) {
+		decoded.Workspace = Null[ID]()
+	} else {
+		var fieldValue ID
+		if err := json.Unmarshal(rawWorkspace, &fieldValue); err != nil {
+			return fmt.Errorf("decode NewScreenOptions.Workspace: %w", err)
+		}
+		decoded.Workspace = Value(fieldValue)
+	}
+	*value = NewScreenOptions(decoded)
+	return nil
 }
 
 // NewTabRequest is the exact new-tab wire payload.
 type NewTabRequest struct {
-	Cols *uint16 `json:"cols,omitempty"`
-	Cwd  *string `json:"cwd,omitempty"`
-	Pane *ID     `json:"pane,omitempty"`
-	Rows *uint16 `json:"rows,omitempty"`
+	Cols Presence[uint16] `json:"-"`
+	Cwd  Presence[string] `json:"-"`
+	Pane Presence[ID]     `json:"-"`
+	Rows Presence[uint16] `json:"-"`
+}
+
+func (value NewTabRequest) MarshalJSON() ([]byte, error) {
+	type wire NewTabRequest
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Cols.IsAbsent() {
+		delete(object, "cols")
+	} else if value.Cols.IsNull() {
+		object["cols"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Cols.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode NewTabRequest.Cols: %w", err)
+		}
+		object["cols"] = encodedField
+	}
+	if value.Cwd.IsAbsent() {
+		delete(object, "cwd")
+	} else if value.Cwd.IsNull() {
+		object["cwd"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Cwd.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode NewTabRequest.Cwd: %w", err)
+		}
+		object["cwd"] = encodedField
+	}
+	if value.Pane.IsAbsent() {
+		delete(object, "pane")
+	} else if value.Pane.IsNull() {
+		object["pane"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Pane.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode NewTabRequest.Pane: %w", err)
+		}
+		object["pane"] = encodedField
+	}
+	if value.Rows.IsAbsent() {
+		delete(object, "rows")
+	} else if value.Rows.IsNull() {
+		object["rows"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Rows.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode NewTabRequest.Rows: %w", err)
+		}
+		object["rows"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *NewTabRequest) UnmarshalJSON(data []byte) error {
+	type wire NewTabRequest
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawCols, hasCols := object["cols"]
+	if !hasCols {
+		decoded.Cols = Presence[uint16]{}
+	} else if isJSONNull(rawCols) {
+		decoded.Cols = Null[uint16]()
+	} else {
+		var fieldValue uint16
+		if err := json.Unmarshal(rawCols, &fieldValue); err != nil {
+			return fmt.Errorf("decode NewTabRequest.Cols: %w", err)
+		}
+		decoded.Cols = Value(fieldValue)
+	}
+	rawCwd, hasCwd := object["cwd"]
+	if !hasCwd {
+		decoded.Cwd = Presence[string]{}
+	} else if isJSONNull(rawCwd) {
+		decoded.Cwd = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawCwd, &fieldValue); err != nil {
+			return fmt.Errorf("decode NewTabRequest.Cwd: %w", err)
+		}
+		decoded.Cwd = Value(fieldValue)
+	}
+	rawPane, hasPane := object["pane"]
+	if !hasPane {
+		decoded.Pane = Presence[ID]{}
+	} else if isJSONNull(rawPane) {
+		decoded.Pane = Null[ID]()
+	} else {
+		var fieldValue ID
+		if err := json.Unmarshal(rawPane, &fieldValue); err != nil {
+			return fmt.Errorf("decode NewTabRequest.Pane: %w", err)
+		}
+		decoded.Pane = Value(fieldValue)
+	}
+	rawRows, hasRows := object["rows"]
+	if !hasRows {
+		decoded.Rows = Presence[uint16]{}
+	} else if isJSONNull(rawRows) {
+		decoded.Rows = Null[uint16]()
+	} else {
+		var fieldValue uint16
+		if err := json.Unmarshal(rawRows, &fieldValue); err != nil {
+			return fmt.Errorf("decode NewTabRequest.Rows: %w", err)
+		}
+		decoded.Rows = Value(fieldValue)
+	}
+	*value = NewTabRequest(decoded)
+	return nil
 }
 
 type NewTabResult = SurfaceResult
 
 type NewTabOptions struct {
-	Cols *uint16 `json:"cols,omitempty"`
-	Cwd  *string `json:"cwd,omitempty"`
-	Pane *ID     `json:"pane,omitempty"`
-	Rows *uint16 `json:"rows,omitempty"`
+	Cols Presence[uint16] `json:"-"`
+	Cwd  Presence[string] `json:"-"`
+	Pane Presence[ID]     `json:"-"`
+	Rows Presence[uint16] `json:"-"`
+}
+
+func (value NewTabOptions) MarshalJSON() ([]byte, error) {
+	type wire NewTabOptions
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Cols.IsAbsent() {
+		delete(object, "cols")
+	} else if value.Cols.IsNull() {
+		object["cols"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Cols.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode NewTabOptions.Cols: %w", err)
+		}
+		object["cols"] = encodedField
+	}
+	if value.Cwd.IsAbsent() {
+		delete(object, "cwd")
+	} else if value.Cwd.IsNull() {
+		object["cwd"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Cwd.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode NewTabOptions.Cwd: %w", err)
+		}
+		object["cwd"] = encodedField
+	}
+	if value.Pane.IsAbsent() {
+		delete(object, "pane")
+	} else if value.Pane.IsNull() {
+		object["pane"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Pane.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode NewTabOptions.Pane: %w", err)
+		}
+		object["pane"] = encodedField
+	}
+	if value.Rows.IsAbsent() {
+		delete(object, "rows")
+	} else if value.Rows.IsNull() {
+		object["rows"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Rows.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode NewTabOptions.Rows: %w", err)
+		}
+		object["rows"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *NewTabOptions) UnmarshalJSON(data []byte) error {
+	type wire NewTabOptions
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawCols, hasCols := object["cols"]
+	if !hasCols {
+		decoded.Cols = Presence[uint16]{}
+	} else if isJSONNull(rawCols) {
+		decoded.Cols = Null[uint16]()
+	} else {
+		var fieldValue uint16
+		if err := json.Unmarshal(rawCols, &fieldValue); err != nil {
+			return fmt.Errorf("decode NewTabOptions.Cols: %w", err)
+		}
+		decoded.Cols = Value(fieldValue)
+	}
+	rawCwd, hasCwd := object["cwd"]
+	if !hasCwd {
+		decoded.Cwd = Presence[string]{}
+	} else if isJSONNull(rawCwd) {
+		decoded.Cwd = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawCwd, &fieldValue); err != nil {
+			return fmt.Errorf("decode NewTabOptions.Cwd: %w", err)
+		}
+		decoded.Cwd = Value(fieldValue)
+	}
+	rawPane, hasPane := object["pane"]
+	if !hasPane {
+		decoded.Pane = Presence[ID]{}
+	} else if isJSONNull(rawPane) {
+		decoded.Pane = Null[ID]()
+	} else {
+		var fieldValue ID
+		if err := json.Unmarshal(rawPane, &fieldValue); err != nil {
+			return fmt.Errorf("decode NewTabOptions.Pane: %w", err)
+		}
+		decoded.Pane = Value(fieldValue)
+	}
+	rawRows, hasRows := object["rows"]
+	if !hasRows {
+		decoded.Rows = Presence[uint16]{}
+	} else if isJSONNull(rawRows) {
+		decoded.Rows = Null[uint16]()
+	} else {
+		var fieldValue uint16
+		if err := json.Unmarshal(rawRows, &fieldValue); err != nil {
+			return fmt.Errorf("decode NewTabOptions.Rows: %w", err)
+		}
+		decoded.Rows = Value(fieldValue)
+	}
+	*value = NewTabOptions(decoded)
+	return nil
 }
 
 // NewWorkspaceRequest is the exact new-workspace wire payload.
 type NewWorkspaceRequest struct {
-	Cols *uint16 `json:"cols,omitempty"`
-	Name *string `json:"name,omitempty"`
-	Rows *uint16 `json:"rows,omitempty"`
+	Cols Presence[uint16] `json:"-"`
+	Name Presence[string] `json:"-"`
+	Rows Presence[uint16] `json:"-"`
+}
+
+func (value NewWorkspaceRequest) MarshalJSON() ([]byte, error) {
+	type wire NewWorkspaceRequest
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Cols.IsAbsent() {
+		delete(object, "cols")
+	} else if value.Cols.IsNull() {
+		object["cols"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Cols.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode NewWorkspaceRequest.Cols: %w", err)
+		}
+		object["cols"] = encodedField
+	}
+	if value.Name.IsAbsent() {
+		delete(object, "name")
+	} else if value.Name.IsNull() {
+		object["name"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Name.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode NewWorkspaceRequest.Name: %w", err)
+		}
+		object["name"] = encodedField
+	}
+	if value.Rows.IsAbsent() {
+		delete(object, "rows")
+	} else if value.Rows.IsNull() {
+		object["rows"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Rows.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode NewWorkspaceRequest.Rows: %w", err)
+		}
+		object["rows"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *NewWorkspaceRequest) UnmarshalJSON(data []byte) error {
+	type wire NewWorkspaceRequest
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawCols, hasCols := object["cols"]
+	if !hasCols {
+		decoded.Cols = Presence[uint16]{}
+	} else if isJSONNull(rawCols) {
+		decoded.Cols = Null[uint16]()
+	} else {
+		var fieldValue uint16
+		if err := json.Unmarshal(rawCols, &fieldValue); err != nil {
+			return fmt.Errorf("decode NewWorkspaceRequest.Cols: %w", err)
+		}
+		decoded.Cols = Value(fieldValue)
+	}
+	rawName, hasName := object["name"]
+	if !hasName {
+		decoded.Name = Presence[string]{}
+	} else if isJSONNull(rawName) {
+		decoded.Name = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawName, &fieldValue); err != nil {
+			return fmt.Errorf("decode NewWorkspaceRequest.Name: %w", err)
+		}
+		decoded.Name = Value(fieldValue)
+	}
+	rawRows, hasRows := object["rows"]
+	if !hasRows {
+		decoded.Rows = Presence[uint16]{}
+	} else if isJSONNull(rawRows) {
+		decoded.Rows = Null[uint16]()
+	} else {
+		var fieldValue uint16
+		if err := json.Unmarshal(rawRows, &fieldValue); err != nil {
+			return fmt.Errorf("decode NewWorkspaceRequest.Rows: %w", err)
+		}
+		decoded.Rows = Value(fieldValue)
+	}
+	*value = NewWorkspaceRequest(decoded)
+	return nil
 }
 
 type NewWorkspaceResult = SurfaceResult
 
 type NewWorkspaceOptions struct {
-	Cols *uint16 `json:"cols,omitempty"`
-	Name *string `json:"name,omitempty"`
-	Rows *uint16 `json:"rows,omitempty"`
+	Cols Presence[uint16] `json:"-"`
+	Name Presence[string] `json:"-"`
+	Rows Presence[uint16] `json:"-"`
+}
+
+func (value NewWorkspaceOptions) MarshalJSON() ([]byte, error) {
+	type wire NewWorkspaceOptions
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Cols.IsAbsent() {
+		delete(object, "cols")
+	} else if value.Cols.IsNull() {
+		object["cols"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Cols.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode NewWorkspaceOptions.Cols: %w", err)
+		}
+		object["cols"] = encodedField
+	}
+	if value.Name.IsAbsent() {
+		delete(object, "name")
+	} else if value.Name.IsNull() {
+		object["name"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Name.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode NewWorkspaceOptions.Name: %w", err)
+		}
+		object["name"] = encodedField
+	}
+	if value.Rows.IsAbsent() {
+		delete(object, "rows")
+	} else if value.Rows.IsNull() {
+		object["rows"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Rows.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode NewWorkspaceOptions.Rows: %w", err)
+		}
+		object["rows"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *NewWorkspaceOptions) UnmarshalJSON(data []byte) error {
+	type wire NewWorkspaceOptions
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawCols, hasCols := object["cols"]
+	if !hasCols {
+		decoded.Cols = Presence[uint16]{}
+	} else if isJSONNull(rawCols) {
+		decoded.Cols = Null[uint16]()
+	} else {
+		var fieldValue uint16
+		if err := json.Unmarshal(rawCols, &fieldValue); err != nil {
+			return fmt.Errorf("decode NewWorkspaceOptions.Cols: %w", err)
+		}
+		decoded.Cols = Value(fieldValue)
+	}
+	rawName, hasName := object["name"]
+	if !hasName {
+		decoded.Name = Presence[string]{}
+	} else if isJSONNull(rawName) {
+		decoded.Name = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawName, &fieldValue); err != nil {
+			return fmt.Errorf("decode NewWorkspaceOptions.Name: %w", err)
+		}
+		decoded.Name = Value(fieldValue)
+	}
+	rawRows, hasRows := object["rows"]
+	if !hasRows {
+		decoded.Rows = Presence[uint16]{}
+	} else if isJSONNull(rawRows) {
+		decoded.Rows = Null[uint16]()
+	} else {
+		var fieldValue uint16
+		if err := json.Unmarshal(rawRows, &fieldValue); err != nil {
+			return fmt.Errorf("decode NewWorkspaceOptions.Rows: %w", err)
+		}
+		decoded.Rows = Value(fieldValue)
+	}
+	*value = NewWorkspaceOptions(decoded)
+	return nil
 }
 
 // NotifyRequest is the exact notify wire payload.
 type NotifyRequest struct {
-	Body    string             `json:"body"`
-	Level   *NotificationLevel `json:"level,omitempty"`
-	Surface *ID                `json:"surface,omitempty"`
-	Title   string             `json:"title"`
+	Body    string                      `json:"body"`
+	Level   Presence[NotificationLevel] `json:"-"`
+	Surface Presence[ID]                `json:"-"`
+	Title   string                      `json:"title"`
+}
+
+func (value NotifyRequest) MarshalJSON() ([]byte, error) {
+	type wire NotifyRequest
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Level.IsAbsent() {
+		delete(object, "level")
+	} else if value.Level.IsNull() {
+		object["level"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Level.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode NotifyRequest.Level: %w", err)
+		}
+		object["level"] = encodedField
+	}
+	if value.Surface.IsAbsent() {
+		delete(object, "surface")
+	} else if value.Surface.IsNull() {
+		object["surface"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Surface.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode NotifyRequest.Surface: %w", err)
+		}
+		object["surface"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *NotifyRequest) UnmarshalJSON(data []byte) error {
+	type wire NotifyRequest
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawLevel, hasLevel := object["level"]
+	if !hasLevel {
+		decoded.Level = Presence[NotificationLevel]{}
+	} else if isJSONNull(rawLevel) {
+		decoded.Level = Null[NotificationLevel]()
+	} else {
+		var fieldValue NotificationLevel
+		if err := json.Unmarshal(rawLevel, &fieldValue); err != nil {
+			return fmt.Errorf("decode NotifyRequest.Level: %w", err)
+		}
+		decoded.Level = Value(fieldValue)
+	}
+	rawSurface, hasSurface := object["surface"]
+	if !hasSurface {
+		decoded.Surface = Presence[ID]{}
+	} else if isJSONNull(rawSurface) {
+		decoded.Surface = Null[ID]()
+	} else {
+		var fieldValue ID
+		if err := json.Unmarshal(rawSurface, &fieldValue); err != nil {
+			return fmt.Errorf("decode NotifyRequest.Surface: %w", err)
+		}
+		decoded.Surface = Value(fieldValue)
+	}
+	*value = NotifyRequest(decoded)
+	return nil
 }
 
 type NotifyOptions struct {
-	Level   *NotificationLevel `json:"level,omitempty"`
-	Surface *ID                `json:"surface,omitempty"`
+	Level   Presence[NotificationLevel] `json:"-"`
+	Surface Presence[ID]                `json:"-"`
+}
+
+func (value NotifyOptions) MarshalJSON() ([]byte, error) {
+	type wire NotifyOptions
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Level.IsAbsent() {
+		delete(object, "level")
+	} else if value.Level.IsNull() {
+		object["level"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Level.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode NotifyOptions.Level: %w", err)
+		}
+		object["level"] = encodedField
+	}
+	if value.Surface.IsAbsent() {
+		delete(object, "surface")
+	} else if value.Surface.IsNull() {
+		object["surface"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Surface.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode NotifyOptions.Surface: %w", err)
+		}
+		object["surface"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *NotifyOptions) UnmarshalJSON(data []byte) error {
+	type wire NotifyOptions
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawLevel, hasLevel := object["level"]
+	if !hasLevel {
+		decoded.Level = Presence[NotificationLevel]{}
+	} else if isJSONNull(rawLevel) {
+		decoded.Level = Null[NotificationLevel]()
+	} else {
+		var fieldValue NotificationLevel
+		if err := json.Unmarshal(rawLevel, &fieldValue); err != nil {
+			return fmt.Errorf("decode NotifyOptions.Level: %w", err)
+		}
+		decoded.Level = Value(fieldValue)
+	}
+	rawSurface, hasSurface := object["surface"]
+	if !hasSurface {
+		decoded.Surface = Presence[ID]{}
+	} else if isJSONNull(rawSurface) {
+		decoded.Surface = Null[ID]()
+	} else {
+		var fieldValue ID
+		if err := json.Unmarshal(rawSurface, &fieldValue); err != nil {
+			return fmt.Errorf("decode NotifyOptions.Surface: %w", err)
+		}
+		decoded.Surface = Value(fieldValue)
+	}
+	*value = NotifyOptions(decoded)
+	return nil
 }
 
 // PairingResponseRequest is the exact pairing-response wire payload.
@@ -521,29 +5069,349 @@ type ProcessInfoRequest struct {
 // PutFrontendProjectionRequest is the exact put-frontend-projection wire payload.
 type PutFrontendProjectionRequest struct {
 	// Accepted by the current decoder but ignored for projection writes.
-	ExpectedGeneration         *string `json:"expected_generation,omitempty"`
-	ExpectedProjectionRevision *uint64 `json:"expected_projection_revision,omitempty"`
+	ExpectedGeneration         Presence[string] `json:"-"`
+	ExpectedProjectionRevision Presence[uint64] `json:"-"`
 	// Accepted by the current decoder but ignored for projection writes.
-	ExpectedRevision *uint64    `json:"expected_revision,omitempty"`
-	Frontend         string     `json:"frontend"`
-	MutationID       *string    `json:"mutation_id,omitempty"`
-	Origin           *string    `json:"origin,omitempty"`
-	Projection       *JSONValue `json:"projection"`
-	SchemaVersion    uint32     `json:"schema_version"`
-	Scope            string     `json:"scope"`
-	SubjectKey       string     `json:"subject_key"`
+	ExpectedRevision Presence[uint64]            `json:"-"`
+	Frontend         string                      `json:"frontend"`
+	MutationID       Presence[string]            `json:"-"`
+	Origin           Presence[string]            `json:"-"`
+	Projection       RequiredNullable[JSONValue] `json:"-"`
+	SchemaVersion    uint32                      `json:"schema_version"`
+	Scope            string                      `json:"scope"`
+	SubjectKey       string                      `json:"subject_key"`
+}
+
+func (value PutFrontendProjectionRequest) MarshalJSON() ([]byte, error) {
+	type wire PutFrontendProjectionRequest
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.ExpectedGeneration.IsAbsent() {
+		delete(object, "expected_generation")
+	} else if value.ExpectedGeneration.IsNull() {
+		object["expected_generation"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.ExpectedGeneration.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode PutFrontendProjectionRequest.ExpectedGeneration: %w", err)
+		}
+		object["expected_generation"] = encodedField
+	}
+	if value.ExpectedProjectionRevision.IsAbsent() {
+		delete(object, "expected_projection_revision")
+	} else if value.ExpectedProjectionRevision.IsNull() {
+		object["expected_projection_revision"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.ExpectedProjectionRevision.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode PutFrontendProjectionRequest.ExpectedProjectionRevision: %w", err)
+		}
+		object["expected_projection_revision"] = encodedField
+	}
+	if value.ExpectedRevision.IsAbsent() {
+		delete(object, "expected_revision")
+	} else if value.ExpectedRevision.IsNull() {
+		object["expected_revision"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.ExpectedRevision.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode PutFrontendProjectionRequest.ExpectedRevision: %w", err)
+		}
+		object["expected_revision"] = encodedField
+	}
+	if value.MutationID.IsAbsent() {
+		delete(object, "mutation_id")
+	} else if value.MutationID.IsNull() {
+		object["mutation_id"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.MutationID.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode PutFrontendProjectionRequest.MutationID: %w", err)
+		}
+		object["mutation_id"] = encodedField
+	}
+	if value.Origin.IsAbsent() {
+		delete(object, "origin")
+	} else if value.Origin.IsNull() {
+		object["origin"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Origin.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode PutFrontendProjectionRequest.Origin: %w", err)
+		}
+		object["origin"] = encodedField
+	}
+	if !value.Projection.IsSet() {
+		return nil, fmt.Errorf("encode PutFrontendProjectionRequest: required nullable field projection is missing")
+	}
+	if value.Projection.IsNull() {
+		object["projection"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Projection.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode PutFrontendProjectionRequest.Projection: %w", err)
+		}
+		object["projection"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *PutFrontendProjectionRequest) UnmarshalJSON(data []byte) error {
+	type wire PutFrontendProjectionRequest
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawExpectedGeneration, hasExpectedGeneration := object["expected_generation"]
+	if !hasExpectedGeneration {
+		decoded.ExpectedGeneration = Presence[string]{}
+	} else if isJSONNull(rawExpectedGeneration) {
+		decoded.ExpectedGeneration = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawExpectedGeneration, &fieldValue); err != nil {
+			return fmt.Errorf("decode PutFrontendProjectionRequest.ExpectedGeneration: %w", err)
+		}
+		decoded.ExpectedGeneration = Value(fieldValue)
+	}
+	rawExpectedProjectionRevision, hasExpectedProjectionRevision := object["expected_projection_revision"]
+	if !hasExpectedProjectionRevision {
+		decoded.ExpectedProjectionRevision = Presence[uint64]{}
+	} else if isJSONNull(rawExpectedProjectionRevision) {
+		decoded.ExpectedProjectionRevision = Null[uint64]()
+	} else {
+		var fieldValue uint64
+		if err := json.Unmarshal(rawExpectedProjectionRevision, &fieldValue); err != nil {
+			return fmt.Errorf("decode PutFrontendProjectionRequest.ExpectedProjectionRevision: %w", err)
+		}
+		decoded.ExpectedProjectionRevision = Value(fieldValue)
+	}
+	rawExpectedRevision, hasExpectedRevision := object["expected_revision"]
+	if !hasExpectedRevision {
+		decoded.ExpectedRevision = Presence[uint64]{}
+	} else if isJSONNull(rawExpectedRevision) {
+		decoded.ExpectedRevision = Null[uint64]()
+	} else {
+		var fieldValue uint64
+		if err := json.Unmarshal(rawExpectedRevision, &fieldValue); err != nil {
+			return fmt.Errorf("decode PutFrontendProjectionRequest.ExpectedRevision: %w", err)
+		}
+		decoded.ExpectedRevision = Value(fieldValue)
+	}
+	rawMutationID, hasMutationID := object["mutation_id"]
+	if !hasMutationID {
+		decoded.MutationID = Presence[string]{}
+	} else if isJSONNull(rawMutationID) {
+		decoded.MutationID = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawMutationID, &fieldValue); err != nil {
+			return fmt.Errorf("decode PutFrontendProjectionRequest.MutationID: %w", err)
+		}
+		decoded.MutationID = Value(fieldValue)
+	}
+	rawOrigin, hasOrigin := object["origin"]
+	if !hasOrigin {
+		decoded.Origin = Presence[string]{}
+	} else if isJSONNull(rawOrigin) {
+		decoded.Origin = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawOrigin, &fieldValue); err != nil {
+			return fmt.Errorf("decode PutFrontendProjectionRequest.Origin: %w", err)
+		}
+		decoded.Origin = Value(fieldValue)
+	}
+	rawProjection, hasProjection := object["projection"]
+	if !hasProjection {
+		return fmt.Errorf("decode PutFrontendProjectionRequest: required nullable field projection is missing")
+	}
+	if isJSONNull(rawProjection) {
+		decoded.Projection = RequiredNull[JSONValue]()
+	} else {
+		var fieldValue JSONValue
+		if err := json.Unmarshal(rawProjection, &fieldValue); err != nil {
+			return fmt.Errorf("decode PutFrontendProjectionRequest.Projection: %w", err)
+		}
+		decoded.Projection = RequiredValue(fieldValue)
+	}
+	*value = PutFrontendProjectionRequest(decoded)
+	return nil
 }
 
 type PutFrontendProjectionResult = FrontendProjection
 
 type PutFrontendProjectionOptions struct {
 	// Accepted by the current decoder but ignored for projection writes.
-	ExpectedGeneration         *string `json:"expected_generation,omitempty"`
-	ExpectedProjectionRevision *uint64 `json:"expected_projection_revision,omitempty"`
+	ExpectedGeneration         Presence[string] `json:"-"`
+	ExpectedProjectionRevision Presence[uint64] `json:"-"`
 	// Accepted by the current decoder but ignored for projection writes.
-	ExpectedRevision *uint64 `json:"expected_revision,omitempty"`
-	MutationID       *string `json:"mutation_id,omitempty"`
-	Origin           *string `json:"origin,omitempty"`
+	ExpectedRevision Presence[uint64] `json:"-"`
+	MutationID       Presence[string] `json:"-"`
+	Origin           Presence[string] `json:"-"`
+}
+
+func (value PutFrontendProjectionOptions) MarshalJSON() ([]byte, error) {
+	type wire PutFrontendProjectionOptions
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.ExpectedGeneration.IsAbsent() {
+		delete(object, "expected_generation")
+	} else if value.ExpectedGeneration.IsNull() {
+		object["expected_generation"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.ExpectedGeneration.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode PutFrontendProjectionOptions.ExpectedGeneration: %w", err)
+		}
+		object["expected_generation"] = encodedField
+	}
+	if value.ExpectedProjectionRevision.IsAbsent() {
+		delete(object, "expected_projection_revision")
+	} else if value.ExpectedProjectionRevision.IsNull() {
+		object["expected_projection_revision"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.ExpectedProjectionRevision.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode PutFrontendProjectionOptions.ExpectedProjectionRevision: %w", err)
+		}
+		object["expected_projection_revision"] = encodedField
+	}
+	if value.ExpectedRevision.IsAbsent() {
+		delete(object, "expected_revision")
+	} else if value.ExpectedRevision.IsNull() {
+		object["expected_revision"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.ExpectedRevision.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode PutFrontendProjectionOptions.ExpectedRevision: %w", err)
+		}
+		object["expected_revision"] = encodedField
+	}
+	if value.MutationID.IsAbsent() {
+		delete(object, "mutation_id")
+	} else if value.MutationID.IsNull() {
+		object["mutation_id"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.MutationID.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode PutFrontendProjectionOptions.MutationID: %w", err)
+		}
+		object["mutation_id"] = encodedField
+	}
+	if value.Origin.IsAbsent() {
+		delete(object, "origin")
+	} else if value.Origin.IsNull() {
+		object["origin"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Origin.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode PutFrontendProjectionOptions.Origin: %w", err)
+		}
+		object["origin"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *PutFrontendProjectionOptions) UnmarshalJSON(data []byte) error {
+	type wire PutFrontendProjectionOptions
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawExpectedGeneration, hasExpectedGeneration := object["expected_generation"]
+	if !hasExpectedGeneration {
+		decoded.ExpectedGeneration = Presence[string]{}
+	} else if isJSONNull(rawExpectedGeneration) {
+		decoded.ExpectedGeneration = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawExpectedGeneration, &fieldValue); err != nil {
+			return fmt.Errorf("decode PutFrontendProjectionOptions.ExpectedGeneration: %w", err)
+		}
+		decoded.ExpectedGeneration = Value(fieldValue)
+	}
+	rawExpectedProjectionRevision, hasExpectedProjectionRevision := object["expected_projection_revision"]
+	if !hasExpectedProjectionRevision {
+		decoded.ExpectedProjectionRevision = Presence[uint64]{}
+	} else if isJSONNull(rawExpectedProjectionRevision) {
+		decoded.ExpectedProjectionRevision = Null[uint64]()
+	} else {
+		var fieldValue uint64
+		if err := json.Unmarshal(rawExpectedProjectionRevision, &fieldValue); err != nil {
+			return fmt.Errorf("decode PutFrontendProjectionOptions.ExpectedProjectionRevision: %w", err)
+		}
+		decoded.ExpectedProjectionRevision = Value(fieldValue)
+	}
+	rawExpectedRevision, hasExpectedRevision := object["expected_revision"]
+	if !hasExpectedRevision {
+		decoded.ExpectedRevision = Presence[uint64]{}
+	} else if isJSONNull(rawExpectedRevision) {
+		decoded.ExpectedRevision = Null[uint64]()
+	} else {
+		var fieldValue uint64
+		if err := json.Unmarshal(rawExpectedRevision, &fieldValue); err != nil {
+			return fmt.Errorf("decode PutFrontendProjectionOptions.ExpectedRevision: %w", err)
+		}
+		decoded.ExpectedRevision = Value(fieldValue)
+	}
+	rawMutationID, hasMutationID := object["mutation_id"]
+	if !hasMutationID {
+		decoded.MutationID = Presence[string]{}
+	} else if isJSONNull(rawMutationID) {
+		decoded.MutationID = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawMutationID, &fieldValue); err != nil {
+			return fmt.Errorf("decode PutFrontendProjectionOptions.MutationID: %w", err)
+		}
+		decoded.MutationID = Value(fieldValue)
+	}
+	rawOrigin, hasOrigin := object["origin"]
+	if !hasOrigin {
+		decoded.Origin = Presence[string]{}
+	} else if isJSONNull(rawOrigin) {
+		decoded.Origin = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawOrigin, &fieldValue); err != nil {
+			return fmt.Errorf("decode PutFrontendProjectionOptions.Origin: %w", err)
+		}
+		decoded.Origin = Value(fieldValue)
+	}
+	*value = PutFrontendProjectionOptions(decoded)
+	return nil
 }
 
 // ReadScreenRequest is the exact read-screen wire payload.
@@ -570,8 +5438,61 @@ type ReloadConfigRequest struct {
 }
 
 type ReloadConfigResult struct {
-	Path     *string `json:"path"`
-	Reloaded bool    `json:"reloaded"`
+	Path     RequiredNullable[string] `json:"-"`
+	Reloaded bool                     `json:"reloaded"`
+}
+
+func (value ReloadConfigResult) MarshalJSON() ([]byte, error) {
+	type wire ReloadConfigResult
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if !value.Path.IsSet() {
+		return nil, fmt.Errorf("encode ReloadConfigResult: required nullable field path is missing")
+	}
+	if value.Path.IsNull() {
+		object["path"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Path.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode ReloadConfigResult.Path: %w", err)
+		}
+		object["path"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *ReloadConfigResult) UnmarshalJSON(data []byte) error {
+	type wire ReloadConfigResult
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawPath, hasPath := object["path"]
+	if !hasPath {
+		return fmt.Errorf("decode ReloadConfigResult: required nullable field path is missing")
+	}
+	if isJSONNull(rawPath) {
+		decoded.Path = RequiredNull[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawPath, &fieldValue); err != nil {
+			return fmt.Errorf("decode ReloadConfigResult.Path: %w", err)
+		}
+		decoded.Path = RequiredValue(fieldValue)
+	}
+	*value = ReloadConfigResult(decoded)
+	return nil
 }
 
 // RenamePaneRequest is the exact rename-pane wire payload.
@@ -610,36 +5531,480 @@ type RenameSurfaceResult = EmptyResult
 
 // RenameWorkspaceRequest is the exact rename-workspace wire payload.
 type RenameWorkspaceRequest struct {
-	ExpectedGeneration *string `json:"expected_generation,omitempty"`
-	ExpectedRevision   *uint64 `json:"expected_revision,omitempty"`
-	Key                *string `json:"key,omitempty"`
-	MutationID         *string `json:"mutation_id,omitempty"`
-	Name               string  `json:"name"`
-	Origin             *string `json:"origin,omitempty"`
-	Workspace          *ID     `json:"workspace,omitempty"`
+	ExpectedGeneration Presence[string] `json:"-"`
+	ExpectedRevision   Presence[uint64] `json:"-"`
+	Key                Presence[string] `json:"-"`
+	MutationID         Presence[string] `json:"-"`
+	Name               string           `json:"name"`
+	Origin             Presence[string] `json:"-"`
+	Workspace          Presence[ID]     `json:"-"`
+}
+
+func (value RenameWorkspaceRequest) MarshalJSON() ([]byte, error) {
+	type wire RenameWorkspaceRequest
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.ExpectedGeneration.IsAbsent() {
+		delete(object, "expected_generation")
+	} else if value.ExpectedGeneration.IsNull() {
+		object["expected_generation"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.ExpectedGeneration.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode RenameWorkspaceRequest.ExpectedGeneration: %w", err)
+		}
+		object["expected_generation"] = encodedField
+	}
+	if value.ExpectedRevision.IsAbsent() {
+		delete(object, "expected_revision")
+	} else if value.ExpectedRevision.IsNull() {
+		object["expected_revision"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.ExpectedRevision.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode RenameWorkspaceRequest.ExpectedRevision: %w", err)
+		}
+		object["expected_revision"] = encodedField
+	}
+	if value.Key.IsAbsent() {
+		delete(object, "key")
+	} else if value.Key.IsNull() {
+		object["key"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Key.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode RenameWorkspaceRequest.Key: %w", err)
+		}
+		object["key"] = encodedField
+	}
+	if value.MutationID.IsAbsent() {
+		delete(object, "mutation_id")
+	} else if value.MutationID.IsNull() {
+		object["mutation_id"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.MutationID.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode RenameWorkspaceRequest.MutationID: %w", err)
+		}
+		object["mutation_id"] = encodedField
+	}
+	if value.Origin.IsAbsent() {
+		delete(object, "origin")
+	} else if value.Origin.IsNull() {
+		object["origin"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Origin.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode RenameWorkspaceRequest.Origin: %w", err)
+		}
+		object["origin"] = encodedField
+	}
+	if value.Workspace.IsAbsent() {
+		delete(object, "workspace")
+	} else if value.Workspace.IsNull() {
+		object["workspace"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Workspace.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode RenameWorkspaceRequest.Workspace: %w", err)
+		}
+		object["workspace"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *RenameWorkspaceRequest) UnmarshalJSON(data []byte) error {
+	type wire RenameWorkspaceRequest
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawExpectedGeneration, hasExpectedGeneration := object["expected_generation"]
+	if !hasExpectedGeneration {
+		decoded.ExpectedGeneration = Presence[string]{}
+	} else if isJSONNull(rawExpectedGeneration) {
+		decoded.ExpectedGeneration = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawExpectedGeneration, &fieldValue); err != nil {
+			return fmt.Errorf("decode RenameWorkspaceRequest.ExpectedGeneration: %w", err)
+		}
+		decoded.ExpectedGeneration = Value(fieldValue)
+	}
+	rawExpectedRevision, hasExpectedRevision := object["expected_revision"]
+	if !hasExpectedRevision {
+		decoded.ExpectedRevision = Presence[uint64]{}
+	} else if isJSONNull(rawExpectedRevision) {
+		decoded.ExpectedRevision = Null[uint64]()
+	} else {
+		var fieldValue uint64
+		if err := json.Unmarshal(rawExpectedRevision, &fieldValue); err != nil {
+			return fmt.Errorf("decode RenameWorkspaceRequest.ExpectedRevision: %w", err)
+		}
+		decoded.ExpectedRevision = Value(fieldValue)
+	}
+	rawKey, hasKey := object["key"]
+	if !hasKey {
+		decoded.Key = Presence[string]{}
+	} else if isJSONNull(rawKey) {
+		decoded.Key = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawKey, &fieldValue); err != nil {
+			return fmt.Errorf("decode RenameWorkspaceRequest.Key: %w", err)
+		}
+		decoded.Key = Value(fieldValue)
+	}
+	rawMutationID, hasMutationID := object["mutation_id"]
+	if !hasMutationID {
+		decoded.MutationID = Presence[string]{}
+	} else if isJSONNull(rawMutationID) {
+		decoded.MutationID = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawMutationID, &fieldValue); err != nil {
+			return fmt.Errorf("decode RenameWorkspaceRequest.MutationID: %w", err)
+		}
+		decoded.MutationID = Value(fieldValue)
+	}
+	rawOrigin, hasOrigin := object["origin"]
+	if !hasOrigin {
+		decoded.Origin = Presence[string]{}
+	} else if isJSONNull(rawOrigin) {
+		decoded.Origin = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawOrigin, &fieldValue); err != nil {
+			return fmt.Errorf("decode RenameWorkspaceRequest.Origin: %w", err)
+		}
+		decoded.Origin = Value(fieldValue)
+	}
+	rawWorkspace, hasWorkspace := object["workspace"]
+	if !hasWorkspace {
+		decoded.Workspace = Presence[ID]{}
+	} else if isJSONNull(rawWorkspace) {
+		decoded.Workspace = Null[ID]()
+	} else {
+		var fieldValue ID
+		if err := json.Unmarshal(rawWorkspace, &fieldValue); err != nil {
+			return fmt.Errorf("decode RenameWorkspaceRequest.Workspace: %w", err)
+		}
+		decoded.Workspace = Value(fieldValue)
+	}
+	*value = RenameWorkspaceRequest(decoded)
+	return nil
 }
 
 type RenameWorkspaceResult = WorkspaceMutationResult
 
 type RenameWorkspaceOptions struct {
-	ExpectedGeneration *string `json:"expected_generation,omitempty"`
-	ExpectedRevision   *uint64 `json:"expected_revision,omitempty"`
-	Key                *string `json:"key,omitempty"`
-	MutationID         *string `json:"mutation_id,omitempty"`
-	Origin             *string `json:"origin,omitempty"`
-	Workspace          *ID     `json:"workspace,omitempty"`
+	ExpectedGeneration Presence[string] `json:"-"`
+	ExpectedRevision   Presence[uint64] `json:"-"`
+	Key                Presence[string] `json:"-"`
+	MutationID         Presence[string] `json:"-"`
+	Origin             Presence[string] `json:"-"`
+	Workspace          Presence[ID]     `json:"-"`
+}
+
+func (value RenameWorkspaceOptions) MarshalJSON() ([]byte, error) {
+	type wire RenameWorkspaceOptions
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.ExpectedGeneration.IsAbsent() {
+		delete(object, "expected_generation")
+	} else if value.ExpectedGeneration.IsNull() {
+		object["expected_generation"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.ExpectedGeneration.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode RenameWorkspaceOptions.ExpectedGeneration: %w", err)
+		}
+		object["expected_generation"] = encodedField
+	}
+	if value.ExpectedRevision.IsAbsent() {
+		delete(object, "expected_revision")
+	} else if value.ExpectedRevision.IsNull() {
+		object["expected_revision"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.ExpectedRevision.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode RenameWorkspaceOptions.ExpectedRevision: %w", err)
+		}
+		object["expected_revision"] = encodedField
+	}
+	if value.Key.IsAbsent() {
+		delete(object, "key")
+	} else if value.Key.IsNull() {
+		object["key"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Key.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode RenameWorkspaceOptions.Key: %w", err)
+		}
+		object["key"] = encodedField
+	}
+	if value.MutationID.IsAbsent() {
+		delete(object, "mutation_id")
+	} else if value.MutationID.IsNull() {
+		object["mutation_id"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.MutationID.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode RenameWorkspaceOptions.MutationID: %w", err)
+		}
+		object["mutation_id"] = encodedField
+	}
+	if value.Origin.IsAbsent() {
+		delete(object, "origin")
+	} else if value.Origin.IsNull() {
+		object["origin"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Origin.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode RenameWorkspaceOptions.Origin: %w", err)
+		}
+		object["origin"] = encodedField
+	}
+	if value.Workspace.IsAbsent() {
+		delete(object, "workspace")
+	} else if value.Workspace.IsNull() {
+		object["workspace"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Workspace.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode RenameWorkspaceOptions.Workspace: %w", err)
+		}
+		object["workspace"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *RenameWorkspaceOptions) UnmarshalJSON(data []byte) error {
+	type wire RenameWorkspaceOptions
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawExpectedGeneration, hasExpectedGeneration := object["expected_generation"]
+	if !hasExpectedGeneration {
+		decoded.ExpectedGeneration = Presence[string]{}
+	} else if isJSONNull(rawExpectedGeneration) {
+		decoded.ExpectedGeneration = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawExpectedGeneration, &fieldValue); err != nil {
+			return fmt.Errorf("decode RenameWorkspaceOptions.ExpectedGeneration: %w", err)
+		}
+		decoded.ExpectedGeneration = Value(fieldValue)
+	}
+	rawExpectedRevision, hasExpectedRevision := object["expected_revision"]
+	if !hasExpectedRevision {
+		decoded.ExpectedRevision = Presence[uint64]{}
+	} else if isJSONNull(rawExpectedRevision) {
+		decoded.ExpectedRevision = Null[uint64]()
+	} else {
+		var fieldValue uint64
+		if err := json.Unmarshal(rawExpectedRevision, &fieldValue); err != nil {
+			return fmt.Errorf("decode RenameWorkspaceOptions.ExpectedRevision: %w", err)
+		}
+		decoded.ExpectedRevision = Value(fieldValue)
+	}
+	rawKey, hasKey := object["key"]
+	if !hasKey {
+		decoded.Key = Presence[string]{}
+	} else if isJSONNull(rawKey) {
+		decoded.Key = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawKey, &fieldValue); err != nil {
+			return fmt.Errorf("decode RenameWorkspaceOptions.Key: %w", err)
+		}
+		decoded.Key = Value(fieldValue)
+	}
+	rawMutationID, hasMutationID := object["mutation_id"]
+	if !hasMutationID {
+		decoded.MutationID = Presence[string]{}
+	} else if isJSONNull(rawMutationID) {
+		decoded.MutationID = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawMutationID, &fieldValue); err != nil {
+			return fmt.Errorf("decode RenameWorkspaceOptions.MutationID: %w", err)
+		}
+		decoded.MutationID = Value(fieldValue)
+	}
+	rawOrigin, hasOrigin := object["origin"]
+	if !hasOrigin {
+		decoded.Origin = Presence[string]{}
+	} else if isJSONNull(rawOrigin) {
+		decoded.Origin = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawOrigin, &fieldValue); err != nil {
+			return fmt.Errorf("decode RenameWorkspaceOptions.Origin: %w", err)
+		}
+		decoded.Origin = Value(fieldValue)
+	}
+	rawWorkspace, hasWorkspace := object["workspace"]
+	if !hasWorkspace {
+		decoded.Workspace = Presence[ID]{}
+	} else if isJSONNull(rawWorkspace) {
+		decoded.Workspace = Null[ID]()
+	} else {
+		var fieldValue ID
+		if err := json.Unmarshal(rawWorkspace, &fieldValue); err != nil {
+			return fmt.Errorf("decode RenameWorkspaceOptions.Workspace: %w", err)
+		}
+		decoded.Workspace = Value(fieldValue)
+	}
+	*value = RenameWorkspaceOptions(decoded)
+	return nil
 }
 
 // ReportAgentRequest is the exact report-agent wire payload.
 type ReportAgentRequest struct {
-	Session *string           `json:"session,omitempty"`
+	Session Presence[string]  `json:"-"`
 	Source  AgentReportSource `json:"source"`
 	State   AgentState        `json:"state"`
 	Surface ID                `json:"surface"`
 }
 
+func (value ReportAgentRequest) MarshalJSON() ([]byte, error) {
+	type wire ReportAgentRequest
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Session.IsAbsent() {
+		delete(object, "session")
+	} else if value.Session.IsNull() {
+		object["session"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Session.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode ReportAgentRequest.Session: %w", err)
+		}
+		object["session"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *ReportAgentRequest) UnmarshalJSON(data []byte) error {
+	type wire ReportAgentRequest
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawSession, hasSession := object["session"]
+	if !hasSession {
+		decoded.Session = Presence[string]{}
+	} else if isJSONNull(rawSession) {
+		decoded.Session = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawSession, &fieldValue); err != nil {
+			return fmt.Errorf("decode ReportAgentRequest.Session: %w", err)
+		}
+		decoded.Session = Value(fieldValue)
+	}
+	*value = ReportAgentRequest(decoded)
+	return nil
+}
+
 type ReportAgentOptions struct {
-	Session *string `json:"session,omitempty"`
+	Session Presence[string] `json:"-"`
+}
+
+func (value ReportAgentOptions) MarshalJSON() ([]byte, error) {
+	type wire ReportAgentOptions
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Session.IsAbsent() {
+		delete(object, "session")
+	} else if value.Session.IsNull() {
+		object["session"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Session.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode ReportAgentOptions.Session: %w", err)
+		}
+		object["session"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *ReportAgentOptions) UnmarshalJSON(data []byte) error {
+	type wire ReportAgentOptions
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawSession, hasSession := object["session"]
+	if !hasSession {
+		decoded.Session = Presence[string]{}
+	} else if isJSONNull(rawSession) {
+		decoded.Session = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawSession, &fieldValue); err != nil {
+			return fmt.Errorf("decode ReportAgentOptions.Session: %w", err)
+		}
+		decoded.Session = Value(fieldValue)
+	}
+	*value = ReportAgentOptions(decoded)
+	return nil
 }
 
 // ResizeSurfaceRequest is the exact resize-surface wire payload.
@@ -656,27 +6021,471 @@ type ResolveTerminalRequest struct {
 
 // RunRequest is the exact run wire payload.
 type RunRequest struct {
-	Argv         *[]string `json:"argv,omitempty"`
-	Cols         *uint16   `json:"cols,omitempty"`
-	Command      *string   `json:"command,omitempty"`
-	Cwd          *string   `json:"cwd,omitempty"`
-	Key          *string   `json:"key,omitempty"`
-	Name         *string   `json:"name,omitempty"`
-	NewWorkspace *bool     `json:"new_workspace,omitempty"`
-	Pane         *ID       `json:"pane,omitempty"`
-	Rows         *uint16   `json:"rows,omitempty"`
+	Argv         Presence[[]string] `json:"-"`
+	Cols         Presence[uint16]   `json:"-"`
+	Command      Presence[string]   `json:"-"`
+	Cwd          Presence[string]   `json:"-"`
+	Key          Presence[string]   `json:"-"`
+	Name         Presence[string]   `json:"-"`
+	NewWorkspace *bool              `json:"new_workspace,omitempty"`
+	Pane         Presence[ID]       `json:"-"`
+	Rows         Presence[uint16]   `json:"-"`
+}
+
+func (value RunRequest) MarshalJSON() ([]byte, error) {
+	type wire RunRequest
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Argv.IsAbsent() {
+		delete(object, "argv")
+	} else if value.Argv.IsNull() {
+		object["argv"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Argv.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode RunRequest.Argv: %w", err)
+		}
+		object["argv"] = encodedField
+	}
+	if value.Cols.IsAbsent() {
+		delete(object, "cols")
+	} else if value.Cols.IsNull() {
+		object["cols"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Cols.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode RunRequest.Cols: %w", err)
+		}
+		object["cols"] = encodedField
+	}
+	if value.Command.IsAbsent() {
+		delete(object, "command")
+	} else if value.Command.IsNull() {
+		object["command"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Command.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode RunRequest.Command: %w", err)
+		}
+		object["command"] = encodedField
+	}
+	if value.Cwd.IsAbsent() {
+		delete(object, "cwd")
+	} else if value.Cwd.IsNull() {
+		object["cwd"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Cwd.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode RunRequest.Cwd: %w", err)
+		}
+		object["cwd"] = encodedField
+	}
+	if value.Key.IsAbsent() {
+		delete(object, "key")
+	} else if value.Key.IsNull() {
+		object["key"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Key.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode RunRequest.Key: %w", err)
+		}
+		object["key"] = encodedField
+	}
+	if value.Name.IsAbsent() {
+		delete(object, "name")
+	} else if value.Name.IsNull() {
+		object["name"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Name.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode RunRequest.Name: %w", err)
+		}
+		object["name"] = encodedField
+	}
+	if value.Pane.IsAbsent() {
+		delete(object, "pane")
+	} else if value.Pane.IsNull() {
+		object["pane"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Pane.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode RunRequest.Pane: %w", err)
+		}
+		object["pane"] = encodedField
+	}
+	if value.Rows.IsAbsent() {
+		delete(object, "rows")
+	} else if value.Rows.IsNull() {
+		object["rows"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Rows.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode RunRequest.Rows: %w", err)
+		}
+		object["rows"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *RunRequest) UnmarshalJSON(data []byte) error {
+	type wire RunRequest
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	if raw, exists := object["new_workspace"]; exists && isJSONNull(raw) {
+		return fmt.Errorf("decode RunRequest: non-nullable field new_workspace is null")
+	}
+	rawArgv, hasArgv := object["argv"]
+	if !hasArgv {
+		decoded.Argv = Presence[[]string]{}
+	} else if isJSONNull(rawArgv) {
+		decoded.Argv = Null[[]string]()
+	} else {
+		var fieldValue []string
+		if err := json.Unmarshal(rawArgv, &fieldValue); err != nil {
+			return fmt.Errorf("decode RunRequest.Argv: %w", err)
+		}
+		decoded.Argv = Value(fieldValue)
+	}
+	rawCols, hasCols := object["cols"]
+	if !hasCols {
+		decoded.Cols = Presence[uint16]{}
+	} else if isJSONNull(rawCols) {
+		decoded.Cols = Null[uint16]()
+	} else {
+		var fieldValue uint16
+		if err := json.Unmarshal(rawCols, &fieldValue); err != nil {
+			return fmt.Errorf("decode RunRequest.Cols: %w", err)
+		}
+		decoded.Cols = Value(fieldValue)
+	}
+	rawCommand, hasCommand := object["command"]
+	if !hasCommand {
+		decoded.Command = Presence[string]{}
+	} else if isJSONNull(rawCommand) {
+		decoded.Command = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawCommand, &fieldValue); err != nil {
+			return fmt.Errorf("decode RunRequest.Command: %w", err)
+		}
+		decoded.Command = Value(fieldValue)
+	}
+	rawCwd, hasCwd := object["cwd"]
+	if !hasCwd {
+		decoded.Cwd = Presence[string]{}
+	} else if isJSONNull(rawCwd) {
+		decoded.Cwd = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawCwd, &fieldValue); err != nil {
+			return fmt.Errorf("decode RunRequest.Cwd: %w", err)
+		}
+		decoded.Cwd = Value(fieldValue)
+	}
+	rawKey, hasKey := object["key"]
+	if !hasKey {
+		decoded.Key = Presence[string]{}
+	} else if isJSONNull(rawKey) {
+		decoded.Key = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawKey, &fieldValue); err != nil {
+			return fmt.Errorf("decode RunRequest.Key: %w", err)
+		}
+		decoded.Key = Value(fieldValue)
+	}
+	rawName, hasName := object["name"]
+	if !hasName {
+		decoded.Name = Presence[string]{}
+	} else if isJSONNull(rawName) {
+		decoded.Name = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawName, &fieldValue); err != nil {
+			return fmt.Errorf("decode RunRequest.Name: %w", err)
+		}
+		decoded.Name = Value(fieldValue)
+	}
+	rawPane, hasPane := object["pane"]
+	if !hasPane {
+		decoded.Pane = Presence[ID]{}
+	} else if isJSONNull(rawPane) {
+		decoded.Pane = Null[ID]()
+	} else {
+		var fieldValue ID
+		if err := json.Unmarshal(rawPane, &fieldValue); err != nil {
+			return fmt.Errorf("decode RunRequest.Pane: %w", err)
+		}
+		decoded.Pane = Value(fieldValue)
+	}
+	rawRows, hasRows := object["rows"]
+	if !hasRows {
+		decoded.Rows = Presence[uint16]{}
+	} else if isJSONNull(rawRows) {
+		decoded.Rows = Null[uint16]()
+	} else {
+		var fieldValue uint16
+		if err := json.Unmarshal(rawRows, &fieldValue); err != nil {
+			return fmt.Errorf("decode RunRequest.Rows: %w", err)
+		}
+		decoded.Rows = Value(fieldValue)
+	}
+	*value = RunRequest(decoded)
+	return nil
 }
 
 type RunOptions struct {
-	Argv         *[]string `json:"argv,omitempty"`
-	Cols         *uint16   `json:"cols,omitempty"`
-	Command      *string   `json:"command,omitempty"`
-	Cwd          *string   `json:"cwd,omitempty"`
-	Key          *string   `json:"key,omitempty"`
-	Name         *string   `json:"name,omitempty"`
-	NewWorkspace *bool     `json:"new_workspace,omitempty"`
-	Pane         *ID       `json:"pane,omitempty"`
-	Rows         *uint16   `json:"rows,omitempty"`
+	Argv         Presence[[]string] `json:"-"`
+	Cols         Presence[uint16]   `json:"-"`
+	Command      Presence[string]   `json:"-"`
+	Cwd          Presence[string]   `json:"-"`
+	Key          Presence[string]   `json:"-"`
+	Name         Presence[string]   `json:"-"`
+	NewWorkspace *bool              `json:"new_workspace,omitempty"`
+	Pane         Presence[ID]       `json:"-"`
+	Rows         Presence[uint16]   `json:"-"`
+}
+
+func (value RunOptions) MarshalJSON() ([]byte, error) {
+	type wire RunOptions
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Argv.IsAbsent() {
+		delete(object, "argv")
+	} else if value.Argv.IsNull() {
+		object["argv"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Argv.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode RunOptions.Argv: %w", err)
+		}
+		object["argv"] = encodedField
+	}
+	if value.Cols.IsAbsent() {
+		delete(object, "cols")
+	} else if value.Cols.IsNull() {
+		object["cols"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Cols.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode RunOptions.Cols: %w", err)
+		}
+		object["cols"] = encodedField
+	}
+	if value.Command.IsAbsent() {
+		delete(object, "command")
+	} else if value.Command.IsNull() {
+		object["command"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Command.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode RunOptions.Command: %w", err)
+		}
+		object["command"] = encodedField
+	}
+	if value.Cwd.IsAbsent() {
+		delete(object, "cwd")
+	} else if value.Cwd.IsNull() {
+		object["cwd"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Cwd.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode RunOptions.Cwd: %w", err)
+		}
+		object["cwd"] = encodedField
+	}
+	if value.Key.IsAbsent() {
+		delete(object, "key")
+	} else if value.Key.IsNull() {
+		object["key"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Key.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode RunOptions.Key: %w", err)
+		}
+		object["key"] = encodedField
+	}
+	if value.Name.IsAbsent() {
+		delete(object, "name")
+	} else if value.Name.IsNull() {
+		object["name"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Name.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode RunOptions.Name: %w", err)
+		}
+		object["name"] = encodedField
+	}
+	if value.Pane.IsAbsent() {
+		delete(object, "pane")
+	} else if value.Pane.IsNull() {
+		object["pane"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Pane.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode RunOptions.Pane: %w", err)
+		}
+		object["pane"] = encodedField
+	}
+	if value.Rows.IsAbsent() {
+		delete(object, "rows")
+	} else if value.Rows.IsNull() {
+		object["rows"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Rows.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode RunOptions.Rows: %w", err)
+		}
+		object["rows"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *RunOptions) UnmarshalJSON(data []byte) error {
+	type wire RunOptions
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	if raw, exists := object["new_workspace"]; exists && isJSONNull(raw) {
+		return fmt.Errorf("decode RunOptions: non-nullable field new_workspace is null")
+	}
+	rawArgv, hasArgv := object["argv"]
+	if !hasArgv {
+		decoded.Argv = Presence[[]string]{}
+	} else if isJSONNull(rawArgv) {
+		decoded.Argv = Null[[]string]()
+	} else {
+		var fieldValue []string
+		if err := json.Unmarshal(rawArgv, &fieldValue); err != nil {
+			return fmt.Errorf("decode RunOptions.Argv: %w", err)
+		}
+		decoded.Argv = Value(fieldValue)
+	}
+	rawCols, hasCols := object["cols"]
+	if !hasCols {
+		decoded.Cols = Presence[uint16]{}
+	} else if isJSONNull(rawCols) {
+		decoded.Cols = Null[uint16]()
+	} else {
+		var fieldValue uint16
+		if err := json.Unmarshal(rawCols, &fieldValue); err != nil {
+			return fmt.Errorf("decode RunOptions.Cols: %w", err)
+		}
+		decoded.Cols = Value(fieldValue)
+	}
+	rawCommand, hasCommand := object["command"]
+	if !hasCommand {
+		decoded.Command = Presence[string]{}
+	} else if isJSONNull(rawCommand) {
+		decoded.Command = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawCommand, &fieldValue); err != nil {
+			return fmt.Errorf("decode RunOptions.Command: %w", err)
+		}
+		decoded.Command = Value(fieldValue)
+	}
+	rawCwd, hasCwd := object["cwd"]
+	if !hasCwd {
+		decoded.Cwd = Presence[string]{}
+	} else if isJSONNull(rawCwd) {
+		decoded.Cwd = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawCwd, &fieldValue); err != nil {
+			return fmt.Errorf("decode RunOptions.Cwd: %w", err)
+		}
+		decoded.Cwd = Value(fieldValue)
+	}
+	rawKey, hasKey := object["key"]
+	if !hasKey {
+		decoded.Key = Presence[string]{}
+	} else if isJSONNull(rawKey) {
+		decoded.Key = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawKey, &fieldValue); err != nil {
+			return fmt.Errorf("decode RunOptions.Key: %w", err)
+		}
+		decoded.Key = Value(fieldValue)
+	}
+	rawName, hasName := object["name"]
+	if !hasName {
+		decoded.Name = Presence[string]{}
+	} else if isJSONNull(rawName) {
+		decoded.Name = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawName, &fieldValue); err != nil {
+			return fmt.Errorf("decode RunOptions.Name: %w", err)
+		}
+		decoded.Name = Value(fieldValue)
+	}
+	rawPane, hasPane := object["pane"]
+	if !hasPane {
+		decoded.Pane = Presence[ID]{}
+	} else if isJSONNull(rawPane) {
+		decoded.Pane = Null[ID]()
+	} else {
+		var fieldValue ID
+		if err := json.Unmarshal(rawPane, &fieldValue); err != nil {
+			return fmt.Errorf("decode RunOptions.Pane: %w", err)
+		}
+		decoded.Pane = Value(fieldValue)
+	}
+	rawRows, hasRows := object["rows"]
+	if !hasRows {
+		decoded.Rows = Presence[uint16]{}
+	} else if isJSONNull(rawRows) {
+		decoded.Rows = Null[uint16]()
+	} else {
+		var fieldValue uint16
+		if err := json.Unmarshal(rawRows, &fieldValue); err != nil {
+			return fmt.Errorf("decode RunOptions.Rows: %w", err)
+		}
+		decoded.Rows = Value(fieldValue)
+	}
+	*value = RunOptions(decoded)
+	return nil
 }
 
 // ScrollSurfaceRequest is the exact scroll-surface wire payload.
@@ -689,51 +6498,627 @@ type ScrollSurfaceResult = EmptyResult
 
 // SelectScreenRequest is the exact select-screen wire payload.
 type SelectScreenRequest struct {
-	Delta *int64  `json:"delta,omitempty"`
-	Index *uint64 `json:"index,omitempty"`
+	Delta Presence[int64]  `json:"-"`
+	Index Presence[uint64] `json:"-"`
+}
+
+func (value SelectScreenRequest) MarshalJSON() ([]byte, error) {
+	type wire SelectScreenRequest
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Delta.IsAbsent() {
+		delete(object, "delta")
+	} else if value.Delta.IsNull() {
+		object["delta"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Delta.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SelectScreenRequest.Delta: %w", err)
+		}
+		object["delta"] = encodedField
+	}
+	if value.Index.IsAbsent() {
+		delete(object, "index")
+	} else if value.Index.IsNull() {
+		object["index"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Index.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SelectScreenRequest.Index: %w", err)
+		}
+		object["index"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *SelectScreenRequest) UnmarshalJSON(data []byte) error {
+	type wire SelectScreenRequest
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawDelta, hasDelta := object["delta"]
+	if !hasDelta {
+		decoded.Delta = Presence[int64]{}
+	} else if isJSONNull(rawDelta) {
+		decoded.Delta = Null[int64]()
+	} else {
+		var fieldValue int64
+		if err := json.Unmarshal(rawDelta, &fieldValue); err != nil {
+			return fmt.Errorf("decode SelectScreenRequest.Delta: %w", err)
+		}
+		decoded.Delta = Value(fieldValue)
+	}
+	rawIndex, hasIndex := object["index"]
+	if !hasIndex {
+		decoded.Index = Presence[uint64]{}
+	} else if isJSONNull(rawIndex) {
+		decoded.Index = Null[uint64]()
+	} else {
+		var fieldValue uint64
+		if err := json.Unmarshal(rawIndex, &fieldValue); err != nil {
+			return fmt.Errorf("decode SelectScreenRequest.Index: %w", err)
+		}
+		decoded.Index = Value(fieldValue)
+	}
+	*value = SelectScreenRequest(decoded)
+	return nil
 }
 
 type SelectScreenResult = EmptyResult
 
 type SelectScreenOptions struct {
-	Delta *int64  `json:"delta,omitempty"`
-	Index *uint64 `json:"index,omitempty"`
+	Delta Presence[int64]  `json:"-"`
+	Index Presence[uint64] `json:"-"`
+}
+
+func (value SelectScreenOptions) MarshalJSON() ([]byte, error) {
+	type wire SelectScreenOptions
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Delta.IsAbsent() {
+		delete(object, "delta")
+	} else if value.Delta.IsNull() {
+		object["delta"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Delta.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SelectScreenOptions.Delta: %w", err)
+		}
+		object["delta"] = encodedField
+	}
+	if value.Index.IsAbsent() {
+		delete(object, "index")
+	} else if value.Index.IsNull() {
+		object["index"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Index.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SelectScreenOptions.Index: %w", err)
+		}
+		object["index"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *SelectScreenOptions) UnmarshalJSON(data []byte) error {
+	type wire SelectScreenOptions
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawDelta, hasDelta := object["delta"]
+	if !hasDelta {
+		decoded.Delta = Presence[int64]{}
+	} else if isJSONNull(rawDelta) {
+		decoded.Delta = Null[int64]()
+	} else {
+		var fieldValue int64
+		if err := json.Unmarshal(rawDelta, &fieldValue); err != nil {
+			return fmt.Errorf("decode SelectScreenOptions.Delta: %w", err)
+		}
+		decoded.Delta = Value(fieldValue)
+	}
+	rawIndex, hasIndex := object["index"]
+	if !hasIndex {
+		decoded.Index = Presence[uint64]{}
+	} else if isJSONNull(rawIndex) {
+		decoded.Index = Null[uint64]()
+	} else {
+		var fieldValue uint64
+		if err := json.Unmarshal(rawIndex, &fieldValue); err != nil {
+			return fmt.Errorf("decode SelectScreenOptions.Index: %w", err)
+		}
+		decoded.Index = Value(fieldValue)
+	}
+	*value = SelectScreenOptions(decoded)
+	return nil
 }
 
 // SelectTabRequest is the exact select-tab wire payload.
 type SelectTabRequest struct {
-	Delta *int64  `json:"delta,omitempty"`
-	Index *uint64 `json:"index,omitempty"`
-	Pane  *ID     `json:"pane,omitempty"`
+	Delta Presence[int64]  `json:"-"`
+	Index Presence[uint64] `json:"-"`
+	Pane  Presence[ID]     `json:"-"`
+}
+
+func (value SelectTabRequest) MarshalJSON() ([]byte, error) {
+	type wire SelectTabRequest
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Delta.IsAbsent() {
+		delete(object, "delta")
+	} else if value.Delta.IsNull() {
+		object["delta"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Delta.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SelectTabRequest.Delta: %w", err)
+		}
+		object["delta"] = encodedField
+	}
+	if value.Index.IsAbsent() {
+		delete(object, "index")
+	} else if value.Index.IsNull() {
+		object["index"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Index.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SelectTabRequest.Index: %w", err)
+		}
+		object["index"] = encodedField
+	}
+	if value.Pane.IsAbsent() {
+		delete(object, "pane")
+	} else if value.Pane.IsNull() {
+		object["pane"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Pane.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SelectTabRequest.Pane: %w", err)
+		}
+		object["pane"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *SelectTabRequest) UnmarshalJSON(data []byte) error {
+	type wire SelectTabRequest
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawDelta, hasDelta := object["delta"]
+	if !hasDelta {
+		decoded.Delta = Presence[int64]{}
+	} else if isJSONNull(rawDelta) {
+		decoded.Delta = Null[int64]()
+	} else {
+		var fieldValue int64
+		if err := json.Unmarshal(rawDelta, &fieldValue); err != nil {
+			return fmt.Errorf("decode SelectTabRequest.Delta: %w", err)
+		}
+		decoded.Delta = Value(fieldValue)
+	}
+	rawIndex, hasIndex := object["index"]
+	if !hasIndex {
+		decoded.Index = Presence[uint64]{}
+	} else if isJSONNull(rawIndex) {
+		decoded.Index = Null[uint64]()
+	} else {
+		var fieldValue uint64
+		if err := json.Unmarshal(rawIndex, &fieldValue); err != nil {
+			return fmt.Errorf("decode SelectTabRequest.Index: %w", err)
+		}
+		decoded.Index = Value(fieldValue)
+	}
+	rawPane, hasPane := object["pane"]
+	if !hasPane {
+		decoded.Pane = Presence[ID]{}
+	} else if isJSONNull(rawPane) {
+		decoded.Pane = Null[ID]()
+	} else {
+		var fieldValue ID
+		if err := json.Unmarshal(rawPane, &fieldValue); err != nil {
+			return fmt.Errorf("decode SelectTabRequest.Pane: %w", err)
+		}
+		decoded.Pane = Value(fieldValue)
+	}
+	*value = SelectTabRequest(decoded)
+	return nil
 }
 
 type SelectTabResult = EmptyResult
 
 type SelectTabOptions struct {
-	Delta *int64  `json:"delta,omitempty"`
-	Index *uint64 `json:"index,omitempty"`
-	Pane  *ID     `json:"pane,omitempty"`
+	Delta Presence[int64]  `json:"-"`
+	Index Presence[uint64] `json:"-"`
+	Pane  Presence[ID]     `json:"-"`
+}
+
+func (value SelectTabOptions) MarshalJSON() ([]byte, error) {
+	type wire SelectTabOptions
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Delta.IsAbsent() {
+		delete(object, "delta")
+	} else if value.Delta.IsNull() {
+		object["delta"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Delta.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SelectTabOptions.Delta: %w", err)
+		}
+		object["delta"] = encodedField
+	}
+	if value.Index.IsAbsent() {
+		delete(object, "index")
+	} else if value.Index.IsNull() {
+		object["index"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Index.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SelectTabOptions.Index: %w", err)
+		}
+		object["index"] = encodedField
+	}
+	if value.Pane.IsAbsent() {
+		delete(object, "pane")
+	} else if value.Pane.IsNull() {
+		object["pane"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Pane.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SelectTabOptions.Pane: %w", err)
+		}
+		object["pane"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *SelectTabOptions) UnmarshalJSON(data []byte) error {
+	type wire SelectTabOptions
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawDelta, hasDelta := object["delta"]
+	if !hasDelta {
+		decoded.Delta = Presence[int64]{}
+	} else if isJSONNull(rawDelta) {
+		decoded.Delta = Null[int64]()
+	} else {
+		var fieldValue int64
+		if err := json.Unmarshal(rawDelta, &fieldValue); err != nil {
+			return fmt.Errorf("decode SelectTabOptions.Delta: %w", err)
+		}
+		decoded.Delta = Value(fieldValue)
+	}
+	rawIndex, hasIndex := object["index"]
+	if !hasIndex {
+		decoded.Index = Presence[uint64]{}
+	} else if isJSONNull(rawIndex) {
+		decoded.Index = Null[uint64]()
+	} else {
+		var fieldValue uint64
+		if err := json.Unmarshal(rawIndex, &fieldValue); err != nil {
+			return fmt.Errorf("decode SelectTabOptions.Index: %w", err)
+		}
+		decoded.Index = Value(fieldValue)
+	}
+	rawPane, hasPane := object["pane"]
+	if !hasPane {
+		decoded.Pane = Presence[ID]{}
+	} else if isJSONNull(rawPane) {
+		decoded.Pane = Null[ID]()
+	} else {
+		var fieldValue ID
+		if err := json.Unmarshal(rawPane, &fieldValue); err != nil {
+			return fmt.Errorf("decode SelectTabOptions.Pane: %w", err)
+		}
+		decoded.Pane = Value(fieldValue)
+	}
+	*value = SelectTabOptions(decoded)
+	return nil
 }
 
 // SelectWorkspaceRequest is the exact select-workspace wire payload.
 type SelectWorkspaceRequest struct {
-	Delta *int64  `json:"delta,omitempty"`
-	Index *uint64 `json:"index,omitempty"`
+	Delta Presence[int64]  `json:"-"`
+	Index Presence[uint64] `json:"-"`
+}
+
+func (value SelectWorkspaceRequest) MarshalJSON() ([]byte, error) {
+	type wire SelectWorkspaceRequest
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Delta.IsAbsent() {
+		delete(object, "delta")
+	} else if value.Delta.IsNull() {
+		object["delta"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Delta.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SelectWorkspaceRequest.Delta: %w", err)
+		}
+		object["delta"] = encodedField
+	}
+	if value.Index.IsAbsent() {
+		delete(object, "index")
+	} else if value.Index.IsNull() {
+		object["index"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Index.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SelectWorkspaceRequest.Index: %w", err)
+		}
+		object["index"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *SelectWorkspaceRequest) UnmarshalJSON(data []byte) error {
+	type wire SelectWorkspaceRequest
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawDelta, hasDelta := object["delta"]
+	if !hasDelta {
+		decoded.Delta = Presence[int64]{}
+	} else if isJSONNull(rawDelta) {
+		decoded.Delta = Null[int64]()
+	} else {
+		var fieldValue int64
+		if err := json.Unmarshal(rawDelta, &fieldValue); err != nil {
+			return fmt.Errorf("decode SelectWorkspaceRequest.Delta: %w", err)
+		}
+		decoded.Delta = Value(fieldValue)
+	}
+	rawIndex, hasIndex := object["index"]
+	if !hasIndex {
+		decoded.Index = Presence[uint64]{}
+	} else if isJSONNull(rawIndex) {
+		decoded.Index = Null[uint64]()
+	} else {
+		var fieldValue uint64
+		if err := json.Unmarshal(rawIndex, &fieldValue); err != nil {
+			return fmt.Errorf("decode SelectWorkspaceRequest.Index: %w", err)
+		}
+		decoded.Index = Value(fieldValue)
+	}
+	*value = SelectWorkspaceRequest(decoded)
+	return nil
 }
 
 type SelectWorkspaceResult = EmptyResult
 
 type SelectWorkspaceOptions struct {
-	Delta *int64  `json:"delta,omitempty"`
-	Index *uint64 `json:"index,omitempty"`
+	Delta Presence[int64]  `json:"-"`
+	Index Presence[uint64] `json:"-"`
+}
+
+func (value SelectWorkspaceOptions) MarshalJSON() ([]byte, error) {
+	type wire SelectWorkspaceOptions
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Delta.IsAbsent() {
+		delete(object, "delta")
+	} else if value.Delta.IsNull() {
+		object["delta"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Delta.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SelectWorkspaceOptions.Delta: %w", err)
+		}
+		object["delta"] = encodedField
+	}
+	if value.Index.IsAbsent() {
+		delete(object, "index")
+	} else if value.Index.IsNull() {
+		object["index"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Index.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SelectWorkspaceOptions.Index: %w", err)
+		}
+		object["index"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *SelectWorkspaceOptions) UnmarshalJSON(data []byte) error {
+	type wire SelectWorkspaceOptions
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawDelta, hasDelta := object["delta"]
+	if !hasDelta {
+		decoded.Delta = Presence[int64]{}
+	} else if isJSONNull(rawDelta) {
+		decoded.Delta = Null[int64]()
+	} else {
+		var fieldValue int64
+		if err := json.Unmarshal(rawDelta, &fieldValue); err != nil {
+			return fmt.Errorf("decode SelectWorkspaceOptions.Delta: %w", err)
+		}
+		decoded.Delta = Value(fieldValue)
+	}
+	rawIndex, hasIndex := object["index"]
+	if !hasIndex {
+		decoded.Index = Presence[uint64]{}
+	} else if isJSONNull(rawIndex) {
+		decoded.Index = Null[uint64]()
+	} else {
+		var fieldValue uint64
+		if err := json.Unmarshal(rawIndex, &fieldValue); err != nil {
+			return fmt.Errorf("decode SelectWorkspaceOptions.Index: %w", err)
+		}
+		decoded.Index = Value(fieldValue)
+	}
+	*value = SelectWorkspaceOptions(decoded)
+	return nil
 }
 
 // SendRequest is the exact send wire payload.
 type SendRequest struct {
-	Bytes   *Base64 `json:"bytes,omitempty"`
-	Paste   *bool   `json:"paste,omitempty"`
-	Surface ID      `json:"surface"`
-	Text    *string `json:"text,omitempty"`
+	Bytes   Presence[Base64] `json:"-"`
+	Paste   *bool            `json:"paste,omitempty"`
+	Surface ID               `json:"surface"`
+	Text    Presence[string] `json:"-"`
+}
+
+func (value SendRequest) MarshalJSON() ([]byte, error) {
+	type wire SendRequest
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Bytes.IsAbsent() {
+		delete(object, "bytes")
+	} else if value.Bytes.IsNull() {
+		object["bytes"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Bytes.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SendRequest.Bytes: %w", err)
+		}
+		object["bytes"] = encodedField
+	}
+	if value.Text.IsAbsent() {
+		delete(object, "text")
+	} else if value.Text.IsNull() {
+		object["text"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Text.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SendRequest.Text: %w", err)
+		}
+		object["text"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *SendRequest) UnmarshalJSON(data []byte) error {
+	type wire SendRequest
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	if raw, exists := object["paste"]; exists && isJSONNull(raw) {
+		return fmt.Errorf("decode SendRequest: non-nullable field paste is null")
+	}
+	rawBytes, hasBytes := object["bytes"]
+	if !hasBytes {
+		decoded.Bytes = Presence[Base64]{}
+	} else if isJSONNull(rawBytes) {
+		decoded.Bytes = Null[Base64]()
+	} else {
+		var fieldValue Base64
+		if err := json.Unmarshal(rawBytes, &fieldValue); err != nil {
+			return fmt.Errorf("decode SendRequest.Bytes: %w", err)
+		}
+		decoded.Bytes = Value(fieldValue)
+	}
+	rawText, hasText := object["text"]
+	if !hasText {
+		decoded.Text = Presence[string]{}
+	} else if isJSONNull(rawText) {
+		decoded.Text = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawText, &fieldValue); err != nil {
+			return fmt.Errorf("decode SendRequest.Text: %w", err)
+		}
+		decoded.Text = Value(fieldValue)
+	}
+	*value = SendRequest(decoded)
+	return nil
 }
 
 type SendResult = EmptyResult
@@ -754,57 +7139,759 @@ type SetCellPixelsRequest struct {
 
 // SetClientInfoRequest is the exact set-client-info wire payload.
 type SetClientInfoRequest struct {
-	Kind *string `json:"kind,omitempty"`
-	Name *string `json:"name,omitempty"`
+	Kind Presence[string] `json:"-"`
+	Name Presence[string] `json:"-"`
+}
+
+func (value SetClientInfoRequest) MarshalJSON() ([]byte, error) {
+	type wire SetClientInfoRequest
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Kind.IsAbsent() {
+		delete(object, "kind")
+	} else if value.Kind.IsNull() {
+		object["kind"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Kind.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SetClientInfoRequest.Kind: %w", err)
+		}
+		object["kind"] = encodedField
+	}
+	if value.Name.IsAbsent() {
+		delete(object, "name")
+	} else if value.Name.IsNull() {
+		object["name"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Name.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SetClientInfoRequest.Name: %w", err)
+		}
+		object["name"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *SetClientInfoRequest) UnmarshalJSON(data []byte) error {
+	type wire SetClientInfoRequest
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawKind, hasKind := object["kind"]
+	if !hasKind {
+		decoded.Kind = Presence[string]{}
+	} else if isJSONNull(rawKind) {
+		decoded.Kind = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawKind, &fieldValue); err != nil {
+			return fmt.Errorf("decode SetClientInfoRequest.Kind: %w", err)
+		}
+		decoded.Kind = Value(fieldValue)
+	}
+	rawName, hasName := object["name"]
+	if !hasName {
+		decoded.Name = Presence[string]{}
+	} else if isJSONNull(rawName) {
+		decoded.Name = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawName, &fieldValue); err != nil {
+			return fmt.Errorf("decode SetClientInfoRequest.Name: %w", err)
+		}
+		decoded.Name = Value(fieldValue)
+	}
+	*value = SetClientInfoRequest(decoded)
+	return nil
 }
 
 type SetClientInfoResult = EmptyResult
 
 type SetClientInfoOptions struct {
-	Kind *string `json:"kind,omitempty"`
-	Name *string `json:"name,omitempty"`
+	Kind Presence[string] `json:"-"`
+	Name Presence[string] `json:"-"`
+}
+
+func (value SetClientInfoOptions) MarshalJSON() ([]byte, error) {
+	type wire SetClientInfoOptions
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Kind.IsAbsent() {
+		delete(object, "kind")
+	} else if value.Kind.IsNull() {
+		object["kind"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Kind.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SetClientInfoOptions.Kind: %w", err)
+		}
+		object["kind"] = encodedField
+	}
+	if value.Name.IsAbsent() {
+		delete(object, "name")
+	} else if value.Name.IsNull() {
+		object["name"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Name.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SetClientInfoOptions.Name: %w", err)
+		}
+		object["name"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *SetClientInfoOptions) UnmarshalJSON(data []byte) error {
+	type wire SetClientInfoOptions
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawKind, hasKind := object["kind"]
+	if !hasKind {
+		decoded.Kind = Presence[string]{}
+	} else if isJSONNull(rawKind) {
+		decoded.Kind = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawKind, &fieldValue); err != nil {
+			return fmt.Errorf("decode SetClientInfoOptions.Kind: %w", err)
+		}
+		decoded.Kind = Value(fieldValue)
+	}
+	rawName, hasName := object["name"]
+	if !hasName {
+		decoded.Name = Presence[string]{}
+	} else if isJSONNull(rawName) {
+		decoded.Name = Null[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawName, &fieldValue); err != nil {
+			return fmt.Errorf("decode SetClientInfoOptions.Name: %w", err)
+		}
+		decoded.Name = Value(fieldValue)
+	}
+	*value = SetClientInfoOptions(decoded)
+	return nil
 }
 
 // SetClientSizingRequest is the exact set-client-sizing wire payload.
 type SetClientSizingRequest struct {
-	Client    *uint64 `json:"client,omitempty"`
-	Enabled   bool    `json:"enabled"`
-	Exclusive *bool   `json:"exclusive,omitempty"`
-	Surface   ID      `json:"surface"`
+	Client    Presence[uint64] `json:"-"`
+	Enabled   bool             `json:"enabled"`
+	Exclusive *bool            `json:"exclusive,omitempty"`
+	Surface   ID               `json:"surface"`
+}
+
+func (value SetClientSizingRequest) MarshalJSON() ([]byte, error) {
+	type wire SetClientSizingRequest
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Client.IsAbsent() {
+		delete(object, "client")
+	} else if value.Client.IsNull() {
+		object["client"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Client.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SetClientSizingRequest.Client: %w", err)
+		}
+		object["client"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *SetClientSizingRequest) UnmarshalJSON(data []byte) error {
+	type wire SetClientSizingRequest
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	if raw, exists := object["exclusive"]; exists && isJSONNull(raw) {
+		return fmt.Errorf("decode SetClientSizingRequest: non-nullable field exclusive is null")
+	}
+	rawClient, hasClient := object["client"]
+	if !hasClient {
+		decoded.Client = Presence[uint64]{}
+	} else if isJSONNull(rawClient) {
+		decoded.Client = Null[uint64]()
+	} else {
+		var fieldValue uint64
+		if err := json.Unmarshal(rawClient, &fieldValue); err != nil {
+			return fmt.Errorf("decode SetClientSizingRequest.Client: %w", err)
+		}
+		decoded.Client = Value(fieldValue)
+	}
+	*value = SetClientSizingRequest(decoded)
+	return nil
 }
 
 type SetClientSizingResult = EmptyResult
 
 type SetClientSizingOptions struct {
-	Client    *uint64 `json:"client,omitempty"`
-	Exclusive *bool   `json:"exclusive,omitempty"`
+	Client    Presence[uint64] `json:"-"`
+	Exclusive *bool            `json:"exclusive,omitempty"`
+}
+
+func (value SetClientSizingOptions) MarshalJSON() ([]byte, error) {
+	type wire SetClientSizingOptions
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Client.IsAbsent() {
+		delete(object, "client")
+	} else if value.Client.IsNull() {
+		object["client"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Client.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SetClientSizingOptions.Client: %w", err)
+		}
+		object["client"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *SetClientSizingOptions) UnmarshalJSON(data []byte) error {
+	type wire SetClientSizingOptions
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	if raw, exists := object["exclusive"]; exists && isJSONNull(raw) {
+		return fmt.Errorf("decode SetClientSizingOptions: non-nullable field exclusive is null")
+	}
+	rawClient, hasClient := object["client"]
+	if !hasClient {
+		decoded.Client = Presence[uint64]{}
+	} else if isJSONNull(rawClient) {
+		decoded.Client = Null[uint64]()
+	} else {
+		var fieldValue uint64
+		if err := json.Unmarshal(rawClient, &fieldValue); err != nil {
+			return fmt.Errorf("decode SetClientSizingOptions.Client: %w", err)
+		}
+		decoded.Client = Value(fieldValue)
+	}
+	*value = SetClientSizingOptions(decoded)
+	return nil
 }
 
 // SetDefaultColorsRequest is the exact set-default-colors wire payload.
 type SetDefaultColorsRequest struct {
-	Bg          *ColorHex            `json:"bg,omitempty"`
-	Complete    *bool                `json:"complete,omitempty"`
-	Cursor      *ColorHex            `json:"cursor,omitempty"`
-	CursorBlink *bool                `json:"cursor_blink,omitempty"`
-	CursorStyle *CursorStyle         `json:"cursor_style,omitempty"`
-	Fg          *ColorHex            `json:"fg,omitempty"`
-	Palette     *map[string]ColorHex `json:"palette,omitempty"`
-	SelectionBg *ColorHex            `json:"selection_bg,omitempty"`
-	SelectionFg *ColorHex            `json:"selection_fg,omitempty"`
+	Bg          Presence[ColorHex]            `json:"-"`
+	Complete    *bool                         `json:"complete,omitempty"`
+	Cursor      Presence[ColorHex]            `json:"-"`
+	CursorBlink Presence[bool]                `json:"-"`
+	CursorStyle Presence[CursorStyle]         `json:"-"`
+	Fg          Presence[ColorHex]            `json:"-"`
+	Palette     Presence[map[string]ColorHex] `json:"-"`
+	SelectionBg Presence[ColorHex]            `json:"-"`
+	SelectionFg Presence[ColorHex]            `json:"-"`
+}
+
+func (value SetDefaultColorsRequest) MarshalJSON() ([]byte, error) {
+	type wire SetDefaultColorsRequest
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Bg.IsAbsent() {
+		delete(object, "bg")
+	} else if value.Bg.IsNull() {
+		object["bg"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Bg.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SetDefaultColorsRequest.Bg: %w", err)
+		}
+		object["bg"] = encodedField
+	}
+	if value.Cursor.IsAbsent() {
+		delete(object, "cursor")
+	} else if value.Cursor.IsNull() {
+		object["cursor"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Cursor.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SetDefaultColorsRequest.Cursor: %w", err)
+		}
+		object["cursor"] = encodedField
+	}
+	if value.CursorBlink.IsAbsent() {
+		delete(object, "cursor_blink")
+	} else if value.CursorBlink.IsNull() {
+		object["cursor_blink"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.CursorBlink.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SetDefaultColorsRequest.CursorBlink: %w", err)
+		}
+		object["cursor_blink"] = encodedField
+	}
+	if value.CursorStyle.IsAbsent() {
+		delete(object, "cursor_style")
+	} else if value.CursorStyle.IsNull() {
+		object["cursor_style"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.CursorStyle.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SetDefaultColorsRequest.CursorStyle: %w", err)
+		}
+		object["cursor_style"] = encodedField
+	}
+	if value.Fg.IsAbsent() {
+		delete(object, "fg")
+	} else if value.Fg.IsNull() {
+		object["fg"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Fg.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SetDefaultColorsRequest.Fg: %w", err)
+		}
+		object["fg"] = encodedField
+	}
+	if value.Palette.IsAbsent() {
+		delete(object, "palette")
+	} else if value.Palette.IsNull() {
+		object["palette"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Palette.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SetDefaultColorsRequest.Palette: %w", err)
+		}
+		object["palette"] = encodedField
+	}
+	if value.SelectionBg.IsAbsent() {
+		delete(object, "selection_bg")
+	} else if value.SelectionBg.IsNull() {
+		object["selection_bg"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.SelectionBg.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SetDefaultColorsRequest.SelectionBg: %w", err)
+		}
+		object["selection_bg"] = encodedField
+	}
+	if value.SelectionFg.IsAbsent() {
+		delete(object, "selection_fg")
+	} else if value.SelectionFg.IsNull() {
+		object["selection_fg"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.SelectionFg.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SetDefaultColorsRequest.SelectionFg: %w", err)
+		}
+		object["selection_fg"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *SetDefaultColorsRequest) UnmarshalJSON(data []byte) error {
+	type wire SetDefaultColorsRequest
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	if raw, exists := object["complete"]; exists && isJSONNull(raw) {
+		return fmt.Errorf("decode SetDefaultColorsRequest: non-nullable field complete is null")
+	}
+	rawBg, hasBg := object["bg"]
+	if !hasBg {
+		decoded.Bg = Presence[ColorHex]{}
+	} else if isJSONNull(rawBg) {
+		decoded.Bg = Null[ColorHex]()
+	} else {
+		var fieldValue ColorHex
+		if err := json.Unmarshal(rawBg, &fieldValue); err != nil {
+			return fmt.Errorf("decode SetDefaultColorsRequest.Bg: %w", err)
+		}
+		decoded.Bg = Value(fieldValue)
+	}
+	rawCursor, hasCursor := object["cursor"]
+	if !hasCursor {
+		decoded.Cursor = Presence[ColorHex]{}
+	} else if isJSONNull(rawCursor) {
+		decoded.Cursor = Null[ColorHex]()
+	} else {
+		var fieldValue ColorHex
+		if err := json.Unmarshal(rawCursor, &fieldValue); err != nil {
+			return fmt.Errorf("decode SetDefaultColorsRequest.Cursor: %w", err)
+		}
+		decoded.Cursor = Value(fieldValue)
+	}
+	rawCursorBlink, hasCursorBlink := object["cursor_blink"]
+	if !hasCursorBlink {
+		decoded.CursorBlink = Presence[bool]{}
+	} else if isJSONNull(rawCursorBlink) {
+		decoded.CursorBlink = Null[bool]()
+	} else {
+		var fieldValue bool
+		if err := json.Unmarshal(rawCursorBlink, &fieldValue); err != nil {
+			return fmt.Errorf("decode SetDefaultColorsRequest.CursorBlink: %w", err)
+		}
+		decoded.CursorBlink = Value(fieldValue)
+	}
+	rawCursorStyle, hasCursorStyle := object["cursor_style"]
+	if !hasCursorStyle {
+		decoded.CursorStyle = Presence[CursorStyle]{}
+	} else if isJSONNull(rawCursorStyle) {
+		decoded.CursorStyle = Null[CursorStyle]()
+	} else {
+		var fieldValue CursorStyle
+		if err := json.Unmarshal(rawCursorStyle, &fieldValue); err != nil {
+			return fmt.Errorf("decode SetDefaultColorsRequest.CursorStyle: %w", err)
+		}
+		decoded.CursorStyle = Value(fieldValue)
+	}
+	rawFg, hasFg := object["fg"]
+	if !hasFg {
+		decoded.Fg = Presence[ColorHex]{}
+	} else if isJSONNull(rawFg) {
+		decoded.Fg = Null[ColorHex]()
+	} else {
+		var fieldValue ColorHex
+		if err := json.Unmarshal(rawFg, &fieldValue); err != nil {
+			return fmt.Errorf("decode SetDefaultColorsRequest.Fg: %w", err)
+		}
+		decoded.Fg = Value(fieldValue)
+	}
+	rawPalette, hasPalette := object["palette"]
+	if !hasPalette {
+		decoded.Palette = Presence[map[string]ColorHex]{}
+	} else if isJSONNull(rawPalette) {
+		decoded.Palette = Null[map[string]ColorHex]()
+	} else {
+		var fieldValue map[string]ColorHex
+		if err := json.Unmarshal(rawPalette, &fieldValue); err != nil {
+			return fmt.Errorf("decode SetDefaultColorsRequest.Palette: %w", err)
+		}
+		decoded.Palette = Value(fieldValue)
+	}
+	rawSelectionBg, hasSelectionBg := object["selection_bg"]
+	if !hasSelectionBg {
+		decoded.SelectionBg = Presence[ColorHex]{}
+	} else if isJSONNull(rawSelectionBg) {
+		decoded.SelectionBg = Null[ColorHex]()
+	} else {
+		var fieldValue ColorHex
+		if err := json.Unmarshal(rawSelectionBg, &fieldValue); err != nil {
+			return fmt.Errorf("decode SetDefaultColorsRequest.SelectionBg: %w", err)
+		}
+		decoded.SelectionBg = Value(fieldValue)
+	}
+	rawSelectionFg, hasSelectionFg := object["selection_fg"]
+	if !hasSelectionFg {
+		decoded.SelectionFg = Presence[ColorHex]{}
+	} else if isJSONNull(rawSelectionFg) {
+		decoded.SelectionFg = Null[ColorHex]()
+	} else {
+		var fieldValue ColorHex
+		if err := json.Unmarshal(rawSelectionFg, &fieldValue); err != nil {
+			return fmt.Errorf("decode SetDefaultColorsRequest.SelectionFg: %w", err)
+		}
+		decoded.SelectionFg = Value(fieldValue)
+	}
+	*value = SetDefaultColorsRequest(decoded)
+	return nil
 }
 
 type SetDefaultColorsResult = EmptyResult
 
 type SetDefaultColorsOptions struct {
-	Bg          *ColorHex            `json:"bg,omitempty"`
-	Complete    *bool                `json:"complete,omitempty"`
-	Cursor      *ColorHex            `json:"cursor,omitempty"`
-	CursorBlink *bool                `json:"cursor_blink,omitempty"`
-	CursorStyle *CursorStyle         `json:"cursor_style,omitempty"`
-	Fg          *ColorHex            `json:"fg,omitempty"`
-	Palette     *map[string]ColorHex `json:"palette,omitempty"`
-	SelectionBg *ColorHex            `json:"selection_bg,omitempty"`
-	SelectionFg *ColorHex            `json:"selection_fg,omitempty"`
+	Bg          Presence[ColorHex]            `json:"-"`
+	Complete    *bool                         `json:"complete,omitempty"`
+	Cursor      Presence[ColorHex]            `json:"-"`
+	CursorBlink Presence[bool]                `json:"-"`
+	CursorStyle Presence[CursorStyle]         `json:"-"`
+	Fg          Presence[ColorHex]            `json:"-"`
+	Palette     Presence[map[string]ColorHex] `json:"-"`
+	SelectionBg Presence[ColorHex]            `json:"-"`
+	SelectionFg Presence[ColorHex]            `json:"-"`
+}
+
+func (value SetDefaultColorsOptions) MarshalJSON() ([]byte, error) {
+	type wire SetDefaultColorsOptions
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Bg.IsAbsent() {
+		delete(object, "bg")
+	} else if value.Bg.IsNull() {
+		object["bg"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Bg.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SetDefaultColorsOptions.Bg: %w", err)
+		}
+		object["bg"] = encodedField
+	}
+	if value.Cursor.IsAbsent() {
+		delete(object, "cursor")
+	} else if value.Cursor.IsNull() {
+		object["cursor"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Cursor.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SetDefaultColorsOptions.Cursor: %w", err)
+		}
+		object["cursor"] = encodedField
+	}
+	if value.CursorBlink.IsAbsent() {
+		delete(object, "cursor_blink")
+	} else if value.CursorBlink.IsNull() {
+		object["cursor_blink"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.CursorBlink.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SetDefaultColorsOptions.CursorBlink: %w", err)
+		}
+		object["cursor_blink"] = encodedField
+	}
+	if value.CursorStyle.IsAbsent() {
+		delete(object, "cursor_style")
+	} else if value.CursorStyle.IsNull() {
+		object["cursor_style"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.CursorStyle.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SetDefaultColorsOptions.CursorStyle: %w", err)
+		}
+		object["cursor_style"] = encodedField
+	}
+	if value.Fg.IsAbsent() {
+		delete(object, "fg")
+	} else if value.Fg.IsNull() {
+		object["fg"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Fg.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SetDefaultColorsOptions.Fg: %w", err)
+		}
+		object["fg"] = encodedField
+	}
+	if value.Palette.IsAbsent() {
+		delete(object, "palette")
+	} else if value.Palette.IsNull() {
+		object["palette"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Palette.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SetDefaultColorsOptions.Palette: %w", err)
+		}
+		object["palette"] = encodedField
+	}
+	if value.SelectionBg.IsAbsent() {
+		delete(object, "selection_bg")
+	} else if value.SelectionBg.IsNull() {
+		object["selection_bg"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.SelectionBg.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SetDefaultColorsOptions.SelectionBg: %w", err)
+		}
+		object["selection_bg"] = encodedField
+	}
+	if value.SelectionFg.IsAbsent() {
+		delete(object, "selection_fg")
+	} else if value.SelectionFg.IsNull() {
+		object["selection_fg"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.SelectionFg.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SetDefaultColorsOptions.SelectionFg: %w", err)
+		}
+		object["selection_fg"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *SetDefaultColorsOptions) UnmarshalJSON(data []byte) error {
+	type wire SetDefaultColorsOptions
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	if raw, exists := object["complete"]; exists && isJSONNull(raw) {
+		return fmt.Errorf("decode SetDefaultColorsOptions: non-nullable field complete is null")
+	}
+	rawBg, hasBg := object["bg"]
+	if !hasBg {
+		decoded.Bg = Presence[ColorHex]{}
+	} else if isJSONNull(rawBg) {
+		decoded.Bg = Null[ColorHex]()
+	} else {
+		var fieldValue ColorHex
+		if err := json.Unmarshal(rawBg, &fieldValue); err != nil {
+			return fmt.Errorf("decode SetDefaultColorsOptions.Bg: %w", err)
+		}
+		decoded.Bg = Value(fieldValue)
+	}
+	rawCursor, hasCursor := object["cursor"]
+	if !hasCursor {
+		decoded.Cursor = Presence[ColorHex]{}
+	} else if isJSONNull(rawCursor) {
+		decoded.Cursor = Null[ColorHex]()
+	} else {
+		var fieldValue ColorHex
+		if err := json.Unmarshal(rawCursor, &fieldValue); err != nil {
+			return fmt.Errorf("decode SetDefaultColorsOptions.Cursor: %w", err)
+		}
+		decoded.Cursor = Value(fieldValue)
+	}
+	rawCursorBlink, hasCursorBlink := object["cursor_blink"]
+	if !hasCursorBlink {
+		decoded.CursorBlink = Presence[bool]{}
+	} else if isJSONNull(rawCursorBlink) {
+		decoded.CursorBlink = Null[bool]()
+	} else {
+		var fieldValue bool
+		if err := json.Unmarshal(rawCursorBlink, &fieldValue); err != nil {
+			return fmt.Errorf("decode SetDefaultColorsOptions.CursorBlink: %w", err)
+		}
+		decoded.CursorBlink = Value(fieldValue)
+	}
+	rawCursorStyle, hasCursorStyle := object["cursor_style"]
+	if !hasCursorStyle {
+		decoded.CursorStyle = Presence[CursorStyle]{}
+	} else if isJSONNull(rawCursorStyle) {
+		decoded.CursorStyle = Null[CursorStyle]()
+	} else {
+		var fieldValue CursorStyle
+		if err := json.Unmarshal(rawCursorStyle, &fieldValue); err != nil {
+			return fmt.Errorf("decode SetDefaultColorsOptions.CursorStyle: %w", err)
+		}
+		decoded.CursorStyle = Value(fieldValue)
+	}
+	rawFg, hasFg := object["fg"]
+	if !hasFg {
+		decoded.Fg = Presence[ColorHex]{}
+	} else if isJSONNull(rawFg) {
+		decoded.Fg = Null[ColorHex]()
+	} else {
+		var fieldValue ColorHex
+		if err := json.Unmarshal(rawFg, &fieldValue); err != nil {
+			return fmt.Errorf("decode SetDefaultColorsOptions.Fg: %w", err)
+		}
+		decoded.Fg = Value(fieldValue)
+	}
+	rawPalette, hasPalette := object["palette"]
+	if !hasPalette {
+		decoded.Palette = Presence[map[string]ColorHex]{}
+	} else if isJSONNull(rawPalette) {
+		decoded.Palette = Null[map[string]ColorHex]()
+	} else {
+		var fieldValue map[string]ColorHex
+		if err := json.Unmarshal(rawPalette, &fieldValue); err != nil {
+			return fmt.Errorf("decode SetDefaultColorsOptions.Palette: %w", err)
+		}
+		decoded.Palette = Value(fieldValue)
+	}
+	rawSelectionBg, hasSelectionBg := object["selection_bg"]
+	if !hasSelectionBg {
+		decoded.SelectionBg = Presence[ColorHex]{}
+	} else if isJSONNull(rawSelectionBg) {
+		decoded.SelectionBg = Null[ColorHex]()
+	} else {
+		var fieldValue ColorHex
+		if err := json.Unmarshal(rawSelectionBg, &fieldValue); err != nil {
+			return fmt.Errorf("decode SetDefaultColorsOptions.SelectionBg: %w", err)
+		}
+		decoded.SelectionBg = Value(fieldValue)
+	}
+	rawSelectionFg, hasSelectionFg := object["selection_fg"]
+	if !hasSelectionFg {
+		decoded.SelectionFg = Presence[ColorHex]{}
+	} else if isJSONNull(rawSelectionFg) {
+		decoded.SelectionFg = Null[ColorHex]()
+	} else {
+		var fieldValue ColorHex
+		if err := json.Unmarshal(rawSelectionFg, &fieldValue); err != nil {
+			return fmt.Errorf("decode SetDefaultColorsOptions.SelectionFg: %w", err)
+		}
+		decoded.SelectionFg = Value(fieldValue)
+	}
+	*value = SetDefaultColorsOptions(decoded)
+	return nil
 }
 
 // SetRatioRequest is the exact set-ratio wire payload.
@@ -844,45 +7931,461 @@ type SidebarPluginRequest struct {
 	Rows     uint16 `json:"rows"`
 }
 
+func (value *SidebarPluginRequest) UnmarshalJSON(data []byte) error {
+	type wire SidebarPluginRequest
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	if raw, exists := object["relaunch"]; exists && isJSONNull(raw) {
+		return fmt.Errorf("decode SidebarPluginRequest: non-nullable field relaunch is null")
+	}
+	*value = SidebarPluginRequest(decoded)
+	return nil
+}
+
 type SidebarPluginOptions struct {
 	Relaunch *bool `json:"relaunch,omitempty"`
 }
 
+func (value *SidebarPluginOptions) UnmarshalJSON(data []byte) error {
+	type wire SidebarPluginOptions
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	if raw, exists := object["relaunch"]; exists && isJSONNull(raw) {
+		return fmt.Errorf("decode SidebarPluginOptions: non-nullable field relaunch is null")
+	}
+	*value = SidebarPluginOptions(decoded)
+	return nil
+}
+
 // SplitRequest is the exact split wire payload.
 type SplitRequest struct {
-	Cols *uint16        `json:"cols,omitempty"`
-	Dir  SplitDirection `json:"dir"`
-	Pane ID             `json:"pane"`
-	Rows *uint16        `json:"rows,omitempty"`
+	Cols Presence[uint16] `json:"-"`
+	Dir  SplitDirection   `json:"dir"`
+	Pane ID               `json:"pane"`
+	Rows Presence[uint16] `json:"-"`
+}
+
+func (value SplitRequest) MarshalJSON() ([]byte, error) {
+	type wire SplitRequest
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Cols.IsAbsent() {
+		delete(object, "cols")
+	} else if value.Cols.IsNull() {
+		object["cols"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Cols.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SplitRequest.Cols: %w", err)
+		}
+		object["cols"] = encodedField
+	}
+	if value.Rows.IsAbsent() {
+		delete(object, "rows")
+	} else if value.Rows.IsNull() {
+		object["rows"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Rows.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SplitRequest.Rows: %w", err)
+		}
+		object["rows"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *SplitRequest) UnmarshalJSON(data []byte) error {
+	type wire SplitRequest
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawCols, hasCols := object["cols"]
+	if !hasCols {
+		decoded.Cols = Presence[uint16]{}
+	} else if isJSONNull(rawCols) {
+		decoded.Cols = Null[uint16]()
+	} else {
+		var fieldValue uint16
+		if err := json.Unmarshal(rawCols, &fieldValue); err != nil {
+			return fmt.Errorf("decode SplitRequest.Cols: %w", err)
+		}
+		decoded.Cols = Value(fieldValue)
+	}
+	rawRows, hasRows := object["rows"]
+	if !hasRows {
+		decoded.Rows = Presence[uint16]{}
+	} else if isJSONNull(rawRows) {
+		decoded.Rows = Null[uint16]()
+	} else {
+		var fieldValue uint16
+		if err := json.Unmarshal(rawRows, &fieldValue); err != nil {
+			return fmt.Errorf("decode SplitRequest.Rows: %w", err)
+		}
+		decoded.Rows = Value(fieldValue)
+	}
+	*value = SplitRequest(decoded)
+	return nil
 }
 
 type SplitResult = SurfaceResult
 
 type SplitOptions struct {
-	Cols *uint16 `json:"cols,omitempty"`
-	Rows *uint16 `json:"rows,omitempty"`
+	Cols Presence[uint16] `json:"-"`
+	Rows Presence[uint16] `json:"-"`
+}
+
+func (value SplitOptions) MarshalJSON() ([]byte, error) {
+	type wire SplitOptions
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Cols.IsAbsent() {
+		delete(object, "cols")
+	} else if value.Cols.IsNull() {
+		object["cols"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Cols.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SplitOptions.Cols: %w", err)
+		}
+		object["cols"] = encodedField
+	}
+	if value.Rows.IsAbsent() {
+		delete(object, "rows")
+	} else if value.Rows.IsNull() {
+		object["rows"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Rows.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SplitOptions.Rows: %w", err)
+		}
+		object["rows"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *SplitOptions) UnmarshalJSON(data []byte) error {
+	type wire SplitOptions
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawCols, hasCols := object["cols"]
+	if !hasCols {
+		decoded.Cols = Presence[uint16]{}
+	} else if isJSONNull(rawCols) {
+		decoded.Cols = Null[uint16]()
+	} else {
+		var fieldValue uint16
+		if err := json.Unmarshal(rawCols, &fieldValue); err != nil {
+			return fmt.Errorf("decode SplitOptions.Cols: %w", err)
+		}
+		decoded.Cols = Value(fieldValue)
+	}
+	rawRows, hasRows := object["rows"]
+	if !hasRows {
+		decoded.Rows = Presence[uint16]{}
+	} else if isJSONNull(rawRows) {
+		decoded.Rows = Null[uint16]()
+	} else {
+		var fieldValue uint16
+		if err := json.Unmarshal(rawRows, &fieldValue); err != nil {
+			return fmt.Errorf("decode SplitOptions.Rows: %w", err)
+		}
+		decoded.Rows = Value(fieldValue)
+	}
+	*value = SplitOptions(decoded)
+	return nil
 }
 
 // SubscribeRequest is the exact subscribe wire payload.
+type SubscribeRequestTreeEvents string
+
+const (
+	SubscribeRequestTreeEventsCoarse SubscribeRequestTreeEvents = "coarse"
+	SubscribeRequestTreeEventsDeltas SubscribeRequestTreeEvents = "deltas"
+)
+
 type SubscribeRequest struct {
-	Surface    *ID     `json:"surface,omitempty"`
-	TreeEvents *string `json:"tree_events,omitempty"`
+	Surface    Presence[ID]                         `json:"-"`
+	TreeEvents Presence[SubscribeRequestTreeEvents] `json:"-"`
+}
+
+func (value SubscribeRequest) MarshalJSON() ([]byte, error) {
+	type wire SubscribeRequest
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Surface.IsAbsent() {
+		delete(object, "surface")
+	} else if value.Surface.IsNull() {
+		object["surface"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Surface.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SubscribeRequest.Surface: %w", err)
+		}
+		object["surface"] = encodedField
+	}
+	if value.TreeEvents.IsAbsent() {
+		delete(object, "tree_events")
+	} else if value.TreeEvents.IsNull() {
+		object["tree_events"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.TreeEvents.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SubscribeRequest.TreeEvents: %w", err)
+		}
+		object["tree_events"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *SubscribeRequest) UnmarshalJSON(data []byte) error {
+	type wire SubscribeRequest
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawSurface, hasSurface := object["surface"]
+	if !hasSurface {
+		decoded.Surface = Presence[ID]{}
+	} else if isJSONNull(rawSurface) {
+		decoded.Surface = Null[ID]()
+	} else {
+		var fieldValue ID
+		if err := json.Unmarshal(rawSurface, &fieldValue); err != nil {
+			return fmt.Errorf("decode SubscribeRequest.Surface: %w", err)
+		}
+		decoded.Surface = Value(fieldValue)
+	}
+	rawTreeEvents, hasTreeEvents := object["tree_events"]
+	if !hasTreeEvents {
+		decoded.TreeEvents = Presence[SubscribeRequestTreeEvents]{}
+	} else if isJSONNull(rawTreeEvents) {
+		decoded.TreeEvents = Null[SubscribeRequestTreeEvents]()
+	} else {
+		var fieldValue SubscribeRequestTreeEvents
+		if err := json.Unmarshal(rawTreeEvents, &fieldValue); err != nil {
+			return fmt.Errorf("decode SubscribeRequest.TreeEvents: %w", err)
+		}
+		decoded.TreeEvents = Value(fieldValue)
+	}
+	*value = SubscribeRequest(decoded)
+	return nil
 }
 
 type SubscribeResult = EmptyResult
 
 // SwapPaneRequest is the exact swap-pane wire payload.
 type SwapPaneRequest struct {
-	Dir    *PaneDirection `json:"dir,omitempty"`
-	Pane   ID             `json:"pane"`
-	Target *ID            `json:"target,omitempty"`
+	Dir    Presence[PaneDirection] `json:"-"`
+	Pane   ID                      `json:"pane"`
+	Target Presence[ID]            `json:"-"`
+}
+
+func (value SwapPaneRequest) MarshalJSON() ([]byte, error) {
+	type wire SwapPaneRequest
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Dir.IsAbsent() {
+		delete(object, "dir")
+	} else if value.Dir.IsNull() {
+		object["dir"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Dir.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SwapPaneRequest.Dir: %w", err)
+		}
+		object["dir"] = encodedField
+	}
+	if value.Target.IsAbsent() {
+		delete(object, "target")
+	} else if value.Target.IsNull() {
+		object["target"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Target.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SwapPaneRequest.Target: %w", err)
+		}
+		object["target"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *SwapPaneRequest) UnmarshalJSON(data []byte) error {
+	type wire SwapPaneRequest
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawDir, hasDir := object["dir"]
+	if !hasDir {
+		decoded.Dir = Presence[PaneDirection]{}
+	} else if isJSONNull(rawDir) {
+		decoded.Dir = Null[PaneDirection]()
+	} else {
+		var fieldValue PaneDirection
+		if err := json.Unmarshal(rawDir, &fieldValue); err != nil {
+			return fmt.Errorf("decode SwapPaneRequest.Dir: %w", err)
+		}
+		decoded.Dir = Value(fieldValue)
+	}
+	rawTarget, hasTarget := object["target"]
+	if !hasTarget {
+		decoded.Target = Presence[ID]{}
+	} else if isJSONNull(rawTarget) {
+		decoded.Target = Null[ID]()
+	} else {
+		var fieldValue ID
+		if err := json.Unmarshal(rawTarget, &fieldValue); err != nil {
+			return fmt.Errorf("decode SwapPaneRequest.Target: %w", err)
+		}
+		decoded.Target = Value(fieldValue)
+	}
+	*value = SwapPaneRequest(decoded)
+	return nil
 }
 
 type SwapPaneResult = EmptyResult
 
 type SwapPaneOptions struct {
-	Dir    *PaneDirection `json:"dir,omitempty"`
-	Target *ID            `json:"target,omitempty"`
+	Dir    Presence[PaneDirection] `json:"-"`
+	Target Presence[ID]            `json:"-"`
+}
+
+func (value SwapPaneOptions) MarshalJSON() ([]byte, error) {
+	type wire SwapPaneOptions
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Dir.IsAbsent() {
+		delete(object, "dir")
+	} else if value.Dir.IsNull() {
+		object["dir"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Dir.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SwapPaneOptions.Dir: %w", err)
+		}
+		object["dir"] = encodedField
+	}
+	if value.Target.IsAbsent() {
+		delete(object, "target")
+	} else if value.Target.IsNull() {
+		object["target"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Target.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SwapPaneOptions.Target: %w", err)
+		}
+		object["target"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *SwapPaneOptions) UnmarshalJSON(data []byte) error {
+	type wire SwapPaneOptions
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawDir, hasDir := object["dir"]
+	if !hasDir {
+		decoded.Dir = Presence[PaneDirection]{}
+	} else if isJSONNull(rawDir) {
+		decoded.Dir = Null[PaneDirection]()
+	} else {
+		var fieldValue PaneDirection
+		if err := json.Unmarshal(rawDir, &fieldValue); err != nil {
+			return fmt.Errorf("decode SwapPaneOptions.Dir: %w", err)
+		}
+		decoded.Dir = Value(fieldValue)
+	}
+	rawTarget, hasTarget := object["target"]
+	if !hasTarget {
+		decoded.Target = Presence[ID]{}
+	} else if isJSONNull(rawTarget) {
+		decoded.Target = Null[ID]()
+	} else {
+		var fieldValue ID
+		if err := json.Unmarshal(rawTarget, &fieldValue); err != nil {
+			return fmt.Errorf("decode SwapPaneOptions.Target: %w", err)
+		}
+		decoded.Target = Value(fieldValue)
+	}
+	*value = SwapPaneOptions(decoded)
+	return nil
 }
 
 // TerminalEventsRequest is the exact terminal-events wire payload.
@@ -890,8 +8393,42 @@ type TerminalEventsRequest struct {
 	AfterRevision *uint64 `json:"after_revision,omitempty"`
 }
 
+func (value *TerminalEventsRequest) UnmarshalJSON(data []byte) error {
+	type wire TerminalEventsRequest
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	if raw, exists := object["after_revision"]; exists && isJSONNull(raw) {
+		return fmt.Errorf("decode TerminalEventsRequest: non-nullable field after_revision is null")
+	}
+	*value = TerminalEventsRequest(decoded)
+	return nil
+}
+
 type TerminalEventsOptions struct {
 	AfterRevision *uint64 `json:"after_revision,omitempty"`
+}
+
+func (value *TerminalEventsOptions) UnmarshalJSON(data []byte) error {
+	type wire TerminalEventsOptions
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	if raw, exists := object["after_revision"]; exists && isJSONNull(raw) {
+		return fmt.Errorf("decode TerminalEventsOptions: non-nullable field after_revision is null")
+	}
+	*value = TerminalEventsOptions(decoded)
+	return nil
 }
 
 // VTStateRequest is the exact vt-state wire payload.
@@ -908,20 +8445,191 @@ type WaitForRequest struct {
 }
 
 // ZoomPaneRequest is the exact zoom-pane wire payload.
+type ZoomPaneRequestMode string
+
+const (
+	ZoomPaneRequestModeToggle ZoomPaneRequestMode = "toggle"
+	ZoomPaneRequestModeOn     ZoomPaneRequestMode = "on"
+	ZoomPaneRequestModeOff    ZoomPaneRequestMode = "off"
+)
+
 type ZoomPaneRequest struct {
-	Mode *string `json:"mode,omitempty"`
-	Pane *ID     `json:"pane,omitempty"`
+	Mode Presence[ZoomPaneRequestMode] `json:"-"`
+	Pane Presence[ID]                  `json:"-"`
 }
 
+func (value ZoomPaneRequest) MarshalJSON() ([]byte, error) {
+	type wire ZoomPaneRequest
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Mode.IsAbsent() {
+		delete(object, "mode")
+	} else if value.Mode.IsNull() {
+		object["mode"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Mode.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode ZoomPaneRequest.Mode: %w", err)
+		}
+		object["mode"] = encodedField
+	}
+	if value.Pane.IsAbsent() {
+		delete(object, "pane")
+	} else if value.Pane.IsNull() {
+		object["pane"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Pane.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode ZoomPaneRequest.Pane: %w", err)
+		}
+		object["pane"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *ZoomPaneRequest) UnmarshalJSON(data []byte) error {
+	type wire ZoomPaneRequest
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawMode, hasMode := object["mode"]
+	if !hasMode {
+		decoded.Mode = Presence[ZoomPaneRequestMode]{}
+	} else if isJSONNull(rawMode) {
+		decoded.Mode = Null[ZoomPaneRequestMode]()
+	} else {
+		var fieldValue ZoomPaneRequestMode
+		if err := json.Unmarshal(rawMode, &fieldValue); err != nil {
+			return fmt.Errorf("decode ZoomPaneRequest.Mode: %w", err)
+		}
+		decoded.Mode = Value(fieldValue)
+	}
+	rawPane, hasPane := object["pane"]
+	if !hasPane {
+		decoded.Pane = Presence[ID]{}
+	} else if isJSONNull(rawPane) {
+		decoded.Pane = Null[ID]()
+	} else {
+		var fieldValue ID
+		if err := json.Unmarshal(rawPane, &fieldValue); err != nil {
+			return fmt.Errorf("decode ZoomPaneRequest.Pane: %w", err)
+		}
+		decoded.Pane = Value(fieldValue)
+	}
+	*value = ZoomPaneRequest(decoded)
+	return nil
+}
+
+type ZoomPaneOptionsMode string
+
+const (
+	ZoomPaneOptionsModeToggle ZoomPaneOptionsMode = "toggle"
+	ZoomPaneOptionsModeOn     ZoomPaneOptionsMode = "on"
+	ZoomPaneOptionsModeOff    ZoomPaneOptionsMode = "off"
+)
+
 type ZoomPaneOptions struct {
-	Mode *string `json:"mode,omitempty"`
-	Pane *ID     `json:"pane,omitempty"`
+	Mode Presence[ZoomPaneOptionsMode] `json:"-"`
+	Pane Presence[ID]                  `json:"-"`
+}
+
+func (value ZoomPaneOptions) MarshalJSON() ([]byte, error) {
+	type wire ZoomPaneOptions
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Mode.IsAbsent() {
+		delete(object, "mode")
+	} else if value.Mode.IsNull() {
+		object["mode"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Mode.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode ZoomPaneOptions.Mode: %w", err)
+		}
+		object["mode"] = encodedField
+	}
+	if value.Pane.IsAbsent() {
+		delete(object, "pane")
+	} else if value.Pane.IsNull() {
+		object["pane"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Pane.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode ZoomPaneOptions.Pane: %w", err)
+		}
+		object["pane"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *ZoomPaneOptions) UnmarshalJSON(data []byte) error {
+	type wire ZoomPaneOptions
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawMode, hasMode := object["mode"]
+	if !hasMode {
+		decoded.Mode = Presence[ZoomPaneOptionsMode]{}
+	} else if isJSONNull(rawMode) {
+		decoded.Mode = Null[ZoomPaneOptionsMode]()
+	} else {
+		var fieldValue ZoomPaneOptionsMode
+		if err := json.Unmarshal(rawMode, &fieldValue); err != nil {
+			return fmt.Errorf("decode ZoomPaneOptions.Mode: %w", err)
+		}
+		decoded.Mode = Value(fieldValue)
+	}
+	rawPane, hasPane := object["pane"]
+	if !hasPane {
+		decoded.Pane = Presence[ID]{}
+	} else if isJSONNull(rawPane) {
+		decoded.Pane = Null[ID]()
+	} else {
+		var fieldValue ID
+		if err := json.Unmarshal(rawPane, &fieldValue); err != nil {
+			return fmt.Errorf("decode ZoomPaneOptions.Pane: %w", err)
+		}
+		decoded.Pane = Value(fieldValue)
+	}
+	*value = ZoomPaneOptions(decoded)
+	return nil
 }
 
 // ApplyLayout sends apply-layout. Protocol v6; authority control.
 func (c *Client) ApplyLayout(ctx context.Context, request ApplyLayoutRequest) (ApplyLayoutResult, error) {
 	var result ApplyLayoutResult
-	err := c.requestGenerated(ctx, commandMetadata["apply-layout"], "apply-layout", commandMap(request), &result)
+	params, err := commandMap(request)
+	if err != nil {
+		err = fmt.Errorf("%w: encode apply-layout parameters: %v", ErrInvalidArgument, err)
+		return result, err
+	}
+	err = c.requestGenerated(ctx, commandMetadata["apply-layout"], "apply-layout", params, &result)
 	return result, err
 }
 
@@ -951,13 +8659,23 @@ func (c *Client) BrowserInsertText(ctx context.Context, surface ID, text string)
 
 // BrowserKey sends browser-key. Protocol v6; authority frontend.
 func (c *Client) BrowserKey(ctx context.Context, request BrowserKeyRequest) error {
-	err := c.requestGenerated(ctx, commandMetadata["browser-key"], "browser-key", commandMap(request), nil)
+	params, err := commandMap(request)
+	if err != nil {
+		err = fmt.Errorf("%w: encode browser-key parameters: %v", ErrInvalidArgument, err)
+		return err
+	}
+	err = c.requestGenerated(ctx, commandMetadata["browser-key"], "browser-key", params, nil)
 	return err
 }
 
 // BrowserMouse sends browser-mouse. Protocol v6; authority frontend.
 func (c *Client) BrowserMouse(ctx context.Context, request BrowserMouseRequest) error {
-	err := c.requestGenerated(ctx, commandMetadata["browser-mouse"], "browser-mouse", commandMap(request), nil)
+	params, err := commandMap(request)
+	if err != nil {
+		err = fmt.Errorf("%w: encode browser-mouse parameters: %v", ErrInvalidArgument, err)
+		return err
+	}
+	err = c.requestGenerated(ctx, commandMetadata["browser-mouse"], "browser-mouse", params, nil)
 	return err
 }
 
@@ -975,7 +8693,12 @@ func (c *Client) BrowserReload(ctx context.Context, surface ID) error {
 
 // BrowserWheel sends browser-wheel. Protocol v6; authority frontend.
 func (c *Client) BrowserWheel(ctx context.Context, request BrowserWheelRequest) error {
-	err := c.requestGenerated(ctx, commandMetadata["browser-wheel"], "browser-wheel", commandMap(request), nil)
+	params, err := commandMap(request)
+	if err != nil {
+		err = fmt.Errorf("%w: encode browser-wheel parameters: %v", ErrInvalidArgument, err)
+		return err
+	}
+	err = c.requestGenerated(ctx, commandMetadata["browser-wheel"], "browser-wheel", params, nil)
 	return err
 }
 
@@ -1013,14 +8736,24 @@ func (c *Client) CloseSurface(ctx context.Context, surface ID) error {
 // CloseTerminal sends close-terminal. Protocol v9; authority control.
 func (c *Client) CloseTerminal(ctx context.Context, terminalID string, options CloseTerminalOptions) (CloseTerminalResult, error) {
 	var result CloseTerminalResult
-	err := c.requestGenerated(ctx, commandMetadata["close-terminal"], "close-terminal", mergeCommandParams(map[string]any{"terminal_id": terminalID}, options), &result)
+	params, err := mergeCommandParams(map[string]any{"terminal_id": terminalID}, options)
+	if err != nil {
+		err = fmt.Errorf("%w: encode close-terminal parameters: %v", ErrInvalidArgument, err)
+		return result, err
+	}
+	err = c.requestGenerated(ctx, commandMetadata["close-terminal"], "close-terminal", params, &result)
 	return result, err
 }
 
 // CloseWorkspace sends close-workspace. Protocol v5; authority control.
 func (c *Client) CloseWorkspace(ctx context.Context, options CloseWorkspaceOptions) (CloseWorkspaceResult, error) {
 	var result CloseWorkspaceResult
-	err := c.requestGenerated(ctx, commandMetadata["close-workspace"], "close-workspace", commandMap(options), &result)
+	params, err := commandMap(options)
+	if err != nil {
+		err = fmt.Errorf("%w: encode close-workspace parameters: %v", ErrInvalidArgument, err)
+		return result, err
+	}
+	err = c.requestGenerated(ctx, commandMetadata["close-workspace"], "close-workspace", params, &result)
 	return result, err
 }
 
@@ -1034,14 +8767,24 @@ func (c *Client) Copy(ctx context.Context, surface ID, mode string) (CopyResult,
 // CreateTerminal sends create-terminal. Protocol v7; authority control.
 func (c *Client) CreateTerminal(ctx context.Context, options CreateTerminalOptions) (CreateTerminalResult, error) {
 	var result CreateTerminalResult
-	err := c.requestGenerated(ctx, commandMetadata["create-terminal"], "create-terminal", commandMap(options), &result)
+	params, err := commandMap(options)
+	if err != nil {
+		err = fmt.Errorf("%w: encode create-terminal parameters: %v", ErrInvalidArgument, err)
+		return result, err
+	}
+	err = c.requestGenerated(ctx, commandMetadata["create-terminal"], "create-terminal", params, &result)
 	return result, err
 }
 
 // CreateWorkspace sends create-workspace. Protocol v7; authority control.
 func (c *Client) CreateWorkspace(ctx context.Context, options CreateWorkspaceOptions) (CreateWorkspaceResult, error) {
 	var result CreateWorkspaceResult
-	err := c.requestGenerated(ctx, commandMetadata["create-workspace"], "create-workspace", commandMap(options), &result)
+	params, err := commandMap(options)
+	if err != nil {
+		err = fmt.Errorf("%w: encode create-workspace parameters: %v", ErrInvalidArgument, err)
+		return result, err
+	}
+	err = c.requestGenerated(ctx, commandMetadata["create-workspace"], "create-workspace", params, &result)
 	return result, err
 }
 
@@ -1054,14 +8797,24 @@ func (c *Client) DetachClient(ctx context.Context, client uint64) error {
 // ExportLayout sends export-layout. Protocol v6; authority control.
 func (c *Client) ExportLayout(ctx context.Context, options ExportLayoutOptions) (ExportLayoutResult, error) {
 	var result ExportLayoutResult
-	err := c.requestGenerated(ctx, commandMetadata["export-layout"], "export-layout", commandMap(options), &result)
+	params, err := commandMap(options)
+	if err != nil {
+		err = fmt.Errorf("%w: encode export-layout parameters: %v", ErrInvalidArgument, err)
+		return result, err
+	}
+	err = c.requestGenerated(ctx, commandMetadata["export-layout"], "export-layout", params, &result)
 	return result, err
 }
 
 // FocusDirection sends focus-direction. Protocol v6; authority control.
 func (c *Client) FocusDirection(ctx context.Context, dir PaneDirection, options FocusDirectionOptions) (FocusDirectionResult, error) {
 	var result FocusDirectionResult
-	err := c.requestGenerated(ctx, commandMetadata["focus-direction"], "focus-direction", mergeCommandParams(map[string]any{"dir": dir}, options), &result)
+	params, err := mergeCommandParams(map[string]any{"dir": dir}, options)
+	if err != nil {
+		err = fmt.Errorf("%w: encode focus-direction parameters: %v", ErrInvalidArgument, err)
+		return result, err
+	}
+	err = c.requestGenerated(ctx, commandMetadata["focus-direction"], "focus-direction", params, &result)
 	return result, err
 }
 
@@ -1088,14 +8841,24 @@ func (c *Client) Identify(ctx context.Context) (IdentifyResult, error) {
 // IDs sends ids. Protocol v6; authority control.
 func (c *Client) IDs(ctx context.Context, options IDsOptions) (IDsResult, error) {
 	var result IDsResult
-	err := c.requestGenerated(ctx, commandMetadata["ids"], "ids", commandMap(options), &result)
+	params, err := commandMap(options)
+	if err != nil {
+		err = fmt.Errorf("%w: encode ids parameters: %v", ErrInvalidArgument, err)
+		return result, err
+	}
+	err = c.requestGenerated(ctx, commandMetadata["ids"], "ids", params, &result)
 	return result, err
 }
 
 // ListAgents sends list-agents. Protocol v6; authority control.
 func (c *Client) ListAgents(ctx context.Context, options ListAgentsOptions) (ListAgentsResult, error) {
 	var result ListAgentsResult
-	err := c.requestGenerated(ctx, commandMetadata["list-agents"], "list-agents", commandMap(options), &result)
+	params, err := commandMap(options)
+	if err != nil {
+		err = fmt.Errorf("%w: encode list-agents parameters: %v", ErrInvalidArgument, err)
+		return result, err
+	}
+	err = c.requestGenerated(ctx, commandMetadata["list-agents"], "list-agents", params, &result)
 	return result, err
 }
 
@@ -1129,7 +8892,12 @@ func (c *Client) MarkWorkspacesProviderManaged(ctx context.Context, authority st
 // MintTerminalRenderer sends mint-terminal-renderer. Protocol v9; authority frontend.
 func (c *Client) MintTerminalRenderer(ctx context.Context, surface ID, options MintTerminalRendererOptions) (MintTerminalRendererResult, error) {
 	var result MintTerminalRendererResult
-	err := c.requestGenerated(ctx, commandMetadata["mint-terminal-renderer"], "mint-terminal-renderer", mergeCommandParams(map[string]any{"surface": surface}, options), &result)
+	params, err := mergeCommandParams(map[string]any{"surface": surface}, options)
+	if err != nil {
+		err = fmt.Errorf("%w: encode mint-terminal-renderer parameters: %v", ErrInvalidArgument, err)
+		return result, err
+	}
+	err = c.requestGenerated(ctx, commandMetadata["mint-terminal-renderer"], "mint-terminal-renderer", params, &result)
 	return result, err
 }
 
@@ -1142,56 +8910,96 @@ func (c *Client) MoveTab(ctx context.Context, surface ID, pane ID, index uint64)
 // MoveTerminal sends move-terminal. Protocol v9; authority control.
 func (c *Client) MoveTerminal(ctx context.Context, terminalID string, workspaceKey string, options MoveTerminalOptions) (MoveTerminalResult, error) {
 	var result MoveTerminalResult
-	err := c.requestGenerated(ctx, commandMetadata["move-terminal"], "move-terminal", mergeCommandParams(map[string]any{"terminal_id": terminalID, "workspace_key": workspaceKey}, options), &result)
+	params, err := mergeCommandParams(map[string]any{"terminal_id": terminalID, "workspace_key": workspaceKey}, options)
+	if err != nil {
+		err = fmt.Errorf("%w: encode move-terminal parameters: %v", ErrInvalidArgument, err)
+		return result, err
+	}
+	err = c.requestGenerated(ctx, commandMetadata["move-terminal"], "move-terminal", params, &result)
 	return result, err
 }
 
 // MoveWorkspace sends move-workspace. Protocol v5; authority control.
 func (c *Client) MoveWorkspace(ctx context.Context, index uint64, options MoveWorkspaceOptions) (MoveWorkspaceResult, error) {
 	var result MoveWorkspaceResult
-	err := c.requestGenerated(ctx, commandMetadata["move-workspace"], "move-workspace", mergeCommandParams(map[string]any{"index": index}, options), &result)
+	params, err := mergeCommandParams(map[string]any{"index": index}, options)
+	if err != nil {
+		err = fmt.Errorf("%w: encode move-workspace parameters: %v", ErrInvalidArgument, err)
+		return result, err
+	}
+	err = c.requestGenerated(ctx, commandMetadata["move-workspace"], "move-workspace", params, &result)
 	return result, err
 }
 
 // NewBrowserTab sends new-browser-tab. Protocol v5; authority control.
 func (c *Client) NewBrowserTab(ctx context.Context, url string, options NewBrowserTabOptions) (NewBrowserTabResult, error) {
 	var result NewBrowserTabResult
-	err := c.requestGenerated(ctx, commandMetadata["new-browser-tab"], "new-browser-tab", mergeCommandParams(map[string]any{"url": url}, options), &result)
+	params, err := mergeCommandParams(map[string]any{"url": url}, options)
+	if err != nil {
+		err = fmt.Errorf("%w: encode new-browser-tab parameters: %v", ErrInvalidArgument, err)
+		return result, err
+	}
+	err = c.requestGenerated(ctx, commandMetadata["new-browser-tab"], "new-browser-tab", params, &result)
 	return result, err
 }
 
 // NewPane sends new-pane. Protocol v9; authority control.
 func (c *Client) NewPane(ctx context.Context, pane ID, options NewPaneOptions) (NewPaneResult, error) {
 	var result NewPaneResult
-	err := c.requestGenerated(ctx, commandMetadata["new-pane"], "new-pane", mergeCommandParams(map[string]any{"pane": pane}, options), &result)
+	params, err := mergeCommandParams(map[string]any{"pane": pane}, options)
+	if err != nil {
+		err = fmt.Errorf("%w: encode new-pane parameters: %v", ErrInvalidArgument, err)
+		return result, err
+	}
+	err = c.requestGenerated(ctx, commandMetadata["new-pane"], "new-pane", params, &result)
 	return result, err
 }
 
 // NewScreen sends new-screen. Protocol v5; authority control.
 func (c *Client) NewScreen(ctx context.Context, options NewScreenOptions) (NewScreenResult, error) {
 	var result NewScreenResult
-	err := c.requestGenerated(ctx, commandMetadata["new-screen"], "new-screen", commandMap(options), &result)
+	params, err := commandMap(options)
+	if err != nil {
+		err = fmt.Errorf("%w: encode new-screen parameters: %v", ErrInvalidArgument, err)
+		return result, err
+	}
+	err = c.requestGenerated(ctx, commandMetadata["new-screen"], "new-screen", params, &result)
 	return result, err
 }
 
 // NewTab sends new-tab. Protocol v5; authority control.
 func (c *Client) NewTab(ctx context.Context, options NewTabOptions) (NewTabResult, error) {
 	var result NewTabResult
-	err := c.requestGenerated(ctx, commandMetadata["new-tab"], "new-tab", commandMap(options), &result)
+	params, err := commandMap(options)
+	if err != nil {
+		err = fmt.Errorf("%w: encode new-tab parameters: %v", ErrInvalidArgument, err)
+		return result, err
+	}
+	err = c.requestGenerated(ctx, commandMetadata["new-tab"], "new-tab", params, &result)
 	return result, err
 }
 
 // NewWorkspace sends new-workspace. Protocol v5; authority control.
 func (c *Client) NewWorkspace(ctx context.Context, options NewWorkspaceOptions) (NewWorkspaceResult, error) {
 	var result NewWorkspaceResult
-	err := c.requestGenerated(ctx, commandMetadata["new-workspace"], "new-workspace", commandMap(options), &result)
+	params, err := commandMap(options)
+	if err != nil {
+		err = fmt.Errorf("%w: encode new-workspace parameters: %v", ErrInvalidArgument, err)
+		return result, err
+	}
+	err = c.requestGenerated(ctx, commandMetadata["new-workspace"], "new-workspace", params, &result)
 	return result, err
 }
 
 // Notify sends notify. Protocol v6; authority control.
 func (c *Client) Notify(ctx context.Context, title string, body string, options NotifyOptions) (NotifyResult, error) {
 	var result NotifyResult
-	err := c.requestGenerated(ctx, commandMetadata["notify"], "notify", mergeCommandParams(map[string]any{"title": title, "body": body}, options), &result)
+	params, err := mergeCommandParams(map[string]any{"title": title, "body": body}, options)
+	if err != nil {
+		err = fmt.Errorf("%w: encode notify parameters: %v", ErrInvalidArgument, err)
+		return result, err
+	}
+	err = c.requestGenerated(ctx, commandMetadata["notify"], "notify", params, &result)
 	return result, err
 }
 
@@ -1225,7 +9033,12 @@ func (c *Client) ProcessInfo(ctx context.Context, surface ID) (ProcessInfoResult
 // PutFrontendProjection sends put-frontend-projection. Protocol v7; authority control.
 func (c *Client) PutFrontendProjection(ctx context.Context, request PutFrontendProjectionRequest) (PutFrontendProjectionResult, error) {
 	var result PutFrontendProjectionResult
-	err := c.requestGenerated(ctx, commandMetadata["put-frontend-projection"], "put-frontend-projection", commandMap(request), &result)
+	params, err := commandMap(request)
+	if err != nil {
+		err = fmt.Errorf("%w: encode put-frontend-projection parameters: %v", ErrInvalidArgument, err)
+		return result, err
+	}
+	err = c.requestGenerated(ctx, commandMetadata["put-frontend-projection"], "put-frontend-projection", params, &result)
 	return result, err
 }
 
@@ -1265,7 +9078,12 @@ func (c *Client) RenamePane(ctx context.Context, pane ID, name string) error {
 // RenameProviderManagedWorkspace sends rename-provider-managed-workspace. Protocol v9; authority provider-authority.
 func (c *Client) RenameProviderManagedWorkspace(ctx context.Context, request RenameProviderManagedWorkspaceRequest) (RenameProviderManagedWorkspaceResult, error) {
 	var result RenameProviderManagedWorkspaceResult
-	err := c.requestGenerated(ctx, commandMetadata["rename-provider-managed-workspace"], "rename-provider-managed-workspace", commandMap(request), &result)
+	params, err := commandMap(request)
+	if err != nil {
+		err = fmt.Errorf("%w: encode rename-provider-managed-workspace parameters: %v", ErrInvalidArgument, err)
+		return result, err
+	}
+	err = c.requestGenerated(ctx, commandMetadata["rename-provider-managed-workspace"], "rename-provider-managed-workspace", params, &result)
 	return result, err
 }
 
@@ -1284,14 +9102,24 @@ func (c *Client) RenameSurface(ctx context.Context, surface ID, name string) err
 // RenameWorkspace sends rename-workspace. Protocol v5; authority control.
 func (c *Client) RenameWorkspace(ctx context.Context, name string, options RenameWorkspaceOptions) (RenameWorkspaceResult, error) {
 	var result RenameWorkspaceResult
-	err := c.requestGenerated(ctx, commandMetadata["rename-workspace"], "rename-workspace", mergeCommandParams(map[string]any{"name": name}, options), &result)
+	params, err := mergeCommandParams(map[string]any{"name": name}, options)
+	if err != nil {
+		err = fmt.Errorf("%w: encode rename-workspace parameters: %v", ErrInvalidArgument, err)
+		return result, err
+	}
+	err = c.requestGenerated(ctx, commandMetadata["rename-workspace"], "rename-workspace", params, &result)
 	return result, err
 }
 
 // ReportAgent sends report-agent. Protocol v6; authority control.
 func (c *Client) ReportAgent(ctx context.Context, surface ID, source AgentReportSource, state AgentState, options ReportAgentOptions) (ReportAgentResult, error) {
 	var result ReportAgentResult
-	err := c.requestGenerated(ctx, commandMetadata["report-agent"], "report-agent", mergeCommandParams(map[string]any{"surface": surface, "source": source, "state": state}, options), &result)
+	params, err := mergeCommandParams(map[string]any{"surface": surface, "source": source, "state": state}, options)
+	if err != nil {
+		err = fmt.Errorf("%w: encode report-agent parameters: %v", ErrInvalidArgument, err)
+		return result, err
+	}
+	err = c.requestGenerated(ctx, commandMetadata["report-agent"], "report-agent", params, &result)
 	return result, err
 }
 
@@ -1312,7 +9140,12 @@ func (c *Client) ResolveTerminal(ctx context.Context, terminalID string) (Resolv
 // Run sends run. Protocol v6; authority control.
 func (c *Client) Run(ctx context.Context, options RunOptions) (RunResult, error) {
 	var result RunResult
-	err := c.requestGenerated(ctx, commandMetadata["run"], "run", commandMap(options), &result)
+	params, err := commandMap(options)
+	if err != nil {
+		err = fmt.Errorf("%w: encode run parameters: %v", ErrInvalidArgument, err)
+		return result, err
+	}
+	err = c.requestGenerated(ctx, commandMetadata["run"], "run", params, &result)
 	return result, err
 }
 
@@ -1324,25 +9157,45 @@ func (c *Client) ScrollSurface(ctx context.Context, surface ID, delta int64) err
 
 // SelectScreen sends select-screen. Protocol v5; authority control.
 func (c *Client) SelectScreen(ctx context.Context, options SelectScreenOptions) error {
-	err := c.requestGenerated(ctx, commandMetadata["select-screen"], "select-screen", commandMap(options), nil)
+	params, err := commandMap(options)
+	if err != nil {
+		err = fmt.Errorf("%w: encode select-screen parameters: %v", ErrInvalidArgument, err)
+		return err
+	}
+	err = c.requestGenerated(ctx, commandMetadata["select-screen"], "select-screen", params, nil)
 	return err
 }
 
 // SelectTab sends select-tab. Protocol v5; authority control.
 func (c *Client) SelectTab(ctx context.Context, options SelectTabOptions) error {
-	err := c.requestGenerated(ctx, commandMetadata["select-tab"], "select-tab", commandMap(options), nil)
+	params, err := commandMap(options)
+	if err != nil {
+		err = fmt.Errorf("%w: encode select-tab parameters: %v", ErrInvalidArgument, err)
+		return err
+	}
+	err = c.requestGenerated(ctx, commandMetadata["select-tab"], "select-tab", params, nil)
 	return err
 }
 
 // SelectWorkspace sends select-workspace. Protocol v5; authority control.
 func (c *Client) SelectWorkspace(ctx context.Context, options SelectWorkspaceOptions) error {
-	err := c.requestGenerated(ctx, commandMetadata["select-workspace"], "select-workspace", commandMap(options), nil)
+	params, err := commandMap(options)
+	if err != nil {
+		err = fmt.Errorf("%w: encode select-workspace parameters: %v", ErrInvalidArgument, err)
+		return err
+	}
+	err = c.requestGenerated(ctx, commandMetadata["select-workspace"], "select-workspace", params, nil)
 	return err
 }
 
 // SendKey sends send-key. Protocol v6; authority control.
 func (c *Client) SendKey(ctx context.Context, request SendKeyRequest) error {
-	err := c.requestGenerated(ctx, commandMetadata["send-key"], "send-key", commandMap(request), nil)
+	params, err := commandMap(request)
+	if err != nil {
+		err = fmt.Errorf("%w: encode send-key parameters: %v", ErrInvalidArgument, err)
+		return err
+	}
+	err = c.requestGenerated(ctx, commandMetadata["send-key"], "send-key", params, nil)
 	return err
 }
 
@@ -1355,19 +9208,34 @@ func (c *Client) SetCellPixels(ctx context.Context, widthPx uint16, heightPx uin
 
 // SetClientInfo sends set-client-info. Protocol v6; authority control.
 func (c *Client) SetClientInfo(ctx context.Context, options SetClientInfoOptions) error {
-	err := c.requestGenerated(ctx, commandMetadata["set-client-info"], "set-client-info", commandMap(options), nil)
+	params, err := commandMap(options)
+	if err != nil {
+		err = fmt.Errorf("%w: encode set-client-info parameters: %v", ErrInvalidArgument, err)
+		return err
+	}
+	err = c.requestGenerated(ctx, commandMetadata["set-client-info"], "set-client-info", params, nil)
 	return err
 }
 
 // SetClientSizing sends set-client-sizing. Protocol v10; authority control.
 func (c *Client) SetClientSizing(ctx context.Context, surface ID, enabled bool, options SetClientSizingOptions) error {
-	err := c.requestGenerated(ctx, commandMetadata["set-client-sizing"], "set-client-sizing", mergeCommandParams(map[string]any{"surface": surface, "enabled": enabled}, options), nil)
+	params, err := mergeCommandParams(map[string]any{"surface": surface, "enabled": enabled}, options)
+	if err != nil {
+		err = fmt.Errorf("%w: encode set-client-sizing parameters: %v", ErrInvalidArgument, err)
+		return err
+	}
+	err = c.requestGenerated(ctx, commandMetadata["set-client-sizing"], "set-client-sizing", params, nil)
 	return err
 }
 
 // SetDefaultColors sends set-default-colors. Protocol v5; authority control.
 func (c *Client) SetDefaultColors(ctx context.Context, options SetDefaultColorsOptions) error {
-	err := c.requestGenerated(ctx, commandMetadata["set-default-colors"], "set-default-colors", commandMap(options), nil)
+	params, err := commandMap(options)
+	if err != nil {
+		err = fmt.Errorf("%w: encode set-default-colors parameters: %v", ErrInvalidArgument, err)
+		return err
+	}
+	err = c.requestGenerated(ctx, commandMetadata["set-default-colors"], "set-default-colors", params, nil)
 	return err
 }
 
@@ -1399,27 +9267,47 @@ func (c *Client) ShutdownDaemon(ctx context.Context, generation string, pid uint
 // SidebarPlugin sends sidebar-plugin. Protocol v6; authority frontend.
 func (c *Client) SidebarPlugin(ctx context.Context, cols uint16, rows uint16, options SidebarPluginOptions) (SidebarPluginResult, error) {
 	var result SidebarPluginResult
-	err := c.requestGenerated(ctx, commandMetadata["sidebar-plugin"], "sidebar-plugin", mergeCommandParams(map[string]any{"cols": cols, "rows": rows}, options), &result)
+	params, err := mergeCommandParams(map[string]any{"cols": cols, "rows": rows}, options)
+	if err != nil {
+		err = fmt.Errorf("%w: encode sidebar-plugin parameters: %v", ErrInvalidArgument, err)
+		return result, err
+	}
+	err = c.requestGenerated(ctx, commandMetadata["sidebar-plugin"], "sidebar-plugin", params, &result)
 	return result, err
 }
 
 // Split sends split. Protocol v5; authority control.
 func (c *Client) Split(ctx context.Context, pane ID, dir SplitDirection, options SplitOptions) (SplitResult, error) {
 	var result SplitResult
-	err := c.requestGenerated(ctx, commandMetadata["split"], "split", mergeCommandParams(map[string]any{"pane": pane, "dir": dir}, options), &result)
+	params, err := mergeCommandParams(map[string]any{"pane": pane, "dir": dir}, options)
+	if err != nil {
+		err = fmt.Errorf("%w: encode split parameters: %v", ErrInvalidArgument, err)
+		return result, err
+	}
+	err = c.requestGenerated(ctx, commandMetadata["split"], "split", params, &result)
 	return result, err
 }
 
 // SwapPane sends swap-pane. Protocol v6; authority control.
 func (c *Client) SwapPane(ctx context.Context, pane ID, options SwapPaneOptions) error {
-	err := c.requestGenerated(ctx, commandMetadata["swap-pane"], "swap-pane", mergeCommandParams(map[string]any{"pane": pane}, options), nil)
+	params, err := mergeCommandParams(map[string]any{"pane": pane}, options)
+	if err != nil {
+		err = fmt.Errorf("%w: encode swap-pane parameters: %v", ErrInvalidArgument, err)
+		return err
+	}
+	err = c.requestGenerated(ctx, commandMetadata["swap-pane"], "swap-pane", params, nil)
 	return err
 }
 
 // TerminalEvents sends terminal-events. Protocol v9; authority control.
 func (c *Client) TerminalEvents(ctx context.Context, options TerminalEventsOptions) (TerminalEventsResult, error) {
 	var result TerminalEventsResult
-	err := c.requestGenerated(ctx, commandMetadata["terminal-events"], "terminal-events", commandMap(options), &result)
+	params, err := commandMap(options)
+	if err != nil {
+		err = fmt.Errorf("%w: encode terminal-events parameters: %v", ErrInvalidArgument, err)
+		return result, err
+	}
+	err = c.requestGenerated(ctx, commandMetadata["terminal-events"], "terminal-events", params, &result)
 	return result, err
 }
 
@@ -1440,6 +9328,11 @@ func (c *Client) WaitFor(ctx context.Context, surface ID, pattern string, timeou
 // ZoomPane sends zoom-pane. Protocol v6; authority control.
 func (c *Client) ZoomPane(ctx context.Context, options ZoomPaneOptions) (ZoomPaneResult, error) {
 	var result ZoomPaneResult
-	err := c.requestGenerated(ctx, commandMetadata["zoom-pane"], "zoom-pane", commandMap(options), &result)
+	params, err := commandMap(options)
+	if err != nil {
+		err = fmt.Errorf("%w: encode zoom-pane parameters: %v", ErrInvalidArgument, err)
+		return result, err
+	}
+	err = c.requestGenerated(ctx, commandMetadata["zoom-pane"], "zoom-pane", params, &result)
 	return result, err
 }

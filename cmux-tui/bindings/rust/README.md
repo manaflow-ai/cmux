@@ -31,6 +31,8 @@ let clients = client.list_clients(ListClientsRequest::default())?;
 `Missing`, `Null`, and `Value(T)`. Required nullable fields use `Nullable<T>`,
 so a missing required field remains a decode error. `Nullable<T>` supports
 `is_null`, `as_ref`, `as_deref`, and conversion from `Option<T>`.
+Optional non-null fields use `Option<T>`: `None` omits the field, `Some(T)`
+encodes a value, and typed decoding rejects an explicit JSON `null`.
 
 ```rust
 use cmux_client::Nullable;

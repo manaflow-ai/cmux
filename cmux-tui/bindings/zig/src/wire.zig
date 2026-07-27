@@ -402,6 +402,15 @@ fn defaultOrMissing(comptime field: std.builtin.Type.StructField) !field.type {
     return error.MissingField;
 }
 
+fn rejectExplicitNulls(comptime T: type, object: Object) !void {
+    if (comptime !@hasDecl(T, "cmux_wire_optional_nonnull_fields")) return;
+    inline for (T.cmux_wire_optional_nonnull_fields) |field_name| {
+        if (object.get(field_name)) |raw| {
+            if (raw == .null) return error.UnexpectedNull;
+        }
+    }
+}
+
 pub fn decodeLeaky(
     comptime T: type,
     allocator: std.mem.Allocator,
@@ -473,6 +482,7 @@ pub fn decodeLeaky(
                 }
                 break :blk .{ .entries = entries };
             }
+            try rejectExplicitNulls(T, object);
             var result: T = undefined;
             inline for (@typeInfo(T).@"struct".fields) |field| {
                 if (object.get(field.name)) |raw| {

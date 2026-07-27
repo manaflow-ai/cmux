@@ -158,14 +158,45 @@ def _go_type(expr: Mapping[str, Any], *, anonymous_indent: str = "") -> str:
     raise ValueError(f"unsupported Go IR type kind: {kind}")
 
 
-def _field_type(field: Mapping[str, Any], *, indent: str = "") -> str:
+def _nullable_field_value_type(
+    owner_name: str | None,
+    wire_name: str | None,
+    field: Mapping[str, Any],
+    *,
+    indent: str = "",
+) -> str:
+    expr = field["type"]
+    if owner_name and wire_name and expr["kind"] in {"enum", "literal"}:
+        return owner_name + _go_name(wire_name)
+    return _go_type(expr, anonymous_indent=indent)
+
+
+def _field_type(
+    field: Mapping[str, Any],
+    *,
+    owner_name: str | None = None,
+    wire_name: str | None = None,
+    indent: str = "",
+) -> str:
+    if field["nullable"]:
+        value_type = _nullable_field_value_type(
+            owner_name,
+            wire_name,
+            field,
+            indent=indent,
+        )
+        if field["presence"] == "optional":
+            return f"Presence[{value_type}]"
+        return f"RequiredNullable[{value_type}]"
     rendered = _go_type(field["type"], anonymous_indent=indent)
-    if field["presence"] == "optional" or field["nullable"]:
+    if field["presence"] == "optional":
         rendered = "*" + rendered
     return rendered
 
 
 def _field_tag(wire_name: str, field: Mapping[str, Any]) -> str:
+    if field["nullable"]:
+        return '`json:"-"`'
     suffix = ",omitempty" if field["presence"] == "optional" else ""
     return f'`json:"{wire_name}{suffix}"`'
 
@@ -195,17 +226,280 @@ def _doc(description: Any, indent: str) -> list[str]:
     return [f"{indent}// {text}"]
 
 
+def _render_nullable_inline_type(
+    owner_name: str,
+    wire_name: str,
+    field: Mapping[str, Any],
+) -> list[str]:
+    if not field["nullable"]:
+        return []
+    expr = field["type"]
+    if expr["kind"] not in {"enum", "literal"}:
+        return []
+    name = owner_name + _go_name(wire_name)
+    if expr["kind"] == "enum":
+        base = _enum_base(list(expr["values"]))
+        lines = [f"type {name} {base}", "", "const ("]
+        for value in expr["values"]:
+            lines.append(
+                f"\t{name}{_go_name(str(value))} {name} = "
+                f"{json.dumps(value, ensure_ascii=False)}"
+            )
+        lines.append(")")
+        return lines
+
+    value = expr["value"]
+    base = _underlying_literal_type(value)
+    constant = name + _go_name(str(value))
+    encoded = json.dumps(value, ensure_ascii=False)
+    return [
+        f"type {name} {base}",
+        "",
+        f"const {constant} {name} = {encoded}",
+        "",
+        f"func (value {name}) MarshalJSON() ([]byte, error) {{",
+        f"\tif value != {constant} {{",
+        f'\t\treturn nil, fmt.Errorf("%s must equal %v", {_go_string(name)}, {constant})',
+        "\t}",
+        f"\treturn json.Marshal({base}(value))",
+        "}",
+        "",
+        f"func (value *{name}) UnmarshalJSON(data []byte) error {{",
+        f"\tvar decoded {base}",
+        "\tif err := json.Unmarshal(data, &decoded); err != nil {",
+        "\t\treturn err",
+        "\t}",
+        f"\tif decoded != {base}({constant}) {{",
+        f'\t\treturn fmt.Errorf("%s must equal %v", {_go_string(name)}, {constant})',
+        "\t}",
+        f"\t*value = {name}(decoded)",
+        "\treturn nil",
+        "}",
+    ]
+
+
+def _nullable_fields(
+    expr: Mapping[str, Any],
+) -> list[tuple[str, Mapping[str, Any]]]:
+    return [
+        (wire_name, field)
+        for wire_name, field in expr["fields"].items()
+        if field["nullable"]
+    ]
+
+
+def _optional_nonnullable_fields(
+    expr: Mapping[str, Any],
+) -> list[tuple[str, Mapping[str, Any]]]:
+    return [
+        (wire_name, field)
+        for wire_name, field in expr["fields"].items()
+        if field["presence"] == "optional" and not field["nullable"]
+    ]
+
+
+def _render_object_json(
+    name: str,
+    expr: Mapping[str, Any],
+) -> list[str]:
+    nullable = _nullable_fields(expr)
+    optional_nonnullable = _optional_nonnullable_fields(expr)
+    additional = bool(expr["additional_properties"])
+    if not nullable and not optional_nonnullable and not additional:
+        return []
+
+    lines: list[str] = []
+    if nullable or additional:
+        lines.extend(
+            [
+                f"func (value {name}) MarshalJSON() ([]byte, error) {{",
+                f"\ttype wire {name}",
+                "\tencoded, err := json.Marshal(wire(value))",
+                "\tif err != nil {",
+                "\t\treturn nil, err",
+                "\t}",
+                "\tvar object map[string]json.RawMessage",
+                "\tif err := json.Unmarshal(encoded, &object); err != nil {",
+                "\t\treturn nil, err",
+                "\t}",
+            ]
+        )
+        if additional:
+            lines.append("\tfor key, fieldValue := range value.Additional {")
+            if expr["fields"]:
+                known_fields = ", ".join(
+                    _go_string(wire_name) for wire_name in expr["fields"]
+                )
+                lines.extend(
+                    [
+                        "\t\tswitch key {",
+                        f"\t\tcase {known_fields}:",
+                        "\t\t\tcontinue",
+                        "\t\t}",
+                    ]
+                )
+            lines.extend(
+                [
+                    "\t\tobject[key] = append(json.RawMessage(nil), fieldValue...)",
+                    "\t}",
+                ]
+            )
+        for wire_name, field in nullable:
+            go_name = _go_name(wire_name)
+            if field["presence"] == "optional":
+                lines.extend(
+                    [
+                        f"\tif value.{go_name}.IsAbsent() {{",
+                        f"\t\tdelete(object, {_go_string(wire_name)})",
+                        f"\t}} else if value.{go_name}.IsNull() {{",
+                        f"\t\tobject[{_go_string(wire_name)}] = json.RawMessage(\"null\")",
+                        "\t} else {",
+                        f"\t\tfieldValue, _ := value.{go_name}.Get()",
+                        "\t\tencodedField, err := json.Marshal(fieldValue)",
+                        "\t\tif err != nil {",
+                        f'\t\t\treturn nil, fmt.Errorf("encode {name}.{go_name}: %w", err)',
+                        "\t\t}",
+                        f"\t\tobject[{_go_string(wire_name)}] = encodedField",
+                        "\t}",
+                    ]
+                )
+            else:
+                lines.extend(
+                    [
+                        f"\tif !value.{go_name}.IsSet() {{",
+                        f'\t\treturn nil, fmt.Errorf("encode {name}: required nullable field '
+                        f'{wire_name} is missing")',
+                        "\t}",
+                        f"\tif value.{go_name}.IsNull() {{",
+                        f"\t\tobject[{_go_string(wire_name)}] = json.RawMessage(\"null\")",
+                        "\t} else {",
+                        f"\t\tfieldValue, _ := value.{go_name}.Get()",
+                        "\t\tencodedField, err := json.Marshal(fieldValue)",
+                        "\t\tif err != nil {",
+                        f'\t\t\treturn nil, fmt.Errorf("encode {name}.{go_name}: %w", err)',
+                        "\t\t}",
+                        f"\t\tobject[{_go_string(wire_name)}] = encodedField",
+                        "\t}",
+                    ]
+                )
+        lines.extend(["\treturn json.Marshal(object)", "}", ""])
+
+    lines.extend(
+        [
+            f"func (value *{name}) UnmarshalJSON(data []byte) error {{",
+            f"\ttype wire {name}",
+            "\tvar decoded wire",
+            "\tif err := json.Unmarshal(data, &decoded); err != nil {",
+            "\t\treturn err",
+            "\t}",
+            "\tvar object map[string]json.RawMessage",
+            "\tif err := json.Unmarshal(data, &object); err != nil {",
+            "\t\treturn err",
+            "\t}",
+        ]
+    )
+    for wire_name, field in optional_nonnullable:
+        lines.extend(
+            [
+                f"\tif raw, exists := object[{_go_string(wire_name)}]; "
+                "exists && isJSONNull(raw) {",
+                f'\t\treturn fmt.Errorf("decode {name}: non-nullable field '
+                f'{wire_name} is null")',
+                "\t}",
+            ]
+        )
+    for wire_name, field in nullable:
+        go_name = _go_name(wire_name)
+        value_type = _nullable_field_value_type(name, wire_name, field)
+        lines.extend(
+            [
+                f"\traw{go_name}, has{go_name} := object[{_go_string(wire_name)}]",
+            ]
+        )
+        if field["presence"] == "required":
+            lines.extend(
+                [
+                    f"\tif !has{go_name} {{",
+                    f'\t\treturn fmt.Errorf("decode {name}: required nullable field '
+                    f'{wire_name} is missing")',
+                    "\t}",
+                    f"\tif isJSONNull(raw{go_name}) {{",
+                    f"\t\tdecoded.{go_name} = RequiredNull[{value_type}]()",
+                    "\t} else {",
+                    f"\t\tvar fieldValue {value_type}",
+                    f"\t\tif err := json.Unmarshal(raw{go_name}, &fieldValue); err != nil {{",
+                    f'\t\t\treturn fmt.Errorf("decode {name}.{go_name}: %w", err)',
+                    "\t\t}",
+                    f"\t\tdecoded.{go_name} = RequiredValue(fieldValue)",
+                    "\t}",
+                ]
+            )
+        else:
+            lines.extend(
+                [
+                    f"\tif !has{go_name} {{",
+                    f"\t\tdecoded.{go_name} = Presence[{value_type}]{{}}",
+                    f"\t}} else if isJSONNull(raw{go_name}) {{",
+                    f"\t\tdecoded.{go_name} = Null[{value_type}]()",
+                    "\t} else {",
+                    f"\t\tvar fieldValue {value_type}",
+                    f"\t\tif err := json.Unmarshal(raw{go_name}, &fieldValue); err != nil {{",
+                    f'\t\t\treturn fmt.Errorf("decode {name}.{go_name}: %w", err)',
+                    "\t\t}",
+                    f"\t\tdecoded.{go_name} = Value(fieldValue)",
+                    "\t}",
+                ]
+            )
+    if additional:
+        lines.append("\tfor key, fieldValue := range object {")
+        if expr["fields"]:
+            known_fields = ", ".join(
+                _go_string(wire_name) for wire_name in expr["fields"]
+            )
+            lines.extend(
+                [
+                    "\t\tswitch key {",
+                    f"\t\tcase {known_fields}:",
+                    "\t\t\tcontinue",
+                    "\t\t}",
+                ]
+            )
+        lines.extend(
+            [
+                "\t\tif decoded.Additional == nil {",
+                "\t\t\tdecoded.Additional = make(map[string]json.RawMessage)",
+                "\t\t}",
+                "\t\tdecoded.Additional[key] = "
+                "append(json.RawMessage(nil), fieldValue...)",
+                "\t}",
+            ]
+        )
+    lines.extend([f"\t*value = {name}(decoded)", "\treturn nil", "}"])
+    return lines
+
+
 def _render_object(name: str, expr: Mapping[str, Any]) -> list[str]:
-    lines = [f"type {name} struct {{"]
+    lines: list[str] = []
+    for wire_name, field in expr["fields"].items():
+        declarations = _render_nullable_inline_type(name, wire_name, field)
+        if declarations:
+            lines.extend(declarations)
+            lines.append("")
+    lines.append(f"type {name} struct {{")
     for wire_name, field in expr["fields"].items():
         lines.extend(_doc(field.get("description"), "\t"))
         lines.append(
-            f"\t{_go_name(wire_name)} {_field_type(field, indent=chr(9))} "
+            f"\t{_go_name(wire_name)} "
+            f"{_field_type(field, owner_name=name, wire_name=wire_name, indent=chr(9))} "
             f"{_field_tag(wire_name, field)}"
         )
     if expr["additional_properties"]:
         lines.append('\tAdditional map[string]json.RawMessage `json:"-"`')
     lines.append("}")
+    json_methods = _render_object_json(name, expr)
+    if json_methods:
+        lines.append("")
+        lines.extend(json_methods)
     return lines
 
 
@@ -473,6 +767,116 @@ def _gofmt(source: str) -> str:
     return completed.stdout.decode("utf-8")
 
 
+def _render_presence_types() -> list[str]:
+    return [
+        "type presenceState uint8",
+        "",
+        "const (",
+        "\tpresenceAbsent presenceState = iota",
+        "\tpresenceNull",
+        "\tpresenceValue",
+        ")",
+        "",
+        "// Presence preserves all three states of an optional nullable JSON field.",
+        "// Its zero value is absent.",
+        "type Presence[T any] struct {",
+        "\tstate presenceState",
+        "\tvalue T",
+        "}",
+        "",
+        "// Value returns a present, non-null optional value.",
+        "func Value[T any](value T) Presence[T] {",
+        "\treturn Presence[T]{state: presenceValue, value: value}",
+        "}",
+        "",
+        "// Null returns a present, explicitly null optional value.",
+        "func Null[T any]() Presence[T] {",
+        "\treturn Presence[T]{state: presenceNull}",
+        "}",
+        "",
+        "func (value Presence[T]) IsAbsent() bool { return value.state == presenceAbsent }",
+        "func (value Presence[T]) IsNull() bool { return value.state == presenceNull }",
+        "",
+        "// Get returns the value and true only for a present, non-null value.",
+        "func (value Presence[T]) Get() (T, bool) {",
+        "\treturn value.value, value.state == presenceValue",
+        "}",
+        "",
+        "func (value Presence[T]) MarshalJSON() ([]byte, error) {",
+        "\tif value.state != presenceValue {",
+        '\t\treturn []byte("null"), nil',
+        "\t}",
+        "\treturn json.Marshal(value.value)",
+        "}",
+        "",
+        "func (value *Presence[T]) UnmarshalJSON(data []byte) error {",
+        "\tif isJSONNull(data) {",
+        "\t\t*value = Null[T]()",
+        "\t\treturn nil",
+        "\t}",
+        "\tvar decoded T",
+        "\tif err := json.Unmarshal(data, &decoded); err != nil {",
+        "\t\treturn err",
+        "\t}",
+        "\t*value = Value(decoded)",
+        "\treturn nil",
+        "}",
+        "",
+        "// RequiredNullable preserves null versus value for a required JSON field.",
+        "// Its zero value is unset and is rejected when encoded as a model field.",
+        "type RequiredNullable[T any] struct {",
+        "\tset bool",
+        "\tnull bool",
+        "\tvalue T",
+        "}",
+        "",
+        "// RequiredValue returns a present, non-null required value.",
+        "func RequiredValue[T any](value T) RequiredNullable[T] {",
+        "\treturn RequiredNullable[T]{set: true, value: value}",
+        "}",
+        "",
+        "// RequiredNull returns a present, explicitly null required value.",
+        "func RequiredNull[T any]() RequiredNullable[T] {",
+        "\treturn RequiredNullable[T]{set: true, null: true}",
+        "}",
+        "",
+        "func (value RequiredNullable[T]) IsSet() bool { return value.set }",
+        "func (value RequiredNullable[T]) IsNull() bool { return value.set && value.null }",
+        "",
+        "// Get returns the value and true only for a present, non-null value.",
+        "func (value RequiredNullable[T]) Get() (T, bool) {",
+        "\treturn value.value, value.set && !value.null",
+        "}",
+        "",
+        "func (value RequiredNullable[T]) MarshalJSON() ([]byte, error) {",
+        "\tif !value.set {",
+        '\t\treturn nil, fmt.Errorf("required nullable value is unset")',
+        "\t}",
+        "\tif value.null {",
+        '\t\treturn []byte("null"), nil',
+        "\t}",
+        "\treturn json.Marshal(value.value)",
+        "}",
+        "",
+        "func (value *RequiredNullable[T]) UnmarshalJSON(data []byte) error {",
+        "\tif isJSONNull(data) {",
+        "\t\t*value = RequiredNull[T]()",
+        "\t\treturn nil",
+        "\t}",
+        "\tvar decoded T",
+        "\tif err := json.Unmarshal(data, &decoded); err != nil {",
+        "\t\treturn err",
+        "\t}",
+        "\t*value = RequiredValue(decoded)",
+        "\treturn nil",
+        "}",
+        "",
+        "func isJSONNull(data []byte) bool {",
+        '\treturn bytes.Equal(bytes.TrimSpace(data), []byte("null"))',
+        "}",
+    ]
+
+
 def _render_types(ir: SdkIR, document: Mapping[str, Any]) -> str:
     lines = _header(ir)
     lines.extend(
@@ -482,10 +886,13 @@ def _render_types(ir: SdkIR, document: Mapping[str, Any]) -> str:
             "import (",
             '\t"bytes"',
             '\t"encoding/json"',
+            '\t"fmt"',
             ")",
             "",
         ]
     )
+    lines.extend(_render_presence_types())
+    lines.append("")
     for name, expr in document["types"].items():
         lines.extend(_render_named_type(name, expr, document["types"]))
         lines.append("")
@@ -567,7 +974,7 @@ def _method_shape(
     wire_name: str,
     command: Mapping[str, Any],
     named_types: Mapping[str, Any],
-) -> tuple[str, list[tuple[str, str]], str]:
+) -> tuple[str, list[tuple[str, str]], str, bool]:
     request = _request_expr(command)
     required = sorted(
         [
@@ -590,13 +997,16 @@ def _method_shape(
             "request",
             [("request", _request_name(wire_name))],
             "commandMap(request)",
+            True,
         )
 
     arguments = [
         (
             _lower_go_name(name),
             _field_type(
-                {**field, "presence": "required", "nullable": field["nullable"]}
+                {**field, "presence": "required", "nullable": field["nullable"]},
+                owner_name=_request_name(wire_name),
+                wire_name=name,
             ),
         )
         for name, field in required
@@ -605,17 +1015,21 @@ def _method_shape(
         arguments.append(("options", _options_name(wire_name)))
     if not required and optional:
         params = "commandMap(options)"
+        params_may_error = True
     elif required:
         entries = ", ".join(
             f"{_go_string(name)}: {_lower_go_name(name)}" for name, _ in required
         )
         if optional:
             params = f"mergeCommandParams(map[string]any{{{entries}}}, options)"
+            params_may_error = True
         else:
             params = f"map[string]any{{{entries}}}"
+            params_may_error = False
     else:
         params = "nil"
-    return "shaped", arguments, params
+        params_may_error = False
+    return "shaped", arguments, params, params_may_error
 
 
 def _lower_go_name(value: str) -> str:
@@ -653,7 +1067,11 @@ def _render_method(
     if wire_name in _SPECIAL_METHODS:
         return []
     name = _go_name(wire_name)
-    _shape, arguments, params = _method_shape(wire_name, command, named_types)
+    _shape, arguments, params, params_may_error = _method_shape(
+        wire_name,
+        command,
+        named_types,
+    )
     signature_args = ", ".join(
         ["ctx context.Context", *(f"{arg} {typ}" for arg, typ in arguments)]
     )
@@ -667,11 +1085,28 @@ def _render_method(
     ]
     if not empty:
         lines.append(f"\tvar result {result_name}")
-    lines.append(
-        f"\terr := c.requestGenerated(ctx, commandMetadata[{_go_string(wire_name)}], "
-        f"{_go_string(wire_name)}, {params}, "
-        + ("nil)" if empty else "&result)")
-    )
+    if params_may_error:
+        lines.extend(
+            [
+                f"\tparams, err := {params}",
+                "\tif err != nil {",
+                f'\t\terr = fmt.Errorf("%w: encode {wire_name} parameters: %v", '
+                "ErrInvalidArgument, err)",
+                "\t\t" + ("return err" if empty else "return result, err"),
+                "\t}",
+                f"\terr = c.requestGenerated(ctx, "
+                f"commandMetadata[{_go_string(wire_name)}], "
+                f"{_go_string(wire_name)}, params, "
+                + ("nil)" if empty else "&result)"),
+            ]
+        )
+    else:
+        lines.append(
+            f"\terr := c.requestGenerated(ctx, "
+            f"commandMetadata[{_go_string(wire_name)}], "
+            f"{_go_string(wire_name)}, {params}, "
+            + ("nil)" if empty else "&result)")
+        )
     if empty:
         lines.append("\treturn err")
     else:
@@ -682,7 +1117,18 @@ def _render_method(
 
 def _render_commands(ir: SdkIR, document: Mapping[str, Any]) -> str:
     lines = _header(ir)
-    lines.extend(["package cmux", "", 'import "context"', ""])
+    lines.extend(
+        [
+            "package cmux",
+            "",
+            "import (",
+            '\t"context"',
+            '\t"encoding/json"',
+            '\t"fmt"',
+            ")",
+            "",
+        ]
+    )
     for wire_name, command in document["commands"].items():
         lines.extend(_render_command_types(wire_name, command, document["types"]))
         lines.append("")
@@ -783,6 +1229,7 @@ def _render_events(ir: SdkIR, document: Mapping[str, Any]) -> str:
             "",
             "import (",
             '\t"context"',
+            '\t"encoding/json"',
             '\t"fmt"',
             ")",
             "",
@@ -1068,12 +1515,361 @@ def _render_metadata(ir: SdkIR, document: Mapping[str, Any]) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
+def _generated_object_models(
+    document: Mapping[str, Any],
+) -> list[tuple[str, Mapping[str, Any]]]:
+    models: list[tuple[str, Mapping[str, Any]]] = []
+    named_go_types = {_go_name(name) for name in document["types"]}
+    for wire_name, expr in document["types"].items():
+        name = _go_name(wire_name)
+        if expr["kind"] == "object":
+            models.append((name, expr))
+        elif expr["kind"] == "tagged_union":
+            for tag_value, variant in expr["variants"].items():
+                if variant["kind"] == "object":
+                    models.append((_variant_name(name, str(tag_value)), variant))
+    for wire_name, command in document["commands"].items():
+        request = _request_expr(command)
+        models.append((_request_name(wire_name), request))
+        result_name = _result_name(wire_name)
+        if (
+            result_name not in named_go_types
+            and command["result"]["kind"] == "object"
+        ):
+            models.append((result_name, command["result"]))
+        optional = {
+            name: field
+            for name, field in request["fields"].items()
+            if field["presence"] == "optional"
+        }
+        if optional and wire_name not in _SPECIAL_METHODS:
+            models.append(
+                (
+                    _options_name(wire_name),
+                    {
+                        "kind": "object",
+                        "fields": optional,
+                        "additional_properties": False,
+                    },
+                )
+            )
+    for wire_name, event in document["events"].items():
+        payload = dict(event["payload"])
+        payload["fields"] = {
+            name: field
+            for name, field in payload["fields"].items()
+            if name != "event"
+        }
+        models.append((_event_name(wire_name), payload))
+    return models
+
+
+def _sample_json_value(
+    expr: Mapping[str, Any],
+    named_types: Mapping[str, Any],
+    seen: frozenset[str] = frozenset(),
+) -> Any:
+    kind = expr["kind"]
+    if kind == "scalar":
+        name = expr["name"]
+        if name == "string":
+            return "value"
+        if name == "boolean":
+            return True
+        if name in {"float32", "float64"}:
+            return 1.5
+        return 1
+    if kind == "literal":
+        return expr["value"]
+    if kind == "enum":
+        return expr["values"][0]
+    if kind == "alias":
+        return _sample_json_value(expr["target"], named_types, seen)
+    if kind == "ref":
+        name = expr["name"]
+        if name in seen:
+            raise ValueError(f"recursive Go presence test value through {name}")
+        return _sample_json_value(
+            named_types[name],
+            named_types,
+            seen | {name},
+        )
+    if kind == "array":
+        return []
+    if kind == "map":
+        return {}
+    if kind == "opaque_json":
+        return {"value": True}
+    if kind == "object":
+        result: dict[str, Any] = {}
+        for wire_name, field in expr["fields"].items():
+            if field["presence"] != "required":
+                continue
+            if field["nullable"]:
+                result[wire_name] = None
+            else:
+                result[wire_name] = _sample_json_value(
+                    field["type"],
+                    named_types,
+                    seen,
+                )
+        return result
+    if kind == "tagged_union":
+        tag_value, variant = next(iter(expr["variants"].items()))
+        result = _sample_json_value(variant, named_types, seen)
+        if not isinstance(result, dict):
+            result = {"value": result}
+        result[expr["tag"]] = tag_value
+        return result
+    if kind == "untagged_union":
+        return _sample_json_value(expr["variants"][0], named_types, seen)
+    raise ValueError(f"unsupported Go presence test kind: {kind}")
+
+
+def _presence_base_json(
+    expr: Mapping[str, Any],
+    named_types: Mapping[str, Any],
+) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for wire_name, field in expr["fields"].items():
+        if field["presence"] != "required":
+            continue
+        if field["nullable"]:
+            result[wire_name] = None
+        else:
+            result[wire_name] = _sample_json_value(
+                field["type"],
+                named_types,
+            )
+    return result
+
+
+def _render_presence_tests(
+    ir: SdkIR,
+    document: Mapping[str, Any],
+) -> str:
+    lines = _header(ir)
+    lines.extend(
+        [
+            "package cmux",
+            "",
+            "import (",
+            '\t"encoding/json"',
+            '\t"reflect"',
+            '\t"testing"',
+            ")",
+            "",
+            "func assertGeneratedFieldJSON(",
+            "\tt *testing.T,",
+            "\tmodel any,",
+            "\tfield string,",
+            "\tpresent bool,",
+            "\texpected string,",
+            ") {",
+            "\tt.Helper()",
+            "\tencoded, err := json.Marshal(model)",
+            "\tif err != nil {",
+            "\t\tt.Fatal(err)",
+            "\t}",
+            "\tvar object map[string]json.RawMessage",
+            "\tif err := json.Unmarshal(encoded, &object); err != nil {",
+            "\t\tt.Fatal(err)",
+            "\t}",
+            "\traw, exists := object[field]",
+            "\tif exists != present {",
+            '\t\tt.Fatalf("%s presence = %t, want %t; JSON = %s", '
+            "field, exists, present, encoded)",
+            "\t}",
+            "\tif !present {",
+            "\t\treturn",
+            "\t}",
+            "\tvar got, want any",
+            "\tif err := json.Unmarshal(raw, &got); err != nil {",
+            "\t\tt.Fatal(err)",
+            "\t}",
+            "\tif err := json.Unmarshal([]byte(expected), &want); err != nil {",
+            "\t\tt.Fatal(err)",
+            "\t}",
+            "\tif !reflect.DeepEqual(got, want) {",
+            '\t\tt.Fatalf("%s = %s, want %s", field, raw, expected)',
+            "\t}",
+            "}",
+            "",
+            "func TestGeneratedSchemaPresenceRoundTrips(t *testing.T) {",
+        ]
+    )
+    affected = 0
+    optional_nullable = 0
+    required_nullable = 0
+    optional_nonnullable = 0
+    for model_name, expr in _generated_object_models(document):
+        base = _presence_base_json(expr, document["types"])
+        for wire_name, field in expr["fields"].items():
+            if not field["nullable"] and field["presence"] != "optional":
+                continue
+            affected += 1
+            if field["nullable"] and field["presence"] == "optional":
+                optional_nullable += 1
+            elif field["nullable"]:
+                required_nullable += 1
+            else:
+                optional_nonnullable += 1
+            go_name = _go_name(wire_name)
+            test_name = f"{model_name}.{go_name}"
+            missing = dict(base)
+            missing.pop(wire_name, None)
+            missing_json = json.dumps(
+                missing,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+            null = dict(base)
+            null[wire_name] = None
+            null_json = json.dumps(
+                null,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+            sample = _sample_json_value(field["type"], document["types"])
+            value = dict(base)
+            value[wire_name] = sample
+            value_json = json.dumps(
+                value,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+            sample_json = json.dumps(
+                sample,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+            lines.extend(
+                [
+                    f"\tt.Run({_go_string(test_name)}, func(t *testing.T) {{",
+                ]
+            )
+            if field["nullable"] and field["presence"] == "optional":
+                lines.extend(
+                    [
+                        f"\t\tvar missing {model_name}",
+                        f"\t\tif err := json.Unmarshal([]byte({_go_string(missing_json)}), "
+                        "&missing); err != nil {",
+                        "\t\t\tt.Fatal(err)",
+                        "\t\t}",
+                        f"\t\tif !missing.{go_name}.IsAbsent() {{",
+                        f'\t\t\tt.Fatal("{go_name} did not preserve absence")',
+                        "\t\t}",
+                        f"\t\tassertGeneratedFieldJSON(t, missing, "
+                        f"{_go_string(wire_name)}, false, \"\")",
+                        f"\t\tvar nullValue {model_name}",
+                        f"\t\tif err := json.Unmarshal([]byte({_go_string(null_json)}), "
+                        "&nullValue); err != nil {",
+                        "\t\t\tt.Fatal(err)",
+                        "\t\t}",
+                        f"\t\tif !nullValue.{go_name}.IsNull() {{",
+                        f'\t\t\tt.Fatal("{go_name} did not preserve null")',
+                        "\t\t}",
+                        f"\t\tassertGeneratedFieldJSON(t, nullValue, "
+                        f"{_go_string(wire_name)}, true, \"null\")",
+                        f"\t\tvar presentValue {model_name}",
+                        f"\t\tif err := json.Unmarshal([]byte({_go_string(value_json)}), "
+                        "&presentValue); err != nil {",
+                        "\t\t\tt.Fatal(err)",
+                        "\t\t}",
+                        f"\t\tif _, ok := presentValue.{go_name}.Get(); !ok {{",
+                        f'\t\t\tt.Fatal("{go_name} did not preserve a value")',
+                        "\t\t}",
+                        f"\t\tassertGeneratedFieldJSON(t, presentValue, "
+                        f"{_go_string(wire_name)}, true, {_go_string(sample_json)})",
+                    ]
+                )
+            elif field["nullable"]:
+                lines.extend(
+                    [
+                        f"\t\tvar missing {model_name}",
+                        f"\t\tif err := json.Unmarshal([]byte({_go_string(missing_json)}), "
+                        "&missing); err == nil {",
+                        f'\t\t\tt.Fatal("missing required nullable field '
+                        f'{wire_name} decoded successfully")',
+                        "\t\t}",
+                        f"\t\tvar nullValue {model_name}",
+                        f"\t\tif err := json.Unmarshal([]byte({_go_string(null_json)}), "
+                        "&nullValue); err != nil {",
+                        "\t\t\tt.Fatal(err)",
+                        "\t\t}",
+                        f"\t\tif !nullValue.{go_name}.IsSet() || "
+                        f"!nullValue.{go_name}.IsNull() {{",
+                        f'\t\t\tt.Fatal("{go_name} did not preserve required null")',
+                        "\t\t}",
+                        f"\t\tassertGeneratedFieldJSON(t, nullValue, "
+                        f"{_go_string(wire_name)}, true, \"null\")",
+                        f"\t\tvar presentValue {model_name}",
+                        f"\t\tif err := json.Unmarshal([]byte({_go_string(value_json)}), "
+                        "&presentValue); err != nil {",
+                        "\t\t\tt.Fatal(err)",
+                        "\t\t}",
+                        f"\t\tif _, ok := presentValue.{go_name}.Get(); !ok {{",
+                        f'\t\t\tt.Fatal("{go_name} did not preserve a required value")',
+                        "\t\t}",
+                        f"\t\tassertGeneratedFieldJSON(t, presentValue, "
+                        f"{_go_string(wire_name)}, true, {_go_string(sample_json)})",
+                    ]
+                )
+            else:
+                lines.extend(
+                    [
+                        f"\t\tvar missing {model_name}",
+                        f"\t\tif err := json.Unmarshal([]byte({_go_string(missing_json)}), "
+                        "&missing); err != nil {",
+                        "\t\t\tt.Fatal(err)",
+                        "\t\t}",
+                        f"\t\tif missing.{go_name} != nil {{",
+                        f'\t\t\tt.Fatal("{go_name} did not preserve absence")',
+                        "\t\t}",
+                        f"\t\tassertGeneratedFieldJSON(t, missing, "
+                        f"{_go_string(wire_name)}, false, \"\")",
+                        f"\t\tvar nullValue {model_name}",
+                        f"\t\tif err := json.Unmarshal([]byte({_go_string(null_json)}), "
+                        "&nullValue); err == nil {",
+                        f'\t\t\tt.Fatal("non-nullable field {wire_name} accepted null")',
+                        "\t\t}",
+                        f"\t\tvar presentValue {model_name}",
+                        f"\t\tif err := json.Unmarshal([]byte({_go_string(value_json)}), "
+                        "&presentValue); err != nil {",
+                        "\t\t\tt.Fatal(err)",
+                        "\t\t}",
+                        f"\t\tif presentValue.{go_name} == nil {{",
+                        f'\t\t\tt.Fatal("{go_name} lost its value")',
+                        "\t\t}",
+                        f"\t\tassertGeneratedFieldJSON(t, presentValue, "
+                        f"{_go_string(wire_name)}, true, {_go_string(sample_json)})",
+                    ]
+                )
+            lines.extend(["\t})"])
+    lines.extend(
+        [
+            "}",
+            "",
+            "const (",
+            f"\tgeneratedFieldShapeCount = {affected}",
+            f"\tgeneratedOptionalNullableFieldCount = {optional_nullable}",
+            f"\tgeneratedRequiredNullableFieldCount = {required_nullable}",
+            f"\tgeneratedOptionalNonnullableFieldCount = {optional_nonnullable}",
+            ")",
+        ]
+    )
+    return "\n".join(lines).rstrip() + "\n"
+
+
 def emit(ir: SdkIR) -> Mapping[str | PurePosixPath, str | bytes]:
     document = _plain(ir.document)
     return {
         "generated_commands.go": _gofmt(_render_commands(ir, document)),
         "generated_events.go": _gofmt(_render_events(ir, document)),
         "generated_metadata.go": _gofmt(_render_metadata(ir, document)),
+        "generated_presence_test.go": _gofmt(
+            _render_presence_tests(ir, document)
+        ),
         "generated_types.go": _gofmt(_render_types(ir, document)),
     }
 

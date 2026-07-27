@@ -124,6 +124,39 @@ async function nullableLiteral(request) {
   }
 }
 
+async function optionalNonNullResponse(request) {
+  const client = makeClient(request);
+  try {
+    const value = await client.identify();
+    return { present: value.capabilities !== undefined };
+  } finally {
+    await client.close();
+  }
+}
+
+async function optionalNullableRequest(request) {
+  const client = makeClient(request);
+  const presence = String(request.presence);
+  try {
+    switch (presence) {
+      case "omitted":
+        await client.request("set-client-info", {});
+        break;
+      case "null":
+        await client.request("set-client-info", { name: null });
+        break;
+      case "value":
+        await client.request("set-client-info", { name: "conformance-client" });
+        break;
+      default:
+        throw new Error(`unknown presence ${presence}`);
+    }
+    return { presence };
+  } finally {
+    await client.close();
+  }
+}
+
 async function openStream(client, request) {
   switch (request.stream) {
     case "subscribe-coarse":
@@ -169,6 +202,38 @@ async function stream(request) {
       }
     }
     return { events, terminal };
+  } finally {
+    opened?.close();
+    await client.close();
+  }
+}
+
+async function requiredNullableEvent(request) {
+  const client = makeClient(request);
+  let opened;
+  try {
+    opened = await client.subscribe();
+    const event = await opened.next(Number(request.timeout_ms ?? 1000));
+    if (event.event !== "client-changed") {
+      throw new CmuxProtocolError(`expected client-changed event, got ${event.event}`);
+    }
+    return { name: event.name };
+  } finally {
+    opened?.close();
+    await client.close();
+  }
+}
+
+async function optionalNonNullEvent(request) {
+  const client = makeClient(request);
+  let opened;
+  try {
+    opened = await openStream(client, request);
+    const event = await opened.next(Number(request.timeout_ms ?? 1000));
+    if (event.event !== "output") {
+      throw new CmuxProtocolError(`expected output event, got ${event.event}`);
+    }
+    return { present: event.colors !== undefined };
   } finally {
     opened?.close();
     await client.close();
@@ -325,8 +390,16 @@ async function dispatch(request) {
       return identify(request);
     case "nullable-literal":
       return nullableLiteral(request);
+    case "optional-non-null-response":
+      return optionalNonNullResponse(request);
+    case "optional-nullable-request":
+      return optionalNullableRequest(request);
     case "stream":
       return stream(request);
+    case "required-nullable-event":
+      return requiredNullableEvent(request);
+    case "optional-non-null-event":
+      return optionalNonNullEvent(request);
     case "close-pending-stream":
       return closePendingStream(request);
     case "authority":

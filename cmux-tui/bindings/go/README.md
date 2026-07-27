@@ -13,13 +13,16 @@ if err != nil {
 }
 defer client.Close()
 
-name := "sdk-demo"
-surface, err := client.NewWorkspace(ctx, cmux.NewWorkspaceOptions{Name: &name})
+surface, err := client.NewWorkspace(ctx, cmux.NewWorkspaceOptions{
+    Name: cmux.Value("sdk-demo"),
+})
 if err != nil {
     panic(err)
 }
 text := "printf 'hello from Go\\n'\r"
-if err := client.Send(ctx, surface.Surface, cmux.SendOptions{Text: &text}); err != nil {
+if err := client.Send(ctx, surface.Surface, cmux.SendOptions{
+    Text: cmux.Value(text),
+}); err != nil {
     panic(err)
 }
 screen, err := client.ReadScreen(ctx, surface.Surface)
@@ -76,7 +79,7 @@ Byte, render, and browser attachments have separate typed receive methods:
 render, err := client.AttachSurfaceWithOptions(
     ctx,
     surface.Surface,
-    cmux.AttachSurfaceOptions{Mode: cmux.AttachRender},
+    cmux.AttachSurfaceOptions{Mode: cmux.Value(cmux.AttachRender)},
 )
 if err != nil {
     panic(err)
@@ -89,6 +92,32 @@ Use `RecvByte`, `RecvRender`, `RecvBrowser`, `RecvSubscribe`, or `RecvDelta`
 when a mode-specific event interface helps. `Recv` returns the common `Event`
 interface. Unknown events remain available as `UnknownEvent`; they are never
 dropped. `OverflowEvent` is delivered once and then ends that stream.
+
+Generated nullable fields preserve JSON presence exactly. Optional nullable
+fields use `Presence[T]`: the zero value omits the field, `Value(value)` emits
+a value, and `Null[T]()` emits an explicit `null`. `IsAbsent`, `IsNull`, and
+`Get` inspect the state:
+
+```go
+options := cmux.SetClientInfoOptions{
+    Name: cmux.Null[string](),
+    Kind: cmux.Value("agent"),
+}
+```
+
+Required nullable fields use `RequiredNullable[T]`. Construct them with
+`RequiredValue(value)` or `RequiredNull[T]()`. Decoding rejects a missing
+required nullable field, and encoding rejects an unset zero value. Optional
+non-nullable fields remain pointers; decoding rejects an explicit `null`.
+Nullable inline enums and literals have generated field-specific types, so
+`TerminalPlacement.Lifecycle` contains
+`RequiredNullable[TerminalPlacementLifecycle]` and only accepts
+`TerminalPlacementLifecycleRunning`.
+
+This presence model is a deliberate 0.4 source change. Replace `&value` in
+optional nullable generated fields with `cmux.Value(value)`, and replace a
+nil pointer intended as explicit null with `cmux.Null[T]()`. Pointer fields
+remain unchanged when the schema marks them optional and non-nullable.
 
 Styled rows have plain-text projections, and `ReadScrollbackTail` validates
 the 65,535-row page bound:

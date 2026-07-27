@@ -172,16 +172,18 @@ cmux-tui/bindings/generate.sh --check
 
 Every binding must pass the same public-SDK contract in
 `cmux-tui/bindings/conformance/`. The language-neutral fixture document has a
-`contract_version`, 21 `fake_cases`, and three `real_cases`. Each adapter
+`contract_version`, 34 `fake_cases`, and three `real_cases`. Each adapter
 accepts one JSON request on standard input and returns one JSON result on
 standard output, as defined by
 [`adapter-protocol.md`](../bindings/conformance/adapter-protocol.md).
 
 The metadata audit requires all 83 commands and 44 events. Fake cases cover
-framing, exact `uint64` values, missing versus nullable fields, limits,
-timeouts, pre-acknowledgement events, unknown events, overflow, close
-behavior, every stream mode, all authority profiles, and provider denial with
-zero bytes written. Real cases start an isolated headless server and cover
+framing, exact `uint64` values, optional-nullable and required-nullable
+presence, optional non-null rejection, limits, timeouts, pre-acknowledgement
+events, unknown events, overflow, close behavior, every stream mode, all
+authority profiles, and provider denial with zero bytes written. Exact request
+matching proves omitted, explicit-null, and concrete values produce distinct
+wire shapes. Real cases start an isolated headless server and cover
 `identify`, `ping`, workspace and terminal creation, send, wait, read, ordered
 delta events, rename, close, and disappearance.
 
@@ -193,7 +195,8 @@ python3 cmux-tui/bindings/conformance/runner.py \
   --cmux-tui-bin cmux-tui/target/debug/cmux-tui
 ```
 
-The suite fails on stale generated output, missing required toolchains,
+The complete matrix is 266 checks, 38 per language. The suite fails on stale
+generated output, missing required toolchains,
 metadata gaps, adapter build failures, response mismatches, unexpected
 authority writes, or live lifecycle failures. The complete fixture and runner
 contract is documented in

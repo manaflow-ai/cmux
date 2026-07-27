@@ -432,7 +432,7 @@ pub type MarkWorkspacesProviderManagedResult = T::EmptyResult;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MintTerminalRendererRequest {
     pub surface: T::Id,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub ttl_ms: Option<u64>,
 }
 
@@ -758,7 +758,7 @@ pub struct RunRequest {
     pub key: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub name: Optional<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub new_workspace: Option<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub pane: Optional<T::Id>,
@@ -819,7 +819,7 @@ pub type SelectWorkspaceResult = T::EmptyResult;
 pub struct SendRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub bytes: Optional<T::Base64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub paste: Option<bool>,
     pub surface: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -864,7 +864,7 @@ pub struct SetClientSizingRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub client: Optional<u64>,
     pub enabled: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub exclusive: Option<bool>,
     pub surface: T::Id,
 }
@@ -877,7 +877,7 @@ pub type SetClientSizingResult = T::EmptyResult;
 pub struct SetDefaultColorsRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub bg: Optional<T::ColorHex>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub complete: Option<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub cursor: Optional<T::ColorHex>,
@@ -939,7 +939,7 @@ pub struct ShutdownDaemonRequest {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SidebarPluginRequest {
     pub cols: u16,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub relaunch: Option<bool>,
     pub rows: u16,
 }
@@ -995,7 +995,7 @@ pub type SwapPaneResult = T::EmptyResult;
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct TerminalEventsRequest {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub after_revision: Option<u64>,
 }
 

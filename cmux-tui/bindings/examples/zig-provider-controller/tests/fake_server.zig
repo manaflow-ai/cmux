@@ -14,6 +14,7 @@ const Scenario = enum {
     authority_error,
     old_protocol,
     missing_capability,
+    omitted_capabilities,
     stale_create,
     init_only,
     revision_gap,
@@ -69,6 +70,10 @@ const FakeServer = struct {
                 connection.stream,
                 10,
                 false,
+            ),
+            .omitted_capabilities => try self.handleIdentifyWithoutCapabilities(
+                connection.stream,
+                10,
             ),
             .stale_create => try self.runStaleCreate(connection.stream),
             .init_only => try self.runInitialize(connection.stream),
@@ -223,6 +228,27 @@ const FakeServer = struct {
             .version = "0.4.0-test",
             .protocol = protocol,
             .capabilities = capabilities,
+            .session = "provider-test",
+            .pid = @as(u32, 1234),
+            .registry_id = registry_id,
+            .generation = generation,
+            .workspace_revision = @as(u64, 7),
+            .terminal_revision = @as(u64, 0),
+            .daemon_handoff = @as(i64, 1),
+        });
+    }
+
+    fn handleIdentifyWithoutCapabilities(
+        self: *FakeServer,
+        stream: std.net.Stream,
+        protocol: u32,
+    ) !void {
+        var request = try self.receive(stream, "identify");
+        defer request.deinit();
+        try self.respond(stream, try requestId(request.value), .{
+            .app = "cmux-tui",
+            .version = "0.4.0-test",
+            .protocol = protocol,
             .session = "provider-test",
             .pid = @as(u32, 1234),
             .registry_id = registry_id,
@@ -420,6 +446,13 @@ test "old protocol is rejected before authority is sent" {
 test "missing provider capability is rejected before authority is sent" {
     try expectInitializeError(
         .missing_capability,
+        error.MissingProviderCapability,
+    );
+}
+
+test "omitted capabilities are treated as an empty capability set" {
+    try expectInitializeError(
+        .omitted_capabilities,
         error.MissingProviderCapability,
     );
 }

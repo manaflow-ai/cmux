@@ -134,10 +134,10 @@ func (c *Client) DiscoverOrCreateWorkspace(
 	origin := options.Origin
 	mutationID := options.CreateMutationID
 	created, err := c.CreateWorkspace(ctx, CreateWorkspaceOptions{
-		Key:        &key,
-		MutationID: &mutationID,
-		Name:       options.Name,
-		Origin:     &origin,
+		Key:        Value(key),
+		MutationID: Value(mutationID),
+		Name:       presenceFromPointer(options.Name),
+		Origin:     Value(origin),
 	})
 	if err != nil {
 		return nil, err
@@ -254,12 +254,12 @@ func (lease *WorkspaceLease) CloseWith(ctx context.Context, client *Client) erro
 	mutationID := lease.closeMutationID
 	workspace := live.ID
 	closed, err := client.CloseWorkspace(ctx, CloseWorkspaceOptions{
-		ExpectedGeneration: tree.Generation,
-		ExpectedRevision:   tree.WorkspaceRevision,
-		Key:                &key,
-		MutationID:         &mutationID,
-		Origin:             &origin,
-		Workspace:          &workspace,
+		ExpectedGeneration: presenceFromPointer(tree.Generation),
+		ExpectedRevision:   presenceFromPointer(tree.WorkspaceRevision),
+		Key:                Value(key),
+		MutationID:         Value(mutationID),
+		Origin:             Value(origin),
+		Workspace:          Value(workspace),
 	})
 	if err != nil {
 		return err
@@ -364,4 +364,11 @@ func optionalUint64(value *uint64) uint64 {
 		return 0
 	}
 	return *value
+}
+
+func presenceFromPointer[T any](value *T) Presence[T] {
+	if value == nil {
+		return Presence[T]{}
+	}
+	return Value(*value)
 }

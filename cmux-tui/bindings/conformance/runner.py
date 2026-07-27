@@ -300,6 +300,8 @@ class FakeServer:
             with connection:
                 if self.behavior == "no-write":
                     self._no_write(connection)
+                elif self.behavior == "request-shape":
+                    self._request_shape(connection)
                 elif self.behavior == "authority":
                     self._authority(connection)
                 else:
@@ -330,6 +332,35 @@ class FakeServer:
             raise ConformanceFailure(
                 "provider-authority denial wrote bytes before returning"
             )
+        self.done.set()
+
+    def _request_shape(self, connection: socket.socket) -> None:
+        request = self._read_request(connection)
+        if request.get("cmd") == "identify":
+            self._send_json(connection, self._identify_response(request))
+            try:
+                request = self._read_request(connection)
+            except socket.timeout:
+                self.stop_event.wait(2)
+                return
+            except ConformanceFailure as exc:
+                if "closed before sending" not in str(exc):
+                    raise
+                self.stop_event.wait(2)
+                return
+
+        actual = {key: value for key, value in request.items() if key != "id"}
+        expected = self.spec.get("expect_request")
+        if actual != expected:
+            raise ConformanceFailure(
+                "typed request shape mismatch\n"
+                f"expected: {json.dumps(expected, sort_keys=True)}\n"
+                f"actual: {json.dumps(actual, sort_keys=True)}"
+            )
+        self._send_json(
+            connection,
+            {"id": request.get("id"), "ok": True, "data": {}},
+        )
         self.done.set()
 
     def _read_request(self, connection: socket.socket) -> dict[str, Any]:
@@ -365,7 +396,7 @@ class FakeServer:
             time.sleep(0.001)
 
     def _identify_data(self) -> dict[str, Any]:
-        return {
+        data = {
             "app": "cmux-tui",
             "version": "0.0.0-conformance",
             "build_commit": None,
@@ -385,6 +416,18 @@ class FakeServer:
             "terminal_revision": UINT64_MAX,
             "daemon_handoff": 1,
         }
+        capabilities_presence = self.spec.get("capabilities_presence")
+        if capabilities_presence == "omitted":
+            data.pop("capabilities")
+        elif capabilities_presence == "null":
+            data["capabilities"] = None
+        elif capabilities_presence == "value":
+            data["capabilities"] = ["conformance-capability"]
+        elif capabilities_presence is not None:
+            raise ConformanceFailure(
+                f"unknown capabilities presence {capabilities_presence!r}"
+            )
+        return data
 
     def _identify_response(self, request: Mapping[str, Any]) -> dict[str, Any]:
         return {"id": request.get("id"), "ok": True, "data": self._identify_data()}
@@ -432,11 +475,12 @@ class FakeServer:
                 "terminal_incarnation": None,
                 "generation": "generation-conformance",
                 "key": "workspace-key",
-                "lifecycle": self.spec.get("lifecycle"),
                 "registry_id": "registry-conformance",
                 "replayed": False,
                 "terminal_revision": 5,
             }
+            if not self.spec.get("omit_lifecycle", False):
+                data["lifecycle"] = self.spec.get("lifecycle")
             self._send_json(
                 connection,
                 {"id": request.get("id"), "ok": True, "data": data},

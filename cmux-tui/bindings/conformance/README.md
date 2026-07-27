@@ -6,14 +6,21 @@ and 44 events through generated public metadata, then runs identical protocol
 fixtures against each language.
 
 The deterministic fake server covers partial frames, exact `uint64` limits,
-required nullable literals, oversized responses, invalid UTF-8, timeouts,
-events before acknowledgement, unknown events, terminal overflow, closing a
-pending read, five stream modes, four successful authority boundaries, and a
-default provider-authority denial that proves zero bytes reach the socket.
+oversized responses, invalid UTF-8, timeouts, events before acknowledgement,
+unknown events, terminal overflow, closing a pending read, five stream modes,
+four successful authority boundaries, and a default provider-authority denial
+that proves zero bytes reach the socket. Handwritten fixtures independently
+verify missing, explicit null, and typed values. They cover an
+optional-nullable request, required-nullable responses and events, and
+optional non-null responses and events. Exact request matching rejects
+accidental fields.
 Three live checks start an isolated headless `cmux-tui` server, call
 `identify` and `ping`, then create a workspace and terminal, send and read a
 marker, verify ordered delta events, rename the workspace, close it, and
 confirm it disappeared.
+
+The full seven-language run executes 266 checks: 34 fake cases, one metadata
+audit, and three live cases per language.
 
 From the repository root:
 

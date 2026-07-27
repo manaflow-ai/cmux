@@ -29,9 +29,56 @@ class ScriptedTransport implements Transport {
   onError(handler: (error: Error) => void): Unsubscribe { this.errorHandlers.add(handler); return () => this.errorHandlers.delete(handler); }
   close(): void { for (const handler of this.closeHandlers) handler(); }
   emit(value: Record<string, unknown>): void {
-    const json = stringifyWireJson(value);
+    const data = value.data;
+    const enriched = value.ok === true
+      && data
+      && typeof data === "object"
+      && !Array.isArray(data)
+      && (data as Record<string, unknown>).app === "cmux-tui"
+      ? {
+        ...value,
+        data: completeIdentifyResult(data as Record<string, unknown>),
+      }
+      : value;
+    const json = stringifyWireJson(enriched);
     for (const handler of this.messageHandlers) handler(json);
   }
+}
+
+function completeIdentifyResult(
+  data: Record<string, unknown>,
+): Record<string, unknown> {
+  const protocol = typeof data.protocol === "number" ? data.protocol : 5;
+  return {
+    ...(protocol >= 7
+      ? {
+        registry_id: "registry",
+        generation: "generation",
+        workspace_revision: 1n,
+      }
+      : {}),
+    ...(protocol >= 9
+      ? {
+        terminal_revision: 1n,
+        daemon_handoff: 1,
+      }
+      : {}),
+    ...data,
+  };
+}
+
+function identifyResult(
+  protocol = 6,
+  capabilities: readonly string[] = [],
+): Record<string, unknown> {
+  return completeIdentifyResult({
+    app: "cmux-tui",
+    version: "0.1.2",
+    protocol,
+    session: "main",
+    pid: 1,
+    capabilities: [...capabilities],
+  });
 }
 
 class TrackingAbortSignal {
@@ -94,7 +141,11 @@ test("client command timeout does not become a stream idle timeout", async () =>
   let connection: ScriptedTransport | undefined;
   const transport = new ScriptedTransport((request, current) => {
     connection = current;
-    current.emit({ id: request.id, ok: true, data: {} });
+    current.emit({
+      id: request.id,
+      ok: true,
+      data: request.cmd === "identify" ? identifyResult() : {},
+    });
   });
   const client = new CmuxClient({ transport, timeoutMs: 5 });
   const stream = await client.subscribe();
@@ -112,7 +163,11 @@ test("client command timeout does not become a stream idle timeout", async () =>
 
 test("client and per-stream idle timeout options remain finite opt-ins", async () => {
   const transport = new ScriptedTransport((request, connection) => {
-    connection.emit({ id: request.id, ok: true, data: {} });
+    connection.emit({
+      id: request.id,
+      ok: true,
+      data: request.cmd === "identify" ? identifyResult() : {},
+    });
   });
   const client = new CmuxClient({
     transport,
@@ -169,6 +224,10 @@ test("pending read listeners are removed on timeout and close", async () => {
 test("AbortSignal cancels a pending stream open and releases shared subscription state", async () => {
   let subscriptions = 0;
   const transport = new ScriptedTransport((request, connection) => {
+    if (request.cmd === "identify") {
+      connection.emit({ id: request.id, ok: true, data: identifyResult() });
+      return;
+    }
     assert.equal(request.cmd, "subscribe");
     subscriptions += 1;
     if (subscriptions === 2) {
@@ -182,8 +241,8 @@ test("AbortSignal cancels a pending stream open and releases shared subscription
   assert.equal(subscriptions, 1);
   cancelled.abort();
   await assert.rejects(() => opening, CmuxAbortError);
-  assert.equal(cancelled.added, 1);
-  assert.equal(cancelled.removed, 1);
+  assert.equal(cancelled.added, 2);
+  assert.equal(cancelled.removed, 2);
 
   const replacement = await client.subscribe();
   assert.equal(subscriptions, 2);
@@ -210,7 +269,11 @@ test("AbortSignal cancels the identification phase of a browser stream open", as
 
 test("a stream-lifetime signal aborts an unbounded pending read without listener leaks", async () => {
   const transport = new ScriptedTransport((request, connection) => {
-    connection.emit({ id: request.id, ok: true, data: {} });
+    connection.emit({
+      id: request.id,
+      ok: true,
+      data: request.cmd === "identify" ? identifyResult() : {},
+    });
   });
   const client = new CmuxClient({ transport, timeoutMs: 100 });
   const lifetime = new TrackingAbortSignal();
@@ -218,22 +281,26 @@ test("a stream-lifetime signal aborts an unbounded pending read without listener
   const pending = stream.next();
   lifetime.abort();
   await assert.rejects(() => pending, CmuxAbortError);
-  assert.equal(lifetime.added, 2);
-  assert.equal(lifetime.removed, 2);
+  assert.equal(lifetime.added, 3);
+  assert.equal(lifetime.removed, 3);
   await client.close();
 });
 
 test("closing a signalled stream removes both open and lifetime listeners", async () => {
   const transport = new ScriptedTransport((request, connection) => {
-    connection.emit({ id: request.id, ok: true, data: {} });
+    connection.emit({
+      id: request.id,
+      ok: true,
+      data: request.cmd === "identify" ? identifyResult() : {},
+    });
   });
   const client = new CmuxClient({ transport, timeoutMs: 100 });
   const lifetime = new TrackingAbortSignal();
   const stream = await client.subscribe({ signal: lifetime.signal });
-  assert.equal(lifetime.added, 2);
-  assert.equal(lifetime.removed, 1);
-  stream.close();
+  assert.equal(lifetime.added, 3);
   assert.equal(lifetime.removed, 2);
+  stream.close();
+  assert.equal(lifetime.removed, 3);
   await client.close();
 });
 
@@ -425,16 +492,36 @@ test("attach buffering enforces aggregate bytes and browser-frame limits", async
       { event: "output", surface: 7, data: "YWJj" },
       { event: "output", surface: 7, data: "ZGVm" },
     ],
-    [{ event: "frame", surface: 7, data: "AAAAA" }],
+    [{
+      event: "frame",
+      surface: 7,
+      seq: 1,
+      width: 80,
+      height: 24,
+      data: "AAAAA",
+    }],
     [{
       event: "browser-state",
       surface: 7,
+      cols: 80,
+      rows: 24,
+      url: "https://example.com",
+      title: "Example",
+      status: "live",
+      error: null,
+      frames_stalled: false,
       frame: { seq: 1, width: 80, height: 24, data: "AAAAA" },
     }],
     [{
       event: "browser-state",
       surface: 7,
+      cols: 80,
+      rows: 24,
+      url: "https://example.com",
       title: "A".repeat(5),
+      status: "live",
+      error: null,
+      frames_stalled: false,
       frame: null,
     }],
   ]) {
@@ -465,18 +552,31 @@ type CmuxClientOptionsWithSecurityLimits = ConstructorParameters<typeof CmuxClie
   maxAttachEncodedChars: number;
 };
 
-test("legacy resize response defaults to accepted", async () => {
+test("resize response rejects a missing required accepted field", async () => {
   const transport = new ScriptedTransport((request, connection) => {
-    connection.emit({ id: request.id, ok: true, data: {} });
+    connection.emit({
+      id: request.id,
+      ok: true,
+      data: request.cmd === "identify" ? identifyResult(6) : {},
+    });
   });
   const client = new CmuxClient({ transport, timeoutMs: 100 });
-  assert.deepEqual(await client.resizeSurface(7n, 80, 24), { accepted: true });
+  await assert.rejects(
+    () => client.resizeSurface(7n, 80, 24),
+    /resize-surface result\.accepted is required/,
+  );
   await client.close();
 });
 
 test("resize response preserves reservation identity", async () => {
   const transport = new ScriptedTransport((request, connection) => {
-    connection.emit({ id: request.id, ok: true, data: { accepted: true, reservation_id: 41 } });
+    connection.emit({
+      id: request.id,
+      ok: true,
+      data: request.cmd === "identify"
+        ? identifyResult(7)
+        : { accepted: true, reservation_id: 41 },
+    });
   });
   const client = new CmuxClient({ transport, timeoutMs: 100 });
   assert.deepEqual(await client.resizeSurface(7n, 80, 24), { accepted: true, reservation_id: 41n });
@@ -561,25 +661,35 @@ test("stable terminal resolve and close serialize process identity", async () =>
     connection.emit({
       id: request.id,
       ok: true,
-      data: {
-        surface: 7,
-        terminal_id: terminalId,
-        terminal_incarnation: incarnation,
-      },
+      data: request.cmd === "resolve-terminal"
+        ? {
+          surface: 7,
+          terminal_id: terminalId,
+          terminal_incarnation: incarnation,
+          workspace_key: "stable",
+          lifecycle: "running",
+          launch_spec: {},
+          exit: null,
+          terminal_revision: 1,
+          registry_id: "registry",
+          generation: "generation",
+        }
+        : {
+          surface: 7,
+          terminal_id: terminalId,
+          terminal_incarnation: incarnation,
+          already_closed: false,
+          closed: true,
+          terminal_revision: 2,
+          registry_id: "registry",
+          generation: "generation",
+        },
     });
   });
   const client = new CmuxClient({ transport, timeoutMs: 100 });
 
-  assert.deepEqual(await client.resolveTerminal(terminalId), {
-    surface: 7n,
-    terminal_id: terminalId,
-    terminal_incarnation: incarnation,
-  });
-  assert.deepEqual(await client.closeTerminal(terminalId, incarnation), {
-    surface: 7n,
-    terminal_id: terminalId,
-    terminal_incarnation: incarnation,
-  });
+  assert.equal((await client.resolveTerminal(terminalId)).surface, 7n);
+  assert.equal((await client.closeTerminal(terminalId, incarnation)).surface, 7n);
   await client.close();
 });
 
@@ -1043,11 +1153,56 @@ test("workspace registry methods preserve keys and revisions", async () => {
     { id: 6, cmd: "close-workspace", key: "stable", expected_revision: 7 },
   ];
   const responses = [
-    { workspace: 1, key: "stable", index: 0, workspace_revision: 5 },
-    { surface: 4, pane: 3, screen: 2, workspace: 1, key: "stable" },
-    { workspace: 1, key: "stable", workspace_revision: 6 },
-    { workspace: 1, key: "stable", workspace_revision: 7 },
-    { workspace: 1, key: "stable", workspace_revision: 8 },
+    {
+      workspace: 1,
+      key: "stable",
+      index: 0,
+      workspace_revision: 5,
+      replayed: false,
+      registry_id: "registry",
+      generation: "generation",
+    },
+    {
+      surface: 4,
+      terminal_id: null,
+      terminal_incarnation: null,
+      pane: 3,
+      screen: 2,
+      workspace: 1,
+      key: "stable",
+      lifecycle: "running",
+      terminal_revision: 1,
+      replayed: false,
+      registry_id: "registry",
+      generation: "generation",
+    },
+    {
+      workspace: 1,
+      key: "stable",
+      index: 0,
+      workspace_revision: 6,
+      replayed: false,
+      registry_id: "registry",
+      generation: "generation",
+    },
+    {
+      workspace: 1,
+      key: "stable",
+      index: 0,
+      workspace_revision: 7,
+      replayed: false,
+      registry_id: "registry",
+      generation: "generation",
+    },
+    {
+      workspace: 1,
+      key: "stable",
+      index: 0,
+      workspace_revision: 8,
+      replayed: false,
+      registry_id: "registry",
+      generation: "generation",
+    },
   ];
   let index = 0;
   const transport = new ScriptedTransport((request, connection) => {
@@ -1270,7 +1425,12 @@ test("protocol v7 commands preserve protocol v6 server failures as command error
 
 test("subscribe yields client attached, changed, and detached events", async () => {
   const transport = new ScriptedTransport((request, connection) => {
-    assert.deepEqual(request, { id: 1, cmd: "subscribe" });
+    if (request.cmd === "identify") {
+      assert.deepEqual(request, { id: 1, cmd: "identify" });
+      connection.emit({ id: request.id, ok: true, data: identifyResult(6) });
+      return;
+    }
+    assert.deepEqual(request, { id: 2, cmd: "subscribe" });
     connection.emit({ event: "client-attached", client: 2, transport: "ws", name: "phone", kind: "web" });
     connection.emit({ id: request.id, ok: true, data: {} });
     connection.emit({ event: "client-changed", client: 2, name: "tablet", kind: "web" });
@@ -1292,8 +1452,58 @@ test("subscribe yields client attached, changed, and detached events", async () 
   await client.close();
 });
 
+test("subscribe validates gated known events against the negotiated protocol", async () => {
+  const legacyTransport = new ScriptedTransport((request, connection) => {
+    if (request.cmd === "identify") {
+      connection.emit({ id: request.id, ok: true, data: identifyResult(6) });
+      return;
+    }
+    connection.emit({
+      event: "surface-resized",
+      surface: 7,
+      cols: 80,
+      rows: 24,
+    });
+    connection.emit({ id: request.id, ok: true, data: {} });
+  });
+  const legacy = new CmuxClient({ transport: legacyTransport, timeoutMs: 100 });
+  const events = await legacy.subscribe();
+  assert.deepEqual(await events.next(), {
+    event: "surface-resized",
+    surface: 7n,
+    cols: 80,
+    rows: 24,
+  });
+  events.close();
+  await legacy.close();
+
+  const currentTransport = new ScriptedTransport((request, connection) => {
+    if (request.cmd === "identify") {
+      connection.emit({ id: request.id, ok: true, data: identifyResult(7) });
+      return;
+    }
+    connection.emit({
+      event: "surface-resized",
+      surface: 7,
+      cols: 80,
+      rows: 24,
+    });
+    connection.emit({ id: request.id, ok: true, data: {} });
+  });
+  const current = new CmuxClient({ transport: currentTransport, timeoutMs: 100 });
+  await assert.rejects(
+    () => current.subscribe(),
+    /event surface-resized\.reservation_id is required/,
+  );
+  await current.close();
+});
+
 test("concurrent shared subscriptions require dedicated transports", async () => {
   const transport = new ScriptedTransport((request, connection) => {
+    if (request.cmd === "identify") {
+      connection.emit({ id: request.id, ok: true, data: identifyResult(6) });
+      return;
+    }
     assert.equal(request.cmd, "subscribe");
     connection.emit({ id: request.id, ok: true, data: {} });
   });

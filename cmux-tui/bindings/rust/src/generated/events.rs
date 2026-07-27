@@ -90,11 +90,11 @@ pub struct ColorsChangedEvent {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub cursor_style: Optional<T::CursorStyle>,
     pub fg: Nullable<T::ColorHex>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub palette: Option<BTreeMap<String, T::ColorHex>>,
     pub selection_bg: Nullable<T::ColorHex>,
     pub selection_fg: Nullable<T::ColorHex>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub surface: Option<T::Id>,
 }
 
@@ -154,7 +154,7 @@ pub struct NotificationEvent {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OutputEvent {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub colors: Option<T::TerminalColors>,
     pub data: T::Base64,
     pub surface: T::Id,
@@ -164,9 +164,9 @@ pub struct OutputEvent {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OverflowEvent {
     pub error: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub scope: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub surface: Option<T::Id>,
 }
 
@@ -209,15 +209,15 @@ pub struct PaneClosedEvent {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RenderDeltaEvent {
     pub cursor: T::RenderCursor,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub default_bg: Option<T::ColorHex>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub default_fg: Option<T::ColorHex>,
     pub full: bool,
     pub rows: Vec<T::RenderRow>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub scrollback_rows: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub size: Option<T::Size>,
     pub surface: T::Id,
 }
@@ -237,13 +237,13 @@ pub struct RenderStateEvent {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ResizedEvent {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub colors: Option<T::TerminalColors>,
     pub cols: u16,
     /// Protocol 6 compatibility field.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub data: Option<T::Base64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub replay: Option<T::Base64>,
     pub rows: u16,
     pub surface: T::Id,
@@ -366,7 +366,7 @@ pub struct TerminalRegistryChangedEvent {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TitleChangedEvent {
     pub surface: T::Id,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
 }
 
@@ -378,7 +378,7 @@ pub struct TreeChangedEvent {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VtStateEvent {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub colors: Option<T::TerminalColors>,
     pub cols: u16,
     pub data: T::Base64,
@@ -398,9 +398,9 @@ pub struct WorkspaceAddedEvent {
     pub entity: T::Workspace,
     pub generation: String,
     pub index: u64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub mutation_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub origin: Option<String>,
     pub registry_id: String,
     pub workspace: T::Id,
@@ -413,9 +413,9 @@ pub struct WorkspaceClosedEvent {
     pub entity: T::Workspace,
     pub generation: String,
     pub index: u64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub mutation_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub origin: Option<String>,
     pub registry_id: String,
     pub workspace: T::Id,
@@ -428,9 +428,9 @@ pub struct WorkspaceMovedEvent {
     pub entity: T::Workspace,
     pub generation: String,
     pub index: u64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub mutation_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub origin: Option<String>,
     pub registry_id: String,
     pub workspace: T::Id,
@@ -442,9 +442,9 @@ pub struct WorkspaceMovedEvent {
 pub struct WorkspaceRenamedEvent {
     pub entity: T::Workspace,
     pub generation: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub mutation_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub origin: Option<String>,
     pub registry_id: String,
     pub workspace: T::Id,

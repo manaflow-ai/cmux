@@ -32,6 +32,39 @@ class FixtureTests(unittest.TestCase):
         self.assertEqual(case["server"]["behavior"], "no-write")
         self.assertEqual(case["expect"]["value"], {"denied": True})
 
+    def test_presence_fixtures_define_literal_wire_shapes(self) -> None:
+        cases = {case["name"]: case for case in self.fixtures["fake_cases"]}
+        self.assertEqual(
+            cases["optional-nullable-request-omitted"]["server"]["expect_request"],
+            {"cmd": "set-client-info"},
+        )
+        self.assertEqual(
+            cases["optional-nullable-request-null"]["server"]["expect_request"],
+            {"cmd": "set-client-info", "name": None},
+        )
+        self.assertEqual(
+            cases["optional-nullable-request-value"]["server"]["expect_request"],
+            {"cmd": "set-client-info", "name": "conformance-client"},
+        )
+        self.assertTrue(
+            cases["required-nullable-response-missing"]["server"]["omit_lifecycle"]
+        )
+        self.assertNotIn(
+            "name",
+            cases["required-nullable-event-missing"]["server"]["after_ack"][0],
+        )
+        self.assertEqual(
+            cases["optional-non-null-response-null"]["server"][
+                "capabilities_presence"
+            ],
+            "null",
+        )
+        self.assertIsNone(
+            cases["optional-non-null-event-null"]["server"]["after_ack"][0][
+                "colors"
+            ]
+        )
+
     def test_live_lifecycle_covers_every_required_transition(self) -> None:
         cases = {case["name"]: case for case in self.fixtures["real_cases"]}
         expected = cases["headless-lifecycle"]["expect"]["value"]
@@ -91,6 +124,45 @@ class NoWriteServerTests(unittest.TestCase):
                 connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
                 connection.connect(str(server.socket_path))
                 connection.sendall(b"{")
+                connection.close()
+                self.assertTrue(server.done.wait(timeout=1))
+
+
+class RequestShapeServerTests(unittest.TestCase):
+    def test_identify_then_exact_request_can_share_one_connection(self) -> None:
+        spec = {
+            "behavior": "request-shape",
+            "expect_request": {"cmd": "set-client-info", "name": None},
+        }
+        with FakeServer(spec) as server:
+            connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            connection.connect(str(server.socket_path))
+            stream = connection.makefile("rwb")
+            stream.write(b'{"id":1,"cmd":"identify"}\n')
+            stream.flush()
+            self.assertEqual(json.loads(stream.readline())["id"], 1)
+            stream.write(b'{"id":2,"cmd":"set-client-info","name":null}\n')
+            stream.flush()
+            self.assertEqual(
+                json.loads(stream.readline()),
+                {"id": 2, "ok": True, "data": {}},
+            )
+            stream.close()
+            connection.close()
+            self.assertTrue(server.done.wait(timeout=1))
+
+    def test_extra_request_field_fails_exact_shape_check(self) -> None:
+        spec = {
+            "behavior": "request-shape",
+            "expect_request": {"cmd": "set-client-info"},
+        }
+        with self.assertRaisesRegex(ConformanceFailure, "typed request shape mismatch"):
+            with FakeServer(spec) as server:
+                connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                connection.connect(str(server.socket_path))
+                connection.sendall(
+                    b'{"id":1,"cmd":"set-client-info","name":null}\n'
+                )
                 connection.close()
                 self.assertTrue(server.done.wait(timeout=1))
 

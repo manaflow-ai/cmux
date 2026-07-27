@@ -29,6 +29,19 @@ class CompatibilityTransport implements Transport {
           protocol: this.protocol,
           session: "main",
           pid: 1,
+          ...(this.protocol >= 7
+            ? {
+              registry_id: "registry",
+              generation: "generation",
+              workspace_revision: 1n,
+            }
+            : {}),
+          ...(this.protocol >= 9
+            ? {
+              terminal_revision: 1n,
+              daemon_handoff: 1,
+            }
+            : {}),
           capabilities: [...this.capabilities],
         },
       });

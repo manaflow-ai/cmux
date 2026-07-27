@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -514,25 +513,26 @@ func (c *Client) negotiatedState(capability string) (uint32, bool, bool) {
 	return *c.protocol, true, supported
 }
 
-// Send accepts convenient byte slices while preserving the exact base64 wire
-// representation in SendRequest for callers that need it.
+// Send preserves the exact text, base64 bytes, and paste presence represented
+// by SendOptions.
 func (c *Client) Send(
 	ctx context.Context,
 	surface ID,
 	options SendOptions,
 ) error {
 	params := map[string]any{"surface": surface}
-	if options.Text != nil {
-		params["text"] = *options.Text
+	if options.Text.IsNull() {
+		params["text"] = nil
+	} else if text, ok := options.Text.Get(); ok {
+		params["text"] = text
 	}
-	if options.Bytes != nil {
-		params["bytes"] = base64.StdEncoding.EncodeToString(options.Bytes)
+	if options.Bytes.IsNull() {
+		params["bytes"] = nil
+	} else if encoded, ok := options.Bytes.Get(); ok {
+		params["bytes"] = encoded
 	}
-	if options.Base64Bytes != "" {
-		params["bytes"] = options.Base64Bytes
-	}
-	if options.Paste {
-		params["paste"] = true
+	if options.Paste != nil {
+		params["paste"] = *options.Paste
 	}
 	return c.requestGenerated(
 		ctx,
@@ -553,7 +553,10 @@ func (c *Client) UseOnlyClientSize(
 		ctx,
 		surface,
 		true,
-		SetClientSizingOptions{Client: &client, Exclusive: &exclusive},
+		SetClientSizingOptions{
+			Client:    Value(client),
+			Exclusive: &exclusive,
+		},
 	)
 }
 
@@ -571,7 +574,10 @@ func (c *Client) CloseWorkspaceByID(
 	ctx context.Context,
 	workspace ID,
 ) (CloseWorkspaceResult, error) {
-	return c.CloseWorkspace(ctx, CloseWorkspaceOptions{Workspace: &workspace})
+	return c.CloseWorkspace(
+		ctx,
+		CloseWorkspaceOptions{Workspace: Value(workspace)},
+	)
 }
 
 func (c *Client) Subscribe(ctx context.Context) (*Stream, error) {
@@ -581,7 +587,7 @@ func (c *Client) Subscribe(ctx context.Context) (*Stream, error) {
 func (c *Client) SubscribeDeltas(ctx context.Context) (*Stream, error) {
 	return c.SubscribeWithOptions(
 		ctx,
-		SubscribeOptions{TreeEvents: TreeEventsDeltas},
+		SubscribeOptions{TreeEvents: Value(TreeEventsDeltas)},
 	)
 }
 
@@ -590,22 +596,24 @@ func (c *Client) SubscribeWithOptions(
 	options SubscribeOptions,
 ) (*Stream, error) {
 	params := map[string]any{"id": c.nextRequestID(), "cmd": "subscribe"}
-	switch options.TreeEvents {
-	case "", TreeEventsCoarse:
-		if options.TreeEvents != "" {
-			params["tree_events"] = string(options.TreeEvents)
+	if options.TreeEvents.IsNull() {
+		params["tree_events"] = nil
+	} else if treeEvents, ok := options.TreeEvents.Get(); ok {
+		switch treeEvents {
+		case TreeEventsCoarse, TreeEventsDeltas:
+			params["tree_events"] = string(treeEvents)
+		default:
+			return nil, fmt.Errorf(
+				"%w: unsupported tree event mode %q",
+				ErrInvalidArgument,
+				treeEvents,
+			)
 		}
-	case TreeEventsDeltas:
-		params["tree_events"] = string(options.TreeEvents)
-	default:
-		return nil, fmt.Errorf(
-			"%w: unsupported tree event mode %q",
-			ErrInvalidArgument,
-			options.TreeEvents,
-		)
 	}
-	if options.Surface != nil {
-		params["surface"] = *options.Surface
+	if options.Surface.IsNull() {
+		params["surface"] = nil
+	} else if surface, ok := options.Surface.Get(); ok {
+		params["surface"] = surface
 	}
 	return c.openGeneratedStream(ctx, commandMetadata["subscribe"], params)
 }
@@ -622,7 +630,7 @@ func (c *Client) AttachSurfaceWithOptions(
 	surface ID,
 	options AttachSurfaceOptions,
 ) (*Stream, error) {
-	if (options.Cols == nil) != (options.Rows == nil) {
+	if options.Cols.IsAbsent() != options.Rows.IsAbsent() {
 		return nil, fmt.Errorf(
 			"%w: attach-surface cols and rows must be supplied together",
 			ErrInvalidArgument,
@@ -633,23 +641,29 @@ func (c *Client) AttachSurfaceWithOptions(
 		"cmd":     "attach-surface",
 		"surface": surface,
 	}
-	switch options.Mode {
-	case "", AttachBytes:
-		if options.Mode != "" {
-			params["mode"] = string(options.Mode)
+	if options.Mode.IsNull() {
+		params["mode"] = nil
+	} else if mode, ok := options.Mode.Get(); ok {
+		switch mode {
+		case AttachBytes, AttachRender:
+			params["mode"] = string(mode)
+		default:
+			return nil, fmt.Errorf(
+				"%w: unsupported attach mode %q",
+				ErrInvalidArgument,
+				mode,
+			)
 		}
-	case AttachRender:
-		params["mode"] = string(options.Mode)
-	default:
-		return nil, fmt.Errorf(
-			"%w: unsupported attach mode %q",
-			ErrInvalidArgument,
-			options.Mode,
-		)
 	}
-	if options.Cols != nil {
-		params["cols"] = *options.Cols
-		params["rows"] = *options.Rows
+	if options.Cols.IsNull() {
+		params["cols"] = nil
+	} else if cols, ok := options.Cols.Get(); ok {
+		params["cols"] = cols
+	}
+	if options.Rows.IsNull() {
+		params["rows"] = nil
+	} else if rows, ok := options.Rows.Get(); ok {
+		params["rows"] = rows
 	}
 	return c.openGeneratedStream(ctx, commandMetadata["attach-surface"], params)
 }
@@ -960,23 +974,27 @@ func classifyNetError(err error, prefix string) error {
 	return &connectionError{msg: fmt.Sprintf("%s: %v", prefix, err)}
 }
 
-func mergeCommandParams(base map[string]any, value any) map[string]any {
-	for key, item := range commandMap(value) {
+func mergeCommandParams(base map[string]any, value any) (map[string]any, error) {
+	options, err := commandMap(value)
+	if err != nil {
+		return nil, err
+	}
+	for key, item := range options {
 		base[key] = item
 	}
-	return base
+	return base, nil
 }
 
-func commandMap(value any) map[string]any {
-	encoded, _ := json.Marshal(value)
-	out := map[string]any{}
-	_ = decodeJSON(encoded, &out)
-	for key, item := range out {
-		if item == nil {
-			delete(out, key)
-		}
+func commandMap(value any) (map[string]any, error) {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return nil, err
 	}
-	return out
+	out := map[string]any{}
+	if err := decodeJSON(encoded, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func decodeEvent(raw map[string]any, out any) bool {

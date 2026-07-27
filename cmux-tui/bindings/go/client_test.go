@@ -40,13 +40,19 @@ func TestGeneratedInventoryHasTypedMethodForEveryCommand(t *testing.T) {
 	}
 }
 
-func TestLegacyResizeResponseDefaultsToAccepted(t *testing.T) {
+func TestResizeResponseRequiresNullableReservationID(t *testing.T) {
 	var result ResizeSurfaceResult
-	if err := json.Unmarshal([]byte(`{}`), &result); err != nil {
+	if err := json.Unmarshal([]byte(`{"accepted":true}`), &result); err == nil {
+		t.Fatal("missing required nullable reservation_id decoded successfully")
+	}
+	if err := json.Unmarshal(
+		[]byte(`{"accepted":true,"reservation_id":null}`),
+		&result,
+	); err != nil {
 		t.Fatal(err)
 	}
-	if !result.Accepted {
-		t.Fatal("legacy resize response must be treated as accepted")
+	if !result.Accepted || !result.ReservationID.IsNull() {
+		t.Fatalf("resize result = %#v", result)
 	}
 }
 
@@ -114,6 +120,71 @@ func TestTypedCommandPreservesUint64RequestAndResult(t *testing.T) {
 	}
 	if result.WorkspaceRevision == nil || *result.WorkspaceRevision != ^uint64(0) {
 		t.Fatalf("workspace revision = %v", result.WorkspaceRevision)
+	}
+}
+
+func TestSendOptionsPreserveNullAndFalse(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	defer serverConn.Close()
+	protocol := uint32(MuxProtocolVersion)
+	client := &Client{
+		timeout:  time.Second,
+		conn:     &jsonLineConn{conn: clientConn, reader: bufio.NewReader(clientConn)},
+		protocol: &protocol,
+	}
+	defer client.Close()
+
+	serverDone := make(chan error, 1)
+	go func() {
+		var request map[string]any
+		decoder := json.NewDecoder(serverConn)
+		decoder.UseNumber()
+		if err := decoder.Decode(&request); err != nil {
+			serverDone <- err
+			return
+		}
+		for _, field := range []string{"text", "bytes"} {
+			value, exists := request[field]
+			if !exists || value != nil {
+				serverDone <- fmt.Errorf(
+					"%s = %#v, exists = %t",
+					field,
+					value,
+					exists,
+				)
+				return
+			}
+		}
+		paste, exists := request["paste"]
+		if !exists || paste != false {
+			serverDone <- fmt.Errorf(
+				"paste = %#v, exists = %t",
+				paste,
+				exists,
+			)
+			return
+		}
+		serverDone <- json.NewEncoder(serverConn).Encode(map[string]any{
+			"id":   request["id"],
+			"ok":   true,
+			"data": map[string]any{},
+		})
+	}()
+
+	paste := false
+	if err := client.Send(
+		context.Background(),
+		9,
+		SendOptions{
+			Text:  Null[string](),
+			Bytes: Null[Base64](),
+			Paste: &paste,
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-serverDone; err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -435,11 +506,13 @@ func TestGeneratedEventDecodingAndUnknownFallback(t *testing.T) {
 		"cols":           json.Number("120"),
 		"rows":           json.Number("40"),
 		"error":          "browser is not responding",
+		"reservation_id": nil,
 		"retry_after_ms": json.Number("250"),
 	})
 	failed, ok := event.(SurfaceResizeFailedEvent)
+	retryAfter, hasRetryAfter := failed.RetryAfterMs.Get()
 	if !ok || failed.Surface != ^uint64(0) ||
-		failed.RetryAfterMs == nil || *failed.RetryAfterMs != 250 {
+		!hasRetryAfter || retryAfter != 250 {
 		t.Fatalf("decoded event = %#v", event)
 	}
 

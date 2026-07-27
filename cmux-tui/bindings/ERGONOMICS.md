@@ -19,15 +19,21 @@ public clients feel generated.
 | Zig | The provider controller covers authority, protocol, capability, revision, allocator, and secret-lifetime failures over a real temporary Unix socket. | Added `ProviderClient`, dedicated stream clients, owned remote errors, copied topology, revision checks, authority zeroization, and generated command and field checks. |
 
 The simulations also exposed correctness defects that ordinary generated-shape
-tests missed. Java and C++ now preserve a required nullable literal. Java
-bounds events received before stream acknowledgement. Go limit configuration
-is isolated per client. Installed-package tests cover npm exports, Java jars,
-and CMake package discovery.
+tests missed. Java and C++ now preserve a required nullable literal. Go
+generated models preserve optional-nullable absence, null, and value, reject
+missing required-nullable fields, and reject null for optional non-null fields.
+TypeScript rejects missing required fields after applying negotiated version
+and capability gates. Rust and Zig reject explicit null across all 47 optional
+non-null fields. Java bounds events received before stream acknowledgement.
+Go limit configuration is isolated per client. Installed-package tests cover
+npm exports, Java jars, and CMake package discovery.
 
 All seven typed clients now enforce generated command and present-field
 protocol, capability, and provider-authority requirements before a guarded
 write. Negotiation is lazy and cached. Deliberately named raw or unchecked
 entrypoints remain available for forward-compatible protocol experiments.
+The shared conformance matrix runs 266 public-API checks, including exact
+request shapes and missing, null, and value cases for each presence category.
 
 ## Protocol work that SDKs cannot supply
 

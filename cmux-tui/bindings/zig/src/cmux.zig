@@ -41,6 +41,8 @@ test {
     _ = @import("authority_test.zig");
     _ = @import("provider_test.zig");
     _ = @import("stream_client_test.zig");
+    _ = @import("wire_presence_test.zig");
+    _ = @import("generated/presence_test.zig");
     std.testing.refAllDecls(protocol);
     try std.testing.expectEqual(@as(usize, 83), protocol.command_count);
     try std.testing.expectEqual(@as(usize, 44), protocol.event_count);

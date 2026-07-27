@@ -69,9 +69,12 @@ import type {
   FocusDirectionResult,
 } from "./protocol/index.js";
 import {
+  commandResultNeedsDecodeContext,
+  commandStreamNeedsDecodeContext,
   decodeCommandResult,
   decodeProtocolEvent,
   encodeCommandParams,
+  type ProtocolDecodeContext,
 } from "./protocol-codec.js";
 import {
   COMMAND_METADATA,
@@ -200,11 +203,14 @@ class MessageRouter {
   private readonly eventHandlers = new Set<(event: UnknownEvent) => void>();
   private readonly terminalHandlers = new Set<(error: Error) => void>();
   private terminalError: Error | null = null;
+  private decodeContext: ProtocolDecodeContext | undefined;
 
   constructor(
     readonly transport: Transport,
     private readonly maxPendingResponses = DEFAULT_MAX_PENDING_RESPONSES,
+    decodeContext?: ProtocolDecodeContext,
   ) {
+    this.decodeContext = decodeContext;
     transport.onMessage((json) => this.receive(json));
     transport.onError((error) => this.terminate(this.connectionError(error)));
     transport.onClose(() => this.terminate(new CmuxConnectionError("session transport closed")));
@@ -263,6 +269,10 @@ class MessageRouter {
     return () => this.terminalHandlers.delete(handler);
   }
 
+  setDecodeContext(context: ProtocolDecodeContext): void {
+    this.decodeContext = context;
+  }
+
   private receive(json: string): void {
     let value: unknown;
     try {
@@ -280,7 +290,7 @@ class MessageRouter {
     if (typeof object.event === "string") {
       let event: UnknownEvent;
       try {
-        event = decodeProtocolEvent(object);
+        event = decodeProtocolEvent(object, this.decodeContext);
       } catch (error) {
         this.terminate(
           error instanceof Error
@@ -605,14 +615,19 @@ export class CmuxClient {
       ...(id === undefined ? {} : { id }),
     };
     const response = await this.sendRaw(request as unknown as JsonObject);
-    if (response.ok) return decodeCommandResult(cmd as C, response.data);
+    if (response.ok) {
+      return decodeCommandResult(
+        cmd as C,
+        response.data,
+        this.protocolDecodeContext(),
+      );
+    }
     throw new CmuxCommandError(response.error || "unknown error", response.id, response);
   }
 
   async identify(): Promise<IdentifyResult> {
     const result = await this.request("identify");
-    this.identifiedProtocol = result.protocol;
-    this.identifiedCapabilities = new Set(result.capabilities ?? []);
+    this.rememberIdentity(result);
     return result;
   }
 
@@ -777,8 +792,7 @@ export class CmuxClient {
     return workspaceMutationResult(await this.request("rename-workspace", options));
   }
   async resizeSurface(surface: Id, cols: number, rows: number): Promise<ResizeSurfaceResult> {
-    const result = await this.request("resize-surface", { surface, cols, rows });
-    return { ...result, accepted: result.accepted ?? true };
+    return this.request("resize-surface", { surface, cols, rows });
   }
   releaseSurfaceSize(surface: Id): Promise<EmptyResult> {
     return this.request("release-surface-size", { surface });
@@ -1013,9 +1027,25 @@ export class CmuxClient {
       );
     }
     const result = decodeCommandResult("identify", response.data);
+    this.rememberIdentity(result);
+    return result;
+  }
+
+  private rememberIdentity(result: IdentifyResult): void {
     this.identifiedProtocol = result.protocol;
     this.identifiedCapabilities = new Set(result.capabilities ?? []);
-    return result;
+    this.router.setDecodeContext({
+      protocol: result.protocol,
+      capabilities: this.identifiedCapabilities,
+    });
+  }
+
+  private protocolDecodeContext(): ProtocolDecodeContext | undefined {
+    if (this.identifiedProtocol === null) return undefined;
+    return {
+      protocol: this.identifiedProtocol,
+      capabilities: this.identifiedCapabilities,
+    };
   }
 
   private async ensureCommandAvailable(
@@ -1040,6 +1070,7 @@ export class CmuxClient {
         metadata.since > 5
         || metadata.capability !== null
         || fieldNeedsNegotiation
+        || commandResultNeedsDecodeContext(command)
       )
     ) {
       await this.identify();
@@ -1137,6 +1168,12 @@ export class CmuxClient {
     }
     const { cmd, id: requestId, ...rawParams } = request;
     await this.ensureCommandAvailable(cmd, rawParams);
+    if (
+      this.identifiedProtocol === null
+      && commandStreamNeedsDecodeContext(cmd)
+    ) {
+      await this.identifyForStream(streamOptions.signal);
+    }
     if (streamOptions.signal?.aborted) {
       throw new CmuxAbortError("stream open aborted");
     }
@@ -1151,7 +1188,11 @@ export class CmuxClient {
     }
     const transport = this.streamTransportFactory?.() ?? this.transport;
     const router = dedicated
-      ? new MessageRouter(transport, this.maxPendingResponses)
+      ? new MessageRouter(
+        transport,
+        this.maxPendingResponses,
+        this.protocolDecodeContext(),
+      )
       : this.router;
     let eventSubscription: Unsubscribe = () => undefined;
     let terminalSubscription: Unsubscribe = () => undefined;

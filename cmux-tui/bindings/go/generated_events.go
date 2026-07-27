@@ -5,6 +5,7 @@ package cmux
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 )
 
@@ -48,16 +49,93 @@ func (BellEvent) isSubscribeEvent() {}
 
 // BrowserStateEvent is emitted by protocol v6.
 type BrowserStateEvent struct {
-	Cols  uint16  `json:"cols"`
-	Error *string `json:"error"`
+	Cols  uint16                   `json:"cols"`
+	Error RequiredNullable[string] `json:"-"`
 	// The initial browser-state includes the latest frame when one exists; later state updates omit it.
-	Frame         *BrowserFrame `json:"frame,omitempty"`
-	FramesStalled bool          `json:"frames_stalled"`
-	Rows          uint16        `json:"rows"`
-	Status        string        `json:"status"`
-	Surface       ID            `json:"surface"`
-	Title         string        `json:"title"`
-	URL           string        `json:"url"`
+	Frame         Presence[BrowserFrame] `json:"-"`
+	FramesStalled bool                   `json:"frames_stalled"`
+	Rows          uint16                 `json:"rows"`
+	Status        string                 `json:"status"`
+	Surface       ID                     `json:"surface"`
+	Title         string                 `json:"title"`
+	URL           string                 `json:"url"`
+}
+
+func (value BrowserStateEvent) MarshalJSON() ([]byte, error) {
+	type wire BrowserStateEvent
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if !value.Error.IsSet() {
+		return nil, fmt.Errorf("encode BrowserStateEvent: required nullable field error is missing")
+	}
+	if value.Error.IsNull() {
+		object["error"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Error.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode BrowserStateEvent.Error: %w", err)
+		}
+		object["error"] = encodedField
+	}
+	if value.Frame.IsAbsent() {
+		delete(object, "frame")
+	} else if value.Frame.IsNull() {
+		object["frame"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Frame.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode BrowserStateEvent.Frame: %w", err)
+		}
+		object["frame"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *BrowserStateEvent) UnmarshalJSON(data []byte) error {
+	type wire BrowserStateEvent
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawError, hasError := object["error"]
+	if !hasError {
+		return fmt.Errorf("decode BrowserStateEvent: required nullable field error is missing")
+	}
+	if isJSONNull(rawError) {
+		decoded.Error = RequiredNull[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawError, &fieldValue); err != nil {
+			return fmt.Errorf("decode BrowserStateEvent.Error: %w", err)
+		}
+		decoded.Error = RequiredValue(fieldValue)
+	}
+	rawFrame, hasFrame := object["frame"]
+	if !hasFrame {
+		decoded.Frame = Presence[BrowserFrame]{}
+	} else if isJSONNull(rawFrame) {
+		decoded.Frame = Null[BrowserFrame]()
+	} else {
+		var fieldValue BrowserFrame
+		if err := json.Unmarshal(rawFrame, &fieldValue); err != nil {
+			return fmt.Errorf("decode BrowserStateEvent.Frame: %w", err)
+		}
+		decoded.Frame = Value(fieldValue)
+	}
+	*value = BrowserStateEvent(decoded)
+	return nil
 }
 
 func (BrowserStateEvent) EventName() string     { return "browser-state" }
@@ -66,10 +144,89 @@ func (BrowserStateEvent) isBrowserAttachEvent() {}
 
 // ClientAttachedEvent is emitted by protocol v6.
 type ClientAttachedEvent struct {
-	Client    uint64  `json:"client"`
-	Kind      *string `json:"kind"`
-	Name      *string `json:"name"`
-	Transport string  `json:"transport"`
+	Client    uint64                   `json:"client"`
+	Kind      RequiredNullable[string] `json:"-"`
+	Name      RequiredNullable[string] `json:"-"`
+	Transport string                   `json:"transport"`
+}
+
+func (value ClientAttachedEvent) MarshalJSON() ([]byte, error) {
+	type wire ClientAttachedEvent
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if !value.Kind.IsSet() {
+		return nil, fmt.Errorf("encode ClientAttachedEvent: required nullable field kind is missing")
+	}
+	if value.Kind.IsNull() {
+		object["kind"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Kind.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode ClientAttachedEvent.Kind: %w", err)
+		}
+		object["kind"] = encodedField
+	}
+	if !value.Name.IsSet() {
+		return nil, fmt.Errorf("encode ClientAttachedEvent: required nullable field name is missing")
+	}
+	if value.Name.IsNull() {
+		object["name"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Name.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode ClientAttachedEvent.Name: %w", err)
+		}
+		object["name"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *ClientAttachedEvent) UnmarshalJSON(data []byte) error {
+	type wire ClientAttachedEvent
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawKind, hasKind := object["kind"]
+	if !hasKind {
+		return fmt.Errorf("decode ClientAttachedEvent: required nullable field kind is missing")
+	}
+	if isJSONNull(rawKind) {
+		decoded.Kind = RequiredNull[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawKind, &fieldValue); err != nil {
+			return fmt.Errorf("decode ClientAttachedEvent.Kind: %w", err)
+		}
+		decoded.Kind = RequiredValue(fieldValue)
+	}
+	rawName, hasName := object["name"]
+	if !hasName {
+		return fmt.Errorf("decode ClientAttachedEvent: required nullable field name is missing")
+	}
+	if isJSONNull(rawName) {
+		decoded.Name = RequiredNull[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawName, &fieldValue); err != nil {
+			return fmt.Errorf("decode ClientAttachedEvent.Name: %w", err)
+		}
+		decoded.Name = RequiredValue(fieldValue)
+	}
+	*value = ClientAttachedEvent(decoded)
+	return nil
 }
 
 func (ClientAttachedEvent) EventName() string { return "client-attached" }
@@ -78,9 +235,88 @@ func (ClientAttachedEvent) isSubscribeEvent() {}
 
 // ClientChangedEvent is emitted by protocol v6.
 type ClientChangedEvent struct {
-	Client uint64  `json:"client"`
-	Kind   *string `json:"kind"`
-	Name   *string `json:"name"`
+	Client uint64                   `json:"client"`
+	Kind   RequiredNullable[string] `json:"-"`
+	Name   RequiredNullable[string] `json:"-"`
+}
+
+func (value ClientChangedEvent) MarshalJSON() ([]byte, error) {
+	type wire ClientChangedEvent
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if !value.Kind.IsSet() {
+		return nil, fmt.Errorf("encode ClientChangedEvent: required nullable field kind is missing")
+	}
+	if value.Kind.IsNull() {
+		object["kind"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Kind.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode ClientChangedEvent.Kind: %w", err)
+		}
+		object["kind"] = encodedField
+	}
+	if !value.Name.IsSet() {
+		return nil, fmt.Errorf("encode ClientChangedEvent: required nullable field name is missing")
+	}
+	if value.Name.IsNull() {
+		object["name"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Name.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode ClientChangedEvent.Name: %w", err)
+		}
+		object["name"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *ClientChangedEvent) UnmarshalJSON(data []byte) error {
+	type wire ClientChangedEvent
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawKind, hasKind := object["kind"]
+	if !hasKind {
+		return fmt.Errorf("decode ClientChangedEvent: required nullable field kind is missing")
+	}
+	if isJSONNull(rawKind) {
+		decoded.Kind = RequiredNull[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawKind, &fieldValue); err != nil {
+			return fmt.Errorf("decode ClientChangedEvent.Kind: %w", err)
+		}
+		decoded.Kind = RequiredValue(fieldValue)
+	}
+	rawName, hasName := object["name"]
+	if !hasName {
+		return fmt.Errorf("decode ClientChangedEvent: required nullable field name is missing")
+	}
+	if isJSONNull(rawName) {
+		decoded.Name = RequiredNull[string]()
+	} else {
+		var fieldValue string
+		if err := json.Unmarshal(rawName, &fieldValue); err != nil {
+			return fmt.Errorf("decode ClientChangedEvent.Name: %w", err)
+		}
+		decoded.Name = RequiredValue(fieldValue)
+	}
+	*value = ClientChangedEvent(decoded)
+	return nil
 }
 
 func (ClientChangedEvent) EventName() string { return "client-changed" }
@@ -106,15 +342,224 @@ func (ClientListInvalidatedEvent) isSubscribeEvent() {}
 
 // ColorsChangedEvent is emitted by protocol v6.
 type ColorsChangedEvent struct {
-	Bg          *ColorHex            `json:"bg"`
-	Cursor      *ColorHex            `json:"cursor,omitempty"`
-	CursorBlink *bool                `json:"cursor_blink,omitempty"`
-	CursorStyle *CursorStyle         `json:"cursor_style,omitempty"`
-	Fg          *ColorHex            `json:"fg"`
-	Palette     *map[string]ColorHex `json:"palette,omitempty"`
-	SelectionBg *ColorHex            `json:"selection_bg"`
-	SelectionFg *ColorHex            `json:"selection_fg"`
-	Surface     *ID                  `json:"surface,omitempty"`
+	Bg          RequiredNullable[ColorHex] `json:"-"`
+	Cursor      Presence[ColorHex]         `json:"-"`
+	CursorBlink Presence[bool]             `json:"-"`
+	CursorStyle Presence[CursorStyle]      `json:"-"`
+	Fg          RequiredNullable[ColorHex] `json:"-"`
+	Palette     *map[string]ColorHex       `json:"palette,omitempty"`
+	SelectionBg RequiredNullable[ColorHex] `json:"-"`
+	SelectionFg RequiredNullable[ColorHex] `json:"-"`
+	Surface     *ID                        `json:"surface,omitempty"`
+}
+
+func (value ColorsChangedEvent) MarshalJSON() ([]byte, error) {
+	type wire ColorsChangedEvent
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if !value.Bg.IsSet() {
+		return nil, fmt.Errorf("encode ColorsChangedEvent: required nullable field bg is missing")
+	}
+	if value.Bg.IsNull() {
+		object["bg"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Bg.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode ColorsChangedEvent.Bg: %w", err)
+		}
+		object["bg"] = encodedField
+	}
+	if value.Cursor.IsAbsent() {
+		delete(object, "cursor")
+	} else if value.Cursor.IsNull() {
+		object["cursor"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Cursor.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode ColorsChangedEvent.Cursor: %w", err)
+		}
+		object["cursor"] = encodedField
+	}
+	if value.CursorBlink.IsAbsent() {
+		delete(object, "cursor_blink")
+	} else if value.CursorBlink.IsNull() {
+		object["cursor_blink"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.CursorBlink.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode ColorsChangedEvent.CursorBlink: %w", err)
+		}
+		object["cursor_blink"] = encodedField
+	}
+	if value.CursorStyle.IsAbsent() {
+		delete(object, "cursor_style")
+	} else if value.CursorStyle.IsNull() {
+		object["cursor_style"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.CursorStyle.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode ColorsChangedEvent.CursorStyle: %w", err)
+		}
+		object["cursor_style"] = encodedField
+	}
+	if !value.Fg.IsSet() {
+		return nil, fmt.Errorf("encode ColorsChangedEvent: required nullable field fg is missing")
+	}
+	if value.Fg.IsNull() {
+		object["fg"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Fg.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode ColorsChangedEvent.Fg: %w", err)
+		}
+		object["fg"] = encodedField
+	}
+	if !value.SelectionBg.IsSet() {
+		return nil, fmt.Errorf("encode ColorsChangedEvent: required nullable field selection_bg is missing")
+	}
+	if value.SelectionBg.IsNull() {
+		object["selection_bg"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.SelectionBg.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode ColorsChangedEvent.SelectionBg: %w", err)
+		}
+		object["selection_bg"] = encodedField
+	}
+	if !value.SelectionFg.IsSet() {
+		return nil, fmt.Errorf("encode ColorsChangedEvent: required nullable field selection_fg is missing")
+	}
+	if value.SelectionFg.IsNull() {
+		object["selection_fg"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.SelectionFg.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode ColorsChangedEvent.SelectionFg: %w", err)
+		}
+		object["selection_fg"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *ColorsChangedEvent) UnmarshalJSON(data []byte) error {
+	type wire ColorsChangedEvent
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	if raw, exists := object["palette"]; exists && isJSONNull(raw) {
+		return fmt.Errorf("decode ColorsChangedEvent: non-nullable field palette is null")
+	}
+	if raw, exists := object["surface"]; exists && isJSONNull(raw) {
+		return fmt.Errorf("decode ColorsChangedEvent: non-nullable field surface is null")
+	}
+	rawBg, hasBg := object["bg"]
+	if !hasBg {
+		return fmt.Errorf("decode ColorsChangedEvent: required nullable field bg is missing")
+	}
+	if isJSONNull(rawBg) {
+		decoded.Bg = RequiredNull[ColorHex]()
+	} else {
+		var fieldValue ColorHex
+		if err := json.Unmarshal(rawBg, &fieldValue); err != nil {
+			return fmt.Errorf("decode ColorsChangedEvent.Bg: %w", err)
+		}
+		decoded.Bg = RequiredValue(fieldValue)
+	}
+	rawCursor, hasCursor := object["cursor"]
+	if !hasCursor {
+		decoded.Cursor = Presence[ColorHex]{}
+	} else if isJSONNull(rawCursor) {
+		decoded.Cursor = Null[ColorHex]()
+	} else {
+		var fieldValue ColorHex
+		if err := json.Unmarshal(rawCursor, &fieldValue); err != nil {
+			return fmt.Errorf("decode ColorsChangedEvent.Cursor: %w", err)
+		}
+		decoded.Cursor = Value(fieldValue)
+	}
+	rawCursorBlink, hasCursorBlink := object["cursor_blink"]
+	if !hasCursorBlink {
+		decoded.CursorBlink = Presence[bool]{}
+	} else if isJSONNull(rawCursorBlink) {
+		decoded.CursorBlink = Null[bool]()
+	} else {
+		var fieldValue bool
+		if err := json.Unmarshal(rawCursorBlink, &fieldValue); err != nil {
+			return fmt.Errorf("decode ColorsChangedEvent.CursorBlink: %w", err)
+		}
+		decoded.CursorBlink = Value(fieldValue)
+	}
+	rawCursorStyle, hasCursorStyle := object["cursor_style"]
+	if !hasCursorStyle {
+		decoded.CursorStyle = Presence[CursorStyle]{}
+	} else if isJSONNull(rawCursorStyle) {
+		decoded.CursorStyle = Null[CursorStyle]()
+	} else {
+		var fieldValue CursorStyle
+		if err := json.Unmarshal(rawCursorStyle, &fieldValue); err != nil {
+			return fmt.Errorf("decode ColorsChangedEvent.CursorStyle: %w", err)
+		}
+		decoded.CursorStyle = Value(fieldValue)
+	}
+	rawFg, hasFg := object["fg"]
+	if !hasFg {
+		return fmt.Errorf("decode ColorsChangedEvent: required nullable field fg is missing")
+	}
+	if isJSONNull(rawFg) {
+		decoded.Fg = RequiredNull[ColorHex]()
+	} else {
+		var fieldValue ColorHex
+		if err := json.Unmarshal(rawFg, &fieldValue); err != nil {
+			return fmt.Errorf("decode ColorsChangedEvent.Fg: %w", err)
+		}
+		decoded.Fg = RequiredValue(fieldValue)
+	}
+	rawSelectionBg, hasSelectionBg := object["selection_bg"]
+	if !hasSelectionBg {
+		return fmt.Errorf("decode ColorsChangedEvent: required nullable field selection_bg is missing")
+	}
+	if isJSONNull(rawSelectionBg) {
+		decoded.SelectionBg = RequiredNull[ColorHex]()
+	} else {
+		var fieldValue ColorHex
+		if err := json.Unmarshal(rawSelectionBg, &fieldValue); err != nil {
+			return fmt.Errorf("decode ColorsChangedEvent.SelectionBg: %w", err)
+		}
+		decoded.SelectionBg = RequiredValue(fieldValue)
+	}
+	rawSelectionFg, hasSelectionFg := object["selection_fg"]
+	if !hasSelectionFg {
+		return fmt.Errorf("decode ColorsChangedEvent: required nullable field selection_fg is missing")
+	}
+	if isJSONNull(rawSelectionFg) {
+		decoded.SelectionFg = RequiredNull[ColorHex]()
+	} else {
+		var fieldValue ColorHex
+		if err := json.Unmarshal(rawSelectionFg, &fieldValue); err != nil {
+			return fmt.Errorf("decode ColorsChangedEvent.SelectionFg: %w", err)
+		}
+		decoded.SelectionFg = RequiredValue(fieldValue)
+	}
+	*value = ColorsChangedEvent(decoded)
+	return nil
 }
 
 func (ColorsChangedEvent) EventName() string  { return "colors-changed" }
@@ -186,11 +631,64 @@ func (LayoutChangedEvent) isSubscribeEvent() {}
 
 // NotificationEvent is emitted by protocol v6.
 type NotificationEvent struct {
-	Body         string            `json:"body"`
-	Level        NotificationLevel `json:"level"`
-	Notification ID                `json:"notification"`
-	Surface      *ID               `json:"surface"`
-	Title        string            `json:"title"`
+	Body         string               `json:"body"`
+	Level        NotificationLevel    `json:"level"`
+	Notification ID                   `json:"notification"`
+	Surface      RequiredNullable[ID] `json:"-"`
+	Title        string               `json:"title"`
+}
+
+func (value NotificationEvent) MarshalJSON() ([]byte, error) {
+	type wire NotificationEvent
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if !value.Surface.IsSet() {
+		return nil, fmt.Errorf("encode NotificationEvent: required nullable field surface is missing")
+	}
+	if value.Surface.IsNull() {
+		object["surface"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Surface.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode NotificationEvent.Surface: %w", err)
+		}
+		object["surface"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *NotificationEvent) UnmarshalJSON(data []byte) error {
+	type wire NotificationEvent
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawSurface, hasSurface := object["surface"]
+	if !hasSurface {
+		return fmt.Errorf("decode NotificationEvent: required nullable field surface is missing")
+	}
+	if isJSONNull(rawSurface) {
+		decoded.Surface = RequiredNull[ID]()
+	} else {
+		var fieldValue ID
+		if err := json.Unmarshal(rawSurface, &fieldValue); err != nil {
+			return fmt.Errorf("decode NotificationEvent.Surface: %w", err)
+		}
+		decoded.Surface = RequiredValue(fieldValue)
+	}
+	*value = NotificationEvent(decoded)
+	return nil
 }
 
 func (NotificationEvent) EventName() string     { return "notification" }
@@ -207,6 +705,23 @@ type OutputEvent struct {
 	Surface ID              `json:"surface"`
 }
 
+func (value *OutputEvent) UnmarshalJSON(data []byte) error {
+	type wire OutputEvent
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	if raw, exists := object["colors"]; exists && isJSONNull(raw) {
+		return fmt.Errorf("decode OutputEvent: non-nullable field colors is null")
+	}
+	*value = OutputEvent(decoded)
+	return nil
+}
+
 func (OutputEvent) EventName() string  { return "output" }
 func (OutputEvent) isAttachEvent()     {}
 func (OutputEvent) isByteAttachEvent() {}
@@ -216,6 +731,26 @@ type OverflowEvent struct {
 	Error   string  `json:"error"`
 	Scope   *string `json:"scope,omitempty"`
 	Surface *ID     `json:"surface,omitempty"`
+}
+
+func (value *OverflowEvent) UnmarshalJSON(data []byte) error {
+	type wire OverflowEvent
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	if raw, exists := object["scope"]; exists && isJSONNull(raw) {
+		return fmt.Errorf("decode OverflowEvent: non-nullable field scope is null")
+	}
+	if raw, exists := object["surface"]; exists && isJSONNull(raw) {
+		return fmt.Errorf("decode OverflowEvent: non-nullable field surface is null")
+	}
+	*value = OverflowEvent(decoded)
+	return nil
 }
 
 func (OverflowEvent) EventName() string     { return "overflow" }
@@ -285,6 +820,32 @@ type RenderDeltaEvent struct {
 	Surface        ID           `json:"surface"`
 }
 
+func (value *RenderDeltaEvent) UnmarshalJSON(data []byte) error {
+	type wire RenderDeltaEvent
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	if raw, exists := object["default_bg"]; exists && isJSONNull(raw) {
+		return fmt.Errorf("decode RenderDeltaEvent: non-nullable field default_bg is null")
+	}
+	if raw, exists := object["default_fg"]; exists && isJSONNull(raw) {
+		return fmt.Errorf("decode RenderDeltaEvent: non-nullable field default_fg is null")
+	}
+	if raw, exists := object["scrollback_rows"]; exists && isJSONNull(raw) {
+		return fmt.Errorf("decode RenderDeltaEvent: non-nullable field scrollback_rows is null")
+	}
+	if raw, exists := object["size"]; exists && isJSONNull(raw) {
+		return fmt.Errorf("decode RenderDeltaEvent: non-nullable field size is null")
+	}
+	*value = RenderDeltaEvent(decoded)
+	return nil
+}
+
 func (RenderDeltaEvent) EventName() string    { return "render-delta" }
 func (RenderDeltaEvent) isAttachEvent()       {}
 func (RenderDeltaEvent) isRenderAttachEvent() {}
@@ -313,6 +874,29 @@ type ResizedEvent struct {
 	Replay  *Base64 `json:"replay,omitempty"`
 	Rows    uint16  `json:"rows"`
 	Surface ID      `json:"surface"`
+}
+
+func (value *ResizedEvent) UnmarshalJSON(data []byte) error {
+	type wire ResizedEvent
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	if raw, exists := object["colors"]; exists && isJSONNull(raw) {
+		return fmt.Errorf("decode ResizedEvent: non-nullable field colors is null")
+	}
+	if raw, exists := object["data"]; exists && isJSONNull(raw) {
+		return fmt.Errorf("decode ResizedEvent: non-nullable field data is null")
+	}
+	if raw, exists := object["replay"]; exists && isJSONNull(raw) {
+		return fmt.Errorf("decode ResizedEvent: non-nullable field replay is null")
+	}
+	*value = ResizedEvent(decoded)
+	return nil
 }
 
 func (ResizedEvent) EventName() string  { return "resized" }
@@ -398,12 +982,91 @@ func (SurfaceOutputEvent) isSubscribeEvent() {}
 
 // SurfaceResizeFailedEvent is emitted by protocol v7.
 type SurfaceResizeFailedEvent struct {
-	Cols          uint16  `json:"cols"`
-	Error         string  `json:"error"`
-	ReservationID *uint64 `json:"reservation_id"`
-	RetryAfterMs  *uint64 `json:"retry_after_ms"`
-	Rows          uint16  `json:"rows"`
-	Surface       ID      `json:"surface"`
+	Cols          uint16                   `json:"cols"`
+	Error         string                   `json:"error"`
+	ReservationID RequiredNullable[uint64] `json:"-"`
+	RetryAfterMs  RequiredNullable[uint64] `json:"-"`
+	Rows          uint16                   `json:"rows"`
+	Surface       ID                       `json:"surface"`
+}
+
+func (value SurfaceResizeFailedEvent) MarshalJSON() ([]byte, error) {
+	type wire SurfaceResizeFailedEvent
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if !value.ReservationID.IsSet() {
+		return nil, fmt.Errorf("encode SurfaceResizeFailedEvent: required nullable field reservation_id is missing")
+	}
+	if value.ReservationID.IsNull() {
+		object["reservation_id"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.ReservationID.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SurfaceResizeFailedEvent.ReservationID: %w", err)
+		}
+		object["reservation_id"] = encodedField
+	}
+	if !value.RetryAfterMs.IsSet() {
+		return nil, fmt.Errorf("encode SurfaceResizeFailedEvent: required nullable field retry_after_ms is missing")
+	}
+	if value.RetryAfterMs.IsNull() {
+		object["retry_after_ms"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.RetryAfterMs.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SurfaceResizeFailedEvent.RetryAfterMs: %w", err)
+		}
+		object["retry_after_ms"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *SurfaceResizeFailedEvent) UnmarshalJSON(data []byte) error {
+	type wire SurfaceResizeFailedEvent
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawReservationID, hasReservationID := object["reservation_id"]
+	if !hasReservationID {
+		return fmt.Errorf("decode SurfaceResizeFailedEvent: required nullable field reservation_id is missing")
+	}
+	if isJSONNull(rawReservationID) {
+		decoded.ReservationID = RequiredNull[uint64]()
+	} else {
+		var fieldValue uint64
+		if err := json.Unmarshal(rawReservationID, &fieldValue); err != nil {
+			return fmt.Errorf("decode SurfaceResizeFailedEvent.ReservationID: %w", err)
+		}
+		decoded.ReservationID = RequiredValue(fieldValue)
+	}
+	rawRetryAfterMs, hasRetryAfterMs := object["retry_after_ms"]
+	if !hasRetryAfterMs {
+		return fmt.Errorf("decode SurfaceResizeFailedEvent: required nullable field retry_after_ms is missing")
+	}
+	if isJSONNull(rawRetryAfterMs) {
+		decoded.RetryAfterMs = RequiredNull[uint64]()
+	} else {
+		var fieldValue uint64
+		if err := json.Unmarshal(rawRetryAfterMs, &fieldValue); err != nil {
+			return fmt.Errorf("decode SurfaceResizeFailedEvent.RetryAfterMs: %w", err)
+		}
+		decoded.RetryAfterMs = RequiredValue(fieldValue)
+	}
+	*value = SurfaceResizeFailedEvent(decoded)
+	return nil
 }
 
 func (SurfaceResizeFailedEvent) EventName() string { return "surface-resize-failed" }
@@ -412,10 +1075,63 @@ func (SurfaceResizeFailedEvent) isSubscribeEvent() {}
 
 // SurfaceResizedEvent is emitted by protocol v5.
 type SurfaceResizedEvent struct {
-	Cols          uint16  `json:"cols"`
-	ReservationID *uint64 `json:"reservation_id"`
-	Rows          uint16  `json:"rows"`
-	Surface       ID      `json:"surface"`
+	Cols          uint16                   `json:"cols"`
+	ReservationID RequiredNullable[uint64] `json:"-"`
+	Rows          uint16                   `json:"rows"`
+	Surface       ID                       `json:"surface"`
+}
+
+func (value SurfaceResizedEvent) MarshalJSON() ([]byte, error) {
+	type wire SurfaceResizedEvent
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if !value.ReservationID.IsSet() {
+		return nil, fmt.Errorf("encode SurfaceResizedEvent: required nullable field reservation_id is missing")
+	}
+	if value.ReservationID.IsNull() {
+		object["reservation_id"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.ReservationID.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SurfaceResizedEvent.ReservationID: %w", err)
+		}
+		object["reservation_id"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *SurfaceResizedEvent) UnmarshalJSON(data []byte) error {
+	type wire SurfaceResizedEvent
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	rawReservationID, hasReservationID := object["reservation_id"]
+	if !hasReservationID {
+		return fmt.Errorf("decode SurfaceResizedEvent: required nullable field reservation_id is missing")
+	}
+	if isJSONNull(rawReservationID) {
+		decoded.ReservationID = RequiredNull[uint64]()
+	} else {
+		var fieldValue uint64
+		if err := json.Unmarshal(rawReservationID, &fieldValue); err != nil {
+			return fmt.Errorf("decode SurfaceResizedEvent.ReservationID: %w", err)
+		}
+		decoded.ReservationID = RequiredValue(fieldValue)
+	}
+	*value = SurfaceResizedEvent(decoded)
+	return nil
 }
 
 func (SurfaceResizedEvent) EventName() string { return "surface-resized" }
@@ -481,6 +1197,23 @@ type TitleChangedEvent struct {
 	Title   *string `json:"title,omitempty"`
 }
 
+func (value *TitleChangedEvent) UnmarshalJSON(data []byte) error {
+	type wire TitleChangedEvent
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	if raw, exists := object["title"]; exists && isJSONNull(raw) {
+		return fmt.Errorf("decode TitleChangedEvent: non-nullable field title is null")
+	}
+	*value = TitleChangedEvent(decoded)
+	return nil
+}
+
 func (TitleChangedEvent) EventName() string { return "title-changed" }
 func (TitleChangedEvent) isDeltaEvent()     {}
 func (TitleChangedEvent) isSubscribeEvent() {}
@@ -500,6 +1233,23 @@ type VTStateEvent struct {
 	Data    Base64          `json:"data"`
 	Rows    uint16          `json:"rows"`
 	Surface ID              `json:"surface"`
+}
+
+func (value *VTStateEvent) UnmarshalJSON(data []byte) error {
+	type wire VTStateEvent
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	if raw, exists := object["colors"]; exists && isJSONNull(raw) {
+		return fmt.Errorf("decode VTStateEvent: non-nullable field colors is null")
+	}
+	*value = VTStateEvent(decoded)
+	return nil
 }
 
 func (VTStateEvent) EventName() string  { return "vt-state" }
@@ -527,6 +1277,26 @@ type WorkspaceAddedEvent struct {
 	WorkspaceRevision uint64    `json:"workspace_revision"`
 }
 
+func (value *WorkspaceAddedEvent) UnmarshalJSON(data []byte) error {
+	type wire WorkspaceAddedEvent
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	if raw, exists := object["mutation_id"]; exists && isJSONNull(raw) {
+		return fmt.Errorf("decode WorkspaceAddedEvent: non-nullable field mutation_id is null")
+	}
+	if raw, exists := object["origin"]; exists && isJSONNull(raw) {
+		return fmt.Errorf("decode WorkspaceAddedEvent: non-nullable field origin is null")
+	}
+	*value = WorkspaceAddedEvent(decoded)
+	return nil
+}
+
 func (WorkspaceAddedEvent) EventName() string { return "workspace-added" }
 func (WorkspaceAddedEvent) isDeltaEvent()     {}
 func (WorkspaceAddedEvent) isSubscribeEvent() {}
@@ -541,6 +1311,26 @@ type WorkspaceClosedEvent struct {
 	RegistryID        string    `json:"registry_id"`
 	Workspace         ID        `json:"workspace"`
 	WorkspaceRevision uint64    `json:"workspace_revision"`
+}
+
+func (value *WorkspaceClosedEvent) UnmarshalJSON(data []byte) error {
+	type wire WorkspaceClosedEvent
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	if raw, exists := object["mutation_id"]; exists && isJSONNull(raw) {
+		return fmt.Errorf("decode WorkspaceClosedEvent: non-nullable field mutation_id is null")
+	}
+	if raw, exists := object["origin"]; exists && isJSONNull(raw) {
+		return fmt.Errorf("decode WorkspaceClosedEvent: non-nullable field origin is null")
+	}
+	*value = WorkspaceClosedEvent(decoded)
+	return nil
 }
 
 func (WorkspaceClosedEvent) EventName() string { return "workspace-closed" }
@@ -559,6 +1349,26 @@ type WorkspaceMovedEvent struct {
 	WorkspaceRevision uint64    `json:"workspace_revision"`
 }
 
+func (value *WorkspaceMovedEvent) UnmarshalJSON(data []byte) error {
+	type wire WorkspaceMovedEvent
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	if raw, exists := object["mutation_id"]; exists && isJSONNull(raw) {
+		return fmt.Errorf("decode WorkspaceMovedEvent: non-nullable field mutation_id is null")
+	}
+	if raw, exists := object["origin"]; exists && isJSONNull(raw) {
+		return fmt.Errorf("decode WorkspaceMovedEvent: non-nullable field origin is null")
+	}
+	*value = WorkspaceMovedEvent(decoded)
+	return nil
+}
+
 func (WorkspaceMovedEvent) EventName() string { return "workspace-moved" }
 func (WorkspaceMovedEvent) isDeltaEvent()     {}
 func (WorkspaceMovedEvent) isSubscribeEvent() {}
@@ -572,6 +1382,26 @@ type WorkspaceRenamedEvent struct {
 	RegistryID        string    `json:"registry_id"`
 	Workspace         ID        `json:"workspace"`
 	WorkspaceRevision uint64    `json:"workspace_revision"`
+}
+
+func (value *WorkspaceRenamedEvent) UnmarshalJSON(data []byte) error {
+	type wire WorkspaceRenamedEvent
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	if raw, exists := object["mutation_id"]; exists && isJSONNull(raw) {
+		return fmt.Errorf("decode WorkspaceRenamedEvent: non-nullable field mutation_id is null")
+	}
+	if raw, exists := object["origin"]; exists && isJSONNull(raw) {
+		return fmt.Errorf("decode WorkspaceRenamedEvent: non-nullable field origin is null")
+	}
+	*value = WorkspaceRenamedEvent(decoded)
+	return nil
 }
 
 func (WorkspaceRenamedEvent) EventName() string { return "workspace-renamed" }

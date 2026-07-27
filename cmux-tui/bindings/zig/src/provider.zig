@@ -484,14 +484,15 @@ fn validateIdentity(identity: protocol.IdentifyResult) !void {
     if (identity.protocol < minimum_protocol) {
         return error.UnsupportedProtocol;
     }
+    const server_capabilities = identity.capabilities orelse &.{};
     if (!capabilities.hasCapability(
-        identity.capabilities,
+        server_capabilities,
         workspace_registry_capability,
     )) {
         return error.MissingWorkspaceRegistryCapability;
     }
     if (!capabilities.hasCapability(
-        identity.capabilities,
+        server_capabilities,
         provider_capability,
     )) {
         return error.MissingProviderCapability;

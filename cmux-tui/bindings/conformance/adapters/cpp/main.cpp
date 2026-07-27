@@ -124,6 +124,37 @@ cmux::Result<cmux::Json> nullable_literal(const cmux::Json& request) {
     });
 }
 
+cmux::Result<cmux::Json> optional_non_null_response(const cmux::Json& request) {
+    auto connected = cmux::Client::connect(options(request));
+    if (!connected) return std::move(connected).error();
+    auto client = std::move(connected).value();
+    auto identified = client.identify();
+    if (!identified) return std::move(identified).error();
+    return cmux::Json(cmux::Json::Object{
+        {"present", identified.value().capabilities.has_value()},
+    });
+}
+
+cmux::Result<cmux::Json> optional_nullable_request(const cmux::Json& request) {
+    const auto presence = string_field(request, "presence");
+    cmux::SetClientInfoRequest info;
+    if (presence == "null") {
+        info.name = cmux::Field<std::string>::null();
+    } else if (presence == "value") {
+        info.name = std::string("conformance-client");
+    } else if (presence != "omitted") {
+        return error(
+            cmux::ErrorCode::invalid_argument,
+            "unknown presence " + presence);
+    }
+    auto connected = cmux::Client::connect(options(request));
+    if (!connected) return std::move(connected).error();
+    auto client = std::move(connected).value();
+    auto updated = client.set_client_info(info);
+    if (!updated) return std::move(updated).error();
+    return cmux::Json(cmux::Json::Object{{"presence", presence}});
+}
+
 cmux::Result<cmux::EventStream> open_stream(
     cmux::Client& client,
     const cmux::Json& request) {
@@ -211,6 +242,51 @@ cmux::Result<cmux::Json> run_stream(const cmux::Json& request) {
     return cmux::Json(cmux::Json::Object{
         {"events", std::move(events)},
         {"terminal", terminal},
+    });
+}
+
+cmux::Result<cmux::Json> required_nullable_event(const cmux::Json& request) {
+    auto connected = cmux::Client::connect(options(request));
+    if (!connected) return std::move(connected).error();
+    auto client = std::move(connected).value();
+    auto opened = open_stream(client, request);
+    if (!opened) return std::move(opened).error();
+    auto stream = std::move(opened).value();
+    auto received = stream.next(
+        std::chrono::milliseconds(uint_field(request, "timeout_ms", 1000)));
+    if (!received) return std::move(received).error();
+    const auto* changed =
+        std::get_if<cmux::ClientChangedEvent>(&received.value().value);
+    if (changed == nullptr) {
+        return error(
+            cmux::ErrorCode::decode,
+            "expected client-changed event, received "
+                + std::string(received.value().name()));
+    }
+    cmux::Json name;
+    if (changed->name) name = *changed->name;
+    return cmux::Json(cmux::Json::Object{{"name", std::move(name)}});
+}
+
+cmux::Result<cmux::Json> optional_non_null_event(const cmux::Json& request) {
+    auto connected = cmux::Client::connect(options(request));
+    if (!connected) return std::move(connected).error();
+    auto client = std::move(connected).value();
+    auto opened = open_stream(client, request);
+    if (!opened) return std::move(opened).error();
+    auto stream = std::move(opened).value();
+    auto received = stream.next(
+        std::chrono::milliseconds(uint_field(request, "timeout_ms", 1000)));
+    if (!received) return std::move(received).error();
+    const auto* output = std::get_if<cmux::OutputEvent>(&received.value().value);
+    if (output == nullptr) {
+        return error(
+            cmux::ErrorCode::decode,
+            "expected output event, received "
+                + std::string(received.value().name()));
+    }
+    return cmux::Json(cmux::Json::Object{
+        {"present", output->colors.has_value()},
     });
 }
 
@@ -441,7 +517,19 @@ cmux::Result<cmux::Json> dispatch(const cmux::Json& request) {
     if (operation == "metadata") return metadata();
     if (operation == "identify") return identify(request);
     if (operation == "nullable-literal") return nullable_literal(request);
+    if (operation == "optional-non-null-response") {
+        return optional_non_null_response(request);
+    }
+    if (operation == "optional-nullable-request") {
+        return optional_nullable_request(request);
+    }
     if (operation == "stream") return run_stream(request);
+    if (operation == "required-nullable-event") {
+        return required_nullable_event(request);
+    }
+    if (operation == "optional-non-null-event") {
+        return optional_non_null_event(request);
+    }
     if (operation == "close-pending-stream") return close_pending_stream(request);
     if (operation == "authority") return authority(request);
     if (operation == "authority-denied") return authority_denied(request);

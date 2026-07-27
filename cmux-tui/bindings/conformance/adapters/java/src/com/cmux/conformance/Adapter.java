@@ -10,14 +10,17 @@ import com.cmux.CmuxTimeoutException;
 import com.cmux.Json;
 import com.cmux.UInt64;
 import com.cmux.generated.Authority;
+import com.cmux.generated.ClientChangedEvent;
 import com.cmux.generated.CommandMetadata;
 import com.cmux.generated.Commands;
 import com.cmux.generated.CreateTerminalRequest;
 import com.cmux.generated.EventMetadata;
 import com.cmux.generated.Events;
 import com.cmux.generated.MarkWorkspacesProviderManagedRequest;
+import com.cmux.generated.OutputEvent;
 import com.cmux.generated.PairingResponseRequest;
 import com.cmux.generated.ProtocolEvent;
+import com.cmux.generated.SetClientInfoRequest;
 import com.cmux.generated.UnknownEvent;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
@@ -61,7 +64,11 @@ public final class Adapter {
             case "metadata" -> metadata();
             case "identify" -> identify(request);
             case "nullable-literal" -> nullableLiteral(request);
+            case "optional-non-null-response" -> optionalNonNullResponse(request);
+            case "optional-nullable-request" -> optionalNullableRequest(request);
             case "stream" -> stream(request);
+            case "required-nullable-event" -> requiredNullableEvent(request);
+            case "optional-non-null-event" -> optionalNonNullEvent(request);
             case "close-pending-stream" -> closePendingStream(request);
             case "authority" -> authority(request);
             case "authority-denied" -> authorityDenied(request);
@@ -142,6 +149,30 @@ public final class Adapter {
         }
     }
 
+    private static Object optionalNonNullResponse(Map<String, Object> request) throws Exception {
+        try (CmuxClient client = client(request)) {
+            var value = client.identify();
+            return Map.of("present", value.capabilities().isPresent());
+        }
+    }
+
+    private static Object optionalNullableRequest(Map<String, Object> request) throws Exception {
+        String presence = string(request, "presence", "");
+        SetClientInfoRequest.Builder builder = SetClientInfoRequest.builder();
+        switch (presence) {
+            case "omitted" -> {
+                // The untouched builder preserves the omitted state.
+            }
+            case "null" -> builder.name(null);
+            case "value" -> builder.name("conformance-client");
+            default -> throw new IllegalArgumentException("unknown presence " + presence);
+        }
+        try (CmuxClient client = client(request)) {
+            client.setClientInfo(builder.build());
+            return Map.of("presence", presence);
+        }
+    }
+
     private static CmuxStream<? extends ProtocolEvent> openStream(
         CmuxClient client,
         Map<String, Object> request
@@ -183,6 +214,42 @@ public final class Adapter {
                 }
             }
             return Map.of("events", events, "terminal", terminal);
+        }
+    }
+
+    private static Object requiredNullableEvent(Map<String, Object> request) throws Exception {
+        try (CmuxClient client = client(request);
+             CmuxStream<? extends ProtocolEvent> stream = openStream(client, request)) {
+            Duration timeout = Duration.ofMillis(
+                Math.max(number(request, "timeout_ms", 1000), 1)
+            );
+            ProtocolEvent event = stream.next(timeout);
+            if (!(event instanceof ClientChangedEvent changed)) {
+                throw new CmuxDecodeException(
+                    "expected client-changed event, received " + event.event(),
+                    null
+                );
+            }
+            LinkedHashMap<String, Object> result = new LinkedHashMap<>();
+            result.put("name", changed.name());
+            return result;
+        }
+    }
+
+    private static Object optionalNonNullEvent(Map<String, Object> request) throws Exception {
+        try (CmuxClient client = client(request);
+             CmuxStream<? extends ProtocolEvent> stream = openStream(client, request)) {
+            Duration timeout = Duration.ofMillis(
+                Math.max(number(request, "timeout_ms", 1000), 1)
+            );
+            ProtocolEvent event = stream.next(timeout);
+            if (!(event instanceof OutputEvent output)) {
+                throw new CmuxDecodeException(
+                    "expected output event, received " + event.event(),
+                    null
+                );
+            }
+            return Map.of("present", output.colors().isPresent());
         }
     }
 

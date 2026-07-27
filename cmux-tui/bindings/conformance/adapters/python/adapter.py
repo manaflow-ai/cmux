@@ -139,6 +139,26 @@ def nullable_literal(request: Mapping[str, Any]) -> dict[str, Any]:
         return {"lifecycle": placement.lifecycle}
 
 
+def optional_non_null_response(request: Mapping[str, Any]) -> dict[str, Any]:
+    with make_client(request) as client:
+        value = client.identify()
+        return {"present": value.capabilities is not cmux.MISSING}
+
+
+def optional_nullable_request(request: Mapping[str, Any]) -> dict[str, Any]:
+    presence = str(request["presence"])
+    with make_client(request) as client:
+        if presence == "omitted":
+            client.set_client_info()
+        elif presence == "null":
+            client.set_client_info(name=None)
+        elif presence == "value":
+            client.set_client_info(name="conformance-client")
+        else:
+            raise ValueError(f"unknown presence {presence!r}")
+    return {"presence": presence}
+
+
 def open_stream(client: cmux.CmuxClient, request: Mapping[str, Any]) -> Any:
     kind = request["stream"]
     if kind == "subscribe-coarse":
@@ -176,6 +196,36 @@ def stream(request: Mapping[str, Any]) -> dict[str, Any]:
     finally:
         client.close()
     return {"events": events, "terminal": terminal}
+
+
+def required_nullable_event(request: Mapping[str, Any]) -> dict[str, Any]:
+    client = make_client(request)
+    opened = client.subscribe()
+    try:
+        event = next(opened)
+        if not isinstance(event, cmux.ClientChangedEvent):
+            raise cmux.ProtocolError(
+                f"expected client-changed event, got {getattr(event, 'event', None)!r}"
+            )
+        return {"name": event.name}
+    finally:
+        opened.close()
+        client.close()
+
+
+def optional_non_null_event(request: Mapping[str, Any]) -> dict[str, Any]:
+    client = make_client(request)
+    opened = open_stream(client, request)
+    try:
+        event = next(opened)
+        if not isinstance(event, cmux.OutputEvent):
+            raise cmux.ProtocolError(
+                f"expected output event, got {getattr(event, 'event', None)!r}"
+            )
+        return {"present": event.colors is not cmux.MISSING}
+    finally:
+        opened.close()
+        client.close()
 
 
 def close_pending_stream(request: Mapping[str, Any]) -> dict[str, Any]:
@@ -305,8 +355,16 @@ def dispatch(request: Mapping[str, Any]) -> Any:
         return identify(request)
     if operation == "nullable-literal":
         return nullable_literal(request)
+    if operation == "optional-non-null-response":
+        return optional_non_null_response(request)
+    if operation == "optional-nullable-request":
+        return optional_nullable_request(request)
     if operation == "stream":
         return stream(request)
+    if operation == "required-nullable-event":
+        return required_nullable_event(request)
+    if operation == "optional-non-null-event":
+        return optional_non_null_event(request)
     if operation == "close-pending-stream":
         return close_pending_stream(request)
     if operation == "authority":

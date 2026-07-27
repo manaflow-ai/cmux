@@ -74,6 +74,129 @@
       }
     },
     {
+      "name": "required-nullable-response-missing",
+      "adapter": {
+        "op": "nullable-literal",
+        "timeout_ms": 1000
+      },
+      "server": {
+        "behavior": "terminal-placement",
+        "omit_lifecycle": true
+      },
+      "expect_error": "decode"
+    },
+    {
+      "name": "optional-non-null-response-omitted",
+      "adapter": {
+        "op": "optional-non-null-response",
+        "presence": "omitted",
+        "timeout_ms": 1000
+      },
+      "server": {
+        "behavior": "identify",
+        "capabilities_presence": "omitted"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "present": false
+        }
+      }
+    },
+    {
+      "name": "optional-non-null-response-value",
+      "adapter": {
+        "op": "optional-non-null-response",
+        "presence": "value",
+        "timeout_ms": 1000
+      },
+      "server": {
+        "behavior": "identify",
+        "capabilities_presence": "value"
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "present": true
+        }
+      }
+    },
+    {
+      "name": "optional-non-null-response-null",
+      "adapter": {
+        "op": "optional-non-null-response",
+        "presence": "null",
+        "timeout_ms": 1000
+      },
+      "server": {
+        "behavior": "identify",
+        "capabilities_presence": "null"
+      },
+      "expect_error": "decode"
+    },
+    {
+      "name": "optional-nullable-request-omitted",
+      "adapter": {
+        "op": "optional-nullable-request",
+        "presence": "omitted",
+        "timeout_ms": 1000
+      },
+      "server": {
+        "behavior": "request-shape",
+        "expect_request": {
+          "cmd": "set-client-info"
+        }
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "presence": "omitted"
+        }
+      }
+    },
+    {
+      "name": "optional-nullable-request-null",
+      "adapter": {
+        "op": "optional-nullable-request",
+        "presence": "null",
+        "timeout_ms": 1000
+      },
+      "server": {
+        "behavior": "request-shape",
+        "expect_request": {
+          "cmd": "set-client-info",
+          "name": null
+        }
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "presence": "null"
+        }
+      }
+    },
+    {
+      "name": "optional-nullable-request-value",
+      "adapter": {
+        "op": "optional-nullable-request",
+        "presence": "value",
+        "timeout_ms": 1000
+      },
+      "server": {
+        "behavior": "request-shape",
+        "expect_request": {
+          "cmd": "set-client-info",
+          "name": "conformance-client"
+        }
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "presence": "value"
+        }
+      }
+    },
+    {
       "name": "oversized-response",
       "adapter": {
         "op": "identify",
@@ -156,6 +279,155 @@
           ]
         }
       }
+    },
+    {
+      "name": "required-nullable-event-null",
+      "adapter": {
+        "op": "required-nullable-event",
+        "stream": "subscribe-coarse",
+        "timeout_ms": 1000
+      },
+      "server": {
+        "behavior": "stream",
+        "after_ack": [
+          {
+            "event": "client-changed",
+            "client": 7,
+            "kind": null,
+            "name": null
+          }
+        ]
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "name": null
+        }
+      }
+    },
+    {
+      "name": "required-nullable-event-value",
+      "adapter": {
+        "op": "required-nullable-event",
+        "stream": "subscribe-coarse",
+        "timeout_ms": 1000
+      },
+      "server": {
+        "behavior": "stream",
+        "after_ack": [
+          {
+            "event": "client-changed",
+            "client": 7,
+            "kind": null,
+            "name": "conformance-client"
+          }
+        ]
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "name": "conformance-client"
+        }
+      }
+    },
+    {
+      "name": "required-nullable-event-missing",
+      "adapter": {
+        "op": "required-nullable-event",
+        "stream": "subscribe-coarse",
+        "timeout_ms": 1000
+      },
+      "server": {
+        "behavior": "stream",
+        "after_ack": [
+          {
+            "event": "client-changed",
+            "client": 7,
+            "kind": null
+          }
+        ]
+      },
+      "expect_error": "decode"
+    },
+    {
+      "name": "optional-non-null-event-omitted",
+      "adapter": {
+        "op": "optional-non-null-event",
+        "stream": "attach-byte",
+        "surface": "7",
+        "presence": "omitted",
+        "timeout_ms": 1000
+      },
+      "server": {
+        "behavior": "stream",
+        "after_ack": [
+          {
+            "event": "output",
+            "surface": 7,
+            "data": ""
+          }
+        ]
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "present": false
+        }
+      }
+    },
+    {
+      "name": "optional-non-null-event-value",
+      "adapter": {
+        "op": "optional-non-null-event",
+        "stream": "attach-byte",
+        "surface": "7",
+        "presence": "value",
+        "timeout_ms": 1000
+      },
+      "server": {
+        "behavior": "stream",
+        "after_ack": [
+          {
+            "event": "output",
+            "surface": 7,
+            "data": "",
+            "colors": {
+              "fg": "#010203",
+              "bg": null,
+              "selection_bg": null,
+              "selection_fg": null
+            }
+          }
+        ]
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "present": true
+        }
+      }
+    },
+    {
+      "name": "optional-non-null-event-null",
+      "adapter": {
+        "op": "optional-non-null-event",
+        "stream": "attach-byte",
+        "surface": "7",
+        "presence": "null",
+        "timeout_ms": 1000
+      },
+      "server": {
+        "behavior": "stream",
+        "after_ack": [
+          {
+            "event": "output",
+            "surface": 7,
+            "data": "",
+            "colors": null
+          }
+        ]
+      },
+      "expect_error": "decode"
     },
     {
       "name": "overflow-terminates-subscribe",

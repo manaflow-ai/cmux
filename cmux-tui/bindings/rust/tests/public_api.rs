@@ -1,6 +1,7 @@
 use cmux_client::{
-    COMMANDS, EVENTS, MUX_PROTOCOL_VERSION, Nullable, Optional, SDK_SCHEMA_VERSION,
-    SetClientInfoRequest, Tree, UnknownEvent, decode_event,
+    COMMANDS, EVENTS, IdentifyResult, Layout, MUX_PROTOCOL_VERSION, Nullable, Optional,
+    OutputEvent, SDK_SCHEMA_VERSION, SendRequest, SetClientInfoRequest, Tree, UnknownEvent,
+    decode_event,
 };
 
 #[test]
@@ -62,6 +63,101 @@ fn required_nullable_accessors_preserve_explicit_null() {
     let decoded: RequiredField =
         serde_json::from_value(serde_json::json!({"value": null})).unwrap();
     assert!(decoded.value.is_null());
+}
+
+fn assert_optional_non_null_field<T>(
+    omitted: serde_json::Value,
+    field: &str,
+    value: serde_json::Value,
+) where
+    T: serde::de::DeserializeOwned + serde::Serialize,
+{
+    let omitted_model: T = serde_json::from_value(omitted.clone()).unwrap();
+    assert_eq!(serde_json::to_value(omitted_model).unwrap(), omitted);
+
+    let mut present = omitted.clone();
+    present.as_object_mut().unwrap().insert(field.to_string(), value);
+    let present_model: T = serde_json::from_value(present.clone()).unwrap();
+    assert_eq!(serde_json::to_value(present_model).unwrap(), present);
+
+    let mut explicit_null = omitted;
+    explicit_null.as_object_mut().unwrap().insert(field.to_string(), serde_json::Value::Null);
+    let error = match serde_json::from_value::<T>(explicit_null) {
+        Ok(_) => panic!("{field} accepted explicit null"),
+        Err(error) => error,
+    };
+    assert!(
+        error.to_string().contains("explicit null is not allowed"),
+        "unexpected error for {field}: {error}"
+    );
+}
+
+#[test]
+fn generated_optional_non_null_fields_reject_null_across_wire_models() {
+    assert_optional_non_null_field::<SendRequest>(
+        serde_json::json!({"surface": 1}),
+        "paste",
+        serde_json::json!(true),
+    );
+    assert_optional_non_null_field::<IdentifyResult>(
+        serde_json::json!({
+            "app": "cmux",
+            "daemon_handoff": 0,
+            "generation": "generation",
+            "pid": 1,
+            "protocol": 10,
+            "registry_id": "registry",
+            "session": "main",
+            "terminal_revision": 0,
+            "version": "0.1.0",
+            "workspace_revision": 0
+        }),
+        "capabilities",
+        serde_json::json!(["surface-subscribe-filter"]),
+    );
+    assert_optional_non_null_field::<OutputEvent>(
+        serde_json::json!({"data": "", "surface": 1}),
+        "colors",
+        serde_json::json!({
+            "bg": null,
+            "fg": null,
+            "selection_bg": null,
+            "selection_fg": null
+        }),
+    );
+    assert_optional_non_null_field::<Layout>(
+        serde_json::json!({
+            "type": "split",
+            "a": {"type": "leaf", "pane": 1},
+            "b": {"type": "leaf", "pane": 2},
+            "dir": "right",
+            "ratio": 0.5
+        }),
+        "split",
+        serde_json::json!(3),
+    );
+}
+
+#[test]
+fn invalid_known_event_preserves_raw_frame_and_decode_error() {
+    let raw = serde_json::json!({
+        "event": "output",
+        "surface": 1,
+        "data": "",
+        "colors": null
+    });
+    let event = decode_event(raw.clone());
+
+    assert!(matches!(
+        event,
+        cmux_client::Event::Unknown(UnknownEvent {
+            name: Some(name),
+            raw: actual,
+            decode_error: Some(error),
+        }) if name == "output"
+            && actual == raw
+            && error.contains("explicit null is not allowed")
+    ));
 }
 
 #[test]

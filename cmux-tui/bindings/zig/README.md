@@ -52,19 +52,29 @@ These skip protocol and capability checks but retain the authority policy.
 Capability checks are available without reimplementing a slice scan:
 
 ```zig
+const server_capabilities = identity.value.capabilities orelse &.{};
 try cmux.requireCapability(
-    identity.value.capabilities,
+    server_capabilities,
     "workspace-registry-v1",
 );
 if (cmux.hasCapability(
-    identity.value.capabilities,
+    server_capabilities,
     "provider-managed-workspace-authority-v2",
 )) {
     // Provider-owned workspace lifecycle APIs are available.
 }
 ```
 
-Decoded results own an arena. Call `deinit` on every result and event. Request strings and slices are borrowed only until the call returns. `Field(T)` distinguishes an omitted optional property from explicit JSON `null`; `Nullable(T)` represents required nullable properties. Generated enums reject unknown wire spellings, `Map(T)` keeps JSON object values typed, and `encodeBase64Alloc` or `decodeBase64Alloc` handles byte payloads.
+Decoded results own an arena. Call `deinit` on every result and event. Request
+strings and slices are borrowed only until the call returns. Generated
+optional non-null properties use `?T`: Zig `null` omits the property when
+encoding, while an explicit JSON `null` is rejected when decoding. Schema
+defaults do not erase this wire-presence distinction, so callers can apply a
+fallback with `orelse`. `Field(T)` preserves absent, explicit null, and value
+states for optional nullable properties. `Nullable(T)` represents required
+nullable properties and rejects omission. Generated enums reject unknown wire
+spellings, `Map(T)` keeps JSON object values typed, and `encodeBase64Alloc` or
+`decodeBase64Alloc` handles byte payloads.
 
 Remote command rejection still returns `error.RemoteError`. The borrowed
 `lastRemoteError()` message is cleared before the next call. Prefer

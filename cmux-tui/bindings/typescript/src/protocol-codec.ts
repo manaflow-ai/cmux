@@ -1,5 +1,6 @@
 import { CmuxProtocolError } from "./errors.js";
 import {
+  COMMAND_METADATA,
   COMMAND_SCHEMAS,
   EVENT_METADATA,
   EVENT_SCHEMAS,
@@ -14,6 +15,20 @@ import type {
 
 type Schema = Readonly<Record<string, unknown>>;
 type Direction = "decode" | "encode";
+
+/**
+ * Negotiated server features used to interpret version- and capability-gated
+ * required fields. Without a context, decoding assumes every gate is active.
+ */
+export interface ProtocolDecodeContext {
+  protocol: number;
+  capabilities?: readonly string[] | ReadonlySet<string>;
+}
+
+interface NormalizedDecodeContext {
+  protocol: number;
+  capabilities: ReadonlySet<string>;
+}
 
 const UINT64_MAX = (1n << 64n) - 1n;
 const INT64_MIN = -(1n << 63n);
@@ -122,11 +137,42 @@ function opaqueJson(value: unknown, direction: Direction, path: string, depth = 
   return failure(path, "contains a non-JSON value");
 }
 
+function normalizeDecodeContext(
+  context: ProtocolDecodeContext | undefined,
+): NormalizedDecodeContext | undefined {
+  if (context === undefined) return undefined;
+  const capabilities = context.capabilities;
+  return {
+    protocol: context.protocol,
+    capabilities: capabilities instanceof Set
+      ? capabilities
+      : new Set(capabilities ?? []),
+  };
+}
+
+function requiredFieldApplies(
+  field: Schema,
+  context: NormalizedDecodeContext | undefined,
+): boolean {
+  if (context === undefined) return true;
+  if (typeof field.since === "number" && context.protocol < field.since) {
+    return false;
+  }
+  if (
+    typeof field.capability === "string"
+    && !context.capabilities.has(field.capability)
+  ) {
+    return false;
+  }
+  return true;
+}
+
 function transform(
   rawSchema: unknown,
   value: unknown,
   direction: Direction,
   path: string,
+  context?: NormalizedDecodeContext,
 ): unknown {
   const schema = schemaRecord(rawSchema, path);
   switch (schema.kind) {
@@ -143,20 +189,26 @@ function transform(
       return value;
     }
     case "alias":
-      return transform(schema.target, value, direction, path);
+      return transform(schema.target, value, direction, path, context);
     case "ref": {
       const name = schema.name;
       if (typeof name !== "string" || !(name in TYPE_SCHEMAS)) {
         return failure(path, `references unknown type ${String(name)}`);
       }
-      return transform(TYPE_SCHEMAS[name as keyof typeof TYPE_SCHEMAS], value, direction, path);
+      return transform(
+        TYPE_SCHEMAS[name as keyof typeof TYPE_SCHEMAS],
+        value,
+        direction,
+        path,
+        context,
+      );
     }
     case "opaque_json":
       return opaqueJson(value, direction, path);
     case "array": {
       if (!Array.isArray(value)) return failure(path, "must be an array");
       return value.map((entry, index) => (
-        transform(schema.items, entry, direction, `${path}[${index}]`)
+        transform(schema.items, entry, direction, `${path}[${index}]`, context)
       ));
     }
     case "map": {
@@ -164,7 +216,7 @@ function transform(
       return Object.fromEntries(
         Object.entries(record).map(([key, entry]) => [
           key,
-          transform(schema.values, entry, direction, `${path}.${key}`),
+          transform(schema.values, entry, direction, `${path}.${key}`, context),
         ]),
       );
     }
@@ -177,7 +229,13 @@ function transform(
         const present = Object.prototype.hasOwnProperty.call(record, name)
           && record[name] !== undefined;
         if (!present) {
-          if (direction === "encode" && field.presence === "required") {
+          if (
+            field.presence === "required"
+            && (
+              direction === "encode"
+              || requiredFieldApplies(field, context)
+            )
+          ) {
             return failure(`${path}.${name}`, "is required");
           }
           continue;
@@ -188,7 +246,13 @@ function transform(
           result[name] = null;
           continue;
         }
-        result[name] = transform(field.type, entry, direction, `${path}.${name}`);
+        result[name] = transform(
+          field.type,
+          entry,
+          direction,
+          `${path}.${name}`,
+          context,
+        );
       }
       return result;
     }
@@ -200,14 +264,14 @@ function transform(
       if (typeof selected !== "string" || !(selected in variants)) {
         return failure(`${path}.${schema.tag}`, "is not a known union variant");
       }
-      return transform(variants[selected], value, direction, path);
+      return transform(variants[selected], value, direction, path, context);
     }
     case "untagged_union": {
       if (!Array.isArray(schema.variants)) return failure(path, "has invalid union variants");
       const errors: string[] = [];
       for (const variant of schema.variants) {
         try {
-          return transform(variant, value, direction, path);
+          return transform(variant, value, direction, path, context);
         } catch (error) {
           errors.push((error as Error).message);
         }
@@ -229,18 +293,133 @@ export function encodeCommandParams<C extends CmuxCommand>(
   return transform(entry.request, params, "encode", `${command} request`) as CmuxRequestParams<C>;
 }
 
-/** Converts all uint64 fields in a known command result to bigint. */
+function inferIdentifyContext(
+  command: CmuxCommand,
+  value: unknown,
+  context: ProtocolDecodeContext | undefined,
+): ProtocolDecodeContext | undefined {
+  if (command !== "identify") return context;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  if (
+    typeof record.protocol !== "number"
+    || !Number.isSafeInteger(record.protocol)
+    || record.protocol < 0
+  ) {
+    return undefined;
+  }
+  const capabilities = Array.isArray(record.capabilities)
+    && record.capabilities.every((entry) => typeof entry === "string")
+    ? record.capabilities as string[]
+    : [];
+  return { protocol: record.protocol, capabilities };
+}
+
+function schemaNeedsDecodeContext(
+  rawSchema: unknown,
+  visiting = new Set<string>(),
+): boolean {
+  const schema = schemaRecord(rawSchema, "generated schema");
+  switch (schema.kind) {
+    case "alias":
+      return schemaNeedsDecodeContext(schema.target, visiting);
+    case "ref": {
+      const name = schema.name;
+      if (typeof name !== "string" || !(name in TYPE_SCHEMAS)) return false;
+      if (visiting.has(name)) return false;
+      visiting.add(name);
+      const needed = schemaNeedsDecodeContext(
+        TYPE_SCHEMAS[name as keyof typeof TYPE_SCHEMAS],
+        visiting,
+      );
+      visiting.delete(name);
+      return needed;
+    }
+    case "array":
+      return schemaNeedsDecodeContext(schema.items, visiting);
+    case "map":
+      return schemaNeedsDecodeContext(schema.values, visiting);
+    case "object": {
+      const fields = schemaRecord(schema.fields, "generated schema fields");
+      return Object.values(fields).some((rawField) => {
+        const field = schemaRecord(rawField, "generated schema field");
+        return (
+          field.presence === "required"
+          && (
+            typeof field.since === "number"
+            || typeof field.capability === "string"
+          )
+        ) || schemaNeedsDecodeContext(field.type, visiting);
+      });
+    }
+    case "tagged_union": {
+      const variants = schemaRecord(schema.variants, "generated schema variants");
+      return Object.values(variants).some((variant) =>
+        schemaNeedsDecodeContext(variant, visiting)
+      );
+    }
+    case "untagged_union":
+      return Array.isArray(schema.variants)
+        && schema.variants.some((variant) =>
+          schemaNeedsDecodeContext(variant, visiting)
+        );
+    default:
+      return false;
+  }
+}
+
+const commandResultContextCache = new Map<CmuxCommand, boolean>();
+const commandStreamContextCache = new Map<CmuxCommand, boolean>();
+
+/** Returns whether a result has gated required fields that need negotiation. */
+export function commandResultNeedsDecodeContext(command: CmuxCommand): boolean {
+  const cached = commandResultContextCache.get(command);
+  if (cached !== undefined) return cached;
+  const schema = COMMAND_SCHEMAS[command];
+  const needed = schema !== undefined
+    && schemaNeedsDecodeContext(schema.result);
+  commandResultContextCache.set(command, needed);
+  return needed;
+}
+
+/** Returns whether a command stream can emit gated required fields. */
+export function commandStreamNeedsDecodeContext(command: CmuxCommand): boolean {
+  const cached = commandStreamContextCache.get(command);
+  if (cached !== undefined) return cached;
+  const stream = COMMAND_METADATA[command]?.stream as {
+    readonly event_names?: readonly string[];
+  } | null | undefined;
+  const needed = stream?.event_names?.some((name) =>
+    name in EVENT_SCHEMAS
+    && schemaNeedsDecodeContext(EVENT_SCHEMAS[name as keyof typeof EVENT_SCHEMAS])
+  ) ?? false;
+  commandStreamContextCache.set(command, needed);
+  return needed;
+}
+
+/** Converts all uint64 fields in a known command result to bigint and validates presence. */
 export function decodeCommandResult<C extends CmuxCommand>(
   command: C,
   value: unknown,
+  context?: ProtocolDecodeContext,
 ): CmuxResponseDataFor<C> {
   const entry = COMMAND_SCHEMAS[command];
   if (!entry) return failure(String(command), "is not a known command");
-  return transform(entry.result, value, "decode", `${command} result`) as CmuxResponseDataFor<C>;
+  const resolvedContext = inferIdentifyContext(command, value, context);
+  return transform(
+    entry.result,
+    value,
+    "decode",
+    `${command} result`,
+    normalizeDecodeContext(resolvedContext),
+  ) as CmuxResponseDataFor<C>;
 }
 
-/** Converts uint64 fields for known events while preserving unknown future events. */
-export function decodeProtocolEvent(value: unknown): UnknownEvent {
+/** Validates known events while preserving unknown future event names unchanged. */
+export function decodeProtocolEvent(
+  value: unknown,
+  context?: ProtocolDecodeContext,
+): UnknownEvent {
   const record = valueRecord(value, "event");
   if (typeof record.event !== "string") return failure("event.event", "must be a string");
   if (!(record.event in EVENT_METADATA) || !(record.event in EVENT_SCHEMAS)) {
@@ -250,5 +429,11 @@ export function decodeProtocolEvent(value: unknown): UnknownEvent {
   if (EVENT_METADATA[name].emission !== "emitted") {
     return record as UnknownEvent;
   }
-  return transform(EVENT_SCHEMAS[name], record, "decode", `event ${name}`) as UnknownEvent;
+  return transform(
+    EVENT_SCHEMAS[name],
+    record,
+    "decode",
+    `event ${name}`,
+    normalizeDecodeContext(context),
+  ) as UnknownEvent;
 }

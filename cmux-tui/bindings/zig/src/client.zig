@@ -338,7 +338,7 @@ pub const Client = struct {
             errdefer identity.deinit();
             try self.storeNegotiation(
                 identity.value.protocol,
-                identity.value.capabilities,
+                identity.value.capabilities orelse &.{},
             );
             return identity;
         }

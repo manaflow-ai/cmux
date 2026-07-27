@@ -176,12 +176,12 @@ func (bot *Bot) ensureWorkspace(
 	err := bot.call(ctx, true, "create isolated workspace", func(client *cmux.Client) error {
 		var err error
 		created, err = client.CreateWorkspace(ctx, cmux.CreateWorkspaceOptions{
-			ExpectedGeneration: tree.Generation,
-			ExpectedRevision:   tree.WorkspaceRevision,
-			Key:                &key,
-			MutationID:         &mutationID,
-			Name:               &name,
-			Origin:             &origin,
+			ExpectedGeneration: optionalPresence(tree.Generation),
+			ExpectedRevision:   optionalPresence(tree.WorkspaceRevision),
+			Key:                cmux.Value(key),
+			MutationID:         cmux.Value(mutationID),
+			Name:               cmux.Value(name),
+			Origin:             cmux.Value(origin),
 		})
 		return err
 	})
@@ -218,15 +218,15 @@ func (bot *Bot) createTerminal(
 	err := bot.call(ctx, true, "create terminal task", func(client *cmux.Client) error {
 		var err error
 		created, err = client.CreateTerminal(ctx, cmux.CreateTerminalOptions{
-			Argv:               &argv,
+			Argv:               cmux.Value(argv),
 			Cwd:                optionalString(bot.config.Cwd),
-			ExpectedGeneration: &terminals.Generation,
-			ExpectedRevision:   &terminals.TerminalRevision,
-			Key:                &key,
-			MutationID:         &mutationID,
-			Name:               &name,
-			Origin:             &origin,
-			TerminalID:         &terminalID,
+			ExpectedGeneration: cmux.Value(terminals.Generation),
+			ExpectedRevision:   cmux.Value(terminals.TerminalRevision),
+			Key:                cmux.Value(key),
+			MutationID:         cmux.Value(mutationID),
+			Name:               cmux.Value(name),
+			Origin:             cmux.Value(origin),
+			TerminalID:         cmux.Value(terminalID),
 		})
 		return err
 	})
@@ -235,7 +235,7 @@ func (bot *Bot) createTerminal(
 
 func (bot *Bot) send(ctx context.Context, surface cmux.ID, text string) error {
 	return bot.call(ctx, false, "send terminal input", func(client *cmux.Client) error {
-		return client.Send(ctx, surface, cmux.SendOptions{Text: &text})
+		return client.Send(ctx, surface, cmux.SendOptions{Text: cmux.Value(text)})
 	})
 }
 
@@ -251,7 +251,7 @@ func (bot *Bot) reportAgent(
 			surface,
 			cmux.AgentReportSourceSocket,
 			state,
-			cmux.ReportAgentOptions{Session: &session},
+			cmux.ReportAgentOptions{Session: cmux.Value(session)},
 		)
 		return err
 	})
@@ -273,8 +273,8 @@ func (bot *Bot) notify(
 	err := bot.call(ctx, false, "post terminal notification", func(client *cmux.Client) error {
 		var err error
 		notified, err = client.Notify(ctx, title, body, cmux.NotifyOptions{
-			Level:   &level,
-			Surface: &surface,
+			Level:   cmux.Value(level),
+			Surface: cmux.Value(surface),
 		})
 		return err
 	})
@@ -299,7 +299,10 @@ func (bot *Bot) finishInterrupted(result *Result, cause error) {
 			ctx,
 			"Terminal task interrupted",
 			cause.Error(),
-			cmux.NotifyOptions{Level: &level, Surface: &result.Surface},
+			cmux.NotifyOptions{
+				Level:   cmux.Value(level),
+				Surface: cmux.Value(result.Surface),
+			},
 		)
 		return err
 	})
@@ -334,12 +337,12 @@ func (bot *Bot) closeWorkspace(ctx context.Context, lease *workspaceLease) error
 		err := bot.call(ctx, true, "close isolated workspace", func(client *cmux.Client) error {
 			var err error
 			closed, err = client.CloseWorkspace(ctx, cmux.CloseWorkspaceOptions{
-				ExpectedGeneration: tree.Generation,
-				ExpectedRevision:   tree.WorkspaceRevision,
-				Key:                &lease.key,
-				MutationID:         &mutationID,
-				Origin:             &origin,
-				Workspace:          &lease.id,
+				ExpectedGeneration: optionalPresence(tree.Generation),
+				ExpectedRevision:   optionalPresence(tree.WorkspaceRevision),
+				Key:                cmux.Value(lease.key),
+				MutationID:         cmux.Value(mutationID),
+				Origin:             cmux.Value(origin),
+				Workspace:          cmux.Value(lease.id),
 			})
 			return err
 		})
@@ -348,11 +351,18 @@ func (bot *Bot) closeWorkspace(ctx context.Context, lease *workspaceLease) error
 	return err
 }
 
-func optionalString(value string) *string {
+func optionalString(value string) cmux.Presence[string] {
 	if value == "" {
-		return nil
+		return cmux.Presence[string]{}
 	}
-	return &value
+	return cmux.Value(value)
+}
+
+func optionalPresence[T any](value *T) cmux.Presence[T] {
+	if value == nil {
+		return cmux.Presence[T]{}
+	}
+	return cmux.Value(*value)
 }
 
 func uint64Value(value *uint64) uint64 {

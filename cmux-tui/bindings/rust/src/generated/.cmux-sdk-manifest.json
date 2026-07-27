@@ -2,13 +2,13 @@
   "files": [
     {
       "path": "commands.rs",
-      "sha256": "c39a23b2ddab156438164683f024f19b9b2bcad82745c106bc7f8330d8b3adaf",
-      "size": 49417
+      "sha256": "079d4efb0fc4872c9977f55430894374edd456390ac56a5a7826fd50dabd5ed0",
+      "size": 49900
     },
     {
       "path": "events.rs",
-      "sha256": "c5afe7c9a8debf0904feaf8d42f250078c76653a548bc7b62a1c0ef3355a787f",
-      "size": 35589
+      "sha256": "6c74272ed36c0b32436d45d83dde08b19969a768011f5fb815a778f5c7a3fe4d",
+      "size": 37107
     },
     {
       "path": "metadata.rs",
@@ -22,8 +22,8 @@
     },
     {
       "path": "types.rs",
-      "sha256": "2ffef867e374358772ea4de5809a2572fd96110a5e55db3a69e0d6c71499c342",
-      "size": 21533
+      "sha256": "4067c07bd94fff91e219778f76fa337210df1ac1b6684d74b5a5e8b74d22b5d0",
+      "size": 22775
     }
   ],
   "format": 1,

@@ -149,6 +149,39 @@ fn nullableLiteral(allocator: Allocator, request: Value) !Value {
     return .{ .object = result };
 }
 
+fn optionalNonNullResponse(allocator: Allocator, request: Value) !Value {
+    var client = try cmux.Client.connect(allocator, options(request));
+    defer client.deinit();
+    var identity = try cmux.protocol.identify(&client, .{});
+    defer identity.deinit();
+
+    var result = Object.init(allocator);
+    try result.put("present", .{
+        .bool = identity.value.capabilities != null,
+    });
+    return .{ .object = result };
+}
+
+fn optionalNullableRequest(allocator: Allocator, request: Value) !Value {
+    const presence = stringField(request, "presence", "");
+    var info: cmux.protocol.SetClientInfoRequest = .{};
+    if (std.mem.eql(u8, presence, "null")) {
+        info.name = .null_value;
+    } else if (std.mem.eql(u8, presence, "value")) {
+        info.name = .{ .value = "conformance-client" };
+    } else if (!std.mem.eql(u8, presence, "omitted")) {
+        return error.UnknownPresence;
+    }
+    var client = try cmux.Client.connect(allocator, options(request));
+    defer client.deinit();
+    var updated = try cmux.protocol.setClientInfo(&client, info);
+    defer updated.deinit();
+
+    var result = Object.init(allocator);
+    try putString(&result, allocator, "presence", presence);
+    return .{ .object = result };
+}
+
 fn openStream(
     client: *cmux.Client,
     request: Value,
@@ -276,6 +309,45 @@ fn stream(allocator: Allocator, request: Value) !Value {
     var result = Object.init(allocator);
     try result.put("events", .{ .array = events });
     try result.put("terminal", .{ .bool = terminal });
+    return .{ .object = result };
+}
+
+fn requiredNullableEvent(allocator: Allocator, request: Value) !Value {
+    var client = try cmux.Client.connect(allocator, options(request));
+    defer client.deinit();
+    var source = try openStream(&client, request);
+    defer source.deinit();
+    var decoded = (try cmux.protocol.nextEvent(&source, allocator)) orelse
+        return error.ExpectedClientChanged;
+    defer decoded.deinit();
+
+    var result = Object.init(allocator);
+    switch (decoded.value) {
+        .client_changed => |changed| switch (changed.name) {
+            .null_value => try result.put("name", .null),
+            .value => |name| try putString(&result, allocator, "name", name),
+        },
+        else => return error.ExpectedClientChanged,
+    }
+    return .{ .object = result };
+}
+
+fn optionalNonNullEvent(allocator: Allocator, request: Value) !Value {
+    var client = try cmux.Client.connect(allocator, options(request));
+    defer client.deinit();
+    var source = try openStream(&client, request);
+    defer source.deinit();
+    var decoded = (try cmux.protocol.nextEvent(&source, allocator)) orelse
+        return error.ExpectedOutput;
+    defer decoded.deinit();
+
+    var result = Object.init(allocator);
+    switch (decoded.value) {
+        .output => |output| try result.put("present", .{
+            .bool = output.colors != null,
+        }),
+        else => return error.ExpectedOutput,
+    }
     return .{ .object = result };
 }
 
@@ -565,7 +637,19 @@ fn dispatch(allocator: Allocator, request: Value) !Value {
     if (std.mem.eql(u8, operation, "nullable-literal")) {
         return nullableLiteral(allocator, request);
     }
+    if (std.mem.eql(u8, operation, "optional-non-null-response")) {
+        return optionalNonNullResponse(allocator, request);
+    }
+    if (std.mem.eql(u8, operation, "optional-nullable-request")) {
+        return optionalNullableRequest(allocator, request);
+    }
     if (std.mem.eql(u8, operation, "stream")) return stream(allocator, request);
+    if (std.mem.eql(u8, operation, "required-nullable-event")) {
+        return requiredNullableEvent(allocator, request);
+    }
+    if (std.mem.eql(u8, operation, "optional-non-null-event")) {
+        return optionalNonNullEvent(allocator, request);
+    }
     if (std.mem.eql(u8, operation, "close-pending-stream")) {
         return closePendingStream(allocator, request);
     }
@@ -590,6 +674,7 @@ fn classify(failure: anyerror) []const u8 {
         std.mem.indexOf(u8, name, "Json") != null or
         std.mem.indexOf(u8, name, "Syntax") != null or
         std.mem.indexOf(u8, name, "Expected") != null or
+        std.mem.indexOf(u8, name, "Unexpected") != null or
         std.mem.indexOf(u8, name, "Invalid") != null or
         std.mem.indexOf(u8, name, "Missing") != null)
     {

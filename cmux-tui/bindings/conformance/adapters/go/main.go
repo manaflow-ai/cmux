@@ -34,6 +34,7 @@ type request struct {
 	Marker            string `json:"marker"`
 	WorkspaceName     string `json:"workspace_name"`
 	RenamedName       string `json:"renamed_name"`
+	Presence          string `json:"presence"`
 }
 
 type adapterError struct {
@@ -97,8 +98,16 @@ func dispatch(input request) (any, error) {
 		return identify(input)
 	case "nullable-literal":
 		return nullableLiteral(input)
+	case "optional-non-null-response":
+		return optionalNonNullResponse(input)
+	case "optional-nullable-request":
+		return optionalNullableRequest(input)
 	case "stream":
 		return runStream(input)
+	case "required-nullable-event":
+		return requiredNullableEvent(input)
+	case "optional-non-null-event":
+		return optionalNonNullEvent(input)
 	case "close-pending-stream":
 		return closePendingStream(input)
 	case "authority":
@@ -167,15 +176,49 @@ func nullableLiteral(input request) (any, error) {
 		return nil, err
 	}
 	defer client.Close()
-	key := "workspace-key"
 	value, err := client.CreateTerminal(
 		context.Background(),
-		cmux.CreateTerminalOptions{Key: &key},
+		cmux.CreateTerminalOptions{Key: cmux.Value("workspace-key")},
 	)
 	if err != nil {
 		return nil, err
 	}
 	return map[string]any{"lifecycle": value.Lifecycle}, nil
+}
+
+func optionalNonNullResponse(input request) (any, error) {
+	client, err := cmux.NewClient(options(input))
+	if err != nil {
+		return nil, err
+	}
+	defer client.Close()
+	value, err := client.Identify(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"present": value.Capabilities != nil}, nil
+}
+
+func optionalNullableRequest(input request) (any, error) {
+	info := cmux.SetClientInfoOptions{}
+	switch input.Presence {
+	case "omitted":
+	case "null":
+		info.Name = cmux.Null[string]()
+	case "value":
+		info.Name = cmux.Value("conformance-client")
+	default:
+		return nil, fmt.Errorf("unknown presence %q", input.Presence)
+	}
+	client, err := cmux.NewClient(options(input))
+	if err != nil {
+		return nil, err
+	}
+	defer client.Close()
+	if err := client.SetClientInfo(context.Background(), info); err != nil {
+		return nil, err
+	}
+	return map[string]any{"presence": input.Presence}, nil
 }
 
 func openStream(client *cmux.Client, input request) (*cmux.Stream, error) {
@@ -193,13 +236,13 @@ func openStream(client *cmux.Client, input request) (*cmux.Stream, error) {
 		return client.AttachSurfaceWithOptions(
 			ctx,
 			cmux.ID(surface),
-			cmux.AttachSurfaceOptions{Mode: cmux.AttachBytes},
+			cmux.AttachSurfaceOptions{Mode: cmux.Value(cmux.AttachBytes)},
 		)
 	case "attach-render":
 		return client.AttachSurfaceWithOptions(
 			ctx,
 			cmux.ID(surface),
-			cmux.AttachSurfaceOptions{Mode: cmux.AttachRender},
+			cmux.AttachSurfaceOptions{Mode: cmux.Value(cmux.AttachRender)},
 		)
 	default:
 		return nil, fmt.Errorf("unknown stream %q", input.Stream)
@@ -257,6 +300,68 @@ func runStream(input request) (any, error) {
 		}
 	}
 	return map[string]any{"events": events, "terminal": terminal}, nil
+}
+
+func requiredNullableEvent(input request) (any, error) {
+	client, err := cmux.NewClient(options(input))
+	if err != nil {
+		return nil, err
+	}
+	defer client.Close()
+	stream, err := openStream(client, input)
+	if err != nil {
+		return nil, err
+	}
+	defer stream.Close()
+	event, err := receive(stream, input)
+	if err != nil {
+		return nil, err
+	}
+	changed, ok := event.(cmux.ClientChangedEvent)
+	if !ok {
+		return nil, expectedTypedEvent(event, "client-changed")
+	}
+	if name, present := changed.Name.Get(); present {
+		return map[string]any{"name": name}, nil
+	}
+	if changed.Name.IsNull() {
+		return map[string]any{"name": nil}, nil
+	}
+	return nil, fmt.Errorf("%w: client-changed name is unset", cmux.ErrDecode)
+}
+
+func optionalNonNullEvent(input request) (any, error) {
+	client, err := cmux.NewClient(options(input))
+	if err != nil {
+		return nil, err
+	}
+	defer client.Close()
+	stream, err := openStream(client, input)
+	if err != nil {
+		return nil, err
+	}
+	defer stream.Close()
+	event, err := receive(stream, input)
+	if err != nil {
+		return nil, err
+	}
+	output, ok := event.(cmux.OutputEvent)
+	if !ok {
+		return nil, expectedTypedEvent(event, "output")
+	}
+	return map[string]any{"present": output.Colors != nil}, nil
+}
+
+func expectedTypedEvent(event cmux.Event, expected string) error {
+	if unknown, ok := event.(cmux.UnknownEvent); ok && unknown.Name == expected {
+		return fmt.Errorf("%w: %s event failed typed decoding", cmux.ErrDecode, expected)
+	}
+	return fmt.Errorf(
+		"%w: expected %s event, received %s",
+		cmux.ErrDecode,
+		expected,
+		event.EventName(),
+	)
 }
 
 func normalizeEvent(event cmux.Event) any {
@@ -448,7 +553,7 @@ func realFlow(input request) (value any, returnErr error) {
 	renamedName := defaultString(input.RenamedName, "sdk-conformance-renamed")
 	cols, rows := uint16(80), uint16(24)
 	created, err := client.NewWorkspace(ctx, cmux.NewWorkspaceOptions{
-		Name: &workspaceName, Cols: &cols, Rows: &rows,
+		Name: cmux.Value(workspaceName), Cols: cmux.Value(cols), Rows: cmux.Value(rows),
 	})
 	if err != nil {
 		return nil, err
@@ -457,12 +562,19 @@ func realFlow(input request) (value any, returnErr error) {
 	closed := false
 	defer func() {
 		if workspace != 0 && !closed {
-			_, _ = client.CloseWorkspace(ctx, cmux.CloseWorkspaceOptions{Workspace: &workspace})
+			_, _ = client.CloseWorkspace(
+				ctx,
+				cmux.CloseWorkspaceOptions{Workspace: cmux.Value(workspace)},
+			)
 		}
 	}()
 
 	command := fmt.Sprintf("printf '%s\\n'\r", marker)
-	if err := client.Send(ctx, created.Surface, cmux.SendOptions{Text: &command}); err != nil {
+	if err := client.Send(
+		ctx,
+		created.Surface,
+		cmux.SendOptions{Text: cmux.Value(command)},
+	); err != nil {
 		return nil, err
 	}
 	waited, err := client.WaitFor(ctx, created.Surface, marker, 5_000)
@@ -486,7 +598,7 @@ func realFlow(input request) (value any, returnErr error) {
 	if _, err = client.RenameWorkspace(
 		ctx,
 		renamedName,
-		cmux.RenameWorkspaceOptions{Workspace: &workspace},
+		cmux.RenameWorkspaceOptions{Workspace: cmux.Value(workspace)},
 	); err != nil {
 		return nil, err
 	}
@@ -502,7 +614,7 @@ func realFlow(input request) (value any, returnErr error) {
 	}
 	if _, err = client.CloseWorkspace(
 		ctx,
-		cmux.CloseWorkspaceOptions{Workspace: &workspace},
+		cmux.CloseWorkspaceOptions{Workspace: cmux.Value(workspace)},
 	); err != nil {
 		return nil, err
 	}

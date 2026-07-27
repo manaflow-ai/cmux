@@ -78,6 +78,23 @@ where
     }
 }
 
+/// Deserializes a present optional field while rejecting an explicit JSON null.
+///
+/// Serde supplies `Option::default()` when the field is omitted, so this
+/// function only handles present values.
+pub(crate) fn deserialize_optional_non_null<'de, D, T>(
+    deserializer: D,
+) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    match Option::<T>::deserialize(deserializer)? {
+        Some(value) => Ok(Some(value)),
+        None => Err(serde::de::Error::custom("explicit null is not allowed for this field")),
+    }
+}
+
 /// Backwards-compatible name for a required nullable value.
 pub type Nullable<T> = crate::RequiredNullable<T>;
 
@@ -104,6 +121,29 @@ mod tests {
         assert_eq!(serde_json::to_string(&missing).unwrap(), "{}");
         assert_eq!(serde_json::to_string(&null).unwrap(), r#"{"value":null}"#);
         assert_eq!(serde_json::to_string(&value).unwrap(), r#"{"value":"x"}"#);
+    }
+
+    #[derive(Debug, Deserialize, Serialize)]
+    struct OptionalNonNullWire {
+        #[serde(
+            default,
+            deserialize_with = "deserialize_optional_non_null",
+            skip_serializing_if = "Option::is_none"
+        )]
+        value: Option<serde_json::Value>,
+    }
+
+    #[test]
+    fn optional_non_null_accepts_omission_and_value_but_rejects_null() {
+        let missing: OptionalNonNullWire = serde_json::from_str("{}").unwrap();
+        let value: OptionalNonNullWire =
+            serde_json::from_str(r#"{"value":{"answer":42}}"#).unwrap();
+        let error = serde_json::from_str::<OptionalNonNullWire>(r#"{"value":null}"#).unwrap_err();
+
+        assert_eq!(missing.value, None);
+        assert_eq!(serde_json::to_string(&missing).unwrap(), "{}");
+        assert_eq!(value.value, Some(serde_json::json!({"answer": 42})));
+        assert!(error.to_string().contains("explicit null is not allowed"));
     }
 
     #[derive(Debug, Deserialize)]

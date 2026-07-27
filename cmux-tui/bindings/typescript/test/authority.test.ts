@@ -24,6 +24,11 @@ class AuthorityTransport implements Transport {
           protocol: 10,
           session: "main",
           pid: 1,
+          registry_id: "registry",
+          generation: "generation",
+          workspace_revision: 1n,
+          terminal_revision: 1n,
+          daemon_handoff: 1,
           capabilities: ["provider-managed-workspace-authority-v2"],
         },
       });
