@@ -30,13 +30,11 @@ struct ClaudeStreamJSONAccumulator {
 
         if let delta = assistantTextDelta(from: object), !delta.isEmpty {
             emittedAnyAssistantText = true
-            if object["type"] as? String == "content_block_delta" {
-                if let currentMessageID {
-                    rememberMessageID(currentMessageID)
-                    emittedCharacterCountByMessageID[currentMessageID, default: 0] += delta.count
-                } else {
-                    pendingDeltaCharacterCount += delta.count
-                }
+            if let currentMessageID {
+                rememberMessageID(currentMessageID)
+                emittedCharacterCountByMessageID[currentMessageID, default: 0] += delta.count
+            } else {
+                pendingDeltaCharacterCount += delta.count
             }
             return [delta]
         }
@@ -156,3 +154,4 @@ struct ClaudeStreamJSONAccumulator {
         return ""
     }
 }
+

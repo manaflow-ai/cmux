@@ -8,7 +8,8 @@ struct SleepyAgentCounts: Equatable, Sendable {
     var codex = 0
     var opencode = 0
     var pi = 0
+    var ollama = 0
     var other = 0
 
-    var total: Int { claude + codex + opencode + pi + other }
+    var total: Int { claude + codex + opencode + pi + ollama + other }
 }

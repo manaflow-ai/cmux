@@ -1,3 +1,4 @@
+import Observation
 import Testing
 
 @testable import CmuxSettingsUI
@@ -41,5 +42,40 @@ import Testing
         #expect(hostActions.desktopStatusReads == 2)
         #expect(hostActions.desktopStreamCreations == 1)
         #expect(hostActions.desktopRefreshes == 2)
+    }
+
+    @Test func freshAuthorizedStatusReplacesUnknownStateAfterObservationStarts() async {
+        let (desktopStream, desktopContinuation) =
+            AsyncStream<DesktopNotificationAuthorizationState>.makeStream()
+        var streamCreations = 0
+        let model = DesktopNotificationAuthorizationModel(
+            currentStatus: { .unknown },
+            makeStream: {
+                streamCreations += 1
+                return desktopStream
+            },
+            refreshStatus: {
+                #expect(streamCreations == 1)
+                desktopContinuation.yield(.authorized)
+            }
+        )
+
+        model.startObserving()
+
+        let (changes, changeContinuation) = AsyncStream<Void>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        withObservationTracking {
+            _ = model.current
+        } onChange: {
+            changeContinuation.yield(())
+        }
+
+        for await _ in changes.prefix(1) {}
+
+        #expect(model.current == .authorized)
+        #expect(streamCreations == 1)
+        desktopContinuation.finish()
+        changeContinuation.finish()
     }
 }

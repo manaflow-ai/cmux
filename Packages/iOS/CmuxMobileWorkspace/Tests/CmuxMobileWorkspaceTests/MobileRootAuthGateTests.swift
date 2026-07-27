@@ -84,16 +84,25 @@ import Testing
         #expect(MobileRootAuthGate.shouldReconnectStoredMac(
             stackAuthenticated: true,
             attachTicketAuthenticated: false,
+            isRestoringSession: false,
             connectionState: .disconnected
         ))
         #expect(!MobileRootAuthGate.shouldReconnectStoredMac(
             stackAuthenticated: true,
             attachTicketAuthenticated: true,
+            isRestoringSession: false,
             connectionState: .disconnected
         ))
         #expect(!MobileRootAuthGate.shouldReconnectStoredMac(
             stackAuthenticated: false,
             attachTicketAuthenticated: true,
+            isRestoringSession: false,
+            connectionState: .disconnected
+        ))
+        #expect(!MobileRootAuthGate.shouldReconnectStoredMac(
+            stackAuthenticated: true,
+            attachTicketAuthenticated: false,
+            isRestoringSession: true,
             connectionState: .disconnected
         ))
     }
@@ -141,6 +150,17 @@ import Testing
             authenticated: true,
             connectionState: .disconnected,
             isReconnectingStoredMac: false,
+            hasKnownPairedMac: true,
+            pairedMacHintUndetermined: false,
+            didFinishStoredMacReconnectAttempt: true
+        ))
+        // A later runtime redial must keep the established workspace shell
+        // mounted. Re-entering the launch-only restoring branch destroys the
+        // shell's compact navigation path and returns the user to the list.
+        #expect(!MobileRootAuthGate.shouldShowRestoringStoredMac(
+            authenticated: true,
+            connectionState: .disconnected,
+            isReconnectingStoredMac: true,
             hasKnownPairedMac: true,
             pairedMacHintUndetermined: false,
             didFinishStoredMacReconnectAttempt: true

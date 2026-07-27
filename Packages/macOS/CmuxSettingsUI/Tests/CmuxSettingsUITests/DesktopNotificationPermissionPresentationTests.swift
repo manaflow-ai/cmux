@@ -30,13 +30,13 @@ import Testing
         #expect(!presentation.sendTestEnabled)
     }
 
-    @Test func notDeterminedStateDisablesSendTestUntilUserEnablesPermission() {
+    @Test func notDeterminedStatePreservesLegacyActionsUntilUserEnablesPermission() {
         let presentation = DesktopNotificationPermissionPresentation.make(for: .notDetermined)
 
-        #expect(presentation.statusLabel == .notRequested)
+        #expect(presentation.statusLabel == .unknown)
         #expect(presentation.subtitle == .notDetermined)
         #expect(presentation.primaryAction == .requestAuthorization)
-        #expect(!presentation.sendTestEnabled)
+        #expect(presentation.sendTestEnabled)
     }
 
     @Test func provisionalStateShowsDeliverQuietlyStatusAndAllowsSendTest() {

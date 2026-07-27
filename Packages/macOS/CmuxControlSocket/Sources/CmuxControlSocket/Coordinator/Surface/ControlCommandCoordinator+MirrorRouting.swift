@@ -12,11 +12,13 @@ extension ControlCommandCoordinator {
     func remoteRoutedCreationResult(
         windowID: UUID?,
         workspaceID: UUID,
-        typeRawValue: String
+        typeRawValue: String,
+        operation: ControlRemoteTmuxCreationOperation
     ) -> ControlCallResult {
         .ok(.object([
             "accepted": .bool(true),
             "routed": .string("remote-tmux"),
+            "remote_tmux_operation": .string(operation.rawValue),
             "window_id": orNull(windowID?.uuidString),
             "window_ref": ref(.window, windowID),
             "workspace_id": .string(workspaceID.uuidString),

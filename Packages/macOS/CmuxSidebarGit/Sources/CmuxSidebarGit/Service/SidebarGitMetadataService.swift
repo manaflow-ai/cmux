@@ -76,7 +76,7 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
     var workspaceGitSnapshotTaskContextByDirectory: [String: WorkspaceGitSnapshotTaskContext] = [:]
     var workspaceGitSnapshotDirectoryByProbeKey: [WorkspaceGitProbeKey: String] = [:]
     var workspaceGitMetadataFallbackTask: Task<Void, Never>?
-    private var lastSidebarGitMetadataWatchEnabled = false
+    private var lastSidebarGitMetadataActivity: SidebarGitMetadataActivity = .disabled
 
     /// Creates the metadata service.
     ///
@@ -122,22 +122,22 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
     /// entry point runs).
     public func attach(host: any SidebarGitHosting) {
         self.host = host
-        lastSidebarGitMetadataWatchEnabled = host.isGitMetadataWatchEnabled
+        lastSidebarGitMetadataActivity = host.gitMetadataActivity
         updateWorkspaceGitMetadataFallbackTimer()
     }
 
-    var sidebarGitMetadataWatchEnabled: Bool {
-        host?.isGitMetadataWatchEnabled ?? false
+    var sidebarGitMetadataActivePollingEnabled: Bool {
+        host?.gitMetadataActivity.performsActivePolling ?? false
     }
 
     var sidebarPullRequestPollingEnabled: Bool {
-        host?.isPullRequestPollingEnabled ?? false
+        host?.pullRequestActivity.performsActivePolling ?? false
     }
 
     // MARK: Fallback timer
 
     func updateWorkspaceGitMetadataFallbackTimer() {
-        guard sidebarGitMetadataWatchEnabled,
+        guard sidebarGitMetadataActivePollingEnabled,
               !workspaceGitTrackedDirectoryByKey.isEmpty else {
             workspaceGitMetadataFallbackTask?.cancel()
             workspaceGitMetadataFallbackTask = nil
@@ -186,13 +186,13 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
     // MARK: Settings
 
     public func sidebarGitMetadataWatchSettingsDidChange() {
-        let isEnabled = sidebarGitMetadataWatchEnabled
-        guard isEnabled != lastSidebarGitMetadataWatchEnabled else {
+        let activity = host?.gitMetadataActivity ?? .disabled
+        guard activity != lastSidebarGitMetadataActivity else {
             return
         }
-        lastSidebarGitMetadataWatchEnabled = isEnabled
+        lastSidebarGitMetadataActivity = activity
 
-        guard isEnabled else {
+        guard activity.performsActivePolling else {
             stopAllWorkspaceGitMetadataWatchers()
             workspaceGitMetadataFallbackTask?.cancel()
             workspaceGitMetadataFallbackTask = nil
@@ -207,7 +207,9 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
             workspaceGitCleanIndexContentSignatureByKey.removeAll()
             workspaceGitHeadSignatureByKey.removeAll()
             pullRequestProbing.resetWorkspacePullRequestRefreshState()
-            host?.clearAllSidebarGitMetadata()
+            if activity == .disabled {
+                host?.clearAllSidebarGitMetadata()
+            }
             return
         }
 
@@ -217,8 +219,9 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
 
     private func restartWorkspaceGitMetadataWatching(reason: String) {
         guard let host else { return }
-        for workspaceId in host.orderedWorkspaceIds() where host.isRemoteWorkspace(workspaceId) == false {
+        for workspaceId in host.orderedWorkspaceIds() {
             for panelId in host.panelIds(in: workspaceId) {
+                guard !host.shouldSkipLocalGitMetadata(workspaceId: workspaceId, panelId: panelId) else { continue }
                 guard host.hasTerminalPanel(workspaceId: workspaceId, panelId: panelId) else {
                     continue
                 }
@@ -293,7 +296,8 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
 
         return Set(candidatePanelIds.filter { panelId in
             let probeKey = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
-            return !activeProbeKeys.contains(probeKey)
+            return !host.shouldSkipLocalGitMetadata(workspaceId: workspaceId, panelId: panelId) &&
+                !activeProbeKeys.contains(probeKey)
         })
     }
 
@@ -316,6 +320,15 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
     }
 
     func clearWorkspaceGitMetadata(for key: WorkspaceGitProbeKey) {
+        clearWorkspaceGitProbeTracking(for: key)
+        guard let host, host.workspaceExists(key.workspaceId) else {
+            return
+        }
+        host.clearPanelGitBranch(workspaceId: key.workspaceId, panelId: key.panelId)
+        host.clearPanelPullRequest(workspaceId: key.workspaceId, panelId: key.panelId)
+    }
+
+    func clearWorkspaceGitProbeTracking(for key: WorkspaceGitProbeKey) {
         clearWorkspaceGitProbe(key)
         workspaceGitTrackedDirectoryByKey.removeValue(forKey: key)
         updateWorkspaceGitMetadataFallbackTimer()
@@ -323,11 +336,6 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
             workspaceId: key.workspaceId,
             panelId: key.panelId
         )
-        guard let host, host.workspaceExists(key.workspaceId) else {
-            return
-        }
-        host.clearPanelGitBranch(workspaceId: key.workspaceId, panelId: key.panelId)
-        host.clearPanelPullRequest(workspaceId: key.workspaceId, panelId: key.panelId)
     }
 
     public func clearWorkspaceGitProbes(workspaceId: UUID) {

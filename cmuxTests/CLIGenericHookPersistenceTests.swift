@@ -905,16 +905,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Antigravity hooks must still dispatch when agy does not preserve CMUX_SURFACE_ID, saw \(allCommands)"
         )
 
-        let preToolUse = try XCTUnwrap(cmuxGroup["PreToolUse"] as? [[String: Any]])
-        let preToolCommands = preToolUse
-            .compactMap { $0["hooks"] as? [[String: Any]] }
-            .flatMap { $0 }
-        XCTAssertTrue(
-            preToolCommands.contains {
-                ($0["command"] as? String)?.contains("hooks feed --source antigravity --event PreToolUse") == true
-                    && ($0["timeout"] as? Int) == 120
-            },
-            "Expected Antigravity PreToolUse feed hook with second-based timeout, saw \(preToolCommands)"
+        XCTAssertNil(
+            cmuxGroup["PreToolUse"],
+            "Antigravity rejects PreToolUse hook output, so cmux must not install a tool-gating hook"
+        )
+        XCTAssertNil(
+            cmuxGroup["PostToolUse"],
+            "Antigravity tool lifecycle hooks must not be installed when they cannot safely fail neutral"
         )
 
         let stop = try XCTUnwrap(cmuxGroup["Stop"] as? [[String: Any]])
@@ -929,7 +926,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertNotNil(cmuxGroup["SessionEnd"])
         XCTAssertNotNil(cmuxGroup["turn-completion"])
         XCTAssertNotNil(cmuxGroup["Notification"])
-        XCTAssertNotNil(cmuxGroup["PostToolUse"])
     }
 
     func testKiroHookInstallUsesAgentConfigShapeAndPreservesDenyExit() throws {
@@ -3087,26 +3083,26 @@ extension CLINotifyProcessIntegrationRegressionTests {
             .compactMap { $0["hooks"] as? [[String: Any]] }
             .flatMap { $0 }
             .compactMap { $0["command"] as? String }
-        let hookBodies = allCommands.map { (try? String(contentsOfFile: $0, encoding: .utf8)) ?? $0 }
+        let commandBodies = allCommands + allCommands.compactMap { FileManager.default.fileExists(atPath: $0) ? try? String(contentsOf: URL(fileURLWithPath: $0), encoding: .utf8) : nil }
         XCTAssertTrue(
-            hookBodies.contains {
+            commandBodies.contains {
                 $0.contains("CMUX_BUNDLED_CLI_PATH")
                     && $0.contains("\"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" hooks codex prompt-submit")
             },
-            "Codex hooks should route through the launching app's bundled CLI, saw commands \(allCommands) bodies \(hookBodies)"
+            "Codex hooks should route through the launching app's bundled CLI, saw \(commandBodies)"
         )
         XCTAssertFalse(
-            hookBodies.contains { $0.contains("command -v cmux >/dev/null 2>&1 && cmux hooks codex") },
-            "Codex hooks must not use the reload-global cmux shim directly, saw commands \(allCommands) bodies \(hookBodies)"
+            commandBodies.contains { $0.contains("command -v cmux >/dev/null 2>&1 && cmux hooks codex") },
+            "Codex hooks must not use the reload-global cmux shim directly, saw \(commandBodies)"
         )
         XCTAssertFalse(
-            hookBodies.contains { $0 == previousBundledHookCommand },
-            "Codex setup should replace bundled-CLI hooks that did not pin CMUX_SOCKET_PATH, saw commands \(allCommands) bodies \(hookBodies)"
+            commandBodies.contains { $0 == previousBundledHookCommand },
+            "Codex setup should replace bundled-CLI hooks that did not pin CMUX_SOCKET_PATH, saw \(commandBodies)"
         )
         XCTAssertEqual(
-            hookBodies.filter { $0.contains("hooks codex prompt-submit") }.count,
+            allCommands.filter { $0.contains("hooks codex prompt-submit") }.count,
             1,
-            "Codex setup should collapse duplicate cmux-owned prompt hooks to one entry, saw commands \(allCommands) bodies \(hookBodies)"
+            "Codex setup should collapse duplicate cmux-owned prompt hooks to one entry, saw \(allCommands)"
         )
     }
 
@@ -3652,13 +3648,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
 
-        // No env-only CODEX_HOME record may be persisted for the rejected non-restorable argv.
-        let storeURL = root.appendingPathComponent("codex-hook-sessions.json")
-        if let data = try? Data(contentsOf: storeURL),
+        // Persist the rejection marker so reload cannot treat it as a plain default Codex hook.
+        if let data = try? Data(contentsOf: root.appendingPathComponent("codex-hook-sessions.json")),
            let storeJSON = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let sessions = storeJSON["sessions"] as? [String: Any],
            let persisted = sessions[sessionId] as? [String: Any] {
-            let env = (persisted["launchCommand"] as? [String: Any])?["environment"] as? [String: String]
+            let launchCommand = try XCTUnwrap(persisted["launchCommand"] as? [String: Any]); XCTAssertEqual(launchCommand["source"] as? String, "rejected")
+            let env = launchCommand["environment"] as? [String: String]
             XCTAssertNil(
                 env?["CODEX_HOME"],
                 "non-restorable codex exec must not persist an env-only CODEX_HOME record; launchCommand=\(persisted["launchCommand"] ?? "nil")"

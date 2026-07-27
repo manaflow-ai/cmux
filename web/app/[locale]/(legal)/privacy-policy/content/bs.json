@@ -1,0 +1,128 @@
+{
+  "metadataTitle": "Politika privatnosti — cmux",
+  "metadataDescription": "Politika privatnosti za cmux",
+  "title": "Politika privatnosti",
+  "lastUpdated": "Posljednje ažuriranje: 10. jula 2026",
+  "sections": [
+    {
+      "paragraphs": [
+        "Manaflow („Kompanija“) je posvećena održavanju robusne zaštite privatnosti za svoje korisnike. Ova Politika privatnosti objašnjava kako prikupljamo, koristimo i štitimo informacije koje nam dostavite.",
+        "U ovoj politici, \"Site\" označava web stranicu Kompanije na adresi [cmux.com](https://cmux.com). \"Aplikacija\" znači cmux desktop aplikaciju za macOS i cmux mobilnu aplikaciju za iPhone i iPad. \"Usluga\" označava stranicu i aplikaciju zajedno. \"Mi\", \"nas\" i \"naš\" znači Kompanija. \"Vi\" znači korisnik naše usluge.",
+        "Korištenjem naše usluge, prihvatate ovu Politiku privatnosti i naše [Uslove korištenja](https://cmux.com/terms-of-service), te pristajete na prikupljanje, skladištenje, korištenje i otkrivanje ovdje opisanih."
+      ]
+    },
+    {
+      "heading": "I. Informacije koje prikupljamo",
+      "paragraphs": [
+        "Prikupljamo nelične podatke i lične podatke. Nelični podaci vas ne mogu identificirati i uključuju anonimne podatke o korištenju, tipove platforme i dijagnostiku pada. Lični podaci uključuju vašu adresu e-pošte, identifikatore naloga i informacije koje odaberete da pružite kada se prijavite, kontaktirate nas, uparite uređaj ili koristite Aplikaciju."
+      ],
+      "subsections": [
+        {
+          "heading": "1. Informacije prikupljene tehnologijom",
+          "paragraphs": [
+            "Aplikacija može automatski prikupljati sljedeće informacije:"
+          ],
+          "bullets": [
+            "Izvještaji o padu i dijagnostika grešaka putem Sentry.",
+            "Verzija operativnog sistema i verzija aplikacije.",
+            "Analitika proizvoda i događaji korištenja funkcija za web mjesto i aplikaciju.",
+            "Metapodaci uređaja, računa i uparivanja potrebni su za povezivanje vaših prijavljenih uređaja.",
+            "Apple Tokeni uređaja usluge Push Notification, samo nakon što omogućite telefonska obavještenja."
+          ],
+          "afterBullets": [
+            "Aplikacija macOS proverava da li postoje ažuriranja preko Sparkle, koji može poslati verzije vašeg operativnog sistema i aplikacije na naš server za ažuriranje. Aplikacija iPhone i iPad se ažurira preko App Store, a ne Sparkle.",
+            "Stranica koristi PostHog za analizu prikaza stranica i navigacije. PostHog pohranjuje kolačić da razlikuje posjetitelje. Ako se pridružite listi čekanja platforme, vaša poslana e-pošta se snima u PostHog tako da vas možemo obavijestiti. Ako pošaljete obrazac za kontakt za preduzeće, mi bilježimo kompaniju i kontakt podatke koje navedete u PostHog i šaljemo ih u naš privatni Slack radni prostor i e-poštu osnivača kako bismo mogli odgovoriti. Analitiku web stranice možete blokirati ekstenzijom preglednika koja blokira skripte za praćenje.",
+            "iPhone i iPad aplikacija šalje analitičke događaje proizvoda našem PostHog proxy serveru. Ovi događaji pomažu u dijagnosticiranju pouzdanosti, razumijevanju upotrebe funkcija i poboljšanju aplikacije. Oni uključuju događaje pokretanja aplikacije i sesije, status prijave, pokušaje uparivanja i rezultate, oporavak veze, otvaranje radnog prostora, broj bajtova i redova za unos terminala i rezultate za prijavu obavijesti ili dubinske veze obavijesti. Mobilna analitika ne šalje na PostHog tekst naredbe terminala, izlaz terminala, odabrane fotografije ili transkripte govora. Prije prijave, događaji koriste nasumični identifikator klijenta po instalaciji. Nakon prijave, naš server prilaže identifikator vašeg Stack Auth naloga prije prosljeđivanja događaja na PostHog. Analitika i izvještaji o rušenju počinju onemogućeni i šalju se tek nakon što omogućite Dijeli analitiku i izvještaje o rušenju u postavkama. Isključivanjem te kontrole zaustavlja se baferovanje ili slanje analitike i zaustavlja se izvještavanje o padu. Kontaktirajte [founders@manaflow.com](mailto:founders@manaflow.com) da zatražite brisanje analitike povezane s vašim računom."
+          ]
+        },
+        {
+          "heading": "2. Informacije koje dajete direktno",
+          "paragraphs": [
+            "Ako nas kontaktirate putem e-pošte, naše kontakt stranice ili obrasca za kontakt preduzeća, prikupljamo informacije koje nam dajete, uključujući ime, e-poštu, kompaniju, ulogu, broj telefona, zemlju, potrebe za implementacijom i komentare. Ako se pridružite listi čekanja na platformi, prikupljamo vašu poslanu e-poštu kako bismo vas obavijestili kada se platforma pokrene i šaljemo e-poštu za prijavu i odabrane platforme u naš privatni Slack radni prostor.",
+            "Kada se prijavite, primamo informacije o autentifikaciji kao što su vaša adresa e-pošte i identifikator provajdera od Apple, Google, GitHub ili kod prijave putem e-pošte. Kada uparite mobilnu aplikaciju sa Mac-om, obrađujemo informacije o uparivanju potrebne za povezivanje uređaja. Kada pregledate radni prostor, pošaljete unos terminala, priložite odabrane fotografije, koristite transkripciju govora ili primate obavještenja terminala, povezani sadržaj ili transkript mogu proći između vaših uređaja i naše usluge prema potrebi za pružanje te funkcije.",
+            "Pristup kameri se koristi samo za skeniranje cmux kodova uparivanja QR. Pristup mikrofonu i prepoznavanju govora se koristi samo kada odaberete transkripciju glasa u okviru za poruke. Pristup fototeci se koristi samo kada odaberete fotografije za prilaganje."
+          ]
+        },
+        {
+          "heading": "3. Privatnost djece",
+          "paragraphs": [
+            "Usluga nije usmjerena na bilo koga mlađeg od 13 godina i ne prikupljamo svjesno informacije od bilo koga mlađeg od 13 godina. Ako vjerujete da smo prikupili takve informacije, kontaktirajte [founders@manaflow.com](mailto:founders@manaflow.com)."
+          ]
+        }
+      ]
+    },
+    {
+      "heading": "II. Usluge trećih strana",
+      "paragraphs": [
+        "Aplikacija se integrira sa ovim uslugama trećih strana:"
+      ],
+      "bullets": [
+        "Stack Auth: autentikacija i upravljanje nalogom za prijavu, sesije i brisanje naloga.",
+        "Apple, Google i GitHub: opcioni provajderi za prijavu koji šalju informacije o nalogu potrebne za vašu autentifikaciju.",
+        "Apple Push Notification usluga: obavještenja za iPhone i iPad nakon što se uključite.",
+        "Apple Prepoznavanje govora: transkripcija glasa kada je odaberete u mobilnoj aplikaciji.",
+        "Sentry: praćenje grešaka i izvještavanje o padu, koje može prikupljati evidencije grešaka, tragove steka, informacije o uređaju i verziju operativnog sistema.",
+        "Sparkle: okvir za automatsko ažuriranje macOS, koji šalje verzije aplikacija i operativnog sistema da provjeri ima li macOS ažuriranja.",
+        "Ghostty / libghostty: mehanizam za prikazivanje terminala, koji radi lokalno na vašem uređaju.",
+        "PostHog: analiza web stranica i mobilnih proizvoda, uključujući prikaze stranica, obrasce navigacije, metapodatke preglednika, događaje mobilnih funkcija, mobilnu analitiku povezanu s računom nakon prijave putem proxyja prve strane i poslanu e-poštu na listi čekanja kako bismo vas mogli obavijestiti.",
+        "Resend: transakcijska isporuka e-pošte. Vaša e-pošta se šalje na Resend samo ako dobrovoljno pošaljete povratne informacije.",
+        "Slack: privatne interne obavijesti. Ako se pridružite listi čekanja platforme, e-pošta i platforme koje pošaljete šalju se u naš privatni radni prostor Slack."
+      ],
+      "afterBullets": [
+        "Svaki servis ima svoju politiku privatnosti. Kada treća strana obrađuje lične podatke za cmux, zahtijevamo zaštitne mjere barem jednako zaštitne kao ova politika i ograničavamo upotrebu na pružanje usluga za cmux."
+      ]
+    },
+    {
+      "heading": "III. Kako koristimo i dijelimo informacije",
+      "paragraphs": [
+        "Ne prodajemo, ne trgujemo, iznajmljujemo niti dijelimo lične podatke sa trećim stranama radi marketinga. Koristimo izvještaje o padu i dijagnostiku samo za poboljšanje aplikacije. Možemo otkriti informacije kada u dobroj vjeri vjerujemo da je otkrivanje neophodno za pravni proces ili zaštitu od štete."
+      ]
+    },
+    {
+      "heading": "IV. Kako štitimo informacije",
+      "paragraphs": [
+        "Koristimo mjere osmišljene za sprječavanje neovlaštenog pristupa, uključujući šifriranje i siguran serverski softver. Nijedan način prijenosa ili skladištenja nije potpuno siguran, a korištenje Usluge uključuje ovaj rizik."
+      ]
+    },
+    {
+      "heading": "V. Vaša prava",
+      "paragraphs": [
+        "Ovisno o vašoj lokaciji, primjenjivi zakoni kao što su GDPR ili CCPA mogu vam dati ova prava:"
+      ],
+      "bullets": [
+        "Pristupite kopiji podataka koje imamo o vama.",
+        "Ispravite netačne podatke.",
+        "Zatražite brisanje vaših podataka.",
+        "Primite prenosive podatke.",
+        "Ograničite ili prigovorite na obradu."
+      ],
+      "afterBullets": [
+        "Za korištenje ovih prava, kontaktirajte [founders@manaflow.com](mailto:founders@manaflow.com)."
+      ]
+    },
+    {
+      "heading": "VI. Linkovi na druge web stranice",
+      "paragraphs": [
+        "Usluga može povezivati na web stranice trećih strana. Nismo odgovorni za njihovu praksu privatnosti. Ova politika se odnosi samo na informacije koje prikupljamo."
+      ]
+    },
+    {
+      "heading": "VII. Promjene ove politike",
+      "paragraphs": [
+        "Možemo promijeniti ovu politiku. Značajne promjene stupaju na snagu 30 dana nakon obavještenja. Povremeno provjeravajte stranicu za ažuriranja."
+      ]
+    },
+    {
+      "heading": "VIII. Kontaktirajte nas",
+      "paragraphs": [
+        "Pitanja o ovoj politici mogu se poslati na [founders@manaflow.com](mailto:founders@manaflow.com)."
+      ]
+    },
+    {
+      "heading": "IX. Zadržavanje podataka",
+      "paragraphs": [
+        "Izvještaji o padu i dijagnostika čuvaju se samo onoliko dugo koliko je potrebno za dijagnosticiranje i rješavanje problema. Identifikatori mobilnog računa i zapisi o autentifikaciji čuvaju se dok je vaš račun aktivan, a zatim se brišu ili anonimiziraju kada se završi brisanje računa, osim kada je potrebno čuvanje sigurnosnih, pravnih, naplatnih ili prevara. Metapodaci uređaja i uparivanja se čuvaju sve dok ne prekinete uparivanje, odjavite se i izbrišete lokalne podatke, izbrišete svoj račun ili ne skinete zastarjeli podaci o uparivanju. Tokeni usluge Apple Push Notification čuvaju se samo dok su obavještenja omogućena i uklanjaju se kada onemogućite obavještenja, odjavite se, izbrišete svoj račun ili Apple prijavi token nevažećim. Analitika mobilnih proizvoda u PostHog čuva se do 24 mjeseca osim ako ne zatražite ranije brisanje. Postavke mobilnog računa brišu ili anonimiziraju račun u vlasništvu cmux, uređaj, uparivanje, obavještenja, naplatu i podatke u oblaku, brišu osobu PostHog povezanu s računom i zahtijevaju brisanje njegovih događaja i snimaka mobilne analitike. Neki posao brisanja provajdera može se završiti asinhrono. Zatražite brisanje u postavkama mobilnog naloga ili kontaktiranjem [founders@manaflow.com](mailto:founders@manaflow.com)."
+      ]
+    }
+  ]
+}

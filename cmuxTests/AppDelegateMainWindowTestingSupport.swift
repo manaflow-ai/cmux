@@ -73,6 +73,12 @@ extension AppDelegate {
             cmuxConfigStore: cmuxConfigStore,
             window: nil
         )
+        // Context-based tests exercise observer pipelines without a live phone
+        // subscriber; force presence on so the graph attaches (pre-gate
+        // behavior). This is deliberately sticky across tests: any test that
+        // asserts detached-by-default must set the override itself, as
+        // observerPipelinesFollowSubscriberPresence does with save/restore.
+        MobileWorkspaceListObserver.subscriberPresenceOverrideForTesting = true
         ensureMobileWorkspaceListObserver(for: tabManager)
         notifyMainWindowContextsDidChange()
         return windowId

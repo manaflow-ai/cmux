@@ -1,5 +1,23 @@
 import Foundation
 
+/// Sendable ownership boundary around Dispatch's non-Sendable filesystem source.
+/// The actor remains the sole mutator while deinit can safely request cancellation.
+private final class FileWatchDispatchSource: @unchecked Sendable {
+    private let source: any DispatchSourceFileSystemObject
+
+    init(_ source: any DispatchSourceFileSystemObject) {
+        self.source = source
+    }
+
+    func cancel() {
+        source.cancel()
+    }
+
+    deinit {
+        source.cancel()
+    }
+}
+
 /// Watches a single file or directory for change events and exposes them as an
 /// `AsyncStream<Void>`.
 ///
@@ -50,16 +68,24 @@ public actor FileWatcher {
     private let rawContinuation: AsyncStream<Void>.Continuation
     // File-descriptor lifetime is owned by each source's `setCancelHandler`,
     // which calls `close(fd)` exactly once when the source's cancel completes.
-    private var fileSource: (any DispatchSourceFileSystemObject)?
-    private var directorySource: (any DispatchSourceFileSystemObject)?
+    private var fileSource: FileWatchDispatchSource?
+    private var directorySource: FileWatchDispatchSource?
     private var watchedDirectory: String?
     private var throttleTask: Task<Void, Never>?
     private var isStopped = false
 
     // OptionSet masks. Inlined (not stored as statics) because
     // `DispatchSource.FileSystemEvent` is not `Sendable`.
+    //
+    // `.attrib` is deliberately excluded. Reading the watched file (e.g. via
+    // `NSData(contentsOfFile:)`) can update its `com.apple.lastuseddate#PS`
+    // extended attribute, which is itself an attribute change on the same
+    // inode this source watches — a self-sustaining loop with no external
+    // trigger: read -> touches the xattr -> fires `.attrib` -> another read.
+    // `.write`/`.delete`/`.rename`/`.extend` already cover real content
+    // changes, which is what callers actually need to react to.
     private static var fileEventMask: DispatchSource.FileSystemEvent {
-        [.write, .delete, .rename, .extend, .attrib]
+        [.write, .delete, .rename, .extend]
     }
     private static var directoryEventMask: DispatchSource.FileSystemEvent {
         [.write, .rename, .delete]
@@ -171,7 +197,7 @@ public actor FileWatcher {
         eventMask: DispatchSource.FileSystemEvent,
         queue: DispatchQueue,
         rawContinuation: AsyncStream<Void>.Continuation
-    ) -> (any DispatchSourceFileSystemObject)? {
+    ) -> FileWatchDispatchSource? {
         let fd = open(path, O_EVTONLY)
         guard fd >= 0 else { return nil }
         let source = DispatchSource.makeFileSystemObjectSource(
@@ -182,7 +208,7 @@ public actor FileWatcher {
         source.setEventHandler { rawContinuation.yield(()) }
         source.setCancelHandler { close(fd) }
         source.resume()
-        return source
+        return FileWatchDispatchSource(source)
     }
 
     /// Reacts to a raw source event: re-evaluate which ancestor directory to

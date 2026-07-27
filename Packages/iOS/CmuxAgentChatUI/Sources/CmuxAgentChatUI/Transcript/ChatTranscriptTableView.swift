@@ -10,7 +10,6 @@ let chatTranscriptAtBottomThreshold: CGFloat = 40
 /// UIKit-backed transcript list used on iOS for deterministic keyboard and inset behavior.
 struct ChatTranscriptTableView: UIViewRepresentable {
     let rows: [ChatTranscriptRow]
-    let expandedIDs: Set<String>
     let agentState: ChatAgentState
     let hasMoreHistory: Bool
     let hasLoadedInitialHistory: Bool
@@ -25,6 +24,7 @@ struct ChatTranscriptTableView: UIViewRepresentable {
     @Environment(\.chatTheme) private var theme
     @Environment(\.chatMarkdownRenderer) private var markdownRenderer
     @Environment(\.chatContentCache) private var contentCache
+    @Environment(\.chatArtifactLoader) private var artifactLoader
 
     func makeCoordinator() -> Coordinator {
         Coordinator(isAtBottom: $isAtBottom)
@@ -55,7 +55,6 @@ struct ChatTranscriptTableView: UIViewRepresentable {
         context.coordinator.update(
             configuration: ChatTranscriptTableConfiguration(
                 rows: rows,
-                expandedIDs: expandedIDs,
                 agentState: agentState,
                 hasMoreHistory: hasMoreHistory,
                 hasLoadedInitialHistory: hasLoadedInitialHistory,
@@ -66,7 +65,8 @@ struct ChatTranscriptTableView: UIViewRepresentable {
                 onRetryInitialLoad: onRetryInitialLoad,
                 theme: theme,
                 markdownRenderer: markdownRenderer,
-                contentCache: contentCache
+                contentCache: contentCache,
+                artifactLoader: artifactLoader
             ),
             in: tableView,
             scrollToBottomRequest: scrollToBottomRequest
@@ -76,7 +76,6 @@ struct ChatTranscriptTableView: UIViewRepresentable {
     final class Coordinator: NSObject, UITableViewDataSource, UITableViewDelegate {
         private var configuration: ChatTranscriptTableConfiguration?
         private var items: [ChatTranscriptTableItem] = []
-        private var expandedIDs: Set<String> = []
         private var agentState: ChatAgentState = .idle
         private var topRequestKey: String?
         private var lastScrollToBottomRequest = 0
@@ -120,7 +119,6 @@ struct ChatTranscriptTableView: UIViewRepresentable {
             self.configuration = configuration
             let nextItems = configuration.makeItems()
             let shouldReload = nextItems != items
-                || configuration.expandedIDs != expandedIDs
                 || configuration.agentState != agentState
             let shouldScrollToBottom = scrollToBottomRequest != lastScrollToBottomRequest
             lastScrollToBottomRequest = scrollToBottomRequest
@@ -138,7 +136,6 @@ struct ChatTranscriptTableView: UIViewRepresentable {
 
             pendingContentUpdateAnchor = nil
             items = nextItems
-            expandedIDs = configuration.expandedIDs
             agentState = configuration.agentState
 
             isApplyingDataUpdate = true
@@ -357,7 +354,6 @@ struct ChatTranscriptTableView: UIViewRepresentable {
 
 private struct ChatTranscriptTableConfiguration {
     let rows: [ChatTranscriptRow]
-    let expandedIDs: Set<String>
     let agentState: ChatAgentState
     let hasMoreHistory: Bool
     let hasLoadedInitialHistory: Bool
@@ -369,6 +365,7 @@ private struct ChatTranscriptTableConfiguration {
     let theme: ChatTheme
     let markdownRenderer: ChatMarkdownRenderer?
     let contentCache: ChatContentCache?
+    let artifactLoader: ChatArtifactLoader
 
     func makeItems() -> [ChatTranscriptTableItem] {
         var items: [ChatTranscriptTableItem] = []
@@ -401,6 +398,7 @@ private struct ChatTranscriptTableConfiguration {
             .environment(\.chatTheme, theme)
             .environment(\.chatMarkdownRenderer, markdownRenderer)
             .environment(\.chatContentCache, contentCache)
+            .environment(\.chatArtifactLoader, artifactLoader)
             .environment(
                 \.chatBubbleMaxWidth,
                 tableWidth > 0 ? tableWidth * theme.bubbleMaxWidthFraction : .infinity
@@ -464,7 +462,6 @@ private struct ChatTranscriptTableConfiguration {
         case .row(let row):
             ChatTranscriptRowView(
                 row: row,
-                isExpanded: expandedIDs.contains(row.id),
                 actions: actions
             )
             .equatable()

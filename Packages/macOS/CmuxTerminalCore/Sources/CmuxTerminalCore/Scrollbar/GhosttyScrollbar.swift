@@ -15,12 +15,22 @@ public struct GhosttyScrollbar: Sendable {
     /// The viewport height, in rows.
     public let len: UInt64
 
+    /// Creates a snapshot from explicit row geometry.
+    ///
+    /// - Parameters:
+    ///   - total: The total scrollback height, in rows.
+    ///   - offset: The viewport's offset from the top, in rows.
+    ///   - len: The viewport height, in rows.
+    public init(total: UInt64, offset: UInt64, len: UInt64) {
+        self.total = total
+        self.offset = offset
+        self.len = len
+    }
+
     /// Creates a snapshot from the runtime's C action payload.
     ///
     /// - Parameter c: The scrollbar action payload from libghostty.
     public init(c: ghostty_action_scrollbar_s) {
-        total = c.total
-        offset = c.offset
-        len = c.len
+        self.init(total: c.total, offset: c.offset, len: c.len)
     }
 }

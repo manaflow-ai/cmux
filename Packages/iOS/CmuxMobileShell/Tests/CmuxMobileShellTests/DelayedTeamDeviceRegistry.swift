@@ -20,7 +20,10 @@ actor DelayedTeamDeviceRegistry: DeviceRegistryRefreshing {
         self.blockedTeams = blockedTeams
     }
 
-    func freshRoutes(forMacDeviceID macDeviceID: String) async -> [CmxAttachRoute]? { nil }
+    func freshRoutes(
+        forMacDeviceID macDeviceID: String,
+        instanceTag: String?
+    ) async -> [CmxAttachRoute]? { nil }
 
     func listDevices() async -> DeviceRegistryListOutcome {
         let key = await teamIDProvider() ?? ""

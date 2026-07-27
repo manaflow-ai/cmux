@@ -102,7 +102,7 @@ public struct UpdatePill: View {
     }
 }
 
-private struct UpdatePillPopoverAnchor: NSViewRepresentable {
+struct UpdatePillPopoverAnchor: NSViewRepresentable {
     @Binding var isPresented: Bool
     let model: UpdateStateModel
     let actions: any UpdateActionsHost
@@ -146,17 +146,27 @@ private struct UpdatePillPopoverAnchor: NSViewRepresentable {
 
         weak var anchorView: NSView?
         private let hostingController = NSHostingController(rootView: AnyView(EmptyView()))
-        private var popover: NSPopover?
+        private var visibleUpdateTask: Task<Void, Never>?
+        var popover: NSPopover?
 
         init(isPresented: Binding<Bool>) {
             _isPresented = isPresented
         }
 
         func updateRootView(_ rootView: AnyView) {
-            hostingController.rootView = rootView
-            hostingController.view.invalidateIntrinsicContentSize()
-            hostingController.view.layoutSubtreeIfNeeded()
-            updateContentSize()
+            guard popover?.isShown == true else {
+                cancelVisibleUpdate()
+                applyRootView(rootView)
+                return
+            }
+            // Leave the representable update before touching the shown popover; AppKit's
+            // animated resize can otherwise re-enter SwiftUI's active view-graph update.
+            visibleUpdateTask?.cancel()
+            visibleUpdateTask = Task { @MainActor [weak self] in
+                guard !Task.isCancelled, let self, self.popover?.isShown == true else { return }
+                self.visibleUpdateTask = nil
+                self.applyRootView(rootView)
+            }
         }
 
         func present() {
@@ -168,13 +178,14 @@ private struct UpdatePillPopoverAnchor: NSViewRepresentable {
 
             anchorView.superview?.layoutSubtreeIfNeeded()
             let popover = popover ?? makePopover()
-            updateContentSize()
             guard !popover.isShown else { return }
+            updateContentSize()
 
             popover.show(relativeTo: anchorView.bounds, of: anchorView, preferredEdge: .maxY)
         }
 
         func dismiss() {
+            cancelVisibleUpdate()
             popover?.performClose(nil)
         }
 
@@ -184,6 +195,7 @@ private struct UpdatePillPopoverAnchor: NSViewRepresentable {
         }
 
         func popoverDidClose(_ notification: Notification) {
+            cancelVisibleUpdate()
             popover = nil
             if isPresented {
                 isPresented = false
@@ -200,13 +212,43 @@ private struct UpdatePillPopoverAnchor: NSViewRepresentable {
             return popover
         }
 
+        private func cancelVisibleUpdate() {
+            visibleUpdateTask?.cancel()
+            visibleUpdateTask = nil
+        }
+
+        private func applyRootView(_ rootView: AnyView) {
+            performWithoutImplicitAnimation {
+                hostingController.rootView = rootView
+                hostingController.view.invalidateIntrinsicContentSize()
+                hostingController.view.layoutSubtreeIfNeeded()
+            }
+            updateContentSize()
+        }
+
         private func updateContentSize() {
             let fittingSize = hostingController.view.fittingSize
             guard fittingSize.width > 0, fittingSize.height > 0 else { return }
-            popover?.contentSize = NSSize(
+            guard let popover else { return }
+            let size = NSSize(
                 width: ceil(fittingSize.width),
                 height: ceil(fittingSize.height)
             )
+            if popover.isShown {
+                performWithoutImplicitAnimation {
+                    popover.contentSize = size
+                }
+            } else {
+                popover.contentSize = size
+            }
+        }
+
+        private func performWithoutImplicitAnimation(_ body: () -> Void) {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0
+                context.allowsImplicitAnimation = false
+                body()
+            }
         }
     }
 }

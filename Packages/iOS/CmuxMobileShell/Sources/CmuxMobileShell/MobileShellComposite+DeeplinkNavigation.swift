@@ -10,20 +10,30 @@ public import Foundation
 /// yank the user off the workspace list. A deep link must push, so it carries
 /// this explicit request, which the shell consumes exactly once. The token
 /// makes repeated taps on the same workspace distinguishable.
+public enum DeeplinkWorkspaceNavigationOrigin: Equatable, Sendable {
+    case external
+    case notificationFeed
+}
+
 public struct DeeplinkWorkspaceNavigationRequest: Equatable, Sendable {
     public let token: UUID
     public let workspaceID: MobileWorkspacePreview.ID
+    public let origin: DeeplinkWorkspaceNavigationOrigin
 }
 
 extension CMUXMobileShellStore {
     /// Select `id` and ask the shell to navigate to it (push the compact
     /// stack). Called by the push coordinator when a parked notification tap
     /// resolves; the workspace is expected to exist in ``workspaces``.
-    public func navigateToWorkspaceForDeeplink(_ id: MobileWorkspacePreview.ID) {
+    public func navigateToWorkspaceForDeeplink(
+        _ id: MobileWorkspacePreview.ID,
+        origin: DeeplinkWorkspaceNavigationOrigin = .external
+    ) {
         selectedWorkspaceID = id
         deeplinkWorkspaceNavigationRequest = DeeplinkWorkspaceNavigationRequest(
             token: UUID(),
-            workspaceID: id
+            workspaceID: id,
+            origin: origin
         )
     }
 

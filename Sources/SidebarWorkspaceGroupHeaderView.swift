@@ -29,6 +29,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             lhs.shortcutDigit == rhs.shortcutDigit &&
             lhs.shortcutModifierSymbol == rhs.shortcutModifierSymbol &&
             lhs.showsShortcutHint == rhs.showsShortcutHint &&
+            lhs.isPointerHovering == rhs.isPointerHovering &&
             lhs.shortcutHintXOffset == rhs.shortcutHintXOffset &&
             lhs.shortcutHintYOffset == rhs.shortcutHintYOffset &&
             lhs.fontScale == rhs.fontScale &&
@@ -59,6 +60,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let shortcutDigit: Int?
     let shortcutModifierSymbol: String?
     let showsShortcutHint: Bool
+    let isPointerHovering: Bool
     let shortcutHintXOffset: Double
     let shortcutHintYOffset: Double
     let fontScale: CGFloat
@@ -85,8 +87,10 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let onDelete: () -> Void
     let onEditConfig: () -> Void
     let onOpenDocs: () -> Void
+    let onContextMenuAppear: () -> Void
+    let onContextMenuDisappear: () -> Void
 
-    @State private var rowInteractionState = SidebarWorkspaceRowInteractionState()
+    @State private var contextMenuVisible = false
 
 #if DEBUG
     // Plain-value environment probe set only by SidebarLazyLayoutScaleTests;
@@ -193,10 +197,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 defaultValue: "Focus the group's anchor workspace"
             )))
 
-            let plusVisible = rowInteractionState.shouldShowCloseButton(
-                canCloseWorkspace: true,
-                shortcutHintModeActive: showsShortcutHint
-            )
+            let plusVisible = isPointerHovering && !contextMenuVisible && !showsShortcutHint
             Button(action: onTapPlus) {
                 CmuxSystemSymbolImage(
                     systemName: "plus",
@@ -226,10 +227,12 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     action: onTapPlus
                 )
                 .onAppear {
-                    rowInteractionState.contextMenuDidAppear()
+                    contextMenuVisible = true
+                    onContextMenuAppear()
                 }
                 .onDisappear {
-                    rowInteractionState.contextMenuDidDisappear()
+                    contextMenuVisible = false
+                    onContextMenuDisappear()
                 }
                 if !cwdContextMenuItems.isEmpty {
                     Divider()
@@ -278,9 +281,6 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         )
         .padding(.horizontal, SidebarWorkspaceListMetrics.rowOuterHorizontalPadding)
         .shortcutHintVisibilityAnimation(value: showsShortcutHint)
-        .onHover { hovering in
-            rowInteractionState.setPointerHovering(hovering)
-        }
         .opacity(isBeingDragged ? 0.6 : 1)
         .overlay(alignment: .top) {
             SidebarWorkspaceTopDropIndicator(
@@ -300,19 +300,6 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         }
         .onDrag(onDragStart)
         .internalOnlyTabDrag()
-        .overlay {
-            if rowInteractionState.contextMenuVisible {
-                SidebarWorkspaceRowMenuTrackingReconciler { pointerInsideRow in
-                    rowInteractionState.contextMenuTrackingDidEnd(pointerInsideRow: pointerInsideRow)
-                }
-                .onAppear {
-                    rowInteractionState.contextMenuTrackingObserverDidInstall()
-                }
-            }
-        }
-        .onDisappear {
-            rowInteractionState.setPointerHovering(false)
-        }
         .contextMenu {
             Button(
                 String(
@@ -322,10 +309,12 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 action: onTapPlus
             )
             .onAppear {
-                rowInteractionState.contextMenuDidAppear()
+                contextMenuVisible = true
+                onContextMenuAppear()
             }
             .onDisappear {
-                rowInteractionState.contextMenuDidDisappear()
+                contextMenuVisible = false
+                onContextMenuDisappear()
             }
             Divider()
             Button(
@@ -408,7 +397,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             Button(
                 String(
                     localized: "workspaceGroup.contextMenu.ungroup",
-                    defaultValue: "Ungroup (Keep Workspaces)"
+                    defaultValue: "Ungroup Workspaces"
                 ),
                 action: onUngroup
             )
@@ -419,7 +408,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 Text(
                     String(
                         localized: "workspaceGroup.contextMenu.delete",
-                        defaultValue: "Delete Group (Close Workspaces)"
+                        defaultValue: "Delete Group"
                     )
                 )
             }

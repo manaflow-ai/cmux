@@ -19,10 +19,10 @@ struct DesktopNotificationPermissionPresentation: Equatable, Sendable {
             )
         case .notDetermined:
             return DesktopNotificationPermissionPresentation(
-                statusLabel: .notRequested,
+                statusLabel: .unknown,
                 subtitle: .notDetermined,
                 primaryAction: .requestAuthorization,
-                sendTestEnabled: false
+                sendTestEnabled: true
             )
         case .authorized:
             return DesktopNotificationPermissionPresentation(
@@ -59,8 +59,6 @@ struct DesktopNotificationPermissionPresentation: Equatable, Sendable {
         switch statusLabel {
         case .unknown:
             return String(localized: "settings.notifications.desktop.status.unknown", defaultValue: "Permission unknown")
-        case .notRequested:
-            return String(localized: "settings.notifications.desktop.status.notRequested", defaultValue: "Not Requested")
         case .allowed:
             return String(localized: "settings.notifications.desktop.status.allowed", defaultValue: "Allowed")
         case .denied:

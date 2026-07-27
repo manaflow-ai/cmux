@@ -9,10 +9,11 @@ build is no longer an opaque timestamp on install or auto-update.
 
 TestFlight shows each build as `MARKETING_VERSION (CURRENT_PROJECT_VERSION)`, for
 example `1.0.3 (20260613120501)`. `MARKETING_VERSION` is the human version
-(`ios/Config/Shared.xcconfig`, semver `X.Y.Z`); the number in parens is the build
-id, a 14-digit UTC timestamp stamped at upload time (unique and monotonic, but not
-meant to be read). Testers should track the marketing version; the timestamp only
-distinguishes rapid internal iterations of the same version.
+(`CMUX_IOS_BETA_MARKETING_VERSION` in `ios/Config/Shared.xcconfig`, semver
+`X.Y.Z`); the number in parens is the build id, a 14-digit UTC timestamp stamped
+at upload time (unique and monotonic, but not meant to be read). Testers should
+track the marketing version; the timestamp only distinguishes rapid internal
+iterations of the same version.
 
 Two audiences, two notes per entry:
 
@@ -35,12 +36,40 @@ sheet on first launch after an update, sourced from the External block. Spec in
 Keep entries short. No fluff, no AI rhetorical patterns, no em dashes (repo rule).
 Newest version on top.
 
-The top entry's version MUST equal the checked-in `MARKETING_VERSION` in
-`ios/Config/Shared.xcconfig`. `upload-testflight.sh` enforces this before upload
-(it refuses to attach notes for a different version), so bump the version with
+The top entry's version MUST equal the checked-in
+`CMUX_IOS_BETA_MARKETING_VERSION` in `ios/Config/Shared.xcconfig`.
+`upload-testflight.sh` enforces this before upload (it refuses to attach notes
+for a different version), so bump the beta version with
 `ios/scripts/bump-ios-version.sh` in the SAME change that adds the top entry.
 
 ---
+
+## [1.0.4] - 2026-07-09
+
+### Internal
+
+- Version-sync bump: checked-in beta marketing version catches up to `1.0.4`, the version already live to external founders (an earlier upload under that version shipped stale, pre-#7636 code; the CI reship on 2026-07-09 replaced it with current `main`).
+- Fix iOS surface-teardown deadlock behind external-beta watchdog kills (#7666).
+- Add iOS account deletion and legal links (#7645).
+- iOS: terminal connection/render resilience, fail-open delivery gates, route iteration, persistent terminal surface (#7675).
+- Add iOS crash telemetry via Sentry + MetricKit (#7649).
+- iOS: dismissable alt-screen sizing notice in terminal toolbar (#7669).
+- iOS: render exactly one workspace-list connection surface (#7659).
+- iOS: persist debug log to a file and capture crashes in it (#7652).
+- Treat unreadable token storage as transient during iOS session restore, fixing spurious sign-outs on update (#7667).
+- iOS: native drag & drop in workspace list + create workspace in group (#7384).
+- iOS: enable multi-Mac workspace aggregation by default; re-aggregate on network recovery.
+- Workspaces as todos: inferred status lifecycle + per-workspace checklist (#7216) — merged but not yet dogfood-confirmed on this version; hold out of External until confirmed.
+- Dogfood focus: confirm the app launches straight to current UI (not the old stale build), sign-in survives an app relaunch, terminal connections recover after backgrounding, and multi-Mac workspaces list correctly.
+
+### External
+
+- Fixed an issue where the app could freeze or crash in the background.
+- Fixed an issue that could sign you out unexpectedly after updating.
+- Terminal connections recover more reliably after switching apps or losing network.
+- Added account deletion in Settings.
+- See workspaces from all your paired Macs in one list, with automatic recovery after network drops.
+- Drag and drop to reorder workspaces, and create new workspaces inside a group.
 
 ## [1.0.3] - 2026-06-13
 

@@ -12,9 +12,37 @@ extension MobileShellComposite {
         )
     }
 
+    /// Build-channel labels for the computer pickers, keyed by pairing entry
+    /// id, resolved with the same priority as the Computers sheet badge: live
+    /// presence first, then the stored instance tag while offline.
+    public func pairedMacBuildLabelsByEntryID() -> [String: String] {
+        Self.buildLabelsByEntryID(for: displayPairedMacs) { macDeviceID, instanceTag in
+            presenceSummary(for: macDeviceID, instanceTag: instanceTag)?.buildLabel
+        }
+    }
+
+    /// Shared label derivation for store-backed pickers and store-free
+    /// DEBUG fixtures (which pass a lookup that always returns `nil`).
+    public static func buildLabelsByEntryID(
+        for macs: [MobilePairedMac],
+        presenceBuildLabel: (String, String?) -> String?
+    ) -> [String: String] {
+        macs.reduce(into: [String: String]()) { result, mac in
+            result[mac.id] = presenceBuildLabel(mac.macDeviceID, mac.instanceTag)
+                ?? MacBuildChannel().label(bundleID: nil, tag: mac.instanceTag)
+        }
+    }
+
     /// Stored ids represented by a visible paired-Mac row.
-    public func pairedMacAliasIDs(for macDeviceID: String) -> [String] {
-        if let aliases = pairedMacAliasIDsByRepresentativeID[macDeviceID] {
+    public func pairedMacAliasIDs(
+        for macDeviceID: String,
+        instanceTag: String? = nil
+    ) -> [String] {
+        let pairingID = MobilePairedMac.pairingID(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        )
+        if let aliases = pairedMacAliasIDsByRepresentativeID[pairingID] {
             return aliases
         }
         if let aliases = pairedMacAliasIDsByRepresentativeID.values.first(where: {
@@ -25,10 +53,18 @@ extension MobileShellComposite {
         return [macDeviceID]
     }
 
-    /// Presence rollup across every stored id represented by a visible paired-Mac row.
-    public func presenceSummary(for macDeviceID: String) -> PresenceMap.DeviceSummary? {
-        let summaries = pairedMacAliasIDs(for: macDeviceID).compactMap {
-            presenceMap.deviceSummary(deviceId: $0)
+    /// Presence across every stored id represented by a visible paired-Mac row.
+    /// When `instanceTag` is present, only that tagged app instance contributes.
+    public func presenceSummary(
+        for macDeviceID: String,
+        instanceTag: String? = nil
+    ) -> PresenceMap.DeviceSummary? {
+        let summaries = pairedMacAliasIDs(for: macDeviceID, instanceTag: instanceTag).compactMap {
+            if let instanceTag {
+                presenceMap.instanceSummary(deviceId: $0, tag: instanceTag)
+            } else {
+                presenceMap.deviceSummary(deviceId: $0)
+            }
         }
         guard !summaries.isEmpty else { return nil }
         let online = summaries.contains(where: \.online)
@@ -52,13 +88,30 @@ extension MobileShellComposite {
     }
 
     /// User customization for every stored id represented by visible paired-Mac rows.
+    ///
+    /// Workspaces carry no instance tag, so when sibling builds of one Mac are
+    /// both customized the active pairing's customization represents the
+    /// device; without that preference the result depended on iteration order.
     func pairedMacCustomizationsByAliasID() -> [String: MobilePairedMac] {
-        displayPairedMacs.reduce(into: [String: MobilePairedMac]()) { result, mac in
-            guard mac.customColor != nil || mac.customIcon != nil else { return }
-            for aliasID in pairedMacAliasIDs(for: mac.macDeviceID) {
+        Self.customizationsByAliasID(for: displayPairedMacs) { mac in
+            pairedMacAliasIDs(for: mac.macDeviceID, instanceTag: mac.instanceTag)
+        }
+    }
+
+    /// Deterministic alias→customization resolution: the active pairing first,
+    /// then remaining display order, first write wins per alias id.
+    static func customizationsByAliasID(
+        for macs: [MobilePairedMac],
+        aliasesFor: (MobilePairedMac) -> [String]
+    ) -> [String: MobilePairedMac] {
+        let preferredMacs = macs.filter(\.isActive) + macs.filter { !$0.isActive }
+        var result: [String: MobilePairedMac] = [:]
+        for mac in preferredMacs where mac.customColor != nil || mac.customIcon != nil {
+            for aliasID in aliasesFor(mac) where result[aliasID] == nil {
                 result[aliasID] = mac
             }
         }
+        return result
     }
 
 }

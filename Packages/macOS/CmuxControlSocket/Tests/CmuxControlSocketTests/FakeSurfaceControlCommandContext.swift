@@ -5,8 +5,13 @@ import Foundation
 final class FakeSurfaceControlCommandContext: ControlCommandContext {
     var paneCreateResolution: ControlPaneCreateResolution = .tabManagerUnavailable
     var createResolution: ControlSurfaceCreateResolution = .tabManagerUnavailable
+    var surfaceListSnapshot: ControlSurfaceListSnapshot?
+    var resumeResolution: ControlSurfaceResumeResolution = .surfaceNotFound
     var reportPWDResolution: ControlSurfaceReportPWDResolution = .recorded(surfaceID: UUID())
     var reportedPWD: (workspaceID: UUID, requestedSurfaceID: UUID?, path: String)?
+    var reportGitResolution: ControlSurfaceReportGitBranchResolution = .recorded(surfaceID: UUID())
+    var reportedGit: (workspaceID: UUID, requestedSurfaceID: UUID?, branch: String, isDirty: Bool?)?
+    var clearedGit: (workspaceID: UUID, requestedSurfaceID: UUID?)?
 
     func controlWindowSummaries() -> [ControlWindowSummary] { [] }
     func controlResolveCurrentWindow(routing: ControlRoutingSelectors) -> ControlCurrentWindowResolution {
@@ -20,6 +25,9 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
     func controlMoveWindow(id: UUID, toDisplayMatching query: String) -> String? { nil }
     func controlMoveAllWindows(toDisplayMatching query: String) -> ControlMoveAllWindowsResult? { nil }
     func controlSurfaceRoutingResolvesTabManager(routing: ControlRoutingSelectors) -> Bool { true }
+    func controlSurfaceList(routing: ControlRoutingSelectors) -> ControlSurfaceListSnapshot? {
+        surfaceListSnapshot
+    }
     func controlPaneRoutingResolvesTabManager(routing: ControlRoutingSelectors) -> Bool { true }
 
     func controlPaneCreate(
@@ -36,6 +44,15 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
         createResolution
     }
 
+    func controlSurfaceResumeSet(
+        routing: ControlRoutingSelectors,
+        explicitTargetID: UUID?,
+        hasResolvedWindowID: Bool,
+        inputs: ControlSurfaceResumeSetInputs
+    ) -> ControlSurfaceResumeResolution {
+        resumeResolution
+    }
+
     func controlSurfaceReportPWD(
         workspaceID: UUID,
         requestedSurfaceID: UUID?,
@@ -43,5 +60,23 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
     ) -> ControlSurfaceReportPWDResolution {
         reportedPWD = (workspaceID, requestedSurfaceID, path)
         return reportPWDResolution
+    }
+
+    func controlSurfaceReportGitBranch(
+        workspaceID: UUID,
+        requestedSurfaceID: UUID?,
+        branch: String,
+        isDirty: Bool?
+    ) -> ControlSurfaceReportGitBranchResolution {
+        reportedGit = (workspaceID, requestedSurfaceID, branch, isDirty)
+        return reportGitResolution
+    }
+
+    func controlSurfaceClearGitBranch(
+        workspaceID: UUID,
+        requestedSurfaceID: UUID?
+    ) -> ControlSurfaceReportGitBranchResolution {
+        clearedGit = (workspaceID, requestedSurfaceID)
+        return reportGitResolution
     }
 }

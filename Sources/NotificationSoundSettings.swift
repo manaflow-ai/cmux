@@ -5,8 +5,8 @@ import UserNotifications
 
 // Notification sound selection, custom sound staging, Focus/DND suppression,
 // fallback playback, and notification custom-command execution.
-// Extracted from TerminalNotificationStore.swift to keep that file within the
-// Swift file length budget.
+// Kept separate from TerminalNotificationStore.swift so settings resolution
+// and notification delivery have distinct ownership.
 
 enum NotificationSoundSettings {
     static let key = "notificationSound"

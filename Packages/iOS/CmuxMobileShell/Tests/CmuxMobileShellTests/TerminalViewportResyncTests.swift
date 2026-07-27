@@ -792,7 +792,7 @@ import Testing
 }
 
 @MainActor
-@Test func terminalSameSizeReportReArmsExhaustedResizeBarrier() async throws {
+@Test func terminalSameSizeReportDoesNotNeedToRearmFailOpenResizeBarrier() async throws {
     let router = LivenessHostRouter()
     let box = TransportBox()
     let clock = TestClock()
@@ -815,39 +815,36 @@ import Testing
     let replayCountAfterBaseline = await router.count(of: "mobile.terminal.replay")
 
     // The resize replay fails through its whole retry budget (initial + two
-    // retries), leaving a preserved barrier with the grid already settled.
+    // retries). The barrier must fail open instead of preserving a gate that
+    // drops live output forever.
     await router.failNextReplay(count: 3)
     let resizedGrid = await store.updateTerminalViewport(surfaceID: surfaceID, columns: 80, rows: 30)
     #expect(resizedGrid?.rows == 30)
     await router.waitForCount(of: "mobile.terminal.replay", atLeast: replayCountAfterBaseline + 3)
-    let droppedAccepted = store.deliverTerminalBytes(
-        Data("dropped-behind-exhausted-barrier".utf8),
+    let resizeBarrierFailedOpen = try await pollUntil {
+        store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil
+            && !store.terminalReplaySurfaceIDsInFlight.contains(surfaceID)
+    }
+    #expect(resizeBarrierFailedOpen)
+    let liveAccepted = store.deliverTerminalBytes(
+        Data("live-after-exhausted-barrier".utf8),
         surfaceID: surfaceID
     )
-    #expect(!droppedAccepted, "output must still be dropped behind the preserved barrier")
+    #expect(liveAccepted, "output must flow after the resize barrier fails open")
+    let liveAfterFailOpen = try #require(await iterator.next())
+    #expect(String(data: liveAfterFailOpen.data, encoding: .utf8) == "live-after-exhausted-barrier")
 
-    // A same-size geometry reassert must re-arm recovery instead of leaving
-    // the surface wedged behind the exhausted barrier forever.
+    // A same-size geometry reassert should not need to re-arm a replay to
+    // recover a stuck barrier.
     let reassertedGrid = await store.updateTerminalViewport(surfaceID: surfaceID, columns: 80, rows: 30)
     #expect(reassertedGrid?.rows == 30)
     let rearmRequested = await router.waitForCount(
         of: "mobile.terminal.replay",
-        atLeast: replayCountAfterBaseline + 4
+        atLeast: replayCountAfterBaseline + 4,
+        timeoutNanoseconds: 200_000_000,
+        recordIssueOnTimeout: false
     )
-    #expect(
-        rearmRequested,
-        "a same-size report must re-arm a replay after the resize barrier exhausted its retries"
-    )
-    guard rearmRequested else { return }
-
-    let rearmChunk = try #require(await iterator.next())
-    #expect(String(data: rearmChunk.data, encoding: .utf8) == "rearm-replay")
-    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: rearmChunk.streamToken)
-    #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil)
-
-    store.deliverTerminalBytes(Data("live-after-rearm".utf8), surfaceID: surfaceID)
-    let liveChunk = try #require(await iterator.next())
-    #expect(String(data: liveChunk.data, encoding: .utf8) == "live-after-rearm")
+    #expect(!rearmRequested)
 }
 
 @MainActor

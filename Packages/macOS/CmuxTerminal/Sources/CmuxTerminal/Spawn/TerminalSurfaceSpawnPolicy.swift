@@ -6,6 +6,9 @@
 /// read the individual settings stores, so each spawn observes the same live
 /// values in the same order.
 public struct TerminalSurfaceSpawnPolicy: Sendable {
+    /// Protected authentication values exported into the spawned terminal.
+    public var socketAuthenticationEnvironment: [String: String]
+
     /// Whether Claude Code hooks are enabled (`CMUX_CLAUDE_HOOKS_DISABLED`).
     public var claudeHooksEnabled: Bool
 
@@ -53,6 +56,7 @@ public struct TerminalSurfaceSpawnPolicy: Sendable {
 
     /// Creates a spawn policy snapshot.
     public init(
+        socketAuthenticationEnvironment: [String: String] = [:],
         claudeHooksEnabled: Bool,
         codexHooksEnabled: Bool = true,
         customClaudePath: String?,
@@ -67,6 +71,7 @@ public struct TerminalSurfaceSpawnPolicy: Sendable {
         watchGitStatusEnabled: Bool,
         showPullRequestsEnabled: Bool
     ) {
+        self.socketAuthenticationEnvironment = socketAuthenticationEnvironment
         self.claudeHooksEnabled = claudeHooksEnabled
         self.codexHooksEnabled = codexHooksEnabled
         self.customClaudePath = customClaudePath

@@ -217,12 +217,18 @@ extension Workspace {
             return "right_sidebar_tool"
         case .customSidebar:
             return "custom_sidebar"
+        case .simulator:
+            return "simulator"
         case .agentSession:
             return "agent_session"
         case .project:
             return "project"
         case .extensionBrowser:
             return "extension_browser"
+        case .workspaceTodo:
+            return "workspace_todo"
+        case .cloudVMLoading:
+            return "cloud_vm_loading"
         }
     }
 }

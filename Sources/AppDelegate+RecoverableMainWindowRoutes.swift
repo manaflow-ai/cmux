@@ -361,22 +361,25 @@ extension AppDelegate {
     }
 
     /// One-pass `tabId -> workspace title` index across every window context.
-    /// Notification lists call this once per render and look up each row's title
-    /// in O(1), instead of scanning the tab list per notification row, which was
-    /// O(notifications × tabs). Resolution mirrors `tabTitle(for:)`: window
-    /// contexts win, then the active `tabManager` covers any tab not yet present
-    /// in a context. See https://github.com/manaflow-ai/cmux/issues/5794.
-    func tabTitlesByTabId() -> [UUID: String] {
+    /// Callers can limit the projection to the workspace ids they render, keeping
+    /// notification lists O(tabs + groups) rather than O(notifications × tabs).
+    /// Window contexts win, then the active `tabManager` fills any missing ids.
+    /// See https://github.com/manaflow-ai/cmux/issues/5794.
+    func tabTitlesByTabId(for requestedTabIds: Set<UUID>? = nil) -> [UUID: String] {
         var titles: [UUID: String] = [:]
-        for context in mainWindowContexts.values {
-            for tab in context.tabManager.tabs where titles[tab.id] == nil {
-                titles[tab.id] = tab.title
-            }
+
+        func appendTitles(from manager: TabManager) {
+            let candidateIds = requestedTabIds ?? Set(manager.tabs.map(\.id))
+            let unresolvedIds = candidateIds.subtracting(titles.keys)
+            titles.merge(manager.resolvedWorkspaceDisplayTitles(for: unresolvedIds)) { current, _ in current }
         }
-        if let activeTabs = tabManager?.tabs {
-            for tab in activeTabs where titles[tab.id] == nil {
-                titles[tab.id] = tab.title
-            }
+
+        for context in mainWindowContexts.values {
+            appendTitles(from: context.tabManager)
+            if let requestedTabIds, titles.count == requestedTabIds.count { return titles }
+        }
+        if let remainingTitleSource = tabManager {
+            appendTitles(from: remainingTitleSource)
         }
         return titles
     }

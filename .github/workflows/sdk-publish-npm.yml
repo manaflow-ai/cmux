@@ -1,0 +1,172 @@
+name: sdk publish npm
+
+on:
+  push:
+    tags:
+      - "mux-sdk-v*"
+      - "cmux-sdk-v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "SDK version to validate/publish, for example 0.1.0"
+        required: true
+        type: string
+      confirm_npm_cmux:
+        description: "Set true only for the coordinated npm cmux SDK publish"
+        required: true
+        default: false
+        type: boolean
+
+permissions: {}
+
+concurrency:
+  group: sdk-publish-npm-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Validate tag and package versions
+        id: version
+        env:
+          DISPATCH_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
+            [[ "$GITHUB_REF_NAME" =~ ^(mux|cmux)-sdk-v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+              echo "tag must match mux-sdk-vX.Y.Z or cmux-sdk-vX.Y.Z" >&2
+              exit 1
+            }
+            version="$GITHUB_REF_NAME"
+            version="${version#mux-sdk-v}"
+            version="${version#cmux-sdk-v}"
+          else
+            version="$DISPATCH_VERSION"
+            [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+              echo "workflow_dispatch version must match X.Y.Z" >&2
+              exit 1
+            }
+          fi
+          python3 - "$version" <<'PY'
+          import json
+          import pathlib
+          import sys
+          import tomllib
+
+          expected = sys.argv[1]
+          root = pathlib.Path.cwd()
+          versions = {
+              "typescript package.json": json.loads((root / "cmux-tui/bindings/typescript/package.json").read_text())["version"],
+              "python pyproject.toml": tomllib.loads((root / "cmux-tui/bindings/python/pyproject.toml").read_text())["project"]["version"],
+              "rust Cargo.toml": tomllib.loads((root / "cmux-tui/bindings/rust/Cargo.toml").read_text())["package"]["version"],
+          }
+          mismatches = {name: got for name, got in versions.items() if got != expected}
+          if mismatches:
+              for name, got in mismatches.items():
+                  print(f"{name}: expected {expected}, got {got}", file=sys.stderr)
+              raise SystemExit(1)
+          print(f"All package versions match {expected}")
+          PY
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  bindings-e2e-typescript:
+    needs: version
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Init ghostty submodule
+        run: git submodule update --init --depth 1 ghostty
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev pkg-config
+
+      - name: Install zig
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Rust version
+        run: |
+          rustc --version || true
+          if ! command -v cargo >/dev/null; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
+
+      - name: Build cmux-tui server
+        working-directory: cmux-tui
+        run: cargo build -p cmux-tui
+
+      - name: Python conformance fixtures
+        run: python3 cmux-tui/bindings/conformance/runner.py
+
+      - name: TypeScript binding e2e
+        run: bash cmux-tui/bindings/conformance/e2e.sh --require typescript
+
+  publish:
+    # The npm package name "cmux" is currently a different live package
+    # (the cloud-VM CLI). Publishing the SDK there is a coordinated breaking
+    # action, so tag pushes never publish to npm and manual runs must opt in.
+    if: github.event_name == 'workflow_dispatch'
+    needs: bindings-e2e-typescript
+    # npm --provenance rejects self-hosted runners; the attestation is only
+    # verifiable from a GitHub-hosted runner. This one publish job must stay on
+    # ubuntu-latest (github-hosted), unlike the routed self-hosted jobs above.
+    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a github-hosted runner
+    permissions:
+      contents: read
+      id-token: write
+    environment:
+      name: npm
+      url: https://www.npmjs.com/package/cmux
+    steps:
+      - name: Require npm cmux confirmation
+        if: inputs.confirm_npm_cmux != true
+        run: |
+          echo "Refusing to publish npm package cmux without confirm_npm_cmux=true." >&2
+          exit 1
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22.14.0"
+          registry-url: https://registry.npmjs.org
+
+      - name: Upgrade npm for OIDC trusted publishing
+        # Node 22 bundles npm 10, which signs provenance but cannot
+        # authenticate the publish via OIDC trusted publishing (the PUT is
+        # unauthenticated and 404s). npm >= 11.5.1 performs the OIDC token
+        # exchange for the publish itself.
+        run: npm install -g npm@^11.5.1
+
+      - name: Build package
+        working-directory: cmux-tui/bindings/typescript
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+
+      - name: Publish package to npm
+        working-directory: cmux-tui/bindings/typescript
+        # The npm `cmux` name still serves the cloud-VM CLI on the `latest`
+        # dist-tag (0.8.3). The SDK ships on its own `sdk` tag so installing
+        # bare `cmux` keeps resolving the CLI; use `npm i cmux@sdk` for the SDK.
+        run: npm publish --provenance --tag sdk

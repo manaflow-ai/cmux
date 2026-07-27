@@ -33,7 +33,7 @@ export function WaitlistCallout({
             });
             setOpen(true);
           }}
-          className="text-foreground underline underline-offset-2 decoration-border transition-colors hover:decoration-foreground"
+          className="text-foreground underline underline-offset-2 decoration-link-underline transition-colors hover:decoration-foreground"
         >
           {t("join")}
         </button>

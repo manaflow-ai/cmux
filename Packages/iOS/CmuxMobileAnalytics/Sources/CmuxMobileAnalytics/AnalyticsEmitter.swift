@@ -15,10 +15,10 @@ private let analyticsLog = Logger(subsystem: "dev.cmux.ios", category: "analytic
 ///
 /// ### Why an AsyncStream channel, and how it stays off the hot path
 ///
-/// ``capture(_:_:)`` is a `nonisolated`, synchronous, non-throwing method whose
-/// only work is a synchronous `continuation.yield(...)` onto an internal
-/// `AsyncStream` — an `O(1)` enqueue, no `Task` spawn, no actor hop, no
-/// allocation per event. A single consumer task drains the stream on the actor,
+/// ``capture(_:_:)`` is a `nonisolated`, synchronous, non-throwing method that
+/// performs bounded `O(1)` consent reconciliation and a
+/// `continuation.yield(...)` onto an internal `AsyncStream`, with no `Task`
+/// spawn, actor hop, or network call. A single consumer task drains the stream on the actor,
 /// so event order, identity changes, and super-property updates are applied in
 /// submission order. The one blocking network call lives inside the consumer's
 /// `drain`, off every UI and input path. The terminal-input and render
@@ -26,10 +26,12 @@ private let analyticsLog = Logger(subsystem: "dev.cmux.ios", category: "analytic
 ///
 /// ### Privacy gate
 ///
-/// ``capture(_:_:)`` consults the injected ``AnalyticsConsentProviding`` *before*
-/// yielding, so when telemetry is disabled nothing is even buffered, and no
-/// fire-site can bypass the opt-out. `identify` and super-property updates are
-/// gated the same way.
+/// ``capture(_:_:)`` reconciles the injected ``AnalyticsConsentProviding`` with
+/// a synchronous generation gate *before* yielding, so disabled telemetry is not
+/// buffered and work from before a revoke cannot return after a quick re-enable.
+/// `identify` always updates local identity context (so an opted-out sign-out is
+/// remembered), while its network call remains generation-gated. Super-properties
+/// likewise mutate only in-memory context while opted out.
 ///
 /// ### Flush barrier
 ///
@@ -39,9 +41,20 @@ private let analyticsLog = Logger(subsystem: "dev.cmux.ios", category: "analytic
 /// contents.
 public actor AnalyticsEmitter: AnalyticsEmitting {
     private enum Item: Sendable {
-        case event(name: String, properties: [String: AnalyticsValue], timestamp: Date)
-        case identify(userID: String?, alias: String?, properties: [String: AnalyticsValue])
+        case event(
+            name: String,
+            properties: [String: AnalyticsValue],
+            timestamp: Date,
+            consent: AnalyticsConsentSnapshot
+        )
+        case identify(
+            userID: String?,
+            alias: String?,
+            properties: [String: AnalyticsValue],
+            consent: AnalyticsConsentSnapshot
+        )
         case superProperties([String: AnalyticsValue])
+        case consentChanged(AnalyticsConsentSnapshot)
         case barrier(UUID)
     }
 
@@ -53,13 +66,15 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
     private let flushBatchSize: Int
     private let flushInterval: Duration
     private let maxPendingEvents: Int
+    private let consentGenerationGate: AnalyticsConsentGenerationGate
+    private let consentObserver: AnalyticsConsentRevocationObserver
 
     private let stream: AsyncStream<Item>
     private let continuation: AsyncStream<Item>.Continuation
 
     private var superProperties: [String: AnalyticsValue] = [:]
     private var distinctID: String?
-    private var pending: [AnalyticsEvent] = []
+    private var pending: [AnalyticsPendingEvent] = []
     private var barriers: [UUID: CheckedContinuation<Void, Never>] = [:]
     private var consumerTask: Task<Void, Never>?
     private var cadenceTask: Task<Void, Never>?
@@ -110,7 +125,8 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
         now: @escaping @Sendable () -> Date = { Date() },
         flushBatchSize: Int = 50,
         flushInterval: Duration = .seconds(30),
-        maxPendingEvents: Int = 1000
+        maxPendingEvents: Int = 1000,
+        notificationCenter: NotificationCenter = .default
     ) {
         self.uploader = uploader
         self.consent = consent
@@ -121,36 +137,81 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
         self.flushInterval = flushInterval
         self.maxPendingEvents = max(flushBatchSize, maxPendingEvents)
         self.distinctID = anonymousID
-        (self.stream, self.continuation) = AsyncStream.makeStream(bufferingPolicy: .unbounded)
+        let (stream, continuation) = AsyncStream<Item>.makeStream(bufferingPolicy: .unbounded)
+        self.stream = stream
+        self.continuation = continuation
+        let consentGenerationGate = AnalyticsConsentGenerationGate(
+            isEnabled: consent.isTelemetryEnabled
+        )
+        self.consentGenerationGate = consentGenerationGate
+        self.consentObserver = AnalyticsConsentRevocationObserver(
+            notificationCenter: notificationCenter,
+            consent: consent,
+            uploader: uploader,
+            generationGate: consentGenerationGate,
+            onConsentChange: { snapshot in
+                continuation.yield(.consentChanged(snapshot))
+            }
+        )
         Task { await self.startConsuming() }
     }
 
     // MARK: AnalyticsEmitting (non-blocking surface)
 
+    /// Enqueues an allowlisted product event when telemetry consent is enabled.
     public nonisolated func capture(_ event: String, _ properties: [String: AnalyticsValue]) {
-        guard consent.isTelemetryEnabled else { return }
-        continuation.yield(.event(name: event, properties: properties, timestamp: now()))
+        let consent = synchronizedConsentSnapshot()
+        guard consent.isEnabled else { return }
+        continuation.yield(.event(
+            name: event,
+            properties: properties,
+            timestamp: now(),
+            consent: consent
+        ))
     }
 
+    /// Enqueues an identity transition when telemetry consent is enabled.
     public nonisolated func identify(
         userId: String?,
         alias: String?,
         properties: [String: AnalyticsValue]
     ) {
-        guard consent.isTelemetryEnabled else { return }
-        continuation.yield(.identify(userID: userId, alias: alias, properties: properties))
+        let consent = synchronizedConsentSnapshot()
+        continuation.yield(.identify(
+            userID: userId,
+            alias: alias,
+            properties: properties,
+            consent: consent
+        ))
     }
 
+    /// Merges context applied to subsequently captured in-memory events.
     public nonisolated func setSuperProperties(_ properties: [String: AnalyticsValue]) {
-        guard consent.isTelemetryEnabled else { return }
+        // This only updates in-memory event context; it performs no upload.
+        // Preserve launch-time app/device properties while consent is off so
+        // events captured after a mid-session opt-in receive the same context
+        // as events from an opted-in launch.
         continuation.yield(.superProperties(properties))
     }
 
+    /// Drains all events submitted before this call reaches the FIFO barrier.
     public func flush() async {
         let id = UUID()
         await withCheckedContinuation { (resume: CheckedContinuation<Void, Never>) in
             barriers[id] = resume
             continuation.yield(.barrier(id))
+        }
+    }
+
+    private nonisolated func synchronizedConsentSnapshot() -> AnalyticsConsentSnapshot {
+        let base = consentGenerationGate.snapshot()
+        let observedEnabled = consent.isTelemetryEnabled
+        return consentGenerationGate.synchronize(
+            observedEnabled: observedEnabled,
+            basedOn: base
+        ) { snapshot in
+            uploader.setUploadsEnabled(snapshot.isEnabled)
+            continuation.yield(.consentChanged(snapshot))
         }
     }
 
@@ -167,8 +228,15 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
     private func consume() async {
         for await item in stream {
             switch item {
-            case let .event(name, properties, timestamp):
-                appendEvent(name: name, properties: properties, timestamp: timestamp)
+            case let .event(name, properties, timestamp, consent):
+                _ = synchronizedConsentSnapshot()
+                guard consentGenerationGate.allows(consent) else { continue }
+                appendEvent(
+                    name: name,
+                    properties: properties,
+                    timestamp: timestamp,
+                    consentGeneration: consent.generation
+                )
                 startCadenceIfNeeded()
                 // Suppress the per-event drain while an outage is open: otherwise a
                 // slow/hanging upload would re-enter `drain()` on every arriving
@@ -178,10 +246,20 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
                 if pending.count >= flushBatchSize && !uploadOutageOpen {
                     await drain()
                 }
-            case let .identify(userID, alias, properties):
-                await applyIdentify(userID: userID, alias: alias, properties: properties)
+            case let .identify(userID, alias, properties, consent):
+                await applyIdentify(
+                    userID: userID,
+                    alias: alias,
+                    properties: properties,
+                    consent: consent
+                )
             case let .superProperties(properties):
                 for (key, value) in properties { superProperties[key] = value }
+            case let .consentChanged(consent):
+                if !consent.isEnabled {
+                    pending.removeAll()
+                    uploadOutageOpen = false
+                }
             case let .barrier(id):
                 await drain()
                 barriers.removeValue(forKey: id)?.resume()
@@ -189,18 +267,24 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
         }
     }
 
-    private func appendEvent(name: String, properties: [String: AnalyticsValue], timestamp: Date) {
+    private func appendEvent(
+        name: String,
+        properties: [String: AnalyticsValue],
+        timestamp: Date,
+        consentGeneration: UInt64
+    ) {
         var merged = superProperties
         for (key, value) in properties { merged[key] = value }
-        pending.append(
-            AnalyticsEvent(
+        pending.append(AnalyticsPendingEvent(
+            event: AnalyticsEvent(
                 name: name,
                 properties: merged,
                 distinctID: distinctID,
                 anonymousID: anonymousID == distinctID ? nil : anonymousID,
                 timestamp: timestamp
-            )
-        )
+            ),
+            consentGeneration: consentGeneration
+        ))
         // Bound the backlog so a sustained upload outage (`.retry` keeps the
         // buffer intact) cannot grow memory without limit. Drop the oldest events
         // first: the freshest signal is the most useful, and dropping here is
@@ -213,7 +297,8 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
     private func applyIdentify(
         userID: String?,
         alias: String?,
-        properties: [String: AnalyticsValue]
+        properties: [String: AnalyticsValue],
+        consent: AnalyticsConsentSnapshot
     ) async {
         distinctID = userID ?? anonymousID
         if let userID {
@@ -221,6 +306,8 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
         } else {
             superProperties.removeValue(forKey: "user_id")
         }
+        _ = synchronizedConsentSnapshot()
+        guard consentGenerationGate.allows(consent) else { return }
         var personProps: [String: any Sendable] = [:]
         for (key, value) in properties { personProps[key] = value.jsonObject }
         let aliasID = alias ?? (anonymousID == userID ? nil : anonymousID)
@@ -259,12 +346,16 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
         // still enabled: if consent was revoked between enqueue and this flush,
         // discard the backlog and send nothing. `flush()` routes through here via
         // its barrier, so an opt-out followed by a background flush also drops.
-        guard consent.isTelemetryEnabled else {
+        let consent = synchronizedConsentSnapshot()
+        guard consent.isEnabled else {
             pending.removeAll()
+            uploadOutageOpen = false
             return
         }
+        pending.removeAll { $0.consentGeneration != consent.generation }
+        if pending.isEmpty { uploadOutageOpen = false }
         while !pending.isEmpty {
-            let batch = pending
+            let batch = pending.map(\.event)
             let result = await uploader.upload(batch)
             switch result {
             case .accepted, .drop:

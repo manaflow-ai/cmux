@@ -52,7 +52,7 @@ struct DesktopNotificationsSettingsRow: View {
             return .green
         case .denied:
             return .red
-        case .unknown, .notRequested:
+        case .unknown:
             return .secondary
         }
     }

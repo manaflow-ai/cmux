@@ -23,6 +23,7 @@ struct SurfaceSearchOverlay: View {
     @ObservedObject var searchState: TerminalSurface.SearchState
     let canApplyFocusRequest: () -> Bool
     let onNavigateSearch: (_ action: String) -> Void
+    let onSearchTextChanged: () -> Void
     let onFieldDidFocus: () -> Void
     let onClose: () -> Void
     @State private var corner: Corner = .topRight
@@ -41,6 +42,7 @@ struct SurfaceSearchOverlay: View {
                     surfaceId: surfaceId,
                     selectionOwner: searchState,
                     canApplyFocusRequest: canApplyFocusRequest,
+                    onTextChanged: onSearchTextChanged,
                     onFieldDidFocus: onFieldDidFocus,
                     onEscape: {
                         #if DEBUG
@@ -230,6 +232,7 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
     let surfaceId: UUID
     let selectionOwner: AnyObject
     let canApplyFocusRequest: () -> Bool
+    let onTextChanged: () -> Void
     let onFieldDidFocus: () -> Void
     let onEscape: () -> Void
     let onReturn: (_ isShift: Bool) -> Void
@@ -268,6 +271,7 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
         func controlTextDidChange(_ obj: Notification) {
             guard !isProgrammaticMutation else { return }
             guard let field = obj.object as? NSTextField else { return }
+            parent.onTextChanged()
             parent.text = field.stringValue
             rememberSelection(from: field)
         }

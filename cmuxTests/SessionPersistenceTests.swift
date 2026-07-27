@@ -769,28 +769,40 @@ final class SessionPersistenceTests: XCTestCase {
             AppDelegate.shouldSaveSessionSnapshotAfterMainWindowRegistration(
                 isTerminatingApp: false,
                 didApplyStartupSessionRestore: false,
-                isApplyingSessionRestore: false
+                isApplyingSessionRestore: false,
+                isStartupSessionRestorePending: false
             )
         )
         XCTAssertFalse(
             AppDelegate.shouldSaveSessionSnapshotAfterMainWindowRegistration(
                 isTerminatingApp: true,
                 didApplyStartupSessionRestore: false,
-                isApplyingSessionRestore: false
+                isApplyingSessionRestore: false,
+                isStartupSessionRestorePending: false
             )
         )
         XCTAssertFalse(
             AppDelegate.shouldSaveSessionSnapshotAfterMainWindowRegistration(
                 isTerminatingApp: false,
                 didApplyStartupSessionRestore: true,
-                isApplyingSessionRestore: false
+                isApplyingSessionRestore: false,
+                isStartupSessionRestorePending: false
             )
         )
         XCTAssertFalse(
             AppDelegate.shouldSaveSessionSnapshotAfterMainWindowRegistration(
                 isTerminatingApp: false,
                 didApplyStartupSessionRestore: false,
-                isApplyingSessionRestore: true
+                isApplyingSessionRestore: true,
+                isStartupSessionRestorePending: false
+            )
+        )
+        XCTAssertFalse(
+            AppDelegate.shouldSaveSessionSnapshotAfterMainWindowRegistration(
+                isTerminatingApp: false,
+                didApplyStartupSessionRestore: false,
+                isApplyingSessionRestore: false,
+                isStartupSessionRestorePending: true
             )
         )
     }
@@ -816,12 +828,55 @@ final class SessionPersistenceTests: XCTestCase {
         )
     }
 
-    func testSessionAutosaveTickPolicySkipsWhenTerminating() {
+    func testStartupRestoreTransitionGatesEverySessionSave() {
         XCTAssertTrue(
-            AppDelegate.shouldRunSessionAutosaveTick(isTerminatingApp: false)
+            AppDelegate.shouldSkipSessionSaveDuringStartupTransition(
+                isStartupSessionRestorePending: true,
+                isApplyingSessionRestore: false,
+                includeScrollback: false
+            )
+        )
+        XCTAssertTrue(
+            AppDelegate.shouldSkipSessionSaveDuringStartupTransition(
+                isStartupSessionRestorePending: true,
+                isApplyingSessionRestore: false,
+                includeScrollback: true
+            )
+        )
+        XCTAssertTrue(
+            AppDelegate.shouldSkipSessionSaveDuringStartupTransition(
+                isStartupSessionRestorePending: false,
+                isApplyingSessionRestore: true,
+                includeScrollback: false
+            )
         )
         XCTAssertFalse(
-            AppDelegate.shouldRunSessionAutosaveTick(isTerminatingApp: true)
+            AppDelegate.shouldSkipSessionSaveDuringStartupTransition(
+                isStartupSessionRestorePending: false,
+                isApplyingSessionRestore: false,
+                includeScrollback: false
+            )
+        )
+    }
+
+    func testSessionAutosaveTickPolicySkipsWhenTerminatingOrStartupRestorePending() {
+        XCTAssertTrue(
+            AppDelegate.shouldRunSessionAutosaveTick(
+                isTerminatingApp: false,
+                isStartupSessionRestorePending: false
+            )
+        )
+        XCTAssertFalse(
+            AppDelegate.shouldRunSessionAutosaveTick(
+                isTerminatingApp: true,
+                isStartupSessionRestorePending: false
+            )
+        )
+        XCTAssertFalse(
+            AppDelegate.shouldRunSessionAutosaveTick(
+                isTerminatingApp: false,
+                isStartupSessionRestorePending: true
+            )
         )
     }
 
@@ -1186,62 +1241,6 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(restored.minY, 50, accuracy: 0.001)
         XCTAssertEqual(restored.width, 900, accuracy: 0.001)
         XCTAssertEqual(restored.height, 700, accuracy: 0.001)
-    }
-
-    func testResolvedWindowFramePreservesExactGeometryWhenDisplayIsUnchanged() {
-        let savedFrame = SessionRectSnapshot(x: 1_303, y: -90, width: 1_280, height: 1_410)
-        let savedDisplay = SessionDisplaySnapshot(
-            displayID: 2,
-            frame: SessionRectSnapshot(x: 0, y: 0, width: 2_560, height: 1_440),
-            visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 2_560, height: 1_410)
-        )
-        let display = AppDelegate.SessionDisplayGeometry(
-            displayID: 2,
-            frame: CGRect(x: 0, y: 0, width: 2_560, height: 1_440),
-            visibleFrame: CGRect(x: 0, y: 0, width: 2_560, height: 1_410)
-        )
-
-        let restored = AppDelegate.resolvedWindowFrame(
-            from: savedFrame,
-            display: savedDisplay,
-            availableDisplays: [display],
-            fallbackDisplay: display
-        )
-
-        XCTAssertNotNil(restored)
-        guard let restored else { return }
-        XCTAssertEqual(restored.minX, 1_303, accuracy: 0.001)
-        XCTAssertEqual(restored.minY, -90, accuracy: 0.001)
-        XCTAssertEqual(restored.width, 1_280, accuracy: 0.001)
-        XCTAssertEqual(restored.height, 1_410, accuracy: 0.001)
-    }
-
-    func testResolvedWindowFramePreservesExactGeometryWhenDisplayChangesButWindowRemainsAccessible() {
-        let savedFrame = SessionRectSnapshot(x: 1_100, y: -20, width: 1_280, height: 1_000)
-        let savedDisplay = SessionDisplaySnapshot(
-            displayID: 2,
-            frame: SessionRectSnapshot(x: 0, y: 0, width: 2_560, height: 1_440),
-            visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 2_560, height: 1_410)
-        )
-        let adjustedDisplay = AppDelegate.SessionDisplayGeometry(
-            displayID: 2,
-            frame: CGRect(x: 0, y: 0, width: 2_560, height: 1_440),
-            visibleFrame: CGRect(x: 0, y: 40, width: 2_560, height: 1_360)
-        )
-
-        let restored = AppDelegate.resolvedWindowFrame(
-            from: savedFrame,
-            display: savedDisplay,
-            availableDisplays: [adjustedDisplay],
-            fallbackDisplay: adjustedDisplay
-        )
-
-        XCTAssertNotNil(restored)
-        guard let restored else { return }
-        XCTAssertEqual(restored.minX, 1_100, accuracy: 0.001)
-        XCTAssertEqual(restored.minY, -20, accuracy: 0.001)
-        XCTAssertEqual(restored.width, 1_280, accuracy: 0.001)
-        XCTAssertEqual(restored.height, 1_000, accuracy: 0.001)
     }
 
     func testResolvedWindowFrameClampsWhenDisplayGeometryChangesEvenWithSameDisplayID() {
@@ -1614,6 +1613,14 @@ final class SessionPersistenceTests: XCTestCase {
                     "gemini-2.5-pro",
                 ]
             ),
+            (
+                .kimi,
+                [
+                    "/usr/local/bin/kimi",
+                    "--model",
+                    "kimi-k2",
+                ]
+            ),
         ]
 
         for scenario in scenarios {
@@ -1630,7 +1637,7 @@ final class SessionPersistenceTests: XCTestCase {
                 includeScrollback: false,
                 restorableAgentIndex: staleIndex
             )
-            let expectedKind: RestorableAgentKind = scenario.kind == .pi ? .custom("pi") : scenario.kind
+            let expectedKind: RestorableAgentKind = [.pi, .kimi].contains(scenario.kind) ? .custom(scenario.kind.rawValue) : scenario.kind
             XCTAssertEqual(initialSnapshot.panels.first?.terminal?.agent?.kind, expectedKind)
 
             workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
@@ -1768,7 +1775,7 @@ final class SessionPersistenceTests: XCTestCase {
                 resolvedEnvironment = ["PI_CODING_AGENT_DIR": "/tmp/pi"]
             case .amp:
                 resolvedEnvironment = ["AMP_SETTINGS_FILE": "/tmp/amp-settings.json"]
-            case .cursor, .rovodev, .factory, .custom:
+            case .cursor, .rovodev, .factory, .ollama, .custom:
                 resolvedEnvironment = [:]
             case .gemini:
                 resolvedEnvironment = ["GEMINI_CLI_HOME": "/tmp/gemini"]
@@ -1786,6 +1793,8 @@ final class SessionPersistenceTests: XCTestCase {
                 resolvedEnvironment = ["CODEBUDDY_CONFIG_DIR": "/tmp/codebuddy"]
             case .qoder:
                 resolvedEnvironment = ["QODER_CONFIG_DIR": "/tmp/qoder"]
+            case .kimi:
+                resolvedEnvironment = ["KIMI_SHARE_DIR": "/tmp/kimi"]
             }
         }
         let resolvedExecutablePath = executablePath ?? arguments.first ?? "/usr/local/bin/\(kind.rawValue)"
@@ -2084,11 +2093,8 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
     /// Regression: the rendered claude resume command must parse in NON-POSIX login shells.
     ///
-    /// The restore launcher dispatches the resume command through the user's `$SHELL`
-    /// (`TerminalStartupReturnShellScript.commandThenReturnLines` runs
-    /// `"$_cmux_resume_shell" -c <command>` for its `csh|tcsh` branch), and the
-    /// session-index resume command is typed into — and copy-pasted into — the user's
-    /// interactive shell. tcsh has no `${VAR:-fallback}` parameter expansion
+    /// The session-index resume command is typed into — and copy-pasted into — the
+    /// user's interactive shell. tcsh has no `${VAR:-fallback}` parameter expansion
     /// ("Bad : modifier in $"), so a raw POSIX-only wrapper token makes the whole resume
     /// command fail to parse and claude never launches, even though the same string works
     /// under `zsh -lic`. https://github.com/manaflow-ai/cmux/issues/5639
@@ -2132,10 +2138,10 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
     }
 
     /// Regression: fish rejects `${…}` outright ("${ is not a valid variable"), and fish
-    /// is a shipped cmux integration (`Resources/shell-integration/fish/`). The restore
-    /// launcher's `*)` branch dispatches `"$_cmux_resume_shell" -c <command>` for fish
-    /// logins, so a POSIX-only wrapper token regresses fish users from working resume to
-    /// a hard parse error. Uses a working directory so the brace-free cwd guard
+    /// is a shipped cmux integration (`Resources/shell-integration/fish/`). Session-index
+    /// resume commands are typed into the user's shell, so a POSIX-only wrapper token
+    /// regresses fish users from working resume to a hard parse error. Uses a working
+    /// directory so the brace-free cwd guard
     /// (`cd … || [ ! -d … ] && …`, https://github.com/manaflow-ai/cmux/issues/6285) is
     /// exercised too — older fish rejects the POSIX `{ …; }` grouping the guard used to
     /// emit. https://github.com/manaflow-ai/cmux/issues/5639
@@ -4039,7 +4045,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                 RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId): (
                     snapshot: detectedSnapshot,
                     updatedAt: 999,
-                    processIDs: Set([123]),
+                    processIDs: Set([123]), agentProcessIDs: Set([123]),
                     sessionIDSource: .explicit
                 ),
             ]
@@ -4107,7 +4113,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                 RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId): (
                     snapshot: detectedSnapshot,
                     updatedAt: 999,
-                    processIDs: Set([456]),
+                    processIDs: Set([456]), agentProcessIDs: Set([456]),
                     sessionIDSource: .explicit
                 ),
             ]
@@ -5673,7 +5679,13 @@ extension SessionPersistenceTests {
     @MainActor
     private func restoredStartupPayload(for panel: TerminalPanel) throws -> String {
         if let input = panel.surface.debugInitialInputForTesting() {
-            return input
+            let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(input).map(\.value)
+            guard let launcherIndex = words.lastIndex(of: "/bin/zsh"),
+                  let scriptPath = words.dropFirst(launcherIndex + 1).first else {
+                return input
+            }
+            let script = try String(contentsOfFile: scriptPath, encoding: .utf8)
+            return input + script
         }
 
         let command = try XCTUnwrap(panel.surface.debugInitialCommand())

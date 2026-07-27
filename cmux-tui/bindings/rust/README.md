@@ -1,0 +1,47 @@
+# cmux Rust Client
+
+Synchronous Rust client for the cmux-tui Unix-socket JSON-lines protocol.
+
+## Build
+
+```bash
+cd cmux-tui
+cargo build -p cmux-client --locked
+```
+
+## Usage
+
+```rust
+use cmux_client::{ClientConfig, CmuxClient};
+
+let mut client = CmuxClient::connect(ClientConfig::default())?;
+let surface = client.new_workspace(Some("sdk-demo"), Some(80), Some(24))?.surface;
+client.send(surface, Some("echo hello\r"), None)?;
+println!("{}", client.read_screen(surface)?.text);
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+`ClientConfig::default()` uses `CMUX_TUI_SOCKET` when set, then legacy
+`CMUX_MUX_SOCKET`, then the default session socket path.
+
+## 0.3 migration
+
+`identify()` keeps the legacy `IdentifyResult` shape. Use `identify_details()`
+and `IdentifyDetails.capabilities` to discover optional server behavior. Gate
+ordered workspace registry commands on `workspace-registry-v1` and initial
+attach dimensions on `attach-initial-size`; do not infer either feature from the
+protocol number. `Tree.workspace_revision` and `Workspace.key` remain optional
+so deserialization stays compatible with older servers.
+
+Use `clear_history_with_fallback(surface, &TerminalKeyInput { ... })` only when
+`IdentifyDetails.capabilities` contains `clear-history-key-v1`. The SDK rejects
+fallback `utf8` fields above the 4 KiB protocol limit before sending.
+`CmuxError::Command.delivery` exposes `ErrorDelivery::KnownNotDelivered` or
+`ErrorDelivery::Ambiguous` when the server classifies a failure.
+
+## E2E
+
+```bash
+cd cmux-tui
+CMUX_TUI_SOCKET=/path/to/session.sock cargo run -p cmux-client --example e2e --locked
+```

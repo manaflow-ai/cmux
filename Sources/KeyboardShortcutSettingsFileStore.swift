@@ -6,24 +6,7 @@ import os
 
 nonisolated private let cmuxSettingsFileStoreLogger = Logger(subsystem: "com.cmuxterm.app", category: "SettingsStore")
 
-@MainActor
-final class KeyboardShortcutSettingsObserver: ObservableObject {
-    static let shared = KeyboardShortcutSettingsObserver()
-
-    @Published private(set) var revision: UInt64 = 0
-
-    private var settingsCancellable: AnyCancellable?
-    private var recorderCancellable: AnyCancellable?
-
-    private init(notificationCenter: NotificationCenter = .default) {
-        settingsCancellable = notificationCenter.publisher(for: KeyboardShortcutSettings.didChangeNotification).receive(on: DispatchQueue.main).sink { [weak self] _ in self?.revision &+= 1 }
-        recorderCancellable = notificationCenter.publisher(for: KeyboardShortcutRecorderActivity.didChangeNotification).receive(on: DispatchQueue.main).sink { [weak self] _ in self?.revision &+= 1 }
-    }
-}
-
 final class CmuxSettingsFileStore {
-    static let shared = CmuxSettingsFileStore()
-
     static let currentSchemaVersion = 1
     static let schemaURLString = "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json"
     private static let legacySchemaURLString = "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux-settings.schema.json"
@@ -61,6 +44,7 @@ final class CmuxSettingsFileStore {
     private let notificationCenter: NotificationCenter
     private let passwordStore: SocketControlPasswordStore
     private let appearanceEnvironment: AppearanceSettings.LiveApplyEnvironment
+    private let onWatchedFileReload: @MainActor @Sendable (String) -> Void
     private let stateLock = NSLock()
 
     private var watchers: [FileWatcher] = []
@@ -69,6 +53,7 @@ final class CmuxSettingsFileStore {
     private var socketPasswordObserver: NSObjectProtocol?
 
     private var shortcutsByAction: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
+    private var managedShortcutActions: Set<KeyboardShortcutSettings.Action> = []
     private var whenClausesByAction: [KeyboardShortcutSettings.Action: ShortcutWhenClause] = [:]
     private var activeManagedUserDefaults: [String: ManagedSettingsValue] = [:]
     private var importedManagedDefaults: [String: ManagedSettingsValue] = [:]
@@ -86,7 +71,8 @@ final class CmuxSettingsFileStore {
         notificationCenter: NotificationCenter = .default,
         appearanceEnvironment: AppearanceSettings.LiveApplyEnvironment = .live,
         passwordStore: SocketControlPasswordStore = SocketControlPasswordStore(),
-        startWatching: Bool = true
+        startWatching: Bool = true,
+        onWatchedFileReload: @escaping @MainActor @Sendable (String) -> Void = { _ in }
     ) {
         self.primaryPath = primaryPath
         self.fallbackPaths = ([fallbackPath].compactMap { $0 } + additionalFallbackPaths)
@@ -95,25 +81,24 @@ final class CmuxSettingsFileStore {
         self.notificationCenter = notificationCenter
         self.appearanceEnvironment = appearanceEnvironment
         self.passwordStore = passwordStore
+        self.onWatchedFileReload = onWatchedFileReload
         importedManagedDefaults = Self.loadImportedManagedDefaults()
-
         bootstrapPrimaryTemplateIfNeeded()
-        // The app init path loads cmux.json before applying language/appearance
-        // itself. Running live default side effects here can initialize UI/runtime
-        // singletons while this store singleton is still in its dispatch_once.
         reload(
             applyLiveDefaultSideEffects: false,
             synchronizeManagedAppearanceTerminalTheme: false
         )
         guard startWatching else { return }
-
         watchers = ([primaryPath] + fallbackPaths).map { FileWatcher(path: $0) }
         watchTasks = watchers.map { watcher in
             let events = watcher.events
             return Task { @MainActor [weak self] in
                 for await _ in events {
                     guard let self else { break }
+                    let previousSocketAccessMode = Self.liveSocketAccessMode()
                     self.reload()
+                    guard Self.liveSocketAccessMode() != previousSocketAccessMode else { continue }
+                    self.onWatchedFileReload("settings.file_watcher")
                 }
             }
         }
@@ -134,7 +119,10 @@ final class CmuxSettingsFileStore {
         }
     }
 
-    func reload() {
+    /// Returns whether the reload posted `didChangeNotification`, so callers
+    /// that must guarantee a notification can post one without double-firing.
+    @discardableResult
+    func reload() -> Bool {
         reload(
             applyLiveDefaultSideEffects: true,
             synchronizeManagedAppearanceTerminalTheme: true
@@ -145,13 +133,15 @@ final class CmuxSettingsFileStore {
         applyManagedDefaultBatchSideEffects(drainDeferredManagedDefaultSideEffects())
     }
 
+    @discardableResult
     private func reload(
         applyLiveDefaultSideEffects: Bool,
         synchronizeManagedAppearanceTerminalTheme: Bool
-    ) {
+    ) -> Bool {
         let previousState = synchronized {
             (
                 shortcuts: shortcutsByAction,
+                managedShortcutActions: managedShortcutActions,
                 whenClauses: whenClausesByAction,
                 importedManagedDefaults: importedManagedDefaults,
                 sourcePath: activeSourcePath
@@ -170,6 +160,7 @@ final class CmuxSettingsFileStore {
         )
         synchronized {
             shortcutsByAction = resolved.shortcuts
+            managedShortcutActions = resolved.managedShortcutActions
             whenClausesByAction = resolved.whenClauses
             activeManagedUserDefaults = resolved.managedUserDefaults
             importedManagedDefaults = resolved.managedUserDefaults
@@ -180,10 +171,13 @@ final class CmuxSettingsFileStore {
         saveImportedManagedDefaults(resolved.managedUserDefaults)
 
         if previousState.shortcuts != resolved.shortcuts
+            || previousState.managedShortcutActions != resolved.managedShortcutActions
             || previousState.whenClauses != resolved.whenClauses
             || previousState.sourcePath != resolved.path {
             KeyboardShortcutSettings.notifySettingsFileDidChange(center: notificationCenter)
+            return true
         }
+        return false
     }
 
     func override(for action: KeyboardShortcutSettings.Action) -> StoredShortcut? {
@@ -198,7 +192,7 @@ final class CmuxSettingsFileStore {
     }
 
     func isManagedByFile(_ action: KeyboardShortcutSettings.Action) -> Bool {
-        synchronized { shortcutsByAction[action] != nil }
+        synchronized { managedShortcutActions.contains(action) }
     }
 
     func settingsFileURLForEditing() -> URL {
@@ -222,7 +216,11 @@ final class CmuxSettingsFileStore {
                 withIntermediateDirectories: true,
                 attributes: [.posixPermissions: 0o755]
             )
-            let contents = legacySettingsDataForBootstrap() ?? Data(Self.defaultTemplate().utf8)
+            let template = legacySettingsDataForBootstrap() ?? Data(Self.defaultTemplate().utf8)
+            let contents = Self.materializeBootstrapSocketPolicy(
+                in: template,
+                imported: importedManagedDefaults[SocketControlSettings.appStorageKey]
+            )
             try contents.write(to: fileURL, options: [.atomic])
             try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
         } catch {
@@ -257,6 +255,7 @@ final class CmuxSettingsFileStore {
                 ResolvedSettingsSnapshot(
                     path: activeSourcePath,
                     shortcuts: shortcutsByAction,
+                    managedShortcutActions: managedShortcutActions,
                     whenClauses: whenClausesByAction,
                     managedUserDefaults: activeManagedUserDefaults,
                     legacyDerivedManagedUserDefaultKeys: activeLegacyDerivedManagedUserDefaultKeys,
@@ -293,26 +292,29 @@ final class CmuxSettingsFileStore {
     }
 
     private func resolveSettings() -> ResolvedSettingsSnapshot {
+        // A transient missing or malformed file must not restore a potentially broader unmanaged policy.
+        let priorSocketMode = synchronized { activeManagedUserDefaults[SocketControlSettings.appStorageKey] }
+        let preservedSocketMode = priorSocketMode ?? .string(Self.failClosedSocketMode().rawValue)
         switch loadSettings(at: primaryPath) {
-        case .parsed(var snapshot):
+        case .parsed(var snapshot, let malformedAutomation):
             mergeFallbackSettings(into: &snapshot)
+            if malformedAutomation { snapshot.managedUserDefaults[SocketControlSettings.appStorageKey] = preservedSocketMode }
             return snapshot
         case .invalid:
-            return ResolvedSettingsSnapshot(path: primaryPath)
-        case .missing:
-            break
+            return ResolvedSettingsSnapshot(path: primaryPath,
+                managedUserDefaults: [SocketControlSettings.appStorageKey: preservedSocketMode])
+        case .missing: break
         }
-
         var fallbackSnapshot = ResolvedSettingsSnapshot(path: nil)
         mergeFallbackSettings(into: &fallbackSnapshot)
+        fallbackSnapshot.managedUserDefaults[SocketControlSettings.appStorageKey] =
+            Self.socketModeAfterMissingPrimary(prior: priorSocketMode,
+                fallback: fallbackSnapshot.managedUserDefaults[SocketControlSettings.appStorageKey])
         return fallbackSnapshot
     }
-
     private func mergeFallbackSettings(into snapshot: inout ResolvedSettingsSnapshot) {
         for fallbackPath in fallbackPaths {
-            guard case .parsed(let fallbackSnapshot) = loadSettings(at: fallbackPath) else {
-                continue
-            }
+            guard case .parsed(let fallbackSnapshot, _) = loadSettings(at: fallbackPath) else { continue }
             snapshot.fillMissingSettings(from: fallbackSnapshot)
         }
     }
@@ -320,7 +322,7 @@ final class CmuxSettingsFileStore {
     private enum LoadResult {
         case missing
         case invalid
-        case parsed(ResolvedSettingsSnapshot)
+        case parsed(ResolvedSettingsSnapshot, malformedAutomation: Bool)
     }
 
     private func loadSettings(at path: String) -> LoadResult {
@@ -334,10 +336,9 @@ final class CmuxSettingsFileStore {
         do {
             let sanitized = try JSONCParser.preprocess(data: data)
             let object = try JSONSerialization.jsonObject(with: sanitized, options: [])
-            guard let root = object as? [String: Any] else {
-                return .invalid
-            }
-            return .parsed(parseSettingsFile(root: root, sourcePath: path))
+            guard let root = object as? [String: Any] else { return .invalid }
+            let malformedAutomation = root["automation"] != nil && !(root["automation"] is [String: Any])
+            return .parsed(parseSettingsFile(root: root, sourcePath: path), malformedAutomation: malformedAutomation)
         } catch {
             cmuxSettingsFileStoreLogger.warning("parse error at \(path, privacy: .private(mask: .hash)): \(String(describing: error), privacy: .private(mask: .hash))")
             return .invalid
@@ -376,6 +377,9 @@ final class CmuxSettingsFileStore {
         }
         if let browserSection = root["browser"] as? [String: Any] {
             parseBrowserSection(browserSection, sourcePath: sourcePath, snapshot: &snapshot)
+        }
+        if let mobileSection = root["mobile"] as? [String: Any] {
+            parseMobileSection(mobileSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
         if let markdownSection = root["markdown"] as? [String: Any] {
             parseMarkdownSection(markdownSection, sourcePath: sourcePath, snapshot: &snapshot)
@@ -533,6 +537,29 @@ final class CmuxSettingsFileStore {
     ) {
         applyBooleanSettings(TerminalSettingsFileMapping.booleanSettings, from: section, sourcePath: sourcePath, snapshot: &snapshot)
         applyTerminalScrollSpeedSetting(from: section, assign: { snapshot.managedUserDefaults[$0] = .double($1) }, logInvalid: { logInvalid($0, sourcePath: sourcePath) })
+        if let value = jsonDouble(section["sessionContentMaxWidth"]) {
+            if value.isFinite, value >= SessionContentWidthSettings.minimumWidth {
+                snapshot.managedUserDefaults[SessionContentWidthSettings.maxWidthKey] = .double(
+                    SessionContentWidthSettings().clampedMaximumWidth(value)
+                )
+            } else {
+                logInvalid(SessionContentWidthSettings.settingsPath, sourcePath: sourcePath)
+            }
+        } else if let enabled = jsonBool(section["sessionContentMaxWidth"]), !enabled {
+            snapshot.managedUserDefaults[SessionContentWidthSettings.maxWidthKey] = .double(
+                SessionContentWidthSettings.noMaximumWidth
+            )
+        } else if section.keys.contains("sessionContentMaxWidth") {
+            logInvalid(SessionContentWidthSettings.settingsPath, sourcePath: sourcePath)
+        }
+
+        if let rawAlignment = jsonString(section["sessionContentAlignment"]),
+           let alignment = SessionContentAlignment(rawValue: rawAlignment) {
+            snapshot.managedUserDefaults[SessionContentWidthSettings.alignmentKey] = .string(alignment.rawValue)
+        } else if section.keys.contains("sessionContentAlignment") {
+            logInvalid(SessionContentWidthSettings.alignmentSettingsPath, sourcePath: sourcePath)
+        }
+
         if let value = jsonBool(section["showTextBoxOnNewTerminals"]) {
             snapshot.managedUserDefaults[TerminalTextBoxInputSettings.showOnNewTerminalsKey] = .bool(value)
         } else if section.keys.contains("showTextBoxOnNewTerminals") {
@@ -631,70 +658,6 @@ final class CmuxSettingsFileStore {
         }
     }
 
-    private func parseMarkdownSection(
-        _ section: [String: Any],
-        sourcePath: String,
-        snapshot: inout ResolvedSettingsSnapshot
-    ) {
-        // Accept numeric doubles (e.g. 15 or 15.0) and round to integer points,
-        // matching the integer `markdown.fontSize` catalog/UI representation.
-        if let value = jsonDouble(section["fontSize"]) {
-            if value >= MarkdownFontSizeSettings.minimumPointSize,
-               value <= MarkdownFontSizeSettings.maximumPointSize {
-                snapshot.managedUserDefaults[MarkdownFontSizeSettings.key] = .int(Int(value.rounded()))
-            } else {
-                logInvalid("markdown.fontSize", sourcePath: sourcePath)
-            }
-        } else if section.keys.contains("fontSize") {
-            logInvalid("markdown.fontSize", sourcePath: sourcePath)
-        }
-
-        if let value = jsonString(section["fontFamily"]) {
-            snapshot.managedUserDefaults[MarkdownFontFamily.key] = .string(MarkdownFontFamily.normalized(value))
-        } else if section.keys.contains("fontFamily") {
-            logInvalid("markdown.fontFamily", sourcePath: sourcePath)
-        }
-
-        if let value = jsonDouble(section["maxWidth"]) {
-            if value >= MarkdownMaxWidthSettings.minimumCSSPixels,
-               value <= MarkdownMaxWidthSettings.maximumCSSPixels {
-                snapshot.managedUserDefaults[MarkdownMaxWidthSettings.key] = .int(Int(value.rounded()))
-            } else {
-                logInvalid("markdown.maxWidth", sourcePath: sourcePath)
-            }
-        } else if section.keys.contains("maxWidth") {
-            logInvalid("markdown.maxWidth", sourcePath: sourcePath)
-        }
-    }
-
-    private func parseFileEditorSection(
-        _ section: [String: Any],
-        sourcePath: String,
-        snapshot: inout ResolvedSettingsSnapshot
-    ) {
-        if let value = jsonBool(section["wordWrap"]) {
-            snapshot.managedUserDefaults[FilePreviewWordWrapSettings.key] = .bool(value)
-        } else if section.keys.contains("wordWrap") {
-            logInvalid("fileEditor.wordWrap", sourcePath: sourcePath)
-        }
-    }
-
-    private func parseFileExplorerSection(
-        _ section: [String: Any],
-        sourcePath: String,
-        snapshot: inout ResolvedSettingsSnapshot
-    ) {
-        if let raw = jsonString(section["doubleClickAction"]) {
-            if let action = FileExplorerDoubleClickAction(rawValue: raw) {
-                snapshot.managedUserDefaults[FileExplorerDoubleClickActionSettings.key] = .string(action.rawValue)
-            } else {
-                logInvalid("fileExplorer.doubleClickAction", sourcePath: sourcePath)
-            }
-        } else if section.keys.contains("doubleClickAction") {
-            logInvalid("fileExplorer.doubleClickAction", sourcePath: sourcePath)
-        }
-    }
-
     private func parseSidebarSection(
         _ section: [String: Any],
         sourcePath: String,
@@ -705,17 +668,20 @@ final class CmuxSettingsFileStore {
                 snapshot.managedUserDefaults[setting.defaultsKey] = .bool(value)
             }
         }
-
         if let raw = jsonString(section["branchLayout"]) {
             if let value = SidebarSettingsFileMapping.branchLayoutStoredValue(raw) {
-                snapshot.managedUserDefaults[
-                    SidebarCatalogSection().branchVerticalLayout.userDefaultsKey
-                ] = .bool(value)
+                snapshot.managedUserDefaults[SidebarCatalogSection().branchVerticalLayout.userDefaultsKey] = .bool(value)
             } else {
                 logInvalid("sidebar.branchLayout", sourcePath: sourcePath)
             }
         }
-
+        if let rawBeta = section["beta"], let beta = rawBeta as? [String: Any] {
+            parseSidebarWorkspaceTodosBeta(beta, sourcePath: sourcePath, snapshot: &snapshot)
+        } else if section.keys.contains("beta") { logInvalid("sidebar.beta", sourcePath: sourcePath) }
+        if let value = jsonInt(section["notificationMessageLineLimit"]), SidebarCatalogSection.notificationMessageLineLimitRange.contains(value) {
+            snapshot.managedUserDefaults[SidebarCatalogSection().notificationMessageLineLimit.userDefaultsKey] = .int(value)
+        } else if section.keys.contains("notificationMessageLineLimit") { logInvalid("sidebar.notificationMessageLineLimit", sourcePath: sourcePath) }
+        parseSidebarIndicatorPositionSettings(section, sourcePath: sourcePath, snapshot: &snapshot)
         if let value = jsonDouble(section[RightSidebarWidthSettings.jsonKey]), value > 0 {
             snapshot.managedUserDefaults[RightSidebarWidthSettings.maxWidthKey] = .double(
                 RightSidebarWidthSettings().clampedSettingsEditorMaximumWidth(value)
@@ -868,18 +834,14 @@ final class CmuxSettingsFileStore {
         sourcePath: String,
         snapshot: inout ResolvedSettingsSnapshot
     ) {
-        if let raw = jsonString(section["socketControlMode"]) {
-            let knownModes = Set([
-                "off", "cmuxonly", "automation", "password", "allowall", "openaccess", "fullopenaccess",
-                "notifications", "full",
-            ])
-            let normalizedRaw = raw.replacingOccurrences(of: "-", with: "").lowercased()
-            guard knownModes.contains(normalizedRaw) else {
-                logInvalid("automation.socketControlMode", sourcePath: sourcePath)
-                return
-            }
+        if section.keys.contains("socketControlMode") {
+            let raw = jsonString(section["socketControlMode"])
+            let knownModes = Set(["off", "cmuxonly", "automation", "password", "allowall", "openaccess", "fullopenaccess", "notifications", "full"])
+            let normalizedRaw = raw?.replacingOccurrences(of: "-", with: "").lowercased()
+            let mode = raw.flatMap { knownModes.contains(normalizedRaw ?? "") ? SocketControlSettings.migrateMode($0) : nil }
+            if mode == nil { logInvalid("automation.socketControlMode", sourcePath: sourcePath) }
             snapshot.managedUserDefaults[SocketControlSettings.appStorageKey] = .string(
-                SocketControlSettings.migrateMode(raw).rawValue
+                (mode ?? Self.failClosedSocketMode()).rawValue
             )
         }
         if section.keys.contains("socketPassword") {
@@ -1002,6 +964,7 @@ final class CmuxSettingsFileStore {
                 cmuxSettingsFileStoreLogger.warning("ignoring unknown shortcut action '\(rawAction, privacy: .private(mask: .hash))' in \(sourcePath, privacy: .private(mask: .hash))")
                 continue
             }
+            snapshot.managedShortcutActions.insert(action)
             guard let shortcut = parseShortcutBindingValue(rawBinding, action: action) else {
                 cmuxSettingsFileStoreLogger.warning("ignoring invalid shortcut binding for '\(rawAction, privacy: .private(mask: .hash))' in \(sourcePath, privacy: .private(mask: .hash))")
                 continue
@@ -1056,14 +1019,12 @@ final class CmuxSettingsFileStore {
                     allowBareFirstStroke: action.allowsBareFirstStroke
                 )
             }
-            // Object form written by the CmuxSettings package recorder (the
-            // in-app Settings UI): { "first": { key, command, ... }, "second": { ... }? }.
-            // The package serializes StoredShortcut as nested stroke objects, so
-            // a rebinding made in Settings only reaches this store in that shape.
-            // Decode it here so every action resolved through this store — most
-            // visibly the system-wide Carbon hotkeys (globalSearch,
-            // showHideAllWindows) — honors the rebinding instead of silently
-            // dropping it and falling back to the built-in default.
+            // Object form written by the CmuxSettings package recorder (in-app
+            // Settings UI): { "first": { key, command, ... }, "second": { ... }? }.
+            // A Settings rebinding only reaches this store in that shape; decode it
+            // so every action resolved here — including foreground Global Search and the
+            // opt-in system-wide Show/Hide hotkey — honors the rebinding
+            // instead of silently falling back to the built-in default.
             if let object = rawValue as? [String: Any] {
                 return parseShortcutObjectForm(object, action: action)
             }
@@ -1081,9 +1042,8 @@ final class CmuxSettingsFileStore {
     /// ``StoredShortcut``. An empty primary key is the package's explicit
     /// "unbound" marker. Returns `nil` when `first` is missing or malformed —
     /// and, to stay consistent with the string parser, when a present `second`
-    /// stroke is malformed (a chord must not silently degrade to a single
-    /// stroke) or when a bare first stroke is used by an action that requires a
-    /// modifier.
+    /// stroke is malformed (a chord must not silently degrade to a single stroke)
+    /// or when a bare first stroke is used by an action that requires a modifier.
     private func parseShortcutObjectForm(
         _ object: [String: Any],
         action: KeyboardShortcutSettings.Action
@@ -1131,7 +1091,7 @@ final class CmuxSettingsFileStore {
             keyCode = nil
         }
         return ShortcutStroke(
-            key: key,
+            key: canonicalShortcutKey(key, keyCode: keyCode),
             command: jsonBool(dict["command"]) ?? false,
             shift: jsonBool(dict["shift"]) ?? false,
             option: jsonBool(dict["option"]) ?? false,
@@ -1783,15 +1743,15 @@ final class CmuxSettingsFileStore {
         }
     }
 
-    private func logInvalid(_ path: String, sourcePath: String) {
+    func logInvalid(_ path: String, sourcePath: String) {
         cmuxSettingsFileStoreLogger.warning("ignoring invalid setting '\(path, privacy: .private(mask: .hash))' in \(sourcePath, privacy: .private(mask: .hash))")
     }
 
-    private func jsonString(_ rawValue: Any?) -> String? {
+    func jsonString(_ rawValue: Any?) -> String? {
         rawValue as? String
     }
 
-    private func jsonBool(_ rawValue: Any?) -> Bool? {
+    func jsonBool(_ rawValue: Any?) -> Bool? {
         guard let number = rawValue as? NSNumber else { return nil }
         guard CFGetTypeID(number) == CFBooleanGetTypeID() else { return nil }
         return number.boolValue
@@ -1805,7 +1765,7 @@ final class CmuxSettingsFileStore {
         return number.intValue
     }
 
-    private func jsonDouble(_ rawValue: Any?) -> Double? {
+    func jsonDouble(_ rawValue: Any?) -> Double? {
         guard let number = rawValue as? NSNumber else { return nil }
         guard CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
         return number.doubleValue
@@ -1826,9 +1786,10 @@ final class CmuxSettingsFileStore {
 
 typealias KeyboardShortcutSettingsFileStore = CmuxSettingsFileStore
 
-private struct ResolvedSettingsSnapshot {
+struct ResolvedSettingsSnapshot {
     var path: String?
     var shortcuts: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
+    var managedShortcutActions: Set<KeyboardShortcutSettings.Action> = []
     /// Per-action `when`-clause overrides parsed from `shortcuts.when` — gate a
     /// binding to a focus context (see ``ShortcutWhenClause``).
     var whenClauses: [KeyboardShortcutSettings.Action: ShortcutWhenClause] = [:]
@@ -1837,13 +1798,18 @@ private struct ResolvedSettingsSnapshot {
     var managedCustomSettings = ManagedCustomSettings()
 
     mutating func fillMissingSettings(from fallback: ResolvedSettingsSnapshot) {
-        if path == nil && (!fallback.shortcuts.isEmpty ||
+        if path == nil && (!fallback.managedShortcutActions.isEmpty ||
             !fallback.managedUserDefaults.isEmpty ||
             !fallback.managedCustomSettings.isEmpty) {
             path = fallback.path
         }
-        for (action, shortcut) in fallback.shortcuts where shortcuts[action] == nil {
-            shortcuts[action] = shortcut
+        let missingShortcutActions = fallback.managedShortcutActions
+            .subtracting(managedShortcutActions)
+        for action in missingShortcutActions {
+            managedShortcutActions.insert(action)
+            if let shortcut = fallback.shortcuts[action] {
+                shortcuts[action] = shortcut
+            }
         }
         for (action, clause) in fallback.whenClauses where whenClauses[action] == nil {
             whenClauses[action] = clause
@@ -1897,12 +1863,12 @@ private struct ManagedDefaultBatchSideEffects {
     }
 }
 
-private enum ManagedStringOverride: Equatable {
+enum ManagedStringOverride: Equatable {
     case set(String)
     case clear
 }
 
-private struct ManagedCustomSettings: Equatable {
+struct ManagedCustomSettings: Equatable {
     var socketPassword: ManagedStringOverride?
 
     var isEmpty: Bool {
@@ -1924,7 +1890,7 @@ private struct ManagedCustomSettings: Equatable {
     }
 }
 
-private enum ManagedSettingsValue: Codable, Equatable {
+enum ManagedSettingsValue: Codable, Equatable {
     case bool(Bool)
     case int(Int)
     case double(Double)

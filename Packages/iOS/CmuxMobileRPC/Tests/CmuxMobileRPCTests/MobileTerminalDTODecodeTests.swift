@@ -19,6 +19,14 @@ import Testing
         #expect(response.streamID.isEmpty)
     }
 
+    @Test func subscribeResponseDecodesIndependentIrohDelivery() throws {
+        let data = Data(
+            #"{"stream_id":"ios-terminal-events-abc","event_transport":"iroh_server_events_v1"}"#.utf8
+        )
+        let response = try MobileEventSubscribeResponse.decode(data)
+        #expect(response.eventTransport == "iroh_server_events_v1")
+    }
+
     @Test func hostStatusDecodesRenderGridCapability() throws {
         let data = Data(#"{"capabilities":["terminal.render_grid.v1"],"terminal_fidelity":"render_grid"}"#.utf8)
         let response = try MobileHostStatusResponse.decode(data)
@@ -30,7 +38,28 @@ import Testing
         let response = try MobileHostStatusResponse.decode(Data("{}".utf8))
         #expect(response.capabilities.isEmpty)
         #expect(response.terminalFidelity == nil)
+        #expect(response.macInstanceTag == nil)
         #expect(response.theme == nil)
+    }
+
+    @Test func hostStatusDecodesMacInstanceTag() throws {
+        let data = Data(#"{"mac_instance_tag":"future-one","terminal_theme_revision_epoch":"boot-one"}"#.utf8)
+        let response = try MobileHostStatusResponse.decode(data)
+        #expect(response.macInstanceTag == "future-one")
+        #expect(response.terminalThemeRevisionEpoch == "boot-one")
+    }
+
+    @Test func hostStatusCanonicalizesOnlyUUIDDeviceIDs() throws {
+        let uppercaseUUID = "AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE"
+        let uuidResponse = try MobileHostStatusResponse.decode(Data(
+            #"{"mac_device_id":"\#(uppercaseUUID)"}"#.utf8
+        ))
+        let opaqueResponse = try MobileHostStatusResponse.decode(Data(
+            #"{"mac_device_id":"Legacy-Mac-ID"}"#.utf8
+        ))
+
+        #expect(uuidResponse.macDeviceID == uppercaseUUID.lowercased())
+        #expect(opaqueResponse.macDeviceID == "Legacy-Mac-ID")
     }
 
     /// A theme nested in the host-status payload, serialized with the Mac
@@ -110,11 +139,23 @@ import Testing
     }
 
     @Test func viewportResponseComputesEffectiveGrid() throws {
-        let data = Data(#"{"columns":120,"rows":40}"#.utf8)
+        let data = Data(
+            #"{"columns":120,"rows":40,"render_epoch":"epoch-7","render_revision_floor":42}"#.utf8
+        )
         let response = try MobileTerminalViewportResponse.decode(data)
         let grid = try #require(response.effectiveGrid)
         #expect(grid.columns == 120)
         #expect(grid.rows == 40)
+        #expect(response.renderEpoch == "epoch-7")
+        #expect(response.renderRevisionFloor == 42)
+    }
+
+    @Test func viewportResponseToleratesHostWithoutRenderFloor() throws {
+        let response = try MobileTerminalViewportResponse.decode(
+            Data(#"{"columns":120,"rows":40}"#.utf8)
+        )
+        #expect(response.renderEpoch == nil)
+        #expect(response.renderRevisionFloor == nil)
     }
 
     @Test func viewportResponseRejectsNonPositiveGrid() throws {

@@ -1,6 +1,6 @@
 import Foundation
 
-nonisolated enum GhosttyCrashReportMetadata {
+enum GhosttyCrashReportMetadata {
     static func reportedExecutablePaths(in url: URL) -> Set<String>? {
         guard let data = try? Data(contentsOf: url, options: .mappedIfSafe),
               let event = sentryEvent(from: data),

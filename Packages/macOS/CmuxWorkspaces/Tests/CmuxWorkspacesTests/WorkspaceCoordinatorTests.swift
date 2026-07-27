@@ -4,7 +4,7 @@ import CmuxSettings
 @testable import CmuxWorkspaces
 
 @MainActor
-private final class CoordinatorStubTab: WorkspaceTabRepresenting {
+final class CoordinatorStubTab: WorkspaceTabRepresenting {
     let id: UUID
     var groupId: UUID?
     var isPinned: Bool
@@ -22,11 +22,9 @@ private final class CoordinatorStubTab: WorkspaceTabRepresenting {
     }
 }
 
-/// Window-side stand-in: creates stub workspaces on demand, records every
-/// inverted effect, and removes closed tabs from the model like the real
-/// `closeWorkspace` teardown does.
+/// Window-side stand-in for group/reorder coordinator tests.
 @MainActor
-private final class StubGroupHost: WorkspaceGroupHosting {
+final class StubGroupHost: WorkspaceGroupHosting {
     typealias Tab = CoordinatorStubTab
 
     let model: WorkspacesModel<CoordinatorStubTab>
@@ -56,7 +54,6 @@ private final class StubGroupHost: WorkspaceGroupHosting {
         select: Bool
     ) -> CoordinatorStubTab {
         let tab = CoordinatorStubTab(currentDirectory: workingDirectory ?? "/tmp")
-        // Legacy addWorkspace(placementOverride: .top) inserts after pinned.
         let pinnedCount = model.tabs.prefix(while: \.isPinned).count
         model.tabs.insert(tab, at: pinnedCount)
         if select { model.selectedTabId = tab.id }
@@ -64,17 +61,21 @@ private final class StubGroupHost: WorkspaceGroupHosting {
     }
 
     func createWorkspaceForGroup(
+        title: String?,
         workingDirectory: String?,
         initialSurface: NewWorkspaceInitialSurface,
+        initialBrowserURL: URL?,
+        initialBrowserOmnibarVisible: Bool,
+        initialBrowserTransparentBackground: Bool,
         inheritWorkingDirectory: Bool,
-        select: Bool
+        select: Bool,
+        shouldApplyWorkspaceDirectoryCustomization: Bool
     ) -> CoordinatorStubTab {
         let tab = CoordinatorStubTab(currentDirectory: workingDirectory ?? "/tmp")
         model.tabs.append(tab)
         if select { model.selectedTabId = tab.id }
         return tab
     }
-
     func closeWorkspaceForGroupDeletion(_ tab: CoordinatorStubTab, recordHistory: Bool) {
         closedWorkspaceIds.append(tab.id)
         guard model.tabs.count > 1,
@@ -130,9 +131,7 @@ struct WorkspaceCoordinatorTests {
         let plain1 = CoordinatorStubTab()
         let plain2 = CoordinatorStubTab()
         model.tabs = [pinnedA, pinnedB, plain1, plain2]
-
         reorder.moveTabsToTop([plain2.id, pinnedB.id])
-
         #expect(model.tabs.map(\.id) == [pinnedB.id, pinnedA.id, plain2.id, plain1.id])
         #expect(host.orderChanges.last?.sorted(by: { $0.uuidString < $1.uuidString })
             == [pinnedB.id, plain2.id].sorted(by: { $0.uuidString < $1.uuidString }))
@@ -147,9 +146,32 @@ struct WorkspaceCoordinatorTests {
         let plain2 = CoordinatorStubTab()
         model.tabs = [pinned, plain1, plain2]
 
-        // Unpinned dragged to index 0 clamps below the pinned row.
         #expect(reorder.reorderWorkspace(tabId: plain2.id, toIndex: 0))
         #expect(model.tabs.map(\.id) == [pinned.id, plain2.id, plain1.id])
+    }
+
+    @Test
+    func reorderWorkspaceBeforeDownwardMoveInsertsAtExpectedSlot() {
+        let (model, host, _, reorder) = makeWorld()
+        _ = host
+        let a = CoordinatorStubTab()
+        let b = CoordinatorStubTab()
+        let c = CoordinatorStubTab()
+        model.tabs = [a, b, c]
+        #expect(reorder.reorderWorkspace(tabId: a.id, before: c.id))
+        #expect(model.tabs.map(\.id) == [b.id, a.id, c.id])
+    }
+
+    @Test
+    func reorderWorkspaceAfterDownwardMoveInsertsAtExpectedSlot() {
+        let (model, host, _, reorder) = makeWorld()
+        _ = host
+        let a = CoordinatorStubTab()
+        let b = CoordinatorStubTab()
+        let c = CoordinatorStubTab()
+        model.tabs = [a, b, c]
+        #expect(reorder.reorderWorkspace(tabId: a.id, after: b.id))
+        #expect(model.tabs.map(\.id) == [b.id, a.id, c.id])
     }
 
     @Test
@@ -159,7 +181,6 @@ struct WorkspaceCoordinatorTests {
         let a = CoordinatorStubTab()
         let b = CoordinatorStubTab()
         model.tabs = [a, b]
-
         let unknown = UUID()
         guard case .failure(.workspaceNotFound(let missing)) =
             reorder.reorderWorkspaces(orderedWorkspaceIds: [unknown]) else {
@@ -185,12 +206,7 @@ struct WorkspaceCoordinatorTests {
         model.tabs = [a, b, c]
 
         let changed = reorder.setPinned(workspaceIds: [a.id, b.id], pinned: false)
-
         #expect(changed == [a.id, b.id])
-        // Parity with the one-at-a-time path: each unpin inserts at the
-        // front of the unpinned segment (a first → [a, c], then b in front
-        // → [b, a, c]), which the batch path reproduces by reversing the
-        // changed input order.
         #expect(model.tabs.map(\.id) == [b.id, a.id, c.id])
         #expect(model.tabs.allSatisfy { !$0.isPinned })
     }
@@ -216,7 +232,6 @@ struct WorkspaceCoordinatorTests {
             isDragOperation: true,
             explicitGroupId: groupId
         )
-
         #expect(moved)
         #expect(dragged.groupId == groupId)
         #expect(model.tabs.map(\.id) == [
@@ -249,7 +264,6 @@ struct WorkspaceCoordinatorTests {
             isDragOperation: true,
             explicitGroupId: groupId
         )
-
         #expect(moved)
         #expect(dragged.groupId == groupId)
     }
@@ -275,7 +289,6 @@ struct WorkspaceCoordinatorTests {
             isDragOperation: true,
             explicitGroupId: groupId
         )
-
         #expect(moved)
         #expect(dragged.groupId == groupId)
         #expect(model.selectedTabId == dragged.id)
@@ -304,7 +317,6 @@ struct WorkspaceCoordinatorTests {
             isDragOperation: true,
             explicitGroupId: UUID()
         )
-
         #expect(!moved)
         #expect(dragged.groupId == nil)
         #expect(model.tabs.map(\.id) == previousOrder)
@@ -337,7 +349,6 @@ struct WorkspaceCoordinatorTests {
             isDragOperation: true,
             explicitGroupId: targetGroupId
         )
-
         #expect(moved)
         #expect(dragged.groupId == targetGroupId)
         #expect(model.tabs.filter { $0.groupId == targetGroupId }.map(\.id) == [
@@ -368,7 +379,6 @@ struct WorkspaceCoordinatorTests {
             toIndex: 3,
             isDragOperation: true
         )
-
         #expect(moved)
         #expect(dragged.groupId == nil)
         #expect(model.tabs.map(\.id) == [
@@ -401,7 +411,6 @@ struct WorkspaceCoordinatorTests {
             isDragOperation: true,
             usesTopLevelRows: true
         )
-
         #expect(moved)
         #expect(dragged.groupId == nil)
         #expect(model.tabs.map(\.id) == [
@@ -439,7 +448,6 @@ struct WorkspaceCoordinatorTests {
             targetWorkspaceId: outside.id,
             explicitGroupId: groupId
         )
-
         #expect(unconstrainedRange == nil)
         #expect(explicitGroupRange == (firstMemberIndex + 1)...(lastMemberIndex + 1))
     }
@@ -485,7 +493,7 @@ struct WorkspaceCoordinatorTests {
     }
 
     @Test
-    func deleteWorkspaceGroupClosesMembersAndClearsLastHoldout() throws {
+    func deleteWorkspaceGroupClosesMembersAndCreatesReplacementForLastHoldout() throws {
         let (model, host, groups, _) = makeWorld()
         let a = CoordinatorStubTab()
         let b = CoordinatorStubTab()
@@ -494,10 +502,10 @@ struct WorkspaceCoordinatorTests {
 
         let closed = groups.deleteWorkspaceGroup(groupId: groupId)
 
-        // Anchor + one member close for real; the final holdout is kept
-        // alive as an ungrouped workspace (closeWorkspace's last-tab guard).
-        #expect(closed == 2)
-        #expect(host.closedWorkspaceIds.count >= 2)
+        // The group anchor and all members close for real. A replacement ungrouped
+        // workspace is created when the final member would hit the last-tab guard.
+        #expect(closed == 3)
+        #expect(host.closedWorkspaceIds.count >= 3)
         #expect(model.workspaceGroups.isEmpty)
         #expect(model.tabs.count == 1)
         #expect(model.tabs[0].groupId == nil)
@@ -513,7 +521,6 @@ struct WorkspaceCoordinatorTests {
         let orderBefore = model.tabs.map(\.id)
 
         groups.ungroupWorkspaceGroup(groupId: groupId)
-
         #expect(model.workspaceGroups.isEmpty)
         #expect(model.tabs.map(\.id) == orderBefore)
         #expect(model.tabs.allSatisfy { $0.groupId == nil })
@@ -530,7 +537,6 @@ struct WorkspaceCoordinatorTests {
         host.sidebarSelectedWorkspaceIds = [a.id]
 
         groups.toggleWorkspaceGroupCollapsed(groupId: groupId)
-
         #expect(host.selectedWorkspaceIds == [anchorId])
         #expect(host.subtractedSidebarSelections.count == 1)
         #expect(host.subtractedSidebarSelections[0].hidden == [a.id])
@@ -551,7 +557,6 @@ struct WorkspaceCoordinatorTests {
             model.tabs.remove(at: index)
         }
         model.dissolveGroupsAnchoredBy(closedWorkspaceId: anchorId)
-
         #expect(model.workspaceGroups.isEmpty)
         #expect(model.tabs.allSatisfy { $0.groupId == nil })
     }
@@ -566,9 +571,107 @@ struct WorkspaceCoordinatorTests {
         let groupId = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [a.id, b.id]))
 
         groups.setWorkspaceGroupAnchor(groupId: groupId, workspaceId: b.id)
-
         #expect(model.workspaceGroups[0].anchorWorkspaceId == b.id)
         let memberIds = model.tabs.filter { $0.groupId == groupId }.map(\.id)
         #expect(memberIds.first == b.id)
+    }
+
+    /// Closing a group's anchor must delete only that workspace and keep the
+    /// group intact by promoting the next member, instead of scattering the
+    /// remaining members out to the ungrouped root tier.
+    @Test
+    func anchorClosePromotesNextMemberAndKeepsGroup() throws {
+        let (model, host, groups, _) = makeWorld()
+        _ = host
+        let a = CoordinatorStubTab()
+        let b = CoordinatorStubTab()
+        model.tabs = [a, b]
+        let groupId = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [a.id, b.id]))
+        let anchorId = model.workspaceGroups[0].anchorWorkspaceId
+        // createWorkspaceGroup mints a fresh synthetic anchor; `a`/`b` are members.
+        #expect(anchorId != a.id)
+        #expect(anchorId != b.id)
+        // `a` precedes `b` in tabs order, so `a` is the deterministic promotion
+        // target once the anchor is removed.
+        let aIndex = try #require(model.tabs.firstIndex(where: { $0.id == a.id }))
+        let bIndex = try #require(model.tabs.firstIndex(where: { $0.id == b.id }))
+        #expect(aIndex < bIndex)
+
+        // Simulate the close path: the anchor is removed from tabs, then the
+        // model's close-path group fixup runs.
+        if let index = model.tabs.firstIndex(where: { $0.id == anchorId }) {
+            model.tabs.remove(at: index)
+        }
+        model.promoteAnchorOrRemoveGroupsAnchoredBy(closedWorkspaceId: anchorId)
+
+        // The group survives with the FIRST remaining member in tabs order (`a`,
+        // not `b`) promoted to anchor; both members stay grouped and neither is
+        // released to root.
+        #expect(model.workspaceGroups.count == 1)
+        #expect(model.workspaceGroups.first?.id == groupId)
+        #expect(model.workspaceGroups.first?.anchorWorkspaceId == a.id)
+        #expect(a.groupId == groupId)
+        #expect(b.groupId == groupId)
+    }
+
+    /// Closing the anchor of a group with no other members removes the now-empty
+    /// group (nothing left to promote).
+    @Test
+    func anchorCloseRemovesGroupWhenNoMembersRemain() throws {
+        let (model, host, groups, _) = makeWorld()
+        _ = host
+        let outside = CoordinatorStubTab()
+        model.tabs = [outside]
+        _ = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: []))
+        let anchorId = model.workspaceGroups[0].anchorWorkspaceId
+
+        if let index = model.tabs.firstIndex(where: { $0.id == anchorId }) {
+            model.tabs.remove(at: index)
+        }
+        model.promoteAnchorOrRemoveGroupsAnchoredBy(closedWorkspaceId: anchorId)
+
+        #expect(model.workspaceGroups.isEmpty)
+        #expect(model.tabs.map(\.id) == [outside.id])
+    }
+
+    /// If the snapshot anchor is closed while the Delete Group confirmation is
+    /// open, the group promotes its next member to anchor. On acceptance the
+    /// batch close must drain that *live* anchor last, not the stale snapshot
+    /// anchor: closing the live anchor mid-batch would re-promote and
+    /// renormalize the whole collection on every step (the O(k x totalTabs)
+    /// churn `anchorLastCloseOrder` prevents). Proven by the close order.
+    @Test
+    func deleteGroupDrainsLiveAnchorLastWhenSnapshotAnchorClosedDuringConfirmation() throws {
+        let (model, host, groups, _) = makeWorld()
+        let a = CoordinatorStubTab()
+        let b = CoordinatorStubTab()
+        let outside = CoordinatorStubTab()
+        model.tabs = [a, b, outside]
+        let groupId = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [a.id, b.id]))
+
+        // Snapshot the confirmation while the original synthetic anchor is live.
+        let confirmation = try #require(groups.deletionConfirmation(groupId: groupId))
+        let snapshotAnchorId = confirmation.anchorWorkspaceId
+        #expect(snapshotAnchorId != a.id)
+        #expect(snapshotAnchorId != b.id)
+
+        // Another entrypoint closes the snapshot anchor during the modal loop:
+        // `a` (first remaining member in tabs order) is promoted to live anchor.
+        let anchorIndex = try #require(model.tabs.firstIndex(where: { $0.id == snapshotAnchorId }))
+        model.tabs.remove(at: anchorIndex)
+        model.promoteAnchorOrRemoveGroupsAnchoredBy(closedWorkspaceId: snapshotAnchorId)
+        #expect(model.workspaceGroups.first(where: { $0.id == groupId })?.anchorWorkspaceId == a.id)
+
+        // Accept the original confirmation. Only `a`/`b` remain in the confirmed
+        // set; `a` is now the live anchor and must be closed LAST so no further
+        // promotion runs. Sorting against the stale snapshot anchor would close
+        // `a` first (by confirmed order) and re-promote `b`.
+        groups.deleteWorkspaceGroup(confirmed: confirmation)
+
+        let closedGroupMembers = host.closedWorkspaceIds.filter { $0 == a.id || $0 == b.id }
+        #expect(closedGroupMembers == [b.id, a.id])
+        #expect(host.closedWorkspaceIds.last == a.id)
+        #expect(model.workspaceGroups.isEmpty)
+        #expect(model.tabs.contains(where: { $0.id == outside.id }))
     }
 }
