@@ -18,12 +18,4 @@ extension ShortcutListModel {
         }
         setChordModeOverride(!chordsEnabled(for: action), for: action)
     }
-
-    /// Whether `action` is currently unbound but has a cached stroke available to
-    /// restore (drives the X → restore button swap).
-    func canRestore(for action: ShortcutAction) -> Bool {
-        let effectiveShortcut = effective(for: action)
-        let isUnbound = effectiveShortcut?.isUnbound ?? true
-        return isUnbound && restoreShortcuts[action.rawValue] != nil
-    }
 }

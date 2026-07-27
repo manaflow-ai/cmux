@@ -29,6 +29,7 @@
 //!   "sidebar": {
 //!     "view": "files",
 //!     "width": 22,
+//!     "compact_width": 10,
 //!     "max_width": 0,
 //!     "plugin": {
 //!       "command": ["/path/to/plugin-binary"],
@@ -70,7 +71,8 @@
 //!   "keys": {
 //!     "prefix": "ctrl+b",
 //!     "alt_shortcuts": true,
-//!     "new-tab": ["t", "alt+t"],
+//!     "super_shortcuts": true,
+//!     "new-tab": ["t", "alt+t", "cmd+t"],
 //!     "next-tab": "tab",
 //!     "prev-tab": "backtab",
 //!     "select-screen-0": "0",
@@ -94,16 +96,19 @@
 //! `close-pane`, `rename-tab` (alias: `rename-pane`), `rename-screen`,
 //! `rename-workspace`, `close-screen`, `prev-screen`, `next-screen`,
 //! `select-screen-0` through `select-screen-9`, `new-screen`,
-//! `next-workspace`, `new-workspace`, `toggle-sidebar`, `toggle-sidebar-view`, `focus-sidebar`,
+//! `prev-workspace`, `next-workspace`, `new-workspace`, `close-workspace`,
+//! `send-prefix`, `toggle-sidebar`, `toggle-sidebar-compact`,
+//! `toggle-sidebar-view`, `focus-sidebar`,
 //! `focus-left`, `focus-right`, `focus-up`, `focus-down`, `focus-next-pane`,
 //! `swap-pane-prev`, `swap-pane-next`, `zoom-pane`, `resize-grow`,
-//! `resize-shrink`, `scroll-up`, `scroll-down`, `browser-back`,
-//! `browser-forward`, `browser-reload`, `browser-edit-url`, and `detach`.
+//! `resize-shrink`, `scroll-up`, `scroll-down`, `clear-history`, `browser-back`,
+//! `browser-forward`, `browser-reload`, `browser-edit-url`, `show-shortcuts`,
+//! and `detach`.
 //!
 //! The defaults intentionally match tmux where cmux has the same
-//! capability. `x` closes the active pane and `X` closes the active tab;
-//! set `"close-pane": "X"` and `"close-tab": "x"` to restore the old
-//! cmux defaults. Screen positions are zero-based, so each
+//! capability, except that `x` closes the more commonly managed tab and
+//! `X` closes its containing pane. Both actions remain independently
+//! configurable. Screen positions are zero-based, so each
 //! `select-screen-N` action selects the screen at index `N`. Zellij's modal
 //! `ctrl+p`, `ctrl+t`, `ctrl+s`, `ctrl+n`, and `ctrl+o` modes are a
 //! deliberate non-goal because they conflict with shell/editor control
@@ -125,6 +130,8 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::style::Color;
 use serde::{Deserialize, Deserializer};
 use serde_json::{Value, json};
+
+use crate::localization::catalog;
 
 /// For a field typed `Option<Option<T>>`: makes an explicit `null` in the
 /// input deserialize to `Some(None)` rather than the `None` an absent key
@@ -160,7 +167,8 @@ struct RawConfig {
     server: RawServer,
     /// Key bindings: `"prefix"` plus one entry per action. Values may be
     /// a chord string, an array of chord strings, `"none"`, or
-    /// `"alt_shortcuts": false`.
+    /// `"alt_shortcuts": false`, `"super_shortcuts": false`, or the host
+    /// input mode `"macos_option_as_alt": false`.
     #[serde(default)]
     keys: HashMap<String, Value>,
 }
@@ -416,6 +424,7 @@ struct RawTabs {
 struct RawSidebar {
     view: Option<String>,
     width: Option<u16>,
+    compact_width: Option<u16>,
     max_width: Option<u16>,
     plugin: Option<RawSidebarPlugin>,
 }
@@ -670,13 +679,20 @@ pub struct Sidebar {
     /// Built-in view used when `plugin` is unset. The default is the file browser.
     pub view: SidebarView,
     pub width: u16,
+    pub compact_width: u16,
     pub max_width: u16,
     pub plugin: Option<SidebarPluginOptions>,
 }
 
 impl Default for Sidebar {
     fn default() -> Self {
-        Sidebar { view: SidebarView::Workspaces, width: 22, max_width: 0, plugin: None }
+        Sidebar {
+            view: SidebarView::Workspaces,
+            width: 22,
+            compact_width: 10,
+            max_width: 0,
+            plugin: None,
+        }
     }
 }
 
@@ -799,15 +815,31 @@ impl Default for Browser {
     }
 }
 
+/// A validated zero-based index for the ten directly selectable tabs and
+/// screens. Its private field prevents unregistered numbered actions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ActionIndex(u8);
+
+impl ActionIndex {
+    pub const fn new(value: u8) -> Option<Self> {
+        if value <= 9 { Some(Self(value)) } else { None }
+    }
+
+    pub const fn get(self) -> u8 {
+        self.0
+    }
+}
+
 /// Every prefix-key action, so bindings are configurable end to end.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Action {
+    SendPrefix,
     NewTab,
     NewBrowserTab,
     NewPaneSmart,
     NextTab,
     PrevTab,
-    SelectTab(u8),
+    SelectTab(ActionIndex),
     SplitRight,
     SplitDown,
     CloseTab,
@@ -818,11 +850,14 @@ pub enum Action {
     CloseScreen,
     PrevScreen,
     NextScreen,
-    SelectScreen(u8),
+    SelectScreen(ActionIndex),
     NewScreen,
+    PrevWorkspace,
     NextWorkspace,
     NewWorkspace,
+    CloseWorkspace,
     ToggleSidebar,
+    ToggleSidebarCompact,
     ToggleSidebarView,
     FocusSidebar,
     FocusLeft,
@@ -837,69 +872,366 @@ pub enum Action {
     ResizeShrink,
     ScrollUp,
     ScrollDown,
+    ClearHistory,
     BrowserBack,
     BrowserForward,
     BrowserReload,
     BrowserEditUrl,
+    ShowShortcuts,
     Detach,
 }
 
+/// One executable TUI action and the metadata shared by key configuration,
+/// context menus, shortcut help, and future command surfaces.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ActionDefinition {
+    pub action: Action,
+    pub config_key: &'static str,
+    pub label_en: &'static str,
+    pub label_ja: &'static str,
+}
+
+macro_rules! action_definition {
+    ($action:expr, $config_key:literal, $label_en:literal, $label_ja:literal) => {
+        ActionDefinition {
+            action: $action,
+            config_key: $config_key,
+            label_en: $label_en,
+            label_ja: $label_ja,
+        }
+    };
+}
+
+macro_rules! define_named_action_definitions {
+    ($( $name:ident => ($action:expr, $config_key:literal, $label_en:literal, $label_ja:literal); )+) => {
+        $(
+            static $name: ActionDefinition =
+                action_definition!($action, $config_key, $label_en, $label_ja);
+        )+
+    };
+}
+
+define_named_action_definitions! {
+    SEND_PREFIX_DEFINITION => (Action::SendPrefix, "send-prefix", "Send prefix", "プレフィックスを送信");
+    NEW_TAB_DEFINITION => (Action::NewTab, "new-tab", "New tab", "新しいタブ");
+    NEW_BROWSER_TAB_DEFINITION => (Action::NewBrowserTab, "new-browser-tab", "New browser tab", "新しいブラウザタブ");
+    NEW_PANE_SMART_DEFINITION => (Action::NewPaneSmart, "new-pane-smart", "New pane", "新しいペイン");
+    NEXT_TAB_DEFINITION => (Action::NextTab, "next-tab", "Next tab", "次のタブ");
+    PREV_TAB_DEFINITION => (Action::PrevTab, "prev-tab", "Previous tab", "前のタブ");
+    SPLIT_RIGHT_DEFINITION => (Action::SplitRight, "split-right", "Split right", "右に分割");
+    SPLIT_DOWN_DEFINITION => (Action::SplitDown, "split-down", "Split down", "下に分割");
+    CLOSE_TAB_DEFINITION => (Action::CloseTab, "close-tab", "Close tab", "タブを閉じる");
+    CLOSE_PANE_DEFINITION => (Action::ClosePane, "close-pane", "Close pane", "ペインを閉じる");
+    RENAME_TAB_DEFINITION => (Action::RenameTab, "rename-tab", "Rename tab", "タブ名を変更");
+    RENAME_SCREEN_DEFINITION => (Action::RenameScreen, "rename-screen", "Rename screen", "スクリーン名を変更");
+    RENAME_WORKSPACE_DEFINITION => (Action::RenameWorkspace, "rename-workspace", "Rename workspace", "ワークスペース名を変更");
+    CLOSE_SCREEN_DEFINITION => (Action::CloseScreen, "close-screen", "Close screen", "スクリーンを閉じる");
+    PREV_SCREEN_DEFINITION => (Action::PrevScreen, "prev-screen", "Previous screen", "前のスクリーン");
+    NEXT_SCREEN_DEFINITION => (Action::NextScreen, "next-screen", "Next screen", "次のスクリーン");
+    NEW_SCREEN_DEFINITION => (Action::NewScreen, "new-screen", "New screen", "新しいスクリーン");
+    PREV_WORKSPACE_DEFINITION => (Action::PrevWorkspace, "prev-workspace", "Previous workspace", "前のワークスペース");
+    NEXT_WORKSPACE_DEFINITION => (Action::NextWorkspace, "next-workspace", "Next workspace", "次のワークスペース");
+    NEW_WORKSPACE_DEFINITION => (Action::NewWorkspace, "new-workspace", "New workspace", "新しいワークスペース");
+    CLOSE_WORKSPACE_DEFINITION => (Action::CloseWorkspace, "close-workspace", "Close workspace", "ワークスペースを閉じる");
+    TOGGLE_SIDEBAR_DEFINITION => (Action::ToggleSidebar, "toggle-sidebar", "Show or hide sidebar", "サイドバーの表示を切り替え");
+    TOGGLE_SIDEBAR_COMPACT_DEFINITION => (Action::ToggleSidebarCompact, "toggle-sidebar-compact", "Compact or expand sidebar", "サイドバーの幅を切り替え");
+    TOGGLE_SIDEBAR_VIEW_DEFINITION => (Action::ToggleSidebarView, "toggle-sidebar-view", "Switch sidebar view", "サイドバー表示を切り替え");
+    FOCUS_SIDEBAR_DEFINITION => (Action::FocusSidebar, "focus-sidebar", "Focus sidebar", "サイドバーにフォーカス");
+    FOCUS_LEFT_DEFINITION => (Action::FocusLeft, "focus-left", "Focus left", "左へフォーカス");
+    FOCUS_RIGHT_DEFINITION => (Action::FocusRight, "focus-right", "Focus right", "右へフォーカス");
+    FOCUS_UP_DEFINITION => (Action::FocusUp, "focus-up", "Focus up", "上へフォーカス");
+    FOCUS_DOWN_DEFINITION => (Action::FocusDown, "focus-down", "Focus down", "下へフォーカス");
+    FOCUS_NEXT_PANE_DEFINITION => (Action::FocusNextPane, "focus-next-pane", "Focus next pane", "次のペインにフォーカス");
+    SWAP_PANE_PREV_DEFINITION => (Action::SwapPanePrev, "swap-pane-prev", "Move pane backward", "ペインを前へ移動");
+    SWAP_PANE_NEXT_DEFINITION => (Action::SwapPaneNext, "swap-pane-next", "Move pane forward", "ペインを後ろへ移動");
+    ZOOM_PANE_DEFINITION => (Action::ZoomPane, "zoom-pane", "Maximize or restore pane", "ペインを最大化または復元");
+    RESIZE_GROW_DEFINITION => (Action::ResizeGrow, "resize-grow", "Grow pane", "ペインを拡大");
+    RESIZE_SHRINK_DEFINITION => (Action::ResizeShrink, "resize-shrink", "Shrink pane", "ペインを縮小");
+    SCROLL_UP_DEFINITION => (Action::ScrollUp, "scroll-up", "Scroll up", "上にスクロール");
+    SCROLL_DOWN_DEFINITION => (Action::ScrollDown, "scroll-down", "Scroll down", "下にスクロール");
+    CLEAR_HISTORY_DEFINITION => (Action::ClearHistory, "clear-history", "Clear terminal history", "ターミナル履歴を消去");
+    BROWSER_BACK_DEFINITION => (Action::BrowserBack, "browser-back", "Browser back", "ブラウザで戻る");
+    BROWSER_FORWARD_DEFINITION => (Action::BrowserForward, "browser-forward", "Browser forward", "ブラウザで進む");
+    BROWSER_RELOAD_DEFINITION => (Action::BrowserReload, "browser-reload", "Reload browser", "ブラウザを再読み込み");
+    BROWSER_EDIT_URL_DEFINITION => (Action::BrowserEditUrl, "browser-edit-url", "Edit browser URL", "ブラウザ URL を編集");
+    SHOW_SHORTCUTS_DEFINITION => (Action::ShowShortcuts, "show-shortcuts", "Keyboard shortcuts", "キーボードショートカット");
+    DETACH_DEFINITION => (Action::Detach, "detach", "Detach", "デタッチ");
+}
+
+static SELECT_TAB_DEFINITIONS: [ActionDefinition; 10] = [
+    action_definition!(
+        Action::select_tab(0).unwrap(),
+        "select-tab-0",
+        "Select tab 0",
+        "タブ 0 を選択"
+    ),
+    action_definition!(
+        Action::select_tab(1).unwrap(),
+        "select-tab-1",
+        "Select tab 1",
+        "タブ 1 を選択"
+    ),
+    action_definition!(
+        Action::select_tab(2).unwrap(),
+        "select-tab-2",
+        "Select tab 2",
+        "タブ 2 を選択"
+    ),
+    action_definition!(
+        Action::select_tab(3).unwrap(),
+        "select-tab-3",
+        "Select tab 3",
+        "タブ 3 を選択"
+    ),
+    action_definition!(
+        Action::select_tab(4).unwrap(),
+        "select-tab-4",
+        "Select tab 4",
+        "タブ 4 を選択"
+    ),
+    action_definition!(
+        Action::select_tab(5).unwrap(),
+        "select-tab-5",
+        "Select tab 5",
+        "タブ 5 を選択"
+    ),
+    action_definition!(
+        Action::select_tab(6).unwrap(),
+        "select-tab-6",
+        "Select tab 6",
+        "タブ 6 を選択"
+    ),
+    action_definition!(
+        Action::select_tab(7).unwrap(),
+        "select-tab-7",
+        "Select tab 7",
+        "タブ 7 を選択"
+    ),
+    action_definition!(
+        Action::select_tab(8).unwrap(),
+        "select-tab-8",
+        "Select tab 8",
+        "タブ 8 を選択"
+    ),
+    action_definition!(
+        Action::select_tab(9).unwrap(),
+        "select-tab-9",
+        "Select tab 9",
+        "タブ 9 を選択"
+    ),
+];
+
+static SELECT_SCREEN_DEFINITIONS: [ActionDefinition; 10] = [
+    action_definition!(
+        Action::select_screen(0).unwrap(),
+        "select-screen-0",
+        "Select screen 0",
+        "スクリーン 0 を選択"
+    ),
+    action_definition!(
+        Action::select_screen(1).unwrap(),
+        "select-screen-1",
+        "Select screen 1",
+        "スクリーン 1 を選択"
+    ),
+    action_definition!(
+        Action::select_screen(2).unwrap(),
+        "select-screen-2",
+        "Select screen 2",
+        "スクリーン 2 を選択"
+    ),
+    action_definition!(
+        Action::select_screen(3).unwrap(),
+        "select-screen-3",
+        "Select screen 3",
+        "スクリーン 3 を選択"
+    ),
+    action_definition!(
+        Action::select_screen(4).unwrap(),
+        "select-screen-4",
+        "Select screen 4",
+        "スクリーン 4 を選択"
+    ),
+    action_definition!(
+        Action::select_screen(5).unwrap(),
+        "select-screen-5",
+        "Select screen 5",
+        "スクリーン 5 を選択"
+    ),
+    action_definition!(
+        Action::select_screen(6).unwrap(),
+        "select-screen-6",
+        "Select screen 6",
+        "スクリーン 6 を選択"
+    ),
+    action_definition!(
+        Action::select_screen(7).unwrap(),
+        "select-screen-7",
+        "Select screen 7",
+        "スクリーン 7 を選択"
+    ),
+    action_definition!(
+        Action::select_screen(8).unwrap(),
+        "select-screen-8",
+        "Select screen 8",
+        "スクリーン 8 を選択"
+    ),
+    action_definition!(
+        Action::select_screen(9).unwrap(),
+        "select-screen-9",
+        "Select screen 9",
+        "スクリーン 9 を選択"
+    ),
+];
+
+/// The canonical action catalog. Presentation surfaces derive their labels
+/// and ordering from these named definitions instead of positional offsets.
+pub fn action_definitions() -> &'static [&'static ActionDefinition] {
+    static DEFINITIONS: [&ActionDefinition; 64] = [
+        &SEND_PREFIX_DEFINITION,
+        &NEW_TAB_DEFINITION,
+        &NEW_BROWSER_TAB_DEFINITION,
+        &NEW_PANE_SMART_DEFINITION,
+        &NEXT_TAB_DEFINITION,
+        &PREV_TAB_DEFINITION,
+        &SELECT_TAB_DEFINITIONS[0],
+        &SELECT_TAB_DEFINITIONS[1],
+        &SELECT_TAB_DEFINITIONS[2],
+        &SELECT_TAB_DEFINITIONS[3],
+        &SELECT_TAB_DEFINITIONS[4],
+        &SELECT_TAB_DEFINITIONS[5],
+        &SELECT_TAB_DEFINITIONS[6],
+        &SELECT_TAB_DEFINITIONS[7],
+        &SELECT_TAB_DEFINITIONS[8],
+        &SELECT_TAB_DEFINITIONS[9],
+        &SPLIT_RIGHT_DEFINITION,
+        &SPLIT_DOWN_DEFINITION,
+        &CLOSE_TAB_DEFINITION,
+        &CLOSE_PANE_DEFINITION,
+        &RENAME_TAB_DEFINITION,
+        &RENAME_SCREEN_DEFINITION,
+        &RENAME_WORKSPACE_DEFINITION,
+        &CLOSE_SCREEN_DEFINITION,
+        &PREV_SCREEN_DEFINITION,
+        &NEXT_SCREEN_DEFINITION,
+        &SELECT_SCREEN_DEFINITIONS[0],
+        &SELECT_SCREEN_DEFINITIONS[1],
+        &SELECT_SCREEN_DEFINITIONS[2],
+        &SELECT_SCREEN_DEFINITIONS[3],
+        &SELECT_SCREEN_DEFINITIONS[4],
+        &SELECT_SCREEN_DEFINITIONS[5],
+        &SELECT_SCREEN_DEFINITIONS[6],
+        &SELECT_SCREEN_DEFINITIONS[7],
+        &SELECT_SCREEN_DEFINITIONS[8],
+        &SELECT_SCREEN_DEFINITIONS[9],
+        &NEW_SCREEN_DEFINITION,
+        &PREV_WORKSPACE_DEFINITION,
+        &NEXT_WORKSPACE_DEFINITION,
+        &NEW_WORKSPACE_DEFINITION,
+        &CLOSE_WORKSPACE_DEFINITION,
+        &TOGGLE_SIDEBAR_DEFINITION,
+        &TOGGLE_SIDEBAR_COMPACT_DEFINITION,
+        &TOGGLE_SIDEBAR_VIEW_DEFINITION,
+        &FOCUS_SIDEBAR_DEFINITION,
+        &FOCUS_LEFT_DEFINITION,
+        &FOCUS_RIGHT_DEFINITION,
+        &FOCUS_UP_DEFINITION,
+        &FOCUS_DOWN_DEFINITION,
+        &FOCUS_NEXT_PANE_DEFINITION,
+        &SWAP_PANE_PREV_DEFINITION,
+        &SWAP_PANE_NEXT_DEFINITION,
+        &ZOOM_PANE_DEFINITION,
+        &RESIZE_GROW_DEFINITION,
+        &RESIZE_SHRINK_DEFINITION,
+        &SCROLL_UP_DEFINITION,
+        &SCROLL_DOWN_DEFINITION,
+        &CLEAR_HISTORY_DEFINITION,
+        &BROWSER_BACK_DEFINITION,
+        &BROWSER_FORWARD_DEFINITION,
+        &BROWSER_RELOAD_DEFINITION,
+        &BROWSER_EDIT_URL_DEFINITION,
+        &SHOW_SHORTCUTS_DEFINITION,
+        &DETACH_DEFINITION,
+    ];
+    &DEFINITIONS
+}
+
 impl Action {
-    fn config_key(&self) -> String {
+    pub fn definition(self) -> &'static ActionDefinition {
         match self {
-            Action::NewTab => "new-tab".to_string(),
-            Action::NewBrowserTab => "new-browser-tab".to_string(),
-            Action::NewPaneSmart => "new-pane-smart".to_string(),
-            Action::NextTab => "next-tab".to_string(),
-            Action::PrevTab => "prev-tab".to_string(),
-            Action::SelectTab(number) => format!("select-tab-{number}"),
-            Action::SplitRight => "split-right".to_string(),
-            Action::SplitDown => "split-down".to_string(),
-            Action::CloseTab => "close-tab".to_string(),
-            Action::ClosePane => "close-pane".to_string(),
-            Action::RenameTab => "rename-tab".to_string(),
-            Action::RenameScreen => "rename-screen".to_string(),
-            Action::RenameWorkspace => "rename-workspace".to_string(),
-            Action::CloseScreen => "close-screen".to_string(),
-            Action::PrevScreen => "prev-screen".to_string(),
-            Action::NextScreen => "next-screen".to_string(),
-            Action::SelectScreen(number) => format!("select-screen-{number}"),
-            Action::NewScreen => "new-screen".to_string(),
-            Action::NextWorkspace => "next-workspace".to_string(),
-            Action::NewWorkspace => "new-workspace".to_string(),
-            Action::ToggleSidebar => "toggle-sidebar".to_string(),
-            Action::ToggleSidebarView => "toggle-sidebar-view".to_string(),
-            Action::FocusSidebar => "focus-sidebar".to_string(),
-            Action::FocusLeft => "focus-left".to_string(),
-            Action::FocusRight => "focus-right".to_string(),
-            Action::FocusUp => "focus-up".to_string(),
-            Action::FocusDown => "focus-down".to_string(),
-            Action::FocusNextPane => "focus-next-pane".to_string(),
-            Action::SwapPanePrev => "swap-pane-prev".to_string(),
-            Action::SwapPaneNext => "swap-pane-next".to_string(),
-            Action::ZoomPane => "zoom-pane".to_string(),
-            Action::ResizeGrow => "resize-grow".to_string(),
-            Action::ResizeShrink => "resize-shrink".to_string(),
-            Action::ScrollUp => "scroll-up".to_string(),
-            Action::ScrollDown => "scroll-down".to_string(),
-            Action::BrowserBack => "browser-back".to_string(),
-            Action::BrowserForward => "browser-forward".to_string(),
-            Action::BrowserReload => "browser-reload".to_string(),
-            Action::BrowserEditUrl => "browser-edit-url".to_string(),
-            Action::Detach => "detach".to_string(),
+            Action::SendPrefix => &SEND_PREFIX_DEFINITION,
+            Action::NewTab => &NEW_TAB_DEFINITION,
+            Action::NewBrowserTab => &NEW_BROWSER_TAB_DEFINITION,
+            Action::NewPaneSmart => &NEW_PANE_SMART_DEFINITION,
+            Action::NextTab => &NEXT_TAB_DEFINITION,
+            Action::PrevTab => &PREV_TAB_DEFINITION,
+            Action::SelectTab(index) => &SELECT_TAB_DEFINITIONS[index.get() as usize],
+            Action::SplitRight => &SPLIT_RIGHT_DEFINITION,
+            Action::SplitDown => &SPLIT_DOWN_DEFINITION,
+            Action::CloseTab => &CLOSE_TAB_DEFINITION,
+            Action::ClosePane => &CLOSE_PANE_DEFINITION,
+            Action::RenameTab => &RENAME_TAB_DEFINITION,
+            Action::RenameScreen => &RENAME_SCREEN_DEFINITION,
+            Action::RenameWorkspace => &RENAME_WORKSPACE_DEFINITION,
+            Action::CloseScreen => &CLOSE_SCREEN_DEFINITION,
+            Action::PrevScreen => &PREV_SCREEN_DEFINITION,
+            Action::NextScreen => &NEXT_SCREEN_DEFINITION,
+            Action::SelectScreen(index) => &SELECT_SCREEN_DEFINITIONS[index.get() as usize],
+            Action::NewScreen => &NEW_SCREEN_DEFINITION,
+            Action::PrevWorkspace => &PREV_WORKSPACE_DEFINITION,
+            Action::NextWorkspace => &NEXT_WORKSPACE_DEFINITION,
+            Action::NewWorkspace => &NEW_WORKSPACE_DEFINITION,
+            Action::CloseWorkspace => &CLOSE_WORKSPACE_DEFINITION,
+            Action::ToggleSidebar => &TOGGLE_SIDEBAR_DEFINITION,
+            Action::ToggleSidebarCompact => &TOGGLE_SIDEBAR_COMPACT_DEFINITION,
+            Action::ToggleSidebarView => &TOGGLE_SIDEBAR_VIEW_DEFINITION,
+            Action::FocusSidebar => &FOCUS_SIDEBAR_DEFINITION,
+            Action::FocusLeft => &FOCUS_LEFT_DEFINITION,
+            Action::FocusRight => &FOCUS_RIGHT_DEFINITION,
+            Action::FocusUp => &FOCUS_UP_DEFINITION,
+            Action::FocusDown => &FOCUS_DOWN_DEFINITION,
+            Action::FocusNextPane => &FOCUS_NEXT_PANE_DEFINITION,
+            Action::SwapPanePrev => &SWAP_PANE_PREV_DEFINITION,
+            Action::SwapPaneNext => &SWAP_PANE_NEXT_DEFINITION,
+            Action::ZoomPane => &ZOOM_PANE_DEFINITION,
+            Action::ResizeGrow => &RESIZE_GROW_DEFINITION,
+            Action::ResizeShrink => &RESIZE_SHRINK_DEFINITION,
+            Action::ScrollUp => &SCROLL_UP_DEFINITION,
+            Action::ScrollDown => &SCROLL_DOWN_DEFINITION,
+            Action::ClearHistory => &CLEAR_HISTORY_DEFINITION,
+            Action::BrowserBack => &BROWSER_BACK_DEFINITION,
+            Action::BrowserForward => &BROWSER_FORWARD_DEFINITION,
+            Action::BrowserReload => &BROWSER_RELOAD_DEFINITION,
+            Action::BrowserEditUrl => &BROWSER_EDIT_URL_DEFINITION,
+            Action::ShowShortcuts => &SHOW_SHORTCUTS_DEFINITION,
+            Action::Detach => &DETACH_DEFINITION,
+        }
+    }
+
+    pub const fn select_screen(number: u8) -> Option<Self> {
+        match ActionIndex::new(number) {
+            Some(index) => Some(Self::SelectScreen(index)),
+            None => None,
+        }
+    }
+
+    pub const fn select_tab(number: u8) -> Option<Self> {
+        match ActionIndex::new(number) {
+            Some(index) => Some(Self::SelectTab(index)),
+            None => None,
         }
     }
 
     pub fn screen_index(&self) -> Option<usize> {
         match self {
-            Action::SelectScreen(number @ 0..=9) => Some(*number as usize),
+            Action::SelectScreen(number) => Some(number.get() as usize),
             _ => None,
         }
     }
 
     pub fn tab_index(&self) -> Option<usize> {
         match self {
-            Action::SelectTab(number @ 0..=9) => Some(*number as usize),
+            Action::SelectTab(number) => Some(number.get() as usize),
             _ => None,
         }
     }
@@ -912,20 +1244,80 @@ pub struct Chord {
     pub mods: KeyModifiers,
 }
 
+fn normalize_chord(code: KeyCode, mut mods: KeyModifiers) -> (KeyCode, KeyModifiers) {
+    match code {
+        KeyCode::Tab if mods.contains(KeyModifiers::SHIFT) => {
+            mods.remove(KeyModifiers::SHIFT);
+            (KeyCode::BackTab, mods)
+        }
+        KeyCode::Char(c) if mods.contains(KeyModifiers::SHIFT) => {
+            let Some(shifted) = crate::keys::shifted_ascii_char(c) else {
+                return (code, mods);
+            };
+            mods.remove(KeyModifiers::SHIFT);
+            (KeyCode::Char(shifted), mods)
+        }
+        KeyCode::BackTab => {
+            // Crossterm reports BackTab with an implied Shift modifier.
+            mods.remove(KeyModifiers::SHIFT);
+            (KeyCode::BackTab, mods)
+        }
+        _ => (code, mods),
+    }
+}
+
 impl Chord {
     pub fn matches(&self, key: &KeyEvent) -> bool {
-        // Shift is implied by uppercase/symbol chars and by BackTab. Crossterm
-        // reports the latter as BackTab + SHIFT even though users configure it
-        // as plain "backtab", so do not make that unavoidable modifier part
-        // of the chord comparison.
-        let mods_match = if matches!(self.code, KeyCode::Char(_) | KeyCode::BackTab) {
-            key.modifiers.contains(self.mods & !KeyModifiers::SHIFT)
-        } else {
-            const TRACKED: KeyModifiers =
-                KeyModifiers::CONTROL.union(KeyModifiers::ALT).union(KeyModifiers::SHIFT);
-            key.modifiers & TRACKED == self.mods & TRACKED
+        const TRACKED: KeyModifiers = KeyModifiers::CONTROL
+            .union(KeyModifiers::ALT)
+            .union(KeyModifiers::SHIFT)
+            .union(KeyModifiers::SUPER)
+            .union(KeyModifiers::HYPER)
+            .union(KeyModifiers::META);
+        let (configured_code, configured_mods) = normalize_chord(self.code, self.mods);
+        let (event_code, event_mods) = normalize_chord(key.code, key.modifiers);
+        configured_code == event_code && configured_mods & TRACKED == event_mods & TRACKED
+    }
+
+    /// Human-readable form used beside context-menu actions. Keep this
+    /// derived from the resolved chord so config overrides teach the keys
+    /// that are actually active.
+    pub fn display_label(&self) -> Option<String> {
+        let mut modifiers = Vec::new();
+        if self.mods.contains(KeyModifiers::CONTROL) {
+            modifiers.push("Ctrl");
+        }
+        if self.mods.contains(KeyModifiers::ALT) {
+            modifiers.push("Alt");
+        }
+        if self.mods.contains(KeyModifiers::SHIFT) {
+            modifiers.push("Shift");
+        }
+        if self.mods.contains(KeyModifiers::SUPER) {
+            modifiers.push("Super");
+        }
+        let key = match self.code {
+            KeyCode::Char(' ') => "Space".to_string(),
+            KeyCode::Char(character) => character.to_string(),
+            KeyCode::Tab => "Tab".to_string(),
+            KeyCode::BackTab => "BackTab".to_string(),
+            KeyCode::Enter => "Enter".to_string(),
+            KeyCode::Esc => "Esc".to_string(),
+            KeyCode::Left => "Left".to_string(),
+            KeyCode::Right => "Right".to_string(),
+            KeyCode::Up => "Up".to_string(),
+            KeyCode::Down => "Down".to_string(),
+            KeyCode::PageUp => "PageUp".to_string(),
+            KeyCode::PageDown => "PageDown".to_string(),
+            KeyCode::Home => "Home".to_string(),
+            KeyCode::End => "End".to_string(),
+            _ => return None,
         };
-        self.code == key.code && mods_match
+        if modifiers.is_empty() {
+            Some(key)
+        } else {
+            Some(format!("{}-{key}", modifiers.join("-")))
+        }
     }
 }
 
@@ -933,6 +1325,9 @@ impl Chord {
 #[derive(Debug, Clone)]
 pub struct Keys {
     pub prefix: Chord,
+    /// Resolve empty-text Alt character events using the host terminal's
+    /// macOS Option mode instead of guessing from each event.
+    pub macos_option_as_alt: bool,
     bindings: Vec<(Chord, Action)>,
 }
 
@@ -940,9 +1335,13 @@ impl Default for Keys {
     fn default() -> Self {
         let bind = |code, action| (Chord { code, mods: KeyModifiers::NONE }, action);
         let alt = |code, action| (Chord { code, mods: KeyModifiers::ALT }, action);
+        let command = |code, action| (Chord { code, mods: KeyModifiers::SUPER }, action);
+        let prefix = Chord { code: KeyCode::Char('b'), mods: KeyModifiers::CONTROL };
         Keys {
-            prefix: Chord { code: KeyCode::Char('b'), mods: KeyModifiers::CONTROL },
+            prefix,
+            macos_option_as_alt: true,
             bindings: vec![
+                (prefix, Action::SendPrefix),
                 bind(KeyCode::Char('t'), Action::NewTab),
                 alt(KeyCode::Char('t'), Action::NewTab),
                 bind(KeyCode::Char('B'), Action::NewBrowserTab),
@@ -951,8 +1350,8 @@ impl Default for Keys {
                 bind(KeyCode::BackTab, Action::PrevTab),
                 bind(KeyCode::Char('%'), Action::SplitRight),
                 bind(KeyCode::Char('"'), Action::SplitDown),
-                bind(KeyCode::Char('x'), Action::ClosePane),
-                bind(KeyCode::Char('X'), Action::CloseTab),
+                bind(KeyCode::Char('x'), Action::CloseTab),
+                bind(KeyCode::Char('X'), Action::ClosePane),
                 bind(KeyCode::Char(','), Action::RenameScreen),
                 bind(KeyCode::Char('$'), Action::RenameWorkspace),
                 bind(KeyCode::Char('&'), Action::CloseScreen),
@@ -960,20 +1359,26 @@ impl Default for Keys {
                 alt(KeyCode::Char('['), Action::PrevScreen),
                 bind(KeyCode::Char('n'), Action::NextScreen),
                 alt(KeyCode::Char(']'), Action::NextScreen),
-                bind(KeyCode::Char('1'), Action::SelectScreen(1)),
-                bind(KeyCode::Char('2'), Action::SelectScreen(2)),
-                bind(KeyCode::Char('3'), Action::SelectScreen(3)),
-                bind(KeyCode::Char('4'), Action::SelectScreen(4)),
-                bind(KeyCode::Char('5'), Action::SelectScreen(5)),
-                bind(KeyCode::Char('6'), Action::SelectScreen(6)),
-                bind(KeyCode::Char('7'), Action::SelectScreen(7)),
-                bind(KeyCode::Char('8'), Action::SelectScreen(8)),
-                bind(KeyCode::Char('9'), Action::SelectScreen(9)),
-                bind(KeyCode::Char('0'), Action::SelectScreen(0)),
+                bind(KeyCode::Char('1'), Action::select_screen(1).unwrap()),
+                bind(KeyCode::Char('2'), Action::select_screen(2).unwrap()),
+                bind(KeyCode::Char('3'), Action::select_screen(3).unwrap()),
+                bind(KeyCode::Char('4'), Action::select_screen(4).unwrap()),
+                bind(KeyCode::Char('5'), Action::select_screen(5).unwrap()),
+                bind(KeyCode::Char('6'), Action::select_screen(6).unwrap()),
+                bind(KeyCode::Char('7'), Action::select_screen(7).unwrap()),
+                bind(KeyCode::Char('8'), Action::select_screen(8).unwrap()),
+                bind(KeyCode::Char('9'), Action::select_screen(9).unwrap()),
+                bind(KeyCode::Char('0'), Action::select_screen(0).unwrap()),
                 bind(KeyCode::Char('c'), Action::NewScreen),
+                bind(KeyCode::Char('('), Action::PrevWorkspace),
+                alt(KeyCode::Char('{'), Action::PrevWorkspace),
                 bind(KeyCode::Char('w'), Action::NextWorkspace),
+                bind(KeyCode::Char(')'), Action::NextWorkspace),
+                alt(KeyCode::Char('}'), Action::NextWorkspace),
                 bind(KeyCode::Char('W'), Action::NewWorkspace),
+                bind(KeyCode::Char('D'), Action::CloseWorkspace),
                 bind(KeyCode::Char('s'), Action::ToggleSidebar),
+                bind(KeyCode::Char('m'), Action::ToggleSidebarCompact),
                 bind(KeyCode::Char('e'), Action::ToggleSidebarView),
                 bind(KeyCode::Char('S'), Action::FocusSidebar),
                 bind(KeyCode::Char('o'), Action::FocusNextPane),
@@ -1001,10 +1406,12 @@ impl Default for Keys {
                 bind(KeyCode::Char('['), Action::ScrollUp),
                 bind(KeyCode::PageUp, Action::ScrollUp),
                 bind(KeyCode::PageDown, Action::ScrollDown),
+                command(KeyCode::Char('k'), Action::ClearHistory),
                 bind(KeyCode::Char('<'), Action::BrowserBack),
                 bind(KeyCode::Char('>'), Action::BrowserForward),
                 bind(KeyCode::Char('r'), Action::BrowserReload),
                 bind(KeyCode::Char('u'), Action::BrowserEditUrl),
+                bind(KeyCode::Char('?'), Action::ShowShortcuts),
                 bind(KeyCode::Char('d'), Action::Detach),
             ],
         }
@@ -1012,40 +1419,117 @@ impl Default for Keys {
 }
 
 impl Keys {
+    fn is_modeless_binding(&self, chord: &Chord, action: Action) -> bool {
+        if action == Action::SendPrefix && *chord == self.prefix {
+            return false;
+        }
+        chord.mods.intersects(KeyModifiers::ALT | KeyModifiers::SUPER)
+            || (action == Action::ClearHistory && chord.mods.contains(KeyModifiers::CONTROL))
+    }
+
     /// The action bound to a key event (after the prefix).
     pub fn action_for(&self, key: &KeyEvent) -> Option<Action> {
         self.bindings.iter().find(|(chord, _)| chord.matches(key)).map(|(_, a)| *a)
     }
 
-    /// The modeless action bound to a key event. Only Alt-modified
-    /// chords are modeless; non-Alt chords remain prefix-only.
+    /// The modeless action bound to a key event. Alt- and Super-modified
+    /// chords are modeless, as are Control-modified clear-history chords;
+    /// other chords remain prefix-only.
     pub fn modeless_action_for(&self, key: &KeyEvent) -> Option<Action> {
         self.bindings
             .iter()
-            .find(|(chord, _)| chord.mods.contains(KeyModifiers::ALT) && chord.matches(key))
+            .find(|(chord, action)| self.is_modeless_binding(chord, *action) && chord.matches(key))
             .map(|(_, a)| *a)
+    }
+
+    /// The first configured shortcut for an action, including the prefix
+    /// for prefix-only chords. Returns `None` when the action is unbound.
+    pub fn shortcut_label(&self, action: Action) -> Option<String> {
+        self.shortcut_labels(action).into_iter().next()
+    }
+
+    /// Every configured shortcut for an action. Prefix-only chords include
+    /// the resolved prefix, while Alt chords are shown as modeless shortcuts.
+    pub fn shortcut_labels(&self, action: Action) -> Vec<String> {
+        self.bindings
+            .iter()
+            .filter(|(_, bound)| *bound == action)
+            .filter_map(|(chord, _)| {
+                let chord_label = chord.display_label()?;
+                if self.is_modeless_binding(chord, action) {
+                    Some(chord_label)
+                } else {
+                    Some(format!("{} {chord_label}", self.prefix.display_label()?))
+                }
+            })
+            .collect()
+    }
+
+    /// The first suffix key that invokes an action after the prefix. Used by
+    /// the prefix help bar, which must not advertise modeless-only bindings.
+    pub fn prefixed_key_label(&self, action: Action) -> Option<String> {
+        self.bindings
+            .iter()
+            .find(|(chord, bound)| *bound == action && !self.is_modeless_binding(chord, action))
+            .and_then(|(chord, _)| chord.display_label())
+    }
+
+    /// Bound actions in canonical catalog order, ready for shortcut help and
+    /// future command surfaces.
+    pub fn resolved_shortcuts(&self) -> Vec<(&'static ActionDefinition, Vec<String>)> {
+        action_definitions()
+            .iter()
+            .copied()
+            .filter_map(|definition| {
+                let shortcuts = self.shortcut_labels(definition.action);
+                (!shortcuts.is_empty()).then_some((definition, shortcuts))
+            })
+            .collect()
     }
 
     /// Apply config overrides: `"prefix"` rebinds the prefix; any action
     /// name rebinds that action (replacing ALL default chords for it).
     fn apply(&mut self, raw: &HashMap<String, Value>) {
+        if let Some(value) = raw.get("macos_option_as_alt") {
+            if let Some(value) = value.as_bool() {
+                self.macos_option_as_alt = value;
+            } else {
+                let value = format!("{value:?}");
+                eprintln!("{}", catalog().config.invalid_macos_option_as_alt(&value));
+            }
+        }
         if raw.get("alt_shortcuts").and_then(Value::as_bool) == Some(false) {
             self.bindings.retain(|(chord, _)| !chord.mods.contains(KeyModifiers::ALT));
         }
-        for (name, value) in raw {
-            if name == "alt_shortcuts" {
-                continue;
-            }
-            if name == "prefix" {
-                let Some(value) = value.as_str() else {
-                    eprintln!("cmux-tui: ignoring non-string prefix binding {value:?}");
-                    continue;
-                };
-                let Some(chord) = parse_chord(value) else {
-                    eprintln!("cmux-tui: ignoring unparseable key binding prefix = {value:?}");
-                    continue;
-                };
+        if raw.get("super_shortcuts").and_then(Value::as_bool) == Some(false) {
+            self.bindings.retain(|(chord, _)| !chord.mods.contains(KeyModifiers::SUPER));
+        }
+        if let Some(value) = raw.get("prefix") {
+            if let Some(value) = value.as_str()
+                && let Some(chord) = parse_chord(value)
+            {
+                let previous_prefix = self.prefix;
                 self.prefix = chord;
+                if !raw.contains_key(Action::SendPrefix.definition().config_key)
+                    && let Some((send_prefix, _)) =
+                        self.bindings.iter_mut().find(|(binding, action)| {
+                            *action == Action::SendPrefix && *binding == previous_prefix
+                        })
+                {
+                    *send_prefix = chord;
+                }
+            } else if value.as_str().is_some() {
+                eprintln!("cmux-tui: ignoring unparseable key binding prefix = {value:?}");
+            } else {
+                eprintln!("cmux-tui: ignoring non-string prefix binding {value:?}");
+            }
+        }
+        for (name, value) in raw {
+            if name == "macos_option_as_alt"
+                || name == "alt_shortcuts"
+                || name == "super_shortcuts"
+                || name == "prefix"
+            {
                 continue;
             }
             // The numbered families accept both spellings: select-screen-N /
@@ -1056,13 +1540,13 @@ impl Keys {
                 } else {
                     name.clone()
                 };
-            match all_actions().iter().find(|a| {
-                a.config_key() == normalized.as_str()
-                    || (**a == Action::RenameTab && name == "rename-pane")
-                    || (**a == Action::NewBrowserTab && name == "new_browser_tab")
+            match action_definitions().iter().find(|definition| {
+                definition.config_key == normalized.as_str()
+                    || (definition.action == Action::RenameTab && name == "rename-pane")
+                    || (definition.action == Action::NewBrowserTab && name == "new_browser_tab")
             }) {
-                Some(action) => {
-                    self.bindings.retain(|(_, a)| a != action);
+                Some(definition) => {
+                    self.bindings.retain(|(_, action)| *action != definition.action);
                     for raw_chord in key_values(value) {
                         if raw_chord.eq_ignore_ascii_case("none") {
                             continue;
@@ -1073,13 +1557,26 @@ impl Keys {
                             );
                             continue;
                         };
+                        if chord == self.prefix && definition.action != Action::SendPrefix {
+                            eprintln!(
+                                "cmux-tui: ignoring key binding {name} = {raw_chord:?} because it conflicts with the prefix"
+                            );
+                            continue;
+                        }
                         self.bindings.retain(|(existing, _)| existing != &chord);
-                        self.bindings.push((chord, *action));
+                        self.bindings.push((chord, definition.action));
                     }
                 }
                 None => eprintln!("cmux-tui: ignoring unknown key action {name:?}"),
             }
         }
+        let prefix = self.prefix;
+        self.bindings.retain(|(chord, action)| *action == Action::SendPrefix || *chord != prefix);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn apply_for_test(&mut self, raw: &HashMap<String, Value>) {
+        self.apply(raw);
     }
 }
 
@@ -1091,69 +1588,6 @@ fn key_values(value: &Value) -> Vec<&str> {
     }
 }
 
-fn all_actions() -> &'static [Action] {
-    &[
-        Action::NewTab,
-        Action::NewBrowserTab,
-        Action::NewPaneSmart,
-        Action::NextTab,
-        Action::PrevTab,
-        Action::SelectTab(0),
-        Action::SelectTab(1),
-        Action::SelectTab(2),
-        Action::SelectTab(3),
-        Action::SelectTab(4),
-        Action::SelectTab(5),
-        Action::SelectTab(6),
-        Action::SelectTab(7),
-        Action::SelectTab(8),
-        Action::SelectTab(9),
-        Action::SplitRight,
-        Action::SplitDown,
-        Action::CloseTab,
-        Action::ClosePane,
-        Action::RenameTab,
-        Action::RenameScreen,
-        Action::RenameWorkspace,
-        Action::CloseScreen,
-        Action::PrevScreen,
-        Action::NextScreen,
-        Action::SelectScreen(0),
-        Action::SelectScreen(1),
-        Action::SelectScreen(2),
-        Action::SelectScreen(3),
-        Action::SelectScreen(4),
-        Action::SelectScreen(5),
-        Action::SelectScreen(6),
-        Action::SelectScreen(7),
-        Action::SelectScreen(8),
-        Action::SelectScreen(9),
-        Action::NewScreen,
-        Action::NextWorkspace,
-        Action::NewWorkspace,
-        Action::ToggleSidebar,
-        Action::ToggleSidebarView,
-        Action::FocusSidebar,
-        Action::FocusLeft,
-        Action::FocusRight,
-        Action::FocusUp,
-        Action::FocusDown,
-        Action::FocusNextPane,
-        Action::SwapPanePrev,
-        Action::SwapPaneNext,
-        Action::ZoomPane,
-        Action::ResizeGrow,
-        Action::ResizeShrink,
-        Action::ScrollUp,
-        Action::ScrollDown,
-        Action::BrowserBack,
-        Action::BrowserForward,
-        Action::BrowserReload,
-        Action::BrowserEditUrl,
-        Action::Detach,
-    ]
-}
-
 /// Parse "c", "%", "ctrl+b", "alt+enter", "tab", "pageup", ...
 fn parse_chord(s: &str) -> Option<Chord> {
     let mut mods = KeyModifiers::NONE;
@@ -1163,6 +1597,7 @@ fn parse_chord(s: &str) -> Option<Chord> {
         match part.to_lowercase().as_str() {
             "ctrl" | "control" => mods |= KeyModifiers::CONTROL,
             "alt" | "option" => mods |= KeyModifiers::ALT,
+            "cmd" | "command" | "super" => mods |= KeyModifiers::SUPER,
             "shift" => mods |= KeyModifiers::SHIFT,
             "tab" => code = Some(KeyCode::Tab),
             "backtab" => code = Some(KeyCode::BackTab),
@@ -1188,11 +1623,11 @@ fn parse_chord(s: &str) -> Option<Chord> {
             }
         }
     }
-    let mut code = code?;
-    if code == KeyCode::Tab && mods.contains(KeyModifiers::SHIFT) {
-        code = KeyCode::BackTab;
-        mods.remove(KeyModifiers::SHIFT);
-    }
+
+    let code = code?;
+    // Store a shifted ASCII result so `D` and `shift+d` stay equivalent.
+    // Shift stays explicit when the character itself cannot represent it.
+    let (code, mods) = normalize_chord(code, mods);
     Some(Chord { code, mods })
 }
 
@@ -1336,6 +1771,10 @@ pub fn load() -> Config {
     if let Some(w) = raw.sidebar.width {
         config.sidebar.width = w.clamp(10, 60);
     }
+    if let Some(w) = raw.sidebar.compact_width {
+        config.sidebar.compact_width = w.clamp(10, 60);
+    }
+    config.sidebar.compact_width = config.sidebar.compact_width.min(config.sidebar.width);
     if let Some(view) = raw.sidebar.view {
         match parse_sidebar_view(&view) {
             Ok(view) => config.sidebar.view = view,
@@ -2396,9 +2835,9 @@ mod tests {
 
     #[test]
     fn tab_selection_actions_use_zero_based_indexes() {
-        assert_eq!(Action::SelectTab(0).tab_index(), Some(0));
-        assert_eq!(Action::SelectTab(9).tab_index(), Some(9));
-        assert_eq!(Action::SelectTab(10).tab_index(), None);
+        assert_eq!(Action::select_tab(0).unwrap().tab_index(), Some(0));
+        assert_eq!(Action::select_tab(9).unwrap().tab_index(), Some(9));
+        assert!(Action::select_tab(10).is_none());
     }
 
     #[test]
@@ -2421,6 +2860,7 @@ mod tests {
                 "sidebar": {
                     "view": "workspaces",
                     "width": 30,
+                    "compact_width": 12,
                     "max_width": 38,
                     "plugin": {
                         "command": ["/tmp/sidebar-plugin", "--mode", "test"],
@@ -2481,6 +2921,7 @@ mod tests {
         assert_eq!(config.tabs.min_width, 9);
         assert!(!config.tabs.solid_background);
         assert_eq!(config.sidebar.width, 30);
+        assert_eq!(config.sidebar.compact_width, 12);
         assert_eq!(config.sidebar.max_width, 38);
         assert_eq!(config.sidebar.view, SidebarView::Workspaces);
         assert_eq!(
@@ -2516,7 +2957,7 @@ mod tests {
         assert_eq!(config.keys.action_for(&KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)), None);
         assert_eq!(
             config.keys.action_for(&KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE)),
-            Some(Action::SelectTab(0))
+            Action::select_tab(0)
         );
         assert_eq!(
             config.keys.action_for(&KeyEvent::new(KeyCode::Char('u'), KeyModifiers::NONE)),
@@ -2604,6 +3045,21 @@ mod tests {
     }
 
     #[test]
+    fn macos_option_as_alt_is_an_explicit_input_mode() {
+        let mut keys = Keys::default();
+        assert!(keys.macos_option_as_alt);
+
+        keys.apply(&HashMap::from([("macos_option_as_alt".to_string(), Value::Bool(false))]));
+        assert!(!keys.macos_option_as_alt);
+
+        keys.apply(&HashMap::from([(
+            "macos_option_as_alt".to_string(),
+            Value::String("guess".to_string()),
+        )]));
+        assert!(!keys.macos_option_as_alt);
+    }
+
+    #[test]
     fn default_key_table_has_no_duplicate_chords_or_reserved_alt_words() {
         let keys = Keys::default();
         for (i, (left, _)) in keys.bindings.iter().enumerate() {
@@ -2612,16 +3068,115 @@ mod tests {
                 "duplicate default chord: {left:?}"
             );
         }
-        assert!(
-            !keys.bindings.iter().any(|(chord, _)| chord == &keys.prefix),
-            "default binding shadows prefix passthrough: {:?}",
-            keys.prefix
+        assert_eq!(
+            keys.bindings
+                .iter()
+                .filter(|(chord, action)| chord == &keys.prefix && *action == Action::SendPrefix)
+                .count(),
+            1,
+            "the prefix chord must resolve only to the send-prefix action"
         );
         for c in ['b', 'f', 'd', '.'] {
             assert_eq!(
                 keys.modeless_action_for(&KeyEvent::new(KeyCode::Char(c), KeyModifiers::ALT)),
                 None
             );
+        }
+    }
+
+    #[test]
+    fn default_terminal_clear_shortcuts_keep_ctrl_l_child_owned() {
+        let keys = Keys::default();
+        let action = |code, modifiers| keys.modeless_action_for(&KeyEvent::new(code, modifiers));
+        assert_eq!(action(KeyCode::Char('k'), KeyModifiers::SUPER), Some(Action::ClearHistory));
+        assert_eq!(action(KeyCode::Char('l'), KeyModifiers::CONTROL), None);
+        assert_eq!(action(KeyCode::Char('k'), KeyModifiers::SUPER | KeyModifiers::CONTROL), None);
+        assert_eq!(action(KeyCode::Char('k'), KeyModifiers::SUPER | KeyModifiers::ALT), None);
+        assert_eq!(action(KeyCode::Char('t'), KeyModifiers::SUPER), None);
+        assert_eq!(action(KeyCode::Char('w'), KeyModifiers::SUPER), None);
+        assert_eq!(action(KeyCode::Char('d'), KeyModifiers::SUPER), None);
+    }
+
+    #[test]
+    fn super_shortcuts_can_be_disabled_or_configured_explicitly() {
+        let mut keys = Keys::default();
+        keys.apply(&HashMap::from([("super_shortcuts".to_string(), Value::Bool(false))]));
+        assert_eq!(
+            keys.modeless_action_for(&KeyEvent::new(KeyCode::Char('k'), KeyModifiers::SUPER)),
+            None
+        );
+        assert_eq!(
+            keys.modeless_action_for(&KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL)),
+            None
+        );
+
+        keys.apply(&HashMap::from([(
+            "clear-history".to_string(),
+            Value::String("command+l".to_string()),
+        )]));
+        assert_eq!(
+            keys.modeless_action_for(&KeyEvent::new(KeyCode::Char('l'), KeyModifiers::SUPER)),
+            Some(Action::ClearHistory)
+        );
+        assert_eq!(
+            parse_chord("cmd+shift+d"),
+            Some(Chord { code: KeyCode::Char('D'), mods: KeyModifiers::SUPER })
+        );
+        assert_eq!(
+            parse_chord("super+shift+["),
+            Some(Chord { code: KeyCode::Char('{'), mods: KeyModifiers::SUPER })
+        );
+    }
+
+    #[test]
+    fn ordinary_binding_collision_preserves_doubled_prefix_passthrough() {
+        let mut keys = Keys::default();
+        let mut raw = HashMap::new();
+        raw.insert(
+            "new-tab".to_string(),
+            Value::Array(vec![Value::String("ctrl+b".to_string()), Value::String("f".to_string())]),
+        );
+
+        keys.apply(&raw);
+
+        assert_eq!(
+            keys.action_for(&KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL)),
+            Some(Action::SendPrefix)
+        );
+        assert_eq!(
+            keys.action_for(&KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE)),
+            Some(Action::NewTab)
+        );
+    }
+
+    #[test]
+    fn shifted_character_chords_match_enhanced_base_key_events() {
+        let shifted_letter = parse_chord("super+shift+d").unwrap();
+        assert!(shifted_letter.matches(&KeyEvent::new(
+            KeyCode::Char('d'),
+            KeyModifiers::SUPER | KeyModifiers::SHIFT,
+        )));
+
+        let shifted_symbol = parse_chord("super+shift+[").unwrap();
+        assert!(shifted_symbol.matches(&KeyEvent::new(
+            KeyCode::Char('['),
+            KeyModifiers::SUPER | KeyModifiers::SHIFT,
+        )));
+
+        let plain_letter = parse_chord("super+d").unwrap();
+        assert!(!plain_letter.matches(&KeyEvent::new(
+            KeyCode::Char('d'),
+            KeyModifiers::SUPER | KeyModifiers::SHIFT,
+        )));
+    }
+
+    #[test]
+    fn shift_is_preserved_without_a_shifted_ascii_character() {
+        for (raw, character) in [("shift+space", ' '), ("shift+é", 'é')] {
+            let chord = parse_chord(raw).unwrap();
+            assert_eq!(chord, Chord { code: KeyCode::Char(character), mods: KeyModifiers::SHIFT });
+            assert!(chord.matches(&KeyEvent::new(KeyCode::Char(character), KeyModifiers::SHIFT,)));
+            assert!(!chord.matches(&KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE,)));
         }
     }
 
@@ -2641,15 +3196,70 @@ mod tests {
     }
 
     #[test]
-    fn tmux_close_pane_flip_is_default() {
+    fn close_tab_uses_the_primary_lowercase_binding() {
         let keys = Keys::default();
         assert_eq!(
             keys.action_for(&KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
-            Some(Action::ClosePane)
+            Some(Action::CloseTab)
         );
         assert_eq!(
             keys.action_for(&KeyEvent::new(KeyCode::Char('X'), KeyModifiers::SHIFT)),
+            Some(Action::ClosePane)
+        );
+    }
+
+    #[test]
+    fn close_tab_and_pane_bindings_are_configurable_independently() {
+        let mut keys = Keys::default();
+        let mut raw = HashMap::new();
+        raw.insert("close-tab".to_string(), Value::String("q".to_string()));
+        raw.insert("close-pane".to_string(), Value::String("Q".to_string()));
+        keys.apply(&raw);
+
+        assert_eq!(
+            keys.action_for(&KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE)),
             Some(Action::CloseTab)
+        );
+        assert_eq!(
+            keys.action_for(&KeyEvent::new(KeyCode::Char('Q'), KeyModifiers::SHIFT)),
+            Some(Action::ClosePane)
+        );
+        assert_eq!(keys.action_for(&KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)), None);
+        assert_eq!(keys.action_for(&KeyEvent::new(KeyCode::Char('X'), KeyModifiers::SHIFT)), None);
+    }
+
+    #[test]
+    fn workspace_defaults_cover_previous_next_create_and_close() {
+        let keys = Keys::default();
+        assert_eq!(
+            keys.action_for(&KeyEvent::new(KeyCode::Char('('), KeyModifiers::SHIFT)),
+            Some(Action::PrevWorkspace)
+        );
+        assert_eq!(
+            keys.action_for(&KeyEvent::new(KeyCode::Char(')'), KeyModifiers::SHIFT)),
+            Some(Action::NextWorkspace)
+        );
+        assert_eq!(
+            keys.modeless_action_for(&KeyEvent::new(
+                KeyCode::Char('{'),
+                KeyModifiers::ALT | KeyModifiers::SHIFT,
+            )),
+            Some(Action::PrevWorkspace)
+        );
+        assert_eq!(
+            keys.modeless_action_for(&KeyEvent::new(
+                KeyCode::Char('}'),
+                KeyModifiers::ALT | KeyModifiers::SHIFT,
+            )),
+            Some(Action::NextWorkspace)
+        );
+        assert_eq!(
+            keys.action_for(&KeyEvent::new(KeyCode::Char('W'), KeyModifiers::SHIFT)),
+            Some(Action::NewWorkspace)
+        );
+        assert_eq!(
+            keys.action_for(&KeyEvent::new(KeyCode::Char('D'), KeyModifiers::SHIFT)),
+            Some(Action::CloseWorkspace)
         );
     }
 
@@ -2661,7 +3271,12 @@ mod tests {
             ("swap-pane-prev", Action::SwapPanePrev),
             ("swap-pane-next", Action::SwapPaneNext),
             ("scroll-up", Action::ScrollUp),
+            ("toggle-sidebar-compact", Action::ToggleSidebarCompact),
             ("toggle-sidebar-view", Action::ToggleSidebarView),
+            ("show-shortcuts", Action::ShowShortcuts),
+            ("send-prefix", Action::SendPrefix),
+            ("prev-workspace", Action::PrevWorkspace),
+            ("close-workspace", Action::CloseWorkspace),
         ];
         for (name, action) in cases {
             let mut keys = Keys::default();
@@ -2679,10 +3294,10 @@ mod tests {
     #[test]
     fn select_screen_action_names_round_trip_and_parse() {
         for number in 0..=9 {
-            let action = Action::SelectScreen(number);
+            let action = Action::select_screen(number).unwrap();
             let name = format!("select-screen-{number}");
-            assert_eq!(action.config_key(), name);
-            assert!(all_actions().contains(&action));
+            assert_eq!(action.definition().config_key, name);
+            assert!(action_definitions().iter().any(|definition| definition.action == action));
 
             let mut keys = Keys::default();
             let mut raw = HashMap::new();
@@ -2706,9 +3321,10 @@ mod tests {
             );
         }
 
-        assert_eq!(Action::SelectScreen(0).screen_index(), Some(0));
-        assert_eq!(Action::SelectScreen(1).screen_index(), Some(1));
-        assert_eq!(Action::SelectScreen(9).screen_index(), Some(9));
+        assert_eq!(Action::select_screen(0).unwrap().screen_index(), Some(0));
+        assert_eq!(Action::select_screen(1).unwrap().screen_index(), Some(1));
+        assert_eq!(Action::select_screen(9).unwrap().screen_index(), Some(9));
+        assert!(Action::select_screen(10).is_none());
     }
 
     #[test]
@@ -2723,12 +3339,89 @@ mod tests {
     }
 
     #[test]
+    fn shortcut_labels_follow_resolved_bindings_and_prefix() {
+        let mut keys = Keys::default();
+        assert_eq!(keys.shortcut_label(Action::SendPrefix).as_deref(), Some("Ctrl-b Ctrl-b"));
+        assert_eq!(keys.shortcut_label(Action::ZoomPane).as_deref(), Some("Ctrl-b z"));
+        assert_eq!(keys.shortcut_label(Action::NewPaneSmart).as_deref(), Some("Alt-n"));
+        assert_eq!(keys.shortcut_label(Action::ClearHistory).as_deref(), Some("Super-k"));
+        assert_eq!(keys.prefixed_key_label(Action::ClearHistory), None);
+        assert_eq!(keys.prefixed_key_label(Action::ShowShortcuts).as_deref(), Some("?"));
+        assert_eq!(
+            keys.shortcut_labels(Action::FocusLeft),
+            ["Ctrl-b h", "Ctrl-b Left", "Alt-h", "Alt-Left"]
+        );
+
+        let mut raw = HashMap::new();
+        raw.insert("prefix".to_string(), Value::String("ctrl+a".to_string()));
+        raw.insert("zoom-pane".to_string(), Value::String("f".to_string()));
+        raw.insert("toggle-sidebar".to_string(), Value::String("none".to_string()));
+        keys.apply(&raw);
+
+        assert_eq!(keys.shortcut_label(Action::SendPrefix).as_deref(), Some("Ctrl-a Ctrl-a"));
+        assert_eq!(keys.shortcut_label(Action::ZoomPane).as_deref(), Some("Ctrl-a f"));
+        assert_eq!(keys.shortcut_label(Action::ToggleSidebar), None);
+        assert!(
+            keys.resolved_shortcuts()
+                .iter()
+                .all(|(definition, shortcuts)| definition.action != Action::ToggleSidebar
+                    && !shortcuts.is_empty())
+        );
+
+        let mut collision = Keys::default();
+        let mut raw = HashMap::new();
+        raw.insert("prefix".to_string(), Value::String("alt+n".to_string()));
+        collision.apply(&raw);
+        assert_eq!(
+            collision.shortcut_labels(Action::NewPaneSmart),
+            Vec::<String>::new(),
+            "the prefix chord must not remain advertised as a modeless action"
+        );
+        assert_eq!(collision.shortcut_label(Action::SendPrefix).as_deref(), Some("Alt-n Alt-n"));
+    }
+
+    #[test]
     fn default_backtab_accepts_crossterm_implied_shift() {
         let keys = Keys::default();
         assert_eq!(
             keys.action_for(&KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT)),
             Some(Action::PrevTab)
         );
+    }
+
+    #[test]
+    fn action_catalog_has_unique_actions_keys_and_complete_localized_labels() {
+        let mut actions = HashSet::new();
+        let mut keys = HashSet::new();
+        for &definition in action_definitions() {
+            assert!(actions.insert(definition.action), "duplicate action: {:?}", definition.action);
+            assert!(keys.insert(definition.config_key), "duplicate key: {}", definition.config_key);
+            assert!(!definition.label_en.is_empty());
+            assert!(!definition.label_ja.is_empty());
+            assert_eq!(definition.action.definition(), definition);
+        }
+        for (_, action) in Keys::default().bindings {
+            assert!(actions.contains(&action), "default binding is not registered: {action:?}");
+        }
+        assert!(actions.contains(&Action::NewPaneSmart));
+        assert!(actions.contains(&Action::ShowShortcuts));
+    }
+
+    #[test]
+    fn every_catalog_action_can_be_rebound() {
+        for &definition in action_definitions() {
+            let mut keys = Keys::default();
+            let mut raw = HashMap::new();
+            raw.insert(definition.config_key.to_string(), Value::String("f".to_string()));
+            keys.apply(&raw);
+
+            assert_eq!(
+                keys.action_for(&KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE)),
+                Some(definition.action),
+                "{} did not rebind through the central action catalog",
+                definition.config_key
+            );
+        }
     }
 
     #[test]

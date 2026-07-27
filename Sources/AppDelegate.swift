@@ -579,64 +579,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private final class MainWindowController: ReleasingWindowController {
-        var onClose: (() -> Void)?
-        var shouldClose: (() -> Bool)?
-
-        #if DEBUG
-        private func logWindowEvent(_ event: String, notification: Notification) {
-            guard let window = notification.object as? NSWindow else { return }
-            let id = window.identifier?.rawValue ?? "<nil>"
-            cmuxDebugLog(
-                "mainWindow.delegate.\(event) window=\(id) visible=\(window.isVisible ? 1 : 0) mini=\(window.isMiniaturized ? 1 : 0) key=\(window.isKeyWindow ? 1 : 0) main=\(window.isMainWindow ? 1 : 0)"
-            )
-        }
-        #endif
-
-        override func managedWindowWillClose(_ window: NSWindow) {
-            onClose?()
-        }
-
-        #if DEBUG
-        func windowDidDeminiaturize(_ notification: Notification) {
-            logWindowEvent("didDeminiaturize", notification: notification)
-        }
-
-        func windowDidMiniaturize(_ notification: Notification) {
-            logWindowEvent("didMiniaturize", notification: notification)
-        }
-
-        func windowDidBecomeKey(_ notification: Notification) {
-            logWindowEvent("didBecomeKey", notification: notification)
-        }
-
-        func windowDidResignKey(_ notification: Notification) {
-            logWindowEvent("didResignKey", notification: notification)
-        }
-
-        func windowDidBecomeMain(_ notification: Notification) {
-            logWindowEvent("didBecomeMain", notification: notification)
-        }
-
-        func windowDidResignMain(_ notification: Notification) {
-            logWindowEvent("didResignMain", notification: notification)
-        }
-        #endif
-
-        func windowShouldClose(_ sender: NSWindow) -> Bool {
-            let shouldClose = shouldClose?() ?? true
-            if shouldClose {
-                WebViewInspectorTeardown.closeAllInspectors(in: sender)
-            }
-            return shouldClose
-        }
-
-        func windowWillUseStandardFrame(_ window: NSWindow, defaultFrame newFrame: NSRect) -> NSRect {
-            guard window is CmuxMainWindow else { return newFrame }
-            return CmuxMainWindow.standardFrame(forDefaultFrame: newFrame)
-        }
-    }
-
     struct ScriptableMainWindowState {
         let windowId: UUID
         let tabManager: TabManager
@@ -815,11 +757,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var splitButtonTooltipRefreshScheduled = false
     private var didScheduleGhosttyCrashBreadcrumbCheck = false
     private var ghosttyCrashBreadcrumbTask: Task<Void, Never>?
-    private struct PendingConfiguredShortcutChord {
+    struct PendingConfiguredShortcutChord {
         let firstStroke: ShortcutStroke
         let windowNumber: Int?
     }
-    private var pendingConfiguredShortcutChord: PendingConfiguredShortcutChord?
+    var pendingConfiguredShortcutChord: PendingConfiguredShortcutChord?
     var activeConfiguredShortcutChordPrefixForCurrentEvent: ShortcutStroke?
     var shortcutEventFocusContextCache: ShortcutEventFocusContextCache?
     private var ghosttyConfigObserver: NSObjectProtocol?
@@ -1092,9 +1034,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var isQuitWarningConfirmed = false
     // One-shot guard for deferred terminate replies.
     private var didReplyToTerminate = false
-    // True while remote tmux kill-before-quit owns the terminate reply.
-    private var isAwaitingTerminateKills = false
-    private var terminateKillWatchdogTask: Task<Void, Never>?
+    // True while owned asynchronous cleanup controls the terminate reply.
+    private var isAwaitingTerminateCleanup = false
+    private var terminateOwnedCleanupTask: Task<Void, Never>?
+    private var terminateCleanupWatchdogTask: Task<Void, Never>?
     /// Force-exits if AppKit's terminate gauntlet wedges (#6758).
     private let terminationWatchdog = TerminationWatchdog()
     private var activeQuitConfirmationAlertPresenter: QuitConfirmationAlertPresenter?
@@ -1883,34 +1826,102 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard !didReplyToTerminate else { return }
         didReplyToTerminate = true
         NSApp.reply(toApplicationShouldTerminate: shouldTerminate)
-        terminateKillWatchdogTask?.cancel()
-        terminateKillWatchdogTask = nil
+        terminateCleanupWatchdogTask?.cancel()
+        terminateCleanupWatchdogTask = nil
+        terminateOwnedCleanupTask = nil
         // A cancelled quit ends this terminate request; the next quit must reply again.
         if !shouldTerminate {
             didReplyToTerminate = false
-            isAwaitingTerminateKills = false
+            isAwaitingTerminateCleanup = false
         }
     }
 
-    private func deferTerminateForMarkedRemoteTmuxKills(reason: String) -> Bool {
+    private func deferTerminateForOwnedCleanup(reason: String) -> Bool {
         let markedForKill = remoteTmuxController.windowsMarkedForKillOnClose()
-        guard !markedForKill.isEmpty else { return false }
-        if !isAwaitingTerminateKills {
-            isAwaitingTerminateKills = true
-            StartupBreadcrumbLog.append("appDelegate.shouldTerminate.killLater", fields: ["windows": String(markedForKill.count), "reason": reason])
-            Task { @MainActor in
-                await self.remoteTmuxController.killMarkedSessionsBeforeTerminate()
+        let simulatorCleanupTasks = SimulatorPanel.beginApplicationTerminationCleanup()
+        guard !markedForKill.isEmpty || !simulatorCleanupTasks.isEmpty else { return false }
+        if !isAwaitingTerminateCleanup {
+            isAwaitingTerminateCleanup = true
+            StartupBreadcrumbLog.append(
+                "appDelegate.shouldTerminate.cleanupLater",
+                fields: [
+                    "windows": String(markedForKill.count),
+                    "simulatorPanels": String(simulatorCleanupTasks.count),
+                    "reason": reason,
+                ]
+            )
+            let cleanupTask = Task { @MainActor [weak self] in
+                guard let self else { return }
+                if !markedForKill.isEmpty {
+                    await self.remoteTmuxController.killMarkedSessionsBeforeTerminate()
+                }
+                guard !Task.isCancelled else { return }
+                for cleanupTask in simulatorCleanupTasks {
+                    await cleanupTask.value
+                    guard !Task.isCancelled else { return }
+                }
+                let simulatorCleanupSucceeded = await TerminalController.shared
+                    .simulatorCameraCleanupOwnershipScope
+                    .waitForPendingCleanup()
+                guard simulatorCleanupSucceeded else {
+                    self.cancelTerminationAfterSimulatorCleanupFailure()
+                    return
+                }
+                self.terminationWatchdog.arm()
                 self.replyToTerminateOnce(true)
             }
-            // Watchdog: release quit if the deferred Task is starved inside a nested run loop.
-            terminateKillWatchdogTask?.cancel()
-            terminateKillWatchdogTask = Task { @MainActor [weak self] in
-                try? await ContinuousClock().sleep(for: .milliseconds(3_500))
+            terminateOwnedCleanupTask = cleanupTask
+            // Remote SSH cleanup force-stops its subprocess on cancellation.
+            // Simulator camera disable can legitimately consume its 120-second
+            // worker deadline before durable simctl rollback begins. The
+            // watchdog requests cancellation after that contract plus cleanup
+            // headroom. It cancels the actual panel and rollback tasks, joins
+            // rollback only for a bounded grace period, then explicitly cancels
+            // this quit request. Durable records preserve any unfinished work.
+            let cleanupDeadline: Duration = simulatorCleanupTasks.isEmpty
+                ? .milliseconds(3_500)
+                : .seconds(150)
+            terminateCleanupWatchdogTask?.cancel()
+            terminateCleanupWatchdogTask = Task { @MainActor in
+                try? await ContinuousClock().sleep(for: cleanupDeadline)
                 guard !Task.isCancelled else { return }
-                self?.replyToTerminateOnce(true)
+                SimulatorPanel.cancelApplicationTerminationCleanup()
+                cleanupTask.cancel()
+                let cleanupJoined = await TerminalController.shared
+                    .simulatorCameraCleanupOwnershipScope
+                    .cancelPendingCleanupAndWait(timeout: .seconds(5))
+                StartupBreadcrumbLog.append(
+                    "appDelegate.shouldTerminate.cleanupDeadline",
+                    fields: ["rollbackJoined": cleanupJoined ? "1" : "0"]
+                )
+                self.cancelTerminationAfterSimulatorCleanupFailure()
             }
         }
         return true
+    }
+
+    private func cancelTerminationAfterSimulatorCleanupFailure() {
+        guard isAwaitingTerminateCleanup else { return }
+        StartupBreadcrumbLog.append(
+            "appDelegate.shouldTerminate.simulatorCleanupFailed"
+        )
+        SimulatorPanel.cancelApplicationTerminationCleanup()
+        isTerminatingApp = false
+        isQuitWarningConfirmed = false
+        replyToTerminateOnce(false)
+
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(
+            localized: "dialog.simulatorCameraCleanupFailed.title",
+            defaultValue: "Couldn’t Finish Simulator Cleanup"
+        )
+        alert.informativeText = String(
+            localized: "dialog.simulatorCameraCleanupFailed.message",
+            defaultValue: "cmux stayed open because it could not restore a Simulator app’s camera state. Quit again to retry cleanup."
+        )
+        alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
+        _ = alert.runCmuxModal()
     }
 
     private func clearMarkedRemoteTmuxKills() {
@@ -1923,12 +1934,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         isTerminatingApp = true
         _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
         ClosedItemHistoryStore.shared.flushPendingSaves()
-        // Quit is committed and the critical state is now on disk. Bound the
-        // remainder of the terminate sequence so a blocked Apple will-terminate
-        // observer (e.g. CFPasteboardResolveAllPromisedData, #6758) can't hang
-        // the main thread for ~30s. Idempotent and a no-op if the process exits
-        // first.
-        terminationWatchdog.arm()
+        // The hard AppKit watchdog is armed immediately before the terminate
+        // reply, after any owned asynchronous cleanup has finished. This keeps
+        // the will-terminate gauntlet bounded without cutting rollback short.
     }
 
     private func presentQuitConfirmationAlert(
@@ -1961,7 +1969,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             isQuitWarningConfirmed = true
             closeAllWebInspectorsBeforeAppTeardown()
             StartupBreadcrumbLog.append("appDelegate.shouldTerminate.reply", fields: ["shouldQuit": "1"])
-            if deferTerminateForMarkedRemoteTmuxKills(reason: "confirmedDialog") {
+            if deferTerminateForOwnedCleanup(reason: "confirmedDialog") {
                 return
             }
         } else {
@@ -1970,12 +1978,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             clearMarkedRemoteTmuxKills()
             StartupBreadcrumbLog.append("appDelegate.shouldTerminate.reply", fields: ["shouldQuit": "0"])
         }
+        if shouldQuit {
+            terminationWatchdog.arm()
+        }
         replyToTerminateOnce(shouldQuit)
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if let reply = Self.pendingTerminateReply(
-            isAwaitingTerminateKills: isAwaitingTerminateKills,
+            isAwaitingTerminateCleanup: isAwaitingTerminateCleanup,
             hasActiveQuitConfirmation: activeQuitConfirmationAlertPresenter != nil,
             activeQuitConfirmationOwnsTerminateRequest: activeQuitConfirmationOwnsTerminateRequest
         ) {
@@ -2014,11 +2025,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             } else {
                 reason = "policy"
             }
-            // Explicit last-tab closes kill marked remote sessions before quit.
-            // Plain app/window quits have no marker and only detach.
-            if deferTerminateForMarkedRemoteTmuxKills(reason: reason) {
+            // Finish Simulator rollback and any explicitly marked remote-session
+            // kills before AppKit begins synchronous process teardown.
+            if deferTerminateForOwnedCleanup(reason: reason) {
                 return .terminateLater
             }
+            terminationWatchdog.arm()
             StartupBreadcrumbLog.append("appDelegate.shouldTerminate.terminateNow", fields: ["reason": reason])
             return .terminateNow
         }
@@ -2118,6 +2130,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         MacPairedMacBackupPublisher.shared.configure(auth: auth.coordinator)
         TerminalController.shared.attachAuth(coordinator: auth.coordinator, browserSignIn: auth.browserSignIn)
         TerminalController.shared.agentChatTranscriptService = agentChatTranscriptService
+        if !isRunningUnderXCTest(ProcessInfo.processInfo.environment) {
+            TerminalController.shared.startSimulatorMutationRecovery()
+        }
         auth.start()
         ensureMobileWorkspaceListObserver(for: tabManager)
         MobileTerminalRenderObserver.shared.start()
@@ -7332,7 +7347,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             title: title,
             initialBrowserURL: url,
             initialBrowserOmnibarVisible: false,
-            initialBrowserTransparentBackground: true,
+            initialBrowserTransparentBackground: true, shouldApplyWorkspaceDirectoryCustomization: false,
             focusInitialBrowserAddressBarOnCreate: false,
             createdWorkspaceHandler: { workspace in
                 createdWorkspace = workspace
@@ -7381,7 +7396,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         title: String? = nil,
         initialBrowserURL: URL? = nil,
         initialBrowserOmnibarVisible: Bool = true,
-        initialBrowserTransparentBackground: Bool = false,
+        initialBrowserTransparentBackground: Bool = false, shouldApplyWorkspaceDirectoryCustomization: Bool = true,
         focusInitialBrowserAddressBarOnCreate: Bool = true,
         createdWorkspaceHandler: ((Workspace) -> Void)? = nil
     ) -> Bool {
@@ -7423,8 +7438,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         title: title,
                         initialSurface: .browser,
                         initialBrowserURL: initialBrowserURL,
-                        initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
-                        initialBrowserTransparentBackground: initialBrowserTransparentBackground
+                        initialBrowserOmnibarVisible: initialBrowserOmnibarVisible, initialBrowserTransparentBackground: initialBrowserTransparentBackground,
+                        shouldApplyWorkspaceDirectoryCustomization: shouldApplyWorkspaceDirectoryCustomization
                     )
                     closeInitialWorkspaceIfNeeded(
                         initialWorkspaceId: initialWorkspace?.id,
@@ -7471,8 +7486,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 initialSurface: initialSurface,
                 title: title,
                 initialBrowserURL: initialBrowserURL,
-                initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
-                initialBrowserTransparentBackground: initialBrowserTransparentBackground
+                initialBrowserOmnibarVisible: initialBrowserOmnibarVisible, initialBrowserTransparentBackground: initialBrowserTransparentBackground,
+                shouldApplyWorkspaceDirectoryCustomization: shouldApplyWorkspaceDirectoryCustomization
             ) else {
                 return false
             }
@@ -7489,8 +7504,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 title: title,
                 initialSurface: initialSurface,
                 initialBrowserURL: initialBrowserURL,
-                initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
-                initialBrowserTransparentBackground: initialBrowserTransparentBackground
+                initialBrowserOmnibarVisible: initialBrowserOmnibarVisible, initialBrowserTransparentBackground: initialBrowserTransparentBackground,
+                shouldApplyWorkspaceDirectoryCustomization: shouldApplyWorkspaceDirectoryCustomization
             )
             createdWorkspaceHandler?(workspace)
             if initialSurface == .browser, focusInitialBrowserAddressBarOnCreate {
@@ -7504,7 +7519,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             initialSurface: initialSurface,
             initialBrowserURL: initialBrowserURL,
             initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
-            initialBrowserTransparentBackground: initialBrowserTransparentBackground,
+            initialBrowserTransparentBackground: initialBrowserTransparentBackground, shouldApplyWorkspaceDirectoryCustomization: shouldApplyWorkspaceDirectoryCustomization,
             event: event,
             debugSource: debugSource
         ) {
@@ -7598,6 +7613,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         } else {
             workspace = context.tabManager.addWorkspace(
                 title: workspaceTitle,
+                titleSource: .auto,
                 initialSurface: .cloudVMLoading,
                 inheritWorkingDirectory: false,
                 select: true,
@@ -8286,7 +8302,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         initialSurface: NewWorkspaceInitialSurface = .terminal,
         initialBrowserURL: URL? = nil,
         initialBrowserOmnibarVisible: Bool = true,
-        initialBrowserTransparentBackground: Bool = false,
+        initialBrowserTransparentBackground: Bool = false, shouldApplyWorkspaceDirectoryCustomization: Bool = true,
         shouldBringToFront: Bool = false,
         event: NSEvent? = nil,
         debugSource: String = "unspecified"
@@ -8341,7 +8357,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 initialBrowserURL: initialBrowserURL,
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
                 initialBrowserTransparentBackground: initialBrowserTransparentBackground,
-                select: true
+                select: true, shouldApplyWorkspaceDirectoryCustomization: shouldApplyWorkspaceDirectoryCustomization
             )
         } else if workingDirectory != nil || initialTerminalInput != nil {
             workspace = context.tabManager.addWorkspace(
@@ -8349,10 +8365,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 workingDirectory: workingDirectory,
                 initialTerminalInput: initialTerminalInput,
                 select: true,
-                autoWelcomeIfNeeded: initialTerminalInput == nil
+                autoWelcomeIfNeeded: initialTerminalInput == nil, shouldApplyWorkspaceDirectoryCustomization: shouldApplyWorkspaceDirectoryCustomization
             )
         } else if title != nil {
-            workspace = context.tabManager.addWorkspace(title: title, select: true)
+            workspace = context.tabManager.addWorkspace(title: title, select: true, shouldApplyWorkspaceDirectoryCustomization: shouldApplyWorkspaceDirectoryCustomization)
         } else {
             workspace = context.tabManager.addTab(select: true)
         }
@@ -8690,6 +8706,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             initialTerminalInput: initialTerminalInput,
             autoWelcomeIfNeeded: initialTerminalInput == nil,
             pullRequestProbeService: pullRequestProbeService,
+            workspaceDirectoryCustomizationStore: WorkspaceDirectoryCustomizationStore(
+                defaults: .standard
+            ),
             nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker
         )
         tabManager.windowId = windowId
@@ -8856,6 +8875,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Keep a strong reference so the window isn't deallocated.
         let controller = MainWindowController(window: window)
+        controller.onFrameRestorationCheckpoint = { [weak self] restoredWindow in
+            self?.fitRestoredMainWindowFramesIfNeeded(windows: [restoredWindow])
+        }
         controller.onClose = { [weak self, weak controller] in
             guard let self, let controller else { return }
             let manager = self.tabManagerFor(windowId: windowId)
@@ -9129,7 +9151,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-    func toggleGlobalSearchPaletteFromGlobalHotkey() {
+    func toggleGlobalSearchPalette() {
         if menuBarExtraController == nil,
            MenuBarExtraSettings.shouldInstallMenuBarExtra() {
             setupMenuBarExtra()
@@ -12639,13 +12661,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func currentConfiguredShortcutChordActions() -> [KeyboardShortcutSettings.Action] {
         KeyboardShortcutSettings.Action.allCases.filter { action in
-            // System-wide hotkeys are dispatched via Carbon RegisterEventHotKey
-            // and never routed through AppKit's local key handler. If a managed
-            // cmux.json entry somehow stores one as a chord, arming the prefix
-            // here would swallow the first stroke and leave the second one
-            // orphaned, breaking that keystroke for the focused terminal/browser
-            // input.
-            guard action != .showHideAllWindows && action != .globalSearch && action.allowsChordShortcut else { return false }
+            // Carbon owns the opt-in hotkey, while Global Search has a cached
+            // foreground route before generic chord handling.
+            guard !action.isSystemWideHotkey,
+                  action != .globalSearch,
+                  action.allowsChordShortcut else {
+                return false
+            }
             guard !action.isBrowserContentShortcut else { return false }
             return KeyboardShortcutSettings.shortcut(for: action).hasChord
         }
@@ -12920,7 +12942,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if shortcutRoutingShouldBypassForPrintableOptionText(event: event) {
             let shortcutWindow = resolvedShortcutEventWindow(event) ?? shortcutRoutingActiveWindow
-            if browserResponderHasMarkedText(shortcutWindow?.firstResponder) {
+            if shortcutResponderHasMarkedText(shortcutWindow?.firstResponder) {
                 clearConfiguredShortcutChordState()
                 return false
             }
@@ -13265,14 +13287,57 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
-        if shouldConsumeShortcutWhileCommandPaletteVisible(
+        // Active marked text owns every non-Command event, regardless of which
+        // NSTextInputClient has focus. Command shortcuts remain available while
+        // composing because Command is not part of IME input sequences.
+        let shortcutWindowForMarkedText = resolvedShortcutEventWindow(event)
+            ?? event.window
+            ?? shortcutRoutingActiveWindow
+            ?? shortcutRoutingKeyWindow
+        let shortcutResponderForMarkedText = shortcutWindowForMarkedText?.firstResponder
+        if !normalizedFlags.contains(.command) {
+            if let ghosttyView = shortcutResponderForMarkedText.cmuxStrictOwningGhosttyView(),
+               ghosttyView.hasMarkedText() {
+                return false
+            }
+            if shortcutResponderHasMarkedText(shortcutResponderForMarkedText) {
+                return false
+            }
+        }
+
+        let globalSearchShortcut = globalSearchShortcutForRouting()
+        let matchesGlobalSearchShortcut = matchGlobalSearchShortcut(
+            event: event,
+            normalizedFlags: normalizedFlags
+        )
+        let commandPaletteConsumesShortcut = shouldConsumeShortcutWhileCommandPaletteVisible(
             isCommandPaletteVisible: commandPaletteEffectiveInTargetWindow,
-            normalizedFlags: normalizedFlags,
-            chars: chars,
-            keyCode: event.keyCode
-        ) {
+            normalizedFlags: normalizedFlags, chars: chars, keyCode: event.keyCode
+        )
+        let commandPaletteCanRouteUnarmedGlobalSearch = commandPaletteEffectiveInTargetWindow && commandPaletteConsumesShortcut
+        let globalSearchUnarmedChordPrefixMatches = matchesUnarmedGlobalSearchChordPrefix(event, normalizedFlags: normalizedFlags)
+        switch routeVisibleGlobalSearchShortcut(event, normalizedFlags: normalizedFlags) {
+        case .handled:
+            return true
+        case .queryOwnsEvent:
+            return false
+        case .notApplicable:
+            break
+        }
+        if matchesGlobalSearchShortcut,
+           activeConfiguredShortcutChordPrefixForCurrentEvent != nil
+            || commandPaletteCanRouteUnarmedGlobalSearch {
+            toggleGlobalSearchPalette()
             return true
         }
+        if globalSearchUnarmedChordPrefixMatches,
+           commandPaletteCanRouteUnarmedGlobalSearch {
+            if globalSearchShortcutWhenClauseAllows(event: event),
+               armConfiguredShortcutChordIfNeeded(event: event, actions: [], shortcuts: [globalSearchShortcut]) { return true }
+        }
+        if commandPaletteConsumesShortcut { return true }
+        if commandPaletteEffectiveInTargetWindow,
+           activeConfiguredShortcutChordPrefixForCurrentEvent == nil { return false }
 
         if isPlainEscape {
             let escapeWindow = resolvedShortcutEventWindow(event) ?? shortcutRoutingActiveWindow
@@ -13288,25 +13353,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if escapeWindow?.firstResponder is TextBoxInputTextView {
                 return false
             }
-        }
-
-        // When the terminal has active IME composition (e.g. Korean, Japanese, Chinese
-        // input), don't intercept non-Cmd key events — let them flow through to the
-        // input method. Cmd-based shortcuts (Cmd+T, Cmd+Shift+L, etc.) should still
-        // work during composition since Cmd is never part of IME input sequences.
-        if !normalizedFlags.contains(.command),
-           let ghosttyView = (shortcutRoutingKeyWindow?.firstResponder).cmuxStrictOwningGhosttyView(),
-           ghosttyView.hasMarkedText() {
-            return false
-        }
-
-        let shortcutWindowForMarkedText = resolvedShortcutEventWindow(event) ?? event.window ?? shortcutRoutingActiveWindow
-        if browserOmnibarShouldBypassShortcutRoutingForMarkedText(
-            hasFocusedAddressBar: hasFocusedAddressBarInShortcutContext,
-            firstResponderHasMarkedText: browserResponderHasMarkedText(shortcutWindowForMarkedText?.firstResponder),
-            flags: event.modifierFlags
-        ) {
-            return false
         }
 
         // When the notifications popover is open, Escape should dismiss it immediately.
@@ -13357,6 +13403,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
         if cmuxCloseFocusedTerminalFindForEscape(event: event, appDelegate: self) { return true }
+        if handleSimulatorShortcutRouting(event) { return true }
         if matchConfiguredShortcut(event: event, action: .find) {
             let shortcutWindow = resolvedShortcutEventWindow(event)
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: shortcutWindow ?? shortcutRoutingKeyWindow); return performFindShortcutInActiveMainWindow(preferredWindow: shortcutWindow)
@@ -13461,6 +13508,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                pageURL: shortcutEventBrowserPanel(event)?.webView.url
            ) {
             return false
+        }
+
+        if activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
+           globalSearchShortcut.hasChord,
+           globalSearchShortcutWhenClauseAllows(event: event),
+           armConfiguredShortcutChordIfNeeded(event: event, actions: [], shortcuts: [globalSearchShortcut]) {
+            return true
+        }
+
+        if matchesGlobalSearchShortcut {
+            toggleGlobalSearchPalette()
+            return true
         }
 
         if matchConfiguredShortcut(event: event, action: .commandPalette) {
@@ -14300,6 +14359,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if !reopenPreviousSession() {
                 NSSound.beep()
             }
+            return true
+        }
+
+        if matchConfiguredShortcut(event: event, action: .reopenClosedWorkspace) {
+            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            _ = reopenMostRecentlyClosedWorkspace(preferredTabManager: routedManager)
             return true
         }
 
@@ -15313,6 +15378,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return matchConfiguredShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: action))
     }
 
+    /// `shortcuts.when` gates opening Search; visible Search owns its toggle so
+    /// the auxiliary popover's transient focus context cannot prevent dismissal.
+    func globalSearchShortcutWhenClauseAllows(event: NSEvent) -> Bool {
+        GlobalSearchCoordinator.shared.isPaletteVisible()
+            || shortcutWhenClauseAllows(action: .globalSearch, event: event)
+    }
+
     /// Whether `action`'s effective `when` clause (its `shortcuts.when` override,
     /// or its built-in context default) is satisfied by the event's focus state.
     /// Gates every focus-scoped shortcut, including the numbered workspace/surface
@@ -15327,7 +15399,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func rightSidebarModeShortcut(for event: NSEvent) -> RightSidebarMode? {
         let shortcutWindow = resolvedShortcutEventWindow(event) ?? event.window ?? shortcutRoutingActiveWindow
         if shortcutRoutingShouldBypassForPrintableOptionText(event: event),
-           browserResponderHasMarkedText(shortcutWindow?.firstResponder) {
+           shortcutResponderHasMarkedText(shortcutWindow?.firstResponder) {
             return nil
         }
         return KeyboardShortcutSettingsObserver.shared.rightSidebarModeShortcutMatcher.modeShortcut(for: event) { [self] action in
@@ -15404,7 +15476,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-    private func configuredShortcutChordWindowNumber(for event: NSEvent) -> Int? {
+    func configuredShortcutChordWindowNumber(for event: NSEvent) -> Int? {
         if let window = mainWindowForShortcutEvent(event) {
             return window.windowNumber
         }
@@ -15629,6 +15701,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 MobilePairingWindowController.shared.show()
                 onExecuted?()
                 return true
+            case .newSimulator: return performConfiguredNewSimulatorAction(context: context, onExecuted: onExecuted)
             case .newTerminal:
                 context.tabManager.newSurface()
                 onExecuted?()
@@ -15765,14 +15838,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return numberedShortcutDigit(event: event, shortcut: currentShortcut) != nil
         }
         return matchesKeyboardShortcutEvent(event, action: action, shortcut: currentShortcut)
-    }
-
-    private func isMenuBackedShortcutAction(_ action: KeyboardShortcutSettings.Action) -> Bool {
-        action != .showHideAllWindows
-            && action != .globalSearch
-            && action != .clearScreenKeepScrollback
-            && action != .fileExplorerOpenSelection
-            && action != .fileExplorerOpenSelectionFinderAlias
     }
 
     private func canCurrentShortcutPreventStaleMenuSuppression(_ action: KeyboardShortcutSettings.Action) -> Bool {
@@ -17176,7 +17241,7 @@ private extension NSWindow {
         let firstResponderWebView = self.firstResponder.flatMap {
             Self.cmuxOwningWebView(for: $0, in: self, event: event)
         }
-        let firstResponderHasMarkedText = browserResponderHasMarkedText(self.firstResponder)
+        let firstResponderHasMarkedText = shortcutResponderHasMarkedText(self.firstResponder)
         let firstResponderIsCommandPaletteFieldEditor = Self.cmuxCommandPaletteOwnsFieldEditor(
             self.firstResponder as? NSTextView,
             in: self
@@ -17458,7 +17523,7 @@ private extension NSWindow {
                 if cmuxForceDispatchKeyDownOnce(
                     event,
                     to: omnibarResponder,
-                    reason: browserResponderHasMarkedText(omnibarResponder)
+                    reason: shortcutResponderHasMarkedText(omnibarResponder)
                         ? "browser arrow restored focused omnibar with marked text"
                         : "browser arrow restored focused omnibar"
                 ) {
@@ -17560,6 +17625,12 @@ private extension NSWindow {
             }
 #endif
             if !consumedByMenu {
+                if firstResponderGhosttyView.consumeUnavailableCopyMenuAction(event) {
+#if DEBUG
+                    cmuxDebugLog("  → mainMenu miss; consumed unavailable terminal Copy")
+#endif
+                    return true
+                }
                 // After a direct-to-menu miss, let Ghostty resolve the command key
                 // through its normal binding path so user key overrides still win.
                 let consumedByGhostty = firstResponderGhosttyView.performKeyEquivalentAfterMenuMiss(with: event)

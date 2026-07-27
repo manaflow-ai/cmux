@@ -80,6 +80,5 @@ struct ShortcutActionNumberedDigitTests {
         #expect(!ShortcutAction.fileExplorerOpenSelectionFinderAlias.allowsChordShortcut)
         #expect(!ShortcutAction.cycleTextBoxSubmitAction.allowsChordShortcut)
         #expect(!ShortcutAction.showHideAllWindows.allowsChordShortcut)
-        #expect(!ShortcutAction.globalSearch.allowsChordShortcut)
     }
 }

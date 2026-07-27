@@ -24,8 +24,7 @@ struct ShortcutListStableLazyView: View {
                     placeholder: model.formatPlaceholder(effective: effective, numbered: action.usesNumberedDigitMatching),
                     showsChordModeButton: action.allowsChordShortcut,
                     chordsEnabled: model.chordsEnabled(for: action),
-                    hasPendingRejection: model.bareKeyRejections.contains(action.rawValue)
-                        || model.numberedDigitRejections.contains(action.rawValue),
+                    hasPendingRejection: model.hasPendingRejection(for: action),
                     firstStrokeRequiresModifier: !action.allowsBareFirstStroke,
                     isUnbound: effective?.isUnbound ?? true,
                     canRestore: model.canRestore(for: action),

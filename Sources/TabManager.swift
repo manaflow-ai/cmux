@@ -395,6 +395,8 @@ class TabManager: ObservableObject {
     /// Typed synchronous settings access (CmuxSettings).
     private let settings: any SettingsWriting
     private let settingsCatalog = SettingCatalog()
+    private let defaultWorkspaceWorkingDirectoryProvider: () -> String
+    let workspaceDirectoryCustomizationStore: WorkspaceDirectoryCustomizationStore
     private var lastFocusHistoryIncludesPanesAndTabs: Bool
     let nativeSSHConnectionBroker: NativeSSHConnectionBroker
 
@@ -479,10 +481,21 @@ class TabManager: ObservableObject {
         gitProbeLimiter: WorkspaceGitMetadataProbeLimiter? = nil,
         panelTitleUpdateCoalescer: NotificationBurstCoalescer? = nil,
         settings: any SettingsWriting = UserDefaultsSettingsClient(defaults: .standard),
+        defaultWorkspaceWorkingDirectoryProvider: @escaping () -> String = {
+            GhosttyWorkingDirectoryResolver(
+                homeDirectory: FileManager.default.homeDirectoryForCurrentUser.path,
+                processWorkingDirectory: FileManager.default.currentDirectoryPath
+            ).resolve(
+                configuredValue: GhosttyConfig.load().workingDirectory
+            )
+        },
+        workspaceDirectoryCustomizationStore: WorkspaceDirectoryCustomizationStore? = nil,
         nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker(),
         closeTabWarningDefaults: UserDefaults = .standard
     ) {
         self.settings = settings
+        self.defaultWorkspaceWorkingDirectoryProvider = defaultWorkspaceWorkingDirectoryProvider
+        self.workspaceDirectoryCustomizationStore = workspaceDirectoryCustomizationStore ?? WorkspaceDirectoryCustomizationStore()
         let focusHistoryScopeKey = SettingCatalog().app.focusHistoryIncludesPanesAndTabs
         self.lastFocusHistoryIncludesPanesAndTabs = settings.value(for: focusHistoryScopeKey)
         self.focusHistoryNavigation = FocusHistoryModel(navigationScope: {
@@ -546,6 +559,7 @@ class TabManager: ObservableObject {
         workspaceGrouping.attach(host: self)
         addWorkspace(
             title: initialWorkspaceTitle,
+            titleSource: .auto,
             workingDirectory: initialWorkingDirectory,
             initialTerminalInput: initialTerminalInput,
             autoWelcomeIfNeeded: autoWelcomeIfNeeded
@@ -1083,6 +1097,7 @@ class TabManager: ObservableObject {
     func addWorkspace(
         id: UUID? = nil,
         title: String? = nil,
+        titleSource: Workspace.CustomTitleSource = .user,
         workingDirectory overrideWorkingDirectory: String? = nil,
         initialSurface: NewWorkspaceInitialSurface = .terminal,
         initialTerminalCommand: String? = nil,
@@ -1099,6 +1114,7 @@ class TabManager: ObservableObject {
         autoWelcomeIfNeeded: Bool = true,
         autoRefreshMetadata: Bool = true,
         normalizeWorkspaceGroupsAfterInsert: Bool = true,
+        shouldApplyWorkspaceDirectoryCustomization: Bool = true,
         allowTextBoxFocusDefault: Bool = true
     ) -> Workspace {
         let sourceWorkspace = selectedWorkspace
@@ -1111,8 +1127,10 @@ class TabManager: ObservableObject {
         // entire creation path. Release ARC can otherwise drop retains early across the
         // helper/insertion chain, which reintroduces use-after-free crashes in optimized builds.
         return withExtendedLifetime((capturedTabs, sourceWorkspace)) {
-            let dir = inheritWorkingDirectory
-                ? implicitWorkingDirectoryForNewWorkspace(from: sourceWorkspace)
+            let inheritanceEnabled = inheritWorkingDirectory
+                && settings.value(for: settingsCatalog.app.workspaceInheritWorkingDirectory)
+            let inheritedWorkingDirectory = inheritanceEnabled
+                ? preferredWorkingDirectoryForNewTab(workspace: sourceWorkspace)
                 : nil
             let fontSizeLineage = inheritedTerminalFontSizeLineageForNewWorkspace(
                 workspace: sourceWorkspace
@@ -1120,7 +1138,7 @@ class TabManager: ObservableObject {
             let snapshot = workspaceCreationSnapshotLite(
                 currentTabs: capturedTabs,
                 currentSelectedTabId: capturedSelectedTabId,
-                preferredWorkingDirectory: dir,
+                preferredWorkingDirectory: inheritedWorkingDirectory,
                 inheritedTerminalFontSizeLineage: fontSizeLineage
             )
             didCaptureWorkspaceCreationSnapshot()
@@ -1130,7 +1148,13 @@ class TabManager: ObservableObject {
             let nextTabCount = snapshot.tabs.count + 1
             sentryBreadcrumb("workspace.create", data: ["tabCount": nextTabCount])
             let explicitWorkingDirectory = normalizedWorkingDirectory(overrideWorkingDirectory)
-            let workingDirectory = explicitWorkingDirectory ?? snapshot.preferredWorkingDirectory
+            let workingDirectory = WorkspaceCreationWorkingDirectoryPolicy(
+                inheritanceEnabled: inheritanceEnabled
+            ).resolve(
+                explicitWorkingDirectory: explicitWorkingDirectory,
+                inheritedWorkingDirectory: snapshot.preferredWorkingDirectory,
+                defaultWorkingDirectory: defaultWorkspaceWorkingDirectoryProvider()
+            )
             let inheritedConfig = workspaceCreationConfigTemplate(
                 inheritedTerminalFontSizeLineage: snapshot.inheritedTerminalFontSizeLineage
             )
@@ -1173,8 +1197,13 @@ class TabManager: ObservableObject {
                 from: sourceWorkspace ?? capturedTabs.first
             )
             newWorkspace.owningTabManager = self
-            if title != nil {
-                newWorkspace.setCustomTitle(title)
+            if shouldApplyWorkspaceDirectoryCustomization {
+                applyWorkspaceDirectoryCustomization(
+                    to: newWorkspace,
+                    rootDirectory: workingDirectory,
+                    explicitTitle: title,
+                    explicitTitleSource: titleSource
+                )
             }
             wireClosedBrowserTracking(for: newWorkspace)
             if eagerLoadTerminal && !select {
@@ -1750,20 +1779,13 @@ class TabManager: ObservableObject {
 
     func setTabColor(tabId: UUID, color: String?) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
-        tab.setCustomColor(color)
+        applyWorkspaceColor(color, to: [tab])
     }
 
     func applyWorkspaceColor(_ color: String?, toWorkspaceIds workspaceIds: [UUID]) {
         guard !workspaceIds.isEmpty else { return }
-        if workspaceIds.count == 1, let workspaceId = workspaceIds.first {
-            setTabColor(tabId: workspaceId, color: color)
-            return
-        }
-
         let targetIds = Set(workspaceIds)
-        for tab in tabs where targetIds.contains(tab.id) {
-            tab.setCustomColor(color)
-        }
+        applyWorkspaceColor(color, to: tabs.filter { targetIds.contains($0.id) })
     }
 
     func applyWorkspacePaletteColor(named name: String, toWorkspaceIds workspaceIds: [UUID]) {
@@ -1831,7 +1853,7 @@ class TabManager: ObservableObject {
         title: String? = nil,
         initialBrowserURL: URL? = nil,
         initialBrowserOmnibarVisible: Bool = true,
-        initialBrowserTransparentBackground: Bool = false
+        initialBrowserTransparentBackground: Bool = false, shouldApplyWorkspaceDirectoryCustomization: Bool = true
     ) -> Workspace? {
         workspaceGrouping.createWorkspaceInGroup(
             groupId: groupId,
@@ -1842,7 +1864,7 @@ class TabManager: ObservableObject {
             title: title,
             initialBrowserURL: initialBrowserURL,
             initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
-            initialBrowserTransparentBackground: initialBrowserTransparentBackground
+            initialBrowserTransparentBackground: initialBrowserTransparentBackground, shouldApplyWorkspaceDirectoryCustomization: shouldApplyWorkspaceDirectoryCustomization
         )
     }
 
@@ -1925,6 +1947,7 @@ class TabManager: ObservableObject {
     ) -> Workspace {
         addWorkspace(
             title: title,
+            titleSource: .auto,
             workingDirectory: workingDirectory,
             inheritWorkingDirectory: inheritWorkingDirectory,
             select: select,
@@ -1942,7 +1965,7 @@ class TabManager: ObservableObject {
         initialBrowserOmnibarVisible: Bool,
         initialBrowserTransparentBackground: Bool,
         inheritWorkingDirectory: Bool,
-        select: Bool
+        select: Bool, shouldApplyWorkspaceDirectoryCustomization: Bool
     ) -> Workspace {
         addWorkspace(
             title: title,
@@ -1953,7 +1976,7 @@ class TabManager: ObservableObject {
             initialBrowserTransparentBackground: initialBrowserTransparentBackground,
             inheritWorkingDirectory: inheritWorkingDirectory,
             select: select,
-            autoWelcomeIfNeeded: false
+            autoWelcomeIfNeeded: false, shouldApplyWorkspaceDirectoryCustomization: shouldApplyWorkspaceDirectoryCustomization
         )
     }
 
@@ -2105,12 +2128,15 @@ class TabManager: ObservableObject {
 
         if let index = tabs.firstIndex(where: { $0.id == workspace.id }) {
             tabs.remove(at: index)
-            // Real-close path: if the closed workspace anchored a group, the
-            // group dissolves now and its remaining members survive as
-            // ungrouped workspaces. This lives at the explicit close site (not
-            // in the tabs didSet) so transient remove/insert reorders never
-            // trigger dissolve.
-            workspaces.dissolveGroupsAnchoredBy(closedWorkspaceId: workspace.id)
+            // Real-close path: if the closed workspace anchored a group, keep
+            // the group by promoting its first remaining member (in tabs order)
+            // to anchor so closing one workspace only closes that workspace and
+            // never scatters the rest of its group out to the ungrouped root
+            // tier. A group with no members left after the anchor's removal is
+            // dropped. This lives at the explicit close site (not in the tabs
+            // didSet) so transient remove/insert reorders never trigger the
+            // fixup.
+            let promotedAnchorIds = workspaces.promoteAnchorOrRemoveGroupsAnchoredBy(closedWorkspaceId: workspace.id)
 
             if selectedTabId == workspace.id {
                 // Keep the "focused index" stable when possible:
@@ -2118,6 +2144,19 @@ class TabManager: ObservableObject {
                 // - Otherwise (we closed the last workspace), focus the new last workspace (i-1).
                 let newIndex = min(index, max(0, tabs.count - 1))
                 selectedTabId = tabs[newIndex].id
+            }
+
+            // A promoted anchor's resolved display title switches from its own
+            // title to the group name. The imperatively-cached title consumers
+            // (custom titlebar text, WindowToolbarController label, notification
+            // popover titles) refresh on the group-name / order-change
+            // notifications, not on the observable model — and on a non-focused
+            // anchor close (Close Others, a socket close while a member stays
+            // selected) selectedTabId never changes, so nothing would otherwise
+            // invalidate them. Publish both signals for the promotion.
+            if !promotedAnchorIds.isEmpty {
+                workspaceGroupNameDidChange()
+                workspaceOrderDidChange(movedWorkspaceIds: promotedAnchorIds)
             }
         }
         publishCmuxWorkspaceClosed(workspace)
@@ -2330,39 +2369,29 @@ class TabManager: ObservableObject {
             }
         }
 
-        for workspace in plan.workspaces {
+        // Drain non-anchor members before group anchors (see anchorLastCloseOrder):
+        // closing a group's anchor is no longer destructive to the group (its next
+        // member is promoted to anchor), so batch close needs no special anchor
+        // confirmation or handling here.
+        for workspace in anchorLastCloseOrder(plan.workspaces) {
             guard tabs.contains(where: { $0.id == workspace.id }) else { continue }
-            // Anchor-close confirms inside closeWorkspaceIfRunningProcess.
-            // If the user cancels that dialog during a batch, abort the
-            // whole batch — otherwise the loop keeps closing later items
-            // even though the user said "no" to the dialog that was up.
-            if let groupId = workspace.groupId,
-               let group = workspaceGroups.first(where: { $0.id == groupId }),
-               group.anchorWorkspaceId == workspace.id,
-               !settings.value(for: settingsCatalog.workspaceGroups.anchorCloseSuppressed) {
-                let otherMemberCount = tabs.reduce(0) { partial, tab in
-                    tab.groupId == groupId && tab.id != workspace.id ? partial + 1 : partial
-                }
-                if !confirmAnchorWorkspaceClose(groupName: group.name, otherMemberCount: otherMemberCount) {
-                    return
-                }
-                // Anchor confirmed (or suppressed); skip the inner re-prompt
-                // by closing without going through closeWorkspaceIfRunningProcess.
-                if tabs.count <= 1 {
-                    // Mirror close detaches from the remote session (retained no-op).
-                    markRemoteTmuxKillOnWindowCloseIfNeeded(for: [workspace])
-                    if let window {
-                        window.performClose(nil)
-                    } else {
-                        AppDelegate.shared?.closeMainWindowContainingTabId(workspace.id)
-                    }
-                } else {
-                    closeWorkspace(workspace)
-                }
-                continue
-            }
             _ = closeWorkspaceIfRunningProcess(workspace, requiresConfirmation: false)
         }
+    }
+
+    /// Reorders a batch of workspaces so group anchors close after their
+    /// non-anchor members. Closing an anchor promotes the group's next member
+    /// and renormalizes the whole tabs/groups collection; closing in raw tabs
+    /// order (anchor first) would re-promote and rescan once per targeted
+    /// member — O(k x totalTabs) main-actor work plus a burst of title/order
+    /// invalidations. Members-first bounds a batch to at most one promotion per
+    /// group (or none, when the anchor was the group's last surviving member).
+    /// Every batch-close entrypoint (menu, shortcut, socket) must route through
+    /// this ordering.
+    func anchorLastCloseOrder(_ workspaces: [Workspace]) -> [Workspace] {
+        let anchorIds = Set(workspaceGroups.map(\.anchorWorkspaceId))
+        return workspaces.filter { !anchorIds.contains($0.id) }
+            + workspaces.filter { anchorIds.contains($0.id) }
     }
 
     func selectWorkspace(_ workspace: Workspace) {
@@ -2541,8 +2570,12 @@ class TabManager: ObservableObject {
         let title = willCloseWindow
             ? String(localized: "dialog.closeWindow.title", defaultValue: "Close window?")
             : String(localized: "dialog.closeWorkspaces.title", defaultValue: "Close workspaces?")
+        // Use the resolved display title so a group anchor is listed by the
+        // header name the user sees (the group name), not its underlying
+        // Workspace.title. This matters for a promoted anchor, whose own title
+        // (e.g. "API") diverges from its visible header ("Build").
         let titleLines = workspaces
-            .map { "• \(closeWorkspaceDisplayTitle($0.title))" }
+            .map { "• \(closeWorkspaceDisplayTitle(resolvedWorkspaceDisplayTitle(for: $0)))" }
             .joined(separator: "\n")
         let format = willCloseWindow
             ? String(
@@ -2579,21 +2612,10 @@ class TabManager: ObservableObject {
         requiresConfirmation: Bool = true,
         source: CloseConfirmationSource = .workspace
     ) -> Bool {
-        // Anchor-close ALWAYS prompts (subject to its own
-        // workspaceGroups.anchorCloseSuppressed flag), regardless of
-        // requiresConfirmation. Batch-close paths set requiresConfirmation=false
-        // after their own generic prompt, but that generic prompt doesn't
-        // mention group dissolution — silently ungrouping members during a
-        // multi-close would be surprising. The "Don't ask again" toggle on
-        // the anchor dialog is the user's opt-out.
-        if let groupId = workspace.groupId,
-           let group = workspaceGroups.first(where: { $0.id == groupId }),
-           group.anchorWorkspaceId == workspace.id {
-            let otherMemberCount = tabs.reduce(0) { partial, tab in
-                tab.groupId == groupId && tab.id != workspace.id ? partial + 1 : partial
-            }
-            if !confirmAnchorWorkspaceClose(groupName: group.name, otherMemberCount: otherMemberCount) { return false }
-        }
+        // Closing a group's anchor is non-destructive to the group: its next
+        // member is promoted to anchor in closeWorkspace, so the members stay
+        // grouped instead of scattering to root. No special anchor prompt is
+        // needed; the normal running-process confirmation below still applies.
         let willCloseWindow = tabs.count <= 1
         let needsCloseConfirmation = workspaceNeedsConfirmClose(workspace)
         if requiresConfirmation,
@@ -2638,83 +2660,6 @@ class TabManager: ObservableObject {
                 source: .tabCloseButton
             )
         }
-    }
-
-    /// Confirm before closing a workspace that is its group's anchor. Closing
-    /// the anchor dissolves the group (other members survive ungrouped).
-    /// "Don't ask again" sets the `workspaceGroups.anchorCloseSuppressed` flag.
-    private func confirmAnchorWorkspaceClose(groupName: String, otherMemberCount: Int) -> Bool {
-        if settings.value(for: settingsCatalog.workspaceGroups.anchorCloseSuppressed) {
-            return true
-        }
-        // Do NOT acquire beginCloseConfirmationSession here. The standard
-        // close confirmation path that runs immediately after (confirmClose())
-        // gates itself with the same flag, and endCloseConfirmationSession
-        // releases the flag asynchronously on the next main-queue turn — so
-        // wrapping this dialog with begin/end would leave the flag set when
-        // the inner confirmClose runs, causing it to return false and silently
-        // refuse the close even after the user accepted both prompts.
-        let title = String(
-            localized: "dialog.closeAnchor.title",
-            defaultValue: "Close this workspace?"
-        )
-        // Use printf-style format specifiers and String(format:) so the
-        // catalog entry can substitute the group name and member count at
-        // runtime. Embedding Swift `\(groupName)` interpolation in the
-        // catalog `value` would render literal `\(groupName)` on lookup.
-        let message: String
-        if otherMemberCount == 0 {
-            let format = String(
-                localized: "dialog.closeAnchor.message.lone",
-                defaultValue: "Closing this workspace will remove the group \u{201C}%@\u{201D}."
-            )
-            message = String.localizedStringWithFormat(format, groupName)
-        } else if otherMemberCount == 1 {
-            let format = String(
-                localized: "dialog.closeAnchor.message.one",
-                defaultValue: "Closing this workspace will ungroup \u{201C}%@\u{201D} and release 1 other workspace."
-            )
-            message = String.localizedStringWithFormat(format, groupName)
-        } else {
-            let format = String(
-                localized: "dialog.closeAnchor.message.many",
-                defaultValue: "Closing this workspace will ungroup \u{201C}%1$@\u{201D} and release %2$lld other workspaces."
-            )
-            message = String.localizedStringWithFormat(format, groupName, otherMemberCount)
-        }
-
-        let alert = NSAlert()
-        alert.messageText = title
-        alert.informativeText = message
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: String(localized: "dialog.closeTab.close", defaultValue: "Close"))
-        alert.addButton(withTitle: String(localized: "dialog.closeTab.cancel", defaultValue: "Cancel"))
-        let suppressionButton = NSButton(
-            checkboxWithTitle: String(
-                localized: "dialog.dontAskAgain",
-                defaultValue: "Don\u{2019}t ask again"
-            ),
-            target: nil,
-            action: nil
-        )
-        suppressionButton.state = .off
-        alert.accessoryView = suppressionButton
-        if let closeButton = alert.buttons.first {
-            closeButton.keyEquivalent = "\r"
-            closeButton.keyEquivalentModifierMask = []
-            alert.window.defaultButtonCell = closeButton.cell as? NSButtonCell
-            alert.window.initialFirstResponder = closeButton
-        }
-        if let cancelButton = alert.buttons.dropFirst().first {
-            cancelButton.keyEquivalent = "\u{1b}"
-        }
-
-        let response = runCloseConfirmationAlert(alert)
-        guard response == .alertFirstButtonReturn else { return false }
-        if suppressionButton.state == .on {
-            settings.set(true, for: settingsCatalog.workspaceGroups.anchorCloseSuppressed)
-        }
-        return true
     }
 
     private func confirmPinnedWorkspaceClose(source: CloseConfirmationSource) -> Bool {
@@ -4108,8 +4053,8 @@ class TabManager: ObservableObject {
         )
     }
 
-    /// Reopen the most recently closed browser panel (Cmd+Shift+T).
-    /// No-op when no browser panel restore snapshot is available.
+    /// Reopen the most recently closed item, retaining the legacy API name.
+    /// Falls back to the pre-unified browser-panel history when needed.
     @discardableResult
     func reopenMostRecentlyClosedBrowserPanel() -> Bool {
         if reopenMostRecentlyClosedItem() {
@@ -4257,7 +4202,8 @@ class TabManager: ObservableObject {
             title: entry.snapshot.customTitle ?? entry.snapshot.processTitle,
             workingDirectory: entry.snapshot.currentDirectory,
             select: false,
-            autoWelcomeIfNeeded: false
+            autoWelcomeIfNeeded: false,
+            shouldApplyWorkspaceDirectoryCustomization: false
         )
         let restoredPanelIds = workspace.restoreSessionSnapshot(entry.snapshot, excludingStableIdentities: excludedStableIdentities)
         guard !entry.snapshot.hasRestorablePanels || !restoredPanelIds.isEmpty else {
@@ -4268,6 +4214,7 @@ class TabManager: ObservableObject {
             closeWorkspace(workspace, recordHistory: false)
             return false
         }
+        reconcileWorkspaceDirectoryCustomization(afterRestoring: entry.snapshot, to: workspace)
         // The snapshot may carry a groupId for a group that no longer exists
         // in this TabManager (e.g. the group was dissolved between close and
         // reopen). Drop those stale references so the restored workspace
@@ -4416,7 +4363,7 @@ class TabManager: ObservableObject {
     func triggerFocusFlash() {
         guard let tab = selectedWorkspace,
               let panelId = tab.focusedPanelId else { return }
-        tab.triggerFocusFlash(panelId: panelId)
+        tab.triggerUserInitiatedFocusFlash(panelId: panelId)
     }
 
     /// Ensure AppKit first responder matches the currently focused terminal panel.
@@ -5683,6 +5630,7 @@ extension TabManager {
             hasher.combine(workspace.groupId)
             hasher.combine(workspace.focusedPanelId)
             hasher.combine(workspace.currentDirectory)
+            hasher.combine(workspace.customizationDirectory ?? "")
             hasher.combine(workspace.customTitle ?? "")
             hasher.combine(workspace.customDescription ?? "")
             hasher.combine(workspace.customColor ?? "")
@@ -6073,8 +6021,7 @@ extension TabManager {
         selectionSideEffectsGeneration &+= 1
         browserModel.clearRecentlyClosedBrowserPanels()
 
-        // Build the new workspace list locally to avoid intermediate @Published
-        // emissions (empty tabs, nil selectedTabId) that can leave SwiftUI's
+        // Build locally to avoid intermediate @Published emissions (empty tabs, nil selectedTabId) that can leave SwiftUI's
         // mountedWorkspaceIds empty and cause a frozen blank launch state (#399).
         var newTabs: [Workspace] = []
         var restoredPanelIdsByWorkspaceIndex: [[UUID: UUID]] = []
@@ -6084,6 +6031,7 @@ extension TabManager {
         )
         let workspaceSnapshots = normalizedWorkspaceSnapshots
             .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
+        var restoredDirectoryCustomizations = cachedWorkspaceDirectoryCustomizations(afterRestoring: Array(workspaceSnapshots))
         var restoredOriginalWorkspaceIds: [UUID?] = []
         var reservedWorkspaceIds = excludingWorkspaceIds
         let identitySelector = WorkspaceSessionRestoreIdentity()
@@ -6107,6 +6055,7 @@ extension TabManager {
             )
             workspace.owningTabManager = self
             let restoredPanelIds = workspace.restoreSessionSnapshot(workspaceSnapshot, excludingStableIdentities: excludingStableIdentities)
+            reconcileWorkspaceDirectoryCustomization(afterRestoring: workspaceSnapshot, to: workspace, cachedCustomizations: &restoredDirectoryCustomizations)
             Self.recordRestoredTaskCreateProvenance(for: workspace, in: workspaceCreateIdempotencyCache)
             wireClosedBrowserTracking(for: workspace)
             newTabs.append(workspace)
@@ -6129,6 +6078,7 @@ extension TabManager {
                 nativeSSHConnectionBroker: nativeSSHConnectionBroker
             )
             fallback.owningTabManager = self
+            applyWorkspaceDirectoryCustomization(to: fallback, rootDirectory: nil, explicitTitle: nil, explicitTitleSource: .auto)
             wireClosedBrowserTracking(for: fallback)
             newTabs.append(fallback)
         }

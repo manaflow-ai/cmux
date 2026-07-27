@@ -35,6 +35,9 @@ public struct GlobalHotkeySection: View {
             userDefaultsStore: defaultsStore,
             catalog: catalog,
             errorLog: errorLog,
+            canRegisterSystemWideHotkey: {
+                hostActions.canRegisterSystemWideHotkey($0)
+            },
             onShortcutsChanged: { hostActions.notifyShortcutSettingsDidChange() }
         ))
     }
@@ -89,7 +92,7 @@ public struct GlobalHotkeySection: View {
                 placeholder: shortcutModel.formatPlaceholder(effective: effective, numbered: false),
                 showsChordModeButton: false,
                 chordsEnabled: false,
-                hasPendingRejection: shortcutModel.bareKeyRejections.contains(hotkeyAction.rawValue),
+                hasPendingRejection: shortcutModel.hasPendingRejection(for: hotkeyAction),
                 firstStrokeRequiresModifier: true,
                 isUnbound: effective?.isUnbound ?? true,
                 canRestore: shortcutModel.canRestore(for: hotkeyAction),

@@ -40,16 +40,9 @@ final class KeyboardShortcutSettingsEqualizeSplitsTests: XCTestCase {
         }
     }
 
-    func testSystemWideShortcutActionsDoNotAllowChords() {
-        let actions: [(KeyboardShortcutSettings.Action, ShortcutAction)] = [
-            (.showHideAllWindows, .showHideAllWindows),
-            (.globalSearch, .globalSearch),
-        ]
-
-        for (appAction, packageAction) in actions {
-            XCTAssertFalse(appAction.allowsChordShortcut)
-            XCTAssertFalse(packageAction.allowsChordShortcut)
-        }
+    func testSystemWideShortcutActionDoesNotAllowChords() {
+        XCTAssertFalse(KeyboardShortcutSettings.Action.showHideAllWindows.allowsChordShortcut)
+        XCTAssertFalse(ShortcutAction.showHideAllWindows.allowsChordShortcut)
     }
 
     func testSettingsFileStoreParsesEqualizeSplitsShortcut() throws {
