@@ -2434,7 +2434,7 @@ mod tests {
     }
 
     #[test]
-    fn missing_optional_screencast_timestamp_requests_safe_capture() {
+    fn missing_optional_screencast_timestamp_requests_safe_capture_before_parsing_png() {
         let (inner, _outbound_rx) = test_inner();
         inner.frame_epochs.lock().unwrap().insert(
             "session-1".to_string(),
@@ -2455,7 +2455,7 @@ mod tests {
                 "method": "Page.screencastFrame",
                 "sessionId": "session-1",
                 "params": {
-                    "data": "AAAA",
+                    "data": "not-base64",
                     "sessionId": 7,
                     "metadata": {"deviceWidth": 80, "deviceHeight": 24}
                 }
@@ -2480,6 +2480,76 @@ mod tests {
                 && frame_id == "main-frame"
                 && loader_id == "loader-1"
         ));
+    }
+
+    #[test]
+    fn timestamped_frame_proof_is_not_reused_for_later_timestampless_pixels() {
+        let (inner, _outbound_rx) = test_inner();
+        inner.frame_epochs.lock().unwrap().insert(
+            "session-1".to_string(),
+            FrameSession {
+                epoch: Arc::new(FrameEpoch::default()),
+                main_frame_id: Some("main-frame".to_string()),
+                main_loader_id: Some("loader-1".to_string()),
+                pending_document: None,
+                minimum_screencast_timestamp: Some(1.0),
+                timestampless_authority_epoch: None,
+                suppressed_timestampless_epoch: None,
+            },
+        );
+
+        handle_text(
+            &inner,
+            &json!({
+                "method": "Page.screencastFrame",
+                "sessionId": "session-1",
+                "params": {
+                    "data": "AAAA",
+                    "sessionId": 7,
+                    "metadata": {
+                        "deviceWidth": 80,
+                        "deviceHeight": 24,
+                        "timestamp": 2.0
+                    }
+                }
+            })
+            .to_string(),
+        );
+        handle_text(
+            &inner,
+            &json!({
+                "method": "Page.screencastFrame",
+                "sessionId": "session-1",
+                "params": {
+                    "data": "BBBB",
+                    "sessionId": 8,
+                    "metadata": {"deviceWidth": 80, "deviceHeight": 24}
+                }
+            })
+            .to_string(),
+        );
+
+        let (event_tx, event_rx) = sync_channel(2);
+        inner.events.drain_into(&event_tx).unwrap();
+        let events = event_rx.try_iter().collect::<Vec<_>>();
+        assert!(
+            matches!(
+                events.as_slice(),
+                [
+                    CdpEvent::ScreencastFrame(ScreencastFrame { ack_id: 7, .. }),
+                    CdpEvent::ScreencastFrameCaptureRequested {
+                        session_id,
+                        frame_id,
+                        loader_id,
+                        frame_epoch: 0,
+                        navigation_epoch: 0,
+                    },
+                ] if session_id == "session-1"
+                    && frame_id == "main-frame"
+                    && loader_id == "loader-1"
+            ),
+            "proof for one timestamped frame authorized unrelated pixels: {events:?}"
+        );
     }
 
     #[test]
