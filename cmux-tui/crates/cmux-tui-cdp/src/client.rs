@@ -1966,6 +1966,83 @@ mod tests {
     }
 
     #[test]
+    fn snapshot_main_frame_rejects_values_invalidated_by_navigation() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (respond_tx, respond_rx) = channel();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut ws = accept(stream).unwrap();
+            let request = loop {
+                match ws.read().unwrap() {
+                    Message::Text(text) => break serde_json::from_str::<Value>(&text).unwrap(),
+                    Message::Binary(bytes) => {
+                        break serde_json::from_slice::<Value>(&bytes).unwrap();
+                    }
+                    _ => {}
+                }
+            };
+            assert_eq!(request["method"], "Page.getFrameTree");
+            ws.send(Message::Text(
+                json!({
+                    "method": "Page.frameNavigated",
+                    "sessionId": "session-1",
+                    "params": {
+                        "frame": {
+                            "id": "new-frame",
+                            "loaderId": "new-loader",
+                            "url": "https://new.example.test"
+                        }
+                    }
+                })
+                .to_string()
+                .into(),
+            ))
+            .unwrap();
+            respond_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            ws.send(Message::Text(
+                json!({
+                    "id": request["id"],
+                    "result": {
+                        "frameTree": {
+                            "frame": {
+                                "id": "stale-frame",
+                                "loaderId": "stale-loader",
+                                "url": "https://stale.example.test"
+                            }
+                        }
+                    }
+                })
+                .to_string()
+                .into(),
+            ))
+            .unwrap();
+        });
+        let (event_tx, event_rx) = sync_channel(1);
+        let client =
+            CdpClient::connect(&format!("ws://{addr}/devtools/browser/fake"), event_tx).unwrap();
+        let frame_epoch = Arc::new(FrameEpoch::default());
+        client.register_frame_epoch("session-1", frame_epoch.clone());
+        let snapshot_client = client.clone();
+        let snapshot = thread::spawn(move || snapshot_client.snapshot_main_frame("session-1"));
+
+        assert!(matches!(
+            event_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+            CdpEvent::FrameNavigated { frame_epoch: 1, .. }
+        ));
+        assert_eq!(frame_epoch.current(), 1);
+        respond_tx.send(()).unwrap();
+        let result = snapshot.join().unwrap();
+        assert!(
+            result.is_err(),
+            "a frame-tree response invalidated by navigation returned stale authority: {result:?}"
+        );
+
+        drop(client);
+        server.join().unwrap();
+    }
+
+    #[test]
     fn replayed_load_lifecycle_reconciles_pending_document_authority() {
         let (inner, _outbound_rx) = test_inner();
         inner.frame_epochs.lock().unwrap().insert(

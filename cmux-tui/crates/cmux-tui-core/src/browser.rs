@@ -5745,6 +5745,71 @@ mod tests {
     }
 
     #[test]
+    fn rejected_streamed_frames_do_not_emit_surface_output() {
+        let options = SurfaceOptions::default();
+        let mux = Mux::new("rejected-browser-frame-redraw-test", options.clone());
+        let surface = new_surface(
+            1,
+            "https://example.test".into(),
+            (10, 5),
+            (8, 16),
+            &options,
+            Arc::downgrade(&mux),
+        );
+        let browser = surface.as_browser().expect("browser surface");
+        browser.store_frame(test_frame(1));
+        browser.begin_targeted_navigation_frame_transition().expect("same-document reservation");
+        let rejected_epoch = browser.frame_epoch.advance();
+        browser.fail_same_document_authority(&anyhow::anyhow!("injected capture failure"));
+        assert!(browser.take_dirty(), "terminal failure must request its own redraw");
+
+        let events = mux.subscribe();
+        let route = Arc::new(super::SurfaceRoute::new());
+        start_surface_thread(surface.clone(), route.clone(), Arc::downgrade(&mux), Weak::new())
+            .unwrap();
+        assert!(!route.deliver(cmux_tui_cdp::CdpEvent::ScreencastFrame(
+            cmux_tui_cdp::ScreencastFrame {
+                session_id: "session-test".to_string(),
+                data_b64: "rejected-after-failure".to_string(),
+                css_width: 80,
+                css_height: 48,
+                ack_id: 2,
+                frame_epoch: rejected_epoch,
+            },
+        )));
+
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while Instant::now() < deadline
+            && browser
+                .state
+                .lock()
+                .unwrap()
+                .pending_frame
+                .as_ref()
+                .is_none_or(|(_, frame)| frame.data_b64 != "rejected-after-failure")
+        {
+            thread::yield_now();
+        }
+        assert!(
+            browser
+                .state
+                .lock()
+                .unwrap()
+                .pending_frame
+                .as_ref()
+                .is_some_and(|(_, frame)| frame.data_b64 == "rejected-after-failure"),
+            "surface thread did not process the rejected frame"
+        );
+        assert!(
+            events.recv_timeout(Duration::from_millis(100)).is_err(),
+            "a frame rejected by the epoch gate must not request a TUI redraw"
+        );
+        assert!(!browser.take_dirty(), "a rejected frame must not mark the surface dirty");
+
+        route.close("test cleanup".to_string());
+    }
+
+    #[test]
     fn same_document_navigation_preserves_an_accepted_pointer_capture() {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
