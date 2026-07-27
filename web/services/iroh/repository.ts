@@ -1378,6 +1378,16 @@ function databaseConflict(cause: unknown): IrohConflictError | null {
   if (candidate.constraint === "iroh_endpoint_bindings_active_endpoint_unique") {
     return new IrohConflictError({ code: "endpoint_already_bound" });
   }
+  // The slot advisory lock (pg_advisory_xact_lock on iroh:slot:user:device:tag)
+  // serializes registrations for one slot, so the partial unique index on
+  // (user, device, tag) where revoked_at is null is unreachable in practice.
+  // Map it defensively anyway: without this branch a slot race would fall
+  // through to `return null` and leak a raw IrohDatabaseError as HTTP 500,
+  // when the correct signal is a typed 409 telling the client a concurrent
+  // newest-wins registration took the slot and it should retry.
+  if (candidate.constraint === "iroh_endpoint_bindings_active_slot_unique") {
+    return new IrohConflictError({ code: "slot_registration_superseded" });
+  }
   return null;
 }
 
