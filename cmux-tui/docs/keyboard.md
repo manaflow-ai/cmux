@@ -4,7 +4,7 @@
 
 `cmux-tui` uses a tmux-style prefix. The default prefix is `Ctrl-b`. After the prefix, the next key is interpreted as a mux command. Pressing the prefix twice sends a literal `Ctrl-b` to the active surface.
 
-Unknown prefixed keys are swallowed. Unprefixed non-Alt keys go to the active surface. Alt chords that are bound in the key table are modeless commands by default.
+Unknown prefixed keys are swallowed. Unprefixed keys go to the active surface unless they match a configured modeless Alt or Command/Super chord, or an explicitly configured Control-modified clear-history chord.
 
 Pressing the prefix overlays the panes' bottom border for one keypress, leaving the clickable screen status bar visible. Each resolved suffix uses a distinct accent font color without changing the bar background. `Ctrl-b ?` opens a shortcut modal built from the same action catalog, with shortcut keys in a bright neutral font color. The terminal-style scrollbar appears only when the shortcut rows overflow. Use Up/Down, PageUp/PageDown, Home, End, the mouse wheel, or the scrollbar to scroll. Click its invisible track to jump, drag its thumb, then use Esc, `?`, or the visible `[Esc close]` button to close the modal.
 
@@ -62,9 +62,12 @@ These defaults come from `Keys::default`.
 | `Ctrl-b [` | Scroll the active PTY viewport up 10 rows |
 | `Ctrl-b PageUp` | Scroll the active PTY viewport up 10 rows |
 | `Ctrl-b PageDown` | Scroll the active PTY viewport down 10 rows |
+| `Cmd-k` / `Super-k` | Clear retained PTY history and completed visible rows while preserving active input |
 | `Ctrl-b d` | Quit a local TUI or detach an attached TUI |
 
 Directional focus follows Zellij's pane memory: when several panes share the requested edge, cmux-tui returns to the pane focused most recently.
+
+On a primary screen, `Cmd-k` clears retained scrollback and completed visible rows inside the terminal emulator. OSC 133 prompt metadata preserves the complete active prompt. Without metadata, cmux-tui preserves visible rows because it cannot identify the active input boundary. The edit buffer and cursor stay in place, and cmux-tui sends no input to the shell. In alternate-screen applications, `Cmd-k` is forwarded to the application. `Ctrl-l` remains child-owned on every screen, so shells, REPLs, and other terminal applications keep their standard clear/redraw behavior and custom bindings.
 
 The screen bindings intentionally match tmux: `c` creates a screen, `n` and `p` switch screens, `&` closes a screen, `,` renames a screen, `z` zooms a pane, `o` cycles panes, `{` and `}` swap panes, and number keys select visible screens. Screens are numbered from 0, so `Ctrl-b 0` selects screen 0 and `Ctrl-b 1` selects screen 1.
 
@@ -88,7 +91,15 @@ Any configured Alt chord is active without the prefix. Default modeless commands
 
 Set `keys.alt_shortcuts` to `false` to remove the default Alt bindings. This kill switch only removes defaults; Alt chords explicitly configured in `cmux-tui.json` still work.
 
+Kitty keyboard cannot distinguish a real Alt character chord from an empty-text macOS Option dead-key prefix. `keys.macos_option_as_alt` selects that input mode explicitly and defaults to `true`. Set it to `false` when the host terminal uses Option for composition. Nonempty Option-generated text remains authoritative in either mode and never triggers an Alt binding.
+
 Zellij's modal `ctrl+p`, `ctrl+t`, `ctrl+s`, `ctrl+n`, and `ctrl+o` modes are a deliberate non-goal because they conflict with common shell and editor control keys such as history, transpose, flow control, and editor navigation.
+
+## Modeless Command/Super Layer
+
+`Cmd-k` / `Super-k` clears prior PTY output inside the terminal emulator while preserving active input. `Ctrl-l` is forwarded to the foreground application. cmux-tui enables the Kitty keyboard protocol so compatible hosts report the Command/Super modifier. Host-owned shortcuts such as `Cmd-t`, `Cmd-w`, and `Cmd-d` remain unbound because terminals consume them before a nested TUI can receive them. Their working cmux-tui equivalents are `Alt-t`, `Ctrl-b X`, and `Ctrl-b %`.
+
+Set `keys.super_shortcuts` to `false` to remove the default Command/Super bindings. Explicit `cmd+...`, `command+...`, and `super+...` bindings still work.
 
 ## Number Selection
 
@@ -104,8 +115,10 @@ Each action accepts a string, an array of strings, or `"none"`. Setting an actio
 {
   "keys": {
     "prefix": "ctrl+a",
+    "macos_option_as_alt": true,
     "alt_shortcuts": false,
-    "new-tab": ["t", "alt+t"],
+    "super_shortcuts": false,
+    "new-tab": ["t", "alt+t", "cmd+t"],
     "new-pane-smart": "alt+n",
     "select-screen-0": "0",
     "select-screen-1": "1",
@@ -182,6 +195,7 @@ resize-grow
 resize-shrink
 scroll-up
 scroll-down
+clear-history
 browser-back
 browser-forward
 browser-reload
@@ -196,4 +210,4 @@ detach
 
 Chord strings are case-sensitive for single characters. Uppercase letters and symbols represent the shifted character.
 
-Supported examples include `"c"`, `"%"`, `"ctrl+b"`, `"alt+enter"`, `"tab"`, `"backtab"`, `"shift+tab"`, `"pageup"`, `"pagedown"`, `"esc"`, `"space"`, `"left"`, `"right"`, `"up"`, `"down"`, `"home"`, and `"end"`.
+Supported examples include `"c"`, `"%"`, `"ctrl+b"`, `"alt+enter"`, `"cmd+k"`, `"super+shift+d"`, `"tab"`, `"backtab"`, `"shift+tab"`, `"pageup"`, `"pagedown"`, `"esc"`, `"space"`, `"left"`, `"right"`, `"up"`, `"down"`, `"home"`, and `"end"`.

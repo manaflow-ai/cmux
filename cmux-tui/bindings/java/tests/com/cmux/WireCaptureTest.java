@@ -17,9 +17,13 @@ public final class WireCaptureTest {
         byte[] identify = captureIdentify();
         byte[] attach = captureAttach(9, null, null);
         byte[] sizedAttach = captureAttach(9, 120, 40);
+        byte[] clearHistory = captureClearHistory(9);
+        byte[] clearHistoryFallback = captureClearHistoryFallback(9);
         printCapture("JAVA identify", identify);
         printCapture("JAVA attach", attach);
         printCapture("JAVA sized attach", sizedAttach);
+        printCapture("JAVA clear history", clearHistory);
+        printCapture("JAVA clear history fallback", clearHistoryFallback);
         assertLine("identify", "{\"id\":1,\"cmd\":\"identify\"}\n", identify);
         assertLine("attach", "{\"cmd\":\"attach-surface\",\"surface\":9,\"id\":2}\n", attach);
         assertLine(
@@ -27,6 +31,20 @@ public final class WireCaptureTest {
             "{\"cmd\":\"attach-surface\",\"surface\":9,\"cols\":120,\"rows\":40,\"id\":2}\n",
             sizedAttach
         );
+        assertLine(
+            "clear history",
+            "{\"surface\":9,\"id\":2,\"cmd\":\"clear-history\"}\n",
+            clearHistory
+        );
+        assertLine(
+            "clear history fallback",
+            "{\"surface\":9,\"fallback_key\":{\"key\":\"k\",\"mods\":{\"shift\":false,\"control\":false,\"alt\":false,\"super\":true,\"caps_lock\":false,\"num_lock\":false},\"consumed_mods\":{\"shift\":false,\"control\":false,\"alt\":false,\"super\":false,\"caps_lock\":false,\"num_lock\":false},\"composing\":false,\"utf8\":\"\",\"unshifted_codepoint\":\"k\",\"shifted_codepoint\":null,\"base_layout_codepoint\":\"k\",\"action\":\"press\",\"macos_option_as_alt\":true},\"id\":2,\"cmd\":\"clear-history\"}\n",
+            clearHistoryFallback
+        );
+        assertMissingClearHistoryCapabilityIsRejected();
+        assertMissingClearHistoryFallbackCapabilityIsRejected();
+        assertClearHistoryFailurePreservesDeliveryClassification();
+        assertOversizedClearHistoryFallbackIsRejectedLocally();
         assertProtocolV7RejectsSetSplitRatio();
         assertProtocolV8RejectsNewPane();
         assertProtocolV9AllowsSetSplitRatio();
@@ -62,6 +80,155 @@ public final class WireCaptureTest {
             server.close();
         }
         return server.firstLine(1);
+    }
+
+    private static byte[] captureClearHistory(long surface) throws Exception {
+        Path socket = freshSocketPath();
+        CaptureServer server = new CaptureServer(socket, new String[] {
+            "{\"id\":1,\"ok\":true,\"data\":{\"app\":\"cmux-tui\",\"version\":\"test\",\"protocol\":9,\"capabilities\":[\"clear-history-v1\"],\"session\":\"wire\",\"pid\":1}}",
+            "{\"id\":2,\"ok\":true,\"data\":{}}"
+        }, true);
+        server.start();
+        try (CmuxClient client = CmuxClient.builder().socketPath(socket.toString()).timeout(Duration.ofSeconds(2)).build()) {
+            client.clearHistory(surface);
+        } finally {
+            server.close();
+        }
+        return server.firstLine(1);
+    }
+
+    private static byte[] captureClearHistoryFallback(long surface) throws Exception {
+        Path socket = freshSocketPath();
+        CaptureServer server = new CaptureServer(socket, new String[] {
+            "{\"id\":1,\"ok\":true,\"data\":{\"app\":\"cmux-tui\",\"version\":\"test\",\"protocol\":9,\"capabilities\":[\"clear-history-v1\",\"clear-history-key-v1\"],\"session\":\"wire\",\"pid\":1}}",
+            "{\"id\":2,\"ok\":true,\"data\":{}}"
+        }, true);
+        server.start();
+        try (CmuxClient client = CmuxClient.builder().socketPath(socket.toString()).timeout(Duration.ofSeconds(2)).build()) {
+            client.clearHistory(surface, commandKFallback());
+        } finally {
+            server.close();
+        }
+        return server.firstLine(1);
+    }
+
+    private static void assertMissingClearHistoryCapabilityIsRejected() throws Exception {
+        Path socket = freshSocketPath();
+        CaptureServer server = new CaptureServer(socket, new String[] {
+            "{\"id\":1,\"ok\":true,\"data\":{\"app\":\"cmux-tui\",\"version\":\"test\",\"protocol\":9,\"session\":\"wire\",\"pid\":1}}"
+        });
+        server.start();
+        try (CmuxClient client = CmuxClient.builder().socketPath(socket.toString()).timeout(Duration.ofSeconds(2)).build()) {
+            try {
+                client.clearHistory(9);
+                throw new AssertionError("clearHistory must require clear-history-v1");
+            } catch (CmuxProtocolMismatchException error) {
+                if (!error.getMessage().contains("clear-history is not supported")) {
+                    throw error;
+                }
+            }
+        } finally {
+            server.close();
+        }
+        assertLine("clear-history identify", "{\"id\":1,\"cmd\":\"identify\"}\n", server.firstLine(0));
+    }
+
+    private static void assertMissingClearHistoryFallbackCapabilityIsRejected() throws Exception {
+        Path socket = freshSocketPath();
+        CaptureServer server = new CaptureServer(socket, new String[] {
+            "{\"id\":1,\"ok\":true,\"data\":{\"app\":\"cmux-tui\",\"version\":\"test\",\"protocol\":9,\"capabilities\":[\"clear-history-v1\"],\"session\":\"wire\",\"pid\":1}}"
+        });
+        server.start();
+        try (CmuxClient client = CmuxClient.builder().socketPath(socket.toString()).timeout(Duration.ofSeconds(2)).build()) {
+            try {
+                client.clearHistory(9, commandKFallback());
+                throw new AssertionError("clearHistory fallback must require clear-history-key-v1");
+            } catch (CmuxProtocolMismatchException error) {
+                if (!error.getMessage().contains("clear-history key fallback is not supported")) {
+                    throw error;
+                }
+            }
+        } finally {
+            server.close();
+        }
+        assertLine(
+            "clear-history fallback identify",
+            "{\"id\":1,\"cmd\":\"identify\"}\n",
+            server.firstLine(0)
+        );
+    }
+
+    private static TerminalKeyInput commandKFallback() {
+        return new TerminalKeyInput(
+            TerminalKey.K,
+            new TerminalModifiers(false, false, false, true, false, false),
+            TerminalModifiers.none(),
+            false,
+            "",
+            "k",
+            null,
+            "k",
+            TerminalKeyAction.PRESS,
+            true
+        );
+    }
+
+    private static void assertClearHistoryFailurePreservesDeliveryClassification() throws Exception {
+        Path socket = freshSocketPath();
+        CaptureServer server = new CaptureServer(socket, new String[] {
+            "{\"id\":1,\"ok\":true,\"data\":{\"app\":\"cmux-tui\",\"version\":\"test\",\"protocol\":9,\"capabilities\":[\"clear-history-v1\"],\"session\":\"wire\",\"pid\":1}}",
+            "{\"id\":2,\"ok\":false,\"error\":\"clear failed\",\"error_delivery\":\"known-not-delivered\"}"
+        }, true);
+        server.start();
+        try (CmuxClient client = CmuxClient.builder().socketPath(socket.toString()).timeout(Duration.ofSeconds(2)).build()) {
+            try {
+                client.clearHistory(9);
+                throw new AssertionError("clearHistory must preserve its delivery classification");
+            } catch (CmuxCommandException error) {
+                if (error.errorDelivery() != CmuxErrorDelivery.KNOWN_NOT_DELIVERED) {
+                    throw new AssertionError("unexpected delivery classification: " + error.errorDelivery());
+                }
+            }
+        } finally {
+            server.close();
+        }
+    }
+
+    private static void assertOversizedClearHistoryFallbackIsRejectedLocally() throws Exception {
+        Path socket = freshSocketPath();
+        CaptureServer server = new CaptureServer(socket, new String[] {
+            "{\"id\":1,\"ok\":true,\"data\":{\"app\":\"cmux-tui\",\"version\":\"test\",\"protocol\":9,\"capabilities\":[\"clear-history-v1\",\"clear-history-key-v1\"],\"session\":\"wire\",\"pid\":1}}"
+        });
+        server.start();
+        TerminalKeyInput fallback = new TerminalKeyInput(
+            TerminalKey.K,
+            TerminalModifiers.none(),
+            TerminalModifiers.none(),
+            false,
+            "x".repeat(CmuxClient.TERMINAL_KEY_TEXT_MAX_BYTES + 1),
+            "k",
+            null,
+            "k",
+            TerminalKeyAction.PRESS,
+            true
+        );
+        try (CmuxClient client = CmuxClient.builder().socketPath(socket.toString()).timeout(Duration.ofSeconds(2)).build()) {
+            try {
+                client.clearHistory(9, fallback);
+                throw new AssertionError("oversized fallback key text must be rejected locally");
+            } catch (IllegalArgumentException error) {
+                if (!error.getMessage().equals("terminal key text exceeds the 4 KiB protocol limit")) {
+                    throw error;
+                }
+            }
+        } finally {
+            server.close();
+        }
+        assertLine(
+            "oversized clear-history fallback identify",
+            "{\"id\":1,\"cmd\":\"identify\"}\n",
+            server.firstLine(0)
+        );
     }
 
     private static void assertProtocolV7RejectsSetSplitRatio() throws Exception {

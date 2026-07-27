@@ -10,10 +10,11 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 pub type Result<T> = std::result::Result<T, CmuxError>;
+pub const TERMINAL_KEY_TEXT_MAX_BYTES: usize = 4 * 1024;
 
 #[derive(Debug)]
 pub enum CmuxError {
-    Command { message: String, id: Option<Value> },
+    Command { message: String, id: Option<Value>, delivery: Option<ErrorDelivery> },
     Decode(String),
     Connection(String),
     Timeout(String),
@@ -35,6 +36,20 @@ impl fmt::Display for CmuxError {
 }
 
 impl std::error::Error for CmuxError {}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ErrorDelivery {
+    KnownNotDelivered,
+    Ambiguous,
+}
+
+fn error_delivery(response: &Value) -> Option<ErrorDelivery> {
+    match response.get("error_delivery").and_then(Value::as_str) {
+        Some("known-not-delivered") => Some(ErrorDelivery::KnownNotDelivered),
+        Some("ambiguous") => Some(ErrorDelivery::Ambiguous),
+        _ => None,
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct ClientConfig {
@@ -129,6 +144,157 @@ pub struct IdentifyDetails {
     pub capabilities: Vec<String>,
     pub session: String,
     pub pid: u32,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TerminalKey {
+    Unidentified,
+    Backquote,
+    Backslash,
+    BracketLeft,
+    BracketRight,
+    Comma,
+    Digit0,
+    Digit1,
+    Digit2,
+    Digit3,
+    Digit4,
+    Digit5,
+    Digit6,
+    Digit7,
+    Digit8,
+    Digit9,
+    Equal,
+    A,
+    B,
+    C,
+    D,
+    E,
+    F,
+    G,
+    H,
+    I,
+    J,
+    K,
+    L,
+    M,
+    N,
+    O,
+    P,
+    Q,
+    R,
+    S,
+    T,
+    U,
+    V,
+    W,
+    X,
+    Y,
+    Z,
+    Minus,
+    Period,
+    Quote,
+    Semicolon,
+    Slash,
+    Backspace,
+    Enter,
+    Space,
+    Tab,
+    Delete,
+    End,
+    Home,
+    Insert,
+    PageDown,
+    PageUp,
+    ArrowDown,
+    ArrowLeft,
+    ArrowRight,
+    ArrowUp,
+    Numpad0,
+    Numpad1,
+    Numpad2,
+    Numpad3,
+    Numpad4,
+    Numpad5,
+    Numpad6,
+    Numpad7,
+    Numpad8,
+    Numpad9,
+    NumpadAdd,
+    NumpadBackspace,
+    NumpadComma,
+    NumpadDecimal,
+    NumpadDivide,
+    NumpadEnter,
+    NumpadEqual,
+    NumpadMultiply,
+    NumpadSubtract,
+    NumpadUp,
+    NumpadDown,
+    NumpadRight,
+    NumpadLeft,
+    NumpadBegin,
+    NumpadHome,
+    NumpadEnd,
+    NumpadInsert,
+    NumpadDelete,
+    NumpadPageUp,
+    NumpadPageDown,
+    Escape,
+    F1,
+    F2,
+    F3,
+    F4,
+    F5,
+    F6,
+    F7,
+    F8,
+    F9,
+    F10,
+    F11,
+    F12,
+    F13,
+    F14,
+    F15,
+    F16,
+    F17,
+    F18,
+    F19,
+    F20,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize)]
+pub struct TerminalModifiers {
+    pub shift: bool,
+    pub control: bool,
+    pub alt: bool,
+    #[serde(rename = "super")]
+    pub super_key: bool,
+    pub caps_lock: bool,
+    pub num_lock: bool,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TerminalKeyAction {
+    Press,
+    Release,
+    Repeat,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TerminalKeyInput {
+    pub key: TerminalKey,
+    pub mods: TerminalModifiers,
+    pub consumed_mods: TerminalModifiers,
+    pub composing: bool,
+    pub utf8: String,
+    pub unshifted_codepoint: Option<char>,
+    pub shifted_codepoint: Option<char>,
+    pub base_layout_codepoint: Option<char>,
+    pub action: Option<TerminalKeyAction>,
+    pub macos_option_as_alt: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -504,6 +670,7 @@ impl CmuxClient {
                     .unwrap_or("unknown error")
                     .to_string(),
                 id: response.get("id").cloned(),
+                delivery: error_delivery(&response),
             })
         }
     }
@@ -567,6 +734,32 @@ impl CmuxClient {
         insert_opt(&mut params, "text", text);
         insert_opt(&mut params, "bytes", bytes);
         self.request::<Empty>("send", params).map(|_| ())
+    }
+
+    pub fn clear_history(&mut self, surface: u64) -> Result<()> {
+        self.require_capability("clear-history-v1", "clear-history")?;
+        self.request::<Empty>("clear-history", surface_params(surface)).map(|_| ())
+    }
+
+    pub fn clear_history_with_fallback(
+        &mut self,
+        surface: u64,
+        fallback_key: &TerminalKeyInput,
+    ) -> Result<()> {
+        self.require_capability("clear-history-v1", "clear-history")?;
+        self.require_capability("clear-history-key-v1", "clear-history key fallback")?;
+        if fallback_key.utf8.len() > TERMINAL_KEY_TEXT_MAX_BYTES {
+            return Err(CmuxError::InvalidArgument(
+                "terminal key text exceeds the 4 KiB protocol limit".to_string(),
+            ));
+        }
+        let mut params = surface_params(surface);
+        params.insert(
+            "fallback_key".to_string(),
+            serde_json::to_value(fallback_key)
+                .map_err(|error| CmuxError::InvalidArgument(error.to_string()))?,
+        );
+        self.request::<Empty>("clear-history", params).map(|_| ())
     }
 
     pub fn read_screen(&mut self, surface: u64) -> Result<ReadScreenResult> {
@@ -984,6 +1177,7 @@ impl CmuxStream {
                     .unwrap_or("unknown error")
                     .to_string(),
                 id: response.get("id").cloned(),
+                delivery: error_delivery(&response),
             });
         }
     }
@@ -1458,6 +1652,199 @@ mod tests {
             error.to_string(),
             "set-split-ratio requires protocol 8; server uses protocol 7"
         );
+    }
+
+    #[test]
+    fn clear_history_requires_capability() {
+        let (socket, _peer) = UnixStream::pair().unwrap();
+        let writer = socket.try_clone().unwrap();
+        let mut client = CmuxClient {
+            config: ClientConfig::default(),
+            conn: JsonLineConnection { writer, reader: BufReader::new(socket) },
+            next_id: 1,
+            protocol: Some(9),
+            capabilities: Vec::new(),
+        };
+
+        let error = client.clear_history(7).unwrap_err();
+        assert_eq!(error.to_string(), "clear-history is not supported by this server");
+    }
+
+    #[test]
+    fn clear_history_sends_capability_gated_wire_command() {
+        let (socket, peer) = UnixStream::pair().unwrap();
+        let writer = socket.try_clone().unwrap();
+        let server = std::thread::spawn(move || {
+            let mut response_writer = peer.try_clone().unwrap();
+            let mut reader = BufReader::new(peer);
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            let request: Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(
+                request,
+                serde_json::json!({
+                    "id": 1,
+                    "cmd": "clear-history",
+                    "surface": 7,
+                })
+            );
+            response_writer.write_all(b"{\"id\":1,\"ok\":true,\"data\":{}}\n").unwrap();
+        });
+        let mut client = CmuxClient {
+            config: ClientConfig::default(),
+            conn: JsonLineConnection { writer, reader: BufReader::new(socket) },
+            next_id: 1,
+            protocol: Some(9),
+            capabilities: vec!["clear-history-v1".to_string()],
+        };
+
+        client.clear_history(7).unwrap();
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn clear_history_fallback_requires_capability_and_preserves_key() {
+        let (socket, _peer) = UnixStream::pair().unwrap();
+        let writer = socket.try_clone().unwrap();
+        let mut client = CmuxClient {
+            config: ClientConfig::default(),
+            conn: JsonLineConnection { writer, reader: BufReader::new(socket) },
+            next_id: 1,
+            protocol: Some(9),
+            capabilities: vec!["clear-history-v1".to_string()],
+        };
+        let fallback = TerminalKeyInput {
+            key: TerminalKey::K,
+            mods: TerminalModifiers { super_key: true, ..Default::default() },
+            consumed_mods: TerminalModifiers::default(),
+            composing: false,
+            utf8: String::new(),
+            unshifted_codepoint: Some('k'),
+            shifted_codepoint: None,
+            base_layout_codepoint: Some('k'),
+            action: Some(TerminalKeyAction::Press),
+            macos_option_as_alt: true,
+        };
+
+        let error = client.clear_history_with_fallback(7, &fallback).unwrap_err();
+        assert_eq!(error.to_string(), "clear-history key fallback is not supported by this server");
+
+        let (socket, peer) = UnixStream::pair().unwrap();
+        let writer = socket.try_clone().unwrap();
+        let server = std::thread::spawn(move || {
+            let mut response_writer = peer.try_clone().unwrap();
+            let mut reader = BufReader::new(peer);
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            let request: Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(
+                request,
+                serde_json::json!({
+                    "id": 1,
+                    "cmd": "clear-history",
+                    "surface": 7,
+                    "fallback_key": {
+                        "key": "k",
+                        "mods": {
+                            "shift": false,
+                            "control": false,
+                            "alt": false,
+                            "super": true,
+                            "caps_lock": false,
+                            "num_lock": false,
+                        },
+                        "consumed_mods": {
+                            "shift": false,
+                            "control": false,
+                            "alt": false,
+                            "super": false,
+                            "caps_lock": false,
+                            "num_lock": false,
+                        },
+                        "composing": false,
+                        "utf8": "",
+                        "unshifted_codepoint": "k",
+                        "shifted_codepoint": null,
+                        "base_layout_codepoint": "k",
+                        "action": "press",
+                        "macos_option_as_alt": true,
+                    },
+                })
+            );
+            response_writer.write_all(b"{\"id\":1,\"ok\":true,\"data\":{}}\n").unwrap();
+        });
+        let mut client = CmuxClient {
+            config: ClientConfig::default(),
+            conn: JsonLineConnection { writer, reader: BufReader::new(socket) },
+            next_id: 1,
+            protocol: Some(9),
+            capabilities: vec!["clear-history-v1".to_string(), "clear-history-key-v1".to_string()],
+        };
+
+        client.clear_history_with_fallback(7, &fallback).unwrap();
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn clear_history_fallback_rejects_oversized_key_text_locally() {
+        let (socket, _peer) = UnixStream::pair().unwrap();
+        let writer = socket.try_clone().unwrap();
+        let mut client = CmuxClient {
+            config: ClientConfig::default(),
+            conn: JsonLineConnection { writer, reader: BufReader::new(socket) },
+            next_id: 1,
+            protocol: Some(9),
+            capabilities: vec!["clear-history-v1".to_string(), "clear-history-key-v1".to_string()],
+        };
+        let fallback = TerminalKeyInput {
+            key: TerminalKey::K,
+            mods: TerminalModifiers { super_key: true, ..Default::default() },
+            consumed_mods: TerminalModifiers::default(),
+            composing: false,
+            utf8: "x".repeat(TERMINAL_KEY_TEXT_MAX_BYTES + 1),
+            unshifted_codepoint: Some('k'),
+            shifted_codepoint: None,
+            base_layout_codepoint: Some('k'),
+            action: Some(TerminalKeyAction::Press),
+            macos_option_as_alt: true,
+        };
+
+        assert!(matches!(
+            client.clear_history_with_fallback(7, &fallback),
+            Err(CmuxError::InvalidArgument(message))
+                if message == "terminal key text exceeds the 4 KiB protocol limit"
+        ));
+    }
+
+    #[test]
+    fn clear_history_failure_preserves_delivery_classification() {
+        let (socket, peer) = UnixStream::pair().unwrap();
+        let writer = socket.try_clone().unwrap();
+        let server = std::thread::spawn(move || {
+            let mut response_writer = peer.try_clone().unwrap();
+            let mut reader = BufReader::new(peer);
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            response_writer
+                .write_all(
+                    b"{\"id\":1,\"ok\":false,\"error\":\"clear failed\",\"error_delivery\":\"known-not-delivered\"}\n",
+                )
+                .unwrap();
+        });
+        let mut client = CmuxClient {
+            config: ClientConfig::default(),
+            conn: JsonLineConnection { writer, reader: BufReader::new(socket) },
+            next_id: 1,
+            protocol: Some(9),
+            capabilities: vec!["clear-history-v1".to_string(), "clear-history-key-v1".to_string()],
+        };
+
+        let error = client.clear_history(7).unwrap_err();
+        assert!(matches!(
+            error,
+            CmuxError::Command { delivery: Some(ErrorDelivery::KnownNotDelivered), .. }
+        ));
+        server.join().unwrap();
     }
 
     #[test]

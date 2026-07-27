@@ -820,6 +820,7 @@ pub struct Mux {
     pub(crate) daemon_handoff_pending: AtomicBool,
     shutting_down: AtomicBool,
     pub(crate) control_clients: crate::server::ClientRegistry,
+    pub(crate) surface_operation_admission: Arc<crate::server::ServerSurfaceOperationAdmission>,
     pairing: PairingBroker,
     #[cfg(test)]
     test_surface_runtime: bool,
@@ -1041,6 +1042,9 @@ impl Mux {
             daemon_handoff_pending: AtomicBool::new(false),
             shutting_down: AtomicBool::new(false),
             control_clients: crate::server::ClientRegistry::new(),
+            surface_operation_admission: Arc::new(
+                crate::server::ServerSurfaceOperationAdmission::default(),
+            ),
             pairing: PairingBroker::new(),
             #[cfg(test)]
             test_surface_runtime,
