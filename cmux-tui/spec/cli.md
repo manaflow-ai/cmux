@@ -46,7 +46,7 @@ The CLI resolves the target session in this order:
 | 1 | `--socket <path>` |
 | 2 | `CMUX_TUI_SOCKET` |
 | 3 | Legacy `CMUX_MUX_SOCKET` |
-| 4 | `--session <name>` using `$TMPDIR/cmux-tui-<uid>/<session>.sock` |
+| 4 | `--session <name>` using the XDG/TMPDIR `/tmp` resolution in `transports.md` |
 | 5 | default session `main` using the default socket path |
 
 `--session` and `--socket` are global flags and may appear before or after the verb.
@@ -92,7 +92,7 @@ The generated CLI requires one of `--index` or `--delta` for `select-tab`, `sele
 | `ping` | implemented | none | global flags | one liveness line |
 | `set-client-info` | implemented | none | `--name <name>`, `--kind <kind>` | none |
 | `list-clients` | implemented | none | global flags | client lines |
-| `set-client-sizing` | implemented protocol 10 | `--surface <id> --enabled <true-or-false>` | `--client <id>`, global flags | none |
+| `set-client-sizing` | implemented protocol 10; exclusive route is socket/API-only | `--surface <id> --enabled <true-or-false>` | `--client <id>`, global flags | none |
 | `detach-client` | implemented | `--client <id>` | global flags | none |
 | `reload-config` | implemented | none | global flags | none |
 | `set-window-title` | implemented | `--title <title>` | global flags | none |
@@ -102,7 +102,7 @@ The generated CLI requires one of `--index` or `--delta` for `select-tab`, `sele
 | `apply-layout` | implemented | `--layout <json>` | `--workspace <id>`, `--name <name>`, `--cols <n> --rows <n>` | screen and pane/surface lines |
 | `send` | implemented; `--paste` protocol 7 | `--surface <id>` | `--text <text>`, `--bytes <base64>`, `--paste` | none |
 | `read-screen` | implemented | `--surface <id>` | none | screen text |
-| `read-scrollback` | proposed protocol 7 | `--surface <id> --start <n> --count <n>` | none | scrollback text rows |
+| `read-scrollback` | implemented; protocol 7 | `--surface <id> --start <n> --count <n>` | none | scrollback text rows |
 | `vt-state` | implemented | `--surface <id>` | none | `cols=<n> rows=<n> data=<base64>` |
 | `new-tab` | implemented | none | `--pane <id>`, `--cwd <path>`, `--cols <n> --rows <n>` | surface id |
 | `new-browser-tab` | implemented | `--url <url>` | `--pane <id>`, `--cols <n> --rows <n>` | surface id |
@@ -152,6 +152,11 @@ The generated CLI requires one of `--index` or `--delta` for `select-tab`, `sele
 | `plugin update` | implemented, CLI-only | `<name>` | none | update summary |
 | `plugin remove` | implemented, CLI-only | `<name>` | global socket flags for best-effort reload when selected | removal summary |
 
+The current CLI cannot emit `set-client-sizing` with `exclusive:true`; use the
+raw socket or an SDK for that atomic route. The `set-default-colors` CLI
+intentionally exposes only `fg` and `bg`; cursor, selection, palette, and
+`complete` fields remain available through the raw socket and SDKs.
+
 The grouped `plugin ...` verbs run entirely in the `cmux-tui` CLI process. They
 do not send plugin-specific socket commands and do not change the protocol.
 `plugin use`, `plugin use --builtin`, `plugin disable`, and selected-plugin
@@ -166,32 +171,32 @@ removal edit the cmux-tui config locally, then best-effort send the existing
 cmux-tui --session main identify
 ```
 
-2. Create a workspace and capture the surface id:
+1. Create a workspace and capture the surface id:
 
 ```bash
 surface=$(cmux-tui new-workspace --name build)
 ```
 
-3. Send text from an argument:
+1. Send text from an argument:
 
 ```bash
 cmux-tui send --surface "$surface" --text "cargo test"$'\r'
 ```
 
-4. Send a script from stdin:
+1. Send a script from stdin:
 
 ```bash
 printf 'printf "ready\\n"\r' | cmux-tui send --surface "$surface"
 ```
 
-5. Wait for a prompt, then send a command:
+1. Wait for a prompt, then send a command:
 
 ```bash
 cmux-tui wait-for --surface "$surface" --pattern 'ready' --timeout-ms 5000
 cmux-tui send --surface "$surface" --text "echo ok"$'\r'
 ```
 
-6. Run a tool in a new tab and poll the screen:
+1. Run a tool in a new tab and poll the screen:
 
 ```bash
 surface=$(cmux-tui run --name server -- python3 -m http.server)
@@ -200,7 +205,7 @@ until cmux-tui read-screen --surface "$surface" | rg -q 'Serving HTTP'; do
 done
 ```
 
-7. Split a pane and resize the split:
+1. Split a pane and resize the split:
 
 ```bash
 new_surface=$(cmux-tui split --pane 2 --dir right)
@@ -208,7 +213,7 @@ split=$(cmux-tui --json export-layout | jq -r '.layout.split')
 cmux-tui set-split-ratio --split "$split" --ratio 0.65
 ```
 
-8. Subscribe to events and react to bells:
+1. Subscribe to events and react to bells:
 
 ```bash
 cmux-tui subscribe |
@@ -218,22 +223,21 @@ cmux-tui subscribe |
   done
 ```
 
-9. Watch agent states from a shell script:
+1. Poll blocked agent states from a shell script. Protocol v10 has no agent-change event:
 
 ```bash
-cmux-tui subscribe |
-  jq -rc 'select(.event == "agent-state-changed") | select(.state == "blocked")' |
-  while read -r event; do
-    surface=$(jq -r '.surface' <<<"$event")
+cmux-tui --json list-agents --state blocked |
+  jq -rc '.agents[]' |
+  while read -r agent; do
+    surface=$(jq -r '.surface' <<<"$agent")
     cmux-tui notify --title "Agent blocked" --body "Surface $surface needs attention" --level warning --surface "$surface"
   done
 ```
 
-10. Use short ids when protocol v6 is available:
+1. Print current numeric and short display ids:
 
 ```bash
-sid=$(cmux-tui ids --kind surface | awk 'NR == 1 {print $3}')
-cmux-tui send-key --surface "$sid" enter
+cmux-tui ids --kind surface
 ```
 
 `sidebar-plugin` has no CLI verb: it is client-internal, issued by attach clients to obtain and size the sidebar plugin surface.

@@ -41,7 +41,7 @@ use unicode_width::UnicodeWidthStr;
 use crate::browser_input::{
     BrowserInputDispatcher, BrowserInputEvent, BrowserInputKind, BrowserResizeFailure,
 };
-use crate::config::{Action, ChromeTheme, Config, ScrollbarPosition, SidebarView};
+use crate::config::{Action, ActionExecution, ChromeTheme, Config, ScrollbarPosition, SidebarView};
 use crate::keys;
 use crate::localization;
 use crate::machine::{
@@ -2329,7 +2329,305 @@ pub enum MenuAction {
     InvokeProviderAction(usize),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MenuActionExecution {
+    RenameManagedMachine(MachineKey),
+    DeleteManagedMachine(MachineKey),
+    RestoreManagedMachine(MachineKey),
+    PurgeManagedMachine(MachineKey),
+    RenameWorkspace(WorkspaceId),
+    RenameManagedWorkspace(WorkspaceId),
+    CopyWorkspaceId(WorkspaceId),
+    CloseWorkspace(WorkspaceId),
+    DeleteManagedWorkspace(WorkspaceId),
+    RestoreManagedWorkspace(usize),
+    PurgeManagedWorkspace(usize),
+    RenameScreen(cmux_tui_core::ScreenId),
+    CloseScreen(cmux_tui_core::ScreenId),
+    BrowserBack(PaneId),
+    BrowserForward(PaneId),
+    BrowserReload(PaneId),
+    BrowserEditUrl(PaneId),
+    BrowserCopyUrl(PaneId),
+    BrowserActivate(PaneId),
+    RenameTab(PaneId),
+    CopyTabId(PaneId),
+    CopyPaneId(PaneId),
+    NewPaneSmart(PaneId),
+    NewTab(PaneId),
+    NewBrowserTab(PaneId),
+    SplitRight(PaneId),
+    SplitDown(PaneId),
+    CloseTab(PaneId),
+    ClosePane(PaneId),
+    TogglePaneZoom { pane: PaneId, zoomed: bool },
+    ToggleSidebar,
+    ToggleSidebarCompact,
+    FocusSidebar,
+    ShowShortcuts,
+    SetClientSizing { surface: SurfaceId, client: u64, enabled: bool },
+    UseClientSize { surface: SurfaceId, client: u64 },
+    RestoreAllClientSizing(SurfaceId),
+    DisconnectClient(u64),
+    SelectProviderScope(usize),
+    InvokeProviderAction(usize),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MenuActionClassification {
+    Direct,
+    Composite,
+    PresentationOnly,
+    ExternalProtocol,
+}
+
+impl MenuActionClassification {
+    const fn inventory_name(self) -> &'static str {
+        match self {
+            Self::Direct => "direct",
+            Self::Composite => "composite",
+            Self::PresentationOnly => "presentation-only",
+            Self::ExternalProtocol => "external-protocol",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct MenuActionMetadata {
+    classification: MenuActionClassification,
+    route: &'static str,
+    execution: MenuActionExecution,
+}
+
+impl MenuActionMetadata {
+    const fn new(
+        classification: MenuActionClassification,
+        route: &'static str,
+        execution: MenuActionExecution,
+    ) -> Self {
+        Self { classification, route, execution }
+    }
+
+    fn execution(self) -> MenuActionExecution {
+        debug_assert!(!self.classification.inventory_name().is_empty());
+        debug_assert!(!self.route.is_empty());
+        self.execution
+    }
+}
+
 impl MenuAction {
+    /// Compiled source of truth for programmability classification and
+    /// execution routing. The specification inventory checker reads this
+    /// exhaustive catalog.
+    fn metadata(&self) -> MenuActionMetadata {
+        match self {
+            MenuAction::RenameManagedMachine(key) => MenuActionMetadata::new(
+                MenuActionClassification::ExternalProtocol,
+                "machine-provider rename_machine",
+                MenuActionExecution::RenameManagedMachine(*key),
+            ),
+            MenuAction::DeleteManagedMachine(key) => MenuActionMetadata::new(
+                MenuActionClassification::ExternalProtocol,
+                "machine-provider delete_machine",
+                MenuActionExecution::DeleteManagedMachine(*key),
+            ),
+            MenuAction::RestoreManagedMachine(key) => MenuActionMetadata::new(
+                MenuActionClassification::ExternalProtocol,
+                "machine-provider restore_machine",
+                MenuActionExecution::RestoreManagedMachine(*key),
+            ),
+            MenuAction::PurgeManagedMachine(key) => MenuActionMetadata::new(
+                MenuActionClassification::ExternalProtocol,
+                "machine-provider purge_machine",
+                MenuActionExecution::PurgeManagedMachine(*key),
+            ),
+            MenuAction::RenameWorkspace(id) => MenuActionMetadata::new(
+                MenuActionClassification::Composite,
+                "frontend prompt + rename-workspace",
+                MenuActionExecution::RenameWorkspace(*id),
+            ),
+            MenuAction::RenameManagedWorkspace(id) => MenuActionMetadata::new(
+                MenuActionClassification::ExternalProtocol,
+                "machine-provider rename_workspace plus provider mirror commit",
+                MenuActionExecution::RenameManagedWorkspace(*id),
+            ),
+            MenuAction::CopyWorkspaceId(id) => MenuActionMetadata::new(
+                MenuActionClassification::PresentationOnly,
+                "tree snapshot + frontend clipboard",
+                MenuActionExecution::CopyWorkspaceId(*id),
+            ),
+            MenuAction::CloseWorkspace(id) => MenuActionMetadata::new(
+                MenuActionClassification::Composite,
+                "workspace ownership: close-workspace or machine-provider delete_workspace",
+                MenuActionExecution::CloseWorkspace(*id),
+            ),
+            MenuAction::DeleteManagedWorkspace(id) => MenuActionMetadata::new(
+                MenuActionClassification::ExternalProtocol,
+                "machine-provider delete_workspace",
+                MenuActionExecution::DeleteManagedWorkspace(*id),
+            ),
+            MenuAction::RestoreManagedWorkspace(index) => MenuActionMetadata::new(
+                MenuActionClassification::ExternalProtocol,
+                "machine-provider restore_workspace",
+                MenuActionExecution::RestoreManagedWorkspace(*index),
+            ),
+            MenuAction::PurgeManagedWorkspace(index) => MenuActionMetadata::new(
+                MenuActionClassification::ExternalProtocol,
+                "machine-provider purge_workspace",
+                MenuActionExecution::PurgeManagedWorkspace(*index),
+            ),
+            MenuAction::RenameScreen(id) => MenuActionMetadata::new(
+                MenuActionClassification::Composite,
+                "frontend prompt + rename-screen",
+                MenuActionExecution::RenameScreen(*id),
+            ),
+            MenuAction::CloseScreen(id) => MenuActionMetadata::new(
+                MenuActionClassification::Direct,
+                "close-screen",
+                MenuActionExecution::CloseScreen(*id),
+            ),
+            MenuAction::BrowserBack(id) => MenuActionMetadata::new(
+                MenuActionClassification::Direct,
+                "browser-back",
+                MenuActionExecution::BrowserBack(*id),
+            ),
+            MenuAction::BrowserForward(id) => MenuActionMetadata::new(
+                MenuActionClassification::Direct,
+                "browser-forward",
+                MenuActionExecution::BrowserForward(*id),
+            ),
+            MenuAction::BrowserReload(id) => MenuActionMetadata::new(
+                MenuActionClassification::Direct,
+                "browser-reload",
+                MenuActionExecution::BrowserReload(*id),
+            ),
+            MenuAction::BrowserEditUrl(id) => MenuActionMetadata::new(
+                MenuActionClassification::Composite,
+                "frontend omnibar + browser-navigate",
+                MenuActionExecution::BrowserEditUrl(*id),
+            ),
+            MenuAction::BrowserCopyUrl(id) => MenuActionMetadata::new(
+                MenuActionClassification::PresentationOnly,
+                "browser state + frontend clipboard",
+                MenuActionExecution::BrowserCopyUrl(*id),
+            ),
+            MenuAction::BrowserActivate(id) => MenuActionMetadata::new(
+                MenuActionClassification::Direct,
+                "browser-activate",
+                MenuActionExecution::BrowserActivate(*id),
+            ),
+            MenuAction::RenameTab(id) => MenuActionMetadata::new(
+                MenuActionClassification::Composite,
+                "frontend prompt + rename-surface",
+                MenuActionExecution::RenameTab(*id),
+            ),
+            MenuAction::CopyTabId(id) => MenuActionMetadata::new(
+                MenuActionClassification::PresentationOnly,
+                "tree snapshot + frontend clipboard",
+                MenuActionExecution::CopyTabId(*id),
+            ),
+            MenuAction::CopyPaneId(id) => MenuActionMetadata::new(
+                MenuActionClassification::PresentationOnly,
+                "tree snapshot + frontend clipboard",
+                MenuActionExecution::CopyPaneId(*id),
+            ),
+            MenuAction::NewPaneSmart(id) => MenuActionMetadata::new(
+                MenuActionClassification::Composite,
+                "list-workspaces + new-pane",
+                MenuActionExecution::NewPaneSmart(*id),
+            ),
+            MenuAction::NewTab(id) => MenuActionMetadata::new(
+                MenuActionClassification::Direct,
+                "new-tab",
+                MenuActionExecution::NewTab(*id),
+            ),
+            MenuAction::NewBrowserTab(id) => MenuActionMetadata::new(
+                MenuActionClassification::Composite,
+                "frontend omnibar + new-browser-tab",
+                MenuActionExecution::NewBrowserTab(*id),
+            ),
+            MenuAction::SplitRight(id) => MenuActionMetadata::new(
+                MenuActionClassification::Direct,
+                "split dir:right",
+                MenuActionExecution::SplitRight(*id),
+            ),
+            MenuAction::SplitDown(id) => MenuActionMetadata::new(
+                MenuActionClassification::Direct,
+                "split dir:down",
+                MenuActionExecution::SplitDown(*id),
+            ),
+            MenuAction::CloseTab(id) => MenuActionMetadata::new(
+                MenuActionClassification::Direct,
+                "close-surface",
+                MenuActionExecution::CloseTab(*id),
+            ),
+            MenuAction::ClosePane(id) => MenuActionMetadata::new(
+                MenuActionClassification::Direct,
+                "close-pane",
+                MenuActionExecution::ClosePane(*id),
+            ),
+            MenuAction::TogglePaneZoom { pane, zoomed } => MenuActionMetadata::new(
+                MenuActionClassification::Direct,
+                "zoom-pane explicit mode",
+                MenuActionExecution::TogglePaneZoom { pane: *pane, zoomed: *zoomed },
+            ),
+            MenuAction::ToggleSidebar { .. } => MenuActionMetadata::new(
+                MenuActionClassification::PresentationOnly,
+                "frontend action adapter",
+                MenuActionExecution::ToggleSidebar,
+            ),
+            MenuAction::ToggleSidebarCompact { .. } => MenuActionMetadata::new(
+                MenuActionClassification::PresentationOnly,
+                "frontend action adapter",
+                MenuActionExecution::ToggleSidebarCompact,
+            ),
+            MenuAction::FocusSidebar => MenuActionMetadata::new(
+                MenuActionClassification::PresentationOnly,
+                "frontend action adapter",
+                MenuActionExecution::FocusSidebar,
+            ),
+            MenuAction::ShowShortcuts => MenuActionMetadata::new(
+                MenuActionClassification::PresentationOnly,
+                "frontend shortcut overlay",
+                MenuActionExecution::ShowShortcuts,
+            ),
+            MenuAction::SetClientSizing { surface, client, enabled } => MenuActionMetadata::new(
+                MenuActionClassification::Direct,
+                "set-client-sizing",
+                MenuActionExecution::SetClientSizing {
+                    surface: *surface,
+                    client: *client,
+                    enabled: *enabled,
+                },
+            ),
+            MenuAction::UseClientSize { surface, client } => MenuActionMetadata::new(
+                MenuActionClassification::Direct,
+                "set-client-sizing exclusive:true",
+                MenuActionExecution::UseClientSize { surface: *surface, client: *client },
+            ),
+            MenuAction::RestoreAllClientSizing(surface) => MenuActionMetadata::new(
+                MenuActionClassification::Direct,
+                "set-client-sizing enabled:true without client",
+                MenuActionExecution::RestoreAllClientSizing(*surface),
+            ),
+            MenuAction::DisconnectClient(client) => MenuActionMetadata::new(
+                MenuActionClassification::Composite,
+                "self: close frontend transport; peer: detach-client",
+                MenuActionExecution::DisconnectClient(*client),
+            ),
+            MenuAction::SelectProviderScope(index) => MenuActionMetadata::new(
+                MenuActionClassification::ExternalProtocol,
+                "machine-provider select_scope",
+                MenuActionExecution::SelectProviderScope(*index),
+            ),
+            MenuAction::InvokeProviderAction(index) => MenuActionMetadata::new(
+                MenuActionClassification::ExternalProtocol,
+                "machine-provider invoke_action",
+                MenuActionExecution::InvokeProviderAction(*index),
+            ),
+        }
+    }
+
     pub fn label(&self) -> &'static str {
         let menu = &localization::catalog().menu;
         match self {
@@ -8414,34 +8712,34 @@ impl App {
         if action_prepares_pty_release(action) && !self.prepare_pty_input_before_mutation() {
             return Ok(RenderAction::None);
         }
-        match action {
-            Action::SendPrefix => {
+        match action.metadata().execution() {
+            ActionExecution::SendPrefix => {
                 let prefix = self.config.keys.prefix;
                 self.forward_key_to_pane(&KeyEvent::new(prefix.code, prefix.mods), pane);
             }
-            Action::NewTab => {
+            ActionExecution::NewTab => {
                 self.new_terminal_tab(pane)?;
             }
-            Action::NewBrowserTab => self.create_browser_tab_for_edit(pane)?,
-            Action::NewPaneSmart => self.new_pane_smart(pane)?,
-            Action::NextTab => self.select_tab_for_client(pane, None, Some(1)),
-            Action::PrevTab => self.select_tab_for_client(pane, None, Some(-1)),
-            Action::SelectTab(_) => {
+            ActionExecution::NewBrowserTab => self.create_browser_tab_for_edit(pane)?,
+            ActionExecution::NewPaneSmart => self.new_pane_smart(pane)?,
+            ActionExecution::NextTab => self.select_tab_for_client(pane, None, Some(1)),
+            ActionExecution::PrevTab => self.select_tab_for_client(pane, None, Some(-1)),
+            ActionExecution::SelectTab(_) => {
                 if let Some(index) = action.tab_index() {
                     self.select_tab_for_client(pane, Some(index), None);
                 }
             }
-            Action::SplitRight => {
+            ActionExecution::SplitRight => {
                 if let Some(pane) = pane {
                     self.split_pane(pane, SplitDir::Right)?;
                 }
             }
-            Action::SplitDown => {
+            ActionExecution::SplitDown => {
                 if let Some(pane) = pane {
                     self.split_pane(pane, SplitDir::Down)?;
                 }
             }
-            Action::CloseTab => {
+            ActionExecution::CloseTab => {
                 // Close the active tab; the pane collapses with its last
                 // tab, so this is also "close pane" for single-tab panes.
                 if let Some(surface) = pane
@@ -8451,80 +8749,80 @@ impl App {
                     self.session.close_surface(surface);
                 }
             }
-            Action::ClosePane => {
+            ActionExecution::ClosePane => {
                 if let Some(pane) = pane {
                     self.session.close_pane(pane);
                 }
             }
-            Action::RenameTab => self.open_rename_tab_prompt(pane),
-            Action::RenameScreen => self.open_rename_screen_prompt(),
-            Action::RenameWorkspace => self.open_rename_workspace_prompt(),
-            Action::CloseScreen => {
+            ActionExecution::RenameTab => self.open_rename_tab_prompt(pane),
+            ActionExecution::RenameScreen => self.open_rename_screen_prompt(),
+            ActionExecution::RenameWorkspace => self.open_rename_workspace_prompt(),
+            ActionExecution::CloseScreen => {
                 if let Some(screen) = self.active_screen_id() {
                     self.session.close_screen(screen);
                 }
             }
-            Action::PrevScreen => self.select_screen_for_client(None, Some(-1)),
-            Action::NextScreen => self.select_screen_for_client(None, Some(1)),
-            Action::SelectScreen(_) => {
+            ActionExecution::PrevScreen => self.select_screen_for_client(None, Some(-1)),
+            ActionExecution::NextScreen => self.select_screen_for_client(None, Some(1)),
+            ActionExecution::SelectScreen(_) => {
                 if let Some(index) = action.screen_index() {
                     self.select_screen_for_client(Some(index), None);
                 }
             }
-            Action::NewScreen => self.new_screen()?,
-            Action::PrevWorkspace => self.select_workspace_for_client(None, Some(-1)),
-            Action::NextWorkspace => self.select_workspace_for_client(None, Some(1)),
-            Action::NewWorkspace => self.new_workspace()?,
-            Action::CloseWorkspace => {
+            ActionExecution::NewScreen => self.new_screen()?,
+            ActionExecution::PrevWorkspace => self.select_workspace_for_client(None, Some(-1)),
+            ActionExecution::NextWorkspace => self.select_workspace_for_client(None, Some(1)),
+            ActionExecution::NewWorkspace => self.new_workspace()?,
+            ActionExecution::CloseWorkspace => {
                 if let Some(workspace) = self.tree.active_workspace().map(|workspace| workspace.id)
                 {
                     self.request_delete_workspace(workspace);
                 }
             }
-            Action::ToggleSidebar => {
+            ActionExecution::ToggleSidebar => {
                 self.sidebar_visible = !self.sidebar_visible;
                 if !self.sidebar_visible {
                     self.session.invalidate_sidebar_plugin_sync();
                     self.focus = FocusTarget::Pane;
                 }
             }
-            Action::ToggleSidebarCompact => {
+            ActionExecution::ToggleSidebarCompact => {
                 self.sidebar_compact = !self.sidebar_compact;
                 self.sidebar_visible = true;
             }
-            Action::ToggleSidebarView => self.toggle_sidebar_view(),
-            Action::FocusSidebar => self.toggle_sidebar_focus(),
-            Action::FocusLeft => self.move_focus(Direction::Left),
-            Action::FocusRight => self.move_focus(Direction::Right),
-            Action::FocusUp => self.move_focus(Direction::Up),
-            Action::FocusDown => self.move_focus(Direction::Down),
-            Action::FocusNextPane => self.focus_next_pane(),
-            Action::SwapPanePrev => self.swap_pane_by_order(-1),
-            Action::SwapPaneNext => self.swap_pane_by_order(1),
-            Action::ZoomPane => self.session.zoom_pane(pane),
-            Action::ResizeGrow => self.resize_focused_split(0.05),
-            Action::ResizeShrink => self.resize_focused_split(-0.05),
-            Action::ScrollUp => self.scroll_active(-10),
-            Action::ScrollDown => self.scroll_active(10),
-            Action::BrowserBack => {
+            ActionExecution::ToggleSidebarView => self.toggle_sidebar_view(),
+            ActionExecution::FocusSidebar => self.toggle_sidebar_focus(),
+            ActionExecution::FocusLeft => self.move_focus(Direction::Left),
+            ActionExecution::FocusRight => self.move_focus(Direction::Right),
+            ActionExecution::FocusUp => self.move_focus(Direction::Up),
+            ActionExecution::FocusDown => self.move_focus(Direction::Down),
+            ActionExecution::FocusNextPane => self.focus_next_pane(),
+            ActionExecution::SwapPanePrev => self.swap_pane_by_order(-1),
+            ActionExecution::SwapPaneNext => self.swap_pane_by_order(1),
+            ActionExecution::ZoomPane => self.session.zoom_pane(pane),
+            ActionExecution::ResizeGrow => self.resize_focused_split(0.05),
+            ActionExecution::ResizeShrink => self.resize_focused_split(-0.05),
+            ActionExecution::ScrollUp => self.scroll_active(-10),
+            ActionExecution::ScrollDown => self.scroll_active(10),
+            ActionExecution::BrowserBack => {
                 self.enqueue_active_browser_command(BrowserInputKind::Back);
                 return Ok(RenderAction::Draw);
             }
-            Action::BrowserForward => {
+            ActionExecution::BrowserForward => {
                 self.enqueue_active_browser_command(BrowserInputKind::Forward);
                 return Ok(RenderAction::Draw);
             }
-            Action::BrowserReload => {
+            ActionExecution::BrowserReload => {
                 self.enqueue_active_browser_command(BrowserInputKind::Reload);
                 return Ok(RenderAction::Draw);
             }
-            Action::BrowserEditUrl => {
+            ActionExecution::BrowserEditUrl => {
                 if let Some(pane) = pane {
                     self.focus_omnibar(pane);
                 }
                 return Ok(RenderAction::Draw);
             }
-            Action::ShowShortcuts => {
+            ActionExecution::ShowShortcuts => {
                 self.shortcut_help = if self.shortcut_help.is_some() {
                     None
                 } else {
@@ -8537,7 +8835,7 @@ impl App {
                 self.selection = None;
                 return Ok(RenderAction::Draw);
             }
-            Action::Detach => {
+            ActionExecution::Detach => {
                 // Local sessions end with the TUI; remote sessions keep
                 // running server-side (detach).
                 self.quit = true;
@@ -8747,49 +9045,50 @@ impl App {
     }
 
     fn activate_menu(&mut self, action: MenuAction) -> anyhow::Result<()> {
-        match action {
-            MenuAction::TogglePaneZoom { pane, zoomed } => {
+        let execution = action.metadata().execution();
+        match execution {
+            MenuActionExecution::TogglePaneZoom { pane, zoomed } => {
                 if self.active_pane() != Some(pane) {
                     self.focus_pane_after_input(pane);
                 }
                 self.session.set_pane_zoom(pane, !zoomed);
                 return Ok(());
             }
-            MenuAction::NewPaneSmart(pane) => {
+            MenuActionExecution::NewPaneSmart(pane) => {
                 self.run_action_for_pane(Action::NewPaneSmart, Some(pane))?;
                 return Ok(());
             }
-            MenuAction::NewTab(pane) => {
+            MenuActionExecution::NewTab(pane) => {
                 self.run_action_for_pane(Action::NewTab, Some(pane))?;
                 return Ok(());
             }
-            MenuAction::NewBrowserTab(pane) => {
+            MenuActionExecution::NewBrowserTab(pane) => {
                 self.run_action_for_pane(Action::NewBrowserTab, Some(pane))?;
                 return Ok(());
             }
-            MenuAction::SplitRight(pane) => {
+            MenuActionExecution::SplitRight(pane) => {
                 self.run_action_for_pane(Action::SplitRight, Some(pane))?;
                 return Ok(());
             }
-            MenuAction::SplitDown(pane) => {
+            MenuActionExecution::SplitDown(pane) => {
                 self.run_action_for_pane(Action::SplitDown, Some(pane))?;
                 return Ok(());
             }
-            MenuAction::ToggleSidebar { .. } => {
+            MenuActionExecution::ToggleSidebar => {
                 self.run_action(Action::ToggleSidebar)?;
                 return Ok(());
             }
-            MenuAction::ToggleSidebarCompact { .. } => {
+            MenuActionExecution::ToggleSidebarCompact => {
                 self.run_action(Action::ToggleSidebarCompact)?;
                 return Ok(());
             }
-            MenuAction::FocusSidebar => {
+            MenuActionExecution::FocusSidebar => {
                 if !self.workspace_sidebar_focused() && self.prepare_pty_input_before_mutation() {
                     self.focus_sidebar();
                 }
                 return Ok(());
             }
-            MenuAction::ShowShortcuts => {
+            MenuActionExecution::ShowShortcuts => {
                 self.run_action(Action::ShowShortcuts)?;
                 return Ok(());
             }
@@ -8798,26 +9097,26 @@ impl App {
         if menu_action_prepares_pty_release(action) && !self.prepare_pty_input_before_mutation() {
             return Ok(());
         }
-        match action {
-            MenuAction::RenameManagedMachine(key) => {
+        match execution {
+            MenuActionExecution::RenameManagedMachine(key) => {
                 self.open_rename_managed_machine_prompt(key);
             }
-            MenuAction::DeleteManagedMachine(key) => {
+            MenuActionExecution::DeleteManagedMachine(key) => {
                 self.open_delete_managed_machine_prompt(key);
             }
-            MenuAction::RestoreManagedMachine(key) => {
+            MenuActionExecution::RestoreManagedMachine(key) => {
                 self.request_restore_managed_machine(key);
             }
-            MenuAction::PurgeManagedMachine(key) => {
+            MenuActionExecution::PurgeManagedMachine(key) => {
                 self.open_purge_managed_machine_prompt(key);
             }
-            MenuAction::RenameWorkspace(id) => self.open_rename_workspace_prompt_for(id),
-            MenuAction::RenameManagedWorkspace(id) => {
+            MenuActionExecution::RenameWorkspace(id) => self.open_rename_workspace_prompt_for(id),
+            MenuActionExecution::RenameManagedWorkspace(id) => {
                 self.open_rename_workspace_prompt_for(id);
             }
-            MenuAction::CloseWorkspace(id) => self.request_delete_workspace(id),
-            MenuAction::DeleteManagedWorkspace(id) => self.request_delete_workspace(id),
-            MenuAction::RestoreManagedWorkspace(index) => {
+            MenuActionExecution::CloseWorkspace(id) => self.request_delete_workspace(id),
+            MenuActionExecution::DeleteManagedWorkspace(id) => self.request_delete_workspace(id),
+            MenuActionExecution::RestoreManagedWorkspace(index) => {
                 let workspace_id = self
                     .machine_ui
                     .as_ref()
@@ -8827,21 +9126,21 @@ impl App {
                     self.request_restore_managed_workspace(&workspace_id);
                 }
             }
-            MenuAction::PurgeManagedWorkspace(index) => {
+            MenuActionExecution::PurgeManagedWorkspace(index) => {
                 self.prompt = Some(Prompt::new(
                     localization::catalog().sidebar.confirm_purge_workspace,
                     String::new(),
                     PromptTarget::ConfirmPurgeManagedWorkspace(index),
                 ));
             }
-            MenuAction::CopyWorkspaceId(id) => {
+            MenuActionExecution::CopyWorkspaceId(id) => {
                 if let Some(short_id) =
                     self.tree.workspaces.iter().find(|ws| ws.id == id).map(|ws| ws.short_id.clone())
                 {
                     self.copy_short_id(short_id);
                 }
             }
-            MenuAction::RenameScreen(id) => {
+            MenuActionExecution::RenameScreen(id) => {
                 let buffer = self
                     .tree
                     .workspaces
@@ -8852,23 +9151,23 @@ impl App {
                     .unwrap_or_default();
                 self.prompt = Some(Prompt::new("Rename screen", buffer, PromptTarget::Screen(id)));
             }
-            MenuAction::CloseScreen(id) => self.session.close_screen(id),
-            MenuAction::BrowserBack(id) => {
+            MenuActionExecution::CloseScreen(id) => self.session.close_screen(id),
+            MenuActionExecution::BrowserBack(id) => {
                 self.enqueue_browser_command_for_pane(id, BrowserInputKind::Back);
             }
-            MenuAction::BrowserForward(id) => {
+            MenuActionExecution::BrowserForward(id) => {
                 self.enqueue_browser_command_for_pane(id, BrowserInputKind::Forward);
             }
-            MenuAction::BrowserReload(id) => {
+            MenuActionExecution::BrowserReload(id) => {
                 self.enqueue_browser_command_for_pane(id, BrowserInputKind::Reload);
             }
-            MenuAction::BrowserEditUrl(id) => self.focus_omnibar(id),
-            MenuAction::BrowserCopyUrl(id) => self.browser_copy_url(id),
-            MenuAction::BrowserActivate(id) => {
+            MenuActionExecution::BrowserEditUrl(id) => self.focus_omnibar(id),
+            MenuActionExecution::BrowserCopyUrl(id) => self.browser_copy_url(id),
+            MenuActionExecution::BrowserActivate(id) => {
                 self.enqueue_browser_command_for_pane(id, BrowserInputKind::Activate);
             }
-            MenuAction::RenameTab(id) => self.open_rename_tab_prompt(Some(id)),
-            MenuAction::CopyTabId(id) => {
+            MenuActionExecution::RenameTab(id) => self.open_rename_tab_prompt(Some(id)),
+            MenuActionExecution::CopyTabId(id) => {
                 if let Some(short_id) = self
                     .tree
                     .pane(id)
@@ -8878,37 +9177,39 @@ impl App {
                     self.copy_short_id(short_id);
                 }
             }
-            MenuAction::CopyPaneId(id) => {
+            MenuActionExecution::CopyPaneId(id) => {
                 if let Some(short_id) = self.tree.pane(id).map(|pane| pane.short_id.clone()) {
                     self.copy_short_id(short_id);
                 }
             }
-            MenuAction::NewPaneSmart(_)
-            | MenuAction::NewTab(_)
-            | MenuAction::NewBrowserTab(_)
-            | MenuAction::SplitRight(_)
-            | MenuAction::SplitDown(_) => unreachable!("shared menu actions return above"),
-            MenuAction::CloseTab(id) => {
+            MenuActionExecution::NewPaneSmart(_)
+            | MenuActionExecution::NewTab(_)
+            | MenuActionExecution::NewBrowserTab(_)
+            | MenuActionExecution::SplitRight(_)
+            | MenuActionExecution::SplitDown(_) => unreachable!("shared menu actions return above"),
+            MenuActionExecution::CloseTab(id) => {
                 if let Some(surface) = self.tree.pane(id).and_then(|p| p.active_surface()) {
                     self.session.close_surface(surface);
                 }
             }
-            MenuAction::ClosePane(id) => self.session.close_pane(id),
-            MenuAction::TogglePaneZoom { .. }
-            | MenuAction::ToggleSidebar { .. }
-            | MenuAction::ToggleSidebarCompact { .. }
-            | MenuAction::FocusSidebar
-            | MenuAction::ShowShortcuts => unreachable!("shared menu actions return above"),
-            MenuAction::SetClientSizing { surface, client, enabled } => {
+            MenuActionExecution::ClosePane(id) => self.session.close_pane(id),
+            MenuActionExecution::TogglePaneZoom { .. }
+            | MenuActionExecution::ToggleSidebar
+            | MenuActionExecution::ToggleSidebarCompact
+            | MenuActionExecution::FocusSidebar
+            | MenuActionExecution::ShowShortcuts => {
+                unreachable!("shared menu actions return above")
+            }
+            MenuActionExecution::SetClientSizing { surface, client, enabled } => {
                 self.session.set_client_sizing(surface, client, enabled);
             }
-            MenuAction::UseClientSize { surface, client } => {
+            MenuActionExecution::UseClientSize { surface, client } => {
                 self.session.use_only_client_sizing(surface, client);
             }
-            MenuAction::RestoreAllClientSizing(surface) => {
+            MenuActionExecution::RestoreAllClientSizing(surface) => {
                 self.session.use_all_client_sizing(surface);
             }
-            MenuAction::DisconnectClient(client) => {
+            MenuActionExecution::DisconnectClient(client) => {
                 if self.clients.iter().any(|info| info.client == client && info.is_self) {
                     // Disconnecting this control connection would close the socket that must
                     // carry the response. Exit through the same local detach lifecycle as the
@@ -8921,7 +9222,7 @@ impl App {
                     self.session.disconnect_client(client);
                 }
             }
-            MenuAction::SelectProviderScope(index) => {
+            MenuActionExecution::SelectProviderScope(index) => {
                 let scope = self
                     .machine_ui
                     .as_ref()
@@ -8937,7 +9238,7 @@ impl App {
                     ui.request = Some(MachineRequest::SelectProviderScope(scope));
                 }
             }
-            MenuAction::InvokeProviderAction(index) => self.begin_provider_action(index),
+            MenuActionExecution::InvokeProviderAction(index) => self.begin_provider_action(index),
         }
         Ok(())
     }

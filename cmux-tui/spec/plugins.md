@@ -21,7 +21,7 @@ A sidebar plugin is an executable terminal program. The mux server starts it ins
 }
 ```
 
-When `sidebar.plugin` is absent, the built-in view selected by `sidebar.view` is used (`files` by default, or `workspaces`). When present, the plugin replaces either built-in view. In a local TUI session, `reload-config` applies this key through the existing config reload path. A headless server or attached-client setup may require restarting the server process so the server, not the attach client, picks up the plugin command.
+When `sidebar.plugin` is absent, the built-in view selected by `sidebar.view` is used (`workspaces` by default, or `files`). When present, the plugin replaces either built-in view. In a local TUI session, `reload-config` applies this key through the existing config reload path. A headless server or attached-client setup may require restarting the server process so the server, not the attach client, picks up the plugin command.
 
 The sidebar content PTY is sized to the sidebar content cells. The host TUI keeps one separator/focus-border column at the right edge. Resizes use normal PTY resizing (`TIOCSWINSZ` on Unix), so plugins observe the standard terminal resize behavior and `SIGWINCH`; there is no plugin-specific resize protocol.
 

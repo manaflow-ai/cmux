@@ -46,7 +46,7 @@ On first registration, the broker must atomically bind the machine id and secret
 
 ## Stream multiplexing
 
-The broker opens a stream with a nonzero stream id, a generation-independent replay id, and initial agent-to-broker credit. The agent opens a fresh connection to the selected local protocol-v10 socket and replies with `opened` plus broker-to-agent credit.
+The broker sends `open` with a nonzero stream id, a generation-independent replay id, and initial agent-to-broker credit. The agent opens a fresh connection to the selected local protocol-v10 socket and replies with `opened` plus broker-to-agent credit, or `reject` with a stable failure code.
 
 `data` carries at most 24 KiB as unpadded base64. `window` replenishes byte credit. A zero-length `data`, zero-byte `window`, credit overflow, or data beyond available credit closes that stream with `flow_control`. A local read or write failure closes only its stream. `close` is idempotent.
 

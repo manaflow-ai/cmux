@@ -639,6 +639,115 @@ enum Command {
     },
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum CommandProfile {
+    Control,
+    Frontend,
+    LocalAdmin,
+    ProviderAuthority,
+}
+
+impl Command {
+    /// Runtime authorization class for every wire command. This exhaustive
+    /// match is the source consumed by the specification inventory checker.
+    fn profile(&self) -> CommandProfile {
+        match self {
+            Command::ApplyLayout { .. } => CommandProfile::Control,
+            Command::ClearWindowTitle => CommandProfile::Control,
+            Command::ClosePane { .. } => CommandProfile::Control,
+            Command::CloseScreen { .. } => CommandProfile::Control,
+            Command::CloseSurface { .. } => CommandProfile::Control,
+            Command::CloseTerminal { .. } => CommandProfile::Control,
+            Command::CloseWorkspace { .. } => CommandProfile::Control,
+            Command::Copy { .. } => CommandProfile::Control,
+            Command::CreateTerminal { .. } => CommandProfile::Control,
+            Command::CreateWorkspace { .. } => CommandProfile::Control,
+            Command::DetachClient { .. } => CommandProfile::Control,
+            Command::ExportLayout { .. } => CommandProfile::Control,
+            Command::FocusDirection { .. } => CommandProfile::Control,
+            Command::FocusPane { .. } => CommandProfile::Control,
+            Command::GetFrontendProjection { .. } => CommandProfile::Control,
+            Command::Identify => CommandProfile::Control,
+            Command::Ids { .. } => CommandProfile::Control,
+            Command::ListAgents { .. } => CommandProfile::Control,
+            Command::ListClients => CommandProfile::Control,
+            Command::ListTerminals => CommandProfile::Control,
+            Command::ListWorkspaces => CommandProfile::Control,
+            Command::MoveTab { .. } => CommandProfile::Control,
+            Command::MoveTerminal { .. } => CommandProfile::Control,
+            Command::MoveWorkspace { .. } => CommandProfile::Control,
+            Command::NewBrowserTab { .. } => CommandProfile::Control,
+            Command::NewPane { .. } => CommandProfile::Control,
+            Command::NewScreen { .. } => CommandProfile::Control,
+            Command::NewTab { .. } => CommandProfile::Control,
+            Command::NewWorkspace { .. } => CommandProfile::Control,
+            Command::Notify { .. } => CommandProfile::Control,
+            Command::PaneNeighbor { .. } => CommandProfile::Control,
+            Command::Ping => CommandProfile::Control,
+            Command::ProcessInfo { .. } => CommandProfile::Control,
+            Command::PutFrontendProjection { .. } => CommandProfile::Control,
+            Command::ReadScreen { .. } => CommandProfile::Control,
+            Command::ReadScrollback { .. } => CommandProfile::Control,
+            Command::ReleaseSurfaceSize { .. } => CommandProfile::Control,
+            Command::ReloadConfig => CommandProfile::Control,
+            Command::RenamePane { .. } => CommandProfile::Control,
+            Command::RenameScreen { .. } => CommandProfile::Control,
+            Command::RenameSurface { .. } => CommandProfile::Control,
+            Command::RenameWorkspace { .. } => CommandProfile::Control,
+            Command::ReportAgent { .. } => CommandProfile::Control,
+            Command::ResizeSurface { .. } => CommandProfile::Control,
+            Command::ResolveTerminal { .. } => CommandProfile::Control,
+            Command::Run { .. } => CommandProfile::Control,
+            Command::ScrollSurface { .. } => CommandProfile::Control,
+            Command::SelectScreen { .. } => CommandProfile::Control,
+            Command::SelectTab { .. } => CommandProfile::Control,
+            Command::SelectWorkspace { .. } => CommandProfile::Control,
+            Command::Send { .. } => CommandProfile::Control,
+            Command::SendKey { .. } => CommandProfile::Control,
+            Command::SetClientInfo { .. } => CommandProfile::Control,
+            Command::SetClientSizing { .. } => CommandProfile::Control,
+            Command::SetDefaultColors { .. } => CommandProfile::Control,
+            Command::SetRatio { .. } => CommandProfile::Control,
+            Command::SetSplitRatio { .. } => CommandProfile::Control,
+            Command::SetWindowTitle { .. } => CommandProfile::Control,
+            Command::Split { .. } => CommandProfile::Control,
+            Command::SwapPane { .. } => CommandProfile::Control,
+            Command::TerminalEvents { .. } => CommandProfile::Control,
+            Command::VtState { .. } => CommandProfile::Control,
+            Command::WaitFor { .. } => CommandProfile::Control,
+            Command::ZoomPane { .. } => CommandProfile::Control,
+            Command::AttachSurface { .. } => CommandProfile::Frontend,
+            Command::BrowserActivate { .. } => CommandProfile::Frontend,
+            Command::BrowserBack { .. } => CommandProfile::Frontend,
+            Command::BrowserForward { .. } => CommandProfile::Frontend,
+            Command::BrowserInsertText { .. } => CommandProfile::Frontend,
+            Command::BrowserKey { .. } => CommandProfile::Frontend,
+            Command::BrowserMouse { .. } => CommandProfile::Frontend,
+            Command::BrowserNavigate { .. } => CommandProfile::Frontend,
+            Command::BrowserReload { .. } => CommandProfile::Frontend,
+            Command::BrowserWheel { .. } => CommandProfile::Frontend,
+            Command::MintTerminalRenderer { .. } => CommandProfile::Frontend,
+            Command::SetCellPixels { .. } => CommandProfile::Frontend,
+            Command::SidebarPlugin { .. } => CommandProfile::Frontend,
+            Command::Subscribe { .. } => CommandProfile::Frontend,
+            Command::PairingResponse { .. } => CommandProfile::LocalAdmin,
+            Command::ShutdownDaemon { .. } => CommandProfile::LocalAdmin,
+            Command::CloseProviderManagedWorkspace { .. } => CommandProfile::ProviderAuthority,
+            Command::MarkWorkspacesProviderManaged { .. } => CommandProfile::ProviderAuthority,
+            Command::RenameProviderManagedWorkspace { .. } => CommandProfile::ProviderAuthority,
+        }
+    }
+
+    fn provider_authority_mut(&mut self) -> Option<&mut String> {
+        match self {
+            Command::MarkWorkspacesProviderManaged { authority }
+            | Command::CloseProviderManagedWorkspace { authority, .. }
+            | Command::RenameProviderManagedWorkspace { authority, .. } => Some(authority),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Default, Deserialize)]
 struct MutationRequest {
     #[serde(default)]
@@ -698,21 +807,163 @@ const OUTBOUND_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
 const OUTBOUND_CONTROL_BYTE_RESERVE: usize = 16 * 1024 * 1024;
 const CLIENT_DETACH_WRITE_TIMEOUT: Duration = Duration::from_millis(100);
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PublicEventStream {
+    Subscribe,
+    SubscribeDeltas,
+    AttachByte,
+    AttachRender,
+    AttachBrowser,
+}
+
+#[derive(Clone, Copy)]
+struct PublicEvent {
+    name: &'static str,
+    streams: &'static [PublicEventStream],
+}
+
+impl PublicEvent {
+    const fn new(name: &'static str, streams: &'static [PublicEventStream]) -> Self {
+        Self { name, streams }
+    }
+}
+
+/// Public stream membership used by the writer and the specification checker.
+/// Any serializer missing from this catalog, or sent on the wrong stream, is
+/// rejected before it reaches the transport.
+const PUBLIC_EVENT_CATALOG: &[PublicEvent] = &[
+    PublicEvent::new("bell", &[PublicEventStream::Subscribe]),
+    PublicEvent::new("browser-state", &[PublicEventStream::AttachBrowser]),
+    PublicEvent::new("client-attached", &[PublicEventStream::Subscribe]),
+    PublicEvent::new("client-changed", &[PublicEventStream::Subscribe]),
+    PublicEvent::new("client-detached", &[PublicEventStream::Subscribe]),
+    PublicEvent::new("client-list-invalidated", &[PublicEventStream::Subscribe]),
+    PublicEvent::new("colors-changed", &[PublicEventStream::AttachByte]),
+    PublicEvent::new("config-reload-requested", &[PublicEventStream::Subscribe]),
+    PublicEvent::new(
+        "detached",
+        &[
+            PublicEventStream::AttachByte,
+            PublicEventStream::AttachRender,
+            PublicEventStream::AttachBrowser,
+        ],
+    ),
+    PublicEvent::new("empty", &[PublicEventStream::Subscribe]),
+    PublicEvent::new("frame", &[PublicEventStream::AttachBrowser]),
+    PublicEvent::new("frontend-projection-changed", &[PublicEventStream::Subscribe]),
+    PublicEvent::new("layout-changed", &[PublicEventStream::Subscribe]),
+    PublicEvent::new(
+        "notification",
+        &[
+            PublicEventStream::Subscribe,
+            PublicEventStream::AttachByte,
+            PublicEventStream::AttachBrowser,
+        ],
+    ),
+    PublicEvent::new("output", &[PublicEventStream::AttachByte]),
+    PublicEvent::new(
+        "overflow",
+        &[
+            PublicEventStream::Subscribe,
+            PublicEventStream::AttachByte,
+            PublicEventStream::AttachRender,
+            PublicEventStream::AttachBrowser,
+        ],
+    ),
+    PublicEvent::new("pairing-requested", &[PublicEventStream::Subscribe]),
+    PublicEvent::new("pairing-resolved", &[PublicEventStream::Subscribe]),
+    PublicEvent::new("pane-added", &[PublicEventStream::SubscribeDeltas]),
+    PublicEvent::new("pane-closed", &[PublicEventStream::SubscribeDeltas]),
+    PublicEvent::new("render-delta", &[PublicEventStream::AttachRender]),
+    PublicEvent::new("render-state", &[PublicEventStream::AttachRender]),
+    PublicEvent::new("resized", &[PublicEventStream::AttachByte]),
+    PublicEvent::new("screen-added", &[PublicEventStream::SubscribeDeltas]),
+    PublicEvent::new("screen-closed", &[PublicEventStream::SubscribeDeltas]),
+    PublicEvent::new("screen-renamed", &[PublicEventStream::SubscribeDeltas]),
+    PublicEvent::new(
+        "scroll-changed",
+        &[
+            PublicEventStream::Subscribe,
+            PublicEventStream::AttachByte,
+            PublicEventStream::AttachRender,
+            PublicEventStream::AttachBrowser,
+        ],
+    ),
+    PublicEvent::new("status", &[PublicEventStream::Subscribe]),
+    PublicEvent::new("surface-exited", &[PublicEventStream::Subscribe]),
+    PublicEvent::new("surface-output", &[PublicEventStream::Subscribe]),
+    PublicEvent::new("surface-resize-failed", &[PublicEventStream::Subscribe]),
+    PublicEvent::new("surface-resized", &[PublicEventStream::Subscribe]),
+    PublicEvent::new("tab-added", &[PublicEventStream::SubscribeDeltas]),
+    PublicEvent::new("tab-closed", &[PublicEventStream::SubscribeDeltas]),
+    PublicEvent::new("tab-renamed", &[PublicEventStream::SubscribeDeltas]),
+    PublicEvent::new("terminal-registry-changed", &[PublicEventStream::Subscribe]),
+    PublicEvent::new("title-changed", &[PublicEventStream::Subscribe]),
+    PublicEvent::new("tree-changed", &[PublicEventStream::Subscribe]),
+    PublicEvent::new("vt-state", &[PublicEventStream::AttachByte]),
+    PublicEvent::new("window-title-requested", &[PublicEventStream::Subscribe]),
+    PublicEvent::new("workspace-added", &[PublicEventStream::SubscribeDeltas]),
+    PublicEvent::new("workspace-closed", &[PublicEventStream::SubscribeDeltas]),
+    PublicEvent::new("workspace-moved", &[PublicEventStream::SubscribeDeltas]),
+    PublicEvent::new("workspace-renamed", &[PublicEventStream::SubscribeDeltas]),
+];
+
+const SUBSCRIBE_EVENT_STREAMS: &[PublicEventStream] = &[PublicEventStream::Subscribe];
+const SUBSCRIBE_DELTA_EVENT_STREAMS: &[PublicEventStream] =
+    &[PublicEventStream::Subscribe, PublicEventStream::SubscribeDeltas];
+const ATTACH_BYTE_EVENT_STREAMS: &[PublicEventStream] = &[PublicEventStream::AttachByte];
+const ATTACH_RENDER_EVENT_STREAMS: &[PublicEventStream] = &[PublicEventStream::AttachRender];
+const ATTACH_BROWSER_EVENT_STREAMS: &[PublicEventStream] = &[PublicEventStream::AttachBrowser];
+
+fn validate_public_event(
+    value: &Value,
+    stream_memberships: &[PublicEventStream],
+) -> std::io::Result<()> {
+    let event = value.get("event").and_then(Value::as_str).ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "public stream payload is missing a string event",
+        )
+    })?;
+    let descriptor = PUBLIC_EVENT_CATALOG
+        .iter()
+        .find(|descriptor| descriptor.name == event)
+        .ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("public event {event:?} is missing from the runtime catalog"),
+            )
+        })?;
+    if descriptor.streams.iter().any(|stream| stream_memberships.contains(stream)) {
+        return Ok(());
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::InvalidData,
+        format!("public event {event:?} is not valid for this stream"),
+    ))
+}
+
 #[derive(Clone)]
 struct OutboundStream {
     id: u64,
     open: Arc<AtomicBool>,
     terminal_enqueued: Arc<AtomicBool>,
     overflow_text: Arc<str>,
+    public_event_streams: Option<&'static [PublicEventStream]>,
 }
 
 impl OutboundStream {
-    fn new(id: u64, overflow_text: String) -> Self {
+    fn new(
+        id: u64,
+        overflow_text: String,
+        public_event_streams: Option<&'static [PublicEventStream]>,
+    ) -> Self {
         Self {
             id,
             open: Arc::new(AtomicBool::new(true)),
             terminal_enqueued: Arc::new(AtomicBool::new(false)),
             overflow_text: overflow_text.into(),
+            public_event_streams,
         }
     }
 
@@ -754,16 +1005,38 @@ impl MessageWriter {
         }
     }
 
+    #[cfg(test)]
     fn start_stream(&self, overflow: &Value) -> std::io::Result<OutboundStream> {
+        self.start_stream_with_memberships(overflow, None)
+    }
+
+    fn start_public_stream(
+        &self,
+        overflow: &Value,
+        public_event_streams: &'static [PublicEventStream],
+    ) -> std::io::Result<OutboundStream> {
+        validate_public_event(overflow, public_event_streams)?;
+        self.start_stream_with_memberships(overflow, Some(public_event_streams))
+    }
+
+    fn start_stream_with_memberships(
+        &self,
+        overflow: &Value,
+        public_event_streams: Option<&'static [PublicEventStream]>,
+    ) -> std::io::Result<OutboundStream> {
         Ok(OutboundStream::new(
             self.next_stream_id.fetch_add(1, Ordering::Relaxed),
             serde_json::to_string(overflow)?,
+            public_event_streams,
         ))
     }
 
     fn send_stream(&self, value: &Value, stream: &OutboundStream) -> std::io::Result<()> {
         if !self.is_open() {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
+        }
+        if let Some(public_event_streams) = stream.public_event_streams {
+            validate_public_event(value, public_event_streams)?;
         }
         let result = self.sink.send_stream(value, stream);
         if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
@@ -776,6 +1049,9 @@ impl MessageWriter {
         if !self.is_open() {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
         }
+        if let Some(public_event_streams) = stream.public_event_streams {
+            validate_public_event(value, public_event_streams)?;
+        }
         let result = self.sink.send_initial(value, stream);
         if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
             stream.close();
@@ -786,6 +1062,9 @@ impl MessageWriter {
     fn send_terminal(&self, value: &Value, stream: &OutboundStream) -> std::io::Result<()> {
         if !self.is_open() {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
+        }
+        if let Some(public_event_streams) = stream.public_event_streams {
+            validate_public_event(value, public_event_streams)?;
         }
         let result = self.sink.send_terminal(value, stream);
         if result.is_err() {
@@ -2018,6 +2297,32 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     difference == 0
 }
 
+fn authorize_command_profile(mux: &Mux, client: u64, command: &mut Command) -> anyhow::Result<()> {
+    match command.profile() {
+        CommandProfile::Control | CommandProfile::Frontend => Ok(()),
+        CommandProfile::LocalAdmin if mux.control_clients.is_unix(client) => Ok(()),
+        CommandProfile::LocalAdmin => match command {
+            Command::ShutdownDaemon { .. } => {
+                anyhow::bail!("daemon shutdown requires a trusted local connection")
+            }
+            Command::PairingResponse { .. } => {
+                anyhow::bail!("pairing decisions require a trusted local connection")
+            }
+            _ => anyhow::bail!("this command requires a trusted local connection"),
+        },
+        CommandProfile::ProviderAuthority => {
+            let Some(authority) = command.provider_authority_mut() else {
+                anyhow::bail!("provider workspace authority is required");
+            };
+            let result = mux.authorize_provider_workspace_authority(authority);
+            if result.is_err() {
+                zeroize_string(authority);
+            }
+            result
+        }
+    }
+}
+
 fn authorize_provider_workspace_command(mux: &Mux, mut authority: String) -> anyhow::Result<()> {
     let result = mux.authorize_provider_workspace_authority(&authority);
     zeroize_string(&mut authority);
@@ -2972,9 +3277,10 @@ fn detach_committed_attach(mux: &Mux, client: u64, surface: SurfaceId, stream: u
 fn handle_command(
     mux: &Arc<Mux>,
     client: u64,
-    cmd: Command,
+    mut cmd: Command,
     writer: &MessageWriter,
 ) -> anyhow::Result<Value> {
+    authorize_command_profile(mux, client, &mut cmd)?;
     match cmd {
         Command::Identify => {
             let (registry_id, generation) = mux.registry_identity();
@@ -3640,6 +3946,7 @@ fn handle_command(
             terminal_id,
             mutation,
         } => {
+            let workspace_mutation = workspace_mutation(&mutation)?;
             if argv.is_some() && command.is_some() {
                 anyhow::bail!("argv and command are mutually exclusive");
             }
@@ -3655,7 +3962,6 @@ fn handle_command(
             let (workspace, key) = resolve_workspace(mux, workspace, key.as_deref())?;
             let (registry_id, generation) = mux.registry_identity();
             if terminal_id.is_some() || mutation.mutation_id.is_some() {
-                let workspace_mutation = workspace_mutation(&mutation)?;
                 let result = mux.create_terminal_in_workspace_with_mutation(
                     workspace,
                     argv,
@@ -4071,7 +4377,10 @@ fn handle_command(
             let pending_pairings =
                 if trusted_pairing_client { mux.pending_pairings() } else { Vec::new() };
             let writer = writer.clone();
-            let outbound_stream = writer.start_stream(&subscription_overflow_json())?;
+            let public_event_streams =
+                if tree_deltas { SUBSCRIBE_DELTA_EVENT_STREAMS } else { SUBSCRIBE_EVENT_STREAMS };
+            let outbound_stream =
+                writer.start_public_stream(&subscription_overflow_json(), public_event_streams)?;
             std::thread::Builder::new().name("mux-events-out".into()).spawn(move || {
                 let mut transport_overflow = false;
                 for challenge in pending_pairings {
@@ -4139,12 +4448,20 @@ fn handle_command(
             };
             let surface = get_surface(mux, surface_id)?;
             let lifecycle = AttachLifecycle::default();
-            let outbound_stream = writer.start_stream(&attach_overflow_json(surface_id))?;
             let render_mode = match mode.as_deref().unwrap_or("bytes") {
                 "bytes" => false,
                 "render" => true,
                 other => anyhow::bail!("bad attach mode {other}"),
             };
+            let public_event_streams = if render_mode {
+                ATTACH_RENDER_EVENT_STREAMS
+            } else if surface.kind() == SurfaceKind::Browser {
+                ATTACH_BROWSER_EVENT_STREAMS
+            } else {
+                ATTACH_BYTE_EVENT_STREAMS
+            };
+            let outbound_stream = writer
+                .start_public_stream(&attach_overflow_json(surface_id), public_event_streams)?;
             if render_mode {
                 require_pty(&surface)?;
                 let MarkedClientAttach { size_rollback, client_changed, .. } =
@@ -4764,6 +5081,41 @@ mod tests {
     }
 
     #[test]
+    fn public_writer_enforces_catalog_stream_membership() {
+        let writer = test_writer();
+        let byte_stream = writer
+            .start_public_stream(&attach_overflow_json(7), ATTACH_BYTE_EVENT_STREAMS)
+            .unwrap();
+        let wrong_stream =
+            writer.send_stream(&json!({"event": "tree-changed"}), &byte_stream).unwrap_err();
+        assert_eq!(wrong_stream.kind(), std::io::ErrorKind::InvalidData);
+
+        let delta_stream = writer
+            .start_public_stream(&subscription_overflow_json(), SUBSCRIBE_DELTA_EVENT_STREAMS)
+            .unwrap();
+        writer.send_stream(&json!({"event": "tree-changed"}), &delta_stream).unwrap();
+        writer.send_stream(&json!({"event": "workspace-added"}), &delta_stream).unwrap();
+
+        let unknown =
+            writer.send_stream(&json!({"event": "future-event"}), &delta_stream).unwrap_err();
+        assert_eq!(unknown.kind(), std::io::ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn rejected_provider_command_scrubs_its_authority() {
+        let mux = provider_test_mux();
+        let mut command =
+            Command::MarkWorkspacesProviderManaged { authority: "rejected-authority".into() };
+
+        let error = authorize_command_profile(&mux, 0, &mut command).unwrap_err();
+        assert_eq!(error.to_string(), "invalid provider workspace authority");
+        let Command::MarkWorkspacesProviderManaged { authority } = &mut command else {
+            unreachable!();
+        };
+        assert!(authority.as_bytes().iter().all(|byte| *byte == 0));
+    }
+
+    #[test]
     fn stack_json_uses_the_stored_expansion_while_focus_is_elsewhere() {
         let stack = Node::stack_with_expanded(vec![1, 2, 3], 2).unwrap();
 
@@ -4962,7 +5314,7 @@ mod tests {
     #[test]
     fn bounded_writer_rejects_payloads_beyond_each_byte_budget() {
         let outbound = BoundedOutbound::default();
-        let stream = OutboundStream::new(1, r#"{"event":"overflow"}"#.to_string());
+        let stream = OutboundStream::new(1, r#"{"event":"overflow"}"#.to_string(), None);
 
         let regular =
             outbound.push_regular("x".repeat(OUTBOUND_BYTE_CAPACITY + 1), &stream).unwrap_err();
@@ -5226,6 +5578,38 @@ mod tests {
                 "create-terminal cols and rows must be supplied together"
             );
         }
+    }
+
+    #[test]
+    fn create_terminal_rejects_unpaired_mutation_identity_before_creation() {
+        let mux = test_mux();
+        let workspace = mux.create_empty_workspace(None, None, None).unwrap().workspace;
+        let before = mux.terminal_registry_snapshot().unwrap().revision;
+
+        let error = handle_command(
+            &mux,
+            0,
+            Command::CreateTerminal {
+                workspace: Some(workspace),
+                key: None,
+                argv: Some(vec!["/usr/bin/true".into()]),
+                command: None,
+                cwd: None,
+                name: None,
+                cols: None,
+                rows: None,
+                terminal_id: None,
+                mutation: MutationRequest {
+                    origin: Some("sdk-test".into()),
+                    ..MutationRequest::default()
+                },
+            },
+            &test_writer(),
+        )
+        .unwrap_err();
+
+        assert_eq!(error.to_string(), "origin and mutation_id must be provided together");
+        assert_eq!(mux.terminal_registry_snapshot().unwrap().revision, before);
     }
 
     #[test]
