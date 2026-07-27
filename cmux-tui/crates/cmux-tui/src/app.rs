@@ -4802,9 +4802,7 @@ pub fn run_with_machine_updates(
         (Ok(()), Ok(())) => {}
         (Ok(()), Err(error)) | (Err(error), Ok(())) => return Err(error),
         (Err(error), Err(restore_error)) => {
-            return Err(anyhow::anyhow!(
-                "{error:#}; host terminal restoration also failed: {restore_error:#}"
-            ));
+            return Err(terminal_restore_error(error, restore_error));
         }
     }
     let outcome = app
@@ -4836,11 +4834,17 @@ impl TerminalRestoreGuard {
     fn restore_after_error(&mut self, error: anyhow::Error) -> anyhow::Error {
         match self.restore() {
             Ok(()) => error,
-            Err(restore_error) => anyhow::anyhow!(
-                "{error:#}; host terminal restoration also failed: {restore_error:#}"
-            ),
+            Err(restore_error) => terminal_restore_error(error, restore_error),
         }
     }
+}
+
+fn terminal_restore_error(error: anyhow::Error, restore_error: anyhow::Error) -> anyhow::Error {
+    let error = format!("{error:#}");
+    let restore_error = format!("{restore_error:#}");
+    anyhow::anyhow!(
+        localization::catalog().runtime.terminal_restore_also_failed(&error, &restore_error)
+    )
 }
 
 impl Drop for TerminalRestoreGuard {

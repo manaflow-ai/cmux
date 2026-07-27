@@ -189,6 +189,40 @@ impl Node {
         }
     }
 
+    fn collect_stack_expansions(&self, expansions: &mut BTreeMap<Vec<PaneId>, PaneId>) {
+        match self {
+            Node::Leaf(_) => {}
+            Node::Split { a, b, .. } => {
+                a.collect_stack_expansions(expansions);
+                b.collect_stack_expansions(expansions);
+            }
+            Node::Stack { panes, expanded } => {
+                let mut membership = panes.as_slice().to_vec();
+                membership.sort_unstable();
+                expansions.insert(membership, *expanded);
+            }
+        }
+    }
+
+    fn restore_stack_expansions(&mut self, expansions: &BTreeMap<Vec<PaneId>, PaneId>) {
+        match self {
+            Node::Leaf(_) => {}
+            Node::Split { a, b, .. } => {
+                a.restore_stack_expansions(expansions);
+                b.restore_stack_expansions(expansions);
+            }
+            Node::Stack { panes, expanded } => {
+                let mut membership = panes.as_slice().to_vec();
+                membership.sort_unstable();
+                if let Some(current) =
+                    expansions.get(&membership).copied().filter(|pane| panes.contains(pane))
+                {
+                    *expanded = current;
+                }
+            }
+        }
+    }
+
     pub(crate) fn first_visible_pane(&self) -> PaneId {
         match self {
             Node::Leaf(pane) => *pane,
@@ -633,8 +667,22 @@ impl Screen {
         self.layout_undo.clear();
     }
 
-    pub(crate) fn restore_layout_snapshot(&mut self, snapshot: ScreenLayoutSnapshot) {
+    pub(crate) fn restore_layout_snapshot(&mut self, mut snapshot: ScreenLayoutSnapshot) {
         let active_pane = self.active_pane;
+        // Focus changes are not structural layout transactions. Preserve their
+        // per-stack selection when an undo restores the same pane membership.
+        let mut stack_expansions = BTreeMap::new();
+        if self.layout_columns_active() {
+            for column in &self.layout_columns {
+                column.root.collect_stack_expansions(&mut stack_expansions);
+            }
+        } else {
+            self.root.collect_stack_expansions(&mut stack_expansions);
+        }
+        snapshot.root.restore_stack_expansions(&stack_expansions);
+        for column in &mut snapshot.layout_columns {
+            column.root.restore_stack_expansions(&stack_expansions);
+        }
         self.root = snapshot.root;
         self.active_pane =
             if self.root.contains(active_pane) { active_pane } else { snapshot.active_pane };

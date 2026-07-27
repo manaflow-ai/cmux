@@ -10673,6 +10673,14 @@ mod tests {
                 &screen.layout_columns[0].root,
                 Node::Stack { expanded, .. } if *expanded == left_first
             ));
+            assert!(matches!(
+                &screen.root,
+                Node::Split { a, .. }
+                    if matches!(
+                        a.as_ref(),
+                        Node::Stack { expanded, .. } if *expanded == left_second
+                    )
+            ));
             assert!(screen.layout_column_projection_is_consistent());
         });
     }

@@ -166,6 +166,7 @@ pub(crate) struct RuntimeMessages {
     pub unknown_panic: &'static str,
     renderer_panicked: &'static str,
     host_input_failed: &'static str,
+    terminal_restore_also_failed: &'static str,
 }
 
 impl RuntimeMessages {
@@ -175,6 +176,12 @@ impl RuntimeMessages {
 
     pub(crate) fn host_input_failed(&self, error: &str) -> String {
         self.host_input_failed.replace("{error}", error)
+    }
+
+    pub(crate) fn terminal_restore_also_failed(&self, error: &str, restore_error: &str) -> String {
+        self.terminal_restore_also_failed
+            .replace("{error}", error)
+            .replace("{restore_error}", restore_error)
     }
 }
 
@@ -477,6 +484,7 @@ edits shell files. Authenticate with the configured host before retrying.
         unknown_panic: "unknown panic",
         renderer_panicked: "terminal renderer panicked: {message}",
         host_input_failed: "host terminal input failed: {error}",
+        terminal_restore_also_failed: "{error}; host terminal restoration also failed: {restore_error}",
     },
     attach: AttachMessages {
         filtered_subscription_unavailable: "single-terminal attach requires a newer cmux-tui server; restart the session",
@@ -667,6 +675,7 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
         unknown_panic: "不明なパニック",
         renderer_panicked: "ターミナル描画処理でパニックが発生しました: {message}",
         host_input_failed: "ホストターミナルの入力に失敗しました: {error}",
+        terminal_restore_also_failed: "{error}; ホストターミナルの復元にも失敗しました: {restore_error}",
     },
     attach: AttachMessages {
         filtered_subscription_unavailable: "単一ターミナルへの接続には新しい cmux-tui サーバーが必要です。セッションを再起動してください",
@@ -957,6 +966,18 @@ mod tests {
         assert_eq!(
             catalog_for_locale("ja_JP.UTF-8").runtime.host_input_failed("切断"),
             "ホストターミナルの入力に失敗しました: 切断"
+        );
+        assert_eq!(
+            catalog_for_locale("en_US.UTF-8")
+                .runtime
+                .terminal_restore_also_failed("event loop failed", "restore failed"),
+            "event loop failed; host terminal restoration also failed: restore failed"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8")
+                .runtime
+                .terminal_restore_also_failed("イベントループ失敗", "復元失敗"),
+            "イベントループ失敗; ホストターミナルの復元にも失敗しました: 復元失敗"
         );
     }
 
