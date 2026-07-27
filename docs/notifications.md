@@ -285,7 +285,7 @@ cmux sets these in child shells:
 ## CLI Commands
 
 ```
-cmux notify --title <text> [--subtitle <text>] [--body <text>] [--delivery default|system|notch] [--icon <sf-symbol>] [--action <id=Label>] [--input <id=Label>] [--secure-input <id=Label>] [--spec <json|@file|->] [--wait] [--timeout <seconds>] [--workspace <id|ref>] [--surface <id|ref>]
+cmux notify --title <text> [--subtitle <text>] [--body <text>] [--delivery default|system|notch] [--icon <sf-symbol>] [--action <id=Label>] [--input <id=Label>] [--secure-input <id=Label>] [--spec <json|@file|->] [--wait] [--json] [--timeout <seconds>] [--workspace <id|ref>] [--surface <id|ref>]
 cmux list-notifications
 cmux dismiss-notification (--id <notification-id> | --all-read)
 cmux mark-notification-read (--id <notification-id> | --workspace <id|ref> [--surface <id|ref>] | --all)

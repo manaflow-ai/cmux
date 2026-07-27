@@ -687,7 +687,7 @@ public struct AppSection: View {
                     configurationReview: .action,
                     searchAnchorID: "setting:app:desktop-notifications",
                     String(localized: "settings.notifications.delivery.option.dynamicNotch", defaultValue: "Dynamic Notch"),
-                    subtitle: String(localized: "settings.notifications.delivery.subtitle", defaultValue: "Dynamic Notch stays visible when Focus or Do Not Disturb suppresses system notifications.")
+                    subtitle: String(localized: "settings.notifications.delivery.dynamicNotch.testSubtitle", defaultValue: "Send a test Dynamic Notch notification.")
                 ) {
                     Button(String(localized: "settings.notifications.desktop.sendTest", defaultValue: "Send Test")) {
                         hostActions.sendTestNotification()

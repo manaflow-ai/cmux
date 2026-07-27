@@ -965,6 +965,7 @@
           "focusTextBoxOnNewTerminals": "Podrazumijevano fokusira beta TextBox unos za novokreirane radne prostore, terminalske tabove i podjele. Fokusiranje također prikazuje TextBox."
         },
         "notifications": {
+          "delivery": "Prikazuj desktop obavijesti putem macOS centra za obavijesti ili interaktivnog Dynamic Notch panela. Režimi Fokus i Ne uznemiravaj ne potiskuju Dynamic Notch.",
           "suppressOnlyFocusedSurface": "Kada je uključeno, baner notifikacije se automatski povlači samo kada je njegova površina tačno fokusirana površina. Baner isporučen za nefokusiranu površinu u trenutno vidljivom workspaceu ostaje prikazan dok ne fokusirate tu površinu (ili je kliknete/odbacite), umjesto da bude povučen kada workspace postane vidljiv. Isključeno zadržava staro ponašanje povlačenja na osnovu vidljivosti workspacea."
         },
         "browser": {

@@ -5510,29 +5510,40 @@ struct CMUXCLI {
                 printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK")
                 return
             }
+            defer { try? FileManager.default.removeItem(at: responseURL) }
             do {
                 try SocketClient.waitForFilesystemPath(responseURL.path, timeout: timeout + 5)
-                let data = try Data(contentsOf: responseURL)
-                defer { try? FileManager.default.removeItem(at: responseURL) }
-                let response = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-                guard let response, let action = response["action"] as? String else {
-                    throw CLIError(message: String(
-                        localized: "cli.notify.error.invalidResponse",
-                        defaultValue: "Notification returned an invalid action response"
-                    ))
-                }
-                if jsonOutput || !inputs.isEmpty {
-                    print(jsonString(response))
-                } else {
-                    print(action)
-                }
-            } catch let error as CLIError {
-                throw error
             } catch {
                 throw CLIError(message: String(
                     localized: "cli.notify.error.waitTimedOut",
                     defaultValue: "Timed out waiting for a notification action"
                 ))
+            }
+            let data: Data
+            do {
+                data = try Data(contentsOf: responseURL)
+            } catch {
+                throw CLIError(message: String(
+                    localized: "cli.notify.error.invalidResponse",
+                    defaultValue: "Notification returned an invalid action response"
+                ))
+            }
+            guard let response = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                throw CLIError(message: String(
+                    localized: "cli.notify.error.invalidResponse",
+                    defaultValue: "Notification returned an invalid action response"
+                ))
+            }
+            guard let action = response["action"] as? String else {
+                throw CLIError(message: String(
+                    localized: "cli.notify.error.invalidResponse",
+                    defaultValue: "Notification returned an invalid action response"
+                ))
+            }
+            if jsonOutput || !inputs.isEmpty {
+                print(jsonString(response))
+            } else {
+                print(action)
             }
         case "list-notifications":
             let response = try sendV1Command("list_notifications", client: client)

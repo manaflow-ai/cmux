@@ -627,6 +627,15 @@ final class GhosttyCrashBreadcrumbTests: XCTestCase {
 
 @MainActor
 final class NotificationDockBadgeTests: XCTestCase {
+    func testDynamicNotchWindowOwnsCloseShortcut() {
+        let window = NSWindow()
+        window.identifier = NSUserInterfaceItemIdentifier(
+            DynamicNotchNotificationPresenter.windowIdentifier
+        )
+
+        XCTAssertTrue(cmuxWindowShouldOwnCloseShortcut(window))
+    }
+
     private final class NotificationSettingsAlertSpy: NSAlert {
         private(set) var beginSheetModalCallCount = 0
         private(set) var runModalCallCount = 0

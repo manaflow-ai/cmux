@@ -14,7 +14,10 @@ The local patches:
   pins, keeping release builds fully vendored;
 - cancel the screen-parameter observation task on deinitialization and capture
   each `DynamicNotch` weakly, preventing dismissed notification panels from
-  leaking.
+  leaking;
+- isolate the AppKit-backed models to the main actor, break the
+  `DynamicNotchInfo` view-retain cycle, and keep `NSVisualEffectView` inputs in
+  sync when SwiftUI updates the wrapper.
 
 To update, replace this directory from a reviewed upstream revision, restore
 those patches, update the revision above, and retain `LICENSE`.

@@ -178,7 +178,7 @@ extension TerminalController: ControlNotificationContext {
         )
     }
 
-    private static func terminalPresentation(
+    static func terminalPresentation(
         _ presentation: ControlNotificationPresentation
     ) -> TerminalNotificationPresentation {
         let delivery: TerminalNotificationPresentation.Delivery

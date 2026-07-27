@@ -44,22 +44,44 @@ import SwiftUI
 /// > Similar to `DynamicNotch`, there is a `hoverBehavior` property of type ``DynamicNotchHoverBehavior``, which is available to modify how the window behaves when the user hovers over it.
 /// > This can be helpful if you wish to keep the notch open during hover events or add effects such as scaling or haptic feedback.
 ///
+@MainActor
 public final class DynamicNotchInfo: ObservableObject, DynamicNotchControllable {
-    var internalDynamicNotch: DynamicNotch<InfoView, CompactLeadingView, CompactTrailingView>!
+    final class ViewState: ObservableObject {
+        weak var owner: DynamicNotchInfo?
+    }
 
-    @Published public var icon: DynamicNotchInfo.Label?
-    @Published public var title: LocalizedStringKey
-    @Published public var description: LocalizedStringKey?
-    @Published public var textColor: Color?
+    var internalDynamicNotch: DynamicNotch<InfoView, CompactLeadingView, CompactTrailingView>!
+    let viewState = ViewState()
+
+    @Published public var icon: DynamicNotchInfo.Label? {
+        didSet { viewState.objectWillChange.send() }
+    }
+    @Published public var title: LocalizedStringKey {
+        didSet { viewState.objectWillChange.send() }
+    }
+    @Published public var description: LocalizedStringKey? {
+        didSet { viewState.objectWillChange.send() }
+    }
+    @Published public var textColor: Color? {
+        didSet { viewState.objectWillChange.send() }
+    }
     @Published public var compactLeading: DynamicNotchInfo.Label? {
-        didSet { internalDynamicNotch.disableCompactLeading = compactLeading == nil }
+        didSet {
+            internalDynamicNotch.disableCompactLeading = compactLeading == nil
+            viewState.objectWillChange.send()
+        }
     }
 
     @Published public var compactTrailing: DynamicNotchInfo.Label? {
-        didSet { internalDynamicNotch.disableCompactTrailing = compactTrailing == nil }
+        didSet {
+            internalDynamicNotch.disableCompactTrailing = compactTrailing == nil
+            viewState.objectWillChange.send()
+        }
     }
 
-    @Published var shouldSkipHideWhenConverting: Bool = false
+    @Published var shouldSkipHideWhenConverting: Bool = false {
+        didSet { viewState.objectWillChange.send() }
+    }
 
     /// Creates a new DynamicNotchInfo with a predefined content and style based on parameters.
     /// - Parameters:
@@ -82,15 +104,16 @@ public final class DynamicNotchInfo: ObservableObject, DynamicNotchControllable 
         self.icon = icon
         self.title = title
         self.description = description
+        self.viewState.owner = self
         self.internalDynamicNotch = DynamicNotch(
             hoverBehavior: hoverBehavior,
             style: style
         ) {
-            InfoView(dynamicNotch: self)
+            InfoView(state: self.viewState)
         } compactLeading: {
-            CompactLeadingView(dynamicNotch: self)
+            CompactLeadingView(state: self.viewState)
         } compactTrailing: {
-            CompactTrailingView(dynamicNotch: self)
+            CompactTrailingView(state: self.viewState)
         }
         if let compactLeading {
             self.compactLeading = compactLeading
@@ -99,6 +122,12 @@ public final class DynamicNotchInfo: ObservableObject, DynamicNotchControllable 
             self.shouldSkipHideWhenConverting = true
         }
         self.compactTrailing = compactTrailing
+        self.internalDynamicNotch.disableCompactLeading = self.compactLeading == nil
+        self.internalDynamicNotch.disableCompactTrailing = self.compactTrailing == nil
+    }
+
+    deinit {
+        internalDynamicNotch = nil
     }
 
     public func expand(

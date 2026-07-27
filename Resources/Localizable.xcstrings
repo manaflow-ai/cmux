@@ -172989,16 +172989,124 @@
     "cli.help.notify": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux notify [flags]\n\nأرسل إشعارًا إلى مساحة/سطح العمل.\n\nالأعلام:\n  --title <text>         عنوان الإشعار (default: \"الإشعار\")\n  --subtitle <text>      العنوان الفرعي للإخطار\n  --body <text>          هيئة الإخطار\n  --delivery <mode>      default أو system أو notch\n  --icon <sf-symbol>     اسم Dynamic Notch SF Symbol\n  --action <id=Label>    إضافة إجراء تفاعلي (قابل للتكرار، بحد أقصى 4)\n  --input <id=Label>     إضافة حقل نصي (قابل للتكرار، بحد أقصى 4)\n  --secure-input <id=Label>   أضف حقل نص مقنع\n  --spec <json|@file|->  قم بتحميل نموذج وقت التشغيل من JSON أو ملف أو stdin\n  --print-schema         اطبع مخطط النموذج JSON دون الاتصال بـ cmux\n  --wait                 انتظر واطبع نتيجة الإجراء\n  --timeout <seconds>    مهلة الرفض التلقائي؛ 0 مستمر (default: 8، أو 300 مع --wait)\n  --workspace <id|ref|index>   مساحة العمل المستهدفة، باستثناء السطح الصريح UUID الذي يتم حله عالميًا\n  --surface <id|ref|index>     السطح المستهدف (تستخدم المراجع/الفهارس سياق مساحة العمل/النافذة)\n  --window <id|ref|index>      سياق النافذة لمراجع وفهارس مساحة العمل/السطح\n\nمثال:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upotreba: cmux notify [flags]\n\nPošaljite obavijest radnom prostoru/površini.\n\nzastave:\n  --title <text>         Naslov obavještenja (default: \"Obavijest\")\n  --subtitle <text>      Podnaslov obavještenja\n  --body <text>          Notification body\n  --delivery <mode>      default, system ili notch\n  --icon <sf-symbol>     Dynamic Notch SF Symbol naziv\n  --action <id=Label>    Dodajte interaktivnu radnju (ponovljiva, maksimalno 4)\n  --input <id=Label>     Dodajte tekstualno polje (ponovljivo, maksimalno 4)\n  --secure-input <id=Label>   Dodajte maskirano tekstualno polje\n  --spec <json|@file|->  Učitajte runtime obrazac iz JSON, datoteke ili stdin\n  --print-schema         Ispišite šemu obrasca JSON bez povezivanja na cmux\n  --wait                 Pričekajte i odštampajte rezultat akcije\n  --timeout <seconds>    Auto-dismiss timeout; 0 ostaje (default: 8, ili 300 sa --wait)\n  --workspace <id|ref|index>   Ciljni radni prostor, osim eksplicitnih površinskih UUID-ova rješavaju globalno\n  --surface <id|ref|index>     Ciljna površina (refs/indeksi koriste kontekst radnog prostora/prozora)\n  --window <id|ref|index>      Kontekst prozora za radne prostore/površine reference i indekse\n\nprimjer:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug: cmux notify [flags]\n\nSend en notifikation til et arbejdsområde/-overflade.\n\nFlag:\n  --title <text>         Meddelelsestitel (default: \"Meddelelse\")\n  --subtitle <text>      Meddelelse undertekst\n  --body <text>          Notifikationsorgan\n  --delivery <mode>      default, system eller notch\n  --icon <sf-symbol>     Dynamic Notch SF Symbol navn\n  --action <id=Label>    Tilføj en interaktiv handling (kan gentages, maks. 4)\n  --input <id=Label>     Tilføj et tekstfelt (kan gentages, maks. 4)\n  --secure-input <id=Label>   Tilføj et maskeret tekstfelt\n  --spec <json|@file|->  Indlæs en runtime-formular fra JSON, en fil eller stdin\n  --print-schema         Udskriv JSON-formularskemaet uden at oprette forbindelse til cmux\n  --wait                 Vent og udskriv handlingsresultatet\n  --timeout <seconds>    Auto-afvis timeout; 0 fortsætter (default: 8 eller 300 med --wait)\n  --workspace <id|ref|index>   Målarbejdsområde, undtagen eksplicit overflade UUID'er løses globalt\n  --surface <id|ref|index>     Målflade (refer/indekser bruger arbejdsområde/vinduekontekst)\n  --window <id|ref|index>      Vindueskontekst for arbejdsområde/overfladerefer og indekser\n\nEksempel:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux notify [flags]\n\nSenden Sie eine Benachrichtigung an einen Arbeitsbereich/eine Oberfläche.\n\nFlaggen:\n  --title <text>         Titel der Benachrichtigung (default: „Benachrichtigung“)\n  --subtitle <text>      Untertitel der Benachrichtigung\n  --body <text>          Benachrichtigungsstelle\n  --delivery <mode>      default, system oder notch\n  --icon <sf-symbol>     Dynamic Notch SF Symbol Name\n  --action <id=Label>    Fügen Sie eine interaktive Aktion hinzu (wiederholbar, max. 4)\n  --input <id=Label>     Fügen Sie ein Textfeld hinzu (wiederholbar, max. 4)\n  --secure-input <id=Label>   Fügen Sie ein maskiertes Textfeld hinzu\n  --spec <json|@file|->  Laden Sie ein Laufzeitformular aus JSON, einer Datei oder stdin\n  --print-schema         Drucken Sie das JSON-Formularschema, ohne eine Verbindung zu cmux herzustellen\n  --wait                 Warten Sie und drucken Sie das Aktionsergebnis aus\n  --timeout <seconds>    Zeitüberschreitung beim automatischen Schließen; 0 bleibt bestehen (default: 8, bzw. 300 bei --wait)\n  --workspace <id|ref|index>   Zielarbeitsbereich, mit Ausnahme expliziter Oberflächen-UUIDs, die global aufgelöst werden\n  --surface <id|ref|index>     Zieloberfläche (Referenzen/Indizes verwenden Arbeitsbereich/Fensterkontext)\n  --window <id|ref|index>      Fensterkontext für Arbeitsbereichs-/Oberflächenreferenzen und Indizes\n\nBeispiel:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Usage: cmux notify [flags]\n\nSend a notification to a workspace/surface.\n\nFlags:\n  --title <text>         Notification title (default: \"Notification\")\n  --subtitle <text>      Notification subtitle\n  --body <text>          Notification body\n  --delivery <mode>      default, system, or notch\n  --icon <sf-symbol>     Dynamic Notch SF Symbol name\n  --action <id=Label>    Add an interactive action (repeatable, max 4)\n  --input <id=Label>     Add a text field (repeatable, max 4)\n  --secure-input <id=Label>   Add a masked text field\n  --spec <json|@file|->  Load a runtime form from JSON, a file, or stdin\n  --print-schema         Print the JSON form schema without connecting to cmux\n  --wait                 Wait and print the action result\n  --timeout <seconds>    Auto-dismiss timeout; 0 persists (default: 8, or 300 with --wait)\n  --workspace <id|ref|index>   Target workspace, except explicit surface UUIDs resolve globally\n  --surface <id|ref|index>     Target surface (refs/indexes use workspace/window context)\n  --window <id|ref|index>      Window context for workspace/surface refs and indexes\n\nExample:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux notify [flags]\n\nEnviar una notificación a un espacio de trabajo/superficie.\n\nBanderas:\n  --title <text>         Título de la notificación (default: \"Notificación\")\n  --subtitle <text>      Subtítulo de notificación\n  --body <text>          Organismo de notificación\n  --delivery <mode>      default, system o notch\n  --icon <sf-symbol>     nombre Dynamic Notch SF Symbol\n  --action <id=Label>    Agregar una acción interactiva (repetible, máximo 4)\n  --input <id=Label>     Agregar un campo de texto (repetible, máximo 4)\n  --secure-input <id=Label>   Agregar un campo de texto enmascarado\n  --spec <json|@file|->  Cargue un formulario en tiempo de ejecución desde JSON, un archivo o stdin\n  --print-schema         Imprima el esquema del formulario JSON sin conectarse a cmux\n  --wait                 Espere e imprima el resultado de la acción.\n  --timeout <seconds>    Tiempo de espera de descarte automático; 0 persiste (default: 8, o 300 con --wait)\n  --workspace <id|ref|index>   Espacio de trabajo de destino, excepto que las superficies explícitas UUID se resuelvan globalmente\n  --surface <id|ref|index>     Superficie de destino (las referencias/índices utilizan el espacio de trabajo/contexto de la ventana)\n  --window <id|ref|index>      Contexto de ventana para índices y referencias de espacio de trabajo/superficie\n\nEjemplo:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation : cmux notify [flags]\n\nEnvoyez une notification à un espace de travail/surface.\n\nDrapeaux :\n  --title <text>         Titre de la notification (default : « Notification »)\n  --subtitle <text>      Sous-titre des notifications\n  --body <text>          Corps de notification\n  --delivery <mode>      default, system ou notch\n  --icon <sf-symbol>     Nom Dynamic Notch SF Symbol\n  --action <id=Label>    Ajouter une action interactive (répétable, max 4)\n  --input <id=Label>     Ajouter un champ de texte (répétable, max 4)\n  --secure-input <id=Label>   Ajouter un champ de texte masqué\n  --spec <json|@file|->  Charger un formulaire d'exécution à partir de JSON, d'un fichier ou de stdin\n  --print-schema         Imprimer le schéma du formulaire JSON sans vous connecter à cmux\n  --wait                 Attendez et imprimez le résultat de l'action\n  --timeout <seconds>    Délai d'expiration automatique ; 0 persiste (default : 8, ou 300 avec --wait)\n  --workspace <id|ref|index>   Espace de travail cible, à l'exception des surfaces explicites UUID résolues globalement\n  --surface <id|ref|index>     Surface cible (les références/index utilisent le contexte d'espace de travail/fenêtre)\n  --window <id|ref|index>      Contexte de fenêtre pour les références et index d'espace de travail/surface\n\nExemple:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilizzo: cmux notify [flags]\n\nInvia una notifica a un'area di lavoro/superficie.\n\nBandiere:\n  --title <text>         Titolo della notifica (default: \"Notifica\")\n  --subtitle <text>      Sottotitolo della notifica\n  --body <text>          Organismo di notifica\n  --delivery <mode>      default, system o notch\n  --icon <sf-symbol>     Nome Dynamic Notch SF Symbol\n  --action <id=Label>    Aggiungi un'azione interattiva (ripetibile, max 4)\n  --input <id=Label>     Aggiungi un campo di testo (ripetibile, max 4)\n  --secure-input <id=Label>   Aggiungi un campo di testo mascherato\n  --spec <json|@file|->  Carica un modulo runtime da JSON, un file o stdin\n  --print-schema         Stampa lo schema del modulo JSON senza connettersi a cmux\n  --wait                 Attendi e stampa il risultato dell'azione\n  --timeout <seconds>    Timeout di eliminazione automatica; 0 persiste (default: 8 o 300 con --wait)\n  --workspace <id|ref|index>   Area di lavoro di destinazione, ad eccezione degli UUID di superficie espliciti che si risolvono a livello globale\n  --surface <id|ref|index>     Superficie di destinazione (riferimenti/indici utilizzano spazio di lavoro/contesto della finestra)\n  --window <id|ref|index>      Contesto della finestra per riferimenti e indici di area di lavoro/superficie\n\nEsempio:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用法: cmux notify [フラグ]\n\nワークスペースまたはサーフェスに通知を送信します。\n\nフラグ:\n  --title <テキスト>         通知タイトル（既定: \"Notification\"）\n  --subtitle <テキスト>      通知サブタイトル\n  --body <テキスト>          通知本文\n  --delivery <モード>        default、system、notch\n  --icon <SF Symbol>         Dynamic Notch の SF Symbol 名\n  --action <id=ラベル>       操作ボタンを追加（最大4個、繰り返し可）\n  --input <id=ラベル>        テキスト入力欄を追加（最大4個、繰り返し可）\n  --secure-input <id=ラベル> マスクされた入力欄を追加\n  --spec <json|@file|->      JSON、ファイル、標準入力から実行時フォームを読み込み\n  --print-schema             cmux に接続せず JSON フォームスキーマを出力\n  --wait                     操作結果を待って出力\n  --timeout <秒>             自動消去までの秒数。0 は表示を維持（既定: 8、--wait 時は300）\n  --workspace <id|ref|index> 対象ワークスペース\n  --surface <id|ref|index>   対象サーフェス\n  --window <id|ref|index>    ウインドウのコンテキスト\n\n例:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
+            "value": "使用法: cmux notify [フラグ]\n\nワークスペースまたはサーフェスに通知を送信します。\n\nフラグ:\n  --title <テキスト>         通知タイトル（既定: \"Notification\"）\n  --subtitle <テキスト>      通知サブタイトル\n  --body <テキスト>          通知本文\n  --delivery <モード>        default、system、notch\n  --icon <SF Symbol>         Dynamic Notch の SF Symbol 名\n  --action <id=ラベル>       操作ボタンを追加（最大4個、繰り返し可）\n  --input <id=ラベル>        テキスト入力欄を追加（最大4個、繰り返し可）\n  --secure-input <id=ラベル> マスクされた入力欄を追加\n  --spec <json|@file|->      JSON、ファイル、標準入力から実行時フォームを読み込み\n  --print-schema             cmux に接続せず JSON フォームスキーマを出力\n  --wait                     操作結果を待って出力\n  --timeout <秒>             自動消去までの秒数。0 は表示を維持（既定: 8、--wait 時は300）\n  --workspace <id|ref|index> 対象ワークスペース（明示的なサーフェス UUID はグローバルに解決）\n  --surface <id|ref|index>   対象サーフェス（ref/index はワークスペース/ウインドウのコンテキストを使用）\n  --window <id|ref|index>    ワークスペース/サーフェスの ref/index 用ウインドウコンテキスト\n\n例:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការប្រើប្រាស់៖ cmux notify [flags]\n\nផ្ញើការជូនដំណឹងទៅកាន់កន្លែងធ្វើការ/ផ្ទៃ។\n\nទង់ជាតិ៖\n  --title <text>         ចំណងជើងការជូនដំណឹង (default: \"ការជូនដំណឹង\")\n  --subtitle <text>      ចំណងជើងរងការជូនដំណឹង\n  --body <text>          ស្ថាប័នជូនដំណឹង\n  --delivery <mode>      default, system, ឬ notch\n  --icon <sf-symbol>     ឈ្មោះ Dynamic Notch SF Symbol\n  --action <id=Label>    បន្ថែមសកម្មភាពអន្តរកម្ម (អាចធ្វើម្តងទៀតបាន អតិបរមា 4)\n  --input <id=Label>     បន្ថែមវាលអត្ថបទ (អាចធ្វើម្តងទៀតបាន អតិបរមា 4)\n  --secure-input <id=Label>   បន្ថែមវាលអត្ថបទដែលបានបិទបាំង\n  --spec <json|@file|->  ផ្ទុកទម្រង់ពេលវេលាដំណើរការពី JSON ឯកសារ ឬ stdin\n  --print-schema         បោះពុម្ពគ្រោងការណ៍ទម្រង់ JSON ដោយមិនចាំបាច់ភ្ជាប់ទៅ cmux\n  --wait                 រង់ចាំ ហើយបោះពុម្ពលទ្ធផលសកម្មភាព\n  --timeout <seconds>    អស់ពេលបិទដោយស្វ័យប្រវត្តិ; 0 បន្ត (default: 8 ឬ 300 ជាមួយ --wait)\n  --workspace <id|ref|index>   កំណត់ផ្ទៃការងារ លើកលែងតែផ្ទៃច្បាស់លាស់ UUIDs ដោះស្រាយជាសកល\n  --surface <id|ref|index>     ផ្ទៃគោលដៅ (refs/indexes ប្រើ workspace/window context)\n  --window <id|ref|index>      បរិបទ​បង្អួច​សម្រាប់​កន្លែង​ធ្វើ​ការ/ការ​យោង​ផ្ទៃ​និង​លិបិក្រម\n\nឧទាហរណ៍៖\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux notify [flags]\n\n작업 영역/표면에 알림을 보냅니다.\n\n플래그:\n  --title <text>         알림 제목(default: \"알림\")\n  --subtitle <text>      알림 자막\n  --body <text>          통지 본문\n  --delivery <mode>      default, system 또는 notch\n  --icon <sf-symbol>     Dynamic Notch SF Symbol 이름\n  --action <id=Label>    대화형 작업 추가(반복 가능, 최대 4개)\n  --input <id=Label>     텍스트 필드 추가(반복 가능, 최대 4개)\n  --secure-input <id=Label>   마스크된 텍스트 필드 추가\n  --spec <json|@file|->  JSON, 파일 또는 stdin에서 런타임 양식 로드\n  --print-schema         cmux에 연결하지 않고 JSON 양식 스키마 인쇄\n  --wait                 기다렸다가 작업 결과를 인쇄하세요.\n  --timeout <seconds>    자동 해제 시간 초과; 0이 지속됨(default: 8 또는 --wait의 경우 300)\n  --workspace <id|ref|index>   명시적인 표면 UUID를 제외한 대상 작업 공간은 전역적으로 확인됩니다.\n  --surface <id|ref|index>     대상 표면(참조/색인은 작업 공간/창 컨텍스트를 사용함)\n  --window <id|ref|index>      작업 공간/표면 참조 및 색인에 대한 창 컨텍스트\n\n예:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk: cmux notify [flags]\n\nSend et varsel til et arbeidsområde/overflate.\n\nFlagg:\n  --title <text>         Varslingstittel (default: \"Varsling\")\n  --subtitle <text>      Undertekst for varsel\n  --body <text>          Meldingsorgan\n  --delivery <mode>      default, system eller notch\n  --icon <sf-symbol>     Dynamic Notch SF Symbol navn\n  --action <id=Label>    Legg til en interaktiv handling (kan gjentas, maks 4)\n  --input <id=Label>     Legg til et tekstfelt (kan gjentas, maks 4)\n  --secure-input <id=Label>   Legg til et maskert tekstfelt\n  --spec <json|@file|->  Last inn et kjøretidsskjema fra JSON, en fil eller stdin\n  --print-schema         Skriv ut JSON-skjemaskjemaet uten å koble til cmux\n  --wait                 Vent og skriv ut handlingsresultatet\n  --timeout <seconds>    Automatisk avvis tidsavbrudd; 0 vedvarer (default: 8 eller 300 med --wait)\n  --workspace <id|ref|index>   Målarbeidsområde, unntatt eksplisitt overflate UUIDs løses globalt\n  --surface <id|ref|index>     Måloverflate (refer/indekser bruker arbeidsområde/vinduskontekst)\n  --window <id|ref|index>      Vinduskontekst for arbeidsområde/overflaterefs og indekser\n\nEksempel:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Użycie: cmux notify [flags]\n\nWyślij powiadomienie do obszaru roboczego/powierzchni.\n\nFlagi:\n  --title <text>         Tytuł powiadomienia (default: „Powiadomienie”)\n  --subtitle <text>      Podtytuł powiadomienia\n  --body <text>          Organ notyfikacyjny\n  --delivery <mode>      default, system lub notch\n  --icon <sf-symbol>     Nazwa Dynamic Notch SF Symbol\n  --action <id=Label>    Dodaj akcję interaktywną (powtarzalną, maksymalnie 4)\n  --input <id=Label>     Dodaj pole tekstowe (powtarzalne, max 4)\n  --secure-input <id=Label>   Dodaj zamaskowane pole tekstowe\n  --spec <json|@file|->  Załaduj formularz wykonawczy z JSON, plik lub stdin\n  --print-schema         Wydrukuj schemat formularza JSON bez łączenia się z cmux\n  --wait                 Poczekaj i wydrukuj wynik akcji\n  --timeout <seconds>    Limit czasu automatycznego odrzucania; 0 utrzymuje się (default: 8 lub 300 w przypadku --wait)\n  --workspace <id|ref|index>   Docelowy obszar roboczy, z wyjątkiem jawnych powierzchni UUID rozstrzyganych globalnie\n  --surface <id|ref|index>     Powierzchnia docelowa (referencje/indeksy korzystają z kontekstu obszaru roboczego/okna)\n  --window <id|ref|index>      Kontekst okna dla odnośników i indeksów obszaru roboczego/powierzchni\n\nPrzykład:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux notify [flags]\n\nEnvie uma notificação para um espaço de trabalho/superfície.\n\nBandeiras:\n  --title <text>         Título da notificação (default: \"Notificação\")\n  --subtitle <text>      Legenda de notificação\n  --body <text>          Corpo de notificação\n  --delivery <mode>      default, system ou notch\n  --icon <sf-symbol>     Nome Dynamic Notch SF Symbol\n  --action <id=Label>    Adicione uma ação interativa (repetível, no máximo 4)\n  --input <id=Label>     Adicione um campo de texto (repetível, no máximo 4)\n  --secure-input <id=Label>   Adicione um campo de texto mascarado\n  --spec <json|@file|->  Carregar um formulário de tempo de execução de JSON, um arquivo ou stdin\n  --print-schema         Imprima o esquema do formulário JSON sem conectar-se ao cmux\n  --wait                 Aguarde e imprima o resultado da ação\n  --timeout <seconds>    Tempo limite de dispensa automática; 0 persiste (default: 8 ou 300 com --wait)\n  --workspace <id|ref|index>   Espaço de trabalho de destino, exceto UUIDs de superfície explícita resolvidos globalmente\n  --surface <id|ref|index>     Superfície de destino (refs/índices usam contexto de espaço de trabalho/janela)\n  --window <id|ref|index>      Contexto da janela para referências e índices de espaço de trabalho/superfície\n\nExemplo:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Использование: cmux notify [flags]\n\nОтправьте уведомление в рабочую область/поверхность.\n\nФлаги:\n  --title <text>         Название уведомления (default: «Уведомление»)\n  --subtitle <text>      Подзаголовок уведомления\n  --body <text>          Тело уведомления\n  --delivery <mode>      default, system или notch\n  --icon <sf-symbol>     Dynamic Notch SF Symbol имя\n  --action <id=Label>    Добавить интерактивное действие (повторяемое, максимум 4)\n  --input <id=Label>     Добавить текстовое поле (повторяемое, максимум 4)\n  --secure-input <id=Label>   Добавить скрытое текстовое поле\n  --spec <json|@file|->  Загрузите форму времени выполнения из JSON, файла или stdin.\n  --print-schema         Распечатайте схему формы JSON без подключения к cmux.\n  --wait                 Подождите и распечатайте результат действия\n  --timeout <seconds>    Тайм-аут автоматического закрытия; 0 сохраняется (default: 8 или 300 с --wait)\n  --workspace <id|ref|index>   Целевая рабочая область, за исключением явных поверхностных UUID, которые разрешаются глобально.\n  --surface <id|ref|index>     Целевая поверхность (ссылки/индексы используют контекст рабочей области/окна)\n  --window <id|ref|index>      Контекст окна для ссылок и индексов рабочей области/поверхности\n\nПример:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การใช้งาน: cmux notify [flags]\n\nส่งการแจ้งเตือนไปยังพื้นที่ทำงาน/Surface\n\nธง:\n  --title <text>         ชื่อการแจ้งเตือน (default: \"การแจ้งเตือน\")\n  --subtitle <text>      คำบรรยายการแจ้งเตือน\n  --body <text>          เนื้อหาการแจ้งเตือน\n  --delivery <mode>      default, system หรือ notch\n  --icon <sf-symbol>     ชื่อ Dynamic Notch SF Symbol\n  --action <id=Label>    เพิ่มการดำเนินการแบบโต้ตอบ (ทำซ้ำได้ สูงสุด 4 รายการ)\n  --input <id=Label>     เพิ่มช่องข้อความ (ทำซ้ำได้ สูงสุด 4 ช่อง)\n  --secure-input <id=Label>   เพิ่มช่องข้อความที่ปกปิด\n  --spec <json|@file|->  โหลดแบบฟอร์มรันไทม์จาก JSON ไฟล์หรือ stdin\n  --print-schema         พิมพ์สกีมาแบบฟอร์ม JSON โดยไม่ต้องเชื่อมต่อกับ cmux\n  --wait                 รอและพิมพ์ผลการดำเนินการ\n  --timeout <seconds>    หมดเวลาปิดอัตโนมัติ 0 ยังคงอยู่ (default: 8 หรือ 300 พร้อม --wait)\n  --workspace <id|ref|index>   พื้นที่ทำงานเป้าหมาย ยกเว้นพื้นผิวที่ชัดเจนของ UUID จะได้รับการแก้ไขแบบโกลบอล\n  --surface <id|ref|index>     พื้นผิวเป้าหมาย (การอ้างอิง/ดัชนีใช้พื้นที่ทำงาน/บริบทหน้าต่าง)\n  --window <id|ref|index>      บริบทหน้าต่างสำหรับการอ้างอิงพื้นที่ทำงาน/พื้นผิวและดัชนี\n\nตัวอย่าง:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kullanım: cmux notify [flags]\n\nBir çalışma alanına/yüzeyine bildirim gönderin.\n\nBayraklar:\n  --title <text>         Bildirim başlığı (default: \"Bildirim\")\n  --subtitle <text>      Bildirim alt başlığı\n  --body <text>          Bildirim kuruluşu\n  --delivery <mode>      default, system veya notch\n  --icon <sf-symbol>     Dynamic Notch SF Symbol adı\n  --action <id=Label>    Etkileşimli bir eylem ekleyin (tekrarlanabilir, maksimum 4)\n  --input <id=Label>     Bir metin alanı ekleyin (tekrarlanabilir, maksimum 4)\n  --secure-input <id=Label>   Maskelenmiş metin alanı ekleme\n  --spec <json|@file|->  JSON'den, bir dosyadan veya stdin'den bir çalışma zamanı formu yükleyin\n  --print-schema         cmux'ye bağlanmadan JSON form şemasını yazdırın\n  --wait                 Bekleyin ve eylem sonucunu yazdırın\n  --timeout <seconds>    Otomatik kapatma zaman aşımı; 0 devam ediyor (default: 8 veya --wait ile 300)\n  --workspace <id|ref|index>   Açık yüzey UUID'lerin genel olarak çözümlenmesi dışında hedef çalışma alanı\n  --surface <id|ref|index>     Hedef yüzey (refs/dizinler çalışma alanı/pencere bağlamını kullanır)\n  --window <id|ref|index>      Çalışma alanı/yüzey referansları ve dizinler için pencere bağlamı\n\nÖrnek:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Використання: cmux notify [flags]\n\nНадішліть сповіщення на робочу область/поверхню.\n\nПрапори:\n  --title <text>         Назва сповіщення (default: \"Сповіщення\")\n  --subtitle <text>      Підзаголовок сповіщення\n  --body <text>          Орган повідомлення\n  --delivery <mode>      default, system або notch\n  --icon <sf-symbol>     Ім'я Dynamic Notch SF Symbol\n  --action <id=Label>    Додайте інтерактивну дію (повторювана, максимум 4)\n  --input <id=Label>     Додайте текстове поле (повторюване, максимум 4)\n  --secure-input <id=Label>   Додайте замасковане текстове поле\n  --spec <json|@file|->  Завантажте форму виконання з JSON, файлу або stdin\n  --print-schema         Надрукуйте схему форми JSON без підключення до cmux\n  --wait                 Зачекайте і роздрукуйте результат дії\n  --timeout <seconds>    Час очікування автоматичного відхилення; 0 зберігається (default: 8 або 300 із --wait)\n  --workspace <id|ref|index>   Цільова робоча область, за винятком явних поверхневих UUID, які вирішуються глобально\n  --surface <id|ref|index>     Цільова поверхня (посилання/індекси використовують контекст робочої області/вікна)\n  --window <id|ref|index>      Контекст вікна для посилань та індексів робочої області/поверхні\n\nприклад:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法： cmux notify [flags]\n\n向工作区/表面发送通知。\n\n标志：\n  --title <text>         通知标题（default：“通知”）\n  --subtitle <text>      通知字幕\n  --body <text>          通知正文\n  --delivery <mode>      default、system 或 notch\n  --icon <sf-symbol>     Dynamic Notch SF Symbol 名称\n  --action <id=Label>    添加交互动作（可重复，最多 4 个）\n  --input <id=Label>     添加文本字段（可重复，最多 4 个）\n  --secure-input <id=Label>   添加屏蔽文本字段\n  --spec <json|@file|->  从 JSON、文件或 stdin 加载运行时表单\n  --print-schema         打印 JSON 表单架构而不连接到 cmux\n  --wait                 等待并打印操作结果\n  --timeout <seconds>    超时自动关闭； 0 持续存在（default：8，或 --wait 为 300）\n  --workspace <id|ref|index>   目标工作空间，除了显式曲面 UUID 全局解析\n  --surface <id|ref|index>     目标表面（引用/索引使用工作区/窗口上下文）\n  --window <id|ref|index>      工作区/表面参考和索引的窗口上下文\n\n例子：\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法： cmux notify [flags]\n\n向工作區/表面發送通知。\n\n標誌：\n  --title <text>         通知標題（default：「通知」）\n  --subtitle <text>      通知字幕\n  --body <text>          通知正文\n  --delivery <mode>      default、system 或 notch\n  --icon <sf-symbol>     Dynamic Notch SF Symbol 名稱\n  --action <id=Label>    增加互動動作（可重複，最多 4 個）\n  --input <id=Label>     新增文字欄位（可重複，最多 4 個）\n  --secure-input <id=Label>   新增屏蔽文字字段\n  --spec <json|@file|->  從 JSON、檔案或 stdin 載入執行時間表單\n  --print-schema         列印 JSON 表單架構而不連接到 cmux\n  --wait                 等待並列印操作結果\n  --timeout <seconds>    逾時自動關閉； 0 持續存在（default：8，或 --wait 為 300）\n  --workspace <id|ref|index>   目標工作空間，除了顯式曲面 UUID 全域解析\n  --surface <id|ref|index>     目標表面（引用/索引使用工作區/視窗上下文）\n  --window <id|ref|index>      工作區/表面參考和索引的視窗上下文\n\n例子：\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
           }
         }
       }
@@ -173006,162 +173114,3001 @@
     "cli.notify.error.invalidAction": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Invalid --action; use a unique ASCII id=Label" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "--action が無効です。重複しない ASCII の id=ラベル を指定してください" } }
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--action غير صالح؛ استخدم ASCII id=Label الفريد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nevažeći --action; koristite jedinstveni ASCII id=Label"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ugyldig --action; brug en unik ASCII id=Label"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ungültiges --action; Verwenden Sie einen eindeutigen ASCII id=Label"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid --action; use a unique ASCII id=Label"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--action no válido; utilice un ASCII id=Label único"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--action invalide ; utiliser un ASCII id=Label unique"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--action non valido; utilizzare un ASCII id=Label unico"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--action が無効です。重複しない ASCII の id=ラベル を指定してください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--action មិនត្រឹមត្រូវ; ប្រើ ASCII id=Label តែមួយគត់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "잘못된 --action; 고유한 ASCII id=Label를 사용하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ugyldig --action; bruk en unik ASCII id=Label"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nieprawidłowy --action; użyj unikalnego ASCII id=Label"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--action inválido; use um ASCII id=Label exclusivo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Неверный --action; используйте уникальный ASCII id=Label"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--action ไม่ถูกต้อง ใช้ ASCII id=Label ที่เป็นเอกลักษณ์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geçersiz --action; benzersiz bir ASCII id=Label kullanın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Недійсний --action; використовувати унікальний ASCII id=Label"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无效--action；使用独特的ASCII id=Label"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無效--action；使用獨特的ASCII id=Label"
+          }
+        }
       }
     },
     "cli.notify.error.invalidInput": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Invalid input; use a unique ASCII id=Label" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "入力欄が無効です。重複しない ASCII の id=ラベル を指定してください" } }
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إدخال غير صالح؛ استخدم ASCII id=Label الفريد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid input; koristite jedinstveni ASCII id=Label"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ugyldigt input; brug en unik ASCII id=Label"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ungültige Eingabe; Verwenden Sie einen eindeutigen ASCII id=Label"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid input; use a unique ASCII id=Label"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entrada no válida; utilice un ASCII id=Label único"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entrée invalide ; utiliser un ASCII id=Label unique"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Immissione non valida; utilizzare un ASCII id=Label univoco"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入力欄が無効です。重複しない ASCII の id=ラベル を指定してください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការបញ្ចូលមិនត្រឹមត្រូវ; ប្រើ ASCII id=Label តែមួយគត់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "입력이 잘못되었습니다. 고유한 ASCII id=Label를 사용하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ugyldig inndata; bruk en unik ASCII id=Label"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nieprawidłowe dane wejściowe; użyj unikalnego ASCII id=Label"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entrada inválida; use um ASCII id=Label exclusivo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Неверный ввод; используйте уникальный ASCII id=Label"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ข้อมูลไม่ถูกต้อง ใช้ ASCII id=Label ที่เป็นเอกลักษณ์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geçersiz giriş; benzersiz bir ASCII id=Label kullanın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Невірний вхід; використовувати унікальний ASCII id=Label"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输入无效；使用独特的ASCII id=Label"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "輸入無效；使用獨特的ASCII id=Label"
+          }
+        }
       }
     },
     "cli.notify.error.invalidIcon": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "--icon must be at most 128 characters" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "--icon は128文字以内で指定してください" } }
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن يتكون --icon من 128 حرفًا على الأكثر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--icon mora imati najviše 128 znakova"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--icon må højst være på 128 tegn"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--icon darf höchstens 128 Zeichen lang sein"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--icon must be at most 128 characters"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--icon debe tener como máximo 128 caracteres"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--icon doit contenir au maximum 128 caractères"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--icon deve contenere al massimo 128 caratteri"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--icon は128文字以内で指定してください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--icon ត្រូវតែមានយ៉ាងហោចណាស់ 128 តួអក្សរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--icon는 128자(영문 기준) 이하여야 합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--icon må være på maksimalt 128 tegn"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--icon musi mieć maksymalnie 128 znaków"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--icon deve ter no máximo 128 caracteres"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--icon должен содержать не более 128 символов."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--icon ต้องมีอักขระไม่เกิน 128 ตัว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--icon en fazla 128 karakter olmalıdır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--icon має містити не більше 128 символів"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--icon 不得超过 128 个字符"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--icon 不得超過 128 個字符"
+          }
+        }
       }
     },
     "cli.notify.error.invalidSpec": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Invalid notification spec; run cmux notify --print-schema" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "通知仕様が無効です。cmux notify --print-schema を実行してください" } }
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مواصفات الإخطار غير صالحة؛ قم بتشغيل cmux لإعلام --print-schema"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nevažeća specifikacija obavijesti; pokrenite cmux obavijestite --print-schema"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ugyldig notifikationsspecifikation; køre cmux underrette --print-schema"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ungültige Benachrichtigungsspezifikation; Führen Sie cmux aus und benachrichtigen Sie --print-schema"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid notification spec; run cmux notify --print-schema"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Especificación de notificación no válida; ejecutar cmux notificar a --print-schema"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spécification de notification invalide ; exécuter cmux notifier --print-schema"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Specifica di notifica non valida; esegui cmux notifica --print-schema"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知仕様が無効です。cmux notify --print-schema を実行してください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "លក្ខណៈពិសេសការជូនដំណឹងមិនត្រឹមត្រូវ; ដំណើរការ cmux ជូនដំណឹង --print-schema"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "잘못된 알림 사양입니다. cmux를 실행하고 --print-schema에 알림"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ugyldig varslingsspesifikasjon; kjør cmux varsle --print-schema"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nieprawidłowa specyfikacja powiadomienia; uruchom cmux, powiadom --print-schema"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Especificação de notificação inválida; execute cmux notifique --print-schema"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Неверная спецификация уведомления; запустить cmux, уведомить --print-schema"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ข้อมูลจำเพาะการแจ้งเตือนไม่ถูกต้อง วิ่ง cmux แจ้ง --print-schema"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geçersiz bildirim spesifikasyonu; cmux'yi çalıştır --print-schema'ye bildir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Недійсна специфікація сповіщення; запустити cmux сповістити --print-schema"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知规范无效；运行 cmux 通知 --print-schema"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知規範無效；執行 cmux 通知 --print-schema"
+          }
+        }
       }
     },
     "cli.notify.error.invalidDelivery": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "--delivery must be default, system, or notch" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "--delivery は default、system、notch のいずれかを指定してください" } }
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن يكون --delivery default أو system أو notch"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--delivery mora biti default, system ili notch"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--delivery skal være default, system eller notch"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--delivery muss default, system oder notch sein"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--delivery must be default, system, or notch"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--delivery debe ser default, system o notch."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--delivery doit être default, system ou notch"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--delivery deve essere default, system o notch"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--delivery は default、system、notch のいずれかを指定してください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--delivery ត្រូវតែ default, system ឬ notch"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--delivery는 default, system 또는 notch여야 합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--delivery må være default, system eller notch"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--delivery musi być default, system lub notch"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--delivery deve ser default, system ou notch"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--delivery должен быть default, system или notch."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--delivery ต้องเป็น default, system หรือ notch"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--delivery, default, system veya notch olmalıdır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--delivery має бути default, system або notch"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--delivery 必须是 default、system 或 notch"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--delivery 必須是 default、system 或 notch"
+          }
+        }
       }
     },
     "cli.notify.error.invalidResponse": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Notification returned an invalid action response" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "通知から無効な操作応答が返されました" } }
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قام الإشعار بإرجاع استجابة إجراء غير صالحة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obavijest je vratila nevažeći odgovor na radnju"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meddelelsen returnerede et ugyldigt handlingssvar"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Benachrichtigung hat eine ungültige Aktionsantwort zurückgegeben"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notification returned an invalid action response"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La notificación devolvió una respuesta de acción no válida"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La notification a renvoyé une réponse d'action non valide"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La notifica ha restituito una risposta all'azione non valida"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知から無効な操作応答が返されました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការ​ជូន​ដំណឹង​បាន​ត្រឡប់​ការ​ឆ្លើយតប​សកម្មភាព​មិន​ត្រឹមត្រូវ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알림이 잘못된 작업 응답을 반환했습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Varselet returnerte et ugyldig handlingssvar"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Powiadomienie zwróciło nieprawidłową odpowiedź na działanie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A notificação retornou uma resposta de ação inválida"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Уведомление вернуло недопустимый ответ на действие."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การแจ้งเตือนส่งคืนการตอบสนองการดำเนินการที่ไม่ถูกต้อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bildirim geçersiz bir eylem yanıtı döndürdü"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сповіщення повернуло відповідь на недійсну дію"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知返回无效的操作响应"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知傳回無效的操作回應"
+          }
+        }
       }
     },
     "cli.notify.error.invalidTimeout": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "--timeout must be between 0 and 86400 seconds" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "--timeout は0秒から86400秒の範囲で指定してください" } }
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن يكون --timeout بين 0 و86400 ثانية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout mora biti između 0 i 86400 sekundi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout skal være mellem 0 og 86400 sekunder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout muss zwischen 0 und 86400 Sekunden liegen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout must be between 0 and 86400 seconds"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout debe estar entre 0 y 86400 segundos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout doit être compris entre 0 et 86 400 secondes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout deve essere compreso tra 0 e 86400 secondi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout は0秒から86400秒の範囲で指定してください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout ត្រូវតែមានចន្លោះពី 0 ទៅ 86400 វិនាទី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout는 0~86400초 사이여야 합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout må være mellom 0 og 86400 sekunder"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout musi mieścić się w przedziale od 0 do 86400 sekund"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout deve estar entre 0 e 86.400 segundos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout должно быть между 0 и 86400 секундами."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout ต้องอยู่ระหว่าง 0 ถึง 86400 วินาที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout 0 ile 86400 saniye arasında olmalıdır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout має бути від 0 до 86400 секунд"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout 必须介于 0 到 86400 秒之间"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout 必須介於 0 到 86400 秒之間"
+          }
+        }
       }
     },
     "cli.notify.error.remoteInteractive": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Explicit delivery overrides and Dynamic Notch controls require a local cmux socket" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "配信方法の明示的な上書きと Dynamic Notch 操作にはローカルの cmux ソケットが必要です" } }
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تتطلب تجاوزات التسليم الصريحة وعناصر التحكم Dynamic Notch مقبس cmux محلي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eksplicitna nadjačavanja isporuke i Dynamic Notch kontrole zahtijevaju lokalnu utičnicu cmux"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eksplicit leveringstilsidesættelse og Dynamic Notch kontroller kræver en lokal cmux socket"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Explizite Übermittlungsüberschreibungen und Dynamic Notch-Steuerelemente erfordern einen lokalen cmux-Socket"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Explicit delivery overrides and Dynamic Notch controls require a local cmux socket"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las anulaciones de entrega explícitas y los controles Dynamic Notch requieren un enchufe cmux local"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les remplacements de livraison explicites et les contrôles Dynamic Notch nécessitent un socket cmux local"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le priorità di consegna esplicite e i controlli Dynamic Notch richiedono un socket cmux locale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配信方法の明示的な上書きと Dynamic Notch 操作にはローカルの cmux ソケットが必要です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការបដិសេធការដឹកជញ្ជូនច្បាស់លាស់ និងការគ្រប់គ្រង Dynamic Notch ទាមទាររន្ធ cmux ក្នុងតំបន់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "명시적 전달 재정의 및 Dynamic Notch 제어에는 로컬 cmux 소켓이 필요합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eksplisitte leveringsoverstyringer og Dynamic Notch-kontroller krever en lokal cmux-kontakt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jawne zastąpienie dostarczania i elementy sterujące Dynamic Notch wymagają lokalnego gniazda cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Substituições de entrega explícitas e controles Dynamic Notch requerem um soquete cmux local"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для явных переопределений доставки и элементов управления Dynamic Notch требуется локальный сокет cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การแทนที่การนำส่งที่ชัดเจนและการควบคุม Dynamic Notch จำเป็นต้องมีซ็อกเก็ต cmux ในเครื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Açık dağıtım geçersiz kılmaları ve Dynamic Notch kontrolleri yerel bir cmux soketi gerektirir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Явні перевизначення доставки та елементи керування Dynamic Notch вимагають локального сокета cmux"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显式传递覆盖和 Dynamic Notch 控制需要本地 cmux 套接字"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "明確傳遞覆蓋和 Dynamic Notch 控制需要本地 cmux 套接字"
+          }
+        }
       }
     },
     "cli.notify.error.systemControls": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "--icon, --action, --input, --wait, and --timeout require --delivery notch" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "--icon、--action、--input、--wait、--timeout には --delivery notch が必要です" } }
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تتطلب --icon و--action و--input و--wait و--timeout --delivery notch"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--icon, --action, --input, --wait i --timeout zahtijevaju --delivery notch"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--icon, --action, --input, --wait og --timeout kræver --delivery notch"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--icon, --action, --input, --wait und --timeout erfordern --delivery notch"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--icon, --action, --input, --wait, and --timeout require --delivery notch"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--icon, --action, --input, --wait y --timeout requieren --delivery notch"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--icon, --action, --input, --wait et --timeout nécessitent --delivery notch"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--icon, --action, --input, --wait e --timeout richiedono --delivery notch"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--icon、--action、--input、--wait、--timeout には --delivery notch が必要です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--icon, --action, --input, --wait, និង --timeout ទាមទារ --delivery notch"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--icon, --action, --input, --wait 및 --timeout에는 --delivery notch가 필요합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--icon, --action, --input, --wait og --timeout krever --delivery notch"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--icon, --action, --input, --wait i --timeout wymagają --delivery notch"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--icon, --action, --input, --wait e --timeout requerem --delivery notch"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--icon, --action, --input, --wait и --timeout требуют --delivery notch"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--icon, --action, --input, --wait และ --timeout ต้องใช้ --delivery notch"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--icon, --action, --input, --wait ve --timeout, --delivery notch gerektirir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--icon, --action, --input, --wait і --timeout потребують --delivery notch"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--icon、--action、--input、--wait 和 --timeout 需要 --delivery notch"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--icon、--action、--input、--wait 和 --timeout 需要 --delivery notch"
+          }
+        }
       }
     },
     "cli.notify.error.tooManyActions": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "A notification supports at most four --action values" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "通知に指定できる --action は最大4個です" } }
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يدعم الإشعار أربع قيم --action على الأكثر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obavijest podržava najviše četiri vrijednosti --action"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En notifikation understøtter højst fire --action-værdier"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine Benachrichtigung unterstützt höchstens vier --action-Werte"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A notification supports at most four --action values"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una notificación admite como máximo cuatro valores --action"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une notification prend en charge au maximum quatre valeurs --action"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una notifica supporta al massimo quattro valori --action"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知に指定できる --action は最大4個です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជូនដំណឹងគាំទ្រតម្លៃ --action ច្រើនបំផុតចំនួនបួន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알림은 최대 4개의 --action 값을 지원합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et varsel støtter maksimalt fire --action-verdier"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Powiadomienie obsługuje maksymalnie cztery wartości --action"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uma notificação suporta no máximo quatro valores --action"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Уведомление поддерживает не более четырех значений --action."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การแจ้งเตือนรองรับค่า --action ได้สูงสุดสี่ค่า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir bildirim en fazla dört --action değerini destekler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сповіщення підтримує щонайбільше чотири значення --action"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一条通知最多支持四个 --action 值"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一則通知最多支援四個 --action 值"
+          }
+        }
       }
     },
     "cli.notify.error.tooManyInputs": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "A notification supports at most four input fields" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "通知に指定できる入力欄は最大4個です" } }
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يدعم الإشعار أربعة حقول إدخال على الأكثر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obavijest podržava najviše četiri polja za unos"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En notifikation understøtter højst fire inputfelter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine Benachrichtigung unterstützt maximal vier Eingabefelder"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A notification supports at most four input fields"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una notificación admite como máximo cuatro campos de entrada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une notification prend en charge au maximum quatre champs de saisie"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una notifica supporta al massimo quattro campi di input"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知に指定できる入力欄は最大4個です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការ​ជូន​ដំណឹង​គាំទ្រ​នៅ​កន្លែង​បញ្ចូល​ច្រើន​បំផុត​បួន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알림은 최대 4개의 입력 필드를 지원합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En varsling støtter maksimalt fire inndatafelt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Powiadomienie obsługuje maksymalnie cztery pola wejściowe"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uma notificação suporta no máximo quatro campos de entrada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Уведомление поддерживает не более четырех полей ввода."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การแจ้งเตือนรองรับช่องป้อนข้อมูลได้สูงสุดสี่ช่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir bildirim en fazla dört giriş alanını destekler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сповіщення підтримує щонайбільше чотири поля введення"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一条通知最多支持四个输入字段"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一條通知最多支援四個輸入字段"
+          }
+        }
       }
     },
     "cli.notify.error.waitRequiresTimeout": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "--wait requires a positive --timeout" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "--wait には0より大きい --timeout が必要です" } }
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب --wait قيمة --timeout موجبة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--wait zahtijeva pozitivan --timeout"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--wait kræver en positiv --timeout"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--wait erfordert ein positives --timeout"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--wait requires a positive --timeout"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--wait requiere un --timeout positivo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--wait nécessite un --timeout positif"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--wait richiede uno --timeout positivo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--wait には0より大きい --timeout が必要です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--wait ទាមទារ --timeout វិជ្ជមាន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--wait에는 양수 --timeout가 필요합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--wait krever en positiv --timeout"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--wait wymaga dodatniego --timeout"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--wait requer um --timeout positivo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--wait требует положительного --timeout."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--wait ต้องการ --timeout ที่เป็นค่าบวก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--wait pozitif bir --timeout gerektirir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--wait вимагає позитивного --timeout"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--wait 需要正 --timeout"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--wait 需要正 --timeout"
+          }
+        }
       }
     },
     "cli.notify.error.waitTimedOut": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Timed out waiting for a notification action" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "通知操作の待機がタイムアウトしました" } }
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انتهت المهلة في انتظار إجراء الإخطار"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Isteklo je vrijeme čekanja na radnju obavještenja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Timeout for at vente på en notifikationshandling"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeitüberschreitung beim Warten auf eine Benachrichtigungsaktion"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Timed out waiting for a notification action"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se agotó el tiempo de espera de una acción de notificación"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Délai d'attente expiré pour une action de notification"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Timeout in attesa di un'azione di notifica"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知操作の待機がタイムアウトしました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អស់ពេលរង់ចាំសកម្មភាពជូនដំណឹង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알림 작업을 기다리는 동안 시간이 초과되었습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tidsavbrudd venter på en varslingshandling"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upłynął limit czasu oczekiwania na powiadomienie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tempo limite esgotado aguardando uma ação de notificação"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Время ожидания действия уведомления истекло."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หมดเวลารอการดำเนินการแจ้งเตือน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir bildirim eylemi beklenirken zaman aşımına uğradı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Час очікування дії сповіщення минув"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待通知操作超时"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待通知操作逾時"
+          }
+        }
       }
     },
     "notification.dynamicNotch.dismiss": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Dismiss" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "閉じる" } }
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "رفض"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odbaci"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afskedige"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zurückweisen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dismiss"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Despedir"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rejeter"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Congedare"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閉じる"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ច្រានចោល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "해고하다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avskjedige"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odrzucać"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liberar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Увольнять"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อนุญาตให้ออกไป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Azletmek"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відхилити"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "解雇"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "解僱"
+          }
+        }
       }
     },
     "notification.dynamicNotch.open": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Open" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "開く" } }
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يفتح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otvori"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åben"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abierto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aprire"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開く"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បើក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "열려 있는"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åpne"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otwarte"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открыть"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Açık"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ВІДЧИНЕНО"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打開"
+          }
+        }
       }
     },
     "settings.notifications.delivery.option.dynamicNotch": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Dynamic Notch" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Dynamic Notch" } }
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Notch"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Notch"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Notch"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Notch"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Notch"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Notch"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Notch"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Notch"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Notch"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Notch"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Notch"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Notch"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Notch"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Notch"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Notch"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Notch"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Notch"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Notch"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Notch"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Notch"
+          }
+        }
+      }
+    },
+    "settings.notifications.delivery.dynamicNotch.testSubtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إرسال إشعار اختبار Dynamic Notch."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pošaljite testno Dynamic Notch obavještenje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send en test Dynamic Notch-meddelelse."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Senden Sie eine Testbenachrichtigung Dynamic Notch."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send a test Dynamic Notch notification."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envíe una notificación de prueba Dynamic Notch."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoyez une notification de test Dynamic Notch."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invia una notifica Dynamic Notch di prova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Notch のテスト通知を送信します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ញើការជូនដំណឹង Dynamic Notch សាកល្បង។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "테스트 Dynamic Notch 알림을 보냅니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send et test Dynamic Notch-varsel."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyślij powiadomienie testowe Dynamic Notch."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envie uma notificação de teste Dynamic Notch."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отправьте тестовое уведомление Dynamic Notch."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่งการแจ้งเตือนการทดสอบ Dynamic Notch"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir test Dynamic Notch bildirimi gönderin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Надіслати тестове сповіщення Dynamic Notch."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发送测试 Dynamic Notch 通知。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "發送測試 Dynamic Notch 通知。"
+          }
+        }
       }
     },
     "settings.notifications.delivery.option.system": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "System" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "システム" } }
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نظام"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistem"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistema"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Système"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistema"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "システム"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្រព័ន្ធ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "체계"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistema"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Система"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ระบบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistem"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "система"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "系统"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "系統"
+          }
+        }
       }
     },
     "settings.notifications.delivery.subtitle": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Dynamic Notch stays visible when Focus or Do Not Disturb suppresses system notifications." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "集中モードやおやすみモードでシステム通知が抑制されても、Dynamic Notch は表示されます。" } }
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يظل Dynamic Notch مرئيًا عندما يقوم التركيز أو عدم الإزعاج بمنع إشعارات system."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Notch ostaje vidljiv kada Fokus ili Ne ometaj potiskuju system obavještenja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Notch forbliver synlig, når Fokus eller Forstyr ikke undertrykker system-meddelelser."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Notch bleibt sichtbar, wenn „Fokus“ oder „Nicht stören“ system-Benachrichtigungen unterdrückt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Notch stays visible when Focus or Do Not Disturb suppresses system notifications."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Notch permanece visible cuando Focus o No molestar suprimen las notificaciones de system."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Notch reste visible lorsque Focus ou Ne pas déranger supprime les notifications system."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Notch rimane visibile quando Focus o Non disturbare sopprimono le notifiche system."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "集中モードやおやすみモードでシステム通知が抑制されても、Dynamic Notch は表示されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Notch នៅតែអាចមើលឃើញនៅពេលដែល Focus ឬ Do Not Disturb ទប់ស្កាត់ការជូនដំណឹង system ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "집중 또는 방해 금지가 system 알림을 억제하는 경우 Dynamic Notch는 계속 표시됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Notch forblir synlig når Fokus eller Ikke forstyrr undertrykker system-varsler."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Notch pozostaje widoczny, gdy ustawienie Fokus lub Nie przeszkadzać blokuje powiadomienia system."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Notch permanece visível quando Foco ou Não perturbe suprime as notificações system."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Notch остается видимым, когда функция «Фокус» или «Не беспокоить» подавляет уведомления system."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Notch ยังคงมองเห็นได้เมื่อ Focus หรือ Do Not Disturb ระงับการแจ้งเตือนของ system"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odaklanma veya Rahatsız Etmeyin system bildirimlerini bastırdığında Dynamic Notch görünür kalır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Notch залишається видимим, коли Фокус або Не турбувати пригнічує сповіщення system."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当“焦点”或“请勿打扰”抑制 system 通知时，Dynamic Notch 保持可见。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "當「焦點」或「請勿打擾」抑制 system 通知時，Dynamic Notch 保持可見。"
+          }
+        }
       }
     },
     "settings.notifications.delivery.title": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Notification Delivery" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "通知の配信" } }
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تسليم الإخطار"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dostava obavještenja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meddelelseslevering"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Benachrichtigungszustellung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notification Delivery"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entrega de notificaciones"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoi des notifications"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consegna delle notifiche"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知の配信"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការ​ជូន​ដំណឹង​"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알림 전달"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Varslingslevering"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dostawa powiadomień"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entrega de notificação"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доставка уведомлений"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การจัดส่งการแจ้งเตือน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bildirim Gönderimi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доставка повідомлень"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知发送"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知發送"
+          }
+        }
       }
     },
     "settings.notifications.test.dynamicNotch.body": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Dynamic Notch notifications are enabled." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Dynamic Notch 通知が有効です。" } }
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم تمكين إشعارات Dynamic Notch."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Notch obavještenja su omogućena."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Notch-meddelelser er aktiveret."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Notch-Benachrichtigungen sind aktiviert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Notch notifications are enabled."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las notificaciones Dynamic Notch están habilitadas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les notifications Dynamic Notch sont activées."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le notifiche Dynamic Notch sono abilitate."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Notch 通知が有効です。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជូនដំណឹង Dynamic Notch ត្រូវបានបើក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Notch 알림이 활성화되었습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Notch-varsler er aktivert."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Powiadomienia Dynamic Notch są włączone."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As notificações Dynamic Notch estão habilitadas."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Уведомления Dynamic Notch включены."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิดใช้งานการแจ้งเตือน Dynamic Notch แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Notch bildirimleri etkinleştirildi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сповіщення Dynamic Notch увімкнено."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Notch 通知已启用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Notch 通知已啟用。"
+          }
+        }
       }
     },
     "settings.notifications.test.system.body": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Desktop notifications are enabled." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "デスクトップ通知が有効です。" } }
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم تمكين إشعارات سطح المكتب."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obavještenja na radnoj površini su omogućena."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skrivebordsmeddelelser er aktiveret."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desktop-Benachrichtigungen sind aktiviert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desktop notifications are enabled."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las notificaciones de escritorio están habilitadas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les notifications sur le bureau sont activées."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le notifiche desktop sono abilitate."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デスクトップ通知が有効です。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជូនដំណឹងលើកុំព្យូទ័រត្រូវបានបើក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "데스크톱 알림이 활성화되었습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skrivebordsvarsler er aktivert."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Powiadomienia na pulpicie są włączone."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As notificações na área de trabalho estão habilitadas."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Уведомления на рабочем столе включены."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิดใช้งานการแจ้งเตือนบนเดสก์ท็อปแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masaüstü bildirimleri etkinleştirildi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сповіщення на робочому столі ввімкнено."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "桌面通知已启用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "桌面通知已啟用。"
+          }
+        }
       }
     },
     "settings.notifications.test.title": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "cmux test notification" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "cmux テスト通知" } }
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إشعار اختبار cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux obavještenje o testiranju"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux testmeddelelse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Testbenachrichtigung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux test notification"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notificación de prueba cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notification de test cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifica di prova cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux テスト通知"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជូនដំណឹងអំពីការធ្វើតេស្ត cmux"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 테스트 알림"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux testvarsling"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Powiadomienie o teście cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notificação de teste cmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Уведомление о тестировании cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การแจ้งเตือนการทดสอบ cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux test bildirimi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тестове сповіщення cmux"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 测试通知"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 測試通知"
+          }
+        }
       }
     },
     "settings.search.alias.setting.app.notification-delivery": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "notifications.delivery dynamic notch system notification center focus do not disturb dnd interactive" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "notifications.delivery Dynamic Notch システム 通知センター 集中モード おやすみモード 操作" } }
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notifications.delivery ديناميكي notch system مركز الإشعارات التركيز لا يزعج dnd التفاعلي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notifications.delivery dinamički notch system centar za obavijesti fokus ne ometaj i interaktivno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notifications.delivery dynamisk notch system notifikationscenterfokus forstyrrer ikke dnd interaktiv"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notifications.delivery dynamisch notch system Benachrichtigungscenter-Fokus „Nicht stören“ und interaktiv"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notifications.delivery dynamic notch system notification center focus do not disturb dnd interactive"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notifications.delivery dinámico notch system centro de notificaciones enfoque no molestar dnd interactivo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notifications.delivery dynamique notch system centre de notification focus ne pas déranger mdn interactif"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notifications.delivery dinamico notch system centro notifiche focus non disturbare dnd interattivo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notifications.delivery Dynamic Notch システム 通知センター 集中モード おやすみモード 操作"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notifications.delivery ថាមវន្ត notch system ការផ្តោតអារម្មណ៍មជ្ឈមណ្ឌលជូនដំណឹងមិនរំខាន dnd អន្តរកម្ម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notifications.delivery 동적 notch system 알림 센터 초점 방해 금지 dnd 대화형"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notifications.delivery dynamisk notch system varslingssenterfokus ikke forstyrr dnd interaktiv"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notifications.delivery dynamiczny notch system centrum powiadomień fokus nie przeszkadzać dnd interaktywne"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notifications.delivery dinâmico notch system centro de notificação foco não perturbe dnd interativo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notifications.delivery динамический notch system центр уведомлений фокус не беспокоить dnd интерактивный"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notifications.delivery ไดนามิก notch system โฟกัสศูนย์การแจ้งเตือนไม่รบกวน dnd แบบโต้ตอบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notifications.delivery dinamik notch system bildirim merkezi odağı rahatsız etmeyin ve etkileşimli"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notifications.delivery динамічний notch system центр сповіщень фокус не турбувати dnd інтерактивний"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notifications.delivery动态notch system通知中心焦点请勿打扰dnd互动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notifications.delivery動態notch system通知中心焦點請勿打擾dnd互動"
+          }
+        }
       }
     },
     "settings.networking.test.reachable": {
@@ -224783,16 +227730,124 @@
     "socket.notification.invalidPresentation": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عرض الإخطار غير صالح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nevažeća prezentacija obavještenja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ugyldig notifikationspræsentation"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ungültige Benachrichtigungspräsentation"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Invalid notification presentation"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Presentación de notificación no válida"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Présentation de notification invalide"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Presentazione della notifica non valida"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "通知の表示設定が無効です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការបង្ហាញការជូនដំណឹងមិនត្រឹមត្រូវ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "잘못된 알림 프레젠테이션"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ugyldig varselpresentasjon"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nieprawidłowa prezentacja powiadomienia"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apresentação de notificação inválida"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Неверное представление уведомления"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การนำเสนอการแจ้งเตือนไม่ถูกต้อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geçersiz bildirim sunumu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Недійсне представлення сповіщень"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知呈现无效"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知呈現無效"
           }
         }
       }

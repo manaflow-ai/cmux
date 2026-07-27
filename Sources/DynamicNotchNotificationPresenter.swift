@@ -6,13 +6,29 @@ import SwiftUI
 /// Owns the current DynamicNotchKit panel and maps its controls back to the
 /// existing notification navigation and read-state paths.
 @MainActor
-final class DynamicNotchNotificationPresenter {
+final class DynamicNotchNotificationPresenter: NSObject, NSWindowDelegate {
+    static let windowIdentifier = "cmux.dynamicNotchNotification"
+
     typealias Sleep = @Sendable (Duration) async throws -> Void
 
-    private struct ActivePresentation {
+    private final class ActivePresentation {
         let notification: TerminalNotification
         let notch: DynamicNotch<DynamicNotchNotificationView, EmptyView, EmptyView>
-        let timeoutTask: Task<Void, Never>?
+        var timeoutTask: Task<Void, Never>?
+        var transitionTask: Task<Void, Never>?
+
+        init(
+            notification: TerminalNotification,
+            notch: DynamicNotch<DynamicNotchNotificationView, EmptyView, EmptyView>
+        ) {
+            self.notification = notification
+            self.notch = notch
+        }
+    }
+
+    private struct DismissalTransition {
+        let token: UUID
+        let task: Task<Void, Never>
     }
 
     private struct ActionResponse: Encodable {
@@ -31,6 +47,7 @@ final class DynamicNotchNotificationPresenter {
     private let markRead: (UUID) -> Void
     private let sleep: Sleep
     private var activePresentation: ActivePresentation?
+    private var dismissalTransitions: [UUID: DismissalTransition] = [:]
 
     init(
         openNotification: @escaping (TerminalNotification) -> Void,
@@ -40,13 +57,14 @@ final class DynamicNotchNotificationPresenter {
         self.openNotification = openNotification
         self.markRead = markRead
         self.sleep = sleep
+        super.init()
     }
 
     func present(_ notification: TerminalNotification) {
         dismissActivePanel(responseAction: "replaced")
 
         let notch = DynamicNotch(
-            hoverBehavior: [.keepVisible, .increaseShadow],
+            hoverBehavior: [.increaseShadow],
             style: .auto
         ) { [weak self] in
             DynamicNotchNotificationView(notification: notification) { action, values in
@@ -54,33 +72,45 @@ final class DynamicNotchNotificationPresenter {
             }
         }
 
-        let timeoutTask: Task<Void, Never>?
+        let activePresentation = ActivePresentation(
+            notification: notification,
+            notch: notch
+        )
+        self.activePresentation = activePresentation
+
         if notification.presentation.timeout > 0 {
             let timeout = notification.presentation.timeout
-            timeoutTask = Task { @MainActor [weak self] in
+            activePresentation.timeoutTask = Task { @MainActor [weak self, weak activePresentation] in
                 guard let self else { return }
                 try? await self.sleep(.seconds(timeout))
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled,
+                      let activePresentation,
+                      self.activePresentation === activePresentation else {
+                    return
+                }
                 self.dismiss(id: notification.id, responseAction: "timeout")
             }
-        } else {
-            timeoutTask = nil
         }
 
-        activePresentation = ActivePresentation(
-            notification: notification,
-            notch: notch,
-            timeoutTask: timeoutTask
-        )
-
-        Task { @MainActor [weak self] in
+        activePresentation.transitionTask = Task { @MainActor [weak self, weak activePresentation] in
             guard let self,
-                  self.activePresentation?.notification.id == notification.id,
+                  !Task.isCancelled,
+                  let activePresentation,
+                  self.activePresentation === activePresentation,
                   let screen = NSScreen.main ?? NSScreen.screens.first else { return }
             await notch.expand(on: screen)
+            guard !Task.isCancelled,
+                  self.activePresentation === activePresentation else {
+                return
+            }
+            notch.windowController?.window?.identifier = NSUserInterfaceItemIdentifier(
+                Self.windowIdentifier
+            )
+            notch.windowController?.window?.delegate = self
             if !notification.presentation.inputs.isEmpty {
                 notch.windowController?.window?.makeKey()
             }
+            activePresentation.transitionTask = nil
         }
     }
 
@@ -116,14 +146,37 @@ final class DynamicNotchNotificationPresenter {
         guard let activePresentation else { return }
         self.activePresentation = nil
         activePresentation.timeoutTask?.cancel()
+        activePresentation.transitionTask?.cancel()
         writeResponse(
             action: responseAction,
             values: values,
             notification: activePresentation.notification
         )
-        Task { @MainActor in
-            await activePresentation.notch.hide()
+        let notificationID = activePresentation.notification.id
+        let notch = activePresentation.notch
+        dismissalTransitions[notificationID]?.task.cancel()
+        let transitionToken = UUID()
+        let task = Task { @MainActor [weak self] in
+            await notch.hide()
+            guard let self,
+                  self.dismissalTransitions[notificationID]?.token == transitionToken else {
+                return
+            }
+            self.dismissalTransitions[notificationID] = nil
         }
+        dismissalTransitions[notificationID] = DismissalTransition(
+            token: transitionToken,
+            task: task
+        )
+    }
+
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        guard let activePresentation,
+              activePresentation.notch.windowController?.window === sender else {
+            return true
+        }
+        dismissActivePanel(responseAction: "dismissed")
+        return false
     }
 
     private func writeResponse(

@@ -13,6 +13,22 @@ extension Tag {
 @MainActor
 @Suite(.serialized)
 struct DynamicNotchKitTests {
+    @Test("DynamicNotchInfo releases its generic notch")
+    func dynamicNotchInfoReleases() {
+        weak var released: DynamicNotchInfo?
+
+        autoreleasepool {
+            let notch = DynamicNotchInfo(
+                icon: nil,
+                title: "Release test",
+                style: .floating
+            )
+            released = notch
+        }
+
+        #expect(released == nil)
+    }
+
     // MARK: - DynamicNotchInfo - Simple
 
     @Test("Info - Simple notch style", .tags(.notchStyle))

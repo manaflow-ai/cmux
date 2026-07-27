@@ -9,66 +9,78 @@ import SwiftUI
 
 extension DynamicNotchInfo {
     struct CompactLeadingView: View {
-        @ObservedObject var dynamicNotch: DynamicNotchInfo
+        @ObservedObject var state: ViewState
         @Namespace private var namespace
 
-        init(dynamicNotch: DynamicNotchInfo) {
-            self.dynamicNotch = dynamicNotch
+        init(state: ViewState) {
+            self.state = state
         }
 
         public var body: some View {
-            dynamicNotch.compactLeading
-                .transition(.blur(intensity: 10).combined(with: .scale(scale: 0.8)).combined(with: .opacity))
-                .matchedGeometryEffect(
-                    id: "info_icon",
-                    in: dynamicNotch.internalDynamicNotch.namespace ?? namespace,
-                    isSource: dynamicNotch.internalDynamicNotch.state == .compact && dynamicNotch.shouldSkipHideWhenConverting
-                )
+            Group {
+                if let dynamicNotch = state.owner {
+                    dynamicNotch.compactLeading
+                        .transition(.blur(intensity: 10).combined(with: .scale(scale: 0.8)).combined(with: .opacity))
+                        .matchedGeometryEffect(
+                            id: "info_icon",
+                            in: dynamicNotch.internalDynamicNotch.namespace ?? namespace,
+                            isSource: dynamicNotch.internalDynamicNotch.state == .compact && dynamicNotch.shouldSkipHideWhenConverting
+                        )
+                }
+            }
         }
     }
 
     struct CompactTrailingView: View {
-        @ObservedObject var dynamicNotch: DynamicNotchInfo
+        @ObservedObject var state: ViewState
 
-        init(dynamicNotch: DynamicNotchInfo) {
-            self.dynamicNotch = dynamicNotch
+        init(state: ViewState) {
+            self.state = state
         }
 
         public var body: some View {
-            dynamicNotch.compactTrailing
-                .transition(.blur(intensity: 10).combined(with: .scale(scale: 0.8)).combined(with: .opacity))
+            Group {
+                if let dynamicNotch = state.owner {
+                    dynamicNotch.compactTrailing
+                        .transition(.blur(intensity: 10).combined(with: .scale(scale: 0.8)).combined(with: .opacity))
+                }
+            }
         }
     }
 
     struct InfoView: View {
         @Environment(\.notchStyle) private var notchStyle
-        @ObservedObject var dynamicNotch: DynamicNotchInfo
+        @ObservedObject var state: ViewState
         @Namespace private var namespace
 
-        init(dynamicNotch: DynamicNotchInfo) {
-            self.dynamicNotch = dynamicNotch
+        init(state: ViewState) {
+            self.state = state
         }
 
         public var body: some View {
-            HStack(spacing: 10) {
-                if let icon = dynamicNotch.icon {
-                    icon
-                        .matchedGeometryEffect(
-                            id: "info_icon",
-                            in: dynamicNotch.internalDynamicNotch.namespace ?? namespace,
-                            isSource: dynamicNotch.internalDynamicNotch.state == .expanded && dynamicNotch.shouldSkipHideWhenConverting
-                        )
+            Group {
+                if let dynamicNotch = state.owner {
+                    HStack(spacing: 10) {
+                        if let icon = dynamicNotch.icon {
+                            icon
+                                .matchedGeometryEffect(
+                                    id: "info_icon",
+                                    in: dynamicNotch.internalDynamicNotch.namespace ?? namespace,
+                                    isSource: dynamicNotch.internalDynamicNotch.state == .expanded && dynamicNotch.shouldSkipHideWhenConverting
+                                )
+                        }
+
+                        textView(dynamicNotch)
+
+                        Spacer(minLength: 0)
+                    }
+                    .frame(height: 40)
                 }
-
-                textView()
-
-                Spacer(minLength: 0)
             }
-            .frame(height: 40)
         }
 
         @ViewBuilder
-        func textView() -> some View {
+        func textView(_ dynamicNotch: DynamicNotchInfo) -> some View {
             VStack(alignment: .leading, spacing: dynamicNotch.description != nil ? nil : 0) {
                 Text(dynamicNotch.title)
                     .font(.headline)

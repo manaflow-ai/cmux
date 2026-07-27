@@ -8,6 +8,7 @@ private final class FakeNotificationPresentationContext: ControlCommandContext {
     let surfaceID = UUID()
     var capturedPresentation: ControlNotificationPresentation?
     var createCallCount = 0
+    var existingNotifications: [ControlNotificationSnapshot] = []
 
     func controlNotificationCreate(
         routing: ControlRoutingSelectors,
@@ -20,6 +21,10 @@ private final class FakeNotificationPresentationContext: ControlCommandContext {
         createCallCount += 1
         capturedPresentation = presentation
         return .delivered(workspaceID: workspaceID, surfaceID: surfaceID)
+    }
+
+    func controlNotificationList() -> [ControlNotificationSnapshot] {
+        existingNotifications
     }
 }
 
@@ -115,6 +120,37 @@ struct ControlCommandCoordinatorNotificationPresentationTests {
             return
         }
         #expect(payload["id"] == .string(presentation.notificationID.uuidString))
+    }
+
+    @Test func callerSuppliedActiveNotificationIDIsRejected() {
+        let context = FakeNotificationPresentationContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        let notificationID = UUID()
+        context.existingNotifications = [
+            ControlNotificationSnapshot(
+                id: notificationID,
+                workspaceID: UUID(),
+                surfaceID: nil,
+                title: "Existing",
+                subtitle: "",
+                body: "",
+                createdAtISO8601: "2026-01-01T00:00:00Z",
+                isRead: false,
+                tabTitle: nil
+            ),
+        ]
+
+        let result = coordinator.handle(request([
+            "notification_id": .string(notificationID.uuidString),
+            "title": .string("Duplicate"),
+        ]))
+
+        #expect(result == .err(
+            code: "invalid_params",
+            message: "invalid notification presentation",
+            data: nil
+        ))
+        #expect(context.createCallCount == 0)
     }
 
     @Test(arguments: [

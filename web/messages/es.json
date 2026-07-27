@@ -965,6 +965,7 @@
           "focusTextBoxOnNewTerminals": "Enfoca la entrada TextBox beta de forma predeterminada en espacios de trabajo, pestañas y divisiones de terminal recién creados. Enfocar también muestra TextBox."
         },
         "notifications": {
+          "delivery": "Muestra las notificaciones de escritorio mediante el Centro de notificaciones de macOS o un panel interactivo de Dynamic Notch. Los modos Concentración y No molestar no suprimen Dynamic Notch.",
           "suppressOnlyFocusedSurface": "Cuando está activado, un banner de notificación se retira automáticamente solo cuando su superficie es exactamente la superficie enfocada. Un banner entregado para una superficie no enfocada en el workspace actualmente visible permanece visible hasta que enfoques esa superficie (o hagas clic en él/lo descartes), en lugar de retirarse cuando el workspace se vuelve visible. Desactivado conserva el comportamiento heredado de retirada según la visibilidad del workspace."
         },
         "browser": {

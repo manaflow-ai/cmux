@@ -335,6 +335,36 @@ extension AgentNotificationRegressionTests {
     }
 
     @Test
+    func testCreateForCallerRejectsActiveNotificationIDReuse() throws {
+        let fixture = try makeLiveRetargetFixture()
+        defer { fixture.restore() }
+        let notificationID = UUID()
+        TerminalController.shared.deliverNotificationSynchronously(
+            notificationID: notificationID,
+            tabId: fixture.owningWorkspace.id,
+            surfaceId: fixture.panelId,
+            title: "Existing",
+            subtitle: "",
+            body: ""
+        )
+
+        let result = TerminalController.shared.v2NotificationCreateForCaller(params: [
+            "notification_id": notificationID.uuidString,
+            "preferred_workspace_id": fixture.owningWorkspace.id.uuidString,
+            "preferred_surface_id": fixture.panelId.uuidString,
+            "title": "Duplicate",
+        ])
+
+        guard case .err(let code, _, _) = result else {
+            Issue.record("Expected duplicate id rejection, got \(result)")
+            return
+        }
+        #expect(code == "invalid_params")
+        #expect(fixture.store.notifications.filter { $0.id == notificationID }.count == 1)
+        #expect(fixture.store.notifications.contains { $0.title == "Duplicate" } == false)
+    }
+
+    @Test
     func testCreateForTargetRejectsSurfaceOutsideClaimedWorkspace() throws {
         let fixture = try makeLiveRetargetFixture()
         defer { fixture.restore() }

@@ -965,6 +965,7 @@
           "focusTextBoxOnNewTerminals": "Fokuserer beta-TextBox-input som standard for nyoprettede arbejdsområder, terminalfaner og terminalsplits. Fokus viser også TextBox."
         },
         "notifications": {
+          "delivery": "Vis skrivebordsnotifikationer via macOS Notifikationscenter eller et interaktivt Dynamic Notch-panel. Dynamic Notch undertrykkes ikke af Fokus eller Forstyr ikke.",
           "suppressOnlyFocusedSurface": "Når dette er slået til, trækkes et notifikationsbanner kun automatisk tilbage, når dets surface er præcis den fokuserede surface. Et banner leveret til en ikke-fokuseret surface i det aktuelt synlige workspace bliver vist, indtil du fokuserer på den surface (eller klikker/afviser det), i stedet for at blive trukket tilbage, når workspacet bliver synligt. Fra bevarer den ældre tilbagetrækning baseret på workspace-synlighed."
         },
         "browser": {

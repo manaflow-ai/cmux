@@ -1,3 +1,4 @@
+import CmuxControlSocket
 import Foundation
 
 @MainActor
@@ -91,6 +92,20 @@ extension TerminalController {
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to notify", data: nil)
         runOnMain {
+            if params["notification_id"] != nil,
+               TerminalNotificationStore.shared.notifications.contains(where: {
+                   $0.id == notificationPresentation.notificationID
+               }) {
+                result = .err(
+                    code: "invalid_params",
+                    message: String(
+                        localized: "socket.notification.invalidPresentation",
+                        defaultValue: "Invalid notification presentation"
+                    ),
+                    data: nil
+                )
+                return
+            }
             let target = Self.callerNotificationTarget(
                 fallback: fallbackTabManager,
                 preferredWorkspaceId: preferredWorkspaceId,
@@ -124,156 +139,16 @@ extension TerminalController {
     private static func callerNotificationPresentation(
         _ params: [String: Any]
     ) -> (notificationID: UUID, presentation: TerminalNotificationPresentation)? {
-        let notificationID: UUID
-        if let notificationIDValue = params["notification_id"] {
-            guard !(notificationIDValue is NSNull),
-                  let rawID = notificationIDValue as? String,
-                  let parsed = UUID(uuidString: rawID) else { return nil }
-            notificationID = parsed
-        } else {
-            notificationID = UUID()
-        }
-
-        let rawDelivery: String
-        if let deliveryValue = params["delivery"] {
-            guard !(deliveryValue is NSNull),
-                  let value = deliveryValue as? String else { return nil }
-            rawDelivery = value
-        } else {
-            rawDelivery = "settings"
-        }
-        let delivery: TerminalNotificationPresentation.Delivery
-        switch rawDelivery {
-        case "settings", "default":
-            delivery = .settings
-        case "system":
-            delivery = .system
-        case "dynamicNotch", "notch":
-            delivery = .dynamicNotch
-        default:
+        guard case .object(let parameters)? = JSONValue(foundationObject: params),
+              let controlPresentation = ControlNotificationPresentation(
+                  parameters: parameters
+              ) else {
             return nil
         }
-
-        if let iconValue = params["icon"] {
-            guard iconValue is String else { return nil }
-        }
-        let icon = (params["icon"] as? String)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        if let icon, icon.count > 128 { return nil }
-
-        var actions: [TerminalNotificationPresentation.Action] = []
-        if let rawActions = params["actions"] {
-            guard let rawActions = rawActions as? [[String: Any]], rawActions.count <= 4 else { return nil }
-            var actionIDs: Set<String> = []
-            let reservedIDs: Set<String> = ["open", "dismiss", "timeout", "replaced", "dismissed"]
-            for rawAction in rawActions {
-                guard Set(rawAction.keys).isSubset(of: ["id", "title"]),
-                      let rawID = rawAction["id"] as? String,
-                      let rawTitle = rawAction["title"] as? String else { return nil }
-                let id = rawID.trimmingCharacters(in: .whitespacesAndNewlines)
-                let title = rawTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !id.isEmpty,
-                      id.count <= 64,
-                      !title.isEmpty,
-                      title.count <= 80,
-                      !reservedIDs.contains(id),
-                      notificationControlIdentifierIsValid(id),
-                      actionIDs.insert(id).inserted else { return nil }
-                actions.append(.init(id: id, title: title))
-            }
-        }
-
-        var inputs: [TerminalNotificationPresentation.Input] = []
-        if let rawInputs = params["inputs"] {
-            guard let rawInputs = rawInputs as? [[String: Any]], rawInputs.count <= 4 else { return nil }
-            var inputIDs: Set<String> = []
-            for rawInput in rawInputs {
-                guard Set(rawInput.keys).isSubset(of: [
-                    "id", "label", "placeholder", "initial_value", "secure",
-                ]),
-                      let rawID = rawInput["id"] as? String,
-                      let rawLabel = rawInput["label"] as? String else { return nil }
-                let id = rawID.trimmingCharacters(in: .whitespacesAndNewlines)
-                let label = rawLabel.trimmingCharacters(in: .whitespacesAndNewlines)
-                let placeholder: String
-                if let placeholderValue = rawInput["placeholder"] {
-                    guard let value = placeholderValue as? String else { return nil }
-                    placeholder = value
-                } else {
-                    placeholder = ""
-                }
-                let initialValue: String
-                if let initialValueValue = rawInput["initial_value"] {
-                    guard let value = initialValueValue as? String else { return nil }
-                    initialValue = value
-                } else {
-                    initialValue = ""
-                }
-                let secure: Bool
-                if let secureValue = rawInput["secure"] {
-                    guard let number = secureValue as? NSNumber,
-                          CFGetTypeID(number) == CFBooleanGetTypeID() else { return nil }
-                    secure = number.boolValue
-                } else {
-                    secure = false
-                }
-                guard !id.isEmpty,
-                      id.count <= 64,
-                      notificationControlIdentifierIsValid(id),
-                      inputIDs.insert(id).inserted,
-                      !label.isEmpty,
-                      label.count <= 80,
-                      placeholder.count <= 160,
-                      initialValue.count <= 4_096 else { return nil }
-                inputs.append(.init(
-                    id: id,
-                    label: label,
-                    placeholder: placeholder,
-                    initialValue: initialValue,
-                    kind: secure ? .secure : .text
-                ))
-            }
-        }
-
-        let responseToken: UUID?
-        if let responseTokenValue = params["response_token"] {
-            guard !(responseTokenValue is NSNull),
-                  let rawToken = responseTokenValue as? String,
-                  let parsed = UUID(uuidString: rawToken) else { return nil }
-            responseToken = parsed
-        } else {
-            responseToken = nil
-        }
-
-        let timeout: Double
-        if let timeoutValue = params["timeout"] {
-            guard let number = timeoutValue as? NSNumber,
-                  CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
-            timeout = number.doubleValue
-        } else {
-            timeout = 8
-        }
-        guard timeout.isFinite, (0...86_400).contains(timeout) else { return nil }
-        guard (actions.isEmpty && inputs.isEmpty && responseToken == nil) || delivery == .dynamicNotch else { return nil }
-
         return (
-            notificationID,
-            TerminalNotificationPresentation(
-                delivery: delivery,
-                iconSymbolName: icon?.isEmpty == false ? icon : nil,
-                actions: actions,
-                inputs: inputs,
-                responseToken: responseToken,
-                timeout: timeout
-            )
+            controlPresentation.notificationID,
+            terminalPresentation(controlPresentation)
         )
-    }
-
-    private static func notificationControlIdentifierIsValid(_ identifier: String) -> Bool {
-        let allowed = CharacterSet(
-            charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-"
-        )
-        return identifier.unicodeScalars.allSatisfy(allowed.contains)
     }
 
     private static func callerNotificationTarget(

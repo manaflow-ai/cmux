@@ -160,162 +160,16 @@ extension ControlCommandCoordinator {
     private func notificationPresentation(
         _ params: [String: JSONValue]
     ) -> ControlNotificationPresentation? {
-        let notificationID: UUID
-        if let notificationIDValue = params["notification_id"] {
-            guard case .string(let rawNotificationID) = notificationIDValue,
-                  let parsed = UUID(uuidString: rawNotificationID) else { return nil }
-            notificationID = parsed
-        } else {
-            notificationID = UUID()
-        }
-
-        let rawDelivery: String
-        if let deliveryValue = params["delivery"] {
-            guard case .string(let value) = deliveryValue else { return nil }
-            rawDelivery = value
-        } else {
-            rawDelivery = "settings"
-        }
-        let delivery: ControlNotificationPresentation.Delivery
-        switch rawDelivery {
-        case "settings", "default":
-            delivery = .settings
-        case "system":
-            delivery = .system
-        case "dynamicNotch", "notch":
-            delivery = .dynamicNotch
-        default:
+        guard let presentation = ControlNotificationPresentation(parameters: params) else {
             return nil
         }
-
-        if let iconValue = params["icon"], case .string = iconValue {
-            // Parsed below.
-        } else if params["icon"] != nil {
+        if params["notification_id"] != nil,
+           context?.controlNotificationList().contains(where: {
+               $0.id == presentation.notificationID
+           }) == true {
             return nil
         }
-        let icon = optionalTrimmedRawString(params, "icon")
-        if let icon, icon.count > 128 { return nil }
-
-        var actions: [ControlNotificationPresentation.Action] = []
-        if let actionValue = params["actions"] {
-            guard case .array(let rawActions) = actionValue, rawActions.count <= 4 else { return nil }
-            var actionIDs: Set<String> = []
-            let reservedIDs: Set<String> = ["open", "dismiss", "timeout", "replaced", "dismissed"]
-            for rawAction in rawActions {
-                guard case .object(let object) = rawAction,
-                      Set(object.keys).isSubset(of: ["id", "title"]),
-                      case .string(let rawID)? = object["id"],
-                      case .string(let rawTitle)? = object["title"] else { return nil }
-                let id = rawID.trimmingCharacters(in: .whitespacesAndNewlines)
-                let title = rawTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !id.isEmpty,
-                      id.count <= 64,
-                      !title.isEmpty,
-                      title.count <= 80,
-                      !reservedIDs.contains(id),
-                      notificationControlIdentifierIsValid(id),
-                      actionIDs.insert(id).inserted else { return nil }
-                actions.append(.init(id: id, title: title))
-            }
-        }
-
-        var inputs: [ControlNotificationPresentation.Input] = []
-        if let inputValue = params["inputs"] {
-            guard case .array(let rawInputs) = inputValue, rawInputs.count <= 4 else { return nil }
-            var inputIDs: Set<String> = []
-            for rawInput in rawInputs {
-                guard case .object(let object) = rawInput,
-                      Set(object.keys).isSubset(of: [
-                          "id", "label", "placeholder", "initial_value", "secure",
-                      ]),
-                      case .string(let rawID)? = object["id"],
-                      case .string(let rawLabel)? = object["label"] else { return nil }
-                let id = rawID.trimmingCharacters(in: .whitespacesAndNewlines)
-                let label = rawLabel.trimmingCharacters(in: .whitespacesAndNewlines)
-                let placeholder: String
-                switch object["placeholder"] {
-                case .string(let value)?:
-                    placeholder = value
-                case nil:
-                    placeholder = ""
-                default:
-                    return nil
-                }
-                let initialValue: String
-                switch object["initial_value"] {
-                case .string(let value)?:
-                    initialValue = value
-                case nil:
-                    initialValue = ""
-                default:
-                    return nil
-                }
-                let kind: ControlNotificationPresentation.Input.Kind
-                switch object["secure"] {
-                case .bool(true)?:
-                    kind = .secure
-                case .bool(false)?, nil:
-                    kind = .text
-                default:
-                    return nil
-                }
-                guard !id.isEmpty,
-                      id.count <= 64,
-                      notificationControlIdentifierIsValid(id),
-                      inputIDs.insert(id).inserted,
-                      !label.isEmpty,
-                      label.count <= 80,
-                      placeholder.count <= 160,
-                      initialValue.count <= 4_096 else { return nil }
-                inputs.append(.init(
-                    id: id,
-                    label: label,
-                    placeholder: placeholder,
-                    initialValue: initialValue,
-                    kind: kind
-                ))
-            }
-        }
-
-        let responseToken: UUID?
-        if let responseTokenValue = params["response_token"] {
-            guard case .string(let rawResponseToken) = responseTokenValue,
-                  let parsed = UUID(uuidString: rawResponseToken) else { return nil }
-            responseToken = parsed
-        } else {
-            responseToken = nil
-        }
-
-        let timeout: Double
-        switch params["timeout"] {
-        case .double(let value)?:
-            timeout = value
-        case .int(let value)?:
-            timeout = Double(value)
-        case nil:
-            timeout = 8
-        default:
-            return nil
-        }
-        guard timeout.isFinite, (0...86_400).contains(timeout) else { return nil }
-        guard (actions.isEmpty && inputs.isEmpty && responseToken == nil) || delivery == .dynamicNotch else { return nil }
-
-        return ControlNotificationPresentation(
-            notificationID: notificationID,
-            delivery: delivery,
-            iconSymbolName: icon,
-            actions: actions,
-            inputs: inputs,
-            responseToken: responseToken,
-            timeout: timeout
-        )
-    }
-
-    private func notificationControlIdentifierIsValid(_ identifier: String) -> Bool {
-        let allowed = CharacterSet(
-            charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-"
-        )
-        return identifier.unicodeScalars.allSatisfy(allowed.contains)
+        return presentation
     }
 
     // MARK: - List / clear

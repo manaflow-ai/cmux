@@ -965,6 +965,7 @@
           "focusTextBoxOnNewTerminals": "새로 생성된 작업공간, 터미널 탭, 터미널 분할에서 베타 TextBox 입력에 기본으로 포커스합니다. 포커스하면 TextBox도 표시됩니다."
         },
         "notifications": {
+          "delivery": "macOS 알림 센터 또는 대화형 Dynamic Notch 패널로 데스크톱 알림을 표시합니다. Dynamic Notch는 집중 모드나 방해 금지 모드에 의해 억제되지 않습니다.",
           "suppressOnlyFocusedSurface": "활성화하면 알림 배너는 해당 서피스가 정확히 포커스된 서피스일 때만 자동으로 철회됩니다. 현재 표시 중인 workspace에서 포커스되지 않은 서피스로 전달된 배너는 workspace가 표시될 때 철회되지 않고, 해당 서피스에 포커스할 때까지(또는 클릭/해제할 때까지) 계속 표시됩니다. 끄면 기존의 workspace 표시 여부 기반 철회 동작이 유지됩니다."
         },
         "browser": {

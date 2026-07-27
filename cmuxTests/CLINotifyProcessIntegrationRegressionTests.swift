@@ -176,6 +176,66 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testNotifyMalformedActionResponseIsNotReportedAsTimeout() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("notify-response")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let requestID = payload["id"] as? String,
+                  let params = payload["params"] as? [String: Any],
+                  let responseToken = params["response_token"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            let responseURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent(
+                    "cmux-notification-action-\(responseToken.lowercased()).json"
+                )
+            try? Data("{".utf8).write(to: responseURL, options: .atomic)
+            return self.v2Response(
+                id: requestID,
+                ok: true,
+                result: [
+                    "id": params["notification_id"] as? String ?? "",
+                    "workspace_id": UUID().uuidString,
+                    "surface_id": UUID().uuidString,
+                ]
+            )
+        }
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "notify", "--delivery", "notch", "--action", "approve=Approve",
+                "--wait", "--timeout", "5",
+            ],
+            environment: [
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertNotEqual(result.status, 0)
+        XCTAssertTrue(
+            result.stderr.contains("Notification returned an invalid action response"),
+            result.stderr
+        )
+        XCTAssertFalse(
+            result.stderr.contains("Timed out waiting for a notification action"),
+            result.stderr
+        )
+    }
+
     func testClaudeClearSessionStartMarksWorkspaceRunning() throws {
         let context = try makeClaudeHookContext(name: "claude-clear-running")
         defer { context.cleanup() }
