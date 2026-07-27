@@ -242,18 +242,7 @@ impl ServerProbe {
                 // A server may close immediately after its complete identity
                 // response. macOS then rejects timeout socket options with
                 // EINVAL even though the response remains authoritative.
-                Err(error)
-                    if error.raw_os_error() == Some(libc::EINVAL)
-                        || matches!(
-                            error.kind(),
-                            std::io::ErrorKind::InvalidInput
-                                | std::io::ErrorKind::NotConnected
-                                | std::io::ErrorKind::BrokenPipe
-                                | std::io::ErrorKind::ConnectionReset
-                        ) =>
-                {
-                    Ok(probe)
-                }
+                Err(error) if closed_peer_timeout_error(&error) => Ok(probe),
                 Err(_) => {
                     Err(anyhow::anyhow!(crate::localization::catalog().server.transport_failed))
                 }
@@ -463,31 +452,28 @@ impl ServerLifecycle {
             if surface.kind != "pty" {
                 anyhow::bail!(crate::localization::catalog().server.legacy_cleanup_failed);
             }
-            if !surface.dead {
-                let process_request_id = take_legacy_request_id(next_request_id)?;
-                set_transport_deadline(self.reader.get_mut().as_ref(), deadline)
-                    .map_err(|_| LegacyConnectionInterrupted)?;
-                write_json_line(
-                    self.reader.get_mut(),
-                    &json!({
-                        "id": process_request_id,
-                        "cmd": "process-info",
-                        "surface": surface.id,
-                    }),
-                )
+            let process_request_id = take_legacy_request_id(next_request_id)?;
+            set_transport_deadline(self.reader.get_mut().as_ref(), deadline)
                 .map_err(|_| LegacyConnectionInterrupted)?;
-                let process_response =
-                    read_response_until(&mut self.reader, process_request_id, deadline)
-                        .map_err(|_| LegacyConnectionInterrupted)?;
-                let process_data = response_data(&process_response)?;
-                let pid = process_data
-                    .get("pid")
-                    .and_then(Value::as_u64)
-                    .and_then(|pid| libc::pid_t::try_from(pid).ok())
-                    .filter(|pid| *pid > 1)
-                    .ok_or_else(|| {
-                        anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
-                    })?;
+            write_json_line(
+                self.reader.get_mut(),
+                &json!({
+                    "id": process_request_id,
+                    "cmd": "process-info",
+                    "surface": surface.id,
+                }),
+            )
+            .map_err(|_| LegacyConnectionInterrupted)?;
+            let process_response =
+                read_response_until(&mut self.reader, process_request_id, deadline)
+                    .map_err(|_| LegacyConnectionInterrupted)?;
+            let process_data = response_data(&process_response)?;
+            let pid = process_data
+                .get("pid")
+                .and_then(Value::as_u64)
+                .and_then(|pid| libc::pid_t::try_from(pid).ok())
+                .filter(|pid| *pid > 1);
+            if let Some(pid) = pid {
                 let owner = capture_process_session(pid, expected, captured, deadline)
                     .map_err(|_| {
                         anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
@@ -498,6 +484,8 @@ impl ServerLifecycle {
                 if owner_ids.insert(owner.id()) {
                     owners.push(owner);
                 }
+            } else if !surface.dead {
+                anyhow::bail!(crate::localization::catalog().server.legacy_cleanup_failed);
             }
 
             let request_id = take_legacy_request_id(next_request_id)?;
@@ -801,14 +789,34 @@ pub(crate) fn write_json_line(writer: &mut dyn Write, value: &Value) -> std::io:
 }
 
 fn set_transport_deadline(stream: &dyn transport::Stream, deadline: Instant) -> anyhow::Result<()> {
+    set_transport_deadline_raw(stream, deadline)
+        .map_err(|_| anyhow::anyhow!(crate::localization::catalog().server.transport_failed))
+}
+
+fn set_transport_deadline_raw(
+    stream: &dyn transport::Stream,
+    deadline: Instant,
+) -> std::io::Result<()> {
     let remaining = deadline
         .checked_duration_since(Instant::now())
         .filter(|remaining| !remaining.is_zero())
-        .ok_or_else(|| anyhow::anyhow!(crate::localization::catalog().server.transport_failed))?;
+        .ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::TimedOut, "server lifecycle deadline expired")
+        })?;
     stream
         .set_read_timeout(Some(remaining))
         .and_then(|()| stream.set_write_timeout(Some(remaining)))
-        .map_err(|_| anyhow::anyhow!(crate::localization::catalog().server.transport_failed))
+}
+
+fn closed_peer_timeout_error(error: &std::io::Error) -> bool {
+    error.raw_os_error() == Some(libc::EINVAL)
+        || matches!(
+            error.kind(),
+            std::io::ErrorKind::InvalidInput
+                | std::io::ErrorKind::NotConnected
+                | std::io::ErrorKind::BrokenPipe
+                | std::io::ErrorKind::ConnectionReset
+        )
 }
 
 fn read_response_until(
@@ -888,13 +896,17 @@ fn read_bounded_lifecycle_line_until(
         if Instant::now() >= deadline {
             return Err(LifecycleLineError::Deadline);
         }
-        set_transport_deadline(reader.get_mut().as_ref(), deadline).map_err(|_| {
-            if Instant::now() >= deadline {
-                LifecycleLineError::Deadline
-            } else {
-                LifecycleLineError::Transport
-            }
-        })?;
+        if let Err(error) = set_transport_deadline_raw(reader.get_mut().as_ref(), deadline)
+            && !closed_peer_timeout_error(&error)
+        {
+            return Err(
+                if Instant::now() >= deadline || error.kind() == std::io::ErrorKind::TimedOut {
+                    LifecycleLineError::Deadline
+                } else {
+                    LifecycleLineError::Transport
+                },
+            );
+        }
         let available = match reader.fill_buf() {
             Ok(available) => available,
             Err(error)

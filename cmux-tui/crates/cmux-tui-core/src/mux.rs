@@ -6389,8 +6389,8 @@ impl Mux {
                     let Some(workspace_index) =
                         state.workspaces.iter().position(|workspace| workspace.id == workspace_id)
                     else {
-                        state.surfaces.remove(&surface.id);
-                        surface.kill();
+                        drop(state);
+                        self.discard_spawned(vec![surface]);
                         anyhow::bail!("workspace disappeared while creating browser tab");
                     };
                     state.insert_pane(pane);
@@ -6516,7 +6516,7 @@ impl Mux {
         }
         let active_at = self.next_active_at();
         let notifications = self.surface_notifications();
-        let attached = {
+        let (attached, retired) = {
             let mut state = self.state.lock().unwrap();
             match state.panes.get_mut(&target) {
                 Some(pane) => {
@@ -6534,25 +6534,27 @@ impl Mux {
                         surface.id,
                     )
                     .expect("new browser tab is present in tree snapshot");
-                    Some(TreeDelta {
-                        kind: TreeDeltaKind::TabAdded,
-                        workspace,
-                        screen: Some(screen),
-                        pane: Some(target),
-                        surface: Some(surface.id),
-                        index: Some(index),
-                        entity,
-                        workspace_revision: None,
-                    })
+                    (
+                        Some(TreeDelta {
+                            kind: TreeDeltaKind::TabAdded,
+                            workspace,
+                            screen: Some(screen),
+                            pane: Some(target),
+                            surface: Some(surface.id),
+                            index: Some(index),
+                            entity,
+                            workspace_revision: None,
+                        }),
+                        None,
+                    )
                 }
-                None => {
-                    state.surfaces.remove(&surface.id);
-                    None
-                }
+                None => (None, take_surface_for_retirement(self, &mut state, surface.id)),
             }
         };
         let Some(delta) = attached else {
-            surface.kill();
+            if let Some(retired) = retired {
+                self.retire_surface_runtime(retired);
+            }
             anyhow::bail!("pane disappeared while creating browser tab");
         };
         self.emit_tree_delta(delta, true);
@@ -6576,86 +6578,96 @@ impl Mux {
         let pending_surface = self.pending_workspace_surface(surface.id);
         let notifications = self.surface_notifications();
         let active_at = self.next_active_at();
-        let (delta, selection_resync) = {
+        let (attachment, retired) = {
             let mut state = self.state.lock().unwrap();
-            let Some(wi) = state.workspace_index(workspace) else {
-                state.surfaces.remove(&surface.id);
-                surface.kill();
-                anyhow::bail!("workspace disappeared while creating browser tab");
+            let attachment = 'attach: {
+                let Some(wi) = state.workspace_index(workspace) else {
+                    break 'attach Err("workspace disappeared while creating browser tab");
+                };
+                let target =
+                    state.workspaces[wi].active_screen_ref().map(|screen| screen.active_pane);
+                if let Some(target) = target {
+                    let Some((_, si)) = state.screen_of(target) else {
+                        break 'attach Err(
+                            "workspace active pane disappeared while creating browser tab",
+                        );
+                    };
+                    let Some(pane) = state.panes.get_mut(&target) else {
+                        break 'attach Err(
+                            "workspace active pane disappeared while creating browser tab",
+                        );
+                    };
+                    pane.tabs.push(surface.id);
+                    pane.active_tab = pane.tabs.len() - 1;
+                    pane.active_at = active_at;
+                    let index = pane.tabs.len() - 1;
+                    let screen = state.workspaces[wi].screens[si].id;
+                    let entity = crate::server::tree_entity_json(
+                        &state,
+                        &notifications,
+                        TreeDeltaKind::TabAdded,
+                        surface.id,
+                    )
+                    .expect("new browser tab is present in tree snapshot");
+                    Ok((
+                        TreeDelta {
+                            kind: TreeDeltaKind::TabAdded,
+                            workspace,
+                            screen: Some(screen),
+                            pane: Some(target),
+                            surface: Some(surface.id),
+                            index: Some(index),
+                            entity,
+                            workspace_revision: None,
+                        },
+                        true,
+                    ))
+                } else {
+                    let (pane_id, pane) = self.make_pane(surface.id);
+                    let screen_id = self.next_id();
+                    state.insert_pane(pane);
+                    stamp_pane_focus(self, &mut state, pane_id);
+                    state.workspaces[wi].screens.push(Screen {
+                        id: screen_id,
+                        name: None,
+                        root: Node::Leaf(pane_id),
+                        active_pane: pane_id,
+                        zoomed_pane: None,
+                        zellij_auto_layout: Some(vec![pane_id]),
+                    });
+                    state.workspaces[wi].active_screen = 0;
+                    let entity = crate::server::tree_entity_json(
+                        &state,
+                        &notifications,
+                        TreeDeltaKind::ScreenAdded,
+                        screen_id,
+                    )
+                    .expect("first browser screen is present in tree snapshot");
+                    Ok((
+                        TreeDelta {
+                            kind: TreeDeltaKind::ScreenAdded,
+                            workspace,
+                            screen: Some(screen_id),
+                            pane: None,
+                            surface: None,
+                            index: Some(0),
+                            entity,
+                            workspace_revision: None,
+                        },
+                        false,
+                    ))
+                }
             };
-            let target = state.workspaces[wi].active_screen_ref().map(|screen| screen.active_pane);
-            if let Some(target) = target {
-                let Some((_, si)) = state.screen_of(target) else {
-                    state.surfaces.remove(&surface.id);
-                    surface.kill();
-                    anyhow::bail!("workspace active pane disappeared while creating browser tab");
-                };
-                let Some(pane) = state.panes.get_mut(&target) else {
-                    state.surfaces.remove(&surface.id);
-                    surface.kill();
-                    anyhow::bail!("workspace active pane disappeared while creating browser tab");
-                };
-                pane.tabs.push(surface.id);
-                pane.active_tab = pane.tabs.len() - 1;
-                pane.active_at = active_at;
-                let index = pane.tabs.len() - 1;
-                let screen = state.workspaces[wi].screens[si].id;
-                let entity = crate::server::tree_entity_json(
-                    &state,
-                    &notifications,
-                    TreeDeltaKind::TabAdded,
-                    surface.id,
-                )
-                .expect("new browser tab is present in tree snapshot");
-                (
-                    TreeDelta {
-                        kind: TreeDeltaKind::TabAdded,
-                        workspace,
-                        screen: Some(screen),
-                        pane: Some(target),
-                        surface: Some(surface.id),
-                        index: Some(index),
-                        entity,
-                        workspace_revision: None,
-                    },
-                    true,
-                )
-            } else {
-                let (pane_id, pane) = self.make_pane(surface.id);
-                let screen_id = self.next_id();
-                state.insert_pane(pane);
-                stamp_pane_focus(self, &mut state, pane_id);
-                state.workspaces[wi].screens.push(Screen {
-                    id: screen_id,
-                    name: None,
-                    root: Node::Leaf(pane_id),
-                    active_pane: pane_id,
-                    zoomed_pane: None,
-                    zellij_auto_layout: Some(vec![pane_id]),
-                });
-                state.workspaces[wi].active_screen = 0;
-                let entity = crate::server::tree_entity_json(
-                    &state,
-                    &notifications,
-                    TreeDeltaKind::ScreenAdded,
-                    screen_id,
-                )
-                .expect("first browser screen is present in tree snapshot");
-                (
-                    TreeDelta {
-                        kind: TreeDeltaKind::ScreenAdded,
-                        workspace,
-                        screen: Some(screen_id),
-                        pane: None,
-                        surface: None,
-                        index: Some(0),
-                        entity,
-                        workspace_revision: None,
-                    },
-                    false,
-                )
-            }
+            let retired = attachment
+                .is_err()
+                .then(|| take_surface_for_retirement(self, &mut state, surface.id))
+                .flatten();
+            (attachment, retired)
         };
+        if let Some(retired) = retired {
+            self.retire_surface_runtime(retired);
+        }
+        let (delta, selection_resync) = attachment.map_err(anyhow::Error::msg)?;
         drop(pending_surface);
         self.emit_tree_delta(delta, selection_resync);
         drop(workspace_lifecycle);
@@ -8266,16 +8278,14 @@ impl Mux {
         {
             let mut state = self.state.lock().unwrap();
             for id in &ids {
-                state.surfaces.remove(id);
+                let _ = take_surface_for_retirement(self, &mut state, *id);
             }
         }
         if batch.closed != 0 {
             self.emit_terminal_registry_changed(&registry, batch.revision);
         }
         drop(registry);
-        for surface in spawned {
-            surface.kill();
-        }
+        self.retire_surface_runtimes(spawned);
     }
 
     #[allow(clippy::too_many_arguments)]

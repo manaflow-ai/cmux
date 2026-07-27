@@ -1,9 +1,11 @@
 use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
 use std::mem::size_of;
-use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
+use std::net::{IpAddr, SocketAddr, TcpStream, ToSocketAddrs};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{Receiver, Sender, SyncSender, TryRecvError, TrySendError, channel};
+use std::sync::mpsc::{
+    Receiver, Sender, SyncSender, TryRecvError, TrySendError, channel, sync_channel,
+};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
@@ -17,6 +19,8 @@ use tungstenite::{Error as WsError, Message, WebSocket, client};
 /// between CDP layers cannot expand the maximum pending event count.
 pub const CDP_EVENT_QUEUE_CAPACITY: usize = 64;
 const CDP_INGRESS_EVENT_CAPACITY: usize = 1024;
+const CDP_RESOLVER_QUEUE_CAPACITY: usize = 64;
+const CDP_DISCOVERY_TIMEOUT: Duration = Duration::from_secs(2);
 /// Maximum estimated retained bytes in each bounded CDP event queue.
 ///
 /// The estimate covers dynamically retained event payloads and uses saturating
@@ -28,6 +32,42 @@ pub const CDP_EVENT_QUEUE_MAX_BYTES: usize = 32 * 1024 * 1024;
 static RETAINED_SIZE_CALLS: AtomicU64 = AtomicU64::new(0);
 #[cfg(test)]
 static NEXT_RESOLVE_DELAY_MS: AtomicU64 = AtomicU64::new(0);
+
+static CDP_RESOLVER: std::sync::OnceLock<Mutex<Option<CdpResolver>>> = std::sync::OnceLock::new();
+
+struct CdpResolver {
+    requests: SyncSender<ResolveRequest>,
+    _worker: std::thread::JoinHandle<()>,
+}
+
+struct ResolveRequest {
+    host: String,
+    port: u16,
+    response: SyncSender<std::io::Result<Vec<SocketAddr>>>,
+}
+
+impl CdpResolver {
+    fn spawn() -> std::io::Result<Self> {
+        let (requests, receiver) = sync_channel::<ResolveRequest>(CDP_RESOLVER_QUEUE_CAPACITY);
+        let worker =
+            std::thread::Builder::new().name("cmux-tui-cdp-resolver".into()).spawn(move || {
+                while let Ok(request) = receiver.recv() {
+                    #[cfg(test)]
+                    {
+                        let delay_ms = NEXT_RESOLVE_DELAY_MS.swap(0, Ordering::AcqRel);
+                        if delay_ms != 0 {
+                            std::thread::sleep(Duration::from_millis(delay_ms));
+                        }
+                    }
+                    let result = (request.host.as_str(), request.port)
+                        .to_socket_addrs()
+                        .map(Iterator::collect);
+                    let _ = request.response.send(result);
+                }
+            })?;
+        Ok(Self { requests, _worker: worker })
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScreencastFrame {
@@ -342,6 +382,69 @@ impl Write for DeadlineTcpStream {
     }
 }
 
+fn deadline_after(timeout: Duration, expired: &str) -> anyhow::Result<Instant> {
+    if timeout.is_zero() {
+        anyhow::bail!("{expired}");
+    }
+    Instant::now().checked_add(timeout).ok_or_else(|| anyhow::anyhow!("CDP deadline overflow"))
+}
+
+fn remaining_until(deadline: Instant, expired: &str) -> anyhow::Result<Duration> {
+    deadline
+        .checked_duration_since(Instant::now())
+        .filter(|remaining| !remaining.is_zero())
+        .ok_or_else(|| anyhow::anyhow!("{expired}"))
+}
+
+fn submit_resolve_request(mut request: ResolveRequest) -> anyhow::Result<()> {
+    let resolver = CDP_RESOLVER.get_or_init(|| Mutex::new(None));
+    let mut resolver = resolver.lock().unwrap();
+    if resolver.is_none() {
+        *resolver = Some(CdpResolver::spawn()?);
+    }
+    match resolver.as_ref().unwrap().requests.try_send(request) {
+        Ok(()) => Ok(()),
+        Err(TrySendError::Full(_)) => anyhow::bail!("CDP resolver queue is full"),
+        Err(TrySendError::Disconnected(returned)) => {
+            request = returned;
+            *resolver = Some(CdpResolver::spawn()?);
+            resolver.as_ref().unwrap().requests.try_send(request).map_err(|error| match error {
+                TrySendError::Full(_) => anyhow::anyhow!("CDP resolver queue is full"),
+                TrySendError::Disconnected(_) => anyhow::anyhow!("CDP resolver worker stopped"),
+            })
+        }
+    }
+}
+
+fn resolve_socket_addr_until(
+    host: &str,
+    port: u16,
+    deadline: Instant,
+) -> anyhow::Result<SocketAddr> {
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        remaining_until(deadline, "CDP address resolution deadline expired")?;
+        return Ok(SocketAddr::new(ip, port));
+    }
+
+    let (response, receiver) = sync_channel(1);
+    submit_resolve_request(ResolveRequest { host: host.to_string(), port, response })?;
+    let remaining = remaining_until(deadline, "CDP address resolution deadline expired")?;
+    let addresses = match receiver.recv_timeout(remaining) {
+        Ok(result) => result?,
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+            anyhow::bail!("CDP address resolution deadline expired")
+        }
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+            anyhow::bail!("CDP resolver worker stopped")
+        }
+    };
+    remaining_until(deadline, "CDP address resolution deadline expired")?;
+    addresses
+        .into_iter()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("no socket address for {host}:{port}"))
+}
+
 impl CdpClient {
     pub fn connect(web_socket_url: &str, events: SyncSender<CdpEvent>) -> anyhow::Result<Self> {
         Self::connect_with_timeout(web_socket_url, events, Duration::from_secs(5))
@@ -352,22 +455,10 @@ impl CdpClient {
         events: SyncSender<CdpEvent>,
         timeout: Duration,
     ) -> anyhow::Result<Self> {
-        if timeout.is_zero() {
-            anyhow::bail!("CDP connection deadline expired");
-        }
+        let deadline = deadline_after(timeout, "CDP connection deadline expired")?;
         let endpoint = WsEndpoint::parse(web_socket_url)?;
-        #[cfg(test)]
-        {
-            let delay_ms = NEXT_RESOLVE_DELAY_MS.swap(0, Ordering::AcqRel);
-            if delay_ms != 0 {
-                std::thread::sleep(Duration::from_millis(delay_ms));
-            }
-        }
-        let mut addrs = (endpoint.host.as_str(), endpoint.port).to_socket_addrs()?;
-        let addr = addrs.next().ok_or_else(|| {
-            anyhow::anyhow!("no socket address for {}:{}", endpoint.host, endpoint.port)
-        })?;
-        Self::connect_to_addr_with_timeout(web_socket_url, addr, events, timeout)
+        let addr = resolve_socket_addr_until(&endpoint.host, endpoint.port, deadline)?;
+        Self::connect_to_addr_until(web_socket_url, addr, events, deadline, timeout)
     }
 
     pub fn reconnect_with_timeout(
@@ -389,15 +480,18 @@ impl CdpClient {
         events: SyncSender<CdpEvent>,
         timeout: Duration,
     ) -> anyhow::Result<Self> {
-        if timeout.is_zero() {
-            anyhow::bail!("CDP connection deadline expired");
-        }
-        let deadline = Instant::now()
-            .checked_add(timeout)
-            .ok_or_else(|| anyhow::anyhow!("CDP connection deadline overflow"))?;
-        let remaining = deadline
-            .checked_duration_since(Instant::now())
-            .ok_or_else(|| anyhow::anyhow!("CDP connection deadline expired"))?;
+        let deadline = deadline_after(timeout, "CDP connection deadline expired")?;
+        Self::connect_to_addr_until(web_socket_url, addr, events, deadline, timeout)
+    }
+
+    fn connect_to_addr_until(
+        web_socket_url: &str,
+        addr: SocketAddr,
+        events: SyncSender<CdpEvent>,
+        deadline: Instant,
+        timeout: Duration,
+    ) -> anyhow::Result<Self> {
+        let remaining = remaining_until(deadline, "CDP connection deadline expired")?;
         let stream = TcpStream::connect_timeout(&addr, remaining)?;
         let stream = DeadlineTcpStream::new(stream, deadline);
         stream.set_nodelay(true)?;
@@ -1071,19 +1165,20 @@ impl HttpEndpoint {
 }
 
 fn fetch_json_version(host: &str, port: u16) -> anyhow::Result<String> {
-    let mut addrs = (host, port).to_socket_addrs()?;
-    let addr =
-        addrs.next().ok_or_else(|| anyhow::anyhow!("no socket address for {host}:{port}"))?;
-    let mut stream = TcpStream::connect_timeout(&addr, Duration::from_millis(250))?;
+    let deadline = deadline_after(CDP_DISCOVERY_TIMEOUT, "CDP discovery deadline exceeded")?;
+    let addr = resolve_socket_addr_until(host, port, deadline)?;
+    let remaining = remaining_until(deadline, "CDP discovery deadline exceeded")?;
+    let mut stream = TcpStream::connect_timeout(&addr, remaining.min(Duration::from_millis(250)))?;
     stream.set_nodelay(true)?;
-    stream.set_read_timeout(Some(Duration::from_millis(500)))?;
-    stream.set_write_timeout(Some(Duration::from_millis(500)))?;
-    write!(
-        stream,
-        "GET /json/version HTTP/1.1\r\nHost: {host}:{port}\r\nConnection: close\r\n\r\n"
-    )?;
+    let request =
+        format!("GET /json/version HTTP/1.1\r\nHost: {host}:{port}\r\nConnection: close\r\n\r\n");
+    let remaining = remaining_until(deadline, "CDP discovery deadline exceeded")?;
+    stream.set_write_timeout(Some(remaining.min(Duration::from_millis(500))))?;
+    stream.write_all(request.as_bytes())?;
+    let remaining = remaining_until(deadline, "CDP discovery deadline exceeded")?;
+    stream.set_write_timeout(Some(remaining.min(Duration::from_millis(500))))?;
     stream.flush()?;
-    let response = read_http_response(&mut stream)?;
+    let response = read_http_response_until(&mut stream, 64 * 1024, deadline)?;
     let body = response
         .split_once("\r\n\r\n")
         .map(|(_, body)| body)
@@ -1096,22 +1191,30 @@ fn fetch_json_version(host: &str, port: u16) -> anyhow::Result<String> {
         .ok_or_else(|| anyhow::anyhow!("/json/version missing webSocketDebuggerUrl"))
 }
 
+#[cfg(test)]
 fn read_http_response(stream: &mut TcpStream) -> anyhow::Result<String> {
     read_http_response_with_limits(stream, 64 * 1024, Duration::from_secs(2))
 }
 
+#[cfg(test)]
 fn read_http_response_with_limits(
     stream: &mut TcpStream,
     max_bytes: usize,
     timeout: Duration,
 ) -> anyhow::Result<String> {
-    let deadline = Instant::now() + timeout;
+    let deadline = deadline_after(timeout, "CDP discovery deadline exceeded")?;
+    read_http_response_until(stream, max_bytes, deadline)
+}
+
+fn read_http_response_until(
+    stream: &mut TcpStream,
+    max_bytes: usize,
+    deadline: Instant,
+) -> anyhow::Result<String> {
     let mut bytes = Vec::new();
     let mut buf = [0u8; 1024];
     loop {
-        let remaining = deadline
-            .checked_duration_since(Instant::now())
-            .ok_or_else(|| anyhow::anyhow!("CDP discovery deadline exceeded"))?;
+        let remaining = remaining_until(deadline, "CDP discovery deadline exceeded")?;
         stream.set_read_timeout(Some(remaining.min(Duration::from_millis(500))))?;
         match stream.read(&mut buf) {
             Ok(0) => break,
