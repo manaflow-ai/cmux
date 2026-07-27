@@ -232,7 +232,6 @@ jobs:
     name: windows experimental (x86_64-gnu)
     runs-on: windows-latest
     timeout-minutes: 40
-    continue-on-error: true
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
