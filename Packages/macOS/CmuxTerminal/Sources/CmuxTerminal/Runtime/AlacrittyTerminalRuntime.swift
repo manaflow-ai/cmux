@@ -231,10 +231,12 @@ final class AlacrittyTerminalRuntime {
         return library.setFocus(handle, focused)
     }
 
-    func screenText() -> String? {
+    func screenText(includeScrollback: Bool = false) -> String? {
         guard let handle else { return nil }
         var length = 0
-        guard let pointer = library.screenText(handle, &length) else { return nil }
+        guard let pointer = library.screenText(handle, includeScrollback, &length) else {
+            return nil
+        }
         defer { library.freeString(pointer) }
         let bytes = UnsafeRawPointer(pointer).assumingMemoryBound(to: UInt8.self)
         return String(
@@ -382,6 +384,7 @@ private final class AlacrittyTerminalLibrary: @unchecked Sendable {
     ) -> Bool
     fileprivate typealias ScreenText = @convention(c) (
         UnsafeMutableRawPointer?,
+        Bool,
         UnsafeMutablePointer<Int>?
     ) -> UnsafeMutablePointer<CChar>?
     fileprivate typealias FreeString = @convention(c) (UnsafeMutablePointer<CChar>?) -> Void

@@ -296,7 +296,14 @@ extension TerminalSurface {
 
     @MainActor
     func visibleAlacrittyText() -> String? {
-        alacrittyRuntime?.screenText()
+        alacrittyRuntime?.screenText(includeScrollback: false)
+    }
+
+    /// Returns Alacritty-owned terminal text for control-socket snapshots.
+    @MainActor
+    public func alacrittyText(includeScrollback: Bool) -> String? {
+        guard isAlacrittyBacked else { return nil }
+        return alacrittyRuntime?.screenText(includeScrollback: includeScrollback)
     }
 
     @MainActor

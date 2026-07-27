@@ -324,6 +324,9 @@ impl DisplayState {
         self.make_current()?;
         self.renderer.clear(DEFAULT_BACKGROUND, 1.0);
 
+        // AppKit can reset the OpenGL viewport while moving or resizing a
+        // layer-backed NSView. Alacritty restores it before every macOS frame.
+        self.renderer.set_viewport(&self.size_info);
         let cells = renderable_cells(term);
         let mut lines = RenderLines::new();
         for cell in &cells {
@@ -614,6 +617,7 @@ pub unsafe extern "C" fn cmux_alacritty_surface_set_focus(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_alacritty_surface_screen_text(
     surface: *mut CmuxAlacrittySurface,
+    include_scrollback: bool,
     length: *mut usize,
 ) -> *mut c_char {
     let Some(surface) = (unsafe { surface.as_ref() }) else {
@@ -621,8 +625,16 @@ pub unsafe extern "C" fn cmux_alacritty_surface_screen_text(
     };
     let terminal = surface.terminal.lock();
     let display_offset = terminal.grid().display_offset();
-    let top = Line(-(display_offset as i32));
-    let bottom = top + terminal.screen_lines().saturating_sub(1);
+    let top = if include_scrollback {
+        terminal.topmost_line()
+    } else {
+        Line(-(display_offset as i32))
+    };
+    let bottom = if include_scrollback {
+        terminal.bottommost_line()
+    } else {
+        top + terminal.screen_lines().saturating_sub(1)
+    };
     let text = terminal.bounds_to_string(
         Point::new(top, Column(0)),
         Point::new(bottom, terminal.last_column()),
