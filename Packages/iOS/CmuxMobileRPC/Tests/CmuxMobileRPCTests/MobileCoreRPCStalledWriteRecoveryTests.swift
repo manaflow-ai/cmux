@@ -257,6 +257,7 @@ import Testing
         let elapsed = startedAt.duration(to: .now)
 
         #expect(elapsed < .milliseconds(200))
+        await stalled.waitUntilCloseStarted()
         #expect(await stalled.closed())
 
         await stalled.failStalledSend()
@@ -304,6 +305,7 @@ import Testing
             Issue.record("Expected requestTimedOut, got \(error)")
         }
 
+        await stalled.waitUntilCloseStarted()
         #expect(await stalled.closed())
 
         await stalled.failStalledSend()

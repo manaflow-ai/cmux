@@ -719,9 +719,17 @@ actor MobileCoreRPCSession {
         while let write = activeWrite,
               let resolutionTask = write.cancelledRequestResolutionTask {
             try Task.checkCancellation()
-            let remainingNanoseconds = try taskTimeout.remainingNanoseconds(
-                until: deadlineUptimeNanoseconds
-            )
+            let remainingNanoseconds: UInt64
+            do {
+                remainingNanoseconds = try taskTimeout.remainingNanoseconds(
+                    until: deadlineUptimeNanoseconds
+                )
+            } catch MobileShellConnectionError.requestTimedOut {
+                _ = await recycleTransportIfActiveWrite(
+                    requestID: write.requestID
+                )
+                throw MobileShellConnectionError.requestTimedOut
+            }
             let waitTask = Task<Void, any Error> {
                 await resolutionTask.value
             }
