@@ -4,7 +4,11 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
+use parking_lot::ReentrantMutex;
+
 use super::graphics::{GraphicPlacement, GraphicsState};
+
+pub type StdoutLock = ReentrantMutex<()>;
 
 pub struct GraphicsWriter {
     slot: Arc<Mutex<Option<Vec<GraphicPlacement>>>>,
@@ -14,7 +18,7 @@ pub struct GraphicsWriter {
 }
 
 impl GraphicsWriter {
-    pub fn spawn(stdout_lock: Arc<Mutex<()>>) -> std::io::Result<Self> {
+    pub fn spawn(stdout_lock: Arc<StdoutLock>) -> std::io::Result<Self> {
         let (tx, rx) = sync_channel(1);
         let (done_tx, done_rx) = sync_channel(1);
         let slot = Arc::new(Mutex::new(None));
@@ -70,7 +74,7 @@ fn submit_snapshot(
 fn writer_loop(
     slot: Arc<Mutex<Option<Vec<GraphicPlacement>>>>,
     rx: Receiver<()>,
-    stdout_lock: Arc<Mutex<()>>,
+    stdout_lock: Arc<StdoutLock>,
     done: SyncSender<()>,
 ) {
     let _done = DoneOnDrop(done);
@@ -80,7 +84,7 @@ fn writer_loop(
             let next = slot.lock().unwrap().take();
             let Some(placements) = next else { break };
             for batch in graphics.frame_batches(&placements) {
-                let _guard = stdout_lock.lock().unwrap();
+                let _guard = stdout_lock.lock();
                 let mut stdout = std::io::stdout();
                 if stdout.write_all(&batch).and_then(|_| stdout.flush()).is_err() {
                     return;
@@ -135,7 +139,7 @@ mod tests {
         rx.recv_timeout(Duration::from_secs(1)).unwrap();
         assert!(rx.try_recv().is_err());
 
-        let lock = Arc::new(Mutex::new(()));
+        let lock = Arc::new(StdoutLock::new(()));
         let mut writer = GraphicsWriter::spawn(lock).unwrap();
         writer.shutdown(Duration::from_secs(1));
         assert!(writer.handle.as_ref().is_none_or(|handle| handle.is_finished()));

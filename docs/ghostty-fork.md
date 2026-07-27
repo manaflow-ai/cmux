@@ -12,15 +12,35 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is
-`50ad1963d9c73ee957932ccb4d26bf6d15575ee7`, the current
-`manaflow-ai/ghostty` `main`. The complete renderer scheduling hardening landed
+The submodule pinned by this branch is `af4dfb43f`, the reviewed head of
+https://github.com/manaflow-ai/ghostty/pull/152. It adds teardown-safe action
+lease release on top of transactional menu-owned key binding consumption and
+modifier-independent paired-release tracking from
+https://github.com/manaflow-ai/ghostty/pull/151, based on the current
+`manaflow-ai/ghostty` `main`, including the synchronous embedder teardown from
+https://github.com/manaflow-ai/ghostty/pull/146 and the render-grid work from
+https://github.com/manaflow-ai/ghostty/pull/147.
+
+`4cc0933cf` adds the screen-anchored render-grid export for the iOS
+local-scrollback scroll work: `buildRenderGridJson` gains an active-area
+anchor mode, every export carries `history_rows` + `row_space_revision`
+(scrollbar semantics; revision bumps on trim/eviction/reflow/erase), and the
+new C export `ghostty_surface_render_grid_json_v2` takes the anchor flag.
+Existing exports keep viewport anchoring byte-for-byte unchanged. Files:
+`src/apprt/embedded.zig`, `include/ghostty.h`. The line's earlier swap-chain
+rotation commit (`d2fc392de`, the iOS frozen-presents root-cause fix) was
+independently landed on `main` as the byte-identical serial frame-lease
+rotation (https://github.com/manaflow-ai/ghostty/pull/145); the merge keeps
+`main`'s version.
+
+On the `main` side: the complete renderer scheduling hardening landed
 through https://github.com/manaflow-ai/ghostty/pull/136 after the initial
 bounded-turn fix in https://github.com/manaflow-ai/ghostty/pull/135. Reliable
 external redraw delivery and surface lifetime retention landed through
-https://github.com/manaflow-ai/ghostty/pull/139. Embedder userdata ownership
-and callback lifetime hardening landed through
-https://github.com/manaflow-ai/ghostty/pull/140. Serial frame-lease rotation
+https://github.com/manaflow-ai/ghostty/pull/139. The owned-userdata experiment
+from https://github.com/manaflow-ai/ghostty/pull/140 was superseded by the
+synchronous teardown contract in
+https://github.com/manaflow-ai/ghostty/pull/146. Serial frame-lease rotation
 landed through https://github.com/manaflow-ai/ghostty/pull/145. Dead PTY reader
 and child cleanup landed through
 https://github.com/manaflow-ai/ghostty/pull/143. The cumulative external
@@ -38,8 +58,8 @@ and the product-main renderer/link fixes described below. It also bounds each
 renderer mailbox drain turn so continuous producers cannot starve lifecycle
 processing or rendering.
 
-Its universal ReleaseFast GhosttyKit archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-50ad1963d9c73ee957932ccb4d26bf6d15575ee7-crashsubdir-cmux-crash-v1
+The pinned `af4dfb43f` universal ReleaseFast GhosttyKit archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-af4dfb43ff9d1dffe8c1b49b5c1e1ce31d05e9ce-crashsubdir-cmux-crash-v1
 and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### Bounded renderer mailbox turns and continuation recovery
@@ -99,34 +119,75 @@ and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
     action lifetime lease. A raw surface pointer is not a sufficient delivery
     identity across asynchronous dispatch.
 
-### Embedder userdata ownership and callback lifetime
+### Synchronous embedder teardown and host-owned userdata
 
+- Pull request:
+  - https://github.com/manaflow-ai/ghostty/pull/152
 - Commits:
-  - `289097387` (fix: bind embedder userdata to surface lifetime)
-  - `76c8b03d8` (fix: retain userdata across every host callback)
-  - `365fe1d2c` (fix: lease setter-installed PTY tee callbacks)
-  - `98288feb2` (merge the owned-userdata lifetime fix)
+  - `7541eb3db` (revert the owned-userdata lease layer)
+  - `b47e5cac2` (fix: complete surface teardown before free returns)
+  - `ff36ae8ac` (fix: serialize teardown with cross-thread actions)
+  - `28c0f9bf5` (test: order cross-thread teardown assertions)
+  - `518ac28d5` (merge the synchronous teardown fix)
+  - `b8efe0f45` (test: cover action release teardown ordering)
+  - `af4dfb43f` (fix: release action lease before teardown wake)
 - Files:
   - `include/ghostty.h`
+  - `src/App.zig`
   - `src/apprt/embedded.zig`
 - Summary:
-  - Adds `ghostty_surface_new_with_owned_userdata` without changing
-    `ghostty_surface_config_s`, preserving the existing C ABI for borrowed
-    callers.
-  - Tracks embedder userdata through explicit borrowed, owned, and released
-    states. A successful owned construction transfers the host reference to
-    Ghostty; failed construction leaves ownership with the caller.
-  - Leases owned userdata across surface-targeted app actions and every host
-    callback, including PTY tee callbacks installed both during and after
-    construction.
-  - Defers the exactly-once final release until surface teardown and all
-    in-flight callbacks have quiesced, preventing host bridge destruction while
-    Ghostty can still call through its userdata.
-  - Conflict note: future embedder callback or teardown changes must acquire a
-    userdata lease before leaving Ghostty-owned synchronization, and must retain
-    the failed-creation ownership contract. Do not restore split host/Ghostty
-    release ownership or release the owned userdata directly from surface-free
-    call sites.
+  - Removes `ghostty_surface_new_with_owned_userdata`; embedded surfaces again
+    borrow callback userdata supplied through `ghostty_surface_config_s`.
+  - Makes `ghostty_surface_free` synchronously stop renderer and IO callbacks
+    before returning, including serialization with cross-thread app actions.
+  - Retains only the outer surface allocation when teardown is reentrant from
+    an app action. The live core is still destroyed synchronously.
+  - Requires the embedder to retain callback userdata until
+    `ghostty_surface_free` returns, then release it exactly once.
+  - Drops the action's allocation reference before publishing a drained action
+    count and waking teardown, so the embedder cannot free the app while the
+    action still needs its allocator.
+  - Conflict note: future teardown changes must preserve synchronous callback
+    quiescence and release action references before advertising that the final
+    action has drained. Embedders may not release borrowed userdata before
+    `ghostty_surface_free` returns.
+
+### Transactional menu-owned key bindings and paired releases
+
+- Pull requests:
+  - https://github.com/manaflow-ai/ghostty/pull/150
+  - https://github.com/manaflow-ai/ghostty/pull/151
+- Commits:
+  - `1509cc596` (test: cover menu-owned binding eligibility)
+  - `22d6c589f` (fix: preserve menu binding key lifecycle)
+  - `985dd1e96` (test: cover modifier-first binding release)
+  - `d9311bb99` (fix: pair binding release without modifiers)
+- Files:
+  - `include/ghostty.h`
+  - `src/Surface.zig`
+  - `src/apprt/embedded.zig`
+  - `src/input/Binding.zig`
+  - `src/input/key.zig`
+- Summary:
+  - Adds `ghostty_surface_key_consume_if_menu_action` for a native menu miss to
+    atomically resolve and consume only the requested focused-surface action.
+  - Accepts only an exact root, single-action, consumed, performable binding
+    while no key sequence or key table is active.
+  - Records the trigger in Ghostty so a reported paired key release is consumed
+    without encoding terminal input.
+  - Pairs the release by physical key and unshifted codepoint instead of live
+    modifiers, so releasing Command before C does not leak C's key-up event.
+  - Clears prior release ownership when a later press or repeat starts a new
+    same-key transaction, then records it again only if Ghostty consumes that
+    event. Duplicate releases remain consumed without swallowing a later
+    forwarded key lifecycle.
+  - Leaves unconsumed, app-wide, all-surface, chained, sequence, key-table, and
+    custom action bindings to normal Ghostty key processing.
+  - Conflict note: menu routing must use this transaction instead of querying
+    binding identity in one call and submitting the key in another. The
+    eligibility decision and paired release state must remain atomic. Release
+    ownership must stay modifier-independent and expire before a new same-key
+    press or repeat is resolved.
 
 ### Nonblocking renderer lifecycle state
 
