@@ -191,6 +191,62 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
         XCTAssertEqual(capturedComposingStates, [true, false])
     }
 
+    func testCommittedPreeditTextDoesNotInventPhysicalKey() throws {
+        let terminal = try makeHostedTerminal()
+        let previousInterpretHook = cjkIMEInterpretKeyEventsHook
+        defer {
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
+            cjkIMEInterpretKeyEventsHook = previousInterpretHook
+            terminal.window.orderOut(nil)
+        }
+
+        installCJKIMEInterpretKeyEventsSwizzle()
+        cjkIMEInterpretKeyEventsHook = { candidateView, _ in
+            guard candidateView === terminal.surfaceView else { return false }
+            candidateView.insertText(
+                "日本",
+                replacementRange: NSRange(location: NSNotFound, length: 0)
+            )
+            return true
+        }
+        terminal.surfaceView.setMarkedText(
+            "にほん",
+            selectedRange: NSRange(location: 3, length: 0),
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        )
+
+        var committedTextKeycodes: [UInt32] = []
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            guard keyEvent.text.map({ String(cString: $0) }) == "日本" else {
+                return
+            }
+            committedTextKeycodes.append(keyEvent.keycode)
+        }
+
+        let event = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: terminal.window.windowNumber,
+            context: nil,
+            characters: " ",
+            charactersIgnoringModifiers: " ",
+            isARepeat: false,
+            keyCode: 49
+        ))
+
+        terminal.window.makeFirstResponder(terminal.surfaceView)
+        withExtendedLifetime(terminal.surface) {
+            terminal.surfaceView.keyDown(with: event)
+        }
+
+        XCTAssertTrue(
+            committedTextKeycodes.isEmpty,
+            "Text committed from preedit must use Ghostty's nonphysical text-input API, not a synthetic native keycode"
+        )
+    }
+
     private func makeHostedTerminal() throws -> HostedTerminal {
         _ = NSApplication.shared
 

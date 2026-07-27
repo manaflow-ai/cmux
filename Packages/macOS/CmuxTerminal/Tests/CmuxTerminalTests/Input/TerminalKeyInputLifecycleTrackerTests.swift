@@ -185,7 +185,7 @@ import Testing
         #expect(release.forwardsPhysicalKey)
     }
 
-    @Test func repeatUsesCurrentIdentityWhileReleaseKeepsInitialIdentity() {
+    @Test func repeatKeepsStableBindingIdentityAcrossLayoutChanges() {
         var tracker = TerminalKeyInputLifecycleTracker()
         let initialIdentity = TerminalKeyInputPhysicalIdentity(
             unshiftedCodepoint: 0x63,
@@ -214,7 +214,10 @@ import Testing
         let release = tracker.release(forKeyUp: 8)
 
         #expect(pressIdentity == initialIdentity)
-        #expect(resolvedRepeatIdentity == repeatIdentity)
+        #expect(
+            resolvedRepeatIdentity == initialIdentity,
+            "Text and consumed modifiers may change on repeat, but Ghostty's binding identity must stay paired with key-up"
+        )
         #expect(release == TerminalKeyInputRelease(
             forwardsPhysicalKey: true,
             physicalIdentity: initialIdentity
