@@ -106,6 +106,98 @@ struct SimulatorHIDFailureContainmentTests {
         #expect(sleeper.durations == [.milliseconds(50)])
     }
 
+    @Test("Timed gestures distribute the requested duration across every sample")
+    @MainActor
+    func timedGesturePacing() async {
+        let sleeper = RecordingHIDSleeper()
+        var delivered: [SimulatorPointerEvent] = []
+        let transport = SimulatorHIDTransport(
+            frameworkLoader: SimulatorFrameworkLoader(environment: ["DEVELOPER_DIR": "/tmp"]),
+            sleeper: sleeper,
+            pointerSenderOverride: {
+                delivered.append($0)
+                return true
+            }
+        )
+        let events = [
+            SimulatorPointerEvent(
+                phase: .began,
+                primary: SimulatorPoint(x: 0.5, y: 0.8)
+            ),
+            SimulatorPointerEvent(
+                phase: .moved,
+                primary: SimulatorPoint(x: 0.5, y: 0.5)
+            ),
+            SimulatorPointerEvent(
+                phase: .ended,
+                primary: SimulatorPoint(x: 0.5, y: 0.2)
+            ),
+        ]
+
+        #expect(await transport.sendGestureSequence(
+            events,
+            totalDurationMilliseconds: 301
+        ))
+        #expect(delivered == events)
+        #expect(sleeper.durations == [
+            .nanoseconds(150_500_000),
+            .nanoseconds(150_500_000),
+        ])
+    }
+
+    @Test("Semantic touch pairs preserve the requested hold")
+    @MainActor
+    func touchHoldPacing() async {
+        let sleeper = RecordingHIDSleeper()
+        var delivered: [SimulatorPointerEvent] = []
+        let transport = SimulatorHIDTransport(
+            frameworkLoader: SimulatorFrameworkLoader(environment: ["DEVELOPER_DIR": "/tmp"]),
+            sleeper: sleeper,
+            pointerSenderOverride: {
+                delivered.append($0)
+                return true
+            }
+        )
+        let point = SimulatorPoint(x: 0.25, y: 0.75)
+        let events = [
+            SimulatorPointerEvent(phase: .began, primary: point),
+            SimulatorPointerEvent(phase: .ended, primary: point),
+        ]
+
+        #expect(await transport.sendTouchSequence(events, holdMilliseconds: 250))
+        #expect(delivered == events)
+        #expect(sleeper.durations == [.milliseconds(250)])
+    }
+
+    @Test("Raw key sequences preserve press and inter-key delays")
+    @MainActor
+    func rawKeySequencePacing() async {
+        let script = HIDSendScript(outcomes: [true, true, true, true])
+        let sleeper = RecordingHIDSleeper()
+        let transport = SimulatorHIDTransport(
+            frameworkLoader: SimulatorFrameworkLoader(environment: ["DEVELOPER_DIR": "/tmp"]),
+            sleeper: sleeper,
+            keySenderOverride: { script.send(key: $0) }
+        )
+
+        #expect(await transport.sendKeyPresses(
+            usages: [40, 42],
+            pressDurationMilliseconds: 50,
+            interKeyDelayMilliseconds: 20
+        ))
+        #expect(script.keyEvents == [
+            SimulatorKeyEvent(usage: 40, phase: .down),
+            SimulatorKeyEvent(usage: 40, phase: .up),
+            SimulatorKeyEvent(usage: 42, phase: .down),
+            SimulatorKeyEvent(usage: 42, phase: .up),
+        ])
+        #expect(sleeper.durations == [
+            .milliseconds(50),
+            .milliseconds(20),
+            .milliseconds(50),
+        ])
+    }
+
     @Test("App switcher sends one paced double-Home sequence")
     @MainActor
     func appSwitcherUsesDoubleHome() async {
@@ -120,6 +212,29 @@ struct SimulatorHIDFailureContainmentTests {
         )
 
         #expect(await transport.press(.appSwitcher))
+        #expect(script.buttonDirections == [true, false, true, false])
+        #expect(sleeper.durations == [
+            .milliseconds(50),
+            .milliseconds(50),
+            .milliseconds(50),
+        ])
+        #expect(transport.heldConvenienceButtons.isEmpty)
+    }
+
+    @Test("Apple Pay sends one paced double side-button sequence")
+    @MainActor
+    func applePayUsesDoubleSideButton() async {
+        let script = HIDSendScript(outcomes: [true, true, true, true])
+        let sleeper = RecordingHIDSleeper()
+        let transport = SimulatorHIDTransport(
+            frameworkLoader: SimulatorFrameworkLoader(environment: ["DEVELOPER_DIR": "/tmp"]),
+            sleeper: sleeper,
+            convenienceSenderOverride: { button, down in
+                script.send(button: button, down: down)
+            }
+        )
+
+        #expect(await transport.press(.applePay))
         #expect(script.buttonDirections == [true, false, true, false])
         #expect(sleeper.durations == [
             .milliseconds(50),

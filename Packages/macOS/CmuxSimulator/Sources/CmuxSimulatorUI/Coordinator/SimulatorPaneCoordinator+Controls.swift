@@ -76,6 +76,8 @@ extension SimulatorPaneCoordinator {
         try Task.checkCancellation()
         guard !closed else { throw CancellationError() }
         let generation = selectionGeneration
+        let cursorPlan = simulatorAgentCursorPlan(for: action, display: display)
+        let cursorToken = cursorPlan.map(beginAgentCursorPresentation)
         activeControlActions += 1
         isPerformingControlAction = true
         defer {
@@ -83,7 +85,14 @@ extension SimulatorPaneCoordinator {
             isPerformingControlAction = activeControlActions > 0
         }
         do {
+            if action.invalidatesUIAutomationSnapshot {
+                clearUIAutomationSnapshot()
+            }
             let result = try await client.perform(action)
+            if generation == selectionGeneration, !closed,
+               let cursorPlan, let cursorToken {
+                completeAgentCursorPresentation(cursorPlan, token: cursorToken)
+            }
             // A returned result is the external commit boundary. Cancellation
             // after it suppresses stale presentation work, not the success.
             guard !Task.isCancelled else { return result }
@@ -93,6 +102,10 @@ extension SimulatorPaneCoordinator {
             appendCoordinatorAction(for: action, succeeded: true)
             return result
         } catch {
+            if generation == selectionGeneration, !closed,
+               let cursorPlan, let cursorToken {
+                cancelAgentCursorPresentation(cursorPlan, token: cursorToken)
+            }
             guard generation == selectionGeneration, !closed else { throw error }
             let failure = simulatorPaneFailure(from: error, code: "control_action_failed")
             controlFailure = failure
@@ -440,6 +453,31 @@ extension SimulatorPaneCoordinator {
         }
     }
 
+}
+
+private extension SimulatorControlAction {
+    var invalidatesUIAutomationSnapshot: Bool {
+        switch self {
+        case .listApplications, .readClipboard, .readPrivacy,
+             .readInterfaceStatus, .screenshot, .prepareVideoRecording,
+             .recentLogs, .prepareLogStream, .readCameraStatus,
+             .readAccessibility, .readForegroundApplication,
+             .setAccessibilityHighlight, .refreshWebInspectorTargets,
+             .attachWebInspector, .releaseWebInspector,
+             .setWebInspectorHighlight:
+            false
+        case .interactive, .installApplication, .launchApplication,
+             .terminateApplication, .cleanupCameraApplication, .openURL,
+             .addMedia, .writeClipboard, .syncClipboardFromHost,
+             .setLocation, .clearLocation, .startLocationRoute,
+             .pushNotification, .setPrivacy, .overrideStatusBar,
+             .clearStatusBar, .setInterface, .configureCamera,
+             .switchCameraSource, .setCameraMirror, .reloadReactNative,
+             .pauseLocationRoute, .resumeLocationRoute, .stopLocationRoute,
+             .sendWebInspectorMessage:
+            true
+        }
+    }
 }
 
 private func simulatorCoordinatorActionName(_ action: SimulatorControlAction) -> String? {

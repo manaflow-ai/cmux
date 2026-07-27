@@ -34,6 +34,41 @@ cmux simulator type 'Hello from cmux' --surface surface:1
 
 Accessibility taps match one visible, enabled element by exact label or identifier, then tap its center. Add `--identifier` or `--role` when a label matches multiple elements.
 
+`cmux ios` accepts every Simulator command. For stateful automation, capture a compact accessibility snapshot and use its `eN` refs:
+
+```sh
+cmux ios snapshot --surface surface:1 --json
+cmux ios tap --ref e12 --surface surface:1 --json
+cmux ios wait exists --label About --role cell --surface surface:1
+cmux ios swipe --ref e20 up --duration 0.4 --surface surface:1
+cmux ios drag --ref e8 right --surface surface:1
+cmux ios long-press --ref e8 750 --surface surface:1
+cmux ios type --ref e4 'Search text' --replace-existing --surface surface:1
+cmux ios key 40 --surface surface:1
+cmux ios keys 40,42 --delay 0.05 --surface surface:1
+cmux ios gesture-preset swipe-from-left-edge --surface surface:1
+cmux ios button apple-pay --surface surface:1
+```
+
+Snapshots include normalized roles, visible state, supported actions, a sequence number, and a screen hash. Pass `--since-screen-hash` to avoid retransmitting an unchanged tree. Refs expire after 60 seconds and are invalidated by input or other UI mutations. Each ref action verifies that the screen hash still matches before sending coordinate input, so app-driven changes fail with `UI_STATE_CHANGED` instead of tapping stale geometry. Successful JSON action results include the resolved action, a refreshed settled snapshot, and whether the screen hash changed.
+
+Wait predicates are `exists`, `gone`, `enabled`, `focused`, `text-contains`, and `settled`. Select by ref or exact `--identifier`, `--label`, `--role`, and `--value` fields. A ref-based wait converts the ref to stable semantic fields before polling.
+
+JSON failures include a machine-readable `ui_error` with an uppercase code, a recovery hint, and relevant refs, candidates, snapshot age, or timeout. Candidate lists are capped at 64 elements. Partial-text waits fail as ambiguous when matching elements contain different visible strings.
+
+Batch taps resolve every ref against one snapshot before sending input:
+
+```sh
+cmux ios batch '[
+  {"action":"tap","elementRef":"e3"},
+  {"action":"tap","elementRef":"e7","postDelay":0.2}
+]' --surface surface:1 --json
+```
+
+Use `touch --ref eN --down` and `touch --ref eN --up` for explicit touch phases. `--delay` is accepted only with both `--down` and `--up`. Named gestures support screen scrolling and swipes from each edge.
+
+Programmatic touch actions render a short-lived Sky-kite cursor inside the targeted Simulator surface. The cursor marks held touches, follows timed gestures, and pulses when a touch is released. Its state belongs to the pane coordinator, so an action in one workspace cannot draw over another workspace or the desktop.
+
 Run `cmux simulator` for gesture JSON, two-finger input, camera, permission, accessibility, Core Animation, and Web Inspector command syntax.
 
 ## Tools

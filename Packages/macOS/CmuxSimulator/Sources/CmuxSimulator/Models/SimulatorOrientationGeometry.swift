@@ -89,6 +89,24 @@ public struct SimulatorOrientationGeometry: Equatable, Sendable {
         }
     }
 
+    /// Maps a raw IOSurface/HID point into the displayed normalized space.
+    ///
+    /// This is the inverse of ``rawPoint(for:)`` and lets host-rendered
+    /// affordances track worker input without duplicating orientation logic.
+    public func displayPoint(for point: SimulatorPoint) -> SimulatorPoint {
+        guard needsRawTransform else { return point }
+        return switch requestedOrientation {
+        case .portrait:
+            point
+        case .portraitUpsideDown:
+            SimulatorPoint(x: 1 - point.x, y: 1 - point.y)
+        case .landscapeLeft:
+            SimulatorPoint(x: 1 - point.y, y: point.x)
+        case .landscapeRight:
+            SimulatorPoint(x: point.y, y: 1 - point.x)
+        }
+    }
+
     /// Maps a displayed movement vector into raw IOSurface/HID space.
     public func rawDelta(for delta: SimulatorInputDelta) -> SimulatorInputDelta {
         guard needsRawTransform else { return delta }

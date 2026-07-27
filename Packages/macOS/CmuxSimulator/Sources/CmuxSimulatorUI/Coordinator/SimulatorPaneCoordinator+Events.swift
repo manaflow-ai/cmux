@@ -30,6 +30,9 @@ extension SimulatorPaneCoordinator {
 
     @discardableResult
     func enqueue(_ message: SimulatorWorkerInbound) -> Bool {
+        if message.invalidatesUIAutomationSnapshot {
+            clearUIAutomationSnapshot()
+        }
         switch outgoingContinuation.yield(message) {
         case .enqueued:
             return true
@@ -244,5 +247,27 @@ extension SimulatorPaneCoordinator {
         if case .detached = status { webInspectorIsHighlighted = false }
         webInspectorResponseBuffer.reset()
         webInspectorResponses = []
+    }
+}
+
+private extension SimulatorWorkerInbound {
+    var invalidatesUIAutomationSnapshot: Bool {
+        switch self {
+        case .pointer, .key, .keySequence, .scrollWheel, .typeText,
+             .interactiveAction, .button, .hidButton, .rotate, .digitalCrown,
+             .toggleSoftwareKeyboard, .memoryWarning, .setPrivateInterface,
+             .setPrivatePrivacy, .reloadReactNative:
+            true
+        case .ping, .attach, .resize, .setFramebufferPublishing,
+             .acknowledgeFrameTransport, .setHIDCapture, .coreAnimationDiagnostic,
+             .configureCamera, .acknowledgeCameraTarget, .switchCameraSource,
+             .setCameraMirror, .requestCameraStatus, .prepareApplicationMutation,
+             .requestPrivateInterfaceStatus, .requestPrivacy,
+             .setAccessibilityHighlight, .requestAccessibility,
+             .requestForegroundApplication, .requestWebInspectorTargets,
+             .attachWebInspector, .releaseWebInspector, .setWebInspectorHighlight,
+             .sendWebInspectorMessage, .releaseInputs, .terminateRenderer, .shutdown:
+            false
+        }
     }
 }

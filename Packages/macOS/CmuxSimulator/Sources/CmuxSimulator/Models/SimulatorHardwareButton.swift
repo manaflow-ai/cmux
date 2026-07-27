@@ -1,5 +1,7 @@
 /// A hardware or system button exposed by Apple Simulator devices.
 public enum SimulatorHardwareButton: String, Codable, CaseIterable, Sendable {
+    /// A double side-button press that opens Apple Pay.
+    case applePay
     /// The classic Home button.
     case home
     /// The home-indicator swipe gesture.

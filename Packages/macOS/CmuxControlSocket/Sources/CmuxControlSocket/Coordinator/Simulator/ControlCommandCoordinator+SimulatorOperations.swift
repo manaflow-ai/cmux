@@ -18,6 +18,27 @@ extension ControlCommandCoordinator {
             operation = .selectDevice(deviceID)
         case "simulator.recover":
             operation = .recover
+        case "simulator.snapshot_ui":
+            let screenHash = string(request.params, "since_screen_hash")
+            guard request.params["since_screen_hash"] == nil
+                    || (screenHash?.isEmpty == false && (screenHash?.utf8.count ?? 0) <= 128) else {
+                return invalidSimulatorOperation("since_screen_hash is invalid")
+            }
+            operation = .uiSnapshot(sinceScreenHash: screenHash)
+        case "simulator.wait_for_ui":
+            guard let wait = simulatorUIWait(request.params) else {
+                return invalidSimulatorOperation("wait_for_ui parameters are invalid")
+            }
+            operation = .uiWait(wait)
+        case "simulator.touch", "simulator.drag", "simulator.long_press",
+             "simulator.type_text", "simulator.key_press", "simulator.key_sequence",
+             "simulator.gesture_preset", "simulator.batch":
+            guard let action = simulatorUIAction(
+                method: request.method, params: request.params
+            ) else {
+                return invalidSimulatorOperation("semantic UI action parameters are invalid")
+            }
+            operation = .uiAction(action)
         case "simulator.gesture", "simulator.multi_touch":
             guard case let .array(rawEvents)? = request.params["events"],
                   !rawEvents.isEmpty, rawEvents.count <= 256,
@@ -28,6 +49,15 @@ extension ControlCommandCoordinator {
             }
             operation = .gesture(events)
         case "simulator.tap":
+            if request.params["element_ref"] != nil {
+                guard let action = simulatorUIAction(
+                    method: request.method, params: request.params
+                ) else {
+                    return invalidSimulatorOperation("semantic tap parameters are invalid")
+                }
+                operation = .uiAction(action)
+                break
+            }
             let hasCoordinates = request.params["x"] != nil || request.params["y"] != nil
                 || request.params["x2"] != nil || request.params["y2"] != nil
             let hasSelector = request.params["label"] != nil
@@ -65,6 +95,15 @@ extension ControlCommandCoordinator {
                 ])
             }
         case "simulator.swipe":
+            if request.params["within_element_ref"] != nil {
+                guard let action = simulatorUIAction(
+                    method: request.method, params: request.params
+                ) else {
+                    return invalidSimulatorOperation("semantic swipe parameters are invalid")
+                }
+                operation = .uiAction(action)
+                break
+            }
             guard let events = simulatorSwipe(request.params) else {
                 return invalidSimulatorOperation(
                     "swipe requires normalized from_x, from_y, to_x, and to_y coordinates"
@@ -72,10 +111,12 @@ extension ControlCommandCoordinator {
             }
             operation = .gesture(events)
         case "simulator.button":
-            guard let button = string(request.params, "button") else {
-                return invalidSimulatorOperation("button is required")
+            guard let action = simulatorUIAction(
+                method: request.method, params: request.params
+            ) else {
+                return invalidSimulatorOperation("button parameters are invalid")
             }
-            operation = .hardwareButton(simulatorButtonName(button))
+            operation = .uiAction(action)
         case "simulator.rotate":
             guard let orientation = actionKey(request.params, "orientation") else {
                 return invalidSimulatorOperation("orientation is required")
@@ -218,8 +259,19 @@ extension ControlCommandCoordinator {
                     "surface_id": .string(surfaceID.uuidString),
                     "surface_ref": outcome.surfaceRef ?? .null,
                 ], uniquingKeysWith: { current, _ in current })))
-            case let .failed(code, message):
-                return simulatorSafeFailure(code: code, diagnostic: message)
+            case let .failed(code, message, failureData):
+                var details: [String: JSONValue] = [
+                    "surface_id": .string(surfaceID.uuidString),
+                    "surface_ref": outcome.surfaceRef ?? .null,
+                ]
+                if case let .object(values)? = failureData {
+                    details.merge(values, uniquingKeysWith: { current, _ in current })
+                }
+                return simulatorSafeFailure(
+                    code: code,
+                    diagnostic: message,
+                    data: details
+                )
             }
         case let .failed(failure):
             return simulatorTargetFailure(failure)

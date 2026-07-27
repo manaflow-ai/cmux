@@ -83,6 +83,8 @@ public final class SimulatorPaneCoordinator {
     public internal(set) var focusRequestGeneration: UInt64 = 0
     /// Input currently captured by SimulatorKit inside the worker.
     public internal(set) var hidCaptureMode: SimulatorHIDCaptureMode = .none
+    /// Cursor rendered only inside this panel's owning workspace surface.
+    var agentCursorPresentation: SimulatorAgentCursorPresentation?
 
     /// The selected device snapshot used by panel persistence.
     public var selectedDevice: SimulatorDevice? {
@@ -130,6 +132,8 @@ public final class SimulatorPaneCoordinator {
     @ObservationIgnored var retiredWebInspectorRequestIDs: Set<SimulatorWebInspectorJSONRequestID> = []
     @ObservationIgnored var accessibilityRefreshTask: Task<Void, Never>?
     @ObservationIgnored var accessibilityRefreshGeneration: UInt64 = 0
+    @ObservationIgnored let uiAutomationSession = SimulatorUIAutomationSession()
+    @ObservationIgnored var agentCursorGeneration: UInt64 = 0
     @ObservationIgnored var accessibilityOverlayIsVisible = false
     @ObservationIgnored var liveStatusTask: Task<Void, Never>?
     @ObservationIgnored var liveStatusGeneration: UInt64 = 0

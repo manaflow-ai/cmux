@@ -48295,6 +48295,312 @@
         }
       }
     },
+    "cli.simulator.error.uiDirectionInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Simulator UI direction is invalid"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator UIの方向が無効です"
+          }
+        }
+      }
+    },
+    "cli.simulator.error.uiElementRefInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Simulator UI element reference is invalid"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator UI要素参照が無効です"
+          }
+        }
+      }
+    },
+    "cli.simulator.error.uiElementRefNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Element ref '%@' is not in the current Simulator UI snapshot"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のSimulator UIスナップショットに要素参照「%@」がありません"
+          }
+        }
+      }
+    },
+    "cli.simulator.error.uiFocusUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The matched Simulator element does not expose focus state"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一致したSimulator要素はフォーカス状態を公開していません"
+          }
+        }
+      }
+    },
+    "cli.simulator.error.uiGesturePresetInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Simulator gesture preset is invalid"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulatorジェスチャープリセットが無効です"
+          }
+        }
+      }
+    },
+    "cli.simulator.error.uiOperationInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Simulator UI automation operation is invalid"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator UI自動操作が無効です"
+          }
+        }
+      }
+    },
+    "cli.simulator.error.uiRoleInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Simulator UI role is invalid"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator UIロールが無効です"
+          }
+        }
+      }
+    },
+    "cli.simulator.error.uiSnapshotDidNotSettle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The refreshed Simulator UI snapshot did not settle"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新したSimulator UIスナップショットが安定しませんでした"
+          }
+        }
+      }
+    },
+    "cli.simulator.error.uiSnapshotExpired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Simulator UI snapshot expired after %lld ms; capture it again"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator UIスナップショットは%lldミリ秒後に期限切れになりました。もう一度取得してください"
+          }
+        }
+      }
+    },
+    "cli.simulator.error.uiSnapshotMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run 'cmux ios snapshot' before using an element ref"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要素参照を使う前に「cmux ios snapshot」を実行してください"
+          }
+        }
+      }
+    },
+    "cli.simulator.error.uiSnapshotViewportMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Simulator UI snapshot has no usable foreground viewport"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator UIスナップショットに使用可能なフォアグラウンドビューポートがありません"
+          }
+        }
+      }
+    },
+    "cli.simulator.error.uiStableSelectorUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Element ref '%@' has no stable fields for a UI wait"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要素参照「%@」にはUI待機に使える安定したフィールドがありません"
+          }
+        }
+      }
+    },
+    "cli.simulator.error.uiStateChanged": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Simulator UI changed after the element ref was captured"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要素参照の取得後にSimulator UIが変更されました"
+          }
+        }
+      }
+    },
+    "cli.simulator.error.uiTargetNotActionable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Element ref '%@' does not support the requested action"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要素参照「%@」は要求された操作をサポートしていません"
+          }
+        }
+      }
+    },
+    "cli.simulator.error.uiTextUnsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The text cannot be encoded by Simulator's US keyboard input"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テキストをSimulatorの米国キーボード入力でエンコードできません"
+          }
+        }
+      }
+    },
+    "cli.simulator.error.uiWaitPredicateInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Simulator UI wait predicate is invalid"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator UI待機条件が無効です"
+          }
+        }
+      }
+    },
+    "cli.simulator.error.uiWaitTargetAmbiguous": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Simulator UI wait selector matched multiple elements"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator UI待機セレクタが複数の要素に一致しました"
+          }
+        }
+      }
+    },
+    "cli.simulator.error.uiWaitTimeout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Timed out after %lld ms waiting for '%@' (%lld candidate(s))"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lldミリ秒後に「%@」の待機がタイムアウトしました（候補%lld件）"
+          }
+        }
+      }
+    },
     "cli.simulator.error.unexpectedArgument": {
       "extractionState": "manual",
       "localizations": {
@@ -48839,6 +49145,57 @@
         }
       }
     },
+    "cli.simulator.output.uiSnapshotTruncated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Simulator UI snapshot reached its element limit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator UIスナップショットが要素数の上限に達しました"
+          }
+        }
+      }
+    },
+    "cli.simulator.output.uiSnapshotUnchanged": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unchanged %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変更なし %@"
+          }
+        }
+      }
+    },
+    "cli.simulator.output.uiWaitMatched": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Matched %@ with %lld element(s)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@に%lld個の要素が一致しました"
+          }
+        }
+      }
+    },
     "cli.simulator.permissions.usage": {
       "extractionState": "manual",
       "localizations": {
@@ -48852,6 +49209,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "使用方法:\n  cmux simulator permissions list [bundle-id] [--surface <id|ref|index>]\n  cmux simulator permissions grant <permission> <bundle-id> [--value <value>] [--surface <id|ref|index>]\n  cmux simulator permissions revoke <permission> <bundle-id> [--surface <id|ref|index>]\n  cmux simulator permissions reset <permission|all> <bundle-id> [--surface <id|ref|index>]\n\n値: photos は limited、notifications は critical、location は always、inuse、never。"
+          }
+        }
+      }
+    },
+    "cli.simulator.recovery.captureSnapshot": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Capture a fresh Simulator UI snapshot and retry"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいSimulator UIスナップショットを取得して再試行してください"
+          }
+        }
+      }
+    },
+    "cli.simulator.recovery.chooseAdvertisedAction": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Capture a fresh snapshot and choose an advertised action"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいスナップショットを取得し、表示された操作を選んでください"
+          }
+        }
+      }
+    },
+    "cli.simulator.recovery.refineWait": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inspect a fresh snapshot, refine the wait target, and retry"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいスナップショットを確認し、待機対象を絞り込んで再試行してください"
           }
         }
       }
@@ -48879,13 +49287,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux simulator <subcommand> [args] [--surface <id|ref|index>]\n\nSubcommands:\n  type [text] [--stdin|--file <path>]  Type text and wait for transmission completion\n  tap <x> <y> [x2 y2]                 Send a coordinate tap\n  tap (--label <text>|--identifier <id>) [--role <role>]\n                                        Tap one visible accessibility element\n  gesture <json> [--stdin|--file]      Send 1...256 ordered normalized touch events\n  multitouch <json> [--stdin|--file]  Send ordered two-finger touch events\n  swipe <x1> <y1> <x2> <y2> [steps]  Send a sampled swipe\n  button <name>                       Press a Simulator hardware button\n  rotate <orientation>                Rotate to a logical orientation\n  ca <diagnostic> <on|off>             Toggle a Core Animation diagnostic\n  memory-warning                      Simulate a memory warning\n  event-log [limit]                   Print recent Simulator events\n  tools <show|hide|toggle>             Control the Simulator tools inspector\n  camera <configure|switch|mirror|status> ...\n  permissions <list|grant|revoke|reset> ...\n  ui [status|get|set] [option] [value]\n  targets                             Refresh and print Web Inspector targets\n  attach <target-id>                  Attach the native Web Inspector session\n  send [json] [--stdin|--file <path>] Send a raw JSON inspector command\n  highlight <on|off>                  Highlight the attached page\n  release                             Release the attached page\n\nEach command waits for its correlated Simulator-worker result. `send` prints the raw response carrying the same JSON request id."
+            "value": "Usage: cmux simulator <subcommand> [args] [--surface <id|ref|index>]\n\nSubcommands:\n  type [text] [--stdin|--file <path>]  Type text and wait for transmission completion\n  snapshot [--since-screen-hash <hash>] Capture refs, roles, state, and actions\n  tap <x> <y> [x2 y2]                 Send a coordinate tap\n  tap --ref <eN>                       Tap an element from the latest snapshot\n  tap (--label <text>|--identifier <id>) [--role <role>]\n                                        Tap one visible accessibility element\n  touch --ref <eN> --down|--up         Send semantic touch phases\n  gesture <json> [--stdin|--file]      Send 1...256 ordered normalized touch events\n  gesture-preset <name>                Send a named screen or edge gesture\n  multitouch <json> [--stdin|--file]  Send ordered two-finger touch events\n  swipe <x1> <y1> <x2> <y2> [steps]  Send a sampled swipe\n  swipe --ref <eN> <direction>         Swipe inside a semantic element\n  drag --ref <eN> <direction>          Drag from a semantic element\n  long-press --ref <eN> <milliseconds> Hold a semantic element\n  type --ref <eN> [text]               Focus and type into a text field\n  key <hid-code>                       Press one USB HID key\n  keys <code,...>                      Press a USB HID key sequence\n  batch <json> [--stdin|--file]        Run same-snapshot semantic tap steps\n  wait <predicate> [selectors]         Wait for exists, gone, enabled, focused,\n                                        text-contains, or settled\n  button <name>                       Press a Simulator hardware button\n  recover                             Restart a failed Simulator worker\n  rotate <orientation>                Rotate to a logical orientation\n  ca <diagnostic> <on|off>             Toggle a Core Animation diagnostic\n  memory-warning                      Simulate a memory warning\n  event-log [limit]                   Print recent Simulator events\n  tools <show|hide|toggle>             Control the Simulator tools inspector\n  camera <configure|switch|mirror|status> ...\n  permissions <list|grant|revoke|reset> ...\n  ui [status|get|set] [option] [value]\n  targets                             Refresh and print Web Inspector targets\n  attach <target-id>                  Attach the native Web Inspector session\n  send [json] [--stdin|--file <path>] Send a raw JSON inspector command\n  highlight <on|off>                  Highlight the attached page\n  release                             Release the attached page\n\nEach command waits for its correlated Simulator-worker result. `send` prints the raw response carrying the same JSON request id."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用方法: cmux simulator <subcommand> [args] [--surface <id|ref|index>]\n\nサブコマンド:\n  type [text] [--stdin|--file <path>]  テキストを入力して送信完了を待機\n  tap <x> <y> [x2 y2]                 座標を指定してタップを送信\n  tap (--label <text>|--identifier <id>) [--role <role>]\n                                        表示中のアクセシビリティ要素を1つタップ\n  gesture <json> [--stdin|--file]      1〜256件の正規化タッチイベントを送信\n  multitouch <json> [--stdin|--file]  2本指タッチイベントを送信\n  swipe <x1> <y1> <x2> <y2> [steps]  スワイプを送信\n  button <name>                       ハードウェアボタンを押す\n  rotate <orientation>                指定した向きに回転\n  ca <diagnostic> <on|off>             Core Animation診断を切り替え\n  memory-warning                      メモリ警告を送信\n  event-log [limit]                   最近のSimulatorイベントを表示\n  tools <show|hide|toggle>             Simulatorツールインスペクタを操作\n  camera <configure|switch|mirror|status> ...\n  permissions <list|grant|revoke|reset> ...\n  ui [status|get|set] [option] [value]\n  targets                             Web Inspector対象を更新して表示\n  attach <target-id>                  Web Inspectorセッションを接続\n  send [json] [--stdin|--file <path>] 生のJSONコマンドを送信\n  highlight <on|off>                  接続中のページを強調表示\n  release                             接続中のページを解放\n\n各コマンドは対応するSimulatorワーカーの結果を待機します。`send` は同じJSONリクエストIDの生の応答を表示します。"
+            "value": "使用方法: cmux simulator <subcommand> [args] [--surface <id|ref|index>]\n\nサブコマンド:\n  type [text] [--stdin|--file <path>]  テキストを入力して送信完了を待機\n  snapshot [--since-screen-hash <hash>] 参照、ロール、状態、操作を取得\n  tap <x> <y> [x2 y2]                 座標を指定してタップを送信\n  tap --ref <eN>                       最新スナップショットの要素をタップ\n  tap (--label <text>|--identifier <id>) [--role <role>]\n                                        表示中のアクセシビリティ要素を1つタップ\n  touch --ref <eN> --down|--up         要素へのタッチフェーズを送信\n  gesture <json> [--stdin|--file]      1〜256件の正規化タッチイベントを送信\n  gesture-preset <name>                画面または端からの定型ジェスチャーを送信\n  multitouch <json> [--stdin|--file]  2本指タッチイベントを送信\n  swipe <x1> <y1> <x2> <y2> [steps]  スワイプを送信\n  swipe --ref <eN> <direction>         要素内を指定方向にスワイプ\n  drag --ref <eN> <direction>          要素から指定方向にドラッグ\n  long-press --ref <eN> <milliseconds> 要素を長押し\n  type --ref <eN> [text]               テキストフィールドにフォーカスして入力\n  key <hid-code>                       USB HIDキーを1つ押す\n  keys <code,...>                      USB HIDキー列を順番に押す\n  batch <json> [--stdin|--file]        同一スナップショットのタップを一括実行\n  wait <predicate> [selectors]         exists、gone、enabled、focused、\n                                        text-contains、settledを待機\n  button <name>                       ハードウェアボタンを押す\n  recover                             停止したSimulatorワーカーを再起動\n  rotate <orientation>                指定した向きに回転\n  ca <diagnostic> <on|off>             Core Animation診断を切り替え\n  memory-warning                      メモリ警告を送信\n  event-log [limit]                   最近のSimulatorイベントを表示\n  tools <show|hide|toggle>             Simulatorツールインスペクタを操作\n  camera <configure|switch|mirror|status> ...\n  permissions <list|grant|revoke|reset> ...\n  ui [status|get|set] [option] [value]\n  targets                             Web Inspector対象を更新して表示\n  attach <target-id>                  Web Inspectorセッションを接続\n  send [json] [--stdin|--file <path>] 生のJSONコマンドを送信\n  highlight <on|off>                  接続中のページを強調表示\n  release                             接続中のページを解放\n\n各コマンドは対応するSimulatorワーカーの結果を待機します。`send` は同じJSONリクエストIDの生の応答を表示します。"
           }
         }
       }
@@ -48903,6 +49311,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "追加の検査コマンド:\n  accessibility                       上限付きのネイティブアクセシビリティツリーを表示\n  foreground                          フォアグラウンドAppを表示"
+          }
+        }
+      }
+    },
+    "cli.simulator.warning.uiSnapshotRefreshFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The action succeeded, but the refreshed UI snapshot was unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "操作は成功しましたが、更新後のUIスナップショットを取得できませんでした"
           }
         }
       }

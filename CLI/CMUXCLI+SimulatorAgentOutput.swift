@@ -9,6 +9,8 @@ extension CMUXCLI {
         case interfaceValue(option: String)
         case interfaceUpdated(option: String)
         case accessibility
+        case uiSnapshot
+        case uiWait
         case foregroundApplication
     }
 }

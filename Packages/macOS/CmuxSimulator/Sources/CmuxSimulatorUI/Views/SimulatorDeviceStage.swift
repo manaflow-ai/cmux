@@ -72,6 +72,18 @@ struct SimulatorDeviceStage: View {
                     onSelect: { coordinator.selectAccessibilityOverlayNode($0) }
                 )
             }
+            if let presentation = coordinator.agentCursorPresentation {
+                SimulatorAgentCursorOverlay(
+                    presentation: presentation,
+                    chrome: coordinator.chromeProfile,
+                    orientation: display.orientation,
+                    onDismiss: { generation in
+                        coordinator.dismissAgentCursorPresentation(
+                            generation: generation
+                        )
+                    }
+                )
+            }
         }
         .aspectRatio(
             coordinator.chromeProfile?.outerAspect(orientation: display.orientation)

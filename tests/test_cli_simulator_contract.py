@@ -216,6 +216,151 @@ def check_basic_actions(
     )
 
 
+def check_ui_automation(
+    cli_path: str, socket_path: Path, fake_home: Path, state: RecordingState
+) -> None:
+    assert_request(
+        cli_path, socket_path, fake_home, state,
+        ["snapshot", "--since-screen-hash", "abc123"],
+        "simulator.snapshot_ui", {"since_screen_hash": "abc123"},
+    )
+    assert_request(
+        cli_path, socket_path, fake_home, state,
+        ["tap", "--ref", "e2", "--pre-delay", "0.05", "--post-delay", "0.1"],
+        "simulator.tap",
+        {
+            "element_ref": "e2",
+            "pre_delay_milliseconds": 50,
+            "post_delay_milliseconds": 100,
+        },
+    )
+    assert_request(
+        cli_path, socket_path, fake_home, state,
+        ["touch", "--ref", "e3", "--down", "--up", "--delay", "0.25"],
+        "simulator.touch",
+        {
+            "element_ref": "e3", "down": True, "up": True,
+            "delay_milliseconds": 250,
+        },
+    )
+    assert_request(
+        cli_path, socket_path, fake_home, state,
+        ["swipe", "--ref", "e4", "up", "--duration", "0.4",
+         "--distance", "0.8", "--steps", "1000"],
+        "simulator.swipe",
+        {
+            "within_element_ref": "e4", "direction": "up",
+            "duration_milliseconds": 400, "distance": 0.8, "steps": 1000,
+        },
+    )
+    assert_request(
+        cli_path, socket_path, fake_home, state,
+        ["drag", "--ref", "e5", "right"],
+        "simulator.drag",
+        {"element_ref": "e5", "direction": "right"},
+    )
+    assert_request(
+        cli_path, socket_path, fake_home, state,
+        ["long-press", "--ref", "e6", "750"],
+        "simulator.long_press",
+        {"element_ref": "e6", "duration_milliseconds": 750},
+    )
+    assert_request(
+        cli_path, socket_path, fake_home, state,
+        ["type", "--ref", "e7", "hello", "--replace-existing"],
+        "simulator.type_text",
+        {"element_ref": "e7", "text": "hello", "replace_existing": True},
+    )
+    assert_request(
+        cli_path, socket_path, fake_home, state,
+        ["key", "40", "--duration", "0.08"],
+        "simulator.key_press",
+        {"key_code": 40, "duration_milliseconds": 80},
+    )
+    assert_request(
+        cli_path, socket_path, fake_home, state,
+        ["keys", "40,42", "--delay", "0.025"],
+        "simulator.key_sequence",
+        {"key_codes": [40, 42], "delay_milliseconds": 25},
+    )
+    assert_request(
+        cli_path, socket_path, fake_home, state,
+        ["button", "apple-pay", "--duration", "0.1"],
+        "simulator.button",
+        {"button": "applePay", "duration_milliseconds": 100},
+    )
+    assert_request(
+        cli_path, socket_path, fake_home, state,
+        ["gesture-preset", "swipe-from-left-edge", "--distance", "0.7"],
+        "simulator.gesture_preset",
+        {"preset": "swipe-from-left-edge", "distance": 0.7},
+    )
+    assert_request(
+        cli_path, socket_path, fake_home, state,
+        ["batch", json.dumps([
+            {"action": "tap", "elementRef": "e2", "preDelay": 1},
+            {"action": "tap", "element_ref": "e3", "post_delay": 0.5},
+        ])],
+        "simulator.batch",
+        {"steps": [
+            {
+                "action": "tap", "element_ref": "e2",
+                "pre_delay_milliseconds": 1000,
+            },
+            {
+                "action": "tap", "element_ref": "e3",
+                "post_delay_milliseconds": 500,
+            },
+        ]},
+    )
+    assert_request(
+        cli_path, socket_path, fake_home, state,
+        ["wait", "textContains", "--text", "General", "--timeout-ms", "8000"],
+        "simulator.wait_for_ui",
+        {
+            "predicate": "text-contains", "text": "General",
+            "timeout_milliseconds": 8000,
+        },
+    )
+    assert_request(
+        cli_path, socket_path, fake_home, state,
+        ["wait", "focused", "--label", "Search", "--role", "TextField"],
+        "simulator.wait_for_ui",
+        {"predicate": "focused", "label": "Search", "role": "text-field"},
+    )
+    assert_request(
+        cli_path, socket_path, fake_home, state,
+        ["recover"], "simulator.recover", {},
+    )
+
+    assert_invalid(
+        cli_path, socket_path, fake_home, state,
+        ["swipe", "--ref", "e4", "up", "--duration", "0"],
+    )
+    assert_invalid(
+        cli_path, socket_path, fake_home, state,
+        ["touch", "--ref", "e3", "--down", "--delay", "0.25"],
+    )
+    assert_invalid(
+        cli_path, socket_path, fake_home, state,
+        ["button", "home", "--replace-existing"],
+    )
+    assert_invalid(
+        cli_path, socket_path, fake_home, state,
+        ["tap", "0.5", "0.5", "--pre-delay", "1"],
+    )
+    assert_invalid(
+        cli_path, socket_path, fake_home, state,
+        ["batch", json.dumps([
+            {"action": "tap", "elementRef": "e2", "postDelay": "later"},
+        ])],
+    )
+    assert_invalid(
+        cli_path, socket_path, fake_home, state,
+        ["wait", "focused", "--text", "Search"],
+    )
+
+
 def check_permissions(
     cli_path: str, socket_path: Path, fake_home: Path, state: RecordingState
 ) -> None:
@@ -393,6 +538,7 @@ def main() -> int:
             thread.start()
             try:
                 check_basic_actions(cli_path, socket_path, fake_home, state)
+                check_ui_automation(cli_path, socket_path, fake_home, state)
                 check_permissions(cli_path, socket_path, fake_home, state)
                 check_interface(cli_path, socket_path, fake_home, state)
                 check_inspection(cli_path, socket_path, fake_home, state)

@@ -37,6 +37,7 @@ extension ControlCommandCoordinator {
     nonisolated func simulatorButtonName(_ raw: String) -> String {
         let normalized = raw.lowercased()
         return switch normalized {
+        case "apple-pay", "apple_pay", "applepay": "applePay"
         case "swipe-home", "swipe_home", "swipehome": "swipeHome"
         case "app-switcher", "app_switcher", "appswitcher": "appSwitcher"
         case "side-button", "side_button", "sidebutton": "sideButton"

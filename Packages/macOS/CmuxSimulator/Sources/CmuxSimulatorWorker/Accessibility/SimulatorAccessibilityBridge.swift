@@ -252,6 +252,8 @@ final class SimulatorAccessibilityBridge: NSObject, @unchecked Sendable {
             boundedSimulatorAccessibilityText
         )
         let enabled = element?.isAccessibilityEnabled()
+        let focused = element?.isAccessibilityFocused()
+        let selected = element?.isAccessibilitySelected()
         let children = element?.accessibilityChildren() ?? []
 
         var serializedChildren: [SimulatorAccessibilityNode] = []
@@ -286,6 +288,7 @@ final class SimulatorAccessibilityBridge: NSObject, @unchecked Sendable {
         let nodeIdentifier = identifier.flatMap { $0.isEmpty ? nil : $0 } ?? path
         return SimulatorAccessibilityNode(
             id: nodeIdentifier,
+            identifier: identifier,
             role: role,
             label: label,
             value: value,
@@ -299,6 +302,8 @@ final class SimulatorAccessibilityBridge: NSObject, @unchecked Sendable {
                 )
             },
             isEnabled: enabled,
+            isFocused: focused,
+            isSelected: selected,
             children: serializedChildren
         )
     }

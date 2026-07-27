@@ -394,7 +394,35 @@ extension SimulatorWorkerClient {
                 secondary: event.secondary,
                 edge: event.edge
             )))
+        case let .timedGesture(events, _):
+            guard let event = events.last else { return }
+            try await sendRequired(.pointer(SimulatorPointerEvent(
+                phase: .cancelled,
+                primary: event.primary,
+                secondary: event.secondary,
+                edge: event.edge
+            )))
+        case .touch:
+            break
+        case let .keyPresses(usages, _, _):
+            for usage in Set(usages) {
+                try await sendRequired(.key(SimulatorKeyEvent(usage: usage, phase: .up)))
+            }
+        case let .keyChord(modifiers, key):
+            for usage in Set(modifiers + [key]) {
+                try await sendRequired(.key(SimulatorKeyEvent(usage: usage, phase: .up)))
+            }
+        case let .typeText(sequence):
+            for usage in Set(sequence.events.map(\.usage)) {
+                try await sendRequired(.key(SimulatorKeyEvent(usage: usage, phase: .up)))
+            }
         case let .hardwareButton(button):
+            guard let usage = button.recoveryHIDUsage else { return }
+            try await sendRequired(.hidButton(SimulatorHIDButtonEvent(
+                button: usage,
+                phase: .up
+            )))
+        case let .hardwareButtonHold(button, _):
             guard let usage = button.recoveryHIDUsage else { return }
             try await sendRequired(.hidButton(SimulatorHIDButtonEvent(
                 button: usage,

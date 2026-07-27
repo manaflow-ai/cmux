@@ -2,7 +2,7 @@ import CmuxSimulator
 import Foundation
 
 extension CMUXCLI {
-    private static let simulatorTextLimit = 4_096
+    static let simulatorTextLimit = 4_096
     private static let simulatorInspectorLimit = 1_024 * 1_024
     private static let iosScreenshotBatchLimit = 8
     private static let iosScreenshotBatchTimeout: TimeInterval = 600
@@ -29,11 +29,22 @@ extension CMUXCLI {
         var accessibilityLabel: String?
         var accessibilityIdentifier: String?
         var accessibilityRole: String?
+        var elementRef: String?
+        var options: [String: String] = [:]
+        var flags: Set<String> = []
         var positionals: [String] = []
 
         var hasAccessibilitySelector: Bool {
             accessibilityLabel != nil || accessibilityIdentifier != nil
                 || accessibilityRole != nil
+        }
+
+        func option(_ name: String) -> String? {
+            options[name]
+        }
+
+        func hasFlag(_ name: String) -> Bool {
+            flags.contains(name)
         }
     }
 
@@ -45,13 +56,27 @@ extension CMUXCLI {
 
             Subcommands:
               type [text] [--stdin|--file <path>]  Type text and wait for transmission completion
+              snapshot [--since-screen-hash <hash>] Capture refs, roles, state, and actions
               tap <x> <y> [x2 y2]                 Send a coordinate tap
+              tap --ref <eN>                       Tap an element from the latest snapshot
               tap (--label <text>|--identifier <id>) [--role <role>]
                                                     Tap one visible accessibility element
+              touch --ref <eN> --down|--up         Send semantic touch phases
               gesture <json> [--stdin|--file]      Send 1...256 ordered normalized touch events
+              gesture-preset <name>                Send a named screen or edge gesture
               multitouch <json> [--stdin|--file]  Send ordered two-finger touch events
               swipe <x1> <y1> <x2> <y2> [steps]  Send a sampled swipe
+              swipe --ref <eN> <direction>         Swipe inside a semantic element
+              drag --ref <eN> <direction>          Drag from a semantic element
+              long-press --ref <eN> <milliseconds> Hold a semantic element
+              type --ref <eN> [text]               Focus and type into a text field
+              key <hid-code>                       Press one USB HID key
+              keys <code,...>                      Press a USB HID key sequence
+              batch <json> [--stdin|--file]        Run same-snapshot semantic tap steps
+              wait <predicate> [selectors]         Wait for exists, gone, enabled, focused,
+                                                    text-contains, or settled
               button <name>                       Press a Simulator hardware button
+              recover                             Restart a failed Simulator worker
               rotate <orientation>                Rotate to a logical orientation
               ca <diagnostic> <on|off>             Toggle a Core Animation diagnostic
               memory-warning                      Simulate a memory warning

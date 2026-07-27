@@ -96,6 +96,16 @@ extension TerminalController {
             }
             let payload: JSONValue
             var mutationCommitted = false
+            let serializesLegacyUI = simulatorSerializesLegacyUIOperation(operation)
+            if serializesLegacyUI {
+                try await coordinator.beginUIAutomationTransaction()
+            }
+            defer {
+                if serializesLegacyUI {
+                    coordinator.clearUIAutomationSnapshot()
+                    coordinator.endUIAutomationTransaction()
+                }
+            }
             switch operation {
             case .context, .prepareScreenshot:
                 guard let deviceID = coordinator.selectedDeviceID ?? persistedDeviceID else {
@@ -139,6 +149,12 @@ extension TerminalController {
                 try await coordinator.recoverAndWait()
                 mutationCommitted = operation.commitsExternalMutation
                 payload = .object(["completed": .bool(true)])
+            case .uiSnapshot, .uiWait, .uiAction:
+                payload = try await performSimulatorUIAutomationOperation(
+                    operation,
+                    coordinator: coordinator
+                )
+                mutationCommitted = operation.commitsExternalMutation
             case let .gesture(touches):
                 let eventCount = try await performSimulatorGesture(
                     touches,
@@ -202,7 +218,7 @@ extension TerminalController {
                     "completed": .bool(true),
                     "event_count": .int(Int64(eventCount)),
                     "target": .object([
-                        "identifier": .string(target.node.id),
+                        "identifier": target.node.identifier.map(JSONValue.string) ?? .null,
                         "label": target.node.label.map(JSONValue.string) ?? .null,
                         "role": target.node.role.map(JSONValue.string) ?? .null,
                         "x": .double(target.point.x),
@@ -396,6 +412,12 @@ extension TerminalController {
                     defaultValue: "The Simulator operation was cancelled"
                 )
             ))
+        } catch let failure as SimulatorUIAutomationFailure {
+            receipt.complete(.failed(
+                code: failure.code,
+                message: failure.message,
+                data: failure.controlData
+            ))
         } catch let failure as SimulatorFailure {
             receipt.complete(.failed(code: failure.code, message: failure.message))
         } catch {
@@ -417,6 +439,8 @@ extension TerminalController {
         case .prepareScreenshot: nil
         case .selectDevice: nil
         case .recover: nil
+        case .uiSnapshot, .uiWait: .accessibility
+        case .uiAction: nil
         case let .gesture(events): events.contains(where: { $0.secondX != nil }) ? .multiTouch : .touch
         case .accessibilityTap: .accessibility
         case .hardwareButton: .hardwareButtons
@@ -440,11 +464,28 @@ extension TerminalController {
         }
     }
 
+    private func simulatorSerializesLegacyUIOperation(
+        _ operation: ControlSimulatorOperation
+    ) -> Bool {
+        switch operation {
+        case .gesture, .accessibilityTap, .hardwareButton, .rotate,
+             .memoryWarning, .permissionsSet, .interfaceSet:
+            true
+        default:
+            false
+        }
+    }
+
     private func simulatorTimeout(for operation: ControlSimulatorOperation) -> TimeInterval {
         if case .context = operation { return simulatorOperationDeadlines.selectDevice }
         if case .prepareScreenshot = operation { return simulatorOperationDeadlines.selectDevice }
         if case .selectDevice = operation { return simulatorOperationDeadlines.selectDevice }
         if case .recover = operation { return simulatorOperationDeadlines.recover }
+        if case .uiSnapshot = operation { return simulatorOperationDeadlines.inspectionRead }
+        if case let .uiWait(wait) = operation {
+            return min(160, Double(wait.timeoutMilliseconds) / 1_000 + 35)
+        }
+        if case .uiAction = operation { return 140 }
         if case .cameraConfigure = operation { return 160 }
         if case .cameraSwitch = operation { return 160 }
         if case .interfaceStatus = operation { return simulatorOperationDeadlines.interfaceRead }

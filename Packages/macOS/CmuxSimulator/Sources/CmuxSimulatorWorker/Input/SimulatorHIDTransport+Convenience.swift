@@ -74,25 +74,68 @@ extension SimulatorHIDTransport {
 
     @discardableResult
     func press(_ button: SimulatorHardwareButton) async -> Bool {
+        await press(button, durationMilliseconds: nil)
+    }
+
+    @discardableResult
+    func press(
+        _ button: SimulatorHardwareButton,
+        durationMilliseconds: Int?
+    ) async -> Bool {
+        guard durationMilliseconds.map({ (0...10_000).contains($0) }) ?? true else {
+            return false
+        }
         switch SimulatorHardwareButtonMapping(button) {
         case let .legacy(eventSource):
-            return await pressLegacyButton(eventSource: eventSource)
+            return await pressLegacyButton(
+                eventSource: eventSource,
+                durationMilliseconds: durationMilliseconds
+            )
         case let .arbitrary(page, usage):
             let token: SimulatorConvenienceButton = modernTransport != nil
                 || convenienceSenderOverride != nil
                 ? .modern(page: page, usage: usage)
                 : .arbitrary(page: page, usage: usage)
-            return await pressConvenience(token, duration: .milliseconds(50))
-        case .swipeHome:
-            return await sendSystemGesture(endY: 0.30)
-        case .appSwitcher:
-            guard await pressLegacyButton(eventSource: 0) else { return false }
+            return await pressConvenience(
+                token,
+                duration: .milliseconds(durationMilliseconds ?? 50)
+            )
+        case .applePay:
+            let token: SimulatorConvenienceButton = modernTransport != nil
+                || convenienceSenderOverride != nil
+                ? .modern(page: 0x0C, usage: 0x30)
+                : .legacy(eventSource: 0x0BB8)
+            guard await pressConvenience(
+                token,
+                duration: .milliseconds(durationMilliseconds ?? 50)
+            ) else {
+                return false
+            }
             do {
                 try await sleeper.sleep(for: .milliseconds(50))
             } catch {
                 return false
             }
-            return await pressLegacyButton(eventSource: 0)
+            return await pressConvenience(
+                token,
+                duration: .milliseconds(durationMilliseconds ?? 50)
+            )
+        case .swipeHome:
+            return await sendSystemGesture(endY: 0.30)
+        case .appSwitcher:
+            guard await pressLegacyButton(
+                eventSource: 0,
+                durationMilliseconds: durationMilliseconds
+            ) else { return false }
+            do {
+                try await sleeper.sleep(for: .milliseconds(50))
+            } catch {
+                return false
+            }
+            return await pressLegacyButton(
+                eventSource: 0,
+                durationMilliseconds: durationMilliseconds
+            )
         }
     }
 
@@ -157,7 +200,10 @@ extension SimulatorHIDTransport {
         return true
     }
 
-    private func pressLegacyButton(eventSource: Int32) async -> Bool {
+    private func pressLegacyButton(
+        eventSource: Int32,
+        durationMilliseconds: Int? = nil
+    ) async -> Bool {
         let mapped = modernUsage(forLegacyEventSource: eventSource)
         let token: SimulatorConvenienceButton
         if let mapped, modernTransport != nil || convenienceSenderOverride != nil {
@@ -165,9 +211,9 @@ extension SimulatorHIDTransport {
         } else {
             token = .legacy(eventSource: eventSource)
         }
-        let duration: Duration = eventSource == 0x400002
-            ? .milliseconds(300)
-            : .milliseconds(50)
+        let duration: Duration = .milliseconds(
+            durationMilliseconds ?? (eventSource == 0x400002 ? 300 : 50)
+        )
         return await pressConvenience(token, duration: duration)
     }
 
