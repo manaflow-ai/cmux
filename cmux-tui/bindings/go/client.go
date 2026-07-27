@@ -40,6 +40,7 @@ type CommandError struct {
 	Message   string
 	ID        any
 	ErrorCode string
+	Delivery  ErrorDelivery
 }
 
 func (e *CommandError) Error() string { return e.Message }
@@ -47,13 +48,26 @@ func (e *CommandError) Is(target error) bool {
 	return target == ErrCommand
 }
 
-func commandError(response map[string]any) *CommandError {
+type ErrorDelivery string
+
+const (
+	ErrorDeliveryKnownNotDelivered ErrorDelivery = "known-not-delivered"
+	ErrorDeliveryAmbiguous         ErrorDelivery = "ambiguous"
+)
+
+func commandErrorFromResponse(response map[string]any) *CommandError {
 	msg, _ := response["error"].(string)
 	if msg == "" {
 		msg = "unknown error"
 	}
 	code, _ := response["error_code"].(string)
-	return &CommandError{Message: msg, ID: response["id"], ErrorCode: code}
+	delivery, _ := response["error_delivery"].(string)
+	return &CommandError{
+		Message:   msg,
+		ID:        response["id"],
+		ErrorCode: code,
+		Delivery:  ErrorDelivery(delivery),
+	}
 }
 
 type connectionError struct{ msg string }
@@ -206,7 +220,7 @@ func (c *Client) request(ctx context.Context, cmd string, params map[string]any,
 		}
 		return nil
 	}
-	return commandError(response)
+	return commandErrorFromResponse(response)
 }
 
 func (c *Client) nextRequestID() uint64 {
@@ -332,6 +346,40 @@ func (c *Client) Send(ctx context.Context, surface uint64, opts SendOptions) err
 		params["bytes"] = opts.Base64Bytes
 	}
 	return c.request(ctx, "send", params, nil)
+}
+
+func (c *Client) ClearHistory(ctx context.Context, surface uint64) error {
+	if err := c.requireCapability(ctx, "clear-history-v1", "clear-history"); err != nil {
+		return err
+	}
+	return c.request(ctx, "clear-history", map[string]any{"surface": surface}, nil)
+}
+
+func (c *Client) ClearHistoryWithFallback(
+	ctx context.Context,
+	surface uint64,
+	fallbackKey TerminalKeyInput,
+) error {
+	if err := c.requireCapability(ctx, "clear-history-v1", "clear-history"); err != nil {
+		return err
+	}
+	if err := c.requireCapability(
+		ctx,
+		"clear-history-key-v1",
+		"clear-history key fallback",
+	); err != nil {
+		return err
+	}
+	if len(fallbackKey.UTF8) > TerminalKeyTextMaxBytes {
+		return fmt.Errorf(
+			"%w: terminal key text exceeds the 4 KiB protocol limit",
+			ErrInvalidArgument,
+		)
+	}
+	return c.request(ctx, "clear-history", map[string]any{
+		"surface":      surface,
+		"fallback_key": fallbackKey,
+	}, nil)
 }
 
 func (c *Client) ReadScreen(ctx context.Context, surface uint64) (ReadScreenResult, error) {
@@ -702,7 +750,7 @@ func (c *Client) openStream(ctx context.Context, request map[string]any) (*Strea
 			return &Stream{conn: conn, timeout: c.timeout, buffered: buffered}, nil
 		}
 		_ = conn.Close()
-		return nil, commandError(response)
+		return nil, commandErrorFromResponse(response)
 	}
 }
 

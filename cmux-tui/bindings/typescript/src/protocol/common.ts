@@ -38,6 +38,8 @@ export interface CmuxSuccessResponse<T = Json> {
   data: T;
 }
 
+export type CmuxErrorDelivery = "known-not-delivered" | "ambiguous";
+
 /** A failed command response envelope. */
 export interface CmuxFailureResponse {
   id?: Json;
@@ -45,6 +47,7 @@ export interface CmuxFailureResponse {
   error: string;
   /** Additive machine-readable classification for expected command failures. */
   error_code?: string;
+  error_delivery?: CmuxErrorDelivery;
 }
 
 /** The canonical command response envelope. */

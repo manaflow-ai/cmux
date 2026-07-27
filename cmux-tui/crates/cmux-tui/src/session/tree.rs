@@ -69,6 +69,7 @@ pub struct TabView {
     pub kind: SurfaceKind,
     pub browser_source: Option<BrowserSource>,
     pub browser_frames_stalled: bool,
+    pub supports_clear_history_key_fallback: bool,
     pub notification: Option<TabNotificationView>,
 }
 
@@ -283,6 +284,10 @@ pub fn tree_from_state_with_notifications(
                         .get(sid)
                         .and_then(|s| s.browser_frames_stalled())
                         .unwrap_or(false),
+                    supports_clear_history_key_fallback: state
+                        .surfaces
+                        .get(sid)
+                        .is_some_and(|surface| surface.supports_clear_history_key_fallback()),
                     notification: notifications.get(sid).map(|notification| TabNotificationView {
                         unread: notification.unread,
                         level: notification.level.as_str(),
@@ -398,6 +403,10 @@ fn parse_pane(value: &Value) -> Option<PaneView> {
                             browser_frames_stalled: tab
                                 .get("browser_frames_stalled")
                                 .and_then(|v| v.as_bool())
+                                .unwrap_or(false),
+                            supports_clear_history_key_fallback: tab
+                                .get("supports_clear_history_key_fallback")
+                                .and_then(Value::as_bool)
                                 .unwrap_or(false),
                             notification: tab.get("notification").and_then(parse_notification),
                         })
@@ -772,5 +781,20 @@ mod tests {
             parse_tree(&json!({"pane_revision": 7, "workspaces": []})).pane_revision,
             Some(7)
         );
+    }
+
+    #[test]
+    fn tree_parser_defaults_clear_fallback_support_to_false() {
+        let pane = parse_pane(&json!({
+            "id": 3,
+            "tabs": [
+                {"surface": 4},
+                {"surface": 5, "supports_clear_history_key_fallback": true}
+            ]
+        }))
+        .unwrap();
+
+        assert!(!pane.tabs[0].supports_clear_history_key_fallback);
+        assert!(pane.tabs[1].supports_clear_history_key_fallback);
     }
 }

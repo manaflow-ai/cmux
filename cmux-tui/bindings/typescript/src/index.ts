@@ -1,6 +1,7 @@
 export { CmuxClient, type ClientOptions } from "./node-client.js";
 export {
   CmuxStream,
+  TERMINAL_KEY_TEXT_MAX_BYTES,
   type AttachSurfaceOptions,
   type CmuxClientOptions,
   type NewBrowserTabOptions,

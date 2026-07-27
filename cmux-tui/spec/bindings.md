@@ -12,7 +12,7 @@ Bindings must:
 
 | Requirement | Contract |
 | --- | --- |
-| Version check | Call `identify` or require the caller to supply protocol compatibility before using newer features; require `attach-initial-size` for initial attach sizing, `workspace-registry-v1` for registry APIs, `viewport-splits-v1` for `new-pane-right`, `viewport-column-resize-v1` for `set-viewport-pane-width`, and `layout-undo-v1` for structural undo |
+| Version check | Call `identify` or require the caller to supply protocol compatibility before using newer features; require `attach-initial-size` for initial attach sizing, `workspace-registry-v1` for registry APIs, `viewport-splits-v1` for `new-pane-right`, `viewport-column-resize-v1` for `set-viewport-pane-width`, `layout-undo-v1` for structural undo, `clear-history-v1` for `clear-history`, and `clear-history-key-v1` for its structured fallback key |
 | Error handling | Preserve the server error string and expose a typed transport vs command distinction |
 | Events | Route response lines and event lines correctly on full-duplex connections |
 | Attach | Preserve attach ordering for the selected mode: v5 `vt-state`, then `output`, then `detached`; v6 byte mode `vt-state`, then `(resized | output | colors-changed | scroll-changed)*`, then `detached`; v7 render mode `render-state`, then `(render-delta | scroll-changed)*`, then `detached` |
@@ -32,6 +32,8 @@ SDKs must treat `layout.split` and `set-split-ratio` as protocol-v8 features. A 
 ## Protocol v9 SDK Expectations
 
 SDKs must treat stack layout nodes and `new-pane` as protocol-v9 features. `new-pane` must fail locally before sending when the identified server reports protocol 8 or older. `undo-layout` is separately gated by `layout-undo-v1`; bindings must expose the confirmation result and require callers to pass its exact revision before setting `confirm_close`.
+
+SDKs must expose `clear-history` as a typed method and fail locally before sending when the identified server omits `clear-history-v1`. They must expose `TerminalKeyInput` and `TerminalModifiers` as typed values, preserve every `fallback_key` field, and fail locally before sending a fallback when the server omits `clear-history-key-v1` or its `utf8` field exceeds 4 KiB of UTF-8.
 
 ## Protocol v10 SDK Expectations
 

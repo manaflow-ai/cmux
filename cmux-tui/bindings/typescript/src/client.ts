@@ -52,6 +52,7 @@ import type {
   SplitDirection,
   SubscribeEvent,
   SurfaceResult,
+  TerminalKeyInput,
   TerminalPlacement,
   TerminalEventsResult,
   Tree,
@@ -83,6 +84,7 @@ export interface CmuxClientOptions {
 
 export const DEFAULT_MAX_BUFFERED_EVENTS = 256;
 export const DEFAULT_MAX_ATTACH_ENCODED_CHARS = 16 * 1024 * 1024;
+export const TERMINAL_KEY_TEXT_MAX_BYTES = 4 * 1024;
 
 export interface ResizeTransactionOptions {
   /** Reuse across one continuous drag, then choose a new value for the next drag. */
@@ -453,6 +455,7 @@ export class CmuxClient {
       response.id,
       response,
       response.error_code,
+      response.error_delivery,
     );
   }
 
@@ -503,6 +506,17 @@ export class CmuxClient {
     const legacyBytes = options.bytes instanceof Uint8Array ? encodeBase64(options.bytes) : options.bytes;
     const bytes = "base64" in options ? options.base64 : legacyBytes;
     return this.request("send", { surface, text: options.text, bytes, paste: options.paste });
+  }
+
+  async clearHistory(surface: Id, fallbackKey?: TerminalKeyInput): Promise<EmptyResult> {
+    await this.requireCapability("clear-history-v1", "clear-history");
+    if (fallbackKey !== undefined) {
+      await this.requireCapability("clear-history-key-v1", "clear-history key fallback");
+      if (new TextEncoder().encode(fallbackKey.utf8).byteLength > TERMINAL_KEY_TEXT_MAX_BYTES) {
+        throw new TypeError("terminal key text exceeds the 4 KiB protocol limit");
+      }
+    }
+    return this.request("clear-history", { surface, fallback_key: fallbackKey });
   }
 
   readScreen(surface: Id): Promise<ReadScreenResult> { return this.request("read-screen", { surface }); }
@@ -828,6 +842,7 @@ export class CmuxClient {
         response.id,
         response,
         response.error_code,
+        response.error_delivery,
       );
     }
     const terminalError = streamError ?? stream.error;

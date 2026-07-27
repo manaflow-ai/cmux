@@ -51,7 +51,7 @@ Response envelope:
 
 ```text
 object{id?:any,ok:true,data:any}
-| object{id?:any,ok:false,error:string,error_code?:string}
+| object{id?:any,ok:false,error:string,error_code?:string,error_delivery?:"known-not-delivered"|"ambiguous"}
 ```
 
 `error_code` is an additive machine-readable classification for commands that
@@ -63,6 +63,10 @@ Decode errors return:
 ```text
 object{ok:false,error:"bad request: ..."}
 ```
+
+`clear-history` errors include `error_delivery`. `"known-not-delivered"` proves that neither a
+clear nor fallback input reached the terminal. `"ambiguous"` means terminal delivery may have
+started before the error. Clients must treat a missing or unknown value as `"ambiguous"`.
 
 ### Id Correlation
 
@@ -99,7 +103,7 @@ cmux-tui relay --session main
 cmux-tui relay --socket /absolute/path/to/session.sock
 ```
 
-Relay does not start a mux server, render a TUI, authenticate a caller, or interpret command payloads. Its stdout contains only server protocol bytes. When stdin is a terminal because a provider allocated a PTY, relay enables raw terminal mode for its lifetime to prevent echo and newline conversion. Providers should use a pipe when possible.
+Relay does not start a mux server, render a TUI, authenticate a caller, or interpret command payloads. Its stdout contains only server protocol bytes. When stdin is a terminal because a provider allocated a PTY, relay enables raw terminal mode for its lifetime to prevent echo and newline conversion. Providers should use a pipe when possible. When relay stdin reaches EOF, relay half-closes the Unix socket write side and continues copying server output. The server stops accepting requests on that connection, completes every parsed request, and then closes the response stream. Requests for one surface remain ordered, and an active `clear-history` also blocks later lifecycle commands. Requests for unrelated surfaces may complete first, so clients must correlate responses by request id.
 
 The implemented SSH machine connector starts relay as:
 

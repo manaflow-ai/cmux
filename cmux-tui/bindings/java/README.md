@@ -32,6 +32,11 @@ try (CmuxClient client = CmuxClient.builder().build()) {
 `CmuxClient.builder().build()` uses `CMUX_TUI_SOCKET` when set, then legacy
 `CMUX_MUX_SOCKET`, then the default session socket path.
 
+The `clearHistory(surface, TerminalKeyInput)` overload requires the server
+capability `clear-history-key-v1`. It rejects fallback `utf8` fields above the
+4 KiB protocol limit before sending. `CmuxCommandException.errorDelivery()`
+returns the server's `CmuxErrorDelivery` classification when present.
+
 ## E2E
 
 ```bash
