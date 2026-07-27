@@ -1483,6 +1483,18 @@ import Testing
             return ProcessRunResult(status: -1, stdout: String(describing: error), timedOut: false)
         }
 
+        let outputLock = NSLock()
+        var outputData = Data()
+        let outputGroup = DispatchGroup()
+        outputGroup.enter()
+        DispatchQueue.global(qos: .utility).async {
+            let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
+            outputLock.lock()
+            outputData = data
+            outputLock.unlock()
+            outputGroup.leave()
+        }
+
         let exitSignal = DispatchSemaphore(value: 0)
         DispatchQueue.global(qos: .userInitiated).async {
             process.waitUntilExit()
@@ -1499,9 +1511,14 @@ import Testing
             }
         }
 
+        _ = outputGroup.wait(timeout: .now() + 2)
+        outputLock.lock()
+        let finalOutputData = outputData
+        outputLock.unlock()
+
         return ProcessRunResult(
             status: process.terminationStatus,
-            stdout: String(data: outputPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
+            stdout: String(data: finalOutputData, encoding: .utf8) ?? "",
             timedOut: timedOut
         )
     }
