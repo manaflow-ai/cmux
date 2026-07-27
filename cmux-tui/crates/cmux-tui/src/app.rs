@@ -7765,7 +7765,7 @@ impl App {
                 if self.graphics_supported {
                     self.graphics_host_scene_reset_pending = true;
                 }
-                self.refresh_cell_pixels(false);
+                self.refresh_cell_pixels();
                 self.render_states.clear();
                 self.sidebar_plugin_surface = None;
                 Ok(RenderAction::Draw)

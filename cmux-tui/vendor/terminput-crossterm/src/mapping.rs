@@ -14,6 +14,9 @@ pub fn to_terminput(value: crossterm::event::Event) -> Result<Event, Unsupported
         crossterm::event::Event::FocusGained => Event::FocusGained,
         crossterm::event::Event::FocusLost => Event::FocusLost,
         crossterm::event::Event::Key(key_event) => Event::Key(to_terminput_key(key_event)?),
+        crossterm::event::Event::EnhancedKey(key_event) => {
+            Event::Key(to_terminput_key(key_event.key_event)?)
+        }
         crossterm::event::Event::Mouse(mouse_event) => {
             Event::Mouse(to_terminput_mouse(mouse_event))
         }
