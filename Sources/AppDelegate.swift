@@ -799,6 +799,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var windowKeyObservers: [NSObjectProtocol] = []
     private var shortcutMonitor: Any?
     private var shortcutKeyPressLifecycle = ShortcutKeyPressLifecycleTracker()
+    private var zeroTimestampShortcutEventsByKeyCode: [UInt16: NSEvent] = [:]
     private var shortcutDefaultsObserver: NSObjectProtocol?
     private var menuBarVisibilityObserver: NSObjectProtocol?
     private var mobileHostSettingsObserver: NSObjectProtocol?
@@ -12706,11 +12707,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         dispatchShortcut: () -> Bool
     ) -> Bool {
         guard event.type == .keyDown else { return false }
+        let zeroTimestampEventToken: UInt
+        if event.timestamp.isZero {
+            zeroTimestampEventToken = UInt(bitPattern: ObjectIdentifier(event))
+            // Retain the prior zero-timestamp event until its replacement token
+            // has been captured, preventing allocator reuse from collapsing two
+            // distinct synthetic key-downs into one dispatch identity.
+            zeroTimestampShortcutEventsByKeyCode[event.keyCode] = event
+        } else {
+            zeroTimestampEventToken = 0
+            zeroTimestampShortcutEventsByKeyCode.removeValue(
+                forKey: event.keyCode
+            )
+        }
         return shortcutKeyPressLifecycle.shortcutConsumesKeyDown(
             keyCode: event.keyCode,
             eventIdentity: ShortcutKeyEventIdentity(
                 timestampBitPattern: event.timestamp.bitPattern,
-                windowNumber: event.windowNumber
+                windowNumber: event.windowNumber,
+                zeroTimestampEventToken: zeroTimestampEventToken
             ),
             isRepeat: event.isARepeat,
             dispatchShortcut: dispatchShortcut
@@ -12719,6 +12734,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func shortcutConsumesKeyUp(_ event: NSEvent) -> Bool {
         guard event.type == .keyUp else { return false }
+        zeroTimestampShortcutEventsByKeyCode.removeValue(forKey: event.keyCode)
         return shortcutKeyPressLifecycle.shortcutConsumesKeyUp(
             keyCode: event.keyCode
         )
@@ -12726,6 +12742,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func resetShortcutPressOwnership() {
         shortcutKeyPressLifecycle.reset()
+        zeroTimestampShortcutEventsByKeyCode.removeAll(keepingCapacity: true)
     }
 
     private func installShortcutDefaultsObserver() {

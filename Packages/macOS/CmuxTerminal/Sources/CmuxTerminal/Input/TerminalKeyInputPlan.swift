@@ -5,8 +5,8 @@ public struct TerminalKeyInputPlan: Sendable, Equatable {
 
     /// Whether libghostty receives an encodable physical press that owns key-up.
     ///
-    /// A composing key operation is intentionally excluded because libghostty
-    /// suppresses non-modifier presses while composition is active.
+    /// Composing presses still reach libghostty even when its encoder emits no
+    /// terminal bytes, so they retain their native repeat and release lifecycle.
     public var forwardsPhysicalKey: Bool {
         actions.contains(where: \.forwardsPhysicalKey)
     }

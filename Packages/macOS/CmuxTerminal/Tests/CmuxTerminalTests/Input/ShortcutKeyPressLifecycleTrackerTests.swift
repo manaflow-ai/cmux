@@ -141,6 +141,26 @@ import Testing
         #expect(!consumesRelease)
     }
 
+    @Test func distinctZeroTimestampEventsDispatchIndependently() {
+        var tracker = ShortcutKeyPressLifecycleTracker()
+        var dispatchCount = 0
+
+        for token in UInt(1)...UInt(2) {
+            #expect(tracker.shortcutConsumesKeyDown(
+                keyCode: 12,
+                eventIdentity: identity(0, zeroTimestampEventToken: token),
+                isRepeat: false
+            ) {
+                dispatchCount += 1
+                return true
+            })
+        }
+
+        #expect(dispatchCount == 2)
+        let consumesRelease = tracker.shortcutConsumesKeyUp(keyCode: 12)
+        #expect(consumesRelease)
+    }
+
     @Test func resetForgetsEveryOwner() {
         var tracker = ShortcutKeyPressLifecycleTracker()
 
@@ -157,10 +177,14 @@ import Testing
         #expect(!consumesRelease)
     }
 
-    private func identity(_ value: UInt64) -> ShortcutKeyEventIdentity {
+    private func identity(
+        _ value: UInt64,
+        zeroTimestampEventToken: UInt = 0
+    ) -> ShortcutKeyEventIdentity {
         ShortcutKeyEventIdentity(
             timestampBitPattern: value,
-            windowNumber: 1
+            windowNumber: 1,
+            zeroTimestampEventToken: zeroTimestampEventToken
         )
     }
 }

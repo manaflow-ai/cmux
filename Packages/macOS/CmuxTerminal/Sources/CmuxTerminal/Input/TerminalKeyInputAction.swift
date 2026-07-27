@@ -17,10 +17,8 @@ public enum TerminalKeyInputAction: Sendable, Equatable {
         switch self {
         case .sendCommittedText:
             return false
-        case .sendCommittedKey:
+        case .sendCommittedKey, .sendKey:
             return true
-        case .sendKey(_, composing: let composing):
-            return !composing
         }
     }
 

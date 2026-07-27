@@ -2,7 +2,7 @@ import Testing
 @testable import CmuxTerminal
 
 @Suite struct TerminalKeyInputLifecycleTrackerTests {
-    @Test func consumedRepeatRetainsForwardedPressLifecycle() {
+    @Test func consumedRepeatKeepsTerminalReleaseOwnership() {
         var tracker = TerminalKeyInputLifecycleTracker()
 
         let pressActions = tracker.actions(
@@ -18,7 +18,7 @@ import Testing
         let release = tracker.release(forKeyUp: 0)
 
         #expect(pressActions == [.sendKey(text: "a", composing: false)])
-        #expect(repeatActions == [.sendKey(text: "a", composing: false)])
+        #expect(repeatActions.isEmpty)
         #expect(release.forwardsPhysicalKey)
     }
 

@@ -12,7 +12,6 @@ public struct TerminalKeyInputLifecycleTracker: Sendable {
 
     private struct PhysicalKeyLifecycle: Sendable {
         let owner: PhysicalKeyOwner
-        let terminalActions: [TerminalKeyInputAction]
         var physicalIdentity: TerminalKeyInputPhysicalIdentity?
     }
 
@@ -21,13 +20,12 @@ public struct TerminalKeyInputLifecycleTracker: Sendable {
     /// Creates an empty physical-key lifecycle tracker.
     public init() {}
 
-    /// Resolves actions for a key-down without changing ownership or physical
-    /// meaning on repeats.
+    /// Resolves actions for a key-down without changing ownership on repeats.
     ///
     /// A repeat whose press belongs to AppKit may still deliver text committed
     /// from an existing preedit, but it cannot introduce an orphaned physical
-    /// key event into the terminal. A repeat whose press belongs to the terminal
-    /// keeps the original physical action even if AppKit changes its decision.
+    /// key event into the terminal. A terminal-owned repeat uses the current
+    /// AppKit semantic result while retaining terminal ownership for release.
     public mutating func actions(
         for plan: TerminalKeyInputPlan,
         keyCode: UInt16,
@@ -37,7 +35,6 @@ public struct TerminalKeyInputLifecycleTracker: Sendable {
             plan.forwardsPhysicalKey ? .terminal : .appKit
         let plannedLifecycle = PhysicalKeyLifecycle(
             owner: plannedOwner,
-            terminalActions: plan.actions.filter(\.forwardsPhysicalKey),
             physicalIdentity: nil
         )
         let lifecycle: PhysicalKeyLifecycle
@@ -51,30 +48,32 @@ public struct TerminalKeyInputLifecycleTracker: Sendable {
 
         guard isRepeat else { return plan.actions }
 
-        let nonPhysicalActions = plan.actions.filter { !$0.isPhysicalKey }
         switch lifecycle.owner {
         case .appKit:
             return plan.actions.compactMap(\.withoutPhysicalOwnership)
         case .terminal:
-            return nonPhysicalActions + lifecycle.terminalActions
+            return plan.actions
         }
     }
 
-    /// Preserves the initial text translation metadata through repeats.
+    /// Uses current translation metadata for repeats while retaining the
+    /// initial press metadata for the eventual release.
     public mutating func physicalIdentity(
         forKeyDown keyCode: UInt16,
         resolvedIdentity: TerminalKeyInputPhysicalIdentity,
         isRepeat: Bool
     ) -> TerminalKeyInputPhysicalIdentity {
-        if isRepeat,
-           let physicalIdentity = lifecycles[keyCode]?.physicalIdentity {
-            return physicalIdentity
+        if isRepeat, var lifecycle = lifecycles[keyCode] {
+            if lifecycle.physicalIdentity == nil {
+                lifecycle.physicalIdentity = resolvedIdentity
+                lifecycles[keyCode] = lifecycle
+            }
+            return resolvedIdentity
         }
 
         guard var lifecycle = lifecycles[keyCode] else {
             lifecycles[keyCode] = PhysicalKeyLifecycle(
                 owner: .terminal,
-                terminalActions: [],
                 physicalIdentity: resolvedIdentity
             )
             return resolvedIdentity
