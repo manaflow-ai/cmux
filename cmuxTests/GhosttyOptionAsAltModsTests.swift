@@ -363,44 +363,4 @@ import Testing
         #expect(codepoint == UnicodeScalar("с").value)
     }
 
-    @Test func keyIdentityTrackerPreservesCodepointAcrossRepeatAndRelease() {
-        var tracker = KeyboardLayoutKeyIdentityTracker()
-        let keyCode = UInt16(kVK_ANSI_C)
-        let pressCodepoint = UnicodeScalar("c").value
-        let changedLayoutCodepoint = UnicodeScalar("с").value
-
-        #expect(
-            tracker.codepointForKeyDown(
-                keyCode: keyCode,
-                resolvedCodepoint: pressCodepoint,
-                isRepeat: false
-            ) == pressCodepoint
-        )
-        #expect(
-            tracker.codepointForKeyDown(
-                keyCode: keyCode,
-                resolvedCodepoint: changedLayoutCodepoint,
-                isRepeat: true
-            ) == pressCodepoint
-        )
-        #expect(
-            tracker.codepointForKeyUp(keyCode: keyCode) == pressCodepoint
-        )
-        #expect(tracker.codepointForKeyUp(keyCode: keyCode) == nil)
-    }
-
-    @Test func keyIdentityTrackerClearsOnFocusLoss() {
-        var tracker = KeyboardLayoutKeyIdentityTracker()
-        let keyCode = UInt16(kVK_ANSI_C)
-
-        _ = tracker.codepointForKeyDown(
-            keyCode: keyCode,
-            resolvedCodepoint: UnicodeScalar("c").value,
-            isRepeat: false
-        )
-        tracker.reset()
-
-        #expect(tracker.codepointForKeyUp(keyCode: keyCode) == nil)
-    }
-
 }

@@ -15,11 +15,11 @@ import Testing
             keyCode: 0,
             isRepeat: true
         )
-        let forwardsRelease = tracker.shouldForwardKeyUp(keyCode: 0)
+        let release = tracker.release(forKeyUp: 0)
 
         #expect(pressActions == [.sendKey(text: "a", composing: false)])
         #expect(repeatActions == [.sendKey(text: "a", composing: false)])
-        #expect(forwardsRelease)
+        #expect(release.forwardsPhysicalKey)
     }
 
     @Test func terminalOwnedRepeatRetainsInitialPhysicalMeaning() {
@@ -74,11 +74,11 @@ import Testing
             keyCode: 0,
             isRepeat: true
         )
-        let forwardsRelease = tracker.shouldForwardKeyUp(keyCode: 0)
+        let release = tracker.release(forKeyUp: 0)
 
         #expect(pressActions.isEmpty)
         #expect(repeatActions.isEmpty)
-        #expect(!forwardsRelease)
+        #expect(!release.forwardsPhysicalKey)
     }
 
     @Test func appKitOwnedRepeatPreservesCommittedPreeditText() {
@@ -97,10 +97,10 @@ import Testing
             keyCode: 0,
             isRepeat: true
         )
-        let forwardsRelease = tracker.shouldForwardKeyUp(keyCode: 0)
+        let release = tracker.release(forKeyUp: 0)
 
         #expect(repeatActions == [.sendCommittedText("한")])
-        #expect(!forwardsRelease)
+        #expect(!release.forwardsPhysicalKey)
     }
 
     @Test func firstObservedRepeatEstablishesReleaseOwnership() {
@@ -111,19 +111,19 @@ import Testing
             keyCode: 0,
             isRepeat: true
         )
-        let forwardsConsumedRelease = tracker.shouldForwardKeyUp(keyCode: 0)
+        let consumedRelease = tracker.release(forKeyUp: 0)
 
         let forwardedRepeatActions = tracker.actions(
             for: physicalPlan(text: "a"),
             keyCode: 1,
             isRepeat: true
         )
-        let forwardsTerminalRelease = tracker.shouldForwardKeyUp(keyCode: 1)
+        let terminalRelease = tracker.release(forKeyUp: 1)
 
         #expect(consumedRepeatActions.isEmpty)
-        #expect(!forwardsConsumedRelease)
+        #expect(!consumedRelease.forwardsPhysicalKey)
         #expect(forwardedRepeatActions == [.sendKey(text: "a", composing: false)])
-        #expect(forwardsTerminalRelease)
+        #expect(terminalRelease.forwardsPhysicalKey)
     }
 
     @Test func resetForgetsExistingOwners() {
@@ -135,9 +135,59 @@ import Testing
         )
 
         tracker.reset()
-        let forwardsRelease = tracker.shouldForwardKeyUp(keyCode: 0)
+        let release = tracker.release(forKeyUp: 0)
 
-        #expect(forwardsRelease)
+        #expect(release.forwardsPhysicalKey)
+    }
+
+    @Test func physicalIdentitySurvivesRepeatAndRelease() {
+        var tracker = TerminalKeyInputLifecycleTracker()
+        _ = tracker.actions(
+            for: physicalPlan(text: "c"),
+            keyCode: 8,
+            isRepeat: false
+        )
+
+        let pressCodepoint = tracker.unshiftedCodepoint(
+            forKeyDown: 8,
+            resolvedCodepoint: 0x63,
+            isRepeat: false
+        )
+        let repeatCodepoint = tracker.unshiftedCodepoint(
+            forKeyDown: 8,
+            resolvedCodepoint: 0x0441,
+            isRepeat: true
+        )
+        let release = tracker.release(forKeyUp: 8)
+
+        #expect(pressCodepoint == 0x63)
+        #expect(repeatCodepoint == 0x63)
+        #expect(release == TerminalKeyInputRelease(
+            forwardsPhysicalKey: true,
+            unshiftedCodepoint: 0x63
+        ))
+    }
+
+    @Test func resetClearsPhysicalIdentity() {
+        var tracker = TerminalKeyInputLifecycleTracker()
+        _ = tracker.actions(
+            for: physicalPlan(text: "c"),
+            keyCode: 8,
+            isRepeat: false
+        )
+        _ = tracker.unshiftedCodepoint(
+            forKeyDown: 8,
+            resolvedCodepoint: 0x63,
+            isRepeat: false
+        )
+
+        tracker.reset()
+        let release = tracker.release(forKeyUp: 8)
+
+        #expect(release == TerminalKeyInputRelease(
+            forwardsPhysicalKey: true,
+            unshiftedCodepoint: nil
+        ))
     }
 
     private func consumedPlan() -> TerminalKeyInputPlan {

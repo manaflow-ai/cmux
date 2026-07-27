@@ -36,20 +36,11 @@ struct GhosttyPhysicalInputFocusReassertionTests {
             "Regression setup should simulate Ghostty focus drifting false while AppKit first responder remains on the terminal"
         )
 
-        let previousTextInputEventHandler = GhosttyNSView.debugTextInputEventHandler
         let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
         defer {
-            GhosttyNSView.debugTextInputEventHandler = previousTextInputEventHandler
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
         }
 
-        GhosttyNSView.debugTextInputEventHandler = { view, _ in
-            view.insertText(
-                "a",
-                replacementRange: NSRange(location: NSNotFound, length: 0)
-            )
-            return true
-        }
         var forwardedText: String?
         GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
             previousKeyEventObserver?(keyEvent)

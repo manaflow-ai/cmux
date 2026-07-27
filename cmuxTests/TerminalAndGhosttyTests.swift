@@ -3362,15 +3362,12 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         XCTAssertNotNil(surface.surface, "Expected runtime surface before sending repeat key input")
         XCTAssertTrue(window.makeFirstResponder(surfaceView))
 
-        let previousTextInputEventHandler = GhosttyNSView.debugTextInputEventHandler
         let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
         defer {
-            GhosttyNSView.debugTextInputEventHandler = previousTextInputEventHandler
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
             withExtendedLifetime(surface) {}
         }
 
-        GhosttyNSView.debugTextInputEventHandler = { _, _ in false }
         var forwardedRepeatCount = 0
         var forwardedTexts: [String] = []
         GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
@@ -3415,7 +3412,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
 #endif
     }
 
-    func testIMECommittedKeyRepeatDoesNotForceSurfaceRefresh() throws {
+    func testIMECommittedTextDoesNotForceSurfaceRefresh() throws {
 #if DEBUG
         let window = makeWindow()
         defer { window.orderOut(nil) }
@@ -3449,24 +3446,18 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         XCTAssertNotNil(surface.surface, "Expected runtime surface before sending repeat IME input")
         XCTAssertTrue(window.makeFirstResponder(surfaceView))
 
-        let previousTextInputEventHandler = GhosttyNSView.debugTextInputEventHandler
         let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
         defer {
-            GhosttyNSView.debugTextInputEventHandler = previousTextInputEventHandler
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
             withExtendedLifetime(surface) {}
         }
 
-        GhosttyNSView.debugTextInputEventHandler = { view, _ in
-            view.insertText("あ", replacementRange: NSRange(location: NSNotFound, length: 0))
-            return true
-        }
-        var forwardedRepeatCount = 0
+        var forwardedCommitCount = 0
         var forwardedTexts: [String] = []
         GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
             previousKeyEventObserver?(keyEvent)
-            guard keyEvent.action == GHOSTTY_ACTION_REPEAT, keyEvent.keycode == 0 else { return }
-            forwardedRepeatCount += 1
+            guard keyEvent.action == GHOSTTY_ACTION_PRESS, keyEvent.keycode == 0 else { return }
+            forwardedCommitCount += 1
             if let text = keyEvent.text {
                 forwardedTexts.append(String(cString: text))
             }
@@ -3474,31 +3465,21 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
 
         surface.resetDebugForceRefreshCount()
 
-        for index in 0..<3 {
-            let event = try XCTUnwrap(NSEvent.keyEvent(
-                with: .keyDown,
-                location: .zero,
-                modifierFlags: [],
-                timestamp: ProcessInfo.processInfo.systemUptime + (Double(index) * 0.001),
-                windowNumber: window.windowNumber,
-                context: nil,
-                characters: "a",
-                charactersIgnoringModifiers: "a",
-                isARepeat: true,
-                keyCode: 0
-            ))
-
+        for _ in 0..<3 {
             withExtendedLifetime(surface) {
-                surfaceView.keyDown(with: event)
+                surfaceView.insertText(
+                    "あ",
+                    replacementRange: NSRange(location: NSNotFound, length: 0)
+                )
             }
         }
 
-        XCTAssertEqual(forwardedRepeatCount, 3, "Repeat IME text keyDown events should still reach Ghostty")
-        XCTAssertEqual(forwardedTexts, ["あ", "あ", "あ"], "IME repeat should exercise the accumulated committed-text path")
+        XCTAssertEqual(forwardedCommitCount, 3, "Committed IME text should reach Ghostty")
+        XCTAssertEqual(forwardedTexts, ["あ", "あ", "あ"])
         XCTAssertEqual(
             surface.debugForceRefreshCount(),
             0,
-            "IME key repeat must rely on Ghostty wakeups instead of forcing a synchronous surface refresh per key"
+            "Committed IME text must rely on Ghostty wakeups instead of forcing a synchronous surface refresh"
         )
 #else
         throw XCTSkip("Debug-only regression test")

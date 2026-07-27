@@ -3306,7 +3306,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var wordPathHoverActive = false
     private var keyboardCopyModeConsumedKeyUps: Set<UInt16> = []
     private var terminalKeyInputLifecycleTracker = TerminalKeyInputLifecycleTracker()
-    private var keyboardLayoutKeyIdentityTracker = KeyboardLayoutKeyIdentityTracker()
     private var keyboardCopyModeInputState = TerminalKeyboardCopyModeInputState()
     private var keyboardCopyModeCursor: TerminalKeyboardCopyModeCursor?
     private var keyboardCopyModePendingViewportJumpSync = false
@@ -3351,7 +3350,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return UserDefaults.standard.bool(forKey: "cmuxKeyLatencyProbe")
     }()
     @MainActor static var debugGhosttySurfaceKeyEventObserver: ((ghostty_input_key_s) -> Void)?
-    @MainActor static var debugTextInputEventHandler: ((GhosttyNSView, NSEvent) -> Bool)?
 #endif
     private var eventMonitor: Any?
     private var trackingArea: NSTrackingArea?
@@ -3637,7 +3635,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
 #endif
         guard let window else {
-            keyboardLayoutKeyIdentityTracker.reset()
+            terminalKeyInputLifecycleTracker.reset()
             return
         }
 
@@ -3666,7 +3664,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             object: window,
             queue: .main
         ) { [weak self] _ in
-            self?.keyboardLayoutKeyIdentityTracker.reset()
+            self?.terminalKeyInputLifecycleTracker.reset()
         }
 
         if let surface = terminalSurface?.surface,
@@ -5117,7 +5115,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         var shouldApplySurfaceFocus = false
         if result {
             terminalKeyInputLifecycleTracker.reset()
-            keyboardLayoutKeyIdentityTracker.reset()
             if let terminalSurface,
                AppDelegate.shared?.allowsTerminalKeyboardFocus(
                    workspaceId: terminalSurface.tabId,
@@ -5217,7 +5214,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let result = super.resignFirstResponder()
         if result {
             terminalKeyInputLifecycleTracker.reset()
-            keyboardLayoutKeyIdentityTracker.reset()
             desiredFocus = false
             terminalSurface?.hostedView.cancelSuppressedFirstResponderFocusReapply()
             terminalSurface?.recordExternalFocusState(false)
@@ -5281,11 +5277,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// `interpretKeyEvents`, which is AppKit's supported responder entry point
     /// for an explicit event list.
     private func handleTextInputEvent(_ event: NSEvent) -> Bool {
-#if DEBUG
-        if let debugTextInputEventHandler = Self.debugTextInputEventHandler {
-            return debugTextInputEventHandler(self, event)
-        }
-#endif
         guard event.windowNumber != 0,
               NSApp.currentEvent === event,
               let inputContext else {
@@ -5743,8 +5734,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         keyEvent.action = action
         keyEvent.consumed_mods = consumedModsFromFlags(translationEvent.modifierFlags)
         keyEvent.composing = composing
-        keyEvent.unshifted_codepoint = keyboardLayoutKeyIdentityTracker.codepointForKeyDown(
-            keyCode: event.keyCode,
+        keyEvent.unshifted_codepoint = terminalKeyInputLifecycleTracker.unshiftedCodepoint(
+            forKeyDown: event.keyCode,
             resolvedCodepoint: keyEvent.unshifted_codepoint,
             isRepeat: event.isARepeat
         )
@@ -5813,8 +5804,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
 
     override func keyUp(with event: NSEvent) {
-        let pressedCodepoint = keyboardLayoutKeyIdentityTracker.codepointForKeyUp(
-            keyCode: event.keyCode
+        let release = terminalKeyInputLifecycleTracker.release(
+            forKeyUp: event.keyCode
         )
         guard let surface = ensureSurfaceReadyForInput() else {
             super.keyUp(with: event)
@@ -5834,9 +5825,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if keyboardCopyModeConsumedKeyUps.remove(event.keyCode) != nil {
             return
         }
-        if !terminalKeyInputLifecycleTracker.shouldForwardKeyUp(
-            keyCode: event.keyCode
-        ) {
+        if !release.forwardsPhysicalKey {
             return
         }
 
@@ -5844,8 +5833,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // consumers that depend on precise key identity (for example Space
         // hold/release flows) receive consistent metadata.
         var keyEvent = ghosttyKeyEvent(for: event, surface: surface)
-        if let pressedCodepoint {
-            keyEvent.unshifted_codepoint = pressedCodepoint
+        if let unshiftedCodepoint = release.unshiftedCodepoint {
+            keyEvent.unshifted_codepoint = unshiftedCodepoint
         }
         keyEvent.action = GHOSTTY_ACTION_RELEASE
         keyEvent.text = nil

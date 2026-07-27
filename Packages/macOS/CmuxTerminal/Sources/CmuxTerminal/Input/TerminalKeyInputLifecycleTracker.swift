@@ -13,6 +13,7 @@ public struct TerminalKeyInputLifecycleTracker: Sendable {
     private struct PhysicalKeyLifecycle: Sendable {
         let owner: PhysicalKeyOwner
         let terminalActions: [TerminalKeyInputAction]
+        var unshiftedCodepoint: UInt32?
     }
 
     private var lifecycles: [UInt16: PhysicalKeyLifecycle] = [:]
@@ -36,7 +37,8 @@ public struct TerminalKeyInputLifecycleTracker: Sendable {
             plan.forwardsPhysicalKey ? .terminal : .appKit
         let plannedLifecycle = PhysicalKeyLifecycle(
             owner: plannedOwner,
-            terminalActions: plan.actions.filter(\.forwardsPhysicalKey)
+            terminalActions: plan.actions.filter(\.forwardsPhysicalKey),
+            unshiftedCodepoint: nil
         )
         let lifecycle: PhysicalKeyLifecycle
 
@@ -58,12 +60,46 @@ public struct TerminalKeyInputLifecycleTracker: Sendable {
         }
     }
 
-    /// Clears a completed lifecycle and reports whether the terminal owns its release.
+    /// Preserves the first physical-layout identity through repeats.
+    public mutating func unshiftedCodepoint(
+        forKeyDown keyCode: UInt16,
+        resolvedCodepoint: UInt32,
+        isRepeat: Bool
+    ) -> UInt32 {
+        if isRepeat,
+           let codepoint = lifecycles[keyCode]?.unshiftedCodepoint {
+            return codepoint
+        }
+
+        guard var lifecycle = lifecycles[keyCode] else {
+            lifecycles[keyCode] = PhysicalKeyLifecycle(
+                owner: .terminal,
+                terminalActions: [],
+                unshiftedCodepoint: resolvedCodepoint
+            )
+            return resolvedCodepoint
+        }
+
+        lifecycle.unshiftedCodepoint = resolvedCodepoint
+        lifecycles[keyCode] = lifecycle
+        return resolvedCodepoint
+    }
+
+    /// Clears a completed lifecycle and returns its release metadata.
     ///
     /// An unmatched release is forwarded to preserve the native fallback used
     /// when focus changes after the operating system has delivered the press.
-    public mutating func shouldForwardKeyUp(keyCode: UInt16) -> Bool {
-        lifecycles.removeValue(forKey: keyCode)?.owner != .appKit
+    public mutating func release(forKeyUp keyCode: UInt16) -> TerminalKeyInputRelease {
+        guard let lifecycle = lifecycles.removeValue(forKey: keyCode) else {
+            return TerminalKeyInputRelease(
+                forwardsPhysicalKey: true,
+                unshiftedCodepoint: nil
+            )
+        }
+        return TerminalKeyInputRelease(
+            forwardsPhysicalKey: lifecycle.owner == .terminal,
+            unshiftedCodepoint: lifecycle.unshiftedCodepoint
+        )
     }
 
     /// Clears all key lifecycles after responder ownership changes.
