@@ -4,15 +4,15 @@ import Darwin
 import Foundation
 import CmuxSettings
 
-private struct ComputerUseMenuBarActivityScan: Sendable {
-    let activeRow: ComputerUseMenuBarRow?
-    let activeState: ComputerUseDriverState?
-    let hasRecentStateFiles: Bool
-}
-
 /// Builds the value-only snapshot consumed by the computer-use menu-bar controller.
 @MainActor
 final class ComputerUseMenuBarSnapshotStore: ObservableObject {
+    private struct ComputerUseMenuBarActivityScan: Sendable {
+        let activeRow: ComputerUseMenuBarRow?
+        let activeState: ComputerUseDriverState?
+        let hasRecentStateFiles: Bool
+    }
+
     @Published private(set) var snapshot: ComputerUseMenuBarSnapshot = .hidden
 
     private let liveAgentIndex: SharedLiveAgentIndex
@@ -145,7 +145,7 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
             do {
                 // A bounded, cancellable debounce is the intended behavior: one
                 // atomic state write can emit several filesystem events.
-                try await Task.sleep(for: .seconds(delay))
+                try await ContinuousClock().sleep(for: .seconds(delay))
             } catch {
                 return
             }
@@ -295,7 +295,7 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
                 // This bounded, cancellable delay is the state-freshness
                 // deadline. It fires once so an idle session disappears even
                 // when no later filesystem event arrives.
-                try await Task.sleep(for: .seconds(delay))
+                try await ContinuousClock().sleep(for: .seconds(delay))
             } catch {
                 return
             }

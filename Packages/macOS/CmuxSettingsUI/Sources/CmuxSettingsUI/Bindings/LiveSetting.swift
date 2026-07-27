@@ -32,15 +32,12 @@ import SwiftUI
 /// no wrapping or casting. Reads work without an injected ``SettingsRuntime``
 /// (the `@State` is seeded from the catalog default); the runtime is only
 /// needed to observe and persist changes, resolved from the environment.
-// Deliberately NOT @MainActor. SwiftUI's `DynamicProperty.update()` requirement
-// is nonisolated, so a @MainActor conformance forces a cross-isolation bridge
-// whose runtime executor check (`_checkExpectedExecutor` ->
-// swift_task_isCurrentExecutor) SEGVs on macOS 26.4.x — crashing the Debug app
-// the moment any @LiveSetting view renders. A plain nonisolated DynamicProperty
-// emits no such check. SwiftUI already drives `update()` and the property-wrapper
-// accessors on the main thread, and every stored member here is either a value
-// type (@State/@Environment projections) or a Sendable closure, so nonisolated
-// is safe.
+/// Deliberately not main-actor isolated. SwiftUI's `DynamicProperty.update()`
+/// requirement is nonisolated, so a main-actor conformance forces a
+/// cross-isolation bridge whose runtime executor check crashes on macOS 26.4.x.
+/// SwiftUI drives `update()` and the property-wrapper accessors on the main
+/// thread, while the wrapper's stored members are value projections or
+/// `Sendable` closures.
 @propertyWrapper
 public struct LiveSetting<Value: SettingCodable>: DynamicProperty {
     @Environment(\.settingsRuntime) private var runtime

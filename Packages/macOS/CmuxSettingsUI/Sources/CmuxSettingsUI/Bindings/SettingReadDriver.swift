@@ -24,15 +24,13 @@ import SwiftUI
 // DynamicProperty (see LiveSetting.swift for why that must stay nonisolated on
 // macOS 26.4.x), so its methods must be callable from a nonisolated context.
 final class SettingReadDriver<Value: Sendable> {
-    private struct State {
-        var didActivate = false
-        var task: Task<Void, Never>?
-    }
-
     // DynamicProperty.update() is synchronous and nonisolated, so this lock
     // protects only the one-shot activation claim and task handle shared with
     // unconstrained deinit; it is never held while calling a closure or awaiting.
-    private let state = OSAllocatedUnfairLock(initialState: State())
+    private let state = OSAllocatedUnfairLock(initialState: (
+        didActivate: false,
+        task: Optional<Task<Void, Never>>.none
+    ))
 
     /// Starts forwarding `makeStream()`'s elements into `sink`. Idempotent:
     /// the first call wins and later calls are no-ops, so the subscription is
