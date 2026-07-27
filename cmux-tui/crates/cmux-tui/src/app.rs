@@ -3265,6 +3265,8 @@ pub struct App {
     sidebar_plugin_retry_at: Option<Instant>,
     sidebar_width_override: Option<u16>,
     machine_sidebar_width_override: Option<u16>,
+    /// Host grid used to compute the cached sidebar and pane rectangles.
+    pub(crate) frame_layout_size: Option<(u16, u16)>,
     /// Pane region of the current frame (screen minus sidebar/status).
     pub content_area: Rect,
     /// Clickable regions of the current frame, rebuilt by the renderers.
@@ -4354,6 +4356,7 @@ pub fn run_with_machine_updates(
         sidebar_plugin_retry_at: None,
         sidebar_width_override: None,
         machine_sidebar_width_override: None,
+        frame_layout_size: None,
         content_area: Rect::default(),
         hits: Vec::new(),
         tab_scroll: HashMap::new(),
@@ -5908,8 +5911,9 @@ impl App {
     /// Refresh the tree snapshot, recompute the active screen's layout
     /// (each pane's border box eats one cell on every side), and push
     /// content sizes to surfaces.
-    fn sync_layout(&mut self, size: (u16, u16)) {
+    pub(crate) fn sync_layout(&mut self, size: (u16, u16)) {
         let (width, height) = size;
+        self.frame_layout_size = Some(size);
         self.sidebar_layout = if self.surface_only.is_some() {
             SidebarLayout {
                 content: Rect { x: 0, y: 0, width, height },
@@ -19831,6 +19835,7 @@ mod tests {
             sidebar_plugin_retry_at: None,
             sidebar_width_override: None,
             machine_sidebar_width_override: None,
+            frame_layout_size: None,
             content_area: Rect::default(),
             hits: Vec::new(),
             tab_scroll: HashMap::new(),
