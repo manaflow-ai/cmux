@@ -17,6 +17,9 @@ use tungstenite::{Error as WsError, Message, WebSocket, client};
 /// between CDP layers cannot expand the maximum pending event count.
 pub const CDP_EVENT_QUEUE_CAPACITY: usize = 64;
 const CDP_INGRESS_EVENT_CAPACITY: usize = 1024;
+// A newly attached target may redirect while its first frame tree is in flight.
+// Bound the retry so a page that navigates continuously cannot block setup forever.
+const MAIN_FRAME_SEED_ATTEMPTS: usize = 8;
 /// Maximum estimated retained bytes in each bounded CDP event queue.
 ///
 /// The estimate covers dynamically retained event payloads and uses saturating
@@ -231,6 +234,17 @@ struct PendingDocument {
     loader_id: String,
     navigation_epoch: u64,
 }
+
+#[derive(Debug)]
+struct MainFrameSnapshotInvalidated;
+
+impl std::fmt::Display for MainFrameSnapshotInvalidated {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("Page.getFrameTree snapshot was invalidated by concurrent navigation")
+    }
+}
+
+impl std::error::Error for MainFrameSnapshotInvalidated {}
 
 struct EventQueue {
     state: Mutex<EventQueueState>,
@@ -627,7 +641,18 @@ impl CdpClient {
     }
 
     pub fn seed_main_frame(&self, session_id: &str) -> anyhow::Result<()> {
-        self.snapshot_main_frame(session_id).map(|_| ())
+        let mut remaining_attempts = MAIN_FRAME_SEED_ATTEMPTS;
+        loop {
+            match self.snapshot_main_frame(session_id) {
+                Ok(_) => return Ok(()),
+                Err(error)
+                    if error.is::<MainFrameSnapshotInvalidated>() && remaining_attempts > 1 =>
+                {
+                    remaining_attempts -= 1;
+                }
+                Err(error) => return Err(error),
+            }
+        }
     }
 
     pub fn snapshot_main_frame(&self, session_id: &str) -> anyhow::Result<(String, String)> {
@@ -659,7 +684,7 @@ impl CdpClient {
             frame_id,
             loader_id,
         ) {
-            anyhow::bail!("Page.getFrameTree snapshot was invalidated by concurrent navigation");
+            return Err(MainFrameSnapshotInvalidated.into());
         }
         Ok((frame_id.to_string(), loader_id.to_string()))
     }
