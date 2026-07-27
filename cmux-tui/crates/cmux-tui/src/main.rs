@@ -66,6 +66,7 @@ const PROVIDER_WORKSPACE_AUTHORITY_ENV: &str = "CMUX_PROVIDER_WORKSPACE_AUTHORIT
 const SERVER_SHUTDOWN_EXIT_GRACE: std::time::Duration = std::time::Duration::from_secs(1);
 const SERVER_SHUTDOWN_RETRY_INITIAL: std::time::Duration = std::time::Duration::from_millis(100);
 const SERVER_SHUTDOWN_RETRY_MAX: std::time::Duration = std::time::Duration::from_secs(5);
+const EXISTING_SESSION_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
 
 #[cfg(target_os = "linux")]
 unsafe extern "C" {
@@ -1142,22 +1143,17 @@ fn run_server(
         .socket
         .clone()
         .unwrap_or_else(|| cmux_tui_core::server::default_socket_path(&args.session));
-    if args.should_attach_existing(&ws_addr, &ws_token) && socket_path.exists() {
-        match RemoteSession::connect(&socket_path) {
-            Ok(remote) => {
-                return run_connected_session_client(
-                    socket_path,
-                    args.session,
-                    config,
-                    Session::Remote(remote),
-                    None,
-                );
-            }
-            Err(error) if cmux_tui_core::platform::transport::connect(&socket_path).is_ok() => {
-                return Err(error);
-            }
-            Err(_) => {}
-        }
+    if args.should_attach_existing(&ws_addr, &ws_token)
+        && socket_path.exists()
+        && let Some(remote) = connect_existing_local_session(&socket_path)?
+    {
+        return run_connected_session_client(
+            socket_path,
+            args.session,
+            config,
+            Session::Remote(remote),
+            None,
+        );
     }
 
     #[cfg(unix)]
@@ -1271,6 +1267,17 @@ fn run_server(
     server_process.shutdown();
     server_process.complete();
     result
+}
+
+fn connect_existing_local_session(
+    socket_path: &std::path::Path,
+) -> anyhow::Result<Option<Arc<RemoteSession>>> {
+    let deadline = std::time::Instant::now() + EXISTING_SESSION_CONNECT_TIMEOUT;
+    let stream = match cmux_tui_core::platform::transport::connect_until(socket_path, deadline) {
+        Ok(stream) => stream,
+        Err(_) => return Ok(None),
+    };
+    RemoteSession::connect_local_stream(stream, socket_path).map(Some)
 }
 
 fn run_tui(

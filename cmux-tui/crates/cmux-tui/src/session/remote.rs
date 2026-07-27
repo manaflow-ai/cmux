@@ -568,6 +568,21 @@ impl RemoteSession {
         let stream = transport::connect(path).map_err(|e| {
             anyhow::anyhow!("cannot connect to session socket {}: {e}", path.display())
         })?;
+        Self::connect_local_stream_with_subscription(stream, path, subscribe)
+    }
+
+    pub(crate) fn connect_local_stream(
+        stream: Box<dyn transport::Stream>,
+        path: &Path,
+    ) -> anyhow::Result<Arc<Self>> {
+        Self::connect_local_stream_with_subscription(stream, path, true)
+    }
+
+    fn connect_local_stream_with_subscription(
+        stream: Box<dyn transport::Stream>,
+        path: &Path,
+        subscribe: bool,
+    ) -> anyhow::Result<Arc<Self>> {
         let transport = RemoteTransport::json_lines(stream).map_err(|error| {
             anyhow::anyhow!("cannot configure JSON-lines session transport: {error}")
         })?;
