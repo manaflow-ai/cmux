@@ -5,13 +5,11 @@ description: "Build a custom cmux sidebar from a plain-language request. Use whe
 
 # cmux Custom Sidebar
 
-cmux renders custom sidebars from a small SwiftUI-style file at runtime: no Xcode, no build step, no signing. The file hot-reloads on save, binds to live cmux state (workspaces, tabs, git, PRs, clock), and can run real cmux commands on tap.
+cmux renders custom sidebars from a small SwiftUI-style file at runtime: no Xcode, no build step, no signing. The file hot-reloads on save, binds to live cmux state (workspaces, tabs, git, PRs, clock), and runs real cmux commands on tap.
 
-The person asking is usually describing a result ("a sidebar that shows my workspaces and lets me jump between them"), not an implementation. Turn that into a clean, native-looking sidebar and make the engineering decisions for them. Do not ask them about SwiftUI, files, or syntax.
+The person asking is describing a result ("a sidebar that shows my workspaces and lets me jump between them"), not an implementation. Make the engineering decisions for them; do not ask them about SwiftUI, files, or syntax.
 
-## Full reference
-
-This skill is the workflow summary. The complete authoring contract (every supported view, modifier, language feature, and data field) is one command away; read it before writing a non-trivial sidebar:
+This skill is the workflow summary. Read the complete authoring contract (every supported view, modifier, language feature, and data field) before writing a non-trivial sidebar:
 
 ```bash
 cmux docs sidebars
@@ -20,28 +18,24 @@ curl -fsSL https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/custom-s
 
 ## Workflow
 
-1. **Enable the beta** (once). Custom sidebars are behind Settings → Beta features → Custom sidebars (`customSidebars.beta.enabled`). If a written sidebar does not appear in the picker, this flag is the first thing to check.
-2. **Write a named file.** The name becomes the menu label; use short kebab-case:
-   ```
-   ~/.config/cmux/sidebars/<name>.swift
-   ```
-   The file is a single SwiftUI-style view expression (no `struct`, no `var body`, no imports). A `.json` variant exists for static layouts; prefer `.swift` for anything dynamic.
-3. **Validate and select it:**
+1. **Enable the beta** (once): Settings > Beta features > Custom sidebars (`customSidebars.beta.enabled`). If a written sidebar does not appear in the picker, check this first.
+2. **Write a named file** at `~/.config/cmux/sidebars/<name>.swift`. The name becomes the menu label; use short kebab-case. The file is a single SwiftUI-style view expression (no `struct`, no `var body`, no imports). A `.json` variant exists for static layouts; prefer `.swift` for anything dynamic.
+3. **Validate and select:**
    ```bash
    cmux sidebar validate <name>   # parse/interpret check with real data shapes
-   cmux sidebar select <name>     # switch the sidebar to it
+   cmux sidebar select <name>
    ```
-   The user can also pick it manually: right-click the sidebar toggle button.
-4. **Iterate.** Saving the file hot-reloads the sidebar in place (`cmux sidebar reload` forces it). Look at the result, fix what looks off, and verify rows show real data and taps do the right thing before declaring it done.
+   The user can also right-click the sidebar toggle button to pick it.
+4. **Iterate.** Saving hot-reloads in place (`cmux sidebar reload` forces it). Verify rows show real data and taps do the right thing before declaring it done.
 
 ## Authoring rules
 
-- **Default to live data.** Bind to the `workspaces` context instead of hard-coding text so the sidebar stays correct on its own.
-- **Make it interactive by default.** Rows that represent something openable should run the matching `cmux(...)` action on tap. A list that just displays text is rarely what they wanted.
-- **Prefer `Reorderable` for workspace-like lists.** It gives persisted drag-and-drop reordering for free.
-- **Keep it native and uncluttered:** a title, a divider, then the content.
-- **Cap long lists** (`.prefix(20)`, filter/sort before rendering). The sidebar re-evaluates about once a second; do not render hundreds of rows.
-- **Stay inside the supported subset.** Unsupported syntax is skipped gracefully (never crashes), but choose the closest supported approach rather than shipping a half-blank sidebar.
+- Bind to the `workspaces` context instead of hard-coding text, so the sidebar stays correct on its own.
+- Rows that represent something openable run the matching `cmux(...)` action on tap. A list that only displays text is rarely what they wanted.
+- Use `Reorderable` for workspace-like lists; it gives persisted drag-and-drop reordering for free.
+- Keep it native and uncluttered: a title, a divider, then the content.
+- Cap long lists (`.prefix(20)`, filter/sort before rendering). The sidebar re-evaluates about once a second.
+- Stay inside the supported subset. Unsupported syntax is skipped gracefully rather than crashing, but choose the closest supported approach instead of shipping a half-blank sidebar.
 
 ## Quick start
 
@@ -67,7 +61,7 @@ cmux sidebar validate mine && cmux sidebar select mine
 
 ## Live data context (read-only, refreshes ~1s)
 
-- `workspaces`: array with `id`, `title`, `selected`, `pinned`, `index`, `directory`, `ports` + `portCount`, `unread`, `tabs` + `tabCount`; plus, when present: `description`, `color`, `branch` + `dirty`, `pr` / `prs` (`{number, label, url, status, stale, branch}`), `progress` (`{value, label}`), `latestMessage`, `latestPrompt`, `latestAt`, `remote` (`{target, state, connected}`).
+- `workspaces`: `id`, `title`, `selected`, `pinned`, `index`, `directory`, `ports` + `portCount`, `unread`, `tabs` + `tabCount`; when present also `description`, `color`, `branch` + `dirty`, `pr` / `prs` (`{number, label, url, status, stale, branch}`), `progress` (`{value, label}`), `latestMessage`, `latestPrompt`, `latestAt`, `remote` (`{target, state, connected}`).
 - `workspaces[i].tabs`: `id`, `title`, `focused`, `pinned`; plus `directory`, `branch` + `dirty`, `ports` when available.
 - `clock`: `{time, hour, minute, second, weekday, epoch}`.
 - Scalars: `workspaceCount`, `selectedTitle`, `selectedId`, `unreadTotal`.
@@ -76,17 +70,17 @@ Optional fields are omitted when absent; guard with `if let b = w.branch { ... }
 
 ## Actions
 
-A button or `.onTapGesture` body calls `cmux("<method>", param: value)`, dispatched through the same surface as the `cmux` CLI. Common methods: `workspace.select` (`workspace_id`), `surface.focus` (`surface_id`), `workspace.reorder` (`workspace_id` + `index`). `openURL("https://...")` opens links. Discover the full command surface with `cmux docs api`.
+A button or `.onTapGesture` body calls `cmux("<method>", param: value)`, dispatched through the same surface as the CLI. Common methods: `workspace.select` (`workspace_id`), `surface.focus` (`surface_id`), `workspace.reorder` (`workspace_id` + `index`). `openURL("https://...")` opens links. Full command surface: `cmux docs api`.
 
-## Supported subset at a glance
+## Supported subset
 
-Containers: stacks (incl. lazy), `Group`, `List`, `Section`, grids, `ViewThatFits`, `ScrollView`, `HSplitView` (two resizable columns). Content: `Text`, `Label`, `Image(systemName:)`, `Button` (title and label form), `Menu`, `ProgressView`, `Gauge`, `Spacer`, `Divider`, shapes, gradients via `.background`. Modifiers: full typography set, colors as hex strings or tokens, `.padding`/`.frame`/layout, `.background`/`.overlay`/`.mask`/`.contextMenu` with arbitrary nested views, shadows/borders/opacity/effects, `.onTapGesture`, `.help`, `.disabled`. Language: `let`, user `func` helpers, `for`/`ForEach`, `if/else`, ternary, string interpolation, arithmetic, array methods (`filter`/`map`/`sorted`/`prefix`/...), string and number formatting.
+Containers: stacks (including lazy), `Group`, `List`, `Section`, grids, `ViewThatFits`, `ScrollView`, `HSplitView` (two resizable columns). Content: `Text`, `Label`, `Image(systemName:)`, `Button` (title and label form), `Menu`, `ProgressView`, `Gauge`, `Spacer`, `Divider`, shapes, gradients via `.background`. Modifiers: full typography set, colors as hex strings or tokens, `.padding`/`.frame`/layout, `.background`/`.overlay`/`.mask`/`.contextMenu` with arbitrary nested views, shadows/borders/opacity/effects, `.onTapGesture`, `.help`, `.disabled`. Language: `let`, user `func` helpers, `for`/`ForEach`, `if/else`, ternary, string interpolation, arithmetic, array methods (`filter`/`map`/`sorted`/`prefix`), string and number formatting.
 
 Not yet supported (write the natural Swift anyway; it degrades gracefully): `@State` and input controls (`TextField`, `Toggle`, `Slider`, `Picker`), custom `struct`/`View` definitions, navigation (`sheet`/`popover`), `AsyncImage`. Two-way editing does not work yet; taps that run `cmux(...)` do.
 
 ## Troubleshooting
 
-- Sidebar missing from the right-click picker: the beta flag is off, or the file is not directly under `~/.config/cmux/sidebars/`.
-- Blank or partial render: run `cmux sidebar validate <name>`; errors show inline in the sidebar with the failing location. A broken save keeps the last working render on screen, so re-save after fixing.
+- Missing from the right-click picker: the beta flag is off, or the file is not directly under `~/.config/cmux/sidebars/`.
+- Blank or partial render: run `cmux sidebar validate <name>`. Errors show inline in the sidebar with the failing location; a broken save keeps the last working render on screen, so re-save after fixing.
 - Rows not tappable: wrap the row in `Button(action: { cmux(...) }) { ... }` or add `.onTapGesture { cmux(...) }`.
 - Reorder not persisting: use `Reorderable(data, move: "workspace.reorder")`, not `List`/`.onMove`/`.draggable`.

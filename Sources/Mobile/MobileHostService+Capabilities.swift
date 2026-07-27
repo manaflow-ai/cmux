@@ -2,6 +2,7 @@ import Foundation
 
 extension MobileHostService {
     nonisolated static let irohArtifactLaneCapability = "iroh.artifact_lane.v1"
+    nonisolated static let workspaceChangesCapability = "workspace.changes.v1"
 
     /// The single source of truth for the capabilities advertised to mobile
     /// clients via `mobile.host.status`. Every status path (the public-status
@@ -17,7 +18,22 @@ extension MobileHostService {
     /// still gated by the same-account Stack-auth check the rest of the mobile
     /// data plane enforces.
     nonisolated static var mobileHostCapabilities: [String] {
-        let capabilities = [
+        mobileHostCapabilities(
+            includingWorkspaceChanges: CmuxFeatureFlags.offMainEffectiveValue(
+                for: CmuxFeatureFlags.mobileWorkspaceChangesFlag
+            )
+        )
+    }
+
+    /// The mobile diff viewer ships behind a remote feature flag: when the
+    /// flag is off this list omits `workspace.changes.v1`, and every iOS
+    /// entry point (chip, toolbar button, hint, sheet, summary polling)
+    /// feature-detects itself away. The RPC dispatch applies the same flag,
+    /// so a phone holding a stale capability list cannot call through.
+    nonisolated static func mobileHostCapabilities(
+        includingWorkspaceChanges: Bool
+    ) -> [String] {
+        var capabilities = [
             "events.v1",
             "notification.badge.v1",
             "notification.dismiss.v1",
@@ -36,7 +52,7 @@ extension MobileHostService {
             "terminal.artifact.v1",
             "terminal.artifact.list.v1",
             "workspace.actions.v1",
-            "workspace.changes.v1",
+            Self.workspaceChangesCapability,
             "workspace.metadata.v1",
             "workspace.read_state.v1",
             "workspace.close.v1",
@@ -58,6 +74,9 @@ extension MobileHostService {
             // this to render collapsible groups only against a Mac that emits them.
             "workspace.groups.v1",
         ]
+        if !includingWorkspaceChanges {
+            capabilities.removeAll { $0 == Self.workspaceChangesCapability }
+        }
         #if DEBUG
         // Lets a dev Mac impersonate an older host while dogfooding the iOS update hint.
         let suppressed = Set(

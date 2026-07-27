@@ -279,14 +279,21 @@ extension AppDelegate {
     }
 
     private func canMoveSurfaceIntoDock(_ source: ContainerSurfaceLocation) -> Bool {
-        if case .workspace(_, let workspace, _, _) = source,
-           workspace.isRemoteTmuxMirror {
+        switch source {
+        case .workspace(_, let workspace, let panelId, _):
+            if workspace.panels[panelId]?.panelType == .simulator {
+                // Simulator control and persistence route through Workspace. Until
+                // Dock has an equivalent owner, keep the live panel with that owner.
+                return false
+            }
+            guard workspace.isRemoteTmuxMirror else { return true }
             // Remote tmux mirror panes are manually driven by the mirror
             // workspace. Dock has no mirror-owned I/O routing yet, so moving one
             // would leave the Dock panel detached from its remote owner.
             return false
+        case .dock(let dock, let panelId):
+            return dock.panels[panelId]?.panelType != .simulator
         }
-        return true
     }
 
     private func shouldPreserveSourceWorkspaceAfterDockMove(

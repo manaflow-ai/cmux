@@ -435,4 +435,17 @@ import CmuxSettings
                 )
         )
     }
+
+    @Test func scopeCaptionDescribesSimulatorFocus() {
+        let (store, catalog, errorLog) = makeStore()
+        let model = ShortcutListModel(jsonStore: store, catalog: catalog, errorLog: errorLog)
+
+        #expect(
+            model.scopeCaption(for: .simulatorHome)
+                == String(
+                    localized: "shortcut.when.caption.simulatorFocus",
+                    defaultValue: "Only while a Simulator is focused"
+                )
+        )
+    }
 }

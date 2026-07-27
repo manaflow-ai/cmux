@@ -50,6 +50,7 @@ import type {
   SplitDirection,
   SubscribeEvent,
   SurfaceResult,
+  TerminalKeyInput,
   TerminalPlacement,
   TerminalEventsResult,
   Tree,
@@ -81,6 +82,7 @@ export interface CmuxClientOptions {
 
 export const DEFAULT_MAX_BUFFERED_EVENTS = 256;
 export const DEFAULT_MAX_ATTACH_ENCODED_CHARS = 16 * 1024 * 1024;
+export const TERMINAL_KEY_TEXT_MAX_BYTES = 4 * 1024;
 
 function workspaceMutationResult(result: EmptyResult | WorkspaceMutation): WorkspaceMutation {
   if ("workspace" in result
@@ -96,6 +98,21 @@ function workspaceMutationResult(result: EmptyResult | WorkspaceMutation): Works
     };
   }
   throw new CmuxProtocolError("server returned an invalid workspace registry mutation");
+}
+
+function normalizeClientSizing(clients: ListClientsResult): ListClientsResult {
+  return clients.map((client) => {
+    const fallback = client.size_participating ?? true;
+    if (client.sizes.every((size) => size.size_participating !== undefined)) return client;
+    return {
+      ...client,
+      sizes: client.sizes.map((size) => (
+        size.size_participating === undefined
+          ? { ...size, size_participating: fallback }
+          : size
+      )),
+    };
+  });
 }
 
 export type NewTabOptions = CmuxRequestParams<"new-tab">;
@@ -425,7 +442,12 @@ export class CmuxClient {
       : requestOrCommand;
     const response = await this.sendRaw(request as unknown as JsonObject);
     if (response.ok) return response.data as CmuxResponseDataFor<C>;
-    throw new CmuxCommandError(response.error || "unknown error", response.id, response);
+    throw new CmuxCommandError(
+      response.error || "unknown error",
+      response.id,
+      response,
+      response.error_delivery,
+    );
   }
 
   async identify(): Promise<IdentifyResult> {
@@ -442,16 +464,21 @@ export class CmuxClient {
   setClientInfo(name?: string, kind?: string): Promise<EmptyResult> {
     return this.request("set-client-info", { name, kind });
   }
-  listClients(): Promise<ListClientsResult> { return this.request("list-clients"); }
+  async listClients(): Promise<ListClientsResult> {
+    return normalizeClientSizing(await this.request("list-clients"));
+  }
   detachClient(client: Id): Promise<EmptyResult> { return this.request("detach-client", { client }); }
-  setClientSizing(client: Id, enabled: boolean): Promise<EmptyResult> {
-    return this.request("set-client-sizing", { client, enabled });
+  async setClientSizing(surface: Id, client: Id, enabled: boolean): Promise<EmptyResult> {
+    await this.requireProtocol(10, "set-client-sizing");
+    return this.request("set-client-sizing", { surface, client, enabled });
   }
-  useOnlyClientSizing(client: Id): Promise<EmptyResult> {
-    return this.request("set-client-sizing", { client, enabled: true, exclusive: true });
+  async useOnlyClientSizing(surface: Id, client: Id): Promise<EmptyResult> {
+    await this.requireProtocol(10, "set-client-sizing");
+    return this.request("set-client-sizing", { surface, client, enabled: true, exclusive: true });
   }
-  useAllClientSizing(): Promise<EmptyResult> {
-    return this.request("set-client-sizing", { enabled: true });
+  async useAllClientSizing(surface: Id): Promise<EmptyResult> {
+    await this.requireProtocol(10, "set-client-sizing");
+    return this.request("set-client-sizing", { surface, enabled: true });
   }
   reloadConfig(): Promise<ReloadConfigResult> { return this.request("reload-config"); }
   setWindowTitle(title: string): Promise<EmptyResult> { return this.request("set-window-title", { title }); }
@@ -470,6 +497,17 @@ export class CmuxClient {
     const legacyBytes = options.bytes instanceof Uint8Array ? encodeBase64(options.bytes) : options.bytes;
     const bytes = "base64" in options ? options.base64 : legacyBytes;
     return this.request("send", { surface, text: options.text, bytes, paste: options.paste });
+  }
+
+  async clearHistory(surface: Id, fallbackKey?: TerminalKeyInput): Promise<EmptyResult> {
+    await this.requireCapability("clear-history-v1", "clear-history");
+    if (fallbackKey !== undefined) {
+      await this.requireCapability("clear-history-key-v1", "clear-history key fallback");
+      if (new TextEncoder().encode(fallbackKey.utf8).byteLength > TERMINAL_KEY_TEXT_MAX_BYTES) {
+        throw new TypeError("terminal key text exceeds the 4 KiB protocol limit");
+      }
+    }
+    return this.request("clear-history", { surface, fallback_key: fallbackKey });
   }
 
   readScreen(surface: Id): Promise<ReadScreenResult> { return this.request("read-screen", { surface }); }
@@ -754,7 +792,12 @@ export class CmuxClient {
     });
     if (!response.ok) {
       stream.close();
-      throw new CmuxCommandError(response.error || "unknown error", response.id, response);
+      throw new CmuxCommandError(
+        response.error || "unknown error",
+        response.id,
+        response,
+        response.error_delivery,
+      );
     }
     const terminalError = streamError ?? stream.error;
     if (terminalError) throw terminalError;
