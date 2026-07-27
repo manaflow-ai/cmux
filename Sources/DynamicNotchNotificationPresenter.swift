@@ -3,32 +3,32 @@ import DynamicNotchKit
 import Foundation
 import SwiftUI
 
-/// Owns the current DynamicNotchKit panel and maps its controls back to the
-/// existing notification navigation and read-state paths.
+/// Owns the accumulated Dynamic Notch tray and maps each row's controls back
+/// to the existing notification navigation and read-state paths.
 @MainActor
 final class DynamicNotchNotificationPresenter: NSObject, NSWindowDelegate {
     static let windowIdentifier = "cmux.dynamicNotchNotification"
 
     typealias Sleep = @Sendable (Duration) async throws -> Void
+    private typealias Notch = DynamicNotch<
+        DynamicNotchNotificationTrayView,
+        EmptyView,
+        EmptyView
+    >
 
     private final class ActivePresentation {
-        let notification: TerminalNotification
-        let notch: DynamicNotch<DynamicNotchNotificationView, EmptyView, EmptyView>
-        var timeoutTask: Task<Void, Never>?
+        let model: DynamicNotchNotificationTrayModel
+        let notch: Notch
+        var timeoutTasks: [UUID: Task<Void, Never>] = [:]
         var transitionTask: Task<Void, Never>?
 
         init(
-            notification: TerminalNotification,
-            notch: DynamicNotch<DynamicNotchNotificationView, EmptyView, EmptyView>
+            model: DynamicNotchNotificationTrayModel,
+            notch: Notch
         ) {
-            self.notification = notification
+            self.model = model
             self.notch = notch
         }
-    }
-
-    private struct DismissalTransition {
-        let token: UUID
-        let task: Task<Void, Never>
     }
 
     private struct ActionResponse: Encodable {
@@ -47,7 +47,7 @@ final class DynamicNotchNotificationPresenter: NSObject, NSWindowDelegate {
     private let markRead: (UUID) -> Void
     private let sleep: Sleep
     private var activePresentation: ActivePresentation?
-    private var dismissalTransitions: [UUID: DismissalTransition] = [:]
+    private var dismissalTransitions: [UUID: Task<Void, Never>] = [:]
 
     init(
         openNotification: @escaping (TerminalNotification) -> Void,
@@ -61,43 +61,51 @@ final class DynamicNotchNotificationPresenter: NSObject, NSWindowDelegate {
     }
 
     func present(_ notification: TerminalNotification) {
-        dismissActivePanel(responseAction: "replaced")
+        if let activePresentation {
+            guard activePresentation.model.enqueue(notification) else { return }
+            scheduleTimeout(for: notification, in: activePresentation)
+            return
+        }
+
+        let model = DynamicNotchNotificationTrayModel()
+        guard model.enqueue(notification) else { return }
 
         let notch = DynamicNotch(
-            hoverBehavior: [.increaseShadow],
+            hoverBehavior: [.keepVisible, .increaseShadow],
             style: .auto
-        ) { [weak self] in
-            DynamicNotchNotificationView(notification: notification) { action, values in
-                self?.handleAction(action, values: values, for: notification)
-            }
+        ) {
+            DynamicNotchNotificationTrayView(
+                model: model,
+                hoverChanged: { [weak self, weak model] hovering in
+                    guard let model else { return }
+                    self?.handleHover(hovering, model: model)
+                },
+                performAction: { [weak self] action, values, selectedNotification in
+                    self?.handleAction(
+                        action,
+                        values: values,
+                        for: selectedNotification
+                    )
+                }
+            )
         }
 
         let activePresentation = ActivePresentation(
-            notification: notification,
+            model: model,
             notch: notch
         )
         self.activePresentation = activePresentation
+        scheduleTimeout(for: notification, in: activePresentation)
 
-        if notification.presentation.timeout > 0 {
-            let timeout = notification.presentation.timeout
-            activePresentation.timeoutTask = Task { @MainActor [weak self, weak activePresentation] in
-                guard let self else { return }
-                try? await self.sleep(.seconds(timeout))
-                guard !Task.isCancelled,
-                      let activePresentation,
-                      self.activePresentation === activePresentation else {
-                    return
-                }
-                self.dismiss(id: notification.id, responseAction: "timeout")
-            }
-        }
-
-        activePresentation.transitionTask = Task { @MainActor [weak self, weak activePresentation] in
+        activePresentation.transitionTask = Task {
+            @MainActor [weak self, weak activePresentation] in
             guard let self,
                   !Task.isCancelled,
                   let activePresentation,
                   self.activePresentation === activePresentation,
-                  let screen = NSScreen.main ?? NSScreen.screens.first else { return }
+                  let screen = NSScreen.main ?? NSScreen.screens.first else {
+                return
+            }
             await notch.expand(on: screen)
             guard !Task.isCancelled,
                   self.activePresentation === activePresentation else {
@@ -107,16 +115,58 @@ final class DynamicNotchNotificationPresenter: NSObject, NSWindowDelegate {
                 Self.windowIdentifier
             )
             notch.windowController?.window?.delegate = self
-            if !notification.presentation.inputs.isEmpty {
-                notch.windowController?.window?.makeKey()
-            }
             activePresentation.transitionTask = nil
         }
     }
 
     func dismiss(id: UUID, responseAction: String = "dismissed") {
-        guard activePresentation?.notification.id == id else { return }
-        dismissActivePanel(responseAction: responseAction)
+        resolve(
+            id: id,
+            responseAction: responseAction,
+            values: [:]
+        )
+    }
+
+    private func scheduleTimeout(
+        for notification: TerminalNotification,
+        in activePresentation: ActivePresentation
+    ) {
+        guard notification.presentation.timeout > 0 else { return }
+        activePresentation.timeoutTasks[notification.id]?.cancel()
+        let timeout = notification.presentation.timeout
+        activePresentation.timeoutTasks[notification.id] = Task {
+            @MainActor [weak self, weak activePresentation] in
+            guard let self else { return }
+            try? await self.sleep(.seconds(timeout))
+            guard !Task.isCancelled,
+                  let activePresentation,
+                  self.activePresentation === activePresentation,
+                  activePresentation.model.notification(id: notification.id) != nil else {
+                return
+            }
+            self.resolve(
+                id: notification.id,
+                responseAction: "timeout",
+                values: [:]
+            )
+        }
+    }
+
+    private func handleHover(
+        _ hovering: Bool,
+        model: DynamicNotchNotificationTrayModel
+    ) {
+        guard let activePresentation,
+              activePresentation.model === model,
+              let window = activePresentation.notch.windowController?.window else {
+            return
+        }
+        if hovering,
+           model.notifications.contains(where: { !$0.presentation.inputs.isEmpty }) {
+            window.makeKey()
+        } else if !hovering, window.isKeyWindow {
+            window.resignKey()
+        }
     }
 
     private func handleAction(
@@ -124,50 +174,78 @@ final class DynamicNotchNotificationPresenter: NSObject, NSWindowDelegate {
         values: [String: String],
         for notification: TerminalNotification
     ) {
-        guard activePresentation?.notification.id == notification.id else { return }
-        // Resolve the interactive response before mutating the store. Marking a
-        // notification read synchronously asks this presenter to dismiss it,
-        // which would otherwise overwrite the selected action with "dismissed".
-        dismissActivePanel(responseAction: action, values: values)
+        guard let resolvedNotification = resolve(
+            id: notification.id,
+            responseAction: action,
+            values: values
+        ) else {
+            return
+        }
         switch action {
         case "open":
-            openNotification(notification)
+            openNotification(resolvedNotification)
         case "dismiss":
             break
         default:
-            markRead(notification.id)
+            markRead(resolvedNotification.id)
         }
     }
 
-    private func dismissActivePanel(
+    @discardableResult
+    private func resolve(
+        id: UUID,
         responseAction: String,
-        values: [String: String] = [:]
-    ) {
-        guard let activePresentation else { return }
-        self.activePresentation = nil
-        activePresentation.timeoutTask?.cancel()
-        activePresentation.transitionTask?.cancel()
+        values: [String: String]
+    ) -> TerminalNotification? {
+        guard let activePresentation,
+              let notification = activePresentation.model.remove(id: id) else {
+            return nil
+        }
+        activePresentation.timeoutTasks.removeValue(forKey: id)?.cancel()
         writeResponse(
             action: responseAction,
             values: values,
-            notification: activePresentation.notification
+            notification: notification
         )
-        let notificationID = activePresentation.notification.id
+        if activePresentation.model.notifications.isEmpty {
+            close(activePresentation)
+        }
+        return notification
+    }
+
+    private func dismissAll(responseAction: String) {
+        guard let activePresentation else { return }
+        let notifications = activePresentation.model.removeAll()
+        for notification in notifications {
+            activePresentation.timeoutTasks
+                .removeValue(forKey: notification.id)?
+                .cancel()
+            writeResponse(
+                action: responseAction,
+                values: [:],
+                notification: notification
+            )
+        }
+        close(activePresentation)
+    }
+
+    private func close(_ activePresentation: ActivePresentation) {
+        guard self.activePresentation === activePresentation else { return }
+        self.activePresentation = nil
+        activePresentation.transitionTask?.cancel()
+        activePresentation.timeoutTasks.values.forEach { $0.cancel() }
+        activePresentation.timeoutTasks.removeAll()
+        if activePresentation.notch.windowController?.window?.isKeyWindow == true {
+            activePresentation.notch.windowController?.window?.resignKey()
+        }
+
+        let transitionID = UUID()
         let notch = activePresentation.notch
-        dismissalTransitions[notificationID]?.task.cancel()
-        let transitionToken = UUID()
         let task = Task { @MainActor [weak self] in
             await notch.hide()
-            guard let self,
-                  self.dismissalTransitions[notificationID]?.token == transitionToken else {
-                return
-            }
-            self.dismissalTransitions[notificationID] = nil
+            self?.dismissalTransitions[transitionID] = nil
         }
-        dismissalTransitions[notificationID] = DismissalTransition(
-            token: transitionToken,
-            task: task
-        )
+        dismissalTransitions[transitionID] = task
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
@@ -175,7 +253,7 @@ final class DynamicNotchNotificationPresenter: NSObject, NSWindowDelegate {
               activePresentation.notch.windowController?.window === sender else {
             return true
         }
-        dismissActivePanel(responseAction: "dismissed")
+        dismissAll(responseAction: "dismissed")
         return false
     }
 

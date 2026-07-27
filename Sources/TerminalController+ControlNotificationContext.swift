@@ -17,7 +17,7 @@ extension TerminalController: ControlNotificationContext {
         title: String,
         subtitle: String,
         body: String,
-        presentation: ControlNotificationPresentation
+        presentation: ControlNotificationPresentation = ControlNotificationPresentation()
     ) -> ControlNotificationCreateResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
@@ -60,7 +60,7 @@ extension TerminalController: ControlNotificationContext {
         title: String,
         subtitle: String,
         body: String,
-        presentation: ControlNotificationPresentation
+        presentation: ControlNotificationPresentation = ControlNotificationPresentation()
     ) -> ControlNotificationTargetedDeliveryResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
@@ -140,7 +140,7 @@ extension TerminalController: ControlNotificationContext {
         title: String,
         subtitle: String,
         body: String,
-        presentation: ControlNotificationPresentation
+        presentation: ControlNotificationPresentation = ControlNotificationPresentation()
     ) -> ControlNotificationTargetedDeliveryResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable

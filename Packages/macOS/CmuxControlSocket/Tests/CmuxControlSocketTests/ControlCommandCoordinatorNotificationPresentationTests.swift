@@ -35,6 +35,17 @@ struct ControlCommandCoordinatorNotificationPresentationTests {
         ControlRequest(id: .int(1), method: "notification.create", params: params)
     }
 
+    @Test func defaultPresentationPreservesLegacyNotificationBehavior() {
+        let presentation = ControlNotificationPresentation()
+
+        #expect(presentation.delivery == .settings)
+        #expect(presentation.iconSymbolName == nil)
+        #expect(presentation.actions.isEmpty)
+        #expect(presentation.inputs.isEmpty)
+        #expect(presentation.responseToken == nil)
+        #expect(presentation.timeout == 8)
+    }
+
     @Test func dynamicFormCrossesTheControlSeamWithoutLosingCallerData() {
         let context = FakeNotificationPresentationContext()
         let coordinator = ControlCommandCoordinator(context: context)

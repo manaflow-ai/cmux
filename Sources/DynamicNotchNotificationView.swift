@@ -3,15 +3,21 @@ import SwiftUI
 /// Interactive content hosted by DynamicNotchKit for one terminal notification.
 struct DynamicNotchNotificationView: View {
     let notification: TerminalNotification
+    let isTrayExpanded: Bool
+    let shouldAutofocus: Bool
     let performAction: (String, [String: String]) -> Void
     @State private var values: [String: String]
     @FocusState private var focusedInputID: String?
 
     init(
         notification: TerminalNotification,
+        isTrayExpanded: Bool,
+        shouldAutofocus: Bool,
         performAction: @escaping (String, [String: String]) -> Void
     ) {
         self.notification = notification
+        self.isTrayExpanded = isTrayExpanded
+        self.shouldAutofocus = shouldAutofocus
         self.performAction = performAction
         _values = State(initialValue: Dictionary(
             uniqueKeysWithValues: notification.presentation.inputs.map {
@@ -124,8 +130,20 @@ struct DynamicNotchNotificationView: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("DynamicNotchNotification")
         .onAppear {
-            focusedInputID = notification.presentation.inputs.first?.id
+            updateAutomaticFocus()
         }
+        .onChange(of: isTrayExpanded) { _, _ in
+            updateAutomaticFocus()
+        }
+        .onChange(of: shouldAutofocus) { _, _ in
+            updateAutomaticFocus()
+        }
+    }
+
+    private func updateAutomaticFocus() {
+        focusedInputID = isTrayExpanded && shouldAutofocus
+            ? notification.presentation.inputs.first?.id
+            : nil
     }
 
     private func valueBinding(

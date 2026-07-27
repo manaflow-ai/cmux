@@ -59,13 +59,13 @@ public struct ControlNotificationPresentation: Sendable, Equatable {
     public let timeout: TimeInterval
 
     public init(
-        notificationID: UUID,
-        delivery: Delivery,
-        iconSymbolName: String?,
-        actions: [Action],
-        inputs: [Input],
-        responseToken: UUID?,
-        timeout: TimeInterval
+        notificationID: UUID = UUID(),
+        delivery: Delivery = .settings,
+        iconSymbolName: String? = nil,
+        actions: [Action] = [],
+        inputs: [Input] = [],
+        responseToken: UUID? = nil,
+        timeout: TimeInterval = 8
     ) {
         self.notificationID = notificationID
         self.delivery = delivery

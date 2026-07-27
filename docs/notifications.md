@@ -62,6 +62,8 @@ choice=$(cmux notify --delivery notch --title "Deploy?" \
 
 Set `notifications.delivery` to `dynamicNotch` in `~/.config/cmux/cmux.json`, or choose Dynamic Notch under Settings > App > Notification Delivery. The panel is independent of macOS Notification Center, so Focus and Do Not Disturb do not suppress it.
 
+Dynamic Notch notifications accumulate in a compact tray instead of replacing one another. The tray shows the pending count, expands into a newest-first scrollable list while hovered, and collapses when the pointer leaves. Each button, dismissal, or timeout resolves only its own row.
+
 `cmux notify --delivery notch` overrides the setting for one notification. `--icon` accepts an SF Symbol name, repeated `--action id=Label` flags add up to four buttons, and `--input id=Label` or `--secure-input id=Label` add runtime-defined fields. IDs must be unique ASCII strings containing only letters, numbers, `.`, `_`, or `-`. `--timeout` controls dismissal. `--wait` prints the selected action id when no fields exist, and prints JSON containing `action`, `notification_id`, and `values` when the form has fields. cmux never executes action payloads as shell commands.
 
 Agents can pass the complete form with `--spec '<json>'`, `--spec @path`, or `--spec -` for stdin:
@@ -99,7 +101,7 @@ action=$(printf '%s' "$response" | jq -r .action)
 reason=$(printf '%s' "$response" | jq -r .values.reason)
 ```
 
-The response action is a caller-defined action id, `open`, `dismiss`, `timeout`, `replaced`, or `dismissed`. Callers should treat every value except their accepted action ids as cancellation.
+The response action is a caller-defined action id, `open`, `dismiss`, `timeout`, or `dismissed`. `replaced` remains reserved for compatibility with cmux versions that displayed only one Dynamic Notch notification. Callers should treat every value except their accepted action ids as cancellation.
 
 ## Navigation
 

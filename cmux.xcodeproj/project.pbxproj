@@ -663,10 +663,6 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		468150000000000000000001 /* CmuxNotificationHookFileSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 468150000000000000000002 /* CmuxNotificationHookFileSnapshot.swift */; };
 		468140000000000000000007 /* CmuxNotificationHookParsedConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 468140000000000000000008 /* CmuxNotificationHookParsedConfig.swift */; };
 		E3B7A30000000000000000D3 /* CmuxNotifications in Frameworks */ = {isa = PBXBuildFile; productRef = E3B7A30000000000000000D2 /* CmuxNotifications */; };
-		D14A0C030000000000000003 /* DynamicNotchKit in Frameworks */ = {isa = PBXBuildFile; productRef = D14A0C020000000000000002 /* DynamicNotchKit */; };
-		D14A0D010000000000000001 /* DynamicNotchNotificationPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D14A0D020000000000000002 /* DynamicNotchNotificationPresenter.swift */; };
-		D14A0D030000000000000003 /* DynamicNotchNotificationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D14A0D040000000000000004 /* DynamicNotchNotificationView.swift */; };
-		D14A0D050000000000000005 /* TerminalNotificationPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D14A0D060000000000000006 /* TerminalNotificationPresentation.swift */; };
 		C0DE31390000000000000101 /* CMUXOpenCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE31390000000000000102 /* CMUXOpenCommandTests.swift */; };
 		C0DE31390000000000000111 /* CMUXOpenHTMLFocusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE31390000000000000112 /* CMUXOpenHTMLFocusTests.swift */; };
 		E3B7A30000000000000000F3 /* CmuxPanes in Frameworks */ = {isa = PBXBuildFile; productRef = E3B7A30000000000000000F2 /* CmuxPanes */; };
@@ -857,6 +853,14 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		DCDC1000000000000000B00F /* DockTrustRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B010 /* DockTrustRequest.swift */; };
 		D86860000000000000000001 /* DockWorkingDirectoryInheritanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86860000000000000000002 /* DockWorkingDirectoryInheritanceTests.swift */; };
 		D0B10014A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10015A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift */; };
+		D14A0C030000000000000003 /* DynamicNotchKit in Frameworks */ = {isa = PBXBuildFile; productRef = D14A0C020000000000000002 /* DynamicNotchKit */; };
+		D14A0D090000000000000009 /* DynamicNotchNotificationCompactView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D14A0D0A000000000000000A /* DynamicNotchNotificationCompactView.swift */; };
+		D14A0D0B000000000000000B /* DynamicNotchNotificationListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D14A0D0C000000000000000C /* DynamicNotchNotificationListView.swift */; };
+		D14A0D010000000000000001 /* DynamicNotchNotificationPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D14A0D020000000000000002 /* DynamicNotchNotificationPresenter.swift */; };
+		D14A0D070000000000000007 /* DynamicNotchNotificationTrayModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D14A0D080000000000000008 /* DynamicNotchNotificationTrayModel.swift */; };
+		D14A0D0F000000000000000F /* DynamicNotchNotificationTrayModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D14A0D100000000000000010 /* DynamicNotchNotificationTrayModelTests.swift */; };
+		D14A0D0D000000000000000D /* DynamicNotchNotificationTrayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D14A0D0E000000000000000E /* DynamicNotchNotificationTrayView.swift */; };
+		D14A0D030000000000000003 /* DynamicNotchNotificationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D14A0D040000000000000004 /* DynamicNotchNotificationView.swift */; };
 		D75280040000000000000001 /* DynamicTracingSignpostInterval.swift in Sources */ = {isa = PBXBuildFile; fileRef = D75280040000000000000002 /* DynamicTracingSignpostInterval.swift */; };
 		D3622100A1B2C3D4E5F60718 /* EditableTextViewArrowKeyForwardingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3622101A1B2C3D4E5F60718 /* EditableTextViewArrowKeyForwardingTests.swift */; };
 		A7206C010000000000000001 /* EffectiveAppearanceObservation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7206C020000000000000001 /* EffectiveAppearanceObservation.swift */; };
@@ -2026,6 +2030,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A5001096 /* TerminalNotificationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001097 /* TerminalNotificationPolicy.swift */; };
 		468120000000000000000007 /* TerminalNotificationPolicyDeliveryIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 468120000000000000000008 /* TerminalNotificationPolicyDeliveryIdentity.swift */; };
 		79390013AA11BB22CC33DD13 /* TerminalNotificationPolicyInFlightStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79390014AA11BB22CC33DD14 /* TerminalNotificationPolicyInFlightStore.swift */; };
+		D14A0D050000000000000005 /* TerminalNotificationPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D14A0D060000000000000006 /* TerminalNotificationPresentation.swift */; };
 		A5A5A501A1B2C3D4E5F60718 /* TerminalNotificationQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5A5A502A1B2C3D4E5F60718 /* TerminalNotificationQueue.swift */; };
 		A5A5A503A1B2C3D4E5F60718 /* TerminalNotificationQueueTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5A5A504A1B2C3D4E5F60718 /* TerminalNotificationQueueTests.swift */; };
 		A5001098 /* TerminalNotificationScrollPosition.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001099 /* TerminalNotificationScrollPosition.swift */; };
@@ -3168,6 +3173,13 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		DCDC1000000000000000B010 /* DockTrustRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockTrustRequest.swift; sourceTree = "<group>"; };
 		D86860000000000000000002 /* DockWorkingDirectoryInheritanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockWorkingDirectoryInheritanceTests.swift; sourceTree = "<group>"; };
 		D0B10015A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DragOverlayRoutingPolicy.swift; sourceTree = "<group>"; };
+		D14A0D0A000000000000000A /* DynamicNotchNotificationCompactView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DynamicNotchNotificationCompactView.swift; sourceTree = "<group>"; };
+		D14A0D0C000000000000000C /* DynamicNotchNotificationListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DynamicNotchNotificationListView.swift; sourceTree = "<group>"; };
+		D14A0D020000000000000002 /* DynamicNotchNotificationPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DynamicNotchNotificationPresenter.swift; sourceTree = "<group>"; };
+		D14A0D080000000000000008 /* DynamicNotchNotificationTrayModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DynamicNotchNotificationTrayModel.swift; sourceTree = "<group>"; };
+		D14A0D100000000000000010 /* DynamicNotchNotificationTrayModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DynamicNotchNotificationTrayModelTests.swift; sourceTree = "<group>"; };
+		D14A0D0E000000000000000E /* DynamicNotchNotificationTrayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DynamicNotchNotificationTrayView.swift; sourceTree = "<group>"; };
+		D14A0D040000000000000004 /* DynamicNotchNotificationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DynamicNotchNotificationView.swift; sourceTree = "<group>"; };
 		D75280040000000000000002 /* DynamicTracingSignpostInterval.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DynamicTracingSignpostInterval.swift; sourceTree = "<group>"; };
 		D3622101A1B2C3D4E5F60718 /* EditableTextViewArrowKeyForwardingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditableTextViewArrowKeyForwardingTests.swift; sourceTree = "<group>"; };
 		A7206C020000000000000001 /* EffectiveAppearanceObservation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EffectiveAppearanceObservation.swift; sourceTree = "<group>"; };
@@ -4317,6 +4329,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A5001097 /* TerminalNotificationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationPolicy.swift; sourceTree = "<group>"; };
 		468120000000000000000008 /* TerminalNotificationPolicyDeliveryIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationPolicyDeliveryIdentity.swift; sourceTree = "<group>"; };
 		79390014AA11BB22CC33DD14 /* TerminalNotificationPolicyInFlightStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationPolicyInFlightStore.swift; sourceTree = "<group>"; };
+		D14A0D060000000000000006 /* TerminalNotificationPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationPresentation.swift; sourceTree = "<group>"; };
 		A5A5A502A1B2C3D4E5F60718 /* TerminalNotificationQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationQueue.swift; sourceTree = "<group>"; };
 		A5A5A504A1B2C3D4E5F60718 /* TerminalNotificationQueueTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationQueueTests.swift; sourceTree = "<group>"; };
 		A5001099 /* TerminalNotificationScrollPosition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationScrollPosition.swift; sourceTree = "<group>"; };
@@ -4428,9 +4441,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		D3284002A1B2C3D4E5F60718 /* TraditionalChineseIMENumpadRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TraditionalChineseIMENumpadRegressionTests.swift; sourceTree = "<group>"; };
 		468100000000000000000004 /* TypingHotPathRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TypingHotPathRegressionTests.swift; sourceTree = "<group>"; };
 		A5001511 /* UITestRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UITestRecorder.swift; sourceTree = "<group>"; };
-		D14A0D020000000000000002 /* DynamicNotchNotificationPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DynamicNotchNotificationPresenter.swift; sourceTree = "<group>"; };
-		D14A0D040000000000000004 /* DynamicNotchNotificationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DynamicNotchNotificationView.swift; sourceTree = "<group>"; };
-		D14A0D060000000000000006 /* TerminalNotificationPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationPresentation.swift; sourceTree = "<group>"; };
 		A5001223 /* UpdateLogStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateLogStore.swift; sourceTree = "<group>"; };
 		F2000001A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdatePillReleaseVisibilityTests.swift; sourceTree = "<group>"; };
 		C0B4D9B1A1B2C3D4E5F60718 /* UpdatePillUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdatePillUITests.swift; sourceTree = "<group>"; };
@@ -4640,7 +4650,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				799F1BEF876006EEB8CD1035 /* CMUXMobileCore in Frameworks */,
 				1A0B0C0D0E0F101112132003 /* CmuxMobileTransport in Frameworks */,
 				E3B7A30000000000000000D3 /* CmuxNotifications in Frameworks */,
-				D14A0C030000000000000003 /* DynamicNotchKit in Frameworks */,
 				E3B7A30000000000000000F3 /* CmuxPanes in Frameworks */,
 				A5C0DE0000000000000000A3 /* CMUXProjectModel in Frameworks */,
 				CC0DE10000000000000000A3 /* CmuxRemoteDaemon in Frameworks */,
@@ -4665,6 +4674,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				CDFEED0600000000CDFEED06 /* CmuxUpdaterUI in Frameworks */,
 				5E55200000000000000000B3 /* CmuxWindowing in Frameworks */,
 				E3B7A3000000000000000103 /* CmuxWorkspaces in Frameworks */,
+				D14A0C030000000000000003 /* DynamicNotchKit in Frameworks */,
 				A5001006 /* GhosttyKit.xcframework in Frameworks */,
 				A5001290 /* MarkdownUI in Frameworks */,
 				A5001270 /* PostHog in Frameworks */,
@@ -5785,6 +5795,10 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DEFEF80000000000000002 /* NotificationFeedHistoryTopLevelSnapshotHeaderScanner.swift */,
 				A5F10000000000000000000C /* TerminalNotification.swift */,
 				D14A0D020000000000000002 /* DynamicNotchNotificationPresenter.swift */,
+				D14A0D0A000000000000000A /* DynamicNotchNotificationCompactView.swift */,
+				D14A0D0C000000000000000C /* DynamicNotchNotificationListView.swift */,
+				D14A0D080000000000000008 /* DynamicNotchNotificationTrayModel.swift */,
+				D14A0D0E000000000000000E /* DynamicNotchNotificationTrayView.swift */,
 				D14A0D040000000000000004 /* DynamicNotchNotificationView.swift */,
 				D14A0D060000000000000006 /* TerminalNotificationPresentation.swift */,
 				D79020000000000000000002 /* TerminalNotification+NavigationSnapshot.swift */,
@@ -6827,6 +6841,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				645645000000000000000001 /* NumberedShortcutSwapTests.swift */,
 					B09C007F42697761B5F1A2AB /* OmnibarAndToolsTests.swift */,
 					D2C075029771815DD5DA1332 /* NotificationAndMenuBarTests.swift */,
+					D14A0D100000000000000010 /* DynamicNotchNotificationTrayModelTests.swift */,
 					C0DE70520000000000000001 /* MenuBarProfilingLauncherTests.swift */,
 					596100000000000000000002 /* NativeNotificationFallbackCommandTests.swift */,
 					C0DEFEE50000000000000002 /* NotificationFeedHistoryTests.swift */,
@@ -7984,6 +7999,12 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				DCDC1000000000000000B00D /* DockSurfaceKind.swift in Sources */,
 				DCDC1000000000000000B00F /* DockTrustRequest.swift in Sources */,
 				D0B10014A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift in Sources */,
+				D14A0D090000000000000009 /* DynamicNotchNotificationCompactView.swift in Sources */,
+				D14A0D0B000000000000000B /* DynamicNotchNotificationListView.swift in Sources */,
+				D14A0D010000000000000001 /* DynamicNotchNotificationPresenter.swift in Sources */,
+				D14A0D070000000000000007 /* DynamicNotchNotificationTrayModel.swift in Sources */,
+				D14A0D0D000000000000000D /* DynamicNotchNotificationTrayView.swift in Sources */,
+				D14A0D030000000000000003 /* DynamicNotchNotificationView.swift in Sources */,
 				D75280040000000000000001 /* DynamicTracingSignpostInterval.swift in Sources */,
 				A7206C010000000000000001 /* EffectiveAppearanceObservation.swift in Sources */,
 					5732A0095732A0095732A009 /* EnvironmentValues+MinimalModeInvalidationProbe.swift in Sources */,
@@ -8779,15 +8800,13 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				859110000000000000000009 /* TerminalLinkOpenRequest.swift in Sources */,
 				D79020000000000000000001 /* TerminalNotification+NavigationSnapshot.swift in Sources */,
 				A5F10000000000000000000B /* TerminalNotification.swift in Sources */,
-				D14A0D010000000000000001 /* DynamicNotchNotificationPresenter.swift in Sources */,
-				D14A0D030000000000000003 /* DynamicNotchNotificationView.swift in Sources */,
-				D14A0D050000000000000005 /* TerminalNotificationPresentation.swift in Sources */,
 				A5C41101A1B2C3D4E5F60718 /* TerminalNotificationCallerResolver.swift in Sources */,
 				468110000000000000000007 /* TerminalNotificationClickAction.swift in Sources */,
 				7939000DAA11BB22CC33DD0D /* TerminalNotificationLiveRetargetDelivery.swift in Sources */,
 				A5001096 /* TerminalNotificationPolicy.swift in Sources */,
 				468120000000000000000007 /* TerminalNotificationPolicyDeliveryIdentity.swift in Sources */,
 				79390013AA11BB22CC33DD13 /* TerminalNotificationPolicyInFlightStore.swift in Sources */,
+				D14A0D050000000000000005 /* TerminalNotificationPresentation.swift in Sources */,
 				A5A5A501A1B2C3D4E5F60718 /* TerminalNotificationQueue.swift in Sources */,
 				A5001098 /* TerminalNotificationScrollPosition.swift in Sources */,
 				468120000000000000000005 /* TerminalNotificationStore+HookResolution.swift in Sources */,
@@ -9392,6 +9411,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D6212D0C0000000000000001 /* DockSocketLifecycleTests.swift in Sources */,
 				D7054D0C0000000000000001 /* DockTerminalReattachTests.swift in Sources */,
 				D86860000000000000000001 /* DockWorkingDirectoryInheritanceTests.swift in Sources */,
+				D14A0D0F000000000000000F /* DynamicNotchNotificationTrayModelTests.swift in Sources */,
 				D3622100A1B2C3D4E5F60718 /* EditableTextViewArrowKeyForwardingTests.swift in Sources */,
 				E50320010000000000000001 /* ExtensionWorktreeSpawnArgsTests.swift in Sources */,
 				FEEDC0DEC0DEC0DEC0DE0001 /* FeedCoordinatorTests.swift in Sources */,
