@@ -139,7 +139,8 @@ extension ControlNotificationContext {
         explicitSurfaceID: UUID?,
         title: String,
         subtitle: String,
-        body: String
+        body: String,
+        presentation: ControlNotificationPresentation
     ) -> ControlNotificationCreateResolution { .tabManagerUnavailable }
 
     func controlNotificationCreateForSurface(
@@ -147,7 +148,8 @@ extension ControlNotificationContext {
         surfaceID: UUID,
         title: String,
         subtitle: String,
-        body: String
+        body: String,
+        presentation: ControlNotificationPresentation
     ) -> ControlNotificationTargetedDeliveryResolution { .tabManagerUnavailable }
 
     func controlNotificationCreateForTarget(
@@ -156,7 +158,8 @@ extension ControlNotificationContext {
         surfaceID: UUID,
         title: String,
         subtitle: String,
-        body: String
+        body: String,
+        presentation: ControlNotificationPresentation
     ) -> ControlNotificationTargetedDeliveryResolution { .tabManagerUnavailable }
 
     func controlNotificationList() -> [ControlNotificationSnapshot] { [] }
@@ -175,6 +178,7 @@ extension ControlNotificationContext {
 
     var notificationStrings: ControlNotificationStrings {
         ControlNotificationStrings(
+            invalidPresentation: "invalid notification presentation",
             dismissSelectorRequired: "",
             idRequired: "",
             notFound: "",

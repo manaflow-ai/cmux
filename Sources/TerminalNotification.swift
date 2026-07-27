@@ -14,6 +14,7 @@ struct TerminalNotification: Identifiable, Hashable, Sendable {
     var paneFlash: Bool = true
     var scrollPosition: TerminalNotificationScrollPosition?
     var clickAction: TerminalNotificationClickAction?
+    let presentation: TerminalNotificationPresentation
 
     init(
         id: UUID,
@@ -28,7 +29,8 @@ struct TerminalNotification: Identifiable, Hashable, Sendable {
         isRead: Bool,
         paneFlash: Bool = true,
         scrollPosition: TerminalNotificationScrollPosition? = nil,
-        clickAction: TerminalNotificationClickAction? = nil
+        clickAction: TerminalNotificationClickAction? = nil,
+        presentation: TerminalNotificationPresentation = TerminalNotificationPresentation()
     ) {
         self.id = id
         self.tabId = tabId
@@ -43,6 +45,7 @@ struct TerminalNotification: Identifiable, Hashable, Sendable {
         self.paneFlash = paneFlash
         self.scrollPosition = scrollPosition
         self.clickAction = clickAction
+        self.presentation = presentation
     }
 
     func matches(tabId targetTabId: UUID, surfaceId targetSurfaceId: UUID?) -> Bool {

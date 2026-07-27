@@ -1,0 +1,108 @@
+--acronyms ID,URL,UUID
+--allman false
+--anonymousforeach convert
+--assetliterals visual-width
+--asynccapturing 
+--beforemarks 
+--binarygrouping 4,8
+--callsiteparen default
+--categorymark "MARK: %c"
+--classthreshold 0
+--closingparen balanced
+--closurevoid remove
+--commas inline
+--complexattrs preserve
+--computedvarattrs preserve
+--condassignment after-property
+--conflictmarkers reject
+--dateformat system
+--decimalgrouping 3,6
+--doccomments before-declarations
+--elseposition same-line
+--emptybraces no-space
+--enumnamespaces always
+--enumthreshold 0
+--exponentcase lowercase
+--exponentgrouping disabled
+--extensionacl on-extension
+--extensionlength 0
+--extensionmark "MARK: - %t + %c"
+--fractiongrouping disabled
+--fragment false
+--funcattributes preserve
+--generictypes 
+--groupblanklines true
+--groupedextension "MARK: %c"
+--guardelse auto
+--header ignore
+--hexgrouping 4,8
+--hexliteralcase uppercase
+--ifdef indent
+--importgrouping alpha
+--indent 4
+--indentcase false
+--indentstrings false
+--inferredtypes always
+--initcodernil false
+--inlinedforeach ignore
+--languagemode 0
+--lifecycle 
+--lineaftermarks true
+--linebreaks lf
+--markcategories true
+--markextensions always
+--marktypes always
+--maxwidth none
+--modifierorder 
+--nevertrailing 
+--nilinit remove
+--noncomplexattrs 
+--nospaceoperators ...
+--nowrapoperators 
+--octalgrouping 4,8
+--operatorfunc spaced
+--organizationmode visibility
+--organizetypes actor,class,enum,struct
+--patternlet hoist
+--preservedecls 
+--preservedsymbols Package
+--propertytypes infer-locals-only
+--ranges spaced
+--self init-only
+--selfrequired 
+--semicolons inline
+--shortoptionals except-properties
+--smarttabs enabled
+--someany true
+--sortedpatterns 
+--storedvarattrs preserve
+--stripunusedargs always
+--structthreshold 0
+--swiftversion 6.0
+--tabwidth unspecified
+--throwcapturing 
+--timezone system
+--trailingclosures 
+--trimwhitespace always
+--typeattributes preserve
+--typeblanklines remove
+--typedelimiter space-after
+--typemark "MARK: - %t"
+--typemarks 
+--typeorder 
+--visibilitymarks 
+--visibilityorder 
+--voidtype tuple
+--wraparguments preserve
+--wrapcollections preserve
+--wrapconditions preserve
+--wrapeffects preserve
+--wrapenumcases always
+--wrapparameters default
+--wrapreturntype preserve
+--wrapternary default
+--wraptypealiases preserve
+--xcodeindentation disabled
+--yodaswap always
+--disable wrapMultilineStatementBraces
+--enable isEmpty,propertyTypes

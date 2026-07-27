@@ -3270,6 +3270,10 @@ struct CMUXCLI {
         }
 
         if command == "help" { print(usage()); return }; if command == "remote-daemon-status" { try runRemoteDaemonStatus(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
+        if command == "notify", commandArgs.contains("--print-schema") {
+            print(notificationSpecSchema())
+            return
+        }
         if command == "vm-pty-connect" { try runVMPtyConnect(commandArgs: commandArgs); return }
         if command == "docs" { try runDocsCommand(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
         if command == "welcome" { printWelcome(); return }
@@ -5078,15 +5082,353 @@ struct CMUXCLI {
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
 
         case "notify":
-            let title = optionValue(commandArgs, name: "--title") ?? "Notification"
-            let subtitle = optionValue(commandArgs, name: "--subtitle") ?? ""
-            let body = optionValue(commandArgs, name: "--body") ?? ""
+            let spec: [String: Any]
+            let hasSpecOption = commandArgs.contains("--spec")
+                || commandArgs.contains(where: { $0.hasPrefix("--spec=") })
+            if let rawSpec = optionValue(commandArgs, name: "--spec") {
+                do {
+                    let data: Data
+                    if rawSpec == "-" {
+                        data = FileHandle.standardInput.readDataToEndOfFile()
+                    } else if rawSpec.hasPrefix("@") {
+                        data = try Data(contentsOf: URL(fileURLWithPath: String(rawSpec.dropFirst())))
+                    } else {
+                        data = Data(rawSpec.utf8)
+                    }
+                    guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                        throw CLIError(message: "")
+                    }
+                    spec = object
+                } catch {
+                    throw CLIError(message: String(
+                        localized: "cli.notify.error.invalidSpec",
+                        defaultValue: "Invalid notification spec; run cmux notify --print-schema"
+                    ))
+                }
+            } else {
+                if hasSpecOption {
+                    throw CLIError(message: String(
+                        localized: "cli.notify.error.invalidSpec",
+                        defaultValue: "Invalid notification spec; run cmux notify --print-schema"
+                    ))
+                }
+                spec = [:]
+            }
+
+            let isJSONBoolean: (Any) -> Bool = { value in
+                guard let number = value as? NSNumber else { return false }
+                return CFGetTypeID(number) == CFBooleanGetTypeID()
+            }
+            let isJSONNumber: (Any) -> Bool = { value in
+                guard let number = value as? NSNumber else { return false }
+                return CFGetTypeID(number) != CFBooleanGetTypeID()
+            }
+            let isVersionOne: (Any) -> Bool = { value in
+                guard isJSONNumber(value), let number = value as? NSNumber else { return false }
+                return number.doubleValue == 1
+            }
+            let validControlIdentifier: (String) -> Bool = { identifier in
+                let allowed = CharacterSet(
+                    charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-"
+                )
+                return !identifier.isEmpty
+                    && identifier.count <= 64
+                    && identifier.unicodeScalars.allSatisfy(allowed.contains)
+            }
+            let reservedActionIDs: Set<String> = [
+                "open", "dismiss", "timeout", "replaced", "dismissed",
+            ]
+            let allowedSpecKeys: Set<String> = [
+                "version", "title", "subtitle", "body", "delivery", "icon",
+                "wait", "timeout", "actions", "inputs",
+                "workspace", "surface", "window",
+            ]
+            let stringSpecKeys = [
+                "title", "subtitle", "body", "delivery", "icon",
+                "workspace", "surface", "window",
+            ]
+            let hasInvalidSpecShape = !Set(spec.keys).isSubset(of: allowedSpecKeys)
+                || (spec["version"].map { !isVersionOne($0) } ?? false)
+                || stringSpecKeys.contains { key in
+                    spec[key] != nil && !(spec[key] is String)
+                }
+                || (spec["wait"].map { !isJSONBoolean($0) } ?? false)
+                || (spec["timeout"].map { !isJSONNumber($0) } ?? false)
+            if hasInvalidSpecShape {
+                throw CLIError(message: String(
+                    localized: "cli.notify.error.invalidSpec",
+                    defaultValue: "Invalid notification spec; run cmux notify --print-schema"
+                ))
+            }
+
+            let title = optionValue(commandArgs, name: "--title")
+                ?? spec["title"] as? String
+                ?? "Notification"
+            let subtitle = optionValue(commandArgs, name: "--subtitle")
+                ?? spec["subtitle"] as? String
+                ?? ""
+            let body = optionValue(commandArgs, name: "--body")
+                ?? spec["body"] as? String
+                ?? ""
+            let requestedDelivery = optionValue(commandArgs, name: "--delivery")
+                ?? spec["delivery"] as? String
+                ?? "default"
+            let icon = optionValue(commandArgs, name: "--icon")
+                ?? spec["icon"] as? String
+            if let icon, icon.count > 128 {
+                throw CLIError(message: String(
+                    localized: "cli.notify.error.invalidIcon",
+                    defaultValue: "--icon must be at most 128 characters"
+                ))
+            }
+            let (rawActions, _) = parseRepeatedOption(commandArgs, name: "--action")
+            let (rawInputs, _) = parseRepeatedOption(commandArgs, name: "--input")
+            let (rawSecureInputs, _) = parseRepeatedOption(commandArgs, name: "--secure-input")
+            let waitsForAction = hasFlag(commandArgs, name: "--wait")
+                || (spec["wait"] as? Bool ?? false)
+            let timeoutRaw = optionValue(commandArgs, name: "--timeout")
+            let timeout: TimeInterval
+            if let timeoutRaw {
+                guard let parsed = TimeInterval(timeoutRaw),
+                      parsed.isFinite,
+                      (0...86_400).contains(parsed) else {
+                    throw CLIError(message: String(
+                        localized: "cli.notify.error.invalidTimeout",
+                        defaultValue: "--timeout must be between 0 and 86400 seconds"
+                    ))
+                }
+                timeout = parsed
+            } else if let specTimeout = spec["timeout"] as? NSNumber {
+                timeout = specTimeout.doubleValue
+            } else {
+                timeout = waitsForAction ? 300 : 8
+            }
+            guard timeout.isFinite, (0...86_400).contains(timeout) else {
+                throw CLIError(message: String(
+                    localized: "cli.notify.error.invalidTimeout",
+                    defaultValue: "--timeout must be between 0 and 86400 seconds"
+                ))
+            }
+            if waitsForAction, timeout == 0 {
+                throw CLIError(message: String(
+                    localized: "cli.notify.error.waitRequiresTimeout",
+                    defaultValue: "--wait requires a positive --timeout"
+                ))
+            }
+
+            var actions: [[String: String]] = try rawActions.map { rawAction in
+                guard let separator = rawAction.firstIndex(of: "=") else {
+                    throw CLIError(message: String(
+                        localized: "cli.notify.error.invalidAction",
+                        defaultValue: "Invalid --action; use a unique ASCII id=Label"
+                    ))
+                }
+                let id = String(rawAction[..<separator]).trimmingCharacters(in: .whitespacesAndNewlines)
+                let label = String(rawAction[rawAction.index(after: separator)...])
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                guard validControlIdentifier(id),
+                      !reservedActionIDs.contains(id),
+                      !label.isEmpty,
+                      label.count <= 80 else {
+                    throw CLIError(message: String(
+                        localized: "cli.notify.error.invalidAction",
+                        defaultValue: "Invalid --action; use a unique ASCII id=Label"
+                    ))
+                }
+                return ["id": id, "title": label]
+            }
+            if let specActions = spec["actions"] as? [[String: Any]] {
+                for action in specActions {
+                    let allowedActionKeys: Set<String> = ["id", "label", "title"]
+                    guard let rawID = action["id"] as? String,
+                          let title = (action["title"] ?? action["label"]) as? String,
+                          Set(action.keys).isSubset(of: allowedActionKeys) else {
+                        throw CLIError(message: String(
+                            localized: "cli.notify.error.invalidAction",
+                            defaultValue: "Invalid --action; use a unique ASCII id=Label"
+                        ))
+                    }
+                    let id = rawID.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard validControlIdentifier(id),
+                          !reservedActionIDs.contains(id),
+                          !trimmedTitle.isEmpty,
+                          trimmedTitle.count <= 80 else {
+                        throw CLIError(message: String(
+                            localized: "cli.notify.error.invalidAction",
+                            defaultValue: "Invalid --action; use a unique ASCII id=Label"
+                        ))
+                    }
+                    actions.append([
+                        "id": id,
+                        "title": trimmedTitle,
+                    ])
+                }
+            } else if spec["actions"] != nil {
+                throw CLIError(message: String(
+                    localized: "cli.notify.error.invalidAction",
+                    defaultValue: "Invalid --action; use a unique ASCII id=Label"
+                ))
+            }
+            if actions.count > 4 {
+                throw CLIError(message: String(
+                    localized: "cli.notify.error.tooManyActions",
+                    defaultValue: "A notification supports at most four --action values"
+                ))
+            }
+            guard Set(actions.compactMap({ $0["id"] })).count == actions.count else {
+                throw CLIError(message: String(
+                    localized: "cli.notify.error.invalidAction",
+                    defaultValue: "Invalid --action; use a unique ASCII id=Label"
+                ))
+            }
+
+            var inputs: [[String: Any]] = []
+            for (rawInput, secure) in rawInputs.map({ ($0, false) }) + rawSecureInputs.map({ ($0, true) }) {
+                guard let separator = rawInput.firstIndex(of: "=") else {
+                    throw CLIError(message: String(
+                        localized: "cli.notify.error.invalidInput",
+                        defaultValue: "Invalid input; use a unique ASCII id=Label"
+                    ))
+                }
+                let id = String(rawInput[..<separator]).trimmingCharacters(in: .whitespacesAndNewlines)
+                let label = String(rawInput[rawInput.index(after: separator)...])
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                guard validControlIdentifier(id),
+                      !label.isEmpty,
+                      label.count <= 80 else {
+                    throw CLIError(message: String(
+                        localized: "cli.notify.error.invalidInput",
+                        defaultValue: "Invalid input; use a unique ASCII id=Label"
+                    ))
+                }
+                inputs.append([
+                    "id": id,
+                    "label": label,
+                    "placeholder": "",
+                    "initial_value": "",
+                    "secure": secure,
+                ])
+            }
+            if let specInputs = spec["inputs"] as? [[String: Any]] {
+                for input in specInputs {
+                    let allowedInputKeys: Set<String> = [
+                        "id", "label", "placeholder", "value", "default",
+                        "initial_value", "secure",
+                    ]
+                    guard let rawID = input["id"] as? String,
+                          let rawLabel = input["label"] as? String,
+                          Set(input.keys).isSubset(of: allowedInputKeys),
+                          input["placeholder"] == nil || input["placeholder"] is String,
+                          input["value"] == nil || input["value"] is String,
+                          input["default"] == nil || input["default"] is String,
+                          input["initial_value"] == nil || input["initial_value"] is String,
+                          input["secure"].map(isJSONBoolean) ?? true else {
+                        throw CLIError(message: String(
+                            localized: "cli.notify.error.invalidInput",
+                            defaultValue: "Invalid input; use a unique ASCII id=Label"
+                        ))
+                    }
+                    let id = rawID.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let label = rawLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let placeholder = input["placeholder"] as? String ?? ""
+                    let initialValue = (input["initial_value"] ?? input["value"] ?? input["default"]) as? String ?? ""
+                    guard validControlIdentifier(id),
+                          !label.isEmpty,
+                          label.count <= 80,
+                          placeholder.count <= 160,
+                          initialValue.count <= 4_096 else {
+                        throw CLIError(message: String(
+                            localized: "cli.notify.error.invalidInput",
+                            defaultValue: "Invalid input; use a unique ASCII id=Label"
+                        ))
+                    }
+                    let isSecure = (input["secure"] as? NSNumber)?.boolValue ?? false
+                    inputs.append([
+                        "id": id,
+                        "label": label,
+                        "placeholder": placeholder,
+                        "initial_value": initialValue,
+                        "secure": isSecure,
+                    ])
+                }
+            } else if spec["inputs"] != nil {
+                throw CLIError(message: String(
+                    localized: "cli.notify.error.invalidInput",
+                    defaultValue: "Invalid input; use a unique ASCII id=Label"
+                ))
+            }
+            if inputs.count > 4 {
+                throw CLIError(message: String(
+                    localized: "cli.notify.error.tooManyInputs",
+                    defaultValue: "A notification supports at most four input fields"
+                ))
+            }
+            guard Set(inputs.compactMap({ $0["id"] as? String })).count == inputs.count else {
+                throw CLIError(message: String(
+                    localized: "cli.notify.error.invalidInput",
+                    defaultValue: "Invalid input; use a unique ASCII id=Label"
+                ))
+            }
+
+            let hasNotchControls = icon != nil
+                || !actions.isEmpty
+                || !inputs.isEmpty
+                || waitsForAction
+                || timeoutRaw != nil
+                || spec["timeout"] != nil
+            let delivery: String
+            switch requestedDelivery {
+            case "default", "settings":
+                delivery = hasNotchControls ? "dynamicNotch" : "settings"
+            case "system":
+                guard !hasNotchControls else {
+                    throw CLIError(message: String(
+                        localized: "cli.notify.error.systemControls",
+                        defaultValue: "--icon, --action, --input, --wait, and --timeout require --delivery notch"
+                    ))
+                }
+                delivery = "system"
+            case "notch", "dynamicNotch", "dynamic-notch":
+                delivery = "dynamicNotch"
+            default:
+                throw CLIError(message: String(
+                    localized: "cli.notify.error.invalidDelivery",
+                    defaultValue: "--delivery must be default, system, or notch"
+                ))
+            }
+
+            let usesPresentationAPI = delivery != "settings" || hasNotchControls
+            if client.isRelayBacked, usesPresentationAPI {
+                throw CLIError(message: String(
+                    localized: "cli.notify.error.remoteInteractive",
+                    defaultValue: "Explicit delivery overrides and Dynamic Notch controls require a local cmux socket"
+                ))
+            }
+            let notificationID = UUID()
+            let responseToken = waitsForAction ? UUID() : nil
+            let responseURL = responseToken.map {
+                FileManager.default.temporaryDirectory
+                    .appendingPathComponent("cmux-notification-action-\($0.uuidString.lowercased()).json")
+            }
+            if let responseURL, FileManager.default.fileExists(atPath: responseURL.path) {
+                try FileManager.default.removeItem(at: responseURL)
+            }
             let explicitWorkspaceArg = optionValue(commandArgs, name: "--workspace")
-            let windowRaw = windowFromArgsOrOverride(commandArgs, windowOverride: windowId)
+                ?? spec["workspace"] as? String
+            let specWindow = spec["window"] as? String
+            let windowRaw = windowFromArgsOrOverride(
+                commandArgs,
+                windowOverride: windowId ?? specWindow
+            )
             let windowHandle = try normalizeWindowHandle(windowRaw, client: client)
             let preferTTYFallback = windowRaw == nil && ProcessInfo.processInfo.environment["TMUX"] != nil
-            let explicitSurfaceArg = optionValue(commandArgs, name: "--surface"), env = ProcessInfo.processInfo.environment
+            let explicitSurfaceArg = optionValue(commandArgs, name: "--surface")
+                ?? spec["surface"] as? String
+            let env = ProcessInfo.processInfo.environment
             let hasExplicitHandle = [explicitWorkspaceArg, explicitSurfaceArg].compactMap { $0 }.contains { !isUUID($0) }
+            var resolvedPresentationWorkspace: String?
+            var resolvedPresentationSurface: String?
             if hasExplicitHandle && explicitSurfaceArg != nil {
                 let targetWorkspace: String
                 let targetSurface: String
@@ -5107,20 +5449,38 @@ struct CMUXCLI {
                     targetSurface = try explicitSurfaceArg.map { try resolveSurfaceId($0, workspaceId: targetWorkspace, client: client) }
                         ?? resolveSurfaceId(nil, workspaceId: targetWorkspace, client: client)
                 }
-                let payload = notificationPayload(title: title, subtitle: subtitle, body: body)
-                let response = try sendV1Command("notify_target \(targetWorkspace) \(targetSurface) \(payload)", client: client)
-                print(response)
-                return
+                if usesPresentationAPI {
+                    resolvedPresentationWorkspace = targetWorkspace
+                    resolvedPresentationSurface = targetSurface
+                } else {
+                    let payload = notificationPayload(title: title, subtitle: subtitle, body: body)
+                    let response = try sendV1Command("notify_target \(targetWorkspace) \(targetSurface) \(payload)", client: client)
+                    print(response)
+                    return
+                }
             }
             var params: [String: Any] = ["title": title, "subtitle": subtitle, "body": body]
+            params["notification_id"] = notificationID.uuidString
+            params["delivery"] = delivery
+            params["timeout"] = timeout
+            if let icon { params["icon"] = icon }
+            if !actions.isEmpty { params["actions"] = actions }
+            if !inputs.isEmpty { params["inputs"] = inputs }
+            if let responseToken { params["response_token"] = responseToken.uuidString }
             let method: String
             if explicitSurfaceArg != nil {
                 method = "notification.create"
                 if let windowHandle { params["window_id"] = windowHandle }
-                if let explicitWorkspaceArg {
+                if let resolvedPresentationWorkspace {
+                    params["workspace_id"] = resolvedPresentationWorkspace
+                } else if let explicitWorkspaceArg {
                     params["workspace_id"] = try resolveWorkspaceId(explicitWorkspaceArg, client: client, windowHandle: windowHandle)
                 }
-                if let explicitSurfaceArg { params["surface_id"] = explicitSurfaceArg }
+                if let resolvedPresentationSurface {
+                    params["surface_id"] = resolvedPresentationSurface
+                } else if let explicitSurfaceArg {
+                    params["surface_id"] = explicitSurfaceArg
+                }
             } else {
                 if let windowHandle {
                     method = "notification.create"
@@ -5146,7 +5506,34 @@ struct CMUXCLI {
                 }
             }
             let payload = try client.sendV2(method: method, params: params)
-            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK")
+            guard waitsForAction, let responseURL else {
+                printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK")
+                return
+            }
+            do {
+                try SocketClient.waitForFilesystemPath(responseURL.path, timeout: timeout + 5)
+                let data = try Data(contentsOf: responseURL)
+                defer { try? FileManager.default.removeItem(at: responseURL) }
+                let response = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+                guard let response, let action = response["action"] as? String else {
+                    throw CLIError(message: String(
+                        localized: "cli.notify.error.invalidResponse",
+                        defaultValue: "Notification returned an invalid action response"
+                    ))
+                }
+                if jsonOutput || !inputs.isEmpty {
+                    print(jsonString(response))
+                } else {
+                    print(action)
+                }
+            } catch let error as CLIError {
+                throw error
+            } catch {
+                throw CLIError(message: String(
+                    localized: "cli.notify.error.waitTimedOut",
+                    defaultValue: "Timed out waiting for a notification action"
+                ))
+            }
         case "list-notifications":
             let response = try sendV1Command("list_notifications", client: client)
             if jsonOutput {
@@ -14973,6 +15360,88 @@ struct CMUXCLI {
     }
 
     /// Return the help/usage text for a subcommand, or nil if the command is unknown.
+    /// Versioned runtime contract for agent-authored notification forms. Keep
+    /// this in sync with the parser in `notify` and docs/notifications.md.
+    private func notificationSpecSchema() -> String {
+        #"""
+        {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "version": { "type": "integer", "const": 1, "default": 1 },
+            "title": { "type": "string" },
+            "subtitle": { "type": "string" },
+            "body": { "type": "string" },
+            "delivery": {
+              "type": "string",
+              "enum": ["default", "system", "notch"],
+              "default": "default"
+            },
+            "icon": { "type": "string", "maxLength": 128 },
+            "wait": { "type": "boolean", "default": false },
+            "timeout": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 86400
+            },
+            "actions": {
+              "type": "array",
+              "maxItems": 4,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["id"],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "pattern": "^[A-Za-z0-9._-]+$",
+                    "not": {
+                      "enum": ["open", "dismiss", "timeout", "replaced", "dismissed"]
+                    }
+                  },
+                  "label": { "type": "string", "minLength": 1, "maxLength": 80 },
+                  "title": { "type": "string", "minLength": 1, "maxLength": 80 }
+                },
+                "anyOf": [
+                  { "required": ["label"] },
+                  { "required": ["title"] }
+                ]
+              }
+            },
+            "inputs": {
+              "type": "array",
+              "maxItems": 4,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["id", "label"],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "pattern": "^[A-Za-z0-9._-]+$"
+                  },
+                  "label": { "type": "string", "minLength": 1, "maxLength": 80 },
+                  "placeholder": { "type": "string", "maxLength": 160 },
+                  "value": { "type": "string", "maxLength": 4096 },
+                  "default": { "type": "string", "maxLength": 4096 },
+                  "initial_value": { "type": "string", "maxLength": 4096 },
+                  "secure": { "type": "boolean", "default": false }
+                }
+              }
+            },
+            "workspace": { "type": "string" },
+            "surface": { "type": "string" },
+            "window": { "type": "string" }
+          }
+        }
+        """#
+    }
+
     private func subcommandUsage(_ command: String) -> String? {
         switch command {
         case "remotes", "remote":
@@ -16570,7 +17039,7 @@ struct CMUXCLI {
               cmux send-key-panel --panel surface:2 ctrl+c
             """
         case "notify":
-            return """
+            return String(localized: "cli.help.notify", defaultValue: """
             Usage: cmux notify [flags]
 
             Send a notification to a workspace/surface.
@@ -16579,6 +17048,15 @@ struct CMUXCLI {
               --title <text>         Notification title (default: "Notification")
               --subtitle <text>      Notification subtitle
               --body <text>          Notification body
+              --delivery <mode>      default, system, or notch
+              --icon <sf-symbol>     Dynamic Notch SF Symbol name
+              --action <id=Label>    Add an interactive action (repeatable, max 4)
+              --input <id=Label>     Add a text field (repeatable, max 4)
+              --secure-input <id=Label>   Add a masked text field
+              --spec <json|@file|->  Load a runtime form from JSON, a file, or stdin
+              --print-schema         Print the JSON form schema without connecting to cmux
+              --wait                 Wait and print the action result
+              --timeout <seconds>    Auto-dismiss timeout; 0 persists (default: 8, or 300 with --wait)
               --workspace <id|ref|index>   Target workspace, except explicit surface UUIDs resolve globally
               --surface <id|ref|index>     Target surface (refs/indexes use workspace/window context)
               --window <id|ref|index>      Window context for workspace/surface refs and indexes
@@ -16587,7 +17065,10 @@ struct CMUXCLI {
               cmux notify --title "Build done" --body "All tests passed"
               cmux notify --title "Error" --subtitle "test.swift" --body "Line 42: syntax error"
               cmux notify --surface <uuid> --title "Build done"
-            """
+              choice=$(cmux notify --delivery notch --title "Deploy?" --action deploy=Deploy --action cancel=Cancel --wait)
+              cmux notify --print-schema
+              cmux notify --spec @approval.json --wait --json
+            """)
         case "list-notifications":
             return """
             Usage: cmux list-notifications
@@ -17089,6 +17570,10 @@ struct CMUXCLI {
             if arg == "--" {
                 pastTerminator = true
                 remaining.append(arg)
+                continue
+            }
+            if !pastTerminator, arg.hasPrefix("\(name)=") {
+                values.append(String(arg.dropFirst(name.count + 1)))
                 continue
             }
             if !pastTerminator, arg == name, idx + 1 < args.count {
@@ -35326,7 +35811,7 @@ export default CMUXSessionRestore;
           send-key [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <key>
           send-panel --panel <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>] <text>
           send-key-panel --panel <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>] <key>
-          notify --title <text> [--subtitle <text>] [--body <text>] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
+          notify --title <text> [--subtitle <text>] [--body <text>] [--delivery default|system|notch] [--icon <sf-symbol>] [--action <id=Label>] [--input <id=Label>] [--secure-input <id=Label>] [--spec <json|@file|->] [--print-schema] [--wait] [--timeout <seconds>] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
           list-notifications
           dismiss-notification (--id <uuid> | --all-read)
           mark-notification-read (--id <uuid> | --workspace <id|ref|index> [--surface <id|ref|index>] [--window <id|ref|index>] | --all)

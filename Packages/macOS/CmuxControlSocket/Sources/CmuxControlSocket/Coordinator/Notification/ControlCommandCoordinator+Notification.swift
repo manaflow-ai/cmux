@@ -45,12 +45,16 @@ extension ControlCommandCoordinator {
         let title = rawString(params, "title") ?? "Notification"
         let subtitle = rawString(params, "subtitle") ?? ""
         let body = rawString(params, "body") ?? ""
+        guard let presentation = notificationPresentation(params) else {
+            return .err(code: "invalid_params", message: notificationInvalidPresentationMessage, data: nil)
+        }
         let resolution = context?.controlNotificationCreate(
             routing: routingSelectors(params),
             explicitSurfaceID: uuid(params, "surface_id"),
             title: title,
             subtitle: subtitle,
-            body: body
+            body: body,
+            presentation: presentation
         ) ?? .tabManagerUnavailable
 
         switch resolution {
@@ -66,6 +70,7 @@ extension ControlCommandCoordinator {
             )
         case .delivered(let workspaceID, let surfaceID):
             return .ok(.object([
+                "id": .string(presentation.notificationID.uuidString),
                 "workspace_id": .string(workspaceID.uuidString),
                 "surface_id": orNull(surfaceID?.uuidString),
             ]))
@@ -81,14 +86,18 @@ extension ControlCommandCoordinator {
         let title = rawString(params, "title") ?? "Notification"
         let subtitle = rawString(params, "subtitle") ?? ""
         let body = rawString(params, "body") ?? ""
+        guard let presentation = notificationPresentation(params) else {
+            return .err(code: "invalid_params", message: notificationInvalidPresentationMessage, data: nil)
+        }
         let resolution = context?.controlNotificationCreateForSurface(
             routing: routingSelectors(params),
             surfaceID: surfaceID,
             title: title,
             subtitle: subtitle,
-            body: body
+            body: body,
+            presentation: presentation
         ) ?? .tabManagerUnavailable
-        return targetedDeliveryResult(resolution)
+        return targetedDeliveryResult(resolution, notificationID: presentation.notificationID)
     }
 
     /// `notification.create_for_target` — deliver to a required workspace +
@@ -103,20 +112,25 @@ extension ControlCommandCoordinator {
         let title = rawString(params, "title") ?? "Notification"
         let subtitle = rawString(params, "subtitle") ?? ""
         let body = rawString(params, "body") ?? ""
+        guard let presentation = notificationPresentation(params) else {
+            return .err(code: "invalid_params", message: notificationInvalidPresentationMessage, data: nil)
+        }
         let resolution = context?.controlNotificationCreateForTarget(
             routing: routingSelectors(params),
             workspaceID: workspaceID,
             surfaceID: surfaceID,
             title: title,
             subtitle: subtitle,
-            body: body
+            body: body,
+            presentation: presentation
         ) ?? .tabManagerUnavailable
-        return targetedDeliveryResult(resolution)
+        return targetedDeliveryResult(resolution, notificationID: presentation.notificationID)
     }
 
     /// The shared result shaping for `create_for_surface` / `create_for_target`.
     private func targetedDeliveryResult(
-        _ resolution: ControlNotificationTargetedDeliveryResolution
+        _ resolution: ControlNotificationTargetedDeliveryResolution,
+        notificationID: UUID
     ) -> ControlCallResult {
         switch resolution {
         case .tabManagerUnavailable:
@@ -132,6 +146,7 @@ extension ControlCommandCoordinator {
             )
         case .delivered(let workspaceID, let surfaceID, let windowID):
             return .ok(.object([
+                "id": .string(notificationID.uuidString),
                 "workspace_id": .string(workspaceID.uuidString),
                 "workspace_ref": ref(.workspace, workspaceID),
                 "surface_id": .string(surfaceID.uuidString),
@@ -140,6 +155,167 @@ extension ControlCommandCoordinator {
                 "window_ref": ref(.window, windowID),
             ]))
         }
+    }
+
+    private func notificationPresentation(
+        _ params: [String: JSONValue]
+    ) -> ControlNotificationPresentation? {
+        let notificationID: UUID
+        if let notificationIDValue = params["notification_id"] {
+            guard case .string(let rawNotificationID) = notificationIDValue,
+                  let parsed = UUID(uuidString: rawNotificationID) else { return nil }
+            notificationID = parsed
+        } else {
+            notificationID = UUID()
+        }
+
+        let rawDelivery: String
+        if let deliveryValue = params["delivery"] {
+            guard case .string(let value) = deliveryValue else { return nil }
+            rawDelivery = value
+        } else {
+            rawDelivery = "settings"
+        }
+        let delivery: ControlNotificationPresentation.Delivery
+        switch rawDelivery {
+        case "settings", "default":
+            delivery = .settings
+        case "system":
+            delivery = .system
+        case "dynamicNotch", "notch":
+            delivery = .dynamicNotch
+        default:
+            return nil
+        }
+
+        if let iconValue = params["icon"], case .string = iconValue {
+            // Parsed below.
+        } else if params["icon"] != nil {
+            return nil
+        }
+        let icon = optionalTrimmedRawString(params, "icon")
+        if let icon, icon.count > 128 { return nil }
+
+        var actions: [ControlNotificationPresentation.Action] = []
+        if let actionValue = params["actions"] {
+            guard case .array(let rawActions) = actionValue, rawActions.count <= 4 else { return nil }
+            var actionIDs: Set<String> = []
+            let reservedIDs: Set<String> = ["open", "dismiss", "timeout", "replaced", "dismissed"]
+            for rawAction in rawActions {
+                guard case .object(let object) = rawAction,
+                      Set(object.keys).isSubset(of: ["id", "title"]),
+                      case .string(let rawID)? = object["id"],
+                      case .string(let rawTitle)? = object["title"] else { return nil }
+                let id = rawID.trimmingCharacters(in: .whitespacesAndNewlines)
+                let title = rawTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !id.isEmpty,
+                      id.count <= 64,
+                      !title.isEmpty,
+                      title.count <= 80,
+                      !reservedIDs.contains(id),
+                      notificationControlIdentifierIsValid(id),
+                      actionIDs.insert(id).inserted else { return nil }
+                actions.append(.init(id: id, title: title))
+            }
+        }
+
+        var inputs: [ControlNotificationPresentation.Input] = []
+        if let inputValue = params["inputs"] {
+            guard case .array(let rawInputs) = inputValue, rawInputs.count <= 4 else { return nil }
+            var inputIDs: Set<String> = []
+            for rawInput in rawInputs {
+                guard case .object(let object) = rawInput,
+                      Set(object.keys).isSubset(of: [
+                          "id", "label", "placeholder", "initial_value", "secure",
+                      ]),
+                      case .string(let rawID)? = object["id"],
+                      case .string(let rawLabel)? = object["label"] else { return nil }
+                let id = rawID.trimmingCharacters(in: .whitespacesAndNewlines)
+                let label = rawLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+                let placeholder: String
+                switch object["placeholder"] {
+                case .string(let value)?:
+                    placeholder = value
+                case nil:
+                    placeholder = ""
+                default:
+                    return nil
+                }
+                let initialValue: String
+                switch object["initial_value"] {
+                case .string(let value)?:
+                    initialValue = value
+                case nil:
+                    initialValue = ""
+                default:
+                    return nil
+                }
+                let kind: ControlNotificationPresentation.Input.Kind
+                switch object["secure"] {
+                case .bool(true)?:
+                    kind = .secure
+                case .bool(false)?, nil:
+                    kind = .text
+                default:
+                    return nil
+                }
+                guard !id.isEmpty,
+                      id.count <= 64,
+                      notificationControlIdentifierIsValid(id),
+                      inputIDs.insert(id).inserted,
+                      !label.isEmpty,
+                      label.count <= 80,
+                      placeholder.count <= 160,
+                      initialValue.count <= 4_096 else { return nil }
+                inputs.append(.init(
+                    id: id,
+                    label: label,
+                    placeholder: placeholder,
+                    initialValue: initialValue,
+                    kind: kind
+                ))
+            }
+        }
+
+        let responseToken: UUID?
+        if let responseTokenValue = params["response_token"] {
+            guard case .string(let rawResponseToken) = responseTokenValue,
+                  let parsed = UUID(uuidString: rawResponseToken) else { return nil }
+            responseToken = parsed
+        } else {
+            responseToken = nil
+        }
+
+        let timeout: Double
+        switch params["timeout"] {
+        case .double(let value)?:
+            timeout = value
+        case .int(let value)?:
+            timeout = Double(value)
+        case nil:
+            timeout = 8
+        default:
+            return nil
+        }
+        guard timeout.isFinite, (0...86_400).contains(timeout) else { return nil }
+        guard (actions.isEmpty && inputs.isEmpty && responseToken == nil) || delivery == .dynamicNotch else { return nil }
+
+        return ControlNotificationPresentation(
+            notificationID: notificationID,
+            delivery: delivery,
+            iconSymbolName: icon,
+            actions: actions,
+            inputs: inputs,
+            responseToken: responseToken,
+            timeout: timeout
+        )
+    }
+
+    private func notificationControlIdentifierIsValid(_ identifier: String) -> Bool {
+        let allowed = CharacterSet(
+            charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-"
+        )
+        return identifier.unicodeScalars.allSatisfy(allowed.contains)
     }
 
     // MARK: - List / clear
@@ -362,6 +538,7 @@ extension ControlCommandCoordinator {
     /// identical to the legacy `String(localized:)` calls.
     private var notificationStrings: ControlNotificationStrings {
         context?.notificationStrings ?? ControlNotificationStrings(
+            invalidPresentation: "Invalid notification presentation",
             dismissSelectorRequired: "Select exactly one of id or all_read",
             idRequired: "Missing or invalid notification id",
             notFound: "Notification not found",
@@ -370,6 +547,10 @@ extension ControlCommandCoordinator {
             surfaceIDRequiresWorkspace: "surface_id requires tab_id or workspace_id",
             targetNotFound: "Notification target not found"
         )
+    }
+
+    private var notificationInvalidPresentationMessage: String {
+        notificationStrings.invalidPresentation
     }
 
     private var notificationDismissSelectorRequiredMessage: String {

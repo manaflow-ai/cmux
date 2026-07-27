@@ -7,6 +7,135 @@ import Darwin
 #endif
 
 final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
+    func testNotifyPrintSchemaDoesNotNeedARunningApp() throws {
+        let result = runProcess(
+            executablePath: try bundledCLIPath(),
+            arguments: ["notify", "--print-schema"],
+            environment: [
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SOCKET_PATH": "/tmp/cmux-notification-schema-no-socket-\(UUID().uuidString).sock",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+        let schema = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any]
+        )
+        XCTAssertEqual(schema["additionalProperties"] as? Bool, false)
+        let properties = try XCTUnwrap(schema["properties"] as? [String: Any])
+        XCTAssertNotNil(properties["actions"])
+        XCTAssertNotNil(properties["inputs"])
+    }
+
+    func testNotifyRuntimeSpecRejectsInvalidControlsBeforeConnecting() throws {
+        let cliPath = try bundledCLIPath()
+        let invalidSpecs = [
+            #"{"version":1,"actions":[{"id":"approve","label":"Approve","command":"deploy"}]}"#,
+            #"{"version":1,"inputs":[{"id":"reason","label":"Reason","secure":1}]}"#,
+            #"{"version":1,"actions":[{"id":"承認","label":"Approve"}]}"#,
+        ]
+
+        for spec in invalidSpecs {
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: ["notify", "--spec", spec],
+                environment: [
+                    "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                    "CMUX_SOCKET_PATH": "/tmp/cmux-notification-invalid-spec-\(UUID().uuidString).sock",
+                    "CMUX_CLI_SENTRY_DISABLED": "1",
+                ],
+                timeout: 5
+            )
+
+            XCTAssertFalse(result.timedOut, result.stderr)
+            XCTAssertNotEqual(result.status, 0, spec)
+        }
+    }
+
+    func testNotifyRuntimeSpecSendsAFormAndReturnsStructuredValues() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("notify-form")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let workspaceID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let requestID = payload["id"] as? String,
+                  payload["method"] as? String == "notification.create",
+                  let params = payload["params"] as? [String: Any],
+                  let responseToken = params["response_token"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            XCTAssertEqual(params["delivery"] as? String, "dynamicNotch")
+            XCTAssertEqual(params["icon"] as? String, "hand.raised.fill")
+            XCTAssertEqual(params["timeout"] as? Double, 30)
+            let actions = params["actions"] as? [[String: String]]
+            XCTAssertEqual(actions?.map { $0["id"] }, ["approve", "deny"])
+            let inputs = params["inputs"] as? [[String: Any]]
+            XCTAssertEqual(inputs?.first?["id"] as? String, "reason")
+            XCTAssertEqual(inputs?.first?["secure"] as? Bool, false)
+
+            let responseURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent(
+                    "cmux-notification-action-\(responseToken.lowercased()).json"
+                )
+            let response: [String: Any] = [
+                "action": "approve",
+                "notification_id": params["notification_id"] as? String ?? "",
+                "values": ["reason": "Ship it"],
+            ]
+            try? JSONSerialization.data(withJSONObject: response).write(
+                to: responseURL,
+                options: .atomic
+            )
+            return self.v2Response(
+                id: requestID,
+                ok: true,
+                result: [
+                    "id": params["notification_id"] as? String ?? "",
+                    "workspace_id": workspaceID,
+                    "surface_id": surfaceID,
+                ]
+            )
+        }
+
+        let spec = #"{"version":1,"title":"Deploy?","icon":"hand.raised.fill","timeout":30,"actions":[{"id":"approve","label":"Approve"},{"id":"deny","label":"Deny"}],"inputs":[{"id":"reason","label":"Reason","placeholder":"Optional"}]}"#
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "notify", "--surface", surfaceID, "--spec", spec, "--wait", "--json",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let response = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any]
+        )
+        XCTAssertEqual(response["action"] as? String, "approve")
+        XCTAssertEqual(
+            (response["values"] as? [String: String])?["reason"],
+            "Ship it"
+        )
+    }
+
     func testClaudeClearSessionStartMarksWorkspaceRunning() throws {
         let context = try makeClaudeHookContext(name: "claude-clear-running")
         defer { context.cleanup() }

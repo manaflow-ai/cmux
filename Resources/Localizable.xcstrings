@@ -172986,6 +172986,184 @@
         }
       }
     },
+    "cli.help.notify": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux notify [flags]\n\nSend a notification to a workspace/surface.\n\nFlags:\n  --title <text>         Notification title (default: \"Notification\")\n  --subtitle <text>      Notification subtitle\n  --body <text>          Notification body\n  --delivery <mode>      default, system, or notch\n  --icon <sf-symbol>     Dynamic Notch SF Symbol name\n  --action <id=Label>    Add an interactive action (repeatable, max 4)\n  --input <id=Label>     Add a text field (repeatable, max 4)\n  --secure-input <id=Label>   Add a masked text field\n  --spec <json|@file|->  Load a runtime form from JSON, a file, or stdin\n  --print-schema         Print the JSON form schema without connecting to cmux\n  --wait                 Wait and print the action result\n  --timeout <seconds>    Auto-dismiss timeout; 0 persists (default: 8, or 300 with --wait)\n  --workspace <id|ref|index>   Target workspace, except explicit surface UUIDs resolve globally\n  --surface <id|ref|index>     Target surface (refs/indexes use workspace/window context)\n  --window <id|ref|index>      Window context for workspace/surface refs and indexes\n\nExample:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用法: cmux notify [フラグ]\n\nワークスペースまたはサーフェスに通知を送信します。\n\nフラグ:\n  --title <テキスト>         通知タイトル（既定: \"Notification\"）\n  --subtitle <テキスト>      通知サブタイトル\n  --body <テキスト>          通知本文\n  --delivery <モード>        default、system、notch\n  --icon <SF Symbol>         Dynamic Notch の SF Symbol 名\n  --action <id=ラベル>       操作ボタンを追加（最大4個、繰り返し可）\n  --input <id=ラベル>        テキスト入力欄を追加（最大4個、繰り返し可）\n  --secure-input <id=ラベル> マスクされた入力欄を追加\n  --spec <json|@file|->      JSON、ファイル、標準入力から実行時フォームを読み込み\n  --print-schema             cmux に接続せず JSON フォームスキーマを出力\n  --wait                     操作結果を待って出力\n  --timeout <秒>             自動消去までの秒数。0 は表示を維持（既定: 8、--wait 時は300）\n  --workspace <id|ref|index> 対象ワークスペース\n  --surface <id|ref|index>   対象サーフェス\n  --window <id|ref|index>    ウインドウのコンテキスト\n\n例:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
+          }
+        }
+      }
+    },
+    "cli.notify.error.invalidAction": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Invalid --action; use a unique ASCII id=Label" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "--action が無効です。重複しない ASCII の id=ラベル を指定してください" } }
+      }
+    },
+    "cli.notify.error.invalidInput": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Invalid input; use a unique ASCII id=Label" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "入力欄が無効です。重複しない ASCII の id=ラベル を指定してください" } }
+      }
+    },
+    "cli.notify.error.invalidIcon": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "--icon must be at most 128 characters" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "--icon は128文字以内で指定してください" } }
+      }
+    },
+    "cli.notify.error.invalidSpec": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Invalid notification spec; run cmux notify --print-schema" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "通知仕様が無効です。cmux notify --print-schema を実行してください" } }
+      }
+    },
+    "cli.notify.error.invalidDelivery": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "--delivery must be default, system, or notch" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "--delivery は default、system、notch のいずれかを指定してください" } }
+      }
+    },
+    "cli.notify.error.invalidResponse": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Notification returned an invalid action response" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "通知から無効な操作応答が返されました" } }
+      }
+    },
+    "cli.notify.error.invalidTimeout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "--timeout must be between 0 and 86400 seconds" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "--timeout は0秒から86400秒の範囲で指定してください" } }
+      }
+    },
+    "cli.notify.error.remoteInteractive": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Explicit delivery overrides and Dynamic Notch controls require a local cmux socket" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "配信方法の明示的な上書きと Dynamic Notch 操作にはローカルの cmux ソケットが必要です" } }
+      }
+    },
+    "cli.notify.error.systemControls": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "--icon, --action, --input, --wait, and --timeout require --delivery notch" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "--icon、--action、--input、--wait、--timeout には --delivery notch が必要です" } }
+      }
+    },
+    "cli.notify.error.tooManyActions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "A notification supports at most four --action values" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "通知に指定できる --action は最大4個です" } }
+      }
+    },
+    "cli.notify.error.tooManyInputs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "A notification supports at most four input fields" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "通知に指定できる入力欄は最大4個です" } }
+      }
+    },
+    "cli.notify.error.waitRequiresTimeout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "--wait requires a positive --timeout" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "--wait には0より大きい --timeout が必要です" } }
+      }
+    },
+    "cli.notify.error.waitTimedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Timed out waiting for a notification action" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "通知操作の待機がタイムアウトしました" } }
+      }
+    },
+    "notification.dynamicNotch.dismiss": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Dismiss" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "閉じる" } }
+      }
+    },
+    "notification.dynamicNotch.open": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Open" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "開く" } }
+      }
+    },
+    "settings.notifications.delivery.option.dynamicNotch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Dynamic Notch" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Dynamic Notch" } }
+      }
+    },
+    "settings.notifications.delivery.option.system": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "System" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "システム" } }
+      }
+    },
+    "settings.notifications.delivery.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Dynamic Notch stays visible when Focus or Do Not Disturb suppresses system notifications." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "集中モードやおやすみモードでシステム通知が抑制されても、Dynamic Notch は表示されます。" } }
+      }
+    },
+    "settings.notifications.delivery.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Notification Delivery" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "通知の配信" } }
+      }
+    },
+    "settings.notifications.test.dynamicNotch.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Dynamic Notch notifications are enabled." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Dynamic Notch 通知が有効です。" } }
+      }
+    },
+    "settings.notifications.test.system.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Desktop notifications are enabled." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "デスクトップ通知が有効です。" } }
+      }
+    },
+    "settings.notifications.test.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "cmux test notification" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmux テスト通知" } }
+      }
+    },
+    "settings.search.alias.setting.app.notification-delivery": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "notifications.delivery dynamic notch system notification center focus do not disturb dnd interactive" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "notifications.delivery Dynamic Notch システム 通知センター 集中モード おやすみモード 操作" } }
+      }
+    },
     "settings.networking.test.reachable": {
       "extractionState": "manual",
       "localizations": {
@@ -224598,6 +224776,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "通知 ID が指定されていないか無効です"
+          }
+        }
+      }
+    },
+    "socket.notification.invalidPresentation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid notification presentation"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知の表示設定が無効です"
           }
         }
       }

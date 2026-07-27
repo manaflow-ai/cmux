@@ -8,6 +8,9 @@
 /// dropping the non-English variants — so the app passes the already-resolved
 /// strings across the seam instead.
 public struct ControlNotificationStrings: Sendable, Equatable {
+    /// `socket.notification.invalidPresentation` —
+    /// "Invalid notification presentation".
+    public let invalidPresentation: String
     /// `socket.notification.dismissSelectorRequired` —
     /// "Select exactly one of id or all_read".
     public let dismissSelectorRequired: String
@@ -29,6 +32,7 @@ public struct ControlNotificationStrings: Sendable, Equatable {
     /// Creates the localized message bundle.
     ///
     /// - Parameters:
+    ///   - invalidPresentation: The invalid-presentation message.
     ///   - dismissSelectorRequired: The dismiss-selector-required message.
     ///   - idRequired: The id-required message.
     ///   - notFound: The notification-not-found message.
@@ -37,6 +41,7 @@ public struct ControlNotificationStrings: Sendable, Equatable {
     ///   - surfaceIDRequiresWorkspace: The surface_id-requires-workspace message.
     ///   - targetNotFound: The target-not-found message.
     public init(
+        invalidPresentation: String,
         dismissSelectorRequired: String,
         idRequired: String,
         notFound: String,
@@ -45,6 +50,7 @@ public struct ControlNotificationStrings: Sendable, Equatable {
         surfaceIDRequiresWorkspace: String,
         targetNotFound: String
     ) {
+        self.invalidPresentation = invalidPresentation
         self.dismissSelectorRequired = dismissSelectorRequired
         self.idRequired = idRequired
         self.notFound = notFound

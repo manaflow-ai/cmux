@@ -1,6 +1,6 @@
 # Notifications
 
-cmux provides a notification panel for AI agents like Claude Code, Codex, and OpenCode. Notifications appear in a dedicated panel and trigger macOS system notifications.
+cmux provides a notification panel for AI agents like Claude Code, Codex, and OpenCode. Desktop notifications can use macOS Notification Center or an interactive Dynamic Notch panel.
 
 > For inline permission / plan / question approvals directly from the sidebar (Vibe Island-style), see **[Feed](feed.md)**. `cmux hooks setup` installs the Feed bridge alongside the notification hooks covered below.
 
@@ -50,9 +50,56 @@ cmux notify --title "Build Complete"
 # With subtitle and body
 cmux notify --title "Claude Code" --subtitle "Permission" --body "Approval needed"
 
-# Notify specific tab/panel
-cmux notify --title "Done" --tab 0 --panel 1
+# Notify a specific workspace/surface
+cmux notify --title "Done" --workspace workspace:1 --surface surface:1
+
+# Force an interactive notch and wait for the selected action id
+choice=$(cmux notify --delivery notch --title "Deploy?" \
+  --action deploy=Deploy --action cancel=Cancel --wait)
 ```
+
+## Dynamic Notch
+
+Set `notifications.delivery` to `dynamicNotch` in `~/.config/cmux/cmux.json`, or choose Dynamic Notch under Settings > App > Notification Delivery. The panel is independent of macOS Notification Center, so Focus and Do Not Disturb do not suppress it.
+
+`cmux notify --delivery notch` overrides the setting for one notification. `--icon` accepts an SF Symbol name, repeated `--action id=Label` flags add up to four buttons, and `--input id=Label` or `--secure-input id=Label` add runtime-defined fields. IDs must be unique ASCII strings containing only letters, numbers, `.`, `_`, or `-`. `--timeout` controls dismissal. `--wait` prints the selected action id when no fields exist, and prints JSON containing `action`, `notification_id`, and `values` when the form has fields. cmux never executes action payloads as shell commands.
+
+Agents can pass the complete form with `--spec '<json>'`, `--spec @path`, or `--spec -` for stdin:
+
+```json
+{
+  "version": 1,
+  "title": "Approve deployment?",
+  "body": "Production will restart.",
+  "icon": "shippingbox.fill",
+  "timeout": 300,
+  "actions": [
+    { "id": "approve", "label": "Approve" },
+    { "id": "deny", "label": "Deny" }
+  ],
+  "inputs": [
+    {
+      "id": "reason",
+      "label": "Reason",
+      "placeholder": "Optional note",
+      "value": "",
+      "secure": false
+    }
+  ]
+}
+```
+
+`cmux notify --print-schema` prints the versioned JSON Schema without connecting to a running app. Unknown keys and invalid types are rejected. Scalar command-line flags override the spec, while repeated `--action`, `--input`, and `--secure-input` values are appended. Custom actions replace the built-in Open button.
+
+Explicit delivery overrides and interactive forms require a local cmux socket. A relayed Cloud VM CLI can still send ordinary notifications, which use the Mac's configured delivery mode.
+
+```bash
+response=$(cmux notify --spec @approval.json --wait --json)
+action=$(printf '%s' "$response" | jq -r .action)
+reason=$(printf '%s' "$response" | jq -r .values.reason)
+```
+
+The response action is a caller-defined action id, `open`, `dismiss`, `timeout`, `replaced`, or `dismissed`. Callers should treat every value except their accepted action ids as cancellation.
 
 ## Navigation
 
@@ -238,7 +285,7 @@ cmux sets these in child shells:
 ## CLI Commands
 
 ```
-cmux notify --title <text> [--subtitle <text>] [--body <text>] [--tab <id|index>] [--panel <id|index>]
+cmux notify --title <text> [--subtitle <text>] [--body <text>] [--delivery default|system|notch] [--icon <sf-symbol>] [--action <id=Label>] [--input <id=Label>] [--secure-input <id=Label>] [--spec <json|@file|->] [--wait] [--timeout <seconds>] [--workspace <id|ref>] [--surface <id|ref>]
 cmux list-notifications
 cmux dismiss-notification (--id <notification-id> | --all-read)
 cmux mark-notification-read (--id <notification-id> | --workspace <id|ref> [--surface <id|ref>] | --all)

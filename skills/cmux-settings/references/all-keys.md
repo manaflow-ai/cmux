@@ -43,6 +43,7 @@ Notification behavior from Settings > Notifications.
 
 | Key | Type | Default | Description |
 |---|---|---|---|
+| `notifications.delivery` | `"system"` or `"dynamicNotch"` | `"system"` | Choose macOS Notification Center or the interactive Dynamic Notch panel. |
 | `notifications.dockBadge` | boolean | `true` | Show the unread count in the Dock tile. |
 | `notifications.showInMenuBar` | boolean | `true` | Show the menu bar extra. |
 | `notifications.unreadPaneRing` | boolean | `true` | Highlight panes with unread notifications. |

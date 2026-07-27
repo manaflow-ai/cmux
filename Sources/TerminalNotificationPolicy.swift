@@ -185,6 +185,8 @@ struct TerminalNotificationPolicyEnvelope: Codable, Sendable, Equatable {
     var stop: Bool?
 }
 struct TerminalNotificationPolicyRequest: Sendable {
+    let notificationID: UUID
+    let presentation: TerminalNotificationPresentation
     let tabId: UUID
     let surfaceId: UUID?
     let panelId: UUID?
@@ -196,6 +198,8 @@ struct TerminalNotificationPolicyRequest: Sendable {
     let isAppFocused: Bool
     let isFocusedPanel: Bool
     init(
+        notificationID: UUID = UUID(),
+        presentation: TerminalNotificationPresentation = TerminalNotificationPresentation(),
         tabId: UUID,
         surfaceId: UUID?,
         panelId: UUID? = nil,
@@ -207,6 +211,8 @@ struct TerminalNotificationPolicyRequest: Sendable {
         isAppFocused: Bool,
         isFocusedPanel: Bool
     ) {
+        self.notificationID = notificationID
+        self.presentation = presentation
         self.tabId = tabId
         self.surfaceId = surfaceId
         self.panelId = panelId

@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 import WebKit
 import ObjectiveC.runtime
 import Bonsplit
+import CmuxSettings
 import UserNotifications
 
 #if canImport(cmux_DEV)
@@ -1215,6 +1216,69 @@ final class NotificationDockBadgeTests: XCTestCase {
         XCTAssertTrue(deliveredNotificationIDs.isEmpty)
         XCTAssertEqual(localFeedbackNotificationIDs.count, 1)
         XCTAssertEqual(localFeedbackNotificationIDs, [createdNotificationID])
+    }
+
+    func testFocusedTerminalNotificationUsesConfiguredDynamicNotchDelivery() throws {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("AppDelegate.shared must be set for this test")
+            return
+        }
+        let manager = TabManager()
+        let store = TerminalNotificationStore.shared
+        let defaults = UserDefaults.standard
+        let deliveryKey = NotificationsCatalogSection().delivery.userDefaultsKey
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+        let originalDelivery = defaults.object(forKey: deliveryKey)
+
+        var deliveredNotificationIDs: [UUID] = []
+        var suppressedNotificationIDs: [UUID] = []
+
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, notification in
+            deliveredNotificationIDs.append(notification.id)
+        }
+        store.configureSuppressedNotificationFeedbackHandlerForTesting { _, notification in
+            suppressedNotificationIDs.append(notification.id)
+        }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+        AppFocusState.overrideIsFocused = true
+        defaults.set(NotificationDeliveryMode.dynamicNotch.rawValue, forKey: deliveryKey)
+
+        defer {
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            store.resetSuppressedNotificationFeedbackHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+            if let originalDelivery {
+                defaults.set(originalDelivery, forKey: deliveryKey)
+            } else {
+                defaults.removeObject(forKey: deliveryKey)
+            }
+        }
+
+        guard let workspace = manager.selectedWorkspace,
+              let terminalPanel = workspace.focusedTerminalPanel else {
+            XCTFail("Expected selected workspace with a focused terminal panel")
+            return
+        }
+
+        store.addNotification(
+            tabId: workspace.id,
+            surfaceId: terminalPanel.id,
+            title: "Approval",
+            subtitle: "",
+            body: "Review the action"
+        )
+
+        let createdNotificationID = try XCTUnwrap(store.notifications.first?.id)
+        XCTAssertEqual(deliveredNotificationIDs, [createdNotificationID])
+        XCTAssertTrue(suppressedNotificationIDs.isEmpty)
     }
 
     func testFocusedTerminalSuppressedNotificationRunsCustomCommand() throws {

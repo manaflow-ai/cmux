@@ -861,6 +861,13 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "delivery": {
+          "type": "string",
+          "enum": ["system", "dynamicNotch"],
+          "default": "system",
+          "descriptionKey": "schemaDescriptions.notifications.delivery",
+          "description": "Present desktop notifications through macOS Notification Center or an interactive Dynamic Notch panel. Dynamic Notch is not suppressed by Focus or Do Not Disturb."
+        },
         "dockBadge": {
           "type": "boolean",
           "default": true,

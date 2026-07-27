@@ -87,6 +87,7 @@ struct SettingsRowAnchorResolutionTests {
         "notifications.agentPermissionPrompt",
         "notifications.agentTurnComplete",
         "notifications.command",
+        "notifications.delivery",
         "notifications.dockBadge",
         "notifications.paneFlash",
         "notifications.showInMenuBar",

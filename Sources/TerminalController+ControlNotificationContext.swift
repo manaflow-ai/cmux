@@ -16,7 +16,8 @@ extension TerminalController: ControlNotificationContext {
         explicitSurfaceID: UUID?,
         title: String,
         subtitle: String,
-        body: String
+        body: String,
+        presentation: ControlNotificationPresentation
     ) -> ControlNotificationCreateResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
@@ -24,7 +25,8 @@ extension TerminalController: ControlNotificationContext {
         guard let ws = resolveWorkspace(routing: routing, tabManager: tabManager) else {
             if let explicitSurfaceID,
                let rehomed = controlNotificationRehomedDelivery(
-                   surfaceID: explicitSurfaceID, title: title, subtitle: subtitle, body: body
+                   surfaceID: explicitSurfaceID, title: title, subtitle: subtitle, body: body,
+                   presentation: presentation
                ) {
                 return .delivered(workspaceID: rehomed.workspaceID, surfaceID: explicitSurfaceID)
             }
@@ -32,7 +34,8 @@ extension TerminalController: ControlNotificationContext {
         }
         if let explicitSurfaceID, ws.panels[explicitSurfaceID] == nil {
             if let rehomed = controlNotificationRehomedDelivery(
-                surfaceID: explicitSurfaceID, title: title, subtitle: subtitle, body: body
+                surfaceID: explicitSurfaceID, title: title, subtitle: subtitle, body: body,
+                presentation: presentation
             ) {
                 return .delivered(workspaceID: rehomed.workspaceID, surfaceID: explicitSurfaceID)
             }
@@ -40,11 +43,13 @@ extension TerminalController: ControlNotificationContext {
         }
         let surfaceId = explicitSurfaceID ?? ws.focusedPanelId
         deliverNotificationSynchronously(
+            notificationID: presentation.notificationID,
             tabId: ws.id,
             surfaceId: surfaceId,
             title: title,
             subtitle: subtitle,
-            body: body
+            body: body,
+            presentation: Self.terminalPresentation(presentation)
         )
         return .delivered(workspaceID: ws.id, surfaceID: surfaceId)
     }
@@ -54,7 +59,8 @@ extension TerminalController: ControlNotificationContext {
         surfaceID: UUID,
         title: String,
         subtitle: String,
-        body: String
+        body: String,
+        presentation: ControlNotificationPresentation
     ) -> ControlNotificationTargetedDeliveryResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
@@ -68,7 +74,8 @@ extension TerminalController: ControlNotificationContext {
         // `create_for_target` path before they reach this trusted local path.
         guard let ws = resolveWorkspace(routing: routing, tabManager: tabManager) else {
             if let rehomed = controlNotificationRehomedDelivery(
-                surfaceID: surfaceID, title: title, subtitle: subtitle, body: body
+                surfaceID: surfaceID, title: title, subtitle: subtitle, body: body,
+                presentation: presentation
             ) {
                 return .delivered(
                     workspaceID: rehomed.workspaceID, surfaceID: surfaceID, windowID: rehomed.windowID
@@ -78,7 +85,8 @@ extension TerminalController: ControlNotificationContext {
         }
         guard ws.panels[surfaceID] != nil else {
             if let rehomed = controlNotificationRehomedDelivery(
-                surfaceID: surfaceID, title: title, subtitle: subtitle, body: body
+                surfaceID: surfaceID, title: title, subtitle: subtitle, body: body,
+                presentation: presentation
             ) {
                 return .delivered(
                     workspaceID: rehomed.workspaceID, surfaceID: surfaceID, windowID: rehomed.windowID
@@ -87,11 +95,13 @@ extension TerminalController: ControlNotificationContext {
             return .surfaceNotFound(surfaceID)
         }
         deliverNotificationSynchronously(
+            notificationID: presentation.notificationID,
             tabId: ws.id,
             surfaceId: surfaceID,
             title: title,
             subtitle: subtitle,
-            body: body
+            body: body,
+            presentation: Self.terminalPresentation(presentation)
         )
         return .delivered(
             workspaceID: ws.id,
@@ -107,15 +117,18 @@ extension TerminalController: ControlNotificationContext {
         surfaceID: UUID,
         title: String,
         subtitle: String,
-        body: String
+        body: String,
+        presentation: ControlNotificationPresentation
     ) -> (workspaceID: UUID, windowID: UUID?)? {
         guard let owner = AppDelegate.shared?.workspaceContainingPanel(panelId: surfaceID) else { return nil }
         deliverNotificationSynchronously(
+            notificationID: presentation.notificationID,
             tabId: owner.workspace.id,
             surfaceId: surfaceID,
             title: title,
             subtitle: subtitle,
-            body: body
+            body: body,
+            presentation: Self.terminalPresentation(presentation)
         )
         return (owner.workspace.id, AppDelegate.shared?.windowId(for: owner.tabManager))
     }
@@ -126,7 +139,8 @@ extension TerminalController: ControlNotificationContext {
         surfaceID: UUID,
         title: String,
         subtitle: String,
-        body: String
+        body: String,
+        presentation: ControlNotificationPresentation
     ) -> ControlNotificationTargetedDeliveryResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
@@ -148,17 +162,51 @@ extension TerminalController: ControlNotificationContext {
             return .surfaceNotFound(surfaceID)
         }
         deliverNotificationSynchronously(
+            notificationID: presentation.notificationID,
             tabId: ws.id,
             surfaceId: surfaceID,
             title: title,
             subtitle: subtitle,
             body: body,
-            retargetsToLiveSurfaceOwner: false
+            retargetsToLiveSurfaceOwner: false,
+            presentation: Self.terminalPresentation(presentation)
         )
         return .delivered(
             workspaceID: ws.id,
             surfaceID: surfaceID,
             windowID: AppDelegate.shared?.windowId(for: tabManager)
+        )
+    }
+
+    private static func terminalPresentation(
+        _ presentation: ControlNotificationPresentation
+    ) -> TerminalNotificationPresentation {
+        let delivery: TerminalNotificationPresentation.Delivery
+        switch presentation.delivery {
+        case .settings:
+            delivery = .settings
+        case .system:
+            delivery = .system
+        case .dynamicNotch:
+            delivery = .dynamicNotch
+        }
+        return TerminalNotificationPresentation(
+            delivery: delivery,
+            iconSymbolName: presentation.iconSymbolName,
+            actions: presentation.actions.map {
+                TerminalNotificationPresentation.Action(id: $0.id, title: $0.title)
+            },
+            inputs: presentation.inputs.map {
+                TerminalNotificationPresentation.Input(
+                    id: $0.id,
+                    label: $0.label,
+                    placeholder: $0.placeholder,
+                    initialValue: $0.initialValue,
+                    kind: $0.kind == .secure ? .secure : .text
+                )
+            },
+            responseToken: presentation.responseToken,
+            timeout: presentation.timeout
         )
     }
 
@@ -247,6 +295,10 @@ extension TerminalController: ControlNotificationContext {
 
     var notificationStrings: ControlNotificationStrings {
         ControlNotificationStrings(
+            invalidPresentation: String(
+                localized: "socket.notification.invalidPresentation",
+                defaultValue: "Invalid notification presentation"
+            ),
             dismissSelectorRequired: String(
                 localized: "socket.notification.dismissSelectorRequired",
                 defaultValue: "Select exactly one of id or all_read"

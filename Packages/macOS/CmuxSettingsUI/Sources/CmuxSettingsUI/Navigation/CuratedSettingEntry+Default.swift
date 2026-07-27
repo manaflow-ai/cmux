@@ -80,6 +80,12 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .app, id: "pane-flash", title: "Pane Flash", synonyms: "notifications.paneFlash flash blink highlight pane notification pulse"),
             .init(
                 section: .app,
+                id: "notification-delivery",
+                title: String(localized: "settings.notifications.delivery.title", defaultValue: "Notification Delivery"),
+                synonyms: "notifications.delivery dynamic notch system notification center focus do not disturb dnd interactive"
+            ),
+            .init(
+                section: .app,
                 id: "agent-permission-prompt",
                 title: String(localized: "settings.notifications.agentPermissionPrompt.title", defaultValue: "Agent Needs Permission"),
                 synonyms: "notifications.agentPermissionPrompt agent permission prompt approval blocked claude codex tool notify"

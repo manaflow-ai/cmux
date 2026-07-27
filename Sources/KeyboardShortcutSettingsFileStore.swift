@@ -552,6 +552,13 @@ final class CmuxSettingsFileStore {
         snapshot: inout ResolvedSettingsSnapshot
     ) {
         applyBooleanSettings(NotificationSettingsFileMapping.booleanSettings, from: section, sourcePath: sourcePath, snapshot: &snapshot)
+        if let raw = jsonString(section["delivery"]) {
+            if NotificationDeliveryMode(rawValue: raw) != nil {
+                snapshot.managedUserDefaults[NotificationsCatalogSection().delivery.userDefaultsKey] = .string(raw)
+            } else {
+                logInvalid("notifications.delivery", sourcePath: sourcePath)
+            }
+        }
         if let raw = jsonString(section["sound"]) {
             let allowed = Set(NotificationSoundSettings.systemSounds.map(\.value))
             guard allowed.contains(raw) else {

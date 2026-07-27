@@ -433,6 +433,7 @@ extension CmuxSettingsFileStore {
         "terminal.textBoxMaxLines",
         "terminal.resumeCommands",
         "terminal.uploadCommands",
+        "notifications.delivery",
         "notifications.dockBadge",
         "notifications.showInMenuBar",
         "notifications.unreadPaneRing",

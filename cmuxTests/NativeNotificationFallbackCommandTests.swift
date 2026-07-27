@@ -1,4 +1,5 @@
 import Foundation
+import CmuxSettings
 import os
 import Testing
 import UserNotifications
@@ -150,6 +151,108 @@ struct NativeNotificationFallbackCommandTests {
     }
 
     @Test
+    func configuredDynamicNotchDeliverySkipsNativeAuthorization() {
+        let store = TerminalNotificationStore.shared
+        let defaults = UserDefaults.standard
+        let key = NotificationsCatalogSection().delivery.userDefaultsKey
+        let originalValue = defaults.object(forKey: key)
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+        resetState(originalAppFocusOverride: false)
+        defaults.set(NotificationDeliveryMode.dynamicNotch.rawValue, forKey: key)
+        defer {
+            if let originalValue {
+                defaults.set(originalValue, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
+            resetState(originalAppFocusOverride: originalAppFocusOverride)
+        }
+
+        let authorizationAttempted = BoolRecorder()
+        var presentedIDs: [UUID] = []
+        store.configureDynamicNotchDelivery(
+            present: { presentedIDs.append($0.id) },
+            dismiss: { _ in }
+        )
+        store.configureNotificationAuthorizationHandlerForTesting { _ in
+            authorizationAttempted.setTrue()
+        }
+        var effects = TerminalNotificationPolicyEffects()
+        effects.sound = false
+        effects.command = false
+        let notification = TerminalNotification(
+            id: UUID(),
+            tabId: UUID(),
+            surfaceId: nil,
+            title: "Approval",
+            subtitle: "",
+            body: "Review the action",
+            createdAt: Date(),
+            isRead: false
+        )
+
+        store.routeNotificationDeliveryForTesting(notification, effects: effects)
+
+        #expect(presentedIDs == [notification.id])
+        #expect(!authorizationAttempted.value)
+    }
+
+    @Test
+    func explicitSystemDeliveryOverridesDynamicNotchPreference() {
+        let store = TerminalNotificationStore.shared
+        let defaults = UserDefaults.standard
+        let key = NotificationsCatalogSection().delivery.userDefaultsKey
+        let originalValue = defaults.object(forKey: key)
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+        resetState(originalAppFocusOverride: false)
+        defaults.set(NotificationDeliveryMode.dynamicNotch.rawValue, forKey: key)
+        defer {
+            if let originalValue {
+                defaults.set(originalValue, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
+            resetState(originalAppFocusOverride: originalAppFocusOverride)
+        }
+
+        let authorizationAttempted = BoolRecorder()
+        let nativeScheduled = BoolRecorder()
+        var presentedIDs: [UUID] = []
+        store.configureDynamicNotchDelivery(
+            present: { presentedIDs.append($0.id) },
+            dismiss: { _ in }
+        )
+        store.configureNotificationAuthorizationHandlerForTesting { completion in
+            authorizationAttempted.setTrue()
+            completion(true, .authorized)
+        }
+        store.configureUserNotificationSchedulerForTesting { _, completion in
+            nativeScheduled.setTrue()
+            completion(nil)
+        }
+        var effects = TerminalNotificationPolicyEffects()
+        effects.sound = false
+        effects.command = false
+        let notification = TerminalNotification(
+            id: UUID(),
+            tabId: UUID(),
+            surfaceId: nil,
+            title: "System only",
+            subtitle: "",
+            body: "",
+            createdAt: Date(),
+            isRead: false,
+            presentation: TerminalNotificationPresentation(delivery: .system)
+        )
+
+        store.routeNotificationDeliveryForTesting(notification, effects: effects)
+
+        #expect(presentedIDs.isEmpty)
+        #expect(authorizationAttempted.value)
+        #expect(nativeScheduled.value)
+    }
+
+    @Test
     func sharedNativeUnavailableFeedbackSuppressesCommandRunner() {
         var effects = TerminalNotificationPolicyEffects()
         effects.sound = false
@@ -199,6 +302,7 @@ struct NativeNotificationFallbackCommandTests {
         store.resetUserNotificationSchedulerForTesting()
         store.resetNotificationCommandRunnerForTesting()
         store.resetSuppressedNotificationFeedbackHandlerForTesting()
+        store.resetDynamicNotchDeliveryForTesting()
         AppFocusState.overrideIsFocused = originalAppFocusOverride
     }
 }
