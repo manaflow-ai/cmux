@@ -76,6 +76,33 @@ cmux from it the way any other program does, through `cmux` on the CLI or its
 socket. In exchange you get the whole web platform, including the interactive
 controls the interpreter does not support (`TextField`, `@State`, popovers).
 
+### Window chrome
+
+The window's titlebar controls float over the top of the sidebar and the footer
+floats over the bottom. By default cmux lays the page out inside the region they
+leave free, so the page's viewport *is* the usable area and ordinary markup —
+`height: 100vh` included — lands correctly. Write your page and ignore this.
+
+If you want rows to scroll *underneath* the translucent chrome, the way the
+built-in workspace list does, opt into the full sidebar rect and pad the content
+yourself:
+
+```html
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+```
+
+cmux then publishes the chrome heights as CSS custom properties on `:root`,
+updated in place when the window changes:
+
+```css
+.toolbar { padding-top: var(--cmux-sidebar-inset-top); }
+.list    { padding-bottom: var(--cmux-sidebar-inset-bottom); }
+```
+
+These are custom properties rather than the usual `env(safe-area-inset-*)`
+because macOS `WKWebView` does not forward the view's safe-area insets to CSS —
+`env()` resolves to `0px` there regardless of what the host sets.
+
 A sidebar file is a single SwiftUI-style view expression (no `struct`, no
 `var body` wrapper, just the view).
 

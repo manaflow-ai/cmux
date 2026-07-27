@@ -11973,10 +11973,25 @@ struct VerticalTabsSidebar: View, Equatable {
         } else if effectiveExtensionSidebarProviderId.hasPrefix(CmuxExtensionSidebarSelection.customSidebarProviderPrefix),
                   let customSidebarURL = CmuxExtensionSidebarSelection.customSidebarFileURL(forProviderId: effectiveExtensionSidebarProviderId),
                   case let .web(webSource)? = CustomSidebarSource.classify(fileURL: customSidebarURL) {
-            // A web-backed sidebar owns its whole surface: it renders itself, so it needs neither
-            // the interpreter's periodic re-render tick nor the scroll-edge fade that blends a
-            // scrolling row list into the sidebar footer.
-            CustomSidebarWebView(source: webSource)
+            // A web-backed sidebar renders itself, so it needs no interpreter re-render tick. It
+            // does still sit under the same floating chrome as every other sidebar, so it is handed
+            // the same inset metrics the workspace list uses; sharing the constant is what stops the
+            // two from drifting when the titlebar metric changes.
+            CustomSidebarWebView(
+                source: webSource,
+                insets: CustomSidebarWebInsets(
+                    top: SidebarWorkspaceScrollInsets.workspaceList.top,
+                    bottom: SidebarWorkspaceScrollInsets.workspaceList.bottom
+                )
+            )
+            // Only meaningful for a page that opted into full-bleed layout; a page laid out inside
+            // the safe region has nothing under the footer to dissolve.
+            .mask(
+                SidebarWorkspaceScrollEdgeFadeMask(
+                    topHeight: 0,
+                    bottomHeight: sidebarBottomScrimHeight
+                )
+            )
         } else if effectiveExtensionSidebarProviderId.hasPrefix(CmuxExtensionSidebarSelection.customSidebarProviderPrefix),
                   let customSidebarURL = CmuxExtensionSidebarSelection.customSidebarFileURL(forProviderId: effectiveExtensionSidebarProviderId) {
             // Periodic tick so the custom sidebar re-renders live (clock,
