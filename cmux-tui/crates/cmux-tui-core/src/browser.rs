@@ -6454,6 +6454,52 @@ mod tests {
     }
 
     #[test]
+    fn expired_pointer_capture_does_not_release_into_a_new_document() {
+        let (runtime, server, events_rx, stop_tx) = runtime_recording_mouse_dispatches();
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        *browser.session.lock().unwrap() = Some(BrowserSession {
+            runtime: runtime.clone(),
+            target_id: "target-1".to_string(),
+            session_id: "session-1".to_string(),
+        });
+        browser.store_frame(test_frame(1));
+        let capture_generation = browser.state.lock().unwrap().pointer_capture_generation;
+        let now = Instant::now();
+        let mut press = super::ActivePointerPress::new(
+            super::BrowserPointerOwner::Legacy,
+            capture_generation,
+            1,
+            1.0,
+            1.0,
+            Some(1),
+        );
+        press.compatibility_expires_at = Some(now);
+        let mut failures = super::BrowserWorkerErrorState::default();
+        failures.active_pointer_presses.insert("left".to_string(), press);
+
+        browser.frame_epoch.advance_navigation();
+        super::release_abandoned_pointer_presses(
+            &surface,
+            &Weak::new(),
+            surface.id,
+            &mut failures,
+            now,
+        );
+        let released_into_new_document = events_rx.recv_timeout(Duration::from_millis(250)).is_ok();
+
+        stop_tx.send(()).unwrap();
+        runtime.shutdown();
+        server.join().unwrap();
+
+        assert!(failures.active_pointer_presses.is_empty());
+        assert!(
+            !released_into_new_document,
+            "an expired capture must be discarded after its document authority changes"
+        );
+    }
+
+    #[test]
     fn negotiated_pointer_capture_has_no_idle_lease() {
         let mut failures = super::BrowserWorkerErrorState::default();
         failures.active_pointer_presses.insert(
