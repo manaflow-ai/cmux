@@ -142,29 +142,36 @@ import Testing
 
     @Test func physicalIdentitySurvivesRepeatAndRelease() {
         var tracker = TerminalKeyInputLifecycleTracker()
+        let initialIdentity = TerminalKeyInputPhysicalIdentity(
+            unshiftedCodepoint: 0x63,
+            consumedModifierMask: 0x04
+        )
         _ = tracker.actions(
             for: physicalPlan(text: "c"),
             keyCode: 8,
             isRepeat: false
         )
 
-        let pressCodepoint = tracker.unshiftedCodepoint(
+        let pressIdentity = tracker.physicalIdentity(
             forKeyDown: 8,
-            resolvedCodepoint: 0x63,
+            resolvedIdentity: initialIdentity,
             isRepeat: false
         )
-        let repeatCodepoint = tracker.unshiftedCodepoint(
+        let repeatIdentity = tracker.physicalIdentity(
             forKeyDown: 8,
-            resolvedCodepoint: 0x0441,
+            resolvedIdentity: TerminalKeyInputPhysicalIdentity(
+                unshiftedCodepoint: 0x0441,
+                consumedModifierMask: 0
+            ),
             isRepeat: true
         )
         let release = tracker.release(forKeyUp: 8)
 
-        #expect(pressCodepoint == 0x63)
-        #expect(repeatCodepoint == 0x63)
+        #expect(pressIdentity == initialIdentity)
+        #expect(repeatIdentity == initialIdentity)
         #expect(release == TerminalKeyInputRelease(
             forwardsPhysicalKey: true,
-            unshiftedCodepoint: 0x63
+            physicalIdentity: initialIdentity
         ))
     }
 
@@ -175,9 +182,12 @@ import Testing
             keyCode: 8,
             isRepeat: false
         )
-        _ = tracker.unshiftedCodepoint(
+        _ = tracker.physicalIdentity(
             forKeyDown: 8,
-            resolvedCodepoint: 0x63,
+            resolvedIdentity: TerminalKeyInputPhysicalIdentity(
+                unshiftedCodepoint: 0x63,
+                consumedModifierMask: 0x04
+            ),
             isRepeat: false
         )
 
@@ -186,7 +196,7 @@ import Testing
 
         #expect(release == TerminalKeyInputRelease(
             forwardsPhysicalKey: true,
-            unshiftedCodepoint: nil
+            physicalIdentity: nil
         ))
     }
 

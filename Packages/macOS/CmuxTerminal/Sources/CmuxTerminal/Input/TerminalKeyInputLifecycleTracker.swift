@@ -13,7 +13,7 @@ public struct TerminalKeyInputLifecycleTracker: Sendable {
     private struct PhysicalKeyLifecycle: Sendable {
         let owner: PhysicalKeyOwner
         let terminalActions: [TerminalKeyInputAction]
-        var unshiftedCodepoint: UInt32?
+        var physicalIdentity: TerminalKeyInputPhysicalIdentity?
     }
 
     private var lifecycles: [UInt16: PhysicalKeyLifecycle] = [:]
@@ -38,7 +38,7 @@ public struct TerminalKeyInputLifecycleTracker: Sendable {
         let plannedLifecycle = PhysicalKeyLifecycle(
             owner: plannedOwner,
             terminalActions: plan.actions.filter(\.forwardsPhysicalKey),
-            unshiftedCodepoint: nil
+            physicalIdentity: nil
         )
         let lifecycle: PhysicalKeyLifecycle
 
@@ -60,29 +60,29 @@ public struct TerminalKeyInputLifecycleTracker: Sendable {
         }
     }
 
-    /// Preserves the first physical-layout identity through repeats.
-    public mutating func unshiftedCodepoint(
+    /// Preserves the initial text translation metadata through repeats.
+    public mutating func physicalIdentity(
         forKeyDown keyCode: UInt16,
-        resolvedCodepoint: UInt32,
+        resolvedIdentity: TerminalKeyInputPhysicalIdentity,
         isRepeat: Bool
-    ) -> UInt32 {
+    ) -> TerminalKeyInputPhysicalIdentity {
         if isRepeat,
-           let codepoint = lifecycles[keyCode]?.unshiftedCodepoint {
-            return codepoint
+           let physicalIdentity = lifecycles[keyCode]?.physicalIdentity {
+            return physicalIdentity
         }
 
         guard var lifecycle = lifecycles[keyCode] else {
             lifecycles[keyCode] = PhysicalKeyLifecycle(
                 owner: .terminal,
                 terminalActions: [],
-                unshiftedCodepoint: resolvedCodepoint
+                physicalIdentity: resolvedIdentity
             )
-            return resolvedCodepoint
+            return resolvedIdentity
         }
 
-        lifecycle.unshiftedCodepoint = resolvedCodepoint
+        lifecycle.physicalIdentity = resolvedIdentity
         lifecycles[keyCode] = lifecycle
-        return resolvedCodepoint
+        return resolvedIdentity
     }
 
     /// Clears a completed lifecycle and returns its release metadata.
@@ -93,12 +93,12 @@ public struct TerminalKeyInputLifecycleTracker: Sendable {
         guard let lifecycle = lifecycles.removeValue(forKey: keyCode) else {
             return TerminalKeyInputRelease(
                 forwardsPhysicalKey: true,
-                unshiftedCodepoint: nil
+                physicalIdentity: nil
             )
         }
         return TerminalKeyInputRelease(
             forwardsPhysicalKey: lifecycle.owner == .terminal,
-            unshiftedCodepoint: lifecycle.unshiftedCodepoint
+            physicalIdentity: lifecycle.physicalIdentity
         )
     }
 

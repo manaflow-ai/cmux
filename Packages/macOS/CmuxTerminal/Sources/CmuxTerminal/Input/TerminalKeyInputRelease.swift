@@ -3,6 +3,16 @@ public struct TerminalKeyInputRelease: Sendable, Equatable {
     /// Whether libghostty owns the paired physical release.
     public let forwardsPhysicalKey: Bool
 
-    /// The physical-layout identity captured on the initial terminal press.
-    public let unshiftedCodepoint: UInt32?
+    /// Translation metadata captured on the initial terminal press.
+    public let physicalIdentity: TerminalKeyInputPhysicalIdentity?
+
+    /// Physical-layout codepoint captured on the initial terminal press.
+    public var unshiftedCodepoint: UInt32? {
+        physicalIdentity?.unshiftedCodepoint
+    }
+
+    /// Raw modifier mask consumed to produce the initial translated text.
+    public var consumedModifierMask: UInt32? {
+        physicalIdentity?.consumedModifierMask
+    }
 }

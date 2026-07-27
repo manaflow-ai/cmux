@@ -5732,12 +5732,21 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     ) -> Bool {
         var keyEvent = ghosttyKeyEvent(for: event, surface: surface)
         keyEvent.action = action
-        keyEvent.consumed_mods = consumedModsFromFlags(translationEvent.modifierFlags)
         keyEvent.composing = composing
-        keyEvent.unshifted_codepoint = terminalKeyInputLifecycleTracker.unshiftedCodepoint(
+        let resolvedConsumedModifiers = consumedModsFromFlags(
+            translationEvent.modifierFlags
+        )
+        let physicalIdentity = terminalKeyInputLifecycleTracker.physicalIdentity(
             forKeyDown: event.keyCode,
-            resolvedCodepoint: keyEvent.unshifted_codepoint,
+            resolvedIdentity: TerminalKeyInputPhysicalIdentity(
+                unshiftedCodepoint: keyEvent.unshifted_codepoint,
+                consumedModifierMask: resolvedConsumedModifiers.rawValue
+            ),
             isRepeat: event.isARepeat
+        )
+        keyEvent.unshifted_codepoint = physicalIdentity.unshiftedCodepoint
+        keyEvent.consumed_mods = ghostty_input_mods_e(
+            rawValue: physicalIdentity.consumedModifierMask
         )
 
         guard let text, shouldSendText(text) else {
@@ -5833,8 +5842,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // consumers that depend on precise key identity (for example Space
         // hold/release flows) receive consistent metadata.
         var keyEvent = ghosttyKeyEvent(for: event, surface: surface)
-        if let unshiftedCodepoint = release.unshiftedCodepoint {
-            keyEvent.unshifted_codepoint = unshiftedCodepoint
+        if let physicalIdentity = release.physicalIdentity {
+            keyEvent.unshifted_codepoint = physicalIdentity.unshiftedCodepoint
+            keyEvent.consumed_mods = ghostty_input_mods_e(
+                rawValue: physicalIdentity.consumedModifierMask
+            )
         }
         keyEvent.action = GHOSTTY_ACTION_RELEASE
         keyEvent.text = nil
