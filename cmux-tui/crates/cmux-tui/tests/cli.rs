@@ -997,32 +997,31 @@ fn plain_launch_attaches_to_existing_local_session() {
 }
 
 #[test]
-fn plain_launch_explains_how_to_replace_an_incompatible_local_server() {
+fn plain_launch_reports_an_incompatible_server_without_reconnecting() {
     let dir = unique_temp_dir("incompatible-server");
     fs::create_dir_all(&dir).unwrap();
     let socket = dir.join("mux.sock");
     let listener = transport::listen(&socket).unwrap();
+    let (accepted_tx, accepted_rx) = mpsc::sync_channel(1);
     let server = std::thread::spawn(move || {
-        for connection in 0..2 {
-            let mut stream = listener.accept().unwrap();
-            if connection == 0 {
-                let mut request = String::new();
-                BufReader::new(stream.try_clone_box().unwrap()).read_line(&mut request).unwrap();
-                let request: serde_json::Value = serde_json::from_str(&request).unwrap();
-                let response = serde_json::json!({
-                    "id": request["id"],
-                    "ok": true,
-                    "data": {
-                        "app": "cmux-tui",
-                        "session": "test",
-                        "pid": 4242,
-                        "version": "0.0.0-stale",
-                        "protocol": 8,
-                    },
-                });
-                writeln!(stream, "{response}").unwrap();
-            }
-        }
+        let mut stream = listener.accept().unwrap();
+        let mut request = String::new();
+        BufReader::new(stream.try_clone_box().unwrap()).read_line(&mut request).unwrap();
+        let request: serde_json::Value = serde_json::from_str(&request).unwrap();
+        let response = serde_json::json!({
+            "id": request["id"],
+            "ok": true,
+            "data": {
+                "app": "cmux-tui",
+                "session": "test",
+                "pid": 4242,
+                "version": "0.0.0-stale",
+                "protocol": 8,
+            },
+        });
+        writeln!(stream, "{response}").unwrap();
+        let _cleanup_or_duplicate = listener.accept().unwrap();
+        accepted_tx.send(()).unwrap();
     });
 
     let output = Command::new(bin())
@@ -1031,11 +1030,17 @@ fn plain_launch_explains_how_to_replace_an_incompatible_local_server() {
         .env_remove("CMUX_TUI_SOCKET")
         .output()
         .unwrap();
+    let reconnected = accepted_rx.recv_timeout(Duration::from_millis(250)).is_ok();
+    if !reconnected {
+        let _cleanup = transport::connect(&socket).unwrap();
+        accepted_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    }
     server.join().unwrap();
     let _ = fs::remove_file(&socket);
     let _ = fs::remove_dir_all(&dir);
 
     assert_eq!(output.status.code(), Some(1));
+    assert!(!reconnected, "plain startup opened a second connection after identifying the server");
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(stderr.contains("server: v0.0.0-stale protocol 8"), "{stderr}");
     assert!(
