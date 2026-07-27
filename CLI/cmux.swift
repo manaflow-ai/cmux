@@ -20814,8 +20814,8 @@ struct CMUXCLI {
                     return
                 }
                 guard seenCursors.insert(nextCursor).inserted else {
-                    throw CLIError(message: String(
-                        localized: "agentSession.codex.error.repeatedLoadedThreadCursor",
+                    throw CLIError(message: CMUXCLILocalization.string(
+                        "agentSession.codex.error.repeatedLoadedThreadCursor",
                         defaultValue: "Codex app-server repeated a loaded-thread cursor."
                     ))
                 }
