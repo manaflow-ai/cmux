@@ -1,5 +1,6 @@
 #![allow(clippy::missing_safety_doc)]
 
+mod appearance;
 mod config;
 mod display;
 
@@ -32,7 +33,7 @@ use std::os::fd::AsRawFd;
 use std::path::PathBuf;
 use std::ptr::{self, NonNull};
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread::JoinHandle;
 
 use alacritty_terminal::event::{Event, EventListener, WindowSize};
@@ -55,14 +56,13 @@ use winit::raw_window_handle::{
     AppKitDisplayHandle, AppKitWindowHandle, RawDisplayHandle, RawWindowHandle,
 };
 
+use crate::appearance::TerminalAppearance;
 use crate::config::font::Font;
 use crate::display::SizeInfo;
 use crate::display::color::Rgb;
 use crate::display::content::{RenderableCell, RenderableCellExtra};
 
 const VERSION: &[u8] = b"alacritty-0.17.0\0";
-const DEFAULT_BACKGROUND: Rgb = Rgb::new(30, 30, 30);
-const DEFAULT_FOREGROUND: Rgb = Rgb::new(213, 213, 213);
 const PADDING_POINTS: f32 = 6.0;
 
 type WakeCallback = unsafe extern "C" fn(*mut c_void);
@@ -83,8 +83,7 @@ pub struct CmuxAlacrittySurfaceConfig {
     pub width_px: u32,
     pub height_px: u32,
     pub scale_factor: f32,
-    pub font_size_points: f32,
-    pub font_family: *const c_char,
+    pub appearance: *const c_char,
     pub working_directory: *const c_char,
     pub command: *const c_char,
     pub environment: *const c_char,
@@ -103,6 +102,7 @@ struct CallbackState {
     lines: AtomicI32,
     cell_width: AtomicI32,
     cell_height: AtomicI32,
+    appearance: Arc<RwLock<TerminalAppearance>>,
 }
 
 impl CallbackState {
@@ -148,7 +148,12 @@ impl EventListener for CmuxEventProxy {
                 }
             }
             Event::ColorRequest(index, formatter) => {
-                let rgb = terminal_palette(index);
+                let appearance = self
+                    .state
+                    .appearance
+                    .read()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                let rgb = appearance.color(index);
                 let response = formatter(TerminalRgb {
                     r: rgb.r,
                     g: rgb.g,
@@ -198,8 +203,7 @@ struct DisplayState {
     gl_context: PossiblyCurrentContext,
     size_info: SizeInfo,
     scale_factor: f32,
-    font_size_points: f32,
-    font_family: String,
+    appearance: Arc<RwLock<TerminalAppearance>>,
 }
 
 impl DisplayState {
@@ -208,8 +212,7 @@ impl DisplayState {
         width: u32,
         height: u32,
         scale_factor: f32,
-        font_size_points: f32,
-        font_family: String,
+        appearance: Arc<RwLock<TerminalAppearance>>,
     ) -> Result<Self, String> {
         let raw_display_handle = RawDisplayHandle::AppKit(AppKitDisplayHandle::new());
         let raw_window_handle = RawWindowHandle::AppKit(AppKitWindowHandle::new(ns_view));
@@ -236,11 +239,16 @@ impl DisplayState {
         let _ = gl_surface.set_swap_interval(&gl_context, SwapInterval::DontWait);
 
         let scale_factor = scale_factor.max(1.0);
-        let font_size_points = font_size_points.max(6.0);
-        let font = Font::new(
-            font_family.clone(),
-            Size::new(font_size_points * scale_factor),
-        );
+        let (font_family, font_size_points) = {
+            let appearance = appearance
+                .read()
+                .map_err(|_| String::from("read terminal appearance"))?;
+            (
+                String::from(appearance.font_family()),
+                appearance.font_size_points(),
+            )
+        };
+        let font = Font::new(font_family, Size::new(font_size_points * scale_factor));
         let rasterizer =
             Rasterizer::new().map_err(|error| format!("create font rasterizer: {error}"))?;
         let mut glyph_cache =
@@ -270,8 +278,7 @@ impl DisplayState {
             gl_context,
             size_info,
             scale_factor,
-            font_size_points,
-            font_family,
+            appearance,
         })
     }
 
@@ -295,10 +302,15 @@ impl DisplayState {
         let new_scale_factor = scale_factor.max(1.0);
         if (new_scale_factor - self.scale_factor).abs() > f32::EPSILON {
             self.scale_factor = new_scale_factor;
+            let appearance = self
+                .appearance
+                .read()
+                .map_err(|_| String::from("read terminal appearance"))?;
             let font = Font::new(
-                self.font_family.clone(),
-                Size::new(self.font_size_points * self.scale_factor),
+                String::from(appearance.font_family()),
+                Size::new(appearance.font_size_points() * self.scale_factor),
             );
+            drop(appearance);
             self.glyph_cache
                 .update_font_size(&font)
                 .map_err(|error| format!("resize font: {error}"))?;
@@ -325,18 +337,68 @@ impl DisplayState {
         Ok(())
     }
 
+    fn update_appearance(&mut self, appearance: TerminalAppearance) -> Result<bool, String> {
+        let font_changed = {
+            let current = self
+                .appearance
+                .read()
+                .map_err(|_| String::from("read terminal appearance"))?;
+            current.font_family() != appearance.font_family()
+                || (current.font_size_points() - appearance.font_size_points()).abs() > f32::EPSILON
+        };
+
+        if font_changed {
+            self.make_current()?;
+            let font = Font::new(
+                String::from(appearance.font_family()),
+                Size::new(appearance.font_size_points() * self.scale_factor),
+            );
+            self.glyph_cache
+                .update_font_size(&font)
+                .map_err(|error| format!("update font: {error}"))?;
+            self.renderer
+                .as_mut()
+                .expect("renderer exists until display teardown")
+                .with_loader(|mut loader| self.glyph_cache.reset_glyph_cache(&mut loader));
+            let metrics = self.glyph_cache.font_metrics();
+            let padding = PADDING_POINTS * self.scale_factor;
+            self.size_info = SizeInfo::new(
+                self.size_info.width(),
+                self.size_info.height(),
+                metrics.average_advance.floor().max(1.0) as f32,
+                metrics.line_height.floor().max(1.0) as f32,
+                padding,
+                padding,
+            );
+            self.renderer
+                .as_ref()
+                .expect("renderer exists until display teardown")
+                .resize(&self.size_info);
+        }
+
+        *self
+            .appearance
+            .write()
+            .map_err(|_| String::from("write terminal appearance"))? = appearance;
+        Ok(font_changed)
+    }
+
     fn draw(&mut self, term: &Term<CmuxEventProxy>) -> Result<(), String> {
         self.make_current()?;
+        let appearance = self
+            .appearance
+            .read()
+            .map_err(|_| String::from("read terminal appearance"))?;
         let renderer = self
             .renderer
             .as_mut()
             .expect("renderer exists until display teardown");
-        renderer.clear(DEFAULT_BACKGROUND, 1.0);
+        renderer.clear(appearance.background(), 1.0);
 
         // AppKit can reset the OpenGL viewport while moving or resizing a
         // layer-backed NSView. Alacritty restores it before every macOS frame.
         renderer.set_viewport(&self.size_info);
-        let cells = renderable_cells(term);
+        let cells = renderable_cells(term, &appearance);
         let mut lines = RenderLines::new();
         for cell in &cells {
             lines.update(cell);
@@ -372,6 +434,31 @@ pub struct CmuxAlacrittySurface {
     callbacks: Arc<CallbackState>,
     child_pid: u32,
     master_fd: i32,
+}
+
+impl CmuxAlacrittySurface {
+    fn synchronize_terminal_size(&mut self) {
+        let window_size = WindowSize {
+            num_lines: self.display.size_info.screen_lines() as u16,
+            num_cols: self.display.size_info.columns() as u16,
+            cell_width: self.display.size_info.cell_width() as u16,
+            cell_height: self.display.size_info.cell_height() as u16,
+        };
+        self.terminal.lock().resize(self.display.size_info);
+        self.callbacks
+            .columns
+            .store(window_size.num_cols.into(), Ordering::Relaxed);
+        self.callbacks
+            .lines
+            .store(window_size.num_lines.into(), Ordering::Relaxed);
+        self.callbacks
+            .cell_width
+            .store(window_size.cell_width.into(), Ordering::Relaxed);
+        self.callbacks
+            .cell_height
+            .store(window_size.cell_height.into(), Ordering::Relaxed);
+        let _ = self.sender.send(Msg::Resize(window_size));
+    }
 }
 
 impl Drop for CmuxAlacrittySurface {
@@ -411,10 +498,11 @@ unsafe fn create_surface(
     let width = config.width_px.max(1);
     let height = config.height_px.max(1);
     let scale_factor = config.scale_factor.max(1.0);
-    let font_size_points = config.font_size_points.max(6.0);
-    let font_family = unsafe { optional_string(config.font_family) }
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| String::from("Menlo"));
+    let appearance_json =
+        unsafe { optional_string(config.appearance) }.ok_or("missing terminal appearance")?;
+    let appearance = Arc::new(RwLock::new(TerminalAppearance::from_json(
+        &appearance_json,
+    )?));
     let working_directory =
         unsafe { optional_string(config.working_directory) }.filter(|value| !value.is_empty());
     let command = unsafe { optional_string(config.command) }.filter(|value| !value.is_empty());
@@ -425,8 +513,7 @@ unsafe fn create_surface(
         width,
         height,
         scale_factor,
-        font_size_points,
-        font_family,
+        Arc::clone(&appearance),
     )?;
     let callback_state = Arc::new(CallbackState {
         user_data: config.callbacks.user_data as usize,
@@ -440,6 +527,7 @@ unsafe fn create_surface(
         lines: AtomicI32::new(display.size_info.screen_lines() as i32),
         cell_width: AtomicI32::new(display.size_info.cell_width() as i32),
         cell_height: AtomicI32::new(display.size_info.cell_height() as i32),
+        appearance,
     });
     let event_proxy = CmuxEventProxy {
         state: Arc::clone(&callback_state),
@@ -542,33 +630,41 @@ pub unsafe extern "C" fn cmux_alacritty_surface_resize(
         return false;
     }
 
-    let window_size = WindowSize {
-        num_lines: surface.display.size_info.screen_lines() as u16,
-        num_cols: surface.display.size_info.columns() as u16,
-        cell_width: surface.display.size_info.cell_width() as u16,
-        cell_height: surface.display.size_info.cell_height() as u16,
+    surface.synchronize_terminal_size();
+    surface.callbacks.wake();
+    true
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_alacritty_surface_update_appearance(
+    surface: *mut CmuxAlacrittySurface,
+    appearance: *const c_char,
+) -> bool {
+    clear_last_error();
+    let Some(surface) = (unsafe { surface.as_mut() }) else {
+        return false;
     };
-    {
-        let mut terminal = surface.terminal.lock();
-        terminal.resize(surface.display.size_info);
+    let Some(appearance_json) = (unsafe { optional_string(appearance) }) else {
+        set_last_error(String::from("missing terminal appearance"));
+        return false;
+    };
+    let appearance = match TerminalAppearance::from_json(&appearance_json) {
+        Ok(appearance) => appearance,
+        Err(error) => {
+            set_last_error(error);
+            return false;
+        }
+    };
+    let font_changed = match surface.display.update_appearance(appearance) {
+        Ok(font_changed) => font_changed,
+        Err(error) => {
+            set_last_error(error);
+            return false;
+        }
+    };
+    if font_changed {
+        surface.synchronize_terminal_size();
     }
-    surface
-        .callbacks
-        .columns
-        .store(window_size.num_cols.into(), Ordering::Relaxed);
-    surface
-        .callbacks
-        .lines
-        .store(window_size.num_lines.into(), Ordering::Relaxed);
-    surface
-        .callbacks
-        .cell_width
-        .store(window_size.cell_width.into(), Ordering::Relaxed);
-    surface
-        .callbacks
-        .cell_height
-        .store(window_size.cell_height.into(), Ordering::Relaxed);
-    let _ = surface.sender.send(Msg::Resize(window_size));
     surface.callbacks.wake();
     true
 }
@@ -760,11 +856,17 @@ fn parse_environment(environment: &str) -> HashMap<String, String> {
     serde_json::from_str(environment).unwrap_or_default()
 }
 
-fn renderable_cells(terminal: &Term<CmuxEventProxy>) -> Vec<RenderableCell> {
+fn renderable_cells(
+    terminal: &Term<CmuxEventProxy>,
+    appearance: &TerminalAppearance,
+) -> Vec<RenderableCell> {
     let content = terminal.renderable_content();
     let display_offset = content.display_offset;
     let cursor_point = term::point_to_viewport(display_offset, content.cursor.point);
+    let cursor_grid_point = content.cursor.point;
+    let cursor_shape = content.cursor.shape;
     let cursor_visible = content.cursor.shape != alacritty_terminal::vte::ansi::CursorShape::Hidden;
+    let selection = content.selection;
     let dynamic_colors = content.colors;
     let mut cells = Vec::with_capacity(terminal.columns().saturating_mul(terminal.screen_lines()));
 
@@ -778,7 +880,11 @@ fn renderable_cells(terminal: &Term<CmuxEventProxy>) -> Vec<RenderableCell> {
 
         let cell: &Cell = indexed.cell;
         let is_cursor = cursor_visible && cursor_point == Some(point);
+        let is_selected = selection.is_some_and(|selection| {
+            selection.contains_cell(&indexed, cursor_grid_point, cursor_shape)
+        });
         if !is_cursor
+            && !is_selected
             && cell.is_empty()
             && !cell
                 .flags
@@ -790,17 +896,23 @@ fn renderable_cells(terminal: &Term<CmuxEventProxy>) -> Vec<RenderableCell> {
             continue;
         }
 
-        let mut foreground = resolve_color(cell.fg, dynamic_colors, cell.flags, true);
-        let mut background = resolve_color(cell.bg, dynamic_colors, cell.flags, false);
+        let mut foreground = resolve_color(cell.fg, dynamic_colors, cell.flags, true, appearance);
+        let mut background = resolve_color(cell.bg, dynamic_colors, cell.flags, false, appearance);
         if cell.flags.contains(Flags::INVERSE) {
             std::mem::swap(&mut foreground, &mut background);
         }
+        if is_selected {
+            (foreground, background) = appearance.selection_colors(foreground, background);
+        }
         if is_cursor {
-            std::mem::swap(&mut foreground, &mut background);
+            (foreground, background) = appearance.cursor_colors(foreground, background);
+            if let Some(cursor) = dynamic_colors[NamedColor::Cursor as usize] {
+                background = Rgb::new(cursor.r, cursor.g, cursor.b);
+            }
         }
         let underline = cell
             .underline_color()
-            .map(|color| resolve_color(color, dynamic_colors, cell.flags, true))
+            .map(|color| resolve_color(color, dynamic_colors, cell.flags, true, appearance))
             .unwrap_or(foreground);
         let character = if cell.flags.contains(Flags::HIDDEN) {
             ' '
@@ -835,15 +947,32 @@ fn resolve_color(
     dynamic_colors: &alacritty_terminal::term::color::Colors,
     flags: Flags,
     foreground: bool,
+    appearance: &TerminalAppearance,
 ) -> Rgb {
     let mut index = match color {
         Color::Spec(color) => {
-            return Rgb::new(color.r, color.g, color.b);
+            let color = Rgb::new(color.r, color.g, color.b);
+            return if foreground && flags.contains(Flags::BOLD) {
+                let default_foreground = dynamic_colors[NamedColor::Foreground as usize]
+                    .map(|color| Rgb::new(color.r, color.g, color.b))
+                    .unwrap_or_else(|| appearance.color(NamedColor::Foreground as usize));
+                appearance.bold_default_foreground(color, default_foreground)
+            } else {
+                color
+            };
         }
-        Color::Indexed(index) => index as usize,
+        Color::Indexed(index) => {
+            let index = index as usize;
+            if foreground && flags.contains(Flags::BOLD) && appearance.has_bold_color() && index < 8
+            {
+                index + 8
+            } else {
+                index
+            }
+        }
         Color::Named(named) => {
             let named = if foreground && flags.contains(Flags::BOLD) {
-                named.to_bright()
+                appearance.bold_named_color(named)
             } else if flags.contains(Flags::DIM) {
                 named.to_dim()
             } else {
@@ -858,67 +987,7 @@ fn resolve_color(
     if let Some(color) = dynamic_colors[index] {
         return Rgb::new(color.r, color.g, color.b);
     }
-    terminal_palette(index)
-}
-
-fn terminal_palette(index: usize) -> Rgb {
-    const NORMAL: [Rgb; 8] = [
-        Rgb::new(0, 0, 0),
-        Rgb::new(205, 49, 49),
-        Rgb::new(13, 188, 121),
-        Rgb::new(229, 229, 16),
-        Rgb::new(36, 114, 200),
-        Rgb::new(188, 63, 188),
-        Rgb::new(17, 168, 205),
-        Rgb::new(229, 229, 229),
-    ];
-    const BRIGHT: [Rgb; 8] = [
-        Rgb::new(102, 102, 102),
-        Rgb::new(241, 76, 76),
-        Rgb::new(35, 209, 139),
-        Rgb::new(245, 245, 67),
-        Rgb::new(59, 142, 234),
-        Rgb::new(214, 112, 214),
-        Rgb::new(41, 184, 219),
-        Rgb::new(255, 255, 255),
-    ];
-
-    match index {
-        0..=7 => NORMAL[index],
-        8..=15 => BRIGHT[index - 8],
-        16..=231 => {
-            let value = index - 16;
-            let component = |component: usize| {
-                if component == 0 {
-                    0
-                } else {
-                    (component * 40 + 55) as u8
-                }
-            };
-            Rgb::new(
-                component(value / 36),
-                component((value / 6) % 6),
-                component(value % 6),
-            )
-        }
-        232..=255 => {
-            let value = ((index - 232) * 10 + 8) as u8;
-            Rgb::new(value, value, value)
-        }
-        value if value == NamedColor::Background as usize => DEFAULT_BACKGROUND,
-        value if value == NamedColor::Cursor as usize => DEFAULT_FOREGROUND,
-        value if value == NamedColor::BrightForeground as usize => Rgb::new(255, 255, 255),
-        value if value == NamedColor::DimForeground as usize => Rgb::new(140, 140, 140),
-        259..=266 => {
-            let base = NORMAL[index - 259];
-            Rgb::new(
-                (f32::from(base.r) * 0.66) as u8,
-                (f32::from(base.g) * 0.66) as u8,
-                (f32::from(base.b) * 0.66) as u8,
-            )
-        }
-        _ => DEFAULT_FOREGROUND,
-    }
+    appearance.color(index)
 }
 
 fn key_bytes(key: u32, modifiers: u32, application_cursor: bool) -> Option<Vec<u8>> {

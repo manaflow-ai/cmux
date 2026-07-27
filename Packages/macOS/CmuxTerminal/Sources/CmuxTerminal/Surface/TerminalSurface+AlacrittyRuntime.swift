@@ -22,6 +22,9 @@ extension TerminalSurface {
         let widthPixels = pixelDimension(from: backingSize.width)
         let heightPixels = pixelDimension(from: backingSize.height)
         let scaleFactor = scaleFactors(for: view).layer
+        let appearance = engine.runtimeAppearance.applyingFontSizeOverride(
+            launchConfiguration.fontSize
+        )
 
         do {
             let runtime = try AlacrittyTerminalRuntime.create(
@@ -29,8 +32,7 @@ extension TerminalSurface {
                 widthPixels: max(widthPixels, 1),
                 heightPixels: max(heightPixels, 1),
                 scaleFactor: scaleFactor,
-                fontSizePoints: launchConfiguration.fontSize,
-                fontFamily: "Menlo",
+                appearance: appearance,
                 workingDirectory: launchConfiguration.workingDirectory,
                 command: launchConfiguration.command,
                 environment: launchConfiguration.environment,
@@ -92,6 +94,25 @@ extension TerminalSurface {
 #endif
             return false
         }
+    }
+
+    /// Re-applies the engine's resolved appearance to an existing alternate runtime.
+    @MainActor
+    @discardableResult
+    public func reloadRuntimeAppearance() -> Bool {
+        guard isAlacrittyBacked, let alacrittyRuntime else { return false }
+        var appearance = engine.runtimeAppearance
+        if let lineage = lastKnownFontSizeLineage,
+           lineage.isExplicitOverride {
+            appearance = appearance.applyingFontSizeOverride(
+                CmuxSurfaceConfigTemplate.runtimeFontSize(
+                    fromBasePoints: lineage.basePoints,
+                    percent: globalFontMagnificationPercent()
+                )
+            )
+        }
+        guard alacrittyRuntime.updateAppearance(appearance) else { return false }
+        return alacrittyRuntime.draw()
     }
 
     @MainActor

@@ -14,8 +14,7 @@ private struct AlacrittyFFISurfaceConfig {
     var widthPixels: UInt32
     var heightPixels: UInt32
     var scaleFactor: Float
-    var fontSizePoints: Float
-    var fontFamily: UnsafePointer<CChar>?
+    var appearance: UnsafePointer<CChar>?
     var workingDirectory: UnsafePointer<CChar>?
     var command: UnsafePointer<CChar>?
     var environment: UnsafePointer<CChar>?
@@ -111,8 +110,7 @@ final class AlacrittyTerminalRuntime {
         widthPixels: UInt32,
         heightPixels: UInt32,
         scaleFactor: CGFloat,
-        fontSizePoints: Float32,
-        fontFamily: String,
+        appearance: TerminalRuntimeAppearance,
         workingDirectory: String?,
         command: String?,
         environment: [String: String],
@@ -130,6 +128,7 @@ final class AlacrittyTerminalRuntime {
         guard let environmentString = String(data: environmentData, encoding: .utf8) else {
             throw AlacrittyTerminalRuntimeError.invalidEnvironment
         }
+        let appearanceString = try encodedAppearance(appearance)
 
         let callbackBox = Unmanaged.passRetained(AlacrittyTerminalCallbackBox(
             wake: wake,
@@ -143,8 +142,7 @@ final class AlacrittyTerminalRuntime {
             childExit: alacrittyChildExitCallback
         )
 
-        let effectiveFontSize = fontSizePoints > 0 ? fontSizePoints : 12
-        let handle = fontFamily.withCString { fontFamilyPointer in
+        let handle = appearanceString.withCString { appearancePointer in
             withOptionalCString(workingDirectory) { workingDirectoryPointer in
                 withOptionalCString(command) { commandPointer in
                     environmentString.withCString { environmentPointer in
@@ -153,8 +151,7 @@ final class AlacrittyTerminalRuntime {
                             widthPixels: max(widthPixels, 1),
                             heightPixels: max(heightPixels, 1),
                             scaleFactor: Float(max(scaleFactor, 1)),
-                            fontSizePoints: effectiveFontSize,
-                            fontFamily: fontFamilyPointer,
+                            appearance: appearancePointer,
                             workingDirectory: workingDirectoryPointer,
                             command: commandPointer,
                             environment: environmentPointer,
@@ -176,6 +173,16 @@ final class AlacrittyTerminalRuntime {
             handle: handle,
             callbackBox: callbackBox
         )
+    }
+
+    func updateAppearance(_ appearance: TerminalRuntimeAppearance) -> Bool {
+        guard let handle,
+              let appearanceString = try? Self.encodedAppearance(appearance) else {
+            return false
+        }
+        return appearanceString.withCString { appearancePointer in
+            library.updateAppearance(handle, appearancePointer)
+        }
     }
 
     func close() {
@@ -288,6 +295,13 @@ final class AlacrittyTerminalRuntime {
         )
     }
 
+    private static func encodedAppearance(
+        _ appearance: TerminalRuntimeAppearance
+    ) throws -> String {
+        let data = try JSONEncoder().encode(appearance)
+        return String(decoding: data, as: UTF8.self)
+    }
+
     private static func withOptionalCString<Result>(
         _ value: String?,
         _ body: (UnsafePointer<CChar>?) -> Result
@@ -364,6 +378,10 @@ private final class AlacrittyTerminalLibrary: @unchecked Sendable {
         UInt32,
         Float
     ) -> Bool
+    fileprivate typealias UpdateAppearance = @convention(c) (
+        UnsafeMutableRawPointer?,
+        UnsafePointer<CChar>?
+    ) -> Bool
     fileprivate typealias WriteSurface = @convention(c) (
         UnsafeMutableRawPointer?,
         UnsafePointer<UInt8>?,
@@ -407,6 +425,7 @@ private final class AlacrittyTerminalLibrary: @unchecked Sendable {
     fileprivate let freeSurface: FreeSurface
     fileprivate let drawSurface: DrawSurface
     fileprivate let resizeSurface: ResizeSurface
+    fileprivate let updateAppearance: UpdateAppearance
     fileprivate let writeSurface: WriteSurface
     fileprivate let sendKey: SendKey
     fileprivate let scrollSurface: ScrollSurface
@@ -425,6 +444,7 @@ private final class AlacrittyTerminalLibrary: @unchecked Sendable {
         freeSurface: FreeSurface,
         drawSurface: DrawSurface,
         resizeSurface: ResizeSurface,
+        updateAppearance: UpdateAppearance,
         writeSurface: WriteSurface,
         sendKey: SendKey,
         scrollSurface: ScrollSurface,
@@ -442,6 +462,7 @@ private final class AlacrittyTerminalLibrary: @unchecked Sendable {
         self.freeSurface = freeSurface
         self.drawSurface = drawSurface
         self.resizeSurface = resizeSurface
+        self.updateAppearance = updateAppearance
         self.writeSurface = writeSurface
         self.sendKey = sendKey
         self.scrollSurface = scrollSurface
@@ -494,6 +515,11 @@ private final class AlacrittyTerminalLibrary: @unchecked Sendable {
                 "cmux_alacritty_surface_resize",
                 from: handle,
                 as: ResizeSurface.self
+            ),
+            let updateAppearance = symbol(
+                "cmux_alacritty_surface_update_appearance",
+                from: handle,
+                as: UpdateAppearance.self
             ),
             let writeSurface = symbol(
                 "cmux_alacritty_surface_write",
@@ -561,6 +587,7 @@ private final class AlacrittyTerminalLibrary: @unchecked Sendable {
             freeSurface: freeSurface,
             drawSurface: drawSurface,
             resizeSurface: resizeSurface,
+            updateAppearance: updateAppearance,
             writeSurface: writeSurface,
             sendKey: sendKey,
             scrollSurface: scrollSurface,

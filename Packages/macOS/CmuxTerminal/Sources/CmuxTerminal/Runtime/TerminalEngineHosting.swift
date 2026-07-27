@@ -13,6 +13,9 @@ public protocol TerminalEngineHosting: AnyObject {
     /// The live runtime config handle, or nil before the first config load.
     var runtimeConfig: ghostty_config_t? { get }
 
+    /// The user's resolved terminal appearance for newly created or refreshed surfaces.
+    var runtimeAppearance: TerminalRuntimeAppearance { get }
+
     /// The user's effective `shell-integration` Ghostty config value
     /// (`"detect"`, `"none"`, or an explicit shell).
     var userGhosttyShellIntegrationMode: String { get }

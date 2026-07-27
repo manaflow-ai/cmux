@@ -1,4 +1,6 @@
 import AppKit
+import CMUXMobileCore
+import CmuxFoundation
 import Foundation
 import CmuxTerminal
 import CmuxTerminalCore
@@ -16,6 +18,23 @@ import struct CmuxSettings.AgentIntegrationSettingsStore
 extension GhosttyApp: TerminalEngineHosting {
     var runtimeApp: ghostty_app_t? { app }
     var runtimeConfig: ghostty_config_t? { config }
+    var runtimeAppearance: TerminalRuntimeAppearance {
+        let resolvedConfig = GhosttyConfig.load(
+            preferredColorScheme: effectiveTerminalColorSchemePreference,
+            globalFontMagnificationPercent: GlobalFontMagnification.storedPercent
+        )
+        var theme = TerminalTheme(ghosttyConfig: resolvedConfig)
+        theme.background = defaultBackgroundColor.hexString()
+        theme.foreground = defaultForegroundColor.hexString()
+        theme.cursor = defaultCursorColor.hexString()
+        theme.selectionBackground = defaultSelectionBackground.hexString()
+        theme.selectionForeground = defaultSelectionForeground.hexString()
+        return TerminalRuntimeAppearance(
+            fontFamily: resolvedConfig.fontFamily,
+            fontSizePoints: Float32(resolvedConfig.fontSize),
+            theme: theme
+        )
+    }
     // `userGhosttyShellIntegrationMode` already matches the seam requirement.
 }
 

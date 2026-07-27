@@ -5764,6 +5764,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) {
         var refreshedCount = 0
         forEachTerminalPanel { terminalPanel in
+            if terminalPanel.surface.isAlacrittyBacked {
+                _ = terminalPanel.surface.reloadRuntimeAppearance()
+            }
             let liveSurface = terminalPanel.surface.liveSurfaceForGhosttyAccess(
                 reason: "appDelegate.refreshAfterGhosttyConfigReload"
             )

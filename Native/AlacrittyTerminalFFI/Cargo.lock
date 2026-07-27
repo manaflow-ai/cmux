@@ -181,6 +181,7 @@ dependencies = [
  "glutin",
  "libc",
  "log",
+ "serde",
  "serde_json",
  "unicode-width",
  "winit",
