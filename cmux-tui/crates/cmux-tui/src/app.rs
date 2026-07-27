@@ -15309,7 +15309,7 @@ mod tests {
     }
 
     #[test]
-    fn browser_routes_modified_associated_text_as_a_key_event() {
+    fn browser_routes_modified_associated_text_as_an_atomic_key_press() {
         let mux = Mux::new("browser-modified-associated-text-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         let (dispatcher, blocked) = BrowserInputDispatcher::blocked(1);
@@ -15328,6 +15328,18 @@ mod tests {
             event.kind,
             BrowserInputKind::Key {
                 event_type: "keyDown",
+                key: crate::browser_input::BrowserKey::Character('j'),
+                code: "KeyJ",
+                windows_virtual_key_code: 74,
+                modifiers: 1,
+                text: None,
+            }
+        ));
+        let event = blocked.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(matches!(
+            event.kind,
+            BrowserInputKind::Key {
+                event_type: "keyUp",
                 key: crate::browser_input::BrowserKey::Character('j'),
                 code: "KeyJ",
                 windows_virtual_key_code: 74,

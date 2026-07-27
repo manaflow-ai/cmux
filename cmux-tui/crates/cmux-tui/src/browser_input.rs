@@ -298,6 +298,8 @@ struct ScheduledSurfaceInputLane {
     pending: Mutex<VecDeque<SequencedBrowserInputEvent>>,
     scheduled: AtomicBool,
     retired: AtomicBool,
+    #[cfg(test)]
+    examined_events: AtomicUsize,
 }
 
 struct SurfaceInputLane {
@@ -640,6 +642,8 @@ impl ScheduledSurfaceInputLane {
             pending: Mutex::new(VecDeque::new()),
             scheduled: AtomicBool::new(false),
             retired: AtomicBool::new(false),
+            #[cfg(test)]
+            examined_events: AtomicUsize::new(0),
         })
     }
 
@@ -694,6 +698,8 @@ impl ScheduledSurfaceInputLane {
         let latest = std::mem::take(&mut *self.lane.latest_resizes.lock().unwrap());
         let releases = std::mem::take(&mut *self.lane.retained_releases.lock().unwrap());
         merge_fallback_events(&mut batch, latest, releases);
+        #[cfg(test)]
+        self.examined_events.fetch_add(batch.len(), Ordering::Relaxed);
         let mut discarded = coalesce_sequenced_browser_events(&mut batch);
         let mut retained = VecDeque::new();
         for event in batch {
@@ -1479,6 +1485,74 @@ mod tests {
         for release in releases {
             let _ = release.send(());
         }
+    }
+
+    #[test]
+    fn idle_surface_lanes_do_not_exhaust_scheduler_admission() {
+        let dispatcher = BrowserInputDispatcher::spawn(|_| {}, |_| {}).unwrap();
+        let (observed_tx, observed_rx) = std::sync::mpsc::channel();
+
+        for surface_id in 1..=MAX_BROWSER_INPUT_SURFACES as u64 {
+            assert!(dispatcher.enqueue(BrowserInputEvent {
+                surface_id,
+                surface: SurfaceHandle::RemoteBrowserUnsupported,
+                kind: BrowserInputKind::TestProbe(observed_tx.clone()),
+            }));
+        }
+        for _ in 0..MAX_BROWSER_INPUT_SURFACES {
+            observed_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        }
+        let idle_deadline = Instant::now() + Duration::from_secs(1);
+        while Instant::now() < idle_deadline
+            && dispatcher
+                .lanes
+                .lock()
+                .unwrap()
+                .values()
+                .any(|lane| lane.scheduled.load(Ordering::Acquire) || lane.has_pending())
+        {
+            std::thread::yield_now();
+        }
+
+        let next_surface = MAX_BROWSER_INPUT_SURFACES as u64 + 1;
+        assert!(
+            dispatcher.enqueue(BrowserInputEvent {
+                surface_id: next_surface,
+                surface: SurfaceHandle::RemoteBrowserUnsupported,
+                kind: BrowserInputKind::TestProbe(observed_tx),
+            }),
+            "drained lanes permanently disabled input for a later live browser surface"
+        );
+        assert_eq!(
+            observed_rx.recv_timeout(Duration::from_secs(1)),
+            Ok(next_surface),
+            "the later browser surface was admitted but never dispatched"
+        );
+        assert!(
+            dispatcher.lanes.lock().unwrap().len() <= MAX_BROWSER_INPUT_SURFACES,
+            "evicting an idle lane exceeded the scheduler's surface-state bound"
+        );
+    }
+
+    #[test]
+    fn scheduler_examines_each_backlog_event_once() {
+        const BACKLOG: usize = 128;
+        let lane = ScheduledSurfaceInputLane::new(7, BACKLOG);
+        for _ in 0..BACKLOG {
+            assert!(lane.lane.enqueue(reload_event(7)));
+        }
+
+        for _ in 0..BACKLOG {
+            let (event, discarded) = lane.take_next();
+            assert!(event.is_some());
+            assert!(discarded.is_empty());
+        }
+
+        assert_eq!(lane.lane.queued_count.load(Ordering::Acquire), 0);
+        assert!(
+            lane.examined_events.load(Ordering::Relaxed) <= BACKLOG * 2,
+            "dispatch repeatedly rescanned the retained backlog"
+        );
     }
 
     #[test]
