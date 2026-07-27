@@ -8834,6 +8834,163 @@ mod tests {
     }
 
     #[test]
+    fn loaderless_navigation_retries_snapshot_invalidated_by_same_document_event() {
+        const ONE_PIXEL_PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            stream.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+            let mut ws = accept(stream).unwrap();
+            let discover = read_ws_json(&mut ws);
+            assert_eq!(discover["method"], "Target.setDiscoverTargets");
+            write_ws_json(&mut ws, json!({"id": discover["id"], "result": {}}));
+
+            let seed = read_ws_json(&mut ws);
+            assert_eq!(seed["method"], "Page.getFrameTree");
+            write_ws_json(
+                &mut ws,
+                json!({
+                    "id": seed["id"],
+                    "result": {
+                        "frameTree": {
+                            "frame": {
+                                "id": "main-frame",
+                                "loaderId": "loader-1",
+                                "url": "https://example.test"
+                            }
+                        }
+                    }
+                }),
+            );
+
+            let navigate = read_ws_json(&mut ws);
+            assert_eq!(navigate["method"], "Page.navigate");
+            write_ws_json(
+                &mut ws,
+                json!({"id": navigate["id"], "result": {"frameId": "main-frame"}}),
+            );
+
+            let first_snapshot = read_ws_json(&mut ws);
+            assert_eq!(first_snapshot["method"], "Page.getFrameTree");
+            write_ws_json(
+                &mut ws,
+                json!({
+                    "method": "Page.navigatedWithinDocument",
+                    "sessionId": "session-1",
+                    "params": {
+                        "frameId": "main-frame",
+                        "url": "https://example.test#same-document"
+                    }
+                }),
+            );
+            write_ws_json(
+                &mut ws,
+                json!({
+                    "id": first_snapshot["id"],
+                    "result": {
+                        "frameTree": {
+                            "frame": {
+                                "id": "main-frame",
+                                "loaderId": "loader-1",
+                                "url": "https://example.test#same-document"
+                            }
+                        }
+                    }
+                }),
+            );
+
+            let retry = match ws.read() {
+                Ok(message @ (Message::Text(_) | Message::Binary(_))) => {
+                    Some(serde_json::from_slice::<Value>(&message.into_data()).unwrap())
+                }
+                Ok(_) | Err(_) => None,
+            };
+            let Some(retry) = retry else { return false };
+            assert_eq!(retry["method"], "Page.getFrameTree");
+            write_ws_json(
+                &mut ws,
+                json!({
+                    "id": retry["id"],
+                    "result": {
+                        "frameTree": {
+                            "frame": {
+                                "id": "main-frame",
+                                "loaderId": "loader-1",
+                                "url": "https://example.test#same-document"
+                            }
+                        }
+                    }
+                }),
+            );
+
+            for expected in [
+                "Page.stopScreencast",
+                "Page.createIsolatedWorld",
+                "Runtime.evaluate",
+                "Page.startScreencast",
+                "Page.getFrameTree",
+                "Page.captureScreenshot",
+                "Page.getFrameTree",
+            ] {
+                let request = read_ws_json(&mut ws);
+                assert_eq!(request["method"], expected);
+                let result = match expected {
+                    "Page.getFrameTree" => json!({
+                        "frameTree": {
+                            "frame": {
+                                "id": "main-frame",
+                                "loaderId": "loader-1",
+                                "url": "https://example.test#same-document"
+                            }
+                        }
+                    }),
+                    "Page.createIsolatedWorld" => json!({"executionContextId": 41}),
+                    "Runtime.evaluate" => {
+                        json!({"result": {"type": "number", "value": 10_000.0}})
+                    }
+                    "Page.captureScreenshot" => json!({"data": ONE_PIXEL_PNG}),
+                    _ => json!({}),
+                };
+                write_ws_json(&mut ws, json!({"id": request["id"], "result": result}));
+            }
+            true
+        });
+        let runtime = super::BrowserRuntime::connect_to_endpoint(
+            &format!("ws://{addr}/devtools/browser/fake"),
+            None,
+            BrowserSource::External,
+        )
+        .unwrap();
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        runtime.client.register_frame_epoch("session-1", browser.frame_epoch.clone());
+        runtime.client.seed_main_frame("session-1").unwrap();
+        *browser.session.lock().unwrap() = Some(BrowserSession {
+            runtime: runtime.clone(),
+            target_id: "target-1".to_string(),
+            session_id: "session-1".to_string(),
+        });
+        browser.store_frame(test_frame(1));
+
+        let result = browser.navigate_blocking("https://example.test#same-document");
+        let pointer_frame_seq = browser.state.lock().unwrap().pointer_frame_seq;
+        runtime.shutdown();
+        let retried = server.join().unwrap();
+
+        assert!(
+            result.is_ok(),
+            "a normal same-document event race must retry its invalidated snapshot: {result:?}"
+        );
+        assert!(retried, "loaderless reconciliation did not request a fresh snapshot");
+        assert_eq!(
+            pointer_frame_seq,
+            Some(2),
+            "verified post-navigation pixels must restore pointer authority"
+        );
+    }
+
+    #[test]
     fn loaderless_navigation_snapshot_failure_settles_the_transition() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
