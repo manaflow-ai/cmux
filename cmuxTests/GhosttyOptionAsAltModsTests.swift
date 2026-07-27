@@ -176,7 +176,7 @@ import Testing
         #expect(interpreted.characters == "n")
     }
 
-    @Test func unshiftedCodepointRecoversASCIIIdentityForC0ControlEvent() throws {
+    @Test func unshiftedCodepointUsesUniformResolverForC0ControlEvent() throws {
         let event = try #require(NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
@@ -192,9 +192,8 @@ import Testing
 
         let codepoint = KeyboardLayout.unshiftedCodepoint(
             for: event,
-            controlCharacterProvider: { keyCode, modifiers in
-                #expect(keyCode == UInt16(kVK_ANSI_C))
-                #expect(modifiers.isEmpty)
+            eventCharacterProvider: { candidateEvent in
+                #expect(candidateEvent === event)
                 return "c"
             }
         )
@@ -287,14 +286,7 @@ import Testing
         #expect(recovered == nil)
     }
 
-    @Test func unshiftedCodepointUsesProductionKeyboardLayoutResolverForC0ControlEvent() throws {
-        let expectedText = try #require(
-            KeyboardLayout.character(forKeyCode: UInt16(kVK_ANSI_C))
-        )
-        let expectedScalar = try #require(expectedText.unicodeScalars.first)
-        #expect(expectedText.unicodeScalars.count == 1)
-        #expect(expectedScalar.value >= 0x20 && expectedScalar.value < 0x7F)
-
+    @Test func unshiftedCodepointUsesProductionAppKitResolverForC0ControlEvent() throws {
         let event = try #require(NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
@@ -307,6 +299,8 @@ import Testing
             isARepeat: false,
             keyCode: UInt16(kVK_ANSI_C)
         ))
+        let expectedText = try #require(event.characters(byApplyingModifiers: []))
+        let expectedScalar = try #require(expectedText.unicodeScalars.first)
 
         #expect(
             KeyboardLayout.unshiftedCodepoint(for: event) == expectedScalar.value
@@ -329,7 +323,7 @@ import Testing
 
         let codepoint = KeyboardLayout.unshiftedCodepoint(
             for: event,
-            controlCharacterProvider: { _, _ in "'" }
+            eventCharacterProvider: { _ in "'" }
         )
 
         #expect(codepoint == UnicodeScalar("'").value)
@@ -348,18 +342,17 @@ import Testing
             isARepeat: false,
             keyCode: UInt16(kVK_ANSI_C)
         ))
-        var normalizedShortcutLayout = false
+        var resolverCallCount = 0
 
         let codepoint = KeyboardLayout.unshiftedCodepoint(
             for: event,
-            controlCharacterProvider: { _, _ in
-                normalizedShortcutLayout = true
-                return "c"
-            },
-            eventCharacterProvider: { _ in "с" }
+            eventCharacterProvider: { _ in
+                resolverCallCount += 1
+                return "с"
+            }
         )
 
-        #expect(!normalizedShortcutLayout)
+        #expect(resolverCallCount == 1)
         #expect(codepoint == UnicodeScalar("с").value)
     }
 
@@ -376,20 +369,19 @@ import Testing
             isARepeat: false,
             keyCode: UInt16(kVK_ANSI_C)
         ))
-        var normalizedShortcutLayout = false
+        var resolverCallCount = 0
 
         let codepoint = KeyboardLayout.unshiftedCodepoint(
             for: event,
-            controlCharacterProvider: { _, _ in
-                normalizedShortcutLayout = true
-                return "c"
-            },
-            eventCharacterProvider: { _ in "с" }
+            eventCharacterProvider: { _ in
+                resolverCallCount += 1
+                return "с"
+            }
         )
 
         #expect(
-            !normalizedShortcutLayout,
-            "Binding identity must not switch to an ASCII-only shortcut resolver for Control input"
+            resolverCallCount == 1,
+            "Binding identity must use exactly one layout-independent AppKit resolver"
         )
         #expect(codepoint == UnicodeScalar("с").value)
     }

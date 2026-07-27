@@ -75,54 +75,24 @@ class KeyboardLayout {
         return raw
     }
 
-    /// Returns the physical-layout code point libghostty uses for encoding.
+    /// Returns the current layout's unmodified code point for libghostty.
     ///
-    /// AppKit normally supplies the correct unmodified layout scalar. A Control
-    /// combination can instead collapse `characters` to a C0 byte, so only that
-    /// ambiguous case uses the ASCII-capable shortcut layout to recover the key.
+    /// This deliberately follows Ghostty's AppKit implementation and uses one
+    /// uniform translation path for every layout and input source. Shortcut
+    /// normalization is a separate concern and must not affect binding identity.
     static func unshiftedCodepoint(
         for event: NSEvent,
-        controlCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? =
-            KeyboardLayout.character(forKeyCode:modifierFlags:),
         eventCharacterProvider: (NSEvent) -> String? = {
             $0.characters(byApplyingModifiers: [])
         }
     ) -> UInt32 {
         guard event.type == .keyDown || event.type == .keyUp else { return 0 }
 
-        if event.modifierFlags.contains(.control),
-           isSingleC0ControlText(event.characters),
-           let layoutText = controlCharacterProvider(event.keyCode, []),
-           let scalar = singlePrintableASCIIScalar(in: layoutText) {
-            return scalar.value
-        }
-
         guard let text = eventCharacterProvider(event),
               let scalar = text.unicodeScalars.first else {
             return 0
         }
         return scalar.value
-    }
-
-    private static func isSingleC0ControlText(_ text: String?) -> Bool {
-        guard let text else { return false }
-        let scalars = text.unicodeScalars
-        guard let scalar = scalars.first,
-              scalars.index(after: scalars.startIndex) == scalars.endIndex else {
-            return false
-        }
-        return scalar.value < 0x20
-    }
-
-    private static func singlePrintableASCIIScalar(in text: String) -> UnicodeScalar? {
-        let scalars = text.unicodeScalars
-        guard let scalar = scalars.first,
-              scalars.index(after: scalars.startIndex) == scalars.endIndex,
-              scalar.value >= 0x20,
-              scalar.value < 0x7F else {
-            return nil
-        }
-        return scalar
     }
 
     private static func characterFromInputSource(

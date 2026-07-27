@@ -26,20 +26,17 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
 
     func testRepeatUsesCurrentTextAndStableBindingIdentity() throws {
         let terminal = try makeHostedTerminal()
-        let previousInterpretHook = cjkIMEInterpretKeyEventsHook
         defer {
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
-            cjkIMEInterpretKeyEventsHook = previousInterpretHook
+            terminal.surfaceView.setTextInputEventHandlerForTesting(nil)
             terminal.window.orderOut(nil)
         }
 
-        installCJKIMEInterpretKeyEventsSwizzle()
-        cjkIMEInterpretKeyEventsHook = { candidateView, events in
-            guard candidateView === terminal.surfaceView,
-                  let text = events.first?.characters else {
+        terminal.surfaceView.setTextInputEventHandlerForTesting { event in
+            guard let text = event.characters else {
                 return false
             }
-            candidateView.insertText(
+            terminal.surfaceView.insertText(
                 text,
                 replacementRange: NSRange(location: NSNotFound, length: 0)
             )
@@ -140,17 +137,13 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
 
     func testComposingPressForwardsMatchingRelease() throws {
         let terminal = try makeHostedTerminal()
-        let previousInterpretHook = cjkIMEInterpretKeyEventsHook
         defer {
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
-            cjkIMEInterpretKeyEventsHook = previousInterpretHook
+            terminal.surfaceView.setTextInputEventHandlerForTesting(nil)
             terminal.window.orderOut(nil)
         }
 
-        installCJKIMEInterpretKeyEventsSwizzle()
-        cjkIMEInterpretKeyEventsHook = { candidateView, _ in
-            candidateView === terminal.surfaceView
-        }
+        terminal.surfaceView.setTextInputEventHandlerForTesting { _ in false }
         terminal.surfaceView.setMarkedText(
             "ᄒ",
             selectedRange: NSRange(location: 1, length: 0),
@@ -206,17 +199,15 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
 
     func testCommittedPreeditTextDoesNotInventPhysicalKey() throws {
         let terminal = try makeHostedTerminal()
-        let previousInterpretHook = cjkIMEInterpretKeyEventsHook
         defer {
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
-            cjkIMEInterpretKeyEventsHook = previousInterpretHook
+            GhosttyNSView.debugGhosttySurfaceTextInputObserver = nil
+            terminal.surfaceView.setTextInputEventHandlerForTesting(nil)
             terminal.window.orderOut(nil)
         }
 
-        installCJKIMEInterpretKeyEventsSwizzle()
-        cjkIMEInterpretKeyEventsHook = { candidateView, _ in
-            guard candidateView === terminal.surfaceView else { return false }
-            candidateView.insertText(
+        terminal.surfaceView.setTextInputEventHandlerForTesting { _ in
+            terminal.surfaceView.insertText(
                 "日本",
                 replacementRange: NSRange(location: NSNotFound, length: 0)
             )
@@ -229,18 +220,35 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
         )
 
         var committedTextKeycodes: [UInt32] = []
+        var nonphysicalCommittedText: [String] = []
         GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
             guard keyEvent.text.map({ String(cString: $0) }) == "日本" else {
                 return
             }
             committedTextKeycodes.append(keyEvent.keycode)
         }
+        GhosttyNSView.debugGhosttySurfaceTextInputObserver = {
+            nonphysicalCommittedText.append($0)
+        }
 
-        let event = try XCTUnwrap(NSEvent.keyEvent(
+        let timestamp = ProcessInfo.processInfo.systemUptime
+        let press = try XCTUnwrap(NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
             modifierFlags: [],
-            timestamp: ProcessInfo.processInfo.systemUptime,
+            timestamp: timestamp,
+            windowNumber: terminal.window.windowNumber,
+            context: nil,
+            characters: " ",
+            charactersIgnoringModifiers: " ",
+            isARepeat: false,
+            keyCode: 49
+        ))
+        let release = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyUp,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: timestamp + 0.1,
             windowNumber: terminal.window.windowNumber,
             context: nil,
             characters: " ",
@@ -251,13 +259,115 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
 
         terminal.window.makeFirstResponder(terminal.surfaceView)
         withExtendedLifetime(terminal.surface) {
-            terminal.surfaceView.keyDown(with: event)
+            terminal.surfaceView.keyDown(with: press)
+            terminal.surfaceView.keyUp(with: release)
         }
 
+        XCTAssertEqual(nonphysicalCommittedText, ["日本"])
         XCTAssertTrue(
             committedTextKeycodes.isEmpty,
             "Text committed from preedit must use Ghostty's nonphysical text-input API, not a synthetic native keycode"
         )
+    }
+
+    func testConsumedPreeditRepeatKeepsAppKitOwnershipThroughRelease() throws {
+        let terminal = try makeHostedTerminal()
+        defer {
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
+            GhosttyNSView.debugGhosttySurfaceTextInputObserver = nil
+            terminal.surfaceView.setTextInputEventHandlerForTesting(nil)
+            terminal.window.orderOut(nil)
+        }
+
+        var callbackOrder: [String] = []
+        terminal.surfaceView.setTextInputEventHandlerForTesting { event in
+            if event.isARepeat {
+                callbackOrder.append("repeat.insertText")
+                terminal.surfaceView.insertText(
+                    "é",
+                    replacementRange: NSRange(location: NSNotFound, length: 0)
+                )
+                callbackOrder.append("repeat.doCommand")
+                terminal.surfaceView.doCommand(
+                    by: #selector(NSResponder.insertNewline(_:))
+                )
+            } else {
+                callbackOrder.append("press.setMarkedText")
+                terminal.surfaceView.setMarkedText(
+                    "´",
+                    selectedRange: NSRange(location: 1, length: 0),
+                    replacementRange: NSRange(location: NSNotFound, length: 0)
+                )
+            }
+            return true
+        }
+
+        var physicalActions: [ghostty_input_action_e] = []
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            guard keyEvent.keycode == 14 else { return }
+            physicalActions.append(keyEvent.action)
+        }
+        var committedText: [String] = []
+        GhosttyNSView.debugGhosttySurfaceTextInputObserver = {
+            committedText.append($0)
+        }
+
+        let timestamp = ProcessInfo.processInfo.systemUptime
+        let press = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.option],
+            timestamp: timestamp,
+            windowNumber: terminal.window.windowNumber,
+            context: nil,
+            characters: "´",
+            charactersIgnoringModifiers: "e",
+            isARepeat: false,
+            keyCode: 14
+        ))
+        let repeatEvent = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: timestamp + 0.1,
+            windowNumber: terminal.window.windowNumber,
+            context: nil,
+            characters: "e",
+            charactersIgnoringModifiers: "e",
+            isARepeat: true,
+            keyCode: 14
+        ))
+        let release = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyUp,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: timestamp + 0.2,
+            windowNumber: terminal.window.windowNumber,
+            context: nil,
+            characters: "e",
+            charactersIgnoringModifiers: "e",
+            isARepeat: false,
+            keyCode: 14
+        ))
+
+        terminal.window.makeFirstResponder(terminal.surfaceView)
+        withExtendedLifetime(terminal.surface) {
+            terminal.surfaceView.keyDown(with: press)
+            terminal.surfaceView.keyDown(with: repeatEvent)
+            terminal.surfaceView.keyUp(with: release)
+        }
+
+        XCTAssertEqual(callbackOrder, [
+            "press.setMarkedText",
+            "repeat.insertText",
+            "repeat.doCommand",
+        ])
+        XCTAssertEqual(committedText, ["é"])
+        XCTAssertTrue(
+            physicalActions.isEmpty,
+            "A key consumed by the native text-input handler must not leak a press, repeat, or release"
+        )
+        XCTAssertFalse(terminal.surfaceView.hasMarkedText())
     }
 
     private func makeHostedTerminal() throws -> HostedTerminal {

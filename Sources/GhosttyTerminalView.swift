@@ -3350,6 +3350,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return UserDefaults.standard.bool(forKey: "cmuxKeyLatencyProbe")
     }()
     @MainActor static var debugGhosttySurfaceKeyEventObserver: ((ghostty_input_key_s) -> Void)?
+    @MainActor static var debugGhosttySurfaceTextInputObserver: ((String) -> Void)?
     @MainActor static var debugNativeFocusReassertionObserver: (() -> Void)?
 #endif
     private var eventMonitor: Any?
@@ -5260,6 +5261,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var imePointOverrideForTesting: (x: Double, y: Double, width: Double, height: Double)?
     func setIMEPointForTesting(x: Double, y: Double, width: Double, height: Double) { imePointOverrideForTesting = (x, y, width, height) }
     func clearIMEPointForTesting() { imePointOverrideForTesting = nil }
+    private var textInputEventHandlerForTesting: ((NSEvent) -> Bool)?
+    func setTextInputEventHandlerForTesting(
+        _ handler: ((NSEvent) -> Bool)?
+    ) {
+        textInputEventHandlerForTesting = handler
+    }
 #endif
 
 #if DEBUG
@@ -5285,6 +5292,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// `interpretKeyEvents`, which is AppKit's supported responder entry point
     /// for an explicit event list.
     private func handleTextInputEvent(_ event: NSEvent) -> Bool {
+#if DEBUG
+        if let textInputEventHandlerForTesting {
+            return textInputEventHandlerForTesting(event)
+        }
+#endif
         guard event.windowNumber != 0,
               NSApp.currentEvent === event,
               let inputContext else {
@@ -5791,6 +5803,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _ text: String,
         surface: ghostty_surface_t
     ) {
+#if DEBUG
+        Self.debugGhosttySurfaceTextInputObserver?(text)
+#endif
         let byteCount = text.utf8.count
         text.withCString { pointer in
             ghostty_surface_text_input(surface, pointer, UInt(byteCount))
