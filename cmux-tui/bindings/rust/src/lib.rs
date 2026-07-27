@@ -1526,6 +1526,17 @@ mod tests {
     }
 
     #[test]
+    fn command_error_shape_change_uses_a_breaking_sdk_version() {
+        let mut components = env!("CARGO_PKG_VERSION").split('.');
+        let major = components.next().unwrap().parse::<u64>().unwrap();
+        let minor = components.next().unwrap().parse::<u64>().unwrap();
+        assert!(
+            major > 0 || minor >= 4,
+            "the public CmuxError::Command shape requires cmux-client 0.4 or newer"
+        );
+    }
+
+    #[test]
     fn default_socket_path_preserves_compatible_runtime_dir() {
         let runtime_dir = PathBuf::from("/tmp/cmux-tui-compat");
         assert_eq!(
