@@ -133,10 +133,13 @@ extension DockSplitStore {
             terminalSnapshot.resumeBinding,
             restorableAgent: restorableAgent
         )
-        let agentWasRunning = terminalSnapshot.wasAgentRunning ?? true
-        let shouldAutoResumeAgent = AgentSessionAutoResumeSettings.isEnabled(
-            defaults: agentSessionAutoResumeDefaults
-        ) && agentWasRunning
+        let shouldAutoResumeAgent = Workspace.shouldAutoResumeRestoredAgent(
+            autoResumeAgentSessions: AgentSessionAutoResumeSettings.isEnabled(
+                defaults: agentSessionAutoResumeDefaults
+            ),
+            wasAgentRunning: terminalSnapshot.wasAgentRunning,
+            resumeBinding: resumeBinding
+        )
         let resumeBindingForStartup = hibernation != nil ||
             (resumeBinding?.isProcessDetected == true && resumeBinding?.autoResume != true)
             ? nil

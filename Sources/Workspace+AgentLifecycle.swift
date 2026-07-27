@@ -95,9 +95,6 @@ extension Workspace {
              (.promptIdle, .some(.observedAgentCommandRunning)):
             restoredAgentResumeStatesByPanelId.removeValue(forKey: panelId)
             restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
-            if surfaceResumeBindingsByPanelId[panelId]?.isAgentHookBinding == true {
-                surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
-            }
         default:
             break
         }

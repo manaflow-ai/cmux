@@ -499,7 +499,13 @@ extension Workspace {
             }()
             let resumeStartupInput = sessionRestorePolicy.surfaceResumeStartupInput(
                 resumeBinding,
-                autoResumeAgentSessions: AgentSessionAutoResumeSettings.isEnabled(defaults: agentSessionAutoResumeDefaults) && (agentWasRunning ?? true),
+                autoResumeAgentSessions: Self.shouldAutoResumeRestoredAgent(
+                    autoResumeAgentSessions: AgentSessionAutoResumeSettings.isEnabled(
+                        defaults: agentSessionAutoResumeDefaults
+                    ),
+                    wasAgentRunning: agentWasRunning,
+                    resumeBinding: resumeBinding
+                ),
                 promptForApproval: false,
                 approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
             )
@@ -984,6 +990,18 @@ extension Workspace {
         return restorableAgent
     }
 
+    nonisolated static func shouldAutoResumeRestoredAgent(
+        autoResumeAgentSessions: Bool,
+        wasAgentRunning: Bool?,
+        resumeBinding: SurfaceResumeBindingSnapshot?
+    ) -> Bool {
+        guard autoResumeAgentSessions else { return false }
+        if wasAgentRunning ?? true {
+            return true
+        }
+        return resumeBinding?.hasAutoRestorableAgentCheckpointIdentity == true
+    }
+
     nonisolated private static func normalizedResumeBindingValue(_ value: String?) -> String? {
         guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty else {
@@ -1254,10 +1272,6 @@ extension Workspace {
             )
             let restoredHibernation = restorableAgent != nil ? snapshot.terminal?.hibernation : nil
             let autoResumeAgentSessions = AgentSessionAutoResumeSettings.isEnabled(defaults: agentSessionAutoResumeDefaults)
-            // Only auto-resume if the agent was actively running when the snapshot was saved.
-            // wasAgentRunning == nil means a legacy snapshot; treat as true for backwards compatibility.
-            let agentWasRunningAtQuit = snapshot.terminal?.wasAgentRunning ?? true
-            let shouldAutoResumeAgent = autoResumeAgentSessions && agentWasRunningAtQuit
             let remoteStartupCommand = remoteTerminalStartupCommand()
             let restoresRemoteWorkspaceTerminalSnapshot =
                 remoteStartupCommand != nil &&
@@ -1291,6 +1305,11 @@ extension Workspace {
             let resumeBinding = Self.resumeBindingForSessionRestore(
                 locatedResumeBinding,
                 restorableAgent: restorableAgent
+            )
+            let shouldAutoResumeAgent = Self.shouldAutoResumeRestoredAgent(
+                autoResumeAgentSessions: autoResumeAgentSessions,
+                wasAgentRunning: snapshot.terminal?.wasAgentRunning,
+                resumeBinding: resumeBinding
             )
             let resumeBindingForStartup =
                 restoredHibernation != nil ||
