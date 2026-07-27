@@ -841,6 +841,63 @@ test("attachSurface render mode requires a bounded Kitty image array", async () 
   await client.close();
 });
 
+test("attachSurface render mode validates bounded removed Kitty image IDs", async () => {
+  const cases: Array<[unknown, RegExp]> = [
+    [{}, /render-delta graphics removed_image_ids is not an array/],
+    [
+      new Array(RENDER_GRAPHIC_MAX_IMAGES + 1).fill(1),
+      new RegExp(
+        `render-delta graphics exceeds ${RENDER_GRAPHIC_MAX_IMAGES} removed image IDs`,
+      ),
+    ],
+    [[0], /render-delta graphics removed_image_ids contains an invalid image ID/],
+    [[-1], /render-delta graphics removed_image_ids contains an invalid image ID/],
+    [[1.5], /render-delta graphics removed_image_ids contains an invalid image ID/],
+    [["1"], /render-delta graphics removed_image_ids contains an invalid image ID/],
+  ];
+  for (const [removedImageIds, expected] of cases) {
+    const main = new ScriptedTransport((request, transport) => {
+      transport.emit({
+        id: request.id,
+        ok: true,
+        data: { app: "cmux-tui", version: "0.1.2", protocol: 7, session: "main", pid: 1 },
+      });
+    });
+    const attach = new ScriptedTransport((request, transport) => {
+      transport.emit({
+        event: "render-delta",
+        surface: 7,
+        cursor: {
+          x: 0,
+          y: 0,
+          style: "block",
+          blink: false,
+          visible: false,
+          color: null,
+        },
+        full: false,
+        rows: [],
+        graphics: {
+          generation: 2,
+          removed_image_ids: removedImageIds,
+        },
+      });
+      transport.emit({ id: request.id, ok: true, data: {} });
+    });
+    const client = new CmuxClient({
+      transport: main,
+      streamTransportFactory: () => attach,
+      timeoutMs: 100,
+    });
+
+    await assert.rejects(
+      () => client.attachSurface(7, { mode: "render" }),
+      expected,
+    );
+    await client.close();
+  }
+});
+
 test("render attach counts non-image JSON bytes against the retained buffer cap", async () => {
   const main = new ScriptedTransport((request, transport) => {
     transport.emit({

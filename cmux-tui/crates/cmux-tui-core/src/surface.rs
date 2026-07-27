@@ -4114,6 +4114,14 @@ mod tests {
     }
 
     #[test]
+    fn terminal_reconnect_failure_state_never_decodes_as_connected() {
+        assert_ne!(
+            TerminalHostConnectionState::from_u8(3),
+            TerminalHostConnectionState::Connected
+        );
+    }
+
+    #[test]
     fn producer_without_render_taps_skips_frame_but_emits_output() {
         let mux = Mux::new_for_test("producer-skip", SurfaceOptions::default());
         let events = mux.subscribe();

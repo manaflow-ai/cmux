@@ -603,6 +603,59 @@ describe("RenderGraphics canvas resource policy", () => {
     expect(surfaceCount * decodedBytes).toBeGreaterThan(RENDER_GRAPHIC_DECODED_BYTE_CAP);
   });
 
+  it("bounds concurrent decoder workers across graphics owners", async () => {
+    let activeWorkers = 0;
+    let maxActiveWorkers = 0;
+    let startedRequests = 0;
+    class PausedWorker {
+      onmessage: ((event: MessageEvent<RenderGraphicsDecodeResponse>) => void) | null = null;
+      onerror: ((event: ErrorEvent) => void) | null = null;
+      onmessageerror: ((event: MessageEvent) => void) | null = null;
+      private terminated = false;
+
+      constructor() {
+        activeWorkers += 1;
+        maxActiveWorkers = Math.max(maxActiveWorkers, activeWorkers);
+      }
+
+      postMessage(): void {
+        startedRequests += 1;
+      }
+
+      terminate(): void {
+        if (this.terminated) return;
+        this.terminated = true;
+        activeWorkers -= 1;
+      }
+    }
+    vi.stubGlobal("Worker", PausedWorker);
+    const graphics: RenderGraphicsModel = {
+      generation: 1,
+      images: [{
+        id: 1,
+        generation: 1,
+        width: 1,
+        height: 1,
+        format: "rgba",
+        data: "AAAAAA==",
+      }],
+      placements: [placement(1, 1, 1)],
+    };
+
+    render(
+      <RenderGraphicsBudgetProvider>
+        {Array.from({ length: 8 }, (_, index) => (
+          <RenderGraphics graphics={graphics} key={index}>
+            <div>terminal {index}</div>
+          </RenderGraphics>
+        ))}
+      </RenderGraphicsBudgetProvider>,
+    );
+
+    await waitFor(() => expect(startedRequests).toBeGreaterThan(0));
+    expect(maxActiveWorkers).toBeLessThanOrEqual(2);
+  });
+
   it("cancels a superseded decode before publishing stale pixels", async () => {
     const first: RenderGraphicsModel = {
       generation: 1,
