@@ -1009,6 +1009,47 @@ mod tests {
         }
     }
 
+    #[derive(Clone, Default)]
+    struct PartialThenBackpressuredOutput(Arc<Mutex<PartialThenBackpressuredState>>);
+
+    #[derive(Default)]
+    struct PartialThenBackpressuredState {
+        bytes: Vec<u8>,
+        blocked_until: Option<Instant>,
+    }
+
+    impl PartialThenBackpressuredOutput {
+        fn bytes(&self) -> Vec<u8> {
+            self.0.lock().unwrap().bytes.clone()
+        }
+    }
+
+    impl Write for PartialThenBackpressuredOutput {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            let mut state = self.0.lock().unwrap();
+            match state.blocked_until {
+                None => {
+                    let written = buf.len().min(8);
+                    state.bytes.extend_from_slice(&buf[..written]);
+                    state.blocked_until =
+                        Some(Instant::now() + GRAPHICS_OUTPUT_TIMEOUT + Duration::from_millis(50));
+                    Ok(written)
+                }
+                Some(blocked_until) if Instant::now() < blocked_until => {
+                    Err(std::io::Error::from(std::io::ErrorKind::WouldBlock))
+                }
+                Some(_) => {
+                    state.bytes.extend_from_slice(buf);
+                    Ok(buf.len())
+                }
+            }
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
     fn occurrences(haystack: &[u8], needle: &[u8]) -> usize {
         haystack.windows(needle.len()).filter(|window| *window == needle).count()
     }
@@ -1288,6 +1329,57 @@ mod tests {
         );
         assert!(stopped, "shutdown must cancel a backpressured graphics write within its budget");
         assert!(lock_released, "canceled graphics output must release the shared stdout lock");
+    }
+
+    #[test]
+    fn partial_output_failure_terminates_apc_and_cleans_possible_images() {
+        let lock = Arc::new(StdoutLock::new(()));
+        let output = PartialThenBackpressuredOutput::default();
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+        let mut writer =
+            GraphicsWriter::spawn_with_output(lock.clone(), output.clone(), move || {
+                ready_tx.send(()).unwrap();
+            })
+            .unwrap();
+
+        assert!(writer.submit(
+            36,
+            1,
+            vec![GraphicPlacement {
+                surface: 15,
+                rect: Rect { x: 1, y: 2, width: 3, height: 4 },
+                seq: 21,
+                pointer_frame_seq: Some(21),
+                data_b64: "AAAA".to_string(),
+            }]
+        ));
+        let partial_deadline = Instant::now() + Duration::from_secs(1);
+        while output.bytes().is_empty() {
+            assert!(Instant::now() < partial_deadline, "writer never emitted the partial APC");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        std::thread::sleep(GRAPHICS_OUTPUT_TIMEOUT + Duration::from_millis(20));
+        let released_before_recovery = lock.try_lock().is_some();
+        ready_rx
+            .recv_timeout(GRAPHICS_OUTPUT_TIMEOUT + Duration::from_secs(1))
+            .expect("partial graphics output must settle after bounded stream recovery");
+        assert_eq!(writer.take_completion(), Some(GraphicsCompletion::Failed));
+        writer.shutdown(Duration::from_secs(1));
+
+        let bytes = output.bytes();
+        assert!(
+            bytes.windows(2).any(|window| window == b"\x1b\\"),
+            "a partial Kitty APC must be terminated before stdout ownership is released"
+        );
+        assert!(
+            occurrences(&bytes, &delete_image(15)) >= 1,
+            "a partially emitted image must be deleted before text fallback can render"
+        );
+        assert!(
+            !released_before_recovery,
+            "stdout ownership must remain exclusive until the partial APC is recovered"
+        );
+        assert!(lock.try_lock().is_some(), "stream recovery must release the shared stdout lock");
     }
 
     #[test]

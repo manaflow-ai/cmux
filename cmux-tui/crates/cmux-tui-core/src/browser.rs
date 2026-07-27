@@ -7231,6 +7231,80 @@ mod tests {
     }
 
     #[test]
+    fn reload_supersedes_an_uncommitted_navigation() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (superseded_tx, superseded_rx) = mpsc::channel();
+        let (stop_tx, stop_rx) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut ws = accept(stream).unwrap();
+            let discover = read_ws_json(&mut ws);
+            assert_eq!(discover["method"], "Target.setDiscoverTargets");
+            write_ws_json(&mut ws, json!({"id": discover["id"], "result": {}}));
+
+            let first_reload = read_ws_json(&mut ws);
+            assert_eq!(first_reload["method"], "Page.reload");
+            write_ws_json(&mut ws, json!({"id": first_reload["id"], "result": {}}));
+
+            ws.get_ref().set_read_timeout(Some(Duration::from_millis(500))).unwrap();
+            let Ok(message) = ws.read() else {
+                superseded_tx.send(false).unwrap();
+                return;
+            };
+            let stop_loading: Value = serde_json::from_str(message.to_text().unwrap()).unwrap();
+            if stop_loading["method"] != "Page.stopLoading" {
+                superseded_tx.send(false).unwrap();
+                return;
+            }
+            write_ws_json(&mut ws, json!({"id": stop_loading["id"], "result": {}}));
+
+            let second_reload = read_ws_json(&mut ws);
+            if second_reload["method"] != "Page.reload" {
+                superseded_tx.send(false).unwrap();
+                return;
+            }
+            write_ws_json(&mut ws, json!({"id": second_reload["id"], "result": {}}));
+            superseded_tx.send(true).unwrap();
+            stop_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        });
+        let runtime = super::BrowserRuntime::connect_to_endpoint(
+            &format!("ws://{addr}/devtools/browser/fake"),
+            None,
+            BrowserSource::External,
+        )
+        .unwrap();
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        *browser.session.lock().unwrap() = Some(BrowserSession {
+            runtime: runtime.clone(),
+            target_id: "target-1".to_string(),
+            session_id: "session-1".to_string(),
+        });
+        browser.store_frame(test_frame(1));
+
+        browser.reload_blocking().unwrap();
+        let second_reload = browser.reload_blocking();
+        let superseded = superseded_rx.recv_timeout(Duration::from_secs(1)).unwrap_or(false);
+
+        let _ = stop_tx.send(());
+        runtime.shutdown();
+        server.join().unwrap();
+
+        assert!(
+            second_reload.is_ok(),
+            "reload must replace an unresolved navigation instead of remaining permanently blocked"
+        );
+        assert!(
+            superseded,
+            "Chrome must cancel the unresolved navigation before accepting the retry"
+        );
+        let state = browser.state.lock().unwrap();
+        assert!(state.pending_navigation_epoch.is_some());
+        assert_eq!(state.pointer_frame_seq, None, "the retry must remain fail-closed until paint");
+    }
+
+    #[test]
     fn superseded_uncommitted_navigation_rollback_restores_original_authority() {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
