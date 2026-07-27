@@ -11804,6 +11804,16 @@ mod tests {
     }
 
     #[test]
+    fn draw_survives_host_shrinking_after_layout_sync() {
+        let mux = Mux::new("host-shrink-draw-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sync_layout((80, 25));
+
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+    }
+
+    #[test]
     fn panic_restore_waits_for_a_concurrent_stdout_owner() {
         let lock = Arc::new(StdoutLock::new(()));
         let (held_tx, held_rx) = std::sync::mpsc::sync_channel(1);
