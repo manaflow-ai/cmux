@@ -3253,6 +3253,8 @@ enum PaneResizeDragTarget {
         column_x: u64,
         viewport_x: u16,
         viewport_width: u16,
+        /// Frozen at mouse-down so layout reveal motion cannot shift the drag origin.
+        viewport_offset: u64,
     },
     Split {
         split: SplitId,
@@ -3261,6 +3263,8 @@ enum PaneResizeDragTarget {
         minimum_ratio: f32,
         maximum_ratio: f32,
         viewport_x: u16,
+        /// Frozen at mouse-down so layout reveal motion cannot shift the drag origin.
+        viewport_offset: u64,
     },
 }
 
@@ -12030,6 +12034,7 @@ impl App {
                     column_x: column.rect.x,
                     viewport_x: self.content_area.x,
                     viewport_width: self.content_area.width,
+                    viewport_offset: self.viewport_offset,
                 });
             }
         }
@@ -12074,6 +12079,7 @@ impl App {
             minimum_ratio,
             maximum_ratio,
             viewport_x: self.content_area.x,
+            viewport_offset: self.viewport_offset,
         })
     }
 
@@ -12085,9 +12091,10 @@ impl App {
                 column_x,
                 viewport_x,
                 viewport_width,
+                viewport_offset,
             } => {
                 let virtual_x = u64::from(viewport_x)
-                    .saturating_add(self.viewport_offset)
+                    .saturating_add(viewport_offset)
                     .saturating_add(u64::from(x.saturating_sub(viewport_x)));
                 let boundary =
                     if edge == PaneEdge::Right { virtual_x.saturating_add(1) } else { virtual_x };
@@ -12105,9 +12112,10 @@ impl App {
                 minimum_ratio,
                 maximum_ratio,
                 viewport_x,
+                viewport_offset,
             } => {
                 let virtual_x = u64::from(viewport_x)
-                    .saturating_add(self.viewport_offset)
+                    .saturating_add(viewport_offset)
                     .saturating_add(u64::from(x.saturating_sub(viewport_x)));
                 let (coord, start, extent) = match edge {
                     PaneEdge::Left => (virtual_x, area.x, area.width),
@@ -13488,6 +13496,7 @@ mod tests {
                 column_x: 0,
                 viewport_x: 0,
                 viewport_width: 1,
+                viewport_offset: 0,
             }),
             vertical: None,
         });
@@ -14082,6 +14091,7 @@ mod tests {
             column_x: 0,
             viewport_x: 0,
             viewport_width: 80,
+            viewport_offset: 40,
         };
 
         app.resize_drag_target(target, 20, 5);
@@ -16328,7 +16338,8 @@ mod tests {
 
     #[test]
     fn emoji_tab_name_fills_its_display_cell_hit_rect() {
-        let (mux, first) = test_mux("emoji-tab-width-test", None);
+        let mux = Mux::new("emoji-tab-width-test", SurfaceOptions::default());
+        let first = mux.new_browser_tab("about:blank".to_string(), None, Some((38, 7))).unwrap();
         let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
         assert!(mux.rename_surface(first.id, "👩‍💻".to_string()));
         let mut app = test_app(Session::Local(mux.clone()));
@@ -16352,7 +16363,7 @@ mod tests {
             "every visible cell in the tab hit rect must belong to the label"
         );
 
-        mux.close_surface(first.id).unwrap();
+        mux.shutdown();
     }
 
     #[test]
@@ -18139,6 +18150,7 @@ mod tests {
                 column_x: 0,
                 viewport_x: 0,
                 viewport_width: 1,
+                viewport_offset: 0,
             }),
             vertical: None,
         });

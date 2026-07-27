@@ -3,6 +3,7 @@ use ratatui::Frame;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect as RatatuiRect;
 use ratatui::style::{Modifier, Style};
+use unicode_width::UnicodeWidthStr;
 
 use super::{copy_buffer_row_cropped, truncate};
 use crate::app::{App, OmnibarHit, PaneArea};
@@ -145,7 +146,7 @@ fn draw_idle(
         .find(|tab| tab.surface == area.surface)
         .is_some_and(|tab| tab.browser_frames_stalled);
     if (surface.browser_frames_stalled() || tree_stalled) && max > 0 {
-        let suffix_width = suffix.chars().count();
+        let suffix_width = suffix.width();
         if max > suffix_width {
             let label_max = max - suffix_width;
             let text = truncate(&label, label_max);
@@ -153,7 +154,7 @@ fn draw_idle(
             put(
                 buffer,
                 rect,
-                TEXT_START_X + text.chars().count() as u16,
+                TEXT_START_X + text.width() as u16,
                 suffix,
                 base.fg(chrome.omnibar_dim_fg),
             );

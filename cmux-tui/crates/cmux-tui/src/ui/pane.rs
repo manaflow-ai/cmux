@@ -14,6 +14,7 @@ use ratatui::Frame;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect as RatatuiRect;
 use ratatui::style::{Color, Modifier, Style};
+use unicode_width::UnicodeWidthStr;
 
 use super::{ScrollbarState, ScrollbarStyle, copy_buffer_row_cropped, thumb_geometry, truncate};
 use crate::app::{App, FocusTarget, Hit, PaneArea, PaneEdge, Selection};
@@ -166,7 +167,7 @@ fn draw_box(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool) {
     }
 
     if let Some(label) = app.client_border_labels.get(&area.surface) {
-        let width = label.chars().count() as u16;
+        let width = label.width() as u16;
         if area.has_left_edge() && area.has_right_edge() && width + 2 < rect.width {
             let hit = Rect { x: x0 + 1, y: y1, width, height: 1 };
             buf.set_stringn(hit.x, hit.y, label, width as usize, style);
@@ -300,11 +301,11 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
         .map(|t| {
             let label = format!(" {} ", truncate(t, 16));
             // Pad to the configured minimum width, keeping the text centered-ish.
-            let short = min_w.saturating_sub(label.chars().count());
+            let short = min_w.saturating_sub(label.width());
             format!("{}{}{}", " ".repeat(short / 2), label, " ".repeat(short - short / 2))
         })
         .collect();
-    let widths: Vec<u16> = labels.iter().map(|l| l.chars().count() as u16).collect();
+    let widths: Vec<u16> = labels.iter().map(|label| label.width() as u16).collect();
     let inner_w = full_width.saturating_sub(2); // between the corners
     let plus_w: u16 = 3; // " + "
     let arrow_w: u16 = 1;
@@ -505,7 +506,7 @@ fn draw_browser_content(
         return;
     }
     let text = truncate(&message, max_cols as usize);
-    let text_w = text.chars().count() as u16;
+    let text_w = text.width() as u16;
     let x = rect.x + max_cols.saturating_sub(text_w) / 2;
     let y = rect.y + max_rows / 2;
     frame.buffer_mut().set_stringn(
