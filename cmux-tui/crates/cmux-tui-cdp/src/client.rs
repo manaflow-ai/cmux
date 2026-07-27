@@ -2598,6 +2598,62 @@ mod tests {
     }
 
     #[test]
+    fn settled_timestampless_capture_does_not_recapture_the_next_frame() {
+        let (inner, _outbound_rx) = test_inner();
+        inner.frame_epochs.lock().unwrap().insert(
+            "session-1".to_string(),
+            FrameSession {
+                epoch: Arc::new(FrameEpoch::default()),
+                main_frame_id: Some("main-frame".to_string()),
+                main_loader_id: Some("loader-1".to_string()),
+                pending_document: None,
+                minimum_screencast_timestamp: Some(1.0),
+                pending_timestampless_capture: None,
+                suppressed_timestampless_epoch: None,
+            },
+        );
+        let client = CdpClient { inner: inner.clone() };
+        let missing_frame = |ack_id| {
+            json!({
+                "method": "Page.screencastFrame",
+                "sessionId": "session-1",
+                "params": {
+                    "data": "AAAA",
+                    "sessionId": ack_id,
+                    "metadata": {"deviceWidth": 80, "deviceHeight": 24}
+                }
+            })
+            .to_string()
+        };
+
+        handle_text(&inner, &missing_frame(7));
+        let (event_tx, event_rx) = sync_channel(1);
+        inner.events.drain_into(&event_tx).unwrap();
+        let CdpEvent::ScreencastFrameCaptureRequested {
+            request_id,
+            frame_epoch,
+            navigation_epoch,
+            ..
+        } = event_rx.try_recv().expect("first bounded recovery")
+        else {
+            panic!("timestamp-less frame did not request bounded recovery");
+        };
+        assert!(client.settle_timestampless_screencast_capture(
+            "session-1",
+            request_id,
+            frame_epoch,
+            navigation_epoch,
+        ));
+
+        handle_text(&inner, &missing_frame(8));
+        inner.events.drain_into(&event_tx).unwrap();
+        assert!(
+            event_rx.try_recv().is_err(),
+            "a continuous timestamp-less stream must not capture every incoming frame"
+        );
+    }
+
+    #[test]
     fn rejected_timestampless_epoch_stops_recovery_at_ingress() {
         let (inner, _outbound_rx) = test_inner();
         inner.frame_epochs.lock().unwrap().insert(
