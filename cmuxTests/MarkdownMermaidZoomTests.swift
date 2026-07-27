@@ -54,6 +54,7 @@ final class MarkdownMermaidZoomTests {
         let baseline = try await waitForMermaidSnapshot(in: webView)
         let baselineWidth = try #require(baseline["width"])
         let baselineProseHeight = try #require(baseline["proseHeight"])
+        let baselineInnerWidth = try positiveInnerWidth(in: baseline)
         #expect(abs((baseline["zoom"] ?? -1) - 1) <= 0.001)
         #expect(abs(baselineWidth - 240) <= 2)
 
@@ -64,8 +65,9 @@ final class MarkdownMermaidZoomTests {
         webView.frame = resizedFrame
         let resizedBaseline = try await waitForMermaidSnapshot(
             in: webView,
-            minimumInnerWidth: try #require(baseline["innerWidth"]) * 1.15
+            minimumInnerWidth: baselineInnerWidth * 1.15
         )
+        let resizedInnerWidth = try positiveInnerWidth(in: resizedBaseline)
 
         coordinator.setFontSize(MarkdownFontSizeSettings.defaultPointSize * 2)
         let zoomed = try await waitForMermaidSnapshot(in: webView, expectedZoom: 2)
@@ -76,7 +78,7 @@ final class MarkdownMermaidZoomTests {
         // innerWidth shrinks by the zoom), older WebKit leaves innerWidth alone
         // and the shell inflates the CSS rect instead. The product of the two
         // is the on-screen size either way.
-        let zoomedDeviceScale = try #require(resizedBaseline["innerWidth"]) / #require(zoomed["innerWidth"])
+        let zoomedDeviceScale = resizedInnerWidth / (try positiveInnerWidth(in: zoomed))
         #expect(zoomedWidth * zoomedDeviceScale > baselineWidth * 1.8)
         #expect(abs((zoomedWidth / baselineWidth) - (zoomedProseHeight / baselineProseHeight)) <= 0.25)
         let exported = try await exportedMermaidSnapshot(in: webView)
@@ -104,14 +106,15 @@ final class MarkdownMermaidZoomTests {
         coordinator.setFontSize(MarkdownFontSizeSettings.defaultPointSize * 2)
         let fittedZoomed = try await waitForMermaidSnapshot(in: webView, expectedZoom: 2)
         let fittedZoomedWidth = try #require(fittedZoomed["width"])
-        let fittedDeviceScale = try #require(fitted["innerWidth"]) / #require(fittedZoomed["innerWidth"])
+        let fittedDeviceScale = try positiveInnerWidth(in: fitted) / positiveInnerWidth(in: fittedZoomed)
         #expect(fittedZoomedWidth * fittedDeviceScale > fittedWidth * 1.8)
         #expect((try #require(fittedZoomed["leftOffset"])) >= -1)
 
         let widerFrame = NSRect(x: 0, y: 0, width: 1_200, height: 480)
         window.setFrame(widerFrame, display: true)
         webView.frame = widerFrame
-        _ = try await webView.evaluateJavaScript("window.__cmuxSetMarkdownZoom(2);")
+        _ = try await webView.evaluateJavaScript(
+            "window.__cmuxSetMarkdownZoom(2, \(Double(webView.bounds.width)));")
         let widened = try await waitForMermaidSnapshot(
             in: webView,
             expectedZoom: 2,
@@ -127,6 +130,12 @@ final class MarkdownMermaidZoomTests {
         _ = try await webView.evaluateJavaScript("window.__cmuxRenderMarkdown(\(literal)[0]);")
     }
 
+    private func positiveInnerWidth(in snapshot: [String: Double]) throws -> Double {
+        let innerWidth = try #require(snapshot["innerWidth"])
+        try #require(innerWidth > 0)
+        return innerWidth
+    }
+
     private func waitForMermaidSnapshot(
         in webView: WKWebView,
         expectedZoom: Double? = nil,
@@ -140,7 +149,8 @@ final class MarkdownMermaidZoomTests {
                 lastSnapshot = snapshot
                 let zoomMatches = expectedZoom.map { abs((snapshot["zoom"] ?? -1) - $0) <= 0.001 } ?? true
                 let widthMatches = minimumWidth.map { (snapshot["width"] ?? 0) >= $0 } ?? ((snapshot["width"] ?? 0) > 0)
-                let innerWidthMatches = minimumInnerWidth.map { (snapshot["innerWidth"] ?? 0) >= $0 } ?? true
+                let innerWidth = snapshot["innerWidth"] ?? 0
+                let innerWidthMatches = innerWidth > 0 && (minimumInnerWidth.map { innerWidth >= $0 } ?? true)
                 if zoomMatches && widthMatches && innerWidthMatches {
                     return snapshot
                 }

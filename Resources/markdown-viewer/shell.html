@@ -1186,9 +1186,8 @@ html { scroll-behavior: smooth; }
   // Whether this engine's pageZoom scales the whole CSS viewport (newer WebKit,
   // where fixed-px SVG bounds already track the prose) or only text metrics
   // (older WebKit, where Mermaid SVGs need manual compensation). Unknown until
-  // the first zoom change supplies a viewport-width edge to measure.
+  // the first non-default zoom supplies both host and CSS viewport widths.
   var cmuxEngineScalesSVG = null;
-  var cmuxViewportProbeWidth = window.innerWidth;
   var mermaidResizeObserver = null;
   var mermaidObservedWidth = 0;
 
@@ -1362,24 +1361,34 @@ html { scroll-behavior: smooth; }
     Array.prototype.forEach.call(scope.querySelectorAll('.cmux-mermaid svg'), applyMermaidZoomToSVG);
   }
 
-  window.__cmuxSetMarkdownZoom = function(zoom) {
-    var previousZoom = cmuxMarkdownZoom;
-    var previousWidth = cmuxViewportProbeWidth;
-    cmuxMarkdownZoom = normalizedMarkdownZoom(zoom);
-    // The native side sets pageZoom immediately before this call, so the
-    // viewport-width edge across a zoom change tells the engine generations
-    // apart: the width shrinks by the zoom factor when the engine scales the
-    // whole viewport, and stays put when it only scales text metrics.
-    if (previousWidth > 0 && Math.abs(cmuxMarkdownZoom - previousZoom) > 0.0001) {
-      var expectedIfEngineScales = previousWidth * previousZoom / cmuxMarkdownZoom;
-      var tolerance = Math.max(2, expectedIfEngineScales * 0.02);
-      if (Math.abs(window.innerWidth - expectedIfEngineScales) <= tolerance) {
-        cmuxEngineScalesSVG = true;
-      } else if (Math.abs(window.innerWidth - previousWidth) <= tolerance) {
-        cmuxEngineScalesSVG = false;
-      }
+  function detectPageZoomViewportScaling(zoom, hostViewportWidth) {
+    var hostWidth = Number(hostViewportWidth);
+    var cssWidth = window.innerWidth;
+    if (
+      !Number.isFinite(hostWidth) ||
+      hostWidth <= 0 ||
+      !Number.isFinite(cssWidth) ||
+      cssWidth <= 0 ||
+      Math.abs(zoom - 1) <= 0.0001
+    ) {
+      return null;
     }
-    cmuxViewportProbeWidth = window.innerWidth;
+    var expectedViewportWidth = hostWidth / zoom;
+    var viewportDistance = Math.abs(cssWidth - expectedViewportWidth);
+    var legacyDistance = Math.abs(cssWidth - hostWidth);
+    var tolerance = Math.max(2, Math.max(hostWidth, expectedViewportWidth) * 0.02);
+    if (Math.min(viewportDistance, legacyDistance) > tolerance) { return null; }
+    return viewportDistance < legacyDistance;
+  }
+
+  window.__cmuxSetMarkdownZoom = function(zoom, hostViewportWidth) {
+    cmuxMarkdownZoom = normalizedMarkdownZoom(zoom);
+    // Native supplies the current WKWebView width after setting pageZoom. A
+    // single contemporaneous sample distinguishes the engine generations:
+    // newer WebKit reports hostWidth / zoom, while older WebKit reports the
+    // unscaled hostWidth. No resize-sensitive historical baseline is needed.
+    var detectedScaling = detectPageZoomViewportScaling(cmuxMarkdownZoom, hostViewportWidth);
+    if (detectedScaling !== null) { cmuxEngineScalesSVG = detectedScaling; }
     mermaidObservedWidth = mermaidContentWidth(null);
     applyMermaidZoom(contentEl);
   };
