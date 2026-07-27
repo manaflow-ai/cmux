@@ -588,7 +588,9 @@ export class CmuxClient {
     pane: Id,
     options: NewPaneRightOptions = {},
   ): Promise<SurfaceResult> {
-    if (options.width !== undefined) validateViewportPaneWidth(options.width);
+    if (options.width !== undefined && options.width !== null) {
+      validateViewportPaneWidth(options.width);
+    }
     await this.requireCapability("viewport-splits-v1", "viewport panes");
     return this.request("new-pane-right", { pane, ...options });
   }
