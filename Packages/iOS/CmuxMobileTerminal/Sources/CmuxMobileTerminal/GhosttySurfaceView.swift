@@ -2565,6 +2565,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Stops user-visible and accessibility output from a surface SwiftUI has removed.
     public func prepareForDismantle() {
         isDismantled = true
+        // Block-based observers stay registered (and their closures retained
+        // by NotificationCenter) until explicitly removed; dropping the token
+        // array alone would leak a registration per surface remount.
+        for token in artifactChipAccessibilityObserverTokens {
+            NotificationCenter.default.removeObserver(token)
+        }
+        artifactChipAccessibilityObserverTokens.removeAll()
         prepareForReuseAfterDetach()
     }
 
