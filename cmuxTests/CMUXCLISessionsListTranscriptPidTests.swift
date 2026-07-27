@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-/// Liveness deadline for CLI processes in this file, deliberately far above any healthy run.
+/// Liveness deadline for CLI processes in this file.
 ///
 /// These cases fork the real `cmux` binary and wait for it to emit JSON, so their wall-clock cost
 /// tracks machine load rather than anything the test controls. A 5s budget turned that into a coin
@@ -10,8 +10,9 @@ import Testing
 /// then passed on the same commit when the box was idle.
 ///
 /// The timeout exists to catch a hang, not to measure speed. The correctness assertions that follow
-/// each call (status, then JSON parse, then field checks) independently grade the behaviour.
-private let cliProcessLivenessTimeout: TimeInterval = 60
+/// each call (status, then JSON parse, then field checks) independently grade the behaviour. Twenty
+/// seconds leaves more than three times the observed loaded runtime while still failing a hang promptly.
+private let cliProcessLivenessTimeout: TimeInterval = 20
 
 extension CMUXCLIErrorOutputRegressionTests {
     @Test func testSessionsListTreatsTranscriptBackedClaudeRecordAsRestorable() throws {
