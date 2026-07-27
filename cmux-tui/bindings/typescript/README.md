@@ -103,6 +103,12 @@ The `cmd` discriminator determines both required parameters and the successful
 response data type. `sendRaw()` remains available for untyped forward
 compatibility.
 
+`clearHistory(surface, fallbackKey)` accepts a typed `TerminalKeyInput` and
+fails locally unless the server advertises `clear-history-key-v1`. It also
+rejects fallback `utf8` fields above the 4 KiB protocol limit before sending.
+`CmuxCommandError.delivery` exposes the server's `known-not-delivered` or
+`ambiguous` classification when present.
+
 ## Verification
 
 ```bash
