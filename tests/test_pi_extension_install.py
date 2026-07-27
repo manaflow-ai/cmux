@@ -193,7 +193,7 @@ mv "$payload_tmp" "$CMUX_TEST_PI_STDIN_LOG.$payload_sequence"
 rmdir "$payload_lock"
 trap - EXIT
 if printf '%s' "$payload" | grep -q 'pi-session-nonblocking'; then
-  if [[ "$*" == "hooks pi prompt-submit" ]]; then
+  if [[ "$*" == "hooks pi prompt-submit" ]] && printf '%s' "$payload" | grep -q '"prompt":"do not block"'; then
     : > "$CMUX_TEST_PI_NONBLOCKING_STARTED"
     cat "$CMUX_TEST_PI_NONBLOCKING_RELEASE" >/dev/null
     trap ': > "$CMUX_TEST_PI_NONBLOCKING_FINISHED"' EXIT
@@ -318,6 +318,8 @@ const ctx = {
 };
 await handlers.get("before_agent_start")({ prompt: "do not block" }, ctx);
 await Bun.write(process.env.CMUX_TEST_PI_NONBLOCKING_RETURNED, "returned");
+// Queue another prompt so shutdown must discard work that has not started.
+await handlers.get("before_agent_start")({ prompt: "discard during shutdown" }, ctx);
 await handlers.get("tool_execution_start")({
   toolCallId: "blocked-tool-call",
   toolName: "bash",
@@ -377,6 +379,10 @@ await shutdown;
             print("FAIL: Pi lifecycle handlers did not queue while the prompt hook was blocked")
             return 1
         nonblocking_args = wait_for_text(fake_args_log, 5, timeout=5.0).splitlines()
+        # Shutdown must not start a prompt hook that was queued behind the active hook.
+        if nonblocking_args.count("hooks pi prompt-submit") != 1:
+            print(f"FAIL: queued Pi prompt hook started during shutdown: {nonblocking_args!r}")
+            return 1
         for expected in [
             "hooks feed --source pi --event PreToolUse",
             "hooks pi notification",
