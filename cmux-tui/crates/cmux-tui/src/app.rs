@@ -12910,7 +12910,7 @@ mod tests {
         pane_context_menu_groups, pane_parts_for_rect, prepare_ordered_session,
         preserve_client_view, rail_drag_width, record_surface_resize_dispatch_result,
         sidebar_layout_for, sidebar_plugin_status_settles_passive_claim, start_ordered_session,
-        with_panic_stdout_lock,
+        swept_viewport_size_leases, with_panic_stdout_lock,
     };
     use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
     use std::path::PathBuf;
@@ -14366,6 +14366,56 @@ mod tests {
     }
 
     #[test]
+    fn viewport_animation_leases_every_column_in_its_swept_range() {
+        let pane = |id, surface| PaneView {
+            id,
+            short_id: format!("p{id}"),
+            name: None,
+            tabs: vec![TabView {
+                surface,
+                short_id: format!("t{surface}"),
+                name: None,
+                title: format!("pane {id}"),
+                kind: SurfaceKind::Pty,
+                browser_source: None,
+                browser_frames_stalled: false,
+                notification: None,
+            }],
+            active_tab: 0,
+            focused_at: id,
+        };
+        let screen = ScreenView {
+            id: 4,
+            short_id: "s".to_string(),
+            name: None,
+            layout: Node::Leaf(1),
+            active_pane: 3,
+            zoomed_pane: None,
+            viewport_base_width: Some(1.0),
+            viewport_splits: BTreeMap::new(),
+            panes: vec![pane(1, 11), pane(2, 12), pane(3, 13)],
+        };
+        let layout = vec![
+            (1, VirtualRect { x: 0, y: 0, width: 80, height: 24 }),
+            (2, VirtualRect { x: 80, y: 0, width: 80, height: 24 }),
+            (3, VirtualRect { x: 160, y: 0, width: 80, height: 24 }),
+        ];
+
+        let leases = swept_viewport_size_leases(
+            &screen,
+            &layout,
+            &HashSet::new(),
+            Rect { x: 0, y: 0, width: 80, height: 24 },
+            ScrollbarPosition::Column,
+            None,
+            0,
+            160,
+        );
+
+        assert_eq!(leases.iter().map(|lease| lease.surface).collect::<Vec<_>>(), vec![11, 12, 13]);
+    }
+
+    #[test]
     fn viewport_animation_tick_reclips_without_authoritative_layout_draw() {
         let mux = Mux::new("viewport-animation-paint-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
@@ -14458,6 +14508,11 @@ mod tests {
             app.tree.workspace_revision,
             u64::MAX,
             "animation paint must preserve the cached authoritative tree"
+        );
+        assert_eq!(
+            app.advance_viewport_animation(started_at + VIEWPORT_ANIMATION_DURATION),
+            RenderAction::Draw,
+            "the settling tick must release swept-range leases through one authoritative draw"
         );
     }
 
