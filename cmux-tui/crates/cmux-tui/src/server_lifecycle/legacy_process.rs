@@ -49,39 +49,11 @@ impl ProcessIdentity {
         process_snapshot(pid).map(|snapshot| snapshot.map(|snapshot| snapshot.identity))
     }
 
+    #[cfg(test)]
     fn signal(self, signal: libc::c_int) -> io::Result<ExactSignalResult> {
         let Some(process) = self.stable_handle()? else {
             return Ok(ExactSignalResult::Gone);
         };
-        if process.signal(signal)? {
-            Ok(ExactSignalResult::Signaled)
-        } else {
-            Ok(ExactSignalResult::Gone)
-        }
-    }
-
-    fn signal_in_session(
-        self,
-        session: libc::pid_t,
-        signal: libc::c_int,
-    ) -> io::Result<ExactSignalResult> {
-        let Some(process) = self.stable_handle()? else {
-            return Ok(ExactSignalResult::Gone);
-        };
-        // Bracket the PID-based session query with the stable handle. If the
-        // PID is recycled during getsid(2), no signal reaches its new owner.
-        let current_session = unsafe { libc::getsid(self.pid) };
-        if current_session < 0 {
-            let error = io::Error::last_os_error();
-            return if error.raw_os_error() == Some(libc::ESRCH) {
-                Ok(ExactSignalResult::Gone)
-            } else {
-                Err(error)
-            };
-        }
-        if current_session != session || !process.matches_current()? {
-            return Ok(ExactSignalResult::Gone);
-        }
         if process.signal(signal)? {
             Ok(ExactSignalResult::Signaled)
         } else {
@@ -125,10 +97,67 @@ struct ProcessSnapshot {
     parent: libc::pid_t,
 }
 
+#[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ExactSignalResult {
     Signaled,
     Gone,
+}
+
+struct ProcessFence {
+    identity: ProcessIdentity,
+    process: StableProcessHandle,
+    armed: bool,
+}
+
+impl ProcessFence {
+    fn acquire(identity: ProcessIdentity) -> io::Result<Option<Self>> {
+        let Some(process) = identity.stable_handle()? else { return Ok(None) };
+        if !process.signal(libc::SIGSTOP)? {
+            return Ok(None);
+        }
+        Ok(Some(Self { identity, process, armed: true }))
+    }
+
+    fn acquire_in_session(
+        identity: ProcessIdentity,
+        session: libc::pid_t,
+    ) -> io::Result<Option<Self>> {
+        let Some(process) = identity.stable_handle()? else { return Ok(None) };
+        if !process.matches_current()? {
+            return Ok(None);
+        }
+        // SAFETY: getsid only reads metadata. Exact-handle probes bracket the
+        // reusable PID so a replacement process is never stopped.
+        let current_session = unsafe { libc::getsid(identity.pid) };
+        if current_session < 0 {
+            let error = io::Error::last_os_error();
+            return if error.raw_os_error() == Some(libc::ESRCH) { Ok(None) } else { Err(error) };
+        }
+        if current_session != session || !process.matches_current()? {
+            return Ok(None);
+        }
+        if !process.signal(libc::SIGSTOP)? {
+            return Ok(None);
+        }
+        Ok(Some(Self { identity, process, armed: true }))
+    }
+
+    fn kill(&mut self) -> io::Result<()> {
+        let result = self.process.signal(libc::SIGKILL);
+        if result.is_ok() {
+            self.armed = false;
+        }
+        result.map(|_| ())
+    }
+}
+
+impl Drop for ProcessFence {
+    fn drop(&mut self) {
+        if self.armed {
+            let _ = self.process.signal(libc::SIGCONT);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -277,18 +306,11 @@ pub(super) fn capture_process_session(
             "PTY owner was not captured in the verified server process tree",
         ));
     }
-    if process.signal(libc::SIGSTOP)? == ExactSignalResult::Gone {
-        return Ok(None);
-    }
+    let Some(process_fence) = ProcessFence::acquire(process)? else { return Ok(None) };
     let captured = (|| {
         ensure_helper_active()?;
-        if ProcessIdentity::capture(pid)? != Some(process) {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "PTY owner process identity changed after fencing",
-            ));
-        }
-        // SAFETY: getsid only queries exact processes revalidated above.
+        // SAFETY: the retained exact process handle keeps this stopped PID
+        // bound to the verified process instance.
         let session = unsafe { libc::getsid(pid) };
         if session <= 1 {
             return Err(io::Error::last_os_error());
@@ -320,7 +342,7 @@ pub(super) fn capture_process_session(
         members.dedup();
         Ok(CapturedProcessSession(CapturedSession { id: session, members }))
     })();
-    let _ = process.signal(libc::SIGCONT);
+    drop(process_fence);
     captured.map(Some)
 }
 
@@ -337,7 +359,7 @@ impl CapturedSession {
                 Ok(Some(mut probe)) => {
                     match cmux_tui_core::process_session::kill_until_only_reserved(
                         self.id,
-                        probe.process.pid,
+                        probe.process.identity.pid,
                         deadline,
                     ) {
                         Ok(true) => match probe.kill() {
@@ -371,9 +393,7 @@ impl CapturedSession {
 }
 
 struct SessionProbe {
-    process: ProcessIdentity,
-    session: libc::pid_t,
-    armed: bool,
+    process: ProcessFence,
 }
 
 impl SessionProbe {
@@ -383,56 +403,38 @@ impl SessionProbe {
             if ProcessIdentity::capture(process.pid)? != Some(*process) {
                 continue;
             }
-            if process.signal_in_session(session.id, libc::SIGSTOP)? != ExactSignalResult::Signaled
-            {
+            let Some(process) = ProcessFence::acquire_in_session(*process, session.id)? else {
                 continue;
-            }
-            return Ok(Some(Self { process: *process, session: session.id, armed: true }));
+            };
+            return Ok(Some(Self { process }));
         }
         Ok(None)
     }
 
     fn kill(&mut self) -> io::Result<()> {
-        let _ = self.process.signal_in_session(self.session, libc::SIGKILL)?;
-        self.armed = false;
-        Ok(())
-    }
-}
-
-impl Drop for SessionProbe {
-    fn drop(&mut self) {
-        if self.armed {
-            let _ = self.process.signal_in_session(self.session, libc::SIGCONT);
-        }
+        self.process.kill()
     }
 }
 
 struct FrozenProcessTree {
-    root: ProcessIdentity,
-    descendants: Vec<ProcessIdentity>,
-    armed: bool,
+    root: ProcessFence,
+    descendants: Vec<ProcessFence>,
 }
 
 impl FrozenProcessTree {
     fn freeze(root: ProcessIdentity, deadline: Instant) -> io::Result<Self> {
         ensure_helper_active()?;
-        let mut tree = Self { root, descendants: Vec::new(), armed: true };
-        if root.signal(libc::SIGSTOP)? == ExactSignalResult::Gone {
+        let Some(root) = ProcessFence::acquire(root)? else {
             return Err(io::Error::new(
                 io::ErrorKind::NotFound,
                 "server exited before its process tree was fenced",
             ));
-        }
-        if ProcessIdentity::capture(root.pid)? != Some(root) {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "server process identity changed after fencing",
-            ));
-        }
+        };
+        let mut tree = Self { root, descendants: Vec::new() };
 
         let helper_pid = libc::pid_t::try_from(std::process::id())
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid helper process id"))?;
-        let mut known = HashSet::from([root.pid, helper_pid]);
+        let mut known = HashSet::from([tree.root.identity.pid, helper_pid]);
         for _ in 0..PROCESS_TREE_MAX_ROUNDS {
             ensure_helper_active()?;
             if Instant::now() >= deadline {
@@ -441,8 +443,9 @@ impl FrozenProcessTree {
                     "legacy process tree did not stabilize before the shutdown deadline",
                 ));
             }
-            let parents =
-                std::iter::once(root).chain(tree.descendants.iter().copied()).collect::<Vec<_>>();
+            let parents = std::iter::once(tree.root.identity)
+                .chain(tree.descendants.iter().map(|process| process.identity))
+                .collect::<Vec<_>>();
             let mut added = false;
             for parent in parents {
                 ensure_helper_active()?;
@@ -457,18 +460,11 @@ impl FrozenProcessTree {
                     if snapshot.parent != parent.pid {
                         continue;
                     }
-                    match snapshot.identity.signal(libc::SIGSTOP)? {
-                        ExactSignalResult::Gone => continue,
-                        ExactSignalResult::Signaled => {}
-                    }
-                    if ProcessIdentity::capture(pid)? != Some(snapshot.identity) {
-                        return Err(io::Error::new(
-                            io::ErrorKind::InvalidData,
-                            "descendant process identity changed after fencing",
-                        ));
-                    }
+                    let Some(process) = ProcessFence::acquire(snapshot.identity)? else {
+                        continue;
+                    };
                     known.insert(pid);
-                    tree.descendants.push(snapshot.identity);
+                    tree.descendants.push(process);
                     added = true;
                 }
             }
@@ -482,7 +478,7 @@ impl FrozenProcessTree {
     fn captured_sessions(&self) -> io::Result<Vec<CapturedSession>> {
         // SAFETY: getsid only queries live, exact processes held stopped by
         // this FrozenProcessTree.
-        let root_session = unsafe { libc::getsid(self.root.pid) };
+        let root_session = unsafe { libc::getsid(self.root.identity.pid) };
         if root_session < 0 {
             return Err(io::Error::last_os_error());
         }
@@ -495,16 +491,16 @@ impl FrozenProcessTree {
         for process in &self.descendants {
             // SAFETY: every descendant remains stopped and exact until this
             // FrozenProcessTree is dropped.
-            let session = unsafe { libc::getsid(process.pid) };
+            let session = unsafe { libc::getsid(process.identity.pid) };
             if session < 0 {
                 return Err(io::Error::last_os_error());
             }
             if session > 1 && session != root_session && session != helper_session {
                 if let Some(captured) = sessions.iter_mut().find(|captured| captured.id == session)
                 {
-                    captured.members.push(*process);
+                    captured.members.push(process.identity);
                 } else {
-                    sessions.push(CapturedSession { id: session, members: vec![*process] });
+                    sessions.push(CapturedSession { id: session, members: vec![process.identity] });
                 }
             }
         }
@@ -517,37 +513,10 @@ impl FrozenProcessTree {
     }
 
     fn kill(mut self) -> io::Result<()> {
-        if !self.armed {
-            return Ok(());
+        for process in self.descendants.iter_mut().rev() {
+            process.kill()?;
         }
-        for process in std::iter::once(self.root).chain(self.descendants.iter().copied()) {
-            if let Some(current) = ProcessIdentity::capture(process.pid)?
-                && current != process
-            {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "frozen process identity changed",
-                ));
-            }
-        }
-        for process in self.descendants.iter().rev().copied() {
-            let _ = process.signal(libc::SIGKILL)?;
-        }
-        let _ = self.root.signal(libc::SIGKILL)?;
-        self.armed = false;
-        Ok(())
-    }
-}
-
-impl Drop for FrozenProcessTree {
-    fn drop(&mut self) {
-        if !self.armed {
-            return;
-        }
-        for process in self.descendants.iter().rev().copied() {
-            let _ = process.signal(libc::SIGCONT);
-        }
-        let _ = self.root.signal(libc::SIGCONT);
+        self.root.kill()
     }
 }
 
