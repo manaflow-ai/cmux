@@ -154,6 +154,7 @@ def run_wrapper(
     auth_token: bool = True,
     auth_token_file: bool = False,
     installed_broker: bool = True,
+    live_app_enabled: bool | None = None,
 ) -> tuple[int, list[str], str, dict[str, object]]:
     with tempfile.TemporaryDirectory(prefix="cmux-codex-wrapper-test-") as td:
         tmp = Path(td)
@@ -256,6 +257,21 @@ exit 1
             env.pop("CMUX_CUA_AUTH_TOKEN_FILE", None)
             env.pop("CMUX_CUA_CLIENT_PATH", None)
             env.pop("CUA_DRIVER_SOCKET_AUTH_TOKEN", None)
+            env["CMUX_COMPUTER_USE_APP_ENABLED"] = "1"
+            if live_app_enabled is not None:
+                live_setting = (
+                    sandbox_home
+                    / "Library"
+                    / "Application Support"
+                    / "cmux"
+                    / "computer-use"
+                    / "enabled"
+                )
+                live_setting.parent.mkdir(parents=True)
+                live_setting.write_text(
+                    "1\n" if live_app_enabled else "0\n",
+                    encoding="utf-8",
+                )
             if bundled_driver and installed_broker:
                 installed_helper = (
                     sandbox_home
@@ -561,6 +577,16 @@ def test_codex_skips_when_disabled(failures: list[str]) -> None:
     expect(command_config(args) is None, f"expected no injection with kill switch, got {args}", failures)
 
 
+def test_codex_skips_when_live_app_setting_is_disabled(failures: list[str]) -> None:
+    code, args, stderr, _ = run_wrapper(["hello"], live_app_enabled=False)
+    expect(code == 0, f"live-disabled wrapper exited {code}: {stderr}", failures)
+    expect(
+        command_config(args) is None,
+        f"expected no injection when the live app setting is disabled, got {args}",
+        failures,
+    )
+
+
 def test_codex_skips_when_daemon_credential_is_missing(failures: list[str]) -> None:
     code, args, stderr, _ = run_wrapper(["hello"], auth_token=False)
     expect(code == 0, f"missing-auth wrapper exited {code}: {stderr}", failures)
@@ -665,6 +691,7 @@ def main() -> int:
     test_codex_skips_when_driver_unavailable(failures)
     test_codex_skips_when_installed_broker_is_unavailable(failures)
     test_codex_skips_when_disabled(failures)
+    test_codex_skips_when_live_app_setting_is_disabled(failures)
     test_codex_skips_when_daemon_credential_is_missing(failures)
     test_codex_fork_gets_hooks_and_cua_driver(failures)
     test_codex_hooks_disabled_is_fully_inert(failures)
