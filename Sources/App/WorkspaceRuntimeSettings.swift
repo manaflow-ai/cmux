@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import CmuxSettings
 enum WorkspaceTitlebarSettings {
     static let showTitlebarKey = "workspaceTitlebarVisible"
     static let defaultShowTitlebar = true
@@ -381,9 +382,10 @@ enum RendererRealizationSettings {
     static let idleSecondsKey = "terminal.rendererRealization.idleSeconds"
     static let maxWarmRenderersKey = "terminal.rendererRealization.maxWarmRenderers"
 
-    static let defaultEnabled = true
-    static let defaultIdleSeconds: TimeInterval = 5
-    static let defaultMaxWarmRenderers = 1
+    private static let catalog = SettingCatalog().terminal
+    static let defaultEnabled = catalog.rendererRealizationEnabled.defaultValue
+    static let defaultIdleSeconds = catalog.rendererRealizationIdleSeconds.defaultValue
+    static let defaultMaxWarmRenderers = catalog.rendererRealizationMaxWarmRenderers.defaultValue
     static let didChangeNotification = Notification.Name("cmux.rendererRealizationSettingsDidChange")
 
     static func values(defaults: UserDefaults = .standard) -> Values {
