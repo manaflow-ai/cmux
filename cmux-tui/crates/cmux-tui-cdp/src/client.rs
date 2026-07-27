@@ -35,6 +35,8 @@ pub const CDP_EVENT_QUEUE_MAX_BYTES: usize = 32 * 1024 * 1024;
 static RETAINED_SIZE_CALLS: AtomicU64 = AtomicU64::new(0);
 #[cfg(test)]
 static NEXT_RESOLVE_DELAY_MS: AtomicU64 = AtomicU64::new(0);
+#[cfg(test)]
+static NEXT_RESOLVER_INIT_DELAY_MS: AtomicU64 = AtomicU64::new(0);
 
 static CDP_RESOLVER: std::sync::OnceLock<Mutex<Option<Arc<CdpResolver>>>> =
     std::sync::OnceLock::new();
@@ -56,6 +58,13 @@ struct ResolveRequest {
 
 impl CdpResolver {
     fn spawn() -> std::io::Result<Self> {
+        #[cfg(test)]
+        {
+            let delay_ms = NEXT_RESOLVER_INIT_DELAY_MS.swap(0, Ordering::AcqRel);
+            if delay_ms != 0 {
+                std::thread::sleep(Duration::from_millis(delay_ms));
+            }
+        }
         let runtime = RuntimeBuilder::new_multi_thread()
             .worker_threads(1)
             .thread_name("cmux-tui-cdp-resolver")
@@ -1614,6 +1623,29 @@ mod tests {
         assert!(
             elapsed < Duration::from_millis(200),
             "hostname resolution exceeded the connection deadline: {elapsed:?}"
+        );
+    }
+
+    #[test]
+    fn resolver_initialization_obeys_the_first_request_deadline() {
+        let _guard = RESOLVE_TEST_LOCK.lock().unwrap();
+        *CDP_RESOLVER.get_or_init(|| Mutex::new(None)).lock().unwrap() = None;
+        NEXT_RESOLVER_INIT_DELAY_MS.store(300, Ordering::Release);
+
+        let started = Instant::now();
+        let result =
+            resolve_socket_addr_until("localhost", 1, Instant::now() + Duration::from_millis(50));
+        let elapsed = started.elapsed();
+        // A bounded initializer may still be completing after the caller's
+        // deadline. Let the one process-wide initialization finish before a
+        // later resolver test starts.
+        thread::sleep(Duration::from_millis(350));
+        NEXT_RESOLVER_INIT_DELAY_MS.store(0, Ordering::Release);
+
+        assert!(result.is_err(), "expired first resolution unexpectedly completed");
+        assert!(
+            elapsed < Duration::from_millis(200),
+            "resolver initialization escaped the first request deadline: {elapsed:?}"
         );
     }
 
