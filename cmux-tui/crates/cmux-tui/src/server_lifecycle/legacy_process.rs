@@ -75,8 +75,19 @@ impl ProcessIdentity {
             }
             Ok(())
         })?;
-        let Some(process) = StableProcessHandle::capture(self.pid)? else {
-            return Ok(None);
+        let process = match StableProcessHandle::capture(self.pid) {
+            Ok(Some(process)) => process,
+            Ok(None) => return Ok(None),
+            Err(error) => match Self::capture(self.pid) {
+                Ok(None) => return Ok(None),
+                Ok(Some(current)) if current != self => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "process identity changed",
+                    ));
+                }
+                Ok(Some(_)) | Err(_) => return Err(error),
+            },
         };
         let Some(current) = Self::capture(self.pid)? else {
             return Ok(None);
@@ -95,6 +106,7 @@ impl ProcessIdentity {
 struct ProcessSnapshot {
     identity: ProcessIdentity,
     parent: libc::pid_t,
+    stopped: bool,
 }
 
 #[cfg(test)]
@@ -111,36 +123,74 @@ struct ProcessFence {
 }
 
 impl ProcessFence {
-    fn acquire(identity: ProcessIdentity) -> io::Result<Option<Self>> {
+    fn acquire(identity: ProcessIdentity, deadline: Instant) -> io::Result<Option<Self>> {
+        let Some(initial) = process_snapshot(identity.pid)? else { return Ok(None) };
+        if initial.identity != identity {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "process identity changed"));
+        }
         let Some(process) = identity.stable_handle()? else { return Ok(None) };
-        if !process.signal(libc::SIGSTOP)? {
+        let armed = !initial.stopped;
+        if armed && !process.signal(libc::SIGSTOP)? {
             return Ok(None);
         }
-        Ok(Some(Self { identity, process, armed: true }))
+        let fence = Self { identity, process, armed };
+        loop {
+            ensure_helper_active()?;
+            let Some(current) = process_snapshot(identity.pid)? else { return Ok(None) };
+            if current.identity != identity {
+                return Err(io::Error::new(io::ErrorKind::InvalidData, "process identity changed"));
+            }
+            if current.stopped {
+                return Ok(Some(fence));
+            }
+            if Instant::now() >= deadline {
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "process did not stop before the legacy shutdown deadline",
+                ));
+            }
+            std::thread::sleep(
+                deadline.saturating_duration_since(Instant::now()).min(PROCESS_TREE_RETRY_INTERVAL),
+            );
+        }
     }
 
     fn acquire_in_session(
         identity: ProcessIdentity,
         session: libc::pid_t,
+        deadline: Instant,
     ) -> io::Result<Option<Self>> {
-        let Some(process) = identity.stable_handle()? else { return Ok(None) };
-        if !process.matches_current()? {
-            return Ok(None);
-        }
-        // SAFETY: getsid only reads metadata. Exact-handle probes bracket the
-        // reusable PID so a replacement process is never stopped.
+        let Some(process) = Self::acquire(identity, deadline)? else { return Ok(None) };
+        // SAFETY: the exact process is now confirmed stopped, so this
+        // reusable-PID query cannot race process exit or replacement.
         let current_session = unsafe { libc::getsid(identity.pid) };
         if current_session < 0 {
             let error = io::Error::last_os_error();
             return if error.raw_os_error() == Some(libc::ESRCH) { Ok(None) } else { Err(error) };
         }
-        if current_session != session || !process.matches_current()? {
+        if current_session != session
+            || ProcessIdentity::capture(identity.pid)? != Some(identity)
+            || !process.process.matches_current()?
+        {
             return Ok(None);
         }
-        if !process.signal(libc::SIGSTOP)? {
-            return Ok(None);
+        Ok(Some(process))
+    }
+
+    fn still_in_session(&self, session: libc::pid_t) -> io::Result<bool> {
+        if ProcessIdentity::capture(self.identity.pid)? != Some(self.identity) {
+            return Ok(false);
         }
-        Ok(Some(Self { identity, process, armed: true }))
+        // SAFETY: a confirmed stopped process cannot exit or be replaced
+        // without an external signal; exact identity probes bracket getsid.
+        let current_session = unsafe { libc::getsid(self.identity.pid) };
+        if current_session < 0 {
+            let error = io::Error::last_os_error();
+            return if error.raw_os_error() == Some(libc::ESRCH) { Ok(false) } else { Err(error) };
+        }
+        Ok(current_session == session
+            && self.process.matches_current()?
+            && ProcessIdentity::capture(self.identity.pid)? == Some(self.identity))
     }
 
     fn kill(&mut self) -> io::Result<()> {
@@ -254,20 +304,30 @@ pub(super) struct CapturedProcessTree {
 }
 
 impl CapturedProcessTree {
-    fn contains_process(&self, process: ProcessIdentity) -> bool {
-        self.sessions.iter().any(|session| session.members.contains(&process))
+    fn session_process(&self, pid: libc::pid_t) -> Option<(&CapturedSession, ProcessIdentity)> {
+        self.sessions.iter().find_map(|session| {
+            session
+                .members
+                .iter()
+                .copied()
+                .find(|process| process.pid == pid)
+                .map(|process| (session, process))
+        })
     }
 }
 
-pub(super) struct CapturedProcessSession(CapturedSession);
+pub(super) struct CapturedProcessSession {
+    session: CapturedSession,
+    _fences: Vec<ProcessFence>,
+}
 
 impl CapturedProcessSession {
     pub(super) fn id(&self) -> libc::pid_t {
-        self.0.id
+        self.session.id
     }
 
     pub(super) fn terminate_until(self, deadline: Instant) -> io::Result<()> {
-        if self.0.kill_until_empty(deadline)? {
+        if self.session.kill_until_empty(deadline)? {
             Ok(())
         } else {
             Err(io::Error::other(
@@ -289,51 +349,113 @@ pub(super) fn capture_process_session(
     {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid PTY owner process"));
     }
-    let Some(process) = ProcessIdentity::capture(pid)? else { return Ok(None) };
-    if !captured.contains_process(process) {
+    let Some((captured_session, process)) = captured.session_process(pid) else {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
             "PTY owner was not captured in the verified server process tree",
         ));
+    };
+    if ProcessIdentity::capture(pid)?.is_some_and(|current| current != process) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "PTY owner process identity changed after the verified tree capture",
+        ));
     }
-    let Some(process_fence) = ProcessFence::acquire(process)? else { return Ok(None) };
-    let captured = (|| {
+    let session = captured_session.id;
+    // SAFETY: the server identity remains validated by the caller.
+    let server_session = unsafe { libc::getsid(server.pid) };
+    if server_session < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: getsid(0) only queries the detached helper.
+    let helper_session = unsafe { libc::getsid(0) };
+    if helper_session < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    if session == server_session || session == helper_session {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "PTY owner shares a protected process session",
+        ));
+    }
+
+    // Retain every exact process fence across the legacy close mutation.
+    // Once every live member is stopped, the session cannot fork and at
+    // least one fence pins its numeric ID until owned termination begins.
+    let mut fences = Vec::new();
+    for process in &captured_session.members {
         ensure_helper_active()?;
-        // SAFETY: the retained exact process handle keeps this stopped PID
-        // bound to the verified process instance.
-        let session = unsafe { libc::getsid(pid) };
-        if session <= 1 {
-            return Err(io::Error::last_os_error());
+        if let Some(fence) = ProcessFence::acquire_in_session(*process, session, deadline)? {
+            fences.push(fence);
         }
-        // SAFETY: the server identity remains validated by the caller.
-        let server_session = unsafe { libc::getsid(server.pid) };
-        // SAFETY: getsid(0) only queries the detached helper.
-        let helper_session = unsafe { libc::getsid(0) };
-        if session == server_session || session == helper_session {
+    }
+    loop {
+        ensure_helper_active()?;
+        let mut pinned = false;
+        for fence in &fences {
+            pinned |= fence.still_in_session(session)?;
+        }
+        let member_pids =
+            cmux_tui_core::process_session::session_member_pids_until(session, deadline)?;
+        if !pinned {
+            if member_pids.is_empty() {
+                return Ok(Some(CapturedProcessSession {
+                    session: CapturedSession { id: session, members: Vec::new() },
+                    _fences: fences,
+                }));
+            }
             return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "PTY owner shares a protected process session",
+                io::ErrorKind::InvalidData,
+                "PTY session lost every captured process before ownership could be fenced",
             ));
         }
+
         let mut members = Vec::new();
-        for member in cmux_tui_core::process_session::session_member_pids_until(session, deadline)?
-        {
+        for member in member_pids {
             if let Some(identity) = ProcessIdentity::capture(member)? {
                 members.push(identity);
             }
         }
-        if !members.contains(&process) {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "PTY owner left its process session while being captured",
-            ));
+        for fence in &fences {
+            if fence.still_in_session(session)? {
+                members.push(fence.identity);
+            }
         }
         members.sort_by_key(|member| member.pid);
         members.dedup();
-        Ok(CapturedProcessSession(CapturedSession { id: session, members }))
-    })();
-    drop(process_fence);
-    captured.map(Some)
+
+        let mut stable = !members.is_empty();
+        for member in &members {
+            let held = fences
+                .iter()
+                .find(|fence| fence.identity == *member)
+                .map(|fence| fence.still_in_session(session))
+                .transpose()?
+                .unwrap_or(false);
+            if held {
+                continue;
+            }
+            stable = false;
+            if let Some(fence) = ProcessFence::acquire_in_session(*member, session, deadline)? {
+                fences.push(fence);
+            }
+        }
+        if stable {
+            return Ok(Some(CapturedProcessSession {
+                session: CapturedSession { id: session, members },
+                _fences: fences,
+            }));
+        }
+        if Instant::now() >= deadline {
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "PTY session ownership did not stabilize before the legacy shutdown deadline",
+            ));
+        }
+        std::thread::sleep(
+            deadline.saturating_duration_since(Instant::now()).min(PROCESS_TREE_RETRY_INTERVAL),
+        );
+    }
 }
 
 #[derive(Clone)]
@@ -346,7 +468,7 @@ impl CapturedSession {
     fn kill_until_empty(&self, deadline: Instant) -> io::Result<bool> {
         loop {
             ensure_helper_active()?;
-            let error = match SessionProbe::acquire(self) {
+            let error = match SessionProbe::acquire(self, deadline) {
                 Ok(Some(mut probe)) => {
                     match cmux_tui_core::process_session::kill_until_only_reserved(
                         self.id,
@@ -388,13 +510,11 @@ struct SessionProbe {
 }
 
 impl SessionProbe {
-    fn acquire(session: &CapturedSession) -> io::Result<Option<Self>> {
+    fn acquire(session: &CapturedSession, deadline: Instant) -> io::Result<Option<Self>> {
         for process in &session.members {
             ensure_helper_active()?;
-            if ProcessIdentity::capture(process.pid)? != Some(*process) {
-                continue;
-            }
-            let Some(process) = ProcessFence::acquire_in_session(*process, session.id)? else {
+            let Some(process) = ProcessFence::acquire_in_session(*process, session.id, deadline)?
+            else {
                 continue;
             };
             return Ok(Some(Self { process }));
@@ -416,7 +536,7 @@ pub(super) struct FrozenProcessTree {
 impl FrozenProcessTree {
     fn freeze(root: ProcessIdentity, deadline: Instant) -> io::Result<Self> {
         ensure_helper_active()?;
-        let Some(root) = ProcessFence::acquire(root)? else {
+        let Some(root) = ProcessFence::acquire(root, deadline)? else {
             return Err(io::Error::new(
                 io::ErrorKind::NotFound,
                 "server exited before its process tree was fenced",
@@ -452,7 +572,7 @@ impl FrozenProcessTree {
                     if snapshot.parent != parent.pid {
                         continue;
                     }
-                    let Some(process) = ProcessFence::acquire(snapshot.identity)? else {
+                    let Some(process) = ProcessFence::acquire(snapshot.identity, deadline)? else {
                         continue;
                     };
                     known.insert(pid);
@@ -553,7 +673,11 @@ fn process_snapshot(pid: libc::pid_t) -> io::Result<Option<ProcessSnapshot>> {
         return Ok(None);
     }
     let started_at = (u128::from(info.pbi_start_tvsec) << 64) | u128::from(info.pbi_start_tvusec);
-    Ok(Some(ProcessSnapshot { identity: ProcessIdentity { pid, started_at }, parent }))
+    Ok(Some(ProcessSnapshot {
+        identity: ProcessIdentity { pid, started_at },
+        parent,
+        stopped: info.pbi_status == libc::SSTOP,
+    }))
 }
 
 #[cfg(target_os = "macos")]
@@ -696,7 +820,12 @@ fn process_snapshot(pid: libc::pid_t) -> io::Result<Option<ProcessSnapshot>> {
     let path = format!("/proc/{pid}/stat");
     let stat = match std::fs::read_to_string(path) {
         Ok(stat) => stat,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error)
+            if error.kind() == io::ErrorKind::NotFound
+                || error.raw_os_error() == Some(libc::ESRCH) =>
+        {
+            return Ok(None);
+        }
         Err(error) => return Err(error),
     };
     let (pid_text, remainder) = stat
@@ -709,7 +838,8 @@ fn process_snapshot(pid: libc::pid_t) -> io::Result<Option<ProcessSnapshot>> {
         return Err(io::Error::other("process metadata id mismatch"));
     }
     let fields = remainder.split_whitespace().collect::<Vec<_>>();
-    if fields.first() == Some(&"Z") {
+    let state = fields.first().copied().ok_or_else(|| io::Error::other("missing process state"))?;
+    if state == "Z" {
         return Ok(None);
     }
     let parent = fields
@@ -720,7 +850,11 @@ fn process_snapshot(pid: libc::pid_t) -> io::Result<Option<ProcessSnapshot>> {
         .get(19)
         .and_then(|value| value.parse::<u128>().ok())
         .ok_or_else(|| io::Error::other("invalid process birth identity"))?;
-    Ok(Some(ProcessSnapshot { identity: ProcessIdentity { pid, started_at }, parent }))
+    Ok(Some(ProcessSnapshot {
+        identity: ProcessIdentity { pid, started_at },
+        parent,
+        stopped: matches!(state, "T" | "t"),
+    }))
 }
 
 #[cfg(target_os = "linux")]

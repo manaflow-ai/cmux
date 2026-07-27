@@ -773,13 +773,79 @@ fn signal_if_still_member(
 }
 
 fn still_member(pid: libc::pid_t, session: libc::pid_t) -> io::Result<bool> {
+    Ok(active_process_session(pid)? == Some(session))
+}
+
+#[cfg(not(target_os = "linux"))]
+fn active_process_session(pid: libc::pid_t) -> io::Result<Option<libc::pid_t>> {
     // SAFETY: getsid only queries process metadata.
     let current_session = unsafe { libc::getsid(pid) };
     if current_session >= 0 {
-        return Ok(current_session == session);
+        return Ok(Some(current_session));
     }
     let error = io::Error::last_os_error();
-    if error.raw_os_error() == Some(libc::ESRCH) { Ok(false) } else { Err(error) }
+    if error.raw_os_error() == Some(libc::ESRCH) { Ok(None) } else { Err(error) }
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct LinuxProcessMetadata {
+    started_at: u128,
+    zombie: bool,
+}
+
+#[cfg(target_os = "linux")]
+fn linux_process_metadata(pid: libc::pid_t) -> io::Result<Option<LinuxProcessMetadata>> {
+    let stat = match std::fs::read_to_string(format!("/proc/{pid}/stat")) {
+        Ok(stat) => stat,
+        Err(error)
+            if error.kind() == io::ErrorKind::NotFound
+                || error.raw_os_error() == Some(libc::ESRCH) =>
+        {
+            return Ok(None);
+        }
+        Err(error) => return Err(error),
+    };
+    let (pid_text, fields) = stat
+        .split_once(" (")
+        .and_then(|(pid_text, remainder)| {
+            remainder.rsplit_once(") ").map(|(_, fields)| (pid_text, fields))
+        })
+        .ok_or_else(|| io::Error::other("invalid process stat record"))?;
+    if pid_text.parse::<libc::pid_t>().ok() != Some(pid) {
+        return Err(io::Error::other("process metadata id mismatch"));
+    }
+    let fields = fields.split_whitespace().collect::<Vec<_>>();
+    let state = fields.first().copied().ok_or_else(|| io::Error::other("missing process state"))?;
+    let started_at = fields
+        .get(19)
+        .and_then(|value| value.parse::<u128>().ok())
+        .ok_or_else(|| io::Error::other("invalid process birth identity"))?;
+    Ok(Some(LinuxProcessMetadata { started_at, zombie: state == "Z" }))
+}
+
+#[cfg(target_os = "linux")]
+fn active_process_session(pid: libc::pid_t) -> io::Result<Option<libc::pid_t>> {
+    let Some(before) = linux_process_metadata(pid)? else { return Ok(None) };
+    if before.zombie {
+        return Ok(None);
+    }
+
+    // SAFETY: getsid only queries process metadata.
+    let current_session = unsafe { libc::getsid(pid) };
+    if current_session < 0 {
+        let error = io::Error::last_os_error();
+        return if error.raw_os_error() == Some(libc::ESRCH) { Ok(None) } else { Err(error) };
+    }
+
+    // Bracket the reusable PID query with the kernel process birth identity.
+    // Zombies cannot execute or fork, so shutdown may treat them as drained
+    // while the reserved leader still prevents session-id reuse.
+    let Some(after) = linux_process_metadata(pid)? else { return Ok(None) };
+    if after.zombie || after.started_at != before.started_at {
+        return Ok(None);
+    }
+    Ok(Some(current_session))
 }
 
 fn stable_process_in_session(
@@ -1128,17 +1194,12 @@ fn scan_sessions(
         if pid <= 1 {
             continue;
         }
-        // SAFETY: getsid only queries process metadata.
-        let current_session = unsafe { libc::getsid(pid) };
+        let Some(current_session) = active_process_session(pid)? else {
+            continue;
+        };
+        ensure_before_deadline(deadline)?;
         if let Some(session_members) = members.get_mut(&current_session) {
             session_members.push(pid);
-            continue;
-        }
-        if current_session < 0 {
-            let error = io::Error::last_os_error();
-            if error.raw_os_error() != Some(libc::ESRCH) {
-                return Err(error);
-            }
         }
     }
     for session_members in members.values_mut() {
@@ -1456,11 +1517,7 @@ mod tests {
         let _ = leader_handle.signal(libc::SIGCONT);
         let _ = leader.kill();
         let _ = leader.wait();
-        assert_eq!(
-            drained.unwrap(),
-            true,
-            "an unreaped zombie kept a fully terminated PTY session pending"
-        );
+        assert!(drained.unwrap(), "an unreaped zombie kept a fully terminated PTY session pending");
     }
 
     #[cfg(target_os = "linux")]
