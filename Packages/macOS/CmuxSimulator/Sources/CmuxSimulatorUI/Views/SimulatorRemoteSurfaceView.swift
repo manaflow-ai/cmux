@@ -151,7 +151,7 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
 
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
-        updateFrameLayerBackingScale()
+        layoutFrameLayer()
         rebuildPresentationTimer()
         pushGeometry()
     }
