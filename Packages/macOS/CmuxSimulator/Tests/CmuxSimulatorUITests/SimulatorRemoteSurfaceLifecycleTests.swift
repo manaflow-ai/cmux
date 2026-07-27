@@ -388,6 +388,33 @@ struct SimulatorRemoteSurfaceLifecycleTests {
         #expect(view.frameLayer?.magnificationFilter == .linear)
     }
 
+    @Test("Backing scale changes refresh frame sampling")
+    func backingScaleChangesRefreshFrameSampling() {
+        let source = EmptySimulatorFrameSurfaceSource()
+        let view = SimulatorRemoteSurfaceView(frameSourceFactory: { _ in source })
+        defer { view.teardown() }
+        view.layer?.contentsScale = 1
+        view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+
+        view.update(
+            frameTransport: simulatorFrameTransportDescriptor(96),
+            display: SimulatorDisplayMetadata(
+                width: 390,
+                height: 844,
+                orientation: .portrait,
+                scale: 1
+            ),
+            chrome: nil
+        )
+        #expect(view.frameLayer?.magnificationFilter == .nearest)
+
+        view.layer?.contentsScale = 2
+        view.viewDidChangeBackingProperties()
+
+        #expect(view.frameLayer?.minificationFilter == .linear)
+        #expect(view.frameLayer?.magnificationFilter == .linear)
+    }
+
     @Test("A released stale copy cannot replace a newer transport frame")
     func replacementRejectsStaleCopyCompletion() async throws {
         let oldDescriptor = simulatorFrameTransportDescriptor(44)
