@@ -4147,6 +4147,35 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
 #else
         throw XCTSkip("Debug-only real-renderer memory regression")
 #endif
+    private struct IndicatorBundleProbe {
+        let bundle: AnyObject
+        let keyboardContainer: NSView
+        let transferContainer: NSView
+        let fontObserver: AnyObject
+    }
+
+    private func storedValue(named name: String, in owner: Any) -> Any? {
+        guard let value = Mirror(reflecting: owner).children.first(where: { $0.label == name })?.value else {
+            return nil
+        }
+        let mirror = Mirror(reflecting: value)
+        guard mirror.displayStyle == .optional else { return value }
+        return mirror.children.first?.value
+    }
+
+    private func indicatorBundle(in hostedView: GhosttySurfaceScrollView) -> IndicatorBundleProbe? {
+        guard let bundle = storedValue(named: "dormantIndicatorViews", in: hostedView),
+              let keyboardContainer = storedValue(named: "keyboardContainer", in: bundle) as? NSView,
+              let transferContainer = storedValue(named: "transferContainer", in: bundle) as? NSView,
+              let fontObserver = storedValue(named: "fontObserver", in: bundle) else {
+            return nil
+        }
+        return IndicatorBundleProbe(
+            bundle: bundle as AnyObject,
+            keyboardContainer: keyboardContainer,
+            transferContainer: transferContainer,
+            fontObserver: fontObserver as AnyObject
+        )
     }
 
     private func findEditableTextField(in view: NSView) -> NSTextField? {
@@ -4705,16 +4734,72 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
     }
 
     @MainActor
-    func testKeyboardCopyModeIndicatorMountsAndUnmounts() {
+    func testTerminalIndicatorBundleIsCreatedOnFirstShowAndReused() throws {
         let surface = makeTrackedTerminalSurface()
         let hostedView = surface.hostedView
+
+        XCTAssertNil(indicatorBundle(in: hostedView))
         XCTAssertFalse(hostedView.debugHasKeyboardCopyModeIndicator())
 
         hostedView.syncKeyStateIndicator(text: "vim")
+        let firstBundle = try XCTUnwrap(indicatorBundle(in: hostedView))
         XCTAssertTrue(hostedView.debugHasKeyboardCopyModeIndicator())
 
         hostedView.syncKeyStateIndicator(text: nil)
         XCTAssertFalse(hostedView.debugHasKeyboardCopyModeIndicator())
+        hostedView.syncKeyStateIndicator(text: "tmux")
+
+        let secondBundle = try XCTUnwrap(indicatorBundle(in: hostedView))
+        XCTAssertTrue(secondBundle.bundle === firstBundle.bundle)
+        XCTAssertTrue(secondBundle.keyboardContainer === firstBundle.keyboardContainer)
+        XCTAssertTrue(secondBundle.transferContainer === firstBundle.transferContainer)
+    }
+
+    @MainActor
+    func testImageTransferIndicatorFirstShowReusesLazyBundle() throws {
+        let surface = makeTrackedTerminalSurface()
+        let hostedView = surface.hostedView
+        let operation = TerminalImageTransferOperation()
+
+        XCTAssertNil(indicatorBundle(in: hostedView))
+        hostedView.beginImageTransferIndicator(for: operation, onCancel: {})
+        let firstBundle = try XCTUnwrap(indicatorBundle(in: hostedView))
+        XCTAssertTrue(firstBundle.transferContainer.isHidden)
+
+        waitUntil(timeout: 2.0, description: "image transfer indicator to become visible") {
+            !firstBundle.transferContainer.isHidden
+        }
+        XCTAssertFalse(firstBundle.transferContainer.isHidden)
+
+        hostedView.endImageTransferIndicator(for: operation)
+        XCTAssertTrue(firstBundle.transferContainer.isHidden)
+
+        let secondOperation = TerminalImageTransferOperation()
+        hostedView.beginImageTransferIndicator(for: secondOperation, onCancel: {})
+        let secondBundle = try XCTUnwrap(indicatorBundle(in: hostedView))
+        XCTAssertTrue(secondBundle.bundle === firstBundle.bundle)
+        hostedView.endImageTransferIndicator(for: secondOperation)
+    }
+
+    @MainActor
+    func testTerminalIndicatorBundleObserverIsReleasedWithHostedView() throws {
+        weak var weakHostedView: GhosttySurfaceScrollView?
+        weak var weakObserverLifetime: AnyObject?
+
+        do {
+            let hostedView = GhosttySurfaceScrollView(
+                surfaceView: GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 120, height: 80))
+            )
+            weakHostedView = hostedView
+            XCTAssertNil(indicatorBundle(in: hostedView))
+
+            hostedView.syncKeyStateIndicator(text: "vim")
+            weakObserverLifetime = try XCTUnwrap(indicatorBundle(in: hostedView)).fontObserver
+            XCTAssertNotNil(weakObserverLifetime)
+        }
+
+        XCTAssertNil(weakHostedView)
+        XCTAssertNil(weakObserverLifetime)
     }
 
     @MainActor

@@ -8206,15 +8206,25 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private var lastFlashStyle: FlashStyle = .navigation
-    private let keyboardCopyModeBadgeContainerView: GhosttyFlashOverlayView
-    private let keyboardCopyModeBadgeView: GhosttyPassthroughVisualEffectView
-    private let keyboardCopyModeBadgeIconView: NSImageView
-    private let keyboardCopyModeBadgeLabel: NSTextField
+    private final class DormantIndicatorViews {
+        let keyboardContainer = GhosttyFlashOverlayView(frame: .zero)
+        let keyboardEffect = GhosttyPassthroughVisualEffectView(frame: .zero)
+        let keyboardIcon = NSImageView(frame: .zero)
+        let keyboardLabel = NSTextField(labelWithString: terminalKeyboardCopyModeIndicatorText)
+        let transferContainer = NSView(frame: .zero)
+        let transferEffect = NSVisualEffectView(frame: .zero)
+        let transferSpinner = NSProgressIndicator(frame: .zero)
+        let transferCancelButton = NSButton(frame: .zero)
+        var fontObserver: NSObjectProtocol?
+
+        deinit {
+            if let fontObserver {
+                NotificationCenter.default.removeObserver(fontObserver)
+            }
+        }
+    }
+    private var dormantIndicatorViews: DormantIndicatorViews?
     let linkHoverIndicatorView: TerminalLinkHoverIndicatorView
-    private let imageTransferIndicatorContainerView: NSView
-    private let imageTransferIndicatorView: NSVisualEffectView
-    private let imageTransferIndicatorSpinner: NSProgressIndicator
-    private let imageTransferCancelButton: NSButton
     private var searchOverlayHostingView: NSHostingView<SurfaceSearchOverlay>?
     private let deferredSearchOverlayMutationScheduler = MainActorDeferredActionScheduler()
     private let imageTransferIndicatorShowScheduler = MainActorDeferredActionScheduler()
@@ -8450,15 +8460,7 @@ final class GhosttySurfaceScrollView: NSView {
         notificationRingLayer = CAShapeLayer()
         flashOverlayView = GhosttyFlashOverlayView(frame: .zero)
         flashLayer = CAShapeLayer()
-        keyboardCopyModeBadgeContainerView = GhosttyFlashOverlayView(frame: .zero)
-        keyboardCopyModeBadgeView = GhosttyPassthroughVisualEffectView(frame: .zero)
-        keyboardCopyModeBadgeIconView = NSImageView(frame: .zero)
-        keyboardCopyModeBadgeLabel = NSTextField(labelWithString: terminalKeyboardCopyModeIndicatorText)
         linkHoverIndicatorView = TerminalLinkHoverIndicatorView(frame: .zero)
-        imageTransferIndicatorContainerView = NSView(frame: .zero)
-        imageTransferIndicatorView = NSVisualEffectView(frame: .zero)
-        imageTransferIndicatorSpinner = NSProgressIndicator(frame: .zero)
-        imageTransferCancelButton = NSButton(frame: .zero)
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = false
@@ -8538,133 +8540,6 @@ final class GhosttySurfaceScrollView: NSView {
         flashLayer.opacity = 0
         flashOverlayView.layer?.addSublayer(flashLayer)
         addSubview(flashOverlayView)
-        keyboardCopyModeBadgeContainerView.translatesAutoresizingMaskIntoConstraints = false
-        keyboardCopyModeBadgeContainerView.wantsLayer = true
-        keyboardCopyModeBadgeContainerView.layer?.masksToBounds = false
-        keyboardCopyModeBadgeContainerView.layer?.shadowColor = NSColor.black.cgColor
-        keyboardCopyModeBadgeContainerView.layer?.shadowOpacity = 0.22
-        keyboardCopyModeBadgeContainerView.layer?.shadowRadius = 10
-        keyboardCopyModeBadgeContainerView.layer?.shadowOffset = CGSize(width: 0, height: 2)
-        keyboardCopyModeBadgeView.translatesAutoresizingMaskIntoConstraints = false
-        keyboardCopyModeBadgeView.wantsLayer = true
-        keyboardCopyModeBadgeView.material = .hudWindow
-        keyboardCopyModeBadgeView.blendingMode = .withinWindow
-        keyboardCopyModeBadgeView.state = .active
-        keyboardCopyModeBadgeView.layer?.cornerRadius = 18
-        keyboardCopyModeBadgeView.layer?.masksToBounds = true
-        keyboardCopyModeBadgeView.layer?.borderWidth = 1
-        keyboardCopyModeBadgeView.layer?.borderColor = NSColor.white.withAlphaComponent(0.12).cgColor
-        keyboardCopyModeBadgeView.alphaValue = 0.97
-        keyboardCopyModeBadgeIconView.translatesAutoresizingMaskIntoConstraints = false
-        keyboardCopyModeBadgeIconView.image = NSImage(
-            systemSymbolName: "keyboard.badge.ellipsis",
-            accessibilityDescription: terminalKeyTableIndicatorAccessibilityLabel
-        )
-        keyboardCopyModeBadgeIconView.contentTintColor = NSColor.secondaryLabelColor
-        keyboardCopyModeBadgeLabel.translatesAutoresizingMaskIntoConstraints = false
-        keyboardCopyModeBadgeLabel.textColor = NSColor.labelColor
-        applyKeyboardCopyModeBadgeFonts()
-        keyboardCopyModeBadgeLabel.lineBreakMode = .byTruncatingTail
-        keyboardCopyModeBadgeLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        keyboardCopyModeBadgeLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        keyboardCopyModeBadgeContainerView.addSubview(keyboardCopyModeBadgeView)
-        keyboardCopyModeBadgeView.addSubview(keyboardCopyModeBadgeIconView)
-        keyboardCopyModeBadgeView.addSubview(keyboardCopyModeBadgeLabel)
-        NSLayoutConstraint.activate([
-            keyboardCopyModeBadgeView.topAnchor.constraint(equalTo: keyboardCopyModeBadgeContainerView.topAnchor),
-            keyboardCopyModeBadgeView.bottomAnchor.constraint(equalTo: keyboardCopyModeBadgeContainerView.bottomAnchor),
-            keyboardCopyModeBadgeView.leadingAnchor.constraint(equalTo: keyboardCopyModeBadgeContainerView.leadingAnchor),
-            keyboardCopyModeBadgeView.trailingAnchor.constraint(equalTo: keyboardCopyModeBadgeContainerView.trailingAnchor),
-            keyboardCopyModeBadgeView.widthAnchor.constraint(lessThanOrEqualToConstant: 180),
-            keyboardCopyModeBadgeIconView.leadingAnchor.constraint(equalTo: keyboardCopyModeBadgeView.leadingAnchor, constant: 12),
-            keyboardCopyModeBadgeIconView.centerYAnchor.constraint(equalTo: keyboardCopyModeBadgeView.centerYAnchor),
-            keyboardCopyModeBadgeIconView.widthAnchor.constraint(equalToConstant: 18),
-            keyboardCopyModeBadgeIconView.heightAnchor.constraint(equalToConstant: 18),
-            keyboardCopyModeBadgeLabel.leadingAnchor.constraint(equalTo: keyboardCopyModeBadgeIconView.trailingAnchor, constant: 7),
-            keyboardCopyModeBadgeLabel.trailingAnchor.constraint(equalTo: keyboardCopyModeBadgeView.trailingAnchor, constant: -14),
-            keyboardCopyModeBadgeLabel.topAnchor.constraint(equalTo: keyboardCopyModeBadgeView.topAnchor, constant: 8),
-            keyboardCopyModeBadgeLabel.bottomAnchor.constraint(equalTo: keyboardCopyModeBadgeView.bottomAnchor, constant: -8),
-        ])
-        keyboardCopyModeBadgeContainerView.isHidden = true
-        addSubview(keyboardCopyModeBadgeContainerView)
-        observers.append(
-            NotificationCenter.default.addObserver(
-                forName: GlobalFontMagnification.didChangeNotification,
-                object: nil,
-                queue: .main
-            ) { [weak self] _ in
-                self?.applyKeyboardCopyModeBadgeFonts()
-            }
-        )
-        NSLayoutConstraint.activate([
-            keyboardCopyModeBadgeContainerView.topAnchor.constraint(equalTo: topAnchor, constant: 8),
-            keyboardCopyModeBadgeContainerView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
-        ])
-
-        imageTransferIndicatorContainerView.translatesAutoresizingMaskIntoConstraints = false
-        imageTransferIndicatorContainerView.wantsLayer = true
-        imageTransferIndicatorContainerView.layer?.masksToBounds = false
-        imageTransferIndicatorContainerView.layer?.shadowColor = NSColor.black.cgColor
-        imageTransferIndicatorContainerView.layer?.shadowOpacity = 0.18
-        imageTransferIndicatorContainerView.layer?.shadowRadius = 8
-        imageTransferIndicatorContainerView.layer?.shadowOffset = CGSize(width: 0, height: 2)
-        imageTransferIndicatorView.translatesAutoresizingMaskIntoConstraints = false
-        imageTransferIndicatorView.wantsLayer = true
-        imageTransferIndicatorView.material = .hudWindow
-        imageTransferIndicatorView.blendingMode = .withinWindow
-        imageTransferIndicatorView.state = .active
-        imageTransferIndicatorView.layer?.cornerRadius = 16
-        imageTransferIndicatorView.layer?.masksToBounds = true
-        imageTransferIndicatorView.layer?.borderWidth = 1
-        imageTransferIndicatorView.layer?.borderColor = NSColor.white.withAlphaComponent(0.12).cgColor
-        imageTransferIndicatorView.alphaValue = 0.95
-        imageTransferIndicatorSpinner.translatesAutoresizingMaskIntoConstraints = false
-        imageTransferIndicatorSpinner.style = .spinning
-        imageTransferIndicatorSpinner.controlSize = .small
-        imageTransferIndicatorSpinner.isDisplayedWhenStopped = false
-        imageTransferCancelButton.translatesAutoresizingMaskIntoConstraints = false
-        imageTransferCancelButton.isBordered = false
-        imageTransferCancelButton.imagePosition = .imageOnly
-        imageTransferCancelButton.image = NSImage(
-            systemSymbolName: "xmark.circle.fill",
-            accessibilityDescription: String(localized: "common.cancel", defaultValue: "Cancel")
-        )
-        imageTransferCancelButton.contentTintColor = NSColor.secondaryLabelColor
-        imageTransferCancelButton.toolTip = String(localized: "common.cancel", defaultValue: "Cancel")
-        imageTransferCancelButton.setAccessibilityLabel(
-            String(localized: "common.cancel", defaultValue: "Cancel")
-        )
-        imageTransferCancelButton.target = self
-        imageTransferCancelButton.action = #selector(handleImageTransferCancel)
-        imageTransferIndicatorContainerView.addSubview(imageTransferIndicatorView)
-        imageTransferIndicatorView.addSubview(imageTransferIndicatorSpinner)
-        imageTransferIndicatorView.addSubview(imageTransferCancelButton)
-        NSLayoutConstraint.activate([
-            imageTransferIndicatorView.topAnchor.constraint(equalTo: imageTransferIndicatorContainerView.topAnchor),
-            imageTransferIndicatorView.bottomAnchor.constraint(equalTo: imageTransferIndicatorContainerView.bottomAnchor),
-            imageTransferIndicatorView.leadingAnchor.constraint(equalTo: imageTransferIndicatorContainerView.leadingAnchor),
-            imageTransferIndicatorView.trailingAnchor.constraint(equalTo: imageTransferIndicatorContainerView.trailingAnchor),
-            imageTransferIndicatorSpinner.leadingAnchor.constraint(equalTo: imageTransferIndicatorView.leadingAnchor, constant: 10),
-            imageTransferIndicatorSpinner.centerYAnchor.constraint(equalTo: imageTransferIndicatorView.centerYAnchor),
-            imageTransferIndicatorSpinner.widthAnchor.constraint(equalToConstant: 14),
-            imageTransferIndicatorSpinner.heightAnchor.constraint(equalToConstant: 14),
-            imageTransferCancelButton.leadingAnchor.constraint(equalTo: imageTransferIndicatorSpinner.trailingAnchor, constant: 6),
-            imageTransferCancelButton.trailingAnchor.constraint(equalTo: imageTransferIndicatorView.trailingAnchor, constant: -8),
-            imageTransferCancelButton.centerYAnchor.constraint(equalTo: imageTransferIndicatorView.centerYAnchor),
-            imageTransferCancelButton.widthAnchor.constraint(equalToConstant: 16),
-            imageTransferCancelButton.heightAnchor.constraint(equalToConstant: 16),
-            imageTransferIndicatorSpinner.topAnchor.constraint(equalTo: imageTransferIndicatorView.topAnchor, constant: 8),
-            imageTransferIndicatorSpinner.bottomAnchor.constraint(equalTo: imageTransferIndicatorView.bottomAnchor, constant: -8),
-        ])
-        imageTransferIndicatorContainerView.isHidden = true
-        addSubview(imageTransferIndicatorContainerView)
-        NSLayoutConstraint.activate([
-            imageTransferIndicatorContainerView.topAnchor.constraint(
-                equalTo: keyboardCopyModeBadgeContainerView.bottomAnchor,
-                constant: 8
-            ),
-            imageTransferIndicatorContainerView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
-        ])
         linkHoverIndicatorView.frame = bounds
         linkHoverIndicatorView.autoresizingMask = [.width, .height]
         addSubview(linkHoverIndicatorView)
@@ -8792,13 +8667,152 @@ final class GhosttySurfaceScrollView: NSView {
 
     }
 
+
+    private func configureKeyboardIndicator(_ views: DormantIndicatorViews) {
+        views.keyboardContainer.translatesAutoresizingMaskIntoConstraints = false
+        views.keyboardContainer.wantsLayer = true
+        views.keyboardContainer.layer?.masksToBounds = false
+        views.keyboardContainer.layer?.shadowColor = NSColor.black.cgColor
+        views.keyboardContainer.layer?.shadowOpacity = 0.22
+        views.keyboardContainer.layer?.shadowRadius = 10
+        views.keyboardContainer.layer?.shadowOffset = CGSize(width: 0, height: 2)
+        views.keyboardEffect.translatesAutoresizingMaskIntoConstraints = false
+        views.keyboardEffect.wantsLayer = true
+        views.keyboardEffect.material = .hudWindow
+        views.keyboardEffect.blendingMode = .withinWindow
+        views.keyboardEffect.state = .active
+        views.keyboardEffect.layer?.cornerRadius = 18
+        views.keyboardEffect.layer?.masksToBounds = true
+        views.keyboardEffect.layer?.borderWidth = 1
+        views.keyboardEffect.layer?.borderColor = NSColor.white.withAlphaComponent(0.12).cgColor
+        views.keyboardEffect.alphaValue = 0.97
+        views.keyboardIcon.translatesAutoresizingMaskIntoConstraints = false
+        views.keyboardIcon.image = NSImage(
+            systemSymbolName: "keyboard.badge.ellipsis",
+            accessibilityDescription: terminalKeyTableIndicatorAccessibilityLabel
+        )
+        views.keyboardIcon.contentTintColor = NSColor.secondaryLabelColor
+        views.keyboardLabel.translatesAutoresizingMaskIntoConstraints = false
+        views.keyboardLabel.textColor = NSColor.labelColor
+        views.keyboardLabel.lineBreakMode = .byTruncatingTail
+        views.keyboardLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        views.keyboardLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        views.keyboardContainer.addSubview(views.keyboardEffect)
+        views.keyboardEffect.addSubview(views.keyboardIcon)
+        views.keyboardEffect.addSubview(views.keyboardLabel)
+    }
+
+    private func configureImageTransferIndicator(_ views: DormantIndicatorViews) {
+        views.transferContainer.translatesAutoresizingMaskIntoConstraints = false
+        views.transferContainer.wantsLayer = true
+        views.transferContainer.layer?.masksToBounds = false
+        views.transferContainer.layer?.shadowColor = NSColor.black.cgColor
+        views.transferContainer.layer?.shadowOpacity = 0.18
+        views.transferContainer.layer?.shadowRadius = 8
+        views.transferContainer.layer?.shadowOffset = CGSize(width: 0, height: 2)
+        views.transferEffect.translatesAutoresizingMaskIntoConstraints = false
+        views.transferEffect.wantsLayer = true
+        views.transferEffect.material = .hudWindow
+        views.transferEffect.blendingMode = .withinWindow
+        views.transferEffect.state = .active
+        views.transferEffect.layer?.cornerRadius = 16
+        views.transferEffect.layer?.masksToBounds = true
+        views.transferEffect.layer?.borderWidth = 1
+        views.transferEffect.layer?.borderColor = NSColor.white.withAlphaComponent(0.12).cgColor
+        views.transferEffect.alphaValue = 0.95
+        views.transferSpinner.translatesAutoresizingMaskIntoConstraints = false
+        views.transferSpinner.style = .spinning
+        views.transferSpinner.controlSize = .small
+        views.transferSpinner.isDisplayedWhenStopped = false
+        views.transferCancelButton.translatesAutoresizingMaskIntoConstraints = false
+        views.transferCancelButton.isBordered = false
+        views.transferCancelButton.imagePosition = .imageOnly
+        views.transferCancelButton.image = NSImage(
+            systemSymbolName: "xmark.circle.fill",
+            accessibilityDescription: String(localized: "common.cancel", defaultValue: "Cancel")
+        )
+        views.transferCancelButton.contentTintColor = NSColor.secondaryLabelColor
+        views.transferCancelButton.toolTip = String(localized: "common.cancel", defaultValue: "Cancel")
+        views.transferCancelButton.setAccessibilityLabel(
+            String(localized: "common.cancel", defaultValue: "Cancel")
+        )
+        views.transferCancelButton.target = self
+        views.transferCancelButton.action = #selector(handleImageTransferCancel)
+        views.transferContainer.addSubview(views.transferEffect)
+        views.transferEffect.addSubview(views.transferSpinner)
+        views.transferEffect.addSubview(views.transferCancelButton)
+    }
+
+    private func activateDormantIndicatorConstraints(_ views: DormantIndicatorViews) {
+        NSLayoutConstraint.activate([
+            views.keyboardEffect.topAnchor.constraint(equalTo: views.keyboardContainer.topAnchor),
+            views.keyboardEffect.bottomAnchor.constraint(equalTo: views.keyboardContainer.bottomAnchor),
+            views.keyboardEffect.leadingAnchor.constraint(equalTo: views.keyboardContainer.leadingAnchor),
+            views.keyboardEffect.trailingAnchor.constraint(equalTo: views.keyboardContainer.trailingAnchor),
+            views.keyboardEffect.widthAnchor.constraint(lessThanOrEqualToConstant: 180),
+            views.keyboardIcon.leadingAnchor.constraint(equalTo: views.keyboardEffect.leadingAnchor, constant: 12),
+            views.keyboardIcon.centerYAnchor.constraint(equalTo: views.keyboardEffect.centerYAnchor),
+            views.keyboardIcon.widthAnchor.constraint(equalToConstant: 18),
+            views.keyboardIcon.heightAnchor.constraint(equalToConstant: 18),
+            views.keyboardLabel.leadingAnchor.constraint(equalTo: views.keyboardIcon.trailingAnchor, constant: 7),
+            views.keyboardLabel.trailingAnchor.constraint(equalTo: views.keyboardEffect.trailingAnchor, constant: -14),
+            views.keyboardLabel.topAnchor.constraint(equalTo: views.keyboardEffect.topAnchor, constant: 8),
+            views.keyboardLabel.bottomAnchor.constraint(equalTo: views.keyboardEffect.bottomAnchor, constant: -8),
+            views.keyboardContainer.topAnchor.constraint(equalTo: topAnchor, constant: 8),
+            views.keyboardContainer.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            views.transferEffect.topAnchor.constraint(equalTo: views.transferContainer.topAnchor),
+            views.transferEffect.bottomAnchor.constraint(equalTo: views.transferContainer.bottomAnchor),
+            views.transferEffect.leadingAnchor.constraint(equalTo: views.transferContainer.leadingAnchor),
+            views.transferEffect.trailingAnchor.constraint(equalTo: views.transferContainer.trailingAnchor),
+            views.transferSpinner.leadingAnchor.constraint(equalTo: views.transferEffect.leadingAnchor, constant: 10),
+            views.transferSpinner.centerYAnchor.constraint(equalTo: views.transferEffect.centerYAnchor),
+            views.transferSpinner.widthAnchor.constraint(equalToConstant: 14),
+            views.transferSpinner.heightAnchor.constraint(equalToConstant: 14),
+            views.transferCancelButton.leadingAnchor.constraint(equalTo: views.transferSpinner.trailingAnchor, constant: 6),
+            views.transferCancelButton.trailingAnchor.constraint(equalTo: views.transferEffect.trailingAnchor, constant: -8),
+            views.transferCancelButton.centerYAnchor.constraint(equalTo: views.transferEffect.centerYAnchor),
+            views.transferCancelButton.widthAnchor.constraint(equalToConstant: 16),
+            views.transferCancelButton.heightAnchor.constraint(equalToConstant: 16),
+            views.transferSpinner.topAnchor.constraint(equalTo: views.transferEffect.topAnchor, constant: 8),
+            views.transferSpinner.bottomAnchor.constraint(equalTo: views.transferEffect.bottomAnchor, constant: -8),
+            views.transferContainer.topAnchor.constraint(
+                equalTo: views.keyboardContainer.bottomAnchor,
+                constant: 8
+            ),
+            views.transferContainer.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+        ])
+    }
+
+    private func ensureDormantIndicatorViews() -> DormantIndicatorViews {
+        if let dormantIndicatorViews { return dormantIndicatorViews }
+
+        let views = DormantIndicatorViews()
+        configureKeyboardIndicator(views)
+        configureImageTransferIndicator(views)
+        views.keyboardContainer.isHidden = true
+        views.transferContainer.isHidden = true
+        addSubview(views.keyboardContainer)
+        addSubview(views.transferContainer)
+        activateDormantIndicatorConstraints(views)
+        dormantIndicatorViews = views
+        applyKeyboardCopyModeBadgeFonts()
+        views.fontObserver = NotificationCenter.default.addObserver(
+            forName: GlobalFontMagnification.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.applyKeyboardCopyModeBadgeFonts()
+        }
+        return views
+    }
     private func applyKeyboardCopyModeBadgeFonts() {
-        keyboardCopyModeBadgeIconView.symbolConfiguration = NSImage.SymbolConfiguration(
+        guard let views = dormantIndicatorViews else { return }
+        views.keyboardIcon.symbolConfiguration = NSImage.SymbolConfiguration(
             pointSize: GlobalFontMagnification.scaledSize(13),
             weight: .regular,
             scale: .medium
         )
-        keyboardCopyModeBadgeLabel.font = GlobalFontMagnification.systemFont(ofSize: 13, weight: .semibold)
+        views.keyboardLabel.font = GlobalFontMagnification.systemFont(ofSize: 13, weight: .semibold)
     }
 
     required init?(coder: NSCoder) {
@@ -9377,29 +9391,29 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private func updateImageTransferIndicatorZOrder(relativeTo overlay: NSView?) {
-        guard !imageTransferIndicatorContainerView.isHidden else { return }
+        guard let views = dormantIndicatorViews, !views.transferContainer.isHidden else { return }
         if let overlay, overlay.superview === self {
-            addSubview(imageTransferIndicatorContainerView, positioned: .above, relativeTo: overlay)
+            addSubview(views.transferContainer, positioned: .above, relativeTo: overlay)
             return
         }
-        if keyboardCopyModeBadgeContainerView.superview === self,
-           !keyboardCopyModeBadgeContainerView.isHidden {
+        if views.keyboardContainer.superview === self,
+           !views.keyboardContainer.isHidden {
             addSubview(
-                imageTransferIndicatorContainerView,
+                views.transferContainer,
                 positioned: .above,
-                relativeTo: keyboardCopyModeBadgeContainerView
+                relativeTo: views.keyboardContainer
             )
             return
         }
-        addSubview(imageTransferIndicatorContainerView, positioned: .above, relativeTo: nil)
+        addSubview(views.transferContainer, positioned: .above, relativeTo: nil)
     }
 
     private func updateKeyboardCopyModeBadgeZOrder(relativeTo overlay: NSView?) {
-        guard !keyboardCopyModeBadgeContainerView.isHidden else { return }
+        guard let views = dormantIndicatorViews, !views.keyboardContainer.isHidden else { return }
         if let overlay, overlay.superview === self {
-            addSubview(keyboardCopyModeBadgeContainerView, positioned: .above, relativeTo: overlay)
+            addSubview(views.keyboardContainer, positioned: .above, relativeTo: overlay)
         } else {
-            addSubview(keyboardCopyModeBadgeContainerView, positioned: .above, relativeTo: nil)
+            addSubview(views.keyboardContainer, positioned: .above, relativeTo: nil)
         }
         updateImageTransferIndicatorZOrder(relativeTo: overlay)
     }
@@ -9426,15 +9440,16 @@ final class GhosttySurfaceScrollView: NSView {
         cancelImageTransferIndicatorShow()
         activeImageTransferOperation = operation
         activeImageTransferCancelHandler = onCancel
-        imageTransferIndicatorSpinner.stopAnimation(nil)
-        imageTransferIndicatorContainerView.isHidden = true
+        let views = ensureDormantIndicatorViews()
+        views.transferSpinner.stopAnimation(nil)
+        views.transferContainer.isHidden = true
 
         imageTransferIndicatorShowScheduler.schedule(after: .milliseconds(150)) { [weak self] in
             guard let self else { return }
             guard self.activeImageTransferOperation === operation else { return }
             guard !operation.isCancelled else { return }
-            self.imageTransferIndicatorSpinner.startAnimation(nil)
-            self.imageTransferIndicatorContainerView.isHidden = false
+            views.transferSpinner.startAnimation(nil)
+            views.transferContainer.isHidden = false
             self.updateImageTransferIndicatorZOrder(relativeTo: self.searchOverlayHostingView)
         }
     }
@@ -9455,8 +9470,8 @@ final class GhosttySurfaceScrollView: NSView {
         cancelImageTransferIndicatorShow()
         activeImageTransferOperation = nil
         activeImageTransferCancelHandler = nil
-        imageTransferIndicatorSpinner.stopAnimation(nil)
-        imageTransferIndicatorContainerView.isHidden = true
+        dormantIndicatorViews?.transferSpinner.stopAnimation(nil)
+        dormantIndicatorViews?.transferContainer.isHidden = true
     }
     private func makeSearchOverlayRootView(
         terminalSurface: TerminalSurface,
@@ -9702,20 +9717,21 @@ final class GhosttySurfaceScrollView: NSView {
         }
 
         if let text, !text.isEmpty {
-            keyboardCopyModeBadgeLabel.stringValue = text
-            keyboardCopyModeBadgeIconView.setAccessibilityLabel(text)
-            let needsReorder = keyboardCopyModeBadgeContainerView.isHidden
-                || keyboardCopyModeBadgeContainerView.superview !== self
-                || subviews.last !== keyboardCopyModeBadgeContainerView
-            keyboardCopyModeBadgeContainerView.isHidden = false
+            let views = ensureDormantIndicatorViews()
+            views.keyboardLabel.stringValue = text
+            views.keyboardIcon.setAccessibilityLabel(text)
+            let needsReorder = views.keyboardContainer.isHidden
+                || views.keyboardContainer.superview !== self
+                || subviews.last !== views.keyboardContainer
+            views.keyboardContainer.isHidden = false
             if needsReorder {
                 updateKeyboardCopyModeBadgeZOrder(relativeTo: searchOverlayHostingView)
             }
             return
         }
 
-        keyboardCopyModeBadgeIconView.setAccessibilityLabel(terminalKeyTableIndicatorAccessibilityLabel)
-        keyboardCopyModeBadgeContainerView.isHidden = true
+        dormantIndicatorViews?.keyboardIcon.setAccessibilityLabel(terminalKeyTableIndicatorAccessibilityLabel)
+        dormantIndicatorViews?.keyboardContainer.isHidden = true
     }
 
     func refreshHostBackgroundAfterGhosttyConfigReload() {
@@ -10208,8 +10224,10 @@ final class GhosttySurfaceScrollView: NSView {
         surfaceView.debugHasPendingLeftMouseReleaseForTesting()
     }
 
+
     func debugHasKeyboardCopyModeIndicator() -> Bool {
-        keyboardCopyModeBadgeContainerView.superview === self && !keyboardCopyModeBadgeContainerView.isHidden
+        guard let views = dormantIndicatorViews else { return false }
+        return views.keyboardContainer.superview === self && !views.keyboardContainer.isHidden
     }
 
 #endif
