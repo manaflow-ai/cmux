@@ -115,13 +115,14 @@ struct BrowserDesignModeOffscreenSelectionHandoffTests {
         await controller.copySelection()
 
         let prompt = try #require(copiedPrompt)
-        let contextURL = try artifactURL(in: prompt, marker: "Full context JSON: ")
-        let pageScreenshotURL = try artifactURL(in: prompt, marker: "Full-page screenshot: ")
+        let contextURL = try artifactURL(in: prompt, marker: "Details: ")
         let payloadData = try Data(contentsOf: contextURL)
         let payload = try #require(
             JSONSerialization.jsonObject(with: payloadData) as? [String: Any]
         )
         let selections = try #require(payload["selections"] as? [[String: Any]])
+        let pageScreenshotPath = try #require(payload["page_screenshot_path"] as? String)
+        let pageScreenshotURL = URL(fileURLWithPath: pageScreenshotPath)
 
         #expect(selections.count == 2)
         #expect(selections.allSatisfy {
@@ -134,6 +135,7 @@ struct BrowserDesignModeOffscreenSelectionHandoffTests {
             let path = try #require(selection["screenshot_path"] as? String)
             return try #require(NSImage(contentsOfFile: path))
         }
+        #expect(!prompt.contains(pageScreenshotPath))
         #expect(selectionScreenshots.map(averageColor(of:)) == [.systemRed, .systemBlue])
         let pageScreenshot = try #require(
             NSBitmapImageRep(data: Data(contentsOf: pageScreenshotURL))
@@ -244,7 +246,7 @@ struct BrowserDesignModeOffscreenSelectionHandoffTests {
         await controller.copySelection()
 
         let prompt = try #require(copiedPrompt)
-        let contextURL = try artifactURL(in: prompt, marker: "Full context JSON: ")
+        let contextURL = try artifactURL(in: prompt, marker: "Details: ")
         let payload = try #require(
             JSONSerialization.jsonObject(with: Data(contentsOf: contextURL)) as? [String: Any]
         )
@@ -394,7 +396,7 @@ struct BrowserDesignModeOffscreenSelectionHandoffTests {
         await controller.copySelection()
 
         let prompt = try #require(copiedPrompt)
-        let contextURL = try artifactURL(in: prompt, marker: "Full context JSON: ")
+        let contextURL = try artifactURL(in: prompt, marker: "Details: ")
         let payload = try #require(
             JSONSerialization.jsonObject(with: Data(contentsOf: contextURL)) as? [String: Any]
         )

@@ -653,8 +653,8 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
         let prompt = try #require(copiedPrompt)
         #expect(!prompt.contains("<cmux_design_mode>"))
         #expect(!prompt.contains("base64"))
-        #expect(prompt.contains("Full-page screenshot: \(directory.path)/"))
-        #expect(prompt.contains("Selection 1 (tag: \"button\", selector: \"#target\"): \(directory.path)/"))
+        #expect(!prompt.contains("Full-page screenshot:"))
+        #expect(!prompt.contains("Selection 1"))
         let contextURL = try contextURL(from: prompt)
         let processDirectory = contextURL.deletingLastPathComponent()
         #expect(processDirectory.deletingLastPathComponent() == directory)
@@ -664,6 +664,8 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
         let selections = try #require(context["selections"] as? [[String: Any]])
         let selectionPath = try #require(selections.first?["screenshot_path"] as? String)
         let pagePath = try #require(context["page_screenshot_path"] as? String)
+        #expect(prompt.contains(selectionPath))
+        #expect(!prompt.contains(pagePath))
         #expect(FileManager.default.fileExists(atPath: selectionPath))
         #expect(FileManager.default.fileExists(atPath: pagePath))
         #expect(FileManager.default.fileExists(atPath: contextURL.path))
@@ -804,7 +806,7 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
     }
 
     private func contextURL(from prompt: String) throws -> URL {
-        let marker = "Full context JSON: "
+        let marker = "Details: "
         let start = try #require(prompt.range(of: marker)?.upperBound)
         let end = prompt[start...].firstIndex(of: "\n") ?? prompt.endIndex
         return URL(fileURLWithPath: String(prompt[start..<end]))
