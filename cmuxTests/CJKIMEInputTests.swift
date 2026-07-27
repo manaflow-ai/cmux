@@ -1496,8 +1496,11 @@ final class GhosttyBackquoteRegressionTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        let previousTextInputEventHandler = GhosttyNSView.debugTextInputEventHandler
+        let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
         defer {
-            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
+            GhosttyNSView.debugTextInputEventHandler = previousTextInputEventHandler
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
             window.orderOut(nil)
         }
 
@@ -1520,12 +1523,6 @@ final class GhosttyBackquoteRegressionTests: XCTestCase {
         // synthetic ESC as insertText("\u{1B}"); the lone control byte fills the key
         // accumulator and the textForKeyEvent tilde fallback under test never runs.
         // Route around AppKit interpretation the way the focus-reassertion suite does.
-        let previousTextInputEventHandler = GhosttyNSView.debugTextInputEventHandler
-        let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
-        defer {
-            GhosttyNSView.debugTextInputEventHandler = previousTextInputEventHandler
-            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
-        }
         GhosttyNSView.debugTextInputEventHandler = { _, _ in true }
 
         var pressText: String?
