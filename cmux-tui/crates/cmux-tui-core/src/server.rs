@@ -6096,16 +6096,21 @@ mod tests {
     }
 
     #[test]
-    fn vt_state_reserves_its_full_control_allocation_before_encoding() {
-        let budget = Arc::new(OutboundByteBudget::new(128));
-        let reservation = BudgetedJsonWriter::with_reservation(budget.clone(), 128).unwrap();
+    fn vt_state_releases_unused_control_reservation_after_encoding() {
+        const RESERVATION: usize = 128;
+        let budget = Arc::new(OutboundByteBudget::new(RESERVATION * 4));
+        let mut queued = Vec::new();
 
-        assert_eq!(budget.retained_bytes.load(Ordering::Acquire), 128);
-        assert_eq!(
-            BudgetedJsonWriter::with_reservation(budget.clone(), 1).err().unwrap().kind(),
-            std::io::ErrorKind::WouldBlock
-        );
-        drop(reservation);
+        for _ in 0..5 {
+            let mut reservation =
+                BudgetedJsonWriter::with_reservation(budget.clone(), RESERVATION).unwrap();
+            assert_eq!(reservation.bytes.capacity(), 0);
+            reservation.write_all(b"{}").unwrap();
+            queued.push(reservation.finish());
+        }
+
+        assert!(budget.retained_bytes.load(Ordering::Acquire) < RESERVATION);
+        drop(queued);
         assert_eq!(budget.retained_bytes.load(Ordering::Acquire), 0);
     }
 

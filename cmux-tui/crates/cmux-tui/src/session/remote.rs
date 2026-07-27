@@ -2783,17 +2783,22 @@ mod tests {
                 .unwrap()
                 .remove(&id)
                 .ok_or_else(|| io::Error::other("remote request was not pending"))?;
-            let data = if std::mem::take(&mut self.fail_next) {
-                json!({
-                    "resizes": [],
-                    "failures": [{
-                        "surface": 7,
-                        "error": "injected fan-out failure",
-                        "deferred": self.deferred_failure,
-                    }],
-                })
-            } else {
-                json!({"resizes": [], "failures": []})
+            let data = match request.get("cmd").and_then(Value::as_str) {
+                Some("set-cell-pixels") if std::mem::take(&mut self.fail_next) => {
+                    json!({
+                        "resizes": [],
+                        "failures": [{
+                            "surface": 7,
+                            "error": "injected fan-out failure",
+                            "deferred": self.deferred_failure,
+                        }],
+                    })
+                }
+                Some("set-cell-pixels") => json!({"resizes": [], "failures": []}),
+                Some("attach-surface") => Value::Null,
+                command => {
+                    return Err(io::Error::other(format!("unexpected test command: {command:?}")));
+                }
             };
             response
                 .response
@@ -3900,11 +3905,20 @@ mod tests {
         let update = session.set_cell_pixel_size(9, 18).unwrap();
         assert_eq!(update.failures, vec![(7, "injected fan-out failure".to_string())]);
         surface.apply_stream_resize(90, 31, None, &[]).unwrap();
+        let created = session
+            .try_ensure_surface_with_kind(8, SurfaceKind::Pty, Some((80, 24)))
+            .unwrap()
+            .unwrap();
 
         assert_eq!(
             surface.cell_pixel_size(),
             (9, 18),
             "a late authoritative resize used the geometry from before the deferred request"
+        );
+        assert_eq!(
+            created.cell_pixel_size(),
+            (9, 18),
+            "a newly discovered surface used the geometry from before the deferred request"
         );
     }
 

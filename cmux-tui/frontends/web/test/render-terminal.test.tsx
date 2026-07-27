@@ -197,6 +197,9 @@ describe("RenderTerminal DOM grid", () => {
       container.querySelectorAll<HTMLElement>(".render-row-background .render-run");
     expect(backgrounds[0].style.backgroundColor).toBe("transparent");
     expect(backgrounds[1]).toHaveStyle({ backgroundColor: "#223344" });
+    expect(container.querySelector(".render-row-background")).toHaveStyle({
+      backgroundColor: "#111111",
+    });
     expect(container.querySelector<HTMLElement>(".render-row .render-run")?.style.backgroundColor)
       .toBe("transparent");
     expect(gridChildren.indexOf(belowBackground!)).toBeLessThan(
