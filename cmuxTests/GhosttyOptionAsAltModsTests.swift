@@ -363,4 +363,35 @@ import Testing
         #expect(codepoint == UnicodeScalar("с").value)
     }
 
+    @Test func unshiftedCodepointUsesUniformUnicodeResolverForC0ControlEvent() throws {
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.control],
+            timestamp: 1,
+            windowNumber: 0,
+            context: nil,
+            characters: "\u{001A}",
+            charactersIgnoringModifiers: "с",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_C)
+        ))
+        var normalizedShortcutLayout = false
+
+        let codepoint = KeyboardLayout.unshiftedCodepoint(
+            for: event,
+            controlCharacterProvider: { _, _ in
+                normalizedShortcutLayout = true
+                return "c"
+            },
+            eventCharacterProvider: { _ in "с" }
+        )
+
+        #expect(
+            !normalizedShortcutLayout,
+            "Binding identity must not switch to an ASCII-only shortcut resolver for Control input"
+        )
+        #expect(codepoint == UnicodeScalar("с").value)
+    }
+
 }
