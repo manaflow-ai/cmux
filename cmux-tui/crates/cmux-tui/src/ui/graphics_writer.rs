@@ -686,7 +686,9 @@ fn write_batch<O: GraphicsOutput>(
             return finish_interrupted_batch(
                 output,
                 stdout_lock,
+                control,
                 multipart_active,
+                false,
                 BatchWriteOutcome::Stopped,
             );
         }
@@ -694,7 +696,9 @@ fn write_batch<O: GraphicsOutput>(
             return finish_interrupted_batch(
                 output,
                 stdout_lock,
+                control,
                 multipart_active,
+                false,
                 BatchWriteOutcome::Superseded,
             );
         }
@@ -702,7 +706,9 @@ fn write_batch<O: GraphicsOutput>(
             return finish_interrupted_batch(
                 output,
                 stdout_lock,
+                control,
                 multipart_active,
+                false,
                 BatchWriteOutcome::Stopped,
             );
         };
@@ -714,7 +720,9 @@ fn write_batch<O: GraphicsOutput>(
                 return finish_interrupted_batch(
                     output,
                     stdout_lock,
+                    control,
                     multipart_active,
+                    false,
                     BatchWriteOutcome::Stopped,
                 );
             }
@@ -722,7 +730,9 @@ fn write_batch<O: GraphicsOutput>(
                 return finish_interrupted_batch(
                     output,
                     stdout_lock,
+                    control,
                     multipart_active,
+                    false,
                     BatchWriteOutcome::Superseded,
                 );
             }
@@ -733,13 +743,17 @@ fn write_batch<O: GraphicsOutput>(
                 &batch[offset..emitted_end],
                 multipart_active,
             );
+            let parser_reset_required =
+                emitted != 0 && !batch[offset..emitted_end].ends_with(b"\x1b\\");
             match result {
                 Ok(true) if emitted == end - offset => {}
                 Ok(true) => {
                     return finish_interrupted_batch(
                         output,
                         stdout_lock,
+                        control,
                         multipart_active,
+                        parser_reset_required,
                         BatchWriteOutcome::Stopped,
                     );
                 }
@@ -747,7 +761,9 @@ fn write_batch<O: GraphicsOutput>(
                     return finish_interrupted_batch(
                         output,
                         stdout_lock,
+                        control,
                         multipart_active,
+                        parser_reset_required,
                         BatchWriteOutcome::Superseded,
                     );
                 }
@@ -755,7 +771,9 @@ fn write_batch<O: GraphicsOutput>(
                     return finish_interrupted_batch(
                         output,
                         stdout_lock,
+                        control,
                         multipart_active,
+                        parser_reset_required,
                         BatchWriteOutcome::Stopped,
                     );
                 }
@@ -766,7 +784,9 @@ fn write_batch<O: GraphicsOutput>(
             return finish_interrupted_batch(
                 output,
                 stdout_lock,
+                control,
                 multipart_active,
+                false,
                 BatchWriteOutcome::Stopped,
             );
         }
@@ -774,7 +794,9 @@ fn write_batch<O: GraphicsOutput>(
             return finish_interrupted_batch(
                 output,
                 stdout_lock,
+                control,
                 multipart_active,
+                false,
                 BatchWriteOutcome::Superseded,
             );
         }
@@ -785,16 +807,43 @@ fn write_batch<O: GraphicsOutput>(
 fn finish_interrupted_batch<O: GraphicsOutput>(
     output: &mut O,
     stdout_lock: &Arc<StdoutLock>,
+    control: &WriterControl,
     multipart_active: bool,
+    parser_reset_required: bool,
     outcome: BatchWriteOutcome,
 ) -> BatchWriteOutcome {
-    if !multipart_active {
+    if !parser_reset_required && !multipart_active {
         return outcome;
     }
     let _guard = stdout_lock.lock();
-    match output.write_recovery(TERMINATE_MULTIPART_GRAPHICS) {
-        Ok(()) => outcome,
-        Err(_) => BatchWriteOutcome::Stopped,
+    if parser_reset_required && !reset_outer_parser(output, control) {
+        return BatchWriteOutcome::Stopped;
+    }
+    if !multipart_active {
+        return outcome;
+    }
+    loop {
+        match output.write_recovery(TERMINATE_MULTIPART_GRAPHICS) {
+            Ok(()) => return outcome,
+            Err(_) if control.is_cancelled() => return BatchWriteOutcome::Stopped,
+            Err(_) if !reset_outer_parser(output, control) => {
+                return BatchWriteOutcome::Stopped;
+            }
+            Err(_) => {}
+        }
+    }
+}
+
+fn reset_outer_parser<O: GraphicsOutput>(output: &mut O, control: &WriterControl) -> bool {
+    // The caller retains the shared stdout lock across these retries, so a
+    // later Ratatui frame cannot overtake the pending CAN. Cancellation hands
+    // recovery to the terminal restore path, which emits CAN before teardown.
+    loop {
+        match output.write_recovery(&[CONTROL_STRING_CANCEL]) {
+            Ok(()) => return true,
+            Err(_) if control.is_cancelled() => return false,
+            Err(_) => {}
+        }
     }
 }
 

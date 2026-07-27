@@ -414,13 +414,16 @@ void TestRendererGrantValidation() {
   cmux::TerminalHostRendererGrant grant;
   Check(cmux::ValidateTerminalHostRendererGrant(
             endpoint, terminal_hex, incarnation_hex, token_hex,
-            static_cast<uint32_t>(Rights::kRenderer), 30000, 30000,
+            static_cast<uint32_t>(Rights::kRenderer),
+            cmux::kTerminalHostProtocolVersionV1, 30000, 30000,
             &grant) == Error::kNone,
         "canonical renderer grant validates");
   Check(grant.endpoint == endpoint && grant.terminal_id == terminal &&
             grant.incarnation == incarnation &&
             grant.token == Filled<32>(0xa5) &&
-            grant.rights == Rights::kRenderer && grant.ttl_ms == 30000,
+            grant.rights == Rights::kRenderer &&
+            grant.protocol_version == cmux::kTerminalHostProtocolVersionV1 &&
+            grant.ttl_ms == 30000,
         "validated renderer grant contains typed binary identities and token");
   Check(HasProtocolVersion<cmux::TerminalHostRendererGrant>::value &&
             GrantProtocolVersionIs(grant,
@@ -433,6 +436,17 @@ void TestRendererGrantValidation() {
           std::string_view, std::string_view, uint64_t, uint64_t, uint64_t,
           uint64_t, cmux::TerminalHostRendererGrant*>),
       "renderer grant validation requires the selected protocol version");
+  const cmux::TerminalHostClientHello renderer_hello =
+      cmux::TerminalHostClientHelloForRendererGrant(grant);
+  Check(renderer_hello.min_version ==
+                cmux::kTerminalHostProtocolVersionV1 &&
+            renderer_hello.max_version ==
+                cmux::kTerminalHostProtocolVersionV1 &&
+            renderer_hello.role == cmux::TerminalHostClientRole::kRenderer &&
+            renderer_hello.requested_rights == Rights::kRenderer &&
+            renderer_hello.terminal_id == terminal &&
+            renderer_hello.token == Filled<32>(0xa5),
+        "validated grant pins renderer Hello to the selected host version");
   Check(std::string(cmux::TerminalHostRendererGrantErrorMessage(Error::kNone))
             .empty(),
         "successful grant validation has no error text");
@@ -447,7 +461,8 @@ void TestRendererGrantValidation() {
     output.endpoint = "untouched";
     const Error error = cmux::ValidateTerminalHostRendererGrant(
         candidate_endpoint, candidate_terminal, candidate_incarnation,
-        candidate_token, candidate_rights, candidate_ttl, expected_ttl,
+        candidate_token, candidate_rights,
+        cmux::kTerminalHostProtocolVersion, candidate_ttl, expected_ttl,
         &output);
     Check(error == Error::kNone || output.endpoint == "untouched",
           "invalid grant leaves typed destination untouched");
@@ -539,8 +554,19 @@ void TestRendererGrantValidation() {
   Check(Validate(endpoint, terminal_hex, incarnation_hex, token_hex, 7, 30000,
                  29999) == Error::kInvalidTtl,
         "renderer grant TTL must echo the exact request");
+  for (const uint64_t invalid_version : {0ULL, 3ULL, 65537ULL}) {
+    cmux::TerminalHostRendererGrant output;
+    output.endpoint = "untouched";
+    Check(cmux::ValidateTerminalHostRendererGrant(
+              endpoint, terminal_hex, incarnation_hex, token_hex, 7,
+              invalid_version, 30000, 30000,
+              &output) == Error::kInvalidProtocolVersion &&
+              output.endpoint == "untouched",
+          "renderer grant rejects an unsupported host protocol version");
+  }
   Check(cmux::ValidateTerminalHostRendererGrant(
-            endpoint, terminal_hex, incarnation_hex, token_hex, 7, 30000, 30000,
+            endpoint, terminal_hex, incarnation_hex, token_hex, 7,
+            cmux::kTerminalHostProtocolVersion, 30000, 30000,
             nullptr) == Error::kInvalidEndpoint,
         "renderer grant requires an output destination");
 }
@@ -889,7 +915,7 @@ void TestProtocolV1SnapshotAndResizeCompatibility() {
             Error::kNone &&
             resize_payload.size() >= 2,
         "v2 resize fixture encodes");
-  resize_payload.resize(resize_payload.size() - 2);
+  resize_payload.resize(resize_payload.size() - 2 - 4);
 
   cmux::TerminalHostResize decoded_resize;
   Check(cmux::DecodeTerminalHostResizeForVersion(
@@ -971,8 +997,8 @@ void TestProtocolV2KittyAliasesAndBounds() {
   resize.replay.resize(kRustTerminalHostMaxReplay);
   std::vector<uint8_t> payload;
   Check(cmux::EncodeTerminalHostResize(resize, &payload) == Error::kNone &&
-            payload.size() == 8 + kRustTerminalHostMaxReplay + 2,
-        "resized admits the exact Rust replay ceiling plus empty alias table");
+            payload.size() == 8 + kRustTerminalHostMaxReplay + 2 + 4,
+        "resized admits the exact Rust replay ceiling plus v2 suffix");
   resize.replay.push_back(0);
   payload = {0xa5};
   Check(cmux::EncodeTerminalHostResize(resize, &payload) ==
@@ -1076,8 +1102,8 @@ void TestResizeAndViewerSizePayloads() {
         "resized payload encodes");
   Check(payload == std::vector<uint8_t>(
                        {0x23, 0x01, 0x67, 0x45, 3, 0, 0, 0, 0xaa, 0xbb,
-                        0xcc, 0, 0}),
-        "resized payload matches Rust u16/u16/u32/blob/alias layout");
+                        0xcc, 0, 0, 8, 0, 16, 0}),
+        "resized payload matches Rust v2 replay, alias, and cell-pixel layout");
   cmux::TerminalHostResize decoded;
   Check(cmux::DecodeTerminalHostResize(Bytes(payload), &decoded) ==
                 Error::kNone &&

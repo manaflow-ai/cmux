@@ -841,6 +841,7 @@ TerminalHostRendererGrantError ValidateTerminalHostRendererGrant(
     std::string_view incarnation,
     std::string_view token,
     uint64_t rights,
+    uint64_t protocol_version,
     uint64_t ttl_ms,
     uint64_t expected_ttl_ms,
     TerminalHostRendererGrant* grant) {
@@ -866,6 +867,10 @@ TerminalHostRendererGrantError ValidateTerminalHostRendererGrant(
   if (rights != kRendererRights) {
     return TerminalHostRendererGrantError::kInvalidRights;
   }
+  if (protocol_version < kTerminalHostProtocolVersionV1 ||
+      protocol_version > kTerminalHostProtocolVersion) {
+    return TerminalHostRendererGrantError::kInvalidProtocolVersion;
+  }
   if (ttl_ms == 0 || ttl_ms > kTerminalHostMaxRendererCapabilityTtlMs ||
       expected_ttl_ms == 0 ||
       expected_ttl_ms > kTerminalHostMaxRendererCapabilityTtlMs ||
@@ -879,9 +884,22 @@ TerminalHostRendererGrantError ValidateTerminalHostRendererGrant(
   }
   decoded.endpoint = std::string(endpoint);
   decoded.rights = TerminalHostCapabilityRights::kRenderer;
+  decoded.protocol_version = static_cast<uint16_t>(protocol_version);
   decoded.ttl_ms = static_cast<uint32_t>(ttl_ms);
   *grant = std::move(decoded);
   return TerminalHostRendererGrantError::kNone;
+}
+
+TerminalHostClientHello TerminalHostClientHelloForRendererGrant(
+    const TerminalHostRendererGrant& grant) {
+  TerminalHostClientHello hello;
+  hello.min_version = grant.protocol_version;
+  hello.max_version = grant.protocol_version;
+  hello.role = TerminalHostClientRole::kRenderer;
+  hello.requested_rights = grant.rights;
+  hello.terminal_id = grant.terminal_id;
+  hello.token = grant.token;
+  return hello;
 }
 
 const char* TerminalHostRendererGrantErrorMessage(
@@ -899,6 +917,8 @@ const char* TerminalHostRendererGrantErrorMessage(
       return "invalid terminal-host one-use token";
     case TerminalHostRendererGrantError::kInvalidRights:
       return "invalid terminal-host renderer rights";
+    case TerminalHostRendererGrantError::kInvalidProtocolVersion:
+      return "invalid terminal-host protocol version";
     case TerminalHostRendererGrantError::kInvalidTtl:
       return "invalid terminal-host renderer TTL";
   }
@@ -1052,6 +1072,7 @@ TerminalHostResize::~TerminalHostResize() = default;
 
 bool TerminalHostResize::operator==(const TerminalHostResize& other) const {
   return cols == other.cols && rows == other.rows &&
+         cell_width == other.cell_width && cell_height == other.cell_height &&
          replay == other.replay &&
          kitty_image_aliases == other.kitty_image_aliases;
 }
@@ -1071,13 +1092,15 @@ TerminalHostProtocolError EncodeTerminalHostResize(
     return aliases_error;
   }
   std::vector<uint8_t> encoded;
-  encoded.reserve(10 + resize.replay.size() +
+  encoded.reserve(14 + resize.replay.size() +
                   resize.kitty_image_aliases.size() * 8);
   AppendU16(&encoded, resize.cols);
   AppendU16(&encoded, resize.rows);
   AppendU32(&encoded, static_cast<uint32_t>(resize.replay.size()));
   encoded.insert(encoded.end(), resize.replay.begin(), resize.replay.end());
   AppendKittyImageAliases(&encoded, resize.kitty_image_aliases);
+  AppendU16(&encoded, std::max<uint16_t>(resize.cell_width, 1));
+  AppendU16(&encoded, std::max<uint16_t>(resize.cell_height, 1));
   if (encoded.size() > kTerminalHostMaxFramePayload) {
     return TerminalHostProtocolError::kPayloadTooLarge;
   }
@@ -1118,11 +1141,18 @@ TerminalHostProtocolError DecodeTerminalHostResizeForVersion(
           TerminalHostProtocolError::kNone) {
     return TerminalHostProtocolError::kMalformedPayload;
   }
+  if (protocol_version >= kTerminalHostProtocolVersion &&
+      (!reader.U16(&decoded.cell_width) ||
+       !reader.U16(&decoded.cell_height))) {
+    return TerminalHostProtocolError::kMalformedPayload;
+  }
   if (!reader.finished()) {
     return TerminalHostProtocolError::kMalformedPayload;
   }
   decoded.cols = std::max<uint16_t>(decoded.cols, 1);
   decoded.rows = std::max<uint16_t>(decoded.rows, 1);
+  decoded.cell_width = std::max<uint16_t>(decoded.cell_width, 1);
+  decoded.cell_height = std::max<uint16_t>(decoded.cell_height, 1);
   *resize = std::move(decoded);
   return TerminalHostProtocolError::kNone;
 }

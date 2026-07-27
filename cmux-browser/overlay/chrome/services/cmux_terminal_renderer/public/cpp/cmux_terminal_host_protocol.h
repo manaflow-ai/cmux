@@ -242,6 +242,7 @@ enum class TerminalHostRendererGrantError {
   kInvalidIncarnation,
   kInvalidToken,
   kInvalidRights,
+  kInvalidProtocolVersion,
   kInvalidTtl,
 };
 
@@ -251,22 +252,27 @@ struct TerminalHostRendererGrant {
   TerminalHostIncarnation incarnation{};
   TerminalHostCapabilityToken token{};
   TerminalHostCapabilityRights rights = TerminalHostCapabilityRights::kNone;
+  uint16_t protocol_version = kTerminalHostProtocolVersion;
   uint32_t ttl_ms = 0;
 };
 
 // Parses the canonical JSON grant fields without depending on a JSON library.
 // IDs are lowercase, unhyphenated UUIDv4 hex; the capability is 32 nonzero
-// bytes of lowercase hex; rights must be exactly the renderer set; and the
-// response TTL must equal the bounded TTL sent in the request.
+// bytes of lowercase hex; rights must be exactly the renderer set; the host
+// protocol version must be supported; and the response TTL must equal the
+// bounded TTL sent in the request.
 TerminalHostRendererGrantError ValidateTerminalHostRendererGrant(
     std::string_view endpoint,
     std::string_view terminal_id,
     std::string_view incarnation,
     std::string_view token,
     uint64_t rights,
+    uint64_t protocol_version,
     uint64_t ttl_ms,
     uint64_t expected_ttl_ms,
     TerminalHostRendererGrant* grant);
+TerminalHostClientHello TerminalHostClientHelloForRendererGrant(
+    const TerminalHostRendererGrant& grant);
 const char* TerminalHostRendererGrantErrorMessage(
     TerminalHostRendererGrantError error);
 std::string EncodeTerminalHostId(const TerminalHostId& id);
@@ -322,6 +328,8 @@ struct TerminalHostResize {
 
   uint16_t cols = 80;
   uint16_t rows = 24;
+  uint16_t cell_width = 8;
+  uint16_t cell_height = 16;
   std::vector<uint8_t> replay;
   std::vector<TerminalHostKittyImageAlias> kitty_image_aliases;
 

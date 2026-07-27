@@ -81,6 +81,8 @@ pub(crate) struct ShortcutMessages {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct AttachMessages {
     pub filtered_subscription_unavailable: &'static str,
+    surface_sync_failed_template: &'static str,
+    surface_sync_unknown_template: &'static str,
     unknown_terminal_prefix: &'static str,
     unknown_terminal_suffix: &'static str,
     ambiguous_terminal_prefix: &'static str,
@@ -90,6 +92,20 @@ pub(crate) struct AttachMessages {
 }
 
 impl AttachMessages {
+    pub fn surface_sync_failed(&self, surface: u64, operation: &str, error: &str) -> String {
+        self.surface_sync_failed_template
+            .replace("{surface}", &surface.to_string())
+            .replace("{operation}", operation)
+            .replace("{error}", error)
+    }
+
+    pub fn surface_sync_unknown(&self, surface: u64, operation: &str, error: &str) -> String {
+        self.surface_sync_unknown_template
+            .replace("{surface}", &surface.to_string())
+            .replace("{operation}", operation)
+            .replace("{error}", error)
+    }
+
     pub fn unknown_terminal(&self, reference: &str) -> String {
         format!("{}{reference:?}{}", self.unknown_terminal_prefix, self.unknown_terminal_suffix)
     }
@@ -339,6 +355,8 @@ edits shell files. Authenticate with the configured host before retrying.
     },
     attach: AttachMessages {
         filtered_subscription_unavailable: "single-terminal attach requires a newer cmux-tui server; restart the session",
+        surface_sync_failed_template: "surface {surface} {operation} failed; retries are rate-limited: {error}",
+        surface_sync_unknown_template: "surface {surface} {operation} outcome is unknown; detach and reconnect before sending more input: {error}",
         unknown_terminal_prefix: "unknown terminal ",
         unknown_terminal_suffix: "; use `cmux-tui ids` to list surfaces",
         ambiguous_terminal_prefix: "ambiguous terminal reference ",
@@ -490,6 +508,8 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
     },
     attach: AttachMessages {
         filtered_subscription_unavailable: "単一ターミナルへの接続には新しい cmux-tui サーバーが必要です。セッションを再起動してください",
+        surface_sync_failed_template: "サーフェス {surface} の {operation} に失敗しました。再試行は制限されています: {error}",
+        surface_sync_unknown_template: "サーフェス {surface} の {operation} の結果は不明です。入力を続ける前に切断して再接続してください: {error}",
         unknown_terminal_prefix: "ターミナル ",
         unknown_terminal_suffix: " が見つかりません。`cmux-tui ids` でサーフェス一覧を確認してください",
         ambiguous_terminal_prefix: "ターミナル参照 ",

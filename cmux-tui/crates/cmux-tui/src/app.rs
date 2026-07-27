@@ -7099,13 +7099,17 @@ impl App {
                     } => {
                         if reconnect_required {
                             self.deferred_input.retain(|input| input.destination != Some(surface));
-                            self.status_message = Some(format!(
-                                "surface {surface} {operation} outcome is unknown; detach and reconnect before sending more input: {error}"
-                            ));
+                            self.status_message = Some(
+                                localization::catalog()
+                                    .attach
+                                    .surface_sync_unknown(surface, operation, &error),
+                            );
                         } else {
-                            self.status_message = Some(format!(
-                                "surface {surface} {operation} failed; retries are rate-limited: {error}"
-                            ));
+                            self.status_message = Some(
+                                localization::catalog()
+                                    .attach
+                                    .surface_sync_failed(surface, operation, &error),
+                            );
                         }
                     }
                     _ => {
