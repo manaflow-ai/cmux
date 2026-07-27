@@ -12,14 +12,11 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `af4dfb43f`, the reviewed head of
-https://github.com/manaflow-ai/ghostty/pull/152. It adds teardown-safe action
-lease release on top of transactional menu-owned key binding consumption and
-modifier-independent paired-release tracking from
-https://github.com/manaflow-ai/ghostty/pull/151, based on the current
-`manaflow-ai/ghostty` `main`, including the synchronous embedder teardown from
-https://github.com/manaflow-ai/ghostty/pull/146 and the render-grid work from
-https://github.com/manaflow-ai/ghostty/pull/147.
+The submodule pinned by this branch is `65505e8c3`, the merged head of
+https://github.com/manaflow-ai/ghostty/pull/156. It adds tracked, atomic
+keyboard copy navigation on top of the native keyboard selection geometry from
+https://github.com/manaflow-ai/ghostty/pull/154 and the current
+`manaflow-ai/ghostty` `main`.
 
 `4cc0933cf` adds the screen-anchored render-grid export for the iOS
 local-scrollback scroll work: `buildRenderGridJson` gains an active-area
@@ -58,9 +55,9 @@ and the product-main renderer/link fixes described below. It also bounds each
 renderer mailbox drain turn so continuous producers cannot starve lifecycle
 processing or rendering.
 
-The pinned `af4dfb43f` universal ReleaseFast GhosttyKit archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-af4dfb43ff9d1dffe8c1b49b5c1e1ce31d05e9ce-crashsubdir-cmux-crash-v1
-and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
+No prebuilt checksum is pinned yet for `65505e8c3`.
+`scripts/ensure-ghosttykit.sh` therefore builds its universal ReleaseFast
+GhosttyKit archive locally.
 
 ### Bounded renderer mailbox turns and continuation recovery
 
@@ -886,7 +883,10 @@ tend to conflict together during rebases.
   - `edad0cfec` (surface: format screen row clipboard text)
   - `e81fb65f` (surface: bound screen clipboard text formatting)
   - `aeed68c44` (Expose native keyboard selection geometry)
-- PR: https://github.com/manaflow-ai/ghostty/pull/154
+  - `65505e8c3` (Make keyboard copy navigation atomic)
+- PRs:
+  - https://github.com/manaflow-ai/ghostty/pull/154
+  - https://github.com/manaflow-ai/ghostty/pull/156
 - Files:
   - `include/ghostty.h`
   - `src/apprt/embedded.zig`
@@ -901,10 +901,23 @@ tend to conflict together during rebases.
   - Resolves viewport cells to canonical glyph coordinates so wide and wrapped glyphs use their actual leading cell and width.
   - Adds tracked character and linewise viewport selection APIs. Ghostty owns selection rendering, reflow, scrolling, and clipboard formatting while cmux moves logical endpoints.
   - Preserves selection mode and direction through snapshots, screen clones, reflow, and renderer caching.
+  - Stores the keyboard copy cursor as a tracked screen pin, preserving logical
+    cell identity across PTY output, reset, reflow, scrolling, and alternate
+    screen transitions.
+  - Applies counted glyph movement and scrolling under one terminal lock, then
+    returns the authoritative viewport cell and glyph width to the host.
+  - Ties keyboard selection ownership to Ghostty's selection activity identity
+    so mouse or other foreign selection replacement cannot be mistaken for
+    copy-mode state.
+  - Bounds clipboard formatting to 2 MiB while keeping formatting and terminal
+    reads inside Ghostty.
 - Conflict notes:
   - Reconcile the exported C declarations with `src/apprt/embedded.zig` whenever the embedded surface API changes.
   - Keep character-cell canonicalization aligned with wide-cell and wrapped-spacer behavior in `src/terminal/Selection.zig`.
   - Linewise endpoints remain logical row pins. Full-row bounds are derived for rendering and copying, rather than stored in the selection.
+  - Keep tracked cursor cleanup generation-safe when alternate screens are
+    destroyed, and preserve selection activity checks whenever selection
+    ownership changes.
 
 ### 7) macos-background-from-layer config flag
 
