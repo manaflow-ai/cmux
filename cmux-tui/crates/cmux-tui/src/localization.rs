@@ -1103,6 +1103,14 @@ mod tests {
         );
         let japanese_layout = &catalog_for_locale("ja_JP.UTF-8").layout;
         assert_eq!(
+            catalog_for_locale("en_US.UTF-8").layout.surface_size_release_failed(7, "disconnected"),
+            "surface 7 size release failed; retrying on the next layout: disconnected"
+        );
+        assert_eq!(
+            japanese_layout.surface_size_release_failed(7, "切断"),
+            "サーフェス 7 のサイズ設定の解放に失敗しました。次回のレイアウト更新時に再試行します: 切断"
+        );
+        assert_eq!(
             japanese_layout.viewport_width_out_of_range,
             "ビューポートペインの幅は 0.1 から 1.0 の範囲で指定してください"
         );

@@ -1537,6 +1537,25 @@ mod tests {
     }
 
     #[test]
+    fn published_sdk_versions_stay_synchronized() {
+        let rust_version = env!("CARGO_PKG_VERSION");
+        let typescript: Value =
+            serde_json::from_str(include_str!("../../typescript/package.json")).unwrap();
+        let typescript_lock: Value =
+            serde_json::from_str(include_str!("../../typescript/package-lock.json")).unwrap();
+        let python_manifest = include_str!("../../python/pyproject.toml");
+        let python_version = python_manifest
+            .lines()
+            .find_map(|line| line.strip_prefix("version = \"")?.strip_suffix('"'))
+            .unwrap();
+
+        assert_eq!(typescript["version"].as_str(), Some(rust_version));
+        assert_eq!(typescript_lock["version"].as_str(), Some(rust_version));
+        assert_eq!(typescript_lock["packages"][""]["version"].as_str(), Some(rust_version));
+        assert_eq!(python_version, rust_version);
+    }
+
+    #[test]
     fn default_socket_path_preserves_compatible_runtime_dir() {
         let runtime_dir = PathBuf::from("/tmp/cmux-tui-compat");
         assert_eq!(
