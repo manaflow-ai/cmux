@@ -13,6 +13,7 @@ internal import Foundation
 /// notifications hop to the main actor before touching the receiver.
 public final class GhosttyMetalLayer: CAMetalLayer {
     private let lock = NSLock()
+    private let frameDeliveryGate = RenderedFrameDeliveryGate()
     // SAFETY: all four are guarded by `lock`; written/read from the renderer
     // thread (`nextDrawable()`) and the main actor (configuration, debug HUD).
     nonisolated(unsafe) private var drawableCount: Int = 0
@@ -27,6 +28,7 @@ public final class GhosttyMetalLayer: CAMetalLayer {
         lock.lock()
         self.renderDemand = renderDemand
         lock.unlock()
+        frameDeliveryGate.cancel()
     }
 
     /// Injects receiver-local demand. A drawable notifies when either the
@@ -35,6 +37,7 @@ public final class GhosttyMetalLayer: CAMetalLayer {
         lock.lock()
         self.localRenderDemand = localRenderDemand
         lock.unlock()
+        frameDeliveryGate.cancel()
     }
 
     /// Whether either gate currently requests rendered-frame delivery.
@@ -52,6 +55,7 @@ public final class GhosttyMetalLayer: CAMetalLayer {
         lock.lock()
         self.frameReceiver = frameReceiver
         lock.unlock()
+        frameDeliveryGate.cancel()
     }
 
     /// The number of drawables vended so far and the media time of the last
@@ -75,15 +79,15 @@ public final class GhosttyMetalLayer: CAMetalLayer {
         let frameReceiver = frameReceiver
         lock.unlock()
         guard Self.hasActiveRenderDemand(global: renderDemand, local: localRenderDemand) else {
+            frameDeliveryGate.cancel()
             return drawable
         }
-        if let frameReceiver {
-            // Hop to the main actor exactly like the legacy
-            // DispatchQueue.main.async dispatch (the main-actor executor is
-            // the main queue); the receiver coalesces bursts on arrival.
-            Task { @MainActor [weak frameReceiver] in
-                frameReceiver?.enqueueRenderedFrameUpdate()
-            }
+        guard let frameReceiver,
+              let ticket = frameDeliveryGate.claim() else { return drawable }
+        let deliveryGate = frameDeliveryGate
+        Task { @MainActor [weak frameReceiver, deliveryGate] in
+            guard deliveryGate.consume(ticket) else { return }
+            frameReceiver?.enqueueRenderedFrameUpdate()
         }
         return drawable
     }
