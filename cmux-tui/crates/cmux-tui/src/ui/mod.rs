@@ -19,6 +19,7 @@ use ratatui::Frame;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Position;
 use ratatui::style::{Color, Modifier, Style};
+use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
 use crate::app::{App, Hit};
@@ -193,7 +194,7 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
     let mut hits = Vec::new();
     let put = |frame: &mut Frame, x: &mut u16, text: &str, style: Style| -> (u16, u16) {
         let start = *x;
-        let width = (text.chars().count() as u16).min(area.width.saturating_sub(*x));
+        let width = text.width().min(area.width.saturating_sub(*x) as usize) as u16;
         if width > 0 {
             frame.buffer_mut().set_stringn(*x, status_y, text, width as usize, style);
             *x += width;
@@ -225,12 +226,15 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
     }
     // Session label / status message, right-aligned. Prefix help renders
     // over the pane border above this row.
+    let available_label_width = area.width.saturating_sub(x) as usize;
     let label = app
         .status_message
         .as_ref()
-        .map(|msg| format!(" {} ", truncate(msg, area.width.saturating_sub(x) as usize)))
-        .unwrap_or_else(|| format!("[{}] ", app.session_label));
-    let label_w = label.chars().count() as u16;
+        .map(|msg| format!(" {} ", truncate(msg, available_label_width.saturating_sub(2))))
+        .unwrap_or_else(|| {
+            format!("[{}] ", truncate(&app.session_label, available_label_width.saturating_sub(3)))
+        });
+    let label_w = label.width().min(area.width as usize) as u16;
     let track_end = area.width.saturating_sub(label_w);
     let track_start = x.saturating_add(1);
     let track_width = track_end.saturating_sub(track_start.saturating_add(1));
@@ -252,7 +256,7 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
     }
     app.hits.extend(hits);
 
-    if x + label_w < area.width {
+    if x.saturating_add(label_w) < area.width {
         frame.buffer_mut().set_stringn(
             area.width - label_w,
             status_y,
@@ -339,10 +343,22 @@ fn draw_prefix_help_bar(app: &App, frame: &mut Frame, bar_x: u16, y: u16) {
 }
 
 pub(crate) fn truncate(s: &str, max: usize) -> String {
-    if s.chars().count() <= max {
+    if s.width() <= max {
         s.to_string()
+    } else if max == 0 {
+        String::new()
     } else {
-        let mut out: String = s.chars().take(max.saturating_sub(1)).collect();
+        let content_width = max - 1;
+        let mut width = 0;
+        let mut out = String::new();
+        for grapheme in s.graphemes(true) {
+            let grapheme_width = grapheme.width();
+            if width + grapheme_width > content_width {
+                break;
+            }
+            out.push_str(grapheme);
+            width += grapheme_width;
+        }
         out.push('…');
         out
     }
@@ -374,7 +390,7 @@ mod tests {
     use ratatui::layout::Rect;
     use ratatui::style::Style;
 
-    use super::{copy_buffer_row_cropped, middle_truncate, sanitize_render_buffer};
+    use super::{copy_buffer_row_cropped, middle_truncate, sanitize_render_buffer, truncate};
 
     #[test]
     fn middle_truncates_for_narrow_columns() {
@@ -382,6 +398,14 @@ mod tests {
         assert_eq!(middle_truncate("abcdefghi", 3), "...");
         assert_eq!(middle_truncate("abc", 3), "abc");
         assert_eq!(middle_truncate("abc", 0), "");
+    }
+
+    #[test]
+    fn truncation_uses_terminal_cell_width_and_preserves_graphemes() {
+        assert_eq!(truncate("復元失敗", 5), "復元…");
+        assert_eq!(truncate("e\u{301}clair", 2), "e\u{301}…");
+        assert_eq!(truncate("復元", 1), "…");
+        assert_eq!(truncate("復元", 0), "");
     }
 
     #[test]
