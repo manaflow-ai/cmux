@@ -165,7 +165,8 @@ struct RawConfig {
     server: RawServer,
     /// Key bindings: `"prefix"` plus one entry per action. Values may be
     /// a chord string, an array of chord strings, `"none"`, or
-    /// `"alt_shortcuts": false`, or `"super_shortcuts": false`.
+    /// `"alt_shortcuts": false`, `"super_shortcuts": false`, or the host
+    /// input mode `"macos_option_as_alt": false`.
     #[serde(default)]
     keys: HashMap<String, Value>,
 }
@@ -1322,6 +1323,9 @@ impl Chord {
 #[derive(Debug, Clone)]
 pub struct Keys {
     pub prefix: Chord,
+    /// Resolve empty-text Alt character events using the host terminal's
+    /// macOS Option mode instead of guessing from each event.
+    pub macos_option_as_alt: bool,
     bindings: Vec<(Chord, Action)>,
 }
 
@@ -1333,6 +1337,7 @@ impl Default for Keys {
         let prefix = Chord { code: KeyCode::Char('b'), mods: KeyModifiers::CONTROL };
         Keys {
             prefix,
+            macos_option_as_alt: true,
             bindings: vec![
                 (prefix, Action::SendPrefix),
                 bind(KeyCode::Char('t'), Action::NewTab),
@@ -1483,6 +1488,13 @@ impl Keys {
     /// Apply config overrides: `"prefix"` rebinds the prefix; any action
     /// name rebinds that action (replacing ALL default chords for it).
     fn apply(&mut self, raw: &HashMap<String, Value>) {
+        if let Some(value) = raw.get("macos_option_as_alt") {
+            if let Some(value) = value.as_bool() {
+                self.macos_option_as_alt = value;
+            } else {
+                eprintln!("cmux-tui: ignoring non-boolean keys.macos_option_as_alt = {value:?}");
+            }
+        }
         if raw.get("alt_shortcuts").and_then(Value::as_bool) == Some(false) {
             self.bindings.retain(|(chord, _)| !chord.mods.contains(KeyModifiers::ALT));
         }
@@ -1510,7 +1522,11 @@ impl Keys {
             }
         }
         for (name, value) in raw {
-            if name == "alt_shortcuts" || name == "super_shortcuts" || name == "prefix" {
+            if name == "macos_option_as_alt"
+                || name == "alt_shortcuts"
+                || name == "super_shortcuts"
+                || name == "prefix"
+            {
                 continue;
             }
             // The numbered families accept both spellings: select-screen-N /
@@ -3023,6 +3039,21 @@ mod tests {
             }
         }
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn macos_option_as_alt_is_an_explicit_input_mode() {
+        let mut keys = Keys::default();
+        assert!(keys.macos_option_as_alt);
+
+        keys.apply(&HashMap::from([("macos_option_as_alt".to_string(), Value::Bool(false))]));
+        assert!(!keys.macos_option_as_alt);
+
+        keys.apply(&HashMap::from([(
+            "macos_option_as_alt".to_string(),
+            Value::String("guess".to_string()),
+        )]));
+        assert!(!keys.macos_option_as_alt);
     }
 
     #[test]

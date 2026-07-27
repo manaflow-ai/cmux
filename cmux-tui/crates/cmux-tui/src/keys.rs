@@ -23,7 +23,9 @@ pub struct KeyboardInput {
     base_layout_key: Option<char>,
     associated_text: String,
     alt_generated_text: bool,
+    ambiguous_alt_character: bool,
     suppress_alt_shortcut: bool,
+    composing: bool,
     enhanced: bool,
 }
 
@@ -35,7 +37,9 @@ impl From<KeyEvent> for KeyboardInput {
             base_layout_key: None,
             associated_text: String::new(),
             alt_generated_text: false,
+            ambiguous_alt_character: false,
             suppress_alt_shortcut: false,
+            composing: false,
             enhanced: false,
         }
     }
@@ -51,10 +55,10 @@ impl KeyboardInput {
     pub fn from_enhanced(event: EnhancedKeyEvent) -> Self {
         // Kitty reports generated text per event, but no consumed-modifier
         // mask. Nonempty text that differs from the active layout means macOS
-        // Option produced text and consumed Alt. An empty-text character is
-        // ambiguous because it may be a dead-key prefix, so it cannot
-        // authoritatively trigger a cmux Alt binding. Non-character keys keep
-        // their explicitly reported Alt modifier.
+        // Option produced text and consumed Alt. Preserve an empty-text Alt
+        // character as ambiguous until App resolves it from the explicit
+        // macos_option_as_alt setting; genuine terminal Alt must remain the
+        // standalone/default interpretation.
         let alt_pressed = event.key_event.modifiers.contains(KeyModifiers::ALT);
         let text_matches_layout = text_matches_active_layout(&event);
         let alt_generated_text = alt_pressed && !event.text.is_empty() && !text_matches_layout;
@@ -67,9 +71,18 @@ impl KeyboardInput {
             base_layout_key: event.base_layout_key,
             associated_text: event.text,
             alt_generated_text,
-            suppress_alt_shortcut: alt_generated_text || ambiguous_alt_character,
+            ambiguous_alt_character,
+            suppress_alt_shortcut: alt_generated_text,
+            composing: false,
             enhanced: true,
         }
+    }
+
+    /// Resolve the only ambiguous Kitty representation once, at the app
+    /// boundary, from the user's host-terminal input mode.
+    pub fn resolve_macos_option_as_alt(&mut self, macos_option_as_alt: bool) {
+        self.composing = self.ambiguous_alt_character && !macos_option_as_alt;
+        self.suppress_alt_shortcut = self.alt_generated_text || self.composing;
     }
 
     pub fn ui_key(&self) -> KeyEvent {
@@ -115,6 +128,10 @@ impl KeyboardInput {
         self.suppress_alt_shortcut
     }
 
+    pub fn is_composing(&self) -> bool {
+        self.composing
+    }
+
     /// Active-layout logical identity first, then the PC-101 physical
     /// fallback. A reported shifted ASCII identity has already consumed
     /// Shift; other layouts retain it as an explicit shortcut modifier.
@@ -152,7 +169,7 @@ impl KeyboardInput {
                 self.base_layout_key,
                 self.associated_text,
                 self.alt_generated_text,
-                self.suppress_alt_shortcut,
+                self.composing,
             )
         } else {
             key_input_from(&self.key_event)
@@ -430,7 +447,7 @@ fn key_input_from_parts(
     base_layout_key: Option<char>,
     associated_text: String,
     alt_generated_text: bool,
-    suppress_alt_shortcut: bool,
+    composing: bool,
 ) -> Option<KeyInput> {
     let mut input = key_input_from_event(event, false)?;
 
@@ -446,7 +463,7 @@ fn key_input_from_parts(
     if let Some(shifted_key) = shifted_key {
         input.shifted_codepoint = shifted_key as u32;
     }
-    input.composing = suppress_alt_shortcut && associated_text.is_empty();
+    input.composing = composing;
 
     if !associated_text.is_empty() {
         input.utf8 = associated_text;
@@ -738,14 +755,15 @@ mod tests {
 
     #[test]
     fn enhanced_dead_key_preserves_authoritative_empty_text() {
-        let input = KeyboardInput::from_enhanced(EnhancedKeyEvent {
+        let mut input = KeyboardInput::from_enhanced(EnhancedKeyEvent {
             key_event: KeyEvent::new(KeyCode::Char('e'), KeyModifiers::ALT),
             shifted_key: Some('E'),
             base_layout_key: Some('e'),
             text: String::new(),
-        })
-        .into_terminal_input()
-        .unwrap();
+        });
+        input.resolve_macos_option_as_alt(false);
+        assert!(input.suppresses_alt_shortcut());
+        let input = input.into_terminal_input().unwrap();
 
         assert!(input.utf8.is_empty());
         assert!(input.composing);

@@ -91,6 +91,8 @@ Any configured Alt chord is active without the prefix. Default modeless commands
 
 Set `keys.alt_shortcuts` to `false` to remove the default Alt bindings. This kill switch only removes defaults; Alt chords explicitly configured in `cmux-tui.json` still work.
 
+Kitty keyboard cannot distinguish a real Alt character chord from an empty-text macOS Option dead-key prefix. `keys.macos_option_as_alt` selects that input mode explicitly and defaults to `true`. Set it to `false` when the host terminal uses Option for composition. Nonempty Option-generated text remains authoritative in either mode and never triggers an Alt binding.
+
 Zellij's modal `ctrl+p`, `ctrl+t`, `ctrl+s`, `ctrl+n`, and `ctrl+o` modes are a deliberate non-goal because they conflict with common shell and editor control keys such as history, transpose, flow control, and editor navigation.
 
 ## Modeless Command/Super Layer
@@ -113,6 +115,7 @@ Each action accepts a string, an array of strings, or `"none"`. Setting an actio
 {
   "keys": {
     "prefix": "ctrl+a",
+    "macos_option_as_alt": true,
     "alt_shortcuts": false,
     "super_shortcuts": false,
     "new-tab": ["t", "alt+t", "cmd+t"],

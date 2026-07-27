@@ -6930,7 +6930,13 @@ impl App {
         }
     }
 
-    fn handle_terminal_input(&mut self, input: TerminalInput) -> anyhow::Result<RenderAction> {
+    fn handle_terminal_input(&mut self, mut input: TerminalInput) -> anyhow::Result<RenderAction> {
+        if let TerminalInput::Keyboard(key) = &mut input {
+            key.resolve_macos_option_as_alt(self.config.keys.macos_option_as_alt);
+            if key.is_composing() {
+                return Ok(RenderAction::None);
+            }
+        }
         if input.retained_bytes() > MAX_DEFERRED_INPUT_BYTES {
             self.status_message = Some(
                 match &input {
@@ -7888,7 +7894,11 @@ impl App {
         self.handle_keyboard(key.into())
     }
 
-    fn handle_keyboard(&mut self, input: keys::KeyboardInput) -> anyhow::Result<RenderAction> {
+    fn handle_keyboard(&mut self, mut input: keys::KeyboardInput) -> anyhow::Result<RenderAction> {
+        input.resolve_macos_option_as_alt(self.config.keys.macos_option_as_alt);
+        if input.is_composing() {
+            return Ok(RenderAction::None);
+        }
         let key = input.ui_key();
         if key.kind == KeyEventKind::Release {
             return Ok(RenderAction::None);
@@ -12641,13 +12651,14 @@ mod tests {
     }
 
     #[test]
-    fn empty_text_alt_character_does_not_match_modeless_bindings() {
-        let input = crate::keys::KeyboardInput::from_enhanced(EnhancedKeyEvent {
+    fn empty_text_alt_character_in_option_mode_does_not_match_modeless_bindings() {
+        let mut input = crate::keys::KeyboardInput::from_enhanced(EnhancedKeyEvent {
             key_event: KeyEvent::new(KeyCode::Char('j'), KeyModifiers::ALT),
             shifted_key: None,
             base_layout_key: Some('j'),
             text: String::new(),
         });
+        input.resolve_macos_option_as_alt(false);
         let (key, fallback) = input.shortcut_keys();
 
         assert!(input.suppresses_alt_shortcut());
@@ -12658,13 +12669,14 @@ mod tests {
     }
 
     #[test]
-    fn empty_text_alt_character_without_layout_metadata_does_not_match_modeless_bindings() {
-        let input = crate::keys::KeyboardInput::from_enhanced(EnhancedKeyEvent {
+    fn empty_text_alt_character_without_layout_metadata_respects_option_mode() {
+        let mut input = crate::keys::KeyboardInput::from_enhanced(EnhancedKeyEvent {
             key_event: KeyEvent::new(KeyCode::Char('j'), KeyModifiers::ALT),
             shifted_key: None,
             base_layout_key: None,
             text: String::new(),
         });
+        input.resolve_macos_option_as_alt(false);
         let (key, fallback) = input.shortcut_keys();
 
         assert!(input.suppresses_alt_shortcut());
@@ -12672,6 +12684,41 @@ mod tests {
             super::modeless_action_for_binding(&Config::default().keys, &key, fallback.as_ref()),
             None
         );
+    }
+
+    #[test]
+    fn app_resolves_empty_text_alt_from_the_configured_input_mode() {
+        for (macos_option_as_alt, should_toggle) in [(true, true), (false, false)] {
+            let mux = Mux::new(
+                format!("explicit-alt-input-mode-{macos_option_as_alt}"),
+                SurfaceOptions::default(),
+            );
+            let mut app = test_app(Session::Local(mux));
+            app.config.keys.macos_option_as_alt = macos_option_as_alt;
+            app.config.keys.apply_for_test(&HashMap::from([(
+                "toggle-sidebar".to_string(),
+                serde_json::Value::String("alt+j".to_string()),
+            )]));
+            let sidebar_was_visible = app.sidebar_visible;
+
+            app.handle_keyboard(
+                EnhancedKeyEvent {
+                    key_event: KeyEvent::new(KeyCode::Char('j'), KeyModifiers::ALT),
+                    shifted_key: None,
+                    base_layout_key: Some('j'),
+                    text: String::new(),
+                }
+                .into(),
+            )
+            .unwrap();
+
+            assert_eq!(
+                app.sidebar_visible != sidebar_was_visible,
+                should_toggle,
+                "configured macos_option_as_alt={macos_option_as_alt}"
+            );
+            assert!(app.pty_input.shutdown(Duration::from_secs(1)));
+        }
     }
 
     #[test]
