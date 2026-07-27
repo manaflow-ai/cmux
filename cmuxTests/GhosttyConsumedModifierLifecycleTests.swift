@@ -10,9 +10,12 @@ import XCTest
 
 private struct CapturedGhosttyKeyIdentityEvent {
     let action: ghostty_input_action_e
+    let keycode: UInt32
     let text: String?
+    let modifiers: UInt32
     let consumedModifiers: UInt32
     let unshiftedCodepoint: UInt32
+    let composing: Bool
 }
 
 @MainActor
@@ -48,9 +51,12 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
             guard keyEvent.keycode == 0 else { return }
             capturedEvents.append(CapturedGhosttyKeyIdentityEvent(
                 action: keyEvent.action,
+                keycode: keyEvent.keycode,
                 text: keyEvent.text.map { String(cString: $0) },
+                modifiers: keyEvent.mods.rawValue,
                 consumedModifiers: keyEvent.consumed_mods.rawValue,
-                unshiftedCodepoint: keyEvent.unshifted_codepoint
+                unshiftedCodepoint: keyEvent.unshifted_codepoint,
+                composing: keyEvent.composing
             ))
         }
 
@@ -197,7 +203,7 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
         XCTAssertEqual(capturedComposingStates, [true, false])
     }
 
-    func testCommittedPreeditTextDoesNotInventPhysicalKey() throws {
+    func testCommittedPreeditTextUsesGhosttyNonphysicalKeyEvent() throws {
         let terminal = try makeHostedTerminal()
         defer {
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
@@ -219,13 +225,21 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
             replacementRange: NSRange(location: NSNotFound, length: 0)
         )
 
-        var committedTextKeycodes: [UInt32] = []
+        var committedTextEvents: [CapturedGhosttyKeyIdentityEvent] = []
         var nonphysicalCommittedText: [String] = []
         GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
             guard keyEvent.text.map({ String(cString: $0) }) == "日本" else {
                 return
             }
-            committedTextKeycodes.append(keyEvent.keycode)
+            committedTextEvents.append(CapturedGhosttyKeyIdentityEvent(
+                action: keyEvent.action,
+                keycode: keyEvent.keycode,
+                text: keyEvent.text.map { String(cString: $0) },
+                modifiers: keyEvent.mods.rawValue,
+                consumedModifiers: keyEvent.consumed_mods.rawValue,
+                unshiftedCodepoint: keyEvent.unshifted_codepoint,
+                composing: keyEvent.composing
+            ))
         }
         GhosttyNSView.debugGhosttySurfaceTextInputObserver = {
             nonphysicalCommittedText.append($0)
@@ -263,11 +277,19 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
             terminal.surfaceView.keyUp(with: release)
         }
 
-        XCTAssertEqual(nonphysicalCommittedText, ["日本"])
         XCTAssertTrue(
-            committedTextKeycodes.isEmpty,
-            "Text committed from preedit must use Ghostty's nonphysical text-input API, not a synthetic native keycode"
+            nonphysicalCommittedText.isEmpty,
+            "Committed preedit text must not bypass Ghostty's key-binding state machine"
         )
+        XCTAssertEqual(committedTextEvents.count, 1)
+        guard let committedTextEvent = committedTextEvents.first else { return }
+        XCTAssertEqual(committedTextEvent.action, GHOSTTY_ACTION_PRESS)
+        XCTAssertEqual(committedTextEvent.keycode, 0)
+        XCTAssertEqual(committedTextEvent.text, "日本")
+        XCTAssertEqual(committedTextEvent.modifiers, GHOSTTY_MODS_NONE.rawValue)
+        XCTAssertEqual(committedTextEvent.consumedModifiers, GHOSTTY_MODS_NONE.rawValue)
+        XCTAssertEqual(committedTextEvent.unshiftedCodepoint, 0)
+        XCTAssertFalse(committedTextEvent.composing)
     }
 
     func testConsumedPreeditRepeatKeepsAppKitOwnershipThroughRelease() throws {
