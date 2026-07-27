@@ -6,12 +6,14 @@
 //! the socket lock), or a JSON request over the control socket (10s
 //! timeout) for remote ones. A wedged Chrome or half-open session must
 //! never freeze the TUI event loop just because the mouse moved, so
-//! input events are handed to a dedicated worker thread through a
-//! bounded queue:
+//! input events are handed to one bounded worker lane per browser
+//! surface:
 //!
 //! - Consecutive mouse moves on the same surface are coalesced (latest
 //!   wins) before dispatch, so a stalled endpoint never builds a replay
 //!   backlog of stale hover/drag positions.
+//! - A blocking request stalls only its own surface lane. Other browser
+//!   surfaces keep dispatching independently.
 //! - When the queue is full (the worker is stuck inside a blocking
 //!   call), pointer and key events are dropped instead of blocking the
 //!   UI. Releases that close accepted pointer interactions are retained
@@ -218,12 +220,22 @@ impl BrowserInputKind {
 }
 
 pub struct BrowserInputDispatcher {
+    lanes: Mutex<HashMap<SurfaceId, SurfaceInputLane>>,
+    lane_capacity: usize,
+    on_resize_failure: Arc<dyn Fn(BrowserResizeFailure) + Send + Sync>,
+    on_control_failure: Arc<dyn Fn(String) + Send + Sync>,
+    failed_resizes: Arc<Mutex<HashMap<SurfaceId, FailedBrowserResize>>>,
+    #[cfg(test)]
+    blocked_lane: Option<SurfaceInputLane>,
+}
+
+struct SurfaceInputLane {
+    expected_surface_id: Option<SurfaceId>,
     tx: SyncSender<SequencedBrowserInputEvent>,
     order: Arc<Mutex<BrowserEnqueueOrder>>,
     latest_resizes: Arc<Mutex<HashMap<(SurfaceId, u64), SequencedBrowserInputEvent>>>,
     retained_releases: Arc<Mutex<Vec<SequencedBrowserInputEvent>>>,
-    failed_resizes: Arc<Mutex<HashMap<SurfaceId, FailedBrowserResize>>>,
-    surface_lifetimes: Arc<Mutex<HashMap<SurfaceId, Arc<AtomicBool>>>>,
+    surface_lifetimes: Mutex<HashMap<SurfaceId, Arc<AtomicBool>>>,
 }
 
 #[cfg(test)]
@@ -263,53 +275,30 @@ impl BrowserInputDispatcher {
         on_resize_failure: impl Fn(BrowserResizeFailure) + Send + Sync + 'static,
         on_control_failure: impl Fn(String) + Send + Sync + 'static,
     ) -> anyhow::Result<Self> {
-        let (tx, rx) = sync_channel(QUEUE_CAPACITY);
-        let order = Arc::new(Mutex::new(BrowserEnqueueOrder::default()));
-        let latest_resizes = Arc::new(Mutex::new(HashMap::new()));
-        let retained_releases = Arc::new(Mutex::new(Vec::new()));
-        let failed_resizes = Arc::new(Mutex::new(HashMap::new()));
-        let surface_lifetimes = Arc::new(Mutex::new(HashMap::new()));
-        let worker_order = order.clone();
-        let worker_resizes = latest_resizes.clone();
-        let worker_releases = retained_releases.clone();
-        let worker_failures = failed_resizes.clone();
-        let on_resize_failure = Arc::new(on_resize_failure);
-        let on_control_failure = Arc::new(on_control_failure);
-        std::thread::Builder::new().name("mux-browser-input".into()).spawn(move || {
-            worker(
-                rx,
-                worker_order,
-                worker_resizes,
-                worker_releases,
-                worker_failures,
-                on_resize_failure,
-                on_control_failure,
-            );
-        })?;
-        Ok(BrowserInputDispatcher {
-            tx,
-            order,
-            latest_resizes,
-            retained_releases,
-            failed_resizes,
-            surface_lifetimes,
+        Ok(Self {
+            lanes: Mutex::new(HashMap::new()),
+            lane_capacity: QUEUE_CAPACITY,
+            on_resize_failure: Arc::new(on_resize_failure),
+            on_control_failure: Arc::new(on_control_failure),
+            failed_resizes: Arc::new(Mutex::new(HashMap::new())),
+            #[cfg(test)]
+            blocked_lane: None,
         })
     }
 
     #[cfg(test)]
     pub(crate) fn blocked(capacity: usize) -> (Self, BlockedBrowserInput) {
-        let (tx, rx) = sync_channel(capacity);
-        let retained_releases = Arc::new(Mutex::new(Vec::new()));
+        let (lane, blocked) = SurfaceInputLane::blocked_for_any_surface(capacity);
         (
-            BrowserInputDispatcher {
-                tx,
-                order: Arc::new(Mutex::new(BrowserEnqueueOrder::default())),
-                latest_resizes: Arc::new(Mutex::new(HashMap::new())),
-                retained_releases: retained_releases.clone(),
+            Self {
+                lanes: Mutex::new(HashMap::new()),
+                lane_capacity: capacity,
+                on_resize_failure: Arc::new(|_| {}),
+                on_control_failure: Arc::new(|_| {}),
                 failed_resizes: Arc::new(Mutex::new(HashMap::new())),
-                surface_lifetimes: Arc::new(Mutex::new(HashMap::new())),
+                blocked_lane: Some(lane),
             },
-            BlockedBrowserInput { rx, retained_releases },
+            blocked,
         )
     }
 
@@ -318,15 +307,186 @@ impl BrowserInputDispatcher {
     /// other input.
     #[must_use = "control commands must surface backpressure instead of dropping silently"]
     pub fn enqueue(&self, event: BrowserInputEvent) -> bool {
-        let is_resize = event.kind.is_resize();
-        let is_release = event.kind.closes_pointer_interaction();
-        let press = event.kind.pointer_press_button().map(|button| (event.surface_id, button));
-        let release = event.kind.pointer_release_button().map(|button| (event.surface_id, button));
         if let Some(desired) = event.kind.resize_dimensions()
             && self.resize_failed(event.surface_id, desired)
         {
             return true;
         }
+        #[cfg(test)]
+        if let Some(lane) = &self.blocked_lane {
+            return lane.enqueue(event);
+        }
+        let surface_id = event.surface_id;
+        let is_control = event.kind.is_control();
+        let is_release = event.kind.closes_pointer_interaction();
+        let mut lanes = self.lanes.lock().unwrap();
+        if is_release && !lanes.contains_key(&surface_id) {
+            return false;
+        }
+        if !lanes.contains_key(&surface_id) {
+            let lane = match SurfaceInputLane::spawn(
+                surface_id,
+                self.lane_capacity,
+                self.failed_resizes.clone(),
+                self.on_resize_failure.clone(),
+                self.on_control_failure.clone(),
+            ) {
+                Ok(lane) => lane,
+                Err(error) => {
+                    drop(lanes);
+                    if is_control {
+                        (self.on_control_failure)(format!(
+                            "browser command failed: could not start input lane: {error}"
+                        ));
+                    }
+                    return false;
+                }
+            };
+            lanes.insert(surface_id, lane);
+        }
+        lanes.get(&surface_id).is_some_and(|lane| lane.enqueue(event))
+    }
+
+    pub fn resize_failed(&self, surface_id: SurfaceId, desired: (u16, u16)) -> bool {
+        self.failed_resizes
+            .lock()
+            .unwrap()
+            .get(&surface_id)
+            .copied()
+            .is_some_and(|failure| failed_browser_resize_blocks(failure, desired))
+    }
+
+    /// The app event loop uses this deadline as a scheduled retry wakeup, so
+    /// a failed resize does not depend on unrelated user input to run again.
+    pub fn resize_retry_due(&self) -> bool {
+        let now = Instant::now();
+        self.failed_resizes
+            .lock()
+            .unwrap()
+            .values()
+            .any(|failure| failure.retry_after.is_some_and(|retry_after| retry_after <= now))
+    }
+
+    /// Expired failures for hidden surfaces are retired. A later layout pass
+    /// will enqueue the current geometry if that surface becomes visible again.
+    pub fn visible_resize_retry_due(&self, visible_surfaces: &HashSet<SurfaceId>) -> bool {
+        let now = Instant::now();
+        let mut failures = self.failed_resizes.lock().unwrap();
+        failures.retain(|surface, failure| {
+            failure.retry_after.is_some_and(|retry_after| retry_after > now)
+                || visible_surfaces.contains(surface)
+        });
+        failures
+            .values()
+            .any(|failure| failure.retry_after.is_some_and(|retry_after| retry_after <= now))
+    }
+
+    pub fn forget_surface(&self, surface_id: SurfaceId) {
+        // Surface-exit handling removes the ID from app topology before this
+        // call, so no later app input can create a fresh lifetime for it.
+        #[cfg(test)]
+        if let Some(lane) = &self.blocked_lane {
+            lane.cancel_surface(surface_id);
+            self.failed_resizes.lock().unwrap().remove(&surface_id);
+            return;
+        }
+        if let Some(lane) = self.lanes.lock().unwrap().remove(&surface_id) {
+            lane.cancel_surface(surface_id);
+        }
+        self.failed_resizes.lock().unwrap().remove(&surface_id);
+    }
+
+    pub fn clear_resize_failures(&self) {
+        self.failed_resizes.lock().unwrap().clear();
+    }
+
+    #[cfg(test)]
+    pub(crate) fn tracks_surface(&self, surface_id: SurfaceId) -> bool {
+        if let Some(lane) = &self.blocked_lane {
+            return lane.tracks_surface(surface_id)
+                || self.failed_resizes.lock().unwrap().contains_key(&surface_id);
+        }
+        self.lanes.lock().unwrap().contains_key(&surface_id)
+            || self.failed_resizes.lock().unwrap().contains_key(&surface_id)
+    }
+}
+
+impl SurfaceInputLane {
+    fn spawn(
+        surface_id: SurfaceId,
+        capacity: usize,
+        failed_resizes: Arc<Mutex<HashMap<SurfaceId, FailedBrowserResize>>>,
+        on_resize_failure: Arc<dyn Fn(BrowserResizeFailure) + Send + Sync>,
+        on_control_failure: Arc<dyn Fn(String) + Send + Sync>,
+    ) -> std::io::Result<Self> {
+        let (tx, rx) = sync_channel(capacity);
+        let order = Arc::new(Mutex::new(BrowserEnqueueOrder::default()));
+        let latest_resizes = Arc::new(Mutex::new(HashMap::new()));
+        let retained_releases = Arc::new(Mutex::new(Vec::new()));
+        let worker_order = order.clone();
+        let worker_resizes = latest_resizes.clone();
+        let worker_releases = retained_releases.clone();
+        std::thread::Builder::new().name(format!("mux-browser-input-{surface_id}")).spawn(
+            move || {
+                surface_worker(
+                    rx,
+                    worker_order,
+                    worker_resizes,
+                    worker_releases,
+                    failed_resizes,
+                    on_resize_failure,
+                    on_control_failure,
+                );
+            },
+        )?;
+        Ok(Self {
+            expected_surface_id: Some(surface_id),
+            tx,
+            order,
+            latest_resizes,
+            retained_releases,
+            surface_lifetimes: Mutex::new(HashMap::new()),
+        })
+    }
+
+    #[cfg(test)]
+    fn blocked(surface_id: SurfaceId, capacity: usize) -> (Self, BlockedBrowserInput) {
+        Self::blocked_with_expected_surface(Some(surface_id), capacity)
+    }
+
+    #[cfg(test)]
+    fn blocked_for_any_surface(capacity: usize) -> (Self, BlockedBrowserInput) {
+        Self::blocked_with_expected_surface(None, capacity)
+    }
+
+    #[cfg(test)]
+    fn blocked_with_expected_surface(
+        expected_surface_id: Option<SurfaceId>,
+        capacity: usize,
+    ) -> (Self, BlockedBrowserInput) {
+        let (tx, rx) = sync_channel(capacity);
+        let retained_releases = Arc::new(Mutex::new(Vec::new()));
+        (
+            Self {
+                expected_surface_id,
+                tx,
+                order: Arc::new(Mutex::new(BrowserEnqueueOrder::default())),
+                latest_resizes: Arc::new(Mutex::new(HashMap::new())),
+                retained_releases: retained_releases.clone(),
+                surface_lifetimes: Mutex::new(HashMap::new()),
+            },
+            BlockedBrowserInput { rx, retained_releases },
+        )
+    }
+
+    fn enqueue(&self, event: BrowserInputEvent) -> bool {
+        if let Some(expected_surface_id) = self.expected_surface_id {
+            debug_assert_eq!(event.surface_id, expected_surface_id);
+        }
+        let is_resize = event.kind.is_resize();
+        let is_release = event.kind.closes_pointer_interaction();
+        let press = event.kind.pointer_press_button().map(|button| (event.surface_id, button));
+        let release = event.kind.pointer_release_button().map(|button| (event.surface_id, button));
         let mut order = self.order.lock().unwrap();
         if is_release {
             let Some(release) = release else {
@@ -339,7 +499,7 @@ impl BrowserInputDispatcher {
                 return false;
             }
         }
-        let lifetime = if event.kind.closes_pointer_interaction() {
+        let lifetime = if is_release {
             // A release terminates state established by an earlier press. It
             // must reach the retained surface handle even when retiring the
             // surface cancels ordinary queued input from that lifetime.
@@ -384,43 +544,7 @@ impl BrowserInputDispatcher {
         }
     }
 
-    pub fn resize_failed(&self, surface_id: SurfaceId, desired: (u16, u16)) -> bool {
-        self.failed_resizes
-            .lock()
-            .unwrap()
-            .get(&surface_id)
-            .copied()
-            .is_some_and(|failure| failed_browser_resize_blocks(failure, desired))
-    }
-
-    /// The app event loop uses this deadline as a scheduled retry wakeup, so
-    /// a failed resize does not depend on unrelated user input to run again.
-    pub fn resize_retry_due(&self) -> bool {
-        let now = Instant::now();
-        self.failed_resizes
-            .lock()
-            .unwrap()
-            .values()
-            .any(|failure| failure.retry_after.is_some_and(|retry_after| retry_after <= now))
-    }
-
-    /// Expired failures for hidden surfaces are retired. A later layout pass
-    /// will enqueue the current geometry if that surface becomes visible again.
-    pub fn visible_resize_retry_due(&self, visible_surfaces: &HashSet<SurfaceId>) -> bool {
-        let now = Instant::now();
-        let mut failures = self.failed_resizes.lock().unwrap();
-        failures.retain(|surface, failure| {
-            failure.retry_after.is_some_and(|retry_after| retry_after > now)
-                || visible_surfaces.contains(surface)
-        });
-        failures
-            .values()
-            .any(|failure| failure.retry_after.is_some_and(|retry_after| retry_after <= now))
-    }
-
-    pub fn forget_surface(&self, surface_id: SurfaceId) {
-        // Surface-exit handling removes the ID from app topology before this
-        // call, so no later app input can create a fresh lifetime for it.
+    fn cancel_surface(&self, surface_id: SurfaceId) {
         self.order
             .lock()
             .unwrap()
@@ -429,23 +553,17 @@ impl BrowserInputDispatcher {
         if let Some(lifetime) = self.surface_lifetimes.lock().unwrap().remove(&surface_id) {
             lifetime.store(true, Ordering::Release);
         }
-        self.failed_resizes.lock().unwrap().remove(&surface_id);
         self.latest_resizes.lock().unwrap().retain(|(surface, _), _| *surface != surface_id);
     }
 
-    pub fn clear_resize_failures(&self) {
-        self.failed_resizes.lock().unwrap().clear();
-    }
-
     #[cfg(test)]
-    pub(crate) fn tracks_surface(&self, surface_id: SurfaceId) -> bool {
+    fn tracks_surface(&self, surface_id: SurfaceId) -> bool {
         self.surface_lifetimes.lock().unwrap().contains_key(&surface_id)
-            || self.failed_resizes.lock().unwrap().contains_key(&surface_id)
             || self.latest_resizes.lock().unwrap().keys().any(|(surface, _)| *surface == surface_id)
     }
 }
 
-fn worker(
+fn surface_worker(
     rx: Receiver<SequencedBrowserInputEvent>,
     order: Arc<Mutex<BrowserEnqueueOrder>>,
     latest_resizes: Arc<Mutex<HashMap<(SurfaceId, u64), SequencedBrowserInputEvent>>>,
@@ -676,6 +794,10 @@ mod tests {
     }
 
     fn click_event(surface: SurfaceId) -> BrowserInputEvent {
+        click_event_with_button(surface, "left")
+    }
+
+    fn click_event_with_button(surface: SurfaceId, button: &'static str) -> BrowserInputEvent {
         BrowserInputEvent {
             surface_id: surface,
             surface: SurfaceHandle::RemoteBrowserUnsupported,
@@ -683,7 +805,7 @@ mod tests {
                 event_type: "mousePressed",
                 x: 0.0,
                 y: 0.0,
-                button: Some("left"),
+                button: Some(button),
                 click_count: Some(1),
                 frame_seq: 1,
             },
@@ -759,22 +881,22 @@ mod tests {
     // swallowed the failure and made a dropped reload/navigate look accepted.
     #[test]
     fn full_queue_reports_drop_instead_of_swallowing_it() {
-        let (dispatcher, _blocked) = BrowserInputDispatcher::blocked(QUEUE_CAPACITY);
+        let (lane, _blocked) = SurfaceInputLane::blocked(1, QUEUE_CAPACITY);
         for _ in 0..QUEUE_CAPACITY {
-            assert!(dispatcher.enqueue(reload_event(1)), "queue should accept until full");
+            assert!(lane.enqueue(reload_event(1)), "queue should accept until full");
         }
         assert!(
-            !dispatcher.enqueue(reload_event(1)),
+            !lane.enqueue(reload_event(1)),
             "a full queue must report the drop, not swallow it as accepted"
         );
     }
 
     #[test]
     fn full_queue_retains_the_release_after_its_accepted_press() {
-        let (dispatcher, blocked) = BrowserInputDispatcher::blocked(1);
-        assert!(dispatcher.enqueue(click_event(7)));
+        let (lane, blocked) = SurfaceInputLane::blocked(7, 1);
+        assert!(lane.enqueue(click_event(7)));
         assert!(
-            dispatcher.enqueue(release_event(7)),
+            lane.enqueue(release_event(7)),
             "a saturated ordinary lane must retain the release that closes its accepted press"
         );
         assert_eq!(
@@ -786,22 +908,18 @@ mod tests {
 
     #[test]
     fn full_queue_retains_only_a_matching_accepted_press_release() {
-        let (dispatcher, blocked) = BrowserInputDispatcher::blocked(1);
-        assert!(dispatcher.enqueue(click_event(7)));
+        let (lane, blocked) = SurfaceInputLane::blocked(7, 1);
+        assert!(lane.enqueue(click_event(7)));
         assert!(
-            !dispatcher.enqueue(click_event(8)),
+            !lane.enqueue(click_event_with_button(7, "right")),
             "the saturated ordinary lane must reject a second press"
         );
         assert!(
-            !dispatcher.enqueue(release_event(8)),
+            !lane.enqueue(release_event_with_button(7, "right")),
             "a release for the dropped press must not enter the fallback lane"
         );
         assert!(
-            !dispatcher.enqueue(release_event_with_button(7, "right")),
-            "a release for an unowned button must not enter the fallback lane"
-        );
-        assert!(
-            dispatcher.enqueue(release_event(7)),
+            lane.enqueue(release_event(7)),
             "the release matching the accepted press must retain its reserved fallback"
         );
         assert_eq!(
@@ -813,18 +931,18 @@ mod tests {
 
     #[test]
     fn release_requires_and_consumes_an_accepted_press() {
-        let (dispatcher, blocked) = BrowserInputDispatcher::blocked(1);
+        let (lane, blocked) = SurfaceInputLane::blocked(7, 1);
         assert!(
-            !dispatcher.enqueue(release_event(7)),
+            !lane.enqueue(release_event(7)),
             "an unmatched release must not enter an available ordinary lane"
         );
         assert!(blocked.drain_mouse_lifetimes().is_empty());
 
-        assert!(dispatcher.enqueue(click_event(7)));
+        assert!(lane.enqueue(click_event(7)));
         assert_eq!(blocked.drain_mouse_lifetimes(), vec![("mousePressed", false)]);
-        assert!(dispatcher.enqueue(release_event(7)));
+        assert!(lane.enqueue(release_event(7)));
         assert!(
-            !dispatcher.enqueue(release_event(7)),
+            !lane.enqueue(release_event(7)),
             "one accepted release must consume pointer ownership exactly once"
         );
         assert_eq!(blocked.drain_mouse_lifetimes(), vec![("mouseReleased", false)]);
@@ -868,10 +986,7 @@ mod tests {
         assert!(dispatcher.enqueue(BrowserInputEvent {
             surface_id: 1,
             surface: SurfaceHandle::RemoteBrowserUnsupported,
-            kind: BrowserInputKind::TestBlock {
-                entered: entered_tx,
-                release: release_rx,
-            },
+            kind: BrowserInputKind::TestBlock { entered: entered_tx, release: release_rx },
         }));
         entered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
         assert!(dispatcher.enqueue(BrowserInputEvent {
@@ -962,69 +1077,53 @@ mod tests {
 
     #[test]
     fn only_full_resizes_are_saved_for_fallback_delivery() {
-        let (tx, rx) = sync_channel(1);
-        let latest_resizes = Arc::new(Mutex::new(HashMap::new()));
-        let dispatcher = BrowserInputDispatcher {
-            tx,
-            order: Arc::new(Mutex::new(BrowserEnqueueOrder::default())),
-            latest_resizes: latest_resizes.clone(),
-            retained_releases: Arc::new(Mutex::new(Vec::new())),
-            failed_resizes: Arc::new(Mutex::new(HashMap::new())),
-            surface_lifetimes: Arc::new(Mutex::new(HashMap::new())),
-        };
+        let (lane, blocked) = SurfaceInputLane::blocked(1, 1);
+        let latest_resizes = lane.latest_resizes.clone();
 
-        let _ = dispatcher.enqueue(click_event(1));
-        let _ = dispatcher.enqueue(resize_event(1, 132));
-        assert!(matches!(rx.recv().unwrap().event.kind, BrowserInputKind::Mouse { .. }));
+        let _ = lane.enqueue(click_event(1));
+        let _ = lane.enqueue(resize_event(1, 132));
+        assert!(matches!(blocked.rx.recv().unwrap().event.kind, BrowserInputKind::Mouse { .. }));
         assert!(matches!(
             latest_resizes.lock().unwrap().get(&(1, 1)).map(|event| &event.event.kind),
             Some(BrowserInputKind::Resize { cols: 132, .. })
         ));
 
         latest_resizes.lock().unwrap().clear();
-        let _ = dispatcher.enqueue(resize_event(2, 144));
+        let _ = lane.enqueue(resize_event(1, 144));
         assert!(latest_resizes.lock().unwrap().is_empty());
         assert!(matches!(
-            rx.recv().unwrap().event.kind,
+            blocked.rx.recv().unwrap().event.kind,
             BrowserInputKind::Resize { cols: 144, .. }
         ));
 
-        drop(rx);
-        let _ = dispatcher.enqueue(resize_event(3, 156));
+        drop(blocked);
+        let _ = lane.enqueue(resize_event(1, 156));
         assert!(latest_resizes.lock().unwrap().is_empty());
     }
 
     #[test]
     fn resize_claim_lives_through_queue_fallback_replacement_and_disconnect() {
-        let (tx, rx) = sync_channel(1);
-        let latest_resizes = Arc::new(Mutex::new(HashMap::new()));
-        let dispatcher = BrowserInputDispatcher {
-            tx,
-            order: Arc::new(Mutex::new(BrowserEnqueueOrder::default())),
-            latest_resizes: latest_resizes.clone(),
-            retained_releases: Arc::new(Mutex::new(Vec::new())),
-            failed_resizes: Arc::new(Mutex::new(HashMap::new())),
-            surface_lifetimes: Arc::new(Mutex::new(HashMap::new())),
-        };
+        let (lane, blocked) = SurfaceInputLane::blocked(1, 1);
+        let latest_resizes = lane.latest_resizes.clone();
         let accepted = Arc::new(AtomicBool::new(false));
-        let _ = dispatcher.enqueue(resize_event_with_probe(1, 80, accepted.clone()));
+        let _ = lane.enqueue(resize_event_with_probe(1, 80, accepted.clone()));
         assert!(!accepted.load(Ordering::Acquire));
-        drop(rx.recv().unwrap());
+        drop(blocked.rx.recv().unwrap());
         assert!(accepted.load(Ordering::Acquire));
 
-        let _ = dispatcher.enqueue(click_event(1));
+        let _ = lane.enqueue(click_event(1));
         let replaced = Arc::new(AtomicBool::new(false));
         let retained = Arc::new(AtomicBool::new(false));
-        let _ = dispatcher.enqueue(resize_event_with_probe(1, 100, replaced.clone()));
-        let _ = dispatcher.enqueue(resize_event_with_probe(1, 120, retained.clone()));
+        let _ = lane.enqueue(resize_event_with_probe(1, 100, replaced.clone()));
+        let _ = lane.enqueue(resize_event_with_probe(1, 120, retained.clone()));
         assert!(replaced.load(Ordering::Acquire));
         assert!(!retained.load(Ordering::Acquire));
         latest_resizes.lock().unwrap().clear();
         assert!(retained.load(Ordering::Acquire));
 
-        drop(rx);
+        drop(blocked);
         let disconnected = Arc::new(AtomicBool::new(false));
-        let _ = dispatcher.enqueue(resize_event_with_probe(1, 140, disconnected.clone()));
+        let _ = lane.enqueue(resize_event_with_probe(1, 140, disconnected.clone()));
         assert!(disconnected.load(Ordering::Acquire));
     }
 
@@ -1096,37 +1195,19 @@ mod tests {
 
     #[test]
     fn forgetting_surface_cancels_queued_resize_and_clears_fallback() {
-        let (tx, rx) = sync_channel(1);
-        let latest_resizes = Arc::new(Mutex::new(HashMap::new()));
-        let dispatcher = BrowserInputDispatcher {
-            tx,
-            order: Arc::new(Mutex::new(BrowserEnqueueOrder::default())),
-            latest_resizes: latest_resizes.clone(),
-            retained_releases: Arc::new(Mutex::new(Vec::new())),
-            failed_resizes: Arc::new(Mutex::new(HashMap::new())),
-            surface_lifetimes: Arc::new(Mutex::new(HashMap::new())),
-        };
+        let (lane, blocked) = SurfaceInputLane::blocked(7, 1);
+        let latest_resizes = lane.latest_resizes.clone();
         let queued = Arc::new(AtomicBool::new(false));
         let fallback = Arc::new(AtomicBool::new(false));
-        let _ = dispatcher.enqueue(resize_event_with_probe(7, 80, queued.clone()));
-        let _ = dispatcher.enqueue(click_event(8));
-        let _ = dispatcher.enqueue(resize_event_with_probe(7, 100, fallback.clone()));
-        dispatcher.failed_resizes.lock().unwrap().insert(
-            7,
-            FailedBrowserResize {
-                desired: (80, 24),
-                attempts: 1,
-                retry_after: Some(Instant::now() + Duration::from_secs(1)),
-            },
-        );
+        let _ = lane.enqueue(resize_event_with_probe(7, 80, queued.clone()));
+        let _ = lane.enqueue(resize_event_with_probe(7, 100, fallback.clone()));
 
-        dispatcher.forget_surface(7);
+        lane.cancel_surface(7);
 
         assert!(!queued.load(Ordering::Acquire));
         assert!(fallback.load(Ordering::Acquire));
         assert!(latest_resizes.lock().unwrap().is_empty());
-        assert!(!dispatcher.resize_failed(7, (80, 24)));
-        let queued_event = rx.recv().unwrap();
+        let queued_event = blocked.rx.recv().unwrap();
         assert!(queued_event.lifetime.load(Ordering::Acquire));
         drop(queued_event);
         assert!(queued.load(Ordering::Acquire));
@@ -1160,28 +1241,20 @@ mod tests {
 
     #[test]
     fn rejected_resize_stays_before_later_accepted_input() {
-        let (tx, rx) = sync_channel(1);
-        let latest_resizes = Arc::new(Mutex::new(HashMap::new()));
-        let dispatcher = BrowserInputDispatcher {
-            tx,
-            order: Arc::new(Mutex::new(BrowserEnqueueOrder::default())),
-            latest_resizes: latest_resizes.clone(),
-            retained_releases: Arc::new(Mutex::new(Vec::new())),
-            failed_resizes: Arc::new(Mutex::new(HashMap::new())),
-            surface_lifetimes: Arc::new(Mutex::new(HashMap::new())),
-        };
+        let (lane, blocked) = SurfaceInputLane::blocked(1, 1);
+        let latest_resizes = lane.latest_resizes.clone();
 
-        let _ = dispatcher.enqueue(click_event(1));
-        let _ = dispatcher.enqueue(resize_event(1, 132));
-        let first = rx.recv().unwrap();
-        let _ = dispatcher.enqueue(click_event(1));
-        let _ = dispatcher.enqueue(resize_event(1, 144));
+        let _ = lane.enqueue(click_event(1));
+        let _ = lane.enqueue(resize_event(1, 132));
+        let first = blocked.rx.recv().unwrap();
+        let _ = lane.enqueue(click_event(1));
+        let _ = lane.enqueue(resize_event(1, 144));
         let mut batch = vec![first];
         finish_ordered_batch(
-            &rx,
-            &dispatcher.order,
+            &blocked.rx,
+            &lane.order,
             &latest_resizes,
-            &dispatcher.retained_releases,
+            &lane.retained_releases,
             &mut batch,
         );
 
