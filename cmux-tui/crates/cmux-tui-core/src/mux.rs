@@ -10343,6 +10343,59 @@ mod tests {
         assert!(events.try_iter().next().is_none());
     }
 
+    fn seed_clamped_viewport_projection() -> (Arc<Mux>, PaneId, SplitId) {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let middle = mux.new_pane_right(first_pane, 1.0, Some((78, 22))).unwrap();
+        let middle_pane = mux.with_state(|state| state.pane_of(middle.id).unwrap());
+        let right =
+            mux.new_pane_right(middle_pane, MIN_VIEWPORT_PANE_WIDTH, Some((6, 22))).unwrap();
+        let right_pane = mux.with_state(|state| state.pane_of(right.id).unwrap());
+        let split = mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            let Node::Split { id, ratio, .. } = &screen.root else {
+                panic!("three columns should expose a projected root split");
+            };
+            assert_eq!(*ratio, 0.95);
+            *id
+        });
+        (mux, right_pane, split)
+    }
+
+    fn assert_clamped_projection_resize_applied(mux: &Mux, expected_width: f32) {
+        mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            assert!(
+                (screen.layout_columns[2].width - expected_width).abs() < 1e-6,
+                "projected ratio should update authoritative width: {:?}",
+                screen.layout_columns
+            );
+            assert_eq!(screen.layout_undo.len(), 3);
+            assert!(screen.layout_column_projection_is_consistent());
+        });
+    }
+
+    #[test]
+    fn clamped_projected_split_ratio_still_resizes_authoritative_column() {
+        let (mux, _right_pane, split) = seed_clamped_viewport_projection();
+        let expected_width = 2.0 * (1.0 - 0.95) / 0.95;
+
+        assert!(mux.set_split_ratio_checked(split, 0.95).is_ok());
+
+        assert_clamped_projection_resize_applied(&mux, expected_width);
+    }
+
+    #[test]
+    fn clamped_pane_addressed_ratio_still_resizes_authoritative_column() {
+        let (mux, right_pane, _split) = seed_clamped_viewport_projection();
+        let expected_width = 2.0 * (1.0 - 0.95) / 0.95;
+
+        assert!(mux.set_ratio_checked(right_pane, SplitDir::Right, 0.95).is_ok());
+
+        assert_clamped_projection_resize_applied(&mux, expected_width);
+    }
+
     #[test]
     fn set_ratio_resizes_a_projected_viewport_split() {
         let mux = test_mux();
