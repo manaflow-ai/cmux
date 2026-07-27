@@ -79,6 +79,13 @@ struct LegacySocketQuarantine {
 #[cfg(unix)]
 impl LegacySocketQuarantine {
     fn acquire(original: &Path) -> std::io::Result<Self> {
+        Self::acquire_with_transfer_hook(original, || {})
+    }
+
+    fn acquire_with_transfer_hook(
+        original: &Path,
+        transfer_hook: impl FnOnce(),
+    ) -> std::io::Result<Self> {
         use std::os::unix::fs::{FileTypeExt as _, MetadataExt as _};
 
         let metadata = std::fs::symlink_metadata(original)?;
@@ -99,6 +106,7 @@ impl LegacySocketQuarantine {
             let quarantined = parent.join(format!(".cs-{:x}-{sequence:x}", std::process::id()));
             match std::fs::hard_link(original, &quarantined) {
                 Ok(()) => {
+                    transfer_hook();
                     if let Err(error) = std::fs::remove_file(original) {
                         let _ = std::fs::remove_file(&quarantined);
                         return Err(error);
@@ -1838,6 +1846,95 @@ mod tests {
         );
         assert_eq!(reaped, -1, "timed-out helper lost its reaping owner");
         assert_eq!(reaped_error.and_then(|error| error.raw_os_error()), Some(libc::ECHILD));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn legacy_quarantine_never_unlinks_a_replacement_socket() {
+        use std::os::unix::net::{UnixListener, UnixStream};
+
+        let path = PathBuf::from("/tmp").join(format!(
+            "cq-race-{}-{}.sock",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let original = UnixListener::bind(&path).unwrap();
+        let mut replacement = None;
+
+        let quarantine = LegacySocketQuarantine::acquire_with_transfer_hook(&path, || {
+            std::fs::remove_file(&path).unwrap();
+            replacement = Some(UnixListener::bind(&path).unwrap());
+        });
+        let rejected_replacement = quarantine.is_err();
+        let replacement_still_reachable = UnixStream::connect(&path).is_ok();
+
+        drop(quarantine);
+        drop(replacement);
+        drop(original);
+        let _ = std::fs::remove_file(&path);
+
+        assert!(rejected_replacement, "quarantine accepted a replacement socket");
+        assert!(
+            replacement_still_reachable,
+            "quarantine unlinked the replacement socket while transferring the verified inode"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn legacy_helper_timeout_keeps_the_socket_quarantined_until_helper_exit() {
+        use std::io::BufRead as _;
+        use std::os::unix::net::{UnixListener, UnixStream};
+
+        let _serial = LEGACY_HELPER_REAPER_TEST_LOCK.lock().unwrap();
+        let path = PathBuf::from("/tmp").join(format!(
+            "cq-help-{}-{}.sock",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let listener = UnixListener::bind(&path).unwrap();
+        let quarantine = LegacySocketQuarantine::acquire(&path).unwrap();
+        let mut helper = Command::new("/bin/sh")
+            .arg("-c")
+            .arg("trap '' TERM; printf 'ready\\n'; while :; do sleep 1; done")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let mut ready = String::new();
+        BufReader::new(helper.stdout.take().unwrap()).read_line(&mut ready).unwrap();
+        assert_eq!(ready, "ready\n");
+        let helper_pid = libc::pid_t::try_from(helper.id()).unwrap();
+        let baseline = active_legacy_helper_reapers_for_test();
+        let reaper = reserve_legacy_helper_reaper().unwrap();
+
+        let error =
+            wait_for_child_until(helper, reaper, Instant::now() + Duration::from_millis(50))
+                .unwrap_err();
+        drop(quarantine);
+        let hidden_while_helper_alive = UnixStream::connect(&path).is_err();
+        // SAFETY: helper_pid names this exact test-owned child.
+        unsafe {
+            libc::kill(helper_pid, libc::SIGKILL);
+        }
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while active_legacy_helper_reapers_for_test() != baseline && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let restored_after_helper_exit = UnixStream::connect(&path).is_ok();
+
+        drop(listener);
+        let _ = std::fs::remove_file(&path);
+
+        assert_eq!(error.to_string(), crate::localization::catalog().server.legacy_cleanup_failed);
+        assert!(
+            hidden_while_helper_alive,
+            "timed-out helper released its admission fence before exit"
+        );
+        assert!(
+            restored_after_helper_exit,
+            "helper reaper did not restore the socket after exact helper exit"
+        );
     }
 
     #[cfg(unix)]
