@@ -131,7 +131,9 @@ actor MobileCoreRPCSession {
     }
 
     func send(payload: Data, requestID: String, deadlineUptimeNanoseconds: UInt64) async throws -> Data {
-        try await waitForCancelledActiveWriteResolution()
+        try await waitForCancelledActiveWriteResolution(
+            deadlineUptimeNanoseconds: deadlineUptimeNanoseconds
+        )
         _ = try await ensureConnected(
             timeoutNanoseconds: try taskTimeout.remainingNanoseconds(until: deadlineUptimeNanoseconds)
         )
@@ -694,19 +696,10 @@ actor MobileCoreRPCSession {
               write.cancelledRequestResolutionTask == nil else { return }
         let connectionID = write.connectionID
         let sendTask = write.task
-        let graceNanoseconds = cancelledWriteCompletionGraceNanoseconds
-        write.cancelledRequestResolutionTask = Task { [weak self, taskTimeout] in
+        write.cancelledRequestResolutionTask = Task { [weak self] in
             do {
-                try await taskTimeout.value(
-                    sendTask,
-                    timeoutNanoseconds: graceNanoseconds
-                )
+                try await sendTask.value
                 await self?.cancelledActiveWriteDidComplete(
-                    connectionID: connectionID,
-                    requestID: requestID
-                )
-            } catch MobileShellConnectionError.requestTimedOut {
-                await self?.cancelledActiveWriteDidTimeOut(
                     connectionID: connectionID,
                     requestID: requestID
                 )
@@ -720,13 +713,44 @@ actor MobileCoreRPCSession {
         activeWrite = write
     }
 
-    private func waitForCancelledActiveWriteResolution() async throws {
-        while let resolutionTask = activeWrite?.cancelledRequestResolutionTask {
-            await resolutionTask.value
+    private func waitForCancelledActiveWriteResolution(
+        deadlineUptimeNanoseconds: UInt64
+    ) async throws {
+        while let write = activeWrite,
+              let resolutionTask = write.cancelledRequestResolutionTask {
+            try Task.checkCancellation()
+            let remainingNanoseconds = try taskTimeout.remainingNanoseconds(
+                until: deadlineUptimeNanoseconds
+            )
+            let waitTask = Task<Void, any Error> {
+                await resolutionTask.value
+            }
+            do {
+                try await taskTimeout.value(
+                    waitTask,
+                    timeoutNanoseconds: min(
+                        remainingNanoseconds,
+                        cancelledWriteCompletionGraceNanoseconds
+                    )
+                )
+            } catch is CancellationError {
+                waitTask.cancel()
+                throw CancellationError()
+            } catch MobileShellConnectionError.requestTimedOut {
+                waitTask.cancel()
+                let deadlineExpired =
+                    (try? taskTimeout.remainingNanoseconds(
+                        until: deadlineUptimeNanoseconds
+                    )) == nil
+                _ = await recycleTransportIfActiveWrite(
+                    requestID: write.requestID
+                )
+                if deadlineExpired {
+                    throw MobileShellConnectionError.requestTimedOut
+                }
+            }
         }
-        if Task.isCancelled {
-            throw CancellationError()
-        }
+        try Task.checkCancellation()
     }
 
     private func cancelledActiveWriteDidComplete(
@@ -734,14 +758,6 @@ actor MobileCoreRPCSession {
         requestID: String
     ) {
         clearActiveWrite(connectionID: connectionID, requestID: requestID)
-    }
-
-    private func cancelledActiveWriteDidTimeOut(
-        connectionID: UUID,
-        requestID: String
-    ) async {
-        guard activeWrite?.connectionID == connectionID else { return }
-        _ = await recycleTransportIfActiveWrite(requestID: requestID)
     }
 
     private func cancelledActiveWriteDidFail(

@@ -6,7 +6,9 @@ struct RPCTaskTimeout: Sendable {
         timeoutNanoseconds: UInt64
     ) async throws -> T {
         let race = RPCTaskTimeoutRace()
+        let cancellation = RPCTaskTimeoutCancellation<T>()
         let stream = AsyncThrowingStream<T, any Error> { continuation in
+            cancellation.install(continuation, race: race)
             let valueTask = Task {
                 do {
                     let value = try await task.value
@@ -32,13 +34,17 @@ struct RPCTaskTimeout: Sendable {
                 timeoutTask.cancel()
             }
         }
-        for try await value in stream {
-            return value
+        return try await withTaskCancellationHandler {
+            for try await value in stream {
+                return value
+            }
+            if Task.isCancelled {
+                throw CancellationError()
+            }
+            throw MobileShellConnectionError.requestTimedOut
+        } onCancel: {
+            cancellation.cancel(race: race)
         }
-        if Task.isCancelled {
-            throw CancellationError()
-        }
-        throw MobileShellConnectionError.requestTimedOut
     }
 
     func sleep(nanoseconds: UInt64) async throws {
@@ -52,5 +58,43 @@ struct RPCTaskTimeout: Sendable {
             throw MobileShellConnectionError.requestTimedOut
         }
         return deadlineUptimeNanoseconds - now
+    }
+}
+
+private final class RPCTaskTimeoutCancellation<T: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: AsyncThrowingStream<T, any Error>.Continuation?
+    private var isCancelled = false
+
+    func install(
+        _ continuation: AsyncThrowingStream<T, any Error>.Continuation,
+        race: RPCTaskTimeoutRace
+    ) {
+        let shouldCancel = lock.withLock {
+            self.continuation = continuation
+            return isCancelled
+        }
+        if shouldCancel {
+            finishCancellation(continuation, race: race)
+        }
+    }
+
+    func cancel(race: RPCTaskTimeoutRace) {
+        let continuation = lock.withLock {
+            isCancelled = true
+            return self.continuation
+        }
+        guard let continuation else { return }
+        finishCancellation(continuation, race: race)
+    }
+
+    private func finishCancellation(
+        _ continuation: AsyncThrowingStream<T, any Error>.Continuation,
+        race: RPCTaskTimeoutRace
+    ) {
+        Task {
+            guard await race.win() else { return }
+            continuation.finish(throwing: CancellationError())
+        }
     }
 }
