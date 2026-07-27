@@ -171,10 +171,9 @@ impl SessionEventSender {
     fn accepts_mux_event(&self, event: &MuxEvent) -> bool {
         let Some(filter) = self.surface_filter else { return true };
         match event {
-            MuxEvent::SurfaceOutput(surface)
-            | MuxEvent::SurfaceExited(surface)
-            | MuxEvent::Bell(surface) => *surface == filter,
-            MuxEvent::SurfaceResized { surface, .. }
+            MuxEvent::SurfaceOutput(surface) | MuxEvent::Bell(surface) => *surface == filter,
+            MuxEvent::SurfaceExited { surface, .. }
+            | MuxEvent::SurfaceResized { surface, .. }
             | MuxEvent::SurfaceResizeFailed { surface, .. }
             | MuxEvent::TitleChanged { surface, .. }
             | MuxEvent::ScrollChanged { surface, .. } => *surface == filter,
@@ -373,7 +372,7 @@ fn forward_mux_event(
                 Err(_) => ForwardMuxOutcome::Stop,
             };
         }
-        MuxEvent::SurfaceExited(surface) => mux_titles.remove(surface),
+        MuxEvent::SurfaceExited { surface, .. } => mux_titles.remove(surface),
         _ => {}
     }
     let terminal = matches!(event, MuxEvent::Empty);
@@ -5661,6 +5660,25 @@ impl App {
         }
         self.rebuild_tab_locations();
     }
+    fn close_established_exited_surface(&self, surface: SurfaceId) {
+        let workspace = self
+            .tab_locations
+            .get(&surface)
+            .and_then(|[workspace, ..]| self.tree.workspaces.get(*workspace))
+            .map(|workspace| {
+                let surface_count = workspace
+                    .screens
+                    .iter()
+                    .flat_map(|screen| &screen.panes)
+                    .map(|pane| pane.tabs.len())
+                    .sum::<usize>();
+                (workspace.id, surface_count)
+            });
+        match workspace {
+            Some((workspace, 1)) => self.session.close_workspace(workspace),
+            _ => self.session.close_surface(surface),
+        }
+    }
 
     fn apply_session_completions_through(&mut self, authoritative_generation: u64) {
         while self
@@ -6192,7 +6210,7 @@ impl App {
             return Ok(RenderAction::Draw);
         }
         match &event {
-            AppEvent::Mux(MuxEvent::SurfaceExited(_) | MuxEvent::LayoutChanged(_))
+            AppEvent::Mux(MuxEvent::SurfaceExited { .. } | MuxEvent::LayoutChanged(_))
             | AppEvent::Input(Event::Key(_) | Event::Mouse(_) | Event::Paste(_)) => {
                 self.session.refresh_remote_tree_if_stale();
             }
@@ -6208,7 +6226,7 @@ impl App {
         if matches!(
             &event,
             AppEvent::Mux(
-                MuxEvent::TreeChanged | MuxEvent::LayoutChanged(_) | MuxEvent::SurfaceExited(_)
+                MuxEvent::TreeChanged | MuxEvent::LayoutChanged(_) | MuxEvent::SurfaceExited { .. }
             )
         ) {
             self.session.clear_surface_sync_failures();
@@ -6335,13 +6353,23 @@ impl App {
                 self.quit = true;
                 Ok(RenderAction::None)
             }
-            AppEvent::Mux(MuxEvent::SurfaceExited(id)) => {
-                self.retire_surface_state(id);
-                self.remove_surface_from_tree(id);
-                if self.surface_only == Some(id) {
+            AppEvent::Mux(MuxEvent::SurfaceExited { surface, runtime_ms }) => {
+                if self.surface_only == Some(surface) {
+                    self.retire_surface_state(surface);
+                    self.remove_surface_from_tree(surface);
                     self.quit = true;
                     return Ok(RenderAction::None);
                 }
+                if runtime_ms.is_some_and(|runtime_ms| {
+                    runtime_ms <= self.config.abnormal_command_exit_runtime_ms()
+                }) {
+                    return Ok(RenderAction::Draw);
+                }
+                if runtime_ms.is_some() {
+                    self.close_established_exited_surface(surface);
+                }
+                self.retire_surface_state(surface);
+                self.remove_surface_from_tree(surface);
                 Ok(RenderAction::Draw)
             }
             AppEvent::Mux(MuxEvent::SurfaceResized { surface, cols, rows, reservation_id }) => {
@@ -15889,7 +15917,8 @@ mod tests {
         });
 
         assert_eq!(
-            app.handle(AppEvent::Mux(MuxEvent::SurfaceExited(surface))).unwrap(),
+            app.handle(AppEvent::Mux(MuxEvent::SurfaceExited { surface, runtime_ms: None }))
+                .unwrap(),
             RenderAction::Draw
         );
         assert!(!app.tab_locations.contains_key(&surface));
@@ -15905,6 +15934,63 @@ mod tests {
         assert!(!app.session.has_pending_mutations());
         assert_eq!(app.deferred_input.len(), 1);
         assert!(events.try_recv().is_err());
+    }
+    #[test]
+    fn established_child_exit_closes_its_last_surface_workspace() {
+        let mux = Mux::new(
+            "established-child-exit-test",
+            SurfaceOptions {
+                command: Some(vec!["/bin/cat".to_string()]),
+                ..SurfaceOptions::default()
+            },
+        );
+        let surface = mux.new_workspace(None, Some((20, 8))).unwrap();
+        let workspace = mux.with_state(|state| state.workspaces[0].id);
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+
+        assert_eq!(
+            app.handle(AppEvent::Mux(MuxEvent::SurfaceExited {
+                surface: surface.id,
+                runtime_ms: Some(251),
+            }))
+            .unwrap(),
+            RenderAction::Draw
+        );
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(5)).unwrap()).unwrap();
+        }
+
+        assert!(mux.with_state(|state| {
+            state.workspaces.iter().all(|candidate| candidate.id != workspace)
+        }));
+    }
+
+    #[test]
+    fn startup_failure_exit_remains_visible_at_ghostty_threshold() {
+        let mux = Mux::new(
+            "startup-failure-exit-test",
+            SurfaceOptions {
+                command: Some(vec!["/bin/cat".to_string()]),
+                ..SurfaceOptions::default()
+            },
+        );
+        let surface = mux.new_workspace(None, Some((20, 8))).unwrap();
+        let (mut app, _events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+
+        assert_eq!(
+            app.handle(AppEvent::Mux(MuxEvent::SurfaceExited {
+                surface: surface.id,
+                runtime_ms: Some(250),
+            }))
+            .unwrap(),
+            RenderAction::Draw
+        );
+
+        assert!(app.tab_locations.contains_key(&surface.id));
+        assert!(!app.session.has_pending_mutations());
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]

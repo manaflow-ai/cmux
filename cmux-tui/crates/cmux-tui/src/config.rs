@@ -1573,6 +1573,8 @@ fn parse_chord(s: &str) -> Option<Chord> {
     Some(Chord { code, mods })
 }
 
+const DEFAULT_ABNORMAL_COMMAND_EXIT_RUNTIME_MS: u64 = 250;
+
 /// Full resolved configuration.
 #[derive(Debug, Clone, Default)]
 pub struct Config {
@@ -1581,6 +1583,7 @@ pub struct Config {
     pub terminal_defaults: DefaultColors,
     pub cursor_style: Option<CursorShape>,
     pub cursor_blink: Option<bool>,
+    abnormal_command_exit_runtime_ms: Option<u64>,
     pub chrome: ChromeMode,
     pub tabs: Tabs,
     pub sidebar: Sidebar,
@@ -1609,6 +1612,10 @@ pub struct ThemeOverrides {
 }
 
 impl Config {
+    pub fn abnormal_command_exit_runtime_ms(&self) -> u64 {
+        self.abnormal_command_exit_runtime_ms.unwrap_or(DEFAULT_ABNORMAL_COMMAND_EXIT_RUNTIME_MS)
+    }
+
     pub fn apply_chrome_defaults(&mut self, chrome: ChromeTheme) {
         if !self.theme_overrides.selection {
             self.theme.selection_bg = chrome.selection_bg;
@@ -1628,8 +1635,9 @@ pub struct SidebarPluginConfig {
 pub fn load() -> Config {
     let mut config = Config::default();
 
-    let defaults = ghostty_defaults();
+    let (defaults, abnormal_command_exit_runtime_ms) = ghostty_defaults();
     config.terminal_defaults = defaults;
+    config.abnormal_command_exit_runtime_ms = abnormal_command_exit_runtime_ms;
     if let Some(bg) = defaults.selection_bg {
         config.theme.selection_bg = Color::Rgb(bg.r, bg.g, bg.b);
         config.theme_overrides.selection = true;
@@ -2022,16 +2030,16 @@ fn parse_color(s: &str) -> Option<Color> {
 
 /// The user's relevant Ghostty settings with non-optional application defaults
 /// resolved for values that the low-level terminal otherwise leaves unset.
-fn ghostty_defaults() -> DefaultColors {
-    let parsed = resolved_ghostty_defaults()
+fn ghostty_defaults() -> (DefaultColors, Option<u64>) {
+    let (parsed, abnormal_command_exit_runtime_ms) = resolved_ghostty_defaults()
         .or_else(|| {
             let text = platform::ghostty_config_paths()
                 .iter()
                 .find_map(|path| std::fs::read_to_string(path).ok())?;
-            Some(parse_ghostty_defaults(&text))
+            Some((parse_ghostty_defaults(&text), parse_abnormal_command_exit_runtime_ms(&text)))
         })
         .unwrap_or_default();
-    resolve_ghostty_application_defaults(parsed)
+    (resolve_ghostty_application_defaults(parsed), abnormal_command_exit_runtime_ms)
 }
 
 fn resolve_ghostty_application_defaults(mut defaults: DefaultColors) -> DefaultColors {
@@ -2046,13 +2054,13 @@ fn resolve_ghostty_application_defaults(mut defaults: DefaultColors) -> DefaultC
 /// Ask Ghostty to resolve its configuration so cmux-tui inherits precisely the
 /// same theme-loading behavior as the graphical terminal. A failed or slow
 /// invocation is deliberately ignored; startup then uses the file fallback.
-fn resolved_ghostty_defaults() -> Option<DefaultColors> {
+fn resolved_ghostty_defaults() -> Option<(DefaultColors, Option<u64>)> {
     resolved_ghostty_defaults_from(&platform::ghostty_installations())
 }
 
 fn resolved_ghostty_defaults_from(
     installations: &[platform::GhosttyInstallation],
-) -> Option<DefaultColors> {
+) -> Option<(DefaultColors, Option<u64>)> {
     installations.iter().find_map(|installation| {
         let text = run_ghostty_show_config(installation)?;
         let defaults = parse_resolved_ghostty_defaults(&text);
@@ -2060,10 +2068,22 @@ fn resolved_ghostty_defaults_from(
         // including both colors. An executable that exits successfully but
         // emits no resolved config (for example a packaging stub) is not a
         // usable resolver and must not suppress later pinned candidates.
-        (defaults.fg.is_some() && defaults.bg.is_some()).then_some(defaults)
+        (defaults.fg.is_some() && defaults.bg.is_some())
+            .then(|| (defaults, parse_abnormal_command_exit_runtime_ms(&text)))
     })
 }
 
+fn parse_abnormal_command_exit_runtime_ms(text: &str) -> Option<u64> {
+    text.lines()
+        .filter_map(|line| {
+            let (key, value) = line.trim().split_once('=')?;
+            (key.trim() == "abnormal-command-exit-runtime")
+                .then(|| value.trim().trim_matches('"').parse::<u32>().ok())
+                .flatten()
+                .map(u64::from)
+        })
+        .last()
+}
 fn run_ghostty_show_config(installation: &platform::GhosttyInstallation) -> Option<String> {
     let mut command = Command::new(&installation.binary);
     command
@@ -2329,6 +2349,18 @@ mod tests {
         assert!(defaults.palette[2..15].iter().all(Option::is_none));
         assert!(defaults.palette[16..].iter().all(Option::is_none));
     }
+    #[test]
+    fn parses_ghostty_abnormal_exit_runtime_with_later_valid_entry_wins() {
+        assert_eq!(
+            parse_abnormal_command_exit_runtime_ms(
+                "abnormal-command-exit-runtime = 100\n\
+                 abnormal-command-exit-runtime = invalid\n\
+                 abnormal-command-exit-runtime = 375\n"
+            ),
+            Some(375)
+        );
+        assert_eq!(parse_abnormal_command_exit_runtime_ms(""), None);
+    }
 
     #[test]
     fn parses_resolved_ghostty_show_config_output() {
@@ -2420,8 +2452,8 @@ mod tests {
             platform::GhosttyInstallation { binary: working, resources_dir: None },
         ])
         .unwrap();
-        assert_eq!(defaults.bg, Some(Rgb { r: 0x27, g: 0x28, b: 0x22 }));
-        assert_eq!(defaults.fg, Some(Rgb { r: 0xfd, g: 0xff, b: 0xf1 }));
+        assert_eq!(defaults.0.bg, Some(Rgb { r: 0x27, g: 0x28, b: 0x22 }));
+        assert_eq!(defaults.0.fg, Some(Rgb { r: 0xfd, g: 0xff, b: 0xf1 }));
         let _ = std::fs::remove_dir_all(root);
     }
 

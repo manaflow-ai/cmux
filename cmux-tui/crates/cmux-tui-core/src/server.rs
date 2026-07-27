@@ -4596,7 +4596,11 @@ fn subscribed_event_json(event: &MuxEvent) -> Value {
             "retry_after_ms": retry_after_ms,
             "reservation_id": reservation_id,
         }),
-        MuxEvent::SurfaceExited(id) => json!({"event": "surface-exited", "surface": id}),
+        MuxEvent::SurfaceExited { surface, runtime_ms } => json!({
+            "event": "surface-exited",
+            "surface": surface,
+            "runtime_ms": runtime_ms,
+        }),
         MuxEvent::TitleChanged { surface, title } => {
             json!({"event": "title-changed", "surface": surface, "title": title.as_ref()})
         }

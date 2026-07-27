@@ -365,6 +365,8 @@ fn default_true() -> bool {
 #[derive(Debug, Clone, Deserialize)]
 pub struct SurfaceEvent {
     pub surface: u64,
+    #[serde(default)]
+    pub runtime_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

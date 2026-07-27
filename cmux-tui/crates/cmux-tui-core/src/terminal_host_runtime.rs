@@ -1414,6 +1414,7 @@ mod unix {
         pid: Option<u32>,
         command: Vec<String>,
         cwd: Option<String>,
+        started_at: Instant,
         size: Mutex<(u16, u16)>,
         viewer_sizes: Mutex<HashMap<u64, (u16, u16)>>,
         taps: Mutex<HashMap<u64, HostTap>>,
@@ -1781,7 +1782,9 @@ mod unix {
                 &self.exit_published,
             ) {
                 self.dead.store(true, Ordering::Release);
-                self.broadcast(MessageKind::Exit, Vec::new());
+                let runtime_ms =
+                    u64::try_from(self.started_at.elapsed().as_millis()).unwrap_or(u64::MAX);
+                self.broadcast(MessageKind::Exit, runtime_ms.to_le_bytes().to_vec());
             }
         }
 
@@ -2097,6 +2100,7 @@ mod unix {
         if let Some(cwd) = launch.cwd.as_deref() {
             command.cwd(cwd);
         }
+        let started_at = Instant::now();
         let mut child = pty.slave.spawn_command(command)?;
         let pid = child.process_id();
         drop(pty.slave);
@@ -2144,6 +2148,7 @@ mod unix {
             pid,
             command: launch.command.clone(),
             cwd: launch.cwd.clone(),
+            started_at,
             size: Mutex::new((launch.cols, launch.rows)),
             viewer_sizes: Mutex::new(HashMap::new()),
             taps: Mutex::new(HashMap::new()),

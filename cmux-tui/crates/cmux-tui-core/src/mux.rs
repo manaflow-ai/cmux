@@ -193,8 +193,13 @@ pub enum MuxEvent {
     },
     /// A surface's child exited. Hosted terminals remain in the tree as an
     /// addressable Exited tab until an explicit close tombstones them; local
-    /// terminals have already been reaped when this arrives.
-    SurfaceExited(SurfaceId),
+    /// terminals have already been reaped when this arrives. `runtime_ms` is
+    /// present for hosted terminals and lets frontends match Ghostty's normal-
+    /// exit versus startup-failure policy.
+    SurfaceExited {
+        surface: SurfaceId,
+        runtime_ms: Option<u64>,
+    },
     TitleChanged {
         surface: SurfaceId,
         title: Arc<str>,
@@ -3739,7 +3744,7 @@ impl Mux {
             old_surface.and_then(|id| self.state.lock().unwrap().surfaces.remove(&id))
         {
             surface.kill();
-            self.emit(MuxEvent::SurfaceExited(surface.id));
+            self.emit(MuxEvent::SurfaceExited { surface: surface.id, runtime_ms: None });
         }
     }
 
@@ -6141,8 +6146,12 @@ impl Mux {
     /// terminals remain stable, renderable Exited tabs until an explicit
     /// close; local surfaces are removed immediately.
     pub fn surface_exited(&self, id: SurfaceId) {
+        self.surface_exited_with_runtime(id, None);
+    }
+
+    pub(crate) fn surface_exited_with_runtime(&self, id: SurfaceId, runtime_ms: Option<u64>) {
         if self.sidebar_surface_exited(id) {
-            self.emit(MuxEvent::SurfaceExited(id));
+            self.emit(MuxEvent::SurfaceExited { surface: id, runtime_ms: None });
             return;
         }
         if let Some(surface) = self.surface(id)
@@ -6155,11 +6164,16 @@ impl Mux {
                 return;
             }
             self.emit(MuxEvent::TreeChanged);
-            self.emit(MuxEvent::SurfaceExited(id));
+            self.emit(MuxEvent::SurfaceExited {
+                surface: id,
+                // Hosts predating runtime metadata still represent a process
+                // that reached the live stream, not a local/browser reap.
+                runtime_ms: Some(runtime_ms.unwrap_or(u64::MAX)),
+            });
             return;
         }
         self.remove_surface_after_registry(id);
-        self.emit(MuxEvent::SurfaceExited(id));
+        self.emit(MuxEvent::SurfaceExited { surface: id, runtime_ms: None });
     }
 
     fn mark_hosted_surface_exited(

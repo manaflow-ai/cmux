@@ -138,10 +138,9 @@ impl MuxEventFilter {
 impl SurfaceSessionScope {
     fn accepts(&mut self, event: &MuxEvent) -> bool {
         match event {
-            MuxEvent::SurfaceOutput(surface)
-            | MuxEvent::SurfaceExited(surface)
-            | MuxEvent::Bell(surface) => *surface == self.surface,
-            MuxEvent::SurfaceResized { surface, .. }
+            MuxEvent::SurfaceOutput(surface) | MuxEvent::Bell(surface) => *surface == self.surface,
+            MuxEvent::SurfaceExited { surface, .. }
+            | MuxEvent::SurfaceResized { surface, .. }
             | MuxEvent::SurfaceResizeFailed { surface, .. }
             | MuxEvent::TitleChanged { surface, .. }
             | MuxEvent::ScrollChanged { surface, .. } => *surface == self.surface,
@@ -237,7 +236,7 @@ impl MuxEventMailbox {
                 state.surface_output_sequences.insert(surface, sequence);
                 state.surface_outputs.insert(sequence, surface);
             }
-            MuxEvent::SurfaceExited(surface) => {
+            MuxEvent::SurfaceExited { surface, runtime_ms } => {
                 if let Some(previous) = state.title_sequences.remove(&surface) {
                     state.titles.remove(&previous);
                 }
@@ -248,14 +247,14 @@ impl MuxEventMailbox {
                     self.changed.notify_all();
                     return false;
                 }
-                state.events.push_back((sequence, MuxEvent::SurfaceExited(surface)));
+                state.events.push_back((sequence, MuxEvent::SurfaceExited { surface, runtime_ms }));
             }
             MuxEvent::Empty => {
                 let mut terminal_events = state
                     .events
                     .iter()
                     .filter(|(_, event)| {
-                        matches!(event, MuxEvent::SurfaceExited(_))
+                        matches!(event, MuxEvent::SurfaceExited { .. })
                             || matches!(
                                 event,
                                 MuxEvent::TreeDelta(delta)
@@ -448,14 +447,14 @@ mod tests {
         broadcaster.emit(MuxEvent::TitleChanged { surface: 1, title: "old".into() });
         broadcaster.emit(MuxEvent::Bell(2));
         broadcaster.emit(MuxEvent::TitleChanged { surface: 1, title: "latest".into() });
-        broadcaster.emit(MuxEvent::SurfaceExited(3));
+        broadcaster.emit(MuxEvent::SurfaceExited { surface: 3, runtime_ms: None });
 
         assert!(matches!(events.recv().unwrap(), MuxEvent::Bell(2)));
         assert!(matches!(
             events.recv().unwrap(),
             MuxEvent::TitleChanged { surface: 1, title } if title.as_ref() == "latest"
         ));
-        assert!(matches!(events.recv().unwrap(), MuxEvent::SurfaceExited(3)));
+        assert!(matches!(events.recv().unwrap(), MuxEvent::SurfaceExited { surface: 3, .. }));
     }
 
     #[test]
@@ -464,9 +463,9 @@ mod tests {
         let events = broadcaster.subscribe();
 
         broadcaster.emit(MuxEvent::TitleChanged { surface: 4, title: "gone".into() });
-        broadcaster.emit(MuxEvent::SurfaceExited(4));
+        broadcaster.emit(MuxEvent::SurfaceExited { surface: 4, runtime_ms: None });
 
-        assert!(matches!(events.recv().unwrap(), MuxEvent::SurfaceExited(4)));
+        assert!(matches!(events.recv().unwrap(), MuxEvent::SurfaceExited { surface: 4, .. }));
         assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
     }
 
@@ -481,12 +480,12 @@ mod tests {
             broadcaster.emit(MuxEvent::SurfaceOutput(1));
             broadcaster.emit(MuxEvent::SurfaceOutput(3));
         }
-        broadcaster.emit(MuxEvent::SurfaceExited(4));
+        broadcaster.emit(MuxEvent::SurfaceExited { surface: 4, runtime_ms: None });
 
         assert!(matches!(events.recv().unwrap(), MuxEvent::Bell(2)));
         assert!(matches!(events.recv().unwrap(), MuxEvent::SurfaceOutput(1)));
         assert!(matches!(events.recv().unwrap(), MuxEvent::SurfaceOutput(3)));
-        assert!(matches!(events.recv().unwrap(), MuxEvent::SurfaceExited(4)));
+        assert!(matches!(events.recv().unwrap(), MuxEvent::SurfaceExited { surface: 4, .. }));
         assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
     }
 
@@ -496,9 +495,9 @@ mod tests {
         let events = broadcaster.subscribe();
 
         broadcaster.emit(MuxEvent::SurfaceOutput(4));
-        broadcaster.emit(MuxEvent::SurfaceExited(4));
+        broadcaster.emit(MuxEvent::SurfaceExited { surface: 4, runtime_ms: None });
 
-        assert!(matches!(events.recv().unwrap(), MuxEvent::SurfaceExited(4)));
+        assert!(matches!(events.recv().unwrap(), MuxEvent::SurfaceExited { surface: 4, .. }));
         assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
     }
 

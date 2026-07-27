@@ -40,6 +40,8 @@ pub enum MessageKind {
     Title = 9,
     Pwd = 10,
     Bell = 11,
+    /// Child exit with its runtime in milliseconds as one little-endian u64.
+    /// Legacy hosts send an empty payload.
     Exit = 12,
     ResyncRequired = 13,
     Launch = 14,

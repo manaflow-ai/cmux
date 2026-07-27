@@ -242,7 +242,7 @@ enum HostedTransition {
     OutputWithColors { output: Vec<u8>, colors: TerminalColorOverrides },
     ResizedWithColors { cols: u16, rows: u16, replay: Vec<u8>, colors: TerminalColorOverrides },
     Metadata(MessageKind),
-    Exit,
+    Exit { runtime_ms: Option<u64> },
     ResyncRequired,
 }
 
@@ -322,7 +322,16 @@ impl HostedFrameStager {
             MessageKind::Title | MessageKind::Pwd | MessageKind::Bell if frame.flags == 0 => {
                 Ok(Some(HostedTransition::Metadata(frame.kind)))
             }
-            MessageKind::Exit if frame.flags == 0 => Ok(Some(HostedTransition::Exit)),
+            MessageKind::Exit if frame.flags == 0 => {
+                let runtime_ms = match frame.payload.as_slice() {
+                    [] => None,
+                    [a, b, c, d, e, f, g, h] => {
+                        Some(u64::from_le_bytes([*a, *b, *c, *d, *e, *f, *g, *h]))
+                    }
+                    _ => return Err("invalid Exit payload"),
+                };
+                Ok(Some(HostedTransition::Exit { runtime_ms }))
+            }
             MessageKind::ResyncRequired if frame.flags == 0 => {
                 Ok(Some(HostedTransition::ResyncRequired))
             }
@@ -971,7 +980,7 @@ impl Surface {
                 let mut sequence_boundary = sequence_boundary;
                 'connection: loop {
                     let mut stager = HostedFrameStager::new(sequence_boundary);
-                    let mut received_exit = false;
+                    let mut received_exit = None;
                     'host_stream: while let Ok(Some(frame)) =
                         crate::terminal_host_protocol::read_frame(
                             &mut reader,
@@ -1165,8 +1174,8 @@ impl Surface {
                             // the sequenced metadata frames are still consumed so
                             // they cannot hide a stream gap.
                             HostedTransition::Metadata(_kind) => {}
-                            HostedTransition::Exit => {
-                                received_exit = true;
+                            HostedTransition::Exit { runtime_ms } => {
+                                received_exit = Some(runtime_ms);
                                 break;
                             }
                             HostedTransition::ResyncRequired => break,
@@ -1177,13 +1186,13 @@ impl Surface {
                         return;
                     }
                     let Some(identity) = pty.host_identity.clone() else { return };
-                    if received_exit {
+                    if let Some(runtime_ms) = received_exit {
                         mark_hosted_runtime_exited(pty, &identity);
                         pty.host_connection_state
                             .store(TerminalHostConnectionState::Exited as u8, Ordering::Release);
                         pty.dead.store(true, Ordering::Release);
                         if let Some(mux) = mux.upgrade() {
-                            mux.surface_exited(surface.id);
+                            mux.surface_exited_with_runtime(surface.id, runtime_ms);
                         }
                         return;
                     }
@@ -3060,6 +3069,31 @@ mod tests {
             stager.push(colors_frame).unwrap(),
             Some(HostedTransition::OutputWithColors { .. })
         ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hosted_stager_decodes_exit_runtime_and_accepts_legacy_empty_payload() {
+        let mut stager = HostedFrameStager::new(0);
+        let mut exit = Frame::new(MessageKind::Exit, 321_u64.to_le_bytes().to_vec());
+        exit.sequence = 1;
+        assert!(matches!(
+            stager.push(exit).unwrap(),
+            Some(HostedTransition::Exit { runtime_ms: Some(321) })
+        ));
+
+        let mut stager = HostedFrameStager::new(0);
+        let mut legacy_exit = Frame::new(MessageKind::Exit, Vec::new());
+        legacy_exit.sequence = 1;
+        assert!(matches!(
+            stager.push(legacy_exit).unwrap(),
+            Some(HostedTransition::Exit { runtime_ms: None })
+        ));
+
+        let mut stager = HostedFrameStager::new(0);
+        let mut malformed_exit = Frame::new(MessageKind::Exit, vec![0; 7]);
+        malformed_exit.sequence = 1;
+        assert!(stager.push(malformed_exit).is_err());
     }
 
     #[cfg(unix)]

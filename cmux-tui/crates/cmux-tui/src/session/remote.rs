@@ -962,7 +962,10 @@ impl RemoteSession {
                 if let Some(id) = surface_id() {
                     self.surface_overflow_recovery.lock().unwrap().remove(&id);
                     self.tree_stale.store(true, Ordering::Release);
-                    self.emit(MuxEvent::SurfaceExited(id));
+                    self.emit(MuxEvent::SurfaceExited {
+                        surface: id,
+                        runtime_ms: value.get("runtime_ms").and_then(Value::as_u64),
+                    });
                 }
             }
             Some("title-changed") => {
@@ -2526,11 +2529,15 @@ mod tests {
             Ok(MuxEvent::TitleChanged { surface: 7, .. })
         ));
 
-        session.handle_line(json!({"event": "surface-exited", "surface": 7}));
+        session.handle_line(json!({
+            "event": "surface-exited",
+            "surface": 7,
+            "runtime_ms": 321,
+        }));
         assert!(session.tree_is_stale());
         assert!(matches!(
             events.recv_timeout(Duration::from_secs(1)),
-            Ok(MuxEvent::SurfaceExited(7))
+            Ok(MuxEvent::SurfaceExited { surface: 7, runtime_ms: Some(321) })
         ));
     }
 
@@ -2555,7 +2562,7 @@ mod tests {
 
         assert!(matches!(
             events.recv_timeout(Duration::from_secs(1)),
-            Ok(MuxEvent::SurfaceExited(7))
+            Ok(MuxEvent::SurfaceExited { surface: 7, runtime_ms: None })
         ));
     }
 
