@@ -11,7 +11,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, TrySendError, sync_channel};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -881,6 +881,173 @@ fn perform_surface_attach(
     }
 }
 
+const REMOTE_ATTACH_WORKER_LIMIT: usize = 4;
+const REMOTE_ATTACH_QUEUE_CAPACITY: usize = 512;
+
+struct RemoteSurfaceAttachJob {
+    claim: SurfaceAttachClaim,
+    session: Session,
+    exited_surfaces: Arc<Mutex<HashSet<SurfaceId>>>,
+    attach_claims: Arc<Mutex<HashMap<SurfaceId, SurfaceAttachClaimState>>>,
+    attach_failures: Arc<Mutex<HashMap<SurfaceId, SurfaceSyncFailureState>>>,
+    events: SessionEventSender,
+    id: SurfaceId,
+    size: Option<(u16, u16)>,
+    #[cfg(test)]
+    after_obsolete_check: SurfaceAttachAfterObsoleteCheckHook,
+}
+
+impl RemoteSurfaceAttachJob {
+    fn run(self) {
+        let Self {
+            claim,
+            session,
+            exited_surfaces,
+            attach_claims,
+            attach_failures,
+            events,
+            id,
+            size,
+            #[cfg(test)]
+            after_obsolete_check,
+        } = self;
+        let _claim = claim;
+        let result = perform_surface_attach(
+            &session,
+            &exited_surfaces,
+            &attach_claims,
+            &attach_failures,
+            id,
+            size,
+            || {
+                #[cfg(test)]
+                if let Some(hook) = { after_obsolete_check.lock().unwrap().clone() } {
+                    hook();
+                }
+            },
+        );
+        let _ = events.send(AppEvent::SurfaceAttachSettled { outcome: result.outcome });
+    }
+
+    fn fail(self, error: String) {
+        let mut failures = self.attach_failures.lock().unwrap();
+        let state = next_surface_sync_failure(failures.get(&self.id).copied(), true, false);
+        failures.insert(self.id, state);
+        drop(failures);
+        let _ = self.events.send(AppEvent::SurfaceAttachSettled {
+            outcome: SessionMutationOutcome::SurfaceSyncFailed {
+                surface: self.id,
+                operation: "attach",
+                error,
+                reconnect_required: false,
+            },
+        });
+    }
+}
+
+#[derive(Default)]
+struct RemoteSurfaceAttachQueue {
+    visible: VecDeque<RemoteSurfaceAttachJob>,
+    background: VecDeque<RemoteSurfaceAttachJob>,
+    stopped: bool,
+}
+
+struct RemoteSurfaceAttachExecutor {
+    shared: Arc<(Mutex<RemoteSurfaceAttachQueue>, Condvar)>,
+    worker_count: usize,
+}
+
+enum RemoteSurfaceAttachAdmission {
+    Enqueued { displaced: Option<RemoteSurfaceAttachJob> },
+    Rejected(RemoteSurfaceAttachJob),
+}
+
+impl RemoteSurfaceAttachExecutor {
+    fn new() -> std::io::Result<Self> {
+        let shared = Arc::new((Mutex::new(RemoteSurfaceAttachQueue::default()), Condvar::new()));
+        let mut worker_count = 0;
+        for worker in 0..REMOTE_ATTACH_WORKER_LIMIT {
+            let worker_shared = shared.clone();
+            let spawned = std::thread::Builder::new()
+                .name(format!("surface-attach-{worker}"))
+                .spawn(move || {
+                    loop {
+                        let job = {
+                            let (queue, ready) = &*worker_shared;
+                            let mut queue = queue.lock().unwrap();
+                            while !queue.stopped
+                                && queue.visible.is_empty()
+                                && queue.background.is_empty()
+                            {
+                                queue = ready.wait(queue).unwrap();
+                            }
+                            if queue.stopped {
+                                return;
+                            }
+                            queue.visible.pop_front().or_else(|| queue.background.pop_front())
+                        };
+                        if let Some(job) = job {
+                            job.run();
+                        }
+                    }
+                });
+            match spawned {
+                Ok(_) => worker_count += 1,
+                Err(error) if worker_count == 0 => return Err(error),
+                Err(_) => break,
+            }
+        }
+        Ok(Self { shared, worker_count })
+    }
+
+    /// Returns work that was not admitted. Visible work may displace the
+    /// newest background prefetch. Dropping either job releases its attach
+    /// claim so a later layout pass can retry it.
+    fn enqueue(&self, job: RemoteSurfaceAttachJob, visible: bool) -> RemoteSurfaceAttachAdmission {
+        debug_assert!(self.worker_count > 0);
+        let (queue, ready) = &*self.shared;
+        let mut queue = queue.lock().unwrap();
+        if queue.stopped {
+            return RemoteSurfaceAttachAdmission::Rejected(job);
+        }
+        let queued = queue.visible.len() + queue.background.len();
+        let displaced = if queued >= REMOTE_ATTACH_QUEUE_CAPACITY {
+            if visible {
+                let Some(displaced) = queue.background.pop_back() else {
+                    return RemoteSurfaceAttachAdmission::Rejected(job);
+                };
+                Some(displaced)
+            } else {
+                return RemoteSurfaceAttachAdmission::Rejected(job);
+            }
+        } else {
+            None
+        };
+        if visible {
+            queue.visible.push_back(job);
+        } else {
+            queue.background.push_back(job);
+        }
+        ready.notify_one();
+        RemoteSurfaceAttachAdmission::Enqueued { displaced }
+    }
+
+    fn shutdown(&self) {
+        let (queue, ready) = &*self.shared;
+        let mut queue = queue.lock().unwrap();
+        queue.stopped = true;
+        queue.visible.clear();
+        queue.background.clear();
+        ready.notify_all();
+    }
+}
+
+impl Drop for RemoteSurfaceAttachExecutor {
+    fn drop(&mut self) {
+        self.shutdown();
+    }
+}
+
 enum SurfaceResizeDecision {
     Noop,
     AlreadyClaimed,
@@ -981,6 +1148,7 @@ pub struct OrderedSession {
     surface_resize_ownership: Arc<Mutex<HashMap<SurfaceId, SurfaceResizeOwnership>>>,
     surface_attach_claims: Arc<Mutex<HashMap<SurfaceId, SurfaceAttachClaimState>>>,
     surface_attach_failures: Arc<Mutex<HashMap<SurfaceId, SurfaceSyncFailureState>>>,
+    remote_surface_attaches: Mutex<Option<RemoteSurfaceAttachExecutor>>,
     surface_resize_failures: Arc<Mutex<HashMap<SurfaceId, SurfaceResizeFailure>>>,
     config_generation: Arc<AtomicU64>,
     sidebar_plugin_sync: Arc<Mutex<SidebarPluginSyncState>>,
@@ -1023,6 +1191,7 @@ impl OrderedSession {
             surface_resize_ownership: Arc::new(Mutex::new(HashMap::new())),
             surface_attach_claims: Arc::new(Mutex::new(HashMap::new())),
             surface_attach_failures: Arc::new(Mutex::new(HashMap::new())),
+            remote_surface_attaches: Mutex::new(None),
             surface_resize_failures: Arc::new(Mutex::new(HashMap::new())),
             config_generation: Arc::new(AtomicU64::new(0)),
             sidebar_plugin_sync: Arc::new(Mutex::new(SidebarPluginSyncState::default())),
@@ -1200,6 +1369,9 @@ impl OrderedSession {
     }
 
     fn begin_shutdown(&self) {
+        if let Some(executor) = self.remote_surface_attaches.lock().unwrap().as_ref() {
+            executor.shutdown();
+        }
         self.inner.begin_shutdown();
     }
 
@@ -1232,47 +1404,39 @@ impl OrderedSession {
 
         if self.remote {
             // Attach is mirror synchronization, not an authoritative session
-            // mutation. Wait on its progress-aware deadline independently so
-            // routing, input, resize, and close operations keep flowing.
-            let events = self.events.clone();
-            let failure_events = events.clone();
-            #[cfg(test)]
-            let remote_attach_after_obsolete_check = attach_after_obsolete_check.clone();
-            let spawn =
-                std::thread::Builder::new().name(format!("surface-{id}-attach")).spawn(move || {
-                    let _claim = claim;
-                    let result = perform_surface_attach(
-                        &session,
-                        &exited_surfaces,
-                        &attach_claims,
-                        &attach_failures,
-                        id,
-                        size,
-                        || {
-                            #[cfg(test)]
-                            if let Some(hook) =
-                                { remote_attach_after_obsolete_check.lock().unwrap().clone() }
-                            {
-                                hook();
-                            }
-                        },
-                    );
-                    let _ = events.send(AppEvent::SurfaceAttachSettled { outcome: result.outcome });
-                });
-            if let Err(error) = spawn {
-                let message = format!("could not start surface attach worker: {error}");
-                let mut failures = self.surface_attach_failures.lock().unwrap();
-                let state = next_surface_sync_failure(failures.get(&id).copied(), true, false);
-                failures.insert(id, state);
-                drop(failures);
-                let _ = failure_events.send(AppEvent::SurfaceAttachSettled {
-                    outcome: SessionMutationOutcome::SurfaceSyncFailed {
-                        surface: id,
-                        operation: "attach",
-                        error: message,
-                        reconnect_required: false,
-                    },
-                });
+            // mutation. A fixed worker pool waits on progress-aware deadlines
+            // independently, while size-bearing visible work stays ahead of
+            // background tab prefetch.
+            let job = RemoteSurfaceAttachJob {
+                claim,
+                session,
+                exited_surfaces,
+                attach_claims,
+                attach_failures,
+                events: self.events.clone(),
+                id,
+                size,
+                #[cfg(test)]
+                after_obsolete_check: attach_after_obsolete_check,
+            };
+            let mut executor = self.remote_surface_attaches.lock().unwrap();
+            if executor.is_none() {
+                match RemoteSurfaceAttachExecutor::new() {
+                    Ok(created) => *executor = Some(created),
+                    Err(error) => {
+                        drop(executor);
+                        job.fail(format!("could not start surface attach workers: {error}"));
+                        return;
+                    }
+                }
+            }
+            let admission = executor.as_ref().unwrap().enqueue(job, size.is_some());
+            drop(executor);
+            match admission {
+                RemoteSurfaceAttachAdmission::Enqueued { displaced } => drop(displaced),
+                RemoteSurfaceAttachAdmission::Rejected(job) => {
+                    job.fail("remote surface attach queue is full".into());
+                }
             }
             return;
         }

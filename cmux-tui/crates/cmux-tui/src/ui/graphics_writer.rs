@@ -68,7 +68,6 @@ impl InterruptibleStdout {
 
     fn abort_partial_control_string(&mut self) -> io::Result<()> {
         let deadline = Instant::now() + CONTROL_STRING_ABORT_TIMEOUT;
-        let mut output_flushed = false;
         loop {
             let written = unsafe {
                 libc::write(self.fd.as_raw_fd(), (&CONTROL_STRING_CANCEL as *const u8).cast(), 1)
@@ -87,21 +86,13 @@ impl InterruptibleStdout {
                 Some(libc::EINTR) => continue,
                 Some(libc::EAGAIN) => {
                     if Instant::now() >= deadline {
-                        // A real terminal can stop draining indefinitely. Drop
-                        // this descriptor's pending APC tail, then use the
-                        // newly available byte for CAN so restoration starts
-                        // from the parser's ground state. Non-terminal test
-                        // descriptors cannot be flushed and fail closed.
-                        if output_flushed
-                            || unsafe { libc::tcflush(self.fd.as_raw_fd(), libc::TCOFLUSH) } != 0
-                        {
-                            return Err(io::Error::new(
-                                io::ErrorKind::TimedOut,
-                                "terminal stayed blocked while canceling a partial control string",
-                            ));
-                        }
-                        output_flushed = true;
-                        continue;
+                        // The terminal output queue is shared with Ratatui and
+                        // other descriptors. A graphics timeout may abandon
+                        // this operation, but it must never flush their bytes.
+                        return Err(io::Error::new(
+                            io::ErrorKind::TimedOut,
+                            "terminal stayed blocked while canceling a partial control string",
+                        ));
                     }
                     let mut poll_fd =
                         libc::pollfd { fd: self.fd.as_raw_fd(), events: libc::POLLOUT, revents: 0 };
@@ -181,8 +172,7 @@ impl GraphicsOutput for InterruptibleStdout {
 
     fn write_recovery(&mut self, bytes: &[u8]) -> io::Result<()> {
         let mut offset = 0;
-        let mut deadline = Instant::now() + CONTROL_STRING_ABORT_TIMEOUT;
-        let mut output_flushed = false;
+        let deadline = Instant::now() + CONTROL_STRING_ABORT_TIMEOUT;
         while offset < bytes.len() {
             let written = unsafe {
                 libc::write(
@@ -209,22 +199,13 @@ impl GraphicsOutput for InterruptibleStdout {
                 Some(libc::EINTR) => continue,
                 Some(libc::EAGAIN) => {
                     if Instant::now() >= deadline {
-                        if output_flushed
-                            || unsafe { libc::tcflush(self.fd.as_raw_fd(), libc::TCOFLUSH) } != 0
-                        {
-                            if offset != 0 {
-                                let _ = self.abort_partial_control_string();
-                            }
-                            return Err(io::Error::new(
-                                io::ErrorKind::TimedOut,
-                                "terminal stayed blocked while recovering a multipart image",
-                            ));
+                        if offset != 0 {
+                            let _ = self.abort_partial_control_string();
                         }
-                        output_flushed = true;
-                        self.abort_partial_control_string()?;
-                        offset = 0;
-                        deadline = Instant::now() + CONTROL_STRING_ABORT_TIMEOUT;
-                        continue;
+                        return Err(io::Error::new(
+                            io::ErrorKind::TimedOut,
+                            "terminal stayed blocked while recovering a multipart image",
+                        ));
                     }
                     let mut poll_fd =
                         libc::pollfd { fd: self.fd.as_raw_fd(), events: libc::POLLOUT, revents: 0 };

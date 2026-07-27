@@ -251,6 +251,7 @@ enum HostedTransition {
     ResizedWithColors {
         cols: u16,
         rows: u16,
+        cell_pixels: (u16, u16),
         replay: Vec<u8>,
         kitty_image_aliases: Vec<ghostty_vt::KittyImageAlias>,
         colors: TerminalColorOverrides,
@@ -267,6 +268,7 @@ enum PendingHostedTransition {
     Resized {
         cols: u16,
         rows: u16,
+        cell_pixels: (u16, u16),
         replay: Vec<u8>,
         kitty_image_aliases: Vec<ghostty_vt::KittyImageAlias>,
     },
@@ -314,15 +316,20 @@ impl HostedFrameStager {
                 PendingHostedTransition::Output(output) => {
                     HostedTransition::OutputWithColors { output, colors }
                 }
-                PendingHostedTransition::Resized { cols, rows, replay, kitty_image_aliases } => {
-                    HostedTransition::ResizedWithColors {
-                        cols,
-                        rows,
-                        replay,
-                        kitty_image_aliases,
-                        colors,
-                    }
-                }
+                PendingHostedTransition::Resized {
+                    cols,
+                    rows,
+                    cell_pixels,
+                    replay,
+                    kitty_image_aliases,
+                } => HostedTransition::ResizedWithColors {
+                    cols,
+                    rows,
+                    cell_pixels,
+                    replay,
+                    kitty_image_aliases,
+                    colors,
+                },
             }));
         }
 
@@ -339,15 +346,21 @@ impl HostedFrameStager {
                 if frame.flags != FLAG_COLORS_FOLLOW {
                     return Err("invalid Resized frame");
                 }
-                let (cols, rows, replay, kitty_image_aliases) =
-                    crate::terminal_host_runtime::decode_host_resize_payload_for_version(
-                        &frame.payload,
-                        self.protocol_version,
-                    )
-                    .map_err(|_| "invalid Resized payload")?;
+                let crate::terminal_host_runtime::DecodedHostResize {
+                    cols,
+                    rows,
+                    cell_pixels,
+                    replay,
+                    kitty_image_aliases,
+                } = crate::terminal_host_runtime::decode_host_resize_payload_for_version(
+                    &frame.payload,
+                    self.protocol_version,
+                )
+                .map_err(|_| "invalid Resized payload")?;
                 self.pending = Some(PendingHostedTransition::Resized {
                     cols,
                     rows,
+                    cell_pixels,
                     replay,
                     kitty_image_aliases,
                 });
@@ -1220,7 +1233,7 @@ impl Surface {
         responses
             .upgrade()
             .expect("control responses are live while installing their handler")
-            .set_deferred_cell_pixel_handler(Arc::new(move |request_id, expected, frame| {
+            .set_deferred_cell_pixel_handler(Arc::new(move |request_id, expected, resolution| {
                 let (Some(surface), Some(responses)) = (surface.upgrade(), responses.upgrade())
                 else {
                     return;
@@ -1229,7 +1242,7 @@ impl Surface {
                     .name(format!("surface-{}-cell-pixel-ack", surface.id))
                     .spawn(move || {
                         surface.reconcile_deferred_cell_pixel_ack(
-                            &responses, request_id, expected, frame,
+                            &responses, request_id, expected, resolution,
                         );
                     });
             }));
@@ -1241,8 +1254,14 @@ impl Surface {
         responses: &Arc<crate::terminal_host_runtime::ControlResponses>,
         request_id: u64,
         expected: (u16, u16),
-        frame: Frame,
+        resolution: crate::terminal_host_runtime::DeferredCellPixelResolution,
     ) {
+        let crate::terminal_host_runtime::DeferredCellPixelResolution::Response(frame) = resolution
+        else {
+            // The replacement host snapshot is authoritative for an
+            // acknowledgement whose delivery raced a broken admin stream.
+            return;
+        };
         let Some(pty) = self.as_pty() else { return };
         let owns_response = {
             let runtime = pty.runtime.lock().unwrap();
@@ -1523,12 +1542,18 @@ impl Surface {
                             HostedTransition::ResizedWithColors {
                                 cols,
                                 rows,
+                                cell_pixels,
                                 replay,
                                 kitty_image_aliases,
                                 colors,
                             } => {
                                 let mut geometry = pty.geometry.lock().unwrap();
-                                let next_geometry = PtyGeometry { cols, rows, ..*geometry };
+                                let next_geometry = PtyGeometry {
+                                    cols,
+                                    rows,
+                                    cell_width: cell_pixels.0,
+                                    cell_height: cell_pixels.1,
+                                };
                                 let defaults = mux
                                     .upgrade()
                                     .map(|mux| mux.default_colors())
@@ -1848,6 +1873,10 @@ impl Surface {
                         pty.host_connection_state
                             .store(TerminalHostConnectionState::Connected as u8, Ordering::Release);
                         if let Some(mux) = mux.upgrade() {
+                            mux.reconcile_deferred_cell_pixel_ack(
+                                surface.id,
+                                replacement_snapshot.cell_pixels,
+                            );
                             mux.emit(MuxEvent::TitleChanged {
                                 surface: surface.id,
                                 title: title.into(),
@@ -3065,71 +3094,54 @@ impl PtySurface {
     ) -> anyhow::Result<bool> {
         #[cfg(test)]
         self.run_geometry_test_hook(PtyGeometryTestStep::CellPixelStarted);
-        let mut geometry = self.geometry.lock().unwrap();
-        let next =
-            PtyGeometry { cell_width: width_px.max(1), cell_height: height_px.max(1), ..*geometry };
-        if *geometry == next {
-            return Ok(false);
+        let requested = (width_px.max(1), height_px.max(1));
+        {
+            let geometry = self.geometry.lock().unwrap();
+            if (geometry.cell_width, geometry.cell_height) == requested {
+                return Ok(false);
+            }
+            PtyGeometry { cell_width: requested.0, cell_height: requested.1, ..*geometry }
+                .pty_size()?;
         }
-        next.pty_size()?;
-        let previous = *geometry;
         #[cfg(unix)]
-        let host_committed = {
+        {
             let runtime = self.runtime.lock().unwrap();
             match &*runtime {
                 PtyRuntime::Hosted(host) => {
                     let accepted = match deadline {
-                        Some(deadline) => host.send_cell_pixel_size_until(
-                            next.cell_width,
-                            next.cell_height,
-                            deadline,
-                        )?,
-                        None => host.send_cell_pixel_size(next.cell_width, next.cell_height)?,
+                        Some(deadline) => {
+                            host.send_cell_pixel_size_until(requested.0, requested.1, deadline)?
+                        }
+                        None => host.send_cell_pixel_size(requested.0, requested.1)?,
                     };
                     if !accepted {
                         return Ok(false);
                     }
-                    true
+                    drop(runtime);
+                    // The host publishes Resized+Colors before its targeted
+                    // acknowledgement. The reader therefore installs the
+                    // canonical parser and metrics before this wait returns.
+                    let geometry = self.geometry.lock().unwrap();
+                    if (geometry.cell_width, geometry.cell_height) != requested {
+                        drop(geometry);
+                        if let PtyRuntime::Hosted(host) = &*self.runtime.lock().unwrap() {
+                            host.disconnect();
+                        }
+                        anyhow::bail!(
+                            "terminal host acknowledged cell metrics without publishing \
+                             the canonical geometry transition"
+                        );
+                    }
+                    return Ok(true);
                 }
                 PtyRuntime::ExitedHosted => return Ok(false),
-                PtyRuntime::Local { .. } => false,
+                PtyRuntime::Local { .. } => {}
             }
-        };
-        match self.commit_geometry(&mut geometry, next, false) {
-            Ok(changed) => Ok(changed),
-            #[cfg(unix)]
-            Err(error) if host_committed => {
-                let rollback = {
-                    let runtime = self.runtime.lock().unwrap();
-                    match &*runtime {
-                        PtyRuntime::Hosted(host) => match deadline {
-                            Some(deadline) => host
-                                .send_cell_pixel_size_until(
-                                    previous.cell_width,
-                                    previous.cell_height,
-                                    deadline,
-                                )
-                                .map(|accepted| accepted.then_some(())),
-                            None => host
-                                .send_cell_pixel_size(previous.cell_width, previous.cell_height)
-                                .map(|accepted| accepted.then_some(())),
-                        },
-                        PtyRuntime::Local { .. } | PtyRuntime::ExitedHosted => Ok(None),
-                    }
-                };
-                match rollback {
-                    Ok(Some(())) => Err(error),
-                    Ok(None) => Err(anyhow::anyhow!(
-                        "{error:#}; authoritative host cell metrics could not be rolled back"
-                    )),
-                    Err(rollback_error) => Err(anyhow::anyhow!(
-                        "{error:#}; authoritative host cell-metric rollback failed: \
-                         {rollback_error:#}"
-                    )),
-                }
-            }
-            Err(error) => Err(error),
         }
+        let mut geometry = self.geometry.lock().unwrap();
+        let next = PtyGeometry { cell_width: requested.0, cell_height: requested.1, ..*geometry };
+        next.pty_size()?;
+        self.commit_geometry(&mut geometry, next, false)
     }
 
     /// Commit the PTY ioctl or hosted mirror metrics, Ghostty geometry, and
@@ -3898,6 +3910,8 @@ mod tests {
             payload.extend_from_slice(&(b"authoritative replay".len() as u32).to_le_bytes());
             payload.extend_from_slice(b"authoritative replay");
             payload.extend_from_slice(&0u16.to_le_bytes());
+            payload.extend_from_slice(&9u16.to_le_bytes());
+            payload.extend_from_slice(&18u16.to_le_bytes());
             payload
         });
         resize.flags = FLAG_COLORS_FOLLOW;
@@ -3921,11 +3935,13 @@ mod tests {
             HostedTransition::ResizedWithColors {
                 cols,
                 rows,
+                cell_pixels,
                 replay,
                 kitty_image_aliases,
                 colors: received,
             } => {
                 assert_eq!((cols, rows), (101, 37));
+                assert_eq!(cell_pixels, (9, 18));
                 assert_eq!(replay, b"authoritative replay");
                 assert!(kitty_image_aliases.is_empty());
                 assert_eq!(received, colors);
@@ -3958,6 +3974,8 @@ mod tests {
         payload.extend_from_slice(&1u16.to_le_bytes());
         payload.extend_from_slice(&41u32.to_le_bytes());
         payload.extend_from_slice(&77u32.to_le_bytes());
+        payload.extend_from_slice(&9u16.to_le_bytes());
+        payload.extend_from_slice(&18u16.to_le_bytes());
 
         let mut stager = HostedFrameStager::new(8);
         let mut resize = Frame::new(MessageKind::Resized, payload);
