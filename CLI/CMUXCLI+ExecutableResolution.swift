@@ -8,7 +8,16 @@ extension CMUXCLI {
             localized: "agentSession.error.missingProviderExecutable",
             defaultValue: "%@ was not found. Install it and make sure \"%@\" is available on PATH."
         )
-        return String(format: format, displayName, executableName)
+        let message = String(format: format, displayName, executableName)
+        guard executableName == "claude" else { return message }
+        // https://github.com/manaflow-ai/cmux/issues/7035: a `claude` defined
+        // as a shell function/alias in the user's rc is invisible to cmux.
+        let hint = String(
+            localized: "agentSession.error.missingProviderExecutable.claudeShellFunctionHint",
+            defaultValue:
+                "If claude is a shell function or alias in your shell profile, cmux cannot see it. Set Settings › Automation › Claude Binary Path to the real binary, or to a launch command containing \"$@\" to forward the arguments."
+        )
+        return message + " " + hint
     }
 
     func isBundledProviderExecutable(at path: String) -> Bool {
@@ -81,6 +90,46 @@ extension CMUXCLI {
             guard !isBundledProviderExecutable(at: candidate) else { continue }
             if let skip, skip(candidate) { continue }
             return candidate
+        }
+        return nil
+    }
+
+    /// The configured Claude launch *command*, when the custom value classifies
+    /// as a `/bin/sh` command (contains the literal `$@` argument reference and
+    /// is not an existing executable file) rather than a binary path.
+    /// https://github.com/manaflow-ai/cmux/issues/7035 — mirrors
+    /// `AgentExecutableResolver.configuredShellCommand` in the app target.
+    ///
+    /// Returns nil when the guard env var is already active (non-empty), so a
+    /// command whose descendants re-enter cmux resolve via PATH instead of
+    /// re-applying the command. Candidates are considered in order; the first
+    /// one that classifies as either a binary path (binary mode wins — handled
+    /// by `resolveClaudeExecutable`) or a command decides.
+    func configuredClaudeLaunchCommand(
+        configuredCandidates: [String?],
+        environment: [String: String]
+    ) -> String? {
+        guard (environment[ClaudeCustomLaunchValue.commandActiveGuardEnvironmentKey] ?? "").isEmpty else {
+            return nil
+        }
+        let launch = ClaudeCustomLaunchValue()
+        for raw in configuredCandidates {
+            switch launch.classify(
+                configuredValue: raw,
+                isExecutableFile: { path in
+                    var isDirectory = ObjCBool(false)
+                    return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
+                        && !isDirectory.boolValue
+                        && FileManager.default.isExecutableFile(atPath: path)
+                }
+            ) {
+            case .executablePath:
+                return nil
+            case .shellCommand(let command):
+                return command
+            case .pathFallback:
+                continue
+            }
         }
         return nil
     }

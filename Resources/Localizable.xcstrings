@@ -6268,6 +6268,29 @@
         }
       }
     },
+    "agentSession.error.missingProviderExecutable.claudeShellFunctionHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "If claude is a shell function or alias in your shell profile, cmux cannot see it. Set Settings › Automation › Claude Binary Path to the real binary, or to a launch command containing \"$@\" to forward the arguments."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claudeがシェルプロファイル内のシェル関数やエイリアスの場合、cmuxからは認識できません。設定 › オートメーション › Claudeバイナリパスに実際のバイナリ、または引数を渡す \"$@\" を含む起動コマンドを設定してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude가 셸 프로필의 셸 함수나 별칭인 경우 cmux에서 인식할 수 없습니다. 설정 › 자동화 › Claude 바이너리 경로에 실제 바이너리 또는 인수를 전달하는 \"$@\"를 포함한 실행 명령을 설정하세요."
+          }
+        }
+      }
+    },
     "agentSession.opencode.error.eventStreamFailed": {
       "extractionState": "manual",
       "localizations": {
@@ -156486,19 +156509,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "e.g. /usr/local/bin/claude"
+            "value": "e.g. /usr/local/bin/claude or zsh -lic 'claude \"$@\"' claude \"$@\""
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "例: /usr/local/bin/claude"
+            "value": "例: /usr/local/bin/claude または zsh -lic 'claude \"$@\"' claude \"$@\""
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "예: /usr/local/bin/claude"
+            "value": "예: /usr/local/bin/claude 또는 zsh -lic 'claude \"$@\"' claude \"$@\""
           }
         }
       }
@@ -156509,19 +156532,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Custom path to the claude binary. Leave empty to use PATH."
+            "value": "Custom path to the claude binary, or a launch command containing \"$@\" to forward the arguments. Leave empty to use PATH."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "claudeバイナリのカスタムパス。空欄の場合はPATHを使用します。"
+            "value": "claudeバイナリのカスタムパス、または引数を渡す \"$@\" を含む起動コマンド。空欄の場合はPATHを使用します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "claude 바이너리의 사용자 지정 경로입니다. PATH를 사용하려면 비워두세요."
+            "value": "claude 바이너리의 사용자 지정 경로 또는 인수를 전달하는 \"$@\"를 포함한 실행 명령입니다. PATH를 사용하려면 비워두세요."
           }
         }
       }
