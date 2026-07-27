@@ -1208,6 +1208,51 @@ fn server_shutdown_exits_when_the_interactive_driver_cannot_progress() {
 
 #[cfg(unix)]
 #[test]
+fn daemon_handoff_exits_when_the_interactive_driver_cannot_progress() {
+    let dir = unique_temp_dir("daemon-handoff-blocked-interactive-driver");
+    fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("mux.sock");
+    let state = dir.join("state");
+    let mut server = PtyChild::start_with_env(
+        &["--socket", socket.to_str().unwrap(), "--state", state.to_str().unwrap()],
+        &[
+            ("CMUX_TUI_TEST_BLOCK_INTERACTIVE_DRIVER", std::ffi::OsStr::new("1")),
+            ("CMUX_TUI_TEST_SHUTDOWN_EXIT_GRACE_MS", std::ffi::OsStr::new("100")),
+        ],
+    );
+    wait_for_socket_path(&socket);
+    let identity = json_socket_request(&socket, serde_json::json!({"id": 1, "cmd": "identify"}));
+
+    let response = json_socket_request(
+        &socket,
+        serde_json::json!({
+            "id": 2,
+            "cmd": "shutdown-daemon",
+            "pid": identity["pid"],
+            "generation": identity["generation"],
+        }),
+    );
+    assert_eq!(response["accepted"], true);
+
+    let deadline = Instant::now() + Duration::from_secs(3);
+    let status = loop {
+        if let Some(status) = server.child.try_wait().unwrap() {
+            break status;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "server remained alive after acknowledging daemon handoff"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    assert!(status.success(), "server exited with {status}");
+    assert!(transport::connect(&socket).is_err());
+    drop(server);
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
 fn server_stop_cancels_a_blocked_terminal_host_launch() {
     let mut server = HeadlessServer::start_with(
         "server-stop-blocked-launch",

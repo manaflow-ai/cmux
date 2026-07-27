@@ -13124,6 +13124,34 @@ mod tests {
     }
 
     #[test]
+    fn daemon_exit_bounds_permanent_cleanup_failures() {
+        let mux = test_mux();
+        mux.set_shutdown_attempt_timeout_for_test(Duration::from_millis(25));
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let (failing, _attempts) = surface.set_recovering_server_shutdown_for_test();
+        let (shutdown_done_tx, shutdown_done_rx) = std::sync::mpsc::sync_channel(1);
+        let shutdown = std::thread::spawn({
+            let mux = mux.clone();
+            move || {
+                shutdown_done_tx.send(mux.shutdown()).unwrap();
+            }
+        });
+
+        let completed_before_deadline =
+            shutdown_done_rx.recv_timeout(Duration::from_millis(400)).is_ok();
+        failing.store(false, Ordering::Release);
+        if !completed_before_deadline {
+            shutdown_done_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        }
+        shutdown.join().unwrap();
+
+        assert!(
+            completed_before_deadline,
+            "daemon exit retried a permanent cleanup failure without a total deadline"
+        );
+    }
+
+    #[test]
     fn browser_runtime_connection_does_not_hold_the_shared_slot() {
         let mux = Mux::new_for_test(
             "browser-runtime-slot",

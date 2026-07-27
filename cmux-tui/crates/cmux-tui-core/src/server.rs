@@ -5666,6 +5666,39 @@ mod tests {
         assert_eq!(response["data"]["generation"], generation);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn daemon_shutdown_rejects_unavailable_process_control_before_ack() {
+        let mux = test_mux();
+        let outbound = Arc::new(BoundedOutbound::default());
+        let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+        let local = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let (_, generation) = mux.registry_identity();
+        crate::process_session::set_process_session_preflight_failure_for_test(true);
+
+        assert!(handle_message(
+            &mux,
+            local,
+            &json!({
+                "id": 95,
+                "cmd": "shutdown-daemon",
+                "pid": std::process::id(),
+                "generation": generation,
+            })
+            .to_string(),
+            &writer,
+        ));
+
+        crate::process_session::set_process_session_preflight_failure_for_test(false);
+        let response: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(response["ok"], false);
+        assert!(!mux.daemon_shutdown_requested());
+        assert!(
+            !mux.daemon_handoff_pending.load(Ordering::Acquire),
+            "failed preflight left daemon handoff admission fenced"
+        );
+    }
+
     #[test]
     fn daemon_shutdown_atomically_fences_native_browser_ownership() {
         let owned = test_mux();
