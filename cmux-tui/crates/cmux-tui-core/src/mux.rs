@@ -830,6 +830,9 @@ impl ClientSizingState {
 
 #[cfg(test)]
 type CellPixelBeforePublishHook = Arc<dyn Fn((u16, u16)) + Send + Sync>;
+#[cfg(test)]
+type CellPixelOperationHook =
+    Arc<dyn Fn(SurfaceId, (u16, u16), Instant) -> anyhow::Result<Option<u64>> + Send + Sync>;
 
 /// The multiplexer. Shared by frontends and the control socket server.
 pub struct Mux {
@@ -872,6 +875,10 @@ pub struct Mux {
     pending_cell_pixels: Mutex<Option<PendingCellPixelUpdate>>,
     #[cfg(test)]
     cell_pixel_before_publish: Mutex<Option<CellPixelBeforePublishHook>>,
+    #[cfg(test)]
+    cell_pixel_operation: Mutex<Option<CellPixelOperationHook>>,
+    #[cfg(test)]
+    cell_pixel_fanout_timeout: Mutex<Option<Duration>>,
     default_colors: Mutex<DefaultColors>,
     sidebar_plugin: Mutex<SidebarPluginRuntime>,
     agent_records: Mutex<HashMap<SurfaceId, AgentRecord>>,
@@ -1102,6 +1109,10 @@ impl Mux {
             pending_cell_pixels: Mutex::new(None),
             #[cfg(test)]
             cell_pixel_before_publish: Mutex::new(None),
+            #[cfg(test)]
+            cell_pixel_operation: Mutex::new(None),
+            #[cfg(test)]
+            cell_pixel_fanout_timeout: Mutex::new(None),
             default_colors: Mutex::new(DefaultColors::default()),
             sidebar_plugin: Mutex::new(SidebarPluginRuntime::default()),
             agent_records: Mutex::new(HashMap::new()),
@@ -3958,11 +3969,32 @@ impl Mux {
         let mut surfaces =
             self.state.lock().unwrap().surfaces.values().cloned().collect::<Vec<_>>();
         surfaces.sort_unstable_by_key(|surface| surface.id);
-        let deadline = Instant::now() + crate::terminal_host_runtime::CONTROL_RESPONSE_TIMEOUT;
+        #[cfg(test)]
+        let timeout = self
+            .cell_pixel_fanout_timeout
+            .lock()
+            .unwrap()
+            .unwrap_or(crate::terminal_host_runtime::CONTROL_RESPONSE_TIMEOUT);
+        #[cfg(not(test))]
+        let timeout = crate::terminal_host_runtime::CONTROL_RESPONSE_TIMEOUT;
+        let deadline = Instant::now() + timeout;
+        #[cfg(test)]
+        let operation_hook = self.cell_pixel_operation.lock().unwrap().clone();
         let results = bounded_deadline_map(&surfaces, deadline, |surface, deadline| {
             let id = surface.id;
             let size = surface.size();
             let callback = report.clone();
+            #[cfg(test)]
+            if let Some(hook) = operation_hook.as_ref() {
+                let result = hook(id, next, deadline);
+                callback(id, size, result.as_ref().ok().copied().flatten());
+                let deferred = result.as_ref().err().is_some_and(|error| {
+                    error
+                        .downcast_ref::<crate::terminal_host_runtime::DeferredCellPixelAck>()
+                        .is_some()
+                });
+                return (id, size, result, deferred);
+            }
             let result = surface.set_cell_pixel_size_reporting_until(
                 next.0,
                 next.1,
@@ -8344,6 +8376,56 @@ mod tests {
         );
         assert_eq!(mux.cell_pixel_size(), (9, 18));
         assert_eq!(surface.test_cell_pixel_size(), (9, 18));
+    }
+
+    #[test]
+    fn cell_pixel_fanout_retries_work_skipped_after_the_shared_deadline() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        for _ in 1..=CELL_PIXEL_FANOUT_MAX_WORKERS {
+            mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+        }
+        let mut surface_ids =
+            mux.state.lock().unwrap().surfaces.keys().copied().collect::<Vec<_>>();
+        surface_ids.sort_unstable();
+        assert_eq!(surface_ids.len(), CELL_PIXEL_FANOUT_MAX_WORKERS + 1);
+        let last_surface = *surface_ids.last().unwrap();
+        let last_attempts = Arc::new(AtomicUsize::new(0));
+        *mux.cell_pixel_fanout_timeout.lock().unwrap() = Some(Duration::from_millis(50));
+        *mux.cell_pixel_operation.lock().unwrap() = Some(Arc::new({
+            let last_attempts = last_attempts.clone();
+            move |surface, _, deadline| {
+                if surface != last_surface {
+                    std::thread::sleep(
+                        deadline.saturating_duration_since(Instant::now())
+                            + Duration::from_millis(10),
+                    );
+                    return Ok(None);
+                }
+                last_attempts.fetch_add(1, Ordering::AcqRel);
+                if Instant::now() >= deadline {
+                    anyhow::bail!("cell pixel request deadline elapsed before request");
+                }
+                Ok(None)
+            }
+        }));
+
+        let update = mux.set_cell_pixel_size(9, 18);
+
+        assert_eq!(update.failures.len(), 1);
+        assert_eq!(update.failures[0].surface, last_surface);
+        let retry_deadline = Instant::now() + Duration::from_secs(1);
+        while mux.cell_pixel_size() != (9, 18) && Instant::now() < retry_deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(
+            mux.cell_pixel_size(),
+            (9, 18),
+            "work that missed the first worker wave was never reconciled"
+        );
+        assert!(mux.pending_cell_pixels.lock().unwrap().is_none());
+        assert_eq!(last_attempts.load(Ordering::Acquire), 1);
     }
 
     #[test]
