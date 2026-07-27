@@ -2392,7 +2392,7 @@ mod tests {
     }
 
     #[test]
-    fn same_document_navigation_does_not_advance_main_frame_epoch() {
+    fn same_document_navigation_advances_only_the_main_frame_epoch() {
         let (inner, _outbound_rx) = test_inner();
         let frame_epoch = Arc::new(FrameEpoch::default());
         inner.frame_epochs.lock().unwrap().insert(
@@ -2452,8 +2452,8 @@ mod tests {
         );
         assert_eq!(
             frame_epoch.current(),
-            1,
-            "same-document navigation must not invalidate the current document's pointer authority"
+            2,
+            "a top-level same-document navigation must invalidate stale bitmap pointer authority"
         );
         let (event_tx, event_rx) = sync_channel(2);
         inner.events.drain_into(&event_tx).unwrap();

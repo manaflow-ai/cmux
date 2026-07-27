@@ -6854,6 +6854,49 @@ mod tests {
     }
 
     #[test]
+    fn page_initiated_same_document_navigation_requires_verified_pixels() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        browser.store_frame(test_frame(1));
+        let authority = browser.latest_frame_seq().expect("initial pointer authority");
+        let (_, capture_generation) = browser
+            .capture_guarded_input_point(authority, 1.0, 1.0)
+            .expect("accepted pointer press");
+        let navigation_epoch = browser.frame_epoch.latest_navigation();
+        let frame_epoch = browser.frame_epoch.advance();
+
+        handle_same_document_navigated(
+            browser,
+            &json!({
+                "frameId": "main-frame",
+                "url": "https://example.test/#page-initiated"
+            }),
+        )
+        .expect("same-document URL");
+
+        assert!(
+            browser.needs_same_document_paint(),
+            "page-initiated navigation must reserve verified replacement pixels"
+        );
+        assert_eq!(
+            browser.state.lock().unwrap().pointer_frame_seq,
+            None,
+            "the displayed pre-navigation bitmap must lose pointer admission immediately"
+        );
+        assert_eq!(
+            browser.frame_epoch.latest_navigation(),
+            navigation_epoch,
+            "same-document navigation must not claim a new document epoch"
+        );
+        assert!(
+            browser.scale_captured_input_point(capture_generation, 1.0, 1.0).is_some(),
+            "an accepted press must retain only its balancing release ownership"
+        );
+        assert!(browser.accept_same_document_paint(frame_epoch, test_frame(2)));
+        assert_eq!(browser.latest_frame_seq(), Some(2));
+    }
+
+    #[test]
     fn ordinary_repaint_rotates_pointer_authority_without_revoking_capture() {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
@@ -6887,6 +6930,81 @@ mod tests {
             browser.scale_captured_input_point(capture_generation, 1.0, 1.0).is_some(),
             "rotating bitmap authority must preserve ownership of a balancing release"
         );
+    }
+
+    #[test]
+    fn ordinary_repaint_preserves_captured_drag_motion() {
+        let (runtime, server, events, stop) = runtime_recording_mouse_dispatches();
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        *browser.session.lock().unwrap() = Some(BrowserSession {
+            runtime: runtime.clone(),
+            target_id: "target-1".to_string(),
+            session_id: "session-1".to_string(),
+        });
+        browser.store_frame(test_frame(1));
+        let mut active_pointer_presses = std::collections::HashMap::new();
+
+        browser
+            .mouse_event_blocking(
+                super::BrowserMouseDispatch {
+                    input_owner: super::BrowserPointerOwner::Local,
+                    event_type: "mousePressed",
+                    x: 8.0,
+                    y: 16.0,
+                    button: Some("left"),
+                    click_count: Some(1),
+                    frame_seq: Some(1),
+                },
+                &mut active_pointer_presses,
+            )
+            .unwrap();
+        let press = events.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        browser.store_frame(test_frame(2));
+        browser
+            .mouse_event_blocking(
+                super::BrowserMouseDispatch {
+                    input_owner: super::BrowserPointerOwner::Local,
+                    event_type: "mouseMoved",
+                    x: 24.0,
+                    y: 32.0,
+                    button: Some("left"),
+                    click_count: None,
+                    frame_seq: Some(1),
+                },
+                &mut active_pointer_presses,
+            )
+            .unwrap();
+        let motion = events.recv_timeout(Duration::from_millis(100)).ok();
+
+        browser
+            .mouse_event_blocking(
+                super::BrowserMouseDispatch {
+                    input_owner: super::BrowserPointerOwner::Local,
+                    event_type: "mouseReleased",
+                    x: 24.0,
+                    y: 32.0,
+                    button: Some("left"),
+                    click_count: Some(1),
+                    frame_seq: Some(1),
+                },
+                &mut active_pointer_presses,
+            )
+            .unwrap();
+        let release = events.recv_timeout(Duration::from_secs(1)).unwrap();
+        stop.send(()).unwrap();
+        runtime.shutdown();
+        server.join().unwrap();
+
+        let motion = motion.expect("ordinary repaint must not stall an accepted drag");
+        assert_eq!(motion["params"]["type"], "mouseMoved");
+        assert_ne!(motion["params"]["x"], press["params"]["x"]);
+        assert_ne!(motion["params"]["y"], press["params"]["y"]);
+        assert_eq!(release["params"]["type"], "mouseReleased");
+        assert_eq!(release["params"]["x"], motion["params"]["x"]);
+        assert_eq!(release["params"]["y"], motion["params"]["y"]);
+        assert!(active_pointer_presses.is_empty());
     }
 
     #[test]
