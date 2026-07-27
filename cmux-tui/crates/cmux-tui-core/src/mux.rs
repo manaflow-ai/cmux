@@ -8661,35 +8661,79 @@ mod tests {
             .sum::<u64>();
 
         assert!(
-            configured.saturating_mul(KITTY_IMAGE_PERSISTENT_COPIES_PER_SURFACE)
+            configured.saturating_mul(KITTY_IMAGE_PERSISTENT_COPIES_PER_SURFACE + 1)
                 <= KITTY_IMAGE_PROCESS_BUDGET_BYTES,
-            "per-terminal limits allow {} bytes across native screen storage and copied caches",
-            configured.saturating_mul(KITTY_IMAGE_PERSISTENT_COPIES_PER_SURFACE)
+            "per-terminal limits allow {} bytes across native screen storage, copied caches, and in-flight uploads",
+            configured.saturating_mul(KITTY_IMAGE_PERSISTENT_COPIES_PER_SURFACE + 1)
         );
+    }
 
-        let configured_images = surfaces
+    #[test]
+    fn kitty_object_limits_cover_primary_and_alternate_screens() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let mut surfaces = vec![first];
+        for _ in 1..8 {
+            surfaces.push(mux.new_tab(Some(pane), None, Some((80, 24))).unwrap());
+        }
+        let (configured_images, configured_placements) = surfaces
             .iter()
             .map(|surface| {
                 surface
-                    .with_terminal(|terminal| terminal.kitty_image_count_limit().unwrap())
+                    .with_terminal(|terminal| {
+                        let primary_images = terminal.kitty_image_count_limit().unwrap();
+                        let primary_placements = terminal.kitty_placement_count_limit().unwrap();
+                        terminal.vt_write(b"\x1b[?1049h");
+                        let alternate_images = terminal.kitty_image_count_limit().unwrap();
+                        let alternate_placements = terminal.kitty_placement_count_limit().unwrap();
+                        terminal.vt_write(b"\x1b[?1049l");
+                        (
+                            primary_images.saturating_add(alternate_images),
+                            primary_placements.saturating_add(alternate_placements),
+                        )
+                    })
                     .unwrap()
             })
-            .sum::<u64>();
-        let configured_placements = surfaces
-            .iter()
-            .map(|surface| {
-                surface
-                    .with_terminal(|terminal| terminal.kitty_placement_count_limit().unwrap())
-                    .unwrap()
-            })
-            .sum::<u64>();
+            .fold((0u64, 0u64), |(images, placements), candidate| {
+                (images.saturating_add(candidate.0), placements.saturating_add(candidate.1))
+            });
         assert!(
             configured_images <= 4_096,
-            "per-terminal limits allow {configured_images} native image records process-wide"
+            "primary and alternate screens allow {configured_images} native image records process-wide"
         );
         assert!(
             configured_placements <= 16_384,
-            "per-terminal limits allow {configured_placements} native placements process-wide"
+            "primary and alternate screens allow {configured_placements} native placements process-wide"
+        );
+    }
+
+    #[test]
+    fn kitty_inflight_uploads_share_the_process_byte_budget() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let mut surfaces = vec![first];
+        for _ in 1..8 {
+            surfaces.push(mux.new_tab(Some(pane), None, Some((80, 24))).unwrap());
+        }
+        let per_surface_limit = surfaces[0]
+            .with_terminal(|terminal| terminal.kitty_image_storage_limit().unwrap())
+            .unwrap() as usize;
+        let segment_bytes = (per_surface_limit.saturating_mul(3) / 5) / 4 * 4;
+        let first =
+            format!("\x1b_Ga=t,t=d,f=24,i=991,s=1,v=1,m=1,q=2;{}\x1b\\", "A".repeat(segment_bytes));
+        let second = format!("\x1b_Ga=t,t=d,f=24,i=991,m=1,q=2;{}", "A".repeat(segment_bytes));
+        let inflight_is_bounded = surfaces[0]
+            .with_terminal(|terminal| {
+                terminal.vt_write(first.as_bytes());
+                terminal.vt_write(second.as_bytes());
+                terminal.preflight_vt_replay_bounded(crate::surface::VT_REPLAY_MAX_BYTES).is_err()
+            })
+            .unwrap();
+        assert!(
+            inflight_is_bounded,
+            "completed and current Kitty upload chunks retained more than one surface byte share"
         );
     }
 
@@ -8726,7 +8770,7 @@ mod tests {
             })
             .unwrap();
         let expected = KITTY_IMAGE_PROCESS_BUDGET_BYTES
-            .checked_div(KITTY_IMAGE_PERSISTENT_COPIES_PER_SURFACE)
+            .checked_div(KITTY_IMAGE_PERSISTENT_COPIES_PER_SURFACE + 1)
             .unwrap()
             .min(ghostty_vt::MAX_KITTY_IMAGE_BYTES as u64);
         assert!(
@@ -8745,8 +8789,8 @@ mod tests {
             "surviving terminal kept its peak-surface placement count of {}",
             survivor_limit.2
         );
-        assert_eq!(survivor_limit.1, 4_096);
-        assert_eq!(survivor_limit.2, 16_384);
+        assert_eq!(survivor_limit.1, 2_048);
+        assert_eq!(survivor_limit.2, 8_192);
     }
 
     #[test]

@@ -5138,6 +5138,24 @@ mod tests {
     }
 
     #[test]
+    fn dropped_idle_render_attachments_remove_their_taps_immediately() {
+        let mux = Mux::new_for_test("render-tap-drop", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let pty = surface.as_pty().unwrap();
+
+        for _ in 0..128 {
+            let attachment = surface.attach_render_stream().unwrap();
+            assert_eq!(pty.render.lock().unwrap().taps.len(), 1);
+            drop(attachment);
+            assert!(
+                pty.render.lock().unwrap().taps.is_empty(),
+                "an idle closed attachment remained registered until later output"
+            );
+        }
+    }
+
+    #[test]
     fn geometry_updates_skip_vt_replay_without_byte_attach_subscribers() {
         let mux = Mux::new_for_test("resize-without-byte-attach", SurfaceOptions::default());
         let surface =
