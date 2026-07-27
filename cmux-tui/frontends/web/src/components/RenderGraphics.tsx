@@ -66,17 +66,12 @@ interface ImageAdmissionMetadata {
   image: RenderGraphicImage;
 }
 
-interface RawRenderGraphicCandidate extends CandidatePriority, ImageAdmissionMetadata {
-  placement: RenderGraphicPlacement;
-}
-
 const EMPTY_IMAGES: readonly RenderGraphicImage[] = [];
 const EMPTY_PLACEMENTS: readonly RenderGraphicPlacement[] = [];
 const EMPTY_SELECTION: GraphicsSelection = {
   placements: new Set(),
   images: new Set(),
 };
-const CANDIDATE_PAGE_SIZE = RENDER_GRAPHIC_CANVAS_COUNT_CAP;
 
 function compareCandidates(
   left: CandidatePriority,
@@ -92,6 +87,18 @@ function compareCandidateValues(
   rightOrder: number,
 ): number {
   return leftZ - rightZ || leftOrder - rightOrder;
+}
+
+function candidateBackingBytesLowerBound(placement: RenderGraphicPlacement): number {
+  const width = placement.source_width;
+  const height = placement.source_height;
+  if (!Number.isSafeInteger(width) || width <= 0
+    || !Number.isSafeInteger(height) || height <= 0) return 0;
+  const pixels = width * height;
+  const bytes = pixels * 4;
+  // Every valid placement plan uses this exact byte count. Returning zero for
+  // malformed or overflowing dimensions makes suffix pruning conservative.
+  return Number.isSafeInteger(pixels) && Number.isSafeInteger(bytes) ? bytes : 0;
 }
 
 function heapPush<T>(
@@ -132,109 +139,83 @@ function heapPop<T>(
 }
 
 class RenderGraphicCandidateSource {
+  private readonly candidatePositions: number[] = [];
+  private readonly minimumBackingBytes: number[];
   private readonly ordered: RenderGraphicCandidate[] = [];
-  private page: readonly RawRenderGraphicCandidate[] = [];
-  private pageIndex = 0;
-  private upperBound: CandidatePriority | undefined;
-  private exhausted = false;
+  private readonly placementIndexes: number[];
+  private nextPlacementPosition = 0;
 
   constructor(
     private readonly placements: readonly RenderGraphicPlacement[],
     private readonly images: ReadonlyMap<number, ImageAdmissionMetadata>,
-  ) {}
+  ) {
+    this.placementIndexes = [];
+    for (const [order, placement] of placements.entries()) {
+      if (!placement.viewport_visible || !Number.isSafeInteger(placement.z)
+        || !images.has(placement.image_id)) continue;
+      this.placementIndexes.push(order);
+    }
+    this.placementIndexes.sort((left, right) =>
+      -compareCandidateValues(
+        placements[left]!.z,
+        left,
+        placements[right]!.z,
+        right,
+      )
+    );
+
+    // Store only bounded protocol indexes, not geometry plans. The one-time
+    // ordering avoids rescanning all placements for each 512-candidate page,
+    // while plans remain lazy for candidates the global budget considers.
+    this.minimumBackingBytes = new Array(this.placementIndexes.length);
+    let minimum = Number.POSITIVE_INFINITY;
+    for (let position = this.placementIndexes.length - 1; position >= 0; position -= 1) {
+      const placement = placements[this.placementIndexes[position]!]!;
+      minimum = Math.min(minimum, candidateBackingBytesLowerBound(placement));
+      this.minimumBackingBytes[position] = minimum;
+    }
+  }
 
   candidateAt(index: number): RenderGraphicCandidate | undefined {
     while (this.ordered.length <= index) {
       const candidate = this.nextCandidate();
       if (candidate === undefined) break;
-      this.ordered.push(candidate);
+      this.ordered.push(candidate.candidate);
+      this.candidatePositions.push(candidate.position);
     }
     return this.ordered[index];
   }
 
-  private nextCandidate(): RenderGraphicCandidate | undefined {
-    while (true) {
-      if (this.pageIndex >= this.page.length) {
-        if (this.exhausted) return undefined;
-        this.fillPage();
-        if (this.page.length === 0) return undefined;
-      }
-      const raw = this.page[this.pageIndex++]!;
-      const placement = planRenderGraphicPlacement(raw.image, raw.placement);
-      if (placement === null) continue;
-      return {
-        image: raw.image,
-        placement,
-        order: raw.order,
-        z: raw.z,
-        decodedBytes: raw.decodedBytes,
-      };
-    }
+  canFitBackingFrom(index: number, availableBytes: number): boolean {
+    const position = this.candidatePositions[index]
+      ?? (index === this.ordered.length ? this.nextPlacementPosition : undefined);
+    return position !== undefined
+      && (this.minimumBackingBytes[position] ?? Number.POSITIVE_INFINITY) <= availableBytes;
   }
 
-  private fillPage(): void {
-    // Keep only one bounded page of lightweight placement references while
-    // scanning. Full geometry plans and CSS strings are created only as the
-    // global registry consumes candidates, and later pages refill rejected
-    // byte-budget slots without materializing the whole protocol-sized list.
-    const worstFirst: RawRenderGraphicCandidate[] = [];
-    const compareWorst = (
-      left: RawRenderGraphicCandidate,
-      right: RawRenderGraphicCandidate,
-    ) => -compareCandidates(left, right);
-    for (const [order, placement] of this.placements.entries()) {
-      if (!placement.viewport_visible || !Number.isSafeInteger(placement.z)) continue;
-      const image = this.images.get(placement.image_id);
+  private nextCandidate():
+    | { candidate: RenderGraphicCandidate; position: number }
+    | undefined {
+    while (this.nextPlacementPosition < this.placementIndexes.length) {
+      const position = this.nextPlacementPosition++;
+      const order = this.placementIndexes[position]!;
+      const rawPlacement = this.placements[order]!;
+      const image = this.images.get(rawPlacement.image_id);
       if (image === undefined) continue;
-      if (this.upperBound !== undefined
-        && compareCandidateValues(
-          placement.z,
+      const placement = planRenderGraphicPlacement(image.image, rawPlacement);
+      if (placement === null) continue;
+      return {
+        candidate: {
+          image: image.image,
+          placement,
           order,
-          this.upperBound.z,
-          this.upperBound.order,
-        ) >= 0) continue;
-      if (worstFirst.length < CANDIDATE_PAGE_SIZE) {
-        heapPush(
-          worstFirst,
-          { ...image, placement, z: placement.z, order },
-          compareWorst,
-        );
-        continue;
-      }
-      if (compareCandidateValues(
-        placement.z,
-        order,
-        worstFirst[0].z,
-        worstFirst[0].order,
-      ) <= 0) continue;
-      const replacement = worstFirst[0];
-      replacement.decodedBytes = image.decodedBytes;
-      replacement.image = image.image;
-      replacement.placement = placement;
-      replacement.z = placement.z;
-      replacement.order = order;
-      let index = 0;
-      while (true) {
-        const left = index * 2 + 1;
-        const right = left + 1;
-        let next = index;
-        if (left < worstFirst.length
-          && compareWorst(worstFirst[left], worstFirst[next]) > 0) next = left;
-        if (right < worstFirst.length
-          && compareWorst(worstFirst[right], worstFirst[next]) > 0) next = right;
-        if (next === index) break;
-        [worstFirst[index], worstFirst[next]] = [worstFirst[next], worstFirst[index]];
-        index = next;
-      }
+          z: rawPlacement.z,
+          decodedBytes: image.decodedBytes,
+        },
+        position,
+      };
     }
-    this.page = worstFirst.sort((left, right) => -compareCandidates(left, right));
-    this.pageIndex = 0;
-    const last = this.page.at(-1);
-    if (last === undefined) {
-      this.exhausted = true;
-      return;
-    }
-    this.upperBound = { z: last.z, order: last.order };
+    return undefined;
   }
 }
 
@@ -348,7 +329,13 @@ class GraphicsBudgetRegistry {
       }
       if (admitted >= RENDER_GRAPHIC_CANVAS_COUNT_CAP) continue;
       const nextIndex = index + 1;
-      const nextCandidate = this.candidates.get(owner)?.source.candidateAt(nextIndex);
+      const source = this.candidates.get(owner)?.source;
+      if (source === undefined
+        || !source.canFitBackingFrom(
+          nextIndex,
+          RENDER_GRAPHIC_CANVAS_BACKING_BYTE_CAP - backingBytes,
+        )) continue;
+      const nextCandidate = source.candidateAt(nextIndex);
       if (nextCandidate !== undefined) {
         heapPush(cursors, {
           owner,
