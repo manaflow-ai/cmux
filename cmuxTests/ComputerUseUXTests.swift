@@ -702,7 +702,7 @@ struct ComputerUseUXTests {
         ))
     }
 
-    @Test func permissionRowsUseOneClickSystemSettingsRoutingUntilGranted() {
+    @Test func permissionRowsKeepTheAllowActionUntilTheGrantIsKnown() {
         #expect(ComputerUsePermissionRowAction.resolve(
             granted: false,
             statusIsKnown: true,
@@ -712,7 +712,7 @@ struct ComputerUseUXTests {
             granted: false,
             statusIsKnown: true,
             systemSettingsOpened: true
-        ) == .openSystemSettings)
+        ) == .allow)
         #expect(ComputerUsePermissionRowAction.resolve(
             granted: true,
             statusIsKnown: true,
@@ -722,11 +722,33 @@ struct ComputerUseUXTests {
             granted: true,
             statusIsKnown: false,
             systemSettingsOpened: true
-        ) == .openSystemSettings)
+        ) == .allow)
 
         #expect(ComputerUsePermissionRowAction.allow.destination == .systemSettings)
-        #expect(ComputerUsePermissionRowAction.openSystemSettings.destination == .systemSettings)
         #expect(ComputerUsePermissionRowAction.done.destination == nil)
+    }
+
+    @Test func permissionProgressAdvancesInPlaceToTheNextMissingGrant() {
+        #expect(ComputerUseOnboardingStep.nextMissingPermission(
+            statusIsKnown: true,
+            accessibilityGranted: false,
+            screenRecordingGranted: false
+        ) == .accessibility)
+        #expect(ComputerUseOnboardingStep.nextMissingPermission(
+            statusIsKnown: true,
+            accessibilityGranted: true,
+            screenRecordingGranted: false
+        ) == .screenRecording)
+        #expect(ComputerUseOnboardingStep.nextMissingPermission(
+            statusIsKnown: true,
+            accessibilityGranted: true,
+            screenRecordingGranted: true
+        ) == .complete)
+        #expect(ComputerUseOnboardingStep.nextMissingPermission(
+            statusIsKnown: false,
+            accessibilityGranted: true,
+            screenRecordingGranted: true
+        ) == nil)
     }
 
     @Test @MainActor func permissionCompanionReportsLayoutReadinessBeforeWindowMovement() {
@@ -742,6 +764,18 @@ struct ComputerUseUXTests {
         state.requestReturnToOverview()
         #expect(!state.permissionCompanionVisible)
         #expect(!state.permissionCompanionLayoutReady)
+    }
+
+    @Test @MainActor func completedOnboardingStaysInThePermissionCompanion() {
+        let state = ComputerUseOnboardingPresentationState()
+        state.showPermissionCompanion()
+        state.markPermissionCompanionLayoutReady()
+
+        state.showCompletionInPlace()
+
+        #expect(state.permissionCompanionVisible)
+        #expect(state.permissionCompanionLayoutReady)
+        #expect(state.onboardingComplete)
     }
 
     @Test func completedOnboardingRemainsVisibleBeforeAutomaticDismissal() {
