@@ -1251,7 +1251,7 @@ impl OrderedSession {
                         || {
                             #[cfg(test)]
                             if let Some(hook) =
-                                remote_attach_after_obsolete_check.lock().unwrap().clone()
+                                { remote_attach_after_obsolete_check.lock().unwrap().clone() }
                             {
                                 hook();
                             }
@@ -16589,6 +16589,57 @@ mod tests {
                 outcome: super::SessionMutationOutcome::Success { .. }
             }
         ));
+    }
+
+    #[test]
+    fn remote_surface_attach_concurrency_is_bounded() {
+        const ATTACH_WORKER_LIMIT: usize = 4;
+        const ATTACH_COUNT: usize = ATTACH_WORKER_LIMIT * 3;
+
+        let mux = Mux::new("bounded-surface-attach-test", SurfaceOptions::default());
+        let (mut app, events) = test_app_with_events(Session::Local(mux));
+        app.session.remote = true;
+        let state = Arc::new((Mutex::new((0_usize, 0_usize, false)), std::sync::Condvar::new()));
+        let hook_state = state.clone();
+        *app.session.surface_attach_after_obsolete_check.lock().unwrap() =
+            Some(Arc::new(move || {
+                let (state, release) = &*hook_state;
+                let mut state = state.lock().unwrap();
+                state.0 += 1;
+                state.1 = state.1.max(state.0);
+                release.notify_all();
+                while !state.2 {
+                    state = release.wait(state).unwrap();
+                }
+                state.0 -= 1;
+            }));
+
+        for surface in 1..=ATTACH_COUNT as u64 {
+            app.session.attach_surface(surface, None);
+        }
+
+        let (lock, release) = &*state;
+        let state = lock.lock().unwrap();
+        let (mut state, _) = release
+            .wait_timeout_while(state, Duration::from_millis(300), |state| {
+                state.1 <= ATTACH_WORKER_LIMIT
+            })
+            .unwrap();
+        let maximum_concurrency = state.1;
+        state.2 = true;
+        release.notify_all();
+        drop(state);
+
+        for _ in 0..ATTACH_COUNT {
+            assert!(matches!(
+                events.recv_timeout(Duration::from_secs(1)).unwrap(),
+                AppEvent::SurfaceAttachSettled { .. }
+            ));
+        }
+        assert!(
+            maximum_concurrency <= ATTACH_WORKER_LIMIT,
+            "remote attach fanout reached {maximum_concurrency} concurrent workers"
+        );
     }
 
     #[test]

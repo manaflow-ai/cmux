@@ -1241,6 +1241,91 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
+    fn stopped_pty_output_with_sentinel(sentinel: &[u8]) -> (OwnedFd, InterruptibleStdout) {
+        let mut master = -1;
+        let mut slave = -1;
+        assert_eq!(
+            unsafe {
+                libc::openpty(
+                    &mut master,
+                    &mut slave,
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                )
+            },
+            0
+        );
+        let master = unsafe { OwnedFd::from_raw_fd(master) };
+        let slave = unsafe { OwnedFd::from_raw_fd(slave) };
+        assert_eq!(unsafe { libc::tcflow(slave.as_raw_fd(), libc::TCOOFF) }, 0);
+        let flags = unsafe { libc::fcntl(slave.as_raw_fd(), libc::F_GETFL) };
+        assert!(flags >= 0);
+        assert_eq!(
+            unsafe { libc::fcntl(slave.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK) },
+            0
+        );
+        assert_eq!(
+            unsafe { libc::write(slave.as_raw_fd(), sentinel.as_ptr().cast(), sentinel.len()) },
+            sentinel.len() as isize
+        );
+        let fill = [b'x'; 4_096];
+        loop {
+            let written =
+                unsafe { libc::write(slave.as_raw_fd(), fill.as_ptr().cast(), fill.len()) };
+            if written >= 0 {
+                continue;
+            }
+            assert_eq!(io::Error::last_os_error().raw_os_error(), Some(libc::EAGAIN));
+            break;
+        }
+        (master, InterruptibleStdout { fd: slave })
+    }
+
+    #[cfg(unix)]
+    fn resume_pty_and_read_prefix(master: &OwnedFd, output: &InterruptibleStdout) -> Vec<u8> {
+        assert_eq!(unsafe { libc::tcflow(output.fd.as_raw_fd(), libc::TCOON) }, 0);
+        let mut bytes = vec![0_u8; 8 * 1024];
+        let count =
+            unsafe { libc::read(master.as_raw_fd(), bytes.as_mut_ptr().cast(), bytes.len()) };
+        assert!(count > 0, "resumed pseudo-terminal produced no queued output");
+        bytes.truncate(count as usize);
+        bytes
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn partial_apc_timeout_does_not_flush_unrelated_terminal_output() {
+        let sentinel = b"ratatui-frame-before-graphics";
+        let (master, mut output) = stopped_pty_output_with_sentinel(sentinel);
+
+        let result = output.abort_partial_control_string();
+        let queued = resume_pty_and_read_prefix(&master, &output);
+
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::TimedOut);
+        assert!(
+            queued.windows(sentinel.len()).any(|window| window == sentinel),
+            "graphics cancellation discarded output queued by another terminal writer"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn recovery_timeout_does_not_flush_unrelated_terminal_output() {
+        let sentinel = b"ratatui-frame-before-recovery";
+        let (master, mut output) = stopped_pty_output_with_sentinel(sentinel);
+
+        let result = output.write_recovery(DELETE_ALL_GRAPHICS);
+        let queued = resume_pty_and_read_prefix(&master, &output);
+
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::TimedOut);
+        assert!(
+            queued.windows(sentinel.len()).any(|window| window == sentinel),
+            "graphics recovery discarded output queued by another terminal writer"
+        );
+    }
+
     #[test]
     fn snapshot_slot_is_latest_wins_and_shutdown_is_clean() {
         let (tx, rx) = sync_channel(1);

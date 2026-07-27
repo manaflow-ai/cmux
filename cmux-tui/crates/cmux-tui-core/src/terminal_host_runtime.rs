@@ -3291,6 +3291,93 @@ mod unix {
     mod tests {
         use super::*;
 
+        struct TestHostMaster {
+            size: Mutex<PtySize>,
+        }
+
+        impl MasterPty for TestHostMaster {
+            fn resize(&self, size: PtySize) -> anyhow::Result<()> {
+                *self.size.lock().unwrap() = size;
+                Ok(())
+            }
+
+            fn get_size(&self) -> anyhow::Result<PtySize> {
+                Ok(*self.size.lock().unwrap())
+            }
+
+            fn try_clone_reader(&self) -> anyhow::Result<Box<dyn Read + Send>> {
+                Ok(Box::new(std::io::empty()))
+            }
+
+            fn take_writer(&self) -> anyhow::Result<Box<dyn Write + Send>> {
+                Ok(Box::new(std::io::sink()))
+            }
+
+            fn process_group_leader(&self) -> Option<libc::pid_t> {
+                None
+            }
+
+            fn as_raw_fd(&self) -> Option<RawFd> {
+                None
+            }
+
+            fn tty_name(&self) -> Option<PathBuf> {
+                None
+            }
+        }
+
+        #[derive(Debug)]
+        struct TestHostKiller;
+
+        impl ChildKiller for TestHostKiller {
+            fn kill(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+
+            fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> {
+                Box::new(Self)
+            }
+        }
+
+        fn test_host_shared() -> HostShared {
+            let mut term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+            term.resize(80, 24, 8, 16).unwrap();
+            let (pty_drain_waker, _pty_drain_waiter) = UnixStream::pair().unwrap();
+            HostShared {
+                terminal_id: TerminalId::random().unwrap(),
+                incarnation: HostIncarnation::random().unwrap(),
+                owner_token: CapabilityToken::random().unwrap(),
+                capabilities: CapabilityStore::new(64),
+                term: Mutex::new(term),
+                writer: Mutex::new(Box::new(std::io::sink())),
+                master: Mutex::new(Box::new(TestHostMaster {
+                    size: Mutex::new(pty_size(80, 24, DEFAULT_CELL_PIXELS).unwrap()),
+                })),
+                killer: Mutex::new(Box::new(TestHostKiller)),
+                pid: None,
+                command: vec!["/bin/cat".into()],
+                cwd: None,
+                size: Mutex::new((80, 24)),
+                cell_pixels: Mutex::new(DEFAULT_CELL_PIXELS),
+                viewer_sizes: Mutex::new(HashMap::new()),
+                taps: Mutex::new(HashMap::new()),
+                broadcast_lock: Mutex::new(()),
+                sequence: AtomicU64::new(0),
+                next_client: AtomicU64::new(1),
+                dead: AtomicBool::new(false),
+                child_exit: (Mutex::new(false), Condvar::new()),
+                child_waitable: AtomicBool::new(false),
+                pty_drained: AtomicBool::new(false),
+                exit_published: AtomicBool::new(false),
+                force_pty_drain: AtomicBool::new(false),
+                pty_drain_waker: Mutex::new(pty_drain_waker),
+                termination_started: AtomicBool::new(false),
+                child_signal_lock: Mutex::new(()),
+                child_reaped: AtomicBool::new(false),
+                group_escalation_complete: AtomicBool::new(false),
+            }
+        }
+
         fn record_fixture(name: &str) -> (PathBuf, TerminalHostRecord, HostLivenessLease) {
             let root = std::env::temp_dir().join(format!(
                 "cmux-host-record-{name}-{}-{}",
@@ -3730,6 +3817,69 @@ mod unix {
             drop(lease);
             assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
             let _ = fs::remove_dir_all(record_path.parent().unwrap());
+        }
+
+        #[test]
+        fn disconnect_settles_deferred_cell_pixel_waiters() {
+            let control_responses = ControlResponses {
+                waiters: Mutex::new(HashMap::new()),
+                deferred_cell_pixel_handler: Mutex::new(None),
+                latest_cell_pixel_ack: AtomicU64::new(0),
+            };
+            let (sender, _receiver) = sync_channel(1);
+            control_responses
+                .waiters
+                .lock()
+                .unwrap()
+                .insert(7, ControlResponseWaiter::Blocking(sender));
+            assert!(control_responses.defer_cell_pixel(7, (9, 18)));
+            let (settled_tx, settled_rx) = std::sync::mpsc::channel();
+            control_responses.set_deferred_cell_pixel_handler(Arc::new(
+                move |request_id, expected, _frame| {
+                    settled_tx.send((request_id, expected)).unwrap();
+                },
+            ));
+
+            control_responses.fail_all();
+
+            assert_eq!(settled_rx.recv_timeout(Duration::from_secs(1)).unwrap(), (7, (9, 18)));
+        }
+
+        #[test]
+        fn cell_pixel_commit_is_broadcast_to_live_renderer_taps_before_ack() {
+            let host = test_host_shared();
+            let (renderer_socket, _renderer_peer) = UnixStream::pair().unwrap();
+            let (renderer_tx, renderer_rx) = sync_channel(4);
+            host.taps.lock().unwrap().insert(
+                1,
+                HostTap {
+                    sender: renderer_tx,
+                    queued_bytes: Arc::new(AtomicUsize::new(0)),
+                    shutdown: Arc::new(renderer_socket),
+                    max_queued_bytes: usize::MAX,
+                },
+            );
+            let (target_socket, _target_peer) = UnixStream::pair().unwrap();
+            let (target_tx, target_rx) = sync_channel(1);
+            let target = HostTap {
+                sender: target_tx,
+                queued_bytes: Arc::new(AtomicUsize::new(0)),
+                shutdown: Arc::new(target_socket),
+                max_queued_bytes: usize::MAX,
+            };
+
+            assert!(host.set_cell_pixel_size(9, 18, 42, &target).unwrap());
+
+            let resized = renderer_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            assert_eq!(resized.kind, MessageKind::Resized);
+            assert_eq!(resized.flags, FLAG_COLORS_FOLLOW);
+            assert_eq!(&resized.payload[resized.payload.len() - 4..], &[9, 0, 18, 0]);
+            let colors = renderer_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            assert_eq!(colors.kind, MessageKind::Colors);
+            assert!(colors.sequence > resized.sequence);
+            let ack = target_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            assert_eq!(ack.kind, MessageKind::CellPixelSizeAck);
+            assert_eq!(ack.request_id, 42);
         }
 
         #[test]
