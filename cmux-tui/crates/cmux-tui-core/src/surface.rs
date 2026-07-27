@@ -810,6 +810,28 @@ struct LocalPtyProcess {
     normal_cleanup_started: AtomicBool,
 }
 
+#[cfg(unix)]
+type LocalChildReaperLease = crate::process_session::ReservedChildReaperLease;
+
+#[cfg(not(unix))]
+struct LocalChildReaperLease;
+
+#[cfg(unix)]
+type LocalProcessSnapshot<'a> = Option<&'a crate::process_session::SessionProcessSnapshot>;
+
+#[cfg(not(unix))]
+type LocalProcessSnapshot = ();
+
+#[cfg(unix)]
+fn reserve_local_child_reaper() -> std::io::Result<LocalChildReaperLease> {
+    crate::process_session::reserve_child_reaper()
+}
+
+#[cfg(not(unix))]
+fn reserve_local_child_reaper() -> std::io::Result<LocalChildReaperLease> {
+    Ok(LocalChildReaperLease)
+}
+
 impl LocalPtyProcess {
     fn new(pid: Option<u32>, killer: Box<dyn ChildKiller + Send>) -> Arc<Self> {
         #[cfg(not(unix))]
@@ -845,7 +867,7 @@ impl LocalPtyProcess {
     fn spawn_reaper(
         self: &Arc<Self>,
         mut child: Box<dyn portable_pty::Child + Send + Sync>,
-        reaper: crate::process_session::ReservedChildReaperLease,
+        reaper: LocalChildReaperLease,
     ) -> std::io::Result<()> {
         let process = self.clone();
         std::thread::Builder::new().name("surface-child".into()).spawn(move || {
@@ -913,6 +935,7 @@ impl LocalPtyProcess {
             }
             #[cfg(not(unix))]
             {
+                let _ = reaper;
                 let _ = child.wait();
             }
             *process.exited.0.lock().unwrap() = true;
@@ -1058,7 +1081,11 @@ impl LocalPtyProcess {
     }
 
     fn terminate_and_wait(&self, deadline: Instant) -> bool {
-        self.terminate_and_wait_inner(deadline, None)
+        #[cfg(unix)]
+        let snapshot = None;
+        #[cfg(not(unix))]
+        let snapshot = ();
+        self.terminate_and_wait_inner(deadline, snapshot)
     }
 
     #[cfg(unix)]
@@ -1073,7 +1100,8 @@ impl LocalPtyProcess {
     fn terminate_and_wait_inner(
         &self,
         deadline: Instant,
-        #[cfg(unix)] snapshot: Option<&crate::process_session::SessionProcessSnapshot>,
+        #[cfg(unix)] snapshot: LocalProcessSnapshot<'_>,
+        #[cfg(not(unix))] snapshot: LocalProcessSnapshot,
     ) -> bool {
         #[cfg(unix)]
         {
@@ -1123,6 +1151,7 @@ impl LocalPtyProcess {
         }
         #[cfg(not(unix))]
         {
+            let _ = snapshot;
             let _ = self.request_hangup();
         }
         self.wait_for_exit_until(deadline)
@@ -1250,8 +1279,7 @@ impl Surface {
             return Self::spawn_hosted(id, opts, mux, attachment, true);
         }
         let _ = terminal_id;
-        let reaper = crate::process_session::reserve_child_reaper()
-            .context("reserve bounded PTY session cleanup")?;
+        let reaper = reserve_local_child_reaper().context("reserve bounded PTY session cleanup")?;
         let pty = native_pty_system().openpty(PtySize {
             rows: opts.rows,
             cols: opts.cols,
