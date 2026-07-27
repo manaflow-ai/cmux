@@ -108,6 +108,13 @@ pub enum BrowserInputKind {
     Forward,
     Reload,
     Activate,
+    #[cfg(test)]
+    TestBlock {
+        entered: std::sync::mpsc::Sender<()>,
+        release: Receiver<()>,
+    },
+    #[cfg(test)]
+    TestProbe(std::sync::mpsc::Sender<SurfaceId>),
 }
 
 struct SequencedBrowserInputEvent {
@@ -626,6 +633,17 @@ fn dispatch(event: &BrowserInputEvent) -> anyhow::Result<bool> {
         BrowserInputKind::Forward => surface.browser_forward().map(|()| true),
         BrowserInputKind::Reload => surface.browser_reload().map(|()| true),
         BrowserInputKind::Activate => surface.browser_activate().map(|()| true),
+        #[cfg(test)]
+        BrowserInputKind::TestBlock { entered, release } => {
+            let _ = entered.send(());
+            let _ = release.recv();
+            Ok(true)
+        }
+        #[cfg(test)]
+        BrowserInputKind::TestProbe(observed) => {
+            let _ = observed.send(event.surface_id);
+            Ok(true)
+        }
     }
 }
 
@@ -838,6 +856,46 @@ mod tests {
             rx.recv_timeout(Duration::from_millis(50)).is_err(),
             "disposable input must not emit status feedback"
         );
+    }
+
+    #[test]
+    fn blocked_surface_does_not_stall_an_unrelated_surface() {
+        let dispatcher = BrowserInputDispatcher::spawn(|_| {}, |_| {}).unwrap();
+        let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let (observed_tx, observed_rx) = std::sync::mpsc::channel();
+
+        assert!(dispatcher.enqueue(BrowserInputEvent {
+            surface_id: 1,
+            surface: SurfaceHandle::RemoteBrowserUnsupported,
+            kind: BrowserInputKind::TestBlock {
+                entered: entered_tx,
+                release: release_rx,
+            },
+        }));
+        entered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(dispatcher.enqueue(BrowserInputEvent {
+            surface_id: 1,
+            surface: SurfaceHandle::RemoteBrowserUnsupported,
+            kind: BrowserInputKind::TestProbe(observed_tx.clone()),
+        }));
+        assert!(dispatcher.enqueue(BrowserInputEvent {
+            surface_id: 2,
+            surface: SurfaceHandle::RemoteBrowserUnsupported,
+            kind: BrowserInputKind::TestProbe(observed_tx),
+        }));
+
+        assert_eq!(
+            observed_rx.recv_timeout(Duration::from_millis(250)),
+            Ok(2),
+            "one blocked surface stalled input for an unrelated surface"
+        );
+        assert!(
+            observed_rx.try_recv().is_err(),
+            "the blocked surface lost its own command ordering"
+        );
+        release_tx.send(()).unwrap();
+        assert_eq!(observed_rx.recv_timeout(Duration::from_secs(1)), Ok(1));
     }
 
     fn positions(batch: &[BrowserInputEvent]) -> Vec<(&'static str, SurfaceId)> {
