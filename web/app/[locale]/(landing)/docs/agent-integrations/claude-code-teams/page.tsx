@@ -56,8 +56,8 @@ cmux claude-teams --model sonnet`}</CodeBlock>
       <p>{t("authProblem")}</p>
       <p>{t("authFix")}</p>
       <CodeBlock lang="bash">{`claude setup-token
-# Then add this line to ~/.zshenv — edit the file directly so the token
-# never lands in your shell history, replacing any earlier entry:
+# ${t("authCodeCommentFile")}
+# ${t("authCodeCommentReplace")}
 export CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-…`}</CodeBlock>
       <p>{t("authRestart")}</p>
       <ul>
