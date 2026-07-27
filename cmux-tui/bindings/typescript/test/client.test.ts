@@ -169,6 +169,47 @@ test("decoded browser frames preserve encoded dimensions and fill legacy default
   await client.close();
 });
 
+test("decoded browser frames accept missing CSS dimensions from CDP metadata", async () => {
+  const transport = new ScriptedTransport((request, connection) => {
+    if (request.cmd === "identify") {
+      connection.emit({
+        id: request.id,
+        ok: true,
+        data: { app: "cmux-tui", version: "0.1.2", protocol: 10, session: "main", pid: 1 },
+      });
+      return;
+    }
+    connection.emit({
+      event: "frame",
+      surface: 7,
+      seq: 1,
+      width: 0,
+      height: 0,
+      image_width: 160,
+      image_height: 48,
+      data: "cG5n",
+    });
+    connection.emit({ id: request.id, ok: true, data: {} });
+  });
+  const client = new CmuxClient({
+    transport,
+    timeoutMs: 100,
+    allowProtocolV6Attach: true,
+  });
+  const stream = await client.attachSurface(7);
+
+  const frame = await stream.next();
+  assert.equal(frame.event, "frame");
+  if (frame.event === "frame") {
+    assert.equal(frame.width, 0);
+    assert.equal(frame.height, 0);
+    assert.equal(frame.image_width, 160);
+    assert.equal(frame.image_height, 48);
+  }
+  stream.close();
+  await client.close();
+});
+
 test("browser frames reject missing, nonnumeric, and invalid dimensions", async () => {
   const malformed = [
     {
