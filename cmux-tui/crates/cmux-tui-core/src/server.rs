@@ -1034,6 +1034,25 @@ impl Command {
     fn is_clear_history(&self) -> bool {
         matches!(self, Self::ClearHistory { .. })
     }
+
+    fn can_overtake_clear_barrier(&self) -> bool {
+        matches!(
+            self,
+            Self::ClearHistory { .. }
+                | Self::Send { .. }
+                | Self::SendKey { .. }
+                | Self::BrowserMouse { .. }
+                | Self::BrowserWheel { .. }
+                | Self::BrowserKey { .. }
+                | Self::BrowserInsertText { .. }
+                | Self::BrowserNavigate { .. }
+                | Self::BrowserBack { .. }
+                | Self::BrowserForward { .. }
+                | Self::BrowserReload { .. }
+                | Self::BrowserActivate { .. }
+                | Self::ScrollSurface { .. }
+        )
+    }
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -1481,14 +1500,18 @@ impl ConnectionSurfaceScheduler {
     }
 
     fn next_runnable_index(state: &ConnectionSurfaceState) -> Option<usize> {
+        if state.active_clear_surfaces.is_empty() {
+            return (!state.requests.is_empty()).then_some(0);
+        }
         for (index, pending) in state.requests.iter().enumerate() {
-            let Some(surface) = pending.request.cmd.ordering_surface() else {
-                return (index == 0 && state.active_clear_surfaces.is_empty()).then_some(0);
-            };
+            let surface = pending.request.cmd.ordering_surface()?;
             if state.active_clear_surfaces.contains(&surface) {
                 continue;
             }
-            return Some(index);
+            if pending.request.cmd.can_overtake_clear_barrier() {
+                return Some(index);
+            }
+            return None;
         }
         None
     }
