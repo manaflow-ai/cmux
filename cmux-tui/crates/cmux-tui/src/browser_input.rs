@@ -1004,6 +1004,43 @@ mod tests {
     }
 
     #[test]
+    fn blocked_surface_does_not_stall_an_unrelated_surface_with_the_same_legacy_shard() {
+        let dispatcher = BrowserInputDispatcher::spawn(|_| {}, |_| {}).unwrap();
+        let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let (observed_tx, observed_rx) = std::sync::mpsc::channel();
+
+        assert!(dispatcher.enqueue(BrowserInputEvent {
+            surface_id: 1,
+            surface: SurfaceHandle::RemoteBrowserUnsupported,
+            kind: BrowserInputKind::TestBlock { entered: entered_tx, release: release_rx },
+        }));
+        entered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(dispatcher.enqueue(BrowserInputEvent {
+            surface_id: 1,
+            surface: SurfaceHandle::RemoteBrowserUnsupported,
+            kind: BrowserInputKind::TestProbe(observed_tx.clone()),
+        }));
+        assert!(dispatcher.enqueue(BrowserInputEvent {
+            surface_id: 9,
+            surface: SurfaceHandle::RemoteBrowserUnsupported,
+            kind: BrowserInputKind::TestProbe(observed_tx),
+        }));
+
+        assert_eq!(
+            observed_rx.recv_timeout(Duration::from_millis(250)),
+            Ok(9),
+            "a blocked surface stalled an unrelated surface assigned to the same worker"
+        );
+        assert!(
+            observed_rx.try_recv().is_err(),
+            "the blocked surface lost its own command ordering"
+        );
+        release_tx.send(()).unwrap();
+        assert_eq!(observed_rx.recv_timeout(Duration::from_secs(1)), Ok(1));
+    }
+
+    #[test]
     fn many_surfaces_use_a_bounded_worker_count() {
         const MAX_BROWSER_INPUT_WORKERS: usize = 8;
         let dispatcher = BrowserInputDispatcher::spawn(|_| {}, |_| {}).unwrap();
