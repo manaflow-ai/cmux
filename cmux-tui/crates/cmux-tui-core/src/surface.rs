@@ -659,7 +659,7 @@ struct RenderTap {
 }
 
 impl RenderTap {
-    fn pair() -> (Self, RenderAttachFrameReceiver) {
+    fn pair(render: &Arc<Mutex<RenderHub>>) -> (Self, RenderAttachFrameReceiver) {
         let state = Arc::new(RenderTapState {
             queue: Mutex::new(RenderTapQueue {
                 pending_frame: None,
@@ -670,7 +670,10 @@ impl RenderTap {
             }),
             ready: Condvar::new(),
         });
-        (Self { state: state.clone() }, RenderAttachFrameReceiver { state })
+        (
+            Self { state: state.clone() },
+            RenderAttachFrameReceiver { state, render: Arc::downgrade(render) },
+        )
     }
 
     fn send(&self, event: RenderAttachFrame) -> bool {
@@ -695,6 +698,7 @@ impl Drop for RenderTap {
 /// Bounded receiver for one render attachment.
 pub struct RenderAttachFrameReceiver {
     state: Arc<RenderTapState>,
+    render: Weak<Mutex<RenderHub>>,
 }
 
 impl RenderAttachFrameReceiver {
@@ -747,10 +751,17 @@ impl RenderAttachFrameReceiver {
 
 impl Drop for RenderAttachFrameReceiver {
     fn drop(&mut self) {
-        let mut queue = self.state.queue.lock().unwrap();
-        queue.receiver_alive = false;
-        queue.pending_frame = None;
-        queue.pending_scroll = None;
+        // Frame fan-out holds the hub before this queue. Release the queue
+        // before taking the hub so receiver teardown cannot invert that order.
+        {
+            let mut queue = self.state.queue.lock().unwrap();
+            queue.receiver_alive = false;
+            queue.pending_frame = None;
+            queue.pending_scroll = None;
+        }
+        if let Some(render) = self.render.upgrade() {
+            render.lock().unwrap().taps.retain(|tap| !Arc::ptr_eq(&tap.state, &self.state));
+        }
     }
 }
 
@@ -897,6 +908,7 @@ struct PtyGeometry {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct KittyGraphicsLimits {
     bytes: u64,
+    inflight_bytes: u64,
     images: u64,
     placements: u64,
 }
@@ -905,6 +917,7 @@ impl Default for KittyGraphicsLimits {
     fn default() -> Self {
         Self {
             bytes: ghostty_vt::MAX_KITTY_IMAGE_BYTES as u64,
+            inflight_bytes: ghostty_vt::KITTY_INFLIGHT_REPLAY_MAX_BYTES as u64,
             images: ghostty_vt::MAX_KITTY_IMAGES,
             placements: ghostty_vt::MAX_KITTY_PLACEMENTS,
         }
@@ -986,7 +999,7 @@ pub struct PtySurface {
     last_attach_colors: Mutex<Option<Box<TerminalColors>>>,
     /// Single consume-once Ghostty render state shared by the local TUI and
     /// every protocol-v7 render attachment.
-    render: Mutex<RenderHub>,
+    render: Arc<Mutex<RenderHub>>,
     render_generation: AtomicU64,
     frame_requests: SyncSender<u64>,
 }
@@ -1544,13 +1557,13 @@ impl Surface {
             attach_colors_pending: AtomicBool::new(false),
             attach_colors_force_pending: AtomicBool::new(false),
             last_attach_colors: Mutex::new(None),
-            render: Mutex::new(RenderHub {
+            render: Arc::new(Mutex::new(RenderHub {
                 state: Box::new(render_state),
                 built_generation: 0,
                 latest: None,
                 initial_graphics: None,
                 taps: Vec::new(),
-            }),
+            })),
             render_generation: AtomicU64::new(1),
             frame_requests,
         }));
@@ -1839,13 +1852,13 @@ impl Surface {
             attach_colors_pending: AtomicBool::new(false),
             attach_colors_force_pending: AtomicBool::new(false),
             last_attach_colors: Mutex::new(None),
-            render: Mutex::new(RenderHub {
+            render: Arc::new(Mutex::new(RenderHub {
                 state: Box::new(render_state),
                 built_generation: 0,
                 latest: None,
                 initial_graphics: None,
                 taps: Vec::new(),
-            }),
+            })),
             render_generation: AtomicU64::new(1),
             frame_requests,
         }));
@@ -2468,13 +2481,13 @@ impl Surface {
             attach_colors_pending: AtomicBool::new(false),
             attach_colors_force_pending: AtomicBool::new(false),
             last_attach_colors: Mutex::new(None),
-            render: Mutex::new(RenderHub {
+            render: Arc::new(Mutex::new(RenderHub {
                 state: Box::new(render_state),
                 built_generation: 0,
                 latest: None,
                 initial_graphics: None,
                 taps: Vec::new(),
-            }),
+            })),
             render_generation: AtomicU64::new(1),
             frame_requests,
         }));
@@ -2559,13 +2572,13 @@ impl Surface {
             attach_colors_pending: AtomicBool::new(false),
             attach_colors_force_pending: AtomicBool::new(false),
             last_attach_colors: Mutex::new(None),
-            render: Mutex::new(RenderHub {
+            render: Arc::new(Mutex::new(RenderHub {
                 state: Box::new(render_state),
                 built_generation: 0,
                 latest: None,
                 initial_graphics: None,
                 taps: Vec::new(),
-            }),
+            })),
             render_generation: AtomicU64::new(1),
             frame_requests,
         }));
@@ -2684,7 +2697,9 @@ impl Surface {
     fn configure_terminal_kitty_graphics_limits(
         terminal: &mut Terminal,
         limits: KittyGraphicsLimits,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<bool> {
+        let generation = terminal.kitty_graphics_generation()?;
+        terminal.set_kitty_inflight_storage_limit(limits.inflight_bytes);
         terminal.set_kitty_image_count_limit(limits.images)?;
         if terminal.set_kitty_placement_count_limit(limits.placements).is_err() {
             // Placement reductions preserve visible state by default. Under
@@ -2696,31 +2711,39 @@ impl Surface {
         // Run this after count eviction even when the byte value is unchanged:
         // it also prunes the replay-side pixel cache against native ownership.
         terminal.set_kitty_image_storage_limit(limits.bytes)?;
-        Ok(())
+        Ok(terminal.kitty_graphics_generation()? != generation)
     }
 
     pub(crate) fn set_kitty_graphics_limits(
         &self,
         bytes: u64,
+        inflight_bytes: u64,
         images: u64,
         placements: u64,
     ) -> anyhow::Result<()> {
         let Some(pty) = self.as_pty() else {
             return Ok(());
         };
-        let next = KittyGraphicsLimits { bytes, images, placements };
+        let next = KittyGraphicsLimits { bytes, inflight_bytes, images, placements };
         let mut limits = pty.kitty_graphics_limits.lock().unwrap();
         if *limits == next {
             return Ok(());
         }
-        {
+        let graphics_changed = {
             let mut term = pty.term.lock().unwrap();
-            Self::configure_terminal_kitty_graphics_limits(&mut term, next)?;
+            let graphics_changed = Self::configure_terminal_kitty_graphics_limits(&mut term, next)?;
             *limits = next;
-            let mut render = pty.render.lock().unwrap();
-            render.state.clear_kitty_graphics_cache();
-            render.latest = None;
-            render.initial_graphics = None;
+            if graphics_changed {
+                let mut render = pty.render.lock().unwrap();
+                render.state.clear_kitty_graphics_cache();
+                render.latest = None;
+                render.initial_graphics = None;
+            }
+            graphics_changed
+        };
+        drop(limits);
+        if !graphics_changed {
+            return Ok(());
         }
         let generation = pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
         pty.request_frame(generation);
@@ -3386,7 +3409,7 @@ impl Surface {
         let mut term = pty.term.lock().unwrap();
         let generation = pty.render_generation.load(Ordering::Acquire);
         let _ = pty.build_frame_locked(&mut term, generation, false)?;
-        let (tap, stream) = RenderTap::pair();
+        let (tap, stream) = RenderTap::pair(&pty.render);
         let initial = {
             let mut render = pty.render.lock().unwrap();
             let shared = render.latest.clone().ok_or(ghostty_vt::Error::NoValue)?;
@@ -5019,12 +5042,14 @@ mod tests {
             Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
         let pty = surface.as_pty().unwrap();
         let attach = surface.attach_render_stream().unwrap();
+        let mut generation = pty.render.lock().unwrap().built_generation;
 
         let mut expected_dirty_rows = std::collections::BTreeSet::new();
         {
             let mut term = pty.term.lock().unwrap();
             term.vt_write(b"\x1b[1;1Ha");
-            pty.build_frame_locked(&mut term, 2, false).unwrap();
+            generation += 1;
+            pty.build_frame_locked(&mut term, generation, false).unwrap();
             expected_dirty_rows.extend(
                 pty.render
                     .lock()
@@ -5039,7 +5064,8 @@ mod tests {
             );
             broadcast_render_scroll_locked(pty, (4, false));
             term.vt_write(b"\x1b[2;1Hb");
-            pty.build_frame_locked(&mut term, 3, false).unwrap();
+            generation += 1;
+            pty.build_frame_locked(&mut term, generation, false).unwrap();
             expected_dirty_rows.extend(
                 pty.render
                     .lock()
@@ -5054,7 +5080,8 @@ mod tests {
             );
             broadcast_render_scroll_locked(pty, (9, true));
             term.vt_write(b"\x1b[3;1Hc");
-            pty.build_frame_locked(&mut term, 4, false).unwrap();
+            generation += 1;
+            pty.build_frame_locked(&mut term, generation, false).unwrap();
             expected_dirty_rows.extend(
                 pty.render
                     .lock()
@@ -5099,7 +5126,8 @@ mod tests {
         let latest_uncoalesced = {
             let mut term = pty.term.lock().unwrap();
             term.vt_write(b"d");
-            pty.build_frame_locked(&mut term, 5, false).unwrap();
+            generation += 1;
+            pty.build_frame_locked(&mut term, generation, false).unwrap();
             let latest = pty.render.lock().unwrap().latest.clone().unwrap();
             broadcast_render_scroll_locked(pty, (11, false));
             latest

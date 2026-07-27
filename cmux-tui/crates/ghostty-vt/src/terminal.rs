@@ -9,9 +9,9 @@ use base64::Engine as _;
 use ghostty_vt_sys as sys;
 
 use crate::kitty::{
-    self, KittyGraphicsSnapshot, KittyImage, KittyImageAlias, KittyInFlightTracker, KittyPlacement,
-    KittyPlacementAnchor, KittyReplaySnapshot, MAX_KITTY_IMAGE_BYTES, MAX_KITTY_IMAGES,
-    MAX_KITTY_PLACEMENTS,
+    self, KITTY_INFLIGHT_REPLAY_MAX_BYTES, KittyGraphicsSnapshot, KittyImage, KittyImageAlias,
+    KittyInFlightTracker, KittyPlacement, KittyPlacementAnchor, KittyReplaySnapshot,
+    MAX_KITTY_IMAGE_BYTES, MAX_KITTY_IMAGES, MAX_KITTY_PLACEMENTS,
 };
 use crate::render::{Cell, CursorShape, read_grid_ref_cell, terminal_palette};
 use crate::{Error, Result, check};
@@ -2252,6 +2252,23 @@ impl Terminal {
 
     pub fn kitty_image_storage_limit(&self) -> Result<u64> {
         self.get(sys::GHOSTTY_TERMINAL_DATA_KITTY_IMAGE_STORAGE_LIMIT)
+    }
+
+    /// Set the total bytes retained while tracking a chunked Kitty upload.
+    ///
+    /// The completed prefix and current command share this one limit.
+    pub fn set_kitty_inflight_storage_limit(&mut self, bytes: u64) {
+        let bounded = bytes.min(KITTY_INFLIGHT_REPLAY_MAX_BYTES as u64) as usize;
+        self.kitty_inflight.set_max_bytes(bounded);
+    }
+
+    pub fn kitty_inflight_storage_limit(&self) -> u64 {
+        self.kitty_inflight.max_bytes() as u64
+    }
+
+    /// Content generation for the active screen's Kitty image store.
+    pub fn kitty_graphics_generation(&self) -> Result<u64> {
+        kitty::generation(self)
     }
 
     /// Set the active terminal's maximum number of stored Kitty images.

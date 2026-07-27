@@ -59,12 +59,24 @@ fn record_pixel_cache_miss() {}
 /// Bounded copy of a Kitty direct transmission that libghostty is still
 /// assembling. A fresh attach terminal must consume this exact prefix before
 /// it can understand later continuation chunks from the live byte stream.
-#[derive(Default)]
 pub(crate) struct KittyInFlightTracker {
     scan: KittyStreamScan,
     prefix: Vec<u8>,
     loading: bool,
     overflowed: bool,
+    max_bytes: usize,
+}
+
+impl Default for KittyInFlightTracker {
+    fn default() -> Self {
+        Self {
+            scan: KittyStreamScan::Ground,
+            prefix: Vec::new(),
+            loading: false,
+            overflowed: false,
+            max_bytes: KITTY_INFLIGHT_REPLAY_MAX_BYTES,
+        }
+    }
 }
 
 impl KittyInFlightTracker {
@@ -95,7 +107,14 @@ impl KittyInFlightTracker {
                     _ => KittyStreamScan::Ground,
                 },
                 KittyStreamScan::ApcType(introducer) => match byte {
-                    b'G' => KittyStreamScan::Kitty(KittyCommand::new(introducer)),
+                    b'G' => {
+                        let prefix_bytes =
+                            if self.loading && !self.overflowed { self.prefix.len() } else { 0 };
+                        KittyStreamScan::Kitty(KittyCommand::new(
+                            introducer,
+                            self.max_bytes.saturating_sub(prefix_bytes),
+                        ))
+                    }
                     0x1b => KittyStreamScan::OtherApc { saw_escape: true },
                     0x9c => KittyStreamScan::Ground,
                     _ => KittyStreamScan::OtherApc { saw_escape: false },
@@ -135,7 +154,9 @@ impl KittyInFlightTracker {
     }
 
     fn replay_prefix_parts(&self) -> Result<(&[u8], &[u8])> {
-        if self.overflowed {
+        if self.overflowed
+            || matches!(&self.scan, KittyStreamScan::Kitty(command) if command.overflowed)
+        {
             return Err(Error::OutOfSpace);
         }
         let partial = match &self.scan {
@@ -146,6 +167,9 @@ impl KittyInFlightTracker {
             _ => &[],
         };
         let prefix = if self.loading { self.prefix.as_slice() } else { &[] };
+        if prefix.len().checked_add(partial.len()).is_none_or(|total| total > self.max_bytes) {
+            return Err(Error::OutOfSpace);
+        }
         Ok((prefix, partial))
     }
 
@@ -174,39 +198,70 @@ impl KittyInFlightTracker {
 
     fn finish_command(&mut self, command: KittyCommand) {
         let Some(more) = kitty_transmission_more(&command.bytes) else {
+            if command.overflowed {
+                self.prefix = Vec::new();
+                self.loading = true;
+                self.overflowed = true;
+            }
             return;
         };
         if more {
             if !self.loading {
-                self.prefix.clear();
+                self.prefix = Vec::new();
                 self.overflowed = false;
             }
             self.loading = true;
             if self.overflowed || command.overflowed {
-                self.prefix.clear();
+                self.prefix = Vec::new();
                 self.overflowed = true;
                 return;
             }
             let Some(total) = self.prefix.len().checked_add(command.bytes.len()) else {
-                self.prefix.clear();
+                self.prefix = Vec::new();
                 self.overflowed = true;
                 return;
             };
-            if total > KITTY_INFLIGHT_REPLAY_MAX_BYTES {
-                self.prefix.clear();
+            if total > self.max_bytes {
+                self.prefix = Vec::new();
                 self.overflowed = true;
                 return;
             }
-            self.prefix.extend_from_slice(&command.bytes);
+            if self.prefix.is_empty() {
+                self.prefix = command.bytes;
+            } else {
+                if self.prefix.capacity() < total {
+                    self.prefix.reserve_exact(total - self.prefix.len());
+                }
+                self.prefix.extend_from_slice(&command.bytes);
+            }
         } else {
             self.clear_loading();
         }
     }
 
     fn clear_loading(&mut self) {
-        self.prefix.clear();
+        self.prefix = Vec::new();
         self.loading = false;
         self.overflowed = false;
+    }
+
+    pub(crate) fn set_max_bytes(&mut self, max_bytes: usize) {
+        self.max_bytes = max_bytes.min(KITTY_INFLIGHT_REPLAY_MAX_BYTES);
+        let prefix_bytes = if self.loading && !self.overflowed { self.prefix.len() } else { 0 };
+        if prefix_bytes > self.max_bytes {
+            self.prefix = Vec::new();
+            self.overflowed = true;
+        } else {
+            self.prefix.shrink_to_fit();
+        }
+        let retained_prefix = if self.loading && !self.overflowed { self.prefix.len() } else { 0 };
+        if let KittyStreamScan::Kitty(command) = &mut self.scan {
+            command.set_max_bytes(self.max_bytes.saturating_sub(retained_prefix));
+        }
+    }
+
+    pub(crate) fn max_bytes(&self) -> usize {
+        self.max_bytes
     }
 }
 
@@ -257,23 +312,41 @@ struct KittyCommand {
     bytes: Vec<u8>,
     saw_escape: bool,
     overflowed: bool,
+    max_bytes: usize,
 }
 
 impl KittyCommand {
-    fn new(introducer: KittyApcIntroducer) -> Self {
-        let bytes = match introducer {
-            KittyApcIntroducer::Esc => b"\x1b_G".to_vec(),
-            KittyApcIntroducer::C1 => b"\x9fG".to_vec(),
+    fn new(introducer: KittyApcIntroducer, max_bytes: usize) -> Self {
+        let introducer = match introducer {
+            KittyApcIntroducer::Esc => &b"\x1b_G"[..],
+            KittyApcIntroducer::C1 => &b"\x9fG"[..],
         };
-        Self { bytes, saw_escape: false, overflowed: false }
+        let retained = introducer.len().min(max_bytes);
+        let mut bytes = Vec::with_capacity(retained);
+        bytes.extend_from_slice(&introducer[..retained]);
+        Self { bytes, saw_escape: false, overflowed: retained != introducer.len(), max_bytes }
     }
 
     fn push(&mut self, byte: u8) {
-        if self.bytes.len() < KITTY_INFLIGHT_REPLAY_MAX_BYTES {
+        if self.bytes.len() < self.max_bytes {
+            if self.bytes.len() == self.bytes.capacity() {
+                let remaining = self.max_bytes - self.bytes.len();
+                let growth = remaining.min(self.bytes.capacity().max(64));
+                self.bytes.reserve_exact(growth);
+            }
             self.bytes.push(byte);
         } else {
             self.overflowed = true;
         }
+    }
+
+    fn set_max_bytes(&mut self, max_bytes: usize) {
+        self.max_bytes = max_bytes;
+        if self.bytes.len() > max_bytes {
+            self.bytes.truncate(max_bytes);
+            self.overflowed = true;
+        }
+        self.bytes.shrink_to_fit();
     }
 }
 
@@ -536,6 +609,13 @@ pub(crate) fn snapshot_for_replay(
     snapshot_impl(terminal, pixel_cache, include_unplaced, true)
 }
 
+pub(crate) fn generation(terminal: &Terminal) -> Result<u64> {
+    let Some(graphics) = terminal_graphics(terminal)? else {
+        return Ok(0);
+    };
+    graphics_generation(graphics)
+}
+
 fn snapshot_impl(
     terminal: &Terminal,
     pixel_cache: &mut HashMap<u64, Arc<[u8]>>,
@@ -549,14 +629,7 @@ fn snapshot_impl(
         });
     };
 
-    let mut generation = 0_u64;
-    check(unsafe {
-        sys::ghostty_kitty_graphics_get(
-            graphics,
-            sys::GHOSTTY_KITTY_GRAPHICS_DATA_GENERATION,
-            (&mut generation as *mut u64).cast(),
-        )
-    })?;
+    let generation = graphics_generation(graphics)?;
     if generation == 0 {
         pixel_cache.clear();
         return Ok(KittyReplaySnapshot {
@@ -728,6 +801,18 @@ fn snapshot_impl(
         },
         anchors,
     })
+}
+
+fn graphics_generation(graphics: sys::GhosttyKittyGraphics) -> Result<u64> {
+    let mut generation = 0_u64;
+    check(unsafe {
+        sys::ghostty_kitty_graphics_get(
+            graphics,
+            sys::GHOSTTY_KITTY_GRAPHICS_DATA_GENERATION,
+            (&mut generation as *mut u64).cast(),
+        )
+    })?;
+    Ok(generation)
 }
 
 fn terminal_graphics(terminal: &Terminal) -> Result<Option<sys::GhosttyKittyGraphics>> {
