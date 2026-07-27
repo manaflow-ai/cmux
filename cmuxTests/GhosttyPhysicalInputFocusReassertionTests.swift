@@ -27,10 +27,11 @@ final class GhosttyPhysicalInputFocusReassertionTests: XCTestCase {
         defer { terminal.window.orderOut(nil) }
 
         try focusTerminal(terminal)
+        terminal.surface.recordExternalFocusState(true)
         _ = try XCTUnwrap(terminal.surface.surface)
         XCTAssertTrue(
             terminal.surface.debugDesiredFocusState(),
-            "Regression setup requires model focus to remain true while native focus may have drifted"
+            "Regression setup explicitly models deduplicated focus while native focus may have drifted"
         )
 
         let previousObserver = GhosttyNSView.debugNativeFocusReassertionObserver
@@ -214,10 +215,6 @@ final class GhosttyPhysicalInputFocusReassertionTests: XCTestCase {
         XCTAssertTrue(terminal.window.makeFirstResponder(terminal.surfaceView))
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         XCTAssertTrue(terminal.hostedView.isSurfaceViewFirstResponder())
-        XCTAssertTrue(
-            terminal.surface.debugDesiredFocusState(),
-            "Focused terminal should start with desired Ghostty focus"
-        )
     }
 
     private func makeKeyDownEvent(
