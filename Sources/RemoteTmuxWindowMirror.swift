@@ -56,6 +56,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     /// Session-owned control identity lookup. Render nodes are replaceable.
     @ObservationIgnored private let controlPaneID: (Int) -> PaneID?
     @ObservationIgnored private let onControlSurfaceChanged: ((Int, UUID?) -> Void)?
+    @ObservationIgnored private let onPaneSurfaceProgress: ((Int) -> Void)?
 
     /// The window's BASE pane layout (tmux's full tree even while a pane is
     /// zoomed). Drives panel lifecycle and the sizing structure fold.
@@ -306,6 +307,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         hostingContentSizeSource: (() -> CGSize?)? = nil,
         controlPaneID: @escaping (Int) -> PaneID? = { _ in nil },
         onControlSurfaceChanged: ((Int, UUID?) -> Void)? = nil,
+        onPaneSurfaceProgress: ((Int) -> Void)? = nil,
         adoptedPanes: [AdoptedPane] = [],
         makePanel: @escaping (_ tmuxPaneId: Int) -> TerminalPanel?
     ) {
@@ -318,6 +320,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         self.hostingContentSizeSource = hostingContentSizeSource
         self.controlPaneID = controlPaneID
         self.onControlSurfaceChanged = onControlSurfaceChanged
+        self.onPaneSurfaceProgress = onPaneSurfaceProgress
         self.layout = layout
         let initialConfiguration = workspaceBonsplitController?.configuration
             ?? BonsplitConfiguration(appearance: appearance)
@@ -463,10 +466,13 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         let surface = panel.surface
         surface.onManualSizeApplied = { [weak self] in
             self?.handleSizingSample($0, paneId: paneId)
+            self?.onPaneSurfaceProgress?(paneId)
         }
         surface.onRuntimeReady = { [weak self, weak surface] in
-            guard let sample = surface?.rawSizingSample() else { return }
-            self?.handleSizingSample(sample, paneId: paneId)
+            if let sample = surface?.rawSizingSample() {
+                self?.handleSizingSample(sample, paneId: paneId)
+            }
+            self?.onPaneSurfaceProgress?(paneId)
         }
         surface.flushPendingManualSizeReportIfAttached()
         if let sample = surface.rawSizingSample() {

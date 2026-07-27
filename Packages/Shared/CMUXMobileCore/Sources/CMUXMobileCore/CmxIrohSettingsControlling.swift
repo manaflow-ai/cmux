@@ -12,6 +12,9 @@ public protocol CmxIrohSettingsControlling: AnyObject {
     /// Persists the account-level relay preference and safely rebuilds the endpoint.
     func setIrohRelayPreference(_ preference: CmxIrohRelayPreferenceDraft) async throws
 
+    /// Persists the device-local path preference and restarts the active runtime.
+    func setIrohPathPreference(_ preference: CmxIrohPathPreference) async throws
+
     /// Creates or updates account-visible custom relay metadata and a device-local secret.
     func upsertIrohCustomRelay(
         _ relay: CmxIrohCustomRelayDraft,
@@ -41,9 +44,17 @@ public protocol CmxIrohSettingsControlling: AnyObject {
 
     /// Erases the in-memory connection timeline and rotates its report session.
     func clearIrohDiagnosticReport() async
+
+    /// The archived report from the previous process launch, if one exists.
+    /// Exports include it so a drop that preceded a relaunch stays diagnosable.
+    func irohPreviousLaunchDiagnosticReport() async -> DiagnosticReport?
 }
 
 public extension CmxIrohSettingsControlling {
+    func setIrohPathPreference(_ preference: CmxIrohPathPreference) async throws {
+        throw CmxIrohSettingsControlError.unsupported
+    }
+
     func upsertIrohCustomPrivatePath(_ path: CmxIrohCustomPrivatePathDraft) async throws {
         throw CmxIrohSettingsControlError.unsupported
     }
@@ -54,6 +65,10 @@ public extension CmxIrohSettingsControlling {
 
     func irohDiagnosticReport() async -> DiagnosticReport {
         .empty
+    }
+
+    func irohPreviousLaunchDiagnosticReport() async -> DiagnosticReport? {
+        nil
     }
 
     func exportIrohDiagnosticReport() async -> Data {

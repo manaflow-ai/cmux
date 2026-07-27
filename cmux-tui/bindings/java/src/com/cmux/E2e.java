@@ -13,7 +13,7 @@ public final class E2e {
         try (CmuxClient client = CmuxClient.builder().socketPath(socket).build()) {
             IdentifyResult identify = client.identify();
             check("cmux-tui".equals(identify.app()), "unexpected app " + identify.app());
-            check(identify.protocol() >= 5 && identify.protocol() <= 9, "unsupported protocol " + identify.protocol());
+            check(identify.protocol() >= 5 && identify.protocol() <= 10, "unsupported protocol " + identify.protocol());
             SurfaceResult created = client.newWorkspace(NewWorkspaceRequest.builder().name(marker).cols(80).rows(24).build());
             client.send(created.surface(), "printf '" + marker + "\\n'\r");
             waitForMarker(client, created.surface(), marker);
@@ -37,6 +37,14 @@ public final class E2e {
             try (CmuxClient.CmuxStream attach = client.attachSurface(created.surface(), 100, 31)) {
                 CmuxEvent first = attach.next(Duration.ofSeconds(1));
                 check(first instanceof VtStateEvent, "first attach event was " + first.event());
+                if (identify.protocol() >= 10) {
+                    SizingTarget sizing = findClientSurfaceSize(client, created.surface());
+                    check(Boolean.TRUE.equals(sizing.size().sizeParticipating()), "protocol 10 sizing state missing");
+                    client.setClientSizing(created.surface(), sizing.client(), false);
+                    sizing = findClientSurfaceSize(client, created.surface());
+                    check(Boolean.FALSE.equals(sizing.size().sizeParticipating()), "surface sizing mutation was not reflected");
+                    client.setClientSizing(created.surface(), sizing.client(), true);
+                }
                 client.send(created.surface(), "printf '" + later + "\\n'\r");
                 nextAttachOutput(attach, Duration.ofSeconds(3));
             }
@@ -108,6 +116,20 @@ public final class E2e {
         }
         return -1;
     }
+
+    private static SizingTarget findClientSurfaceSize(CmuxClient client, long surface)
+        throws CmuxException {
+        for (ClientInfo info : client.listClients()) {
+            for (ClientSurfaceSize size : info.sizes()) {
+                if (size.surface() == surface) {
+                    return new SizingTarget(info.client(), size);
+                }
+            }
+        }
+        throw new AssertionError("client size for surface " + surface + " not found");
+    }
+
+    private record SizingTarget(long client, ClientSurfaceSize size) {}
 
     private static void check(boolean condition, String message) {
         if (!condition) {

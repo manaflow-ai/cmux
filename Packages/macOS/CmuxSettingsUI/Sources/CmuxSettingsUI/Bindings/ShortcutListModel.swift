@@ -151,8 +151,6 @@ final class ShortcutListModel {
         return nil
     }
 
-    // MARK: - Conflict helpers (moved verbatim from section)
-
     /// The effective focus `when` clause for `action`: its `shortcuts.when`
     /// override, or the built-in ``ShortcutAction/defaultFocusWhenClause``.
     private func effectiveWhenClause(for action: ShortcutAction) -> ShortcutWhenClause {
@@ -202,6 +200,8 @@ final class ShortcutListModel {
                 localized: "shortcut.when.caption.markdownFocus",
                 defaultValue: "Only while a markdown preview is focused"
             )
+        case .atom(.simulatorFocus):
+            return String(localized: "shortcut.when.caption.simulatorFocus", defaultValue: "Only while a Simulator is focused")
         default:
             return String(
                 localized: "shortcut.when.caption.terminalFocus",
@@ -290,7 +290,7 @@ final class ShortcutListModel {
     /// another binding; a valid stroke is normalized, persisted, and clears the
     /// action's rejection/restore state.
     func assign(stroke: ShortcutStroke, to action: ShortcutAction) async {
-        var stroke = stroke
+        var stroke = stroke.canonicalized()
         guard action.allowsBareFirstStroke || stroke.hasAnyModifier else {
             markBareKeyRejected(action)
             return
@@ -338,6 +338,7 @@ final class ShortcutListModel {
     /// action that disallows chords, a non-digit numbered chord, or a chord that
     /// conflicts with another binding.
     func assignChord(_ chord: StoredShortcut, to action: ShortcutAction) async {
+        let chord = chord.canonicalized()
         guard action.allowsChordShortcut else {
             chordModeActions.remove(action.rawValue)
             return

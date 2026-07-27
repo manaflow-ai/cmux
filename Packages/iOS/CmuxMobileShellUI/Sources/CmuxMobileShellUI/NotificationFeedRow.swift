@@ -3,15 +3,19 @@ import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
 
-struct NotificationFeedRow: View {
+struct NotificationFeedRow: View, Equatable {
     let item: MobileNotificationFeedItem
     let actions: NotificationFeedActions
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.item == rhs.item
+    }
 
     var body: some View {
         let presentation = NotificationFeedRowPresentation(item: item)
 
         Button {
-            actions.open(item)
+            open()
         } label: {
             NotificationFeedRowLabel(
                 title: item.title,
@@ -23,7 +27,7 @@ struct NotificationFeedRow: View {
         .buttonStyle(.plain)
         .contextMenu(menuItems: {
             Button {
-                actions.open(item)
+                open()
             } label: {
                 Label(
                     L10n.string("mobile.notificationFeed.open", defaultValue: "Open"),
@@ -54,7 +58,7 @@ struct NotificationFeedRow: View {
                 .accessibilityIdentifier("MobileNotificationFeedMarkUnreadMenu-\(accessibilitySuffix)")
             }
         })
-        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+        .swipeActions(edge: .leading, allowsFullSwipe: true) {
             if !item.isRead {
                 Button {
                     actions.markRead(item)
@@ -66,6 +70,17 @@ struct NotificationFeedRow: View {
                 }
                 .tint(.blue)
                 .accessibilityIdentifier("MobileNotificationFeedMarkReadSwipe-\(accessibilitySuffix)")
+            } else {
+                Button {
+                    actions.markUnread(item)
+                } label: {
+                    Label(
+                        L10n.string("mobile.notificationFeed.markUnread", defaultValue: "Mark as Unread"),
+                        systemImage: "envelope.badge"
+                    )
+                }
+                .tint(.blue)
+                .accessibilityIdentifier("MobileNotificationFeedMarkUnreadSwipe-\(accessibilitySuffix)")
             }
         }
         .accessibilityElement(children: .ignore)
@@ -78,7 +93,7 @@ struct NotificationFeedRow: View {
         ))
         .accessibilityActions {
             Button(L10n.string("mobile.notificationFeed.open", defaultValue: "Open")) {
-                actions.open(item)
+                open()
             }
             if !item.isRead {
                 Button(L10n.string("mobile.notificationFeed.markRead", defaultValue: "Mark as Read")) {
@@ -91,6 +106,10 @@ struct NotificationFeedRow: View {
             }
         }
         .accessibilityIdentifier("MobileNotificationFeedRow-\(accessibilitySuffix)")
+    }
+
+    private func open() {
+        actions.open(item)
     }
 
     private var accessibilitySuffix: String {

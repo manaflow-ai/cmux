@@ -1,6 +1,7 @@
 export {
   CmuxClient,
   CmuxStream,
+  TERMINAL_KEY_TEXT_MAX_BYTES,
   type CmuxClientOptions,
   type CmuxClientOptions as ClientOptions,
   type AttachSurfaceOptions,

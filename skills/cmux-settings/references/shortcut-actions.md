@@ -40,6 +40,7 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.newWorkspaceGroup`
 - `shortcuts.bindings.groupSelectedWorkspaces`
 - `shortcuts.bindings.toggleFocusedWorkspaceGroupCollapsed`
+- `shortcuts.bindings.reopenClosedWorkspace`
 - `shortcuts.bindings.moveWorkspaceUp`
 - `shortcuts.bindings.moveWorkspaceDown`
 
@@ -53,6 +54,11 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.newSurface`
 - `shortcuts.bindings.toggleTerminalCopyMode`
 - `shortcuts.bindings.clearScreenKeepScrollback`
+- `shortcuts.bindings.simulatorHome`
+- `shortcuts.bindings.simulatorRotateLeft`
+- `shortcuts.bindings.simulatorRotateRight`
+- `shortcuts.bindings.simulatorToggleAppearance`
+- `shortcuts.bindings.simulatorToggleSoftwareKeyboard`
 - `shortcuts.bindings.focusLeft`
 - `shortcuts.bindings.focusRight`
 - `shortcuts.bindings.focusUp`

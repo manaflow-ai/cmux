@@ -78,6 +78,23 @@ public final class JsonTest {
         assertEquals(null, legacyTree.paneRevision(), "legacy pane revision");
         Tree revisionedTree = Tree.from(Map.of("pane_revision", 7L, "workspaces", List.of()));
         assertEquals(7L, revisionedTree.paneRevision(), "pane revision");
+        ClientInfo legacyClient = ClientInfo.from((Map<String, Object>) Json.parse(
+            "{\"client\":7,\"transport\":\"ws\",\"connected_seconds\":12,"
+                + "\"attached\":[31,32],\"sizes\":["
+                + "{\"surface\":31,\"cols\":126,\"rows\":38},"
+                + "{\"surface\":32,\"cols\":100,\"rows\":30,\"size_participating\":true}],"
+                + "\"size_participating\":false,\"self\":true}"
+        ));
+        assertEquals(
+            Boolean.FALSE,
+            legacyClient.sizes().get(0).sizeParticipating(),
+            "legacy client sizing participation"
+        );
+        assertEquals(
+            Boolean.TRUE,
+            legacyClient.sizes().get(1).sizeParticipating(),
+            "surface sizing participation"
+        );
         Tree sourceCompatibleTree = new Tree(4, List.of());
         assertEquals(null, sourceCompatibleTree.paneRevision(), "source-compatible tree pane revision");
         Pane sourceCompatiblePane = new Pane(7, "shell", 0, List.of(), false);

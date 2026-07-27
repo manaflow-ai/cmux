@@ -1,4 +1,27 @@
 {
+  "cloudBillingReturn": {
+    "eyebrow": "cmux Cloud",
+    "returnTitle": "Continua nel terminale",
+    "returnBody": "Per continuare, torna al terminale in cui hai eseguito ssh cmux.cloud.",
+    "statuses": {
+      "checkoutSuccess": {
+        "title": "Pagamento completato",
+        "body": "Il tuo abbonamento è confermato. La visualizzazione dei nuovi limiti potrebbe richiedere qualche istante."
+      },
+      "checkoutCanceled": {
+        "title": "Pagamento annullato",
+        "body": "Il pagamento è stato chiuso senza modificare il tuo piano."
+      },
+      "portalReturn": {
+        "title": "Ritorno dal portale di fatturazione",
+        "body": "La visualizzazione delle modifiche effettuate nel portale di fatturazione potrebbe richiedere qualche istante."
+      },
+      "default": {
+        "title": "Fatturazione completata",
+        "body": "La procedura di fatturazione è terminata."
+      }
+    }
+  },
   "meta": {
     "title": "cmux — Il terminale progettato per il multitasking",
     "description": "Terminale macOS nativo open source e gratuito basato su Ghostty. Funziona con Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider e qualsiasi strumento CLI. Tab verticali, anelli di notifica, pannelli divisi e una socket API.",
@@ -972,7 +995,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "Predicati di contesto opzionali per azione (clausole `when` in stile VS Code), indicizzati per id azione cmux. Ogni valore è un'espressione booleana sulle chiavi di contesto, combinata con !, &&, || e parentesi. Chiavi booleane: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Le chiavi tipizzate supportano i confronti: la stringa sidebarMode (files, find, sessions, feed o dock) e gli interi paneCount e workspaceCount. Gli operatori di confronto sono ==, !=, =~ (espressione regolare), <, <=, >, >= e `in [a, b]`; una chiave sconosciuta o assente vale false. Sono accettati anche i letterali booleani true e false; `key == false` equivale a `!key`. La scorciatoia dell'azione si attiva (ed entra in conflitto con altre scorciatoie) solo quando la clausola è vera. Esempi: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } seleziona gli spazi di lavoro con Ctrl+1–9 ovunque tranne quando la barra laterale destra ha il focus; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } limita un'associazione alla barra laterale Trova quando lo spazio di lavoro ha più riquadri.",
+          "when": "Predicati di contesto opzionali per azione (clausole `when` in stile VS Code), indicizzati per id azione cmux. Ogni valore è un'espressione booleana sulle chiavi di contesto, combinata con !, &&, || e parentesi. Chiavi booleane: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Le chiavi tipizzate supportano i confronti: la stringa sidebarMode (files, find, sessions, feed o dock) e gli interi paneCount e workspaceCount. Gli operatori di confronto sono ==, !=, =~ (espressione regolare), <, <=, >, >= e `in [a, b]`; una chiave sconosciuta o assente vale false. Sono accettati anche i letterali booleani true e false; `key == false` equivale a `!key`. La scorciatoia dell'azione si attiva (ed entra in conflitto con altre scorciatoie) solo quando la clausola è vera. Esempi: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } seleziona gli spazi di lavoro con Ctrl+1–9 ovunque tranne quando la barra laterale destra ha il focus; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } limita un'associazione alla barra laterale Trova quando lo spazio di lavoro ha più riquadri.",
           "showModifierHoldHints": "Mostra i chip dei suggerimenti delle scorciatoie mentre tieni premuto Cmd o Control."
         }
       },

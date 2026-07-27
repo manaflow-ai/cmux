@@ -6,8 +6,7 @@ export class RelayConfigurationError extends Data.TaggedError("RelayConfiguratio
     | "catalog_invalid"
     | "signing_key_not_configured"
     | "signing_key_invalid"
-    | "credential_set_invalid"
-    | "rate_limit_not_configured";
+    | "credential_set_invalid";
 }> {}
 
 export class RelayCatalogRollbackError extends Data.TaggedError("RelayCatalogRollbackError")<{

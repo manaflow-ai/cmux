@@ -20,6 +20,8 @@ extension ContentView {
             return .openFolder
         case "palette.reopenPreviousSession":
             return .reopenPreviousSession
+        case "palette.reopenClosedWorkspace":
+            return .reopenClosedWorkspace
         case "palette.reopenClosedBrowserTab":
             return .reopenClosedBrowserPanel
         case "palette.newTerminalTab":

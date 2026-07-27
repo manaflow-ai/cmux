@@ -9,6 +9,33 @@ import Testing
 
 @MainActor
 extension ReconnectRouteSelectionTests {
+    @Test func allHiddenReconnectSweepPreservesHintAndNeverDialsHiddenTarget() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        let box = TransportBox()
+        let factory = KindRecordingTransportFactory(router: router, box: box)
+        let store = try await makeReconnectStore(
+            routes: [try iroh()],
+            runtime: LivenessTestRuntime(
+                transportFactory: factory,
+                now: { clock.now },
+                supportedRouteKinds: [.iroh]
+            )
+        )
+
+        await store.hideMac(macDeviceID: "test-mac")
+        #expect(store.pairedMacs.isEmpty)
+        #expect(store.hasHiddenComputers)
+        #expect(store.hasKnownPairedMac)
+        #expect(store.workspaceListConnectionStatus == .connected)
+
+        #expect(!(await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")))
+
+        #expect(factory.attemptedKinds().isEmpty)
+        #expect(store.hasKnownPairedMac)
+        #expect(store.workspaceListConnectionStatus == .connected)
+    }
+
     @Test func manualReconnectRedialsWhenLiveStreamIsUnavailableButRPCStateIsConnected() async throws {
         let clock = TestClock()
         let router = LivenessHostRouter()

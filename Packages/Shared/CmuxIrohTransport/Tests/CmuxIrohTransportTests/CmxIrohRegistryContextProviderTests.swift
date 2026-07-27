@@ -233,6 +233,7 @@ actor TestIrohRegistryBroker: CmxIrohRegistryServing {
 
     private var discoveryResponse: CmxIrohDiscoveryResponse
     private var responses: [CmxIrohPairGrantResponse]
+    private var discoveryRequests = 0
     private var pairGrantRequests: [PairGrantRequest] = []
     private let discoveryError: (any Error)?
     private let pairGrantError: (any Error)?
@@ -250,6 +251,7 @@ actor TestIrohRegistryBroker: CmxIrohRegistryServing {
     }
 
     func discover() throws -> CmxIrohDiscoveryResponse {
+        discoveryRequests += 1
         if let discoveryError { throw discoveryError }
         return discoveryResponse
     }
@@ -273,6 +275,10 @@ actor TestIrohRegistryBroker: CmxIrohRegistryServing {
 
     func observedPairGrantRequests() -> [PairGrantRequest] {
         pairGrantRequests
+    }
+
+    func discoveryRequestCount() -> Int {
+        discoveryRequests
     }
 
     func pairGrantRequestCount() -> Int {
@@ -476,6 +482,7 @@ struct RegistryFixture: Sendable {
         targetLastSeenAt: Date? = nil,
         relayFleet: [String]? = nil,
         localAppInstanceID: String = "123e4567-e89b-42d3-a456-426614174005",
+        targetBindingID: String? = nil,
         targetDeviceID: String? = nil,
         includeTarget: Bool = true
     ) throws -> CmxIrohDiscoveryResponse {
@@ -490,7 +497,7 @@ struct RegistryFixture: Sendable {
         if includeTarget {
             var target = try bindingObject(
                 peer: CmxIrohGrantPeer(
-                    bindingID: acceptor.bindingID,
+                    bindingID: targetBindingID ?? acceptor.bindingID,
                     deviceID: targetDeviceID ?? acceptor.deviceID,
                     tag: acceptor.tag,
                     platform: acceptor.platform,

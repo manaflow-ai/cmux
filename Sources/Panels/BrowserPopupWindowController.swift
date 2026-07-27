@@ -66,7 +66,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
             webView.isInspectable = true
         }
         webView.underPageBackgroundColor = GhosttyBackgroundTheme.currentColor()
-        webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
+        BrowserUserAgentSettings.applyEmbeddedWebKitIdentity(to: webView)
         BrowserThemeSettings.apply(openerPanel?.currentBrowserThemeMode ?? BrowserThemeSettings.mode(), to: webView)
         self.webView = webView
         self.webAuthnCoordinator = BrowserWebAuthnCoordinator()

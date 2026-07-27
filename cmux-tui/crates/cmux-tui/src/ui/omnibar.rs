@@ -28,14 +28,14 @@ pub fn hit(rect: Rect, x: u16, y: u16, editing: bool) -> Option<OmnibarHit> {
     }
 }
 
-pub fn draw(app: &mut App, frame: &mut Frame, area: &PaneArea) {
-    let Some(rect) = area.omnibar else { return };
+pub fn draw(app: &mut App, frame: &mut Frame, area: &PaneArea) -> Option<(u16, u16)> {
+    let rect = area.omnibar?;
     if rect.width == 0 || rect.height == 0 {
-        return;
+        return None;
     }
-    let Some(surface) = app.session.surface(area.surface) else { return };
+    let surface = app.session.surface(area.surface)?;
     if surface.kind() != SurfaceKind::Browser {
-        return;
+        return None;
     }
 
     let editing = app
@@ -43,9 +43,10 @@ pub fn draw(app: &mut App, frame: &mut Frame, area: &PaneArea) {
         .as_ref()
         .is_some_and(|state| state.pane == area.pane && state.surface == area.surface);
     if editing {
-        draw_editing(app, frame, rect);
+        draw_editing(app, frame, rect)
     } else {
         draw_idle(app, frame, area, rect, &surface);
+        None
     }
 }
 
@@ -118,34 +119,20 @@ fn draw_idle(
     }
 }
 
-fn draw_editing(app: &App, frame: &mut Frame, rect: Rect) {
-    let Some(state) = app.omnibar.as_ref() else { return };
-    let base = Style::default().bg(app.chrome.omnibar_edit_bg).fg(app.chrome.omnibar_edit_fg);
+fn draw_editing(app: &mut App, frame: &mut Frame, rect: Rect) -> Option<(u16, u16)> {
+    let chrome = app.chrome;
+    let state = app.omnibar.as_mut()?;
+    let base = Style::default().bg(chrome.omnibar_edit_bg).fg(chrome.omnibar_edit_fg);
     fill(frame, rect, base);
     if rect.width == 0 {
-        return;
+        return None;
     }
 
-    let visible: Vec<(usize, char)> = state.input.buffer.char_indices().collect();
-    let cursor_char =
-        visible.iter().position(|(idx, _)| *idx >= state.input.cursor).unwrap_or(visible.len());
     let width = rect.width as usize;
-    let skip = cursor_char.saturating_sub(width.saturating_sub(1));
-    let shown: Vec<char> = visible.iter().skip(skip).take(width).map(|(_, c)| *c).collect();
-
-    for (i, ch) in shown.iter().enumerate() {
-        let style = if state.select_all { base.add_modifier(Modifier::REVERSED) } else { base };
-        put(frame, rect, i as u16, &ch.to_string(), style);
-    }
-
-    let cursor_rel = cursor_char.saturating_sub(skip).min(width.saturating_sub(1)) as u16;
-    if cursor_rel < rect.width {
-        let cell = &mut frame.buffer_mut()[(rect.x + cursor_rel, rect.y)];
-        if cursor_char == visible.len() || cursor_rel as usize >= shown.len() {
-            cell.set_symbol(" ");
-        }
-        cell.set_style(base.add_modifier(Modifier::REVERSED));
-    }
+    let (shown, cursor_col) = state.input.visible_text_and_cursor(width);
+    let style = if state.select_all { base.add_modifier(Modifier::REVERSED) } else { base };
+    put(frame, rect, 0, &shown, style);
+    Some((rect.x + cursor_col as u16, rect.y))
 }
 
 fn put_nav(frame: &mut Frame, app: &App, rect: Rect, rel_x: u16, text: &str, base: Style) {

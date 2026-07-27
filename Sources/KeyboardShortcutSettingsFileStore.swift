@@ -1130,7 +1130,7 @@ final class CmuxSettingsFileStore {
             keyCode = nil
         }
         return ShortcutStroke(
-            key: key,
+            key: canonicalShortcutKey(key, keyCode: keyCode),
             command: jsonBool(dict["command"]) ?? false,
             shift: jsonBool(dict["shift"]) ?? false,
             option: jsonBool(dict["option"]) ?? false,

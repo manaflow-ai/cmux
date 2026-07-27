@@ -1,7 +1,13 @@
 import unittest
 from unittest.mock import patch
 
-from cmux import CmuxClient, ProtocolError
+from cmux import (
+    TERMINAL_KEY_TEXT_MAX_BYTES,
+    CmuxClient,
+    ProtocolError,
+    TerminalKeyInput,
+    TerminalModifiers,
+)
 from cmux.client import IdentifyResult, Layout, _parse_tree
 
 
@@ -68,6 +74,35 @@ class ProtocolTests(unittest.TestCase):
 
         self.assertEqual(client.resize_surface(7, 80, 24).reservation_id, 41)
 
+    def test_list_clients_normalizes_protocol_nine_sizing_participation(self) -> None:
+        client = CmuxClient.__new__(CmuxClient)
+        client._request = lambda _command, **_params: [{
+            "client": 7,
+            "transport": "ws",
+            "name": None,
+            "kind": "web",
+            "connected_seconds": 12,
+            "attached": [31, 32],
+            "sizes": [
+                {"surface": 31, "cols": 126, "rows": 38},
+                {
+                    "surface": 32,
+                    "cols": 100,
+                    "rows": 30,
+                    "size_participating": True,
+                },
+            ],
+            "size_participating": False,
+            "self": True,
+        }]
+
+        [listed] = client.list_clients()
+
+        self.assertEqual(
+            [size.size_participating for size in listed.sizes],
+            [False, True],
+        )
+
     def test_attach_accepts_newer_additive_protocols_with_opt_in(self) -> None:
         client = CmuxClient.__new__(CmuxClient)
         client._protocol = 10
@@ -124,6 +159,101 @@ class ProtocolTests(unittest.TestCase):
             client.create_terminal()
         with self.assertRaisesRegex(ValueError, "workspace or key is required"):
             client.close_workspace_registry(key="  ")
+
+    def test_clear_history_requires_capability_and_preserves_wire_params(self) -> None:
+        client = CmuxClient.__new__(CmuxClient)
+        client._protocol = 9
+        client._capabilities = set()
+        with self.assertRaisesRegex(ProtocolError, "clear-history is not supported"):
+            client.clear_history(7)
+
+        requests = []
+        client._capabilities = {"clear-history-v1"}
+        client._request = lambda command, **params: requests.append((command, params)) or {}
+
+        client.clear_history(7)
+
+        self.assertEqual(requests, [("clear-history", {"surface": 7})])
+
+    def test_clear_history_fallback_requires_capability_and_preserves_key(self) -> None:
+        client = CmuxClient.__new__(CmuxClient)
+        client._protocol = 9
+        client._capabilities = {"clear-history-v1"}
+        fallback = TerminalKeyInput(
+            key="k",
+            mods=TerminalModifiers(super_key=True),
+            composing=False,
+            unshifted_codepoint="k",
+            shifted_codepoint=None,
+            base_layout_codepoint="k",
+            action="press",
+        )
+
+        with self.assertRaisesRegex(ProtocolError, "clear-history key fallback is not supported"):
+            client.clear_history(7, fallback_key=fallback)
+
+        requests = []
+        client._capabilities.add("clear-history-key-v1")
+        client._request = lambda command, **params: requests.append((command, params)) or {}
+
+        client.clear_history(7, fallback_key=fallback)
+
+        self.assertEqual(
+            requests,
+            [
+                (
+                    "clear-history",
+                    {
+                        "surface": 7,
+                        "fallback_key": {
+                            "key": "k",
+                            "mods": {
+                                "shift": False,
+                                "control": False,
+                                "alt": False,
+                                "super": True,
+                                "caps_lock": False,
+                                "num_lock": False,
+                            },
+                            "consumed_mods": {
+                                "shift": False,
+                                "control": False,
+                                "alt": False,
+                                "super": False,
+                                "caps_lock": False,
+                                "num_lock": False,
+                            },
+                            "composing": False,
+                            "utf8": "",
+                            "unshifted_codepoint": "k",
+                            "shifted_codepoint": None,
+                            "base_layout_codepoint": "k",
+                            "action": "press",
+                            "macos_option_as_alt": True,
+                        },
+                    },
+                )
+            ],
+        )
+
+    def test_clear_history_fallback_rejects_oversized_key_text_locally(self) -> None:
+        client = CmuxClient.__new__(CmuxClient)
+        client._protocol = 9
+        client._capabilities = {"clear-history-v1", "clear-history-key-v1"}
+        requests = []
+        client._request = lambda command, **params: requests.append((command, params)) or {}
+        fallback = TerminalKeyInput(
+            key="k",
+            utf8="x" * (TERMINAL_KEY_TEXT_MAX_BYTES + 1),
+        )
+
+        with self.assertRaisesRegex(
+            ValueError, "terminal key text exceeds the 4 KiB protocol limit"
+        ):
+            client.clear_history(7, fallback_key=fallback)
+
+        self.assertEqual(requests, [])
+
     def test_new_pane_rejects_servers_older_than_protocol_nine(self) -> None:
         client = CmuxClient.__new__(CmuxClient)
         client._protocol = 8

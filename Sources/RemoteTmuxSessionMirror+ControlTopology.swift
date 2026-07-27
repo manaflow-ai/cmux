@@ -24,6 +24,7 @@ extension RemoteTmuxSessionMirror {
         }
         controlPaneIdByPane.removeAll()
         controlSurfaceIdByPane.removeAll()
+        tmuxPaneIdByControlSurface.removeAll()
     }
 
     func updateControlSurface(tmuxPaneID: Int, surfaceID: UUID?, windowID: Int?) {
@@ -35,8 +36,12 @@ extension RemoteTmuxSessionMirror {
         }
         let previousSurfaceID = controlSurfaceIdByPane[tmuxPaneID]
         guard previousSurfaceID != surfaceID else { return }
-        if let previousSurfaceID { onControlSurfaceRemoved(previousSurfaceID) }
+        if let previousSurfaceID {
+            tmuxPaneIdByControlSurface[previousSurfaceID] = nil
+            onControlSurfaceRemoved(previousSurfaceID)
+        }
         controlSurfaceIdByPane[tmuxPaneID] = surfaceID
+        if let surfaceID { tmuxPaneIdByControlSurface[surfaceID] = tmuxPaneID }
     }
 
     func controlPaneLocations(
@@ -205,6 +210,7 @@ extension RemoteTmuxSessionMirror {
     private func cleanupControlPaneIdentity(tmuxPaneID: Int) {
         guard let paneID = controlPaneIdByPane[tmuxPaneID] else { return }
         let surfaceID = controlSurfaceIdByPane.removeValue(forKey: tmuxPaneID)
+        if let surfaceID { tmuxPaneIdByControlSurface[surfaceID] = nil }
         onControlPaneRemoved(paneID, surfaceID)
     }
 }

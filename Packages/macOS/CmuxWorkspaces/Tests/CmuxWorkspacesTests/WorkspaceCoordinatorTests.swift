@@ -68,14 +68,14 @@ final class StubGroupHost: WorkspaceGroupHosting {
         initialBrowserOmnibarVisible: Bool,
         initialBrowserTransparentBackground: Bool,
         inheritWorkingDirectory: Bool,
-        select: Bool
+        select: Bool,
+        shouldApplyWorkspaceDirectoryCustomization: Bool
     ) -> CoordinatorStubTab {
         let tab = CoordinatorStubTab(currentDirectory: workingDirectory ?? "/tmp")
         model.tabs.append(tab)
         if select { model.selectedTabId = tab.id }
         return tab
     }
-
     func closeWorkspaceForGroupDeletion(_ tab: CoordinatorStubTab, recordHistory: Bool) {
         closedWorkspaceIds.append(tab.id)
         guard model.tabs.count > 1,

@@ -13,12 +13,16 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 public final class CmuxClient implements AutoCloseable {
+    public static final int TERMINAL_KEY_TEXT_MAX_BYTES = 4 * 1024;
+
     private final String socketPath;
     private final Duration timeout;
     private final boolean allowProtocolV6Attach;
@@ -100,6 +104,42 @@ public final class CmuxClient implements AutoCloseable {
         return Tree.from(request("list-workspaces", new LinkedHashMap<>()));
     }
 
+    public List<ClientInfo> listClients() throws CmuxException {
+        List<ClientInfo> clients = new ArrayList<>();
+        for (Object item : requestList("list-clients", new LinkedHashMap<>())) {
+            if (item instanceof Map<?, ?> map) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> client = (Map<String, Object>) map;
+                clients.add(ClientInfo.from(client));
+            }
+        }
+        return List.copyOf(clients);
+    }
+
+    public void setClientSizing(long surface, long client, boolean enabled) throws CmuxException {
+        requireProtocol(10, "set-client-sizing");
+        Map<String, Object> params = surfaceParams(surface);
+        params.put("client", client);
+        params.put("enabled", enabled);
+        request("set-client-sizing", params);
+    }
+
+    public void useOnlyClientSize(long surface, long client) throws CmuxException {
+        requireProtocol(10, "set-client-sizing");
+        Map<String, Object> params = surfaceParams(surface);
+        params.put("client", client);
+        params.put("enabled", true);
+        params.put("exclusive", true);
+        request("set-client-sizing", params);
+    }
+
+    public void useAllClientSizes(long surface) throws CmuxException {
+        requireProtocol(10, "set-client-sizing");
+        Map<String, Object> params = surfaceParams(surface);
+        params.put("enabled", true);
+        request("set-client-sizing", params);
+    }
+
     public void send(long surface, String text) throws CmuxException {
         send(surface, text, null);
     }
@@ -124,6 +164,24 @@ public final class CmuxClient implements AutoCloseable {
             params.put("bytes", base64Bytes);
         }
         request("send", params);
+    }
+
+    public void clearHistory(long surface) throws CmuxException {
+        requireCapability("clear-history-v1", "clear-history");
+        request("clear-history", surfaceParams(surface));
+    }
+
+    public void clearHistory(long surface, TerminalKeyInput fallbackKey) throws CmuxException {
+        requireCapability("clear-history-v1", "clear-history");
+        requireCapability("clear-history-key-v1", "clear-history key fallback");
+        if (fallbackKey.utf8().getBytes(StandardCharsets.UTF_8).length > TERMINAL_KEY_TEXT_MAX_BYTES) {
+            throw new IllegalArgumentException(
+                "terminal key text exceeds the 4 KiB protocol limit"
+            );
+        }
+        Map<String, Object> params = surfaceParams(surface);
+        params.put("fallback_key", fallbackKey.toMap());
+        request("clear-history", params);
     }
 
     public ReadScreenResult readScreen(long surface) throws CmuxException {
@@ -437,7 +495,30 @@ public final class CmuxClient implements AutoCloseable {
             }
             return new LinkedHashMap<>();
         }
-        throw new CmuxCommandException(asString(response.getOrDefault("error", "unknown error")), response.get("id"));
+        throw new CmuxCommandException(
+            asString(response.getOrDefault("error", "unknown error")),
+            response.get("id"),
+            CmuxErrorDelivery.fromWire(response.get("error_delivery"))
+        );
+    }
+
+    private List<?> requestList(String cmd, Map<String, Object> params) throws CmuxException {
+        Map<String, Object> request = new LinkedHashMap<>(params);
+        request.put("id", nextId());
+        request.put("cmd", cmd);
+        Map<String, Object> response = sendRaw(request);
+        if (Boolean.TRUE.equals(response.get("ok"))) {
+            Object data = response.get("data");
+            if (data instanceof List<?> list) {
+                return list;
+            }
+            throw new CmuxDecodeException(cmd + " returned non-array data", null);
+        }
+        throw new CmuxCommandException(
+            asString(response.getOrDefault("error", "unknown error")),
+            response.get("id"),
+            CmuxErrorDelivery.fromWire(response.get("error_delivery"))
+        );
     }
 
     private long nextId() {
@@ -653,7 +734,11 @@ public final class CmuxClient implements AutoCloseable {
                     return new CmuxStream(connection, buffered);
                 }
                 if (Boolean.FALSE.equals(response.get("ok"))) {
-                    throw new CmuxCommandException(asString(response.get("error")), response.get("id"));
+                    throw new CmuxCommandException(
+                        asString(response.get("error")),
+                        response.get("id"),
+                        CmuxErrorDelivery.fromWire(response.get("error_delivery"))
+                    );
                 }
             }
         }

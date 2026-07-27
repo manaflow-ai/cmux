@@ -123,7 +123,7 @@ extension BrowserDesignModeController {
             let value = try await evaluate(
                 """
                 return globalThis.__cmuxDesignMode?.completeAnnotationCapture(
-                    id, x, y, width, height, imageURL,
+                    id, x, y, width, height,
                     scrollX, scrollY, viewportWidth, viewportHeight
                 );
                 """,
@@ -133,7 +133,6 @@ extension BrowserDesignModeController {
                     "y": capture.contextRect.y,
                     "width": capture.contextRect.width,
                     "height": capture.contextRect.height,
-                    "imageURL": "data:image/png;base64,\(pngData.base64EncodedString())",
                     "scrollX": capture.descriptor.scrollX,
                     "scrollY": capture.descriptor.scrollY,
                     "viewportWidth": capture.descriptor.viewport.width,

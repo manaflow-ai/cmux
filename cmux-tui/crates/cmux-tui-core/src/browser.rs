@@ -1,6 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender, SyncSender, TrySendError, sync_channel};
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
@@ -190,6 +190,11 @@ enum BrowserCommand {
     },
 }
 
+struct QueuedBrowserCommand {
+    command: BrowserCommand,
+    uses_regular_capacity: bool,
+}
+
 impl BrowserCommand {
     fn is_input(&self) -> bool {
         matches!(
@@ -353,7 +358,8 @@ pub struct BrowserSurface {
     dead: AtomicBool,
     cell_pixels: Mutex<(u16, u16)>,
     capture_options: BrowserCaptureOptions,
-    command_tx: Mutex<Option<SyncSender<BrowserCommand>>>,
+    command_tx: Mutex<Option<SyncSender<QueuedBrowserCommand>>>,
+    regular_command_count: Arc<AtomicUsize>,
     latest_nav: Arc<Mutex<Option<BrowserCommand>>>,
     #[cfg(test)]
     worker_done: Mutex<Option<Receiver<()>>>,
@@ -547,7 +553,8 @@ pub(crate) fn new_surface(
     let capture_options = BrowserCaptureOptions::from_options(opts);
     let capture_scale = capture_scale_for(pixel_w, pixel_h, capture_options);
     let capture_pixels = scaled_pixels(pixel_w, pixel_h, capture_scale);
-    let (command_tx, command_rx) = sync_channel(BROWSER_COMMAND_QUEUE_CAPACITY);
+    let (command_tx, command_rx) = sync_channel(BROWSER_COMMAND_QUEUE_CAPACITY + 1);
+    let regular_command_count = Arc::new(AtomicUsize::new(0));
     let latest_nav = Arc::new(Mutex::new(None));
     #[cfg(test)]
     let (worker_done_tx, worker_done_rx) = std::sync::mpsc::channel();
@@ -585,11 +592,19 @@ pub(crate) fn new_surface(
         cell_pixels: Mutex::new((cell_w, cell_h)),
         capture_options,
         command_tx: Mutex::new(Some(command_tx)),
+        regular_command_count: regular_command_count.clone(),
         latest_nav: latest_nav.clone(),
         #[cfg(test)]
         worker_done: Mutex::new(Some(worker_done_rx)),
     }));
-    start_browser_worker(surface.clone(), command_rx, latest_nav, mux, worker_done_tx);
+    start_browser_worker(
+        surface.clone(),
+        command_rx,
+        regular_command_count,
+        latest_nav,
+        mux,
+        worker_done_tx,
+    );
     surface
 }
 
@@ -889,7 +904,8 @@ fn start_surface_thread(
 
 fn start_browser_worker(
     surface: Arc<Surface>,
-    rx: Receiver<BrowserCommand>,
+    rx: Receiver<QueuedBrowserCommand>,
+    regular_command_count: Arc<AtomicUsize>,
     latest_nav: Arc<Mutex<Option<BrowserCommand>>>,
     mux: Weak<Mux>,
     done_tx: Option<Sender<()>>,
@@ -899,9 +915,11 @@ fn start_browser_worker(
         std::thread::Builder::new().name(format!("browser-surface-{id}-worker")).spawn(move || {
             let mut failures = BrowserWorkerErrorState::default();
             while let Ok(first) = rx.recv() {
-                let mut batch = vec![first];
+                release_regular_command_capacity(&regular_command_count, &first);
+                let mut batch = vec![first.command];
                 while let Ok(next) = rx.try_recv() {
-                    batch.push(next);
+                    release_regular_command_capacity(&regular_command_count, &next);
+                    batch.push(next.command);
                 }
                 coalesce_worker_mouse_moves(&mut batch);
                 for command in batch {
@@ -921,6 +939,16 @@ fn start_browser_worker(
                 let _ = done_tx.send(());
             }
         });
+}
+
+fn release_regular_command_capacity(
+    regular_command_count: &AtomicUsize,
+    command: &QueuedBrowserCommand,
+) {
+    if command.uses_regular_capacity {
+        let previous = regular_command_count.fetch_sub(1, Ordering::AcqRel);
+        debug_assert!(previous > 0, "browser command capacity accounting underflowed");
+    }
 }
 
 fn take_latest_worker_commands(
@@ -1611,9 +1639,37 @@ impl BrowserSurface {
             anyhow::bail!("browser surface is closed");
         }
         let tx = self.command_sender()?;
-        match tx.try_send(command) {
+        match self.try_enqueue_regular(&tx, command) {
             Ok(()) | Err(TrySendError::Full(_)) => Ok(()),
             Err(TrySendError::Disconnected(_)) => anyhow::bail!("browser command worker is closed"),
+        }
+    }
+
+    // A browser must observe every release for a press it accepted. The
+    // physical FIFO has one slot beyond the regular queue limit, reserved for
+    // a release that arrives under backpressure. This keeps the release
+    // ordered behind accepted commands without blocking the shared dispatcher.
+    fn enqueue_reliable_mouse_release(&self, command: BrowserCommand) -> anyhow::Result<()> {
+        if self.is_dead() {
+            anyhow::bail!("browser surface is closed");
+        }
+        let tx = self.command_sender()?;
+        match self.try_enqueue_regular(&tx, command) {
+            Ok(()) => Ok(()),
+            Err(TrySendError::Full(command)) => {
+                match tx.try_send(QueuedBrowserCommand { command, uses_regular_capacity: false }) {
+                    Ok(()) => Ok(()),
+                    Err(TrySendError::Full(_)) => {
+                        anyhow::bail!("browser command queue release reserve is full")
+                    }
+                    Err(TrySendError::Disconnected(_)) => {
+                        anyhow::bail!("browser command worker is closed")
+                    }
+                }
+            }
+            Err(TrySendError::Disconnected(_)) => {
+                anyhow::bail!("browser command worker is closed")
+            }
         }
     }
 
@@ -1632,7 +1688,7 @@ impl BrowserSurface {
             anyhow::bail!("browser surface is closed");
         }
         let tx = self.command_sender()?;
-        match tx.try_send(command) {
+        match self.try_enqueue_regular(&tx, command) {
             Ok(()) => Ok(()),
             Err(TrySendError::Full(_)) => {
                 anyhow::bail!("browser command queue is full; browser may be unresponsive")
@@ -1657,7 +1713,7 @@ impl BrowserSurface {
                 return Err(error);
             }
         };
-        match tx.try_send(command) {
+        match self.try_enqueue_regular(&tx, command) {
             Ok(()) => Ok(()),
             Err(TrySendError::Full(command)) => {
                 if let Some(queued) = reject_reconfigure(command) {
@@ -1688,13 +1744,40 @@ impl BrowserSurface {
 
     fn wake_worker(&self) -> anyhow::Result<()> {
         let tx = self.command_sender()?;
-        match tx.try_send(BrowserCommand::WakeLatest) {
+        match self.try_enqueue_regular(&tx, BrowserCommand::WakeLatest) {
             Ok(()) | Err(TrySendError::Full(_)) => Ok(()),
             Err(TrySendError::Disconnected(_)) => anyhow::bail!("browser command worker is closed"),
         }
     }
 
-    fn command_sender(&self) -> anyhow::Result<SyncSender<BrowserCommand>> {
+    fn try_enqueue_regular(
+        &self,
+        tx: &SyncSender<QueuedBrowserCommand>,
+        command: BrowserCommand,
+    ) -> Result<(), TrySendError<BrowserCommand>> {
+        if self
+            .regular_command_count
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
+                (count < BROWSER_COMMAND_QUEUE_CAPACITY).then_some(count + 1)
+            })
+            .is_err()
+        {
+            return Err(TrySendError::Full(command));
+        }
+        match tx.try_send(QueuedBrowserCommand { command, uses_regular_capacity: true }) {
+            Ok(()) => Ok(()),
+            Err(TrySendError::Full(command)) => {
+                self.regular_command_count.fetch_sub(1, Ordering::AcqRel);
+                Err(TrySendError::Full(command.command))
+            }
+            Err(TrySendError::Disconnected(command)) => {
+                self.regular_command_count.fetch_sub(1, Ordering::AcqRel);
+                Err(TrySendError::Disconnected(command.command))
+            }
+        }
+    }
+
+    fn command_sender(&self) -> anyhow::Result<SyncSender<QueuedBrowserCommand>> {
         self.command_tx
             .lock()
             .unwrap()
@@ -1724,13 +1807,18 @@ impl BrowserSurface {
         button: Option<&str>,
         click_count: Option<u32>,
     ) -> anyhow::Result<()> {
-        self.enqueue_bounded(BrowserCommand::Mouse {
+        let command = BrowserCommand::Mouse {
             event_type: event_type.to_string(),
             x,
             y,
             button: button.map(ToOwned::to_owned),
             click_count,
-        })
+        };
+        if event_type == "mouseReleased" {
+            self.enqueue_reliable_mouse_release(command)
+        } else {
+            self.enqueue_bounded(command)
+        }
     }
 
     fn mouse_event_blocking(
@@ -2861,11 +2949,7 @@ mod tests {
         let events = mux.subscribe();
         let (entered, started) = mpsc::channel();
         let (release, held) = mpsc::channel();
-        browser
-            .command_sender()
-            .unwrap()
-            .send(BrowserCommand::Hold { entered, release: held })
-            .unwrap();
+        browser.enqueue_control(BrowserCommand::Hold { entered, release: held }).unwrap();
         started.recv_timeout(Duration::from_secs(1)).unwrap();
 
         assert!(browser.resize(11, 5).unwrap());
@@ -2885,6 +2969,50 @@ mod tests {
         assert_eq!(resized, vec![(11, 5), (12, 6)]);
         browser.kill();
         done.recv_timeout(Duration::from_secs(1)).expect("browser worker exited after release");
+    }
+
+    #[test]
+    fn full_command_queue_retains_mouse_release_without_blocking() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        let done = browser.take_worker_done_for_test();
+        let (entered, started) = mpsc::channel();
+        let (release, held) = mpsc::channel();
+        browser.enqueue_control(BrowserCommand::Hold { entered, release: held }).unwrap();
+        started.recv_timeout(Duration::from_secs(1)).unwrap();
+        for _ in 0..BROWSER_COMMAND_QUEUE_CAPACITY {
+            browser.enqueue_control(BrowserCommand::Activate).unwrap();
+        }
+
+        let (attempting_tx, attempting_rx) = mpsc::channel();
+        let (enqueued_tx, enqueued_rx) = mpsc::channel();
+        let release_surface = surface.clone();
+        let enqueue = thread::spawn(move || {
+            attempting_tx.send(()).unwrap();
+            let result = release_surface.browser_mouse_event(
+                "mouseReleased",
+                1.0,
+                1.0,
+                Some("left"),
+                Some(1),
+            );
+            enqueued_tx.send(result).unwrap();
+        });
+        attempting_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        enqueued_rx
+            .recv_timeout(Duration::from_millis(100))
+            .expect("retaining a mouse release must not wait for regular queue capacity")
+            .unwrap();
+        assert!(
+            surface.browser_mouse_event("mouseReleased", 2.0, 2.0, Some("left"), Some(1)).is_err(),
+            "the one-command release reserve must reject a second release without growing"
+        );
+
+        release.send(()).unwrap();
+        enqueue.join().unwrap();
+        browser.kill();
+        done.recv_timeout(Duration::from_secs(1))
+            .expect("browser worker exited after reliable release");
     }
 
     #[test]
@@ -3241,15 +3369,10 @@ mod tests {
         let done = browser.take_worker_done_for_test();
         let (entered, started) = mpsc::channel();
         let (release, held) = mpsc::channel();
-        browser
-            .command_sender()
-            .unwrap()
-            .send(BrowserCommand::Hold { entered, release: held })
-            .unwrap();
+        browser.enqueue_control(BrowserCommand::Hold { entered, release: held }).unwrap();
         started.recv_timeout(Duration::from_secs(1)).unwrap();
-        let sender = browser.command_sender().unwrap();
         for _ in 0..BROWSER_COMMAND_QUEUE_CAPACITY {
-            sender.try_send(BrowserCommand::Activate).unwrap();
+            browser.enqueue_control(BrowserCommand::Activate).unwrap();
         }
 
         let (reported_tx, reported_rx) = mpsc::channel();
@@ -3264,7 +3387,6 @@ mod tests {
         );
         assert!(reported_rx.recv_timeout(Duration::from_secs(1)).unwrap().is_none());
 
-        drop(sender);
         release.send(()).unwrap();
         let deadline = Instant::now() + Duration::from_secs(1);
         loop {
@@ -3286,11 +3408,7 @@ mod tests {
         let done = browser.take_worker_done_for_test();
         let (entered, started) = mpsc::channel();
         let (release, held) = mpsc::channel();
-        browser
-            .command_sender()
-            .unwrap()
-            .send(BrowserCommand::Hold { entered, release: held })
-            .unwrap();
+        browser.enqueue_control(BrowserCommand::Hold { entered, release: held }).unwrap();
         started.recv_timeout(Duration::from_secs(1)).unwrap();
         let accepted = Arc::new(AtomicBool::new(false));
         let reported = accepted.clone();

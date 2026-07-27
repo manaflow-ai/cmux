@@ -131,10 +131,26 @@ extension TabManager: NotificationDismissalHosting {
     }
 
     func workspaceTriggerNotificationDismissFlash(workspaceId: UUID, panelId: UUID) {
-        tabs.first(where: { $0.id == workspaceId })?.triggerNotificationDismissFlash(panelId: panelId)
+        if AppDelegate.shared?.routeNotificationAttentionFlash(
+            workspaceID: workspaceId,
+            panelID: panelId,
+            reason: .notificationDismiss
+        ) == true {
+            return
+        }
+        tabs.first(where: { $0.id == workspaceId })?
+            .triggerNotificationDismissFlash(panelId: panelId)
     }
 
     func workspaceTriggerUnreadIndicatorDismissFlash(workspaceId: UUID, panelId: UUID) {
-        tabs.first(where: { $0.id == workspaceId })?.triggerUnreadIndicatorDismissFlash(panelId: panelId)
+        if AppDelegate.shared?.routeNotificationAttentionFlash(
+            workspaceID: workspaceId,
+            panelID: panelId,
+            reason: .unreadIndicatorDismiss
+        ) == true {
+            return
+        }
+        tabs.first(where: { $0.id == workspaceId })?
+            .triggerUnreadIndicatorDismissFlash(panelId: panelId)
     }
 }

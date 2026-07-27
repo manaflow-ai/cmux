@@ -3051,27 +3051,31 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
         }
     }
 
-    func testDisabledInheritanceLeavesNewWorkspaceCwdUnsetForGhosttyConfigFallback() throws {
+    func testDisabledInheritanceUsesGhosttyDefaultForNewWorkspaceCwd() throws {
         try withWorkspaceWorkingDirectoryInheritanceSetting(false) {
             let sourceCwd = "/tmp/cmux-source-\(UUID().uuidString)"
+            let fallbackCwd = "/tmp/cmux-ghostty-default-\(UUID().uuidString)"
             let manager = TabManager(
                 initialWorkingDirectory: sourceCwd,
-                autoWelcomeIfNeeded: false
+                autoWelcomeIfNeeded: false,
+                defaultWorkspaceWorkingDirectoryProvider: { fallbackCwd }
             )
 
             let inserted = manager.addWorkspace(autoWelcomeIfNeeded: false)
 
-            XCTAssertNil(inserted.focusedTerminalPanel?.requestedWorkingDirectory)
-            XCTAssertNotEqual(inserted.currentDirectory, sourceCwd)
+            XCTAssertEqual(inserted.focusedTerminalPanel?.requestedWorkingDirectory, fallbackCwd)
+            XCTAssertEqual(inserted.currentDirectory, fallbackCwd)
         }
     }
 
-    func testExplicitNoInheritanceLeavesNewWorkspaceCwdUnsetWhenGlobalInheritanceEnabled() throws {
+    func testExplicitNoInheritanceUsesGhosttyDefaultWhenGlobalInheritanceEnabled() throws {
         try withWorkspaceWorkingDirectoryInheritanceSetting(nil) {
             let sourceCwd = "/tmp/cmux-source-\(UUID().uuidString)"
+            let fallbackCwd = "/tmp/cmux-ghostty-default-\(UUID().uuidString)"
             let manager = TabManager(
                 initialWorkingDirectory: sourceCwd,
-                autoWelcomeIfNeeded: false
+                autoWelcomeIfNeeded: false,
+                defaultWorkspaceWorkingDirectoryProvider: { fallbackCwd }
             )
 
             let inserted = manager.addWorkspace(
@@ -3079,8 +3083,8 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
                 autoWelcomeIfNeeded: false
             )
 
-            XCTAssertNil(inserted.focusedTerminalPanel?.requestedWorkingDirectory)
-            XCTAssertNotEqual(inserted.currentDirectory, sourceCwd)
+            XCTAssertEqual(inserted.focusedTerminalPanel?.requestedWorkingDirectory, fallbackCwd)
+            XCTAssertEqual(inserted.currentDirectory, fallbackCwd)
         }
     }
 
@@ -3227,6 +3231,7 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
         let panel = DetachedWorkspaceTestPanel()
         return Workspace.DetachedSurfaceTransfer(
             sourceWorkspaceId: sourceWorkspaceId,
+            sessionRestoreSourceWorkspaceId: nil,
             panelId: panel.id,
             panel: panel,
             title: panel.displayTitle,
@@ -3269,6 +3274,7 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
         }
 
         override func makeWorkspaceForCreation(
+            id: UUID? = nil,
             title: String,
             workingDirectory: String?,
             portOrdinal: Int,
@@ -3285,6 +3291,7 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
         ) -> Workspace {
             beforeCreateWorkspace?()
             return super.makeWorkspaceForCreation(
+                id: id,
                 title: title,
                 workingDirectory: workingDirectory,
                 portOrdinal: portOrdinal,
@@ -3580,6 +3587,7 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
         }
 
         override func makeWorkspaceForCreation(
+            id: UUID? = nil,
             title: String,
             workingDirectory: String?,
             portOrdinal: Int,
@@ -3596,6 +3604,7 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
         ) -> Workspace {
             capturedConfigTemplate = configTemplate
             return super.makeWorkspaceForCreation(
+                id: id,
                 title: title,
                 workingDirectory: workingDirectory,
                 portOrdinal: portOrdinal,

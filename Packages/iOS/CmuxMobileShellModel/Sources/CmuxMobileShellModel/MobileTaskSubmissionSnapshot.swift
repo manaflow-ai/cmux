@@ -3,15 +3,22 @@ public import Foundation
 /// Immutable inputs and derived command for one task-composer submission.
 ///
 /// The composer captures this value before its first suspension so a late RPC
-/// result cannot settle against template, Mac, prompt, or directory edits that
-/// were not part of the sent request.
+/// result cannot settle against template, Mac, prompt, workspace-name, or
+/// directory edits that were not part of the sent request.
 public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
     /// Identifier of the task template selected when submission began.
     public let templateID: MobileTaskTemplate.ID
     /// Identifier of the Mac targeted by the captured submission.
     public let macDeviceID: String
+    /// Paired app instance targeted by the captured submission, or `nil` for
+    /// legacy device-level routing.
+    public let macInstanceTag: String?
     /// Unmodified prompt text captured from the composer.
     public let prompt: String
+    /// Optional workspace name exactly as entered in the composer.
+    public let workspaceName: String
+    /// Workspace name with surrounding whitespace removed.
+    public let trimmedWorkspaceName: String
     /// Unmodified working-directory text captured from the composer.
     public let directory: String
     /// Working directory with surrounding whitespace removed for validation.
@@ -23,26 +30,38 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
     /// Command and environment derived from the captured template and prompt.
     public let composition: MobileTaskComposition
 
+    /// Explicit workspace name, falling back to the prompt-derived title.
+    public var workspaceTitle: String? {
+        trimmedWorkspaceName.isEmpty ? composition.title : trimmedWorkspaceName
+    }
+
     /// Captures immutable inputs and derives the command for one submission.
     ///
     /// - Parameters:
     ///   - template: Task template selected when submission begins.
     ///   - prompt: Prompt text to compose into the template command.
     ///   - macDeviceID: Identifier of the Mac that should create the task.
+    ///   - macInstanceTag: Exact paired app instance to target, or `nil`.
     ///   - directory: Working-directory text shown in the composer.
+    ///   - workspaceName: Optional workspace name shown in the composer.
     ///   - didEditDirectory: Whether the user changed the suggested directory.
     ///   - operationID: Stable idempotency key for submission retries.
     public init(
         template: MobileTaskTemplate,
         prompt: String,
         macDeviceID: String,
+        macInstanceTag: String? = nil,
         directory: String,
+        workspaceName: String = "",
         didEditDirectory: Bool,
         operationID: UUID
     ) {
         self.templateID = template.id
         self.macDeviceID = macDeviceID
+        self.macInstanceTag = macInstanceTag
         self.prompt = prompt
+        self.workspaceName = workspaceName
+        self.trimmedWorkspaceName = workspaceName.trimmingCharacters(in: .whitespacesAndNewlines)
         self.directory = directory
         self.trimmedDirectory = directory.trimmingCharacters(in: .whitespacesAndNewlines)
         self.didEditDirectory = didEditDirectory
@@ -54,13 +73,14 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
     ///
     /// Template identity, presentation metadata, directory edit provenance,
     /// and operation identity are excluded because the Mac
-    /// receives only the selected Mac, composed title/command/environment, and
-    /// trimmed effective working directory.
+    /// receives only the selected Mac, effective title, composed command and
+    /// environment, and trimmed effective working directory.
     public func isRequestEquivalent(to other: MobileTaskSubmissionSnapshot) -> Bool {
         Self.hasEqualUTF8(macDeviceID, other.macDeviceID)
+            && Self.hasEqualUTF8(macInstanceTag, other.macInstanceTag)
             && Self.hasEqualUTF8(composition.initialCommand, other.composition.initialCommand)
             && Self.hasEqualUTF8(composition.initialEnv, other.composition.initialEnv)
-            && Self.hasEqualUTF8(composition.title, other.composition.title)
+            && Self.hasEqualUTF8(workspaceTitle, other.workspaceTitle)
             && Self.hasEqualUTF8(trimmedDirectory, other.trimmedDirectory)
     }
 
@@ -71,11 +91,14 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
         MobileTaskSubmissionSnapshot(
             templateID: templateID,
             macDeviceID: macDeviceID,
+            macInstanceTag: macInstanceTag,
             prompt: prompt,
+            workspaceName: workspaceName,
             directory: directory,
             didEditDirectory: didEditDirectory,
             operationID: operationID,
             composition: composition,
+            trimmedWorkspaceName: trimmedWorkspaceName,
             trimmedDirectory: trimmedDirectory
         )
     }
@@ -114,8 +137,10 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
             prompt: prompt,
             templateID: templateID,
             macDeviceID: macDeviceID.isEmpty ? nil : macDeviceID,
+            macInstanceTag: macDeviceID.isEmpty ? nil : macInstanceTag,
             directory: directory,
             didEditDirectory: didEditDirectory,
+            workspaceName: workspaceName.isEmpty ? nil : workspaceName,
             operationID: operationID
         )
     }
@@ -123,16 +148,22 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
     private init(
         templateID: MobileTaskTemplate.ID,
         macDeviceID: String,
+        macInstanceTag: String?,
         prompt: String,
+        workspaceName: String,
         directory: String,
         didEditDirectory: Bool,
         operationID: UUID,
         composition: MobileTaskComposition,
+        trimmedWorkspaceName: String,
         trimmedDirectory: String
     ) {
         self.templateID = templateID
         self.macDeviceID = macDeviceID
+        self.macInstanceTag = macInstanceTag
         self.prompt = prompt
+        self.workspaceName = workspaceName
+        self.trimmedWorkspaceName = trimmedWorkspaceName
         self.directory = directory
         self.trimmedDirectory = trimmedDirectory
         self.didEditDirectory = didEditDirectory

@@ -194,6 +194,21 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             fi
             """
         )
+        let persistentPTYExecHelper = bin.appendingPathComponent("persistent-pty-exec-helper")
+        try writeExecutableShellFile(
+            at: persistentPTYExecHelper,
+            body: """
+            #!/bin/sh
+            [ "${1:-}" = "--internal-persistent-pty-exec" ] || exit 2
+            shift
+            executable="${1:-}"
+            [ -n "$executable" ] || exit 2
+            shift
+            [ "${1:-}" = "$executable" ] || exit 2
+            shift
+            exec "$executable" "$@"
+            """
+        )
 
         let script = RemoteInteractiveShellBootstrapBuilder.script(
             remoteRelayPort: 0,
@@ -208,6 +223,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 "TERM=xterm-256color",
                 "USER=\(NSUserName())",
                 "CMUX_BASH_MARKERS=\(markerFile.path)",
+                "CMUX_PERSISTENT_PTY_EXEC_HELPER=\(persistentPTYExecHelper.path)",
                 "/bin/sh",
                 "-c",
                 script,
@@ -270,6 +286,21 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             printf '%s\\n' "$PATH" > "$CMUX_CAPTURE_PATH"
             """
         )
+        let persistentPTYExecHelper = bin.appendingPathComponent("persistent-pty-exec-helper")
+        try writeExecutableShellFile(
+            at: persistentPTYExecHelper,
+            body: """
+            #!/bin/sh
+            [ "${1:-}" = "--internal-persistent-pty-exec" ] || exit 2
+            shift
+            executable="${1:-}"
+            [ -n "$executable" ] || exit 2
+            shift
+            [ "${1:-}" = "$executable" ] || exit 2
+            shift
+            exec "$executable" "$@"
+            """
+        )
 
         let script = RemoteInteractiveShellBootstrapBuilder.script(
             remoteRelayPort: 0,
@@ -284,6 +315,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 "TERM=xterm-256color",
                 "USER=\(NSUserName())",
                 "CMUX_CAPTURE_PATH=\(capturedPath.path)",
+                "CMUX_PERSISTENT_PTY_EXEC_HELPER=\(persistentPTYExecHelper.path)",
                 "/bin/sh",
                 "-c",
                 script,

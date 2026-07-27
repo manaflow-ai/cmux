@@ -3,7 +3,10 @@ public import Foundation
 
 /// Locally authenticates pair grants, then enforces current broker revocation policy.
 public actor CmxIrohOnlineAdmissionRegistry {
-    public typealias InvalidationHandler = @Sendable () async -> Void
+    /// Receives the concrete policy reason that invalidated one admitted lease.
+    public typealias InvalidationHandler = @Sendable (
+        CmxIrohOnlineAdmissionInvalidationReason
+    ) async -> Void
 
     private struct Snapshot: Sendable {
         let id: UUID
@@ -31,11 +34,14 @@ public actor CmxIrohOnlineAdmissionRegistry {
     private enum Revalidation {
         case active(Date)
         case connectivity
-        case terminal
+        case terminal(CmxIrohOnlineAdmissionInvalidationReason)
     }
 
     /// A successful broker snapshot is reused for no more than 30 seconds.
     public static let maximumOnlineSnapshotAge: TimeInterval = 30
+
+    /// The minimum unexpired lease duration required to admit a new session.
+    public static let minimumAdmissionLeaseRemaining: TimeInterval = 30
 
     private let broker: any CmxIrohDiscoveryServing
     private var managedRelayURLs: Set<String>
@@ -138,6 +144,7 @@ public actor CmxIrohOnlineAdmissionRegistry {
     ) async -> CmxIrohOnlineAdmissionAuthorization {
         guard !isDenied(lease), !isExpired(lease) else { return .denied }
         let revision = policyRevision
+        let acceptedLease: CmxIrohOnlineAdmissionLease
         do {
             guard let online = try await validatedSnapshot(
                 for: lease,
@@ -149,7 +156,7 @@ public actor CmxIrohOnlineAdmissionRegistry {
             guard !isExpired(lease) else {
                 return .denied
             }
-            return .accepted(lease.validatedOnline(at: online.fetchedAt))
+            acceptedLease = lease.validatedOnline(at: online.fetchedAt)
         } catch {
             guard Self.isConnectivity(error),
                   policyRevision == revision,
@@ -157,8 +164,13 @@ public actor CmxIrohOnlineAdmissionRegistry {
                   !isExpired(lease) else {
                 return .denied
             }
-            return .accepted(lease)
+            acceptedLease = lease
         }
+        guard acceptedLease.expiresAt.timeIntervalSince(clock.now())
+                >= Self.minimumAdmissionLeaseRemaining else {
+            return .denied
+        }
+        return .accepted(acceptedLease)
     }
 
     /// Starts an idle-safe lease monitor owned by the exact live connection.
@@ -235,8 +247,20 @@ public actor CmxIrohOnlineAdmissionRegistry {
                 return
             }
             guard monitors[id] != nil else { return }
-            if clock.now() >= lease.expiresAt || isDenied(lease) {
-                await invalidate(id: id, onInvalidated: onInvalidated)
+            if clock.now() >= lease.expiresAt {
+                await invalidate(
+                    id: id,
+                    reason: .leaseExpired,
+                    onInvalidated: onInvalidated
+                )
+                return
+            }
+            if isDenied(lease) {
+                await invalidate(
+                    id: id,
+                    reason: .denied,
+                    onInvalidated: onInvalidated
+                )
                 return
             }
 
@@ -249,17 +273,20 @@ public actor CmxIrohOnlineAdmissionRegistry {
                 nextOnlineCheck = clock.now().addingTimeInterval(
                     Self.maximumOnlineSnapshotAge
                 )
-            case .terminal:
-                await invalidate(id: id, onInvalidated: onInvalidated)
+            case let .terminal(reason):
+                await invalidate(
+                    id: id,
+                    reason: reason,
+                    onInvalidated: onInvalidated
+                )
                 return
             }
         }
     }
 
     private func revalidate(_ lease: CmxIrohOnlineAdmissionLease) async -> Revalidation {
-        guard !isDenied(lease), clock.now() < lease.expiresAt else {
-            return .terminal
-        }
+        guard !isDenied(lease) else { return .terminal(.denied) }
+        guard clock.now() < lease.expiresAt else { return .terminal(.leaseExpired) }
         let revision = policyRevision
         do {
             guard let online = try await validatedSnapshot(
@@ -267,18 +294,22 @@ public actor CmxIrohOnlineAdmissionRegistry {
                 policyRevision: revision
             ) else {
                 await invalidateDeniedMonitors()
-                return .terminal
+                return isDenied(lease)
+                    ? .terminal(.denied)
+                    : .terminal(.revalidationFailed)
             }
             guard clock.now() < lease.expiresAt else {
-                return .terminal
+                return .terminal(.leaseExpired)
             }
             return .active(online.fetchedAt)
         } catch {
-            return Self.isConnectivity(error)
-                && policyRevision == revision
-                && !isDenied(lease)
+            guard !isDenied(lease) else { return .terminal(.denied) }
+            guard clock.now() < lease.expiresAt else {
+                return .terminal(.leaseExpired)
+            }
+            return Self.isConnectivity(error) && policyRevision == revision
                 ? .connectivity
-                : .terminal
+                : .terminal(.revalidationFailed)
         }
     }
 
@@ -473,11 +504,12 @@ public actor CmxIrohOnlineAdmissionRegistry {
 
     private func invalidate(
         id: UUID,
+        reason: CmxIrohOnlineAdmissionInvalidationReason,
         onInvalidated: @escaping InvalidationHandler
     ) async {
         guard let monitor = monitors.removeValue(forKey: id) else { return }
         monitor.connectionLifetimeTask?.cancel()
-        await onInvalidated()
+        await onInvalidated(reason)
     }
 
     private func connectionClosed(id: UUID) {
@@ -492,7 +524,7 @@ public actor CmxIrohOnlineAdmissionRegistry {
             monitor.task?.cancel()
             monitor.connectionLifetimeTask?.cancel()
         }
-        for monitor in denied.values { await monitor.onInvalidated() }
+        for monitor in denied.values { await monitor.onInvalidated(.denied) }
     }
 
     private static func isConnectivity(_ error: any Error) -> Bool {

@@ -16,6 +16,26 @@ import CmuxBrowser
 @testable import cmux
 #endif
 
+@MainActor
+@Suite
+struct BrowserWebViewUserAgentRegressionTests {
+    @Test func browserNavigationUsesEmbeddedWebKitIdentity() {
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer {
+            panel.webView.stopLoading()
+        }
+
+        panel.webView.customUserAgent =
+            "Mozilla/5.0 Chrome/125.0.0.0 Safari/537.36"
+        panel.navigate(to: URL(string: "about:blank")!)
+
+        #expect(
+            panel.webView.customUserAgent == nil,
+            "Embedded WKWebView must keep its native identity so canvas apps do not select Safari-only rendering paths"
+        )
+    }
+}
+
 private func drainBrowserPanelMainQueue() {
     let expectation = XCTestExpectation(description: "drain main queue")
     DispatchQueue.main.async {

@@ -96,6 +96,37 @@ struct CmxIrohHostRuntimeTests {
         await runtime.stop()
     }
 
+    @Test("cold start honors a restored discovery floor before registering")
+    func coldStartHonorsRestoredDiscoveryFloorBeforeRegistering() async throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let fixture = try HostRuntimeFixture(now: now)
+        let clock = RecordingImmediateHostActivationClock(now: now)
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: fixture.discovery,
+            preflightErrors: [CmxIrohBrokerCooldownError(retryAfterSeconds: 600)]
+        )
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(
+                endpoints: [TestIrohEndpoint(identity: fixture.endpointID)]
+            ),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            registrationClock: clock,
+            registrationRetryJitter: { 0 },
+            handleTransport: { session, _ in await session.close() }
+        )
+
+        try await runtime.start()
+
+        #expect(clock.observedSleepDeadlines() == [now.addingTimeInterval(600)])
+        #expect(await broker.observedPreflightOperations() == [.discovery, .discovery])
+        #expect(await broker.observedRegistrationCount() == 1)
+        #expect(await runtime.snapshot().state == .active)
+        await runtime.stop()
+    }
+
     @Test("cold start does not retry an untrusted broker response")
     func coldStartDoesNotRetryInvalidBrokerResponse() async throws {
         let fixture = try HostRuntimeFixture()
@@ -258,7 +289,9 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
     private let registrationHook: (@Sendable () async -> Bool)?
     private let subsequentRegistrationHook: (@Sendable () async -> Void)?
     private let relayIssueHook: (@Sendable () async -> Void)?
+    private var preflightErrors: [CmxIrohBrokerCooldownError]
     private var subsequentRegistrationErrors: [CmxIrohTrustBrokerClientError]
+    private var preflightOperations: [CmxIrohBrokerOperation] = []
     private var registrationCount = 0
     private var preparedRegistrations: [CmxIrohPreparedRegistration] = []
     private var relayIssueCount = 0
@@ -279,6 +312,7 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
         registrationHook: (@Sendable () async -> Bool)? = nil,
         subsequentRegistrationHook: (@Sendable () async -> Void)? = nil,
         relayIssueHook: (@Sendable () async -> Void)? = nil,
+        preflightErrors: [CmxIrohBrokerCooldownError] = [],
         subsequentRegistrationErrors: [CmxIrohTrustBrokerClientError] = []
     ) {
         registrationBindings = [registrationBinding] + subsequentRegistrationBindings
@@ -289,7 +323,14 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
         self.registrationHook = registrationHook
         self.subsequentRegistrationHook = subsequentRegistrationHook
         self.relayIssueHook = relayIssueHook
+        self.preflightErrors = preflightErrors
         self.subsequentRegistrationErrors = subsequentRegistrationErrors
+    }
+
+    func preflight(operation: CmxIrohBrokerOperation) throws {
+        preflightOperations.append(operation)
+        guard !preflightErrors.isEmpty else { return }
+        throw preflightErrors.removeFirst()
     }
 
     func register(
@@ -361,6 +402,9 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
     }
 
     func observedRegistrationCount() -> Int { registrationCount }
+    func observedPreflightOperations() -> [CmxIrohBrokerOperation] {
+        preflightOperations
+    }
     func observedPreparedRegistrations() -> [CmxIrohPreparedRegistration] {
         preparedRegistrations
     }

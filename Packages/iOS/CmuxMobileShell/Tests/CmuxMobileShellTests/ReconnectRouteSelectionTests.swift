@@ -471,7 +471,8 @@ import Testing
             pairedMacStore: pairedStore,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             reachability: AlwaysOnlineReachability(),
-            pairingHintDefaults: UserDefaults(suiteName: "reconnect-routes-\(UUID().uuidString)")!
+            pairingHintDefaults: UserDefaults(suiteName: "reconnect-routes-\(UUID().uuidString)")!,
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
         )
         await store.loadPairedMacs()
         return store

@@ -1,4 +1,27 @@
 {
+  "cloudBillingReturn": {
+    "eyebrow": "cmux Cloud",
+    "returnTitle": "Nastavite u terminalu",
+    "returnBody": "Za nastavak se vratite u terminal u kojem ste pokrenuli ssh cmux.cloud.",
+    "statuses": {
+      "checkoutSuccess": {
+        "title": "Plaćanje je završeno",
+        "body": "Vaša pretplata je potvrđena. Može potrajati dok se nova ograničenja ne prikažu."
+      },
+      "checkoutCanceled": {
+        "title": "Plaćanje je otkazano",
+        "body": "Plaćanje je zatvoreno bez promjene vašeg plana."
+      },
+      "portalReturn": {
+        "title": "Povratak s portala za naplatu",
+        "body": "Može potrajati dok se promjene s portala za naplatu ne prikažu."
+      },
+      "default": {
+        "title": "Naplata je završena",
+        "body": "Postupak naplate je završen."
+      }
+    }
+  },
   "meta": {
     "title": "cmux — Terminal napravljen za multitasking",
     "description": "Besplatan i otvorenog koda nativni macOS terminal izgrađen na Ghostty. Radi s Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider i bilo kojim CLI alatom. Vertikalni tabovi, notifikacijski prstenovi, podijeljeni paneli i socket API.",
@@ -972,7 +995,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "Opcionalni kontekstni predikati po radnji (VS Code stil `when` klauzula), indeksirani cmux ID-jem radnje. Svaka vrijednost je Booleov izraz nad ključevima konteksta, kombinovan sa !, &&, || i zagradama. Booleovi ključevi: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Tipizirani ključevi podržavaju poređenja: string sidebarMode (files, find, sessions, feed ili dock) i cijeli brojevi paneCount i workspaceCount. Operatori poređenja su ==, !=, =~ (regularni izraz), <, <=, >, >= i `in [a, b]`; nepoznat ili odsutan ključ čita se kao false. Prihvataju se i Booleovi literali true i false; `key == false` je isto što i `!key`. Prečica radnje se pokreće (i sukobljava s drugim prečicama) samo kada je klauzula tačna. Primjeri: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } bira radne prostore pomoću Ctrl+1–9 svuda osim kada je fokusiran desni bočni panel; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } ograničava vezivanje na bočni panel za pretragu kada radni prostor ima više okana.",
+          "when": "Opcionalni kontekstni predikati po radnji (VS Code stil `when` klauzula), indeksirani cmux ID-jem radnje. Svaka vrijednost je Booleov izraz nad ključevima konteksta, kombinovan sa !, &&, || i zagradama. Booleovi ključevi: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Tipizirani ključevi podržavaju poređenja: string sidebarMode (files, find, sessions, feed ili dock) i cijeli brojevi paneCount i workspaceCount. Operatori poređenja su ==, !=, =~ (regularni izraz), <, <=, >, >= i `in [a, b]`; nepoznat ili odsutan ključ čita se kao false. Prihvataju se i Booleovi literali true i false; `key == false` je isto što i `!key`. Prečica radnje se pokreće (i sukobljava s drugim prečicama) samo kada je klauzula tačna. Primjeri: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } bira radne prostore pomoću Ctrl+1–9 svuda osim kada je fokusiran desni bočni panel; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } ograničava vezivanje na bočni panel za pretragu kada radni prostor ima više okana.",
           "showModifierHoldHints": "Prikaži oznake s prečicama dok držite Cmd ili Control."
         }
       },

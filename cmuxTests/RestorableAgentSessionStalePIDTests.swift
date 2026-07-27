@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 
@@ -98,6 +99,13 @@ struct RestorableAgentSessionStalePIDTests {
             updatedAt: 10
         )
         liveRecord["pid"] = livePID
+        let liveIdentity = AgentPIDProcessIdentity(
+            pid: pid_t(livePID),
+            startSeconds: 9,
+            startMicroseconds: 0
+        )
+        liveRecord["pidStartSeconds"] = liveIdentity.startSeconds
+        liveRecord["pidStartMicroseconds"] = liveIdentity.startMicroseconds
         var staleRecord = driftedAgentHookRecord(
             launcher: "codex",
             sessionId: staleSID,
@@ -131,6 +139,9 @@ struct RestorableAgentSessionStalePIDTests {
                         "CMUX_SURFACE_ID": panel.uuidString,
                     ]
                 )
+            },
+            processIdentityProvider: { pid in
+                pid == livePID ? liveIdentity : nil
             }
         )
         let snapshot = try #require(
