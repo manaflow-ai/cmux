@@ -17,9 +17,9 @@ use tungstenite::{Error as WsError, Message, WebSocket, client};
 /// between CDP layers cannot expand the maximum pending event count.
 pub const CDP_EVENT_QUEUE_CAPACITY: usize = 64;
 const CDP_INGRESS_EVENT_CAPACITY: usize = 1024;
-// A newly attached target may redirect while its first frame tree is in flight.
-// Bound the retry so a page that navigates continuously cannot block setup forever.
-const MAIN_FRAME_SEED_ATTEMPTS: usize = 8;
+// Navigation may invalidate a frame tree while its response is in flight.
+// Bound retries so a continuously navigating page cannot block the caller forever.
+const MAIN_FRAME_SNAPSHOT_ATTEMPTS: usize = 8;
 /// Maximum estimated retained bytes in each bounded CDP event queue.
 ///
 /// The estimate covers dynamically retained event payloads and uses saturating
@@ -702,10 +702,17 @@ impl CdpClient {
     }
 
     pub fn seed_main_frame(&self, session_id: &str) -> anyhow::Result<()> {
-        let mut remaining_attempts = MAIN_FRAME_SEED_ATTEMPTS;
+        self.snapshot_main_frame_with_retry(session_id).map(|_| ())
+    }
+
+    pub fn snapshot_main_frame_with_retry(
+        &self,
+        session_id: &str,
+    ) -> anyhow::Result<(String, String)> {
+        let mut remaining_attempts = MAIN_FRAME_SNAPSHOT_ATTEMPTS;
         loop {
             match self.snapshot_main_frame(session_id) {
-                Ok(_) => return Ok(()),
+                Ok(snapshot) => return Ok(snapshot),
                 Err(error)
                     if error.is::<MainFrameSnapshotInvalidated>() && remaining_attempts > 1 =>
                 {
