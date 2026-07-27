@@ -321,6 +321,13 @@ enum BrowserCommand {
         modifiers: u32,
         text: Option<String>,
     },
+    KeyPress {
+        key: String,
+        code: String,
+        windows_virtual_key_code: u32,
+        modifiers: u32,
+        text: Option<String>,
+    },
     InsertText(String),
     Navigate(String),
     Back,
@@ -401,6 +408,7 @@ impl BrowserCommand {
             BrowserCommand::Mouse { .. }
                 | BrowserCommand::Wheel { .. }
                 | BrowserCommand::Key { .. }
+                | BrowserCommand::KeyPress { .. }
                 | BrowserCommand::InsertText(_)
         )
     }
@@ -1610,6 +1618,17 @@ fn run_browser_worker_command(
                     text.as_deref(),
                 )
                 .map(|_| BrowserWorkerSuccess::BrowserResponded),
+            BrowserCommand::KeyPress { key, code, windows_virtual_key_code, modifiers, text } => {
+                browser
+                    .key_press_blocking(
+                        &key,
+                        &code,
+                        windows_virtual_key_code,
+                        modifiers,
+                        text.as_deref(),
+                    )
+                    .map(|_| BrowserWorkerSuccess::BrowserResponded)
+            }
             BrowserCommand::InsertText(text) => {
                 browser.insert_text_blocking(&text).map(|_| BrowserWorkerSuccess::BrowserResponded)
             }
@@ -3872,6 +3891,23 @@ impl BrowserSurface {
         })
     }
 
+    pub fn key_press(
+        &self,
+        key: &str,
+        code: &str,
+        windows_virtual_key_code: u32,
+        modifiers: u32,
+        text: Option<&str>,
+    ) -> anyhow::Result<()> {
+        self.enqueue_bounded(BrowserCommand::KeyPress {
+            key: key.to_string(),
+            code: code.to_string(),
+            windows_virtual_key_code,
+            modifiers,
+            text: text.map(ToOwned::to_owned),
+        })
+    }
+
     fn key_event_blocking(
         &self,
         event_type: &str,
@@ -3887,6 +3923,41 @@ impl BrowserSurface {
             &session.session_id,
             CdpKeyEvent { event_type, key, code, windows_virtual_key_code, modifiers, text },
         )
+    }
+
+    fn key_press_blocking(
+        &self,
+        key: &str,
+        code: &str,
+        windows_virtual_key_code: u32,
+        modifiers: u32,
+        text: Option<&str>,
+    ) -> anyhow::Result<()> {
+        let session = self.require_live_session()?;
+        self.maybe_nudge_stalled_external(&session);
+        let key_down = session.runtime.client.dispatch_key_event(
+            &session.session_id,
+            CdpKeyEvent {
+                event_type: "keyDown",
+                key,
+                code,
+                windows_virtual_key_code,
+                modifiers,
+                text,
+            },
+        );
+        let key_up = session.runtime.client.dispatch_key_event(
+            &session.session_id,
+            CdpKeyEvent {
+                event_type: "keyUp",
+                key,
+                code,
+                windows_virtual_key_code,
+                modifiers,
+                text: None,
+            },
+        );
+        key_down.and(key_up)
     }
 
     pub fn insert_text(&self, text: &str) -> anyhow::Result<()> {
@@ -9662,8 +9733,7 @@ mod tests {
             assert!(browser.enqueue_test_command(BrowserCommand::WakeLatest));
         }
 
-        surface.browser_key_event("keyDown", "j", "KeyJ", 74, 1, None).unwrap();
-        surface.browser_key_event("keyUp", "j", "KeyJ", 74, 1, None).unwrap();
+        surface.browser_key_press("j", "KeyJ", 74, 1, None).unwrap();
         start.send(()).unwrap();
         release_worker.send(()).unwrap();
 

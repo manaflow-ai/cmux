@@ -737,6 +737,16 @@ enum Command {
         #[serde(default)]
         text: Option<String>,
     },
+    BrowserKeyPress {
+        surface: SurfaceId,
+        key: String,
+        code: String,
+        #[serde(alias = "windows_virtual_key_code")]
+        windows_virtual_key_code: u32,
+        modifiers: u32,
+        #[serde(default)]
+        text: Option<String>,
+    },
     BrowserInsertText {
         surface: SurfaceId,
         text: String,
@@ -1046,6 +1056,7 @@ impl Command {
             | Self::BrowserWheel { surface, .. }
             | Self::BrowserWheelGuarded { surface, .. }
             | Self::BrowserKey { surface, .. }
+            | Self::BrowserKeyPress { surface, .. }
             | Self::BrowserInsertText { surface, .. }
             | Self::BrowserNavigate { surface, .. }
             | Self::BrowserBack { surface }
@@ -1082,6 +1093,7 @@ impl Command {
                 | Self::BrowserWheel { .. }
                 | Self::BrowserWheelGuarded { .. }
                 | Self::BrowserKey { .. }
+                | Self::BrowserKeyPress { .. }
                 | Self::BrowserInsertText { .. }
                 | Self::BrowserNavigate { .. }
                 | Self::BrowserBack { .. }
@@ -4807,6 +4819,25 @@ fn handle_command_with_cancellation(
             };
             surface.browser_key_event(
                 event_type,
+                &key,
+                &code,
+                windows_virtual_key_code,
+                modifiers,
+                text.as_deref(),
+            )?;
+            Ok(json!({}))
+        }
+        Command::BrowserKeyPress {
+            surface,
+            key,
+            code,
+            windows_virtual_key_code,
+            modifiers,
+            text,
+        } => {
+            let surface = get_surface(mux, surface)?;
+            require_browser(&surface)?;
+            surface.browser_key_press(
                 &key,
                 &code,
                 windows_virtual_key_code,

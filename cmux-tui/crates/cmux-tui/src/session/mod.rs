@@ -1569,6 +1569,38 @@ impl SurfaceHandle {
         }
     }
 
+    pub fn browser_key_press(
+        &self,
+        key: &str,
+        code: &str,
+        windows_virtual_key_code: u32,
+        modifiers: u32,
+        text: Option<&str>,
+    ) -> anyhow::Result<()> {
+        match self {
+            SurfaceHandle::Local(surface, _) => {
+                surface.browser_key_press(key, code, windows_virtual_key_code, modifiers, text)
+            }
+            SurfaceHandle::Remote(surface, session) if surface.kind == SurfaceKind::Browser => {
+                session
+                    .request(json!({
+                        "cmd": "browser-key-press",
+                        "surface": surface.id,
+                        "key": key,
+                        "code": code,
+                        "windows_virtual_key_code": windows_virtual_key_code,
+                        "modifiers": modifiers,
+                        "text": text,
+                    }))
+                    .map(|_| ())
+            }
+            SurfaceHandle::Remote(_, _) => anyhow::bail!("PTY surface is not a browser surface"),
+            SurfaceHandle::RemoteBrowserUnsupported => {
+                anyhow::bail!("browser panes are not supported over attach yet")
+            }
+        }
+    }
+
     pub fn browser_mouse_event_for_frame(
         &self,
         event_type: &str,

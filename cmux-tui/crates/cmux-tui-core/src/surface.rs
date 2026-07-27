@@ -2923,6 +2923,20 @@ impl Surface {
         browser.key_event(event_type, key, code, windows_virtual_key_code, modifiers, text)
     }
 
+    pub fn browser_key_press(
+        &self,
+        key: &str,
+        code: &str,
+        windows_virtual_key_code: u32,
+        modifiers: u32,
+        text: Option<&str>,
+    ) -> anyhow::Result<()> {
+        let Some(browser) = self.as_browser() else {
+            anyhow::bail!("PTY surface is not a browser surface");
+        };
+        browser.key_press(key, code, windows_virtual_key_code, modifiers, text)
+    }
+
     pub fn browser_mouse_event(
         &self,
         event_type: &str,

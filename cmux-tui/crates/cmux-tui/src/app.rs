@@ -11744,35 +11744,25 @@ impl App {
         let Some(modifiers) = browser_modifiers(key.modifiers) else {
             return;
         };
-        let key_down = BrowserInputEvent {
-            surface_id,
-            surface: surface.clone(),
-            kind: BrowserInputKind::Key {
+        let kind = if key.kind == KeyEventKind::Press {
+            BrowserInputKind::KeyPress {
+                key: key_name,
+                code,
+                windows_virtual_key_code: vk,
+                modifiers,
+                text,
+            }
+        } else {
+            BrowserInputKind::Key {
                 event_type: "keyDown",
                 key: key_name,
                 code,
                 windows_virtual_key_code: vk,
                 modifiers,
                 text,
-            },
+            }
         };
-        if key.kind == KeyEventKind::Press {
-            let key_up = BrowserInputEvent {
-                surface_id,
-                surface,
-                kind: BrowserInputKind::Key {
-                    event_type: "keyUp",
-                    key: key_name,
-                    code,
-                    windows_virtual_key_code: vk,
-                    modifiers,
-                    text: None,
-                },
-            };
-            let _ = self.browser_input.enqueue_key_press(key_down, key_up);
-        } else {
-            let _ = self.browser_input.enqueue(key_down);
-        }
+        let _ = self.browser_input.enqueue(BrowserInputEvent { surface_id, surface, kind });
     }
 
     fn paste(&mut self, text: &str) {
@@ -15329,8 +15319,7 @@ mod tests {
         let event = blocked.recv_timeout(Duration::from_secs(1)).unwrap();
         assert!(matches!(
             event.kind,
-            BrowserInputKind::Key {
-                event_type: "keyDown",
+            BrowserInputKind::KeyPress {
                 key: crate::browser_input::BrowserKey::Character('j'),
                 code: "KeyJ",
                 windows_virtual_key_code: 74,
@@ -15338,18 +15327,7 @@ mod tests {
                 text: None,
             }
         ));
-        let event = blocked.recv_timeout(Duration::from_secs(1)).unwrap();
-        assert!(matches!(
-            event.kind,
-            BrowserInputKind::Key {
-                event_type: "keyUp",
-                key: crate::browser_input::BrowserKey::Character('j'),
-                code: "KeyJ",
-                windows_virtual_key_code: 74,
-                modifiers: 1,
-                text: None,
-            }
-        ));
+        assert!(blocked.recv_timeout(Duration::from_millis(20)).is_none());
     }
 
     #[test]
@@ -15391,8 +15369,7 @@ mod tests {
         let event = blocked.recv_timeout(Duration::from_secs(1)).unwrap();
         assert!(matches!(
             event.kind,
-            BrowserInputKind::Key {
-                event_type: "keyDown",
+            BrowserInputKind::KeyPress {
                 key: crate::browser_input::BrowserKey::Character('j'),
                 code: "KeyJ",
                 windows_virtual_key_code: 74,
