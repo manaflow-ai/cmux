@@ -20976,6 +20976,80 @@ mod tests {
     }
 
     #[test]
+    fn replaced_session_ignores_old_surface_lane_completion() {
+        let first = Mux::new("surface-lane-generation-first", SurfaceOptions::default());
+        let first_surface = first.new_workspace(None, Some((80, 24))).unwrap();
+        let second = Mux::new("surface-lane-generation-second", SurfaceOptions::default());
+        let second_surface = second.new_workspace(None, Some((80, 24))).unwrap();
+        assert_eq!(first_surface.id, second_surface.id, "test requires a reused surface id");
+        let (mut app, _events) = test_app_with_events(Session::Local(first.clone()));
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+
+        assert_eq!(
+            app.session.operations.enqueue_surface_operation_with_retained_bytes(
+                "old session clear",
+                first_surface.id,
+                false,
+                0,
+                move || {
+                    started_tx.send(()).unwrap();
+                    release_rx.recv().unwrap();
+                    Err(anyhow::anyhow!("ambiguous old session completion"))
+                },
+            ),
+            PtyInputEnqueueResult::Accepted
+        );
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let (session, event_worker, mux_titles, mux_recovery_generation) = prepare_ordered_session(
+            Session::Local(second.clone()),
+            app.pty_input.sender(),
+            app.app_events.clone(),
+            2,
+            None,
+        )
+        .unwrap();
+        let tree = session.tree();
+        app.install_prepared_machine_session(super::PreparedMachineSession {
+            session,
+            event_worker,
+            generation: 2,
+            mux_titles,
+            mux_recovery_generation,
+            tree,
+            label: "second".into(),
+            session_available: true,
+            color_error: None,
+        });
+
+        release_tx.send(()).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while app.pty_failures.state.lock().unwrap().failures.is_empty()
+            && Instant::now() < deadline
+        {
+            std::thread::yield_now();
+        }
+        assert!(!app.pty_failures.state.lock().unwrap().failures.is_empty());
+        app.apply_pty_failures();
+
+        let forwarded = app.enqueue_pty_bytes(
+            second_surface.id,
+            app.session.surface(second_surface.id).unwrap(),
+            PtyInputBytes::from_slice(b"x"),
+            PtyInputKind::Ordered,
+        );
+        assert!(forwarded.accepted, "old session lane state blocked the replacement session");
+        assert!(
+            app.status_message.is_none(),
+            "old session completion surfaced an error in the replacement session"
+        );
+
+        let _ = first.close_surface(first_surface.id);
+        let _ = second.close_surface(second_surface.id);
+    }
+
+    #[test]
     fn clear_history_failure_status_uses_the_selected_locale() {
         const CHILD_ENV: &str = "CMUX_CLEAR_HISTORY_FAILURE_LOCALE_CHILD";
         if std::env::var_os(CHILD_ENV).is_none() {

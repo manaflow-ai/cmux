@@ -2233,6 +2233,42 @@ mod tests {
     }
 
     #[test]
+    fn remote_surface_timeout_quarantines_only_its_lane() {
+        let (failure_tx, failure_rx) = std::sync::mpsc::channel();
+        let dispatcher = PtyInputDispatcher::spawn(move |failure| {
+            failure_tx.send(failure).unwrap();
+        })
+        .unwrap();
+        let sender = dispatcher.sender();
+
+        assert_eq!(
+            sender.enqueue_surface_operation_with_retained_bytes(
+                "timed out clear",
+                41,
+                true,
+                0,
+                || Err(crate::session::test_remote_timeout_error()),
+            ),
+            PtyInputEnqueueResult::Accepted
+        );
+        let failure = failure_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        assert_eq!(failure.surface_id, Some(41));
+        assert_eq!(failure.delivery, PtyOperationDelivery::Ambiguous);
+        assert!(failure.lane_failed);
+        assert_eq!(
+            sender.enqueue(event(41, 1, PtyInputKind::Ordered)),
+            PtyInputEnqueueResult::Failed,
+            "same-surface input entered a lane with an ambiguous timeout"
+        );
+        assert_eq!(
+            sender.enqueue(event(42, 2, PtyInputKind::Ordered)),
+            PtyInputEnqueueResult::Accepted,
+            "an unrelated surface was quarantined"
+        );
+    }
+
+    #[test]
     fn remote_command_rejection_keeps_the_operation_lane_available() {
         let (failure_tx, failure_rx) = std::sync::mpsc::channel();
         let dispatcher = PtyInputDispatcher::spawn(move |failure| {
