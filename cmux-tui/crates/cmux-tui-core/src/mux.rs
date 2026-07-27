@@ -12708,6 +12708,75 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn rejected_shutdown_preflight_preserves_browser_ownership() {
+        fn read_ws_json(ws: &mut tungstenite::WebSocket<std::net::TcpStream>) -> Value {
+            loop {
+                match ws.read().unwrap() {
+                    tungstenite::Message::Text(text) => {
+                        return serde_json::from_str(&text).unwrap();
+                    }
+                    tungstenite::Message::Binary(bytes) => {
+                        return serde_json::from_slice(&bytes).unwrap();
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut ws = tungstenite::accept(stream).unwrap();
+            let discover = read_ws_json(&mut ws);
+            assert_eq!(discover["method"], "Target.setDiscoverTargets");
+            ws.send(tungstenite::Message::Text(
+                serde_json::json!({"id": discover["id"], "result": {}}).to_string().into(),
+            ))
+            .unwrap();
+        });
+        let runtime = BrowserRuntime::connect_external_for_test(&format!(
+            "ws://{address}/devtools/browser/fake"
+        ))
+        .unwrap();
+        server.join().unwrap();
+        let disconnect_deadline = Instant::now() + Duration::from_secs(1);
+        while !runtime.is_closed() && Instant::now() < disconnect_deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(runtime.is_closed(), "test browser runtime did not observe disconnect");
+        let mux = test_mux();
+        let options = mux.surface_options.lock().unwrap().clone();
+        let surface = browser::new_surface(
+            999,
+            "about:blank".to_string(),
+            (80, 24),
+            (8, 16),
+            &options,
+            Arc::downgrade(&mux),
+        );
+        surface.as_browser().unwrap().install_shutdown_session_for_test(
+            runtime.clone(),
+            "target-preflight",
+            "session-preflight",
+        );
+        insert_surface_checked(&mux, &mut mux.state.lock().unwrap(), surface.clone()).unwrap();
+        mux.set_shutdown_owner_capacity_for_test(0);
+
+        let error = mux.close_all_surfaces_for_shutdown().unwrap_err();
+        let topology_retained = mux.surface(surface.id).is_some();
+        let surface_was_live = !surface.is_dead();
+        let owner_retained = surface.shutdown_owner().is_some();
+        runtime.shutdown();
+
+        assert!(format!("{error:#}").contains("capacity"));
+        assert!(topology_retained, "shutdown preflight removed the browser surface");
+        assert!(surface_was_live, "shutdown preflight killed the retained browser surface");
+        assert!(owner_retained, "shutdown preflight consumed the browser target owner");
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn server_shutdown_preflights_process_control_before_removing_topology() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((80, 24))).unwrap();

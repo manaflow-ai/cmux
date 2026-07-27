@@ -3867,6 +3867,64 @@ mod unix {
     mod tests {
         use super::*;
 
+        #[cfg(target_os = "linux")]
+        #[test]
+        fn saturated_listener_never_returns_an_unconnected_host_stream() {
+            let path = std::env::temp_dir().join(format!(
+                "cmux-host-backlog-{}-{}",
+                std::process::id(),
+                RECORD_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+            ));
+            let (address, address_len) = unix_socket_address(&path).unwrap();
+            // SAFETY: socket has no pointer arguments and returns a new owned
+            // descriptor on success.
+            let listener =
+                unsafe { libc::socket(libc::AF_UNIX, libc::SOCK_STREAM | libc::SOCK_CLOEXEC, 0) };
+            assert!(listener >= 0, "failed to create the test listener");
+            // SAFETY: listener is a fresh successful socket result and this
+            // OwnedFd takes its sole ownership.
+            let listener = unsafe { OwnedFd::from_raw_fd(listener) };
+            // SAFETY: address is initialized for this exact filesystem path
+            // and listener owns a valid AF_UNIX descriptor.
+            let result = unsafe {
+                libc::bind(
+                    listener.as_raw_fd(),
+                    (&raw const address).cast::<libc::sockaddr>(),
+                    address_len,
+                )
+            };
+            assert_eq!(result, 0, "failed to bind the test listener");
+            // SAFETY: listener remains a valid bound AF_UNIX descriptor.
+            let result = unsafe { libc::listen(listener.as_raw_fd(), 0) };
+            assert_eq!(result, 0, "failed to create a zero-backlog test listener");
+
+            let mut queued = Vec::new();
+            let mut timeout_elapsed = None;
+            for _ in 0..32 {
+                let started = Instant::now();
+                match connect_until(&path, started + Duration::from_millis(75)) {
+                    Ok(stream) => queued.push(stream),
+                    Err(error) => {
+                        assert_eq!(
+                            error.downcast_ref::<std::io::Error>().map(std::io::Error::kind),
+                            Some(std::io::ErrorKind::TimedOut)
+                        );
+                        timeout_elapsed = Some(started.elapsed());
+                        break;
+                    }
+                }
+            }
+            let elapsed =
+                timeout_elapsed.expect("saturated host listener returned unconnected streams");
+            assert!(
+                elapsed < Duration::from_secs(1),
+                "saturated host connect exceeded its deadline bound: {elapsed:?}"
+            );
+            drop(queued);
+            drop(listener);
+            fs::remove_file(path).unwrap();
+        }
+
         fn record_fixture(name: &str) -> (PathBuf, TerminalHostRecord, HostLivenessLease) {
             let root = std::env::temp_dir().join(format!(
                 "cmux-host-record-{name}-{}-{}",
