@@ -44,6 +44,7 @@ public struct ComputerUseSection: View {
         _permissionStatusIsKnown = State(initialValue: hostActions.computerUsePermissionStatusIsKnown())
     }
 
+    /// Renders Computer Use enablement, permissions, and menu-bar preferences.
     public var body: some View {
         Group {
             SettingsSectionHeader(

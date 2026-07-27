@@ -419,19 +419,31 @@ struct ComputerUseOnboardingView: View {
     }
 
     private var permissionCompanion: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 10) {
                 Image(systemName: "arrow.up")
-                    .font(.system(size: 15, weight: .bold))
+                    .font(.system(size: 12, weight: .bold))
                     .foregroundStyle(Color.accentColor)
-                    .frame(width: 16, height: 18)
+                    .frame(width: 26, height: 26)
+                    .background(
+                        Color.accentColor.opacity(0.12),
+                        in: Circle()
+                    )
                     .accessibilityHidden(true)
 
-                Text(permissionCompanionInstruction)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.82)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(permissionCompanionInstruction)
+                        .font(.callout.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.88)
+
+                    Text(permissionCompanionFollowUp)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                .accessibilityElement(children: .combine)
 
                 Spacer(minLength: 0)
             }
@@ -468,7 +480,7 @@ struct ComputerUseOnboardingView: View {
             }
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 11)
+        .padding(.vertical, 8)
         .frame(width: 472, height: 112)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay {
@@ -543,12 +555,19 @@ struct ComputerUseOnboardingView: View {
         if step == .accessibility {
             return String(
                 localized: "computerUse.onboarding.companion.accessibility",
-                defaultValue: "Add \(runtimeService.applicationName) if needed, then turn it on for Accessibility"
+                defaultValue: "Drag \(runtimeService.applicationName) into Accessibility"
             )
         }
         return String(
             localized: "computerUse.onboarding.companion.screenRecording",
-            defaultValue: "Add \(runtimeService.applicationName) if needed, then turn it on for Screenshots"
+            defaultValue: "Drag \(runtimeService.applicationName) into Screenshots"
+        )
+    }
+
+    private var permissionCompanionFollowUp: String {
+        String(
+            localized: "computerUse.onboarding.companion.turnOn",
+            defaultValue: "Then turn it on."
         )
     }
 

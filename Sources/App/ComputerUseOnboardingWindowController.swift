@@ -55,6 +55,7 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
 
     static let seenDefaultsKey = "cmux.computerUse.onboarding.seen"
     static let completionDismissDelay: Duration = .seconds(2.4)
+    nonisolated static let permissionCompanionGlideDuration: TimeInterval = 0.48
     private static let expandedWindowSize = NSSize(width: 600, height: 440)
     private static let permissionCompanionWindowSize = NSSize(width: 472, height: 112)
     private static let expandedWindowStyleMask: NSWindow.StyleMask = [
@@ -74,7 +75,6 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
     private var systemSettingsActivatedForPendingRequest = false
     private var pendingPermissionCompanionFrame: NSRect?
     private var presentationState: ComputerUseOnboardingPresentationState?
-    private var expandedPresentationTask: Task<Void, Never>?
     private var completionDismissTask: Task<Void, Never>?
     private var completionHandler: (@MainActor () -> Void)?
     private var dismissalHandler: (@MainActor () -> Void)?
@@ -195,8 +195,6 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         systemSettingsPlacementRetryTask = nil
         systemSettingsTrackingTask?.cancel()
         systemSettingsTrackingTask = nil
-        expandedPresentationTask?.cancel()
-        expandedPresentationTask = nil
         pendingPlacementRequestID = nil
         systemSettingsActivatedForPendingRequest = false
         pendingPermissionCompanionFrame = nil
@@ -247,9 +245,14 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
                   pendingPlacementRequestID == requestID,
                   clock.now < deadline
             {
-                if let frame = permissionCompanionFrameInSystemSettings()
+                if let frame = permissionCompanionFrameInSystemSettings(),
+                   let window
                 {
                     pendingPermissionCompanionFrame = frame
+                    // Remove titlebar chrome before SwiftUI reveals the compact
+                    // hierarchy. Otherwise one rendered frame puts the arrow
+                    // and instruction underneath the traffic-light buttons.
+                    prepareForPermissionCompanion(window)
                     presentationState?.showPermissionCompanion()
                     systemSettingsPlacementRetryTask = nil
                     // The compact view's onAppear is the deterministic layout
@@ -291,11 +294,13 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         window.contentView?.layoutSubtreeIfNeeded()
         window.displayIfNeeded()
         guard pendingPlacementRequestID == requestID else { return }
-        positionPermissionCompanion(at: frame, animate: true)
         pendingPlacementRequestID = nil
         pendingPermissionCompanionFrame = nil
         systemSettingsActivatedForPendingRequest = false
-        beginSystemSettingsTracking()
+        positionPermissionCompanion(at: frame, animate: true) { [weak self, weak window] in
+            guard let self, let window, self.window === window else { return }
+            self.beginSystemSettingsTracking()
+        }
     }
 
     @discardableResult
@@ -328,13 +333,22 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
 
     private func positionPermissionCompanion(
         at frame: NSRect,
-        animate: Bool
+        animate: Bool,
+        completion: (() -> Void)? = nil
     ) {
-        guard let window, window.frame != frame else { return }
+        guard let window else {
+            completion?()
+            return
+        }
+        guard window.frame != frame else {
+            completion?()
+            return
+        }
         configureForPermissionCompanion(
             window,
             frame: frame,
-            animate: animate && shouldAnimate(window)
+            animate: animate && shouldAnimate(window),
+            completion: completion
         )
     }
 
@@ -343,13 +357,6 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         systemSettingsTrackingTask = Task { @MainActor [weak self] in
             guard let self else { return }
             let clock = ContinuousClock()
-            // Let AppKit finish the initial native frame interpolation before
-            // switching to cheap steady-state placement checks.
-            do {
-                try await clock.sleep(for: .milliseconds(400))
-            } catch {
-                return
-            }
             var consecutiveMissingWindowChecks = 0
             while !Task.isCancelled {
                 // The initial move is the only animated transition. Repeated
@@ -421,8 +428,6 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         completion: (@MainActor () -> Void)? = nil
     ) {
         guard let window else { return }
-        expandedPresentationTask?.cancel()
-        expandedPresentationTask = nil
         systemSettingsPlacementRetryTask?.cancel()
         systemSettingsPlacementRetryTask = nil
         systemSettingsTrackingTask?.cancel()
@@ -445,20 +450,18 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
             // Keep the already-laid-out compact card during the frame glide.
             // Swap in the expanded hierarchy only after the destination frame
             // is stable, the inverse of the compact-layout handshake above.
-            window.setAppKitOwnedFrame(expandedFrame, display: true, animate: true)
-            expandedPresentationTask = Task { @MainActor [weak self, weak window] in
-                do {
-                    try await ContinuousClock().sleep(for: .milliseconds(350))
-                } catch {
-                    return
-                }
+            window.setAppKitOwnedFrame(
+                expandedFrame,
+                display: true,
+                animate: true,
+                duration: Self.permissionCompanionGlideDuration
+            ) { [weak self, weak window] in
                 guard let self, let window, self.window === window else { return }
                 self.finishExpandedPresentation(
                     window: window,
                     frame: expandedFrame,
                     resetStep: resetStep
                 )
-                self.expandedPresentationTask = nil
                 completion?()
             }
         } else {
@@ -513,7 +516,24 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
     func configureForPermissionCompanion(
         _ window: ComputerUseOnboardingWindow,
         frame: NSRect,
-        animate: Bool = false
+        animate: Bool = false,
+        completion: (() -> Void)? = nil
+    ) {
+        prepareForPermissionCompanion(window)
+        window.setAppKitOwnedFrame(
+            frame,
+            display: window.isVisible,
+            animate: animate,
+            duration: Self.permissionCompanionGlideDuration,
+            completion: completion
+        )
+    }
+
+    /// Applies compact chrome before the compact SwiftUI hierarchy is shown.
+    /// Keeping this separate from frame movement prevents the titlebar buttons
+    /// from appearing over the instruction while the view handshake settles.
+    func prepareForPermissionCompanion(
+        _ window: ComputerUseOnboardingWindow
     ) {
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
@@ -523,12 +543,7 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         window.contentView?.wantsLayer = true
         window.contentView?.layer?.cornerRadius = 14
         window.contentView?.layer?.masksToBounds = true
-        configure(
-            window,
-            frame: frame,
-            showsStandardButtons: false,
-            animate: animate
-        )
+        configureStandardButtons(window, visible: false)
     }
 
     private func configureForExpandedOnboarding(
@@ -545,29 +560,22 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         window.contentView?.wantsLayer = true
         window.contentView?.layer?.cornerRadius = 0
         window.contentView?.layer?.masksToBounds = false
-        configure(
-            window,
-            frame: frame,
-            showsStandardButtons: true,
-            animate: animate
-        )
-    }
-
-    private func configure(
-        _ window: ComputerUseOnboardingWindow,
-        frame: NSRect,
-        showsStandardButtons: Bool,
-        animate: Bool = false
-    ) {
+        configureStandardButtons(window, visible: true)
         window.setAppKitOwnedFrame(
             frame,
             display: window.isVisible,
             animate: animate
         )
+    }
+
+    private func configureStandardButtons(
+        _ window: ComputerUseOnboardingWindow,
+        visible: Bool
+    ) {
         for buttonType in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
             let button = window.standardWindowButton(buttonType)
-            button?.isHidden = !showsStandardButtons
-            button?.isEnabled = showsStandardButtons && buttonType == .closeButton
+            button?.isHidden = !visible
+            button?.isEnabled = visible && buttonType == .closeButton
         }
     }
 

@@ -626,6 +626,15 @@ struct ComputerUseUXTests {
         let window = controller.makeWindow()
         defer { window.close() }
         let expandedStyle = window.styleMask
+        let expandedFrame = window.frame
+
+        controller.prepareForPermissionCompanion(window)
+
+        #expect(window.styleMask == expandedStyle)
+        #expect(window.frame == expandedFrame)
+        for buttonType in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+            #expect(window.standardWindowButton(buttonType)?.isHidden == true)
+        }
 
         controller.configureForPermissionCompanion(
             window,
@@ -635,7 +644,50 @@ struct ComputerUseUXTests {
         #expect(window.styleMask == expandedStyle)
     }
 
+    @Test @MainActor func permissionCompanionTransitionAllowsIntermediateWindowFrames() {
+        let expandedSize = CGSize(width: 600, height: 440)
+        let companionSize = CGSize(width: 472, height: 112)
+        let window = ComputerUseOnboardingWindow(
+            contentRect: NSRect(origin: .zero, size: expandedSize),
+            styleMask: [.titled, .closable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.close() }
+
+        let startingFrame = window.frame
+        let destinationFrame = NSRect(
+            x: startingFrame.minX + 160,
+            y: startingFrame.minY + 120,
+            width: companionSize.width,
+            height: companionSize.height
+        )
+        let intermediateFrame = NSRect(
+            x: (startingFrame.minX + destinationFrame.minX) / 2,
+            y: (startingFrame.minY + destinationFrame.minY) / 2,
+            width: (startingFrame.width + destinationFrame.width) / 2,
+            height: (startingFrame.height + destinationFrame.height) / 2
+        )
+        var observedIntermediateFrame: NSRect?
+        window.withAppKitOwnedFrameTransition(
+            to: destinationFrame,
+            duration: 0.05
+        ) {
+            window.setFrame(intermediateFrame, display: false)
+            observedIntermediateFrame = window.frame
+            window.setFrame(destinationFrame, display: false)
+        }
+
+        #expect(observedIntermediateFrame == intermediateFrame)
+        #expect(window.frame == destinationFrame)
+
+        window.setFrame(startingFrame, display: false)
+        #expect(window.frame == destinationFrame)
+    }
+
     @Test func permissionCompanionAnimationHonorsReduceMotion() {
+        #expect(ComputerUseOnboardingWindowController.permissionCompanionGlideDuration >= 0.4)
+        #expect(ComputerUseOnboardingWindowController.permissionCompanionGlideDuration <= 0.6)
         #expect(ComputerUseOnboardingWindowController.shouldAnimate(
             windowIsVisible: true,
             reduceMotion: false

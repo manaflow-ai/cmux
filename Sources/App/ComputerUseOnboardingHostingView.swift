@@ -47,6 +47,8 @@ final class ComputerUseOnboardingHostingView: NSHostingView<AnyView> {
 @MainActor
 final class ComputerUseOnboardingWindow: NSWindow {
     private var appKitOwnedSize: NSSize
+    private var appKitOwnsAnimatedFrameTransition = false
+    private var appKitOwnedAnimationDuration: TimeInterval?
 
     override init(
         contentRect: NSRect,
@@ -70,16 +72,65 @@ final class ComputerUseOnboardingWindow: NSWindow {
     func setAppKitOwnedFrame(
         _ frameRect: NSRect,
         display flag: Bool,
-        animate: Bool = false
+        animate: Bool = false,
+        duration: TimeInterval? = nil,
+        completion: (() -> Void)? = nil
     ) {
+        guard animate, frameRect != frame else {
+            appKitOwnedSize = frameRect.size
+            super.setFrame(frameRect, display: flag)
+            completion?()
+            return
+        }
+
+        // NSWindow's native animation repeatedly enters the two-argument
+        // `setFrame` override below. Let those controller-owned intermediate
+        // frames through, then restore the fixed-size guard at the destination.
+        // Updating `appKitOwnedSize` before the animation would make every
+        // intermediate size look like an unsolicited SwiftUI resize and turn
+        // the glide into a shrink-then-jump.
+        withAppKitOwnedFrameTransition(
+            to: frameRect,
+            duration: duration
+        ) {
+            animateFrameWithAppKit(frameRect, display: flag)
+        }
+        completion?()
+    }
+
+    /// Runs the sequence of frame updates produced by AppKit while preserving
+    /// the fixed-size guard before and after the controller-owned transition.
+    /// This small seam also lets tests exercise intermediate frame acceptance
+    /// without driving a visible NSWindow inside XCTest's nested event loop.
+    func withAppKitOwnedFrameTransition(
+        to frameRect: NSRect,
+        duration: TimeInterval? = nil,
+        updates: () -> Void
+    ) {
+        appKitOwnsAnimatedFrameTransition = true
+        appKitOwnedAnimationDuration = duration
+        updates()
         appKitOwnedSize = frameRect.size
-        super.setFrame(frameRect, display: flag, animate: animate)
+        appKitOwnsAnimatedFrameTransition = false
+        appKitOwnedAnimationDuration = nil
+    }
+
+    private func animateFrameWithAppKit(
+        _ frameRect: NSRect,
+        display flag: Bool
+    ) {
+        super.setFrame(frameRect, display: flag, animate: true)
     }
 
     /// Origin-only moves remain available for centering and permission-window
     /// placement. Size changes must go through `setAppKitOwnedFrame` so hosted
     /// SwiftUI measurements cannot feed back into the window during layout.
     override func setFrame(_ frameRect: NSRect, display flag: Bool) {
+        if appKitOwnsAnimatedFrameTransition {
+            super.setFrame(frameRect, display: flag)
+            return
+        }
+
         guard frameRect.size != appKitOwnedSize else {
             super.setFrame(frameRect, display: flag)
             return
@@ -89,5 +140,9 @@ final class ComputerUseOnboardingWindow: NSWindow {
             NSRect(origin: frame.origin, size: appKitOwnedSize),
             display: flag
         )
+    }
+
+    override func animationResizeTime(_ newFrame: NSRect) -> TimeInterval {
+        appKitOwnedAnimationDuration ?? super.animationResizeTime(newFrame)
     }
 }

@@ -276,8 +276,25 @@ cmux_codex_install_computer_use_skill() {
     fi
 }
 
+cmux_codex_computer_use_app_enabled() {
+    # The shell shim normally refreshes this authority before every invocation,
+    # but the wrapper can also be launched directly (or through an older shim).
+    # Re-read the app-owned setting here so a live disable cannot leave Codex
+    # attached through stale spawn-time environment.
+    local enabled="${CMUX_COMPUTER_USE_APP_ENABLED:-1}"
+    local home="${HOME:-}"
+    if [[ "$home" = /* ]]; then
+        local setting_file="$home/Library/Application Support/cmux/computer-use/enabled"
+        if [[ -r "$setting_file" ]]; then
+            IFS= read -r enabled < "$setting_file" || true
+        fi
+    fi
+    [[ "$enabled" != "0" ]]
+}
+
 cmux_codex_computer_use_enabled_for_invocation() {
     [[ "${CMUX_COMPUTER_USE_MCP_DISABLED:-0}" == "1" ]] && return 1
+    cmux_codex_computer_use_app_enabled || return 1
     local arg
     for arg in "$@"; do
         case "$arg" in

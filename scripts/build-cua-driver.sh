@@ -3,6 +3,8 @@ set -euo pipefail
 
 CMUX_CUA_REPO_URL="${CMUX_CUA_REPO_URL:-https://github.com/manaflow-ai/cmux-cua.git}"
 CMUX_CUA_PINNED_SHA="85de0a4d1ab8f52a52a714c7903afc0e1df93985"
+CMUX_CUA_SOURCE_OWNER_FILE=".cmux-cua-managed-source"
+CMUX_CUA_SOURCE_OWNER_VALUE="cmux-cua-driver-cache-v1 $CMUX_CUA_PINNED_SHA"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 OUTPUT=""
@@ -112,8 +114,10 @@ mkdir -p "$CACHE_DIR"
 # the scratch build dir.
 SRC_LOCK_DIR=""
 TMPDIR_BUILD=""
+TMPDIR_CLONE=""
 cleanup() {
   [[ -n "$TMPDIR_BUILD" ]] && rm -rf "$TMPDIR_BUILD"
+  [[ -n "$TMPDIR_CLONE" ]] && rm -rf "$TMPDIR_CLONE"
   [[ -n "$SRC_LOCK_DIR" ]] && rm -rf "$SRC_LOCK_DIR"
   # The src lock is released (SRC_LOCK_DIR="") before compiling, so the test
   # above normally fails last; without an explicit success status the EXIT
@@ -166,6 +170,57 @@ release_src_lock() {
   SRC_LOCK_DIR=""
 }
 
+validate_managed_source_cache() {
+  local expected_name="src-$CMUX_CUA_PINNED_SHA"
+  local resolved_cache
+  local resolved_source
+  local owner_value
+
+  if [[ -L "$SRC_ROOT" ]]; then
+    echo "error: refusing symlinked cua-driver source cache: $SRC_ROOT" >&2
+    exit 1
+  fi
+  resolved_cache="$(cd "$CACHE_DIR" && pwd -P)"
+  resolved_source="$(cd "$SRC_ROOT" && pwd -P)"
+  if [[ "$(dirname "$resolved_source")" != "$resolved_cache" || "$(basename "$resolved_source")" != "$expected_name" ]]; then
+    echo "error: refusing cua-driver source outside its exact cache slot: $SRC_ROOT" >&2
+    exit 1
+  fi
+
+  owner_value="$(cat "$SRC_ROOT/$CMUX_CUA_SOURCE_OWNER_FILE" 2>/dev/null || true)"
+  if [[ "$owner_value" != "$CMUX_CUA_SOURCE_OWNER_VALUE" ]]; then
+    echo "error: refusing unmanaged cua-driver source cache: $SRC_ROOT" >&2
+    echo "  move it aside or remove it manually, then rerun the build" >&2
+    exit 1
+  fi
+}
+
+adopt_legacy_source_cache() {
+  local actual_sha
+  local origin_url
+  local unexpected_changes
+
+  # Older versions stamped their own source caches but did not write the
+  # stronger ownership marker. Adopt only an exact, clean legacy checkout;
+  # otherwise fail without changing it so a caller-controlled cache path can
+  # never turn an unrelated repository into destructive build scratch space.
+  [[ -e "$SRC_ROOT/.cmux-last-used" ]] || return 1
+  actual_sha="$(git -C "$SRC_ROOT" rev-parse HEAD 2>/dev/null || true)"
+  origin_url="$(git -C "$SRC_ROOT" remote get-url origin 2>/dev/null || true)"
+  [[ "$actual_sha" == "$CMUX_CUA_PINNED_SHA" ]] || return 1
+  [[ "$origin_url" == "$CMUX_CUA_REPO_URL" ]] || return 1
+  unexpected_changes="$(
+    git -C "$SRC_ROOT" status --porcelain --untracked-files=all -- \
+      . \
+      ':(exclude).cmux-last-used' \
+      ':(exclude).cmux-cargo-target' \
+      2>/dev/null
+  )"
+  [[ -z "$unexpected_changes" ]] || return 1
+
+  printf '%s\n' "$CMUX_CUA_SOURCE_OWNER_VALUE" > "$SRC_ROOT/$CMUX_CUA_SOURCE_OWNER_FILE"
+}
+
 if [[ -n "${CMUX_CUA_SRC:-}" ]]; then
   SRC_ROOT="$(cd "$CMUX_CUA_SRC" && pwd)"
   # rev-parse instead of testing .git's file type: linked git worktrees store
@@ -182,9 +237,24 @@ else
   SRC_ROOT="$CACHE_DIR/src-$CMUX_CUA_PINNED_SHA"
   acquire_src_lock "$SRC_ROOT.lock"
   if [[ ! -d "$SRC_ROOT/.git" ]]; then
-    rm -rf "$SRC_ROOT"
-    git clone "$CMUX_CUA_REPO_URL" "$SRC_ROOT"
+    if [[ -e "$SRC_ROOT" || -L "$SRC_ROOT" ]]; then
+      echo "error: refusing to replace existing cua-driver cache path: $SRC_ROOT" >&2
+      echo "  move it aside or remove it manually, then rerun the build" >&2
+      exit 1
+    fi
+    TMPDIR_CLONE="$(mktemp -d "$CACHE_DIR/.cmux-cua-clone.XXXXXX")"
+    git clone "$CMUX_CUA_REPO_URL" "$TMPDIR_CLONE"
+    printf '%s\n' "$CMUX_CUA_SOURCE_OWNER_VALUE" > "$TMPDIR_CLONE/$CMUX_CUA_SOURCE_OWNER_FILE"
+    /bin/mv "$TMPDIR_CLONE" "$SRC_ROOT"
+    TMPDIR_CLONE=""
+  elif [[ ! -f "$SRC_ROOT/$CMUX_CUA_SOURCE_OWNER_FILE" ]]; then
+    adopt_legacy_source_cache || {
+      echo "error: refusing unmanaged cua-driver source cache: $SRC_ROOT" >&2
+      echo "  move it aside or remove it manually, then rerun the build" >&2
+      exit 1
+    }
   fi
+  validate_managed_source_cache
   # Fetch only when the pinned commit is missing locally so incremental app
   # builds keep working offline (or through GitHub outages) after the first
   # successful build.
@@ -195,33 +265,16 @@ else
   # already-checked-out commit silently keeps modified tracked files, so a
   # tampered cache would still pass the rev-parse check below while its edits
   # get compiled, signed, and bundled. `--force` restores tracked files to the
-  # pinned contents and `clean -fdx` drops untracked/ignored files, keeping
-  # only cmux's own metadata: the usage stamp and the per-revision Cargo
-  # target dir (build OUTPUT, never compiled source).
+  # pinned contents and `clean -fdx` drops untracked/ignored files. This is
+  # safe only after the ownership and exact-path checks above. Keep cmux's
+  # ownership metadata, usage stamp, and per-revision Cargo target dir (build
+  # OUTPUT, never compiled source).
   git -C "$SRC_ROOT" checkout --quiet --force --detach "$CMUX_CUA_PINNED_SHA"
-  git -C "$SRC_ROOT" clean -qfdx -e .cmux-last-used -e .cmux-cargo-target
-  # Bound the cache: each pin bump creates a new src-<sha> dir, so prune
-  # sibling revisions (sources plus their embedded Cargo targets) that have
-  # been idle for 7+ days. The stamp is refreshed on every build of a
-  # revision, and a concurrent build of another pin is protected twice over:
-  # its fresh stamp fails the idle check, and pruning requires acquiring that
-  # revision's own lock.
+  git -C "$SRC_ROOT" clean -qfdx \
+    -e "$CMUX_CUA_SOURCE_OWNER_FILE" \
+    -e .cmux-last-used \
+    -e .cmux-cargo-target
   touch "$SRC_ROOT/.cmux-last-used"
-  for old_src in "$CACHE_DIR"/src-*; do
-    [[ -d "$old_src" ]] || continue
-    [[ "$old_src" == "$SRC_ROOT" || "$old_src" == *.lock ]] && continue
-    # Only delete directories cmux itself created: the stamp is written by
-    # this script on every build. CACHE_DIR is caller-controlled
-    # (--cache-dir / CMUX_CUA_CACHE_DIR), so an unmarked src-* dir may be an
-    # unrelated source tree and must never be pruned automatically.
-    stamp="$old_src/.cmux-last-used"
-    [[ -e "$stamp" ]] || continue
-    [[ -n "$(find "$stamp" -maxdepth 0 -mtime +7 2>/dev/null)" ]] || continue
-    if mkdir "$old_src.lock" 2>/dev/null; then
-      rm -rf "$old_src"
-      rm -rf "$old_src.lock"
-    fi
-  done
 fi
 
 ACTUAL_SHA="$(git -C "$SRC_ROOT" rev-parse HEAD)"
@@ -273,8 +326,8 @@ for arch in "${ARCHS[@]}"; do
   # paths: `$target/release/cua-driver` is a single uplift destination, and
   # with a shared dir a "fresh" build of pin A can leave pin B's (or a dirty
   # CMUX_CUA_SRC checkout's) binary in place, defeating the SHA gate. Keying
-  # by source dir also lets the idle-revision pruning above bound target
-  # growth. Concurrent builds of one revision serialize on Cargo's own lock.
+  # by source dir prevents cross-revision reuse. Concurrent builds of one
+  # revision serialize on Cargo's own lock.
   target_dir="$SRC_ROOT/.cmux-cargo-target"
   CARGO_TARGET_DIR="$target_dir" \
     cargo build --manifest-path "$CARGO_ROOT/Cargo.toml" --locked -p cua-driver --release --target "$target"
