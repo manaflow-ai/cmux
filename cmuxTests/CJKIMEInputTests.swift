@@ -1274,15 +1274,40 @@ final class GhosttyBackquoteRegressionTests: XCTestCase {
         hostedView.setActive(true)
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 
-        var pressText: String?
-        var pressUnshiftedCodepoint: UInt32?
+        let recoveryProbe = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.shift],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "\u{1B}",
+            charactersIgnoringModifiers: "`",
+            isARepeat: false,
+            keyCode: 50
+        )
+        let appKitRecoveredText = recoveryProbe?.characters(
+            byApplyingModifiers: [.shift]
+        )
+        let layoutRecoveredText = recoveryProbe.flatMap {
+            KeyboardLayout.recoveredTextForControlCharacterEvent($0)
+        }
+
+        var observedPresses: [String] = []
+        var backquotePressTexts: [String?] = []
+        var backquoteUnshiftedCodepoints: [UInt32] = []
         GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
-            guard keyEvent.action == GHOSTTY_ACTION_PRESS, keyEvent.keycode == 50 else { return }
-            pressUnshiftedCodepoint = keyEvent.unshifted_codepoint
-            if let text = keyEvent.text {
-                pressText = String(cString: text)
-            } else {
-                pressText = nil
+            guard keyEvent.action == GHOSTTY_ACTION_PRESS else { return }
+            let text = keyEvent.text.map { String(cString: $0) }
+            observedPresses.append(
+                "keycode=\(keyEvent.keycode) text=\(String(describing: text)) " +
+                    "unshifted=\(keyEvent.unshifted_codepoint) composing=\(keyEvent.composing)"
+            )
+            if keyEvent.keycode == 50 {
+                backquotePressTexts.append(text)
+                backquoteUnshiftedCodepoints.append(
+                    keyEvent.unshifted_codepoint
+                )
             }
         }
 
@@ -1293,8 +1318,20 @@ final class GhosttyBackquoteRegressionTests: XCTestCase {
             modifierFlags: [.shift]
         )
         XCTAssertTrue(sent, "Expected synthetic Shift+backquote event to be dispatched")
-        XCTAssertEqual(pressText, "~")
-        XCTAssertEqual(pressUnshiftedCodepoint, "`".unicodeScalars.first?.value)
+        XCTAssertEqual(
+            layoutRecoveredText,
+            "~",
+            "General layout recovery failed; AppKit returned \(String(describing: appKitRecoveredText))"
+        )
+        XCTAssertEqual(
+            backquotePressTexts,
+            ["~"],
+            "Expected exactly one translated backquote press; observed \(observedPresses)"
+        )
+        XCTAssertEqual(
+            backquoteUnshiftedCodepoints,
+            ["`".unicodeScalars.first?.value].compactMap { $0 }
+        )
     }
 }
 
