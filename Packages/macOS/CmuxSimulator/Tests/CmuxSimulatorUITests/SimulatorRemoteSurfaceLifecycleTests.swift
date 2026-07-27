@@ -339,9 +339,14 @@ struct SimulatorRemoteSurfaceLifecycleTests {
         let view = SimulatorRemoteSurfaceView(frameSourceFactory: { _ in source })
         defer { view.teardown() }
         view.layer?.contentsScale = 2
+        view.frame = CGRect(x: 0, y: 0, width: 400, height: 800)
 
         view.update(
-            frameTransport: simulatorFrameTransportDescriptor(92),
+            frameTransport: simulatorFrameTransportDescriptor(
+                92,
+                width: 800,
+                height: 1_600
+            ),
             display: SimulatorDisplayMetadata(
                 width: 1_200,
                 height: 2_400,
@@ -354,6 +359,33 @@ struct SimulatorRemoteSurfaceLifecycleTests {
         #expect(view.frameLayer?.contentsScale == 2)
         #expect(view.frameLayer?.minificationFilter == .nearest)
         #expect(view.frameLayer?.magnificationFilter == .nearest)
+    }
+
+    @Test("A magnified frame layer retains smooth interpolation")
+    func magnifiedFrameLayerRetainsSmoothInterpolation() {
+        let source = EmptySimulatorFrameSurfaceSource()
+        let view = SimulatorRemoteSurfaceView(frameSourceFactory: { _ in source })
+        defer { view.teardown() }
+        view.layer?.contentsScale = 2
+        view.frame = CGRect(x: 0, y: 0, width: 1_000, height: 2_000)
+
+        view.update(
+            frameTransport: simulatorFrameTransportDescriptor(
+                95,
+                width: 1_290,
+                height: 2_796
+            ),
+            display: SimulatorDisplayMetadata(
+                width: 1_290,
+                height: 2_796,
+                orientation: .portrait,
+                scale: 2
+            ),
+            chrome: nil
+        )
+
+        #expect(view.frameLayer?.minificationFilter == .linear)
+        #expect(view.frameLayer?.magnificationFilter == .linear)
     }
 
     @Test("A released stale copy cannot replace a newer transport frame")
