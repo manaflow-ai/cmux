@@ -3764,6 +3764,29 @@ struct PaneAreaProjection<'a> {
     viewport_offset: Option<u64>,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct PaneAreaSource {
+    layout_order: usize,
+    pane: PaneId,
+    surface: SurfaceId,
+    full_rect: VirtualRect,
+    full_bar: Option<VirtualRect>,
+    full_omnibar: Option<VirtualRect>,
+    full_content: VirtualRect,
+    full_track: Option<VirtualRect>,
+}
+
+/// Cached immutable geometry for paint-only viewport animation frames.
+///
+/// `sync_layout` replaces this snapshot whenever authoritative tree, layout,
+/// chrome, or terminal geometry changes. Animation frames only query it.
+#[derive(Default)]
+struct ViewportPaneAreaProjection {
+    screen: Option<ScreenId>,
+    sources: Vec<PaneAreaSource>,
+    prefix_max_right: Vec<u64>,
+}
+
 fn full_pane_parts_for_layout(
     pane: &PaneView,
     full_rect: VirtualRect,
@@ -3782,6 +3805,107 @@ fn full_pane_parts_for_layout(
         pane_parts_for_virtual_rect(full_rect, scrollbar_position, has_browser_omnibar)?
     };
     Some((surface_id, parts))
+}
+
+fn pane_area_source(
+    layout_order: usize,
+    pane: &PaneView,
+    full_rect: VirtualRect,
+    stacked_headers: &HashSet<PaneId>,
+    scrollbar_position: ScrollbarPosition,
+    surface_only: Option<SurfaceId>,
+) -> Option<PaneAreaSource> {
+    let (surface, (full_bar, full_omnibar, full_content, full_track)) = full_pane_parts_for_layout(
+        pane,
+        full_rect,
+        stacked_headers,
+        scrollbar_position,
+        surface_only,
+    )?;
+    Some(PaneAreaSource {
+        layout_order,
+        pane: pane.id,
+        surface,
+        full_rect,
+        full_bar,
+        full_omnibar,
+        full_content,
+        full_track,
+    })
+}
+
+impl ViewportPaneAreaProjection {
+    fn clear(&mut self) {
+        self.screen = None;
+        self.sources.clear();
+        self.prefix_max_right.clear();
+    }
+
+    fn is_for_screen(&self, screen: ScreenId) -> bool {
+        self.screen == Some(screen)
+    }
+
+    fn rebuild(&mut self, projection: PaneAreaProjection<'_>) {
+        let PaneAreaProjection {
+            screen,
+            layout,
+            stacked_headers,
+            scrollbar_position,
+            surface_only,
+            ..
+        } = projection;
+        self.sources.clear();
+        self.prefix_max_right.clear();
+        self.screen = Some(screen.id);
+
+        #[cfg(test)]
+        record_pane_area_projection_work(screen.panes.len());
+        let panes = screen.panes.iter().map(|pane| (pane.id, pane)).collect::<HashMap<_, _>>();
+        self.sources.extend(layout.iter().enumerate().filter_map(
+            |(layout_order, &(pane_id, full_rect))| {
+                #[cfg(test)]
+                record_pane_area_projection_work(1);
+                if full_rect.width == 0 || full_rect.height == 0 {
+                    return None;
+                }
+                pane_area_source(
+                    layout_order,
+                    panes.get(&pane_id).copied()?,
+                    full_rect,
+                    stacked_headers,
+                    scrollbar_position,
+                    surface_only,
+                )
+            },
+        ));
+        self.sources.sort_unstable_by_key(|source| (source.full_rect.x, source.layout_order));
+
+        let mut maximum_right = 0;
+        self.prefix_max_right.reserve(self.sources.len());
+        for source in &self.sources {
+            maximum_right =
+                maximum_right.max(source.full_rect.x.saturating_add(source.full_rect.width));
+            self.prefix_max_right.push(maximum_right);
+        }
+    }
+
+    fn project_into(&self, pane_areas: &mut Vec<PaneArea>, area: Rect, viewport_offset: u64) {
+        pane_areas.clear();
+        let viewport_x = u64::from(area.x).saturating_add(viewport_offset);
+        let viewport_right = viewport_x.saturating_add(u64::from(area.width));
+        let start = self.prefix_max_right.partition_point(|right| *right <= viewport_x);
+        let end = self.sources.partition_point(|source| source.full_rect.x < viewport_right);
+        if start >= end {
+            return;
+        }
+        for &source in &self.sources[start..end] {
+            #[cfg(test)]
+            record_pane_area_projection_work(1);
+            if let Some(projected) = project_pane_area(source, area, Some(viewport_offset)) {
+                pane_areas.push(projected);
+            }
+        }
+    }
 }
 
 fn swept_viewport_size_leases(
@@ -3850,6 +3974,65 @@ fn visible_pane_size_leases(pane_areas: &[PaneArea]) -> Vec<PaneSizeLease> {
         .collect()
 }
 
+fn project_pane_area(
+    source: PaneAreaSource,
+    area: Rect,
+    viewport_offset: Option<u64>,
+) -> Option<PaneArea> {
+    let PaneAreaSource {
+        pane,
+        surface,
+        full_rect,
+        full_bar,
+        full_omnibar,
+        full_content,
+        full_track,
+        ..
+    } = source;
+    let viewport_x = viewport_offset.map(|offset| u64::from(area.x).saturating_add(offset));
+    let (rect, rect_source_x, bar, omnibar, omnibar_source_x, content, content_source_x, track) =
+        if let Some(viewport_x) = viewport_x {
+            let (rect, rect_source_x) =
+                clip_horizontal_rect(full_rect, viewport_x, area.width, area.x)?;
+            let bar = full_bar.and_then(|rect| {
+                clip_horizontal_rect(rect, viewport_x, area.width, area.x).map(|(rect, _)| rect)
+            });
+            let (omnibar, omnibar_source_x) = full_omnibar
+                .and_then(|rect| clip_horizontal_rect(rect, viewport_x, area.width, area.x))
+                .map_or((None, 0), |(rect, source_x)| (Some(rect), source_x));
+            let (content, content_source_x) =
+                clip_horizontal_rect(full_content, viewport_x, area.width, area.x).unwrap_or((
+                    Rect { x: rect.x, y: full_content.y, width: 0, height: full_content.height },
+                    0,
+                ));
+            let track = full_track.and_then(|rect| {
+                clip_horizontal_rect(rect, viewport_x, area.width, area.x).map(|(rect, _)| rect)
+            });
+            (rect, rect_source_x, bar, omnibar, omnibar_source_x, content, content_source_x, track)
+        } else {
+            let rect = terminal_rect_from_virtual(full_rect)?;
+            let bar = full_bar.and_then(terminal_rect_from_virtual);
+            let omnibar = full_omnibar.and_then(terminal_rect_from_virtual);
+            let content = terminal_rect_from_virtual(full_content)?;
+            let track = full_track.and_then(terminal_rect_from_virtual);
+            (rect, 0, bar, omnibar, 0, content, 0, track)
+        };
+    let pane_viewport = viewport_x
+        .is_some()
+        .then_some(PaneViewportClip {
+            rect_source_x,
+            full_rect_width: u16::try_from(full_rect.width).unwrap_or(u16::MAX),
+            omnibar_source_x,
+            full_omnibar_width: full_omnibar
+                .and_then(|rect| u16::try_from(rect.width).ok())
+                .unwrap_or(0),
+            content_source_x,
+            full_content_width: u16::try_from(full_content.width).unwrap_or(u16::MAX),
+        })
+        .filter(|clip| clip.rect_source_x > 0 || rect.width < clip.full_rect_width);
+    Some(PaneArea { pane, surface, rect, bar, omnibar, content, track, viewport: pane_viewport })
+}
+
 fn rebuild_pane_areas(pane_areas: &mut Vec<PaneArea>, projection: PaneAreaProjection<'_>) {
     let PaneAreaProjection {
         screen,
@@ -3861,96 +4044,26 @@ fn rebuild_pane_areas(pane_areas: &mut Vec<PaneArea>, projection: PaneAreaProjec
         viewport_offset,
     } = projection;
     pane_areas.clear();
-    let viewport_x = viewport_offset.map(|offset| u64::from(area.x).saturating_add(offset));
     #[cfg(test)]
     record_pane_area_projection_work(screen.panes.len());
     let panes = screen.panes.iter().map(|pane| (pane.id, pane)).collect::<HashMap<_, _>>();
-    for &(pane_id, full_rect) in layout {
+    for (layout_order, &(pane_id, full_rect)) in layout.iter().enumerate() {
         #[cfg(test)]
         record_pane_area_projection_work(1);
         let Some(pane) = panes.get(&pane_id).copied() else { continue };
-        let Some((surface_id, (full_bar, full_omnibar, full_content, full_track))) =
-            full_pane_parts_for_layout(
-                pane,
-                full_rect,
-                stacked_headers,
-                scrollbar_position,
-                surface_only,
-            )
-        else {
+        let Some(source) = pane_area_source(
+            layout_order,
+            pane,
+            full_rect,
+            stacked_headers,
+            scrollbar_position,
+            surface_only,
+        ) else {
             continue;
         };
-        let (rect, rect_source_x, bar, omnibar, omnibar_source_x, content, content_source_x, track) =
-            if let Some(viewport_x) = viewport_x {
-                let Some((rect, rect_source_x)) =
-                    clip_horizontal_rect(full_rect, viewport_x, area.width, area.x)
-                else {
-                    continue;
-                };
-                let bar = full_bar.and_then(|rect| {
-                    clip_horizontal_rect(rect, viewport_x, area.width, area.x).map(|(rect, _)| rect)
-                });
-                let (omnibar, omnibar_source_x) = full_omnibar
-                    .and_then(|rect| clip_horizontal_rect(rect, viewport_x, area.width, area.x))
-                    .map_or((None, 0), |(rect, source_x)| (Some(rect), source_x));
-                let (content, content_source_x) = clip_horizontal_rect(
-                    full_content,
-                    viewport_x,
-                    area.width,
-                    area.x,
-                )
-                .unwrap_or((
-                    Rect { x: rect.x, y: full_content.y, width: 0, height: full_content.height },
-                    0,
-                ));
-                let track = full_track.and_then(|rect| {
-                    clip_horizontal_rect(rect, viewport_x, area.width, area.x).map(|(rect, _)| rect)
-                });
-                (
-                    rect,
-                    rect_source_x,
-                    bar,
-                    omnibar,
-                    omnibar_source_x,
-                    content,
-                    content_source_x,
-                    track,
-                )
-            } else {
-                let Some(rect) = terminal_rect_from_virtual(full_rect) else {
-                    continue;
-                };
-                let bar = full_bar.and_then(terminal_rect_from_virtual);
-                let omnibar = full_omnibar.and_then(terminal_rect_from_virtual);
-                let Some(content) = terminal_rect_from_virtual(full_content) else {
-                    continue;
-                };
-                let track = full_track.and_then(terminal_rect_from_virtual);
-                (rect, 0, bar, omnibar, 0, content, 0, track)
-            };
-        let pane_viewport = viewport_x
-            .is_some()
-            .then_some(PaneViewportClip {
-                rect_source_x,
-                full_rect_width: u16::try_from(full_rect.width).unwrap_or(u16::MAX),
-                omnibar_source_x,
-                full_omnibar_width: full_omnibar
-                    .and_then(|rect| u16::try_from(rect.width).ok())
-                    .unwrap_or(0),
-                content_source_x,
-                full_content_width: u16::try_from(full_content.width).unwrap_or(u16::MAX),
-            })
-            .filter(|clip| clip.rect_source_x > 0 || rect.width < clip.full_rect_width);
-        pane_areas.push(PaneArea {
-            pane: pane_id,
-            surface: surface_id,
-            rect,
-            bar,
-            omnibar,
-            content,
-            track,
-            viewport: pane_viewport,
-        });
+        if let Some(projected) = project_pane_area(source, area, viewport_offset) {
+            pane_areas.push(projected);
+        }
     }
 }
 
@@ -4067,6 +4180,7 @@ pub struct App {
     pub graphics_supported: bool,
     stdout_lock: Arc<StdoutLock>,
     pub pane_areas: Vec<PaneArea>,
+    viewport_projection: ViewportPaneAreaProjection,
     viewport_layout: Vec<(PaneId, VirtualRect)>,
     viewport_stacked_headers: HashSet<PaneId>,
     viewport_states: HashMap<ScreenId, ViewportMotion>,
@@ -5187,6 +5301,7 @@ pub fn run_with_machine_updates(
         graphics_supported,
         stdout_lock,
         pane_areas: Vec::new(),
+        viewport_projection: ViewportPaneAreaProjection::default(),
         viewport_layout: Vec::new(),
         viewport_stacked_headers: HashSet::new(),
         viewport_states: HashMap::new(),
@@ -6385,6 +6500,7 @@ impl App {
         self.rebuild_tab_locations();
         self.render_states.clear();
         self.pane_areas.clear();
+        self.viewport_projection.clear();
         self.viewport_layout.clear();
         self.viewport_stacked_headers.clear();
         self.viewport_states.clear();
@@ -7156,11 +7272,11 @@ impl App {
         }
         let Some(screen) = self.tree.active_screen() else {
             self.pane_areas.clear();
+            self.viewport_projection.clear();
             return;
         };
-        rebuild_pane_areas(
-            &mut self.pane_areas,
-            PaneAreaProjection {
+        if !self.viewport_projection.is_for_screen(screen.id) {
+            self.viewport_projection.rebuild(PaneAreaProjection {
                 screen,
                 layout: &self.viewport_layout,
                 stacked_headers: &self.viewport_stacked_headers,
@@ -7168,7 +7284,12 @@ impl App {
                 scrollbar_position: self.config.scrollbar.position,
                 surface_only: self.surface_only,
                 viewport_offset: Some(self.viewport_offset),
-            },
+            });
+        }
+        self.viewport_projection.project_into(
+            &mut self.pane_areas,
+            self.content_area,
+            self.viewport_offset,
         );
     }
 
@@ -7262,6 +7383,7 @@ impl App {
         }
         self.pane_areas.clear();
         let Some(screen) = self.tree.active_screen().cloned() else {
+            self.viewport_projection.clear();
             self.viewport_layout.clear();
             self.viewport_stacked_headers.clear();
             self.viewport_virtual_width = 0;
@@ -7315,18 +7437,22 @@ impl App {
         } else {
             0
         };
-        rebuild_pane_areas(
-            &mut self.pane_areas,
-            PaneAreaProjection {
-                screen: &screen,
-                layout: &layout.panes,
-                stacked_headers: &layout.stacked_headers,
-                area,
-                scrollbar_position: self.config.scrollbar.position,
-                surface_only: self.surface_only,
-                viewport_offset: viewport_enabled.then_some(self.viewport_offset),
-            },
-        );
+        let pane_projection = PaneAreaProjection {
+            screen: &screen,
+            layout: &layout.panes,
+            stacked_headers: &layout.stacked_headers,
+            area,
+            scrollbar_position: self.config.scrollbar.position,
+            surface_only: self.surface_only,
+            viewport_offset: viewport_enabled.then_some(self.viewport_offset),
+        };
+        if viewport_enabled {
+            self.viewport_projection.rebuild(pane_projection);
+            self.viewport_projection.project_into(&mut self.pane_areas, area, self.viewport_offset);
+        } else {
+            self.viewport_projection.clear();
+            rebuild_pane_areas(&mut self.pane_areas, pane_projection);
+        }
 
         // Size and attach every pane crossed by a short animation up front.
         // Paint-only ticks can then reveal cached surfaces without socket
@@ -7360,17 +7486,10 @@ impl App {
                     motion.retarget(target_offset, false, Instant::now());
                 }
                 self.viewport_offset = target_offset;
-                rebuild_pane_areas(
+                self.viewport_projection.project_into(
                     &mut self.pane_areas,
-                    PaneAreaProjection {
-                        screen: &screen,
-                        layout: &layout.panes,
-                        stacked_headers: &layout.stacked_headers,
-                        area,
-                        scrollbar_position: self.config.scrollbar.position,
-                        surface_only: self.surface_only,
-                        viewport_offset: Some(self.viewport_offset),
-                    },
+                    area,
+                    self.viewport_offset,
                 );
                 visible_pane_size_leases(&self.pane_areas)
             }
@@ -13787,16 +13906,16 @@ mod tests {
         SessionCompletionAction, SessionEventSender, ShortcutHelp, SidebarLayout,
         SidebarPluginSyncClaim, SidebarPluginSyncState, StdoutLock, SurfaceResizeDecision,
         SurfaceResizeOwnership, TerminalInput, TextInput, VIEWPORT_ANIMATION_DURATION,
-        ViewportMotion, WorkspaceRailSelection, action_available_in_mode,
-        browser_content_size_for_rect, browser_frame_source_crop, browser_hover_forward_allowed,
-        browser_source_crop, canonical_terminal_content, catch_renderer_panic,
-        clamp_split_ratio_for_tab_bars, client_menu_item, clip_horizontal_rect,
-        disable_host_keyboard_protocol, enable_host_keyboard_protocol, forward_host_input,
-        forward_mux_event, forward_mux_events, keyboard_protocol_accepts,
+        ViewportMotion, ViewportPaneAreaProjection, WorkspaceRailSelection,
+        action_available_in_mode, browser_content_size_for_rect, browser_frame_source_crop,
+        browser_hover_forward_allowed, browser_source_crop, canonical_terminal_content,
+        catch_renderer_panic, clamp_split_ratio_for_tab_bars, client_menu_item,
+        clip_horizontal_rect, disable_host_keyboard_protocol, enable_host_keyboard_protocol,
+        forward_host_input, forward_mux_event, forward_mux_events, keyboard_protocol_accepts,
         layout_undo_error_completion, negotiate_host_keyboard_protocol_with, outer_cursor_escape,
         outer_cursor_escape_if_changed, pane_area_projection_work, pane_context_menu_groups,
         pane_parts_for_rect, prepare_ordered_session, preserve_client_view, rail_drag_width,
-        record_surface_resize_dispatch_result, reset_pane_area_projection_work,
+        rebuild_pane_areas, record_surface_resize_dispatch_result, reset_pane_area_projection_work,
         should_claim_clear_history_shortcut, sidebar_layout_for,
         sidebar_plugin_status_settles_passive_claim, start_ordered_session,
         swept_viewport_size_leases, with_panic_stdout_lock,
@@ -15970,6 +16089,106 @@ mod tests {
             "one animation frame performed {} projection operations for one visible pane",
             pane_area_projection_work()
         );
+    }
+
+    #[test]
+    fn viewport_projection_cache_matches_full_projection_for_overlapping_ranges() {
+        let pane = |id| PaneView {
+            id,
+            short_id: format!("p{id}"),
+            name: None,
+            tabs: vec![TabView {
+                surface: 100 + id,
+                short_id: format!("t{id}"),
+                name: None,
+                title: format!("pane {id}"),
+                kind: SurfaceKind::Pty,
+                browser_source: None,
+                browser_frames_stalled: false,
+                supports_clear_history_key_fallback: false,
+                notification: None,
+            }],
+            active_tab: 0,
+            focused_at: id,
+        };
+        let screen = ScreenView {
+            id: 4,
+            short_id: "s".to_string(),
+            name: None,
+            layout: Node::Leaf(1),
+            active_pane: 4,
+            zoomed_pane: None,
+            viewport_base_width: Some(1.0),
+            viewport_splits: BTreeMap::new(),
+            panes: (1..=4).map(pane).collect(),
+        };
+        // A down split can return to an earlier x after visiting the upper
+        // branch, so the source traversal is intentionally not x-sorted.
+        let layout = vec![
+            (1, VirtualRect { x: 0, y: 0, width: 80, height: 12 }),
+            (2, VirtualRect { x: 40, y: 12, width: 40, height: 12 }),
+            (3, VirtualRect { x: 0, y: 12, width: 40, height: 12 }),
+            (4, VirtualRect { x: 80, y: 0, width: 53, height: 24 }),
+        ];
+        let area = Rect { x: 0, y: 0, width: 80, height: 24 };
+        let stacked_headers = HashSet::new();
+        let mut cache = ViewportPaneAreaProjection::default();
+        cache.rebuild(PaneAreaProjection {
+            screen: &screen,
+            layout: &layout,
+            stacked_headers: &stacked_headers,
+            area,
+            scrollbar_position: ScrollbarPosition::Column,
+            surface_only: None,
+            viewport_offset: Some(0),
+        });
+        let snapshot = |areas: &[PaneArea]| {
+            let mut snapshot = areas
+                .iter()
+                .map(|area| {
+                    (
+                        area.pane,
+                        area.surface,
+                        area.rect,
+                        area.bar,
+                        area.omnibar,
+                        area.content,
+                        area.track,
+                        area.viewport.map(|clip| {
+                            (
+                                clip.rect_source_x,
+                                clip.full_rect_width,
+                                clip.omnibar_source_x,
+                                clip.full_omnibar_width,
+                                clip.content_source_x,
+                                clip.full_content_width,
+                            )
+                        }),
+                    )
+                })
+                .collect::<Vec<_>>();
+            snapshot.sort_unstable_by_key(|area| area.0);
+            snapshot
+        };
+
+        for offset in [0, 39, 53] {
+            let mut expected = Vec::new();
+            rebuild_pane_areas(
+                &mut expected,
+                PaneAreaProjection {
+                    screen: &screen,
+                    layout: &layout,
+                    stacked_headers: &stacked_headers,
+                    area,
+                    scrollbar_position: ScrollbarPosition::Column,
+                    surface_only: None,
+                    viewport_offset: Some(offset),
+                },
+            );
+            let mut actual = Vec::new();
+            cache.project_into(&mut actual, area, offset);
+            assert_eq!(snapshot(&actual), snapshot(&expected), "projection mismatch at {offset}");
+        }
     }
 
     #[test]
@@ -24742,6 +24961,7 @@ mod tests {
             graphics_supported: false,
             stdout_lock: Arc::new(StdoutLock::new(())),
             pane_areas: Vec::new(),
+            viewport_projection: ViewportPaneAreaProjection::default(),
             viewport_layout: Vec::new(),
             viewport_stacked_headers: HashSet::new(),
             viewport_states: HashMap::new(),
