@@ -293,7 +293,10 @@ extension Workspace {
             return fallback ?? .unknown
         }
         if states.contains(.running) { return .running }
+        if states.contains(.failed) { return .failed }
+        if states.contains(.waiting) { return .waiting }
         if states.contains(.needsInput) { return .needsInput }
+        if states.contains(.completed) { return .completed }
         if states.contains(.unknown) { return .unknown }
         if states.contains(.idle) { return .idle }
         return fallback ?? .unknown

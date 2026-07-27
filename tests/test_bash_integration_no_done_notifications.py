@@ -42,30 +42,71 @@ class InteractiveBash:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:
+        pid = self.pid
         if self.fd is not None:
             try:
                 os.write(self.fd, b"exit\n")
                 self._read_until(b"exit", timeout=1)
             except OSError:
                 pass
+        if pid is not None:
+            self._wait_or_terminate(pid)
+        if self.fd is not None:
             try:
                 os.close(self.fd)
             except OSError:
                 pass
-        if self.pid is not None:
+
+    def _wait_or_terminate(self, pid: int) -> None:
+        deadline = time.time() + 2
+        while time.time() < deadline:
             try:
-                os.killpg(os.getpgid(self.pid), signal.SIGKILL)
+                waited, _ = os.waitpid(pid, os.WNOHANG)
+            except ChildProcessError:
+                return
+            if waited == pid:
+                return
+            time.sleep(0.05)
+
+        try:
+            process_group = os.getpgid(pid)
+        except ProcessLookupError:
+            process_group = None
+        if process_group is not None and process_group != os.getpgrp():
+            try:
+                os.killpg(process_group, signal.SIGTERM)
             except ProcessLookupError:
                 pass
-            except OSError:
-                try:
-                    os.kill(self.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
+        else:
             try:
-                os.waitpid(self.pid, 0)
-            except ChildProcessError:
+                os.kill(pid, signal.SIGTERM)
+            except ProcessLookupError:
                 pass
+
+        deadline = time.time() + 1
+        while time.time() < deadline:
+            try:
+                waited, _ = os.waitpid(pid, os.WNOHANG)
+            except ChildProcessError:
+                return
+            if waited == pid:
+                return
+            time.sleep(0.05)
+
+        if process_group is not None and process_group != os.getpgrp():
+            try:
+                os.killpg(process_group, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        else:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        try:
+            os.waitpid(pid, 0)
+        except ChildProcessError:
+            pass
 
     def run(self, command: str, timeout: float = 5) -> None:
         if self.fd is None:

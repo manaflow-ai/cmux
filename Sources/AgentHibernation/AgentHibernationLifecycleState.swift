@@ -3,8 +3,11 @@ import Foundation
 enum AgentHibernationLifecycleState: String, Codable, Sendable, Equatable, CaseIterable {
     case unknown
     case running
+    case waiting
     case idle
     case needsInput
+    case completed
+    case failed
 
     init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
@@ -12,8 +15,29 @@ enum AgentHibernationLifecycleState: String, Codable, Sendable, Equatable, CaseI
         self = Self.parse(rawValue) ?? .unknown
     }
 
+    /// Whether a hibernated agent panel can stay suspended in this state.
     var allowsHibernation: Bool {
-        self == .idle
+        switch self {
+        case .idle, .completed, .failed:
+            return true
+        case .unknown, .running, .waiting, .needsInput:
+            return false
+        }
+    }
+
+    /// Whether the agent is actively executing work (tools, model, compaction).
+    var isActivelyRunning: Bool {
+        self == .running
+    }
+
+    /// Whether the agent is blocked on user input, approval, or an error.
+    var needsUserAttention: Bool {
+        switch self {
+        case .waiting, .needsInput, .failed:
+            return true
+        case .unknown, .running, .idle, .completed:
+            return false
+        }
     }
 
     func encode(to encoder: Encoder) throws {
@@ -35,10 +59,16 @@ enum AgentHibernationLifecycleState: String, Codable, Sendable, Equatable, CaseI
             return .unknown
         case "running":
             return .running
+        case "waiting":
+            return .waiting
         case "idle":
             return .idle
         case "needsinput", "needs-input":
             return .needsInput
+        case "completed", "complete", "done":
+            return .completed
+        case "failed", "error":
+            return .failed
         default:
             return nil
         }

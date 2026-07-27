@@ -18,6 +18,11 @@ struct AgentHibernationTests {
         expectEqual(AgentHibernationLifecycleState.parseCLIValue("needsInput"), .needsInput)
         expectEqual(AgentHibernationLifecycleState.parseCLIValue("needs-input"), .needsInput)
         expectEqual(AgentHibernationLifecycleState.parseCLIValue("needs_input"), .needsInput)
+        expectEqual(AgentHibernationLifecycleState.parseCLIValue("waiting"), .waiting)
+        expectEqual(AgentHibernationLifecycleState.parseCLIValue("completed"), .completed)
+        expectEqual(AgentHibernationLifecycleState.parseCLIValue("done"), .completed)
+        expectEqual(AgentHibernationLifecycleState.parseCLIValue("failed"), .failed)
+        expectEqual(AgentHibernationLifecycleState.parseCLIValue("error"), .failed)
         expectNil(AgentHibernationLifecycleState.parseCLIValue("paused"))
 
         let decoded = try JSONDecoder().decode(
@@ -25,6 +30,23 @@ struct AgentHibernationTests {
             from: Data(#""paused""#.utf8)
         )
         expectEqual(decoded, .unknown)
+    }
+
+    @Test
+    func testLifecycleStateHibernationAndAttentionSemantics() {
+        expectTrue(AgentHibernationLifecycleState.idle.allowsHibernation)
+        expectTrue(AgentHibernationLifecycleState.completed.allowsHibernation)
+        expectTrue(AgentHibernationLifecycleState.failed.allowsHibernation)
+        expectFalse(AgentHibernationLifecycleState.running.allowsHibernation)
+        expectFalse(AgentHibernationLifecycleState.waiting.allowsHibernation)
+
+        expectTrue(AgentHibernationLifecycleState.running.isActivelyRunning)
+        expectFalse(AgentHibernationLifecycleState.completed.isActivelyRunning)
+
+        expectTrue(AgentHibernationLifecycleState.waiting.needsUserAttention)
+        expectTrue(AgentHibernationLifecycleState.needsInput.needsUserAttention)
+        expectTrue(AgentHibernationLifecycleState.failed.needsUserAttention)
+        expectFalse(AgentHibernationLifecycleState.completed.needsUserAttention)
     }
 
     @MainActor

@@ -96,11 +96,11 @@ struct ClaudeBackgroundWorkNotifyTests {
         #expect(notifyLine(snapshot, containing: "c=turn-complete;p=0") != nil,
                 "Truly-idle stop must tag pending=0; saw \(snapshot)")
         #expect(cached == false)
-        // Truly-idle turn end keeps the "Idle" pill and the hibernatable lifecycle.
-        #expect(statusLine(snapshot, value: "Idle") != nil,
-                "Truly-idle stop must show the Idle pill; saw \(snapshot)")
-        #expect(lifecycleLine(snapshot, value: "idle") != nil,
-                "Truly-idle stop must publish an idle lifecycle; saw \(snapshot)")
+        // Truly-idle turn end keeps the "Completed" pill and the hibernatable lifecycle.
+        #expect(statusLine(snapshot, value: "Completed") != nil,
+                "Truly-idle stop must show the Completed pill; saw \(snapshot)")
+        #expect(lifecycleLine(snapshot, value: "completed") != nil,
+                "Truly-idle stop must publish a completed lifecycle; saw \(snapshot)")
     }
 
     @Test func stopWithPendingCronTagsPending() throws {
