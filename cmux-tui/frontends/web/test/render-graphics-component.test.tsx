@@ -406,6 +406,47 @@ describe("RenderGraphics canvas resource policy", () => {
     });
   });
 
+  it("isolates graphics budgets between independent React roots", async () => {
+    const width = 1_024;
+    const height = 1_024;
+    const graphics: RenderGraphicsModel = {
+      generation: 1,
+      images: [{
+        id: 1,
+        generation: 1,
+        width,
+        height,
+        format: "rgba",
+        data: zeroBytesBase64(width * height * 4),
+      }],
+      placements: Array.from(
+        { length: 16 },
+        (_, index) => placement(index + 1, width, height),
+      ),
+    };
+    const first = render(
+      <RenderGraphics graphics={graphics}>
+        <div>first app</div>
+      </RenderGraphics>,
+    );
+    await waitFor(
+      () => expect(first.container.querySelectorAll("[data-graphic-placement]")).toHaveLength(16),
+      { timeout: 5_000 },
+    );
+
+    const second = render(
+      <RenderGraphics graphics={graphics}>
+        <div>second app</div>
+      </RenderGraphics>,
+    );
+
+    await waitFor(
+      () => expect(second.container.querySelectorAll("[data-graphic-placement]")).toHaveLength(16),
+      { timeout: 5_000 },
+    );
+    expect(first.container.querySelectorAll("[data-graphic-placement]")).toHaveLength(16);
+  });
+
   it("caps tiny placements by canvas count independently of backing bytes", async () => {
     const placementCount = RENDER_GRAPHIC_CANVAS_COUNT_CAP + 1_000;
     const graphics: RenderGraphicsModel = {

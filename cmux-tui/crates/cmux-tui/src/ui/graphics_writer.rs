@@ -1260,6 +1260,16 @@ mod tests {
         drop(read_fd);
     }
 
+    #[cfg(not(unix))]
+    #[test]
+    fn production_graphics_writer_is_disabled_without_interruptible_output() {
+        let result = GraphicsWriter::spawn(Arc::new(StdoutLock::new(())));
+        let Err(error) = result else {
+            panic!("non-Unix graphics output must be disabled");
+        };
+        assert_eq!(error.kind(), io::ErrorKind::Unsupported);
+    }
+
     #[cfg(unix)]
     #[test]
     fn segment_backpressure_has_a_total_deadline_without_external_supersession() {
