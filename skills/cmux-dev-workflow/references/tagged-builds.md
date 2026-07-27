@@ -11,7 +11,7 @@ After a successful build `reload.sh` terminates any running app with the same ta
 
 ## App path links
 
-`reload.sh` prints an `App path:` line with the absolute path to the built `.app`. Build chat links from that exact path: prepend `file://` and URL-encode spaces as `%20`. Never hardcode a DerivedData path and never use a `/tmp/cmux-<tag>/...` app link in chat output.
+`reload.sh` prints an `App path:` line with the absolute path to the built `.app`. Use it to confirm the tag built, but link the build in chat as `http://127.0.0.1:17320/<tag>` through the local Tag Opener. Never put a `file://` URL, a raw `.app` or DerivedData path, or a `/tmp/cmux-<tag>/...` link in chat output.
 
 ## Tagged CLI and socket
 

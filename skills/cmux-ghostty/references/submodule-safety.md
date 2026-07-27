@@ -7,8 +7,8 @@ The parent repository records only a commit SHA, not the branch that makes the S
 1. Enter the submodule.
 2. Create or select the intended branch (never a detached HEAD).
 3. Commit the submodule changes.
-4. Push to the correct remote (`manaflow` for the Ghostty fork, `origin` elsewhere).
-5. Verify the pushed branch contains the commit with `git merge-base --is-ancestor HEAD <remote>/main`.
+4. Push to the remote that hosts the fork. `.gitmodules` points every submodule at `manaflow-ai/*`, so that is normally `origin`; run `git remote -v` to confirm before pushing.
+5. Verify the pushed branch contains the commit, checking the branch you actually pushed rather than always `main`: `git merge-base --is-ancestor HEAD <remote>/<branch>`.
 6. Return to the parent repository and commit the updated pointer.
 
 Skipping step 4 or 5 produces a parent commit pointing at an orphaned SHA that a future checkout or CI job cannot fetch.

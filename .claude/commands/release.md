@@ -88,6 +88,6 @@ Every release ends with a summary section listing all contributors alphabeticall
 
 - [@contributor](https://github.com/contributor)
 - [@fixer](https://github.com/fixer)
-- [@lawrencechen](https://github.com/lawrencechen)
+- [@lawrencecchen](https://github.com/lawrencecchen)
 - [@reporter](https://github.com/reporter)
 ```
