@@ -3292,6 +3292,101 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testCodexTeamsWatcherPaginatesLoadedThreadInventory() throws {
+        let context = try makeClaudeHookContext(name: "codex-teams-pagination")
+        defer { context.cleanup() }
+
+        let rootThreadId = "019fa1f5-1e77-7000-8000-000000000011"
+        let childThreadId = "019fa1f5-4c8c-7000-8000-000000000012"
+        let rootThread: [String: Any] = [
+            "id": rootThreadId,
+            "cwd": context.root.path,
+            "status": ["type": "idle"],
+        ]
+        let childThread: [String: Any] = [
+            "id": childThreadId,
+            "cwd": context.root.path,
+            "status": ["type": "notLoaded"],
+            "source": [
+                "subagent": [
+                    "thread_spawn": [
+                        "parent_thread_id": rootThreadId,
+                        "depth": 1,
+                    ],
+                ],
+            ],
+        ]
+        let appServer = try CodexTeamsTestAppServer(
+            threads: [rootThread, childThread],
+            loadedThreadPages: [
+                .init(requestCursor: nil, data: [rootThreadId], nextCursor: "page-2"),
+                .init(requestCursor: "page-2", data: [childThreadId], nextCursor: nil),
+            ]
+        )
+        let appServerURL = try appServer.start()
+        defer { appServer.stop() }
+
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 32)
+
+        let owner = Process()
+        owner.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        owner.arguments = ["20"]
+        try owner.run()
+
+        let watcher = Process()
+        watcher.executableURL = URL(fileURLWithPath: context.cliPath)
+        watcher.arguments = [
+            "--socket",
+            context.socketPath,
+            "__codex-teams-watch",
+            "--workspace-id",
+            context.workspaceId,
+            "--surface-id",
+            context.surfaceId,
+            "--app-server-url",
+            appServerURL.absoluteString,
+            "--codex-path",
+            "/usr/bin/true",
+            "--max-auto-depth",
+            "0",
+            "--owner-pid",
+            String(owner.processIdentifier),
+        ]
+        var watcherEnvironment = ProcessInfo.processInfo.environment
+        watcherEnvironment["HOME"] = context.root.path
+        watcherEnvironment["CMUX_AGENT_HOOK_STATE_DIR"] = context.root.path
+        watcherEnvironment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        watcher.environment = watcherEnvironment
+        watcher.standardInput = FileHandle.nullDevice
+        watcher.standardOutput = FileHandle.nullDevice
+        watcher.standardError = FileHandle.nullDevice
+        try watcher.run()
+        defer {
+            if watcher.isRunning {
+                watcher.terminate()
+                watcher.waitUntilExit()
+            }
+            if owner.isRunning {
+                owner.terminate()
+                owner.waitUntilExit()
+            }
+        }
+
+        let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+        let persisted = waitForCondition(timeout: 5) {
+            guard let sessions = try? self.readClaudeHookSessions(at: stateURL) else {
+                return false
+            }
+            return sessions[rootThreadId] != nil && sessions[childThreadId] != nil
+        }
+        XCTAssertTrue(persisted, "Watcher must consume every loaded-thread page")
+        XCTAssertEqual(
+            Array(appServer.loadedThreadListRequestCursors().prefix(2)),
+            [nil, "page-2"],
+            "Watcher must continue with the app-server's opaque cursor"
+        )
+    }
+
     func testCodexTeamsWatcherPersistsAuthoritativeLifecycleGraphAndManagedHookDeduplicates() throws {
         let context = try makeClaudeHookContext(name: "codex-teams-lifecycle")
         defer { context.cleanup() }

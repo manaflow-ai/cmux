@@ -43,13 +43,21 @@ extension CLINotifyProcessIntegrationRegressionTests {
     }
 
     final class CodexTeamsTestAppServer: @unchecked Sendable {
+        struct LoadedThreadPage {
+            let requestCursor: String?
+            let data: [String]
+            let nextCursor: String?
+        }
+
         private let queue = DispatchQueue(label: "cmux.tests.codex-teams-app-server")
         private let listener: NWListener
         private let threadsById: [String: [String: Any]]
         private let loadedThreadIdBatches: [[String]]
+        private let loadedThreadPagesByCursor: [String: LoadedThreadPage]?
         private let lock = NSLock()
         private var connections: [NWConnection] = []
         private var loadedThreadListRequestCountValue = 0
+        private var loadedThreadListRequestCursorsValue: [String?] = []
 
         init(threads: [[String: Any]], loadedThreadIdBatches: [[String]]) throws {
             let parameters = NWParameters.tcp
@@ -64,6 +72,27 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 }
             )
             self.loadedThreadIdBatches = loadedThreadIdBatches.isEmpty ? [[]] : loadedThreadIdBatches
+            loadedThreadPagesByCursor = nil
+        }
+
+        init(threads: [[String: Any]], loadedThreadPages: [LoadedThreadPage]) throws {
+            let parameters = NWParameters.tcp
+            let webSocketOptions = NWProtocolWebSocket.Options()
+            webSocketOptions.autoReplyPing = true
+            parameters.defaultProtocolStack.applicationProtocols.insert(webSocketOptions, at: 0)
+            listener = try NWListener(using: parameters, on: .any)
+            threadsById = Dictionary(
+                uniqueKeysWithValues: threads.compactMap { thread in
+                    guard let id = thread["id"] as? String else { return nil }
+                    return (id, thread)
+                }
+            )
+            loadedThreadIdBatches = [[]]
+            loadedThreadPagesByCursor = Dictionary(
+                uniqueKeysWithValues: loadedThreadPages.map {
+                    ($0.requestCursor ?? "", $0)
+                }
+            )
         }
 
         func start(timeout: TimeInterval = 5) throws -> URL {
@@ -122,6 +151,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
             return value
         }
 
+        func loadedThreadListRequestCursors() -> [String?] {
+            lock.lock()
+            let value = loadedThreadListRequestCursorsValue
+            lock.unlock()
+            return value
+        }
+
         private func accept(_ connection: NWConnection) {
             lock.lock()
             connections.append(connection)
@@ -162,6 +198,22 @@ extension CLINotifyProcessIntegrationRegressionTests {
             case "initialize":
                 send([["id": requestId, "result": [:]]], on: connection)
             case "thread/loaded/list":
+                let params = request["params"] as? [String: Any]
+                let cursor = params?["cursor"] as? String
+                if let loadedThreadPagesByCursor {
+                    recordLoadedThreadListRequest(cursor: cursor)
+                    guard let page = loadedThreadPagesByCursor[cursor ?? ""] else {
+                        send([[
+                            "id": requestId,
+                            "error": ["code": -32_602, "message": "unknown test cursor"],
+                        ]], on: connection)
+                        return
+                    }
+                    var result: [String: Any] = ["data": page.data]
+                    result["nextCursor"] = page.nextCursor ?? NSNull()
+                    send([["id": requestId, "result": result]], on: connection)
+                    return
+                }
                 let loadedThreadIds = nextLoadedThreadIds()
                 send([["id": requestId, "result": ["data": loadedThreadIds]]], on: connection)
             case "thread/resume":
@@ -198,9 +250,17 @@ extension CLINotifyProcessIntegrationRegressionTests {
             lock.lock()
             let index = min(loadedThreadListRequestCountValue, loadedThreadIdBatches.count - 1)
             loadedThreadListRequestCountValue += 1
+            loadedThreadListRequestCursorsValue.append(nil)
             let value = loadedThreadIdBatches[index]
             lock.unlock()
             return value
+        }
+
+        private func recordLoadedThreadListRequest(cursor: String?) {
+            lock.lock()
+            loadedThreadListRequestCountValue += 1
+            loadedThreadListRequestCursorsValue.append(cursor)
+            lock.unlock()
         }
 
         private func send(_ objects: [[String: Any]], on connection: NWConnection) {
