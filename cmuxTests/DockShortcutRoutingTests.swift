@@ -1,12 +1,17 @@
 import AppKit
 import Bonsplit
 import Combine
+import CmuxSimulatorUI
+import CmuxSettings
+import CmuxWorkspaces
 import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
+private typealias AppStoredShortcut = cmux_DEV.StoredShortcut
 #elseif canImport(cmux)
 @testable import cmux
+private typealias AppStoredShortcut = cmux.StoredShortcut
 #endif
 
 @Suite("Dock shortcut routing", .serialized)
@@ -25,7 +30,7 @@ struct DockShortcutRoutingTests {
                 harness.dock.focusPanel(firstPanel)
                 let mainPanelBefore = harness.mainWorkspace.focusedPanelId
 
-                let customShortcut = StoredShortcut(
+                let customShortcut = AppStoredShortcut(
                     key: "y",
                     command: true,
                     shift: false,
@@ -62,7 +67,7 @@ struct DockShortcutRoutingTests {
                 harness.dock.focusPanel(leftPanel)
                 let mainPanelBefore = harness.mainWorkspace.focusedPanelId
 
-                let customShortcut = StoredShortcut(
+                let customShortcut = AppStoredShortcut(
                     key: "y",
                     command: true,
                     shift: false,
@@ -94,7 +99,7 @@ struct DockShortcutRoutingTests {
                 KeyboardShortcutSettings.setShortcut(.unbound, for: .nextSurface)
                 KeyboardShortcutSettings.setShortcut(.unbound, for: .prevSurface)
 
-                let next = StoredShortcut(
+                let next = AppStoredShortcut(
                     key: "\t",
                     command: false,
                     shift: false,
@@ -104,7 +109,7 @@ struct DockShortcutRoutingTests {
                 #expect(Self.dispatch(next, in: harness))
                 #expect(harness.dock.focusedPanelId == secondPanel)
 
-                let previous = StoredShortcut(
+                let previous = AppStoredShortcut(
                     key: "\t",
                     command: false,
                     shift: true,
@@ -131,7 +136,7 @@ struct DockShortcutRoutingTests {
                 )
                 harness.dock.focusPanel(firstPanel)
 
-                let controlTab = StoredShortcut(
+                let controlTab = AppStoredShortcut(
                     key: "\t",
                     command: false,
                     shift: false,
@@ -230,7 +235,7 @@ struct DockShortcutRoutingTests {
                 #expect(Self.dispatch(previousShortcut, in: harness))
                 #expect(harness.dock.focusedPanelId == firstPanel)
 
-                let numberedShortcut = StoredShortcut(
+                let numberedShortcut = AppStoredShortcut(
                     key: "3",
                     command: false,
                     shift: false,
@@ -302,8 +307,84 @@ struct DockShortcutRoutingTests {
                 let flash = Self.customShortcut(key: "u")
                 KeyboardShortcutSettings.setShortcut(flash, for: .triggerFlash)
                 #expect(Self.dispatch(flash, in: harness))
-                #expect(panel.flashCount == 1)
+                #expect(panel.flashReasons == [.userInitiated])
                 #expect(harness.mainWorkspace.focusedPanelId == mainPanelBefore)
+            }
+        }
+    }
+
+    @Test("Simulator shortcuts target the focused Dock Simulator")
+    @MainActor
+    func simulatorShortcutTargetsFocusedDock() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try Self.withHarness { harness in
+                let flags = CmuxFeatureFlags.shared
+                let simulatorFlag = CmuxFeatureFlags.allFlags[5]
+                let previousOverride = flags.overrideValue(for: simulatorFlag)
+                flags.setOverride(true, for: simulatorFlag)
+                defer { flags.setOverride(previousOverride, for: simulatorFlag) }
+
+                let panel = try harness.dock.seedSimulatorPanel(inPane: harness.rootPane)
+                defer { panel.close() }
+                let responder = DockSimulatorResponder(
+                    owner: ObjectIdentifier(panel.coordinator)
+                )
+                harness.window.contentView = responder
+                #expect(harness.window.makeFirstResponder(responder))
+                let shortcut = Self.customShortcut(key: "y")
+                KeyboardShortcutSettings.setShortcut(shortcut, for: .simulatorHome)
+
+                #expect(Self.dispatch(shortcut, in: harness))
+            }
+        }
+    }
+
+    @Test("Simulator tool editors retain panel focus without routing Simulator shortcuts")
+    @MainActor
+    func simulatorToolEditorRetainsPanelFocus() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try Self.withHarness { harness in
+                let flags = CmuxFeatureFlags.shared
+                let simulatorFlag = CmuxFeatureFlags.allFlags[5]
+                let previousOverride = flags.overrideValue(for: simulatorFlag)
+                flags.setOverride(true, for: simulatorFlag)
+                defer { flags.setOverride(previousOverride, for: simulatorFlag) }
+
+                let panel = try harness.dock.seedSimulatorPanel(inPane: harness.rootPane)
+                defer { panel.close() }
+                let ownershipView = NSView(frame: harness.window.contentView?.bounds ?? .zero)
+                let textField = NSTextField(
+                    frame: NSRect(x: 20, y: 20, width: 240, height: 24)
+                )
+                ownershipView.addSubview(textField)
+                harness.window.contentView = ownershipView
+                panel.setFocusOwnershipView(ownershipView)
+                defer { panel.clearFocusOwnershipView(ownershipView) }
+                #expect(harness.window.makeFirstResponder(textField))
+                let firstResponder = try #require(harness.window.firstResponder)
+                #expect(shortcutResponderAcceptsTextEditing(firstResponder))
+
+                let shortcut = Self.customShortcut(key: "y")
+                KeyboardShortcutSettings.setShortcut(shortcut, for: .simulatorHome)
+                let event = try #require(Self.event(shortcut, in: harness))
+                let focus = harness.appDelegate.shortcutEventFocusContext(event)
+                var canvasContext = focus.shortcutContext
+                canvasContext.setBool(
+                    ShortcutContextKnownKey.workspaceCanvasLayout.rawValue,
+                    true
+                )
+
+                #expect(focus.simulatorFocused)
+                #expect(focus.shortcutContext.bool(
+                    ShortcutContextKnownKey.simulatorFocus.rawValue
+                ))
+                #expect(!focus.shortcutContext.bool(
+                    ShortcutContextKnownKey.terminalFocus.rawValue
+                ))
+                #expect(!KeyboardShortcutSettings.effectiveWhenClause(
+                    for: .canvasZoomReset
+                ).evaluate(canvasContext))
+                #expect(!harness.appDelegate.debugHandleCustomShortcut(event: event))
             }
         }
     }
@@ -329,7 +410,11 @@ private extension DockShortcutRoutingTests {
         KeyboardShortcutSettings.resetAll()
 
         let appDelegate = AppDelegate()
-        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let suiteName = "DockShortcutRoutingTests.paneHistory.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        settings.set(true, for: SettingCatalog().app.focusHistoryIncludesPanesAndTabs)
+        let manager = TabManager(autoWelcomeIfNeeded: false, settings: settings)
         let fileExplorerState = FileExplorerState()
         let windowId = UUID()
         let window = NSWindow(
@@ -363,6 +448,7 @@ private extension DockShortcutRoutingTests {
         appDelegate.noteRightSidebarKeyboardFocusIntent(mode: .dock, in: window)
 
         defer {
+            defaults.removePersistentDomain(forName: suiteName)
             KeyboardShortcutSettings.resetAll()
             KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
             TerminalController.shared.setActiveTabManager(previousManager)
@@ -383,22 +469,8 @@ private extension DockShortcutRoutingTests {
     }
 
     @MainActor
-    static func dispatch(_ shortcut: StoredShortcut, in harness: Harness) -> Bool {
-        guard !shortcut.isUnbound,
-              !shortcut.hasChord,
-              let keyCode = shortcut.firstStroke.resolvedKeyCode(),
-              let event = NSEvent.keyEvent(
-                  with: .keyDown,
-                  location: .zero,
-                  modifierFlags: shortcut.modifierFlags,
-                  timestamp: ProcessInfo.processInfo.systemUptime,
-                  windowNumber: harness.window.windowNumber,
-                  context: nil,
-                  characters: shortcut.menuItemKeyEquivalent ?? shortcut.key,
-                  charactersIgnoringModifiers: shortcut.menuItemKeyEquivalent ?? shortcut.key,
-                  isARepeat: false,
-                  keyCode: keyCode
-              ) else {
+    static func dispatch(_ shortcut: AppStoredShortcut, in harness: Harness) -> Bool {
+        guard let event = event(shortcut, in: harness) else {
             return false
         }
 #if DEBUG
@@ -408,8 +480,31 @@ private extension DockShortcutRoutingTests {
 #endif
     }
 
-    static func customShortcut(key: String) -> StoredShortcut {
-        StoredShortcut(
+    static func event(
+        _ shortcut: AppStoredShortcut,
+        in harness: Harness
+    ) -> NSEvent? {
+        guard !shortcut.isUnbound,
+              !shortcut.hasChord,
+              let keyCode = shortcut.firstStroke.resolvedKeyCode() else {
+            return nil
+        }
+        return NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: shortcut.modifierFlags,
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: harness.window.windowNumber,
+            context: nil,
+            characters: shortcut.menuItemKeyEquivalent ?? shortcut.key,
+            charactersIgnoringModifiers: shortcut.menuItemKeyEquivalent ?? shortcut.key,
+            isARepeat: false,
+            keyCode: keyCode
+        )
+    }
+
+    static func customShortcut(key: String) -> AppStoredShortcut {
+        AppStoredShortcut(
             key: key,
             command: true,
             shift: false,
@@ -427,15 +522,14 @@ private final class DockShortcutTestPanel: Panel, ObservableObject {
     let displayTitle = "Dock Shortcut Test Panel"
     let displayIcon: String? = "terminal.fill"
     var isDirty = false
-    private(set) var flashCount = 0
+    private(set) var flashReasons: [WorkspaceAttentionFlashReason] = []
 
     func close() {}
     func focus() {}
     func unfocus() {}
 
     func triggerFlash(reason: WorkspaceAttentionFlashReason) {
-        _ = reason
-        flashCount += 1
+        flashReasons.append(reason)
     }
 }
 
@@ -459,4 +553,39 @@ private extension DockSplitStore {
         applyDockSelection(tabId: tabId, inPane: pane)
         return panel
     }
+
+    @MainActor
+    func seedSimulatorPanel(inPane pane: PaneID) throws -> SimulatorPanel {
+        let panel = SimulatorPanel()
+        panels[panel.id] = panel
+        let tabId = try #require(
+            bonsplitController.createTab(
+                title: panel.displayTitle,
+                icon: panel.displayIcon,
+                kind: SurfaceKind.simulator.rawValue,
+                isDirty: panel.isDirty,
+                inPane: pane
+            )
+        )
+        surfaceIdToPanelId[tabId] = panel.id
+        bonsplitController.focusPane(pane)
+        bonsplitController.selectTab(tabId)
+        applyDockSelection(tabId: tabId, inPane: pane)
+        return panel
+    }
+}
+
+@MainActor
+private final class DockSimulatorResponder: NSView, SimulatorInputResponder {
+    let simulatorOwnerID: ObjectIdentifier?
+
+    init(owner: ObjectIdentifier) {
+        simulatorOwnerID = owner
+        super.init(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { nil }
+
+    override var acceptsFirstResponder: Bool { true }
 }

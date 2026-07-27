@@ -39,18 +39,25 @@ extension MobileChatEventSource {
         )
     }
 
+    /// Reads metadata for a file referenced by one terminal surface.
+    ///
+    /// - Parameters:
+    ///   - workspaceID: Workspace containing the terminal.
+    ///   - surfaceID: Terminal surface authorizing the file reference.
+    ///   - path: Absolute Mac host path.
     public func terminalArtifactStat(
         workspaceID: String,
         surfaceID: String,
         path: String
     ) async throws -> ChatArtifactStat {
-        try await artifactCall(
+        let params: [String: Any] = [
+            "workspace_id": workspaceID,
+            "surface_id": surfaceID,
+            "path": path,
+        ]
+        return try await artifactCall(
             method: "mobile.terminal.artifact.stat",
-            params: [
-                "workspace_id": workspaceID,
-                "surface_id": surfaceID,
-                "path": path,
-            ]
+            params: params
         )
     }
 

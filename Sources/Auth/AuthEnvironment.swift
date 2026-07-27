@@ -1,3 +1,4 @@
+import CMUXAuthCore
 import Foundation
 
 enum AuthEnvironment {
@@ -386,31 +387,91 @@ enum AuthEnvironment {
     }
 
     static var stackProjectID: String {
-        let environment = ProcessInfo.processInfo.environment
+        #if DEBUG
+        return resolvedStackProjectID(
+            environment: ProcessInfo.processInfo.environment,
+            isDebugBuild: true
+        )
+        #else
+        return resolvedStackProjectID(
+            environment: ProcessInfo.processInfo.environment,
+            isDebugBuild: false
+        )
+        #endif
+    }
+
+    /// Resolve the Stack channel for a macOS build. Debug defaults to the
+    /// development project, while `scripts/reload.sh --prod-auth` bakes an
+    /// explicit production override into the tagged app's launch environment.
+    /// Invalid values fail toward the build's normal channel.
+    static func resolvedStackAuthEnvironment(
+        environment: [String: String],
+        isDebugBuild: Bool
+    ) -> CMUXAuthEnvironment {
+        switch environment["CMUX_AUTH_ENVIRONMENT"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() {
+        case "production":
+            return .production
+        case "development":
+            return .development
+        default:
+            return isDebugBuild ? .development : .production
+        }
+    }
+
+    static func resolvedStackProjectID(
+        environment: [String: String],
+        isDebugBuild: Bool
+    ) -> String {
         if let projectID = environment["CMUX_STACK_PROJECT_ID"]?
             .trimmingCharacters(in: .whitespacesAndNewlines),
            !projectID.isEmpty {
             return projectID
         }
-        #if DEBUG
-        return developmentStackProjectID
-        #else
-        return productionStackProjectID
-        #endif
+        switch resolvedStackAuthEnvironment(
+            environment: environment,
+            isDebugBuild: isDebugBuild
+        ) {
+        case .development:
+            return developmentStackProjectID
+        case .production:
+            return productionStackProjectID
+        }
     }
 
     static var stackPublishableClientKey: String {
-        let environment = ProcessInfo.processInfo.environment
+        #if DEBUG
+        return resolvedStackPublishableClientKey(
+            environment: ProcessInfo.processInfo.environment,
+            isDebugBuild: true
+        )
+        #else
+        return resolvedStackPublishableClientKey(
+            environment: ProcessInfo.processInfo.environment,
+            isDebugBuild: false
+        )
+        #endif
+    }
+
+    static func resolvedStackPublishableClientKey(
+        environment: [String: String],
+        isDebugBuild: Bool
+    ) -> String {
         if let clientKey = environment["CMUX_STACK_PUBLISHABLE_CLIENT_KEY"]?
             .trimmingCharacters(in: .whitespacesAndNewlines),
            !clientKey.isEmpty {
             return clientKey
         }
-        #if DEBUG
-        return developmentStackPublishableClientKey
-        #else
-        return productionStackPublishableClientKey
-        #endif
+        switch resolvedStackAuthEnvironment(
+            environment: environment,
+            isDebugBuild: isDebugBuild
+        ) {
+        case .development:
+            return developmentStackPublishableClientKey
+        case .production:
+            return productionStackPublishableClientKey
+        }
     }
 
     /// The website origin used for the after-sign-in handler.

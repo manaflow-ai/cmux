@@ -1,5 +1,7 @@
 #if os(iOS)
 import CMUXMobileCore
+import CmuxMobileDiagnostics
+import Foundation
 import Observation
 
 @MainActor
@@ -13,7 +15,25 @@ final class MobileIrohSettingsModel {
     private(set) var testResults: [String: CmxIrohRelayTestResult] = [:]
     private(set) var diagnosticReport = DiagnosticReport.empty
     private(set) var diagnosticExportText = ""
+    private(set) var verboseLogEnabled = UserDefaults.standard.bool(
+        forKey: MobileDebugLog.verboseLogDefaultsKey
+    )
     private var diagnosticReloadGeneration: UInt64 = 0
+
+    /// The durable verbose log file, offered for sharing once it exists.
+    var verboseLogShareURL: URL? {
+        guard let url = MobileDebugLog.logFileURL,
+              FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return url
+    }
+
+    func setVerboseLog(_ enabled: Bool) async {
+        verboseLogEnabled = enabled
+        let accepted = await MobileDebugLog.shared.setFileLogging(enabled: enabled)
+        if !accepted {
+            verboseLogEnabled = false
+        }
+    }
 
     init(controller: any CmxIrohSettingsControlling) {
         self.controller = controller
@@ -50,6 +70,22 @@ final class MobileIrohSettingsModel {
         mutate { try await self.controller.setIrohRelayPreference(try preference.validated()) }
     }
 
+    func setPathPreference(_ preference: CmxIrohPathPreference) {
+        mutate { try await self.controller.setIrohPathPreference(preference) }
+    }
+
+    #if DEBUG
+    func setDebugTransportVerificationMode(
+        _ mode: CmxIrohTransportVerificationMode
+    ) {
+        mutate {
+            guard let debugController = self.controller
+                as? any CmxIrohDebugSettingsControlling else { return }
+            try await debugController.setIrohDebugTransportVerificationMode(mode)
+        }
+    }
+    #endif
+
     func upsertCustomRelay(_ relay: CmxIrohCustomRelayDraft, deviceSecret: String?) async -> Bool {
         await mutateAndWait {
             try await self.controller.upsertIrohCustomRelay(relay, deviceSecret: deviceSecret)
@@ -62,6 +98,22 @@ final class MobileIrohSettingsModel {
 
     func testCustomRelay(id: String) {
         Task { testResults[id] = await controller.testIrohCustomRelay(id: id) }
+    }
+
+    func upsertCustomPrivatePath(
+        _ path: CmxIrohCustomPrivatePathDraft
+    ) async -> Bool {
+        await mutateAndWait {
+            try await self.controller.upsertIrohCustomPrivatePath(path)
+        }
+    }
+
+    func removeCustomPrivatePath(macDeviceID: String) {
+        mutate {
+            try await self.controller.removeIrohCustomPrivatePath(
+                macDeviceID: macDeviceID
+            )
+        }
     }
 
     func clearSaveError() {
@@ -91,11 +143,16 @@ final class MobileIrohSettingsModel {
         diagnosticReloadGeneration &+= 1
         let generation = diagnosticReloadGeneration
         let report = await controller.irohDiagnosticReport()
+        let previous = await controller.irohPreviousLaunchDiagnosticReport()
         guard generation == diagnosticReloadGeneration else { return }
         diagnosticReport = report
-        diagnosticExportText = report.events.isEmpty
-            ? ""
-            : String(decoding: report.compactExport(), as: UTF8.self)
+        // The export carries the previous launch's archived block first so a
+        // drop that happened before a relaunch stays in the shared timeline.
+        let blocks = [previous, report].compactMap { block -> String? in
+            guard let block, !block.events.isEmpty else { return nil }
+            return String(decoding: block.compactExport(), as: UTF8.self)
+        }
+        diagnosticExportText = blocks.joined(separator: "\n")
     }
 }
 #endif

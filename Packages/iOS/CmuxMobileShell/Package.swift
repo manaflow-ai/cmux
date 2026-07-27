@@ -13,10 +13,15 @@ let package = Package(
             name: "CmuxMobileShell",
             targets: ["CmuxMobileShell"]
         ),
+        .library(
+            name: "CmuxMobileShellReleaseGateSupport",
+            targets: ["CmuxMobileShellReleaseGateSupport"]
+        ),
     ],
     dependencies: [
         .package(path: "../../Shared/CMUXMobileCore"),
         .package(path: "../../Shared/CmuxAgentChat"),
+        .package(path: "../CmuxMobileChanges"),
         .package(path: "../CmuxMobileDiagnostics"),
         .package(path: "../CmuxMobilePairedMac"),
         .package(path: "../CmuxMobileRPC"),
@@ -30,6 +35,7 @@ let package = Package(
             dependencies: [
                 "CMUXMobileCore",
                 "CmuxAgentChat",
+                "CmuxMobileChanges",
                 "CmuxMobileDiagnostics",
                 "CmuxMobilePairedMac",
                 "CmuxMobileRPC",
@@ -43,12 +49,29 @@ let package = Package(
                 .enableUpcomingFeature("InternalImportsByDefault"),
             ]
         ),
-        .testTarget(
-            name: "CmuxMobileShellTests",
+        .target(
+            name: "CmuxMobileShellReleaseGateSupport",
             dependencies: [
                 "CmuxMobileShell",
                 "CMUXMobileCore",
                 "CmuxAgentChat",
+                "CmuxMobileRPC",
+                "CmuxMobileShellModel",
+            ],
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+                .enableUpcomingFeature("ExistentialAny"),
+                .enableUpcomingFeature("InternalImportsByDefault"),
+            ]
+        ),
+        .testTarget(
+            name: "CmuxMobileShellTests",
+            dependencies: [
+                "CmuxMobileShell",
+                "CmuxMobileShellReleaseGateSupport",
+                "CMUXMobileCore",
+                "CmuxAgentChat",
+                "CmuxMobileChanges",
                 "CmuxMobilePairedMac",
                 "CmuxMobileRPC",
                 "CmuxMobileShellModel",

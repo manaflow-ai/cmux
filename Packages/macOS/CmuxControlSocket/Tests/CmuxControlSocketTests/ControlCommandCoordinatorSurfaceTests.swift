@@ -145,6 +145,72 @@ struct ControlCommandCoordinatorSurfaceTests {
         #expect(data == .object(["type": .string("agentSession")]))
     }
 
+    @Test func surfaceListIncludesLiveSimulatorIdentity() throws {
+        let context = FakeSurfaceControlCommandContext()
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        context.surfaceListSnapshot = ControlSurfaceListSnapshot(
+            workspaceID: workspaceID,
+            windowID: nil,
+            surfaces: [ControlSurfaceSummary(
+                surfaceID: surfaceID,
+                typeRawValue: "simulator",
+                title: "Simulator",
+                isFocused: true,
+                paneID: nil,
+                indexInPane: nil,
+                selectedInPane: nil,
+                developerToolsVisible: nil,
+                requestedWorkingDirectory: nil,
+                initialCommand: nil,
+                tmuxStartCommand: nil,
+                isTerminal: false,
+                resumeBinding: nil,
+                simulatorDeviceID: "SIM-UDID",
+                simulatorRuntimeIdentifier: "com.apple.CoreSimulator.SimRuntime.iOS-26-5",
+                simulatorDeviceTypeIdentifier: "com.apple.CoreSimulator.SimDeviceType.iPad-Pro-13-inch-M5",
+                simulatorDeviceName: "iPad Pro 13-inch (M5)",
+                simulatorDeviceState: "Booted"
+            )]
+        )
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.list",
+            params: ["workspace_id": .string(workspaceID.uuidString)]
+        ))
+
+        guard case let .ok(.object(payload)) = result,
+              case let .array(rows)? = payload["surfaces"],
+              case let .object(row)? = rows.first else {
+            Issue.record("Expected a Simulator surface row")
+            return
+        }
+        #expect(row["simulator_id"] == .string("SIM-UDID"))
+        #expect(row["device_name"] == .string("iPad Pro 13-inch (M5)"))
+        #expect(row["state"] == .string("Booted"))
+    }
+
+    @Test func surfaceResumePendingApprovalReturnsRetryableBusyError() {
+        let context = FakeSurfaceControlCommandContext()
+        let message = "Resume approval data is still loading. Retry the request."
+        context.resumeResolution = .approvalPending(message: message)
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.resume.set",
+            params: ["command": .string("tmux attach -t work")]
+        ))
+
+        #expect(result == .err(
+            code: "busy",
+            message: message,
+            data: .object(["retryable": .bool(true)])
+        ))
+    }
+
     @Test func paneCreateDockUnsupportedTypeReturnsInvalidParams() throws {
         let context = FakeSurfaceControlCommandContext()
         context.paneCreateResolution = .dockUnsupportedType(
@@ -203,5 +269,80 @@ struct ControlCommandCoordinatorSurfaceTests {
         ]))
 
         #expect(context.reportedPWD?.path == "/srv/work/bar ")
+    }
+
+    @Test func reportGitBranchForwardsRemoteSurfaceMetadata() {
+        let (coordinator, context) = makeCoordinator()
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let resolvedSurfaceID = UUID()
+        context.reportGitResolution = .recorded(surfaceID: resolvedSurfaceID)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.report_git_branch",
+            params: [
+                "workspace_id": .string(workspaceID.uuidString),
+                "surface_id": .string(surfaceID.uuidString),
+                "branch": .string("feature/mosh-parity"),
+                "status": .string("unknown"),
+            ]
+        ))
+
+        #expect(context.reportedGit?.workspaceID == workspaceID)
+        #expect(context.reportedGit?.requestedSurfaceID == surfaceID)
+        #expect(context.reportedGit?.branch == "feature/mosh-parity")
+        #expect(context.reportedGit?.isDirty == nil)
+        guard case .ok(.object(let payload)) = result else {
+            Issue.record("expected Git report success")
+            return
+        }
+        #expect(payload["surface_id"] == .string(resolvedSurfaceID.uuidString))
+        #expect(payload["branch"] == .string("feature/mosh-parity"))
+        #expect(payload["is_dirty"] == .null)
+        #expect(payload["cleared"] == .bool(false))
+    }
+
+    @Test func reportGitBranchRejectsInvalidDirtyStatus() {
+        let (coordinator, context) = makeCoordinator()
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.report_git_branch",
+            params: [
+                "workspace_id": .string(UUID().uuidString),
+                "branch": .string("main"),
+                "status": .string("maybe"),
+            ]
+        ))
+
+        #expect(result == .err(
+            code: "invalid_params",
+            message: "status must be dirty, clean, or unknown",
+            data: nil
+        ))
+        #expect(context.reportedGit == nil)
+    }
+
+    @Test func clearGitBranchResolvesWorkspaceScopedTmuxSurface() {
+        let (coordinator, context) = makeCoordinator()
+        let workspaceID = UUID()
+        let resolvedSurfaceID = UUID()
+        context.reportGitResolution = .recorded(surfaceID: resolvedSurfaceID)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.clear_git_branch",
+            params: ["workspace_id": .string(workspaceID.uuidString)]
+        ))
+
+        #expect(context.clearedGit?.workspaceID == workspaceID)
+        #expect(context.clearedGit?.requestedSurfaceID == nil)
+        guard case .ok(.object(let payload)) = result else {
+            Issue.record("expected Git clear success")
+            return
+        }
+        #expect(payload["surface_id"] == .string(resolvedSurfaceID.uuidString))
+        #expect(payload["branch"] == .null)
+        #expect(payload["cleared"] == .bool(true))
     }
 }

@@ -94,6 +94,32 @@ import Testing
 }
 
 @MainActor
+@Test func verifiedReplayCapableHostUsesRenderGridOnlySubscription() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    await router.setCapabilities([
+        "events.v1",
+        "terminal.bytes.v1",
+        "terminal.render_grid.v1",
+        "terminal.render_grid.verified_replay.v1",
+        "terminal.replay.v1"
+    ])
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    #expect(store.connectionState == .connected)
+    #expect(store.terminalOutputTransport == .renderGrid)
+
+    let sawSubscribe = try await pollUntil { await router.count(of: "mobile.events.subscribe") >= 1 }
+    #expect(sawSubscribe, "listener must request the server-side subscription")
+    let topics = await router.topics(for: "mobile.events.subscribe").last ?? []
+    #expect(topics.contains("terminal.render_grid"))
+    #expect(
+        topics.contains("terminal.bytes") == false,
+        "verified replay must exclude raw bytes so primary-screen updates cannot bypass render-grid verification"
+    )
+}
+
+@MainActor
 @Test func renderGridOnlyHostKeepsPrimaryRenderGridDelivery() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()

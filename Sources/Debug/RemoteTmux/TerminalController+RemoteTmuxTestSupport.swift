@@ -46,7 +46,7 @@ extension TerminalController {
         guard args.count == rawArgs.count, !args.isEmpty else {
             return v2Error(id: id, code: "invalid_params", message: "args must be non-empty strings")
         }
-        guard Self.isAllowedRemoteTmuxTestCommand(args) else {
+        guard let tmuxArguments = Self.remoteTmuxTestCommandArguments(args) else {
             return v2Error(id: id, code: "invalid_params", message: "tmux command is not allowed")
         }
         // Only known tmux install paths: in allowAll socket mode this verb is
@@ -63,7 +63,7 @@ extension TerminalController {
             env.removeValue(forKey: "TMUX")
             let result = try await self.runBoundedRemoteTmuxTestCommand(
                 executable: bin,
-                arguments: ["-f", "/dev/null"] + args,
+                arguments: ["-f", "/dev/null"] + tmuxArguments,
                 environment: env
             )
             return [
@@ -78,6 +78,12 @@ extension TerminalController {
     /// Targets and names never reach a shell; formats are pinned because tmux
     /// format strings can themselves execute `#()` commands.
     nonisolated static func isAllowedRemoteTmuxTestCommand(_ args: [String]) -> Bool {
+        remoteTmuxTestCommandArguments(args) != nil
+    }
+
+    /// Validates the UI-test command grammar and expands semantic harness verbs
+    /// into the only executable tmux payloads the app owns.
+    nonisolated static func remoteTmuxTestCommandArguments(_ args: [String]) -> [String]? {
         func isAtom(_ value: String) -> Bool {
             !value.isEmpty && value.unicodeScalars.allSatisfy {
                 CharacterSet.alphanumerics.contains($0) || "._-:@%".unicodeScalars.contains($0)
@@ -87,68 +93,82 @@ extension TerminalController {
             guard let number = Int(value) else { return false }
             return (1...10_000).contains(number)
         }
-        guard let command = args.first else { return false }
+        guard let command = args.first else { return nil }
         switch command {
         case "kill-server":
-            return args.count == 1
+            return args.count == 1 ? args : nil
         case "new-session":
             let base = args.count == 8 || args.count == 10
-            return base && args[1] == "-d" && args[2] == "-s" && isAtom(args[3])
+            let allowed = base && args[1] == "-d" && args[2] == "-s" && isAtom(args[3])
                 && args[4] == "-x" && isDimension(args[5])
                 && args[6] == "-y" && isDimension(args[7])
                 && (args.count == 8 || (args[8] == "-n" && isAtom(args[9])))
+            return allowed ? args : nil
         case "split-window":
-            return args.count == 4 && ["-h", "-v"].contains(args[1])
+            let allowed = args.count == 4 && ["-h", "-v"].contains(args[1])
                 && args[2] == "-t" && isAtom(args[3])
+            return allowed ? args : nil
         case "select-layout":
-            return args.count == 4 && args[1] == "-t" && isAtom(args[2])
+            let allowed = args.count == 4 && args[1] == "-t" && isAtom(args[2])
                 && ["even-horizontal", "even-vertical", "tiled", "main-horizontal"].contains(args[3])
+            return allowed ? args : nil
         case "new-window":
-            return (args.count == 3 || args.count == 5)
+            let allowed = (args.count == 3 || args.count == 5)
                 && args[1] == "-t" && isAtom(args[2])
                 && (args.count == 3 || (args[3] == "-n" && isAtom(args[4])))
+            return allowed ? args : nil
         case "select-window":
-            return args.count == 3 && args[1] == "-t" && isAtom(args[2])
+            return args.count == 3 && args[1] == "-t" && isAtom(args[2]) ? args : nil
         case "set":
-            return args.count == 6 && args[1] == "-w" && args[2] == "-t"
+            let allowed = args.count == 6 && args[1] == "-w" && args[2] == "-t"
                 && isAtom(args[3]) && args[4] == "pane-border-status"
                 && ["top", "bottom"].contains(args[5])
+            return allowed ? args : nil
         case "resize-pane":
             // `-Z` toggles zoom; `-x`/`-y` set a dimension.
             if args.count == 4 && args[1] == "-Z" && args[2] == "-t" && isAtom(args[3]) {
-                return true
+                return args
             }
-            return args.count == 5 && args[1] == "-t" && isAtom(args[2])
+            let allowed = args.count == 5 && args[1] == "-t" && isAtom(args[2])
                 && ["-x", "-y"].contains(args[3]) && isDimension(args[4])
+            return allowed ? args : nil
         case "resize-window":
-            return args.count == 7 && args[1] == "-t" && isAtom(args[2])
+            let allowed = args.count == 7 && args[1] == "-t" && isAtom(args[2])
                 && args[3] == "-x" && isDimension(args[4])
                 && args[5] == "-y" && isDimension(args[6])
+            return allowed ? args : nil
         case "kill-pane":
-            return args.count == 3 && args[1] == "-t" && isAtom(args[2])
+            return args.count == 3 && args[1] == "-t" && isAtom(args[2]) ? args : nil
         case "select-pane":
-            return args.count == 3 && args[1] == "-t" && isAtom(args[2])
+            return args.count == 3 && args[1] == "-t" && isAtom(args[2]) ? args : nil
         case "capture-pane":
-            return args.count == 5 && args[1] == "-p" && args[2] == "-J"
+            let allowed = args.count == 5 && args[1] == "-p" && args[2] == "-J"
                 && args[3] == "-t" && isAtom(args[4])
-        case "send-keys":
-            // The content oracle's ruler is an arbitrary shell one-liner sent
-            // as keystrokes. This verb is DEBUG-only and confined to the
-            // UI-test tmux directory, so the payload (args[3]) is unconstrained;
-            // only the target and the trailing Enter key are checked.
-            return args.count == 5 && args[1] == "-t" && isAtom(args[2])
-                && args[4] == "Enter"
+            return allowed ? args : nil
+        case "start-ruler":
+            guard args.count == 3, args[1] == "-t", isAtom(args[2]) else { return nil }
+            let ruler = "unset COLUMNS LINES; id=${TMUX_PANE:-%?}; while :; do "
+                + "sz=$(stty size 2>/dev/null); r=${sz%% *}; c=${sz##* }; "
+                + "[ -n \"$r\" ] || r=24; [ -n \"$c\" ] || c=80; "
+                + "base=$(printf '%0.s0123456789' $(seq 1 400)); printf '\\033[2J\\033[H'; "
+                + "i=1; while [ \"$i\" -lt \"$r\" ]; do printf '%s\\n' "
+                + "\"$(printf '%s %03dx%03d %s' \"$id\" \"$c\" \"$r\" \"$base\" | cut -c1-\"$c\")\"; "
+                + "i=$((i+1)); done; printf 'END %s %03dx%03d' \"$id\" \"$c\" \"$r\"; sleep 2; done"
+            return ["send-keys", "-t", args[2], ruler, "Enter"]
         case "list-panes":
-            return args.count == 5 && args[1] == "-t" && isAtom(args[2]) && args[3] == "-F"
+            let allowed = args.count == 5 && args[1] == "-t" && isAtom(args[2]) && args[3] == "-F"
                 && ["#{pane_width}", "#{pane_id}", "#{pane_width} #{pane_top}"].contains(args[4])
+            return allowed ? args : nil
         case "list-windows":
-            return args.count == 5 && args[1] == "-t" && isAtom(args[2]) && args[3] == "-F"
+            let allowed = args.count == 5 && args[1] == "-t" && isAtom(args[2]) && args[3] == "-F"
                 && args[4] == "#{window_id} #{window_name}"
+            return allowed ? args : nil
         case "display-message":
-            return args.count == 5 && args[1] == "-p" && args[2] == "-t"
+            let allowed = args.count == 5 && args[1] == "-p" && args[2] == "-t"
                 && isAtom(args[3]) && args[4] == "#{window_width}x#{window_height}"
+            return allowed ? args : nil
         default:
-            return false
+            return nil
         }
     }
 

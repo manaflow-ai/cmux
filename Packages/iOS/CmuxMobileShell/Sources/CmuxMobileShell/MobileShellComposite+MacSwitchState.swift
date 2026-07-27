@@ -73,6 +73,26 @@ extension MobileShellComposite {
     /// budget.
     public var isMacSwitchInFlight: Bool { macSwitchAttemptID != nil }
 
+    func cancelMacSwitchAttempt(_ attemptID: UUID) -> Task<Bool, Never>? {
+        macSwitchAttemptID == attemptID ? cancelPendingMacSwitch(restorePreviousOnCancel: true) : nil
+    }
+
+    func isCurrentMacSwitchAttempt(_ attemptID: UUID) -> Bool {
+        macSwitchAttemptID == attemptID
+            && macSwitchAttemptSignInGeneration == signInGeneration
+            && isSignedIn
+            && !Task.isCancelled
+    }
+
+    func finishMacSwitchAttempt(_ attemptID: UUID) {
+        if macSwitchAttemptID == attemptID {
+            macSwitchAttemptID = nil
+            macSwitchAttemptSignInGeneration = nil
+            macSwitchRestoreBaseline = nil
+        }
+        macSwitchRestorePreviousOnCancelAttemptIDs.remove(attemptID)
+    }
+
     /// Assign any newly seen real Mac a stable in-memory color slot.
     ///
     /// Called from `recomputeDerivedWorkspaceState()` before deriving

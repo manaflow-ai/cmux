@@ -9,6 +9,16 @@ actor CmxIrohClientSessionPool {
         let deviceID: String
     }
 
+    private struct PeerKey: Hashable, Sendable {
+        let identity: CmxIrohPeerIdentity
+        let deviceID: String
+
+        init(_ key: SessionKey) {
+            identity = key.identity
+            deviceID = key.deviceID
+        }
+    }
+
     private struct PendingConnection: Sendable {
         let id: UUID
         let task: Task<CmxIrohClientSession, any Error>
@@ -16,6 +26,8 @@ actor CmxIrohClientSessionPool {
 
     private struct PooledSession: Sendable {
         let id: UUID
+        let diagnosticID: Int
+        let initialPurpose: CmxTransportSessionPurpose
         let session: CmxIrohClientSession
         let closureTask: Task<Void, Never>
         let pathObservationTask: Task<Void, Never>
@@ -24,39 +36,60 @@ actor CmxIrohClientSessionPool {
     private struct ControlWaiter {
         let id: UUID
         let ownerID: UUID
+        let purpose: CmxTransportSessionPurpose
         let continuation: CheckedContinuation<Void, Never>
+    }
+
+    private struct ControlOwner {
+        let id: UUID
+        let purpose: CmxTransportSessionPurpose
     }
 
     private let supervisor: CmxIrohEndpointSupervisor
     private let contextProvider: any CmxIrohClientContextProvider
     private let protocolConfiguration: CmxIrohProtocolConfiguration
+    private let diagnosticLog: DiagnosticLog?
+    private let clock: any CmxIrohRelayClock
     private var lifecycleRevision: UInt64 = 0
+    private var nextDiagnosticSessionID = 0
     private var runtimeGeneration: UInt64?
     private var sessions: [SessionKey: PooledSession] = [:]
     private var sessionOrder: [SessionKey] = []
     private var connectionTasks: [SessionKey: PendingConnection] = [:]
-    private var controlOwners: [SessionKey: UUID] = [:]
+    private var retiredDialDrains: [PeerKey: [UUID: Task<Void, Never>]] = [:]
+    private var retiredDialWaiters: [
+        PeerKey: [UUID: CheckedContinuation<Void, Never>]
+    ] = [:]
+    private var controlOwners: [SessionKey: ControlOwner] = [:]
     private var controlWaiters: [SessionKey: [ControlWaiter]] = [:]
     private var selectedPathContinuations: [UUID: AsyncStream<Void>.Continuation] = [:]
+
+    /// Never-hit safety bound for a dial that ignores cancellation, retained so
+    /// one wedged dial can never become a permanent connect outage.
+    static var retiredDialSettleWaitLimitSeconds: TimeInterval { 10 }
 
     init(
         supervisor: CmxIrohEndpointSupervisor,
         contextProvider: any CmxIrohClientContextProvider,
-        protocolConfiguration: CmxIrohProtocolConfiguration = .cmuxMobileV1
+        protocolConfiguration: CmxIrohProtocolConfiguration = .cmuxMobileV1,
+        diagnosticLog: DiagnosticLog? = nil,
+        clock: any CmxIrohRelayClock = CmxIrohSystemRelayClock()
     ) {
         self.supervisor = supervisor
         self.contextProvider = contextProvider
         self.protocolConfiguration = protocolConfiguration
+        self.diagnosticLog = diagnosticLog
+        self.clock = clock
     }
 
     func activate(runtimeGeneration: UInt64) async {
         guard self.runtimeGeneration != runtimeGeneration else { return }
-        await invalidateAll()
+        await invalidateAll(reason: .runtimeReconfigured)
         self.runtimeGeneration = runtimeGeneration
     }
 
     func deactivate() async {
-        await invalidateAll()
+        await invalidateAll(reason: .runtimeDeactivated)
         runtimeGeneration = nil
     }
 
@@ -65,74 +98,102 @@ actor CmxIrohClientSessionPool {
         preservesControlOwnerOnClosed: Bool = false
     ) async throws -> CmxIrohClientSession {
         let key = try sessionKey(for: request)
-        while let pooled = sessions[key] {
-            let isClosed = await pooled.session.isClosed()
-            guard sessions[key]?.id == pooled.id else { continue }
-            if !isClosed {
-                return pooled.session
-            }
-            await invalidateSession(
-                for: key,
-                matching: pooled.id,
-                releasesControlOwner: !preservesControlOwnerOnClosed
-            )
-        }
-
-        let revision = lifecycleRevision
-        let pending: PendingConnection
-        if let existing = connectionTasks[key] {
-            pending = existing
-        } else {
-            let supervisor = supervisor
-            let contextProvider = contextProvider
-            let protocolConfiguration = protocolConfiguration
-            let task = Task {
-                let endpoint = try await supervisor.activeEndpoint()
-                let context = try await contextProvider.context(for: request)
-                let session = try CmxIrohClientSession(
-                    endpoint: endpoint,
-                    targetIdentity: key.identity,
-                    dialPlan: context.dialPlan,
-                    credential: context.credential,
-                    privateFallbackAuthorization: context.privateFallbackAuthorization,
-                    privateFallbackValidator: contextProvider,
-                    privateFallbackContextProvider: {
-                        try await contextProvider.contextWithPrivateFallback(
-                            for: request,
-                            basedOn: context
-                        )
-                    },
-                    protocolConfiguration: protocolConfiguration
-                )
-                do {
-                    try await session.connect()
-                    try Task.checkCancellation()
-                    return session
-                } catch {
-                    await session.close()
-                    throw error
+        var corpseRetriesRemaining = 1
+        redial: while true {
+            while let pooled = sessions[key] {
+                let isClosed = await pooled.session.isClosed()
+                guard sessions[key]?.id == pooled.id else { continue }
+                if !isClosed {
+                    return pooled.session
                 }
+                await invalidateSession(
+                    for: key,
+                    matching: pooled.id,
+                    releasesControlOwner: !preservesControlOwnerOnClosed,
+                    reason: .closedSessionEvicted,
+                    failure: .connectionClosed
+                )
             }
-            pending = PendingConnection(id: UUID(), task: task)
-            connectionTasks[key] = pending
-        }
 
-        do {
-            let connected = try await pending.task.value
-            guard lifecycleRevision == revision else {
-                await connected.close()
-                throw CancellationError()
+            let revision = lifecycleRevision
+            let pending: PendingConnection
+            if let existing = connectionTasks[key] {
+                pending = existing
+            } else {
+                let peer = PeerKey(key)
+                let supervisor = supervisor
+                let contextProvider = contextProvider
+                let protocolConfiguration = protocolConfiguration
+                let task = Task { [weak self] in
+                    // Serialize behind cancelled predecessor dials so a corpse
+                    // admission can never race this dial's admission host-side.
+                    await self?.waitForRetiredDials(peer: peer)
+                    try Task.checkCancellation()
+                    let endpoint = try await supervisor.activeEndpoint()
+                    let context = try await contextProvider.context(for: request)
+                    let session = try CmxIrohClientSession(
+                        endpoint: endpoint,
+                        targetIdentity: key.identity,
+                        dialPlan: context.dialPlan,
+                        credential: context.credential,
+                        privateFallbackAuthorization: context.privateFallbackAuthorization,
+                        privateFallbackValidator: contextProvider,
+                        privateFallbackContextProvider: {
+                            try await contextProvider.contextWithPrivateFallback(
+                                for: request,
+                                basedOn: context
+                            )
+                        },
+                        protocolConfiguration: protocolConfiguration
+                    )
+                    do {
+                        try await session.connect()
+                        try Task.checkCancellation()
+                        return session
+                    } catch {
+                        await session.close()
+                        throw error
+                    }
+                }
+                pending = PendingConnection(id: UUID(), task: task)
+                connectionTasks[key] = pending
             }
-            if connectionTasks[key]?.id == pending.id {
-                connectionTasks[key] = nil
+
+            let connected: CmxIrohClientSession
+            do {
+                connected = try await pending.task.value
+                guard lifecycleRevision == revision else {
+                    await connected.close()
+                    throw CancellationError()
+                }
+                if connectionTasks[key]?.id == pending.id {
+                    connectionTasks[key] = nil
+                }
+            } catch {
+                if connectionTasks[key]?.id == pending.id {
+                    connectionTasks[key] = nil
+                }
+                throw error
             }
+
             if let installed = sessions[key] {
                 if installed.session !== connected {
                     await connected.close()
                 }
-                return installed.session
+                continue redial
             }
+
+            if await connected.isClosed() {
+                await connected.close()
+                guard corpseRetriesRemaining > 0 else {
+                    throw CmxIrohClientSessionError.alreadyClosed
+                }
+                corpseRetriesRemaining -= 1
+                continue redial
+            }
+
             let sessionID = UUID()
+            let diagnosticID = makeDiagnosticSessionID()
             let closureTask = Task { [weak self] in
                 await connected.waitUntilClosed()
                 guard !Task.isCancelled else { return }
@@ -150,19 +211,21 @@ actor CmxIrohClientSessionPool {
             }
             sessions[key] = PooledSession(
                 id: sessionID,
+                diagnosticID: diagnosticID,
+                initialPurpose: request.sessionPurpose,
                 session: connected,
                 closureTask: closureTask,
                 pathObservationTask: pathObservationTask
             )
             sessionOrder.removeAll { $0 == key }
             sessionOrder.append(key)
+            recordSessionLifecycle(
+                .established,
+                sessionID: diagnosticID,
+                purpose: controlOwners[key]?.purpose ?? request.sessionPurpose
+            )
             publishSelectedPathChange()
             return connected
-        } catch {
-            if connectionTasks[key]?.id == pending.id {
-                connectionTasks[key] = nil
-            }
-            throw error
         }
     }
 
@@ -174,14 +237,18 @@ actor CmxIrohClientSessionPool {
         ownerID: UUID
     ) async throws -> CmxIrohClientSession {
         let key = try sessionKey(for: request)
-        try await reserveControlOwner(for: key, ownerID: ownerID)
+        try await reserveControlOwner(
+            for: key,
+            ownerID: ownerID,
+            purpose: request.sessionPurpose
+        )
         do {
             return try await session(
                 for: request,
                 preservesControlOwnerOnClosed: true
             )
         } catch {
-            if controlOwners[key] == ownerID {
+            if controlOwners[key]?.id == ownerID {
                 releaseControlOwner(for: key, ownerID: ownerID)
             }
             throw error
@@ -200,7 +267,12 @@ actor CmxIrohClientSessionPool {
         } catch {
             try Task.checkCancellation()
             guard await session.isClosed() else { throw error }
-            await invalidateSession(for: key, matching: session)
+            await invalidateSession(
+                for: key,
+                matching: session,
+                reason: .applicationLaneFailed,
+                failure: DiagnosticFailureKind.classify(error)
+            )
             let replacement = try await self.session(for: request)
             return try await replacement.openBidirectionalLane(
                 lane,
@@ -220,43 +292,72 @@ actor CmxIrohClientSessionPool {
     /// framing can never be inherited by a replacement owner.
     func releaseControlSession(
         for request: CmxByteTransportRequest,
-        ownerID: UUID
+        ownerID: UUID,
+        reason: DiagnosticSessionLifecycleKind = .controlOwnerReleased,
+        failure: DiagnosticFailureKind = .none
     ) async {
         guard let key = try? sessionKey(for: request),
-              controlOwners[key] == ownerID else {
+              controlOwners[key]?.id == ownerID else {
             return
         }
-        await invalidateSession(for: key, releasesControlOwner: false)
+        await invalidateSession(
+            for: key,
+            releasesControlOwner: false,
+            reason: reason,
+            failure: failure
+        )
         releaseControlOwner(for: key, ownerID: ownerID)
     }
 
     func invalidate(for request: CmxByteTransportRequest) async {
         guard let key = try? sessionKey(for: request) else { return }
-        await invalidateSession(for: key)
+        await invalidateSession(
+            for: key,
+            reason: .explicitlyInvalidated,
+            failure: .none
+        )
     }
 
     func invalidateAll() async {
+        await invalidateAll(reason: .runtimeDeactivated)
+    }
+
+    private func invalidateAll(reason: DiagnosticSessionLifecycleKind) async {
         lifecycleRevision &+= 1
-        let tasks = connectionTasks.values.map(\.task)
-        connectionTasks.removeAll(keepingCapacity: false)
-        for task in tasks { task.cancel() }
-        let closing = sessions.values
+        for key in Array(connectionTasks.keys) {
+            retirePendingConnection(for: key)
+        }
+        let closing = sessions
+        let closingOwners = controlOwners
         sessions.removeAll(keepingCapacity: false)
         sessionOrder.removeAll(keepingCapacity: false)
         controlOwners.removeAll(keepingCapacity: false)
         let waiters = controlWaiters.values.flatMap { $0 }
         controlWaiters.removeAll(keepingCapacity: false)
         for waiter in waiters { waiter.continuation.resume() }
-        for pooled in closing {
+        for (key, pooled) in closing {
             pooled.closureTask.cancel()
             pooled.pathObservationTask.cancel()
+            recordSessionClosure(
+                reason,
+                pooled: pooled,
+                purpose: closingOwners[key]?.purpose ?? pooled.initialPurpose,
+                failure: .none
+            )
             await pooled.session.close()
         }
         publishSelectedPathChange()
     }
 
     func selectedObservedPath() async -> CmxIrohObservedConnectionPath {
-        guard let key = sessionOrder.last,
+        let foregroundKey = sessionOrder.last { key in
+            controlOwners[key]?.purpose == .foregroundControl
+                && sessions[key] != nil
+        }
+        let controlKey = sessionOrder.last { key in
+            controlOwners[key] != nil && sessions[key] != nil
+        }
+        guard let key = foregroundKey ?? controlKey ?? sessionOrder.last,
               let session = sessions[key]?.session else { return .unavailable }
         return await session.observedSelectedPath()
     }
@@ -279,64 +380,189 @@ actor CmxIrohClientSessionPool {
 
     private func sessionDidClose(key: SessionKey, sessionID: UUID) async {
         guard let pooled = sessions[key], pooled.id == sessionID else { return }
-        let ownerID = controlOwners[key]
+        let owner = controlOwners[key]
         sessions[key] = nil
         sessionOrder.removeAll { $0 == key }
         pooled.pathObservationTask.cancel()
+        recordSessionClosure(
+            .remoteClosed,
+            pooled: pooled,
+            purpose: owner?.purpose ?? pooled.initialPurpose,
+            failure: .connectionClosed
+        )
         await pooled.session.close()
-        if let ownerID {
-            releaseControlOwner(for: key, ownerID: ownerID)
+        if let owner {
+            releaseControlOwner(for: key, ownerID: owner.id)
         }
         publishSelectedPathChange()
     }
 
     private func invalidateSession(
         for key: SessionKey,
-        releasesControlOwner: Bool = true
+        releasesControlOwner: Bool = true,
+        reason: DiagnosticSessionLifecycleKind,
+        failure: DiagnosticFailureKind
     ) async {
         await invalidateSession(
             for: key,
             matching: Optional<UUID>.none,
-            releasesControlOwner: releasesControlOwner
+            releasesControlOwner: releasesControlOwner,
+            reason: reason,
+            failure: failure
         )
     }
 
     private func invalidateSession(
         for key: SessionKey,
         matching expectedID: UUID?,
-        releasesControlOwner: Bool = true
+        releasesControlOwner: Bool = true,
+        reason: DiagnosticSessionLifecycleKind,
+        failure: DiagnosticFailureKind
     ) async {
         if let expectedID, sessions[key]?.id != expectedID { return }
-        let ownerID = releasesControlOwner ? controlOwners[key] : nil
-        connectionTasks[key]?.task.cancel()
-        connectionTasks[key] = nil
+        let currentOwner = controlOwners[key]
+        let owner = releasesControlOwner ? currentOwner : nil
+        retirePendingConnection(for: key)
         let pooled = sessions.removeValue(forKey: key)
         sessionOrder.removeAll { $0 == key }
         pooled?.closureTask.cancel()
         pooled?.pathObservationTask.cancel()
+        if let pooled {
+            recordSessionClosure(
+                reason,
+                pooled: pooled,
+                purpose: currentOwner?.purpose ?? pooled.initialPurpose,
+                failure: failure
+            )
+        }
         await pooled?.session.close()
-        if let ownerID {
-            releaseControlOwner(for: key, ownerID: ownerID)
+        if let owner {
+            releaseControlOwner(for: key, ownerID: owner.id)
         }
         publishSelectedPathChange()
     }
 
+    /// Cancels the pending dial for `key` and tracks it until it fully resolves.
+    /// `pending.task.cancel()` crosses the FFI boundary because
+    /// ``CmxIrohLibEndpoint`` dials through a `ConnectAttempt` whose `cancel()`
+    /// runs on task cancellation, so retired dials settle in milliseconds. The
+    /// drain set still serializes endpoint implementations that ignore
+    /// cancellation and keeps at most one admission in flight per peer.
+    private func retirePendingConnection(for key: SessionKey) {
+        guard let pending = connectionTasks.removeValue(forKey: key) else { return }
+        pending.task.cancel()
+        let peer = PeerKey(key)
+        let drainID = UUID()
+        retiredDialDrains[peer, default: [:]][drainID] = Task { [weak self] in
+            // The dial task closes its own session on failure or observed
+            // cancellation; a session returned here won the post-cancellation
+            // race and must be settled (closed unless it was installed).
+            let orphan = try? await pending.task.value
+            if let self {
+                await self.settleRetiredDial(
+                    peer: peer,
+                    drainID: drainID,
+                    orphan: orphan
+                )
+            } else if let orphan {
+                await orphan.close()
+            }
+        }
+    }
+
+    private func settleRetiredDial(
+        peer: PeerKey,
+        drainID: UUID,
+        orphan: CmxIrohClientSession?
+    ) async {
+        if let orphan, !sessions.values.contains(where: { $0.session === orphan }) {
+            await orphan.close()
+        }
+        retiredDialDrains[peer]?[drainID] = nil
+        if retiredDialDrains[peer]?.isEmpty == true {
+            retiredDialDrains[peer] = nil
+        }
+        guard retiredDialDrains[peer] == nil,
+              let waiters = retiredDialWaiters.removeValue(forKey: peer) else {
+            return
+        }
+        for continuation in waiters.values {
+            continuation.resume()
+        }
+    }
+
+    /// Defers a fresh dial while cancelled predecessor dials for the same peer
+    /// are still resolving. Single-shot: waits for the drains present on entry,
+    /// bounded by `retiredDialSettleWaitLimitSeconds` via the injected clock, and
+    /// returns early if the waiting dial task itself is cancelled.
+    private func waitForRetiredDials(peer: PeerKey) async {
+        guard retiredDialDrains[peer]?.isEmpty == false else { return }
+        let waiterID = UUID()
+        let clock = clock
+        let deadline = clock.now()
+            .addingTimeInterval(Self.retiredDialSettleWaitLimitSeconds)
+        // This injected-clock sleep is the bounded deadline that prevents a
+        // permanently wedged retired dial from blocking all future connections.
+        let timeout = Task { [weak self] in
+            try? await clock.sleep(until: deadline)
+            guard !Task.isCancelled else { return }
+            await self?.resumeRetiredDialWaiter(peer: peer, waiterID: waiterID)
+        }
+        defer { timeout.cancel() }
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                if retiredDialDrains[peer]?.isEmpty ?? true {
+                    continuation.resume()
+                } else {
+                    retiredDialWaiters[peer, default: [:]][waiterID] = continuation
+                }
+            }
+        } onCancel: {
+            Task { [weak self] in
+                await self?.resumeRetiredDialWaiter(
+                    peer: peer,
+                    waiterID: waiterID
+                )
+            }
+        }
+    }
+
+    private func resumeRetiredDialWaiter(peer: PeerKey, waiterID: UUID) {
+        guard let continuation = retiredDialWaiters[peer]?
+            .removeValue(forKey: waiterID) else {
+            return
+        }
+        if retiredDialWaiters[peer]?.isEmpty == true {
+            retiredDialWaiters[peer] = nil
+        }
+        continuation.resume()
+    }
+
     private func invalidateSession(
         for key: SessionKey,
-        matching expectedSession: CmxIrohClientSession
+        matching expectedSession: CmxIrohClientSession,
+        reason: DiagnosticSessionLifecycleKind,
+        failure: DiagnosticFailureKind
     ) async {
         guard let pooled = sessions[key], pooled.session === expectedSession else { return }
-        await invalidateSession(for: key, matching: pooled.id)
+        await invalidateSession(
+            for: key,
+            matching: pooled.id,
+            reason: reason,
+            failure: failure
+        )
     }
 
     private func reserveControlOwner(
         for key: SessionKey,
-        ownerID: UUID
+        ownerID: UUID,
+        purpose: CmxTransportSessionPurpose
     ) async throws {
         if let existing = controlOwners[key] {
-            if existing == ownerID { return }
+            if existing.id == ownerID { return }
         } else {
-            controlOwners[key] = ownerID
+            controlOwners[key] = ControlOwner(id: ownerID, purpose: purpose)
+            publishSelectedPathChangeIfEstablished(for: key)
             return
         }
 
@@ -348,17 +574,19 @@ actor CmxIrohClientSessionPool {
                     return
                 }
                 if let existing = controlOwners[key] {
-                    if existing == ownerID {
+                    if existing.id == ownerID {
                         continuation.resume()
                     } else {
                         controlWaiters[key, default: []].append(ControlWaiter(
                             id: waiterID,
                             ownerID: ownerID,
+                            purpose: purpose,
                             continuation: continuation
                         ))
                     }
                 } else {
-                    controlOwners[key] = ownerID
+                    controlOwners[key] = ControlOwner(id: ownerID, purpose: purpose)
+                    publishSelectedPathChangeIfEstablished(for: key)
                     continuation.resume()
                 }
             }
@@ -368,12 +596,12 @@ actor CmxIrohClientSessionPool {
 
         do {
             try Task.checkCancellation()
-            guard controlOwners[key] == ownerID else {
+            guard controlOwners[key]?.id == ownerID else {
                 throw CmxIrohClientRuntimeError.inactive
             }
         } catch {
             cancelControlWaiter(for: key, id: waiterID)
-            if controlOwners[key] == ownerID {
+            if controlOwners[key]?.id == ownerID {
                 releaseControlOwner(for: key, ownerID: ownerID)
             }
             throw error
@@ -391,13 +619,63 @@ actor CmxIrohClientSessionPool {
     }
 
     private func releaseControlOwner(for key: SessionKey, ownerID: UUID) {
-        guard controlOwners[key] == ownerID else { return }
+        guard controlOwners[key]?.id == ownerID else { return }
         controlOwners[key] = nil
-        guard var waiters = controlWaiters[key], !waiters.isEmpty else { return }
+        guard var waiters = controlWaiters[key], !waiters.isEmpty else {
+            publishSelectedPathChangeIfEstablished(for: key)
+            return
+        }
         let next = waiters.removeFirst()
         controlWaiters[key] = waiters.isEmpty ? nil : waiters
-        controlOwners[key] = next.ownerID
+        controlOwners[key] = ControlOwner(id: next.ownerID, purpose: next.purpose)
+        publishSelectedPathChangeIfEstablished(for: key)
         next.continuation.resume()
+    }
+
+    private func makeDiagnosticSessionID() -> Int {
+        if nextDiagnosticSessionID == Int.max {
+            nextDiagnosticSessionID = 1
+        } else {
+            nextDiagnosticSessionID += 1
+        }
+        return nextDiagnosticSessionID
+    }
+
+    private func recordSessionLifecycle(
+        _ kind: DiagnosticSessionLifecycleKind,
+        sessionID: Int,
+        purpose: CmxTransportSessionPurpose
+    ) {
+        diagnosticLog?.record(DiagnosticEvent(
+            .transportSessionLifecycle,
+            a: kind.rawValue,
+            b: Int(purpose.rawValue),
+            c: sessionID
+        ))
+    }
+
+    private func recordSessionClosure(
+        _ kind: DiagnosticSessionLifecycleKind,
+        pooled: PooledSession,
+        purpose: CmxTransportSessionPurpose,
+        failure: DiagnosticFailureKind
+    ) {
+        recordSessionLifecycle(
+            kind,
+            sessionID: pooled.diagnosticID,
+            purpose: purpose
+        )
+        diagnosticLog?.record(DiagnosticEvent(
+            .sessionClosed,
+            a: DiagnosticTransportKind.iroh.rawValue,
+            b: failure.rawValue,
+            c: pooled.diagnosticID
+        ))
+    }
+
+    private func publishSelectedPathChangeIfEstablished(for key: SessionKey) {
+        guard sessions[key] != nil else { return }
+        publishSelectedPathChange()
     }
 
     private func publishSelectedPathChange() {

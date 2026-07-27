@@ -35,6 +35,7 @@ public actor CmxIrohRelayCredentialCoordinator {
     private let jitter: @Sendable (_ now: Date, _ refreshAfter: Date) -> Date
     private let retrySchedule: CmxIrohRetrySchedule
     private let retryJitter: @Sendable () -> Double
+    private let automaticRefreshEnabled: Bool
     private let credentialDidInstall: @Sendable (CmxIrohRelayTokenResponse) async -> Void
     private var binding: Binding?
     private var installedCredential: InstalledCredential?
@@ -61,6 +62,7 @@ public actor CmxIrohRelayCredentialCoordinator {
         retryJitter: @escaping @Sendable () -> Double = {
             Double.random(in: 0 ... 1)
         },
+        automaticRefreshEnabled: Bool = true,
         credentialDidInstall: @escaping @Sendable (
             CmxIrohRelayTokenResponse
         ) async -> Void = { _ in }
@@ -73,19 +75,22 @@ public actor CmxIrohRelayCredentialCoordinator {
         self.jitter = jitter
         self.retrySchedule = retrySchedule
         self.retryJitter = retryJitter
+        self.automaticRefreshEnabled = automaticRefreshEnabled
         self.credentialDidInstall = credentialDidInstall
     }
 
     /// Starts refresh scheduling for one exact registered endpoint binding.
     ///
     /// A bootstrap credential is installed before scheduling. Bootstrap
-    /// validation failure is returned to the caller, while an immediate broker
-    /// retry is still scheduled so registration remains committed and direct
-    /// connectivity remains available.
+    /// validation failure is returned while an immediate broker retry is
+    /// scheduled by default. Relay-required callers instead wait through the
+    /// same bounded-backoff schedule until one credential installs or activation
+    /// is cancelled.
     public func activate(
         bindingID: String,
         endpointIdentity: CmxIrohPeerIdentity,
-        bootstrap: CmxIrohRelayTokenResponse? = nil
+        bootstrap: CmxIrohRelayTokenResponse? = nil,
+        waitForInitialCredential: Bool = false
     ) async throws {
         lifecycleRevision &+= 1
         let revision = lifecycleRevision
@@ -103,13 +108,24 @@ public actor CmxIrohRelayCredentialCoordinator {
                     binding: expectedBinding,
                     revision: revision
                 )
-                startLoop(revision: revision, firstRefresh: installed.refreshAfter)
+                startLoopIfEnabled(revision: revision, firstRefresh: installed.refreshAfter)
                 return
             } catch {
-                if isCurrent(revision), !Task.isCancelled {
-                    startLoop(revision: revision, firstRefresh: nil)
+                guard isCurrent(revision), !Task.isCancelled else {
+                    throw CancellationError()
                 }
-                throw error
+                if waitForInitialCredential {
+                    try await installInitialCredentialAfterRetry(
+                        binding: expectedBinding,
+                        revision: revision,
+                        firstRetry: nil,
+                        initialFailureCount: 0
+                    )
+                } else {
+                    startLoopIfEnabled(revision: revision, firstRefresh: nil)
+                    throw error
+                }
+                return
             }
         }
         do {
@@ -122,17 +138,77 @@ public actor CmxIrohRelayCredentialCoordinator {
                 binding: expectedBinding,
                 revision: revision
             )
-            startLoop(revision: revision, firstRefresh: installed.refreshAfter)
+            startLoopIfEnabled(revision: revision, firstRefresh: installed.refreshAfter)
         } catch {
-            if isCurrent(revision), !Task.isCancelled {
-                let delay = retryDelay(failureCount: 0, error: error)
-                startLoop(
+            guard isCurrent(revision), !Task.isCancelled else {
+                throw CancellationError()
+            }
+            let delay = retryDelay(failureCount: 0, error: error)
+            let firstRetry = retryDeadline(
+                now: clock.now(),
+                backoff: delay,
+                honorsServerFloor: (error as? any CmxRetryAfterProviding)?
+                    .retryAfterSeconds != nil
+            )
+            if waitForInitialCredential {
+                try await installInitialCredentialAfterRetry(
+                    binding: expectedBinding,
                     revision: revision,
-                    firstRefresh: clock.now().addingTimeInterval(delay),
+                    firstRetry: firstRetry,
+                    initialFailureCount: 1
+                )
+            } else {
+                startLoopIfEnabled(
+                    revision: revision,
+                    firstRefresh: firstRetry,
                     initialFailureCount: 1
                 )
             }
         }
+    }
+
+    private func installInitialCredentialAfterRetry(
+        binding: Binding,
+        revision: UInt64,
+        firstRetry: Date?,
+        initialFailureCount: Int
+    ) async throws {
+        var deadline = firstRetry
+        var failureCount = initialFailureCount
+        while isCurrent(revision), !Task.isCancelled {
+            if let deadline {
+                try await clock.sleep(until: deadline)
+            }
+            guard isCurrent(revision), !Task.isCancelled else {
+                throw CancellationError()
+            }
+            do {
+                let installed = try await refreshCredential(
+                    binding: binding,
+                    revision: revision
+                )
+                startLoopIfEnabled(
+                    revision: revision,
+                    firstRefresh: installed.refreshAfter
+                )
+                return
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                guard isCurrent(revision), !Task.isCancelled else {
+                    throw CancellationError()
+                }
+                let delay = retryDelay(failureCount: failureCount, error: error)
+                deadline = retryDeadline(
+                    now: clock.now(),
+                    backoff: delay,
+                    honorsServerFloor: (error as? any CmxRetryAfterProviding)?
+                        .retryAfterSeconds != nil
+                )
+                failureCount = min(failureCount + 1, 20)
+            }
+        }
+        throw CancellationError()
     }
 
     /// Cancels all scheduled refresh work and forgets binding-scoped state.
@@ -165,6 +241,7 @@ public actor CmxIrohRelayCredentialCoordinator {
         guard let binding else {
             throw CmxIrohRelayCredentialCoordinatorError.inactive
         }
+        guard automaticRefreshEnabled else { return }
         let now = clock.now()
         if let installedCredential,
            now < installedCredential.refreshAfter,
@@ -179,19 +256,19 @@ public actor CmxIrohRelayCredentialCoordinator {
                 revision: revision
             )
             refreshTask?.cancel()
-            startLoop(revision: revision, firstRefresh: installed.refreshAfter)
+            startLoopIfEnabled(revision: revision, firstRefresh: installed.refreshAfter)
         } catch {
             guard isCurrent(revision), !Task.isCancelled else {
                 throw CancellationError()
             }
             refreshTask?.cancel()
             let delay = retryDelay(failureCount: 0, error: error)
-            startLoop(
+            startLoopIfEnabled(
                 revision: revision,
                 firstRefresh: retryDeadline(
                     now: clock.now(),
                     backoff: delay,
-                    honorsServerFloor: (error as? CmxIrohTrustBrokerClientError)?
+                    honorsServerFloor: (error as? any CmxRetryAfterProviding)?
                         .retryAfterSeconds != nil
                 ),
                 initialFailureCount: 1
@@ -200,11 +277,12 @@ public actor CmxIrohRelayCredentialCoordinator {
         }
     }
 
-    private func startLoop(
+    private func startLoopIfEnabled(
         revision: UInt64,
         firstRefresh: Date?,
         initialFailureCount: Int = 0
     ) {
+        guard automaticRefreshEnabled else { return }
         refreshTask = Task { [weak self] in
             await self?.run(
                 revision: revision,
@@ -246,7 +324,7 @@ public actor CmxIrohRelayCredentialCoordinator {
                 deadline = retryDeadline(
                     now: now,
                     backoff: delay,
-                    honorsServerFloor: (error as? CmxIrohTrustBrokerClientError)?
+                    honorsServerFloor: (error as? any CmxRetryAfterProviding)?
                         .retryAfterSeconds != nil
                 )
                 failureCount = min(failureCount + 1, 20)
@@ -322,7 +400,7 @@ public actor CmxIrohRelayCredentialCoordinator {
     private func retryDelay(failureCount: Int, error: any Error) -> TimeInterval {
         retrySchedule.delay(
             failureCount: failureCount,
-            retryAfterSeconds: (error as? CmxIrohTrustBrokerClientError)?
+            retryAfterSeconds: (error as? any CmxRetryAfterProviding)?
                 .retryAfterSeconds,
             jitterUnitInterval: retryJitter()
         )

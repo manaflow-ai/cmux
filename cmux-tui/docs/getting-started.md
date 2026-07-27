@@ -21,6 +21,8 @@ cargo run -p cmux-tui -- --session agents
 
 The default session is `main`. Quitting a local TUI shuts down that in-process session and removes its socket.
 
+Press `Ctrl-b` to reveal the active prefix commands in the bottom bar. Press `Ctrl-b ?` for the full scrollable shortcut list. Right-click a pane for pane actions, or anywhere in the sidebar for sidebar actions; hold Shift while right-clicking when an inner terminal app owns mouse input.
+
 Use `--term <value>` to set `TERM` for child PTYs. Without it, children get `xterm-256color`; the surface layer also honors `CMUX_TUI_TERM` when no CLI value is supplied, with `CMUX_MUX_TERM` retained as a legacy fallback.
 
 ## Headless server and attach
@@ -40,6 +42,34 @@ cargo run -p cmux-tui -- attach --session agents
 ```
 
 Detach from an attached TUI with prefix `d`. With default keys, that is `Ctrl-b d`. The server keeps running, and another `attach` reconnects to the same tree. PTY tabs attach with a Ghostty VT-state replay followed by a live output stream.
+
+Attach only one terminal by numeric or short surface id:
+
+```bash
+cargo run -p cmux-tui -- attach --session agents --surface <surface-id>
+```
+
+Single-terminal attach reserves the full host grid for that PTY. It omits the sidebar, status bar, pane border, and other tabs, and exits when the target terminal closes.
+
+## Remote machines
+
+The optional machine rail keeps rendering local while it connects individual session transports through Unix sockets or SSH. It is disabled for the default local run and activates when `machine_sidebar.enabled` is true or `machines` contains a valid entry in `cmux-tui.json`. Start a headless cmux session on each remote machine, and make the remote `cmux-tui` or `cmux` executable available to noninteractive SSH. The SSH connector runs its `relay` mode and does not nest a second TUI.
+
+Packaged clients use the same configuration and can start with:
+
+```bash
+npx cmux
+```
+
+See [Machines](machines.md) for Unix and SSH examples, rail input, and remote setup.
+
+To share an existing local session through cmux.cloud without a public listener, run its outbound machine agent separately:
+
+```bash
+npx cmux machine-agent --session agents
+```
+
+Run this command from an interactive terminal with `/dev/tty`; the agent fails closed without a controlling terminal, including on reconnects. The first registration prints the one-time code used by `+ Connect machine` on cmux.cloud.
 
 ## Sessions and sockets
 

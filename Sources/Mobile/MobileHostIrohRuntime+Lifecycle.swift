@@ -8,7 +8,7 @@ extension MobileHostIrohRuntime {
         #if DEBUG
         Self.debugTransportVerificationMode(defaults: .standard)
         #else
-        .automatic
+        CmxIrohPathPreference.stored(in: .standard).transportVerificationMode
         #endif
     }
 
@@ -29,6 +29,7 @@ extension MobileHostIrohRuntime {
     }
 
     #if DEBUG
+    /// Resolves DEBUG overrides before the release-safe path preference.
     static func debugTransportVerificationMode(
         defaults: UserDefaults
     ) -> CmxIrohTransportVerificationMode {
@@ -37,9 +38,10 @@ extension MobileHostIrohRuntime {
         ), let mode = CmxIrohTransportVerificationMode(rawValue: rawValue) {
             return mode
         }
-        return defaults.bool(forKey: debugRelayOnlyDefaultsKey)
-            ? .relayOnly
-            : .automatic
+        if defaults.bool(forKey: debugRelayOnlyDefaultsKey) {
+            return .relayOnly
+        }
+        return CmxIrohPathPreference.stored(in: defaults).transportVerificationMode
     }
 
     static var isDebugRelayOnlyEnabled: Bool {
@@ -85,7 +87,7 @@ extension MobileHostIrohRuntime {
         }
 
         guard var preparation = preparedSignOut else { return }
-        if preparation.pendingRevocation == nil {
+        guard let pendingRevocation = preparation.pendingRevocation else {
             preparedSignOut = nil
             return
         }
@@ -99,12 +101,18 @@ extension MobileHostIrohRuntime {
             guard let brokerBaseURL = AuthEnvironment.irohBrokerBaseURL else {
                 throw CmxIrohTrustBrokerClientError.invalidBaseURL
             }
-            let broker = try CmxIrohTrustBrokerClient(
+            let rawBroker = try CmxIrohTrustBrokerClient(
                 baseURL: brokerBaseURL,
                 tokenSource: CmxIrohBrokerTokenSource(
                     accessToken: { accessToken },
                     refreshToken: { refreshToken }
-                )
+                ),
+                backpressureMode: .callerOwned
+            )
+            let broker = CmxIrohBackpressuredHostBroker(
+                broker: rawBroker,
+                gate: brokerBackpressureGate,
+                accountID: pendingRevocation.accountID
             )
             try await preparation.revoke(
                 using: broker,
@@ -168,10 +176,14 @@ extension MobileHostIrohRuntime {
                     }
                     continue
                 }
-                guard state.accountID != nil
-                        || previousAccountID != nil
-                        || self.activeAccountID != nil
-                        || self.runtime != nil else { continue }
+                guard Self.shouldReconcileAuthObservation(
+                    accountID: state.accountID,
+                    previousAccountID: previousAccountID,
+                    activeAccountID: self.activeAccountID,
+                    hasRuntime: self.runtime != nil,
+                    transitionInFlight: self.transitionTask != nil,
+                    preparedSignOutNeedsPersistence: self.preparedSignOut?.wasPersisted == false
+                ) else { continue }
                 self.scheduleReconcile(
                     eraseAccountState: (state.accountID == nil
                         && (previousAccountID != nil
@@ -185,6 +197,27 @@ extension MobileHostIrohRuntime {
                 )
             }
         }
+    }
+
+    static func shouldReconcileAuthObservation(
+        accountID: String?,
+        previousAccountID: String?,
+        activeAccountID: String?,
+        hasRuntime: Bool,
+        transitionInFlight: Bool,
+        preparedSignOutNeedsPersistence: Bool
+    ) -> Bool {
+        let hasRelevantState = accountID != nil
+            || previousAccountID != nil
+            || activeAccountID != nil
+            || hasRuntime
+        guard hasRelevantState else { return false }
+        if preparedSignOutNeedsPersistence { return true }
+        if accountID != previousAccountID { return true }
+        if let activeAccountID, activeAccountID != accountID { return true }
+        guard let accountID else { return hasRuntime }
+        guard !transitionInFlight else { return false }
+        return activeAccountID != accountID || !hasRuntime
     }
 
     private func releaseSignOutIntentAfterPreparation() {

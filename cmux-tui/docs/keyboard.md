@@ -6,24 +6,26 @@
 
 Unknown prefixed keys are swallowed. Unprefixed non-Alt keys go to the active surface. Alt chords that are bound in the key table are modeless commands by default.
 
+Pressing the prefix overlays the panes' bottom border for one keypress, leaving the clickable screen status bar visible. Each resolved suffix uses a distinct accent font color without changing the bar background. `Ctrl-b ?` opens a shortcut modal built from the same action catalog, with shortcut keys in a bright neutral font color. The terminal-style scrollbar appears only when the shortcut rows overflow. Use Up/Down, PageUp/PageDown, Home, End, the mouse wheel, or the scrollbar to scroll. Click its invisible track to jump, drag its thumb, then use Esc, `?`, or the visible `[Esc close]` button to close the modal.
+
 ## Default Bindings
 
 These defaults come from `Keys::default`.
 
 | Binding | Action |
 | --- | --- |
+| `Ctrl-b Ctrl-b` | Send a literal `Ctrl-b` to the active surface |
 | `Ctrl-b t` | New PTY tab in the active pane |
 | `Alt-t` | New PTY tab in the active pane |
 | `Ctrl-b B` | Open the browser-tab URL prompt |
 | `Alt-n` | Create a pane with Zellij's default vertical auto-layout |
 | `Ctrl-b Tab` | Next tab in the active pane |
 | `Ctrl-b BackTab` | Previous tab in the active pane |
-| `Ctrl-b 1` through `Ctrl-b 9` | Select visible screen 1 through 9 |
-| `Ctrl-b 0` | Select visible screen 10 |
+| `Ctrl-b 0` through `Ctrl-b 9` | Select visible screen 0 through 9 |
 | `Ctrl-b %` | Split the active pane right |
 | `Ctrl-b "` | Split the active pane down |
-| `Ctrl-b x` | Close the active pane |
-| `Ctrl-b X` | Close the active tab |
+| `Ctrl-b x` | Close the active tab |
+| `Ctrl-b X` | Close the active pane |
 | `Ctrl-b ,` | Rename the active screen |
 | `Ctrl-b $` | Rename the active workspace |
 | `Ctrl-b &` | Close the active screen |
@@ -32,15 +34,21 @@ These defaults come from `Keys::default`.
 | `Ctrl-b n` | Next screen in the active workspace |
 | `Alt-]` | Next screen in the active workspace |
 | `Ctrl-b c` | New screen in the active workspace |
-| `Ctrl-b z` | Toggle zoom for the active pane |
+| `Ctrl-b z` | Maximize the active pane or restore the pane layout |
 | `Ctrl-b o` | Focus the next pane in the current screen |
 | `Ctrl-b {` | Swap the active pane with the previous pane |
 | `Ctrl-b }` | Swap the active pane with the next pane |
-| `Ctrl-b w` | Next workspace |
+| `Ctrl-b (` | Previous workspace |
+| `Alt-{` | Previous workspace |
+| `Ctrl-b w` or `Ctrl-b )` | Next workspace |
+| `Alt-}` | Next workspace |
 | `Ctrl-b W` | New workspace |
+| `Ctrl-b D` | Close the active workspace |
 | `Ctrl-b s` | Show or hide the sidebar |
+| `Ctrl-b m` | Toggle the sidebar between compact and full width; shows it when hidden |
 | `Ctrl-b e` | Toggle the built-in sidebar between files and workspaces |
 | `Ctrl-b S` | Focus the built-in sidebar or configured sidebar plugin; a prefixed command returns focus to the pane |
+| `Ctrl-b ?` | Open the keyboard shortcut modal |
 | `Ctrl-b h` or `Ctrl-b Left` | Focus left |
 | `Alt-h` or `Alt-Left` | Focus left |
 | `Ctrl-b l` or `Ctrl-b Right` | Focus right |
@@ -56,21 +64,27 @@ These defaults come from `Keys::default`.
 | `Ctrl-b PageDown` | Scroll the active PTY viewport down 10 rows |
 | `Ctrl-b d` | Quit a local TUI or detach an attached TUI |
 
-The screen bindings intentionally use tmux verbs: `c` creates a screen, `n` and `p` switch screens, `&` closes a screen, `,` renames a screen, `z` zooms a pane, `o` cycles panes, `{` and `}` swap panes, and number keys select visible screens. Screens are visibly numbered from 1, so `Ctrl-b 1` selects the first visible screen and `Ctrl-b 0` selects the tenth visible screen.
+Directional focus follows Zellij's pane memory: when several panes share the requested edge, cmux-tui returns to the pane focused most recently.
 
-`Ctrl-b x` now follows tmux and closes the active pane. `Ctrl-b X` closes the active tab. Restore the old cmux behavior with `"close-tab": "x"` and `"close-pane": "X"` in `cmux-tui.json`.
+The screen bindings intentionally match tmux: `c` creates a screen, `n` and `p` switch screens, `&` closes a screen, `,` renames a screen, `z` zooms a pane, `o` cycles panes, `{` and `}` swap panes, and number keys select visible screens. Screens are numbered from 0, so `Ctrl-b 0` selects screen 0 and `Ctrl-b 1` selects screen 1.
+
+Workspace navigation follows tmux's outer session lane: `(` and `)` move backward and forward. `w` remains a next-workspace alias for compatibility, while the sidebar provides the visible mouse and keyboard picker. `Alt-{` and `Alt-}` mirror the modeless screen lane on `Alt-[` and `Alt-]`. `W` creates a workspace and `D` closes it.
+
+`Ctrl-b x` closes the active tab because tab lifecycle is the more frequent cmux action. `Ctrl-b X` closes its containing pane. Rebind either action independently with `keys.close-tab` and `keys.close-pane`.
 
 `Ctrl-b ]` is unbound because cmux has no paste-buffer concept. `Ctrl-b q` is unbound because there is no pane-number quick-jump overlay yet.
 
 ## Focused Sidebar
 
-When the built-in sidebar is focused, `Tab` toggles files/workspaces without leaving sidebar focus. In the files view, Up/Down and Ctrl-J/Ctrl-K move the selection, Right descends into a directory, Enter descends or opens a file in a new `$EDITOR` tab, Left goes to the parent, `c` sends a safely quoted `cd` to the focused pane, `o` opens `.html` and `.md` files in a browser tab, `.` toggles dotfiles, `/` enters filter mode, and `~` follows the focused pane cwd again. Esc clears a nonempty filter before leaving filter mode.
+When the built-in sidebar is focused, its header gains an accent background and its divider becomes a bold accent rail. `Tab` toggles files/workspaces without leaving sidebar focus. In the files view, Up/Down and Ctrl-J/Ctrl-K move the selection, Right descends into a directory, Enter descends or opens a file in a new `$EDITOR` tab, and Left or `h` goes to the parent when the machine rail is absent. `c` sends a safely quoted `cd` to the focused pane, `o` opens `.html` and `.md` files in a browser tab, `.` toggles dotfiles, `/` enters filter mode, and `~` follows the focused pane cwd again. Esc clears a nonempty filter before leaving filter mode.
 
 In the workspaces view, Up/Down move the selection and Enter activates it. Any normal prefixed command leaves sidebar focus and runs through the usual action table; `prefix S` only returns focus to the pane. A configured sidebar plugin keeps its existing PTY forwarding behavior.
 
+When the optional machine rail is visible, `Ctrl-b S` still enters through the workspace rail. From the built-in workspace or files rail, Left or `h` moves focus to the machine rail. From the machine rail, Right or `l` returns to the workspace rail. Up/Down or `k`/`j` changes the selected machine, Enter connects to it, and Esc returns to the active pane. A mouse click can focus either rail directly. The machine rail swallows other unprefixed keys instead of forwarding them to a remote terminal.
+
 ## Modeless Alt Layer
 
-Any configured Alt chord is active without the prefix. Default modeless commands are `Alt-t`, `Alt-n`, `Alt-[`, `Alt-]`, `Alt-h/j/k/l`, Alt arrows, `Alt-=`, and `Alt--`. `Alt-n` follows Zellij's default auto-layout sequence: one full-height left pane and up to four right-side rows, balanced columns of four through twelve panes, then one full-height left pane beside a right-side stack with the focused stack pane expanded.
+Any configured Alt chord is active without the prefix. Default modeless commands are `Alt-t`, `Alt-n`, `Alt-[`, `Alt-]`, `Alt-{`, `Alt-}`, `Alt-h/j/k/l`, Alt arrows, `Alt-=`, and `Alt--`. `Alt-n` follows Zellij's default auto-layout sequence: one full-height left pane and up to four right-side rows, balanced columns of four through twelve panes, then one full-height left pane beside a right-side stack with the focused stack pane expanded.
 
 Set `keys.alt_shortcuts` to `false` to remove the default Alt bindings. This kill switch only removes defaults; Alt chords explicitly configured in `cmux-tui.json` still work.
 
@@ -78,7 +92,7 @@ Zellij's modal `ctrl+p`, `ctrl+t`, `ctrl+s`, `ctrl+n`, and `ctrl+o` modes are a 
 
 ## Number Selection
 
-`0` through `9` are regular configurable screen-selection bindings. The old `Ctrl-b 1` through `Ctrl-b 9` tab selectors can be restored with `select-tab-1` through `select-tab-9`.
+`0` through `9` are regular configurable screen-selection bindings. Zero-based tab selectors are available as `select-tab-0` through `select-tab-9`; they are unbound by default because the number keys select screens.
 
 ## Remapping
 
@@ -93,16 +107,17 @@ Each action accepts a string, an array of strings, or `"none"`. Setting an actio
     "alt_shortcuts": false,
     "new-tab": ["t", "alt+t"],
     "new-pane-smart": "alt+n",
+    "select-screen-0": "0",
     "select-screen-1": "1",
-    "select-screen-2": "2",
     "next-screen": ["n", "alt+]"],
     "prev-screen": ["p", "alt+["],
     "focus-left": ["h", "left", "alt+h", "alt+left"],
     "rename-tab": "r",
     "rename-screen": ",",
-    "close-pane": "x",
-    "close-tab": "X",
-    "select-tab-1": "none"
+    "close-tab": "x",
+    "close-pane": "X",
+    "show-shortcuts": "?",
+    "select-tab-0": "none"
   }
 }
 ```
@@ -110,11 +125,13 @@ Each action accepts a string, an array of strings, or `"none"`. Setting an actio
 Supported action keys are:
 
 ```text
+send-prefix
 new-tab
 new_browser_tab
 new-pane-smart
 next-tab
 prev-tab
+select-tab-0
 select-tab-1
 select-tab-2
 select-tab-3
@@ -145,9 +162,12 @@ select-screen-7
 select-screen-8
 select-screen-9
 new-screen
+prev-workspace
 next-workspace
 new-workspace
+close-workspace
 toggle-sidebar
+toggle-sidebar-compact
 toggle-sidebar-view
 focus-sidebar
 focus-left
@@ -166,6 +186,7 @@ browser-back
 browser-forward
 browser-reload
 browser-edit-url
+show-shortcuts
 detach
 ```
 

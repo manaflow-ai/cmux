@@ -37,6 +37,10 @@ import type { RelayPreference } from "../services/relay/model";
 const NOW = new Date("2026-07-09T20:00:00.000Z");
 const USER_A = "user-a";
 const USER_B = "user-b";
+type TestDirectPorts = {
+  readonly ipv4?: number;
+  readonly ipv6?: number;
+};
 
 describe("Iroh trust broker registration", () => {
   test("registers a valid endpoint proof and mints relay credentials after commit", async () => {
@@ -58,6 +62,64 @@ describe("Iroh trust broker registration", () => {
       expires_at: "2026-07-09T20:45:00.000Z",
     }]);
     expect(fixture.minter.calls).toBe(1);
+  });
+
+  test("persists and publishes signed family-specific direct ports to the same account", async () => {
+    const fixture = makeFixture({
+      registrationDirectPorts: { ipv4: 49_152, ipv6: 49_153 },
+    });
+    const registered = await Effect.runPromise(fixture.broker.register(
+      USER_A,
+      await fixture.signedRegistration(),
+      NOW,
+    )) as { binding: { direct_ports?: TestDirectPorts } };
+
+    expect(registered.binding.direct_ports).toEqual({ ipv4: 49_152, ipv6: 49_153 });
+    expect(fixture.repository.bindings[0]).toMatchObject({
+      directPortV4: 49_152,
+      directPortV6: 49_153,
+    });
+
+    const sameAccount = await Effect.runPromise(fixture.broker.discover(USER_A, NOW)) as {
+      bindings: Array<{ direct_ports?: TestDirectPorts }>;
+    };
+    expect(sameAccount.bindings[0]?.direct_ports).toEqual({ ipv4: 49_152, ipv6: 49_153 });
+
+    const otherAccount = await Effect.runPromise(fixture.broker.discover(USER_B, NOW)) as {
+      bindings: Array<{ direct_ports?: TestDirectPorts }>;
+    };
+    expect(otherAccount.bindings).toEqual([]);
+  });
+
+  test("updates or clears direct ports on a fresh signed registration", async () => {
+    const fixture = makeFixture({ registrationDirectPorts: { ipv4: 49_152 } });
+    await Effect.runPromise(fixture.broker.register(
+      USER_A,
+      await fixture.signedRegistration(),
+      NOW,
+    ));
+
+    const ipv6Only = await Effect.runPromise(fixture.broker.register(
+      USER_A,
+      await fixture.signedRegistration("mac", { ipv6: 49_153 }),
+      new Date(NOW.getTime() + 1_000),
+    )) as { binding: { direct_ports?: TestDirectPorts } };
+    expect(ipv6Only.binding.direct_ports).toEqual({ ipv6: 49_153 });
+    expect(fixture.repository.bindings[0]).toMatchObject({
+      directPortV4: null,
+      directPortV6: 49_153,
+    });
+
+    const legacyRefresh = await Effect.runPromise(fixture.broker.register(
+      USER_A,
+      await fixture.signedRegistration("mac", null),
+      new Date(NOW.getTime() + 2_000),
+    )) as { binding: Record<string, unknown> };
+    expect("direct_ports" in legacyRefresh.binding).toBe(false);
+    expect(fixture.repository.bindings[0]).toMatchObject({
+      directPortV4: null,
+      directPortV6: null,
+    });
   });
 
   test("preserves account-private routes while filtering unsafe registration hints", async () => {
@@ -770,7 +832,11 @@ describe("developer binding override", () => {
   });
 });
 
-type MutableBinding = IrohBindingRecord & { userId: string };
+type MutableBinding = IrohBindingRecord & {
+  userId: string;
+  directPortV4: number | null;
+  directPortV6: number | null;
+};
 
 class MemoryRepository implements IrohRepositoryShape {
   readonly challenges: IrohChallengeRecord[] = [];
@@ -828,6 +894,11 @@ class MemoryRepository implements IrohRepositoryShape {
         existing.platform !== input.payload.platform
       ) return Effect.fail(new IrohConflictError({ code: "binding_replacement_requires_revocation" }));
       challenge.consumedAt = input.now;
+      const directPorts = (input.payload as IrohRegistrationPayload & {
+        directPorts?: TestDirectPorts;
+      }).directPorts;
+      existing.directPortV4 = directPorts?.ipv4 ?? null;
+      existing.directPortV6 = directPorts?.ipv6 ?? null;
       existing.pathHints = [...input.payload.pathHints];
       existing.lastSeenAt = input.now;
       existing.updatedAt = input.now;
@@ -882,6 +953,12 @@ class MemoryRepository implements IrohRepositoryShape {
       identityGeneration: input.payload.identityGeneration,
       pairingEnabled: input.payload.pairingEnabled,
       capabilities: [...input.payload.capabilities],
+      directPortV4: (input.payload as IrohRegistrationPayload & {
+        directPorts?: TestDirectPorts;
+      }).directPorts?.ipv4 ?? null,
+      directPortV6: (input.payload as IrohRegistrationPayload & {
+        directPorts?: TestDirectPorts;
+      }).directPorts?.ipv6 ?? null,
       pathHints: [...input.payload.pathHints],
       deviceLimitOverrideUsed: activeDevice.length >= input.bindingQuota.baselineDevice,
       registeredAt: input.now,
@@ -906,6 +983,11 @@ class MemoryRepository implements IrohRepositoryShape {
   findActiveBindings(userId: string, bindingIds: readonly string[]) {
     return Effect.succeed(this.bindings.filter((row) =>
       row.userId === userId && bindingIds.includes(row.id) && !row.revokedAt));
+  }
+
+  findActiveBindingByEndpoint(userId: string, endpointId: string) {
+    return Effect.succeed(this.bindings.find((row) =>
+      row.userId === userId && row.endpointId === endpointId && !row.revokedAt) ?? null);
   }
 
   revokeBinding(input: Parameters<IrohRepositoryShape["revokeBinding"]>[0]) {
@@ -1057,6 +1139,7 @@ function makeFixture(options: {
   identityGeneration?: number;
   relayPreference?: RelayPreference;
   registrationPathHints?: IrohRegistrationPayload["pathHints"];
+  registrationDirectPorts?: TestDirectPorts;
   developmentBindingLimits?: {
     account: number;
     device: number;
@@ -1123,8 +1206,11 @@ function makeFixture(options: {
     setRelayPreference(next: RelayPreference) {
       relayPreference = next;
     },
-    async signedRegistration(platform: "mac" | "ios" = "mac") {
-      const payload: IrohRegistrationPayload = {
+    async signedRegistration(
+      platform: "mac" | "ios" = "mac",
+      directPorts: TestDirectPorts | null | undefined = options.registrationDirectPorts,
+    ) {
+      const payload: IrohRegistrationPayload & { directPorts?: TestDirectPorts } = {
         route_contract_version: 1,
         deviceId,
         appInstanceId,
@@ -1135,6 +1221,7 @@ function makeFixture(options: {
         identityGeneration,
         pairingEnabled: true,
         capabilities: ["terminal", "artifacts"],
+        ...(directPorts ? { directPorts } : {}),
         pathHints: options.registrationPathHints ?? [{
           kind: "direct_address",
           value: "8.8.8.8:4433",
@@ -1192,6 +1279,8 @@ function binding(overrides: Partial<MutableBinding> = {}): MutableBinding {
     identityGeneration: 1,
     pairingEnabled: true,
     capabilities: [],
+    directPortV4: null,
+    directPortV6: null,
     pathHints: [],
     pathHintsNextExpiry: null,
     deviceLimitOverrideUsed: false,

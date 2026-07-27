@@ -162,8 +162,14 @@ extension Workspace {
         case .unresolvedMirror:
             return nil
         case .notRemote:
-            guard let panel = panels[surfaceID] else { return nil }
-            return (surfaceID, paneId(forPanelId: surfaceID)?.id, panel)
+            if let panel = panels[surfaceID] {
+                return (surfaceID, paneId(forPanelId: surfaceID)?.id, panel)
+            }
+            guard let dock = _dockSplit,
+                  let panel = dock.panels[surfaceID] else {
+                return nil
+            }
+            return (surfaceID, dock.paneId(forPanelId: surfaceID)?.id, panel)
         }
     }
 

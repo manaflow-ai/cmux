@@ -2,6 +2,25 @@ extension MobileShellComposite {
     static let chatArtifactFoldersCapability = "chat.artifact.folders.v1"
     static let terminalArtifactListCapability = "terminal.artifact.list.v1"
 
+    /// Whether the connected Mac supports workspace changes summaries and diffs.
+    public var workspaceChangesCapable: Bool { supportedHostCapabilities.contains(Self.workspaceChangesCapability) }
+
+    /// Verified render-grid sessions present only Mac-ordered terminal state.
+    public var usesVerifiedTerminalReplay: Bool {
+        terminalOutputTransport == .renderGrid
+            && supportedHostCapabilities.contains(Self.terminalVerifiedReplayCapability)
+    }
+
+    /// Screen-anchored render-grid sessions receive active-area-anchored
+    /// frames whose deltas carry exact scrolled-row counts, so this device
+    /// keeps a deep local scrollback and scrolls the primary screen locally
+    /// (no per-scroll round trip to the Mac). Full replays still flow through
+    /// the verified pipeline when the host supports it.
+    public var usesScreenAnchoredRenderGrid: Bool {
+        terminalOutputTransport == .renderGrid
+            && supportedHostCapabilities.contains(Self.terminalScreenAnchorCapability)
+    }
+
     /// Whether the Mac supports workspace close requests.
     public var supportsWorkspaceCloseActions: Bool { supportedHostCapabilities.contains(Self.workspaceCloseCapability) }
     /// Whether the Mac supports workspace move/reorder requests.
@@ -26,6 +45,9 @@ extension MobileShellComposite {
     }
     /// Whether the Mac supports terminal artifact scan/stat/fetch/thumbnail RPCs.
     public var supportsTerminalArtifacts: Bool { supportedHostCapabilities.contains(Self.terminalArtifactCapability) }
+    public var supportsIrohArtifactLane: Bool {
+        supportedHostCapabilities.contains(Self.irohArtifactLaneCapability)
+    }
     /// Whether the Mac supports terminal-scoped directory listing.
     public var supportsTerminalArtifactList: Bool {
         supportedHostCapabilities.contains(Self.terminalArtifactListCapability)

@@ -2,10 +2,19 @@ import unittest
 from unittest.mock import patch
 
 from cmux import CmuxClient, ProtocolError
-from cmux.client import Layout
+from cmux.client import IdentifyResult, Layout, _parse_tree
 
 
 class ProtocolTests(unittest.TestCase):
+    def test_identify_result_preserves_positional_artifact_revisions(self) -> None:
+        result = IdentifyResult(
+            "cmux-tui", "0.1.2", 7, "main", 42, "cmux-sha", "ghostty-sha"
+        )
+
+        self.assertEqual(result.build_commit, "cmux-sha")
+        self.assertEqual(result.ghostty_commit, "ghostty-sha")
+        self.assertEqual(result.capabilities, ())
+
     def test_identify_and_ping_preserve_artifact_revisions(self) -> None:
         client = CmuxClient.__new__(CmuxClient)
         responses = {
@@ -59,6 +68,35 @@ class ProtocolTests(unittest.TestCase):
 
         self.assertEqual(client.resize_surface(7, 80, 24).reservation_id, 41)
 
+    def test_list_clients_normalizes_protocol_nine_sizing_participation(self) -> None:
+        client = CmuxClient.__new__(CmuxClient)
+        client._request = lambda _command, **_params: [{
+            "client": 7,
+            "transport": "ws",
+            "name": None,
+            "kind": "web",
+            "connected_seconds": 12,
+            "attached": [31, 32],
+            "sizes": [
+                {"surface": 31, "cols": 126, "rows": 38},
+                {
+                    "surface": 32,
+                    "cols": 100,
+                    "rows": 30,
+                    "size_participating": True,
+                },
+            ],
+            "size_participating": False,
+            "self": True,
+        }]
+
+        [listed] = client.list_clients()
+
+        self.assertEqual(
+            [size.size_participating for size in listed.sizes],
+            [False, True],
+        )
+
     def test_attach_accepts_newer_additive_protocols_with_opt_in(self) -> None:
         client = CmuxClient.__new__(CmuxClient)
         client._protocol = 10
@@ -69,6 +107,52 @@ class ProtocolTests(unittest.TestCase):
 
         attach.assert_called_once_with(client, {"cmd": "attach-surface", "surface": 1})
 
+    def test_attach_rejects_partial_initial_size_locally(self) -> None:
+        client = CmuxClient.__new__(CmuxClient)
+
+        with self.assertRaisesRegex(
+            ValueError, "attach-surface cols and rows must be supplied together"
+        ):
+            client.attach_surface(1, cols=80)
+
+    def test_workspace_registry_fields_and_placements(self) -> None:
+        tree = _parse_tree({
+            "workspace_revision": 4,
+            "pane_revision": 7,
+            "workspaces": [{"id": 1, "key": "stable", "name": "one", "active": True, "screens": []}],
+        })
+        self.assertEqual(tree.workspace_revision, 4)
+        self.assertEqual(tree.pane_revision, 7)
+        self.assertEqual(tree.workspaces[0].key, "stable")
+        self.assertIsNone(_parse_tree({"workspaces": []}).pane_revision)
+
+        client = CmuxClient.__new__(CmuxClient)
+        client._protocol = 7
+        client._capabilities = {"workspace-registry-v1"}
+        client._request = lambda cmd, **_params: (
+            {"workspace": 1, "key": "stable", "index": 0, "workspace_revision": 5}
+            if cmd == "create-workspace"
+            else {"surface": 5, "pane": 4, "screen": 3, "workspace": 1, "key": "stable"}
+        )
+        self.assertEqual(client.create_workspace().workspace_revision, 5)
+        self.assertEqual(client.create_terminal(key="stable").surface, 5)
+
+        client._request = lambda _cmd, **_params: {
+            "workspace": 1,
+            "key": "stable",
+            "workspace_revision": 6,
+        }
+        self.assertEqual(client.close_workspace_registry(key="stable").workspace_revision, 6)
+        self.assertEqual(client.rename_workspace_registry("two", key="stable").workspace_revision, 6)
+        self.assertEqual(client.move_workspace_registry(0, key="stable").workspace_revision, 6)
+
+    def test_workspace_registry_selectors_reject_missing_and_empty_keys_locally(self) -> None:
+        client = CmuxClient.__new__(CmuxClient)
+
+        with self.assertRaisesRegex(ValueError, "workspace or key is required"):
+            client.create_terminal()
+        with self.assertRaisesRegex(ValueError, "workspace or key is required"):
+            client.close_workspace_registry(key="  ")
     def test_new_pane_rejects_servers_older_than_protocol_nine(self) -> None:
         client = CmuxClient.__new__(CmuxClient)
         client._protocol = 8

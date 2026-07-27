@@ -105,11 +105,13 @@ extension TerminalSurface {
     public func reconcileAttachedWindowIfNeeded(for view: any TerminalSurfaceNativeViewing) {
         guard attachedView === view else { return }
         releaseHeadlessStartupWindowIfNeeded(for: view)
-        guard let screen = view.window?.screen ?? NSScreen.main,
-              let displayID = screen.displayID,
-              displayID != 0 else { return }
-        guard let s = liveSurfaceForGhosttyAccess(reason: "reconcileAttachedWindow") else { return }
-        ghostty_surface_set_display_id(s, displayID)
+        if let screen = view.window?.screen ?? NSScreen.main,
+           let displayID = screen.displayID,
+           displayID != 0,
+           let s = liveSurfaceForGhosttyAccess(reason: "reconcileAttachedWindow") {
+            ghostty_surface_set_display_id(s, displayID)
+        }
+        rendererPresentationAttachmentDidBecomeReady()
     }
 
     /// Whether the surface model is attached to `view` with a live runtime
@@ -299,6 +301,8 @@ extension TerminalSurface {
     /// agent-hibernation resume.
     @MainActor
     public func suspendRuntimeSurfaceForAgentHibernation(reason: String) {
+        _ = fontSizeLineageSnapshot()
+        mobileViewportFontFitState = nil
         runtimeSurfaceSuspendedForAgentHibernation = true
         backgroundSurfaceStartQueued = false
         backgroundSurfaceStartSource = .normal
@@ -409,6 +413,7 @@ extension TerminalSurface {
                let s = surface {
                 ghostty_surface_set_display_id(s, displayID)
             }
+            rendererPresentationAttachmentDidBecomeReady()
             return
         }
 
@@ -467,6 +472,7 @@ extension TerminalSurface {
             logDebugEvent("surface.attach.displayId surface=\(id.uuidString.prefix(5)) display=\(displayID)")
 #endif
         }
+        rendererPresentationAttachmentDidBecomeReady()
     }
 
     @MainActor
@@ -556,12 +562,6 @@ extension TerminalSurface {
             requiresRestoreSpawnPacing = false
         }
         registry.registerRuntimeSurface(createdSurface, ownerId: id)
-        // A freshly created runtime surface always owns a live (non-defunct)
-        // swap chain, so it is realized. Reset the flag in case this object's
-        // previous runtime surface had been released before being freed (e.g.
-        // agent-hibernation suspend/restore), which would otherwise let a later
-        // realizeRenderer() double-realize and trip Ghostty's defunct assert.
-        rendererRealized = true
         recordRuntimeSurfaceCreation()
         // Install the shared PTY tee so output consumers receive every byte
         // the read thread produces, in order, before the VT parser runs.
@@ -611,21 +611,18 @@ extension TerminalSurface {
         // wrapping at Ghostty's default grid.
         flushPendingRemoteOutput(to: createdSurface)
 
-        // Some GhosttyKit builds can drop inherited font_size during post-create
-        // config/scale reconciliation. Re-apply runtime points so all creation
-        // paths preserve zoom from the source terminal.
-        if let inheritedBaseFontPoints = configTemplate?.fontSize,
-           inheritedBaseFontPoints > 0 {
+        // Some GhosttyKit builds can drop explicit font_size during post-create
+        // config/scale reconciliation. Re-apply explicit runtime points so
+        // Ghostty retains surface-local ownership; otherwise Cmd+0 could not
+        // clear the restored override for the next snapshot. Non-explicit
+        // lineage intentionally reconciles to the current terminal config.
+        if let inheritedFontSizeLineage = lastKnownFontSizeLineage,
+           inheritedFontSizeLineage.isExplicitOverride,
+           inheritedFontSizeLineage.basePoints > 0 {
+            let inheritedBaseFontPoints = inheritedFontSizeLineage.basePoints
             let inheritedRuntimeFontPoints = CmuxSurfaceConfigTemplate.runtimeFontSize(fromBasePoints: inheritedBaseFontPoints, percent: globalFontMagnificationPercent())
-            let currentFontPoints = GhosttySurfaceRuntimeProbe.currentSurfaceFontSizePoints(createdSurface)
-            let shouldReapply = {
-                guard let currentFontPoints else { return true }
-                return abs(currentFontPoints - inheritedRuntimeFontPoints) > 0.05
-            }()
-            if shouldReapply {
-                let action = String(format: "set_font_size:%.3f", inheritedRuntimeFontPoints)
-                _ = performInternalBindingAction(action)
-            }
+            let action = String(format: "set_font_size:%.3f", inheritedRuntimeFontPoints)
+            _ = performInternalBindingAction(action)
         }
 
         // Re-apply the desired focus state after creation so the live runtime
@@ -640,6 +637,7 @@ extension TerminalSurface {
         // transition nudges the renderer.
         view.forceRefreshSurface()
         ghostty_surface_refresh(createdSurface)
+        rendererRuntimeSurfaceDidCreate()
 
         NotificationCenter.default.post(
             name: .terminalSurfaceDidBecomeReady,

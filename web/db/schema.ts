@@ -102,8 +102,8 @@ export const accountDeletionTombstones = pgTable(
 
 /**
  * The last server-configured relay catalog accepted by this database.
- * Persisting its sequence and digest prevents an older or conflicting deploy
- * from signing a rollback after a newer catalog has already been served.
+ * Persisting its complete non-secret body lets activation enforce add-before-
+ * remove rotation under the same lock that prevents sequence rollback.
  */
 export const irohRelayCatalogState = pgTable(
   "iroh_relay_catalog_state",
@@ -111,6 +111,10 @@ export const irohRelayCatalogState = pgTable(
     id: text("id").primaryKey(),
     catalogSequence: bigint("catalog_sequence", { mode: "number" }).notNull(),
     catalogDigest: text("catalog_digest").notNull(),
+    // Nullable for rolling compatibility with an older web process. The new
+    // process backfills only an exact sequence/digest match and refuses to
+    // advance until the prior catalog body is authoritative.
+    catalog: jsonb("catalog"),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -719,6 +723,8 @@ export const irohEndpointBindings = pgTable(
     identityGeneration: integer("identity_generation").notNull(),
     pairingEnabled: boolean("pairing_enabled").notNull().default(false),
     capabilities: jsonb("capabilities").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    directPortV4: integer("direct_port_v4"),
+    directPortV6: integer("direct_port_v6"),
     pathHints: jsonb("path_hints").$type<unknown[]>().notNull().default(sql`'[]'::jsonb`),
     pathHintsNextExpiry: timestamp("path_hints_next_expiry", { withTimezone: true }),
     deviceLimitOverrideUsed: boolean("device_limit_override_used").notNull().default(false),
@@ -735,6 +741,8 @@ export const irohEndpointBindings = pgTable(
     check("iroh_endpoint_bindings_platform_check", sql`${table.platform} in ('mac', 'ios')`),
     check("iroh_endpoint_bindings_display_name_check", sql`${table.displayName} is null or ${table.displayName} !~ '[[:cntrl:]]'`),
     check("iroh_endpoint_bindings_capabilities_check", sql`jsonb_typeof(${table.capabilities}) = 'array' and jsonb_array_length(${table.capabilities}) <= 32`),
+    check("iroh_endpoint_bindings_direct_port_v4_check", sql`${table.directPortV4} is null or ${table.directPortV4} between 1 and 65535`),
+    check("iroh_endpoint_bindings_direct_port_v6_check", sql`${table.directPortV6} is null or ${table.directPortV6} between 1 and 65535`),
     check("iroh_endpoint_bindings_path_hints_check", sql`jsonb_typeof(${table.pathHints}) = 'array' and jsonb_array_length(${table.pathHints}) <= 16`),
     uniqueIndex("iroh_endpoint_bindings_active_endpoint_unique")
       .on(table.endpointId)

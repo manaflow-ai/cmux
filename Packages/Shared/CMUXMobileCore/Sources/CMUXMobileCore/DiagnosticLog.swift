@@ -129,7 +129,10 @@ public final class DiagnosticLog: Sendable {
     /// This is the hot-path API. It only yields the value onto the buffered
     /// stream; the actual ring write happens on the internal drain task. A burst
     /// past the consumer's pace drops the oldest pending events (per
-    /// `.bufferingNewest`), never the caller.
+    /// `.bufferingNewest`), never the caller. Repeated
+    /// ``DiagnosticEventCode/selectedPathChanged`` values for the same redacted
+    /// path class are consumed but not retained, so observer wakeups cannot be
+    /// mistaken for transport changes.
     ///
     /// - Parameter event: The event to record.
     public nonisolated func record(_ event: DiagnosticEvent) {
@@ -328,6 +331,7 @@ public final class DiagnosticLog: Sendable {
         private var head = 0
         private var filled = 0
         private var totalProcessed = 0
+        private var selectedPathKind: DiagnosticPathKind?
         private let capacity: Int
         private let buildStamp: String
         private let role: DiagnosticRuntimeRole
@@ -353,12 +357,16 @@ public final class DiagnosticLog: Sendable {
         }
 
         func append(_ event: DiagnosticEvent) {
+            totalProcessed += 1
+            if let nextPathKind = event.diagnosticPathKind {
+                guard nextPathKind != selectedPathKind else { return }
+                selectedPathKind = nextPathKind
+            }
             slots[head] = event
             head = (head + 1) % capacity
             if filled < capacity {
                 filled += 1
             }
-            totalProcessed += 1
         }
 
         func count() -> Int {
@@ -374,6 +382,7 @@ public final class DiagnosticLog: Sendable {
             head = 0
             filled = 0
             totalProcessed = 0
+            selectedPathKind = nil
             self.anchorWallNanos = anchorWallNanos
             self.anchorMonotonicNanos = anchorMonotonicNanos
         }

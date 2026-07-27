@@ -12,7 +12,7 @@ private func githubAuthorizationFingerprint(for authHeader: String) -> Data {
 /// coalescing, and a bounded transport pool. Keeping these concerns here
 /// prevents per-window pollers from independently consuming the same GitHub
 /// rate-limit pool.
-actor GitHubPullRequestRequestCoordinator {
+public actor GitHubPullRequestRequestCoordinator {
     private static let maximumConcurrentTransportCount = 3
     private static let maximumRateLimitIdentityCount = 32
 
@@ -53,6 +53,16 @@ actor GitHubPullRequestRequestCoordinator {
     internal var queuedTransports: [QueuedTransport] = []
     private var rateLimitRetryDateByAuthorizationFingerprint: [Data: Date] = [:]
     private var rateLimitAuthorizationFingerprintsInInsertionOrder: [Data] = []
+
+    /// Creates a coordinator with the default shared-transport configuration.
+    ///
+    /// Exposed so callers in other modules can supply their own instance to
+    /// `PullRequestProbeService(requestCoordinator:)`. The session and cache
+    /// tuning knobs stay internal (tests reach that initializer through
+    /// `@testable import`), keeping the public surface to a plain default.
+    public init() {
+        self.init(session: nil)
+    }
 
     init(
         session: URLSession? = nil,

@@ -10,6 +10,13 @@ persists and publishes only exact managed relay URLs. Endpoint or
 identity-generation replacement requires explicit revocation and reapproval; a
 signature from only the proposed new key cannot replace an active binding.
 
+A signed registration may publish `directPorts` with independent IPv4 and IPv6
+UDP ports. The broker stores only those bounded ports, never a private address,
+and returns them as `direct_ports` only inside the authenticated same-account
+binding catalog. Clients combine a family-matching port with locally known
+addresses after EndpointID authentication. Legacy registrations omit the field
+and clear any previously published ports on their next signed refresh.
+
 `relay_fleet` is the server-configured connection preset/allowlist. It is not a
 peer address. Each peer's published `relay_url` comes from its signed
 `watch_addr` payload and must match that allowlist. Discovery defensively
@@ -76,12 +83,11 @@ hints and removes existing Iroh route bodies from the legacy device registry.
 Hosts republish sanitized EndpointID/managed-relay routes on their next refresh;
 non-Iroh routes are preserved in order.
 
-The `20260710113000_iroh_relay_reservation_expiry` migration adds the
-expanded status constraint with `NOT VALID` so its `ACCESS EXCLUSIVE` lock is
-released without scanning existing rows. Drizzle 1.0 applies all pending
-Postgres migrations in one transaction, so constraint validation must ship in
-a later deployment after this migration is recorded. That follow-up migration
-must run:
+The `20260710113000_iroh_relay_reservation_expiry` migration added the expanded
+status constraint with `NOT VALID` so its `ACCESS EXCLUSIVE` lock was released
+without scanning existing rows. The later
+`20260718120000_iroh_relay_status_validation` migration validates it after the
+schema change was recorded:
 
 ```sql
 ALTER TABLE "iroh_relay_token_issuances"

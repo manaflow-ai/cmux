@@ -1,6 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender, SyncSender, TrySendError, sync_channel};
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
@@ -41,6 +41,14 @@ pub struct BrowserFrame {
 pub struct BrowserFrameStream {
     pub slot: Arc<Mutex<BrowserAttachUpdate>>,
     pub notify: Receiver<()>,
+}
+
+pub(crate) type BrowserResizeOutcome = Result<(), Arc<str>>;
+pub(crate) type BrowserResizeWaiter = SyncSender<BrowserResizeOutcome>;
+
+pub(crate) struct PendingBrowserResize {
+    pub reservation: u64,
+    pub completion: Receiver<BrowserResizeOutcome>,
 }
 
 struct BrowserFrameTap {
@@ -108,6 +116,7 @@ struct BrowserState {
     capture_pixels: (u32, u32),
     capture_scale: f64,
     pending_reconfigures: VecDeque<QueuedBrowserGeometry>,
+    reconfigure_waiters: HashMap<u64, Vec<BrowserResizeWaiter>>,
     next_reconfigure_id: u64,
     reconfigure_failure: Option<BrowserReconfigureFailure>,
     page_viewport: Option<(u32, u32)>,
@@ -172,12 +181,18 @@ enum BrowserCommand {
     Reconfigure {
         queued: QueuedBrowserGeometry,
         report: Option<Box<dyn FnOnce(Option<u64>) + Send>>,
+        completion: Option<BrowserResizeWaiter>,
     },
     #[cfg(test)]
     Hold {
         entered: Sender<()>,
         release: Receiver<()>,
     },
+}
+
+struct QueuedBrowserCommand {
+    command: BrowserCommand,
+    uses_regular_capacity: bool,
 }
 
 impl BrowserCommand {
@@ -197,10 +212,13 @@ impl BrowserCommand {
 }
 
 fn reject_reconfigure(mut command: BrowserCommand) -> Option<QueuedBrowserGeometry> {
-    if let BrowserCommand::Reconfigure { report, .. } = &mut command
-        && let Some(report) = report.take()
-    {
-        report(None);
+    if let BrowserCommand::Reconfigure { report, completion, .. } = &mut command {
+        if let Some(report) = report.take() {
+            report(None);
+        }
+        if let Some(completion) = completion.take() {
+            let _ = completion.send(Err(Arc::from("browser resize was rejected before execution")));
+        }
     }
     match command {
         BrowserCommand::Reconfigure { queued, .. } => Some(queued),
@@ -340,7 +358,8 @@ pub struct BrowserSurface {
     dead: AtomicBool,
     cell_pixels: Mutex<(u16, u16)>,
     capture_options: BrowserCaptureOptions,
-    command_tx: Mutex<Option<SyncSender<BrowserCommand>>>,
+    command_tx: Mutex<Option<SyncSender<QueuedBrowserCommand>>>,
+    regular_command_count: Arc<AtomicUsize>,
     latest_nav: Arc<Mutex<Option<BrowserCommand>>>,
     #[cfg(test)]
     worker_done: Mutex<Option<Receiver<()>>>,
@@ -358,6 +377,7 @@ pub const TRANSPORT_SAFE_CAPTURE_MEGAPIXELS: f64 = 2.0;
 const DEFAULT_CAPTURE_MEGAPIXELS: f64 = TRANSPORT_SAFE_CAPTURE_MEGAPIXELS;
 const STALL_THRESHOLD: Duration = Duration::from_secs(2);
 const BROWSER_COMMAND_QUEUE_CAPACITY: usize = 64;
+const MAX_RECONFIGURE_WAITERS_PER_RESERVATION: usize = 64;
 const BROWSER_NOT_RESPONDING_MESSAGE: &str = "browser is not responding";
 const BROWSER_RECONFIGURE_RETRY_DELAYS: [Duration; 2] =
     [Duration::from_millis(250), Duration::from_millis(500)];
@@ -533,7 +553,8 @@ pub(crate) fn new_surface(
     let capture_options = BrowserCaptureOptions::from_options(opts);
     let capture_scale = capture_scale_for(pixel_w, pixel_h, capture_options);
     let capture_pixels = scaled_pixels(pixel_w, pixel_h, capture_scale);
-    let (command_tx, command_rx) = sync_channel(BROWSER_COMMAND_QUEUE_CAPACITY);
+    let (command_tx, command_rx) = sync_channel(BROWSER_COMMAND_QUEUE_CAPACITY + 1);
+    let regular_command_count = Arc::new(AtomicUsize::new(0));
     let latest_nav = Arc::new(Mutex::new(None));
     #[cfg(test)]
     let (worker_done_tx, worker_done_rx) = std::sync::mpsc::channel();
@@ -554,6 +575,7 @@ pub(crate) fn new_surface(
             capture_pixels,
             capture_scale,
             pending_reconfigures: VecDeque::new(),
+            reconfigure_waiters: HashMap::new(),
             next_reconfigure_id: 1,
             reconfigure_failure: None,
             page_viewport: None,
@@ -570,11 +592,19 @@ pub(crate) fn new_surface(
         cell_pixels: Mutex::new((cell_w, cell_h)),
         capture_options,
         command_tx: Mutex::new(Some(command_tx)),
+        regular_command_count: regular_command_count.clone(),
         latest_nav: latest_nav.clone(),
         #[cfg(test)]
         worker_done: Mutex::new(Some(worker_done_rx)),
     }));
-    start_browser_worker(surface.clone(), command_rx, latest_nav, mux, worker_done_tx);
+    start_browser_worker(
+        surface.clone(),
+        command_rx,
+        regular_command_count,
+        latest_nav,
+        mux,
+        worker_done_tx,
+    );
     surface
 }
 
@@ -874,7 +904,8 @@ fn start_surface_thread(
 
 fn start_browser_worker(
     surface: Arc<Surface>,
-    rx: Receiver<BrowserCommand>,
+    rx: Receiver<QueuedBrowserCommand>,
+    regular_command_count: Arc<AtomicUsize>,
     latest_nav: Arc<Mutex<Option<BrowserCommand>>>,
     mux: Weak<Mux>,
     done_tx: Option<Sender<()>>,
@@ -884,9 +915,11 @@ fn start_browser_worker(
         std::thread::Builder::new().name(format!("browser-surface-{id}-worker")).spawn(move || {
             let mut failures = BrowserWorkerErrorState::default();
             while let Ok(first) = rx.recv() {
-                let mut batch = vec![first];
+                release_regular_command_capacity(&regular_command_count, &first);
+                let mut batch = vec![first.command];
                 while let Ok(next) = rx.try_recv() {
-                    batch.push(next);
+                    release_regular_command_capacity(&regular_command_count, &next);
+                    batch.push(next.command);
                 }
                 coalesce_worker_mouse_moves(&mut batch);
                 for command in batch {
@@ -906,6 +939,16 @@ fn start_browser_worker(
                 let _ = done_tx.send(());
             }
         });
+}
+
+fn release_regular_command_capacity(
+    regular_command_count: &AtomicUsize,
+    command: &QueuedBrowserCommand,
+) {
+    if command.uses_regular_capacity {
+        let previous = regular_command_count.fetch_sub(1, Ordering::AcqRel);
+        debug_assert!(previous > 0, "browser command capacity accounting underflowed");
+    }
 }
 
 fn take_latest_worker_commands(
@@ -932,11 +975,15 @@ fn run_browser_worker_command(
     id: SurfaceId,
     failures: &mut BrowserWorkerErrorState,
 ) {
-    if let BrowserCommand::Reconfigure { queued, report } = &mut command
-        && let Some(report) = report.take()
-    {
-        report(Some(queued.id));
-    }
+    let completion =
+        if let BrowserCommand::Reconfigure { queued, report, completion } = &mut command {
+            if let Some(report) = report.take() {
+                report(Some(queued.id));
+            }
+            completion.take()
+        } else {
+            None
+        };
     let is_input = command.is_input();
     let is_reconfigure = matches!(command, BrowserCommand::Reconfigure { .. });
     let reconfigure = match &command {
@@ -1012,6 +1059,16 @@ fn run_browser_worker_command(
             retry_after_ms: retry_delay.map(|delay| delay.as_millis() as u64),
             reservation_id: Some(queued.id),
         });
+    }
+    if let Some(completion) = completion {
+        let outcome = result.as_ref().map(|_| ()).map_err(|error| Arc::from(error.to_string()));
+        let _ = completion.send(outcome);
+    }
+    if let Some(queued) = reconfigure
+        && let Some(browser) = surface.as_browser()
+    {
+        let outcome = result.as_ref().map(|_| ()).map_err(|error| Arc::from(error.to_string()));
+        browser.complete_reconfigure_waiters(queued.id, outcome);
     }
     record_browser_worker_result(surface, mux, id, is_input, result, failures);
 }
@@ -1158,12 +1215,29 @@ impl BrowserSurface {
         rows: u16,
         report: Box<dyn FnOnce(Option<u64>) + Send>,
     ) -> anyhow::Result<Option<u64>> {
+        self.resize_reporting_completion(cols, rows, report, None)
+    }
+
+    pub(crate) fn resize_reporting_completion(
+        &self,
+        cols: u16,
+        rows: u16,
+        report: Box<dyn FnOnce(Option<u64>) + Send>,
+        completion: Option<BrowserResizeWaiter>,
+    ) -> anyhow::Result<Option<u64>> {
         let (cols, rows) = (cols.max(1), rows.max(1));
         let Some(queued) = self.reserve_reconfigure(cols, rows) else {
             report(None);
+            if let Some(completion) = completion {
+                let _ = completion.send(Ok(()));
+            }
             return Ok(None);
         };
-        self.enqueue_reconfigure(BrowserCommand::Reconfigure { queued, report: Some(report) })?;
+        self.enqueue_reconfigure(BrowserCommand::Reconfigure {
+            queued,
+            report: Some(report),
+            completion,
+        })?;
         Ok(Some(queued.id))
     }
 
@@ -1218,6 +1292,45 @@ impl BrowserSurface {
         Some(queued)
     }
 
+    pub(crate) fn pending_resize_completion(
+        &self,
+        cols: u16,
+        rows: u16,
+    ) -> anyhow::Result<Option<PendingBrowserResize>> {
+        let geometry = self.resize_geometry(cols, rows);
+        let mut state = self.state.lock().unwrap();
+        if let Some(pending) =
+            state.pending_reconfigures.iter().rev().find(|pending| pending.geometry == geometry)
+        {
+            let reservation = pending.id;
+            if state
+                .reconfigure_waiters
+                .get(&reservation)
+                .is_some_and(|waiters| waiters.len() >= MAX_RECONFIGURE_WAITERS_PER_RESERVATION)
+            {
+                anyhow::bail!("browser resize reservation {reservation} has too many waiters");
+            }
+            let (completion, completed) = sync_channel(1);
+            state.reconfigure_waiters.entry(reservation).or_default().push(completion);
+            return Ok(Some(PendingBrowserResize { reservation, completion: completed }));
+        }
+        if browser_geometry_locked(&state) == geometry {
+            return Ok(None);
+        }
+        if state.reconfigure_failure.is_some_and(|failure| failure.geometry == geometry) {
+            anyhow::bail!("browser resize is waiting to retry after a previous failure");
+        }
+        anyhow::bail!("browser resize was not accepted");
+    }
+
+    fn complete_reconfigure_waiters(&self, reservation: u64, outcome: BrowserResizeOutcome) {
+        let waiters =
+            self.state.lock().unwrap().reconfigure_waiters.remove(&reservation).unwrap_or_default();
+        for waiter in waiters {
+            let _ = waiter.send(outcome.clone());
+        }
+    }
+
     fn confirm_reconfigure(&self, queued: QueuedBrowserGeometry) {
         let mut state = self.state.lock().unwrap();
         let Some(index) =
@@ -1234,6 +1347,8 @@ impl BrowserSurface {
         state.capture_pixels = geometry.capture_pixels;
         state.capture_scale = geometry.capture_scale;
         if changed {
+            state.latest_frame = None;
+            state.page_viewport = None;
             state.live_since = Some(Instant::now());
             state.last_frame_at = None;
             state.stall_nudged = false;
@@ -1260,11 +1375,17 @@ impl BrowserSurface {
     }
 
     fn release_reconfigure(&self, queued: QueuedBrowserGeometry) {
-        let mut state = self.state.lock().unwrap();
-        if let Some(index) =
-            state.pending_reconfigures.iter().position(|pending| pending.id == queued.id)
-        {
-            state.pending_reconfigures.remove(index);
+        let waiters = {
+            let mut state = self.state.lock().unwrap();
+            if let Some(index) =
+                state.pending_reconfigures.iter().position(|pending| pending.id == queued.id)
+            {
+                state.pending_reconfigures.remove(index);
+            }
+            state.reconfigure_waiters.remove(&queued.id).unwrap_or_default()
+        };
+        for waiter in waiters {
+            let _ = waiter.send(Err(Arc::from("browser resize was rejected before execution")));
         }
     }
 
@@ -1518,9 +1639,37 @@ impl BrowserSurface {
             anyhow::bail!("browser surface is closed");
         }
         let tx = self.command_sender()?;
-        match tx.try_send(command) {
+        match self.try_enqueue_regular(&tx, command) {
             Ok(()) | Err(TrySendError::Full(_)) => Ok(()),
             Err(TrySendError::Disconnected(_)) => anyhow::bail!("browser command worker is closed"),
+        }
+    }
+
+    // A browser must observe every release for a press it accepted. The
+    // physical FIFO has one slot beyond the regular queue limit, reserved for
+    // a release that arrives under backpressure. This keeps the release
+    // ordered behind accepted commands without blocking the shared dispatcher.
+    fn enqueue_reliable_mouse_release(&self, command: BrowserCommand) -> anyhow::Result<()> {
+        if self.is_dead() {
+            anyhow::bail!("browser surface is closed");
+        }
+        let tx = self.command_sender()?;
+        match self.try_enqueue_regular(&tx, command) {
+            Ok(()) => Ok(()),
+            Err(TrySendError::Full(command)) => {
+                match tx.try_send(QueuedBrowserCommand { command, uses_regular_capacity: false }) {
+                    Ok(()) => Ok(()),
+                    Err(TrySendError::Full(_)) => {
+                        anyhow::bail!("browser command queue release reserve is full")
+                    }
+                    Err(TrySendError::Disconnected(_)) => {
+                        anyhow::bail!("browser command worker is closed")
+                    }
+                }
+            }
+            Err(TrySendError::Disconnected(_)) => {
+                anyhow::bail!("browser command worker is closed")
+            }
         }
     }
 
@@ -1539,7 +1688,7 @@ impl BrowserSurface {
             anyhow::bail!("browser surface is closed");
         }
         let tx = self.command_sender()?;
-        match tx.try_send(command) {
+        match self.try_enqueue_regular(&tx, command) {
             Ok(()) => Ok(()),
             Err(TrySendError::Full(_)) => {
                 anyhow::bail!("browser command queue is full; browser may be unresponsive")
@@ -1564,7 +1713,7 @@ impl BrowserSurface {
                 return Err(error);
             }
         };
-        match tx.try_send(command) {
+        match self.try_enqueue_regular(&tx, command) {
             Ok(()) => Ok(()),
             Err(TrySendError::Full(command)) => {
                 if let Some(queued) = reject_reconfigure(command) {
@@ -1595,13 +1744,40 @@ impl BrowserSurface {
 
     fn wake_worker(&self) -> anyhow::Result<()> {
         let tx = self.command_sender()?;
-        match tx.try_send(BrowserCommand::WakeLatest) {
+        match self.try_enqueue_regular(&tx, BrowserCommand::WakeLatest) {
             Ok(()) | Err(TrySendError::Full(_)) => Ok(()),
             Err(TrySendError::Disconnected(_)) => anyhow::bail!("browser command worker is closed"),
         }
     }
 
-    fn command_sender(&self) -> anyhow::Result<SyncSender<BrowserCommand>> {
+    fn try_enqueue_regular(
+        &self,
+        tx: &SyncSender<QueuedBrowserCommand>,
+        command: BrowserCommand,
+    ) -> Result<(), TrySendError<BrowserCommand>> {
+        if self
+            .regular_command_count
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
+                (count < BROWSER_COMMAND_QUEUE_CAPACITY).then_some(count + 1)
+            })
+            .is_err()
+        {
+            return Err(TrySendError::Full(command));
+        }
+        match tx.try_send(QueuedBrowserCommand { command, uses_regular_capacity: true }) {
+            Ok(()) => Ok(()),
+            Err(TrySendError::Full(command)) => {
+                self.regular_command_count.fetch_sub(1, Ordering::AcqRel);
+                Err(TrySendError::Full(command.command))
+            }
+            Err(TrySendError::Disconnected(command)) => {
+                self.regular_command_count.fetch_sub(1, Ordering::AcqRel);
+                Err(TrySendError::Disconnected(command.command))
+            }
+        }
+    }
+
+    fn command_sender(&self) -> anyhow::Result<SyncSender<QueuedBrowserCommand>> {
         self.command_tx
             .lock()
             .unwrap()
@@ -1631,13 +1807,18 @@ impl BrowserSurface {
         button: Option<&str>,
         click_count: Option<u32>,
     ) -> anyhow::Result<()> {
-        self.enqueue_bounded(BrowserCommand::Mouse {
+        let command = BrowserCommand::Mouse {
             event_type: event_type.to_string(),
             x,
             y,
             button: button.map(ToOwned::to_owned),
             click_count,
-        })
+        };
+        if event_type == "mouseReleased" {
+            self.enqueue_reliable_mouse_release(command)
+        } else {
+            self.enqueue_bounded(command)
+        }
     }
 
     fn mouse_event_blocking(
@@ -1962,9 +2143,9 @@ fn percent_encode_query(input: &str) -> String {
 mod tests {
     use super::{
         BROWSER_COMMAND_QUEUE_CAPACITY, BrowserCaptureOptions, BrowserCommand, BrowserFrame,
-        BrowserSession, BrowserSource, BrowserStatus, capture_scale_for, new_surface,
-        normalize_url, runtime_endpoint, scaled_pixels, start_surface_thread,
-        take_latest_worker_commands,
+        BrowserSession, BrowserSource, BrowserStatus, MAX_RECONFIGURE_WAITERS_PER_RESERVATION,
+        capture_scale_for, new_surface, normalize_url, runtime_endpoint, scaled_pixels,
+        start_surface_thread, take_latest_worker_commands,
     };
     use crate::{Mux, MuxEvent, Surface, SurfaceOptions};
     use serde_json::{Value, json};
@@ -2768,11 +2949,7 @@ mod tests {
         let events = mux.subscribe();
         let (entered, started) = mpsc::channel();
         let (release, held) = mpsc::channel();
-        browser
-            .command_sender()
-            .unwrap()
-            .send(BrowserCommand::Hold { entered, release: held })
-            .unwrap();
+        browser.enqueue_control(BrowserCommand::Hold { entered, release: held }).unwrap();
         started.recv_timeout(Duration::from_secs(1)).unwrap();
 
         assert!(browser.resize(11, 5).unwrap());
@@ -2792,6 +2969,50 @@ mod tests {
         assert_eq!(resized, vec![(11, 5), (12, 6)]);
         browser.kill();
         done.recv_timeout(Duration::from_secs(1)).expect("browser worker exited after release");
+    }
+
+    #[test]
+    fn full_command_queue_retains_mouse_release_without_blocking() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        let done = browser.take_worker_done_for_test();
+        let (entered, started) = mpsc::channel();
+        let (release, held) = mpsc::channel();
+        browser.enqueue_control(BrowserCommand::Hold { entered, release: held }).unwrap();
+        started.recv_timeout(Duration::from_secs(1)).unwrap();
+        for _ in 0..BROWSER_COMMAND_QUEUE_CAPACITY {
+            browser.enqueue_control(BrowserCommand::Activate).unwrap();
+        }
+
+        let (attempting_tx, attempting_rx) = mpsc::channel();
+        let (enqueued_tx, enqueued_rx) = mpsc::channel();
+        let release_surface = surface.clone();
+        let enqueue = thread::spawn(move || {
+            attempting_tx.send(()).unwrap();
+            let result = release_surface.browser_mouse_event(
+                "mouseReleased",
+                1.0,
+                1.0,
+                Some("left"),
+                Some(1),
+            );
+            enqueued_tx.send(result).unwrap();
+        });
+        attempting_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        enqueued_rx
+            .recv_timeout(Duration::from_millis(100))
+            .expect("retaining a mouse release must not wait for regular queue capacity")
+            .unwrap();
+        assert!(
+            surface.browser_mouse_event("mouseReleased", 2.0, 2.0, Some("left"), Some(1)).is_err(),
+            "the one-command release reserve must reject a second release without growing"
+        );
+
+        release.send(()).unwrap();
+        enqueue.join().unwrap();
+        browser.kill();
+        done.recv_timeout(Duration::from_secs(1))
+            .expect("browser worker exited after reliable release");
     }
 
     #[test]
@@ -3026,6 +3247,36 @@ mod tests {
     }
 
     #[test]
+    fn input_mapping_uses_new_capture_geometry_while_waiting_for_resized_frame() {
+        let opts = SurfaceOptions::default();
+        let surface =
+            new_surface(1, "https://example.test".into(), (476, 182), (10, 14), &opts, Weak::new());
+        let browser = surface.as_browser().expect("browser surface");
+
+        let mut frame = test_frame(1);
+        frame.css_width = 2320;
+        frame.css_height = 1363;
+        browser.store_frame(frame);
+
+        let queued = browser.reserve_reconfigure(400, 100).expect("changed geometry");
+        browser.confirm_reconfigure(queued);
+
+        let state = browser.state.lock().unwrap();
+        assert_eq!(state.latest_frame, None);
+        assert_eq!(state.page_viewport, None);
+        let (pane_width, pane_height) = state.pane_pixels;
+        let (capture_width, capture_height) = state.capture_pixels;
+        let capture_scale = state.capture_scale;
+        drop(state);
+
+        assert_eq!(
+            browser.scale_input_point(f64::from(pane_width), f64::from(pane_height)),
+            (f64::from(capture_width), f64::from(capture_height))
+        );
+        assert!((browser.scale_delta(100.0) - 100.0 * capture_scale).abs() < f64::EPSILON);
+    }
+
+    #[test]
     fn input_mapping_clamps_to_page_viewport() {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
@@ -3118,15 +3369,10 @@ mod tests {
         let done = browser.take_worker_done_for_test();
         let (entered, started) = mpsc::channel();
         let (release, held) = mpsc::channel();
-        browser
-            .command_sender()
-            .unwrap()
-            .send(BrowserCommand::Hold { entered, release: held })
-            .unwrap();
+        browser.enqueue_control(BrowserCommand::Hold { entered, release: held }).unwrap();
         started.recv_timeout(Duration::from_secs(1)).unwrap();
-        let sender = browser.command_sender().unwrap();
         for _ in 0..BROWSER_COMMAND_QUEUE_CAPACITY {
-            sender.try_send(BrowserCommand::Activate).unwrap();
+            browser.enqueue_control(BrowserCommand::Activate).unwrap();
         }
 
         let (reported_tx, reported_rx) = mpsc::channel();
@@ -3141,7 +3387,6 @@ mod tests {
         );
         assert!(reported_rx.recv_timeout(Duration::from_secs(1)).unwrap().is_none());
 
-        drop(sender);
         release.send(()).unwrap();
         let deadline = Instant::now() + Duration::from_secs(1);
         loop {
@@ -3163,29 +3408,43 @@ mod tests {
         let done = browser.take_worker_done_for_test();
         let (entered, started) = mpsc::channel();
         let (release, held) = mpsc::channel();
-        browser
-            .command_sender()
-            .unwrap()
-            .send(BrowserCommand::Hold { entered, release: held })
-            .unwrap();
+        browser.enqueue_control(BrowserCommand::Hold { entered, release: held }).unwrap();
         started.recv_timeout(Duration::from_secs(1)).unwrap();
         let accepted = Arc::new(AtomicBool::new(false));
         let reported = accepted.clone();
+        let (completion_tx, completion_rx) = mpsc::sync_channel(1);
 
         assert!(
             browser
-                .resize_reporting_acceptance(
+                .resize_reporting_completion(
                     11,
                     5,
                     Box::new(move |reservation_id| {
                         assert!(reservation_id.is_some());
                         reported.store(true, Ordering::Release);
                     }),
+                    Some(completion_tx),
                 )
                 .unwrap()
                 .is_some()
         );
         assert!(!accepted.load(Ordering::Acquire));
+        assert!(matches!(
+            completion_rx.recv_timeout(Duration::from_millis(10)),
+            Err(mpsc::RecvTimeoutError::Timeout)
+        ));
+        let pending =
+            browser.pending_resize_completion(11, 5).unwrap().expect("pending resize completion");
+        assert!(pending.reservation > 0);
+        assert!(matches!(
+            pending.completion.recv_timeout(Duration::from_millis(10)),
+            Err(mpsc::RecvTimeoutError::Timeout)
+        ));
+        for _ in 1..MAX_RECONFIGURE_WAITERS_PER_RESERVATION {
+            drop(browser.pending_resize_completion(11, 5).unwrap().unwrap());
+        }
+        let error = browser.pending_resize_completion(11, 5).err().expect("waiter cap error");
+        assert!(error.to_string().contains("too many waiters"));
         let (duplicate_tx, duplicate_rx) = mpsc::channel();
         assert!(
             browser
@@ -3205,6 +3464,8 @@ mod tests {
             thread::yield_now();
         }
         assert!(accepted.load(Ordering::Acquire));
+        assert!(completion_rx.recv_timeout(Duration::from_secs(1)).unwrap().is_ok());
+        assert!(pending.completion.recv_timeout(Duration::from_secs(1)).unwrap().is_ok());
         browser.kill();
         done.recv_timeout(Duration::from_secs(1)).expect("browser worker exited after release");
     }
@@ -3224,6 +3485,25 @@ mod tests {
         browser.reconfigure_reserved_blocking(queued).unwrap();
         assert!(!browser.resize_needed(10, 5));
         assert!(browser.reserve_reconfigure(10, 5).is_none());
+    }
+
+    #[test]
+    fn rejected_resize_releases_joined_completion_waiters() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        let queued = browser.reserve_reconfigure(11, 5).expect("changed geometry");
+        let pending =
+            browser.pending_resize_completion(11, 5).unwrap().expect("pending completion");
+
+        browser.release_reconfigure(queued);
+
+        let error = pending
+            .completion
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap()
+            .expect_err("rejected resize completion");
+        assert!(error.contains("rejected before execution"));
+        assert!(browser.state.lock().unwrap().reconfigure_waiters.is_empty());
     }
 
     #[test]

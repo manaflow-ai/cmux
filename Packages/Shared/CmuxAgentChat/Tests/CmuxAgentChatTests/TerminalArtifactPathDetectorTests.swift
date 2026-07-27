@@ -60,4 +60,112 @@ struct TerminalArtifactPathDetectorTests {
             "/tmp/parity/O4-line-only.swift",
         ])
     }
+
+    @Test("extracts a first-line path after a captured OSC color-report prologue")
+    func capturedOSCColorReportPrologue() {
+        let text = "\u{1B}]10;rgb:ff/ff/ff\u{1B}\\\u{1B}]11;rgb:1e/1e/1e\u{1B}\\/tmp/dirtap-demo\n\n\u{1B}[0m\u{1B}[38;2;0;135;175m\u{1B}[48;2;88;88;88m \u{1B}[0m..."
+
+        #expect(TerminalArtifactPathDetector().paths(in: text).contains("/tmp/dirtap-demo"))
+    }
+
+    @Test("extracts a path wrapped in SGR sequences")
+    func sgrWrappedPath() {
+        let text = "\u{1B}[1m/tmp/x/y.txt\u{1B}[0m"
+
+        #expect(TerminalArtifactPathDetector().paths(in: text) == ["/tmp/x/y.txt"])
+    }
+
+    @Test("extracts a path glued to a BEL-terminated OSC sequence")
+    func belTerminatedOSCBeforePath() {
+        let text = "\u{1B}]0;t\u{07}/tmp/first"
+
+        #expect(TerminalArtifactPathDetector().paths(in: text) == ["/tmp/first"])
+    }
+
+    @Test(
+        "drops paths inside ST-terminated string controls",
+        arguments: ["P", "_", "^", "X"]
+    )
+    func stringControlPayloadsAreNotDetectable(_ introducer: String) {
+        let text = "\u{1B}\(introducer)/tmp/hidden\u{1B}\\ /tmp/visible.txt"
+
+        #expect(TerminalArtifactPathDetector().paths(in: text) == ["/tmp/visible.txt"])
+    }
+
+    @Test(
+        "keeps BEL inside DCS and APC payloads",
+        arguments: ["P", "_"]
+    )
+    func belDoesNotTerminateNonOSCStringControls(_ introducer: String) {
+        let text = "\u{1B}\(introducer) before \u{07}/tmp/hidden\u{1B}\\ /tmp/vis.txt"
+
+        #expect(TerminalArtifactPathDetector().paths(in: text) == ["/tmp/vis.txt"])
+    }
+
+    @Test("consumes C1 OSC through C1 ST")
+    func c1OSCBeforePath() {
+        let text = "\u{9D}0;title\u{9C}/tmp/first"
+
+        #expect(TerminalArtifactPathDetector().paths(in: text) == ["/tmp/first"])
+    }
+
+    @Test("accepts BEL as a C1 OSC terminator")
+    func c1OSCBelBeforePath() {
+        let text = "\u{9D}0;title\u{07}/tmp/first"
+
+        #expect(TerminalArtifactPathDetector().paths(in: text) == ["/tmp/first"])
+    }
+
+    @Test("drops paths inside C1 DCS")
+    func c1DCSPayloadIsNotDetectable() {
+        let text = "\u{90}/tmp/hidden\u{9C}/tmp/vis.txt"
+
+        #expect(TerminalArtifactPathDetector().paths(in: text) == ["/tmp/vis.txt"])
+    }
+
+    @Test("keeps BEL inside a C1 DCS payload")
+    func c1DCSBelPayloadIsNotDetectable() {
+        let text = "\u{90}before \u{07}/tmp/hidden\u{9C} /tmp/vis.txt"
+
+        #expect(TerminalArtifactPathDetector().paths(in: text) == ["/tmp/vis.txt"])
+    }
+
+    @Test(
+        "drops paths inside every C1 string control",
+        arguments: ["\u{90}", "\u{98}", "\u{9E}", "\u{9F}"]
+    )
+    func c1StringControlPayloadsAreNotDetectable(_ introducer: String) {
+        let text = "\(introducer)/tmp/hidden\u{9C}/tmp/visible.txt"
+
+        #expect(TerminalArtifactPathDetector().paths(in: text) == ["/tmp/visible.txt"])
+    }
+
+    @Test("consumes C1 CSI like ESC CSI")
+    func c1CSIWrappedPath() {
+        let text = "\u{9B}1m/tmp/visible.txt\u{9B}0m"
+
+        #expect(TerminalArtifactPathDetector().paths(in: text) == ["/tmp/visible.txt"])
+    }
+
+    @Test("drops an unterminated string-control payload")
+    func unterminatedStringControlPayloadIsNotDetectable() {
+        #expect(TerminalArtifactPathDetector().paths(in: "\u{1B}P/tmp/hidden").isEmpty)
+    }
+
+    @Test("drops an unterminated trailing CSI sequence")
+    func unterminatedTrailingCSI() {
+        let text = "/tmp/complete/file.txt\u{1B}[38;2"
+
+        #expect(TerminalArtifactPathDetector().paths(in: text) == ["/tmp/complete/file.txt"])
+    }
+
+    @Test("plain terminal text behavior is unchanged")
+    func plainTextBehavior() {
+        let text = "opened /tmp/plain/file.txt and ./relative/note.md; ignored words"
+
+        #expect(TerminalArtifactPathDetector().paths(in: text) == [
+            "/tmp/plain/file.txt",
+            "./relative/note.md",
+        ])
+    }
 }

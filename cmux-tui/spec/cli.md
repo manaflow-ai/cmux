@@ -2,6 +2,39 @@
 
 The generated CLI is `cmux-tui <verb> ...`. The current checked-in binary also has TUI server modes; this file specifies the future generated command verbs that map 1:1 to `commands.md`.
 
+## Process Modes
+
+`relay` is an implemented hand-written process mode, not a generated protocol command:
+
+```text
+cmux-tui relay [--session <name>] [--socket <path>]
+```
+
+It resolves the target socket with the normal server-mode arguments, with `--socket` taking precedence, and copies raw protocol bytes between that socket and stdio. It produces no human output on stdout. Machine connectors use `ssh -T host cmux-tui relay --session main` to carry a remote session without nesting a TUI. See [Transport Contract](transports.md#relay-stdio).
+
+Dynamic machine providers are implemented TUI startup modes:
+
+```text
+cmux-tui --machine-provider <unix-socket>
+cmux-tui --machine-provider-command <program> [arg ...] --
+cmux-tui --cloud [--cloud-host <host>] [--cloud-user <user>]
+                   [--cloud-port <port>] [--cloud-identity <path>]
+```
+
+Exactly one provider mode may be active. The direct command's terminating `--` is mandatory; every preceding value is a literal argv element, and the client appends `control` or `stream` without a shell. Cloud override flags imply `--cloud`, take precedence over `machine_provider.cloud` config values, and default the host to `cmux.cloud`. An explicit Unix-socket or command mode overrides an enabled cloud config. Provider modes reject static `machines`, attach/server flags, `--headless`, and `--term` instead of silently ignoring them.
+
+The cloud transport invokes OpenSSH with exact remote commands `cmux provider control` and `cmux provider stream`. Provider bearers are generated client-side per connection generation and never carried in argv or environment variables. See [Machine Provider Contract](machine-provider.md#implemented-v1).
+
+`machine-agent` is another implemented hand-written process mode:
+
+```text
+cmux-tui machine-agent [--session <name>] [--socket <path>]
+  [--state <path>] [--cloud-host <host>] [--cloud-user <user>]
+  [--cloud-port <port>] [--cloud-identity <path>]
+```
+
+It verifies one local protocol-v10 session, then opens an outbound OpenSSH registration using the exact remote command `cmux machine register`. Packaged builds expose the same mode as `npx cmux machine-agent`. See [Machine Agent Contract](machine-agent.md).
+
 ## Global Conventions
 
 ### Socket Resolution
@@ -39,9 +72,13 @@ Human output is stable, greppable, and minimal. It must not include colors, tabl
 
 Future commands may opt into stdin only when their command block says so. By default commands do not read stdin.
 
+### Interactive attach
+
+`cmux-tui attach` opens the full session TUI. `cmux-tui attach --surface <id>` accepts a numeric or short surface id and opens only that PTY terminal, using the full host grid without session chrome. This interactive mode is separate from the JSON-lines `attach-surface` verb.
+
 ### Id Arguments
 
-Protocol v5 CLI arguments for ids are numeric. Protocol v6 accepts numeric ids and short ids for any `IdRef` parameter. Numeric-looking strings are rejected as ambiguous when short-id mode is active.
+Generated command verbs accept canonical decimal ids. They reject leading-zero values instead of interpreting a copied short id as a different numeric object. Interactive `attach --surface` also accepts exact six-character short ids; digit-only short ids beginning with zero stay in that fixed-width namespace, so their meaning cannot change when live ids change.
 
 ### Selector Arguments
 
@@ -55,6 +92,7 @@ The generated CLI requires one of `--index` or `--delta` for `select-tab`, `sele
 | `ping` | implemented | none | global flags | one liveness line |
 | `set-client-info` | implemented | none | `--name <name>`, `--kind <kind>` | none |
 | `list-clients` | implemented | none | global flags | client lines |
+| `set-client-sizing` | implemented protocol 10 | `--surface <id> --enabled <true-or-false>` | `--client <id>`, global flags | none |
 | `detach-client` | implemented | `--client <id>` | global flags | none |
 | `reload-config` | implemented | none | global flags | none |
 | `set-window-title` | implemented | `--title <title>` | global flags | none |
@@ -98,9 +136,9 @@ The generated CLI requires one of `--index` or `--delta` for `select-tab`, `sele
 | `move-workspace` | implemented | `--workspace <id> --index <n>` | none | none |
 | `scroll-surface` | implemented | `--surface <id> --delta <n>` | none | none |
 | `subscribe` | implemented; tree deltas protocol 7 | none | `--tree-events coarse|deltas` | event JSON lines |
-| `attach-surface` | implemented; render mode protocol 7 | `--surface <id>` | `--mode bytes\|render` | event JSON lines |
+| `attach-surface` | implemented; render mode protocol 7, initial sizing capability-gated | `--surface <id>` | `--mode bytes\|render`, paired `--cols <n> --rows <n>` | event JSON lines |
 | `wait-for` | implemented | `--surface <id> --pattern <regex> --timeout-ms <n>` | none | none |
-| `run` | implemented | `-- <argv...>` or `--command <cmd>` | `--pane <id>`, `--new-workspace`, `--cwd <path>`, `--name <name>` | surface id |
+| `run` | implemented | `-- <argv...>` or `--command <cmd>` | `--pane <id>`, `--new-workspace`, `--key <stable-key>` with `--new-workspace`, `--cwd <path>`, `--name <name>` | surface id |
 | `send-key` | implemented | `--surface <id> <key>...` | none | none |
 | `copy` | implemented | `--surface <id> --mode screen\|selection\|scrollback` | none | text |
 | `ids` | implemented | none | `--kind workspace\|screen\|pane\|surface` | id lines |

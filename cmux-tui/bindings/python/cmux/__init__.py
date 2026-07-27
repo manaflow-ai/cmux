@@ -1,5 +1,7 @@
 from .client import (
     AttachStream,
+    ClientInfo,
+    ClientSurfaceSize,
     CommandError,
     EmptyResult,
     Event,
@@ -15,15 +17,20 @@ from .client import (
     Screen,
     Size,
     SurfaceResult,
+    TerminalPlacement,
     Tab,
     TimeoutError,
     Tree,
     VtStateResult,
     Workspace,
+    WorkspacePlacement,
+    WorkspaceMutation,
 )
 
 __all__ = [
     "AttachStream",
+    "ClientInfo",
+    "ClientSurfaceSize",
     "CommandError",
     "EmptyResult",
     "Event",
@@ -39,9 +46,12 @@ __all__ = [
     "Screen",
     "Size",
     "SurfaceResult",
+    "TerminalPlacement",
     "Tab",
     "TimeoutError",
     "Tree",
     "VtStateResult",
     "Workspace",
+    "WorkspacePlacement",
+    "WorkspaceMutation",
 ]

@@ -2,15 +2,15 @@
 ///
 /// `records` contains live saved Macs. `deletedMacDeviceIDs` retains the legacy
 /// wire name but values are pairing identities (`macDeviceID` plus optional
-/// instance tag) that remove matching local rows before live records are merged.
+/// instance tag). Current clients ignore those legacy server tombstones.
 public struct PairedMacBackupSnapshot: Sendable, Equatable {
     /// Live paired-Mac records, newest-first by the server's restore ordering.
     public var records: [PairedMacBackupRecord]
 
-    /// Pairing identities with retained delete tombstones in this restore scope.
+    /// Legacy server tombstones retained only for wire compatibility.
     public var deletedMacDeviceIDs: [String]
 
-    /// Create a restore snapshot from live records and retained delete IDs.
+    /// Create a restore snapshot from live records and compatibility tombstones.
     public init(
         records: [PairedMacBackupRecord],
         deletedMacDeviceIDs: [String] = []

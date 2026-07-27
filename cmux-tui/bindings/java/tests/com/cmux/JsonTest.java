@@ -73,6 +73,49 @@ public final class JsonTest {
         ResizeSurfaceResult reserved = ResizeSurfaceResult.from(Map.of("accepted", true, "reservation_id", 41));
         assertEquals(41L, reserved.reservationId(), "resize reservation identity");
         assertTrue(ResizeSurfaceResult.from(Map.of()).accepted(), "legacy resize accepted");
+        Tree legacyTree = Tree.from(Map.of("workspaces", List.of()));
+        assertEquals(0L, legacyTree.workspaceRevision(), "legacy workspace revision");
+        assertEquals(null, legacyTree.paneRevision(), "legacy pane revision");
+        Tree revisionedTree = Tree.from(Map.of("pane_revision", 7L, "workspaces", List.of()));
+        assertEquals(7L, revisionedTree.paneRevision(), "pane revision");
+        ClientInfo legacyClient = ClientInfo.from((Map<String, Object>) Json.parse(
+            "{\"client\":7,\"transport\":\"ws\",\"connected_seconds\":12,"
+                + "\"attached\":[31,32],\"sizes\":["
+                + "{\"surface\":31,\"cols\":126,\"rows\":38},"
+                + "{\"surface\":32,\"cols\":100,\"rows\":30,\"size_participating\":true}],"
+                + "\"size_participating\":false,\"self\":true}"
+        ));
+        assertEquals(
+            Boolean.FALSE,
+            legacyClient.sizes().get(0).sizeParticipating(),
+            "legacy client sizing participation"
+        );
+        assertEquals(
+            Boolean.TRUE,
+            legacyClient.sizes().get(1).sizeParticipating(),
+            "surface sizing participation"
+        );
+        Tree sourceCompatibleTree = new Tree(4, List.of());
+        assertEquals(null, sourceCompatibleTree.paneRevision(), "source-compatible tree pane revision");
+        Pane sourceCompatiblePane = new Pane(7, "shell", 0, List.of(), false);
+        assertEquals(0L, sourceCompatiblePane.focusedAt(), "source-compatible pane focus recency");
+
+        CreateTerminalRequest terminalRequest = CreateTerminalRequest.builder()
+            .key("stable")
+            .command("echo ready")
+            .cwd("/tmp")
+            .name("runner")
+            .cols(80)
+            .rows(24)
+            .build();
+        assertEquals("stable", terminalRequest.toMap().get("key"), "terminal builder key");
+        assertEquals("runner", terminalRequest.toMap().get("name"), "terminal builder name");
+        try {
+            WorkspaceSelectorRequest.builder().build();
+            throw new AssertionError("accepted missing workspace selector");
+        } catch (IllegalArgumentException expectedError) {
+            assertEquals("workspace or key is required", expectedError.getMessage(), "selector validation");
+        }
         IdentifyResult identify = IdentifyResult.from((Map<String, Object>) Json.parse(
             "{\"app\":\"cmux-tui\",\"version\":\"0.1.2\",\"build_commit\":\"cmux-sha\",\"ghostty_commit\":\"ghostty-sha\",\"protocol\":7,\"session\":\"main\",\"pid\":42}"
         ));
@@ -86,6 +129,12 @@ public final class JsonTest {
         IdentifyResult sourceCompatible = new IdentifyResult("cmux-tui", "0.1.2", 7, "main", 42);
         assertEquals(null, sourceCompatible.buildCommit(), "source-compatible build commit");
         assertEquals(null, sourceCompatible.ghosttyCommit(), "source-compatible Ghostty commit");
+        IdentifyResult stampedSourceCompatible = new IdentifyResult(
+            "cmux-tui", "0.1.2", 7, "main", 42, "cmux-sha", "ghostty-sha"
+        );
+        assertEquals(List.of(), stampedSourceCompatible.capabilities(), "source-compatible capabilities");
+        assertEquals("cmux-sha", stampedSourceCompatible.buildCommit(), "source-compatible stamped build commit");
+        assertEquals("ghostty-sha", stampedSourceCompatible.ghosttyCommit(), "source-compatible stamped Ghostty commit");
     }
 
     private static void assertReject(String input) {

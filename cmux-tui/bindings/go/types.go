@@ -11,13 +11,70 @@ type IdentifyResult struct {
 }
 
 type IdentifyDetails struct {
-	App           string  `json:"app"`
-	Version       string  `json:"version"`
-	BuildCommit   *string `json:"build_commit"`
-	GhosttyCommit *string `json:"ghostty_commit"`
-	Protocol      uint32  `json:"protocol"`
-	Session       string  `json:"session"`
-	PID           uint32  `json:"pid"`
+	App           string   `json:"app"`
+	Version       string   `json:"version"`
+	BuildCommit   *string  `json:"build_commit"`
+	GhosttyCommit *string  `json:"ghostty_commit"`
+	Protocol      uint32   `json:"protocol"`
+	Capabilities  []string `json:"capabilities"`
+	Session       string   `json:"session"`
+	PID           uint32   `json:"pid"`
+}
+
+type ClientSurfaceSize struct {
+	Surface           uint64  `json:"surface"`
+	Cols              *uint16 `json:"cols"`
+	Rows              *uint16 `json:"rows"`
+	SizeParticipating *bool   `json:"size_participating"`
+}
+
+type ClientInfo struct {
+	Client           uint64              `json:"client"`
+	Transport        string              `json:"transport"`
+	Name             *string             `json:"name"`
+	Kind             *string             `json:"kind"`
+	ConnectedSeconds uint64              `json:"connected_seconds"`
+	Attached         []uint64            `json:"attached"`
+	Sizes            []ClientSurfaceSize `json:"sizes"`
+	Self             bool                `json:"self"`
+}
+
+func (c *ClientInfo) UnmarshalJSON(data []byte) error {
+	var wire struct {
+		Client            uint64              `json:"client"`
+		Transport         string              `json:"transport"`
+		Name              *string             `json:"name"`
+		Kind              *string             `json:"kind"`
+		ConnectedSeconds  uint64              `json:"connected_seconds"`
+		Attached          []uint64            `json:"attached"`
+		Sizes             []ClientSurfaceSize `json:"sizes"`
+		SizeParticipating *bool               `json:"size_participating"`
+		Self              bool                `json:"self"`
+	}
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	fallback := true
+	if wire.SizeParticipating != nil {
+		fallback = *wire.SizeParticipating
+	}
+	for index := range wire.Sizes {
+		if wire.Sizes[index].SizeParticipating == nil {
+			participating := fallback
+			wire.Sizes[index].SizeParticipating = &participating
+		}
+	}
+	*c = ClientInfo{
+		Client:           wire.Client,
+		Transport:        wire.Transport,
+		Name:             wire.Name,
+		Kind:             wire.Kind,
+		ConnectedSeconds: wire.ConnectedSeconds,
+		Attached:         wire.Attached,
+		Sizes:            wire.Sizes,
+		Self:             wire.Self,
+	}
+	return nil
 }
 
 type SurfaceResult struct {
@@ -50,11 +107,14 @@ func (r *ResizeSurfaceResult) UnmarshalJSON(data []byte) error {
 }
 
 type Tree struct {
-	Workspaces []Workspace `json:"workspaces"`
+	WorkspaceRevision uint64      `json:"workspace_revision"`
+	PaneRevision      *uint64     `json:"pane_revision"`
+	Workspaces        []Workspace `json:"workspaces"`
 }
 
 type Workspace struct {
 	ID      uint64   `json:"id"`
+	Key     string   `json:"key"`
 	Name    string   `json:"name"`
 	Active  bool     `json:"active"`
 	Screens []Screen `json:"screens"`
@@ -73,6 +133,7 @@ type Pane struct {
 	ID        uint64  `json:"id"`
 	Name      *string `json:"name"`
 	ActiveTab uint    `json:"active_tab"`
+	FocusedAt uint64  `json:"focused_at,omitempty"`
 	Tabs      []Tab   `json:"tabs"`
 	Dead      bool    `json:"dead"`
 }
@@ -115,6 +176,50 @@ type NewWorkspaceOptions struct {
 	Name *string `json:"name,omitempty"`
 	Cols *uint16 `json:"cols,omitempty"`
 	Rows *uint16 `json:"rows,omitempty"`
+}
+
+type CreateWorkspaceOptions struct {
+	Name             *string `json:"name,omitempty"`
+	Key              *string `json:"key,omitempty"`
+	ExpectedRevision *uint64 `json:"expected_revision,omitempty"`
+}
+
+type WorkspacePlacement struct {
+	Workspace         uint64 `json:"workspace"`
+	Key               string `json:"key"`
+	Index             uint   `json:"index"`
+	WorkspaceRevision uint64 `json:"workspace_revision"`
+}
+
+type CreateTerminalOptions struct {
+	Workspace *uint64  `json:"workspace,omitempty"`
+	Key       *string  `json:"key,omitempty"`
+	Argv      []string `json:"argv"`
+	Command   *string  `json:"command,omitempty"`
+	Cwd       *string  `json:"cwd,omitempty"`
+	Name      *string  `json:"name,omitempty"`
+	Cols      *uint16  `json:"cols,omitempty"`
+	Rows      *uint16  `json:"rows,omitempty"`
+}
+
+type TerminalPlacement struct {
+	Surface   uint64 `json:"surface"`
+	Pane      uint64 `json:"pane"`
+	Screen    uint64 `json:"screen"`
+	Workspace uint64 `json:"workspace"`
+	Key       string `json:"key"`
+}
+
+type WorkspaceSelectorOptions struct {
+	Workspace        *uint64 `json:"workspace,omitempty"`
+	Key              *string `json:"key,omitempty"`
+	ExpectedRevision *uint64 `json:"expected_revision,omitempty"`
+}
+
+type WorkspaceMutation struct {
+	Workspace         uint64 `json:"workspace"`
+	Key               string `json:"key"`
+	WorkspaceRevision uint64 `json:"workspace_revision"`
 }
 
 type NewScreenOptions struct {
