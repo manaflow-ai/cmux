@@ -277,7 +277,7 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
     }
     app.hits.extend(hits);
 
-    if x.saturating_add(label_w) < area.width {
+    if x.saturating_add(label_w) <= area.width {
         frame.buffer_mut().set_stringn(
             area.width - label_w,
             status_y,
