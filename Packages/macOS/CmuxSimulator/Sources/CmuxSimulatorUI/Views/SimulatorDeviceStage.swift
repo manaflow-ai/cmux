@@ -78,12 +78,7 @@ struct SimulatorDeviceStage: View {
                 SimulatorAgentCursorOverlay(
                     presentation: presentation,
                     chrome: coordinator.chromeProfile,
-                    orientation: display.orientation,
-                    onDismiss: { generation in
-                        coordinator.dismissAgentCursorPresentation(
-                            generation: generation
-                        )
-                    }
+                    orientation: display.orientation
                 )
             }
         }

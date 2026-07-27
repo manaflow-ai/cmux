@@ -53,12 +53,6 @@ extension SimulatorPaneCoordinator {
         )
     }
 
-    /// Dismisses a completed cursor only if no newer action replaced it.
-    func dismissAgentCursorPresentation(generation: UInt64) {
-        guard agentCursorPresentation?.generation == generation else { return }
-        agentCursorPresentation = nil
-    }
-
     /// Clears cursor state during device or pane lifecycle teardown.
     func resetAgentCursorPresentation() {
         agentCursorGeneration &+= 1

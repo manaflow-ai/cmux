@@ -106,4 +106,26 @@ struct SimulatorAgentCursorTests {
 
         #expect(coordinator.agentCursorPresentation == nil)
     }
+
+    @Test("The last agent cursor persists through non-pointer actions")
+    func lastCursorPersists() async throws {
+        let coordinator = SimulatorPaneCoordinator(
+            client: SimulatorPaneClientSpy(devices: [])
+        )
+        let point = SimulatorPoint(x: 0.31, y: 0.68)
+
+        _ = try await coordinator.perform(.interactive(.gesture([
+            SimulatorPointerEvent(phase: .began, primary: point),
+            SimulatorPointerEvent(phase: .ended, primary: point),
+        ])))
+        let cursor = try #require(coordinator.agentCursorPresentation)
+
+        _ = try await coordinator.perform(.interactive(.keyPresses(
+            usages: [40],
+            pressDurationMilliseconds: 50,
+            interKeyDelayMilliseconds: 0
+        )))
+
+        #expect(coordinator.agentCursorPresentation == cursor)
+    }
 }

@@ -5,7 +5,6 @@ struct SimulatorAgentCursorOverlay: View {
     let presentation: SimulatorAgentCursorPresentation
     let chrome: SimulatorDeviceChromeProfile?
     let orientation: SimulatorOrientation
-    let onDismiss: (UInt64) -> Void
 
     @State private var position: SimulatorPoint
     @State private var pulseScale: CGFloat = 0.4
@@ -14,13 +13,11 @@ struct SimulatorAgentCursorOverlay: View {
     init(
         presentation: SimulatorAgentCursorPresentation,
         chrome: SimulatorDeviceChromeProfile?,
-        orientation: SimulatorOrientation,
-        onDismiss: @escaping (UInt64) -> Void
+        orientation: SimulatorOrientation
     ) {
         self.presentation = presentation
         self.chrome = chrome
         self.orientation = orientation
-        self.onDismiss = onDismiss
         _position = State(initialValue: presentation.origin)
     }
 
@@ -60,16 +57,6 @@ struct SimulatorAgentCursorOverlay: View {
                     pulseOpacity = 0
                 }
             }
-            guard presentation.phase != .pressed else { return }
-            let delay: Duration = presentation.phase == .clicked
-                ? .milliseconds(1_250)
-                : .milliseconds(300)
-            do {
-                try await ContinuousClock().sleep(for: delay)
-            } catch {
-                return
-            }
-            onDismiss(presentation.generation)
         }
     }
 }
