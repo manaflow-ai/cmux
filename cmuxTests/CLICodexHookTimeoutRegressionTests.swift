@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 import Testing
 
 @Suite(.serialized)
@@ -127,6 +128,77 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(waitForFile(capturedArgs, containing: "--socket /tmp/cmux-test.sock hooks codex prompt-submit", timeout: 1))
         #expect(waitForFile(capturedPID, containing: "4242", timeout: 1))
         #expect(waitForFile(doneFile, containing: "done", timeout: 6))
+    }
+
+    @Test func codexInstalledHookReapsWatchdogTimerAfterFastCommandFinishes() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-hook-watchdog-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
+        let fakeCLI = root.appendingPathComponent("cmux", isDirectory: false)
+        let fakeSleep = root.appendingPathComponent("sleep", isDirectory: false)
+        let sleepPIDFile = root.appendingPathComponent("watchdog-sleep-pid.txt", isDirectory: false)
+        let doneFile = root.appendingPathComponent("hook-done.txt", isDirectory: false)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try makeCodexHookExecutableShellFile(at: fakeCLI, lines: [
+            "#!/bin/sh",
+            "cat >/dev/null",
+            "printf done > \"$CMUX_TEST_DONE\"",
+        ])
+        try makeCodexHookExecutableShellFile(at: fakeSleep, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' \"$$\" > \"$CMUX_TEST_SLEEP_PID\"",
+            "exec /bin/sleep 10",
+        ])
+
+        let install = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "install", "--yes"],
+            environment: codexHookTestEnvironment(root: root, codexHome: codexHome),
+            timeout: 5
+        )
+        #expect(!install.timedOut, Comment(rawValue: install.stderr))
+        #expect(install.status == 0, Comment(rawValue: install.stderr))
+
+        let command = try #require(
+            codexHookEntries(in: codexHome).first { $0.eventName == "UserPromptSubmit" }?.command
+        )
+        let run = runCodexHookProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", command],
+            environment: [
+                "HOME": root.path,
+                "PATH": "\(root.path):/usr/bin:/bin:/usr/sbin:/sbin",
+                "TMPDIR": root.path,
+                "CMUX_SURFACE_ID": "surface-123",
+                "CMUX_SOCKET_PATH": "/tmp/cmux-test.sock",
+                "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
+                "CMUX_TEST_SLEEP_PID": sleepPIDFile.path,
+                "CMUX_TEST_DONE": doneFile.path,
+            ],
+            standardInput: #"{"session_id":"codex-session","prompt":"run one tool"}"#,
+            timeout: 2
+        )
+
+        #expect(!run.timedOut, Comment(rawValue: run.stderr))
+        #expect(run.status == 0, Comment(rawValue: run.stderr))
+        #expect(run.stdout == "{}\n")
+        #expect(waitForFile(doneFile, containing: "done", timeout: 1))
+        #expect(waitForCondition(timeout: 1) {
+            FileManager.default.fileExists(atPath: sleepPIDFile.path)
+        })
+        let sleepPID = try #require(
+            Int32(String(contentsOf: sleepPIDFile, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines))
+        )
+        defer { Darwin.kill(sleepPID, SIGKILL) }
+        #expect(
+            waitForCondition(timeout: 1) {
+                Darwin.kill(sleepPID, 0) != 0 && errno == ESRCH
+            },
+            "The hook's cancelled watchdog must not leave its sleep process alive for the full timeout."
+        )
     }
 
     @Test func codexInstalledStopHookReturnsBeforeSlowCmuxCommandFinishes() throws {
