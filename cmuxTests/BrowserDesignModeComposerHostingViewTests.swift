@@ -101,7 +101,7 @@ struct BrowserDesignModeComposerHostingViewTests {
         #expect(
             cell.accessibilityLabel() == String(
                 localized: "browser.designMode.context.remove",
-                defaultValue: "Remove h1 context"
+                defaultValue: "Remove \(selection.tagName) context"
             )
         )
         #expect(cell.accessibilityPerformPress())
@@ -126,16 +126,20 @@ struct BrowserDesignModeComposerHostingViewTests {
                 bitsPerPixel: 0
             )
         )
-        for y in 0..<screenshot.pixelsHigh {
-            for x in 0..<screenshot.pixelsWide {
-                let isInk = abs(y - (x / 2 + 4)) <= 2
-                screenshot.setColor(
-                    isInk ? .magenta : NSColor(white: 0.25, alpha: 1),
-                    atX: x,
-                    y: y
-                )
-            }
-        }
+        let screenshotContext = try #require(NSGraphicsContext(bitmapImageRep: screenshot))
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = screenshotContext
+        NSColor(srgbRed: 0.25, green: 0.25, blue: 0.25, alpha: 1).setFill()
+        NSRect(x: 0, y: 0, width: 48, height: 32).fill()
+        let inkPath = NSBezierPath()
+        inkPath.move(to: NSPoint(x: 4, y: 6))
+        inkPath.line(to: NSPoint(x: 44, y: 26))
+        inkPath.lineWidth = 5
+        NSColor(srgbRed: 1, green: 0, blue: 1, alpha: 1).setStroke()
+        inkPath.stroke()
+        screenshotContext.flushGraphics()
+        NSGraphicsContext.restoreGraphicsState()
+        #expect(containsMagentaPixel(in: screenshot), "The test screenshot must contain visible ink")
         let png = try #require(screenshot.representation(using: .png, properties: [:]))
         try png.write(to: screenshotURL, options: .atomic)
 
@@ -165,26 +169,67 @@ struct BrowserDesignModeComposerHostingViewTests {
         let host = NSHostingView(rootView: BrowserDesignModePopover(controller: controller))
         host.frame = NSRect(x: 0, y: 0, width: 420, height: 160)
         host.layoutSubtreeIfNeeded()
-        let rendered = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-        host.cacheDisplay(in: host.bounds, to: rendered)
+        let textView = try #require(firstSubview(of: BrowserDesignModeTokenTextView.self, in: host))
+        let storage = try #require(textView.textStorage)
+        let attachment = try #require(
+            storage.attribute(.attachment, at: 0, effectiveRange: nil)
+                as? BrowserDesignModeTokenAttachment
+        )
+        #expect(attachment.screenshotPath == screenshotURL.path)
+        let cell = try #require(attachment.attachmentCell as? BrowserDesignModeTokenCell)
+        let cellSize = cell.cellSize()
+        let rendered = try #require(
+            NSBitmapImageRep(
+                bitmapDataPlanes: nil,
+                pixelsWide: Int(ceil(cellSize.width)),
+                pixelsHigh: Int(ceil(cellSize.height)),
+                bitsPerSample: 8,
+                samplesPerPixel: 4,
+                hasAlpha: true,
+                isPlanar: false,
+                colorSpaceName: .deviceRGB,
+                bytesPerRow: 0,
+                bitsPerPixel: 0
+            )
+        )
+        rendered.size = cellSize
+        let context = try #require(NSGraphicsContext(bitmapImageRep: rendered))
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = context
+        cell.draw(withFrame: NSRect(origin: .zero, size: cellSize), in: textView)
+        context.flushGraphics()
+        NSGraphicsContext.restoreGraphicsState()
 
-        var foundThumbnailPixel = false
-        for y in 0..<rendered.pixelsHigh where !foundThumbnailPixel {
-            for x in 0..<rendered.pixelsWide {
-                guard let color = rendered.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { continue }
-                if color.redComponent > 0.8,
-                   color.greenComponent < 0.2,
-                   color.blueComponent > 0.8 {
-                    foundThumbnailPixel = true
-                    break
+        #expect(
+            containsMagentaPixel(in: rendered),
+            "A drawn-region token must visibly render the ink from its captured screenshot"
+        )
+    }
+
+    private func containsMagentaPixel(in bitmap: NSBitmapImageRep) -> Bool {
+        guard let bitmapData = bitmap.bitmapData else { return false }
+        let bytesPerPixel = bitmap.bitsPerPixel / 8
+        guard bytesPerPixel >= 4 else { return false }
+        let redOffset = bitmap.bitmapFormat.contains(.alphaFirst) ? 1 : 0
+        for y in 0..<bitmap.pixelsHigh {
+            for x in 0..<bitmap.pixelsWide {
+                let pixel = bitmapData + y * bitmap.bytesPerRow + x * bytesPerPixel
+                if pixel[redOffset] > 204,
+                   pixel[redOffset + 1] < 51,
+                   pixel[redOffset + 2] > 204 {
+                    return true
                 }
             }
         }
+        return false
+    }
 
-        #expect(
-            foundThumbnailPixel,
-            "A drawn-region token must visibly render the ink from its captured screenshot"
-        )
+    private func firstSubview<View: NSView>(of type: View.Type, in root: NSView) -> View? {
+        if let match = root as? View { return match }
+        for subview in root.subviews {
+            if let match = firstSubview(of: type, in: subview) { return match }
+        }
+        return nil
     }
 
     @Test func tokenHitTestingResolvesOnlyTheGlyphUnderThePointer() throws {

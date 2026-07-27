@@ -34,6 +34,8 @@ final class BrowserDesignModeTokenCell: NSTextAttachmentCell {
     private let tagTitle: String
     private let icon: NSImage?
     private let deleteIcon: NSImage?
+    private let screenshotThumbnail: NSImage?
+    private let screenshotThumbnailSize: NSSize
     private let titleAttributes: [NSAttributedString.Key: Any]
     private let onRemove: @MainActor (String) -> Void
 
@@ -54,6 +56,7 @@ final class BrowserDesignModeTokenCell: NSTextAttachmentCell {
 
     init(
         selection: BrowserDesignModeSelection,
+        screenshotPath: String? = nil,
         onRemove: @escaping @MainActor (String) -> Void
     ) {
         identity = selection.selector
@@ -88,6 +91,26 @@ final class BrowserDesignModeTokenCell: NSTextAttachmentCell {
         }
         icon = tintImage(symbol)
         deleteIcon = tintImage(removeSymbol)
+        if selection.selector.hasPrefix("@annotation("),
+           let screenshotPath,
+           let screenshot = NSImage(contentsOfFile: screenshotPath),
+           screenshot.isValid,
+           screenshot.size.width > 0,
+           screenshot.size.height > 0 {
+            screenshotThumbnail = screenshot
+            let proportionalWidth = BrowserDesignModeTokenStyle.annotationThumbnailHeight
+                * screenshot.size.width / screenshot.size.height
+            screenshotThumbnailSize = NSSize(
+                width: min(
+                    max(proportionalWidth, BrowserDesignModeTokenStyle.annotationThumbnailHeight),
+                    BrowserDesignModeTokenStyle.annotationThumbnailMaximumWidth
+                ),
+                height: BrowserDesignModeTokenStyle.annotationThumbnailHeight
+            )
+        } else {
+            screenshotThumbnail = nil
+            screenshotThumbnailSize = .zero
+        }
         super.init(textCell: "")
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
@@ -122,9 +145,13 @@ final class BrowserDesignModeTokenCell: NSTextAttachmentCell {
     override func cellSize() -> NSSize {
         // Reserve a stable leading glyph column so hover never reflows text.
         let iconWidth: CGFloat = icon == nil && deleteIcon == nil ? 0 : 13
+        let thumbnailWidth = screenshotThumbnail == nil ? 0 : screenshotThumbnailSize.width + 6
         return NSSize(
-            width: titleSize.width + iconWidth + 16,
-            height: BrowserDesignModeTokenStyle.naturalLineHeight
+            width: titleSize.width + iconWidth + thumbnailWidth + 16,
+            height: max(
+                BrowserDesignModeTokenStyle.naturalLineHeight,
+                screenshotThumbnailSize.height + 6
+            )
         )
     }
 
@@ -133,10 +160,9 @@ final class BrowserDesignModeTokenCell: NSTextAttachmentCell {
     }
 
     override func draw(withFrame cellFrame: NSRect, in controlView: NSView?) {
-        let baseline = cellFrame.minY + cellFrame.height
-            + BrowserDesignModeTokenStyle.font.descender
         let titleFont = titleAttributes[.font] as? NSFont
             ?? BrowserDesignModeTokenStyle.font
+        let baseline = cellFrame.midY + (titleFont.ascender + titleFont.descender) / 2
         let hovering = (controlView as? BrowserDesignModeTokenTextView)?.hoveredTokenIdentity == identity
         var textX = cellFrame.minX + 8
         if let leadingIcon = hovering ? deleteIcon : icon {
@@ -148,6 +174,48 @@ final class BrowserDesignModeTokenCell: NSTextAttachmentCell {
             )
             leadingIcon.draw(in: iconRect)
             textX = iconRect.maxX + 3
+        }
+        if let screenshotThumbnail {
+            let thumbnailBounds = NSRect(
+                x: textX,
+                y: cellFrame.midY - screenshotThumbnailSize.height / 2,
+                width: screenshotThumbnailSize.width,
+                height: screenshotThumbnailSize.height
+            )
+            let imageSize = screenshotThumbnail.size
+            let scale = min(
+                thumbnailBounds.width / imageSize.width,
+                thumbnailBounds.height / imageSize.height
+            )
+            let imageRect = NSRect(
+                x: thumbnailBounds.midX - imageSize.width * scale / 2,
+                y: thumbnailBounds.midY - imageSize.height * scale / 2,
+                width: imageSize.width * scale,
+                height: imageSize.height * scale
+            )
+            let clipPath = NSBezierPath(
+                roundedRect: thumbnailBounds,
+                xRadius: 4,
+                yRadius: 4
+            )
+            NSGraphicsContext.saveGraphicsState()
+            clipPath.addClip()
+            NSColor.black.withAlphaComponent(0.28).setFill()
+            thumbnailBounds.fill()
+            NSGraphicsContext.current?.imageInterpolation = .high
+            screenshotThumbnail.draw(
+                in: imageRect,
+                from: NSRect(origin: .zero, size: imageSize),
+                operation: .sourceOver,
+                fraction: 1,
+                respectFlipped: true,
+                hints: nil
+            )
+            NSGraphicsContext.restoreGraphicsState()
+            NSColor.white.withAlphaComponent(0.18).setStroke()
+            clipPath.lineWidth = 1
+            clipPath.stroke()
+            textX = thumbnailBounds.maxX + 6
         }
         (tagTitle as NSString).draw(
             at: NSPoint(x: textX, y: baseline - titleFont.ascender),

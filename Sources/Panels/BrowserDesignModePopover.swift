@@ -21,6 +21,7 @@ struct BrowserDesignModePopover: View {
             let field = BrowserDesignModeTokenField(
                 controller: controller,
                 selections: controller.snapshot?.selections ?? [],
+                annotationScreenshotPaths: controller.annotationScreenshotPaths,
                 resetGeneration: controller.promptResetGeneration,
                 onHeightChange: { height in
                     if abs(height - tokenFieldHeight) > 0.5 { tokenFieldHeight = height }
@@ -166,6 +167,7 @@ struct BrowserDesignModePopover: View {
 private struct BrowserDesignModeTokenField: NSViewRepresentable {
     let controller: BrowserDesignModeController
     let selections: [BrowserDesignModeSelection]
+    let annotationScreenshotPaths: [String: String]
     let resetGeneration: UInt
     let onHeightChange: (CGFloat) -> Void
 
@@ -236,8 +238,15 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
             }
         }
         context.coordinator.textView = textView
-        context.coordinator.restoreArchivedPrompt(selections: selections)
-        context.coordinator.sync(selections: selections, requestedChange: controller.requestedChange)
+        context.coordinator.restoreArchivedPrompt(
+            selections: selections,
+            annotationScreenshotPaths: annotationScreenshotPaths
+        )
+        context.coordinator.sync(
+            selections: selections,
+            annotationScreenshotPaths: annotationScreenshotPaths,
+            requestedChange: controller.requestedChange
+        )
         DispatchQueue.main.async {
             textView.window?.makeFirstResponder(textView)
         }
@@ -246,7 +255,11 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         context.coordinator.applyResetIfNeeded(generation: resetGeneration)
-        context.coordinator.sync(selections: selections, requestedChange: controller.requestedChange)
+        context.coordinator.sync(
+            selections: selections,
+            annotationScreenshotPaths: annotationScreenshotPaths,
+            requestedChange: controller.requestedChange
+        )
     }
 
     static func dismantleNSView(_ scrollView: NSScrollView, coordinator: Coordinator) {
@@ -307,12 +320,30 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
         /// selections are deleted in place, new selections append at the END
         /// of the existing content ("[pill] text [pill] text"), and the caret
         /// lands after a newly appended token to continue typing.
-        func sync(selections: [BrowserDesignModeSelection], requestedChange: String) {
+        func sync(
+            selections: [BrowserDesignModeSelection],
+            annotationScreenshotPaths: [String: String],
+            requestedChange: String
+        ) {
             guard let textView, let storage = textView.textStorage else { return }
             let identities = selections.map(\.selector)
             let current = attachmentIdentities(in: storage)
+            let selectionsByIdentity = Dictionary(
+                uniqueKeysWithValues: selections.map { ($0.selector, $0) }
+            )
+            var thumbnailRefreshes: [(range: NSRange, selection: BrowserDesignModeSelection)] = []
+            storage.enumerateAttribute(
+                .attachment,
+                in: NSRange(location: 0, length: storage.length)
+            ) { value, range, _ in
+                guard let attachment = value as? BrowserDesignModeTokenAttachment,
+                      attachment.screenshotPath != annotationScreenshotPaths[attachment.identity],
+                      let selection = selectionsByIdentity[attachment.identity] else { return }
+                thumbnailRefreshes.append((range, selection))
+            }
             guard identities.sorted() != current.sorted()
-                || plainText(of: storage) != requestedChange else {
+                || plainText(of: storage) != requestedChange
+                || !thumbnailRefreshes.isEmpty else {
                 lastIdentities = current
                 return
             }
@@ -335,6 +366,18 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
                 }
                 obsolete.append(expanded)
             }
+            // The screenshot is saved immediately before the runtime publishes
+            // its annotation selection. Refresh in place as a safeguard for a
+            // pre-existing token, preserving the prompt's text and token order.
+            for refresh in thumbnailRefreshes.reversed() {
+                storage.replaceCharacters(
+                    in: refresh.range,
+                    with: attributedToken(
+                        for: refresh.selection,
+                        screenshotPath: annotationScreenshotPaths[refresh.selection.selector]
+                    )
+                )
+            }
             for range in obsolete.reversed() {
                 storage.deleteCharacters(in: range)
             }
@@ -346,7 +389,12 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
             let present = Set(attachmentIdentities(in: storage))
             var appended = false
             for selection in selections where !present.contains(selection.selector) {
-                storage.append(attributedToken(for: selection))
+                storage.append(
+                    attributedToken(
+                        for: selection,
+                        screenshotPath: annotationScreenshotPaths[selection.selector]
+                    )
+                )
                 appended = true
             }
 
@@ -368,14 +416,12 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
         }
 
         private var typingAttributes: [NSAttributedString.Key: Any] {
-            // Fixed line metrics tall enough for the 18pt token cells keep
-            // wrapped pill rows evenly spaced instead of jumping per line.
             let paragraph = NSMutableParagraphStyle()
-            // Pin every fragment to the text's rounded natural height:
-            // attachment-only rows otherwise lay out 1pt shorter than rows
-            // with glyphs, so the first typed character shifted the pills.
+            // Keep regular rows pinned to the text's rounded natural height,
+            // while allowing annotation-thumbnail rows to grow without being
+            // clipped by TextKit's paragraph maximum.
             paragraph.minimumLineHeight = BrowserDesignModeTokenStyle.fixedLineHeight
-            paragraph.maximumLineHeight = BrowserDesignModeTokenStyle.fixedLineHeight
+            paragraph.maximumLineHeight = BrowserDesignModeTokenStyle.maximumLineHeight
             paragraph.lineSpacing = 3
             return [
                 .font: BrowserDesignModeTokenStyle.font,
@@ -426,6 +472,7 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
                 // it from the authoritative runtime snapshot.
                 sync(
                     selections: controller.snapshot?.selections ?? [],
+                    annotationScreenshotPaths: controller.annotationScreenshotPaths,
                     requestedChange: controller.requestedChange
                 )
                 return
@@ -546,7 +593,10 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
 
         /// Rebuilds a freshly created (empty) field from the controller's
         /// archived runs so a pane move never loses the typed prompt.
-        func restoreArchivedPrompt(selections: [BrowserDesignModeSelection]) {
+        func restoreArchivedPrompt(
+            selections: [BrowserDesignModeSelection],
+            annotationScreenshotPaths: [String: String]
+        ) {
             guard let textView, let storage = textView.textStorage,
                   storage.length == 0, !controller.promptRuns.isEmpty else { return }
             syncing = true
@@ -556,7 +606,12 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
                     storage.append(NSAttributedString(string: string, attributes: typingAttributes))
                 case .token(let identity):
                     guard let selection = selections.first(where: { $0.selector == identity }) else { continue }
-                    storage.append(attributedToken(for: selection))
+                    storage.append(
+                        attributedToken(
+                            for: selection,
+                            screenshotPath: annotationScreenshotPaths[selection.selector]
+                        )
+                    )
                 }
             }
             syncing = false
@@ -574,8 +629,14 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
             return String(text.drop(while: { $0 == " " }))
         }
 
-        private func attributedToken(for selection: BrowserDesignModeSelection) -> NSAttributedString {
-            BrowserDesignModeTokenAttachment.attributedToken(for: selection) { [weak self] identity in
+        private func attributedToken(
+            for selection: BrowserDesignModeSelection,
+            screenshotPath: String?
+        ) -> NSAttributedString {
+            BrowserDesignModeTokenAttachment.attributedToken(
+                for: selection,
+                screenshotPath: screenshotPath
+            ) { [weak self] identity in
                 self?.requestTokenRemoval(identity: identity)
             }
         }
@@ -734,9 +795,13 @@ enum BrowserDesignModeTokenStyle {
     /// row's fragment ever grows past a plain text row (selection highlights
     /// and the caret then hug the glyphs instead of floating above them).
     static var naturalLineHeight: CGFloat { font.ascender - font.descender }
-    /// Every fragment is pinned to this height — the font's rounded natural
-    /// line — so rows never resize as pills and glyphs come and go.
+    /// Regular rows use the font's rounded natural line height.
     static var fixedLineHeight: CGFloat { ceil(naturalLineHeight) }
+    /// Thumbnail attachments may expand their own row up to this height;
+    /// ordinary prompt and element-token rows retain `fixedLineHeight`.
+    static let maximumLineHeight: CGFloat = 40
+    static let annotationThumbnailHeight: CGFloat = 34
+    static let annotationThumbnailMaximumWidth: CGFloat = 76
     /// Single-line field height: one line plus the 2pt insets.
     static var singleLineFieldHeight: CGFloat { fixedLineHeight + 4 }
 }
@@ -744,14 +809,21 @@ enum BrowserDesignModeTokenStyle {
 /// One selection embedded in the prompt text.
 final class BrowserDesignModeTokenAttachment: NSTextAttachment {
     let identity: String
+    let screenshotPath: String?
 
     init(
         selection: BrowserDesignModeSelection,
+        screenshotPath: String? = nil,
         onRemove: @escaping @MainActor (String) -> Void
     ) {
         identity = selection.selector
+        self.screenshotPath = screenshotPath
         super.init(data: nil, ofType: nil)
-        attachmentCell = BrowserDesignModeTokenCell(selection: selection, onRemove: onRemove)
+        attachmentCell = BrowserDesignModeTokenCell(
+            selection: selection,
+            screenshotPath: screenshotPath,
+            onRemove: onRemove
+        )
     }
 
     @available(*, unavailable)
@@ -759,10 +831,15 @@ final class BrowserDesignModeTokenAttachment: NSTextAttachment {
 
     static func attributedToken(
         for selection: BrowserDesignModeSelection,
+        screenshotPath: String? = nil,
         onRemove: @escaping @MainActor (String) -> Void
     ) -> NSAttributedString {
         let token = NSMutableAttributedString(
-            attachment: BrowserDesignModeTokenAttachment(selection: selection, onRemove: onRemove)
+            attachment: BrowserDesignModeTokenAttachment(
+                selection: selection,
+                screenshotPath: screenshotPath,
+                onRemove: onRemove
+            )
         )
         // Hovering a pill shows its (middle-truncated) XPath; clicking the
         // pill copies the full path.
@@ -781,7 +858,7 @@ final class BrowserDesignModeTokenAttachment: NSTextAttachment {
         // Match the field's paragraph so pill rows share text-row metrics.
         let paragraph = NSMutableParagraphStyle()
         paragraph.minimumLineHeight = BrowserDesignModeTokenStyle.fixedLineHeight
-        paragraph.maximumLineHeight = BrowserDesignModeTokenStyle.fixedLineHeight
+        paragraph.maximumLineHeight = BrowserDesignModeTokenStyle.maximumLineHeight
         paragraph.lineSpacing = 3
         token.addAttribute(
             .paragraphStyle,
