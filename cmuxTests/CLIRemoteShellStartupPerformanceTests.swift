@@ -54,6 +54,7 @@ struct CLIRemoteShellStartupPerformanceTests {
         environment["CMUX_SURFACE_ID"] = "surface-cli-perf"
         environment["CMUX_FAKE_SHELL_MARKER"] = shellMarker.path
         environment["CMUX_FAKE_RELAY_RPC_GATE"] = relayRPCGate.path
+        environment["CMUX_PERSISTENT_PTY_EXEC_HELPER"] = root.bin.appendingPathComponent("cmux").path
 
         let running = try launchProcess(
             executablePath: "/bin/sh",
@@ -164,7 +165,10 @@ struct CLIRemoteShellStartupPerformanceTests {
         }
         switch method {
         case "workspace.create":
-            return v2Response(id: id, ok: true, result: ["workspace_id": "workspace-cli-perf"])
+            return v2Response(id: id, ok: true, result: [
+                "workspace_id": "workspace-cli-perf",
+                "surface_id": "surface-cli-perf",
+            ])
         case "workspace.remote.configure":
             return v2Response(
                 id: id,
@@ -188,6 +192,15 @@ struct CLIRemoteShellStartupPerformanceTests {
         try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
         try writeExecutable(at: bin.appendingPathComponent("cmux"), contents: """
         #!/bin/sh
+        if [ "$1" = "--internal-persistent-pty-exec" ]; then
+          shift
+          executable="${1:-}"
+          [ -n "$executable" ] || exit 2
+          shift
+          [ "${1:-}" = "$executable" ] || exit 2
+          shift
+          exec "$executable" "$@"
+        fi
         if [ "$1" = "rpc" ] && [ -n "${CMUX_FAKE_RELAY_RPC_GATE:-}" ]; then
           while [ ! -f "$CMUX_FAKE_RELAY_RPC_GATE" ]; do sleep 0.05; done
         fi
@@ -204,16 +217,32 @@ struct CLIRemoteShellStartupPerformanceTests {
     }
 
     private var fakeSSHScript: String {
+        // Mirrors OpenSSH RemoteCommand semantics: the first obtained value
+        // wins and `none` clears it (so the bootstrap install hop's
+        // `-o RemoteCommand=none` guard for issue #7246 falls through to the
+        // positional installer command, exactly like real ssh).
         """
         #!/bin/sh
         remote_command=
+        remote_command_seen=
         last=
         while [ "$#" -gt 0 ]; do
           if [ "$1" = "-o" ] && [ "$#" -gt 1 ]; then
             shift
-            case "$1" in RemoteCommand=*) remote_command="${1#RemoteCommand=}" ;; esac
+            case "$1" in
+              RemoteCommand=*)
+                if [ -z "$remote_command_seen" ]; then
+                  remote_command_seen=1
+                  remote_command="${1#RemoteCommand=}"
+                  [ "$remote_command" = none ] && remote_command=
+                fi ;;
+            esac
           elif [ "${1#RemoteCommand=}" != "$1" ]; then
-            remote_command="${1#RemoteCommand=}"
+            if [ -z "$remote_command_seen" ]; then
+              remote_command_seen=1
+              remote_command="${1#RemoteCommand=}"
+              [ "$remote_command" = none ] && remote_command=
+            fi
           fi
           last="$1"
           shift

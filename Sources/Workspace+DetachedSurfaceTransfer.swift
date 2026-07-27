@@ -1,5 +1,6 @@
 import Foundation
 import CmuxCore
+import CmuxWorkspaces
 import Darwin
 import CmuxNotifications
 import CmuxSidebar
@@ -9,11 +10,18 @@ extension Workspace {
         let panelId: UUID
         let statusEntries: [String: SidebarStatusEntry]
         let agentPIDs: [String: pid_t]
+        /// Start-time identities recorded for `agentPIDs`, so a consumer can
+        /// distinguish "recorded process still runs" from "pid was reused by
+        /// an unrelated process" (same contract as `isRecordedAgentPIDLive`).
+        let agentPIDProcessIdentities: [String: AgentPIDProcessIdentity]
         let agentPIDKeys: Set<String>
     }
 
     struct DetachedSurfaceTransfer {
         let sourceWorkspaceId: UUID
+        /// Workspace whose restore context must rebuild this panel after relaunch.
+        /// Unlike `sourceWorkspaceId`, this survives moves between Dock containers.
+        let sessionRestoreSourceWorkspaceId: UUID?
         let panelId: UUID
         let panel: any Panel
         let title: String
@@ -23,6 +31,8 @@ extension Workspace {
         let isLoading: Bool
         let isPinned: Bool
         let directory: String?
+        let directoryIsTrustedRemoteReport: Bool
+        let directoryDisplayLabel: String?
         let ttyName: String?
         let cachedTitle: String?
         let customTitle: String?
@@ -31,6 +41,9 @@ extension Workspace {
         let restoredUnreadIndicator: RestoredPanelUnreadIndicator?
         let restorableAgent: SessionRestorableAgentSnapshot?
         let restorableAgentResumeState: RestoredAgentResumeState?
+        let restoredAgentCompletedGeneration: RestoredAgentCompletedGeneration?
+        let shellActivityState: PanelShellActivityState?
+        let restoredResumeSessionWorkingDirectory: String?
         let resumeBinding: SurfaceResumeBindingSnapshot?
         let agentRuntime: DetachedAgentRuntimeState?
         let isRemoteTerminal: Bool
@@ -38,9 +51,14 @@ extension Workspace {
         let remotePTYSessionID: String?
         let remoteCleanupConfiguration: WorkspaceRemoteConfiguration?
 
+        var sessionRestoreWorkspaceId: UUID {
+            sessionRestoreSourceWorkspaceId ?? sourceWorkspaceId
+        }
+
         func withRemoteCleanupConfiguration(_ configuration: WorkspaceRemoteConfiguration?) -> Self {
             Self(
                 sourceWorkspaceId: sourceWorkspaceId,
+                sessionRestoreSourceWorkspaceId: sessionRestoreSourceWorkspaceId,
                 panelId: panelId,
                 panel: panel,
                 title: title,
@@ -50,6 +68,8 @@ extension Workspace {
                 isLoading: isLoading,
                 isPinned: isPinned,
                 directory: directory,
+                directoryIsTrustedRemoteReport: directoryIsTrustedRemoteReport,
+                directoryDisplayLabel: directoryDisplayLabel,
                 ttyName: ttyName,
                 cachedTitle: cachedTitle,
                 customTitle: customTitle,
@@ -58,6 +78,9 @@ extension Workspace {
                 restoredUnreadIndicator: restoredUnreadIndicator,
                 restorableAgent: restorableAgent,
                 restorableAgentResumeState: restorableAgentResumeState,
+                restoredAgentCompletedGeneration: restoredAgentCompletedGeneration,
+                shellActivityState: shellActivityState,
+                restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
                 resumeBinding: resumeBinding,
                 agentRuntime: agentRuntime,
                 isRemoteTerminal: isRemoteTerminal,

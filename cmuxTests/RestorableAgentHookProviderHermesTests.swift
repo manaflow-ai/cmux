@@ -39,7 +39,7 @@ extension SocketListenerAcceptPolicyTests {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "{ cd -- '/tmp/hermes repo' 2>/dev/null || [ ! -d '/tmp/hermes repo' ]; } && 'env' 'HERMES_HOME=/tmp/hermes home' '/opt/homebrew/bin/hermes' '--tui' '--model' 'gpt-5.4' '--resume' 'hermes-session-123'"
+            "cd -- '/tmp/hermes repo' 2>/dev/null || [ ! -d '/tmp/hermes repo' ] && 'env' 'HERMES_HOME=/tmp/hermes home' '/opt/homebrew/bin/hermes' '--tui' '--model' 'gpt-5.4' '--resume' 'hermes-session-123'"
         )
     }
 
@@ -67,7 +67,7 @@ extension SocketListenerAcceptPolicyTests {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "{ cd -- '/tmp/hermes repo' 2>/dev/null || [ ! -d '/tmp/hermes repo' ]; } && '/opt/homebrew/bin/hermes' '--provider' 'custom' '--model' 'gpt-5.5' '--resume' 'hermes-session-123'"
+            "cd -- '/tmp/hermes repo' 2>/dev/null || [ ! -d '/tmp/hermes repo' ] && '/opt/homebrew/bin/hermes' '--provider' 'custom' '--model' 'gpt-5.5' '--resume' 'hermes-session-123'"
         )
     }
 
@@ -123,7 +123,7 @@ extension SocketListenerAcceptPolicyTests {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "{ cd -- '/tmp/hermes repo' 2>/dev/null || [ ! -d '/tmp/hermes repo' ]; } && 'env' 'CUSTOM_BASE_URL=http://subrouter-team:31415/v1' 'HERMES_CODEX_BASE_URL=http://subrouter-team:31415/backend-api/codex' 'HERMES_HOME=/tmp/hermes home' '/opt/homebrew/bin/hermes' '--provider' 'anthropic' '--model' 'anthropic/claude-sonnet-4.6' '--resume' 'hermes-session-123'"
+            "cd -- '/tmp/hermes repo' 2>/dev/null || [ ! -d '/tmp/hermes repo' ] && 'env' 'CUSTOM_BASE_URL=http://subrouter-team:31415/v1' 'HERMES_CODEX_BASE_URL=http://subrouter-team:31415/backend-api/codex' 'HERMES_HOME=/tmp/hermes home' '/opt/homebrew/bin/hermes' '--provider' 'anthropic' '--model' 'anthropic/claude-sonnet-4.6' '--resume' 'hermes-session-123'"
         )
     }
 

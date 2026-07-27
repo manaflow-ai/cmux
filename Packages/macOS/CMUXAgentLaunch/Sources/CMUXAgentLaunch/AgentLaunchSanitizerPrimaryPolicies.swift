@@ -1,0 +1,581 @@
+import Foundation
+
+extension AgentLaunchSanitizer {
+    static let claudePolicy = Policy(
+        valueOptions: [
+            "--add-dir",
+            "--agent",
+            "--agents",
+            "--allowedTools",
+            "--allowed-tools",
+            "--append-system-prompt",
+            "--append-system-prompt-file",
+            "--betas",
+            "--dangerously-load-development-channels",
+            "--debug-file",
+            "--disallowedTools",
+            "--disallowed-tools",
+            "--effort",
+            "--fallback-model",
+            "--file",
+            "--from-pr",
+            "--input-format",
+            "--json-schema",
+            "--max-budget-usd",
+            "--mcp-config",
+            "--model",
+            "--name",
+            "-n",
+            "--output-format",
+            "--permission-mode",
+            "--plugin-dir",
+            "--plugin-url",
+            "--remote-control-session-name-prefix",
+            "--resume",
+            "-r",
+            "--session-id",
+            "--setting-sources",
+            "--settings",
+            "--system-prompt",
+            "--system-prompt-file",
+            "--teammate-mode",
+            "--tmux",
+            "--tools",
+            "--worktree",
+            "-w"
+        ],
+        optionalValueOptions: [
+            "--debug",
+            "-d"
+        ],
+        // Claude booleans (from `claude --help`) pinned to width 1 so a following
+        // one-word prompt is never inferred as the flag's value and replayed on
+        // resume. Permission booleans are deliberately preserved for user-owned
+        // restore: resuming your own session continues the original explicit
+        // opt-in (https://github.com/manaflow-ai/cmux/issues/8066). Session-identity
+        // and lifecycle booleans (--continue/-c, --fork-session, --bg) stay listed
+        // in droppedOptions; being width-pinned here only keeps their drop exact.
+        booleanOptions: [
+            "--allow-dangerously-skip-permissions",
+            "--ax-screen-reader",
+            "--background",
+            "--bare",
+            "--bg",
+            "--brief",
+            "--chrome",
+            "--continue",
+            "-c",
+            "--dangerously-skip-permissions",
+            "--disable-slash-commands",
+            "--exclude-dynamic-system-prompt-sections",
+            "--fork-session",
+            "--ide",
+            "--include-hook-events",
+            "--include-partial-messages",
+            "--no-chrome",
+            "--replay-user-messages",
+            "--safe-mode",
+            "--strict-mcp-config",
+            "--verbose"
+        ],
+        variadicOptions: [
+            "--add-dir",
+            "--allowedTools",
+            "--allowed-tools",
+            "--betas",
+            "--dangerously-load-development-channels",
+            "--disallowedTools",
+            "--disallowed-tools",
+            "--file",
+            "--mcp-config",
+            "--tools"
+        ],
+        nonRestorableCommands: [
+            "agents",
+            "auth",
+            "auto-mode",
+            "api-key",
+            "config",
+            "doctor",
+            "install",
+            "mcp",
+            "plugin",
+            "plugins",
+            "rc",
+            "remote-control",
+            "setup-token",
+            "update",
+            "upgrade"
+        ],
+        droppedOptions: [
+            // Replaying --bg/--background would turn an interactive pane restore
+            // into a detached background-agent launch.
+            "--background",
+            "--bg",
+            "--continue",
+            "-c",
+            "--file",
+            "--fork-session",
+            "--from-pr",
+            "--resume",
+            "-r",
+            "--session-id",
+            "--tmux",
+            "--worktree",
+            "-w"
+        ],
+        droppedOptionPrefixes: [
+            "--file=",
+            "--fork-session=",
+            "--from-pr=",
+            "--resume=",
+            "--session-id=",
+            "--tmux=",
+            "--worktree="
+        ],
+        rejectOptions: [
+            "--print",
+            "-p",
+            "--no-session-persistence"
+        ],
+        scansOptionsPastPositionals: true,
+        skipClaudeHookSettings: true
+    )
+
+    static let codexPolicy = Policy(
+        valueOptions: [
+            "--config",
+            "-c",
+            "--remote",
+            "--remote-auth-token-env",
+            "--image",
+            "-i",
+            "--model",
+            "-m",
+            "--local-provider",
+            "--profile",
+            "-p",
+            "--sandbox",
+            "-s",
+            "--ask-for-approval",
+            "-a",
+            "--cd",
+            "-C",
+            "--add-dir",
+            "--enable",
+            "--disable"
+        ],
+        variadicOptions: [
+            "--image",
+            "-i"
+        ],
+        nonRestorableCommands: [
+            "exec",
+            "e",
+            "review",
+            "login",
+            "logout",
+            "mcp",
+            "mcp-server",
+            "app-server",
+            "app",
+            "completion",
+            "sandbox",
+            "debug",
+            "apply",
+            "a",
+            "fork",
+            "cloud",
+            "exec-server",
+            "features",
+            "help"
+        ],
+        droppedOptions: [
+            "--last",
+            "--image",
+            "-i",
+            "--remote",
+            "--remote-auth-token-env",
+            "--all"
+        ],
+        droppedOptionPrefixes: [
+            "--remote=",
+            "--remote-auth-token-env="
+        ],
+        resumeSubcommand: "resume"
+    )
+
+    static let piPolicy = Policy(
+        valueOptions: [
+            "--append-system-prompt",
+            "--api-key",
+            "--extension",
+            "--fork",
+            "--model",
+            "--models",
+            "--prompt-template",
+            "--provider",
+            "--resume",
+            "--session",
+            "--session-dir",
+            "--skill",
+            "--system-prompt",
+            "--theme",
+            "--thinking",
+            "--tools",
+            "-e",
+            "-r",
+            "-t"
+        ],
+        nonRestorableCommands: [
+            "config",
+            "help",
+            "install",
+            "list",
+            "login",
+            "logout",
+            "remove",
+            "uninstall",
+            "update"
+        ],
+        droppedOptions: [
+            "--api-key",
+            "--continue",
+            "--fork",
+            "--resume",
+            "--session",
+            "-c",
+            "-r"
+        ],
+        droppedOptionPrefixes: [
+            "--api-key=",
+            "--fork=",
+            "--resume=",
+            "--session="
+        ],
+        rejectOptions: [
+            "--export",
+            "--list-models",
+            "--mode",
+            "--no-session",
+            "--print",
+            "--prompt",
+            "--version",
+            "-h",
+            "-p",
+            "-v"
+        ]
+    )
+
+    /// Campfire embeds vanilla pi and forwards unrecognized flags to it, so its
+    /// policy is pi's plus the campfire-only surface. `--relay` is safe to
+    /// replay (a relay URL, not a credential); `--join-as`/`--name` are
+    /// joiner-only display names that make no sense on a host resume. An invite
+    /// URL is a positional argument and is dropped by the default positional
+    /// handling — it carries the lobby capability token and must never be
+    /// persisted or replayed.
+    static let campfirePolicy: Policy = {
+        var policy = piPolicy
+        policy.valueOptions.formUnion(["--relay", "--join", "--join-as", "--name"])
+        policy.nonRestorableCommands.insert("init")
+        policy.droppedOptions.formUnion(["--join", "--join-as", "--name", "--auto-exit"])
+        policy.droppedOptionPrefixes.append(contentsOf: ["--join=", "--join-as=", "--name="])
+        return policy
+    }()
+
+    static let ampPolicy = Policy(
+        valueOptions: [
+            "--effort",
+            // --label takes a value; listed here AND in droppedOptions so the
+            // sanitizer consumes the value too (otherwise it slips through as
+            // a positional).
+            "--label",
+            "--log-file",
+            "--log-level",
+            "--mcp-config",
+            "--mode",
+            "--settings-file",
+            "--visibility",
+            "-l",
+            "-m"
+        ],
+        nonRestorableCommands: [
+            "login",
+            "logout",
+            "mcp",
+            "permissions",
+            "permission",
+            "review",
+            "skill",
+            "skills",
+            "tool",
+            "tools",
+            "update",
+            "up",
+            "usage",
+            "version"
+        ],
+        droppedOptions: [
+            "--archive",
+            "--label",
+            "-l",
+            "--stream-json",
+            "--stream-json-input",
+            "--stream-json-thinking"
+        ],
+        rejectOptions: [
+            "--execute",
+            "--print",
+            "-V",
+            "-x"
+        ]
+    )
+
+    static let geminiPolicy = Policy(
+        valueOptions: [
+            "--model",
+            "-m",
+            "--sandbox",
+            "-s",
+            "--approval-mode",
+            "--policy",
+            "--admin-policy",
+            "--allowed-mcp-server-names",
+            "--allowed-tools",
+            "--extensions",
+            "-e",
+            "--include-directories",
+            "--resume",
+            "-r",
+            "--session-id",
+            "--worktree",
+            "-w",
+            "--prompt",
+            "-p",
+            "--prompt-interactive",
+            "-i",
+            "--delete-session",
+            "--output-format",
+            "-o"
+        ],
+        optionalValueOptions: [
+            "--resume",
+            "-r"
+        ],
+        variadicOptions: [
+            "--policy",
+            "--admin-policy",
+            "--allowed-mcp-server-names",
+            "--allowed-tools",
+            "--extensions",
+            "-e",
+            "--include-directories"
+        ],
+        nonRestorableCommands: [
+            "mcp",
+            "extensions",
+            "skills",
+            "hooks",
+            "gemma",
+            "help"
+        ],
+        droppedOptions: [
+            "--resume",
+            "-r",
+            "--session-id",
+            "--worktree",
+            "-w"
+        ],
+        droppedOptionPrefixes: [
+            "--resume=",
+            "--session-id=",
+            "--worktree="
+        ],
+        rejectOptions: [
+            "--prompt",
+            "-p",
+            "--prompt-interactive",
+            "-i",
+            "--list-sessions",
+            "--delete-session",
+            "--output-format",
+            "-o",
+            "--raw-output",
+            "--accept-raw-output-risk",
+            "--acp",
+            "--experimental-acp",
+            "--list-extensions"
+        ]
+    )
+
+    static let antigravityPolicy = Policy(
+        valueOptions: [
+            "--add-dir",
+            "--conversation",
+            "--log-file",
+            "--print-timeout",
+            "--prompt",
+            "-p",
+            "--sandbox",
+        ],
+        optionalValueOptions: [
+            "--continue",
+            "-c",
+        ],
+        nonRestorableCommands: [
+            "changelog",
+            "help",
+            "install",
+            "plugin",
+            "plugins",
+            "update",
+        ],
+        droppedOptions: [
+            "--continue",
+            "-c",
+            "--conversation",
+        ],
+        droppedOptionPrefixes: [
+            "--conversation=",
+        ],
+        rejectOptions: [
+            "--prompt",
+            "-p",
+            "--prompt-interactive",
+            "-i",
+            "--print",
+        ]
+    )
+
+    static let cursorPolicy = Policy(
+        valueOptions: [
+            "--api-key",
+            "-H",
+            "--header",
+            "--mode",
+            "--model",
+            "--output-format",
+            "--resume",
+            "--sandbox",
+            "--workspace",
+            "-w",
+            "--worktree",
+            "--worktree-base"
+        ],
+        optionalValueOptions: [
+            "-w",
+            "--resume",
+            "--worktree"
+        ],
+        nonRestorableCommands: [
+            "about",
+            "create-chat",
+            "generate-rule",
+            "help",
+            "install-shell-integration",
+            "login",
+            "logout",
+            "ls",
+            "mcp",
+            "models",
+            "rule",
+            "status",
+            "uninstall-shell-integration",
+            "update",
+            "whoami"
+        ],
+        droppedOptions: [
+            "--api-key",
+            "-H",
+            "--header",
+            "--continue",
+            "--resume",
+            "--workspace",
+            "-w",
+            "--worktree",
+            "--worktree-base",
+            "--skip-worktree-setup"
+        ],
+        droppedOptionPrefixes: [
+            "--api-key=",
+            "--header=",
+            "-H=",
+            "--resume=",
+            "--workspace=",
+            "--worktree=",
+            "--worktree-base="
+        ],
+        rejectOptions: [
+            "--cloud",
+            "--output-format",
+            "--print",
+            "-p",
+            "--stream-partial-output"
+        ],
+        resumeSubcommand: "resume"
+    )
+
+    static let openCodePolicy = Policy(
+        valueOptions: [
+            "--log-level",
+            "--port",
+            "--hostname",
+            "--mdns-domain",
+            "--cors",
+            "--file",
+            "-f",
+            "--model",
+            "-m",
+            "--session",
+            "-s",
+            "--prompt",
+            "--agent"
+        ],
+        variadicOptions: [
+            "--cors"
+        ],
+        nonRestorableCommands: [
+            "completion",
+            "acp",
+            "mcp",
+            "attach",
+            "run",
+            "debug",
+            "providers",
+            "auth",
+            "agent",
+            "upgrade",
+            "uninstall",
+            "serve",
+            "web",
+            "models",
+            "stats",
+            "export",
+            "import",
+            "pr",
+            "github",
+            "session",
+            "plugin",
+            "plug",
+            "db"
+        ],
+        droppedOptions: [
+            "--continue",
+            "-c",
+            "--file",
+            "-f",
+            "--fork",
+            "--session",
+            "-s",
+            "--prompt"
+        ],
+        droppedOptionPrefixes: [
+            "--file=",
+            "-f=",
+            "--fork=",
+            "--session=",
+            "--prompt="
+        ],
+        preserveFirstPositional: true
+    )
+}

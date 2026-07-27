@@ -5,6 +5,7 @@
 #   ./scripts/run-e2e.sh UpdatePillUITests
 #   ./scripts/run-e2e.sh UpdatePillUITests --wait
 #   ./scripts/run-e2e.sh UpdatePillUITests/testFoo --ref my-branch
+#   ./scripts/run-e2e.sh cmuxTests/ForkParentFallbackGeneralizationTests
 #   ./scripts/run-e2e.sh UpdatePillUITests --no-video --timeout 300
 set -euo pipefail
 
@@ -22,7 +23,8 @@ usage() {
 Usage: $(basename "$0") <test_filter> [options]
 
 Arguments:
-  test_filter    Test class or class/method (e.g. UpdatePillUITests)
+  test_filter    Test class or class/method. Bare filters target cmuxUITests;
+                 use cmuxUITests/Class or cmuxTests/Class for explicit targets.
 
 Options:
   --ref <ref>      Branch or SHA to test (default: current branch)

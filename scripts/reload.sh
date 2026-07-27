@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib/mobile-attach.sh
+source "$SCRIPT_DIR/lib/mobile-attach.sh"
+# shellcheck source=scripts/lib/dev-secrets.sh
+source "$SCRIPT_DIR/lib/dev-secrets.sh"
+
 APP_NAME="cmux DEV"
 BUNDLE_ID="com.cmuxterm.app.debug"
 BASE_APP_NAME="cmux DEV"
@@ -15,7 +21,14 @@ CMUX_DEV_PORT=""
 CMUX_DEV_PORT_END=""
 CMUX_DEV_PORT_RANGE=""
 CMUX_DEV_ORIGIN=""
+CMUX_DEV_API_BASE_URL_VALUE=""
+CMUX_IROH_BROKER_BASE_URL_VALUE=""
+CMUX_AUTH_WWW_ORIGIN_VALUE=""
+CMUX_WWW_ORIGIN_VALUE=""
+PROD_AUTH=0
+AUTH_CREDENTIALS_FILE=""
 CLI_PATH=""
+NO_GLOBAL_CLI_LINKS="${CMUX_RELOAD_NO_GLOBAL_CLI_LINKS:-0}"
 # Matches CmuxStateDirectory (non-TCC ~/.local/state/cmux) where the app/CLI now
 # read the last-socket-path markers (https://github.com/manaflow-ai/cmux/issues/5146).
 # Resolve the real account home via getpwuid (the same syscall
@@ -154,6 +167,28 @@ select_cmux_shim_target() {
   return 1
 }
 
+publish_reload_cli_path() {
+  local cli_path="$1"
+  if [[ ! -x "$cli_path" ]]; then
+    return 0
+  fi
+  if [[ "$NO_GLOBAL_CLI_LINKS" == "1" ]]; then
+    return 0
+  fi
+
+  (umask 077; printf '%s\n' "$cli_path" > /tmp/cmux-last-cli-path) || true
+  ln -sfn "$cli_path" /tmp/cmux-cli || true
+
+  # Stable shim that always follows the last reload-selected dev CLI.
+  DEV_CLI_SHIM="$HOME/.local/bin/cmux-dev"
+  write_dev_cli_shim "$DEV_CLI_SHIM" "/Applications/cmux.app/Contents/Resources/bin/cmux"
+
+  CMUX_SHIM_TARGET="$(select_cmux_shim_target || true)"
+  if [[ -n "${CMUX_SHIM_TARGET:-}" ]]; then
+    write_dev_cli_shim "$CMUX_SHIM_TARGET" "/Applications/cmux.app/Contents/Resources/bin/cmux"
+  fi
+}
+
 write_last_socket_path() {
   local socket_path="$1"
   local marker_name="dev-last-socket-path"
@@ -230,9 +265,17 @@ Options:
                          so macOS launches the freshly-built binary on cmd-click or --launch.
   --launch               Launch the app after building. Without this flag, the script
                          builds and prints the app path but does not open it.
+  --prod-auth            Point this tagged Debug build at production Stack auth,
+                         cmux APIs, and the production Iroh broker.
+  --credentials-file <path>
+                         Bake only the path to a current-user-owned 0600 auth file.
+                         The credential values never enter argv, Info.plist, or
+                         the long-lived Mac process environment.
   --name <app name>      Override app display/bundle name.
   --bundle-id <id>       Override bundle identifier.
   --derived-data <path>  Override derived data path.
+  --no-global-cli-links  Do not update /tmp/cmux-cli, /tmp/cmux-last-cli-path,
+                         or PATH cmux-dev shims. Useful for isolated dogfood.
   --swift-frontend-workaround
                          Work around Swift arm64 frontend spins for this reload
                          only by disabling batch mode, debug symbol emission,
@@ -245,20 +288,11 @@ EOF
 }
 
 sanitize_bundle() {
-  local raw="$1"
-  local cleaned
-  cleaned="$(echo "$raw" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/./g; s/^\\.+//; s/\\.+$//; s/\\.+/./g')"
-  if [[ -z "$cleaned" ]]; then
-    cleaned="agent"
-  fi
-  echo "$cleaned"
+  cmux_attach__bundle_seg "$1"
 }
 
 sanitize_path() {
-  local raw="$1"
-  local cleaned
-  cleaned="$(echo "$raw" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//; s/-+/-/g')"
-  echo "$cleaned"
+  cmux_attach__slug_raw "$1"
 }
 
 is_valid_port() {
@@ -470,6 +504,18 @@ while [[ $# -gt 0 ]]; do
       LAUNCH=1
       shift
       ;;
+    --prod-auth)
+      PROD_AUTH=1
+      shift
+      ;;
+    --credentials-file)
+      AUTH_CREDENTIALS_FILE="${2:-}"
+      if [[ -z "$AUTH_CREDENTIALS_FILE" ]]; then
+        echo "error: --credentials-file requires a value" >&2
+        exit 1
+      fi
+      shift 2
+      ;;
     --derived-data)
       DERIVED_DATA="${2:-}"
       if [[ -z "$DERIVED_DATA" ]]; then
@@ -478,6 +524,10 @@ while [[ $# -gt 0 ]]; do
       fi
       DERIVED_SET=1
       shift 2
+      ;;
+    --no-global-cli-links)
+      NO_GLOBAL_CLI_LINKS=1
+      shift
       ;;
     --swift-disable-global-isel)
       SWIFT_FRONTEND_WORKAROUND=1
@@ -505,13 +555,17 @@ if [[ -z "$TAG" ]]; then
   exit 1
 fi
 
+if [[ -n "$AUTH_CREDENTIALS_FILE" ]]; then
+  cmux_dev_secrets_validate_file "$AUTH_CREDENTIALS_FILE"
+  AUTH_CREDENTIALS_FILE="$(cd "$(dirname "$AUTH_CREDENTIALS_FILE")" && pwd -P)/$(basename "$AUTH_CREDENTIALS_FILE")"
+fi
+
 if [[ -n "$TAG" ]]; then
-  TAG_ID="$(sanitize_bundle "$TAG")"
-  TAG_SLUG="$(sanitize_path "$TAG")"
-  if [[ -z "$TAG_SLUG" ]]; then
-    echo "error: --tag must contain at least one alphanumeric character" >&2
+  if ! cmux_attach_validate_dev_tag "$TAG"; then
     exit 1
   fi
+  TAG_ID="$(sanitize_bundle "$TAG")"
+  TAG_SLUG="$(sanitize_path "$TAG")"
   if [[ "$NAME_SET" -eq 0 ]]; then
     APP_NAME="cmux DEV ${TAG_SLUG}"
   fi
@@ -527,6 +581,16 @@ CMUX_DEV_PORT="$(choose_cmux_dev_port)"
 CMUX_DEV_PORT_RANGE="$(choose_cmux_dev_port_range)"
 CMUX_DEV_PORT_END="$(choose_cmux_dev_port_end "$CMUX_DEV_PORT" "$CMUX_DEV_PORT_RANGE")"
 CMUX_DEV_ORIGIN="http://localhost:${CMUX_DEV_PORT}"
+CMUX_DEV_API_BASE_URL_VALUE="$(cmux_attach_resolve_dev_api_base_url "$CMUX_DEV_ORIGIN")"
+CMUX_IROH_BROKER_BASE_URL_VALUE="${CMUX_IROH_BROKER_BASE_URL:-https://cmux-staging.vercel.app}"
+CMUX_AUTH_WWW_ORIGIN_VALUE="$CMUX_DEV_ORIGIN"
+CMUX_WWW_ORIGIN_VALUE="$CMUX_DEV_ORIGIN"
+if [[ "$PROD_AUTH" -eq 1 ]]; then
+  CMUX_DEV_API_BASE_URL_VALUE="${CMUX_DEV_API_BASE_URL:-https://cmux.com}"
+  CMUX_IROH_BROKER_BASE_URL_VALUE="${CMUX_IROH_BROKER_BASE_URL:-https://cmux.com}"
+  CMUX_AUTH_WWW_ORIGIN_VALUE="https://cmux.com"
+  CMUX_WWW_ORIGIN_VALUE="https://cmux.com"
+fi
 
 # Quiet logging: capture all noisy build output (xcodebuild, zig, codesign,
 # plistbuddy, etc.) to a single log file. On success we print only a one-line
@@ -589,6 +653,10 @@ reload_finalize() {
     echo
     echo "Dev web origin:"
     echo "  $CMUX_DEV_ORIGIN"
+    echo "Dev API origin:"
+    echo "  $CMUX_DEV_API_BASE_URL_VALUE"
+    echo "Iroh broker origin:"
+    echo "  $CMUX_IROH_BROKER_BASE_URL_VALUE"
     if [[ -n "${TAG_SLUG:-}" ]]; then
       echo "Dev web command:"
       echo "  cd web && CMUX_PORT=$CMUX_DEV_PORT CMUX_PORT_RANGE=$CMUX_DEV_PORT_RANGE CMUX_PORT_END=$CMUX_DEV_PORT_END CMUX_AUTH_CALLBACK_SCHEME=cmux-dev-$TAG_SLUG bun dev"
@@ -599,12 +667,16 @@ reload_finalize() {
     echo "CLI path:"
     echo "  $CLI_PATH"
     echo "CLI helpers:"
-    echo "  /tmp/cmux-cli ..."
-    echo "  $HOME/.local/bin/cmux-dev ..."
-    if [[ -n "${CMUX_SHIM_TARGET:-}" ]]; then
-      echo "  $CMUX_SHIM_TARGET ..."
+    if [[ "$NO_GLOBAL_CLI_LINKS" == "1" ]]; then
+      echo "  preserved existing global cmux CLI links (--no-global-cli-links)"
+    else
+      echo "  /tmp/cmux-cli ..."
+      echo "  $HOME/.local/bin/cmux-dev ..."
+      if [[ -n "${CMUX_SHIM_TARGET:-}" ]]; then
+        echo "  $CMUX_SHIM_TARGET ..."
+      fi
+      echo "If your shell still resolves the old cmux, run: rehash"
     fi
-    echo "If your shell still resolves the old cmux, run: rehash"
   fi
   if [[ "${SWIFT_FRONTEND_WORKAROUND_EFFECTIVE:-0}" -eq 1 ]]; then
     echo
@@ -931,9 +1003,17 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       set_plist_env "$INFO_PLIST" CMUX_PORT_END "$CMUX_DEV_PORT_END"
       set_plist_env "$INFO_PLIST" CMUX_PORT_RANGE "$CMUX_DEV_PORT_RANGE"
       set_plist_env "$INFO_PLIST" PORT "$CMUX_DEV_PORT"
-      set_plist_env "$INFO_PLIST" CMUX_AUTH_WWW_ORIGIN "$CMUX_DEV_ORIGIN"
-      set_plist_env "$INFO_PLIST" CMUX_API_BASE_URL "$CMUX_DEV_ORIGIN"
-      set_plist_env "$INFO_PLIST" CMUX_VM_API_BASE_URL "$CMUX_DEV_ORIGIN"
+      set_plist_env "$INFO_PLIST" CMUX_AUTH_WWW_ORIGIN "$CMUX_AUTH_WWW_ORIGIN_VALUE"
+      set_plist_env "$INFO_PLIST" CMUX_WWW_ORIGIN "$CMUX_WWW_ORIGIN_VALUE"
+      set_plist_env "$INFO_PLIST" CMUX_API_BASE_URL "$CMUX_DEV_API_BASE_URL_VALUE"
+      set_plist_env "$INFO_PLIST" CMUX_VM_API_BASE_URL "$CMUX_DEV_API_BASE_URL_VALUE"
+      set_plist_env "$INFO_PLIST" CMUX_IROH_BROKER_BASE_URL "$CMUX_IROH_BROKER_BASE_URL_VALUE"
+      if [[ "$PROD_AUTH" -eq 1 ]]; then
+        set_plist_env "$INFO_PLIST" CMUX_AUTH_ENVIRONMENT production
+      fi
+      if [[ -n "$AUTH_CREDENTIALS_FILE" ]]; then
+        set_plist_env "$INFO_PLIST" CMUX_AUTH_CREDENTIALS_FILE "$AUTH_CREDENTIALS_FILE"
+      fi
       if [[ -S "$CMUXD_SOCKET" ]]; then
         for PID in $(lsof -t "$CMUXD_SOCKET" 2>/dev/null); do
           kill "$PID" 2>/dev/null || true
@@ -949,19 +1029,7 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
 fi
 
 CLI_PATH="$(dirname "$APP_PATH")/cmux"
-if [[ -x "$CLI_PATH" ]]; then
-  (umask 077; printf '%s\n' "$CLI_PATH" > /tmp/cmux-last-cli-path) || true
-  ln -sfn "$CLI_PATH" /tmp/cmux-cli || true
-
-  # Stable shim that always follows the last reload-selected dev CLI.
-  DEV_CLI_SHIM="$HOME/.local/bin/cmux-dev"
-  write_dev_cli_shim "$DEV_CLI_SHIM" "/Applications/cmux.app/Contents/Resources/bin/cmux"
-
-  CMUX_SHIM_TARGET="$(select_cmux_shim_target || true)"
-  if [[ -n "${CMUX_SHIM_TARGET:-}" ]]; then
-    write_dev_cli_shim "$CMUX_SHIM_TARGET" "/Applications/cmux.app/Contents/Resources/bin/cmux"
-  fi
-fi
+publish_reload_cli_path "$CLI_PATH"
 
 # Build cmuxd and ensure helper binaries are present (needed for both launch and no-launch).
 CMUXD_SRC="$PWD/cmuxd/zig-out/bin/cmuxd"
@@ -1003,10 +1071,7 @@ if [[ -n "${TAG_APP_FINAL_PATH:-}" && -n "${TAG_APP_STAGING_PATH:-}" ]]; then
   APP_PATH="$TAG_APP_FINAL_PATH"
 fi
 CLI_PATH="$APP_PATH/Contents/Resources/bin/cmux"
-if [[ -x "$CLI_PATH" ]]; then
-  echo "$CLI_PATH" > /tmp/cmux-last-cli-path || true
-  ln -sfn "$CLI_PATH" /tmp/cmux-cli || true
-fi
+publish_reload_cli_path "$CLI_PATH"
 
 # Tag mode: always terminate the existing same-tag instance after a successful build,
 # even without --launch. A stale tagged app pinned to this bundle id would otherwise
@@ -1086,10 +1151,18 @@ if [[ "$LAUNCH" -eq 1 ]]; then
     CMUX_PORT_END="$CMUX_DEV_PORT_END"
     CMUX_PORT_RANGE="$CMUX_DEV_PORT_RANGE"
     PORT="$CMUX_DEV_PORT"
-    CMUX_AUTH_WWW_ORIGIN="$CMUX_DEV_ORIGIN"
-    CMUX_API_BASE_URL="$CMUX_DEV_ORIGIN"
-    CMUX_VM_API_BASE_URL="$CMUX_DEV_ORIGIN"
+    CMUX_AUTH_WWW_ORIGIN="$CMUX_AUTH_WWW_ORIGIN_VALUE"
+    CMUX_WWW_ORIGIN="$CMUX_WWW_ORIGIN_VALUE"
+    CMUX_API_BASE_URL="$CMUX_DEV_API_BASE_URL_VALUE"
+    CMUX_VM_API_BASE_URL="$CMUX_DEV_API_BASE_URL_VALUE"
+    CMUX_IROH_BROKER_BASE_URL="$CMUX_IROH_BROKER_BASE_URL_VALUE"
   )
+  if [[ "$PROD_AUTH" -eq 1 ]]; then
+    TAG_LAUNCH_ENV+=(CMUX_AUTH_ENVIRONMENT=production)
+  fi
+  if [[ -n "$AUTH_CREDENTIALS_FILE" ]]; then
+    TAG_LAUNCH_ENV+=(CMUX_AUTH_CREDENTIALS_FILE="$AUTH_CREDENTIALS_FILE")
+  fi
 
   LAUNCH_CMD=()
   LAUNCH_RETRY_CMD=()
@@ -1103,9 +1176,13 @@ if [[ "$LAUNCH" -eq 1 ]]; then
     fi
     TAG_LAUNCH_LOG="/tmp/cmux-launch-${TAG_SLUG}.out"
     if [[ -n "${CMUX_SOCKET_PATH_VALUE:-}" ]]; then
-      nohup "${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" CMUX_SOCKET_PATH="$CMUX_SOCKET_PATH_VALUE" CMUXD_UNIX_PATH="$CMUXD_SOCKET" "$APP_EXECUTABLE" >"$TAG_LAUNCH_LOG" 2>&1 &
+      # 3>&- 4>&-: close the script's saved-stdout/stderr dups (exec 3>&1 4>&2
+      # above) so the long-lived app can't inherit a caller's pipe write end —
+      # an `ssh host reload.sh --launch | …` pipeline would otherwise never see
+      # EOF and hang until the app dies.
+      nohup "${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" CMUX_SOCKET_PATH="$CMUX_SOCKET_PATH_VALUE" CMUXD_UNIX_PATH="$CMUXD_SOCKET" "$APP_EXECUTABLE" >"$TAG_LAUNCH_LOG" 2>&1 3>&- 4>&- &
     else
-      nohup "${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" "$APP_EXECUTABLE" >"$TAG_LAUNCH_LOG" 2>&1 &
+      nohup "${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" "$APP_EXECUTABLE" >"$TAG_LAUNCH_LOG" 2>&1 3>&- 4>&- &
     fi
   else
     echo "/tmp/cmux-debug.sock" > /tmp/cmux-last-socket-path || true

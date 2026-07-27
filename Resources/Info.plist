@@ -250,5 +250,24 @@
 	<false/>
 	<key>SUPublicEDKey</key>
 	<string>$(SPARKLE_PUBLIC_KEY)</string>
+	<key>CMUXIrohRelayPolicyKeyID</key>
+	<string>$(CMUX_IROH_RELAY_POLICY_KEY_ID)</string>
+	<key>CMUXIrohRelayPolicyPublicKeyBase64</key>
+	<string>$(CMUX_IROH_RELAY_POLICY_PUBLIC_KEY_BASE64)</string>
+	<key>CMUXIrohRelayPolicyTrustKeys</key>
+	<array>
+		<dict>
+			<key>keyID</key>
+			<string>$(CMUX_IROH_RELAY_POLICY_KEY_ID)</string>
+			<key>publicKeyBase64</key>
+			<string>$(CMUX_IROH_RELAY_POLICY_PUBLIC_KEY_BASE64)</string>
+		</dict>
+		<dict>
+			<key>keyID</key>
+			<string>$(CMUX_IROH_RELAY_POLICY_NEXT_KEY_ID)</string>
+			<key>publicKeyBase64</key>
+			<string>$(CMUX_IROH_RELAY_POLICY_NEXT_PUBLIC_KEY_BASE64)</string>
+		</dict>
+	</array>
 </dict>
 </plist>

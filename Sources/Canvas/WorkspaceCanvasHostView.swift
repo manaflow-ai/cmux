@@ -1,7 +1,9 @@
 import SwiftUI
 import AppKit
 import Bonsplit
+import CmuxAppKitSupportUI
 import CmuxCanvasUI
+import CmuxSettings
 import CmuxSettingsUI
 
 /// SwiftUI host for a workspace's canvas layout.
@@ -18,7 +20,12 @@ struct WorkspaceCanvasHostView: View {
     let isWorkspaceInputActive: Bool
     let portalPriority: Int
     let appearance: PanelAppearance
+    let windowAppearance: WindowAppearanceSnapshot
     @Environment(\.settingsRuntime) private var settingsRuntime
+    @AppStorage(SessionContentWidthSettings.maxWidthKey)
+    private var storedSessionContentMaximumWidth = SessionContentWidthSettings.noMaximumWidth
+    @AppStorage(SessionContentWidthSettings.alignmentKey)
+    private var storedSessionContentAlignment = SessionContentAlignment.center.rawValue
 
     var body: some View {
         CanvasRootRepresentable(
@@ -32,8 +39,14 @@ struct WorkspaceCanvasHostView: View {
     private var descriptors: [CanvasPaneDescriptor] {
         let focusedPanelId = workspace.focusedPanelId
         let closeActionLabel = String(localized: "canvas.pane.close.help", defaultValue: "Close Pane")
+        let isSplit = workspace.orderedPanelIds.count > 1
+        let sessionContentWidthPresentation = SessionContentWidthPresentation(
+            storedMaximumWidth: storedSessionContentMaximumWidth,
+            storedAlignment: storedSessionContentAlignment
+        )
         return workspace.orderedPanelIds.compactMap { panelId in
             guard let panel = workspace.panels[panelId] else { return nil }
+            let isFocused = isWorkspaceInputActive && focusedPanelId == panelId
             return CanvasPaneDescriptor(
                 id: panelId,
                 tab: CanvasTabChrome(
@@ -41,23 +54,39 @@ struct WorkspaceCanvasHostView: View {
                     title: panel.displayTitle,
                     iconSystemName: panel.displayIcon ?? Self.defaultIcon(for: panel.panelType)
                 ),
-                isFocused: isWorkspaceInputActive && focusedPanelId == panelId,
+                isFocused: isFocused,
                 closeActionLabel: closeActionLabel,
                 makeMount: { [weak workspace] container in
                     CanvasPaneContentMount(
                         content: Self.makeContent(
                             panel: panel,
                             workspace: workspace,
+                            pointerInputOwner: container,
+                            isFocused: isFocused,
                             isWorkspaceVisible: isWorkspaceVisible,
+                            allowsPointerInput: isWorkspaceVisible && isWorkspaceInputActive,
                             portalPriority: portalPriority,
                             appearance: appearance,
-                            settingsRuntime: settingsRuntime
+                            windowAppearance: windowAppearance,
+                            settingsRuntime: settingsRuntime,
+                            sessionContentWidthPresentation: sessionContentWidthPresentation
                         ),
                         panelId: panelId,
                         container: container,
                         onFocusPanel: { [weak workspace] panelId in
                             workspace?.focusPanel(panelId)
                         }
+                    )
+                },
+                updateMount: { mount in
+                    guard let mount = mount as? CanvasPaneContentMount else { return }
+                    mount.updatePresentation(
+                        isFocused: isFocused,
+                        allowsPointerInput: isWorkspaceVisible && isWorkspaceInputActive,
+                        showsInactiveOverlay: isSplit && !isFocused,
+                        inactiveOverlayColor: appearance.unfocusedOverlayNSColor,
+                        inactiveOverlayOpacity: appearance.unfocusedOverlayOpacity,
+                        sessionContentWidthPresentation: sessionContentWidthPresentation
                     )
                 }
             )
@@ -71,9 +100,13 @@ struct WorkspaceCanvasHostView: View {
         case .markdown: return "doc.richtext"
         case .filePreview: return "doc.text.magnifyingglass"
         case .rightSidebarTool: return "sidebar.right"
+        case .customSidebar: return "wand.and.stars"
+        case .simulator: return "iphone.gen3"
         case .agentSession: return "sparkles"
         case .project: return "folder"
         case .extensionBrowser: return "puzzlepiece.extension"
+        case .workspaceTodo: return "checklist"
+        case .cloudVMLoading: return "cloud.fill"
         }
     }
 
@@ -81,24 +114,36 @@ struct WorkspaceCanvasHostView: View {
     private static func makeContent(
         panel: any Panel,
         workspace: Workspace?,
+        pointerInputOwner: NSView,
+        isFocused: Bool,
         isWorkspaceVisible: Bool,
+        allowsPointerInput: Bool,
         portalPriority: Int,
         appearance: PanelAppearance,
-        settingsRuntime: SettingsRuntime?
+        windowAppearance: WindowAppearanceSnapshot,
+        settingsRuntime: SettingsRuntime?,
+        sessionContentWidthPresentation: SessionContentWidthPresentation
     ) -> CanvasPaneContent {
         if let terminalPanel = panel as? TerminalPanel {
-            return .terminal(terminalPanel)
+            return .terminal(terminalPanel, sessionContentWidthPresentation)
         }
         let workspaceId = workspace?.id ?? UUID()
         let paneId = workspace?.bonsplitPaneId(forPanelId: panel.id) ?? PaneID()
+        let presentation = CanvasHostedPanelPresentation(
+            isFocused: isFocused,
+            allowsPointerInput: allowsPointerInput,
+            pointerInputOwner: pointerInputOwner
+        )
         let content = CanvasHostedPanelContentView(
+            presentation: presentation,
             panel: panel,
             workspaceId: workspaceId,
             paneId: paneId,
-            isFocused: false,
             isVisibleInUI: isWorkspaceVisible,
             portalPriority: portalPriority,
             appearance: appearance,
+            windowAppearance: windowAppearance,
+            customSidebarTabManager: workspace?.owningTabManager,
             onRequestPanelFocus: { [weak workspace] in
                 workspace?.focusPanel(panel.id)
             }
@@ -109,7 +154,7 @@ struct WorkspaceCanvasHostView: View {
         // The pane's content container dictates the size; never let the
         // hosting view shrink to SwiftUI's ideal size.
         hosted.sizingOptions = []
-        return .hosted(panel, hosted)
+        return .hosted(panel, hosted, presentation)
     }
 }
 
@@ -129,6 +174,14 @@ private struct CanvasRootRepresentable: NSViewRepresentable {
             commandScrollHintText: String(
                 localized: "canvas.commandScrollHint",
                 defaultValue: "Command+scroll pans the canvas from anywhere"
+            ),
+            minimapAccessibilityLabel: String(
+                localized: "canvas.minimap.accessibilityLabel",
+                defaultValue: "Canvas minimap"
+            ),
+            minimapAccessibilityHelp: String(
+                localized: "canvas.minimap.accessibilityHelp",
+                defaultValue: "Click or drag to move the canvas viewport"
             ),
             callbacks: CanvasHostCallbacks(
                 onFocusPanel: { [weak workspace] panelId in

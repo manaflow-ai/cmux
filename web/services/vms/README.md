@@ -9,7 +9,7 @@ services/vms/
   auth.ts             Stack Auth request verification helpers
   billingGateway.ts   Stack Auth VM create-credit reservations
   entitlements.ts     Team plan and active VM limit resolution
-  drivers/            Provider SDK adapters for E2B and Freestyle
+  drivers/            Provider SDK adapters for E2B, Freestyle, and Daytona
   images/             Checked-in known-good provider image manifest
   errors.ts           Typed Effect errors for VM workflows
   config.ts           Runtime kill switches and deployment guards
@@ -104,12 +104,14 @@ Freestyle:
 - OpenCode from `opencode-ai@1.14.41`.
 - Codex CLI from `@openai/codex@0.130.0`.
 - Pi from `@earendil-works/pi-coding-agent@0.74.0`.
+- zsh, zsh autosuggestions, tmux, gh, htop, and btop for the default shell.
 - `cmuxd-remote` as `/usr/local/bin/cmuxd-remote`.
 - `/usr/local/bin/cmux` symlinked to `cmuxd-remote` so the Linux relay CLI is on `PATH`.
 
 The image smoke checks run `node --version`, `npm --version`, `bun --version`, `claude --version`,
-`opencode --version`, `codex --version`, `pi --version`, `cmux --help`, and `cmuxd-remote version`.
-They also keep the existing Python/OpenSSL checks for provider browser proxy support.
+`opencode --version`, `codex --version`, `pi --version`, `gh --version`, `htop --version`,
+`btop --version`, `tmux -V`, `zsh --version`, `cmux --help`, and `cmuxd-remote version`. They
+also keep the existing Python/OpenSSL checks for provider browser proxy support.
 
 Agent package override env vars:
 
@@ -188,12 +190,15 @@ Set these Vercel environment variables per production/staging environment:
   keeping list, attach, and delete available.
 - `CMUX_VM_E2B_ENABLED`, per-provider E2B create kill switch.
 - `CMUX_VM_FREESTYLE_ENABLED`, per-provider Freestyle create kill switch.
+- `CMUX_VM_DAYTONA_ENABLED`, per-provider Daytona create kill switch.
 - `CMUX_VM_ALLOWED_ORIGINS`, optional comma-separated extra origins allowed for cookie mutations.
 - `E2B_API_KEY`, E2B provider key.
 - `FREESTYLE_API_KEY`, Freestyle provider key.
+- `DAYTONA_API_KEY`, Daytona provider key.
 - `E2B_CMUXD_WS_TEMPLATE`, E2B template alias/name for WebSocket PTY sandboxes.
 - `FREESTYLE_SANDBOX_SNAPSHOT`, Freestyle snapshot id.
-- `CMUX_VM_DEFAULT_PROVIDER`, `freestyle` or `e2b`.
+- `DAYTONA_SANDBOX_SNAPSHOT`, Daytona snapshot name for WebSocket PTY sandboxes.
+- `CMUX_VM_DEFAULT_PROVIDER`, `freestyle`, `e2b`, or `daytona`.
 - `CMUX_VM_PLAN_FREE_CREATE_CREDIT_ITEM_ID`, optional Stack Auth team item used as the free-plan create-credit bucket. Leave unset to skip free-plan create-credit accounting; set to `none`, `disabled`, `off`, or `false` to explicitly opt out.
 - `CMUX_VM_PLAN_FREE_CREATE_CREDIT_COST`, optional free-plan per-create cost. Defaults to `1`.
 - `CMUX_VM_PLAN_FREE_INITIAL_CREATE_CREDITS`, optional first-use seed for the free-plan Stack Auth create-credit item. Defaults to `20`.
@@ -201,6 +206,7 @@ Set these Vercel environment variables per production/staging environment:
 - `CMUX_VM_CREATE_CREDIT_COST`, default `1`.
 - `CMUX_VM_CREATE_CREDIT_COST_E2B`, optional provider-specific override.
 - `CMUX_VM_CREATE_CREDIT_COST_FREESTYLE`, optional provider-specific override.
+- `CMUX_VM_CREATE_CREDIT_COST_DAYTONA`, optional provider-specific override.
 - `CMUX_VM_FREE_MAX_ACTIVE_VMS`, default `5`.
 - `CMUX_VM_PAID_MAX_ACTIVE_VMS`, default `10`.
 - Stack Auth environment variables.
@@ -294,21 +300,21 @@ The dev Postgres port is `CMUX_PORT + 10000`, so `CMUX_PORT=10180` maps to `loca
 
 ## Provider matrix
 
-| Verb                        | Freestyle | E2B |
-|-----------------------------|-----------|-----|
-| `cmux vm new`               | yes       | yes |
-| `cmux vm new --workspace`   | yes       | yes |
-| `cmux vm new --detach`      | yes       | yes |
-| `cmux vm attach <id>`       | yes       | yes |
-| `cmux vm ssh <id>`          | yes       | yes |
-| `cmux vm ssh-info <id>`     | legacy SSH info only | legacy SSH info only |
-| `cmux vm exec <id> -- ...`  | yes       | yes |
-| `cmux vm ls / rm`           | yes       | yes |
+| Verb                        | Freestyle | E2B | Daytona |
+|-----------------------------|-----------|-----|---------|
+| `cmux vm new`               | yes       | yes | yes |
+| `cmux vm new --workspace`   | yes       | yes | yes |
+| `cmux vm new --detach`      | yes       | yes | yes |
+| `cmux vm attach <id>`       | yes       | yes | yes |
+| `cmux vm ssh <id>`          | yes       | yes | yes |
+| `cmux vm ssh-info <id>`     | legacy SSH info only | legacy SSH info only | no (WebSocket only) |
+| `cmux vm exec <id> -- ...`  | yes       | yes | yes |
+| `cmux vm ls / rm`           | yes       | yes | yes |
 
 `cmux vm ssh <id>` is the user-facing interactive alias and opens the same managed workspace path
 as `cmux vm attach <id>`. `cmux vm ssh-info <id>` is print-only for provider SSH debugging.
 
-E2B interactive paths require a cmuxd WebSocket PTY image. The backend writes only a hash of attach tokens to Postgres; raw tokens are returned once to the Mac client.
+E2B and Daytona interactive paths require a cmuxd WebSocket PTY image. The backend writes only a hash of attach tokens to Postgres; raw tokens are returned once to the Mac client. Daytona attach dials the sandbox preview URL for port 7777 with the `x-daytona-preview-token` header; preview tokens reset on sandbox restart, so the backend mints a fresh preview link per attach. cmux does not use Daytona's SSH gateway.
 
 Operational note: Freestyle is the intended default when `CMUX_VM_DEFAULT_PROVIDER=freestyle`. Before rollout or rollback, verify the deployed `CMUX_VM_DEFAULT_PROVIDER`, `CMUX_VM_FREESTYLE_ENABLED`, and `FREESTYLE_SANDBOX_SNAPSHOT` env values with `bun run cloud-vm:env:audit -- <target> --strict`, then confirm WebSocket PTY, reusable daemon RPC lease, and browser proxy health with `bun run cloud-vm:stress -- <target> --provider default`. Keep E2B enabled as the rollback provider.
 

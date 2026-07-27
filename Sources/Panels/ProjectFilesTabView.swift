@@ -1,3 +1,4 @@
+import CmuxFoundation
 import AppKit
 import CMUXProjectModel
 import SwiftUI
@@ -45,7 +46,7 @@ struct ProjectFilesTabView: View {
                 .foregroundStyle(.secondary)
             TextField("Filter files (e.g. AppDelegate)", text: $panel.filesSearchText)
                 .textFieldStyle(.plain)
-                .font(.system(size: 12))
+                .cmuxFont(size: 12)
             if !panel.filesSearchText.isEmpty {
                 Button {
                     panel.filesSearchText = ""
@@ -57,7 +58,7 @@ struct ProjectFilesTabView: View {
             }
             Spacer()
             Text("\(rowCount)")
-                .font(.system(size: 11))
+                .cmuxFont(size: 11)
                 .foregroundStyle(.secondary)
         }
         .padding(.horizontal, 14)
@@ -253,21 +254,25 @@ private struct ProjectFilesGroupRow: View {
     let depth: Int
     let isExpanded: Bool
     let onToggle: () -> Void
+    @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
 
     var body: some View {
+        let scale = GlobalFontMagnification.scale(for: globalFontPercent)
+        let chevronWidth = max(1, 12 * scale)
+        let symbolFrame = max(1, 14 * scale)
         Button(action: onToggle) {
             HStack(spacing: 4) {
                 Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                    .font(.system(size: 9, weight: .semibold))
-                    .frame(width: 12)
+                    .cmuxFont(size: 9, weight: .semibold)
+                    .frame(width: chevronWidth)
                     .foregroundStyle(.secondary)
                 Image(systemName: glyph(for: group.style))
-                    .font(.system(size: 12))
+                    .cmuxFont(size: 12)
                     .imageScale(.small)
-                    .frame(width: 14, height: 14)
+                    .frame(width: symbolFrame, height: symbolFrame)
                     .foregroundStyle(.secondary)
                 Text(group.displayName)
-                    .font(.system(size: 12))
+                    .cmuxFont(size: 12)
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer(minLength: 0)
@@ -297,18 +302,22 @@ private struct ProjectFilesFileRow: View {
     let module: ProjectModule
     let isSelected: Bool
     let onSelect: () -> Void
+    @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
 
     var body: some View {
+        let scale = GlobalFontMagnification.scale(for: globalFontPercent)
+        let spacerWidth = max(1, 12 * scale)
+        let symbolFrame = max(1, 14 * scale)
         Button(action: onSelect) {
             HStack(spacing: 4) {
-                Spacer().frame(width: 12)
+                Spacer().frame(width: spacerWidth)
                 Image(systemName: glyph(for: file.fileType))
-                    .font(.system(size: 12))
+                    .cmuxFont(size: 12)
                     .imageScale(.small)
-                    .frame(width: 14, height: 14)
+                    .frame(width: symbolFrame, height: symbolFrame)
                     .foregroundStyle(file.existsOnDisk ? Color.secondary : Color.orange)
                 Text(file.displayName)
-                    .font(.system(size: 12))
+                    .cmuxFont(size: 12)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .strikethrough(!file.existsOnDisk)
@@ -317,7 +326,7 @@ private struct ProjectFilesFileRow: View {
                     HStack(spacing: 2) {
                         ForEach(memberships, id: \.targetID) { membership in
                             Text(targetLabel(for: membership.targetID))
-                                .font(.system(size: 9, weight: .medium))
+                                .cmuxFont(size: 9, weight: .medium)
                                 .lineLimit(1)
                                 .padding(.horizontal, 4)
                                 .padding(.vertical, 1)
@@ -372,7 +381,7 @@ private struct ProjectFilesDetailStrip: View {
             HStack {
                 Image(systemName: "doc.text")
                 Text(file.displayName)
-                    .font(.system(size: 13, weight: .semibold))
+                    .cmuxFont(size: 13, weight: .semibold)
                 Spacer()
             }
             if let path = file.resolvedPath?.path {
@@ -385,7 +394,7 @@ private struct ProjectFilesDetailStrip: View {
             if !file.memberships.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Targets")
-                        .font(.system(size: 11, weight: .semibold))
+                        .cmuxFont(size: 11, weight: .semibold)
                         .foregroundStyle(.secondary)
                     ForEach(file.memberships, id: \.targetID) { membership in
                         membershipRow(for: membership)
@@ -402,11 +411,11 @@ private struct ProjectFilesDetailStrip: View {
     private func row(label: String, value: String) -> some View {
         HStack(alignment: .top, spacing: 8) {
             Text(label)
-                .font(.system(size: 11, weight: .semibold))
+                .cmuxFont(size: 11, weight: .semibold)
                 .foregroundStyle(.secondary)
                 .frame(width: 70, alignment: .leading)
             Text(value)
-                .font(.system(size: 11, design: .monospaced))
+                .cmuxFont(size: 11, design: .monospaced)
                 .textSelection(.enabled)
         }
     }
@@ -418,13 +427,13 @@ private struct ProjectFilesDetailStrip: View {
             Image(systemName: "checkmark.square")
                 .foregroundStyle(Color.accentColor)
             Text(target?.displayName ?? String(membership.targetID.rawValue.prefix(8)))
-                .font(.system(size: 12))
+                .cmuxFont(size: 12)
             Text("· \(membership.role.rawValue)")
-                .font(.system(size: 11))
+                .cmuxFont(size: 11)
                 .foregroundStyle(.secondary)
             if !membership.compilerFlags.isEmpty {
                 Text("flags: \(membership.compilerFlags.joined(separator: " "))")
-                    .font(.system(size: 10, design: .monospaced))
+                    .cmuxFont(size: 10, design: .monospaced)
                     .foregroundStyle(.secondary)
             }
             Spacer()

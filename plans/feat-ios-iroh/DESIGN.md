@@ -8,9 +8,9 @@ This is a substrate swap, not a protocol rewrite. The existing mobile-host proto
 
 The codebase already reserved the seams for this:
 
-- `CmxAttachTransportKind.iroh` exists and validates against `.peer` endpoints (`Packages/CMUXMobileCore/Sources/CMUXMobileCore/CmxTransport.swift`).
+- `CmxAttachTransportKind.iroh` exists and validates against `.peer` endpoints (`Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/CmxTransport.swift`).
 - `CmxAttachEndpoint.peer(id:relayHint:directAddrs:relayURL:)` already carries exactly what an iroh dial needs.
-- `MobileShellRouteAuthPolicy` already classifies `(.iroh, .peer)` as an encrypted route that may carry Stack tokens (`Packages/CmuxMobileShellModel/Sources/CmuxMobileShellModel/MobileShellRouteAuthPolicy.swift`).
+- `MobileShellRouteAuthPolicy` already classifies `(.iroh, .peer)` as an encrypted route that may carry Stack tokens (`Packages/iOS/CmuxMobileShellModel/Sources/CmuxMobileShellModel/MobileShellRouteAuthPolicy.swift`).
 - The phone builds transports through `CmxRouteTransportFactory` keyed by route kind; adding a kind is one registration in `ios/cmux/cmuxApp.swift`.
 - The device registry (merged, https://github.com/manaflow-ai/cmux/pull/5626) stores `CmxAttachRoute` lists as opaque jsonb, so an `iroh` route needs zero schema change, and the phone's `DeviceRegistryService` already skips unknown route kinds on old builds (forward compatible).
 - Settings diagnostics already have a localized "Iroh" route label (`Sources/HostSettingsActions.swift`).
@@ -112,7 +112,7 @@ P1 is not bundled here because it carries a build-toolchain change for all CI an
 
 1. **This PR**: spike (`experiments/iroh-swift-ffi-spike/`) plus this design doc. No app/runtime changes, no reload needed.
 2. **PR 2, packaging**: `native/cmux-iroh/` crate (FFI grown to caller-provided keys and error-kind codes), `scripts/ensure-cmux-iroh.sh`, Rust toolchain in CI, xcframework linked into both apps but referenced by nothing. Proves the build matrix everywhere without behavior change.
-3. **PR 3, phone dial lane**: `CmxIrohByteTransport` in `Packages/CmuxMobileTransport` plus registration, behind a feature flag (DEBUG default ON, release default OFF). Includes the EndpointId pin gate from the security section: pin at first trust in `MobilePairedMacStore`, refuse to send Stack tokens to a non-matching EndpointId, explicit re-trust UX on change. Unit tests with the existing transport test doubles; one loopback-style integration test dialing a local iroh listener.
+3. **PR 3, phone dial lane**: `CmxIrohByteTransport` in `Packages/iOS/CmuxMobileTransport` plus registration, behind a feature flag (DEBUG default ON, release default OFF). Includes the EndpointId pin gate from the security section: pin at first trust in `MobilePairedMacStore`, refuse to send Stack tokens to a non-matching EndpointId, explicit re-trust UX on change. Unit tests with the existing transport test doubles; one loopback-style integration test dialing a local iroh listener.
 4. **PR 4, Mac host lane**: `MobileHostByteConnection` seam extraction in `MobileHostService` (pure refactor commit first, NWConnection adapter only, zero behavior change), then the iroh accept loop, Keychain key custody, route publication in `MobileRouteResolver`, registry propagation. Same feature flag.
 5. **PR 5, default-on plus Settings**: flag becomes a real Settings toggle pair (iroh on by default; "Also publish Tailscale/LAN routes" on by default for compat), strings en+ja, docs. Flip of the Tailscale-publication default is a later standalone change.
 

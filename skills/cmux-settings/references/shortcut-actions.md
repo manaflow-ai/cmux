@@ -37,14 +37,34 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.renameWorkspace`
 - `shortcuts.bindings.editWorkspaceDescription`
 - `shortcuts.bindings.closeWorkspace`
+- `shortcuts.bindings.newWorkspaceGroup`
+- `shortcuts.bindings.groupSelectedWorkspaces`
+- `shortcuts.bindings.toggleFocusedWorkspaceGroupCollapsed`
+- `shortcuts.bindings.reopenClosedWorkspace`
+- `shortcuts.bindings.moveWorkspaceUp`
+- `shortcuts.bindings.moveWorkspaceDown`
 
 ## Panes and surfaces
 
 - `shortcuts.bindings.nextSurface`
 - `shortcuts.bindings.prevSurface`
+- `shortcuts.bindings.moveSurfaceLeft`
+- `shortcuts.bindings.moveSurfaceRight`
+- `shortcuts.bindings.moveSurfaceToPreviousPane`
+- `shortcuts.bindings.moveSurfaceToNextPane`
+- `shortcuts.bindings.moveSurfaceToPaneLeft`
+- `shortcuts.bindings.moveSurfaceToPaneRight`
+- `shortcuts.bindings.moveSurfaceToPaneUp`
+- `shortcuts.bindings.moveSurfaceToPaneDown`
 - `shortcuts.bindings.selectSurfaceByNumber`
 - `shortcuts.bindings.newSurface`
 - `shortcuts.bindings.toggleTerminalCopyMode`
+- `shortcuts.bindings.clearScreenKeepScrollback`
+- `shortcuts.bindings.simulatorHome`
+- `shortcuts.bindings.simulatorRotateLeft`
+- `shortcuts.bindings.simulatorRotateRight`
+- `shortcuts.bindings.simulatorToggleAppearance`
+- `shortcuts.bindings.simulatorToggleSoftwareKeyboard`
 - `shortcuts.bindings.focusLeft`
 - `shortcuts.bindings.focusRight`
 - `shortcuts.bindings.focusUp`
@@ -53,6 +73,24 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.splitDown`
 - `shortcuts.bindings.toggleSplitZoom`
 - `shortcuts.bindings.equalizeSplits`
+
+## Canvas
+
+- `shortcuts.bindings.toggleCanvasLayout`
+- `shortcuts.bindings.canvasRevealFocusedPane`
+- `shortcuts.bindings.canvasOverview`
+- `shortcuts.bindings.canvasZoomIn`
+- `shortcuts.bindings.canvasZoomOut`
+- `shortcuts.bindings.canvasZoomReset`
+- `shortcuts.bindings.canvasTidy`
+- `shortcuts.bindings.canvasAlignLeft`
+- `shortcuts.bindings.canvasAlignRight`
+- `shortcuts.bindings.canvasAlignTop`
+- `shortcuts.bindings.canvasAlignBottom`
+- `shortcuts.bindings.canvasEqualizeWidths`
+- `shortcuts.bindings.canvasEqualizeHeights`
+- `shortcuts.bindings.canvasDistributeHorizontally`
+- `shortcuts.bindings.canvasDistributeVertically`
 
 ## Command palette
 

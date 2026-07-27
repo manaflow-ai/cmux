@@ -29,9 +29,9 @@ SwiftUI, files, or syntax. Concretely:
 - Keep it native and uncluttered: a title, a divider, then the content. Use the
   status dot / pill / highlight patterns below so it is scannable at a glance.
 - Lazy-load / cap large lists (see Performance). Do not render hundreds of rows.
-- Iterate by saving the file and looking at the result (it hot-reloads); fix
-  what looks off. Verify it shows real data and that taps do the right thing
-  before declaring it done.
+- Iterate by saving the file and opening it as a pane with
+  `cmux sidebar open <name>`; it hot-reloads there while you edit. Verify it
+  shows real data and that taps do the right thing before declaring it done.
 - Stay inside the supported subset below. If something is not supported, choose
   the closest supported approach rather than failing.
 
@@ -43,8 +43,10 @@ Write a named file (the name becomes the menu label; use short kebab-case):
     ~/.config/cmux/sidebars/<name>.json      # declarative JSON (simpler, static)
 
 Each file shows up as an option in the **sidebar toggle button's right-click
-menu**. Pick it and it renders in the sidebar; edit the file and save and it
-hot-reloads. If both `<name>.swift` and `<name>.json` exist, `.swift` wins.
+menu** and can also open as a normal Bonsplit pane tab. Pick it from the menu
+for the left sidebar, or run `cmux sidebar open <name>` to show it in a pane;
+edit the file and save and it hot-reloads. If both `<name>.swift` and
+`<name>.json` exist, `.swift` wins.
 
 A sidebar file is a single SwiftUI-style view expression (no `struct`, no
 `var body` wrapper, just the view).
@@ -86,10 +88,14 @@ Install one from a cmux checkout:
     cp Examples/CustomSidebars/status-board.swift ~/.config/cmux/sidebars/status-board.swift
     cp Examples/CustomSidebars/finder.swift ~/.config/cmux/sidebars/finder.swift
 
-Then validate and select it:
+Then validate and open it as a Bonsplit pane:
 
     cmux sidebar validate status-board
-    cmux sidebar select status-board
+    cmux sidebar open status-board
+
+`cmux sidebar select <name>` still previews a custom sidebar in the left
+sidebar picker. Use `cmux sidebar open <name>` when you want the sidebar as a
+normal pane tab that can live in a right-side split.
 
 ## Quick start
 
@@ -110,7 +116,10 @@ Then validate and select it:
     }
     SWIFT
 
-Then right-click the sidebar button and choose **mine**.
+Then right-click the sidebar button and choose **mine**, or open it as a pane
+with:
+
+    cmux sidebar open mine
 
 ## Live data you can bind to (read-only, refreshes ~1s)
 

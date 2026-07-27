@@ -5,7 +5,7 @@ import Testing
 
 /// Behavioral tests for ``TerminalAccessoryConfiguration``: the source of truth
 /// for the reorderable terminal accessory bar. These verify the fresh-install
-/// default layout (modifiers leading, zoom trailing), reorder + hide/show
+/// default layout (modifiers leading, zoom trailing, gallery copy hidden), reorder + hide/show
 /// round-trips, and the v1/v2 → v3 widening migration that folds the
 /// previously-pinned modifier/zoom/paste built-ins into the configurable region.
 ///
@@ -26,7 +26,7 @@ struct TerminalAccessoryConfigurationTests {
 
     // MARK: - Gating test #1: fresh-install default order
 
-    @Test("fresh install puts modifiers (incl. ⇧) at the front and zoom at the back, all shown")
+    @Test("fresh install puts modifiers at the front, zoom at the back, and hides the files copy")
     func freshInstallDefaultOrder() throws {
         let config = TerminalAccessoryConfiguration(defaults: freshDefaults())
         let order = config.displayOrder
@@ -37,17 +37,63 @@ struct TerminalAccessoryConfigurationTests {
         ])
         // Trailing region: the two zoom controls, in that order.
         #expect(Array(order.suffix(2)) == [id(.zoomOut), id(.zoomIn)])
-        // Esc sits right after Tab in the redesigned default.
+        // Esc sits right after Tab, then Return, in the redesigned default, so the
+        // three most common terminal keys are adjacent.
         let tabIndex = try #require(order.firstIndex(of: id(.tab)))
         #expect(order[tabIndex + 1] == id(.escape))
-        // Everything is shown on a fresh install, including the now-configurable
-        // modifiers (⇧ among them)/zoom/paste.
+        #expect(order[tabIndex + 2] == id(.returnKey))
+        // Everything except the gallery's secondary accessory copy is shown.
         for action in TerminalInputAccessoryAction.configurableActions {
-            #expect(config.isEnabled(action.itemID))
+            #expect(config.isEnabled(action.itemID) == (action != .files))
         }
         // ⇧ is now a surfaced, shown, user-configurable bar button.
         #expect(order.contains(id(.shift)))
         #expect(config.isEnabled(id(.shift)))
+    }
+
+    @Test("files remains configurable after the chip migration")
+    func filesCanBeReenabledAndPersisted() {
+        let defaults = freshDefaults()
+        let config = TerminalAccessoryConfiguration(defaults: defaults)
+        #expect(!config.isEnabled(id(.files)))
+        #expect(config.displayOrder.contains(id(.files)))
+
+        config.setEnabled(id(.files), true)
+        let reloaded = TerminalAccessoryConfiguration(defaults: defaults)
+        #expect(reloaded.isEnabled(id(.files)))
+    }
+
+    // MARK: - Return key
+
+    @Test("Return is shown by default, adjacent to Tab/Esc, and sends CR")
+    func returnKeyDefaultsAndOutput() throws {
+        let config = TerminalAccessoryConfiguration(defaults: freshDefaults())
+        let order = config.displayOrder
+
+        let returnIndex = try #require(order.firstIndex(of: id(.returnKey)))
+        let escIndex = try #require(order.firstIndex(of: id(.escape)))
+        // Return sits immediately after Esc.
+        #expect(returnIndex == escIndex + 1)
+        #expect(config.isEnabled(id(.returnKey)))
+        // Return sends a carriage return (Enter).
+        #expect(TerminalInputAccessoryAction.returnKey.output == Data([0x0D]))
+        #expect(TerminalInputAccessoryAction.returnKey.isUserConfigurable)
+    }
+
+    @Test("Return's persisted identifier is stable")
+    func returnKeyStableIdentifier() {
+        // The persisted key is `builtin.<rawValue>`; the enum is append-only so
+        // existing built-ins keep their raw values. Lock the storage key so a
+        // future reorder of the enum cannot silently shift it.
+        let stored = TerminalInputAccessoryAction.returnKey.itemID.storageKey
+        #expect(stored == "builtin.\(TerminalInputAccessoryAction.returnKey.rawValue)")
+        let parsed = ToolbarItemID(storageKey: stored)
+        #expect(parsed == id(.returnKey))
+        // Append-only enum: pin the persisted raw values of the appended cases
+        // so a reorder cannot silently shift them (new cases go after the max).
+        #expect(TerminalInputAccessoryAction.returnKey.rawValue == 29)
+        #expect(TerminalInputAccessoryAction.ollama.rawValue == 30)
+        #expect(TerminalInputAccessoryAction.files.rawValue == 31)
     }
 
     // MARK: - Reorder + hide/show round-trips
@@ -263,5 +309,125 @@ struct TerminalAccessoryConfigurationTests {
         let config = TerminalAccessoryConfiguration(defaults: defaults)
         #expect(config.displayOrder.contains(id(.shift)))
         #expect(!config.isEnabled(id(.shift)))
+    }
+
+    // MARK: - Gating test #4: existing v3 layout gains Return
+
+    @Test("an existing v3 layout without Return gains it force-enabled right after Esc")
+    func migratesExistingV3LayoutForceEnablingReturn() throws {
+        let defaults = freshDefaults()
+        // A v3 layout persisted before Return became configurable: modifiers (incl.
+        // ⇧, so the ⇧ fold is a no-op here), paste, Tab, Esc, zoom — no Return.
+        let preReturn: [TerminalInputAccessoryAction] = [
+            .control, .alternate, .command, .shift, .paste, .tab, .escape, .zoomOut, .zoomIn,
+        ]
+        defaults.set(preReturn.map { id($0).storageKey }, forKey: "cmux.terminal.toolbar.order.v3")
+        defaults.set(preReturn.map { id($0).storageKey }, forKey: "cmux.terminal.toolbar.enabled.v3")
+
+        let config = TerminalAccessoryConfiguration(defaults: defaults)
+
+        // Return folds in, is shown, and sits immediately after Esc.
+        #expect(config.displayOrder.contains(id(.returnKey)))
+        #expect(config.isEnabled(id(.returnKey)))
+        let escIndex = try #require(config.displayOrder.firstIndex(of: id(.escape)))
+        #expect(config.displayOrder[escIndex + 1] == id(.returnKey))
+        // The user's existing items are untouched and still shown.
+        for action in preReturn {
+            #expect(config.displayOrder.contains(id(action)))
+            #expect(config.isEnabled(id(action)))
+        }
+    }
+
+    @Test("a v3 layout missing both ⇧ and Return gains both, each after its own anchor")
+    func migratesExistingV3LayoutFoldingShiftAndReturn() throws {
+        let defaults = freshDefaults()
+        // Predates both ⇧ and Return: only ⌃ ⌥ ⌘, paste, Tab, Esc, zoom.
+        let pre: [TerminalInputAccessoryAction] = [
+            .control, .alternate, .command, .paste, .tab, .escape, .zoomOut, .zoomIn,
+        ]
+        defaults.set(pre.map { id($0).storageKey }, forKey: "cmux.terminal.toolbar.order.v3")
+        defaults.set(pre.map { id($0).storageKey }, forKey: "cmux.terminal.toolbar.enabled.v3")
+
+        let config = TerminalAccessoryConfiguration(defaults: defaults)
+
+        // ⇧ after ⌘, Return after Esc, both shown.
+        let commandIndex = try #require(config.displayOrder.firstIndex(of: id(.command)))
+        #expect(config.displayOrder[commandIndex + 1] == id(.shift))
+        let escIndex = try #require(config.displayOrder.firstIndex(of: id(.escape)))
+        #expect(config.displayOrder[escIndex + 1] == id(.returnKey))
+        #expect(config.isEnabled(id(.shift)))
+        #expect(config.isEnabled(id(.returnKey)))
+    }
+
+    @Test("Return folded into a v3 layout stays hidden once the user hides it")
+    func foldedReturnHonorsLaterHide() {
+        let defaults = freshDefaults()
+        let preReturn: [TerminalInputAccessoryAction] = [.control, .alternate, .command, .shift, .paste, .tab, .escape]
+        defaults.set(preReturn.map { id($0).storageKey }, forKey: "cmux.terminal.toolbar.order.v3")
+        defaults.set(preReturn.map { id($0).storageKey }, forKey: "cmux.terminal.toolbar.enabled.v3")
+
+        // First launch folds Return in and shows it.
+        let config = TerminalAccessoryConfiguration(defaults: defaults)
+        #expect(config.isEnabled(id(.returnKey)))
+
+        // The user hides Return; the choice must survive a reload. The fold is
+        // one-shot (keyed off Return's absence from the persisted order, which now
+        // includes it), so it does not re-show Return on the next launch.
+        config.setEnabled(id(.returnKey), false)
+        let reloaded = TerminalAccessoryConfiguration(defaults: defaults)
+        #expect(!reloaded.isEnabled(id(.returnKey)))
+        #expect(reloaded.displayOrder.contains(id(.returnKey)))
+    }
+
+    @Test("a v3 layout already carrying a hidden Return is not re-folded")
+    func v3LayoutWithHiddenReturnIsNotRefolded() {
+        let defaults = freshDefaults()
+        // Return is already in the order but hidden — a user who had it and chose
+        // to hide it. The fold must respect that rather than re-showing it.
+        let order: [TerminalInputAccessoryAction] = [.control, .alternate, .command, .shift, .paste, .tab, .escape, .returnKey]
+        let enabled: [TerminalInputAccessoryAction] = [.control, .alternate, .command, .shift, .paste, .tab, .escape]
+        defaults.set(order.map { id($0).storageKey }, forKey: "cmux.terminal.toolbar.order.v3")
+        defaults.set(enabled.map { id($0).storageKey }, forKey: "cmux.terminal.toolbar.enabled.v3")
+
+        let config = TerminalAccessoryConfiguration(defaults: defaults)
+        #expect(config.displayOrder.contains(id(.returnKey)))
+        #expect(!config.isEnabled(id(.returnKey)))
+    }
+
+    @Test("the Return fold re-persists under v3 keys so it runs once")
+    func returnFoldPersistsUnderV3Keys() {
+        let defaults = freshDefaults()
+        let preReturn: [TerminalInputAccessoryAction] = [.control, .alternate, .command, .shift, .paste, .tab, .escape]
+        defaults.set(preReturn.map { id($0).storageKey }, forKey: "cmux.terminal.toolbar.order.v3")
+        defaults.set(preReturn.map { id($0).storageKey }, forKey: "cmux.terminal.toolbar.enabled.v3")
+
+        _ = TerminalAccessoryConfiguration(defaults: defaults)
+
+        // After init, Return lives in the persisted v3 order, so the next load
+        // takes the no-op path and a later hide would persist.
+        let v3Order = defaults.array(forKey: "cmux.terminal.toolbar.order.v3") as? [String]
+        #expect(v3Order?.contains(id(.returnKey).storageKey) == true)
+    }
+
+    @Test("a v2 upgrade also surfaces Return force-enabled")
+    func migratesV2ConfigForceEnablingReturn() throws {
+        let defaults = freshDefaults()
+        // A v2-era config predates Return entirely; only Tab + Esc were shown.
+        defaults.set(
+            [id(.tab).storageKey, id(.escape).storageKey],
+            forKey: "cmux.terminal.toolbar.order.v2"
+        )
+        defaults.set(
+            [id(.tab).storageKey, id(.escape).storageKey],
+            forKey: "cmux.terminal.toolbar.enabled.v2"
+        )
+
+        let config = TerminalAccessoryConfiguration(defaults: defaults)
+
+        // Return folds in next to Esc and is shown after the v2→v3 widening.
+        #expect(config.displayOrder.contains(id(.returnKey)))
+        #expect(config.isEnabled(id(.returnKey)))
+        let escIndex = try #require(config.displayOrder.firstIndex(of: id(.escape)))
+        #expect(config.displayOrder[escIndex + 1] == id(.returnKey))
     }
 }

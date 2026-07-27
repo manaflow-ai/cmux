@@ -7,6 +7,7 @@ import {
   buildFoundersWelcomeEmail,
   foundersThreadRef,
 } from "../app/api/stripe/founders-welcome/welcome-email";
+import { welcomeTriggerForMetadata } from "../app/api/stripe/founders-welcome/welcome-trigger";
 
 // Regression coverage for the Founder's Edition welcome email collapsing into a
 // single Gmail conversation. Gmail threads messages that share a normalized
@@ -23,6 +24,64 @@ const baseParams = {
   from: "Austin Wang <austin@manaflow.ai>",
   customerName: "Ada Lovelace",
 } as const;
+
+// Every completed checkout gets the identical Founder's Edition welcome
+// (product decision: all customers get the same founders treatment), so this
+// helper only classifies the purchase shape for telemetry — it never gates the
+// send. Pro sessions carry { app: "cmux", plan: "pro" } from
+// /api/billing/checkout and no founders_edition key; before the webhook
+// welcomed every checkout they were skipped and a real Pro subscriber never
+// got the welcome.
+describe("welcomeTriggerForMetadata", () => {
+  test("founders payment-link metadata classifies as founders_edition", () => {
+    expect(welcomeTriggerForMetadata({ founders_edition: "true" })).toBe(
+      "founders_edition",
+    );
+  });
+
+  test("cmux Pro checkout metadata classifies as pro_plan (no founders key)", () => {
+    expect(
+      welcomeTriggerForMetadata({
+        stackUserId: "user-1",
+        plan: "pro",
+        app: "cmux",
+      }),
+    ).toBe("pro_plan");
+  });
+
+  test("founders_edition wins when both shapes are present", () => {
+    expect(
+      welcomeTriggerForMetadata({
+        founders_edition: "true",
+        plan: "pro",
+        app: "cmux",
+      }),
+    ).toBe("founders_edition");
+  });
+
+  test("cmux Team checkout metadata classifies as team_plan", () => {
+    expect(
+      welcomeTriggerForMetadata({
+        stackTeamId: "team-1",
+        plan: "team",
+        app: "cmux",
+      }),
+    ).toBe("team_plan");
+  });
+
+  test("everything else classifies as other (still welcomed)", () => {
+    expect(welcomeTriggerForMetadata({ plan: "pro", app: "other" })).toBe(
+      "other",
+    );
+    expect(welcomeTriggerForMetadata({ plan: "pro" })).toBe("other");
+    expect(welcomeTriggerForMetadata({ founders_edition: "false" })).toBe(
+      "other",
+    );
+    expect(welcomeTriggerForMetadata({})).toBe("other");
+    expect(welcomeTriggerForMetadata(null)).toBe("other");
+    expect(welcomeTriggerForMetadata(undefined)).toBe("other");
+  });
+});
 
 describe("foundersThreadRef", () => {
   test("different sessions produce different thread keys (a new Gmail thread each)", () => {
@@ -107,5 +166,38 @@ describe("buildFoundersWelcomeEmail", () => {
     });
     expect(named.text.startsWith("Hi Ada!")).toBe(true);
     expect(anonymous.text.startsWith("Hi there!")).toBe(true);
+  });
+
+  test("announces the iOS beta and asks for a corrected TestFlight email", () => {
+    const email = buildFoundersWelcomeEmail({
+      ...baseParams,
+      to: "customer@example.com",
+      sessionRef: "cs_test_aaa",
+    });
+
+    const iosBetaParagraph =
+      "cmux iOS Beta is out for cmux Founder's Edition! If you have a different " +
+      "TestFlight email, please reply to this email with the new email address. " +
+      "Otherwise, we'll send it to the one on file.";
+
+    // The new paragraph must be present verbatim (lowercase "cmux", "cmux
+    // Founder's Edition", and one-word "TestFlight" are intentional brand/style).
+    expect(email.text).toContain(iosBetaParagraph);
+
+    // It must be its own block — separated by blank lines from the surrounding
+    // paragraphs — and sit after the contact details, just above the sign-off.
+    const paragraphs = email.text.split("\n\n");
+    expect(paragraphs).toContain(iosBetaParagraph);
+
+    const contactIndex = paragraphs.findIndex((p) =>
+      p.startsWith("My number is"),
+    );
+    const iosBetaIndex = paragraphs.indexOf(iosBetaParagraph);
+    const signOffIndex = paragraphs.findIndex((p) => p.startsWith("Best,"));
+
+    expect(contactIndex).toBeGreaterThanOrEqual(0);
+    expect(signOffIndex).toBeGreaterThanOrEqual(0);
+    expect(iosBetaIndex).toBeGreaterThan(contactIndex);
+    expect(iosBetaIndex).toBeLessThan(signOffIndex);
   });
 });

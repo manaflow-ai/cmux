@@ -4,8 +4,10 @@
 <body>
 <div id="pad" tabindex="0">arrow pad</div>
 <input id="entry" type="text">
+<button id="space-button" type="button">space action</button>
 <span id="pad-status">PENDING</span>
 <span id="entry-status">PENDING</span>
+<span id="space-status">PENDING</span>
 <div id="status">PENDING</div>
 <pre id="event-log"></pre>
 <script>
@@ -22,10 +24,12 @@
 
   let arrows = 0;
   let entered = false;
+  let spaceActivations = 0;
   function check() {
     if (arrows >= 3) document.getElementById('pad-status').textContent = 'PASS';
     if (entered) document.getElementById('entry-status').textContent = 'PASS';
-    if (arrows >= 3 && entered) statusEl.textContent = 'PASS';
+    if (spaceActivations === 1) document.getElementById('space-status').textContent = 'PASS';
+    if (arrows >= 3 && entered && spaceActivations === 1) statusEl.textContent = 'PASS';
   }
 
   document.getElementById('pad').addEventListener('keydown', (ev) => {
@@ -36,6 +40,16 @@
   document.getElementById('entry').addEventListener('keypress', (ev) => {
     logEvent(ev, '#entry');
     if (ev.key === 'Enter') entered = true;
+    check();
+  });
+  document.getElementById('space-button').addEventListener('keydown', (ev) => {
+    logEvent(ev, '#space-button');
+  });
+  document.getElementById('space-button').addEventListener('keyup', (ev) => {
+    logEvent(ev, '#space-button');
+  });
+  document.getElementById('space-button').addEventListener('click', () => {
+    spaceActivations += 1;
     check();
   });
 </script>

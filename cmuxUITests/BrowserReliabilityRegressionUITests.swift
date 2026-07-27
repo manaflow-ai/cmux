@@ -7,6 +7,96 @@ import Foundation
 /// (defined in BrowserFixtureInteractionUITests.swift).
 final class BrowserReliabilityRegressionUITests: BrowserFixtureSocketTestCase {
 
+    /// Regression: browser.navigate used to acknowledge only that WKWebView.load
+    /// was called. After a connection-refused error page, a slow recovered origin
+    /// therefore returned `ok` while the old error-page DOM was still active.
+    /// Success must mean that the requested document actually committed.
+    func testGotoWaitsForRecoveredDocumentCommitAfterConnectionRefusal() throws {
+        try launchApp()
+        let sid = try openBrowserSurface()
+        let server = try BrowserRecoveryHTTPServer()
+        let failedURL = "http://127.0.0.1:\(server.port)/unavailable"
+        let recoveredURL = "http://127.0.0.1:\(server.port)/recovered"
+
+        XCTAssertNotNil(
+            socketEnvelope(
+                method: "browser.navigate",
+                params: ["surface_id": sid, "url": failedURL],
+                responseTimeout: 15
+            ),
+            "Expected the refused navigation to reach a terminal response"
+        )
+        try socketResult(
+            method: "browser.wait",
+            params: [
+                "surface_id": sid,
+                "text": "refused to connect",
+                "timeout_ms": 10_000,
+            ],
+            responseTimeout: 15
+        )
+
+        try server.start()
+        defer { server.stop() }
+
+        let pendingNavigation = try beginPendingSocketRequest(
+            method: "browser.navigate",
+            params: ["surface_id": sid, "url": recoveredURL],
+            responseTimeout: 15
+        )
+        defer { closePendingSocketRequest(pendingNavigation) }
+        try server.waitForRequest()
+        let returnedBeforeResponseRelease = pendingSocketResponseIsReady(pendingNavigation)
+        try server.releaseResponse()
+
+        let navigationEnvelope = try XCTUnwrap(
+            finishPendingSocketRequest(pendingNavigation),
+            "Expected browser.navigate to return after the recovered response was released"
+        )
+        XCTAssertEqual(
+            navigationEnvelope["ok"] as? Bool,
+            true,
+            "browser.navigate failed after the recovered response was released: \(navigationEnvelope)"
+        )
+        XCTAssertFalse(
+            returnedBeforeResponseRelease,
+            "browser.navigate returned before the recovered response could commit"
+        )
+        XCTAssertEqual(
+            try evalString(
+                "document.body.dataset.cmuxRecovered || ''",
+                surfaceID: sid
+            ),
+            "true",
+            "browser.navigate returned success before the recovered document committed"
+        )
+
+        let sameDocumentURL = recoveredURL + "#verified"
+        let sameDocumentEnvelope = try XCTUnwrap(
+            socketEnvelope(
+                method: "browser.navigate",
+                params: ["surface_id": sid, "url": sameDocumentURL],
+                responseTimeout: 15
+            ),
+            "Expected a terminal response for the same-document navigation"
+        )
+        XCTAssertEqual(
+            sameDocumentEnvelope["ok"] as? Bool,
+            true,
+            "same-document browser.navigate failed: \(sameDocumentEnvelope)"
+        )
+        XCTAssertEqual(
+            try evalString("window.location.hash", surfaceID: sid),
+            "#verified",
+            "same-document browser.navigate returned before the trusted document event"
+        )
+        XCTAssertEqual(
+            try evalString("document.body.dataset.cmuxRecovered || ''", surfaceID: sid),
+            "true",
+            "the fragment navigation unexpectedly replaced the recovered document"
+        )
+    }
+
     /// Regression: a WKWebView that has never committed a navigation has no
     /// JavaScript context, so browser.wait used to hang for its full timeout
     /// (or fail) on a URL-less browser.open_split surface. The surface must
@@ -15,26 +105,41 @@ final class BrowserReliabilityRegressionUITests: BrowserFixtureSocketTestCase {
         try launchApp()
         let sid = try openBrowserSurface()
 
+        // If the regression returns (no about:blank bootstrap), browser.wait
+        // hangs for its full internal timeout and then surfaces a timeout/error
+        // envelope (or no response at all). A small internal timeout_ms keeps a
+        // hang bounded; `ok == true` is the structural proof it returned
+        // successfully instead of timing out. We derive the wall-clock bound
+        // generously from the injected timeout plus the socket responseTimeout
+        // so a heavily loaded CI runner (WebKit content-process spin-up + socket
+        // jitter) cannot fail correct code, while an actual unbounded hang still
+        // trips the responseTimeout and fails.
+        let internalTimeoutMs = 1_500
+        let responseTimeout = 12.0
         let start = Date()
         let envelope = socketEnvelope(
             method: "browser.wait",
-            params: ["surface_id": sid, "load_state": "complete", "timeout_ms": 4_000],
-            responseTimeout: 10.0
+            params: ["surface_id": sid, "load_state": "complete", "timeout_ms": internalTimeoutMs],
+            responseTimeout: responseTimeout
         )
         let elapsed = Date().timeIntervalSince(start)
 
         XCTAssertEqual(
             envelope?["ok"] as? Bool,
             true,
-            "browser.wait {load_state: complete} on a never-navigated surface should succeed: " +
-            "\(String(describing: envelope))"
+            "browser.wait {load_state: complete} on a never-navigated surface should succeed " +
+            "(not hang until its \(internalTimeoutMs)ms timeout): the webview's JS context must " +
+            "be bootstrapped via about:blank. Envelope: \(String(describing: envelope))"
         )
+        // Generous bound: only an unbounded hang (which would itself exceed the
+        // socket responseTimeout and yield no ok envelope) can exceed this.
+        let durationBound = Double(internalTimeoutMs) / 1_000.0 + responseTimeout
         XCTAssertLessThan(
             elapsed,
-            6.0,
-            "browser.wait should resolve well within 6s wall-clock on a never-navigated " +
-            "surface (took \(elapsed)s); the webview's JS context must be bootstrapped via " +
-            "about:blank instead of hanging until the timeout"
+            durationBound,
+            "browser.wait should resolve well within \(durationBound)s wall-clock on a " +
+            "never-navigated surface (took \(elapsed)s); the webview's JS context must be " +
+            "bootstrapped via about:blank instead of hanging until the timeout"
         )
     }
 

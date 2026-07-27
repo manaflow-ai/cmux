@@ -82,20 +82,14 @@ final class FilePreviewQuickLookSession {
     }
 
     private static func makeView() -> NSView {
-        guard let previewView = QLPreviewView(frame: .zero, style: .normal) else {
-            return NSView()
-        }
-        previewView.autostarts = true
-        return previewView
+        FilePreviewQuickLookContainerView.make() ?? NSView()
     }
 
     private static func releaseView(_ view: NSView) {
-        if let previewView = view as? QLPreviewView {
-            // QLPreviewView.close() asserts when the view is inactive and makes the
-            // view permanently reject future items. Session retirement handles stale
-            // updates; clearing the item releases the active preview.
-            previewView.previewItem = nil
-        }
+        // QLPreviewView.close() asserts when the view is inactive and makes the
+        // view permanently reject future items. Session retirement handles stale
+        // updates; clearing the item releases the active preview.
+        (view as? FilePreviewQuickLookContainerView)?.clearPreviewItem()
         view.removeFromSuperview()
     }
 
@@ -107,8 +101,9 @@ final class FilePreviewQuickLookSession {
         drawsBackground: Bool
     ) {
         view.isHidden = !isVisibleInUI
-        if let previewView = view as? QLPreviewView {
-            panel.attachPreviewFocus(root: previewView, primaryResponder: previewView, intent: .quickLook)
+        if let container = view as? FilePreviewQuickLookContainerView,
+           let previewView = container.livePreviewView() {
+            panel.attachPreviewFocus(root: container, primaryResponder: previewView, intent: .quickLook)
             previewView.previewItem = previewItem(for: panel.fileURL, title: panel.displayTitle)
         }
         FilePreviewNativeBackground.applyRootLayer(

@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct DetachedFolderDragIcon: NSViewRepresentable {
     let directory: String
@@ -68,14 +69,38 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
         updateIcon()
     }
 
+    private static let displayNameLookups = DetachedFolderPathLookupCache<String>()
+
+    /// UTType-based generic folder icon. Avoid `icon(forFile:)`: it stats the
+    /// path, and remote tmux directories can block on the autofs automounter.
+    private static func genericFolderIcon(size: CGFloat) -> NSImage {
+        let generic = (NSWorkspace.shared.icon(for: .folder).copy() as? NSImage) ?? NSWorkspace.shared.icon(for: .folder)
+        generic.size = NSSize(width: size, height: size)
+        return generic
+    }
+
+    /// Resolves the localized display name for `path` off-main (the API
+    /// stats), then runs `onResolved` on the main thread.
+    private static func localizedDisplayName(forPath path: String, onResolved: @escaping (String) -> Void) {
+        if let cached = displayNameLookups.value(forPath: path) {
+            onResolved(cached)
+            return
+        }
+        guard displayNameLookups.enqueueCallback(forPath: path, callback: onResolved) else { return }
+        Task.detached(priority: .userInitiated) {
+            let localizedName = FileManager.default.displayName(atPath: path)
+            await MainActor.run {
+                displayNameLookups.resolve(path: path, value: localizedName)
+            }
+        }
+    }
+
     func updateIcon() {
         #if DEBUG
         dispatchPrecondition(condition: .onQueue(.main))
         #endif
 
-        let icon = NSWorkspace.shared.icon(forFile: directory)
-        icon.size = NSSize(width: 16, height: 16)
-        imageView.image = icon
+        imageView.image = Self.genericFolderIcon(size: 16)
     }
 
     func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
@@ -154,8 +179,9 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
         let fileURL = URL(fileURLWithPath: directory)
         let draggingItem = NSDraggingItem(pasteboardWriter: fileURL as NSURL)
 
-        let iconImage = NSWorkspace.shared.icon(forFile: directory)
-        iconImage.size = NSSize(width: 32, height: 32)
+        // Cosmetic drag image: use the generic folder rather than re-statting
+        // `directory` — see updateIcon().
+        let iconImage = Self.genericFolderIcon(size: 32)
         draggingItem.setDraggingFrame(bounds, contents: iconImage)
 
         let session = beginDraggingSession(with: [draggingItem], event: event, source: self)
@@ -192,25 +218,30 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
 
         // Add path components (current dir at top, root at bottom - matches native macOS)
         for pathURL in pathComponents {
-            let icon = NSWorkspace.shared.icon(forFile: pathURL.path)
-            icon.size = NSSize(width: 16, height: 16)
-
+            let path = pathURL.path
             let displayName: String
-            if pathURL.path == "/" {
-                // Use the volume name for root
+            if path == "/" {
+                // Use the volume name for root ("/" is always local — safe to stat)
                 if let volumeName = try? URL(fileURLWithPath: "/").resourceValues(forKeys: [.volumeNameKey]).volumeName {
                     displayName = volumeName
                 } else {
                     displayName = String(localized: "sidebar.pathMenu.macintoshHD", defaultValue: "Macintosh HD")
                 }
             } else {
-                displayName = FileManager.default.displayName(atPath: pathURL.path)
+                // Placeholder; the localized display name comes from a stat'ing
+                // API and is refined off-main below.
+                displayName = (path as NSString).lastPathComponent
             }
 
             let item = NSMenuItem(title: displayName, action: #selector(openPathComponent(_:)), keyEquivalent: "")
             item.target = self
-            item.image = icon
+            item.image = Self.genericFolderIcon(size: 16)
             item.representedObject = pathURL
+            if path != "/" {
+                Self.localizedDisplayName(forPath: path) { [weak item] localizedName in
+                    item?.title = localizedName
+                }
+            }
             menu.addItem(item)
         }
 

@@ -1,3 +1,4 @@
+import CmuxControlSocket
 import Foundation
 
 extension TerminalController {
@@ -11,7 +12,7 @@ extension TerminalController {
             return v2VmCall(id: id) {
                 let items = try await VMClient.shared.list()
                 return [
-                    "vms": items.map { ["id": $0.id, "provider": $0.provider, "image": $0.image, "createdAt": $0.createdAt] as [String: Any] },
+                    "vms": items.map(Self.socketWorkerVMSummaryPayload),
                 ]
             }
         case "vm.create":
@@ -27,7 +28,64 @@ extension TerminalController {
             }
             return v2VmCall(id: id) {
                 let vm = try await VMClient.shared.create(image: image, provider: provider, idempotencyKey: idempotencyKey)
-                return ["id": vm.id, "provider": vm.provider, "image": vm.image, "createdAt": vm.createdAt]
+                return Self.socketWorkerVMSummaryPayload(vm)
+            }
+        case "vm.base_open":
+            let name = Self.socketWorkerString(params["name"])
+            return v2VmCall(id: id) {
+                let vm = try await VMClient.shared.openBase(name: name)
+                return Self.socketWorkerVMSummaryPayload(vm)
+            }
+        case "vm.base_reset":
+            let name = Self.socketWorkerString(params["name"])
+            let reason = Self.socketWorkerString(params["reason"])
+            return v2VmCall(id: id) {
+                let vm = try await VMClient.shared.resetBase(name: name, reason: reason)
+                return Self.socketWorkerVMSummaryPayload(vm)
+            }
+        case "vm.status":
+            guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
+                return v2Error(id: id, code: "invalid_params", message: "vm.status requires `id`. Run `cmux vm ls` to find one.")
+            }
+            return v2VmCall(id: id) {
+                let vm = try await VMClient.shared.status(id: vmId)
+                return Self.socketWorkerVMSummaryPayload(vm)
+            }
+        case "vm.snapshot":
+            guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
+                return v2Error(id: id, code: "invalid_params", message: "vm.snapshot requires `id`. Run `cmux vm ls` to find one.")
+            }
+            let name = Self.socketWorkerString(params["name"])
+            return v2VmCall(id: id) {
+                let snapshot = try await VMClient.shared.snapshot(id: vmId, name: name)
+                return ["id": snapshot.id, "snapshot_id": snapshot.id, "name": snapshot.name ?? NSNull(), "created_at": snapshot.createdAt]
+            }
+        case "vm.fork":
+            guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
+                return v2Error(id: id, code: "invalid_params", message: "vm.fork requires `id`. Run `cmux vm ls` to find one.")
+            }
+            guard let idempotencyKey = Self.socketWorkerString(params["idempotency_key"]), !idempotencyKey.isEmpty else {
+                return v2Error(id: id, code: "invalid_params", message: "vm.fork requires `idempotency_key`. Use `cmux vm fork` instead of calling the socket method directly.")
+            }
+            let name = Self.socketWorkerString(params["name"])
+            return v2VmCall(id: id) {
+                let result = try await VMClient.shared.fork(id: vmId, name: name, idempotencyKey: idempotencyKey)
+                var payload = Self.socketWorkerVMSummaryPayload(result.vm)
+                payload["snapshot_id"] = result.snapshot?.id ?? NSNull()
+                return payload
+            }
+        case "vm.restore":
+            guard let snapshotId = Self.socketWorkerString(params["snapshot_id"]) ?? Self.socketWorkerString(params["snapshotId"]),
+                  !snapshotId.isEmpty else {
+                return v2Error(id: id, code: "invalid_params", message: "vm.restore requires `snapshot_id`. Run `cmux vm snapshot <id>` first.")
+            }
+            guard let idempotencyKey = Self.socketWorkerString(params["idempotency_key"]), !idempotencyKey.isEmpty else {
+                return v2Error(id: id, code: "invalid_params", message: "vm.restore requires `idempotency_key`. Use `cmux vm restore` instead of calling the socket method directly.")
+            }
+            let provider = Self.socketWorkerString(params["provider"])
+            return v2VmCall(id: id) {
+                let vm = try await VMClient.shared.restore(snapshotID: snapshotId, provider: provider, idempotencyKey: idempotencyKey)
+                return Self.socketWorkerVMSummaryPayload(vm)
             }
         case "vm.destroy":
             guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
@@ -68,27 +126,194 @@ extension TerminalController {
                 let endpoint = try await VMClient.shared.openAttach(id: vmId, requireDaemon: requireDaemon)
                 return Self.socketWorkerAttachInfoPayload(endpoint)
             }
+        case "vm.sessions":
+            guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
+                return v2Error(id: id, code: "invalid_params", message: "vm.sessions requires `id`. Run `cmux vm ls` to find one.")
+            }
+            return v2VmCall(id: id) {
+                let sessions = try await VMClient.shared.listSessions(id: vmId)
+                return ["sessions": sessions.map(Self.socketWorkerCloudSessionPayload)]
+            }
+        case "vm.session_attach_info":
+            guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
+                return v2Error(id: id, code: "invalid_params", message: "vm.session_attach_info requires `id`. Run `cmux vm ls` to find one.")
+            }
+            let sessionId = Self.socketWorkerString(params["session_id"]) ?? Self.socketWorkerString(params["sessionId"])
+            let attachmentId = Self.socketWorkerString(params["attachment_id"]) ?? Self.socketWorkerString(params["attachmentId"])
+            let title = Self.socketWorkerString(params["title"])
+            return v2VmCall(id: id) {
+                let result = try await VMClient.shared.openSession(
+                    id: vmId,
+                    sessionId: sessionId,
+                    attachmentId: attachmentId,
+                    title: title
+                )
+                return [
+                    "endpoint": Self.socketWorkerAttachInfoPayload(result.endpoint),
+                    "session": result.session.map(Self.socketWorkerCloudSessionPayload) ?? NSNull(),
+                ]
+            }
+        default:
+            return v2Error(id: id, code: "method_not_found", message: "Unknown method")
+        }
+    }
+
+    /// Handles the `remotes.*` socket methods backing `cmux remotes`. Each maps
+    /// to a single ``RemotesClient`` operation (the shared registry mutation
+    /// path); the CLI does presentation only.
+    nonisolated func socketWorkerRemotesResponse(
+        method: String,
+        id: Any?,
+        params: [String: Any]
+    ) -> String {
+        switch method {
+        case "remotes.list":
+            return v2VmCall(id: id) {
+                let remotes = try await RemotesClient.shared.list()
+                return ["remotes": remotes.map(Self.socketWorkerRemotePayload)]
+            }
+        case "remotes.add":
+            guard let name = Self.socketWorkerString(params["name"]), !name.isEmpty else {
+                return v2Error(id: id, code: "invalid_params", message: "remotes.add requires `name`. Use `cmux remotes add <name> --route host:port`.")
+            }
+            let routes = Self.socketWorkerStringArray(params["routes"])
+            guard !routes.isEmpty else {
+                return v2Error(id: id, code: "invalid_params", message: "remotes.add requires at least one `--route host:port`.")
+            }
+            let tag = Self.socketWorkerString(params["tag"])
+            return v2VmCall(id: id) {
+                let deviceId = try await RemotesClient.shared.add(name: name, routes: routes, tag: tag)
+                return ["ok": true, "deviceId": deviceId, "name": name]
+            }
+        case "remotes.remove":
+            guard let target = Self.socketWorkerString(params["target"]), !target.isEmpty else {
+                return v2Error(id: id, code: "invalid_params", message: "remotes.remove requires `target` (a remote name or deviceId). Run `cmux remotes list`.")
+            }
+            return v2VmCall(id: id) {
+                let deviceId = try await RemotesClient.shared.remove(target: target)
+                return ["ok": true, "deviceId": deviceId]
+            }
+        default:
+            return v2Error(id: id, code: "method_not_found", message: "Unknown method")
+        }
+    }
+
+    private nonisolated static func socketWorkerRemotePayload(_ remote: RemoteSummary) -> [String: Any] {
+        [
+            "deviceId": remote.deviceId,
+            "displayName": remote.displayName ?? NSNull(),
+            "platform": remote.platform,
+            "tag": remote.tag ?? NSNull(),
+            "lastSeen": remote.lastSeen ?? NSNull(),
+            "routes": remote.routes.map { ["host": $0.host, "port": $0.port] as [String: Any] },
+        ]
+    }
+
+    private nonisolated static func socketWorkerVMSummaryPayload(_ vm: VMSummary) -> [String: Any] {
+        var payload: [String: Any] = [
+            "id": vm.id,
+            "provider": vm.provider,
+            "image": vm.image,
+            "status": vm.status,
+            "createdAt": vm.createdAt,
+        ]
+        if let base = vm.base {
+            payload["base"] = [
+                "id": base.id,
+                "name": base.name,
+                "generation": base.generation,
+                "retainedProviderVmId": base.retainedProviderVmId ?? NSNull(),
+            ] as [String: Any]
+        }
+        return payload
+    }
+
+    private nonisolated static func socketWorkerStringArray(_ raw: Any?) -> [String] {
+        guard let array = raw as? [Any] else { return [] }
+        return array.compactMap { socketWorkerString($0) }
+    }
+
+    /// Handles `aiAccounts.*` socket methods backing `cmux ai-accounts`.
+    /// OAuth credential files are read here in the app process so the CLI only
+    /// sends provider/options; API-key providers may carry an explicit key.
+    ///
+    /// Trust model (conscious decision): the control socket is same-user
+    /// trusted. A socket caller can already exfiltrate any user-readable file
+    /// through existing verbs (`send` types arbitrary commands into a shell
+    /// pane), and this upload only goes to the signed-in user's own team
+    /// tenant using app-held auth. Reading the files app-side keeps secrets
+    /// out of CLI argv and socket payloads; moving the reads to the caller
+    /// would push credentials through more process boundaries, not fewer.
+    nonisolated func socketWorkerAIAccountsResponse(
+        method: String,
+        id: Any?,
+        params: [String: Any]
+    ) -> String {
+        switch method {
+        case "aiAccounts.list":
+            let teamID = Self.socketWorkerString(params["teamId"]) ?? Self.socketWorkerString(params["team_id"])
+            return v2VmCall(id: id) {
+                let accounts = try await AIAccountsClient.shared.list(teamID: teamID)
+                return ["accounts": accounts.map(\.foundationObject)]
+            }
+        case "aiAccounts.upload":
+            guard let rawProvider = Self.socketWorkerString(params["provider"]),
+                  let provider = AIAccountProvider(rawValue: rawProvider) else {
+                return v2Error(
+                    id: id,
+                    code: "invalid_params",
+                    message: "aiAccounts.upload requires provider claude, codex, anthropic-key, or openai-key."
+                )
+            }
+            let label = Self.socketWorkerString(params["label"])
+            let explicitKey = Self.socketWorkerString(params["key"])
+            let teamID = Self.socketWorkerString(params["teamId"]) ?? Self.socketWorkerString(params["team_id"])
+            let validate = Self.socketWorkerBool(params["validate"]) ?? false
+            return v2VmCall(id: id) {
+                let sources = AIAccountCredentialSources()
+                let payload = try sources.uploadPayload(provider: provider, label: label, explicitAPIKey: explicitKey)
+                let result = try await AIAccountsClient.shared.upload(payload, teamID: teamID, validate: validate)
+                return (result.foundationObject as? [String: Any]) ?? [:]
+            }
+        case "aiAccounts.remove":
+            guard let accountID = Self.socketWorkerString(params["id"]), !accountID.isEmpty else {
+                return v2Error(id: id, code: "invalid_params", message: "aiAccounts.remove requires `id`. Run `cmux ai-accounts list`.")
+            }
+            let teamID = Self.socketWorkerString(params["teamId"]) ?? Self.socketWorkerString(params["team_id"])
+            return v2VmCall(id: id) {
+                let result = try await AIAccountsClient.shared.remove(id: accountID, teamID: teamID)
+                return (result.foundationObject as? [String: Any]) ?? [:]
+            }
         default:
             return v2Error(id: id, code: "method_not_found", message: "Unknown method")
         }
     }
 
     private nonisolated static func socketWorkerSSHInfoPayload(_ endpoint: VMSSHEndpoint) -> [String: Any] {
-        [
+        var payload: [String: Any] = [
+            "transport": endpoint.transport,
             "host": endpoint.host,
             "port": endpoint.port,
             "username": endpoint.username,
             "credential": socketWorkerCredentialPayload(endpoint.credential),
             "public_key_fingerprint": endpoint.publicKeyFingerprint ?? NSNull(),
         ]
+        if let daemon = endpoint.daemon {
+            payload["daemon"] = [
+                "url": daemon.url,
+                "headers": daemon.headers,
+                "token": daemon.token,
+                "session_id": daemon.sessionId,
+                "expires_at_unix": daemon.expiresAtUnix,
+            ]
+        }
+        return payload
     }
 
     private nonisolated static func socketWorkerAttachInfoPayload(_ endpoint: VMAttachEndpoint) -> [String: Any] {
         switch endpoint {
         case .ssh(let ssh):
-            var payload = socketWorkerSSHInfoPayload(ssh)
-            payload["transport"] = "ssh"
-            return payload
+            return socketWorkerSSHInfoPayload(ssh)
         case .websocket(let websocket):
             var payload: [String: Any] = [
                 "transport": "websocket",
@@ -96,6 +321,7 @@ extension TerminalController {
                 "headers": websocket.headers,
                 "token": websocket.token,
                 "session_id": websocket.sessionId,
+                "attachment_id": websocket.attachmentId,
                 "expires_at_unix": websocket.expiresAtUnix,
             ]
             if let daemon = websocket.daemon {
@@ -109,6 +335,27 @@ extension TerminalController {
             }
             return payload
         }
+    }
+
+    private nonisolated static func socketWorkerCloudSessionPayload(_ session: VMCloudSession) -> [String: Any] {
+        [
+            "id": session.id,
+            "vm_id": session.vmId,
+            "session_id": session.sessionId,
+            "title": session.title ?? NSNull(),
+            "kind": session.kind,
+            "status": session.status,
+            "attachment_count": session.attachmentCount,
+            "effective_cols": session.effectiveCols ?? NSNull(),
+            "effective_rows": session.effectiveRows ?? NSNull(),
+            "last_known_cols": session.lastKnownCols ?? NSNull(),
+            "last_known_rows": session.lastKnownRows ?? NSNull(),
+            "scrollback_bytes": session.scrollbackBytes,
+            "metadata": session.metadata,
+            "created_at": session.createdAt,
+            "updated_at": session.updatedAt,
+            "last_attached_at": session.lastAttachedAt ?? NSNull(),
+        ]
     }
 
     private nonisolated static func socketWorkerCredentialPayload(_ credential: VMSSHEndpoint.Credential) -> [String: Any] {

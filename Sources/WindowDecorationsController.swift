@@ -351,6 +351,12 @@ final class WindowDecorationsController {
                     tabManager: targetTabManager,
                     debugSource: "titlebar.minimalSidebarControl"
                 )
+            case .cloudVM:
+                guard let anchorView else { return }
+                _ = AppDelegate.shared?.showNewWorkspaceContextMenu(
+                    anchorView: anchorView,
+                    debugSource: "titlebar.minimalSidebar.cloudMenu"
+                )
             case .focusHistoryBack:
                 guard focusHistoryNavigationAvailability(preferredWindow: window).canNavigateBack else { return }
                 AppDelegate.shared?.activeTabManagerForCommands(preferredWindow: window)?.navigateBack()
@@ -398,7 +404,7 @@ final class WindowDecorationsController {
             minimalModeSidebarTitlebarClickTargets.setObject(view, forKey: window)
             return view
         }()
-        target.config = (TitlebarControlsStyle(rawValue: UserDefaults.standard.integer(forKey: "titlebarControlsStyle")) ?? .classic).config
+        target.config = TitlebarControlsStyle.stored().config
         target.isEnabled = true
         target.requiresRevealedState = true
         target.telemetryPrefix = "minimalSidebarTitlebarClickTarget"

@@ -1,0 +1,128 @@
+{
+  "metadataTitle": "Gizlilik Politikası — cmux",
+  "metadataDescription": "cmux için gizlilik politikası",
+  "title": "Gizlilik Politikası",
+  "lastUpdated": "Son güncelleme: 10 Temmuz 2026",
+  "sections": [
+    {
+      "paragraphs": [
+        "Manaflow (\"Şirket\"), kullanıcıları için güçlü gizlilik korumaları sağlamaya kararlıdır. Bu Gizlilik Politikası, bize sağladığınız bilgileri nasıl topladığımızı, kullandığımızı ve koruduğumuzu açıklamaktadır.",
+        "Bu politikada \"Site\", [cmux.com](https://cmux.com) adresindeki Şirketin web sitesi anlamına gelir. \"Uygulama\", macOS için cmux masaüstü uygulaması ve iPhone ve iPad için cmux mobil uygulaması anlamına gelir. \"Hizmet\" Site ve Uygulamayı birlikte ifade eder. \"Biz\", \"bize\" ve \"bizim\" Şirket anlamına gelir. \"Siz\" Hizmetimizin kullanıcısı anlamına gelir.",
+        "Hizmetimizi kullanarak, bu Gizlilik Politikasını ve [Hizmet Şartlarımızı](https://cmux.com/terms-of-service) kabul etmiş ve burada açıklanan toplama, saklama, kullanma ve ifşa etme işlemlerini kabul etmiş olursunuz."
+      ]
+    },
+    {
+      "heading": "I. Topladığımız Bilgiler",
+      "paragraphs": [
+        "Kişisel Olmayan Bilgileri ve Kişisel Bilgileri topluyoruz. Kişisel Olmayan Bilgiler sizi tanımlayamaz ve anonim kullanım verilerini, platform türlerini ve kilitlenme teşhislerini içerir. Kişisel Bilgiler, e-posta adresinizi, hesap tanımlayıcılarınızı ve oturum açtığınızda, bizimle iletişime geçtiğinizde, bir cihazı eşleştirdiğinizde veya Uygulamayı kullandığınızda vermeyi seçtiğiniz bilgileri içerir."
+      ],
+      "subsections": [
+        {
+          "heading": "1. Teknoloji aracılığıyla toplanan bilgiler",
+          "paragraphs": [
+            "Uygulama aşağıdaki bilgileri otomatik olarak toplayabilir:"
+          ],
+          "bullets": [
+            "Sentry aracılığıyla kilitlenme raporları ve hata teşhisi.",
+            "İşletim sistemi sürümü ve uygulama sürümü.",
+            "Site ve Uygulamaya ilişkin ürün analizleri ve özellik kullanımı etkinlikleri.",
+            "Oturum açtığınız cihazlarınızı bağlamak için gereken cihaz, hesap ve eşleştirme meta verileri.",
+            "Apple Anında Bildirim hizmeti cihazı belirteçleri, yalnızca telefon bildirimlerini etkinleştirdikten sonra."
+          ],
+          "afterBullets": [
+            "macOS Uygulaması, işletim sisteminizi ve uygulama sürümlerinizi güncelleme sunucumuza gönderebilecek Sparkle aracılığıyla güncellemeleri kontrol eder. iPhone ve iPad Uygulaması Sparkle değil App Store aracılığıyla güncellenir.",
+            "Site, sayfa görüntüleme ve gezinme analitiği için PostHog'i kullanır. PostHog, ziyaretçileri ayırt etmek için bir çerez saklar. Bir platform bekleme listesine katılırsanız gönderdiğiniz e-postanız PostHog'e kaydedilir, böylece sizi bilgilendirebiliriz. Kurumsal iletişim formunu gönderirseniz, sağladığınız şirketi ve iletişim bilgilerini PostHog'e kaydedip yanıt verebilmemiz için bunları özel Slack çalışma alanımıza ve kurucuların e-posta gelen kutunuza göndeririz. İzleme komut dosyalarını engelleyen bir tarayıcı uzantısıyla web sitesi analizlerini engelleyebilirsiniz.",
+            "iPhone ve iPad Uygulaması, ürün analitiği olaylarını sunucu tarafı PostHog proxy'mize gönderir. Bu olaylar güvenilirliğin teşhis edilmesine, özellik kullanımının anlaşılmasına ve Uygulamanın iyileştirilmesine yardımcı olur. Bunlar, uygulama başlatma ve oturum olaylarını, oturum açma durumunu, eşleştirme denemelerini ve sonuçlarını, bağlantı kurtarmayı, çalışma alanı açılışlarını, terminal giriş baytı ve satır sayımlarını ve bildirime katılım veya bildirim derin bağlantı sonuçlarını içerir. Mobil analiz, PostHog'e terminal komut metnini, terminal çıkışını, seçilen fotoğrafları veya konuşma transkriptlerini göndermez. Oturum açmadan önce etkinlikler, yükleme başına rastgele bir istemci tanımlayıcısı kullanır. Oturum açtıktan sonra sunucumuz, olayları PostHog'e iletmeden önce Stack Auth hesap tanımlayıcınızı ekler. Analizler ve kilitlenme raporları devre dışı bırakılır ve yalnızca Ayarlar'da Analizleri Paylaş ve Kilitlenme Raporlarını etkinleştirdikten sonra gönderilir. Bu kontrolün kapatılması, analizlerin arabelleğe alınmasını veya gönderilmesini durdurur ve kilitlenme raporlamasını durdurur. Hesabınızla ilişkili analizlerin silinmesini talep etmek için [founders@manaflow.com](mailto:founders@manaflow.com) ile iletişime geçin."
+          ]
+        },
+        {
+          "heading": "2. Doğrudan sağladığınız bilgiler",
+          "paragraphs": [
+            "Bizimle e-posta, iletişim sayfamız veya Kurumsal iletişim formu aracılığıyla iletişime geçerseniz ad, e-posta, şirket, görev, telefon numarası, ülke, dağıtım ihtiyaçları ve yorumlar dahil olmak üzere sağladığınız bilgileri toplarız. Bir platform bekleme listesine katılırsanız, platform başlatıldığında sizi bilgilendirmek için gönderdiğiniz e-postanızı toplarız ve kayıt e-postasını ve seçilen platformları özel Slack çalışma alanımıza göndeririz.",
+            "Oturum açtığınızda, e-posta adresiniz ve Apple, Google, GitHub'ten sağlayıcı tanımlayıcınız veya e-posta koduyla oturum açma gibi kimlik doğrulama bilgilerini alırız. Mobil uygulamayı bir Mac ile eşleştirdiğinizde, cihazları bağlamak için gereken eşleştirme bilgilerini işleriz. Bir çalışma alanını görüntülediğinizde, terminal girişi gönderdiğinizde, seçilen fotoğrafları eklediğinizde, konuşma transkripsiyonunu kullandığınızda veya terminal bildirimleri aldığınızda, ilgili içerik veya transkript, bu özelliğin sağlanması için gerektiği şekilde cihazlarınız ve hizmetimiz arasında aktarılabilir.",
+            "Kamera erişimi yalnızca cmux eşleştirme QR kodlarını taramak için kullanılır. Mikrofon ve konuşma tanıma erişimi yalnızca mesaj kutusunda ses transkripsiyonunu seçtiğinizde kullanılır. Fotoğraf kitaplığı erişimi yalnızca eklenecek fotoğrafları seçtiğinizde kullanılır."
+          ]
+        },
+        {
+          "heading": "3. Çocukların Gizliliği",
+          "paragraphs": [
+            "Hizmet 13 yaşın altındaki kişilere yönelik değildir ve 13 yaşın altındaki hiç kimseden bilerek bilgi toplamıyoruz. Bu tür bilgileri topladığımızı düşünüyorsanız [founders@manaflow.com](mailto:founders@manaflow.com) ile iletişime geçin."
+          ]
+        }
+      ]
+    },
+    {
+      "heading": "II. Üçüncü Taraf Hizmetleri",
+      "paragraphs": [
+        "Uygulama şu üçüncü taraf hizmetleriyle entegre olur:"
+      ],
+      "bullets": [
+        "Stack Auth: oturum açma, oturumlar ve hesap silme için kimlik doğrulama ve hesap yönetimi.",
+        "Apple, Google ve GitHub: kimliğinizi doğrulamak için gereken hesap bilgilerini gönderen isteğe bağlı oturum açma sağlayıcıları.",
+        "Apple Anında Bildirim hizmeti: kaydolduktan sonra iPhone ve iPad'e bildirimler.",
+        "Apple Konuşma Tanıma: mobil uygulamada seçtiğinizde ses transkripsiyonu.",
+        "Sentry: hata günlüklerini, yığın izlerini, cihaz bilgilerini ve işletim sistemi sürümünü toplayabilen hata izleme ve kilitlenme raporlama.",
+        "Sparkle: macOS güncellemelerini kontrol etmek için uygulama ve işletim sistemi sürümlerini gönderen macOS otomatik güncelleme çerçevesi.",
+        "Ghostty / libghostty: cihazınızda yerel olarak çalışan terminal oluşturma motoru.",
+        "PostHog: sayfa görünümleri, gezinme modelleri, tarayıcı meta verileri, mobil özellik etkinlikleri, birinci taraf bir proxy aracılığıyla oturum açtıktan sonra hesaba bağlı mobil analizler ve sizi bilgilendirebilmemiz için gönderilen bir bekleme listesi e-postası dahil olmak üzere web sitesi ve mobil ürün analizleri.",
+        "Resend: işlemsel e-posta teslimi. E-postanız Resend'e yalnızca gönüllü olarak geri bildirim göndermeniz durumunda gönderilir.",
+        "Slack: özel dahili bildirimler. Bir platform bekleme listesine katılırsanız gönderdiğiniz e-posta ve platformlar özel Slack çalışma alanımıza gönderilir."
+      ],
+      "afterBullets": [
+        "Her hizmetin kendi gizlilik politikası vardır. Üçüncü bir taraf cmux için Kişisel Bilgileri işlediğinde, en az bu politika kadar koruyucu önlemlere ihtiyaç duyarız ve kullanımı cmux'e hizmet sağlamayla sınırlandırırız."
+      ]
+    },
+    {
+      "heading": "III. Bilgileri Nasıl Kullanıyoruz ve Paylaşıyoruz",
+      "paragraphs": [
+        "Kişisel Bilgileri pazarlama amacıyla üçüncü taraflara satmıyoruz, takas etmiyoruz, kiralamıyoruz veya paylaşmıyoruz. Kilitlenme raporlarını ve teşhislerini yalnızca Uygulamayı geliştirmek için kullanırız. Yasal süreç veya zarardan korunma için açıklamanın gerekli olduğuna iyi niyetle inandığımızda bilgileri açıklayabiliriz."
+      ]
+    },
+    {
+      "heading": "IV. Bilgileri Nasıl Koruyoruz",
+      "paragraphs": [
+        "Şifreleme ve güvenli sunucu yazılımı da dahil olmak üzere, yetkisiz erişimi önlemek için tasarlanmış önlemler kullanıyoruz. Hiçbir iletim veya depolama yöntemi tamamen güvenli değildir ve Hizmetin kullanımı bu riski içerir."
+      ]
+    },
+    {
+      "heading": "V. Haklarınız",
+      "paragraphs": [
+        "Bulunduğunuz yere bağlı olarak GDPR veya CCPA gibi geçerli yasalar size şu hakları verebilir:"
+      ],
+      "bullets": [
+        "Hakkınızda tuttuğumuz verilerin bir kopyasına erişin.",
+        "Yanlış verileri düzeltin.",
+        "Verilerinizin silinmesini isteyin.",
+        "Taşınabilir verileri alın.",
+        "İşlemeyi kısıtlayın veya işleme itiraz edin."
+      ],
+      "afterBullets": [
+        "Bu hakları kullanmak için [founders@manaflow.com](mailto:founders@manaflow.com) ile iletişime geçin."
+      ]
+    },
+    {
+      "heading": "VI. Diğer Web Sitelerine Bağlantılar",
+      "paragraphs": [
+        "Hizmet üçüncü taraf web sitelerine bağlantı verebilir. Onların gizlilik uygulamalarından biz sorumlu değiliz. Bu politika yalnızca topladığımız bilgiler için geçerlidir."
+      ]
+    },
+    {
+      "heading": "VII. Bu Politikadaki Değişiklikler",
+      "paragraphs": [
+        "Bu politikayı değiştirebiliriz. Önemli değişiklikler bildirimden 30 gün sonra yürürlüğe girer. Güncellemeler için Siteyi periyodik olarak kontrol edin."
+      ]
+    },
+    {
+      "heading": "VIII. Bize Ulaşın",
+      "paragraphs": [
+        "Bu politikayla ilgili sorular [founders@manaflow.com](mailto:founders@manaflow.com) adresine gönderilebilir."
+      ]
+    },
+    {
+      "heading": "IX. Veri Saklama",
+      "paragraphs": [
+        "Kilitlenme raporları ve tanılamalar yalnızca sorunları tanılamak ve düzeltmek için gerekli olduğu sürece saklanır. Mobil hesap tanımlayıcıları ve kimlik doğrulama kayıtları, hesabınız etkinken tutulur, güvenlik, yasal, faturalandırma veya dolandırıcılığı önleme görevlerinin saklamayı gerektirdiği durumlar hariç, hesap silme işlemi tamamlandığında silinir veya anonimleştirilir. Cihaz ve eşleştirme meta verileri, siz eşleştirmeyi kaldırıncaya, oturumunuzu kapatıp yerel verileri silinceye, hesabınızı silinceye veya eski eşleştirme verileri budanıncaya kadar tutulur. Apple Anında Bildirim hizmeti belirteçleri yalnızca bildirimler etkinleştirildiğinde tutulur ve bildirimleri devre dışı bıraktığınızda, oturumu kapattığınızda, hesabınızı sildiğinizde veya Apple belirtecin geçersiz olduğunu bildirdiğinizde kaldırılır. PostHog'teki mobil ürün analitiği, daha önce silinmesini talep etmediğiniz sürece 24 aya kadar saklanır. Mobil hesap ayarları, cmux'e ait hesabı, cihazı, eşleştirmeyi, bildirimi, faturalandırmayı ve bulut verilerini siler veya anonimleştirir, hesaba bağlı PostHog kişisini siler ve mobil analiz etkinliklerinin ve kayıtlarının silinmesini talep eder. Bazı sağlayıcı silme çalışmaları eşzamansız olarak tamamlanabilir. Mobil hesap ayarlarından veya [founders@manaflow.com](mailto:founders@manaflow.com) ile iletişime geçerek silme işlemini talep edin."
+      ]
+    }
+  ]
+}

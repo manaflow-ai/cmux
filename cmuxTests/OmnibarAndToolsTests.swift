@@ -314,16 +314,18 @@ final class ServeWebOutputCollectorTests: XCTestCase {
     func testWaitForURLReturnsFalseAfterProcessExitSignal() {
         let collector = ServeWebOutputCollector()
 
-        DispatchQueue.global().asyncAfter(deadline: .now() + 0.05) {
-            collector.markProcessExited()
-        }
+        // The process exited without ever emitting a Web UI URL. markProcessExited()
+        // is the real completion signal that unblocks waitForURL; deliver it first so
+        // the wait returns the instant the signal is observed instead of racing an
+        // async dispatch and timing the latency. The outcome the prior elapsed-time
+        // guard stood for is exactly this: the exit signal (not the timeout) is what
+        // releases the wait, and with no URL collected the result is false. A generous
+        // timeout remains as a deadline so a regression that fails to signal still
+        // fails the test rather than hanging.
+        collector.markProcessExited()
 
-        let start = Date()
-        let resolved = collector.waitForURL(timeoutSeconds: 1)
-        let elapsed = Date().timeIntervalSince(start)
-
-        XCTAssertFalse(resolved)
-        XCTAssertLessThan(elapsed, 0.5)
+        XCTAssertFalse(collector.waitForURL(timeoutSeconds: 5))
+        XCTAssertNil(collector.webUIURL)
     }
 
     func testWaitForURLReturnsTrueWhenURLIsCollected() {

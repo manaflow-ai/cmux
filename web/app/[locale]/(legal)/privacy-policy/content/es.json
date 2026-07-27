@@ -1,0 +1,128 @@
+{
+  "metadataTitle": "Política de privacidad - cmux",
+  "metadataDescription": "Política de privacidad para cmux",
+  "title": "Política de privacidad",
+  "lastUpdated": "Última actualización: 10 de julio de 2026",
+  "sections": [
+    {
+      "paragraphs": [
+        "Manaflow (la \"Compañía\") se compromete a mantener sólidas protecciones de privacidad para sus usuarios. Esta Política de Privacidad explica cómo recopilamos, utilizamos y salvaguardamos la información que usted nos proporciona.",
+        "En esta política, \"Sitio\" significa el sitio web de la Compañía en [cmux.com](https://cmux.com). \"Aplicación\" significa la aplicación de escritorio cmux para macOS y la aplicación móvil cmux para iPhone y iPad. \"Servicio\" significa el Sitio y la Aplicación juntos. \"Nosotros\", \"nos\" y \"nuestro\" se refieren a la Compañía. \"Usted\" significa un usuario de nuestro Servicio.",
+        "Al utilizar nuestro Servicio, acepta esta Política de privacidad y nuestros [Términos de servicio](https://cmux.com/terms-of-service), y acepta la recopilación, el almacenamiento, el uso y la divulgación que se describen aquí."
+      ]
+    },
+    {
+      "heading": "I. Información que recopilamos",
+      "paragraphs": [
+        "Recopilamos información no personal e información personal. La información no personal no puede identificarlo e incluye datos de uso anónimos, tipos de plataformas y diagnósticos de fallas. La información personal incluye su dirección de correo electrónico, identificadores de cuenta e información que usted elige proporcionar cuando inicia sesión, se comunica con nosotros, vincula un dispositivo o utiliza la Aplicación."
+      ],
+      "subsections": [
+        {
+          "heading": "1. Información recopilada a través de la tecnología",
+          "paragraphs": [
+            "La Aplicación puede recopilar automáticamente la siguiente información:"
+          ],
+          "bullets": [
+            "Informes de fallos y diagnóstico de errores a través de Sentry.",
+            "Versión del sistema operativo y versión de la aplicación.",
+            "Análisis de productos y eventos de uso de funciones para el Sitio y la Aplicación.",
+            "Metadatos de dispositivo, cuenta y emparejamiento necesarios para conectar los dispositivos en los que hayas iniciado sesión.",
+            "Apple Tokens de dispositivo del servicio de notificaciones push, solo después de habilitar las notificaciones telefónicas."
+          ],
+          "afterBullets": [
+            "La aplicación macOS busca actualizaciones a través de Sparkle, que puede enviar las versiones de su sistema operativo y de la aplicación a nuestro servidor de actualizaciones. La aplicación iPhone y iPad se actualiza a través de App Store, no de Sparkle.",
+            "El Sitio utiliza PostHog para análisis de navegación y visualización de páginas. PostHog almacena una cookie para distinguir a los visitantes. Si se une a una lista de espera de la plataforma, el correo electrónico enviado se registra en PostHog para que podamos notificarle. Si envía el formulario de contacto empresarial, registramos la empresa y los datos de contacto que proporciona en PostHog y los enviamos a nuestro espacio de trabajo privado Slack y a la bandeja de entrada de correo electrónico de los fundadores para que podamos responder. Puede bloquear los análisis de sitios web con una extensión del navegador que bloquee los scripts de seguimiento.",
+            "Las aplicaciones iPhone y iPad envían eventos de análisis de productos a nuestro proxy PostHog del lado del servidor. Estos eventos ayudan a diagnosticar la confiabilidad, comprender el uso de funciones y mejorar la Aplicación. Incluyen eventos de inicio de sesión y de aplicación, estado de inicio de sesión, intentos y resultados de emparejamiento, recuperación de conexión, apertura de espacio de trabajo, recuento de líneas y bytes de entrada de terminal, y resultados de notificación de suscripción voluntaria o enlace profundo de notificación. El análisis móvil no envía texto de comando de terminal, salida de terminal, fotografías seleccionadas ni transcripciones de voz a PostHog. Antes de iniciar sesión, los eventos utilizan un identificador de cliente aleatorio por instalación. Después de iniciar sesión, nuestro servidor adjunta su identificador de cuenta Stack Auth antes de reenviar eventos a PostHog. Los informes de análisis y fallos comienzan deshabilitados y se envían solo después de habilitar Compartir análisis e informes de fallos en Configuración. Desactivar ese control impide que los análisis se almacenen en el búfer o se envíen y detiene los informes de fallos. Comuníquese con [founders@manaflow.com](mailto:founders@manaflow.com) para solicitar la eliminación de los análisis asociados con su cuenta."
+          ]
+        },
+        {
+          "heading": "2. Información que usted proporciona directamente",
+          "paragraphs": [
+            "Si se comunica con nosotros por correo electrónico, nuestra página de contacto o el formulario de contacto empresarial, recopilamos la información que usted proporciona, incluido el nombre, el correo electrónico, la empresa, la función, el número de teléfono, el país, las necesidades de implementación y los comentarios. Si se une a una lista de espera de una plataforma, recopilamos el correo electrónico enviado para notificarle cuando se lance esa plataforma y enviar el correo electrónico de registro y las plataformas seleccionadas a nuestro espacio de trabajo privado Slack.",
+            "Cuando inicia sesión, recibimos información de autenticación, como su dirección de correo electrónico y su identificador de proveedor de Apple, Google, GitHub o inicio de sesión con código de correo electrónico. Cuando vincula la aplicación móvil con una Mac, procesamos la información de emparejamiento necesaria para conectar los dispositivos. Cuando ve un espacio de trabajo, envía entradas de terminal, adjunta fotos seleccionadas, utiliza transcripción de voz o recibe notificaciones de terminal, el contenido relacionado o la transcripción pueden pasar entre sus dispositivos y nuestro servicio según sea necesario para proporcionar esa función.",
+            "El acceso a la cámara se utiliza únicamente para escanear códigos cmux de emparejamiento QR. El acceso al micrófono y al reconocimiento de voz se utiliza solo cuando elige la transcripción de voz en el cuadro de mensaje. El acceso a la biblioteca de fotografías se utiliza solo cuando elige las fotografías que desea adjuntar."
+          ]
+        },
+        {
+          "heading": "3. Privacidad de los niños",
+          "paragraphs": [
+            "El Servicio no está dirigido a menores de 13 años y no recopilamos información de ninguna persona menor de 13 años de manera consciente. Si cree que recopilamos dicha información, comuníquese con [founders@manaflow.com](mailto:founders@manaflow.com)."
+          ]
+        }
+      ]
+    },
+    {
+      "heading": "II. Servicios de terceros",
+      "paragraphs": [
+        "La Aplicación se integra con estos servicios de terceros:"
+      ],
+      "bullets": [
+        "Stack Auth: autenticación y gestión de cuentas para inicio de sesión, sesiones y eliminación de cuentas.",
+        "Apple, Google y GitHub: proveedores de inicio de sesión opcionales que envían la información de cuenta necesaria para autenticarlo.",
+        "Servicio de notificaciones push Apple: notificaciones a iPhone y iPad después de suscribirse.",
+        "Apple Reconocimiento de voz: transcripción de voz cuando lo eliges en la aplicación móvil.",
+        "Sentry: seguimiento de errores e informes de fallos, que pueden recopilar registros de errores, seguimientos de pila, información del dispositivo y versión del sistema operativo.",
+        "Sparkle: el marco de actualización automática de macOS, que envía versiones de aplicaciones y sistemas operativos para buscar actualizaciones de macOS.",
+        "Ghostty / libghostty: el motor de renderizado de terminal, que se ejecuta localmente en su dispositivo.",
+        "PostHog: análisis de sitios web y productos móviles, incluidas visitas a páginas, patrones de navegación, metadatos del navegador, eventos de funciones móviles, análisis móviles vinculados a la cuenta después de iniciar sesión a través de un proxy propio y un correo electrónico de lista de espera enviado para que podamos notificarle.",
+        "Resend: entrega de correo electrónico transaccional. Su correo electrónico se envía a Resend solo si envía comentarios voluntariamente.",
+        "Slack: notificaciones internas privadas. Si se une a una lista de espera de una plataforma, el correo electrónico y las plataformas que envíe se envían a nuestro espacio de trabajo privado Slack."
+      ],
+      "afterBullets": [
+        "Cada servicio tiene su propia política de privacidad. Cuando un tercero procesa información personal para cmux, requerimos medidas de seguridad al menos tan protectoras como esta política y limitamos el uso a la prestación de servicios a cmux."
+      ]
+    },
+    {
+      "heading": "III. Cómo utilizamos y compartimos la información",
+      "paragraphs": [
+        "No vendemos, comercializamos, alquilamos ni compartimos información personal con terceros con fines de marketing. Utilizamos informes de fallos y diagnósticos solo para mejorar la Aplicación. Podemos divulgar información cuando creamos de buena fe que la divulgación es necesaria para un proceso legal o para protegernos contra daños."
+      ]
+    },
+    {
+      "heading": "IV. Cómo protegemos la información",
+      "paragraphs": [
+        "Utilizamos medidas diseñadas para evitar el acceso no autorizado, incluido el cifrado y el software de servidor seguro. Ningún método de transmisión o almacenamiento es completamente seguro y el uso del Servicio implica este riesgo."
+      ]
+    },
+    {
+      "heading": "V. Tus derechos",
+      "paragraphs": [
+        "Dependiendo de su ubicación, las leyes aplicables como GDPR o CCPA pueden otorgarle estos derechos:"
+      ],
+      "bullets": [
+        "Acceda a una copia de los datos que tenemos sobre usted.",
+        "Corregir datos inexactos.",
+        "Solicitar la eliminación de tus datos.",
+        "Reciba datos portátiles.",
+        "Restringir u oponerse al tratamiento."
+      ],
+      "afterBullets": [
+        "Para ejercer estos derechos, comuníquese con [founders@manaflow.com](mailto:founders@manaflow.com)."
+      ]
+    },
+    {
+      "heading": "VI. Enlaces a otros sitios web",
+      "paragraphs": [
+        "El Servicio puede vincularse a sitios web de terceros. No somos responsables de sus prácticas de privacidad. Esta política se aplica únicamente a la información que recopilamos."
+      ]
+    },
+    {
+      "heading": "VII. Cambios a esta política",
+      "paragraphs": [
+        "Podemos cambiar esta política. Los cambios importantes entran en vigor 30 días después de la notificación. Consulte el Sitio periódicamente para obtener actualizaciones."
+      ]
+    },
+    {
+      "heading": "VIII. Contáctenos",
+      "paragraphs": [
+        "Las preguntas sobre esta política se pueden enviar a [founders@manaflow.com](mailto:founders@manaflow.com)."
+      ]
+    },
+    {
+      "heading": "IX. Retención de datos",
+      "paragraphs": [
+        "Los informes y diagnósticos de fallos se conservan solo el tiempo necesario para diagnosticar y solucionar problemas. Los identificadores de cuentas móviles y los registros de autenticación se conservan mientras su cuenta está activa y luego se eliminan o se anonimizan cuando finaliza la eliminación de la cuenta, excepto cuando las tareas de seguridad, legales, de facturación o de prevención de fraude requieran su conservación. Los metadatos del dispositivo y de emparejamiento se conservan hasta que lo desvincules, cierres sesión y elimines los datos locales, elimines tu cuenta o se eliminen los datos de emparejamiento obsoletos. Los tokens del servicio de notificaciones push Apple se conservan solo mientras las notificaciones están habilitadas y se eliminan cuando las desactiva, cierra sesión, elimina su cuenta o Apple informa que el token no es válido. Los análisis de productos móviles en PostHog se conservan hasta por 24 meses, a menos que solicite una eliminación anticipada. La configuración de la cuenta móvil elimina o anonimiza la cuenta, el dispositivo, el emparejamiento, la notificación, la facturación y los datos de la nube propiedad de cmux, elimina la persona PostHog vinculada a la cuenta y solicita la eliminación de sus eventos y grabaciones de análisis móvil. Es posible que algunos trabajos de eliminación de proveedores se completen de forma asincrónica. Solicite la eliminación en la configuración de la cuenta móvil o comunicándose con [founders@manaflow.com](mailto:founders@manaflow.com)."
+      ]
+    }
+  ]
+}

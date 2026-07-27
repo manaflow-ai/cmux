@@ -39,6 +39,10 @@ function buildBody(name: string): string {
       "text me on iMessage or WhatsApp, or we can just continue talking here. " +
       "I've CC'd my cofounder as well.",
     "",
+    "cmux iOS Beta is out for cmux Founder's Edition! If you have a different " +
+      "TestFlight email, please reply to this email with the new email address. " +
+      "Otherwise, we'll send it to the one on file.",
+    "",
     "Best,",
     "Austin",
   ].join("\n");

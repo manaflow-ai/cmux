@@ -1,0 +1,128 @@
+{
+  "metadataTitle": "Retningslinjer for personvern — cmux",
+  "metadataDescription": "Personvernerklæring for cmux",
+  "title": "Personvernerklæring",
+  "lastUpdated": "Sist oppdatert: 10. juli 2026",
+  "sections": [
+    {
+      "paragraphs": [
+        "Manaflow (\"Selskapet\") er forpliktet til å opprettholde robust personvern for sine brukere. Denne personvernerklæringen forklarer hvordan vi samler inn, bruker og beskytter informasjon du gir oss.",
+        "I disse retningslinjene betyr \"nettstedet\" selskapets nettsted på [cmux.com](https://cmux.com). \"Applikasjon\" betyr cmux skrivebordsapplikasjon for macOS og cmux mobilapplikasjon for iPhone og iPad. \"Tjenesten\" betyr nettstedet og applikasjonen sammen. \"Vi\", \"oss\" og \"vår\" betyr selskapet. \"Du\" betyr en bruker av tjenesten vår.",
+        "Ved å bruke tjenesten vår godtar du denne personvernerklæringen og våre [vilkår for bruk](https://cmux.com/terms-of-service), og samtykker til innsamlingen, lagringen, bruken og avsløringen beskrevet her."
+      ]
+    },
+    {
+      "heading": "I. Informasjon vi samler inn",
+      "paragraphs": [
+        "Vi samler inn ikke-personlig informasjon og personlig informasjon. Ikke-personlig informasjon kan ikke identifisere deg og inkluderer anonyme bruksdata, plattformtyper og krasjdiagnostikk. Personlig informasjon inkluderer e-postadressen din, kontoidentifikatorer og informasjon du velger å oppgi når du logger på, kontakter oss, parer en enhet eller bruker applikasjonen."
+      ],
+      "subsections": [
+        {
+          "heading": "1. Informasjon samlet inn gjennom teknologi",
+          "paragraphs": [
+            "Applikasjonen kan automatisk samle inn følgende informasjon:"
+          ],
+          "bullets": [
+            "Krasjrapporter og feildiagnostikk gjennom Sentry.",
+            "Operativsystemversjon og applikasjonsversjon.",
+            "Produktanalyse og funksjonsbruk hendelser for nettstedet og applikasjonen.",
+            "Enhets-, konto- og sammenkoblingsmetadata som trengs for å koble til påloggede enheter.",
+            "Apple Push Notification-tjenesteenhetstokener, bare etter at du har aktivert telefonvarsler."
+          ],
+          "afterBullets": [
+            "macOS-applikasjonen ser etter oppdateringer gjennom Sparkle, som kan sende operativsystem- og applikasjonsversjonene til vår oppdateringsserver. iPhone- og iPad-applikasjonen oppdateres gjennom App Store, ikke Sparkle.",
+            "Nettstedet bruker PostHog for sidevisning og navigasjonsanalyse. PostHog lagrer en informasjonskapsel for å skille besøkende. Hvis du blir med på en plattformventeliste, registreres den innsendte e-posten din i PostHog slik at vi kan varsle deg. Hvis du sender inn Enterprise-kontaktskjemaet, registrerer vi selskapet og kontaktinformasjonen du oppgir i PostHog og sender dem til vårt private Slack-arbeidsområde og grunnleggernes e-postinnboks slik at vi kan svare. Du kan blokkere nettstedsanalyse med en nettleserutvidelse som blokkerer sporingsskript.",
+            "iPhone- og iPad-applikasjonen sender produktanalysehendelser til vår PostHog-proxy på serversiden. Disse hendelsene hjelper til med å diagnostisere pålitelighet, forstå funksjonsbruk og forbedre applikasjonen. De inkluderer appstart- og økthendelser, påloggingsstatus, sammenkoblingsforsøk og resultater, tilkoblingsgjenoppretting, arbeidsområdeåpninger, terminalinndatabyte og linjetelling, og varslingsvalgte-på- eller varslingsdypkoblingsresultater. Mobilanalyse sender ikke terminalkommandotekst, terminalutdata, utvalgte bilder eller taleavskrifter til PostHog. Før pålogging bruker hendelser en tilfeldig klientidentifikator per installasjon. Etter pålogging legger serveren vår ved din Stack Auth-kontoidentifikator før den videresender hendelser til PostHog. Analytics og krasjrapporter starter deaktivert og sendes først etter at du har aktivert Del Analytics og krasjrapporter i Innstillinger. Hvis du slår av denne kontrollen, stopper du at analyser bufres eller sendes og stopper krasjrapportering. Kontakt [founders@manaflow.com](mailto:founders@manaflow.com) for å be om sletting av analyser knyttet til kontoen din."
+          ]
+        },
+        {
+          "heading": "2. Informasjon du oppgir direkte",
+          "paragraphs": [
+            "Hvis du kontakter oss via e-post, kontaktsiden vår eller Enterprise-kontaktskjemaet, samler vi inn informasjon du oppgir, inkludert navn, e-post, firma, rolle, telefonnummer, land, distribusjonsbehov og kommentarer. Hvis du melder deg på en venteliste for plattformer, samler vi inn den innsendte e-posten din for å varsle deg når den plattformen lanseres og sender registrerings-e-posten og utvalgte plattformer til vårt private Slack-arbeidsområde.",
+            "Når du logger på, mottar vi autentiseringsinformasjon som din e-postadresse og leverandøridentifikator fra Apple, Google, GitHub eller pålogging med e-postkode. Når du parer mobilappen med en Mac, behandler vi sammenkoblingsinformasjonen som er nødvendig for å koble til enhetene. Når du ser på et arbeidsområde, sender terminalinndata, legger ved valgte bilder, bruker taletranskripsjon eller mottar terminalvarsler, kan det relaterte innholdet eller transkripsjonen overføres mellom enhetene dine og tjenesten vår etter behov for å tilby denne funksjonen.",
+            "Kameratilgang brukes kun til å skanne cmux-paring av QR-koder. Mikrofon- og talegjenkjenningstilgang brukes bare når du velger taletranskripsjon i meldingsboksen. Tilgang til bildebibliotek brukes bare når du velger bilder å legge ved."
+          ]
+        },
+        {
+          "heading": "3. Barns personvern",
+          "paragraphs": [
+            "Tjenesten er ikke rettet til noen under 13 år, og vi samler ikke bevisst inn informasjon fra noen under 13. Hvis du tror vi har samlet inn slik informasjon, kontakt [founders@manaflow.com](mailto:founders@manaflow.com)."
+          ]
+        }
+      ]
+    },
+    {
+      "heading": "II. Tredjepartstjenester",
+      "paragraphs": [
+        "Applikasjonen integreres med disse tredjepartstjenestene:"
+      ],
+      "bullets": [
+        "Stack Auth: autentisering og kontoadministrasjon for pålogging, økter og kontosletting.",
+        "Apple, Google og GitHub: valgfrie påloggingsleverandører som sender kontoinformasjon som kreves for å autentisere deg.",
+        "Apple Push Notification-tjeneste: varsler til iPhone og iPad etter at du melder deg på.",
+        "Apple talegjenkjenning: stemmetranskripsjon når du velger det i mobilappen.",
+        "Sentry: feilsporing og krasjrapportering, som kan samle feillogger, stabelsporing, enhetsinformasjon og operativsystemversjon.",
+        "Sparkle: macOS-rammeverket for automatisk oppdatering, som sender applikasjons- og operativsystemversjoner for å se etter macOS-oppdateringer.",
+        "Ghostty / libghostty: terminalgjengivelsesmotoren som kjører lokalt på enheten din.",
+        "PostHog: nettsteds- og mobilproduktanalyse, inkludert sidevisninger, navigasjonsmønstre, nettlesermetadata, mobilfunksjonshendelser, kontotilknyttet mobilanalyse etter pålogging via en førsteparts proxy, og en innsendt venteliste-e-post slik at vi kan varsle deg.",
+        "Resend: transaksjonell e-postlevering. E-posten din sendes til Resend bare hvis du frivillig sender inn tilbakemelding.",
+        "Slack: private interne varsler. Hvis du blir med på en plattformventeliste, sendes e-posten og plattformene du sender til vårt private Slack-arbeidsområde."
+      ],
+      "afterBullets": [
+        "Hver tjeneste har sine egne retningslinjer for personvern. Når en tredjepart behandler personopplysninger for cmux, krever vi sikkerhetstiltak som er minst like beskyttende som denne policyen og begrenser bruken til å levere tjenester til cmux."
+      ]
+    },
+    {
+      "heading": "III. Hvordan vi bruker og deler informasjon",
+      "paragraphs": [
+        "Vi selger, bytter, leier eller deler ikke personlig informasjon med tredjeparter for markedsføring. Vi bruker krasjrapporter og diagnostikk kun for å forbedre applikasjonen. Vi kan avsløre informasjon når vi i god tro mener at avsløring er nødvendig for juridisk prosess eller beskyttelse mot skade."
+      ]
+    },
+    {
+      "heading": "IV. Hvordan vi beskytter informasjon",
+      "paragraphs": [
+        "Vi bruker tiltak utformet for å forhindre uautorisert tilgang, inkludert kryptering og sikker serverprogramvare. Ingen overførings- eller lagringsmetode er helt sikker, og bruk av tjenesten innebærer denne risikoen."
+      ]
+    },
+    {
+      "heading": "V. Dine rettigheter",
+      "paragraphs": [
+        "Avhengig av hvor du befinner deg, kan gjeldende lover som GDPR eller CCPA gi deg disse rettighetene:"
+      ],
+      "bullets": [
+        "Få tilgang til en kopi av data vi har om deg.",
+        "Korriger unøyaktige data.",
+        "Be om sletting av dataene dine.",
+        "Motta bærbare data.",
+        "Begrense eller protestere mot behandling."
+      ],
+      "afterBullets": [
+        "For å utøve disse rettighetene, kontakt [founders@manaflow.com](mailto:founders@manaflow.com)."
+      ]
+    },
+    {
+      "heading": "VI. Lenker til andre nettsteder",
+      "paragraphs": [
+        "Tjenesten kan lenke til tredjeparts nettsteder. Vi er ikke ansvarlige for deres personvernpraksis. Denne policyen gjelder kun for informasjon vi samler inn."
+      ]
+    },
+    {
+      "heading": "VII. Endringer i denne policyen",
+      "paragraphs": [
+        "Vi kan endre denne policyen. Vesentlige endringer trer i kraft 30 dager etter varsel. Sjekk nettstedet med jevne mellomrom for oppdateringer."
+      ]
+    },
+    {
+      "heading": "VIII. Kontakt oss",
+      "paragraphs": [
+        "Spørsmål om disse retningslinjene kan sendes til [founders@manaflow.com](mailto:founders@manaflow.com)."
+      ]
+    },
+    {
+      "heading": "IX. Oppbevaring av data",
+      "paragraphs": [
+        "Krasjrapporter og diagnostikk lagres bare så lenge det er nødvendig for å diagnostisere og fikse problemer. Mobilkontoidentifikatorer og autentiseringsposter oppbevares mens kontoen din er aktiv, og slettes eller anonymiseres deretter når slettingen av kontoen er fullført, bortsett fra når sikkerhets-, juridiske, fakturerings- eller svindelforebyggende plikter krever oppbevaring. Enhets- og sammenkoblingsmetadata beholdes til du opphever paringen, logger av og sletter lokale data, sletter kontoen din eller foreldede sammenkoblingsdata beskjæres. Apple Push Notification-tjenestetokener beholdes bare mens varsler er aktivert og fjernes når du deaktiverer varsler, logger av, sletter kontoen din eller Apple rapporterer tokenet ugyldig. Mobil produktanalyse i PostHog lagres i opptil 24 måneder med mindre du ber om tidligere sletting. Mobilkontoinnstillinger sletter eller anonymiserer cmux-eid konto, enhet, sammenkobling, varsling, fakturering og skydata, sletter den kontotilknyttede PostHog-personen og ber om sletting av mobilanalysehendelser og -opptak. Noe slettingsarbeid fra leverandøren kan fullføres asynkront. Be om sletting i mobilkontoinnstillinger eller ved å kontakte [founders@manaflow.com](mailto:founders@manaflow.com)."
+      ]
+    }
+  ]
+}

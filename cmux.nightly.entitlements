@@ -6,6 +6,10 @@
 	<string>7WLXT3NR37.com.cmuxterm.app.nightly</string>
 	<key>com.apple.developer.team-identifier</key>
 	<string>7WLXT3NR37</string>
+	<key>keychain-access-groups</key>
+	<array>
+		<string>7WLXT3NR37.com.cmuxterm.app.nightly</string>
+	</array>
 	<key>com.apple.developer.web-browser.public-key-credential</key>
 	<true/>
 	<key>com.apple.security.automation.apple-events</key>

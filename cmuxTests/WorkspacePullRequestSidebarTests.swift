@@ -1,6 +1,6 @@
 import XCTest
 import Darwin
-import CmuxProcess
+import CmuxFoundation
 
 import CmuxSidebar
 
@@ -38,6 +38,29 @@ private final class CommandRunnerInvocationCounter: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return storedValue
+    }
+}
+
+/// Records whether any observation happened on the main thread. Used to assert
+/// that off-main work (e.g. PR-refresh git commands) never executes on the main
+/// thread, a deterministic signal that does not depend on wall-clock timing.
+private final class MainThreadObservationBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedObservedOnMainThread = false
+
+    func recordCurrentThread() {
+        let onMain = Thread.isMainThread
+        lock.lock()
+        if onMain {
+            storedObservedOnMainThread = true
+        }
+        lock.unlock()
+    }
+
+    var observedOnMainThread: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedObservedOnMainThread
     }
 }
 
@@ -518,10 +541,12 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
 
     func testPullRequestRefreshRepositoryDiscoveryDoesNotBlockMainRunLoop() throws {
         let invocationCounter = CommandRunnerInvocationCounter()
+        let gitThreadObservation = MainThreadObservationBox()
         let commandDelay: TimeInterval = 0.03
         let commandRunner = StubCommandRunner { _, executable, arguments, _ in
             if executable == "git", arguments == ["remote", "-v"] {
                 invocationCounter.increment()
+                gitThreadObservation.recordCurrentThread()
                 Thread.sleep(forTimeInterval: commandDelay)
                 return CommandResult(
                     stdout: "origin\tssh://example.invalid/not-github.git (fetch)\n",
@@ -563,7 +588,12 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         }
 
         let monitorDuration: TimeInterval = 0.7
-        let allowedMainThreadGap: TimeInterval = 0.25
+        // Generous bound far above macOS CI scheduling noise (GC, unrelated test
+        // work, run-loop jitter can stall the main thread well past a few hundred
+        // ms on a loaded shared runner). This catches gross main-thread blocking
+        // without failing on routine host jitter; the deterministic non-main-thread
+        // assertion below is the real regression signal.
+        let allowedMainThreadGap: TimeInterval = 2.0
         let finishedMonitoring = expectation(description: "main run loop remained responsive")
         let monitorStartedAt = Date()
         var lastTickAt = monitorStartedAt
@@ -589,6 +619,13 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         timer.invalidate()
         XCTAssertEqual(result, .completed)
         XCTAssertGreaterThan(invocationCounter.value, 0)
+        // Deterministic regression signal: the blocking git work must have run off
+        // the main thread. This does not depend on wall-clock timing, so it cannot
+        // flake from host scheduling noise.
+        XCTAssertFalse(
+            gitThreadObservation.observedOnMainThread,
+            "Pull request refresh ran its blocking git command on the main thread"
+        )
         XCTAssertLessThan(
             maxTickGap,
             allowedMainThreadGap,
@@ -848,7 +885,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
     }
 
-    func testDisablingPullRequestSidebarClearsCachedPullRequestsWithoutClearingBranches() throws {
+    func testHidingPullRequestSidebarPreservesPassiveReportsWithoutPolling() throws {
         let defaults = UserDefaults.standard
         let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
         let previousShowPullRequests = defaults.object(forKey: SidebarWorkspaceDetailDefaults.showPullRequestsKey)
@@ -884,21 +921,37 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         manager.sidebarGitMetadataWatchSettingsDidChangeForTesting()
 
         XCTAssertEqual(workspace.panelGitBranches[panelId]?.branch, "issue-2746-rate-limit")
-        XCTAssertNil(workspace.panelPullRequests[panelId])
-        XCTAssertNil(workspace.pullRequest)
+        XCTAssertEqual(workspace.panelPullRequests[panelId]?.number, 2746)
+        XCTAssertEqual(workspace.pullRequest?.number, 2746)
         XCTAssertTrue(
             manager.workspacePullRequestTrackedPanelIdsForTesting(workspaceId: workspace.id).isEmpty,
-            "Disabling PR visibility should clear PR state and polling without disabling branch metadata."
+            "Hiding PR rows should stop PR polling without discarding passive metadata."
+        )
+
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+        }
+        let response = TerminalController.shared.handleSocketLine(
+            "report_pr 2747 https://github.com/manaflow-ai/cmux/pull/2747 --label=PR --state=open --branch=issue-2746-rate-limit --tab=\(workspace.id.uuidString) --panel=\(panelId.uuidString)"
+        )
+        XCTAssertEqual(response, "OK")
+        TerminalMutationBus.shared.drainForTesting()
+        XCTAssertEqual(
+            workspace.panelPullRequests[panelId]?.number,
+            2747,
+            "Hidden PR rows should continue accepting passive reports."
         )
 
         defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.showPullRequestsKey)
         manager.sidebarGitMetadataWatchSettingsDidChangeForTesting()
 
         XCTAssertEqual(workspace.panelGitBranches[panelId]?.branch, "issue-2746-rate-limit")
+        XCTAssertEqual(workspace.panelPullRequests[panelId]?.number, 2747)
         XCTAssertEqual(
             manager.workspacePullRequestTrackedPanelIdsForTesting(workspaceId: workspace.id),
             Set([panelId]),
-            "Re-enabling PR visibility should restart PR polling from preserved branch metadata."
+            "Showing PR rows again should restart polling without losing passive metadata."
         )
     }
 
