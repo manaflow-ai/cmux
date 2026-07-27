@@ -330,9 +330,6 @@ await handlers.get("agent_end")({
 await handlers.get("agent_settled")({}, ctx);
 const shutdown = handlers.get("session_shutdown")({}, ctx);
 await Bun.write(process.env.CMUX_TEST_PI_NONBLOCKING_GATED, "queued");
-while (!(await Bun.file(process.env.CMUX_TEST_PI_NONBLOCKING_STARTED).exists())) {
-  await Bun.sleep(20);
-}
 await shutdown;
 """
         nonblocking_check = subprocess.Popen(
