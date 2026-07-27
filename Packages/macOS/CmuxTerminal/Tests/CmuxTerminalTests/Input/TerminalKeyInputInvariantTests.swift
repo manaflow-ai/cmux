@@ -122,6 +122,21 @@ import Testing
                         "committed command U+\(String(value, radix: 16, uppercase: true))"
                     )
                 }
+
+                let committedPreeditCommandActions = planner.actions(for: snapshot(
+                    hadMarkedText: true,
+                    textInputConsumed: true,
+                    textInputCommandPerformed: true,
+                    committedText: [text],
+                    translatedText: text,
+                    rawText: text
+                ))
+                if committedPreeditCommandActions != [.sendCommittedText(text)],
+                   mismatches.count < 10 {
+                    mismatches.append(
+                        "preedit command U+\(String(value, radix: 16, uppercase: true))"
+                    )
+                }
             }
 
             let committedActions = planner.actions(for: snapshot(
@@ -191,8 +206,15 @@ import Testing
 
         if snapshot.hadMarkedText, !snapshot.committedText.isEmpty {
             var actions = committedText.map(TerminalKeyInputAction.sendCommittedText)
+            let replaysDistinctCommand =
+                snapshot.textInputCommandPerformed &&
+                !suppressedAccumulatedControl &&
+                !ghosttyCommandDuplicatesCommittedText(
+                    committedText,
+                    translatedText: snapshot.event.translatedText
+                )
             if snapshot.event.replaysPhysicalKeyAfterPreeditCommit ||
-                (snapshot.textInputCommandPerformed && !suppressedAccumulatedControl) {
+                replaysDistinctCommand {
                 actions.append(.sendKey(text: nil, composing: false))
             }
             return actions
