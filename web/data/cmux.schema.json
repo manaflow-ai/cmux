@@ -65,6 +65,27 @@
         "additionalProperties": true
       }
     },
+    "computerUse": {
+      "title": "computerUse",
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Local computer-use tools and menu-bar visibility.",
+      "descriptionKey": "schemaDescriptions.computerUse.description",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Allow supported agent launches in cmux terminals to attach the local computer-use tools.",
+          "descriptionKey": "schemaDescriptions.computerUse.enabled"
+        },
+        "showInMenuBar": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show live computer-use sessions and focus actions in the menu bar.",
+          "descriptionKey": "schemaDescriptions.computerUse.showInMenuBar"
+        }
+      }
+    },
     "agentChat": {
       "title": "agentChat",
       "description": "Agent Chat GUI server settings. The built-in New agent chat action opens this URL in a browser workspace, probing /healthz first and optionally starting the server with startCommand.",

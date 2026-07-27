@@ -1,0 +1,107 @@
+# cmux Computer Use
+
+cmux bundles `cua-driver` from the `manaflow-ai/cmux-cua` fork of trycua/cua
+and exposes it as an MCP server named `cmux-computer-use` for compatibility
+with existing cmux-launched agents.
+
+Claude Code and Codex CLI sessions launched by cmux receive the server
+automatically at session start (injection is implemented in
+`cmux-claude-wrapper` and `cmux-codex-wrapper`); no user MCP configuration is
+required for them. The Claude wrapper retains cmux's broad native tool surface.
+The Codex wrapper launches the tag-installed helper executable as its
+authenticated MCP broker and adds `--codex-computer-use-compat`, which
+presents the exact Codex Computer Use server identity, ten-tool order, schemas,
+annotations, app-oriented arguments, screenshot/tree result shape, and
+approval flow while still running on cmux's own engine. Other agents are not
+currently supported:
+the socket proxy requires the per-launch credential that cmux injects into its
+own terminal process tree. Do not configure the bundled driver with
+`--embedded`; that would grant Accessibility and Screen Recording to the main
+terminal host and bypass the separately permissioned **cmux Computer Use**
+helper.
+
+Codex's built-in `@computer` entry is an OpenAI-bundled plugin. cmux does not
+replace that plugin: it supplies its own local MCP server and the
+`$cmux-computer-use` skill. The first Codex session that successfully attaches
+the server links the app-bundled skill into
+`~/.agents/skills/cmux-computer-use`, which is Codex's user-wide skill location.
+No `npx skills add` step or restart is required. cmux refreshes only a symlink
+that already points at a cmux app bundle and never overwrites a user-owned
+skill directory or unrelated symlink.
+
+The user grants Accessibility and Screen Recording to the helper once. A
+cmux-launched agent then connects through the authenticated, variant-scoped
+socket and can perceive the desktop through screenshots and accessibility
+trees and act with click, type, scroll, hotkey, drag, app, window, cursor, and
+diagnostic tools.
+cmux's injection disables the upstream driver's telemetry and self-update
+checks; cmux manages application updates through Sparkle.
+
+The first real tool invocation opens cmux's onboarding. Its first **Allow**
+action goes directly to the matching permanent System Settings pane instead of
+raising a second native TCC prompt first. If the helper is absent from the
+permission list, the compact companion supplies a draggable **cmux Computer
+Use** app tile; add it, turn it on, and let onboarding advance after the helper
+reports the grant. Agents must not call a standalone driver's permission
+prompt while onboarding is active, because that creates unrelated permission
+dialogs under the wrong process identity.
+
+Risk gating is handled by the MCP client harness. Claude Code and Codex show
+their normal tool approval UI for actions, and `cua-driver` advertises the
+profile-specific annotations. Codex app approval is brokered through its
+negotiated MCP elicitation capability and authenticated to the signed Codex
+parent; a raw socket client cannot reuse that approval session. The retired
+cmux Node MCP elicitation layer is intentionally gone.
+
+## Agent-specific tool contracts
+
+Codex receives exactly these tools, in this order:
+
+`list_apps`, `get_app_state`, `click`, `perform_secondary_action`, `set_value`,
+`select_text`, `scroll`, `drag`, `press_key`, and `type_text`.
+
+This profile intentionally has no cmux-only lifecycle, cursor, recording,
+diagnostic, browser/CDP, or `perform_actions` tools. `get_app_state` accepts an
+app name, path, or unambiguous bundle identifier and returns the Codex-shaped
+logical-window screenshot plus accessibility tree. Its string
+`element_index` values are valid only for the current app snapshot. Every
+action requires that fresh snapshot and automatically refreshes the app state
+after dispatch.
+
+Claude Code continues to receive the broader native cmux contract. It uses
+pid/window addressing, `get_window_state`, stable snapshot tokens, explicit
+cursor and diagnostic controls, and proxy-only `perform_actions`. Keeping the
+profiles separate prevents a cmux extension from silently changing Codex's
+built-in Computer Use schema.
+
+`cmux-computer-use-client` is the bundled command-line executable the wrappers
+launch directly. MCP is its machine-readable stdio protocol—not a separate
+user-installed service—and no Node or Sky bridge is involved.
+
+Set `CMUX_COMPUTER_USE_MCP_DISABLED=1` before launching an agent to disable
+automatic computer-use MCP injection. Native-profile development builds may
+set `CMUX_CUA_DRIVER=/absolute/path/to/cua-driver`; the Claude wrapper only
+uses that override when the bundled driver is absent and the override path is
+executable with trusted ancestors. Codex compatibility mode intentionally
+ignores proxy-only overrides because its approval broker must be the exact
+installed helper executable serving the cmux-owned socket.
+
+## Building the bundled driver
+
+Every cmux app build runs `scripts/build-cua-driver.sh`, which compiles the
+pinned `manaflow-ai/cmux-cua` commit with Cargo and bundles the resulting
+MCP proxy as `Contents/Resources/bin/cmux-computer-use-client`. The same
+engine is packaged as the `cmux Computer Use.app` executable so Activity
+Monitor and permission UI show the product name instead of an implementation
+name. This requires a Rust
+toolchain on the build machine:
+
+- local dev: install via [rustup](https://rustup.rs) (or
+  `brew install rustup && rustup-init`); `rustup` also lets the script add the
+  `aarch64-apple-darwin`/`x86_64-apple-darwin` targets it needs
+- CI: `scripts/install-rust-ci.sh`
+
+The pinned source is cached under `~/Library/Caches/cmux/cua-driver`; after
+the first successful build no network access is needed until the pinned
+commit changes. Set `CMUX_CUA_SRC=/path/to/cmux-cua` to build from a local
+checkout (it must still be at the pinned commit).

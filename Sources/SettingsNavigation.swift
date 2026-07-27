@@ -12,6 +12,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
     case customSidebars
     case betaFeatures
     case automation
+    case computerUse
     case browser
     case browserImport
     case globalHotkey
@@ -48,6 +49,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return String(localized: "settings.section.betaFeatures", defaultValue: "Beta Features")
         case .automation:
             return String(localized: "settings.section.automation", defaultValue: "Automation")
+        case .computerUse:
+            return String(localized: "settings.section.computerUse", defaultValue: "Computer Use")
         case .browser:
             return String(localized: "settings.section.browser", defaultValue: "Browser")
         case .browserImport:
@@ -89,6 +92,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "exclamationmark.triangle"
         case .automation:
             return "wand.and.sparkles"
+        case .computerUse:
+            return "cursorarrow.rays"
         case .browser:
             return "globe"
         case .browserImport:
@@ -130,6 +135,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "\(title) beta experimental unstable feed dock right sidebar"
         case .automation:
             return "\(title) socket integrations hooks ports claude cursor gemini kiro naming auto naming workspace tabs"
+        case .computerUse:
+            return "\(title) computer use cua accessibility screen recording permissions cursor mcp agents driver menu bar onboarding"
         case .browser:
             return "\(title) search engine links history theme"
         case .browserImport:

@@ -1,0 +1,63 @@
+import Foundation
+
+/// LaunchServices arguments and environment for the standalone helper daemon.
+struct ComputerUseHelperLaunchConfiguration: Equatable, Sendable {
+    let arguments: [String]
+    let environment: [String: String]
+
+    init?(
+        paths: ComputerUseRuntimePaths,
+        profile: ComputerUseDaemonProfile = .native,
+        rootProcessIdentity: AgentPIDProcessIdentity? = AgentPIDProcessIdentity(
+            pid: ProcessInfo.processInfo.processIdentifier
+        )
+    ) {
+        guard let rootProcessIdentity else { return nil }
+        var arguments = [
+            "serve",
+            "--socket",
+            profile == .native
+                ? paths.daemonSocketURL.path
+                : paths.codexDaemonSocketURL.path,
+        ]
+        if profile == .codexCompatibility {
+            arguments.append("--codex-computer-use-compat")
+        }
+        arguments.append(contentsOf: [
+            "--no-permissions-gate",
+            "--cursor-shape",
+            "cmux",
+            // A cmux Computer Use session owns explicit cursor visibility and
+            // hides it at session end. Never fade a still-active cursor merely
+            // because the next tool call takes longer than the upstream 20s
+            // default.
+            "--idle-hide-ms",
+            "0",
+        ])
+        self.arguments = arguments
+        environment = [
+            "CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW": "1",
+            "CUA_DRIVER_RS_PERMISSIONS_GATE": "0",
+            // LaunchServices already establishes the helper as a separate GUI
+            // responsibility. The upstream binary only recognizes its original
+            // CuaDriver.app name, so the renamed cmux helper would otherwise
+            // re-exec itself and leave a second `serve` process waiting on it.
+            "CUA_DRIVER_RS_RESPONSIBILITY_DISCLAIMED": "1",
+            "CUA_DRIVER_RS_TELEMETRY_ENABLED": "false",
+            "CUA_DRIVER_RS_UPDATE_CHECK": "false",
+            "CUA_DRIVER_CURSOR_GRADIENT": "#12c7f5,#2d8cff,#6c5cff",
+            "CUA_DRIVER_CURSOR_BLOOM": "#2d8cff",
+            "CUA_DRIVER_CURSOR_LABEL": "cmux",
+            "CUA_DRIVER_STATE_DIR": paths.stateDirectoryURL.path,
+            ComputerUseRuntimePaths.authenticationTokenEnvironmentKey: paths.authenticationToken,
+            ComputerUseRuntimePaths.hostAuthenticationTokenEnvironmentKey:
+                paths.hostAuthenticationToken,
+            "CUA_DRIVER_SOCKET_AUTHORIZED_ROOT_PID":
+                String(rootProcessIdentity.pid),
+            "CUA_DRIVER_SOCKET_AUTHORIZED_ROOT_START_SECONDS":
+                String(rootProcessIdentity.startSeconds),
+            "CUA_DRIVER_SOCKET_AUTHORIZED_ROOT_START_MICROSECONDS":
+                String(rootProcessIdentity.startMicroseconds),
+        ]
+    }
+}

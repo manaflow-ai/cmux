@@ -438,6 +438,11 @@ final class SharedLiveAgentIndex {
         return index
     }
 
+    /// Whether an agent-index refresh has been scheduled and has not completed yet.
+    var hasScheduledRefresh: Bool {
+        refreshTask != nil || forkAvailabilityRefreshTask != nil
+    }
+
     func scheduleRefreshIfStale(
         validating panelKey: RestorableAgentSessionIndex.PanelKey? = nil,
         isRemoteContext: Bool = false
