@@ -2,8 +2,8 @@
 
 ## Prerequisites
 
-- macOS 26+
-- Xcode 26+ (see `.xcode-version` for the exact pinned version)
+- macOS 15.6+ (required to run Xcode 26)
+- Xcode 26.0 (pinned in `.xcode-version` and enforced by `scripts/check-pbxproj.sh` in CI)
 - [Zig](https://ziglang.org/) (install via `brew install zig`)
 - [Rust](https://rustup.rs/)
 
