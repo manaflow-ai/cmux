@@ -48,6 +48,18 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case moveSurfaceLeft
     /// Moves the selected surface one position right.
     case moveSurfaceRight
+    /// Moves the selected surface to the previous pane in spatial order.
+    case moveSurfaceToPreviousPane
+    /// Moves the selected surface to the next pane in spatial order.
+    case moveSurfaceToNextPane
+    /// Moves the selected surface to the pane on the left.
+    case moveSurfaceToPaneLeft
+    /// Moves the selected surface to the pane on the right.
+    case moveSurfaceToPaneRight
+    /// Moves the selected surface to the pane above.
+    case moveSurfaceToPaneUp
+    /// Moves the selected surface to the pane below.
+    case moveSurfaceToPaneDown
     case selectSurfaceByNumber
     case nextSidebarTab
     case prevSidebarTab
@@ -148,6 +160,8 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case toggleBrowserDeveloperTools
     case showBrowserJavaScriptConsole
     case toggleBrowserFocusMode
+    /// Toggles design-mode editing for the focused browser.
+    case toggleBrowserDesignMode
     case toggleReactGrab
     /// Scrolls the focused diff viewer down one step.
     case diffViewerScrollDown
@@ -186,54 +200,6 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
 }
 
 extension ShortcutAction {
-    /// Which group this action belongs to in the settings pane.
-    public var group: Group {
-        switch self {
-        case .openSettings, .reloadConfiguration, .showHideAllWindows, .globalSearch,
-             .newWindow, .closeWindow, .toggleFullScreen, .quit:
-            return .app
-        case .toggleSidebar, .newTab, .newBrowserWorkspace, .saveLayoutTemplate, .openFolder, .reopenPreviousSession, .goToWorkspace,
-             .commandPalette, .commandPaletteNext, .commandPalettePrevious, .sendFeedback,
-             .showNotifications, .jumpToUnread, .toggleUnread, .markOldestUnreadAndJumpNext,
-             .focusRightSidebar, .switchRightSidebarToFiles, .switchRightSidebarToFind,
-             .switchRightSidebarToSessions, .switchRightSidebarToFeed,
-             .switchRightSidebarToDock, .triggerFlash, .reopenClosedWorkspace:
-            return .workspace
-        case .nextSurface, .prevSurface, .moveSurfaceLeft, .moveSurfaceRight, .selectSurfaceByNumber,
-             .nextSidebarTab, .prevSidebarTab, .moveWorkspaceUp, .moveWorkspaceDown, .focusHistoryBack, .focusHistoryForward,
-             .selectWorkspaceByNumber, .renameTab, .renameWorkspace,
-             .editWorkspaceDescription, .markWorkspaceDone, .cycleWorkspaceStatus, .toggleChecklistItemComplete, .closeTab, .closeOtherTabsInPane, .closeWorkspace,
-             .newWorkspaceGroup, .groupSelectedWorkspaces, .toggleFocusedWorkspaceGroupCollapsed,
-             .reopenClosedBrowserPanel, .newSurface, .toggleTerminalCopyMode,
-             .focusTextBoxInput, .cycleTextBoxSubmitAction, .attachTextBoxFile, .sendCtrlFToTerminal,
-             .clearScreenKeepScrollback:
-            return .navigation
-        case .focusLeft, .focusRight, .focusUp, .focusDown, .splitRight, .splitDown,
-             .toggleSplitZoom, .equalizeSplits, .splitBrowserRight, .splitBrowserDown,
-             .toggleRightSidebar, .fileExplorerOpenSelection, .fileExplorerOpenSelectionFinderAlias,
-             .toggleCanvasLayout, .canvasRevealFocusedPane, .canvasOverview,
-             .canvasZoomIn, .canvasZoomOut, .canvasZoomReset, .canvasTidy,
-             .canvasAlignLeft, .canvasAlignRight, .canvasAlignTop, .canvasAlignBottom,
-             .canvasEqualizeWidths, .canvasEqualizeHeights,
-             .canvasDistributeHorizontally, .canvasDistributeVertically,
-             .simulatorHome, .simulatorRotateLeft, .simulatorRotateRight,
-             .simulatorToggleAppearance, .simulatorToggleSoftwareKeyboard:
-            return .panes
-        case .openDiffViewer, .saveFilePreview, .openBrowser, .focusBrowserAddressBar, .browserBack,
-             .browserForward, .browserReload, .browserHardReload, .browserZoomIn, .browserZoomOut,
-             .browserZoomReset, .markdownZoomIn, .markdownZoomOut, .markdownZoomReset,
-             .find, .findInDirectory, .findNext, .findPrevious,
-             .hideFind, .useSelectionForFind, .toggleBrowserDeveloperTools,
-             .showBrowserJavaScriptConsole, .toggleBrowserFocusMode, .toggleReactGrab,
-             .diffViewerScrollDown, .diffViewerScrollUp,
-             .diffViewerScrollHalfPageDown, .diffViewerScrollHalfPageUp,
-             .diffViewerScrollDownEmacs, .diffViewerScrollUpEmacs, .diffViewerScrollToBottom,
-             .diffViewerScrollToTop, .diffViewerOpenFileSearch,
-             .diffViewerNextFile, .diffViewerPreviousFile:
-            return .browser
-        }
-    }
-
     /// Whether this action binds the whole `1…9` digit range through a
     /// single stored placeholder.
     ///
@@ -281,7 +247,8 @@ extension ShortcutAction {
 
     /// Whether this action supports a two-stroke shortcut chord.
     public var allowsChordShortcut: Bool {
-        self != .fileExplorerOpenSelection
+        self != .showHideAllWindows
+            && self != .fileExplorerOpenSelection
             && self != .fileExplorerOpenSelectionFinderAlias
             && self != .cycleTextBoxSubmitAction
     }
@@ -308,7 +275,8 @@ extension ShortcutAction {
             return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
         case .browserBack, .browserForward, .browserReload, .browserHardReload,
              .toggleBrowserDeveloperTools, .showBrowserJavaScriptConsole, .toggleBrowserFocusMode,
-             .diffViewerOpenFileSearch, .diffViewerNextFile, .diffViewerPreviousFile:
+             .toggleBrowserDesignMode, .diffViewerOpenFileSearch, .diffViewerNextFile,
+             .diffViewerPreviousFile:
             return .atom(.browserFocus)
         case .diffViewerScrollDown, .diffViewerScrollUp,
              .diffViewerScrollHalfPageDown, .diffViewerScrollHalfPageUp,
