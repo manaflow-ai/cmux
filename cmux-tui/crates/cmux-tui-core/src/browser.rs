@@ -176,6 +176,10 @@ struct BrowserState {
     accepted_frame_epoch: u64,
     accepted_navigation_epoch: u64,
     handled_navigation_epoch: u64,
+    /// Latest same-document navigation already consumed by the surface
+    /// thread. CDP ingress tracks this separately from generic frame restarts
+    /// so a later restart cannot make an older queued navigation disappear.
+    handled_same_document_navigation_epoch: u64,
     pending_frame_epoch: Option<u64>,
     // Navigation commands retain their own authority reservation because a
     // concurrent capture restart may advance and settle the shared frame
@@ -869,6 +873,7 @@ pub(crate) fn new_surface(
             accepted_frame_epoch: frame_epoch.current(),
             accepted_navigation_epoch: frame_epoch.latest_navigation(),
             handled_navigation_epoch: frame_epoch.latest_navigation(),
+            handled_same_document_navigation_epoch: frame_epoch.latest_same_document_navigation(),
             pending_frame_epoch: None,
             pending_navigation_epoch: None,
             pending_document_epoch: None,
@@ -2492,6 +2497,8 @@ impl BrowserSurface {
             && !state.pending_same_document_navigation
             && state.accepted_frame_epoch == self.frame_epoch.current()
             && state.accepted_navigation_epoch == self.frame_epoch.latest_navigation()
+            && state.handled_same_document_navigation_epoch
+                == self.frame_epoch.latest_same_document_navigation()
     }
 
     fn exported_pointer_frame_seq_locked(&self, state: &BrowserState) -> Option<u64> {
@@ -2817,6 +2824,13 @@ impl BrowserSurface {
         if frame_epoch <= state.handled_navigation_epoch {
             return false;
         }
+        let latest_same_document_navigation = self.frame_epoch.latest_same_document_navigation();
+        if latest_same_document_navigation < frame_epoch {
+            // A later cross-document navigation supersedes any same-document
+            // event that entered CDP first, even if the surface thread has not
+            // consumed that older event yet.
+            state.handled_same_document_navigation_epoch = latest_same_document_navigation;
+        }
         let precedes_pending_command =
             state.pending_navigation_epoch.is_some_and(|pending_epoch| frame_epoch < pending_epoch);
         if precedes_pending_command && frame_epoch != self.frame_epoch.latest_navigation() {
@@ -2934,9 +2948,22 @@ impl BrowserSurface {
         state.pending_document_epoch.is_none() && state.pending_same_document_navigation
     }
 
+    fn reconcile_same_document_snapshot(&self, same_document_navigation_epoch: u64) -> bool {
+        let mut state = self.state.lock().unwrap();
+        if same_document_navigation_epoch != self.frame_epoch.latest_same_document_navigation()
+            || state.pending_document_epoch.is_some()
+            || !state.pending_same_document_navigation
+        {
+            return false;
+        }
+        state.handled_same_document_navigation_epoch = same_document_navigation_epoch;
+        true
+    }
+
     fn observe_same_document_frame_epoch(&self, frame_epoch: u64) -> bool {
         let mut state = self.state.lock().unwrap();
-        if frame_epoch < state.accepted_frame_epoch
+        if frame_epoch <= state.handled_same_document_navigation_epoch
+            || frame_epoch != self.frame_epoch.latest_same_document_navigation()
             || state.pending_document_epoch.is_some()
             || state.pending_navigation_epoch.is_some() && !state.pending_same_document_navigation
             || !(matches!(state.status, BrowserStatus::Live)
@@ -2944,6 +2971,7 @@ impl BrowserSurface {
         {
             return false;
         }
+        state.handled_same_document_navigation_epoch = frame_epoch;
         let already_pending = state.pending_same_document_navigation;
         if already_pending {
             // The ingress event proves the targeted command committed, so a
@@ -3017,6 +3045,8 @@ impl BrowserSurface {
         let mut state = self.state.lock().unwrap();
         if state.pending_document_epoch.is_some()
             || !state.pending_same_document_navigation
+            || state.handled_same_document_navigation_epoch
+                != self.frame_epoch.latest_same_document_navigation()
             || state.accepted_navigation_epoch != self.frame_epoch.latest_navigation()
             || frame_epoch != self.frame_epoch.current()
         {
@@ -4123,16 +4153,32 @@ impl BrowserSurface {
         // CDP omits loaderId for same-document Page.navigate results. If the
         // corresponding event was delayed or absent, snapshot the subscribed
         // session and authorize freshly captured pixels for that loader.
-        let (frame_id, loader_id) =
-            match session.runtime.client.snapshot_main_frame_with_retry(&session.session_id) {
-                Ok(snapshot) => snapshot,
-                Err(error) => {
-                    self.fail_same_document_authority(&error);
-                    return Err(error);
-                }
-            };
-        self.authorize_same_document_paint_blocking(&session.session_id, &frame_id, &loader_id)
-            .map(|_| ())
+        for _ in 0..AUTHORITY_CAPTURE_ATTEMPTS {
+            let snapshot =
+                match session.runtime.client.snapshot_main_frame_with_retry(&session.session_id) {
+                    Ok(snapshot) => snapshot,
+                    Err(error) => {
+                        self.fail_same_document_authority(&error);
+                        return Err(error);
+                    }
+                };
+            if self.reconcile_same_document_snapshot(snapshot.same_document_navigation_epoch) {
+                return self
+                    .authorize_same_document_paint_blocking(
+                        &session.session_id,
+                        &snapshot.frame_id,
+                        &snapshot.loader_id,
+                    )
+                    .map(|_| ());
+            }
+            if !self.needs_same_document_paint() {
+                return Ok(());
+            }
+        }
+        let error =
+            anyhow::anyhow!("main-frame snapshot was invalidated by repeated page navigation");
+        self.fail_same_document_authority(&error);
+        Err(error)
     }
 
     fn navigate_blocking(&self, url: &str) -> anyhow::Result<()> {

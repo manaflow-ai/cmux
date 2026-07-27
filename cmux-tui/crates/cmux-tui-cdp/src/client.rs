@@ -41,6 +41,7 @@ static RETAINED_SIZE_CALLS: AtomicU64 = AtomicU64::new(0);
 pub struct FrameEpoch {
     current: AtomicU64,
     latest_navigation: AtomicU64,
+    latest_same_document_navigation: AtomicU64,
     pointer_motion_generation: AtomicU64,
     wait_lock: Mutex<()>,
     changed: Condvar,
@@ -73,6 +74,7 @@ impl FrameEpoch {
         // token until the frame epoch has advanced.
         self.pointer_motion_generation.fetch_add(1, Ordering::AcqRel);
         let epoch = self.current.fetch_add(1, Ordering::AcqRel).wrapping_add(1);
+        self.latest_same_document_navigation.store(epoch, Ordering::Release);
         self.pointer_motion_generation.fetch_add(1, Ordering::AcqRel);
         self.changed.notify_all();
         epoch
@@ -80,6 +82,10 @@ impl FrameEpoch {
 
     pub fn latest_navigation(&self) -> u64 {
         self.latest_navigation.load(Ordering::Acquire)
+    }
+
+    pub fn latest_same_document_navigation(&self) -> u64 {
+        self.latest_same_document_navigation.load(Ordering::Acquire)
     }
 
     pub fn pointer_motion_generation(&self) -> u64 {
@@ -161,6 +167,13 @@ pub struct NavigationResult {
     pub error_text: Option<String>,
     pub is_download: bool,
     pub loader_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MainFrameSnapshot {
+    pub frame_id: String,
+    pub loader_id: String,
+    pub same_document_navigation_epoch: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -708,7 +721,7 @@ impl CdpClient {
     pub fn snapshot_main_frame_with_retry(
         &self,
         session_id: &str,
-    ) -> anyhow::Result<(String, String)> {
+    ) -> anyhow::Result<MainFrameSnapshot> {
         let mut remaining_attempts = MAIN_FRAME_SNAPSHOT_ATTEMPTS;
         loop {
             match self.snapshot_main_frame(session_id) {
@@ -723,13 +736,17 @@ impl CdpClient {
         }
     }
 
-    pub fn snapshot_main_frame(&self, session_id: &str) -> anyhow::Result<(String, String)> {
-        let (frame_epoch, observed_epoch) = {
+    pub fn snapshot_main_frame(&self, session_id: &str) -> anyhow::Result<MainFrameSnapshot> {
+        let (frame_epoch, observed_epoch, observed_same_document_navigation_epoch) = {
             let frame_epochs = self.inner.frame_epochs.lock().unwrap();
             let frame_session = frame_epochs.get(session_id).ok_or_else(|| {
                 anyhow::anyhow!("missing frame epoch for CDP session {session_id}")
             })?;
-            (frame_session.epoch.clone(), frame_session.epoch.current())
+            (
+                frame_session.epoch.clone(),
+                frame_session.epoch.current(),
+                frame_session.epoch.latest_same_document_navigation(),
+            )
         };
         let result = self.call("Page.getFrameTree", json!({}), Some(session_id))?;
         let frame = result
@@ -754,7 +771,11 @@ impl CdpClient {
         ) {
             return Err(MainFrameSnapshotInvalidated.into());
         }
-        Ok((frame_id.to_string(), loader_id.to_string()))
+        Ok(MainFrameSnapshot {
+            frame_id: frame_id.to_string(),
+            loader_id: loader_id.to_string(),
+            same_document_navigation_epoch: observed_same_document_navigation_epoch,
+        })
     }
 
     pub fn set_user_agent(&self, session_id: &str, user_agent: &str) -> anyhow::Result<()> {
