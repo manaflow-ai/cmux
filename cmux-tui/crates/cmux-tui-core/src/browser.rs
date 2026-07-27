@@ -5955,8 +5955,24 @@ mod tests {
                     "method": "Page.screencastFrame",
                     "sessionId": "session-1",
                     "params": {
-                        "data": "c3RhbGU=",
+                        "data": "cHJlcA==",
                         "sessionId": 11,
+                        "metadata": {
+                            "deviceWidth": 80,
+                            "deviceHeight": 48,
+                            "timestamp": 10_001.0
+                        }
+                    }
+                }),
+            );
+            write_ws_json(
+                &mut ws,
+                json!({
+                    "method": "Page.screencastFrame",
+                    "sessionId": "session-1",
+                    "params": {
+                        "data": "c3RhbGU=",
+                        "sessionId": 12,
                         "metadata": {"deviceWidth": 80, "deviceHeight": 48}
                     }
                 }),
@@ -5992,11 +6008,11 @@ mod tests {
                                 "sessionId": "session-1",
                                 "params": {
                                     "data": "dGltZWQ=",
-                                    "sessionId": 12,
+                                    "sessionId": 13,
                                     "metadata": {
                                         "deviceWidth": 80,
                                         "deviceHeight": 48,
-                                        "timestamp": 10_001.0
+                                        "timestamp": 10_002.0
                                     }
                                 }
                             }),
@@ -6008,7 +6024,7 @@ mod tests {
                                 "sessionId": "session-1",
                                 "params": {
                                     "data": "bmV3ZXI=",
-                                    "sessionId": 13,
+                                    "sessionId": 14,
                                     "metadata": {"deviceWidth": 80, "deviceHeight": 48}
                                 }
                             }),
@@ -6067,7 +6083,7 @@ mod tests {
                 }
             }
             replacement_captured_tx.send(()).unwrap();
-            final_frame_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            final_frame_rx.recv_timeout(Duration::from_secs(2)).unwrap();
             write_ws_json(
                 &mut ws,
                 json!({
@@ -6075,7 +6091,7 @@ mod tests {
                     "sessionId": "session-1",
                     "params": {
                         "data": "ZmluYWw=",
-                        "sessionId": 14,
+                        "sessionId": 15,
                         "metadata": {"deviceWidth": 80, "deviceHeight": 48}
                     }
                 }),
@@ -6216,7 +6232,7 @@ mod tests {
         let deadline = Instant::now() + Duration::from_secs(1);
         loop {
             let state = browser.state.lock().unwrap();
-            if state.latest_frame.as_ref().is_some_and(|frame| frame.seq == 5)
+            if state.latest_frame.as_ref().is_some_and(|frame| frame.seq == 6)
                 && state.pending_screencast_capture.is_none()
             {
                 break;
@@ -6228,6 +6244,10 @@ mod tests {
             );
             thread::yield_now();
         }
+        // Recovery is intentionally rate-limited at CDP ingress. Wait past
+        // that bound without emitting a timestamped frame, so this still
+        // proves the stale failure did not suppress the later request.
+        thread::sleep(Duration::from_millis(1_100));
         final_frame_tx.send(()).unwrap();
         let final_capture_started = final_capture_rx.recv_timeout(Duration::from_secs(2)).unwrap();
 

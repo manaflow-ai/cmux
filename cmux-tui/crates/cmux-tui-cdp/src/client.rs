@@ -28,6 +28,7 @@ const MAIN_FRAME_SEED_ATTEMPTS: usize = 8;
 pub const CDP_EVENT_QUEUE_MAX_BYTES: usize = 32 * 1024 * 1024;
 const MAX_ENCODED_FRAME_BYTES: usize = 16 * 1024 * 1024;
 const MAX_DECODED_FRAME_BYTES: usize = 12 * 1024 * 1024;
+const TIMESTAMPLESS_CAPTURE_INTERVAL: Duration = Duration::from_secs(1);
 
 #[cfg(test)]
 static RETAINED_SIZE_CALLS: AtomicU64 = AtomicU64::new(0);
@@ -228,6 +229,7 @@ struct FrameSession {
     pending_document: Option<PendingDocument>,
     minimum_screencast_timestamp: Option<f64>,
     pending_timestampless_capture: Option<PendingTimestamplessCapture>,
+    timestampless_capture_throttle: Option<TimestamplessCaptureThrottle>,
     suppressed_timestampless_epoch: Option<u64>,
 }
 
@@ -236,6 +238,13 @@ struct PendingTimestamplessCapture {
     request_id: u64,
     frame_epoch: u64,
     navigation_epoch: u64,
+}
+
+#[derive(Clone, Copy)]
+struct TimestamplessCaptureThrottle {
+    frame_epoch: u64,
+    navigation_epoch: u64,
+    retry_at: Instant,
 }
 
 struct PendingDocument {
@@ -569,6 +578,7 @@ impl CdpClient {
                 pending_document: None,
                 minimum_screencast_timestamp: None,
                 pending_timestampless_capture: None,
+                timestampless_capture_throttle: None,
                 suppressed_timestampless_epoch: None,
             },
         );
@@ -763,6 +773,7 @@ impl CdpClient {
             // the new Chromium session id.
             frame_session.minimum_screencast_timestamp = Some(minimum_screencast_timestamp);
             frame_session.pending_timestampless_capture = None;
+            frame_session.timestampless_capture_throttle = None;
             frame_session.suppressed_timestampless_epoch = None;
         }
         self.call_with_frame_barrier(
@@ -1249,6 +1260,7 @@ fn handle_text(inner: &Arc<Inner>, text: &str) {
                             let Some(frame_session) = frame_sessions.get_mut(target_session) else {
                                 return;
                             };
+                            let now = Instant::now();
                             if frame_session.epoch.current() != frame_epoch
                                 || frame_session.epoch.latest_navigation() != navigation_epoch
                                 || frame_session.suppressed_timestampless_epoch == Some(frame_epoch)
@@ -1256,6 +1268,13 @@ fn handle_text(inner: &Arc<Inner>, text: &str) {
                                     |pending| {
                                         pending.frame_epoch == frame_epoch
                                             && pending.navigation_epoch == navigation_epoch
+                                    },
+                                )
+                                || frame_session.timestampless_capture_throttle.is_some_and(
+                                    |throttle| {
+                                        throttle.frame_epoch == frame_epoch
+                                            && throttle.navigation_epoch == navigation_epoch
+                                            && now < throttle.retry_at
                                     },
                                 )
                             {
@@ -1275,6 +1294,12 @@ fn handle_text(inner: &Arc<Inner>, text: &str) {
                                     request_id,
                                     frame_epoch,
                                     navigation_epoch,
+                                });
+                            frame_session.timestampless_capture_throttle =
+                                Some(TimestamplessCaptureThrottle {
+                                    frame_epoch,
+                                    navigation_epoch,
+                                    retry_at: now + TIMESTAMPLESS_CAPTURE_INTERVAL,
                                 });
                             drop(frame_sessions);
                             dispatch_event(
@@ -1305,6 +1330,7 @@ fn handle_text(inner: &Arc<Inner>, text: &str) {
                     // loader verification without granting authority to any
                     // later timestamp-less pixels.
                     frame_session.pending_timestampless_capture = None;
+                    frame_session.timestampless_capture_throttle = None;
                     frame_session.suppressed_timestampless_epoch = None;
                 }
                 dispatch_event(inner, CdpEvent::ScreencastFrame(frame));
@@ -1918,6 +1944,7 @@ mod tests {
                 pending_document: None,
                 minimum_screencast_timestamp: None,
                 pending_timestampless_capture: None,
+                timestampless_capture_throttle: None,
                 suppressed_timestampless_epoch: None,
             },
         );
@@ -2000,6 +2027,7 @@ mod tests {
                 pending_document: None,
                 minimum_screencast_timestamp: None,
                 pending_timestampless_capture: None,
+                timestampless_capture_throttle: None,
                 suppressed_timestampless_epoch: None,
             },
         );
@@ -2233,6 +2261,7 @@ mod tests {
                 pending_document: None,
                 minimum_screencast_timestamp: None,
                 pending_timestampless_capture: None,
+                timestampless_capture_throttle: None,
                 suppressed_timestampless_epoch: None,
             },
         );
@@ -2296,6 +2325,7 @@ mod tests {
                 pending_document: None,
                 minimum_screencast_timestamp: None,
                 pending_timestampless_capture: None,
+                timestampless_capture_throttle: None,
                 suppressed_timestampless_epoch: None,
             },
         );
@@ -2347,6 +2377,7 @@ mod tests {
                 pending_document: None,
                 minimum_screencast_timestamp: None,
                 pending_timestampless_capture: None,
+                timestampless_capture_throttle: None,
                 suppressed_timestampless_epoch: None,
             },
         );
@@ -2488,6 +2519,7 @@ mod tests {
                 pending_document: None,
                 minimum_screencast_timestamp: Some(1.0),
                 pending_timestampless_capture: None,
+                timestampless_capture_throttle: None,
                 suppressed_timestampless_epoch: None,
             },
         );
@@ -2538,6 +2570,7 @@ mod tests {
                 pending_document: None,
                 minimum_screencast_timestamp: Some(1.0),
                 pending_timestampless_capture: None,
+                timestampless_capture_throttle: None,
                 suppressed_timestampless_epoch: None,
             },
         );
@@ -2609,6 +2642,7 @@ mod tests {
                 pending_document: None,
                 minimum_screencast_timestamp: Some(1.0),
                 pending_timestampless_capture: None,
+                timestampless_capture_throttle: None,
                 suppressed_timestampless_epoch: None,
             },
         );
@@ -2651,6 +2685,21 @@ mod tests {
             event_rx.try_recv().is_err(),
             "a continuous timestamp-less stream must not capture every incoming frame"
         );
+
+        inner
+            .frame_epochs
+            .lock()
+            .unwrap()
+            .get_mut("session-1")
+            .and_then(|session| session.timestampless_capture_throttle.as_mut())
+            .expect("same-epoch recovery throttle")
+            .retry_at = Instant::now();
+        handle_text(&inner, &missing_frame(9));
+        inner.events.drain_into(&event_tx).unwrap();
+        assert!(
+            matches!(event_rx.try_recv(), Ok(CdpEvent::ScreencastFrameCaptureRequested { .. })),
+            "timestamp-less recovery must resume after its bounded interval"
+        );
     }
 
     #[test]
@@ -2669,6 +2718,7 @@ mod tests {
                     frame_epoch: 0,
                     navigation_epoch: 0,
                 }),
+                timestampless_capture_throttle: None,
                 suppressed_timestampless_epoch: None,
             },
         );
