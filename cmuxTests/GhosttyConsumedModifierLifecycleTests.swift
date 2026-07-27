@@ -172,12 +172,13 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
         )
     }
 
-    func testConsumedMenuBindingKeepsPressIdentityForReleaseAfterLayoutChange() throws {
+    func testCommandReleaseFromAppMonitorKeepsConsumedMenuBindingIdentityAfterLayoutChange() throws {
         let terminal = try makeHostedTerminal()
         defer {
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
             terminal.window.orderOut(nil)
         }
+        let appDelegate = try XCTUnwrap(AppDelegate.shared)
 
         terminal.surfaceView.unshiftedCodepointResolver = { event in
             event.type == .keyUp ? 0x0441 : nil
@@ -215,7 +216,7 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
         let release = try XCTUnwrap(NSEvent.keyEvent(
             with: .keyUp,
             location: .zero,
-            modifierFlags: [],
+            modifierFlags: [.command],
             timestamp: timestamp + 0.1,
             windowNumber: terminal.window.windowNumber,
             context: nil,
@@ -231,7 +232,10 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
                 terminal.surfaceView.consumeUnavailableCopyMenuAction(press),
                 "The default Ghostty Copy binding should be consumed after the native menu declines it"
             )
-            terminal.surfaceView.keyUp(with: release)
+            XCTAssertTrue(
+                appDelegate.debugHandleShortcutMonitorEvent(event: release),
+                "The app-local monitor must directly deliver a Command-modified release to its terminal owner"
+            )
         }
 
         XCTAssertEqual(capturedReleases.count, 1)
