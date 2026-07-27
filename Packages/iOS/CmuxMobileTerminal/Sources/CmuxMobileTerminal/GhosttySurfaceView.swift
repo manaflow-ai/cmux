@@ -1480,6 +1480,34 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     private func installArtifactChipContainer() {
         artifactChipHost.install(in: self, zPosition: Self.artifactChipZPosition)
+        installArtifactChipAccessibilityObservers()
+    }
+
+    /// The scroll-reveal gate is bypassed while VoiceOver or Switch Control
+    /// runs; without observing their status changes, enabling one over an
+    /// idle terminal would leave the only Files control hidden until some
+    /// unrelated visibility update. Registered once with the chip container;
+    /// block observers are removed automatically when the tokens deallocate
+    /// with the view.
+    private var artifactChipAccessibilityObserverTokens: [NSObjectProtocol] = []
+
+    private func installArtifactChipAccessibilityObservers() {
+        guard artifactChipAccessibilityObserverTokens.isEmpty else { return }
+        let names: [Notification.Name] = [
+            UIAccessibility.voiceOverStatusDidChangeNotification,
+            UIAccessibility.switchControlStatusDidChangeNotification,
+        ]
+        artifactChipAccessibilityObserverTokens = names.map { name in
+            NotificationCenter.default.addObserver(
+                forName: name,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.updateArtifactChipVisibility(animated: true)
+                }
+            }
+        }
     }
 
     private func layoutArtifactChip(using snapshot: TerminalViewportSnapshot) {
