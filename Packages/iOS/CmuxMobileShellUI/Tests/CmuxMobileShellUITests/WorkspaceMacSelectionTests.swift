@@ -969,6 +969,7 @@ import Testing
             switchMac: switchMac,
             cancelMacSwitch: cancelMacSwitch,
             store: store,
+            filterState: WorkspaceListFilterState(),
             searchText: searchText
         )
     }

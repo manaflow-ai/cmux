@@ -1,21 +1,7 @@
+import CMUXAgentLaunch
 import Foundation
 
 extension CMUXCLI {
-    /// The per-invocation Codex hook events the wrapper injects, paired with the
-    /// cmux subcommand they call and the codex hook timeout (ms). Lifecycle
-    /// events are short; feed events (`PreToolUse`/`PermissionRequest`) are long
-    /// because the user may take time to approve. This is the single source of
-    /// truth for `cmux-codex-wrapper`'s injection, mirrored from the historic
-    /// hand-rolled `cmux_codex_add_hook` calls in the wrapper.
-    static let codexWrapperInjectionEvents: [(agentEvent: String, cmuxSubcommand: String, timeoutMs: Int)] = [
-        ("SessionStart", "session-start", 10000),
-        ("UserPromptSubmit", "prompt-submit", 10000),
-        ("Stop", "stop", 10000),
-        ("PreToolUse", "pre-tool-use", 120000),
-        ("PostToolUse", "post-tool-use", 10000),
-        ("PermissionRequest", "notification", 120000),
-    ]
-
     /// Emit, NUL-separated to stdout, the exact codex arg list the wrapper must
     /// splice ahead of the user's args to enable + inject cmux's fire-and-forget
     /// hooks for one codex invocation. Returns the arg list:
@@ -41,7 +27,7 @@ extension CMUXCLI {
         // inline snippet so the working path can never regress.
         let hooksDir = Self.codexHookScriptsDirectory()
         var args: [String] = ["--enable", "hooks", "--dangerously-bypass-hook-trust"]
-        for event in Self.codexWrapperInjectionEvents {
+        for event in CodexHookInjectionSchema.current.events {
             let ff = Self.codexFireAndForgetAgentHookShellCommand(
                 "cmux hooks codex \(event.cmuxSubcommand)", for: codexDef
             )
@@ -100,11 +86,19 @@ extension CMUXCLI {
     /// directly rather than through a shell. Content is identical across
     /// invocations, so the file is only rewritten when missing or changed.
     static func writeCodexHookScript(subcommand: String, body: String, in dir: URL) -> String? {
-        let safeName = subcommand.replacingOccurrences(
-            of: "[^A-Za-z0-9_-]", with: "-", options: .regularExpression
-        )
-        let url = dir.appendingPathComponent("cmux-codex-hook-\(safeName).sh", isDirectory: false)
         let contents = "#!/bin/sh\n\(body)\n"
+        guard let scriptName = CodexHookScriptName(
+            contents: contents,
+            subcommand: subcommand
+        ) else {
+            return nil
+        }
+        // Keep generated scripts immutable. Older cmux processes may still write
+        // the legacy path while newer Codex sessions reference this content ID.
+        let url = dir.appendingPathComponent(
+            scriptName.filename,
+            isDirectory: false
+        )
         let fileManager = FileManager.default
         if let existing = try? String(contentsOf: url, encoding: .utf8), existing == contents {
             // Ensure it stays executable, then reuse.
@@ -134,11 +128,12 @@ extension CMUXCLI {
             "wait \"$watchdog\" 2>/dev/null || true",
             "rm -f \"$watchdog_pid_file\" \"$payload\"",
         ].joined(separator: "; ")
+        let noOp = stdinDrainingHookNoOpShellCommand
         return [
             "cmux_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"",
             "if [ -z \"$cmux_cli\" ] || [ ! -x \"$cmux_cli\" ]; then cmux_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi",
             "agent_pid=\"${CMUX_CODEX_PID:-${PPID:-}}\"",
-            "if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then payload=\"$(mktemp \"${TMPDIR:-/tmp}/cmux-codex-hook.XXXXXX\" 2>/dev/null || mktemp -t cmux-codex-hook 2>/dev/null)\" || { echo '{}'; exit 0; }; cat >\"$payload\" || true; if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then CMUX_CODEX_PID=\"$agent_pid\" nohup sh -c '\(runner)' cmux-codex-hook \"$payload\" \"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" \(routedArguments) >/dev/null 2>&1 & else CMUX_CODEX_PID=\"$agent_pid\" nohup sh -c '\(runner)' cmux-codex-hook \"$payload\" \"$cmux_cli\" \(routedArguments) >/dev/null 2>&1 & fi; echo '{}'; else echo '{}'; fi",
+            "if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then payload=\"$(mktemp \"${TMPDIR:-/tmp}/cmux-codex-hook.XXXXXX\" 2>/dev/null || mktemp -t cmux-codex-hook 2>/dev/null)\" || { \(noOp); exit 0; }; cat >\"$payload\" || true; if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then CMUX_CODEX_PID=\"$agent_pid\" nohup sh -c '\(runner)' cmux-codex-hook \"$payload\" \"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" \(routedArguments) >/dev/null 2>&1 & else CMUX_CODEX_PID=\"$agent_pid\" nohup sh -c '\(runner)' cmux-codex-hook \"$payload\" \"$cmux_cli\" \(routedArguments) >/dev/null 2>&1 & fi; echo '{}'; else \(noOp); fi",
         ].joined(separator: "; ")
     }
 }

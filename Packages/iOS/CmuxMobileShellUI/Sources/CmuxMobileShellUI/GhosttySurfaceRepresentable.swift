@@ -85,7 +85,11 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         )
         view.autoFocusOnWindowAttach = autoFocusOnWindowAttach
         view.artifactFilesEnabled = artifactFilesEnabled
+        // Screen-anchored sessions scroll the local mirror's own scrollback
+        // immediately (the Mac never repaints for a primary-screen scroll), so
+        // they keep the low-latency local authority even under verified replay.
         view.scrollPresentationAuthority = store.usesVerifiedTerminalReplay
+            && !store.usesScreenAnchoredRenderGrid
             ? .verifiedRenderGrid
             : .legacyMirror
         #if DEBUG
@@ -133,6 +137,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         )
         surfaceView.artifactFilesEnabled = artifactFilesEnabled
         surfaceView.scrollPresentationAuthority = store.usesVerifiedTerminalReplay
+            && !store.usesScreenAnchoredRenderGrid
             ? .verifiedRenderGrid
             : .legacyMirror
         if artifactCountModeChanged {
