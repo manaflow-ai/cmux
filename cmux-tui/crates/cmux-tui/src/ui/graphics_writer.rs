@@ -625,9 +625,21 @@ fn writer_loop<O>(
             let placements =
                 scene.iter().flat_map(|placements| placements.iter().cloned()).collect::<Vec<_>>();
             let mut next_graphics = graphics.clone();
-            let batches = next_graphics.frame_batches(&placements);
             let mut completed = true;
-            for batch in batches {
+            let mut wrote_batch = false;
+            let mut batches = next_graphics.frame_batch_stream(&placements);
+            loop {
+                if control.is_cancelled() {
+                    break 'writer;
+                }
+                if slot.lock().unwrap().revision != update.revision {
+                    host_reset_required |= wrote_batch;
+                    completed = false;
+                    break;
+                }
+                let Some(batch) = batches.next() else {
+                    break;
+                };
                 match write_batch(
                     &mut output,
                     &stdout_lock,
@@ -636,7 +648,7 @@ fn writer_loop<O>(
                     update.revision,
                     &batch,
                 ) {
-                    BatchWriteOutcome::Complete => {}
+                    BatchWriteOutcome::Complete => wrote_batch = true,
                     BatchWriteOutcome::Superseded => {
                         host_reset_required = true;
                         completed = false;
@@ -645,6 +657,7 @@ fn writer_loop<O>(
                     BatchWriteOutcome::Stopped => break 'writer,
                 }
             }
+            drop(batches);
             if completed {
                 graphics = next_graphics;
             }

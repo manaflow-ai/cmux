@@ -443,6 +443,63 @@ pub struct GraphicsState {
     operation_counts: GraphicsOperationCounts,
 }
 
+pub(crate) struct GraphicsFrameBatches<'state, 'placement> {
+    state: &'state mut GraphicsState,
+    placements: std::vec::IntoIter<&'placement GraphicPlacement>,
+    prefix_batches: std::vec::IntoIter<Vec<u8>>,
+    now_visible: Option<HashSet<GraphicPlacementKey>>,
+    retransmitted_images: HashSet<GraphicImageKey>,
+}
+
+impl Iterator for GraphicsFrameBatches<'_, '_> {
+    type Item = Vec<u8>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(batch) = self.prefix_batches.next() {
+            return Some(batch);
+        }
+        loop {
+            let Some(placement) = self.placements.next() else {
+                if let Some(now_visible) = self.now_visible.take() {
+                    self.state.visible = now_visible;
+                }
+                return None;
+            };
+            let fingerprint = PlacementFingerprint::from(placement);
+            let previous = self.state.placement_fingerprints.get(&placement.key).copied();
+            let image_id = self.state.image_id(placement.image.key);
+            let placement_id = self.state.placement_id(placement.key);
+            let mut batch = Vec::new();
+            match self.state.transmitted.get(&placement.image.key).copied() {
+                Some(generation) if generation == placement.image.generation => {}
+                Some(_) => {
+                    batch.extend(delete_image(image_id));
+                    batch.extend(transmit_image(image_id, &placement.image));
+                    self.state.transmitted.insert(placement.image.key, placement.image.generation);
+                    self.retransmitted_images.insert(placement.image.key);
+                }
+                None => {
+                    batch.extend(transmit_image(image_id, &placement.image));
+                    self.state.transmitted.insert(placement.image.key, placement.image.generation);
+                    self.retransmitted_images.insert(placement.image.key);
+                }
+            }
+            let image_was_retransmitted = self.retransmitted_images.contains(&placement.image.key);
+            let geometry_changed = previous.is_some_and(|previous| previous != fingerprint);
+            if geometry_changed && !image_was_retransmitted {
+                batch.extend(delete_placement(image_id, placement_id));
+            }
+            if previous.is_none() || geometry_changed || image_was_retransmitted {
+                batch.extend(place_image(image_id, placement_id, placement));
+                self.state.placement_fingerprints.insert(placement.key, fingerprint);
+            }
+            if !batch.is_empty() {
+                return Some(batch);
+            }
+        }
+    }
+}
+
 impl Default for GraphicsState {
     fn default() -> Self {
         Self {
@@ -470,6 +527,15 @@ impl GraphicsState {
     }
 
     pub fn frame_batches(&mut self, placements: &[GraphicPlacement]) -> Vec<Vec<u8>> {
+        self.frame_batch_stream(placements).collect()
+    }
+
+    /// Plan metadata eagerly, then encode at most one bounded image batch
+    /// before yielding so the writer can observe cancellation or supersession.
+    pub(crate) fn frame_batch_stream<'state, 'placement>(
+        &'state mut self,
+        placements: &'placement [GraphicPlacement],
+    ) -> GraphicsFrameBatches<'state, 'placement> {
         let mut placements = placements
             .iter()
             .filter(|placement| placement.rect.width > 0 && placement.rect.height > 0)
@@ -545,43 +611,13 @@ impl GraphicsState {
         ordered_images.sort_unstable_by_key(|key| (key.image_id, *key));
         self.prepare_image_ids(&ordered_images, &mut batches);
 
-        let mut retransmitted_images = HashSet::new();
-        for placement in placements {
-            let fingerprint = PlacementFingerprint::from(placement);
-            let previous = self.placement_fingerprints.get(&placement.key).copied();
-            let image_id = self.image_id(placement.image.key);
-            let placement_id = self.placement_id(placement.key);
-            let mut batch = Vec::new();
-            match self.transmitted.get(&placement.image.key).copied() {
-                Some(generation) if generation == placement.image.generation => {}
-                Some(_) => {
-                    batch.extend(delete_image(image_id));
-                    batch.extend(transmit_image(image_id, &placement.image));
-                    self.transmitted.insert(placement.image.key, placement.image.generation);
-                    retransmitted_images.insert(placement.image.key);
-                }
-                None => {
-                    batch.extend(transmit_image(image_id, &placement.image));
-                    self.transmitted.insert(placement.image.key, placement.image.generation);
-                    retransmitted_images.insert(placement.image.key);
-                }
-            }
-            let image_was_retransmitted = retransmitted_images.contains(&placement.image.key);
-            let geometry_changed = previous.is_some_and(|previous| previous != fingerprint);
-            if geometry_changed && !image_was_retransmitted {
-                batch.extend(delete_placement(image_id, placement_id));
-            }
-            if previous.is_none() || geometry_changed || image_was_retransmitted {
-                batch.extend(place_image(image_id, placement_id, placement));
-                self.placement_fingerprints.insert(placement.key, fingerprint);
-            }
-            if !batch.is_empty() {
-                batches.push(batch);
-            }
+        GraphicsFrameBatches {
+            state: self,
+            placements: placements.into_iter(),
+            prefix_batches: batches.into_iter(),
+            now_visible: Some(now_visible),
+            retransmitted_images: HashSet::new(),
         }
-
-        self.visible = now_visible;
-        batches
     }
 
     fn prepare_image_ids(

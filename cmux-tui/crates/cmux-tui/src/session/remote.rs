@@ -1634,10 +1634,14 @@ impl RemoteSession {
                 Some((
                     failure.get("surface")?.as_u64()?,
                     failure.get("error")?.as_str()?.to_string(),
+                    failure.get("deferred").and_then(Value::as_bool).unwrap_or(false),
                 ))
             })
             .collect::<Vec<_>>();
-        let failed_surfaces = failures.iter().map(|(surface, _)| *surface).collect::<HashSet<_>>();
+        let failed_surfaces = failures
+            .iter()
+            .filter_map(|(surface, _, deferred)| (!deferred).then_some(*surface))
+            .collect::<HashSet<_>>();
         let failed_snapshots = snapshots
             .iter()
             .filter(|(surface, _)| failed_surfaces.contains(&surface.id))
@@ -1647,6 +1651,8 @@ impl RemoteSession {
         if failures.is_empty() {
             *self.cell_pixels.lock().unwrap() = next;
         }
+        let failures =
+            failures.into_iter().map(|(surface, error, _)| (surface, error)).collect::<Vec<_>>();
         Ok(RemoteCellPixelUpdate { resizes, failures })
     }
 

@@ -2,6 +2,7 @@ use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::ffi::c_void;
 use std::ptr;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use base64::Engine as _;
@@ -20,6 +21,7 @@ const DEFAULT_KITTY_IMAGE_STORAGE_LIMIT: u64 = MAX_KITTY_IMAGE_BYTES as u64;
 const DEFAULT_KITTY_IMAGE_COUNT_LIMIT: u64 = 4_096;
 const DEFAULT_KITTY_PLACEMENT_COUNT_LIMIT: u64 = 16_384;
 const KITTY_REPLAY_CHUNK: usize = 4096;
+const KITTY_REPLAY_RAW_CHUNK: usize = KITTY_REPLAY_CHUNK / 4 * 3;
 const MAX_COLOR_OSC_BYTES: usize = 16 * 1024;
 
 #[cfg(test)]
@@ -295,6 +297,9 @@ pub struct Terminal {
     mouse_mode_revision: u64,
     mouse_mode_scan: MouseModeScan,
     kitty_inflight: Box<KittyInFlightTracker>,
+    // Keep the potentially long-lived replay cache behind one pointer so
+    // adding it does not inflate every Surface enum value.
+    kitty_replay_pixel_cache: Box<KittyReplayPixelCache>,
     // Heap-pinned so the userdata pointer stays valid for the terminal's
     // lifetime.
     callbacks: Box<Callbacks>,
@@ -303,6 +308,9 @@ pub struct Terminal {
     color_overrides: ColorOverrideTracker,
     c1_normalizer: C1Normalizer,
 }
+
+#[derive(Default)]
+struct KittyReplayPixelCache(HashMap<u64, Arc<[u8]>>);
 
 /// Ghostty's parser intentionally treats bytes >= 0x80 as UTF-8 in ground
 /// state, while PTYs can still emit the 8-bit OSC/APC/ST forms. Normalize only
@@ -1214,6 +1222,7 @@ impl Terminal {
             mouse_mode_revision: 0,
             mouse_mode_scan: MouseModeScan::default(),
             kitty_inflight: Box::new(KittyInFlightTracker::default()),
+            kitty_replay_pixel_cache: Box::default(),
             callbacks: Box::new(callbacks),
             cursor_override: CursorOverrideTracker::default(),
             palette_override: Box::default(),
@@ -1951,7 +1960,10 @@ impl Terminal {
     ) -> Result<VtReplay> {
         let inflight = self.kitty_inflight.replay_prefix_checked(max_bytes)?;
         let remaining = max_bytes.checked_sub(inflight.len()).ok_or(Error::OutOfSpace)?;
-        let snapshot = kitty::snapshot_for_replay(self, &mut HashMap::new(), true)?;
+        let mut pixel_cache = std::mem::take(&mut self.kitty_replay_pixel_cache.0);
+        let snapshot = kitty::snapshot_for_replay(self, &mut pixel_cache, true);
+        self.kitty_replay_pixel_cache.0 = pixel_cache;
+        let snapshot = snapshot?;
         let catalog =
             KittyReplayCatalog::new(&snapshot, self.cell_pixel_size(), self.rows().max(1));
 
@@ -2446,7 +2458,7 @@ struct KittyReplayPlacement<'a> {
 
 struct KittyReplayImage<'a> {
     image: &'a KittyImage,
-    transmission: Vec<u8>,
+    transmission_len: usize,
     placements: Vec<KittyReplayPlacement<'a>>,
 }
 
@@ -2498,10 +2510,12 @@ impl<'a> KittyReplayCatalog<'a> {
         images.sort_by_key(|image| (image.generation, image.id));
         let images = images
             .into_iter()
-            .map(|image| KittyReplayImage {
-                image,
-                transmission: kitty_replay_image(image),
-                placements: placements_by_image.remove(&image.id).unwrap_or_default(),
+            .filter_map(|image| {
+                Some(KittyReplayImage {
+                    image,
+                    transmission_len: kitty_replay_image_len(image)?,
+                    placements: placements_by_image.remove(&image.id).unwrap_or_default(),
+                })
             })
             .collect();
         Self {
@@ -2528,7 +2542,7 @@ impl<'a> KittyReplayCatalog<'a> {
     }
 
     fn visible_cost(&self, range: ReplayRowRange, max_bytes: usize) -> usize {
-        self.plan(Some(range), max_bytes, true).total_len
+        self.plan_internal(Some(range), max_bytes, true, false).total_len
     }
 
     fn plan(
@@ -2536,6 +2550,16 @@ impl<'a> KittyReplayCatalog<'a> {
         range: Option<ReplayRowRange>,
         max_bytes: usize,
         visible_only: bool,
+    ) -> KittyReplayPlan {
+        self.plan_internal(range, max_bytes, visible_only, true)
+    }
+
+    fn plan_internal(
+        &self,
+        range: Option<ReplayRowRange>,
+        max_bytes: usize,
+        visible_only: bool,
+        encode_images: bool,
     ) -> KittyReplayPlan {
         let mut candidates = Vec::with_capacity(self.images.len());
         for (image_index, image) in self.images.iter().enumerate() {
@@ -2561,7 +2585,7 @@ impl<'a> KittyReplayCatalog<'a> {
                 }
             }
             let Some(cost) =
-                placements.iter().try_fold(image.transmission.len(), |total, (_, command)| {
+                placements.iter().try_fold(image.transmission_len, |total, (_, command)| {
                     total.checked_add(command.len())
                 })
             else {
@@ -2599,7 +2623,9 @@ impl<'a> KittyReplayCatalog<'a> {
                 continue;
             }
             let image = &self.images[candidate.image_index];
-            image_bytes.extend_from_slice(&image.transmission);
+            if encode_images {
+                append_kitty_replay_image(&mut image_bytes, image.image);
+            }
             for (row, command) in candidate.placements {
                 placements.entry(row).or_default().push(command);
             }
@@ -2614,13 +2640,36 @@ impl<'a> KittyReplayCatalog<'a> {
     }
 }
 
-fn kitty_replay_image(image: &KittyImage) -> Vec<u8> {
+fn kitty_replay_image_len(image: &KittyImage) -> Option<usize> {
+    if image.data.is_empty() {
+        return Some(0);
+    }
+    let encoded_len = image.data.len().checked_add(2)?.checked_div(3)?.checked_mul(4)?;
+    let chunks = image.data.len().div_ceil(KITTY_REPLAY_RAW_CHUNK);
+    let first_header = format!(
+        "\x1b_Ga=t,t=d,f={},i={},s={},v={},q=2,m=0;",
+        image.format.kitty_protocol_value(),
+        image.id,
+        image.width,
+        image.height
+    )
+    .len();
+    let continuation_header = b"\x1b_Gq=2,m=0;".len();
+    encoded_len
+        .checked_add(first_header)?
+        .checked_add(2)?
+        .checked_add((chunks - 1).checked_mul(continuation_header.checked_add(2)?)?)
+}
+
+fn append_kitty_replay_image(bytes: &mut Vec<u8>, image: &KittyImage) {
+    if image.data.is_empty() {
+        return;
+    }
     #[cfg(test)]
     KITTY_REPLAY_IMAGE_ENCODINGS.set(KITTY_REPLAY_IMAGE_ENCODINGS.get() + 1);
-    let mut bytes = Vec::new();
-    let payload = base64::engine::general_purpose::STANDARD.encode(&image.data);
-    for (index, chunk) in payload.as_bytes().chunks(KITTY_REPLAY_CHUNK).enumerate() {
-        let more = usize::from((index + 1) * KITTY_REPLAY_CHUNK < payload.len());
+    let mut payload = [0_u8; KITTY_REPLAY_CHUNK];
+    for (index, chunk) in image.data.chunks(KITTY_REPLAY_RAW_CHUNK).enumerate() {
+        let more = usize::from((index + 1) * KITTY_REPLAY_RAW_CHUNK < image.data.len());
         if index == 0 {
             bytes.extend_from_slice(
                 format!(
@@ -2635,10 +2684,12 @@ fn kitty_replay_image(image: &KittyImage) -> Vec<u8> {
         } else {
             bytes.extend_from_slice(format!("\x1b_Gq=2,m={more};").as_bytes());
         }
-        bytes.extend_from_slice(chunk);
+        let encoded = base64::engine::general_purpose::STANDARD
+            .encode_slice(chunk, &mut payload)
+            .expect("a 3:4-sized replay buffer must fit base64 output");
+        bytes.extend_from_slice(&payload[..encoded]);
         bytes.extend_from_slice(b"\x1b\\");
     }
-    bytes
 }
 
 fn kitty_replay_placement_at(

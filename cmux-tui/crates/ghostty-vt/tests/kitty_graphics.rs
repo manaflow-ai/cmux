@@ -422,9 +422,10 @@ fn bare_c1_kitty_apc_chunked_transmission_remains_replayable() {
     source.vt_write(first);
 
     let replay = source.vt_replay().unwrap();
+    let normalized_first = kitty("a=t,t=d,f=24,i=195,s=1,v=2,m=1,q=2", "////");
     assert!(
-        replay.bytes.ends_with(first),
-        "a genuine bare C1 Kitty APC must remain part of attach replay"
+        replay.bytes.ends_with(&normalized_first),
+        "a genuine bare C1 Kitty APC must remain part of normalized attach replay"
     );
     let mut mirror = terminal();
     mirror.vt_write(&replay.bytes);

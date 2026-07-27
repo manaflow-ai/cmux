@@ -21,6 +21,7 @@ import {
 } from "../lib/renderGraphics";
 
 interface RenderGraphicsProps {
+  backgroundChildren?: ReactNode;
   children: ReactNode;
   graphics?: RenderGraphicsModel;
 }
@@ -309,7 +310,11 @@ function RenderGraphicCanvas({ decoded, placement }: RenderGraphicCanvasProps) {
   );
 }
 
-export function RenderGraphics({ children, graphics }: RenderGraphicsProps) {
+export function RenderGraphics({
+  backgroundChildren,
+  children,
+  graphics,
+}: RenderGraphicsProps) {
   const owner = useRef(Symbol("render-graphics")).current;
   const images = graphics?.images ?? EMPTY_IMAGES;
   const imageById = useMemo(
@@ -357,12 +362,19 @@ export function RenderGraphics({ children, graphics }: RenderGraphicsProps) {
       .sort((left, right) =>
         left.placement.z - right.placement.z || left.order - right.order
       );
+    const belowBackground: RenderedPlacement[] = [];
     const below: RenderedPlacement[] = [];
     const above: RenderedPlacement[] = [];
     for (const candidate of rendered) {
-      (candidate.placement.layer === "below" ? below : above).push(candidate);
+      if (candidate.placement.layer === "belowBackground") {
+        belowBackground.push(candidate);
+      } else if (candidate.placement.layer === "below") {
+        below.push(candidate);
+      } else {
+        above.push(candidate);
+      }
     }
-    return { below, above };
+    return { belowBackground, below, above };
   }, [budgetRevision, candidates, decodedImages, selected]);
   const registerBudget = useCallback((element: HTMLDivElement | null) => {
     if (element === null) return;
@@ -374,8 +386,21 @@ export function RenderGraphics({ children, graphics }: RenderGraphicsProps) {
     <>
       <div
         aria-hidden="true"
-        className="render-graphics-layer render-graphics-below"
+        className="render-graphics-layer render-graphics-below-background"
         ref={registerBudget}
+      >
+        {placements.belowBackground.map(({ decoded, placement, order }) => (
+          <RenderGraphicCanvas
+            decoded={decoded}
+            key={`${placement.key}:${order}`}
+            placement={placement}
+          />
+        ))}
+      </div>
+      {backgroundChildren}
+      <div
+        aria-hidden="true"
+        className="render-graphics-layer render-graphics-below"
       >
         {placements.below.map(({ decoded, placement, order }) => (
           <RenderGraphicCanvas

@@ -2,7 +2,7 @@ import { memo, type CSSProperties } from "react";
 import type { CmuxClient, Id, RenderRow } from "cmux/browser";
 import { useRenderTerminal } from "../hooks/useRenderTerminal";
 import { t } from "../i18n";
-import { runPresentation } from "../lib/renderStyles";
+import { renderAttrs, runPresentation } from "../lib/renderStyles";
 import { RenderGraphics } from "./RenderGraphics";
 import { TerminalFrame } from "./TerminalFrame";
 
@@ -40,10 +40,14 @@ const RenderRowView = memo(function RenderRowView({
     >
       {row.runs.map((run, runIndex) => {
         const presentation = runPresentation(run, defaultFg, defaultBg);
+        const usesDefaultBackground =
+          run.bg === null && (run.attrs & renderAttrs.inverse) === 0;
         const style = backgroundOnly
           ? {
             color: "transparent",
-            backgroundColor: presentation.style.backgroundColor,
+            backgroundColor: usesDefaultBackground
+              ? "transparent"
+              : presentation.style.backgroundColor,
             ...(presentation.style.width === undefined ? {} : { width: presentation.style.width }),
           }
           : mode === "foreground"
@@ -128,8 +132,8 @@ export function RenderTerminal({
                 key={`${history.active ? "history" : "live"}-${row.row}`}
               />
             )) : (
-              <>
-                {rows.map((row, index) => (
+              <RenderGraphics
+                backgroundChildren={rows.map((row, index) => (
                   <RenderRowView
                     mode="background"
                     row={row}
@@ -139,19 +143,19 @@ export function RenderTerminal({
                     key={`background-live-${row.row}`}
                   />
                 ))}
-                <RenderGraphics graphics={layeredGraphics}>
-                  {rows.map((row, index) => (
-                    <RenderRowView
-                      mode="foreground"
-                      row={row}
-                      index={index}
-                      defaultFg={defaultFg}
-                      defaultBg={defaultBg}
-                      key={`live-${row.row}`}
-                    />
-                  ))}
-                </RenderGraphics>
-              </>
+                graphics={layeredGraphics}
+              >
+                {rows.map((row, index) => (
+                  <RenderRowView
+                    mode="foreground"
+                    row={row}
+                    index={index}
+                    defaultFg={defaultFg}
+                    defaultBg={defaultBg}
+                    key={`live-${row.row}`}
+                  />
+                ))}
+              </RenderGraphics>
             )}
             {!history.active && cursor?.visible && cursorStyle !== undefined && (
               <span

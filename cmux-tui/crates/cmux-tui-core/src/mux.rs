@@ -209,6 +209,7 @@ pub struct CellPixelUpdate {
 pub struct CellPixelUpdateFailure {
     pub surface: SurfaceId,
     pub error: String,
+    pub deferred: bool,
 }
 
 #[derive(Debug)]
@@ -3943,9 +3944,11 @@ impl Mux {
                 Ok(None) => {}
                 Err(error) => {
                     deferred_failures += usize::from(deferred);
-                    update
-                        .failures
-                        .push(CellPixelUpdateFailure { surface: id, error: error.to_string() });
+                    update.failures.push(CellPixelUpdateFailure {
+                        surface: id,
+                        error: error.to_string(),
+                        deferred,
+                    });
                 }
             }
         }

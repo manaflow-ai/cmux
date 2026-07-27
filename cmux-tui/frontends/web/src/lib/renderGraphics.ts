@@ -31,7 +31,7 @@ export interface DecodedRenderGraphicImage {
 
 export interface ResolvedRenderGraphicPlacement {
   key: string;
-  layer: "below" | "above";
+  layer: "belowBackground" | "below" | "above";
   z: number;
   backingBytes: number;
   source: { x: number; y: number; width: number; height: number };
@@ -164,8 +164,7 @@ export function resolveRenderGraphicPlacement(
     || !nonnegativeInteger(placement.rows)
     || !Number.isSafeInteger(placement.z)
     || placement.source_width === 0
-    || placement.source_height === 0
-    || placement.z < KITTY_BELOW_BACKGROUND_Z) return null;
+    || placement.source_height === 0) return null;
   const sourceRight = placement.source_x + placement.source_width;
   const sourceBottom = placement.source_y + placement.source_height;
   if (!Number.isSafeInteger(sourceRight) || !Number.isSafeInteger(sourceBottom)
@@ -193,7 +192,9 @@ export function resolveRenderGraphicPlacement(
 
   return {
     key: `${placement.image_id}:${placement.placement_id}:${placement.ordinal}`,
-    layer: placement.z < 0 ? "below" : "above",
+    layer: placement.z < KITTY_BELOW_BACKGROUND_Z
+      ? "belowBackground"
+      : placement.z < 0 ? "below" : "above",
     z: placement.z,
     backingBytes,
     source: {

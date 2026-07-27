@@ -4377,6 +4377,7 @@ fn handle_command(
                     json!({
                         "surface": failure.surface,
                         "error": failure.error,
+                        "deferred": failure.deferred,
                     })
                 })
                 .collect::<Vec<_>>();
