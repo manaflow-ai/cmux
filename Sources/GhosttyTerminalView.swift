@@ -8210,7 +8210,7 @@ final class GhosttySurfaceScrollView: NSView {
     private let keyboardCopyModeBadgeView: GhosttyPassthroughVisualEffectView
     private let keyboardCopyModeBadgeIconView: NSImageView
     private let keyboardCopyModeBadgeLabel: NSTextField
-    let linkHoverIndicatorView: TerminalLinkHoverIndicatorView
+    private var linkHoverIndicatorView: TerminalLinkHoverIndicatorView?
     private let imageTransferIndicatorContainerView: NSView
     private let imageTransferIndicatorView: NSVisualEffectView
     private let imageTransferIndicatorSpinner: NSProgressIndicator
@@ -8454,7 +8454,6 @@ final class GhosttySurfaceScrollView: NSView {
         keyboardCopyModeBadgeView = GhosttyPassthroughVisualEffectView(frame: .zero)
         keyboardCopyModeBadgeIconView = NSImageView(frame: .zero)
         keyboardCopyModeBadgeLabel = NSTextField(labelWithString: terminalKeyboardCopyModeIndicatorText)
-        linkHoverIndicatorView = TerminalLinkHoverIndicatorView(frame: .zero)
         imageTransferIndicatorContainerView = NSView(frame: .zero)
         imageTransferIndicatorView = NSVisualEffectView(frame: .zero)
         imageTransferIndicatorSpinner = NSProgressIndicator(frame: .zero)
@@ -8665,9 +8664,6 @@ final class GhosttySurfaceScrollView: NSView {
             ),
             imageTransferIndicatorContainerView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
         ])
-        linkHoverIndicatorView.frame = bounds
-        linkHoverIndicatorView.autoresizingMask = [.width, .height]
-        addSubview(linkHoverIndicatorView)
 
         scrollView.contentView.postsBoundsChangedNotifications = true
         observers.append(NotificationCenter.default.addObserver(
@@ -8799,6 +8795,26 @@ final class GhosttySurfaceScrollView: NSView {
             scale: .medium
         )
         keyboardCopyModeBadgeLabel.font = GlobalFontMagnification.systemFont(ofSize: 13, weight: .semibold)
+    }
+
+    /// Creates the link destination overlay only when a pointer first hovers a link.
+    func applyLinkHoverURL(_ url: String?) {
+        guard let url, !url.isEmpty else {
+            linkHoverIndicatorView?.setURL(nil)
+            return
+        }
+
+        let indicator: TerminalLinkHoverIndicatorView
+        if let linkHoverIndicatorView {
+            indicator = linkHoverIndicatorView
+        } else {
+            let created = TerminalLinkHoverIndicatorView(frame: sessionContentFrame)
+            created.autoresizingMask = [.width, .height]
+            addSubview(created, positioned: .above, relativeTo: imageTransferIndicatorContainerView)
+            linkHoverIndicatorView = created
+            indicator = created
+        }
+        indicator.setURL(url)
     }
 
     required init?(coder: NSCoder) {
@@ -8960,7 +8976,9 @@ final class GhosttySurfaceScrollView: NSView {
         }
         _ = setFrameIfNeeded(notificationRingOverlayView, to: bounds)
         _ = setFrameIfNeeded(flashOverlayView, to: bounds)
-        _ = setFrameIfNeeded(linkHoverIndicatorView, to: contentFrame)
+        if let linkHoverIndicatorView {
+            _ = setFrameIfNeeded(linkHoverIndicatorView, to: contentFrame)
+        }
         if let cloudTerminalReconnectOverlayView {
             _ = setFrameIfNeeded(cloudTerminalReconnectOverlayView, to: contentFrame)
         }

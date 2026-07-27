@@ -78,7 +78,7 @@ extension GhosttySurfaceScrollView {
             DispatchQueue.main.async { [weak self] in self?.setLinkHoverURL(url) }
             return
         }
-        linkHoverIndicatorView.setURL(url)
+        applyLinkHoverURL(url)
     }
 }
 
