@@ -271,7 +271,7 @@ fn spawn_transport_process(
     command: &mut Command,
 ) -> anyhow::Result<(ChildStdin, ChildStdout, Arc<Process>)> {
     #[cfg(unix)]
-    let (stderr_cancel, stderr_cancel_worker) = UnixStream::pair()
+    let (stderr_cancel, stderr_cancel_worker) = cmux_tui_process::unix::pair_stream()
         .map_err(|error| anyhow::anyhow!("cannot create ssh diagnostics cancellation: {error}"))?;
     #[cfg(unix)]
     command.process_group(0);

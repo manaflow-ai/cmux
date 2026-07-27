@@ -625,7 +625,7 @@ impl CdpClient {
         timeout: Duration,
     ) -> anyhow::Result<Self> {
         let remaining = remaining_until(deadline, "CDP connection deadline expired")?;
-        let stream = TcpStream::connect_timeout(&addr, remaining)?;
+        let stream = cmux_tui_process::tcp::connect_stream_timeout(&addr, remaining)?;
         let stream = DeadlineTcpStream::new(stream, deadline);
         stream.set_nodelay(true)?;
         let request = web_socket_url.into_client_request()?;
@@ -1301,7 +1301,10 @@ fn fetch_json_version(host: &str, port: u16) -> anyhow::Result<String> {
     let deadline = deadline_after(CDP_DISCOVERY_TIMEOUT, "CDP discovery deadline exceeded")?;
     let addr = resolve_socket_addr_until(host, port, deadline)?;
     let remaining = remaining_until(deadline, "CDP discovery deadline exceeded")?;
-    let mut stream = TcpStream::connect_timeout(&addr, remaining.min(Duration::from_millis(250)))?;
+    let mut stream = cmux_tui_process::tcp::connect_stream_timeout(
+        &addr,
+        remaining.min(Duration::from_millis(250)),
+    )?;
     stream.set_nodelay(true)?;
     let request =
         format!("GET /json/version HTTP/1.1\r\nHost: {host}:{port}\r\nConnection: close\r\n\r\n");

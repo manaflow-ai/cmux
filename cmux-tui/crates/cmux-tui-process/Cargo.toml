@@ -9,3 +9,7 @@ description = "Process creation coordination for cmux-tui"
 
 [lints]
 workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+libc.workspace = true
+socket2 = { workspace = true, features = ["all"] }

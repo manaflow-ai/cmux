@@ -158,11 +158,11 @@ pub mod transport {
         }
 
         pub(super) fn listen(path: &Path) -> io::Result<Listener> {
-            UnixListener::bind(path).map(|inner| Listener { inner })
+            cmux_tui_process::unix::bind_listener(path).map(|inner| Listener { inner })
         }
 
         pub(super) fn connect(path: &Path) -> io::Result<Box<dyn Stream>> {
-            Ok(Box::new(UnixStream::connect(path)?))
+            Ok(Box::new(cmux_tui_process::unix::connect_stream(path)?))
         }
 
         pub(super) fn connect_until(path: &Path, deadline: Instant) -> io::Result<Box<dyn Stream>> {
@@ -341,14 +341,14 @@ pub mod transport {
 
         impl Listener {
             pub(super) fn accept(&self) -> io::Result<Box<dyn Stream>> {
-                let (stream, _) = self.inner.accept()?;
+                let (stream, _) = cmux_tui_process::unix::accept_stream(&self.inner)?;
                 Ok(Box::new(stream))
             }
         }
 
         impl Stream for UnixStream {
             fn try_clone_box(&self) -> io::Result<Box<dyn Stream>> {
-                Ok(Box::new(self.try_clone()?))
+                Ok(Box::new(cmux_tui_process::unix::clone_stream(self)?))
             }
 
             fn read_timeout(&self) -> io::Result<Option<Duration>> {

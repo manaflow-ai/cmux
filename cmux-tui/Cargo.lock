@@ -307,6 +307,10 @@ dependencies = [
 [[package]]
 name = "cmux-tui-process"
 version = "0.1.0"
+dependencies = [
+ "libc",
+ "socket2",
+]
 
 [[package]]
 name = "combine"

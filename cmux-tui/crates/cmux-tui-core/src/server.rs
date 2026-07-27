@@ -22,7 +22,9 @@ use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::io::{BufRead, BufReader, Read, Write};
 #[cfg(unix)]
 use std::mem::{offset_of, size_of};
-use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
+#[cfg(test)]
+use std::net::TcpListener;
+use std::net::{Shutdown, SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
@@ -2089,11 +2091,14 @@ impl SynchronizedTcpStream {
     }
 
     fn try_clone(&self) -> std::io::Result<Self> {
-        Ok(Self { stream: self.stream.try_clone()?, write_lock: self.write_lock.clone() })
+        Ok(Self {
+            stream: cmux_tui_process::tcp::clone_stream(&self.stream)?,
+            write_lock: self.write_lock.clone(),
+        })
     }
 
     fn try_clone_raw(&self) -> std::io::Result<TcpStream> {
-        self.stream.try_clone()
+        cmux_tui_process::tcp::clone_stream(&self.stream)
     }
 
     fn set_read_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
@@ -2639,7 +2644,7 @@ impl Drop for WebSocketServer {
         for stream in self.connections.lock().unwrap().values() {
             let _ = stream.shutdown(Shutdown::Both);
         }
-        if let Ok(stream) = TcpStream::connect(self.local_addr) {
+        if let Ok(stream) = cmux_tui_process::tcp::connect_stream(self.local_addr) {
             let _ = stream.set_nodelay(true);
         }
         if let Some(thread) = self.thread.take() {
@@ -2670,7 +2675,7 @@ pub fn serve_websocket(
             );
         }
     }
-    let listener = TcpListener::bind(addr)?;
+    let listener = cmux_tui_process::tcp::bind_listener(addr)?;
     let local_addr = listener.local_addr()?;
     let shutdown = Arc::new(AtomicBool::new(false));
     let connections = Arc::new(Mutex::new(HashMap::new()));
@@ -2680,7 +2685,7 @@ pub fn serve_websocket(
     let thread_connections = connections.clone();
     let thread = std::thread::Builder::new().name("mux-ws-server".into()).spawn(move || {
         while !thread_shutdown.load(Ordering::Acquire) {
-            let (stream, peer) = match listener.accept() {
+            let (stream, peer) = match cmux_tui_process::tcp::accept_stream(&listener) {
                 Ok(connection) => connection,
                 Err(_) => {
                     if thread_shutdown.load(Ordering::Acquire) {
@@ -2700,7 +2705,7 @@ pub fn serve_websocket(
             }
             let Some(permit) = claim_connection(&active_connections) else { continue };
             let id = next_connection.fetch_add(1, Ordering::Relaxed);
-            if let Ok(tracked) = stream.try_clone() {
+            if let Ok(tracked) = cmux_tui_process::tcp::clone_stream(&stream) {
                 thread_connections.lock().unwrap().insert(id, tracked);
             }
             let mux = mux.clone();

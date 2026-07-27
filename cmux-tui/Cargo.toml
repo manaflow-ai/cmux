@@ -48,6 +48,7 @@ unicode-width = "0.2"
 unicode-segmentation = "1"
 base64 = "0.22"
 libc = "0.2"
+socket2 = "0.6"
 tungstenite = { version = "0.29", default-features = false, features = ["handshake"] }
 uds_windows = "1.2"
 windows-sys = { version = "0.61", features = ["Win32_Networking_WinSock"] }

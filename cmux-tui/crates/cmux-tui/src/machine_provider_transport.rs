@@ -208,11 +208,13 @@ struct UnixMachineStreamConnector {
 
 impl MachineStreamConnector for UnixMachineStreamConnector {
     fn open(&self) -> io::Result<ProviderIo> {
-        let writer = UnixStream::connect(&self.socket_path)?;
+        let writer = cmux_tui_process::unix::connect_stream(&self.socket_path)?;
         writer.set_write_timeout(Some(PROVIDER_WRITE_TIMEOUT))?;
-        let reader = writer.try_clone()?;
-        let cleanup =
-            Arc::new(UnixCleanup { stream: writer.try_clone()?, closed: AtomicBool::new(false) });
+        let reader = cmux_tui_process::unix::clone_stream(&writer)?;
+        let cleanup = Arc::new(UnixCleanup {
+            stream: cmux_tui_process::unix::clone_stream(&writer)?,
+            closed: AtomicBool::new(false),
+        });
         Ok(ProviderIo::new(reader, writer, ProviderIoGuard::new(cleanup)))
     }
 }
@@ -500,7 +502,7 @@ fn spawn_command(
     arguments: &[OsString],
     redactions: Arc<Vec<String>>,
 ) -> io::Result<ProviderIo> {
-    let (stderr_cancel, stderr_cancel_worker) = UnixStream::pair()?;
+    let (stderr_cancel, stderr_cancel_worker) = cmux_tui_process::unix::pair_stream()?;
     let mut command = Command::new(program);
     command
         .args(arguments)

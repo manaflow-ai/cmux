@@ -297,7 +297,9 @@ mod unix {
     #[cfg(test)]
     use std::os::unix::ffi::OsStrExt;
     use std::os::unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt};
-    use std::os::unix::net::{UnixListener, UnixStream};
+    #[cfg(test)]
+    use std::os::unix::net::UnixListener;
+    use std::os::unix::net::UnixStream;
     use std::os::unix::process::CommandExt;
     use std::process::{Command, Stdio};
     use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
@@ -2070,7 +2072,7 @@ mod unix {
         // forever while it sends input, mouse, resize, or Terminate. Reads are
         // unbounded because the dedicated reader thread is intentionally
         // long-lived and reconnects on any eventual EOF/protocol failure.
-        let reader = stream.try_clone()?;
+        let reader = cmux_tui_process::unix::clone_stream(&stream)?;
         let attachment = HostAttachment {
             record,
             record_path,
@@ -3130,7 +3132,7 @@ mod unix {
         if let Some(parent) = endpoint.parent() {
             prepare_private_dir(parent)?;
         }
-        let listener = UnixListener::bind(&endpoint)?;
+        let listener = cmux_tui_process::unix::bind_listener(&endpoint)?;
         fs::set_permissions(&endpoint, fs::Permissions::from_mode(0o600))?;
         listener.set_nonblocking(true)?;
 
@@ -3194,7 +3196,7 @@ mod unix {
         let _ = write_frame(writer, &response);
 
         while !shared.dead.load(Ordering::Acquire) {
-            match listener.accept() {
+            match cmux_tui_process::unix::accept_stream(&listener) {
                 Ok((stream, _)) => {
                     // Accepted sockets inherit O_NONBLOCK from the listener
                     // on macOS. Client protocol threads use blocking framed
@@ -3270,7 +3272,7 @@ mod unix {
         let pty_poll_fd = pty.master.as_raw_fd().context("open terminal-host PTY poll fd")?;
         let mut pty_reader = pty.master.try_clone_reader()?;
         let pty_writer = pty.master.take_writer()?;
-        let (pty_drain_waker, pty_drain_waiter) = UnixStream::pair()?;
+        let (pty_drain_waker, pty_drain_waiter) = cmux_tui_process::unix::pair_stream()?;
 
         let pending_responses = Arc::new(Mutex::new(Vec::<u8>::new()));
         let title_changed = Arc::new(AtomicBool::new(false));
@@ -3548,7 +3550,7 @@ mod unix {
         let tap = HostTap {
             sender,
             queued_bytes: Arc::new(AtomicUsize::new(0)),
-            shutdown: Arc::new(stream.try_clone()?),
+            shutdown: Arc::new(cmux_tui_process::unix::clone_stream(&stream)?),
             max_queued_bytes: MAX_HOST_CLIENT_QUEUED_BYTES,
         };
         let command_sender = tap.clone();
@@ -3605,7 +3607,7 @@ mod unix {
             return Err(error.into());
         }
 
-        let mut command_stream = stream.try_clone()?;
+        let mut command_stream = cmux_tui_process::unix::clone_stream(&stream)?;
         let command_host = host.clone();
         thread::Builder::new().name("terminal-host-client-input".into()).spawn(move || {
             while let Ok(Some(frame)) = read_frame(&mut command_stream, MAX_FRAME_PAYLOAD) {

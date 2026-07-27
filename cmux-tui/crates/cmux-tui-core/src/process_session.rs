@@ -1011,11 +1011,12 @@ impl StableProcessHandle {
 
     /// Signal this exact process instance, returning false if it is already gone.
     pub fn signal(&self, signal: libc::c_int) -> io::Result<bool> {
+        let signal_process = resolve_proc_signal_with_audittoken()?;
         let mut token = self.audit_token;
         loop {
             // SAFETY: the audit token came from TASK_AUDIT_TOKEN for this
             // process instance; libproc validates its PID generation.
-            let result = unsafe { proc_signal_with_audittoken(&mut token, signal) };
+            let result = unsafe { signal_process(&mut token, signal) };
             if result == 0 {
                 #[cfg(test)]
                 STABLE_PROCESS_SIGNAL_COUNT.set(STABLE_PROCESS_SIGNAL_COUNT.get() + 1);
@@ -1061,9 +1062,34 @@ unsafe extern "C" {
 }
 
 #[cfg(target_os = "macos")]
-#[link(name = "proc")]
-unsafe extern "C" {
-    fn proc_signal_with_audittoken(token: *mut MacAuditToken, signal: libc::c_int) -> libc::c_int;
+type ProcSignalWithAuditToken =
+    unsafe extern "C" fn(*mut MacAuditToken, libc::c_int) -> libc::c_int;
+
+#[cfg(target_os = "macos")]
+fn resolve_proc_signal_with_audittoken() -> io::Result<ProcSignalWithAuditToken> {
+    static SYMBOL: OnceLock<Option<ProcSignalWithAuditToken>> = OnceLock::new();
+    SYMBOL
+        .get_or_init(|| {
+            // SAFETY: RTLD_DEFAULT searches already loaded images. The
+            // resolved address is used only with the documented libproc ABI.
+            let address =
+                unsafe { libc::dlsym(libc::RTLD_DEFAULT, c"proc_signal_with_audittoken".as_ptr()) };
+            if address.is_null() {
+                return None;
+            }
+            // SAFETY: dlsym returned the address of the named C function.
+            Some(unsafe {
+                std::mem::transmute::<*mut libc::c_void, ProcSignalWithAuditToken>(address)
+            })
+        })
+        .as_ref()
+        .copied()
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::Unsupported,
+                "exact process signaling is unavailable on this macOS version",
+            )
+        })
 }
 
 #[cfg(target_os = "linux")]
@@ -1183,7 +1209,19 @@ pub(crate) fn require_stable_process_signaling_until(deadline: Instant) -> io::R
     let process = StableProcessHandle::capture(pid)?.ok_or_else(|| {
         io::Error::new(io::ErrorKind::Unsupported, "current process identity is unavailable")
     })?;
-    match process.matches_current() {
+    #[cfg(target_os = "macos")]
+    let retained = {
+        resolve_proc_signal_with_audittoken().map_err(|error| {
+            io::Error::new(
+                io::ErrorKind::Unsupported,
+                format!("stable process signaling is unavailable: {error}"),
+            )
+        })?;
+        process.matches_current()
+    };
+    #[cfg(not(target_os = "macos"))]
+    let retained = process.signal(0);
+    match retained {
         Ok(true) => {}
         Ok(false) => {
             return Err(io::Error::new(
