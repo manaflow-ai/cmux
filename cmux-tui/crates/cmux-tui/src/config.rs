@@ -2074,7 +2074,7 @@ fn run_ghostty_show_config(installation: &platform::GhosttyInstallation) -> Opti
     if let Some(resources_dir) = installation.resources_dir.as_deref() {
         command.env("GHOSTTY_RESOURCES_DIR", resources_dir);
     }
-    let mut child = command.spawn().ok()?;
+    let mut child = cmux_tui_process::spawn(&mut command).ok()?;
     let deadline = Instant::now() + Duration::from_secs(2);
     let status = loop {
         match child.try_wait().ok()? {

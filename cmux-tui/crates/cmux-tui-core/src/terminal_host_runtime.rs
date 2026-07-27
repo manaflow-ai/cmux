@@ -1167,7 +1167,7 @@ mod unix {
         }
         let reaper = reserve_host_process_reaper()
             .context("reserve bounded terminal-host process cleanup")?;
-        let child = command.spawn().context("spawn terminal-host process")?;
+        let child = cmux_tui_process::spawn(&mut command).context("spawn terminal-host process")?;
         let mut process = SpawnedHostProcess::with_reaper(child, reaper);
         let host_pid = process.child_mut().id();
         let stdin =
@@ -3012,7 +3012,10 @@ mod unix {
         if let Some(cwd) = launch.cwd.as_deref() {
             command.cwd(cwd);
         }
-        let mut child = pty.slave.spawn_command(command)?;
+        let mut child = {
+            let _process_creation = cmux_tui_process::ProcessCreationGuard::acquire();
+            pty.slave.spawn_command(command)?
+        };
         let pid = child.process_id();
         drop(pty.slave);
         let killer = child.clone_killer();

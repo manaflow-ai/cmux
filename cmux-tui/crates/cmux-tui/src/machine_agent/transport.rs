@@ -101,12 +101,13 @@ impl SshCloudConnector {
 
 impl CloudConnector for SshCloudConnector {
     fn connect(&self) -> io::Result<DuplexConnection> {
-        let mut child = Command::new("ssh")
+        let mut command = Command::new("ssh");
+        command
             .args(self.command_args())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())
-            .spawn()?;
+            .stderr(Stdio::inherit());
+        let mut child = cmux_tui_process::spawn(&mut command)?;
         let writer =
             child.stdin.take().ok_or_else(|| io::Error::other("OpenSSH did not expose stdin"))?;
         let reader =

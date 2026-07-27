@@ -358,8 +358,9 @@ fn installed_name(
 
 fn run_build_if_needed(manifest: &PluginManifest, dir: &Path) -> anyhow::Result<()> {
     let Some(build) = &manifest.build else { return Ok(()) };
-    let status =
-        Command::new(&build.command[0]).args(&build.command[1..]).current_dir(dir).status()?;
+    let mut command = Command::new(&build.command[0]);
+    command.args(&build.command[1..]).current_dir(dir);
+    let status = cmux_tui_process::spawn(&mut command)?.wait()?;
     if !status.success() {
         anyhow::bail!("build command failed with status {status}");
     }
@@ -406,7 +407,7 @@ fn run_git<const N: usize>(
     if let Some(dir) = current_dir {
         command.current_dir(dir);
     }
-    let status = command.status()?;
+    let status = cmux_tui_process::spawn(&mut command)?.wait()?;
     if !status.success() {
         anyhow::bail!("git failed with status {status}");
     }

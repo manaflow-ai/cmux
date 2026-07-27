@@ -78,77 +78,6 @@ pub mod transport {
             *SOCKET_CREATED_HOOK.get_or_init(Default::default).lock().unwrap() = hook;
         }
 
-        #[cfg(target_os = "macos")]
-        static SOCKET_FORK_BARRIER_REGISTRATION: std::sync::OnceLock<libc::c_int> =
-            std::sync::OnceLock::new();
-        #[cfg(target_os = "macos")]
-        static mut SOCKET_FORK_BARRIER: libc::pthread_mutex_t = libc::PTHREAD_MUTEX_INITIALIZER;
-
-        #[cfg(target_os = "macos")]
-        unsafe extern "C" fn socket_fork_prepare() {
-            // SAFETY: pthread_atfork calls this handler before fork. Blocking
-            // here serializes fork with the short descriptor setup window.
-            let _ = unsafe { libc::pthread_mutex_lock(&raw mut SOCKET_FORK_BARRIER) };
-        }
-
-        #[cfg(target_os = "macos")]
-        unsafe extern "C" fn socket_fork_parent() {
-            // SAFETY: the prepare handler acquired this mutex in the forking
-            // thread, and the parent handler releases that same acquisition.
-            let _ = unsafe { libc::pthread_mutex_unlock(&raw mut SOCKET_FORK_BARRIER) };
-        }
-
-        #[cfg(target_os = "macos")]
-        unsafe extern "C" fn socket_fork_child() {
-            // SAFETY: the child inherits the prepare handler's locked mutex
-            // and releases it before any post-fork work can continue.
-            let _ = unsafe { libc::pthread_mutex_unlock(&raw mut SOCKET_FORK_BARRIER) };
-        }
-
-        #[cfg(target_os = "macos")]
-        struct SocketForkBarrierGuard;
-
-        #[cfg(target_os = "macos")]
-        impl SocketForkBarrierGuard {
-            fn acquire() -> io::Result<Self> {
-                let registration = *SOCKET_FORK_BARRIER_REGISTRATION.get_or_init(|| {
-                    // SAFETY: callbacks have static lifetimes and use one
-                    // statically initialized pthread mutex.
-                    unsafe {
-                        libc::pthread_atfork(
-                            Some(socket_fork_prepare),
-                            Some(socket_fork_parent),
-                            Some(socket_fork_child),
-                        )
-                    }
-                });
-                if registration != 0 {
-                    return Err(io::Error::new(
-                        io::ErrorKind::Unsupported,
-                        format!(
-                            "cannot register close-on-exec fork barrier: {}",
-                            io::Error::from_raw_os_error(registration)
-                        ),
-                    ));
-                }
-                // SAFETY: this mutex is statically initialized and remains
-                // live for the process lifetime.
-                let locked = unsafe { libc::pthread_mutex_lock(&raw mut SOCKET_FORK_BARRIER) };
-                if locked != 0 {
-                    return Err(io::Error::from_raw_os_error(locked));
-                }
-                Ok(Self)
-            }
-        }
-
-        #[cfg(target_os = "macos")]
-        impl Drop for SocketForkBarrierGuard {
-            fn drop(&mut self) {
-                // SAFETY: each guard exists only after one successful lock.
-                let _ = unsafe { libc::pthread_mutex_unlock(&raw mut SOCKET_FORK_BARRIER) };
-            }
-        }
-
         #[cfg(target_os = "linux")]
         fn create_close_on_exec_socket() -> io::Result<OwnedFd> {
             // SAFETY: socket has no pointer arguments and returns a new owned
@@ -181,10 +110,10 @@ pub mod transport {
 
         #[cfg(target_os = "macos")]
         fn create_close_on_exec_socket() -> io::Result<OwnedFd> {
-            let _fork_barrier = SocketForkBarrierGuard::acquire()?;
-            // macOS has no SOCK_CLOEXEC socket flag. The registered atfork
-            // barrier prevents every fork in this process until fcntl marks
-            // the fresh descriptor close-on-exec.
+            let _process_creation = cmux_tui_process::ProcessCreationGuard::acquire();
+            // macOS has no SOCK_CLOEXEC socket flag. Every cmux-tui process
+            // launch shares this barrier, so no child can start until fcntl
+            // marks the fresh descriptor close-on-exec.
             // SAFETY: socket has no pointer arguments and returns a new owned
             // descriptor on success.
             let descriptor = unsafe { libc::socket(libc::AF_UNIX, libc::SOCK_STREAM, 0) };
@@ -205,7 +134,7 @@ pub mod transport {
             if descriptor_flags < 0 {
                 return Err(io::Error::last_os_error());
             }
-            // SAFETY: F_SETFD updates flags while the fork barrier excludes
+            // SAFETY: F_SETFD updates flags while the process barrier excludes
             // process creation from this setup window.
             if unsafe {
                 libc::fcntl(
@@ -226,20 +155,6 @@ pub mod transport {
                 io::ErrorKind::Unsupported,
                 "deadline sockets require atomic close-on-exec setup",
             ))
-        }
-
-        #[cfg(all(target_os = "macos", test))]
-        pub(super) fn socket_fork_barrier_is_locked_for_test() -> bool {
-            // SAFETY: trylock only inspects the statically initialized mutex.
-            let result = unsafe { libc::pthread_mutex_trylock(&raw mut SOCKET_FORK_BARRIER) };
-            if result == 0 {
-                // SAFETY: a successful trylock created one balanced test
-                // acquisition that must be released here.
-                let _ = unsafe { libc::pthread_mutex_unlock(&raw mut SOCKET_FORK_BARRIER) };
-                false
-            } else {
-                result == libc::EBUSY
-            }
         }
 
         pub(super) fn listen(path: &Path) -> io::Result<Listener> {
@@ -850,7 +765,7 @@ pub mod transport {
 
         #[cfg(target_os = "macos")]
         #[test]
-        fn deadline_connect_holds_fork_barrier_until_close_on_exec() {
+        fn deadline_connect_confines_inheritable_descriptor_to_process_barrier() {
             use std::os::fd::AsRawFd as _;
             use std::sync::Arc;
             use std::sync::atomic::{AtomicBool, Ordering};
@@ -865,12 +780,15 @@ pub mod transport {
                     .as_nanos()
             ));
             let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
-            let fork_barrier_held = Arc::new(AtomicBool::new(false));
+            let descriptor_was_inheritable = Arc::new(AtomicBool::new(false));
             imp::set_socket_created_hook(Some(Arc::new({
-                let fork_barrier_held = fork_barrier_held.clone();
-                move |_| {
-                    fork_barrier_held
-                        .store(imp::socket_fork_barrier_is_locked_for_test(), Ordering::Release);
+                let descriptor_was_inheritable = descriptor_was_inheritable.clone();
+                move |descriptor| {
+                    // SAFETY: the hook receives the fresh live socket before
+                    // the process barrier is released.
+                    let flags = unsafe { libc::fcntl(descriptor, libc::F_GETFD) };
+                    descriptor_was_inheritable
+                        .store(flags >= 0 && flags & libc::FD_CLOEXEC == 0, Ordering::Release);
                 }
             })));
 
@@ -884,8 +802,8 @@ pub mod transport {
             drop(listener);
             std::fs::remove_file(path).unwrap();
             assert!(
-                fork_barrier_held.load(Ordering::Acquire),
-                "deadline connector exposed its socket outside the fork barrier"
+                descriptor_was_inheritable.load(Ordering::Acquire),
+                "test did not observe the non-atomic macOS descriptor setup window"
             );
             assert!(flags >= 0 && flags & libc::FD_CLOEXEC != 0);
         }
@@ -914,7 +832,6 @@ pub mod transport {
             let (release_sender, release_receiver) = mpsc::sync_channel(1);
             let release_receiver = Arc::new(std::sync::Mutex::new(release_receiver));
             imp::set_socket_created_hook(Some(Arc::new({
-                let release_receiver = release_receiver.clone();
                 move |descriptor| {
                     descriptor_sender.send(descriptor).unwrap();
                     release_receiver
@@ -926,7 +843,6 @@ pub mod transport {
             })));
 
             let connector = std::thread::spawn({
-                let socket_path = socket_path.clone();
                 move || connect_unix_until(&socket_path, Instant::now() + Duration::from_secs(5))
             });
             let descriptor = descriptor_receiver
@@ -963,7 +879,7 @@ pub mod transport {
                         user_data_dir: Some(profile_path),
                         ephemeral: false,
                     })
-                    .map(|browser| drop(browser))
+                    .map(drop)
                     .map_err(|error| error.to_string());
                 launch_result_sender.send(result).unwrap();
             });

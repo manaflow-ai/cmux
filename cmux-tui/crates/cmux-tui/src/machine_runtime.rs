@@ -275,8 +275,8 @@ fn spawn_transport_process(
         .map_err(|error| anyhow::anyhow!("cannot create ssh diagnostics cancellation: {error}"))?;
     #[cfg(unix)]
     command.process_group(0);
-    let mut child =
-        command.spawn().map_err(|error| anyhow::anyhow!("cannot start ssh: {error}"))?;
+    let mut child = cmux_tui_process::spawn(command)
+        .map_err(|error| anyhow::anyhow!("cannot start ssh: {error}"))?;
     #[cfg(unix)]
     let process_group = match libc::pid_t::try_from(child.id()) {
         Ok(process_group) => process_group,

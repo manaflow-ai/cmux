@@ -509,7 +509,7 @@ fn spawn_command(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    let mut child = command.spawn().map_err(|error| {
+    let mut child = cmux_tui_process::spawn(&mut command).map_err(|error| {
         io::Error::new(error.kind(), format!("failed to start machine-provider command: {error}"))
     })?;
     let stdin = child

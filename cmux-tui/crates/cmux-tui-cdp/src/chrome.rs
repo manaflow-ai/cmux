@@ -79,15 +79,14 @@ impl Chrome {
         let (profile_dir, profile_ephemeral) = profile_dir_for(options)?;
         std::fs::create_dir_all(&profile_dir)?;
         let mut command = Command::new(&options.binary);
-        command.args(chrome_args_for(&profile_dir, options.mode));
-        let mut child = command
+        command
+            .args(chrome_args_for(&profile_dir, options.mode))
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| {
-                anyhow::anyhow!("failed to launch Chrome at {}: {e}", options.binary.display())
-            })?;
+            .stderr(Stdio::piped());
+        let mut child = cmux_tui_process::spawn(&mut command).map_err(|e| {
+            anyhow::anyhow!("failed to launch Chrome at {}: {e}", options.binary.display())
+        })?;
 
         let stderr = child
             .stderr

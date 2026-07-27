@@ -1345,7 +1345,10 @@ impl Surface {
             cmd.cwd(cwd);
         }
 
-        let child = pty.slave.spawn_command(cmd)?;
+        let child = {
+            let _process_creation = cmux_tui_process::ProcessCreationGuard::acquire();
+            pty.slave.spawn_command(cmd)?
+        };
         let pid = child.process_id();
         drop(pty.slave);
         let killer = child.clone_killer();

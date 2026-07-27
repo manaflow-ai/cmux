@@ -743,7 +743,7 @@ fn run_detached_legacy_stop(path: &Path, expected: ProcessIdentity) -> anyhow::R
             Ok(())
         });
     }
-    let helper = command.spawn().map_err(|_| {
+    let helper = cmux_tui_process::spawn(&mut command).map_err(|_| {
         anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
     })?;
     let deadline = Instant::now() + LEGACY_SHUTDOWN_TIMEOUT + LEGACY_HELPER_WAIT_MARGIN;
