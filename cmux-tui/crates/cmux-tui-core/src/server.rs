@@ -1042,7 +1042,9 @@ impl Command {
             | Self::VtState { surface }
             | Self::MintTerminalRenderer { surface, .. }
             | Self::BrowserMouse { surface, .. }
+            | Self::BrowserMouseGuarded { surface, .. }
             | Self::BrowserWheel { surface, .. }
+            | Self::BrowserWheelGuarded { surface, .. }
             | Self::BrowserKey { surface, .. }
             | Self::BrowserInsertText { surface, .. }
             | Self::BrowserNavigate { surface, .. }
@@ -1076,7 +1078,9 @@ impl Command {
                 | Self::Send { .. }
                 | Self::SendKey { .. }
                 | Self::BrowserMouse { .. }
+                | Self::BrowserMouseGuarded { .. }
                 | Self::BrowserWheel { .. }
+                | Self::BrowserWheelGuarded { .. }
                 | Self::BrowserKey { .. }
                 | Self::BrowserInsertText { .. }
                 | Self::BrowserNavigate { .. }
