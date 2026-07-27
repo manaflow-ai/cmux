@@ -75,7 +75,7 @@ final class RendererRealizationController {
     /// surface, including the Settings window which writes UserDefaults directly
     /// without posting a change notification, takes effect on the next pass
     /// instead of requiring a relaunch. The disabled pass still repairs any
-    /// visible surface whose presentation enqueue previously dropped.
+    /// visible surface whose compatibility publication was not acknowledged.
     private func ensureTimerRunning() {
         guard timer == nil else { return }
         let timer = DispatchSource.makeTimerSource(queue: timerQueue)
@@ -91,7 +91,7 @@ final class RendererRealizationController {
     }
 
     /// Repairs only the surface whose renderer reported activity after a
-    /// dropped presentation enqueue.
+    /// compatibility publication was not acknowledged.
     func scheduleRendererPresentationRepair(surfaceID: UUID) {
         guard let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID) else { return }
         surface.retryRendererPresentationAfterActivity()
@@ -133,9 +133,9 @@ final class RendererRealizationController {
         // Keep currently-visible surfaces ranked at the top of the warm set, and
         // ensure every visible renderer has completed presentation. This covers
         // both a reclaimed renderer and a hidden-at-birth renderer whose first
-        // release/realize enqueue dropped. Presentation repair remains active
-        // even when reclamation is disabled because visible rendering must not
-        // depend on a memory-saving preference.
+        // release/realize publication was not acknowledged. Presentation repair
+        // remains active even when reclamation is disabled because visible
+        // rendering must not depend on a memory-saving preference.
         for surface in surfaces where surface.isRendererPortalVisible {
             surface.noteBecameVisibleForRendererReclamation()
             if surface.hasLiveSurface, !surface.isRendererPresented {
@@ -169,8 +169,8 @@ final class RendererRealizationController {
             if surface.releaseRenderer() {
                 reclaimedCount += 1
             }
-            // A dropped Ghostty mailbox enqueue leaves the renderer realized.
-            // Retry with the pressure policy; scheduled policy may keep recent
+            // A compatibility rejection leaves the renderer realized. Retry
+            // with the pressure policy; scheduled policy may keep recent
             // hidden surfaces warm and skip the exact surface pressure selected.
             if trigger == .systemMemoryPressure,
                !surface.isRendererPortalVisible,

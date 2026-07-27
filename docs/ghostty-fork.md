@@ -12,14 +12,13 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `af4dfb43f`, the reviewed head of
-https://github.com/manaflow-ai/ghostty/pull/152. It adds teardown-safe action
-lease release on top of transactional menu-owned key binding consumption and
-modifier-independent paired-release tracking from
-https://github.com/manaflow-ai/ghostty/pull/151, based on the current
-`manaflow-ai/ghostty` `main`, including the synchronous embedder teardown from
-https://github.com/manaflow-ai/ghostty/pull/146 and the render-grid work from
-https://github.com/manaflow-ai/ghostty/pull/147.
+The submodule pinned by this branch is `517a4c75a`, the head of
+https://github.com/manaflow-ai/ghostty/pull/153. It adds lossless hidden-tab
+renderer reclamation on top of the teardown-safe action lease release from
+https://github.com/manaflow-ai/ghostty/pull/152, transactional menu-owned key
+binding consumption and modifier-independent paired-release tracking from
+https://github.com/manaflow-ai/ghostty/pull/151, and the current
+`manaflow-ai/ghostty` `main`.
 
 `4cc0933cf` adds the screen-anchored render-grid export for the iOS
 local-scrollback scroll work: `buildRenderGridJson` gains an active-area
@@ -58,9 +57,39 @@ and the product-main renderer/link fixes described below. It also bounds each
 renderer mailbox drain turn so continuous producers cannot starve lifecycle
 processing or rendering.
 
-The pinned `af4dfb43f` universal ReleaseFast GhosttyKit archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-af4dfb43ff9d1dffe8c1b49b5c1e1ce31d05e9ce-crashsubdir-cmux-crash-v1
+The pinned `517a4c75a` universal ReleaseFast GhosttyKit archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-517a4c75ade201eae5d362cdde75196a4011ade1-crashsubdir-cmux-crash-v1
 and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
+
+### Hidden macOS renderer reclamation
+
+- Pull request:
+  - https://github.com/manaflow-ai/ghostty/pull/153
+- Commits:
+  - `1de584d1e` (test: require lossless renderer realization requests)
+  - `517a4c75a` (renderer: reclaim hidden macOS tab GPU memory)
+- Files:
+  - `include/ghostty.h`
+  - `macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift`
+  - `macos/Sources/Ghostty/Surface View/SurfaceView.swift`
+  - `src/apprt/embedded.zig`
+  - `src/renderer.zig`
+  - `src/renderer/Thread.zig`
+  - `src/renderer/metal/IOSurfaceLayer.zig`
+  - `src/renderer/metal/SwapChain.zig`
+- Summary:
+  - Reclaims a hidden native tab's renderer after five seconds while retaining
+    its PTY, terminal state, scrollback, and surface.
+  - Publishes renderer realization through an idempotent atomic latest-value
+    slot, preserving the newest request when the renderer mailbox is full.
+  - Drains outstanding frame leases and detaches the compositor layer before
+    releasing teardown-only Metal resources.
+  - Observes native tab selection directly and treats ambiguous selection as
+    visible, preventing transient AppKit state from reclaiming the active tab.
+  - Conflict note: future renderer lifecycle work must preserve lossless
+    realization publication and conservative tab selection. Do not mark Metal
+    resources purgeable during ordinary resize or replacement, and do not rely
+    only on window occlusion or a bounded mailbox for realization state.
 
 ### Bounded renderer mailbox turns and continuation recovery
 

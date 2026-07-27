@@ -154,7 +154,7 @@ private func rendererReleaseWasOccluded() -> Bool
         #expect(rendererRealizedCalls() == [false, true])
     }
 
-    @Test func failedFirstPresentationWaitsForRendererActivityBeforeSchedulingRepair() {
+    @Test func rejectedFirstPresentationWaitsForRendererActivityBeforeSchedulingRepair() {
         let registry = TerminalSurfaceRegistry()
         let scheduler = FakeRendererRealizationScheduler()
         let surface = makeSurface(registry: registry, rendererRealization: scheduler)
@@ -204,7 +204,7 @@ private func rendererReleaseWasOccluded() -> Bool
         #expect(scheduler.scheduledSurfaceIDs == [surface.id])
     }
 
-    @Test func laterRendererActivityRepairsAfterRepeatedMailboxFailures() {
+    @Test func laterRendererActivityRepairsAfterRepeatedPublicationRejections() {
         let registry = TerminalSurfaceRegistry()
         let scheduler = FakeRendererRealizationScheduler()
         let surface = makeSurface(registry: registry, rendererRealization: scheduler)
