@@ -296,15 +296,34 @@ function sendFeed(eventName: "PreToolUse" | "PostToolUse", ctx: ExtensionContext
     } catch (_) {}
   };
   // Feed telemetry follows the prompt hook that establishes the active turn.
-  const pendingPrompt = promptHookQueues.get(sessionId)?.tail;
-  if (pendingPrompt) void pendingPrompt.then(deliver);
-  else deliver();
+  const queue = promptHookQueues.get(sessionId);
+  if (queue?.closed) return;
+  const prompt = queue?.current;
+  if (prompt) {
+    void prompt.pending.then(() => {
+      if (!prompt.discarded) deliver();
+    });
+  } else {
+    deliver();
+  }
 }
 
 function publishPendingCompletion(ctx: ExtensionContext, sessionId: string): void {
+  const queue = promptHookQueues.get(sessionId);
+  if (queue?.closed) return;
   const completion = settleTurn(sessionId);
   if (!completion) return;
+  const prompt = queue?.current;
   const publish = () => {
+    if (prompt?.discarded) {
+      const state = sessionStates.get(sessionId);
+      if (state?.stopped && !state.activeTurnId) {
+        // Let shutdown publish the terminal stop for the discarded turn.
+        state.activeTurnId = completion.turnId;
+        state.stopped = false;
+      }
+      return;
+    }
     const notificationRouted = sendHook("notification", ctx, {
       message: completion.lastAssistantMessage || "Task completed",
       turn_id: completion.turnId,
@@ -318,8 +337,7 @@ function publishPendingCompletion(ctx: ExtensionContext, sessionId: string): voi
     sendHook("stop", ctx, stopPayload);
   };
   // Completion follows the prompt hook that establishes the active turn.
-  const pendingPrompt = promptHookQueues.get(sessionId)?.tail;
-  if (pendingPrompt) void pendingPrompt.then(publish);
+  if (prompt) void prompt.pending.then(publish);
   else publish();
 }
 
@@ -346,11 +364,17 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     const queue = existingQueue ?? { closed: false, tail: Promise.resolve(true) };
     if (!existingQueue) promptHookQueues.set(sessionId, queue);
     const turnId = beginTurn(sessionId, event);
+    const prompt: PromptHookEntry = { discarded: false, pending: Promise.resolve(true) };
     // Keep prompt hooks ordered without holding Pi's lifecycle callback.
     const pending = queue.tail.then(() => {
-      if (queue.closed) return true;
+      if (queue.closed) {
+        prompt.discarded = true;
+        return true;
+      }
       return sendPromptHookAsync(ctx, { prompt: event.prompt, turn_id: turnId });
     });
+    prompt.pending = pending;
+    queue.current = prompt;
     queue.tail = pending;
     void pending.finally(() => {
       if (!queue.closed && promptHookQueues.get(sessionId) === queue && queue.tail === pending) {

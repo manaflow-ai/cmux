@@ -33,8 +33,14 @@ interface CommandResult {
   error?: unknown;
 }
 
+interface PromptHookEntry {
+  discarded: boolean;
+  pending: Promise<boolean>;
+}
+
 interface PromptHookQueue {
   closed: boolean;
+  current?: PromptHookEntry;
   tail: Promise<boolean>;
 }
 
