@@ -246,6 +246,173 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
         )
     }
 
+    func testCommandReleaseFromAppMonitorDoesNotCreateOrphanTerminalRelease() throws {
+        let terminal = try makeHostedTerminal()
+        defer {
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
+            terminal.window.orderOut(nil)
+        }
+        let appDelegate = try XCTUnwrap(AppDelegate.shared)
+
+        var capturedReleaseCount = 0
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            guard keyEvent.keycode == 8,
+                  keyEvent.action == GHOSTTY_ACTION_RELEASE else {
+                return
+            }
+            capturedReleaseCount += 1
+        }
+
+        let release = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyUp,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: terminal.window.windowNumber,
+            context: nil,
+            characters: "c",
+            charactersIgnoringModifiers: "c",
+            isARepeat: false,
+            keyCode: 8
+        ))
+
+        terminal.window.makeFirstResponder(terminal.surfaceView)
+        withExtendedLifetime(terminal.surface) {
+            XCTAssertFalse(
+                appDelegate.debugHandleShortcutMonitorEvent(event: release),
+                "A Command release without recorded terminal ownership must remain outside the terminal"
+            )
+        }
+        XCTAssertEqual(capturedReleaseCount, 0)
+    }
+
+    func testCommandReleaseFromAppMonitorUsesRecordedOwnerAfterEventWindowChanges() throws {
+        let originalTerminal = try makeHostedTerminal()
+        let eventWindowTerminal = try makeHostedTerminal()
+        defer {
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
+            originalTerminal.window.orderOut(nil)
+            eventWindowTerminal.window.orderOut(nil)
+        }
+        let appDelegate = try XCTUnwrap(AppDelegate.shared)
+
+        originalTerminal.surfaceView.unshiftedCodepointResolver = { event in
+            event.type == .keyUp ? 0x0446 : nil
+        }
+        eventWindowTerminal.surfaceView.unshiftedCodepointResolver = { event in
+            event.type == .keyUp ? 0x0441 : nil
+        }
+
+        var capturedReleaseIdentities: [UInt32] = []
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            guard keyEvent.keycode == 8,
+                  keyEvent.action == GHOSTTY_ACTION_RELEASE else {
+                return
+            }
+            capturedReleaseIdentities.append(keyEvent.unshifted_codepoint)
+        }
+
+        let timestamp = ProcessInfo.processInfo.systemUptime
+        let press = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: timestamp,
+            windowNumber: originalTerminal.window.windowNumber,
+            context: nil,
+            characters: "c",
+            charactersIgnoringModifiers: "c",
+            isARepeat: false,
+            keyCode: 8
+        ))
+        let release = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyUp,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: timestamp + 0.1,
+            windowNumber: eventWindowTerminal.window.windowNumber,
+            context: nil,
+            characters: "с",
+            charactersIgnoringModifiers: "с",
+            isARepeat: false,
+            keyCode: 8
+        ))
+
+        originalTerminal.window.makeFirstResponder(originalTerminal.surfaceView)
+        eventWindowTerminal.window.makeFirstResponder(eventWindowTerminal.surfaceView)
+        withExtendedLifetime((originalTerminal.surface, eventWindowTerminal.surface)) {
+            XCTAssertTrue(
+                originalTerminal.surfaceView.consumeUnavailableCopyMenuAction(press),
+                "The original terminal must record Ghostty's consumed Copy binding"
+            )
+            XCTAssertTrue(
+                appDelegate.debugHandleShortcutMonitorEvent(event: release),
+                "The app-local monitor must deliver the release to the recorded terminal owner"
+            )
+        }
+
+        XCTAssertEqual(
+            capturedReleaseIdentities,
+            ["c".unicodeScalars.first?.value].compactMap { $0 },
+            "Release delivery must retain the original terminal's stable binding identity"
+        )
+    }
+
+    func testTerminalLifecycleResetClearsAppMonitorReleaseOwnership() throws {
+        let terminal = try makeHostedTerminal()
+        defer {
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
+            terminal.window.orderOut(nil)
+        }
+        let appDelegate = try XCTUnwrap(AppDelegate.shared)
+
+        var capturedReleaseCount = 0
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            guard keyEvent.keycode == 8,
+                  keyEvent.action == GHOSTTY_ACTION_RELEASE else {
+                return
+            }
+            capturedReleaseCount += 1
+        }
+
+        let timestamp = ProcessInfo.processInfo.systemUptime
+        let press = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: timestamp,
+            windowNumber: terminal.window.windowNumber,
+            context: nil,
+            characters: "c",
+            charactersIgnoringModifiers: "c",
+            isARepeat: false,
+            keyCode: 8
+        ))
+        let release = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyUp,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: timestamp + 0.1,
+            windowNumber: terminal.window.windowNumber,
+            context: nil,
+            characters: "c",
+            charactersIgnoringModifiers: "c",
+            isARepeat: false,
+            keyCode: 8
+        ))
+
+        terminal.window.makeFirstResponder(terminal.surfaceView)
+        withExtendedLifetime(terminal.surface) {
+            XCTAssertTrue(terminal.surfaceView.consumeUnavailableCopyMenuAction(press))
+            XCTAssertTrue(terminal.window.makeFirstResponder(nil))
+            XCTAssertFalse(
+                appDelegate.debugHandleShortcutMonitorEvent(event: release),
+                "Focus loss must invalidate terminal release ownership before the monitor sees key-up"
+            )
+        }
+        XCTAssertEqual(capturedReleaseCount, 0)
+    }
+
     func testComposingPressForwardsMatchingRelease() throws {
         let terminal = try makeHostedTerminal()
         defer {
