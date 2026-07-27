@@ -309,6 +309,60 @@ class LayoutUndoConfirmationRequired:
 LayoutUndoResult = Union[LayoutUndoUndone, LayoutUndoConfirmationRequired]
 
 
+def _layout_undo_u64(data: Dict[str, Any], field: str) -> int:
+    value = data.get(field)
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or value < 0
+        or value > 2**64 - 1
+    ):
+        raise ProtocolError(
+            f"layout undo {field} must be an unsigned 64-bit integer"
+        )
+    return value
+
+
+def _decode_layout_undo_result(data: Any) -> LayoutUndoResult:
+    if not isinstance(data, dict):
+        raise ProtocolError("layout undo result must be an object")
+    screen = _layout_undo_u64(data, "screen")
+    revision = _layout_undo_u64(data, "revision")
+    undone = data.get("undone")
+    confirmation_required = data.get("confirmation_required")
+
+    if undone is True and (
+        "confirmation_required" not in data or confirmation_required is False
+    ):
+        return LayoutUndoUndone(screen=screen, revision=revision)
+    if undone is False and confirmation_required is True:
+        raw_closes_panes = data.get("closes_panes")
+        if not isinstance(raw_closes_panes, list):
+            raise ProtocolError(
+                "layout undo confirmation closes_panes must be an array of pane IDs"
+            )
+        closes_panes = []
+        for value in raw_closes_panes:
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, int)
+                or value < 0
+                or value > 2**64 - 1
+            ):
+                raise ProtocolError(
+                    "layout undo confirmation closes_panes must be an array of pane IDs"
+                )
+            closes_panes.append(value)
+        return LayoutUndoConfirmationRequired(
+            screen=screen,
+            revision=revision,
+            closes_panes=closes_panes,
+        )
+    raise ProtocolError(
+        "layout undo response does not contain exactly one valid outcome"
+    )
+
+
 @dataclass(frozen=True)
 class WorkspacePlacement:
     workspace: int
@@ -894,28 +948,7 @@ class CmuxClient:
             revision=confirmation_revision,
             confirm_close=True if confirmation_revision is not None else None,
         )
-        if data.get("undone") is True:
-            return LayoutUndoUndone(
-                screen=int(data["screen"]), revision=int(data["revision"])
-            )
-        if data.get("confirmation_required") is True:
-            raw_closes_panes = data.get("closes_panes")
-            if not isinstance(raw_closes_panes, list) or any(
-                isinstance(value, bool)
-                or not isinstance(value, int)
-                or value < 0
-                or value > 2**64 - 1
-                for value in raw_closes_panes
-            ):
-                raise ProtocolError(
-                    "layout undo confirmation closes_panes must be an array of pane IDs"
-                )
-            return LayoutUndoConfirmationRequired(
-                screen=int(data["screen"]),
-                revision=int(data["revision"]),
-                closes_panes=list(raw_closes_panes),
-            )
-        raise ProtocolError("layout undo response has no outcome")
+        return _decode_layout_undo_result(data)
 
     def pane_neighbor(self, pane: int, dir: str) -> Dict[str, Any]:
         return self._request("pane-neighbor", pane=pane, dir=dir)

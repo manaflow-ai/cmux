@@ -1375,6 +1375,8 @@ Undoes the latest structural layout entry on the screen containing `pane`. Histo
 
 If the entry created panes, the first request returns a confirmation preview. The server advances to a unique confirmation revision and binds it to the exact ordered surface membership of every pane in `closes_panes`. The client must show the consequence, then resend that revision with `confirm_close:true`. A later structural change, tab addition, tab removal, tab reorder, tab move, or newer preview invalidates the confirmation. A rejected or stale confirmation closes nothing.
 
+Clients must reject the response unless it contains exactly one complete result variant. The applied variant requires `undone:true`, `screen`, and `revision`, with `confirmation_required` either absent or false. The preview variant requires `undone:false`, `confirmation_required:true`, `screen`, `revision`, and an array of valid pane ids in `closes_panes`. Missing fields, contradictory outcome flags, invalid ids, and non-array `closes_panes` values are protocol errors.
+
 Params:
 
 | Name | JSON type | Required/default | Constraints |

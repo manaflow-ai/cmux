@@ -97,6 +97,48 @@ function validateViewportPaneWidth(width: unknown): asserts width is number {
   }
 }
 
+function layoutUndoUint(value: unknown, field: string): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+    throw new CmuxProtocolError(`layout undo ${field} is not a nonnegative integer`);
+  }
+  return value;
+}
+
+function decodeLayoutUndoResult(value: unknown): LayoutUndoResult {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new CmuxProtocolError("layout undo result is not an object");
+  }
+  const result = value as Record<string, unknown>;
+  const screen = layoutUndoUint(result.screen, "screen");
+  const revision = layoutUndoUint(result.revision, "revision");
+
+  if (
+    result.undone === true
+    && (result.confirmation_required === undefined
+      || result.confirmation_required === false)
+  ) {
+    return { undone: true, screen, revision };
+  }
+  if (result.undone === false && result.confirmation_required === true) {
+    if (!Array.isArray(result.closes_panes)) {
+      throw new CmuxProtocolError("layout undo closes_panes is not an array");
+    }
+    return {
+      undone: false,
+      confirmation_required: true,
+      screen,
+      revision,
+      closes_panes: result.closes_panes.map((pane) => layoutUndoUint(pane, "pane ID")),
+    };
+  }
+  throw new CmuxProtocolError("layout undo result does not contain exactly one valid outcome");
+}
+
+function decodeResponseData(command: CmuxCommand, value: unknown): unknown {
+  if (command === "undo-layout") return decodeLayoutUndoResult(value);
+  return value;
+}
+
 export interface ResizeTransactionOptions {
   /** Reuse across one continuous drag, then choose a new value for the next drag. */
   transaction?: number | null;
@@ -460,7 +502,9 @@ export class CmuxClient {
       ? { cmd: requestOrCommand, ...(params ?? {}) }
       : requestOrCommand;
     const response = await this.sendRaw(request as unknown as JsonObject);
-    if (response.ok) return response.data as CmuxResponseDataFor<C>;
+    if (response.ok) {
+      return decodeResponseData(request.cmd, response.data) as CmuxResponseDataFor<C>;
+    }
     throw new CmuxCommandError(
       response.error || "unknown error",
       response.id,

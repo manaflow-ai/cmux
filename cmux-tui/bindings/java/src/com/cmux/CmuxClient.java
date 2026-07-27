@@ -329,29 +329,39 @@ public final class CmuxClient implements AutoCloseable {
             params.put("revision", confirmationRevision);
             params.put("confirm_close", true);
         }
-        Map<String, Object> data = request("undo-layout", params);
-        long screen = asLong(data.get("screen"));
-        long revision = asLong(data.get("revision"));
-        if (Boolean.TRUE.equals(data.get("undone"))
-            && !Boolean.TRUE.equals(data.get("confirmation_required"))) {
+        return decodeLayoutUndoResult(request("undo-layout", params));
+    }
+
+    private static LayoutUndoResult decodeLayoutUndoResult(Map<String, Object> data)
+        throws CmuxDecodeException {
+        long screen = layoutUndoU64(data.get("screen"), "screen");
+        long revision = layoutUndoU64(data.get("revision"), "revision");
+        Object undone = data.get("undone");
+        Object confirmationRequired = data.get("confirmation_required");
+        if (Boolean.TRUE.equals(undone)
+            && (!data.containsKey("confirmation_required")
+                || Boolean.FALSE.equals(confirmationRequired))) {
             return new LayoutUndoUndone(screen, revision);
         }
-        if (!Boolean.TRUE.equals(data.get("undone"))
-            && Boolean.TRUE.equals(data.get("confirmation_required"))) {
+        if (Boolean.FALSE.equals(undone)
+            && Boolean.TRUE.equals(confirmationRequired)) {
             Object rawPanes = data.get("closes_panes");
             if (!(rawPanes instanceof List<?> panes)) {
                 throw new CmuxDecodeException(
-                    "layout undo confirmation omitted closes_panes",
+                    "layout undo confirmation closes_panes must be an array of pane IDs",
                     null
                 );
             }
             List<Long> closesPanes = new ArrayList<>();
             for (Object value : panes) {
-                closesPanes.add(asLong(value));
+                closesPanes.add(layoutUndoU64(value, "pane ID"));
             }
             return new LayoutUndoConfirmationRequired(screen, revision, List.copyOf(closesPanes));
         }
-        throw new CmuxDecodeException("layout undo response has no unique outcome", null);
+        throw new CmuxDecodeException(
+            "layout undo response does not contain exactly one valid outcome",
+            null
+        );
     }
 
     public void setDefaultColors(String fg, String bg) throws CmuxException {
@@ -638,6 +648,27 @@ public final class CmuxClient implements AutoCloseable {
             return number.longValue();
         }
         return Long.parseLong(String.valueOf(value));
+    }
+
+    private static long layoutUndoU64(Object value, String field)
+        throws CmuxDecodeException {
+        if (!(value instanceof Byte
+            || value instanceof Short
+            || value instanceof Integer
+            || value instanceof Long)) {
+            throw new CmuxDecodeException(
+                "layout undo " + field + " must be a nonnegative integer",
+                null
+            );
+        }
+        long decoded = ((Number) value).longValue();
+        if (decoded < 0) {
+            throw new CmuxDecodeException(
+                "layout undo " + field + " must be a nonnegative integer",
+                null
+            );
+        }
+        return decoded;
     }
 
     static boolean idsEqual(Object left, Object right) {

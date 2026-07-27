@@ -427,6 +427,7 @@ class ProtocolTests(unittest.TestCase):
         client._protocol = 10
         client._capabilities = {"layout-undo-v1"}
         responses = (
+            [],
             {
                 "undone": False,
                 "confirmation_required": True,
@@ -473,6 +474,12 @@ class ProtocolTests(unittest.TestCase):
                 "screen": 3,
                 "revision": -1,
                 "closes_panes": [15],
+            },
+            {
+                "undone": True,
+                "confirmation_required": None,
+                "screen": 3,
+                "revision": 8,
             },
         )
 

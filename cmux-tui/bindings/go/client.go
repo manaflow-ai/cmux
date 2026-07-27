@@ -48,6 +48,46 @@ func validateViewportPaneWidth(width float32) error {
 	return nil
 }
 
+type layoutUndoWire struct {
+	Undone               *bool     `json:"undone"`
+	ConfirmationRequired *bool     `json:"confirmation_required"`
+	Screen               *uint64   `json:"screen"`
+	Revision             *uint64   `json:"revision"`
+	ClosesPanes          *[]uint64 `json:"closes_panes"`
+}
+
+func decodeLayoutUndoResult(wire layoutUndoWire) (LayoutUndoResult, error) {
+	if wire.Screen == nil {
+		return nil, &decodeError{msg: "layout undo response omitted screen"}
+	}
+	if wire.Revision == nil {
+		return nil, &decodeError{msg: "layout undo response omitted revision"}
+	}
+
+	switch {
+	case wire.Undone != nil &&
+		*wire.Undone &&
+		(wire.ConfirmationRequired == nil || !*wire.ConfirmationRequired):
+		return LayoutUndoUndone{Screen: *wire.Screen, Revision: *wire.Revision}, nil
+	case wire.Undone != nil &&
+		!*wire.Undone &&
+		wire.ConfirmationRequired != nil &&
+		*wire.ConfirmationRequired:
+		if wire.ClosesPanes == nil {
+			return nil, &decodeError{
+				msg: "layout undo confirmation closes_panes must be an array of pane IDs",
+			}
+		}
+		return LayoutUndoConfirmationRequired{
+			Screen: *wire.Screen, Revision: *wire.Revision, ClosesPanes: *wire.ClosesPanes,
+		}, nil
+	default:
+		return nil, &decodeError{
+			msg: "layout undo response does not contain exactly one valid outcome",
+		}
+	}
+}
+
 type CommandError struct {
 	Message   string
 	ID        any
@@ -545,31 +585,11 @@ func (c *Client) UndoLayout(ctx context.Context, pane uint64, confirmationRevisi
 		params["revision"] = *confirmationRevision
 		params["confirm_close"] = true
 	}
-	var wire struct {
-		Undone               bool      `json:"undone"`
-		ConfirmationRequired bool      `json:"confirmation_required"`
-		Screen               uint64    `json:"screen"`
-		Revision             uint64    `json:"revision"`
-		ClosesPanes          *[]uint64 `json:"closes_panes"`
-	}
+	var wire layoutUndoWire
 	if err := c.request(ctx, "undo-layout", params, &wire); err != nil {
 		return nil, err
 	}
-	switch {
-	case wire.Undone && !wire.ConfirmationRequired:
-		return LayoutUndoUndone{Screen: wire.Screen, Revision: wire.Revision}, nil
-	case !wire.Undone && wire.ConfirmationRequired:
-		if wire.ClosesPanes == nil {
-			return nil, &decodeError{
-				msg: "layout undo confirmation closes_panes must be an array of pane IDs",
-			}
-		}
-		return LayoutUndoConfirmationRequired{
-			Screen: wire.Screen, Revision: wire.Revision, ClosesPanes: *wire.ClosesPanes,
-		}, nil
-	default:
-		return nil, &decodeError{msg: "layout undo response has no unique outcome"}
-	}
+	return decodeLayoutUndoResult(wire)
 }
 
 func (c *Client) SetDefaultColors(ctx context.Context, fg, bg *string) error {

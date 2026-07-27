@@ -1013,48 +1013,10 @@ impl Session {
                         "confirm_close": confirm_close,
                     }))
                     .map_err(normalize_remote_layout_undo_error)?;
-                let screen =
-                    result.get("screen").and_then(serde_json::Value::as_u64).ok_or_else(|| {
-                        anyhow::anyhow!(
-                            crate::localization::catalog().layout.layout_undo_missing_screen
-                        )
-                    })?;
-                let revision = result
-                    .get("revision")
-                    .and_then(serde_json::Value::as_u64)
-                    .ok_or_else(|| {
-                        anyhow::anyhow!(
-                            crate::localization::catalog().layout.layout_undo_missing_revision
-                        )
-                    })?;
-                if result.get("undone").and_then(serde_json::Value::as_bool) == Some(true) {
-                    return Ok(LayoutUndoResult::Undone { screen, revision });
-                }
-                if result.get("confirmation_required").and_then(serde_json::Value::as_bool)
-                    != Some(true)
-                {
-                    anyhow::bail!(
-                        crate::localization::catalog().layout.layout_undo_missing_outcome
-                    );
-                }
-                let closes_panes = result
-                    .get("closes_panes")
-                    .and_then(serde_json::Value::as_array)
-                    .ok_or_else(|| {
-                        anyhow::anyhow!(
-                            crate::localization::catalog().layout.layout_undo_missing_closes_panes
-                        )
-                    })?
-                    .iter()
-                    .map(|value| {
-                        value.as_u64().ok_or_else(|| {
-                            anyhow::anyhow!(
-                                crate::localization::catalog().layout.layout_undo_invalid_pane
-                            )
-                        })
-                    })
-                    .collect::<anyhow::Result<Vec<_>>>()?;
-                Ok(LayoutUndoResult::ConfirmationRequired { screen, revision, closes_panes })
+                crate::layout_undo::decode_layout_undo_result(
+                    &result,
+                    &crate::localization::catalog().layout,
+                )
             }
         }
     }

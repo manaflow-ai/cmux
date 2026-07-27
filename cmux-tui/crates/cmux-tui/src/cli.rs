@@ -8,7 +8,7 @@ use cmux_tui_core::server::{
     CLEAR_HISTORY_CAPABILITY, LAYOUT_UNDO_CAPABILITY, VIEWPORT_COLUMN_RESIZE_CAPABILITY,
     VIEWPORT_SPLITS_CAPABILITY,
 };
-use cmux_tui_core::{LayoutRatioError, LayoutUndoError, ViewportWidthError};
+use cmux_tui_core::{LayoutRatioError, LayoutUndoError, LayoutUndoResult, ViewportWidthError};
 use serde_json::{Value, json};
 
 use crate::localization::{Catalog, LayoutMessages};
@@ -20,6 +20,7 @@ const CLIENT_SIZING_PROTOCOL: u64 = 10;
 
 type BuildFn = fn(&FlagMap) -> Result<Value, UsageError>;
 type PrintFn = fn(&Value, &mut dyn Write) -> io::Result<()>;
+type ValidateFn = fn(&Value) -> io::Result<()>;
 type LocalFn = fn(&GlobalArgs, &FlagMap) -> i32;
 
 #[derive(Debug)]
@@ -74,7 +75,7 @@ impl HelpText {
 
 #[derive(Clone, Copy)]
 enum VerbKind {
-    Socket { build: BuildFn, print: PrintFn, stream: bool },
+    Socket { build: BuildFn, print: PrintFn, validate: Option<ValidateFn>, stream: bool },
     Local(LocalFn),
 }
 
@@ -293,7 +294,7 @@ const VERBS: &[VerbSpec] = &[
         name: "undo-layout",
         help: HelpText::UndoLayout,
         allowed: &["pane", "revision", "confirm-close"],
-        kind: socket(build_undo_layout, print_layout_undo, false),
+        kind: validated_socket(build_undo_layout, print_layout_undo, validate_layout_undo, false),
     },
     VerbSpec {
         name: "pane-neighbor",
@@ -454,7 +455,16 @@ const VERBS: &[VerbSpec] = &[
 ];
 
 const fn socket(build: BuildFn, print: PrintFn, stream: bool) -> VerbKind {
-    VerbKind::Socket { build, print, stream }
+    VerbKind::Socket { build, print, validate: None, stream }
+}
+
+const fn validated_socket(
+    build: BuildFn,
+    print: PrintFn,
+    validate: ValidateFn,
+    stream: bool,
+) -> VerbKind {
+    VerbKind::Socket { build, print, validate: Some(validate), stream }
 }
 
 pub fn is_cli_invocation(args: &[String]) -> bool {
@@ -611,8 +621,8 @@ fn verb_by_name(name: &str) -> Option<&'static VerbSpec> {
 }
 
 fn run_command(args: CliArgs) -> i32 {
-    let (build, print, stream_mode) = match args.verb.kind {
-        VerbKind::Socket { build, print, stream } => (build, print, stream),
+    let (build, print, validate, stream_mode) = match args.verb.kind {
+        VerbKind::Socket { build, print, validate, stream } => (build, print, validate, stream),
         VerbKind::Local(run) => return run(&args.global, &args.flags),
     };
     let request = match build(&args.flags) {
@@ -675,7 +685,7 @@ fn run_command(args: CliArgs) -> i32 {
     if stream_mode {
         run_stream(reader)
     } else {
-        run_one_response(&mut reader, args.global.json, print)
+        run_one_response(&mut reader, args.global.json, print, validate)
     }
 }
 
@@ -814,6 +824,7 @@ fn run_one_response(
     reader: &mut BufReader<Box<dyn transport::Stream>>,
     json_output: bool,
     print_human: PrintFn,
+    validate: Option<ValidateFn>,
 ) -> i32 {
     loop {
         let mut line = String::new();
@@ -838,7 +849,7 @@ fn run_one_response(
         if value.get("event").is_some() {
             continue;
         }
-        return print_response(&value, json_output, print_human);
+        return print_response(&value, json_output, print_human, validate);
     }
 }
 
@@ -901,13 +912,24 @@ fn run_stream(mut reader: BufReader<Box<dyn transport::Stream>>) -> i32 {
     }
 }
 
-fn print_response(value: &Value, json_output: bool, print_human: PrintFn) -> i32 {
+fn print_response(
+    value: &Value,
+    json_output: bool,
+    print_human: PrintFn,
+    validate: Option<ValidateFn>,
+) -> i32 {
     if value.get("ok").and_then(Value::as_bool) != Some(true) {
         let error = localized_response_error(value);
         eprintln!("{error}");
         return 1;
     }
     let data = value.get("data").unwrap_or(&Value::Null);
+    if let Some(validate) = validate
+        && let Err(error) = validate(data)
+    {
+        eprintln!("{error}");
+        return 3;
+    }
     let mut stdout = io::stdout();
     let result = if json_output {
         serde_json::to_writer(&mut stdout, data)
@@ -1670,26 +1692,26 @@ fn print_surface(data: &Value, out: &mut dyn Write) -> io::Result<()> {
     writeln!(out, "{}", data.get("surface").and_then(Value::as_u64).unwrap_or(0))
 }
 
+fn decode_layout_undo(data: &Value) -> io::Result<LayoutUndoResult> {
+    crate::layout_undo::decode_layout_undo_result(data, &crate::localization::catalog().layout)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))
+}
+
+fn validate_layout_undo(data: &Value) -> io::Result<()> {
+    decode_layout_undo(data).map(|_| ())
+}
+
 fn print_layout_undo(data: &Value, out: &mut dyn Write) -> io::Result<()> {
-    let screen = data.get("screen").and_then(Value::as_u64).unwrap_or(0);
-    let revision = data.get("revision").and_then(Value::as_u64).unwrap_or(0);
     let messages = &crate::localization::catalog().layout;
-    if data.get("undone").and_then(Value::as_bool) == Some(true) {
-        return writeln!(out, "{}", messages.layout_undo_applied(screen, revision));
+    match decode_layout_undo(data)? {
+        LayoutUndoResult::Undone { screen, revision } => {
+            writeln!(out, "{}", messages.layout_undo_applied(screen, revision))
+        }
+        LayoutUndoResult::ConfirmationRequired { revision, closes_panes, .. } => {
+            let panes = closes_panes.iter().map(u64::to_string).collect::<Vec<_>>().join(",");
+            writeln!(out, "{}", messages.layout_undo_confirmation_required(revision, &panes))
+        }
     }
-    let panes = data
-        .get("closes_panes")
-        .and_then(Value::as_array)
-        .map(|panes| {
-            panes
-                .iter()
-                .filter_map(Value::as_u64)
-                .map(|pane| pane.to_string())
-                .collect::<Vec<_>>()
-                .join(",")
-        })
-        .unwrap_or_default();
-    writeln!(out, "{}", messages.layout_undo_confirmation_required(revision, &panes))
 }
 
 fn print_notification(data: &Value, out: &mut dyn Write) -> io::Result<()> {

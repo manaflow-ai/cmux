@@ -12,6 +12,7 @@ mod cli;
 mod config;
 mod host_colors;
 mod keys;
+mod layout_undo;
 mod localization;
 mod machine;
 #[cfg(unix)]

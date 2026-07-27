@@ -392,10 +392,8 @@ impl<'de> Deserialize<'de> for LayoutUndoResult {
     {
         #[derive(Deserialize)]
         struct Wire {
-            #[serde(default)]
-            undone: bool,
-            #[serde(default)]
-            confirmation_required: bool,
+            undone: Option<bool>,
+            confirmation_required: Option<bool>,
             screen: u64,
             revision: u64,
             closes_panes: Option<Vec<u64>>,
@@ -403,8 +401,10 @@ impl<'de> Deserialize<'de> for LayoutUndoResult {
 
         let wire = Wire::deserialize(deserializer)?;
         match (wire.undone, wire.confirmation_required) {
-            (true, false) => Ok(Self::Undone { screen: wire.screen, revision: wire.revision }),
-            (false, true) => Ok(Self::ConfirmationRequired {
+            (Some(true), None | Some(false)) => {
+                Ok(Self::Undone { screen: wire.screen, revision: wire.revision })
+            }
+            (Some(false), Some(true)) => Ok(Self::ConfirmationRequired {
                 screen: wire.screen,
                 revision: wire.revision,
                 closes_panes: wire.closes_panes.ok_or_else(|| {
@@ -413,7 +413,9 @@ impl<'de> Deserialize<'de> for LayoutUndoResult {
                     )
                 })?,
             }),
-            _ => Err(serde::de::Error::custom("layout undo response has no unique outcome")),
+            _ => Err(serde::de::Error::custom(
+                "layout undo response does not contain exactly one valid outcome",
+            )),
         }
     }
 }

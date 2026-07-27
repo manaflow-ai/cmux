@@ -31,7 +31,7 @@ SDKs must treat `layout.split` and `set-split-ratio` as protocol-v8 features. A 
 
 ## Protocol v9 SDK Expectations
 
-SDKs must treat stack layout nodes and `new-pane` as protocol-v9 features. `new-pane` must fail locally before sending when the identified server reports protocol 8 or older. `undo-layout` is separately gated by `layout-undo-v1`; bindings must expose the confirmation result and require callers to pass its exact revision before setting `confirm_close`.
+SDKs must treat stack layout nodes and `new-pane` as protocol-v9 features. `new-pane` must fail locally before sending when the identified server reports protocol 8 or older. `undo-layout` is separately gated by `layout-undo-v1`; bindings must expose the confirmation result and require callers to pass its exact revision before setting `confirm_close`. A binding must reject an `undo-layout` response unless it contains exactly one complete result variant. It must not coerce missing ids to zero, missing `closes_panes` to an empty array, or invalid pane ids into valid values.
 
 SDKs must expose `clear-history` as a typed method and fail locally before sending when the identified server omits `clear-history-v1`. They must expose `TerminalKeyInput` and `TerminalModifiers` as typed values, preserve every `fallback_key` field, and fail locally before sending a fallback when the server omits `clear-history-key-v1` or its `utf8` field exceeds 4 KiB of UTF-8.
 
