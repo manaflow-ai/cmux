@@ -244,6 +244,40 @@ describe("render model", () => {
     });
   });
 
+  it("bounds encoded image payloads across every model in one app root", () => {
+    const encodedBudget = {};
+    const budgetedApplySnapshot = applySnapshot as unknown as (
+      event: RenderStateEvent,
+      budget: object,
+      owner: object,
+    ) => ReturnType<typeof applySnapshot>;
+    const data = `${"A".repeat(13_333_334)}==`;
+    const image: RenderGraphicImage = {
+      id: 1,
+      generation: 1,
+      width: 2_500_000,
+      height: 1,
+      format: "rgba",
+      data,
+    };
+
+    const models = Array.from({ length: 7 }, () =>
+      budgetedApplySnapshot(
+        snapshot([], { generation: 1, images: [image], placements: [] }),
+        encodedBudget,
+        {},
+      )
+    );
+    const retained = models.reduce(
+      (total, model) =>
+        total + model.graphics.images.reduce((sum, candidate) => sum + candidate.data.length, 0),
+      0,
+    );
+
+    expect(retained).toBeLessThanOrEqual(64 * 1024 * 1024);
+    expect(models.some((model) => model.graphics.images.length === 0)).toBe(true);
+  });
+
   it("rejects snapshots whose retained images exceed the decoded byte budget", () => {
     const image = (id: number): RenderGraphicImage => ({
       id,

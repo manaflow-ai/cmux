@@ -8528,6 +8528,56 @@ mod tests {
     }
 
     #[test]
+    fn unchanged_cell_pixel_result_must_match_the_requested_metric() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        *mux.cell_pixel_operation.lock().unwrap() =
+            Some(Arc::new(|_, _, _| Ok(None)));
+
+        let update = mux.set_cell_pixel_size(9, 18);
+
+        assert!(update.resizes.is_empty());
+        assert_eq!(update.failures.len(), 1);
+        assert_eq!(update.failures[0].surface, surface.id);
+        assert!(
+            update.failures[0].error.contains("did not converge"),
+            "unexpected failure: {}",
+            update.failures[0].error
+        );
+        assert_eq!(mux.cell_pixel_size(), (8, 16));
+        assert_eq!(surface.test_cell_pixel_size(), (8, 16));
+    }
+
+    #[test]
+    fn kitty_image_storage_and_copied_pixels_share_one_process_budget() {
+        const PROCESS_BUDGET: u64 = 64 * 1024 * 1024;
+        const PERSISTENT_COPIES_PER_SURFACE: u64 = 4;
+
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let mut surfaces = vec![first];
+        for _ in 1..8 {
+            surfaces.push(mux.new_tab(Some(pane), None, Some((80, 24))).unwrap());
+        }
+
+        let configured = surfaces
+            .iter()
+            .map(|surface| {
+                surface
+                    .with_terminal(|terminal| terminal.kitty_image_storage_limit().unwrap())
+                    .unwrap()
+            })
+            .sum::<u64>();
+
+        assert!(
+            configured.saturating_mul(PERSISTENT_COPIES_PER_SURFACE) <= PROCESS_BUDGET,
+            "per-terminal limits allow {} bytes across native screen storage and copied caches",
+            configured.saturating_mul(PERSISTENT_COPIES_PER_SURFACE)
+        );
+    }
+
+    #[test]
     fn cell_pixel_fanout_runs_concurrently_with_one_shared_deadline() {
         let items = (0..8).collect::<Vec<_>>();
         let active = AtomicUsize::new(0);

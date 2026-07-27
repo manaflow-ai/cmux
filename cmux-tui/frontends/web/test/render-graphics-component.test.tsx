@@ -455,6 +455,66 @@ describe("RenderGraphics canvas resource policy", () => {
     expect(viewportColumnReads).toBeLessThanOrEqual(RENDER_GRAPHIC_CANVAS_COUNT_CAP * 2);
   });
 
+  it("prunes every placement for an image rejected by the decoded-byte budget", () => {
+    class PausedWorker {
+      onmessage: ((event: MessageEvent<RenderGraphicsDecodeResponse>) => void) | null = null;
+      onerror: ((event: ErrorEvent) => void) | null = null;
+      onmessageerror: ((event: MessageEvent) => void) | null = null;
+      postMessage(): void {}
+      terminate(): void {}
+    }
+    vi.stubGlobal("Worker", PausedWorker);
+    const decodedBytes = 10_000_000;
+    const data = zeroBytesBase64(decodedBytes);
+    const image = (id: number) => ({
+      id,
+      generation: 1,
+      width: decodedBytes / 4,
+      height: 1,
+      format: "rgba" as const,
+      data,
+    });
+    const admitted: RenderGraphicsModel = {
+      generation: 1,
+      images: Array.from({ length: 6 }, (_, index) => image(index + 1)),
+      placements: Array.from(
+        { length: 6 },
+        (_, index) => ({ ...placement(index + 1, 1, 1, 2), image_id: index + 1 }),
+      ),
+    };
+    let sourceReads = 0;
+    const rejectedPlacements = Array.from({ length: 16_384 }, (_, index) => {
+      const candidate = { ...placement(index + 1, 1, 1, 1), image_id: 7 };
+      Object.defineProperty(candidate, "source_x", {
+        configurable: true,
+        enumerable: true,
+        get: () => {
+          sourceReads += 1;
+          return 0;
+        },
+      });
+      return candidate;
+    });
+    const rejected: RenderGraphicsModel = {
+      generation: 1,
+      images: [image(7)],
+      placements: rejectedPlacements,
+    };
+
+    render(
+      <>
+        <RenderGraphics graphics={admitted}>
+          <div>admitted terminal</div>
+        </RenderGraphics>
+        <RenderGraphics graphics={rejected}>
+          <div>rejected terminal</div>
+        </RenderGraphics>
+      </>,
+    );
+
+    expect(sourceReads).toBeLessThanOrEqual(8);
+  });
+
   it("shares one backing budget across terminal surfaces and releases it on unmount", async () => {
     const width = 1_024;
     const height = 1_024;
