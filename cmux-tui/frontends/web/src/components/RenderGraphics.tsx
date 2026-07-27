@@ -414,12 +414,14 @@ function RenderGraphicCanvas({ decoded, placement }: RenderGraphicCanvasProps) {
     if (canvas === null || typeof ImageData === "undefined") return;
     const context = canvas.getContext("2d");
     if (context === null) return;
+    const source = placement.source;
+    canvas.width = source.width;
+    canvas.height = source.height;
     const pixels = new ImageData(
       decoded.pixels,
       decoded.image.width,
       decoded.image.height,
     );
-    const source = placement.source;
     context.clearRect(0, 0, canvas.width, canvas.height);
     context.putImageData(
       pixels,

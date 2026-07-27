@@ -1175,11 +1175,21 @@ pub(crate) fn finish_startup_input(
 fn parse_one_input_event(bytes: &[u8]) -> Option<(crossterm::event::Event, usize)> {
     let minimum = usize::from(bytes.first() == Some(&b'\x1b') && bytes.len() > 1) + 1;
     for end in minimum..=bytes.len() {
-        let Ok(Some(event)) = terminput::Event::parse_from(&bytes[..end]) else { continue };
-        let Ok(event) = terminput_crossterm::to_crossterm(event) else { continue };
+        let Some(event) = parse_startup_input_event(&bytes[..end]) else { continue };
         return Some((event, end));
     }
     None
+}
+
+#[cfg(unix)]
+fn parse_startup_input_event(bytes: &[u8]) -> Option<crossterm::event::Event> {
+    crossterm::event::parse_event_from_bytes(bytes, true).ok().flatten()
+}
+
+#[cfg(not(unix))]
+fn parse_startup_input_event(bytes: &[u8]) -> Option<crossterm::event::Event> {
+    let event = terminput::Event::parse_from(bytes).ok().flatten()?;
+    terminput_crossterm::to_crossterm(event).ok()
 }
 
 #[cfg(test)]

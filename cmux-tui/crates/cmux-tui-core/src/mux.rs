@@ -6,7 +6,7 @@ use std::fmt;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender};
-use std::sync::{Arc, Mutex, MutexGuard, Weak};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, Weak};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::Context;
@@ -43,6 +43,9 @@ const WORKSPACE_NAME_MAX_BYTES: usize = 1_024;
 const PROVIDER_WORKSPACE_AUTHORITY_MIN_BYTES: usize = 32;
 const PROVIDER_WORKSPACE_AUTHORITY_MAX_BYTES: usize = 512;
 const CELL_PIXEL_FANOUT_MAX_WORKERS: usize = 32;
+const DEADLINE_FANOUT_QUEUE_CAPACITY: usize = CELL_PIXEL_FANOUT_MAX_WORKERS * 8;
+const KITTY_IMAGE_BUDGET_RETRY_INITIAL: Duration = Duration::from_millis(25);
+const KITTY_IMAGE_BUDGET_RETRY_MAX: Duration = Duration::from_secs(1);
 pub(crate) const RENDER_ATTACHMENT_LIMIT: usize = 64;
 const KITTY_IMAGE_PROCESS_BUDGET_BYTES: u64 = 128 * 1024 * 1024;
 // libghostty owns independent primary and alternate screen stores. cmux also
@@ -278,74 +281,133 @@ pub(crate) fn clamp_terminal_size(cols: u16, rows: u16) -> (u16, u16) {
     (cols.clamp(1, TERMINAL_DIMENSION_MAX), rows.clamp(1, TERMINAL_DIMENSION_MAX))
 }
 
-fn bounded_deadline_map<T, R, F>(items: &[T], deadline: Instant, operation: F) -> Vec<Option<R>>
+type DeadlineFanoutJob = Box<dyn FnOnce() + Send + 'static>;
+
+struct DeadlineFanoutPool {
+    sender: SyncSender<DeadlineFanoutJob>,
+    permits: Arc<AtomicUsize>,
+}
+
+struct DeadlineFanoutPermit(Arc<AtomicUsize>);
+
+impl Drop for DeadlineFanoutPermit {
+    fn drop(&mut self) {
+        self.0.fetch_add(1, Ordering::Release);
+    }
+}
+
+impl DeadlineFanoutPool {
+    fn new() -> Option<Self> {
+        let (sender, receiver) =
+            std::sync::mpsc::sync_channel::<DeadlineFanoutJob>(DEADLINE_FANOUT_QUEUE_CAPACITY);
+        let receiver = Arc::new(Mutex::new(receiver));
+        let mut worker_count = 0;
+        for index in 0..CELL_PIXEL_FANOUT_MAX_WORKERS {
+            let receiver = receiver.clone();
+            let spawned = std::thread::Builder::new().name(format!("mux-deadline-{index}")).spawn(
+                move || {
+                    loop {
+                        let job = {
+                            let Ok(receiver) = receiver.lock() else { return };
+                            receiver.recv()
+                        };
+                        let Ok(job) = job else { return };
+                        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(job));
+                    }
+                },
+            );
+            match spawned {
+                Ok(_) => worker_count += 1,
+                Err(_) => break,
+            }
+        }
+        (worker_count > 0)
+            .then(|| Self { sender, permits: Arc::new(AtomicUsize::new(worker_count)) })
+    }
+
+    fn submit(&self, job: DeadlineFanoutJob) -> bool {
+        if self
+            .permits
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |available| available.checked_sub(1))
+            .is_err()
+        {
+            return false;
+        }
+        let permits = self.permits.clone();
+        if self
+            .sender
+            .try_send(Box::new(move || {
+                let _permit = DeadlineFanoutPermit(permits);
+                job();
+            }))
+            .is_ok()
+        {
+            true
+        } else {
+            self.permits.fetch_add(1, Ordering::Release);
+            false
+        }
+    }
+}
+
+fn deadline_fanout_pool() -> Option<&'static DeadlineFanoutPool> {
+    static POOL: OnceLock<Option<DeadlineFanoutPool>> = OnceLock::new();
+    POOL.get_or_init(DeadlineFanoutPool::new).as_ref()
+}
+
+enum DeadlineMapResult<R> {
+    Complete(R),
+    Pending,
+    Unscheduled,
+}
+
+fn bounded_deadline_map<T, R, F>(
+    items: &[T],
+    deadline: Instant,
+    operation: F,
+) -> Vec<DeadlineMapResult<R>>
 where
-    T: Sync,
-    R: Send,
-    F: Fn(&T, Instant) -> R + Sync,
+    T: Clone + Send + 'static,
+    R: Send + 'static,
+    F: Fn(&T, Instant) -> R + Send + Sync + 'static,
 {
     if items.is_empty() {
         return Vec::new();
     }
 
-    let next = AtomicUsize::new(0);
+    let mut ordered = std::iter::repeat_with(|| DeadlineMapResult::Unscheduled)
+        .take(items.len())
+        .collect::<Vec<_>>();
+    let Some(pool) = deadline_fanout_pool() else { return ordered };
+    let operation = Arc::new(operation);
     let (sender, receiver) = std::sync::mpsc::channel();
-    std::thread::scope(|scope| {
-        for _ in 0..items.len().min(CELL_PIXEL_FANOUT_MAX_WORKERS) {
-            let sender = sender.clone();
-            let operation = &operation;
-            let next = &next;
-            scope.spawn(move || {
-                loop {
-                    if Instant::now() >= deadline {
-                        break;
-                    }
-                    let index = next.fetch_add(1, Ordering::Relaxed);
-                    let Some(item) = items.get(index) else { break };
-                    if sender.send((index, operation(item, deadline))).is_err() {
-                        break;
-                    }
-                }
-            });
+    let mut submitted = 0;
+    for (index, item) in items.iter().cloned().enumerate() {
+        let sender = sender.clone();
+        let operation = operation.clone();
+        if pool.submit(Box::new(move || {
+            let _ = sender.send((index, operation(&item, deadline)));
+        })) {
+            submitted += 1;
+            ordered[index] = DeadlineMapResult::Pending;
         }
-    });
+    }
     drop(sender);
 
-    let mut ordered = std::iter::repeat_with(|| None).take(items.len()).collect::<Vec<_>>();
-    for (index, result) in receiver {
-        ordered[index] = Some(result);
-    }
-    ordered
-}
-
-fn bounded_retry_map<T, R, F>(items: &[T], timeout: Duration, operation: F) -> Vec<R>
-where
-    T: Sync,
-    R: Send,
-    F: Fn(&T, Instant) -> R + Sync,
-{
-    debug_assert!(items.len() <= CELL_PIXEL_FANOUT_MAX_WORKERS);
-    let (sender, receiver) = std::sync::mpsc::channel();
-    std::thread::scope(|scope| {
-        for (index, item) in items.iter().enumerate() {
-            let sender = sender.clone();
-            let operation = &operation;
-            scope.spawn(move || {
-                let result = operation(item, Instant::now() + timeout);
-                let _ = sender.send((index, result));
-            });
+    while submitted > 0 {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            break;
         }
-    });
-    drop(sender);
-
-    let mut ordered = std::iter::repeat_with(|| None).take(items.len()).collect::<Vec<_>>();
-    for (index, result) in receiver {
-        ordered[index] = Some(result);
+        match receiver.recv_timeout(remaining) {
+            Ok((index, result)) => {
+                ordered[index] = DeadlineMapResult::Complete(result);
+                submitted -= 1;
+            }
+            Err(_) => break,
+        }
     }
     ordered
-        .into_iter()
-        .map(|result| result.expect("every bounded retry operation returned"))
-        .collect()
 }
 
 #[derive(Debug, Default)]
@@ -363,9 +425,17 @@ pub struct CellPixelUpdateFailure {
 
 #[derive(Debug)]
 struct PendingCellPixelUpdate {
+    generation: u64,
     target: (u16, u16),
     failures: HashSet<SurfaceId>,
     use_for_creation: bool,
+}
+
+struct CellPixelCompletionTracker {
+    generation: u64,
+    target: (u16, u16),
+    publishing: AtomicBool,
+    completed: Mutex<HashSet<SurfaceId>>,
 }
 
 /// Events pushed to subscribed frontends.
@@ -973,7 +1043,7 @@ type CellPixelOperationHook =
     Arc<dyn Fn(&Arc<Surface>, (u16, u16), Instant) -> anyhow::Result<Option<u64>> + Send + Sync>;
 #[cfg(test)]
 type KittyImageBudgetOperationHook =
-    Arc<dyn Fn(&Arc<Surface>, KittyGraphicsLimits) -> anyhow::Result<()> + Send + Sync>;
+    Arc<dyn Fn(&Arc<Surface>, KittyGraphicsLimits, Instant) -> anyhow::Result<()> + Send + Sync>;
 #[cfg(test)]
 type TerminalSpawnAfterCellPixelSnapshotHook = Arc<dyn Fn(bool) + Send + Sync>;
 
@@ -981,7 +1051,9 @@ type CellPixelSurfaceResult = (SurfaceId, (u16, u16), anyhow::Result<Option<u64>
 
 struct CellPixelRetryTask {
     surfaces: Vec<Weak<Surface>>,
+    generation: u64,
     target: (u16, u16),
+    completion: Arc<CellPixelCompletionTracker>,
     report: SurfaceResizeReporter,
     timeout: Duration,
     #[cfg(test)]
@@ -1085,6 +1157,7 @@ pub struct Mux {
     #[cfg(test)]
     kitty_image_budget_operation: Mutex<Option<KittyImageBudgetOperationHook>>,
     cell_pixel_lifecycle: Mutex<()>,
+    next_cell_pixel_generation: AtomicU64,
     cell_pixels: Mutex<(u16, u16)>,
     pending_cell_pixels: Mutex<Option<PendingCellPixelUpdate>>,
     cell_pixel_retries: Mutex<CellPixelRetryQueue>,
@@ -1325,6 +1398,7 @@ impl Mux {
             #[cfg(test)]
             kitty_image_budget_operation: Mutex::new(None),
             cell_pixel_lifecycle: Mutex::new(()),
+            next_cell_pixel_generation: AtomicU64::new(1),
             cell_pixels: Mutex::new((8, 16)),
             pending_cell_pixels: Mutex::new(None),
             cell_pixel_retries: Mutex::new(CellPixelRetryQueue::default()),
@@ -4351,9 +4425,16 @@ impl Mux {
     }
 
     fn run_kitty_image_budget_worker(mux: Weak<Self>) {
+        let mut failure_streak = 0_u32;
         loop {
             let Some(mux) = mux.upgrade() else { return };
-            let tasks = {
+            if mux.shutting_down.load(Ordering::Acquire) {
+                let mut budget = mux.kitty_image_budget.lock().unwrap();
+                budget.expansion_in_flight = false;
+                budget.worker_running = false;
+                return;
+            }
+            let (tasks, expansion_wave) = {
                 let mut budget = mux.kitty_image_budget.lock().unwrap();
                 Self::prune_dead_kitty_image_surfaces(&mut budget);
                 let target = kitty_image_limits_for_capacity(budget.capacity);
@@ -4400,21 +4481,25 @@ impl Mux {
                     budget.worker_running = false;
                     return;
                 }
-                tasks
+                let expansion_wave = budget.expansion_in_flight;
+                (tasks, expansion_wave)
             };
 
             let deadline = Instant::now() + crate::terminal_host_runtime::CONTROL_RESPONSE_TIMEOUT;
+            let operation_mux = Arc::downgrade(&mux);
             let results =
-                bounded_deadline_map(&tasks, deadline, |(_, surface, limits), deadline| {
+                bounded_deadline_map(&tasks, deadline, move |(_, surface, limits), deadline| {
+                    let Some(mux) = operation_mux.upgrade() else {
+                        anyhow::bail!("multiplexer shut down before Kitty quota update");
+                    };
                     mux.apply_kitty_image_limits(surface, *limits, deadline)
                 });
             let mut failures = Vec::new();
             {
                 let mut budget = mux.kitty_image_budget.lock().unwrap();
-                budget.expansion_in_flight = false;
                 for ((id, surface, limits), result) in tasks.iter().zip(results) {
                     match result {
-                        Some(Ok(())) => {
+                        DeadlineMapResult::Complete(Ok(())) => {
                             if let Some(entry) = budget.entries.get_mut(id)
                                 && entry
                                     .surface
@@ -4425,21 +4510,42 @@ impl Mux {
                                 entry.applied = *limits;
                             }
                         }
-                        Some(Err(error)) => failures.push(format!("surface {id}: {error}")),
-                        None => failures.push(format!("surface {id}: shared deadline expired")),
+                        DeadlineMapResult::Complete(Err(error)) => {
+                            failures.push(format!("surface {id}: {error}"));
+                        }
+                        DeadlineMapResult::Pending => {
+                            failures.push(format!("surface {id}: shared deadline expired"));
+                        }
+                        DeadlineMapResult::Unscheduled => {
+                            failures.push(format!("surface {id}: deadline worker pool saturated"));
+                        }
                     }
                 }
-                if !failures.is_empty() {
-                    budget.worker_running = false;
+                budget.expansion_in_flight = expansion_wave && !failures.is_empty();
+            }
+            if failures.is_empty() {
+                failure_streak = 0;
+                continue;
+            }
+
+            failure_streak = failure_streak.saturating_add(1);
+            if failure_streak == 1 || failure_streak.is_power_of_two() {
+                let omitted = failures.len().saturating_sub(8);
+                let mut summary = failures.into_iter().take(8).collect::<Vec<_>>().join("; ");
+                if omitted > 0 {
+                    summary.push_str(&format!("; {omitted} more"));
                 }
-            }
-            if !failures.is_empty() {
                 mux.emit(MuxEvent::Status(format!(
-                    "Kitty image budget update paused: {}",
-                    failures.join("; ")
+                    "Kitty image budget update failed, retrying: {summary}"
                 )));
-                return;
             }
+            let multiplier =
+                1_u32.checked_shl(failure_streak.saturating_sub(1).min(16)).unwrap_or(u32::MAX);
+            let delay = KITTY_IMAGE_BUDGET_RETRY_INITIAL
+                .saturating_mul(multiplier)
+                .min(KITTY_IMAGE_BUDGET_RETRY_MAX);
+            drop(mux);
+            std::thread::sleep(delay);
         }
     }
 
@@ -4451,7 +4557,7 @@ impl Mux {
     ) -> anyhow::Result<()> {
         #[cfg(test)]
         if let Some(operation) = self.kitty_image_budget_operation.lock().unwrap().clone() {
-            return operation(surface, limits);
+            return operation(surface, limits, deadline);
         }
         surface.set_kitty_graphics_limits_until(limits, deadline)
     }
@@ -4523,11 +4629,54 @@ impl Mux {
         *pending = None;
     }
 
+    fn reconcile_cell_pixel_completion_locked(
+        &self,
+        surface: SurfaceId,
+        generation: u64,
+        target: (u16, u16),
+    ) {
+        let mut pending = self.pending_cell_pixels.lock().unwrap();
+        let Some(update) = pending
+            .as_mut()
+            .filter(|update| update.generation == generation && update.target == target)
+        else {
+            return;
+        };
+        update.failures.remove(&surface);
+        if !update.failures.is_empty() {
+            return;
+        }
+        *self.cell_pixels.lock().unwrap() = target;
+        *pending = None;
+    }
+
+    fn record_cell_pixel_completion(
+        self: &Arc<Self>,
+        completion: &Arc<CellPixelCompletionTracker>,
+        surface: SurfaceId,
+    ) {
+        completion.completed.lock().unwrap().insert(surface);
+        if completion.publishing.load(Ordering::Acquire) {
+            return;
+        }
+        let _lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
+        if completion.completed.lock().unwrap().remove(&surface) {
+            self.reconcile_cell_pixel_completion_locked(
+                surface,
+                completion.generation,
+                completion.target,
+            );
+        }
+    }
+
     fn enqueue_cell_pixel_retries(
         self: &Arc<Self>,
         task: CellPixelRetryTask,
     ) -> std::io::Result<()> {
         let mut retries = self.cell_pixel_retries.lock().unwrap();
+        if retries.pending.as_ref().is_some_and(|pending| pending.generation > task.generation) {
+            return Ok(());
+        }
         retries.pending = Some(task);
         if retries.worker_running {
             return Ok(());
@@ -4565,48 +4714,104 @@ impl Mux {
                     }
                 }
             };
-            Self::run_cell_pixel_retry_task(&mux, task);
+            if let Some(task) = Self::run_cell_pixel_retry_task(&mux, task) {
+                std::thread::sleep(Duration::from_millis(25));
+                let Some(mux) = mux.upgrade() else { return };
+                let mut retries = mux.cell_pixel_retries.lock().unwrap();
+                if retries.pending.is_none() {
+                    retries.pending = Some(task);
+                }
+            }
         }
     }
 
-    fn run_cell_pixel_retry_task(mux: &Weak<Self>, task: CellPixelRetryTask) {
+    fn run_cell_pixel_retry_task(
+        mux: &Weak<Self>,
+        task: CellPixelRetryTask,
+    ) -> Option<CellPixelRetryTask> {
+        let mut remaining = Vec::new();
         for retry_wave in task.surfaces.chunks(CELL_PIXEL_FANOUT_MAX_WORKERS) {
-            let Some(mux) = mux.upgrade() else { return };
-            let _cell_pixel_lifecycle = mux.cell_pixel_lifecycle.lock().unwrap();
+            let mux = mux.upgrade()?;
             let active = {
+                let _cell_pixel_lifecycle = mux.cell_pixel_lifecycle.lock().unwrap();
                 let pending = mux.pending_cell_pixels.lock().unwrap();
-                let Some(pending) = pending.as_ref().filter(|pending| {
-                    pending.target == task.target && !pending.failures.is_empty()
-                }) else {
-                    return;
-                };
+                let pending = pending.as_ref().filter(|pending| {
+                    pending.generation == task.generation
+                        && pending.target == task.target
+                        && !pending.failures.is_empty()
+                })?;
                 retry_wave
                     .iter()
                     .filter_map(Weak::upgrade)
                     .filter(|surface| pending.failures.contains(&surface.id))
                     .collect::<Vec<_>>()
             };
-            let results = bounded_retry_map(&active, task.timeout, |surface, deadline| {
-                apply_cell_pixel_size_until(
+            let deadline = Instant::now() + task.timeout;
+            let report = task.report.clone();
+            #[cfg(test)]
+            let operation_hook = task.operation_hook.clone();
+            let target = task.target;
+            let completion = task.completion.clone();
+            let completion_mux = Arc::downgrade(&mux);
+            let results = bounded_deadline_map(&active, deadline, move |surface, deadline| {
+                let result = apply_cell_pixel_size_until(
                     surface,
-                    task.target,
+                    target,
                     deadline,
-                    &task.report,
+                    &report,
                     #[cfg(test)]
-                    task.operation_hook.as_ref(),
-                )
+                    operation_hook.as_ref(),
+                );
+                if result.2.is_ok()
+                    && let Some(mux) = completion_mux.upgrade()
+                {
+                    mux.record_cell_pixel_completion(&completion, surface.id);
+                }
+                result
             });
-            for (surface, _, result, deferred) in results {
-                match result {
-                    Ok(_) => mux.reconcile_cell_pixel_ack_locked(surface, task.target),
+            let _cell_pixel_lifecycle = mux.cell_pixel_lifecycle.lock().unwrap();
+            if !mux.pending_cell_pixels.lock().unwrap().as_ref().is_some_and(|pending| {
+                pending.generation == task.generation && pending.target == task.target
+            }) {
+                return None;
+            }
+            for (surface, result) in active.iter().zip(results) {
+                let (surface_id, result, deferred) = match result {
+                    DeadlineMapResult::Complete((surface_id, _, result, deferred)) => {
+                        (surface_id, Some(result), deferred)
+                    }
+                    DeadlineMapResult::Pending => continue,
+                    DeadlineMapResult::Unscheduled => {
+                        remaining.push(Arc::downgrade(surface));
+                        continue;
+                    }
+                };
+                match result.expect("complete deadline result has an operation result") {
+                    Ok(_) => mux.reconcile_cell_pixel_completion_locked(
+                        surface_id,
+                        task.generation,
+                        task.target,
+                    ),
                     Err(_) if deferred => {}
+                    Err(error)
+                        if error
+                            .downcast_ref::<
+                                crate::terminal_host_runtime::CellPixelRequestDeadlineElapsed,
+                            >()
+                            .is_some() =>
+                    {
+                        remaining.push(Arc::downgrade(surface));
+                    }
                     Err(_) => {
                         if let Some(pending) = mux
                             .pending_cell_pixels
                             .lock()
                             .unwrap()
                             .as_mut()
-                            .filter(|pending| pending.target == task.target)
+                            .filter(|pending| {
+                                pending.generation == task.generation
+                                    && pending.target == task.target
+                            })
                         {
                             pending.use_for_creation = false;
                         }
@@ -4614,6 +4819,16 @@ impl Mux {
                 }
             }
         }
+        (!remaining.is_empty()).then_some(CellPixelRetryTask {
+            surfaces: remaining,
+            generation: task.generation,
+            target: task.target,
+            completion: task.completion,
+            report: task.report,
+            timeout: task.timeout,
+            #[cfg(test)]
+            operation_hook: task.operation_hook,
+        })
     }
 
     pub fn set_cell_pixel_size_reporting(
@@ -4623,7 +4838,14 @@ impl Mux {
         report: SurfaceResizeReporter,
     ) -> CellPixelUpdate {
         let cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
+        let generation = self.next_cell_pixel_generation.fetch_add(1, Ordering::Relaxed);
         let next = (width_px.max(1), height_px.max(1));
+        let completion = Arc::new(CellPixelCompletionTracker {
+            generation,
+            target: next,
+            publishing: AtomicBool::new(true),
+            completed: Mutex::new(HashSet::new()),
+        });
         let mut surfaces =
             self.state.lock().unwrap().surfaces.values().cloned().collect::<Vec<_>>();
         surfaces.sort_unstable_by_key(|surface| surface.id);
@@ -4638,27 +4860,52 @@ impl Mux {
         let deadline = Instant::now() + timeout;
         #[cfg(test)]
         let operation_hook = self.cell_pixel_operation.lock().unwrap().clone();
-        let results = bounded_deadline_map(&surfaces, deadline, |surface, deadline| {
-            apply_cell_pixel_size_until(
+        #[cfg(test)]
+        let fanout_operation_hook = operation_hook.clone();
+        let operation_report = report.clone();
+        let operation_completion = completion.clone();
+        let operation_mux = Arc::downgrade(self);
+        let results = bounded_deadline_map(&surfaces, deadline, move |surface, deadline| {
+            let result = apply_cell_pixel_size_until(
                 surface,
                 next,
                 deadline,
-                &report,
+                &operation_report,
                 #[cfg(test)]
-                operation_hook.as_ref(),
-            )
+                fanout_operation_hook.as_ref(),
+            );
+            if result.2.is_ok()
+                && let Some(mux) = operation_mux.upgrade()
+            {
+                mux.record_cell_pixel_completion(&operation_completion, surface.id);
+            }
+            result
         });
         let mut update = CellPixelUpdate::default();
         let mut retry_surfaces = Vec::new();
         for (surface, result) in surfaces.iter().zip(results) {
-            let Some((id, size, result, deferred)) = result else {
-                retry_surfaces.push(Arc::downgrade(surface));
-                update.failures.push(CellPixelUpdateFailure {
-                    surface: surface.id,
-                    error: "cell pixel update scheduled after the shared deadline".to_string(),
-                    deferred: true,
-                });
-                continue;
+            let (id, size, result, deferred) = match result {
+                DeadlineMapResult::Complete(result) => result,
+                DeadlineMapResult::Pending => {
+                    update.failures.push(CellPixelUpdateFailure {
+                        surface: surface.id,
+                        error: "cell pixel update is still running after the shared deadline"
+                            .to_string(),
+                        deferred: true,
+                    });
+                    continue;
+                }
+                DeadlineMapResult::Unscheduled => {
+                    retry_surfaces.push(Arc::downgrade(surface));
+                    update.failures.push(CellPixelUpdateFailure {
+                        surface: surface.id,
+                        error: "cell pixel update was deferred because the deadline worker pool \
+                                is saturated"
+                            .to_string(),
+                        deferred: true,
+                    });
+                    continue;
+                }
             };
             match result {
                 Ok(Some(reservation_id)) => update.resizes.push((id, size, reservation_id)),
@@ -4680,6 +4927,13 @@ impl Mux {
                 }
             }
         }
+        let completed = std::mem::take(&mut *completion.completed.lock().unwrap());
+        if !completed.is_empty() {
+            update.failures.retain(|failure| !completed.contains(&failure.surface));
+            retry_surfaces.retain(|surface| {
+                surface.upgrade().is_some_and(|surface| !completed.contains(&surface.id))
+            });
+        }
         #[cfg(test)]
         if let Some(hook) = self.cell_pixel_before_publish.lock().unwrap().clone() {
             hook(self.cell_pixel_size());
@@ -4692,9 +4946,21 @@ impl Mux {
             *self.pending_cell_pixels.lock().unwrap() = None;
         } else {
             *self.pending_cell_pixels.lock().unwrap() = Some(PendingCellPixelUpdate {
+                generation,
                 target: next,
                 failures: update.failures.iter().map(|failure| failure.surface).collect(),
                 use_for_creation: update.failures.iter().all(|failure| failure.deferred),
+            });
+        }
+        completion.publishing.store(false, Ordering::Release);
+        let raced_completions = std::mem::take(&mut *completion.completed.lock().unwrap());
+        for surface in &raced_completions {
+            self.reconcile_cell_pixel_completion_locked(*surface, generation, next);
+        }
+        if !raced_completions.is_empty() {
+            update.failures.retain(|failure| !raced_completions.contains(&failure.surface));
+            retry_surfaces.retain(|surface| {
+                surface.upgrade().is_some_and(|surface| !raced_completions.contains(&surface.id))
             });
         }
         let retry_ids = retry_surfaces
@@ -4707,7 +4973,9 @@ impl Mux {
         } else {
             self.enqueue_cell_pixel_retries(CellPixelRetryTask {
                 surfaces: retry_surfaces,
+                generation,
                 target: next,
+                completion,
                 report,
                 timeout,
                 #[cfg(test)]
@@ -9223,7 +9491,7 @@ mod tests {
         let gate = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
         *mux.kitty_image_budget_operation.lock().unwrap() = Some(Arc::new({
             let gate = gate.clone();
-            move |surface, limits| {
+            move |surface, limits, _deadline| {
                 if surface.id == first.id {
                     let (released, changed) = &*gate;
                     let mut released = released.lock().unwrap();
@@ -9274,7 +9542,7 @@ mod tests {
         let applications = Arc::new(AtomicUsize::new(0));
         *mux.kitty_image_budget_operation.lock().unwrap() = Some(Arc::new({
             let applications = applications.clone();
-            move |surface, limits| {
+            move |surface, limits, _deadline| {
                 applications.fetch_add(1, Ordering::AcqRel);
                 surface.set_kitty_graphics_limits(
                     limits.image_bytes,
@@ -9318,7 +9586,7 @@ mod tests {
         *mux.kitty_image_budget_operation.lock().unwrap() = Some(Arc::new({
             let gate = gate.clone();
             let survivor_id = survivor.id;
-            move |surface, limits| {
+            move |surface, limits, _deadline| {
                 if surface.id == survivor_id && limits == expansion {
                     let _ = started_sender.try_send(());
                     let (released, changed) = &*gate;
@@ -9378,7 +9646,7 @@ mod tests {
         let attempts = Arc::new(AtomicUsize::new(0));
         *mux.kitty_image_budget_operation.lock().unwrap() = Some(Arc::new({
             let attempts = attempts.clone();
-            move |surface, limits| {
+            move |surface, limits, _deadline| {
                 if attempts.fetch_add(1, Ordering::AcqRel) == 0 {
                     anyhow::bail!("injected transient Kitty quota failure");
                 }
@@ -9407,21 +9675,30 @@ mod tests {
     #[test]
     fn cell_pixel_fanout_runs_concurrently_with_one_shared_deadline() {
         let items = (0..8).collect::<Vec<_>>();
-        let active = AtomicUsize::new(0);
-        let max_active = AtomicUsize::new(0);
+        let active = Arc::new(AtomicUsize::new(0));
+        let max_active = Arc::new(AtomicUsize::new(0));
         let deadline = Instant::now() + Duration::from_secs(1);
+        let operation_active = active;
+        let operation_max_active = max_active.clone();
 
-        let results = bounded_deadline_map(&items, deadline, |item, observed_deadline| {
+        let results = bounded_deadline_map(&items, deadline, move |item, observed_deadline| {
             assert_eq!(observed_deadline, deadline);
-            let concurrent = active.fetch_add(1, Ordering::AcqRel) + 1;
-            max_active.fetch_max(concurrent, Ordering::AcqRel);
+            let concurrent = operation_active.fetch_add(1, Ordering::AcqRel) + 1;
+            operation_max_active.fetch_max(concurrent, Ordering::AcqRel);
             std::thread::sleep(Duration::from_millis(10));
-            active.fetch_sub(1, Ordering::AcqRel);
+            operation_active.fetch_sub(1, Ordering::AcqRel);
             item * 2
         });
 
         assert_eq!(
-            results.into_iter().collect::<Option<Vec<_>>>().unwrap(),
+            results
+                .into_iter()
+                .map(|result| match result {
+                    DeadlineMapResult::Complete(result) => Some(result),
+                    DeadlineMapResult::Pending | DeadlineMapResult::Unscheduled => None,
+                })
+                .collect::<Option<Vec<_>>>()
+                .unwrap(),
             vec![0, 2, 4, 6, 8, 10, 12, 14]
         );
         assert!(max_active.load(Ordering::Acquire) > 1);
@@ -9534,8 +9811,8 @@ mod tests {
 
         let update = mux.set_cell_pixel_size(9, 18);
 
-        assert_eq!(update.failures.len(), 1);
-        assert_eq!(update.failures[0].surface, last_surface);
+        assert_eq!(update.failures.len(), surface_ids.len());
+        assert!(update.failures.iter().all(|failure| failure.deferred));
         let retry_deadline = Instant::now() + Duration::from_secs(1);
         while mux.cell_pixel_size() != (9, 18) && Instant::now() < retry_deadline {
             std::thread::sleep(Duration::from_millis(10));
@@ -9573,6 +9850,7 @@ mod tests {
         let mux = test_mux();
         let pending_surface = 99_999;
         *mux.pending_cell_pixels.lock().unwrap() = Some(PendingCellPixelUpdate {
+            generation: 1,
             target: (9, 18),
             failures: HashSet::from([pending_surface]),
             use_for_creation: true,
@@ -9591,6 +9869,7 @@ mod tests {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
         *mux.pending_cell_pixels.lock().unwrap() = Some(PendingCellPixelUpdate {
+            generation: 1,
             target: (9, 18),
             failures: HashSet::from([surface.id]),
             use_for_creation: false,
