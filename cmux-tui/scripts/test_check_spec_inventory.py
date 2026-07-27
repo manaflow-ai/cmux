@@ -84,9 +84,11 @@ enum Action {
             tui = Path(directory)
             host = tui / "crates/cmux-tui-core/src/terminal_host_protocol.rs"
             provider = tui / "crates/cmux-tui-machine-protocol/src/lib.rs"
+            agent = tui / "crates/cmux-tui-machine-agent-protocol/src/lib.rs"
             management = tui / "crates/cmux-tui-core/src/provider_management.rs"
             host.parent.mkdir(parents=True)
             provider.parent.mkdir(parents=True)
+            agent.parent.mkdir(parents=True)
             host.write_text(
                 """\
 enum MessageKind {
@@ -105,6 +107,14 @@ enum ProviderRequest {
 enum ProviderEvent {
     StructEvent { value: u8 },
     BareEvent
+}
+"""
+            )
+            agent.write_text(
+                """\
+enum Message {
+    TupleMessage(u8),
+    BareMessage
 }
 """
             )
@@ -129,6 +139,10 @@ enum Request {
                         "machine_provider_v1_events": {
                             "struct_event",
                             "bare_event",
+                        },
+                        "machine_agent_v1": {
+                            "tuple_message",
+                            "bare_message",
                         },
                         "provider_management_v1": {
                             "tuple_operation",
@@ -413,6 +427,7 @@ impl Action {
 enum MenuAction {
     RenameTab(u8),
     DisconnectClient(u64),
+    TogglePaneZoom { pane: u8, zoomed: bool },
 }
 
 impl MenuAction {
@@ -427,6 +442,11 @@ impl MenuAction {
                 MenuActionClassification::Composite,
                 "self: close frontend transport; peer: detach-client",
                 MenuActionExecution::DisconnectClient(*client),
+            ),
+            MenuAction::TogglePaneZoom { pane, zoomed } => MenuActionMetadata::new(
+                MenuActionClassification::Direct,
+                "zoom-pane explicit mode",
+                MenuActionExecution::TogglePaneZoom { pane: *pane, zoomed: *zoomed },
             ),
         }
     }
@@ -445,6 +465,10 @@ impl MenuAction {
                         "DisconnectClient": {
                             "classification": "composite",
                             "route": "self: close frontend transport; peer: detach-client",
+                        },
+                        "TogglePaneZoom": {
+                            "classification": "direct",
+                            "route": "zoom-pane explicit mode",
                         },
                     },
                 )
@@ -652,6 +676,29 @@ impl TreeDeltaKind {
                 "provider_owned": {
                     "kind": "machine-provider-request",
                     "operation": "create_workspace",
+                },
+                "unknown_ownership": "reject",
+            },
+        )
+
+    def test_close_workspace_route_covers_provider_owned_sessions(self) -> None:
+        actions = {
+            action["variant"]: action
+            for action in self.inventory()["tui_actions"]
+        }
+        close_workspace = actions["CloseWorkspace"]
+        self.assertEqual(close_workspace["classification"], "composite")
+        self.assertEqual(
+            close_workspace["route"],
+            {
+                "ownership_source": "active-workspace-session",
+                "session_owned": {
+                    "kind": "mux-command",
+                    "operation": "close-workspace",
+                },
+                "provider_owned": {
+                    "kind": "machine-provider-request",
+                    "operation": "delete_workspace",
                 },
                 "unknown_ownership": "reject",
             },

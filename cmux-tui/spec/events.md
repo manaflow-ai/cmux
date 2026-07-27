@@ -1,6 +1,6 @@
 # Event Contract
 
-This file specifies event lines emitted by protocol v9, including compatibility notes for fields and attach behavior introduced in earlier versions. Event lines are JSON objects with an `event` string and no response envelope.
+This file specifies event lines emitted by protocol v10, including compatibility notes for fields and attach behavior introduced in earlier versions. Event lines are JSON objects with an `event` string and no response envelope.
 
 The schema notation and `Id`, `Workspace`, `Screen`, `Pane`, and `Tab` types come from [`commands.md`](commands.md#notation). `Cursor`, `Row`, and `Run` come from [`render.md`](render.md#shared-render-types).
 
@@ -20,7 +20,7 @@ Events and command responses share one full-duplex connection. Each event or res
 
 Every entity-scoped event carries its subject id in the field named below. Tree deltas also carry every parent id needed to place the entity. Legacy session-wide events have no numeric entity subject; the table marks them `session` rather than inventing an id and changing their v5/v6 payloads.
 
-Subscribe events belong to the `subscribe` registration. Tree lifecycle deltas belong only to a subscription that selected `tree_events:"deltas"`; `tree-changed` belongs to the default `"coarse"` subscription and may also appear on a delta subscription as a resync fallback. The tree-event selection does not affect other subscribe events. Attach events belong to the attachment selected by `attach-surface`; their `surface` field permits multiple attachments on one connection. `notification` and `scroll-changed` can appear on subscribe and selected attach streams. Consumers must tolerate those duplicated routes. Protocol v9 has no public stream id or cancellation command, so a connection must use at most one subscription and one attachment per surface when event origin must be unambiguous.
+Subscribe events belong to the `subscribe` registration. Tree lifecycle deltas belong only to a subscription that selected `tree_events:"deltas"`; `tree-changed` belongs to the default `"coarse"` subscription and may also appear on a delta subscription as a resync fallback. The tree-event selection does not affect other subscribe events. Attach events belong to the attachment selected by `attach-surface`; their `surface` field permits multiple attachments on one connection. `notification` and `scroll-changed` can appear on subscribe and selected attach streams. Consumers must tolerate those duplicated routes. Protocol v10 has no public stream id or cancellation command, so a connection must use at most one subscription and one attachment per surface when event origin must be unambiguous.
 
 | Event | Stream | Subject field | Since/compatibility |
 | --- | --- | --- | --- |
@@ -677,7 +677,7 @@ Example:
 {"event":"notification","notification":44,"title":"Build failed","body":"api tests failed","level":"error","surface":1}
 ```
 
-The same surface-scoped notification can also be delivered to byte and browser attachments. Protocol v9 does not tag the originating registration, so clients sharing one connection must deduplicate by notification id.
+The same surface-scoped notification can also be delivered to byte and browser attachments. Protocol v10 does not tag the originating registration, so clients sharing one connection must deduplicate by notification id.
 
 ### status
 
@@ -1050,9 +1050,11 @@ Example:
 {"event":"notification","notification":44,"title":"Build failed","body":"api tests failed","level":"error","surface":1,"created_at_ms":1710000000000}
 ```
 
-## Proposed Subscribe Filters
+## Surface-Scoped Subscriptions and Proposed Filters
 
-Proposed protocol v10 extends `subscribe` with optional filters:
+Protocol v9 implements an optional numeric `surface` on `subscribe`. It filters unrelated high-volume surface and layout events before the bounded subscriber mailbox while retaining target topology and session lifecycle events.
+
+Proposed protocol v10 extends this with arbitrary event and multi-surface filters:
 
 Params:
 

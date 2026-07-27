@@ -5,12 +5,12 @@ import Foundation
 /// `notification.dismiss` and `notification.reconcile` RPC handlers dispatched
 /// from `mobileHostHandleRPC(_:)`.
 extension TerminalController {
-    private static let mobileNotificationFeedResponseByteLimit =
+    private nonisolated static let mobileNotificationFeedResponseByteLimit =
         MobileSyncFrameCodec.defaultMaximumFrameByteCount - (64 * 1024)
-    private static let mobileNotificationFeedTitleByteLimit = 512
-    private static let mobileNotificationFeedSubtitleByteLimit = 512
-    private static let mobileNotificationFeedBodyByteLimit = 4_096
-    private static let mobileNotificationFeedMetadataByteLimit = 512
+    private nonisolated static let mobileNotificationFeedTitleByteLimit = 512
+    private nonisolated static let mobileNotificationFeedSubtitleByteLimit = 512
+    private nonisolated static let mobileNotificationFeedBodyByteLimit = 4_096
+    private nonisolated static let mobileNotificationFeedMetadataByteLimit = 512
 
     /// Returns the Mac-owned notification history, newest first. The paired
     /// phone merges snapshots from all connected Macs into its global feed.

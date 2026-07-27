@@ -174,7 +174,12 @@
     },
     "secondary_protocols": {
       "type": "object",
-      "required": ["terminal_host_v1", "machine_provider_v1", "provider_management_v1"],
+      "required": [
+        "terminal_host_v1",
+        "machine_provider_v1",
+        "machine_agent_v1",
+        "provider_management_v1"
+      ],
       "properties": {
         "terminal_host_v1": {
           "type": "object",
@@ -193,6 +198,18 @@
           "properties": {
             "requests": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
             "events": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
+          },
+          "additionalProperties": false
+        },
+        "machine_agent_v1": {
+          "type": "object",
+          "required": ["messages"],
+          "properties": {
+            "messages": {
+              "type": "array",
+              "items": {"type": "string"},
+              "uniqueItems": true
+            }
           },
           "additionalProperties": false
         },

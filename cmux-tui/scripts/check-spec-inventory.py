@@ -693,6 +693,14 @@ def secondary_protocols() -> dict[str, object]:
         for name in rust_enum_variants(provider_source, "ProviderEvent")
     }
 
+    agent_source = strip_rust_comments(
+        (TUI / "crates/cmux-tui-machine-agent-protocol/src/lib.rs").read_text()
+    )
+    agent_messages = {
+        camel_to_snake(name)
+        for name in rust_enum_variants(agent_source, "Message")
+    }
+
     management_source = strip_rust_comments(
         (TUI / "crates/cmux-tui-core/src/provider_management.rs").read_text()
     )
@@ -704,6 +712,7 @@ def secondary_protocols() -> dict[str, object]:
         "terminal_host_v1": host_messages,
         "machine_provider_v1_requests": provider_requests,
         "machine_provider_v1_events": provider_events,
+        "machine_agent_v1": agent_messages,
         "provider_management_v1": management_operations,
     }
 
@@ -858,18 +867,19 @@ def validate_events(inventory: dict) -> set[str]:
 
 def validate_tui_action_route(inventory: dict, action: dict) -> None:
     route = action["route"]
-    if action["variant"] != "NewWorkspace":
+    variant = action["variant"]
+    if variant not in {"NewWorkspace", "CloseWorkspace"}:
         if not isinstance(route, str) or not route.strip():
-            fail(f"TUI action {action['variant']} has no programmability route")
+            fail(f"TUI action {variant} has no programmability route")
         return
     if not isinstance(route, dict):
-        fail("NewWorkspace requires a structured workspace ownership route")
+        fail(f"{variant} requires a structured workspace ownership route")
     if route.get("ownership_source") != "active-workspace-session":
-        fail("NewWorkspace has an unknown workspace ownership source")
+        fail(f"{variant} has an unknown workspace ownership source")
 
     session_owned = route.get("session_owned")
     if not isinstance(session_owned, dict) or session_owned.get("kind") != "mux-command":
-        fail("NewWorkspace session-owned route must target a mux command")
+        fail(f"{variant} session-owned route must target a mux command")
     session_operation = session_owned.get("operation")
     commands = {
         name
@@ -877,25 +887,25 @@ def validate_tui_action_route(inventory: dict, action: dict) -> None:
         for name in profile_commands
     }
     if session_operation not in commands:
-        fail(f"NewWorkspace references unknown mux command {session_operation!r}")
+        fail(f"{variant} references unknown mux command {session_operation!r}")
 
     provider_owned = route.get("provider_owned")
     if (
         not isinstance(provider_owned, dict)
         or provider_owned.get("kind") != "machine-provider-request"
     ):
-        fail("NewWorkspace provider-owned route must target a machine-provider request")
+        fail(f"{variant} provider-owned route must target a machine-provider request")
     provider_operation = provider_owned.get("operation")
     provider_requests = set(
         inventory["secondary_protocols"]["machine_provider_v1"]["requests"]
     )
     if provider_operation not in provider_requests:
         fail(
-            "NewWorkspace references unknown machine-provider request "
+            f"{variant} references unknown machine-provider request "
             f"{provider_operation!r}"
         )
     if route.get("unknown_ownership") != "reject":
-        fail("NewWorkspace unknown workspace ownership must reject")
+        fail(f"{variant} unknown workspace ownership must reject")
 
 
 def validate_tui_actions(inventory: dict) -> list[dict]:
@@ -992,7 +1002,9 @@ def validate_feature_families(inventory: dict, schema: dict) -> list[dict]:
     return families
 
 
-def validate_secondary_protocols(inventory: dict) -> tuple[list[str], list[str]]:
+def validate_secondary_protocols(
+    inventory: dict,
+) -> tuple[dict[str, int], list[str], list[str]]:
     secondary = inventory["secondary_protocols"]
     runtime_secondary = secondary_protocols()
     expected_host = secondary["terminal_host_v1"]["messages"]
@@ -1013,6 +1025,11 @@ def validate_secondary_protocols(inventory: dict) -> tuple[list[str], list[str]]
         runtime_secondary["machine_provider_v1_events"],
         unique(secondary["machine_provider_v1"]["events"], "machine-provider event"),
         "machine-provider event",
+    )
+    compare(
+        runtime_secondary["machine_agent_v1"],
+        unique(secondary["machine_agent_v1"]["messages"], "machine-agent message"),
+        "machine-agent message",
     )
     compare(
         runtime_secondary["provider_management_v1"],
@@ -1040,6 +1057,14 @@ def validate_secondary_protocols(inventory: dict) -> tuple[list[str], list[str]]
             "machine-provider events without prose: "
             + ", ".join(undocumented_provider_events)
         )
+    machine_agent_doc = (SPEC / "machine-agent.md").read_text()
+    undocumented_agent = sorted(
+        name
+        for name in secondary["machine_agent_v1"]["messages"]
+        if f"`{name}`" not in machine_agent_doc
+    )
+    if undocumented_agent:
+        fail(f"machine-agent messages without prose: {', '.join(undocumented_agent)}")
     management_doc = (SPEC / "provider-management.md").read_text()
     undocumented_management = sorted(
         name
@@ -1051,7 +1076,11 @@ def validate_secondary_protocols(inventory: dict) -> tuple[list[str], list[str]]
             "provider-management operations without examples: "
             + ", ".join(undocumented_management)
         )
-    return expected_host, secondary["machine_provider_v1"]["requests"]
+    return (
+        expected_host,
+        secondary["machine_provider_v1"]["requests"],
+        secondary["machine_agent_v1"]["messages"],
+    )
 
 
 def validate_protocol_domains(inventory: dict) -> None:
@@ -1068,7 +1097,7 @@ def main() -> None:
     actions = validate_tui_actions(inventory)
     menu_actions = validate_menu_actions(inventory)
     families = validate_feature_families(inventory, schema)
-    expected_host, provider_requests = validate_secondary_protocols(inventory)
+    expected_host, provider_requests, agent_messages = validate_secondary_protocols(inventory)
     validate_protocol_domains(inventory)
 
     print(
@@ -1079,7 +1108,8 @@ def main() -> None:
         f"{len(menu_actions)} menu actions, "
         f"{len(families)} feature families, "
         f"{len(expected_host)} terminal-host messages, "
-        f"{len(provider_requests)} machine-provider requests"
+        f"{len(provider_requests)} machine-provider requests, "
+        f"{len(agent_messages)} machine-agent messages"
     )
 
 

@@ -4,7 +4,7 @@ The command schema is transport-independent. Protocol v5 introduced the Unix dom
 
 ## Protocol Negotiation
 
-The current server reports `protocol:9` from `identify` and `ping`. Clients must inspect `identify.protocol` before using versioned additions. A client selecting `attach-surface` with `mode:"render"` must require `protocol >= 7`; on protocol 6 it must use the default byte mode or refuse the attachment. A client requiring stable split ids or sending `set-split-ratio` must require protocol 8. A client decoding stack layouts or sending `new-pane` must require protocol 9.
+The current server reports `protocol:10` from `identify` and `ping`. Clients must inspect `identify.protocol` before using versioned additions. A client selecting `attach-surface` with `mode:"render"` must require `protocol >= 7`; on protocol 6 it must use the default byte mode or refuse the attachment. A client requiring stable split ids or sending `set-split-ratio` must require protocol 8. A client decoding stack layouts or sending `new-pane` must require protocol 9. A client using `set-client-sizing` must require protocol 10 and include its target surface.
 
 There is no transport-level version preamble. Omitting `attach-surface.mode` selects `"bytes"`, and omitting `subscribe.tree_events` selects `"coarse"`; those defaults preserve the exact protocol-v6 attach and tree-event behavior. Unix socket paths, WebSocket upgrade/authentication, request ids, response envelopes, and message framing do not change in protocol 7.
 
@@ -93,9 +93,9 @@ The Unix socket does not use the WebSocket auth preamble. Its filesystem permiss
 
 `CMUX_TUI_SOCKET` and `CMUX_MUX_SOCKET` inherited by a child are ambient full-session capabilities. Untrusted child processes must not inherit them.
 
-### Implemented v9 limits
+### Implemented v10 limits
 
-WebSocket protocol messages are limited to 4 MiB. Unix JSON-lines readers and relay readers currently have no equivalent application limit and may buffer an unterminated line. SDK readers also differ. This is a v9 security limitation, not permission to send unbounded messages.
+WebSocket protocol messages are limited to 4 MiB. Unix JSON-lines readers and relay readers currently have no equivalent application limit and may buffer an unterminated line. SDK readers also differ. This is a v10 security limitation, not permission to send unbounded messages.
 
 vNext applies a 4,194,304-byte client-to-server UTF-8 message limit on every transport and a 16,777,216-byte server-to-client limit. The JSON-lines delimiter is excluded. A receiver closes on an oversized message or invalid UTF-8. WebSocket limits apply after reassembly, and an oversized WebSocket closes with code `1009`.
 
@@ -193,17 +193,17 @@ The current listener accepts every WebSocket Origin and request path. A browser 
 
 By default the listener accepts only an IP loopback address such as `127.0.0.1` or `[::1]`. cmux-tui refuses a non-loopback address unless `--ws-insecure-bind` is also present. This listener provides no TLS; for remote access, bind deliberately and place it behind a TLS-terminating, authenticated reverse proxy. An authenticated WebSocket client can read terminal contents, type into PTYs, and use ordinary control and frontend mutations, including closing session topology. It cannot use Unix-only `local-admin` commands: `shutdown-daemon` and `pairing-response` reject WebSocket callers. Provider-owned workspace commits also require their separate provider authority.
 
-Static tokens and reconnect credentials are bearer credentials with ordinary control and frontend authority, excluding `local-admin` and `provider-authority`. Reconnect credentials are memory-only, survive for eight hours, are invalid after daemon restart, and have no v9 list or revoke API. Prefer secret files over process arguments when a future `--ws-token-file` becomes available. Credentials must never appear in URLs, logs, debug output, or generated diagnostics.
+Static tokens and reconnect credentials are bearer credentials with ordinary control and frontend authority, excluding `local-admin` and `provider-authority`. Reconnect credentials are memory-only, survive for eight hours, are invalid after daemon restart, and have no v10 list or revoke API. Prefer secret files over process arguments when a future `--ws-token-file` becomes available. Credentials must never appear in URLs, logs, debug output, or generated diagnostics.
 
 ## Concurrency, streams, and reconnect
 
-The v9 server begins commands serially in receive order on each connection. A blocking `wait-for` delays later commands on that connection. A client request timeout stops local waiting only; it does not cancel execution, and a late mutation may still commit.
+The v10 server begins commands serially in receive order on each connection. A blocking `wait-for` delays later commands on that connection. A client request timeout stops local waiting only; it does not cancel execution, and a late mutation may still commit.
 
 After a timeout, clients must not retry a non-idempotent legacy mutation until a
 snapshot or event reconciles the original outcome. A durable mutation retries
 with the same `(origin, mutation_id)` so the server can replay its receipt.
 
-Repeated `subscribe` calls and repeated attachments create independent server streams without public stream ids. Closing a local iterator on a shared connection does not cancel its server stream. A v9 client that needs independent cancellation uses a dedicated connection and closes it. On one shared connection, use at most one subscription and one attachment per surface.
+Repeated `subscribe` calls and repeated attachments create independent server streams without public stream ids. Closing a local iterator on a shared connection does not cancel its server stream. A v10 client that needs independent cancellation uses a dedicated connection and closes it. On one shared connection, use at most one subscription and one attachment per surface.
 
 The server event broadcaster holds 4,096 events per subscriber. The connection writer also has a 256-message, 16 MiB regular queue and a separate 256-message, 16 MiB control reserve. Stream overflow discards that stream's queued events, emits one stream-scoped `overflow`, and can leave unrelated streams and command responses usable. Exhausting the control reserve or the two-second write deadline closes the connection.
 

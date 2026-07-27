@@ -1,6 +1,6 @@
 # Command Contract
 
-This file specifies the JSON command contract for the cmux-tui protocol. Implemented commands match protocol v9 in `cmux-tui/crates/cmux-tui-core/src/server.rs`.
+This file specifies the JSON command contract for the cmux-tui protocol. Implemented commands match protocol v10 in `cmux-tui/crates/cmux-tui-core/src/server.rs`.
 
 ## Notation
 
@@ -132,7 +132,7 @@ object{
 ```
 
 Protocol 6 adds short ids, browser health, and retained notification markers.
-Protocol 9 adds terminal identity fields. Current protocol-v9 snapshots always
+Protocol 9 adds terminal identity fields. Current protocol-v10 snapshots always
 serialize these fields, using `null` when they do not apply.
 
 The `dead` pane variant is serialized only if the tree references a pane missing from state. That should not occur in normal operation, but clients must tolerate it.
@@ -155,7 +155,7 @@ Size-aware creation commands are `apply-layout`, `new-tab`, `new-browser-tab`, `
 
 `resize-surface` requires both fields and clamps each to `1..10000`, matching tmux's window bounds. Every live control connection enters the same shared reducer. Attached clients retain the report until release; an unattached one-shot report is removed when its connection closes. A disconnected client id is rejected.
 
-`set-client-sizing` controls tmux-style `ignore-size` participation. A normal request supplies `client` and `enabled`. Supplying `exclusive:true` with an enabled client atomically includes only that client. Omitting `client` with `enabled:true` atomically includes all clients. Ignored clients keep reporting; if every attached client is ignored, all ignored reports participate as tmux's global fallback.
+`set-client-sizing` controls tmux-style `ignore-size` participation independently for each terminal surface. Every request supplies `surface`. A normal request also supplies `client` and `enabled`. Supplying `exclusive:true` with an enabled client atomically includes only that client on the requested surface. Omitting `client` with `enabled:true` atomically includes all clients on that surface. Ignored clients keep reporting; if every attached client on one surface is ignored, that surface alone falls back to all of its ignored reports.
 
 Frontends report their grid after a surface becomes visible and whenever that viewport changes. They release the report when the surface becomes hidden, even if its attach stream remains cached. A frontend must not re-report merely because another client changed the authoritative surface size. See [`render.md`](render.md#sizing-and-multi-client-presentation) for presentation guidance.
 
@@ -235,10 +235,10 @@ Example:
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":9,"capabilities":["attach-initial-size","workspace-registry-v1","provider-managed-workspace-authority-v2"],"session":"main","pid":12345,"registry_id":"registry-uuid","generation":"boot-uuid","workspace_revision":1,"terminal_revision":0,"daemon_handoff":1}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":10,"capabilities":["attach-initial-size","workspace-registry-v1","surface-subscribe-filter","provider-managed-workspace-authority-v2"],"session":"main","pid":12345,"registry_id":"registry-uuid","generation":"boot-uuid","workspace_revision":1,"terminal_revision":0,"daemon_handoff":1}}
 ```
 
-The current server reports protocol `9` in this field and in `ping`. Clients must negotiate protocol 8 before requiring stable split ids or sending `set-split-ratio`, and protocol 9 before decoding stack layouts or sending `new-pane`.
+The current server reports protocol `10` in this field and in `ping`. Clients must negotiate protocol 8 before requiring stable split ids or sending `set-split-ratio`, protocol 9 before decoding stack layouts or sending `new-pane`, and protocol 10 before using per-surface client sizing.
 
 ### ping
 
@@ -268,7 +268,7 @@ Example:
 
 ```json
 {"id":2,"cmd":"ping"}
-{"id":2,"ok":true,"data":{"ok":true,"version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":9}}
+{"id":2,"ok":true,"data":{"ok":true,"version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":10}}
 ```
 
 ### set-client-info
@@ -317,7 +317,14 @@ Example:
 | status | implemented |
 | since | protocol 6 additive extension |
 
-Returns all current Unix and WebSocket control connections in ascending client-id order. When the in-process TUI reports sizes, a synthetic client `0` with `transport:"local"` appears first. `self` identifies the requesting connection. `connected_seconds` is elapsed monotonic whole seconds. `attached` contains unique surface ids, and each corresponding `sizes` entry has null dimensions until that connection requests `resize-surface` for the attached surface.
+Returns all current Unix and WebSocket control connections in ascending
+client-id order. When the in-process TUI reports sizes, a synthetic client `0`
+with `transport:"local"` appears first. `self` identifies the requesting
+connection. `connected_seconds` is elapsed monotonic whole seconds. `attached`
+contains unique surface ids, and each corresponding `sizes` entry has null
+dimensions until that connection requests `resize-surface` for the attached
+surface. Protocol v10 reports `size_participating` on each size entry because
+one client may participate on one terminal and be excluded on another.
 
 Params: none.
 
@@ -326,13 +333,17 @@ Result:
 ```text
 array<object{
   client:uint64,
-  transport:"unix"|"ws"|"local",
+  transport:"local"|"unix"|"ws",
   name:string|null,
   kind:string|null,
   connected_seconds:uint64,
   attached:array<Id>,
-  sizes:array<object{surface:Id,cols:uint16|null,rows:uint16|null}>,
-  size_participating:boolean,
+  sizes:array<object{
+    surface:Id,
+    cols:uint16|null,
+    rows:uint16|null,
+    size_participating:boolean
+  }>,
   self:boolean
 }>
 ```
@@ -345,7 +356,7 @@ CLI mapping:
 | --- | --- |
 | Verb | `list-clients` |
 | Flags | none |
-| Plain stdout | one line per client: `<client> <transport> <name-or-> <kind-or-> connected=<n>s attached=<ids-or-> sizes=<sizes-or-> self=<bool>` |
+| Plain stdout | one line per client: `<client> <transport> <name-or-> <kind-or-> connected=<n>s attached=<ids-or-> sizes=<surface>:<cols>x<rows>:sizing=<bool> self=<bool>` |
 | JSON stdout | exact result array |
 | Exit codes | common |
 
@@ -353,7 +364,47 @@ Example:
 
 ```json
 {"id":4,"cmd":"list-clients"}
-{"id":4,"ok":true,"data":[{"client":1,"transport":"unix","name":"host","kind":"tui","connected_seconds":12,"attached":[7],"sizes":[{"surface":7,"cols":120,"rows":36}],"size_participating":true,"self":true}]}
+{"id":4,"ok":true,"data":[{"client":1,"transport":"unix","name":"host","kind":"tui","connected_seconds":12,"attached":[7],"sizes":[{"surface":7,"cols":120,"rows":36,"size_participating":true}],"self":true}]}
+```
+
+### set-client-sizing
+
+| Field | Value |
+| --- | --- |
+| name | `set-client-sizing` |
+| status | implemented |
+| since | protocol 7; per-surface request shape protocol 10 |
+
+Changes one client's size participation on one terminal surface. The `surface` field is always required. `exclusive:true` requires `enabled:true` and a client with a reported size on that surface. Omitting `client` with `enabled:true` restores all clients on that surface.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `surface` | `Id` | required | Existing terminal surface |
+| `client` | `uint64` | optional only when restoring all | Attached or reporting client for this surface |
+| `enabled` | `boolean` | required | Include or exclude the client |
+| `exclusive` | `boolean` | default `false` | Valid only with `client` and `enabled:true` |
+
+Result: `object{}`.
+
+Errors include `unknown surface <id>`, `client <id> is not attached to surface <id>`, `client <id> has no reported size for surface <id>`, and invalid exclusive or disabled-all combinations.
+
+CLI mapping:
+
+| Item | Value |
+| --- | --- |
+| Verb | `set-client-sizing` |
+| Flags | `--surface <id> --enabled <true-or-false> [--client <id>]` |
+| Plain stdout | no output |
+| JSON stdout | exact result object |
+| Exit codes | common |
+
+Example:
+
+```json
+{"id":5,"cmd":"set-client-sizing","surface":7,"client":1,"enabled":true,"exclusive":true}
+{"id":5,"ok":true,"data":{}}
 ```
 
 ### detach-client
@@ -654,7 +705,7 @@ Errors: `unknown workspace <id>`, `layout must contain at least one leaf`,
 `leaf command must not be empty`, spawn or PTY error string, and `bad request:
 ...`.
 
-Protocol v9 can expose raw upstream text in these errors. Clients must not parse
+Current protocol v10 can expose raw upstream text in these errors. Clients must not parse
 or persist it as a stable API value. The structured, sanitized replacement is a
 required vNext primitive in
 [`programmability.md`](programmability.md#required-vnext-primitives).
@@ -2314,7 +2365,7 @@ Example:
 
 Moves an existing tab, identified by `surface`, into `pane` at zero-based
 `index`. An out-of-range index clamps to the destination end. Moving a tab to
-its current pane and effective index is an `ok:true` no-op. The v9 dispatcher
+its current pane and effective index is an `ok:true` no-op. The current dispatcher
 ignores the mux's changed/failure boolean and always returns `{}` after its
 initial validation. A durable cross-workspace persistence failure can
 therefore also return success without moving. Observe `tree-changed` or
@@ -2471,16 +2522,22 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 | `tree_events` field | protocol 7 additive extension |
+| `surface` field | protocol 9 additive extension |
 
 Subscribes the connection to mux events. After this command, response lines and event lines may be interleaved on the same connection. `subscribe` does not send an initial tree snapshot; clients should call `list-workspaces` when they need state.
 
 Protocol v7 adds opt-in tree deltas. `tree_events:"coarse"`, including the default when the field is absent, preserves the exact protocol-v6 tree behavior: tree mutations emit `tree-changed` where v6 emits it, and the subscription never receives `workspace-*`, `screen-*`, `pane-*`, or `tab-*` lifecycle deltas. `tree_events:"deltas"` selects those lifecycle deltas. A delta subscriber must handle `tree-changed` as the documented resync fallback, but must not rely on receiving it for ordinary delta-representable mutations. The selection affects only tree events; every other subscribe event is unchanged.
+
+Protocol v9 adds `surface` for a single-terminal frontend. The server filters unrelated surface output, titles, notifications, and layouts before the bounded subscriber mailbox. It retains events for the target surface, its current workspace/screen/pane path, coarse tree resyncs, and session lifecycle. Omitting `surface` preserves the unfiltered stream.
+
+Clients must require the `surface-subscribe-filter` capability before sending `surface`. A client connected to an older protocol-v9 build must ask the user to restart or upgrade the session instead of silently falling back to an unfiltered stream.
 
 Params:
 
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
 | `tree_events` | `string` | default `"coarse"` | Protocol 7: `"coarse"` or `"deltas"` |
+| `surface` | `Id` | optional | Protocol 9: existing surface to scope at the event source |
 
 Result:
 
@@ -2680,23 +2737,6 @@ object{
   }>
 }
 ```
-
-### set-client-sizing
-
-| Field | Value |
-| --- | --- |
-| name | `set-client-sizing` |
-| status | implemented |
-| since | protocol 7 additive extension |
-
-Controls which connected clients contribute to canonical surface sizes. `client` is required when disabling. With a client, `exclusive:true` requires `enabled:true` and makes that client the only sizing participant. Omitting `client` with `enabled:true` restores all clients; the current server ignores `exclusive` on that path. The result does not report whether state changed.
-
-Params: `object{client?:Id,enabled:boolean,exclusive?:boolean=false}`.
-
-Result: `object{}`.
-
-Errors are `unknown client <id>`, `client is required when disabling sizing`,
-and `exclusive client sizing must be enabled`.
 
 ### pairing-response
 
@@ -3018,7 +3058,7 @@ Example:
 
 Blocks until a regular expression matches the current plain-text screen for a PTY surface. The server polls the same text source as `read-screen` and returns as soon as a match is found or the timeout expires. This is the primary automation synchronization primitive.
 
-Protocol v9 searches only the current viewport, has no fresh-output boundary or cancellation, and can match text that was already visible before the request. A surface exit is reported as timeout. The command blocks later requests on the same connection, so clients use a dedicated connection. CLI and TypeScript transport deadlines may expire before a server `timeout_ms` longer than ten seconds.
+Current protocol v10 searches only the current viewport, has no fresh-output boundary or cancellation, and can match text that was already visible before the request. A surface exit is reported as timeout. The command blocks later requests on the same connection, so clients use a dedicated connection. CLI and TypeScript transport deadlines may expire before a server `timeout_ms` longer than ten seconds.
 
 Params:
 
@@ -3289,7 +3329,7 @@ Example:
 | status | implemented |
 | since | protocol 6 |
 
-Posts a notification event. This is a telemetry command and must not change app focus or pane selection. Protocol v9 retains only one `{notification,level,unread}` marker for each inactive target surface; a later notification overwrites it. Title and body are event-only. Active-surface and session-wide notifications are not retained.
+Posts a notification event. This is a telemetry command and must not change app focus or pane selection. Current protocol v10 retains only one `{notification,level,unread}` marker for each inactive target surface; a later notification overwrites it. Title and body are event-only. Active-surface and session-wide notifications are not retained.
 
 Params:
 
@@ -3340,7 +3380,7 @@ Example:
 | status | implemented |
 | since | protocol 6 |
 
-Returns known agent status records. Storage contains at most one record per surface. A stored `source:"hook"` record cannot be replaced by a later `source:"socket"` report; that socket request succeeds and returns the unchanged hook record. Records are removed when the surface is explicitly closed. `source:"detected"` is reserved by the model, but protocol v9 has no producer for it. Protocol v9 emits no agent event or history.
+Returns known agent status records. Storage contains at most one record per surface. A stored `source:"hook"` record cannot be replaced by a later `source:"socket"` report; that socket request succeeds and returns the unchanged hook record. Records are removed when the surface is explicitly closed. `source:"detected"` is reserved by the model, but protocol v10 has no producer for it. Protocol v10 emits no agent event or history.
 
 Params:
 
@@ -3396,7 +3436,7 @@ Example:
 | status | implemented |
 | since | protocol 6 |
 
-Reports agent state for a surface. This is a telemetry command and must not change focus. Reports with `source:"hook"` permanently outrank later socket reports until another hook report changes the record or the surface closes. Protocol v9 accepts only `socket` and `hook`; `detected` is an enum-only reserved value with no current producer. The server trusts the caller-supplied source string and does not authenticate hook provenance. This is a v9 integrity limitation; vNext must bind source precedence to authenticated producer context.
+Reports agent state for a surface. This is a telemetry command and must not change focus. Reports with `source:"hook"` permanently outrank later socket reports until another hook report changes the record or the surface closes. Protocol v10 accepts only `socket` and `hook`; `detected` is an enum-only reserved value with no current producer. The server trusts the caller-supplied source string and does not authenticate hook provenance. This is a current integrity limitation; vNext must bind source precedence to authenticated producer context.
 
 Params:
 
@@ -3501,7 +3541,7 @@ Hook event mapping:
 The current protocol retains several legacy behaviors that need a newer
 version or capability:
 
-| Area | Current protocol-v9 behavior | Required vNext change |
+| Area | Current protocol-v10 behavior | Required vNext change |
 | --- | --- | --- |
 | Create commands | Most legacy create commands return only `{surface}` | Return complete placement and stable terminal identity |
 | Selection commands | `select-*` returns success for unknown targets, out-of-range indexes, and missing selector fields | Return a changed boolean or reject invalid target/index |

@@ -41,7 +41,7 @@ unknown ownership signal rejects the action instead of selecting either route.
 
 ## Required vNext primitives
 
-The implemented v9 inventory is complete as a description of current wire behavior. The following primitives are required before the affected feature family can claim portable automation completeness.
+The implemented v10 inventory is complete as a description of current wire behavior. The following primitives are required before the affected feature family can claim portable automation completeness.
 
 | Feature family | Current route | Required addition |
 | --- | --- | --- |
@@ -109,4 +109,4 @@ The initial inventory gate prevents undocumented runtime drift. It does not clai
 
 ## Pending protocol heads
 
-The inventory is based on `main`. [PR 8698](https://github.com/manaflow-ai/cmux/pull/8698) adds clear-history and structured shortcut work. [PR 8776](https://github.com/manaflow-ai/cmux/pull/8776) advances per-terminal client sizing to protocol 10. Both remain `pending` in `inventory.json`; neither may be labeled implemented until its code lands on `main` and the inventory gate is updated in the same change.
+The inventory is based on `main`. [PR 8698](https://github.com/manaflow-ai/cmux/pull/8698) adds clear-history and structured shortcut work and remains `pending` in `inventory.json`. Per-surface client sizing landed with protocol 10 and is part of the implemented inventory.

@@ -25,6 +25,16 @@ Exactly one provider mode may be active. The direct command's terminating `--` i
 
 The cloud transport invokes OpenSSH with exact remote commands `cmux provider control` and `cmux provider stream`. Provider bearers are generated client-side per connection generation and never carried in argv or environment variables. See [Machine Provider Contract](machine-provider.md#implemented-v1).
 
+`machine-agent` is another implemented hand-written process mode:
+
+```text
+cmux-tui machine-agent [--session <name>] [--socket <path>]
+  [--state <path>] [--cloud-host <host>] [--cloud-user <user>]
+  [--cloud-port <port>] [--cloud-identity <path>]
+```
+
+It verifies one local protocol-v10 session, then opens an outbound OpenSSH registration using the exact remote command `cmux machine register`. Packaged builds expose the same mode as `npx cmux machine-agent`. See [Machine Agent Contract](machine-agent.md).
+
 ## Global Conventions
 
 ### Socket Resolution
@@ -62,9 +72,13 @@ Human output is stable, greppable, and minimal. It must not include colors, tabl
 
 Future commands may opt into stdin only when their command block says so. By default commands do not read stdin.
 
+### Interactive attach
+
+`cmux-tui attach` opens the full session TUI. `cmux-tui attach --surface <id>` accepts a numeric or short surface id and opens only that PTY terminal, using the full host grid without session chrome. This interactive mode is separate from the JSON-lines `attach-surface` verb.
+
 ### Id Arguments
 
-All implemented CLI id arguments are numeric. `ids` prints short labels for display, but current commands do not resolve them. Short-id command arguments remain a proposed `IdRef` extension.
+Generated command verbs accept canonical decimal ids. They reject leading-zero values instead of interpreting a copied short id as a different numeric object. Interactive `attach --surface` also accepts exact six-character short ids; digit-only short ids beginning with zero stay in that fixed-width namespace, so their meaning cannot change when live ids change.
 
 ### Selector Arguments
 
@@ -78,7 +92,7 @@ The generated CLI requires one of `--index` or `--delta` for `select-tab`, `sele
 | `ping` | implemented | none | global flags | one liveness line |
 | `set-client-info` | implemented | none | `--name <name>`, `--kind <kind>` | none |
 | `list-clients` | implemented | none | global flags | client lines |
-| `set-client-sizing` | implemented; exclusive route is socket/API-only | `--enabled <bool>` | `--client <id>` | none |
+| `set-client-sizing` | implemented protocol 10; exclusive route is socket/API-only | `--surface <id> --enabled <true-or-false>` | `--client <id>`, global flags | none |
 | `detach-client` | implemented | `--client <id>` | global flags | none |
 | `reload-config` | implemented | none | global flags | none |
 | `set-window-title` | implemented | `--title <title>` | global flags | none |
@@ -209,7 +223,7 @@ cmux-tui subscribe |
   done
 ```
 
-1. Poll blocked agent states from a shell script. Protocol v9 has no agent-change event:
+1. Poll blocked agent states from a shell script. Protocol v10 has no agent-change event:
 
 ```bash
 cmux-tui --json list-agents --state blocked |

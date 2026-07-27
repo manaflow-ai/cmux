@@ -21,6 +21,7 @@ SPEC_FILES=(
   "$MUX_DIR/spec/terminal-host.md"
   "$MUX_DIR/spec/machine-provider.md"
   "$MUX_DIR/spec/provider-management.md"
+  "$MUX_DIR/spec/machine-agent.md"
   "$MUX_DIR/spec/plugins.md"
 )
 
@@ -51,7 +52,7 @@ assemble_prompt() {
     echo "- This is a temporary output directory. The harness swaps it into cmux-tui/bindings/$lang/ only after generation succeeds."
     echo "- Regeneration must overwrite stale generated files inside the temporary output directory."
     echo "- Follow the style sheet exactly."
-    echo "- Implement every protocol-v9 command and event in spec/inventory.json, preserving its authority group and cumulative profile rules."
+    echo "- Implement every protocol-v10 command and event in spec/inventory.json, preserving its authority group and cumulative profile rules, including consumer-side implemented move commands."
     echo "- Preserve command names, params, result shapes, event names, and error behavior from the spec."
     echo "- Do not implement proposed primitives unless the style sheet explicitly asks for version-gated stubs."
     echo

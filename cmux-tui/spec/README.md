@@ -1,10 +1,14 @@
 # cmux-tui Programmability Contract
 
-This directory is the source of truth for the cmux-tui control protocol, frontend programmability, plugin contracts, separately versioned provider and terminal-host boundaries, and language bindings. The implemented mux protocol described here is protocol version 9, as defined by `cmux-tui-core/src/server.rs`.
+This directory is the source of truth for the cmux-tui control protocol,
+frontend programmability, the generated `cmux-tui` command surface, plugin
+contracts, separately versioned provider, machine-agent, and terminal-host
+boundaries, and language bindings. The implemented mux protocol described here
+is protocol version 10, as defined by `cmux-tui-core/src/server.rs`.
 
 The spec is intentionally stricter than prose docs. Implemented commands and events describe the current server behavior exactly, including awkward result shapes and no-op cases. Proposed commands, events, transports, and config are marked `proposed` and are not part of the implemented protocol.
 
-[`inventory.json`](inventory.json) is the machine-readable coverage index. CI validates it against its JSON Schema and compares it with the Rust protocol version, every server command, serialized event name, configurable TUI action, context-menu action, terminal-host message kind, machine-provider request/event, provider-management operation, and corresponding prose section. The current checked baseline contains 83 commands, 44 serialized event names, 40 configurable actions, 34 menu actions, 28 cross-boundary feature families, 23 terminal-host messages, and 18 machine-provider requests.
+[`inventory.json`](inventory.json) is the machine-readable coverage index. CI validates it against its JSON Schema and compares it with the Rust protocol version, every server command, serialized event name, configurable TUI action, context-menu action, terminal-host message kind, machine-provider request/event, machine-agent message, provider-management operation, and corresponding prose section. The current checked baseline contains 83 commands, 44 serialized event names, 45 configurable actions, 40 menu actions, 28 cross-boundary feature families, 23 terminal-host messages, 22 machine-provider requests, and 14 machine-agent messages.
 
 ## Versioning
 
@@ -18,13 +22,15 @@ The spec version tracks the mux protocol version.
 
 Protocol v8 adds stable ids to canonical split nodes and exact split-ratio mutation while preserving the protocol-v5 `set-ratio` command. Protocol-v7 layout nodes do not carry `split`, so clients must negotiate v8 before requiring that field or sending `set-split-ratio`.
 
-Protocol v9 is the implemented baseline. It adds stack layout nodes and `new-pane`. Clients must negotiate v9 before decoding a stack node or sending `new-pane`. Proposed additions in this directory target the next minor protocol unless a later spec says otherwise.
+Protocol v9 adds stack layout nodes and `new-pane`. Clients must negotiate v9 before decoding a stack node or sending `new-pane`.
+
+Protocol v10 is the implemented baseline. It scopes client-sizing participation to one terminal surface, requires `surface` on `set-client-sizing`, and reports `size_participating` on each `list-clients.sizes` entry. Proposed additions in this directory target the next minor protocol unless a later spec says otherwise.
 
 Protocol v7 is additive for v6 clients: `attach-surface.mode` defaults to `"bytes"`, and `subscribe.tree_events` defaults to `"coarse"`, so absent v7 selectors retain exact v6 attach and tree-event behavior. A v7 server reports `identify.protocol == 7`; clients must require that value before selecting render mode or using other v7-only fields and commands.
 
 Generated clients must inspect `identify.protocol` before using features newer than the connected server. Bindings may expose proposed APIs behind version checks, but they must not send proposed commands to an older server unless the caller explicitly opts into probing.
 
-`identify.capabilities` negotiates additive build-level features within one protocol version. Clients must treat a missing capability list as empty. They must require `attach-initial-size` before sending initial `cols` or `rows` on `attach-surface`, `workspace-registry-v1` before using registry creation, placement, stable-key, or revision-CAS APIs, and `provider-managed-workspace-authority-v2` before committing provider-owned workspace mirrors with a pre-provisioned authority.
+`identify.capabilities` negotiates additive build-level features within one protocol version. Clients must treat a missing capability list as empty. They must require `attach-initial-size` before sending initial `cols` or `rows` on `attach-surface`, `surface-subscribe-filter` before sending `surface` on `subscribe`, `workspace-registry-v1` before using registry creation, placement, stable-key, or revision-CAS APIs, and `provider-managed-workspace-authority-v2` before committing provider-owned workspace mirrors with a pre-provisioned authority.
 
 ## Generation Model
 
@@ -53,18 +59,26 @@ The generator must preserve the wire command names, parameter names, result shap
 | `machine-provider.md` | Implemented static catalog and authenticated dynamic-provider v1 contract |
 | `provider-management.md` | Implemented root-only Linux provider-authority management protocol v1 |
 | `terminal-host.md` | Local terminal-host binary protocol v1, with the current resize decoder incompatibility called out as partial |
+| `machine-agent.md` | Implemented outbound local-machine registration, stream relay, and generation migration contract |
 
 ## Implemented Inventory
 
-Protocol v9 implements the 83 socket commands listed in `inventory.json` and `commands.md`. The server can serialize the 44 event names listed in `inventory.json` and `events.md`; `client-list-invalidated` is reserved by a live serializer and consumer but has no current core producer, so it is not counted as a currently emitted event.
+Protocol v10 implements the socket commands listed in `inventory.json` and
+`commands.md`. The event inventory includes subscribe events, attach-stream
+events, and implemented stream lifecycle events. Reserved serializers without a
+current producer remain marked separately.
 
-The client also implements `machine-provider-v0`, an in-process static Unix/SSH catalog, and `machine-provider-v1`, an authenticated dynamic-provider protocol over Unix sockets, direct child processes, or the built-in SSH connector. Both are versioned separately from protocol v9.
+The client also implements `machine-provider-v0`, an in-process static Unix/SSH
+catalog, `machine-provider-v1`, an authenticated dynamic-provider protocol over
+Unix sockets, direct child processes, or the built-in SSH connector, and
+`cmux.machine-agent` v1 for outbound local-machine registration. These
+contracts are versioned separately from protocol v10.
 
 Terminal-host v1 and provider-management v1 are also separate version domains. Terminal-host v1 is partial because its current `Resized` producer and consumer disagree on replay framing. SDKs must not infer either domain's compatibility from `identify.protocol`.
 
 ## Change Rule
 
-A PR that changes the mux protocol version or adds, removes, or renames a server command, serialized event, configurable action, or menu action must update `inventory.json` and its normative prose in the same commit. Run:
+A PR that changes the mux protocol version or adds, removes, or renames a server command, serialized event, configurable action, menu action, or secondary-protocol entry must update `inventory.json` and its normative prose in the same commit. Run:
 
 ```sh
 python3 cmux-tui/scripts/check-spec-inventory.py

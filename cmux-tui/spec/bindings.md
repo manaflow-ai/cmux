@@ -2,7 +2,12 @@
 
 Bindings live under `cmux-tui/bindings/<lang>/`. The checked-in TypeScript, Python, Rust, Go, and Java clients predate a deterministic generator and have unequal typed coverage. [`inventory.json`](inventory.json) and the normative protocol files are authoritative when a binding disagrees.
 
-Every supported binding must expose every implemented command and event allowed by its selected profile. A public raw-request method is required for forward compatibility, but it does not satisfy typed coverage. APIs newer than the connected server must be guarded by explicit version checks or feature gates.
+Every supported binding must expose every implemented protocol v10 command and
+event allowed by its selected profile, including stable split ids, stack
+layouts, per-surface client sizing, and `set-split-ratio`. A public raw-request
+method is required for forward compatibility, but it does not satisfy typed
+coverage. APIs newer than the connected server must be guarded by explicit
+version checks or feature gates.
 
 ## Shared Requirements
 
@@ -20,14 +25,14 @@ Bindings must:
 | Title changes | Decode `title-changed` as a typed event with `surface` and an optional `title`; protocol v7 guarantees the authoritative title, while v5-v6 omit it |
 | JSON mode | Provide a public raw command entry point for forward compatibility |
 | Timeouts | Let callers configure request timeout without changing wire schema; document that timeout does not cancel server execution |
-| Ids | Use numeric ids for protocol v9; gate any future `IdRef` string support on explicit negotiation |
+| Ids | Use canonical decimal numeric ids for implemented mux requests; interactive attach short ids do not add wire-level `IdRef` support |
 | Limits | Bound message, pending-response, pre-authentication, and unread-event buffers |
 | Concurrency | Document thread safety and use either one response-routing reader or explicit request serialization |
 | Close | Closing a client must unblock pending reads and stop owned transports |
 
 ## Current support matrix
 
-| Binding | Unix | WebSocket | Public raw request | Typed v9 inventory |
+| Binding | Unix | WebSocket | Public raw request | Typed v10 inventory |
 | --- | --- | --- | --- | --- |
 | TypeScript | yes | yes | yes | incomplete |
 | Python | yes | no | yes | incomplete |
@@ -52,6 +57,10 @@ SDKs must treat `layout.split` and `set-split-ratio` as protocol-v8 features. A 
 ## Protocol v9 SDK Expectations
 
 SDKs must treat stack layout nodes and `new-pane` as protocol-v9 features. `new-pane` must fail locally before sending when the identified server reports protocol 8 or older.
+
+## Protocol v10 SDK Expectations
+
+SDKs must require a surface id for every client-sizing mutation and expose `size_participating` on each surface-size report. They must not model participation as one client-wide boolean.
 
 ## Rust
 
@@ -125,7 +134,7 @@ Zig bindings accept an explicit allocator for every client and owned result. Wir
 
 ## C#
 
-C# bindings provide immutable records, `IDisposable` and `IAsyncDisposable` clients, synchronous methods, `Task` variants, and `IAsyncEnumerable` streams. Cancellation stops local waiting and closes a dedicated stream transport; it must not claim to cancel a v9 server command.
+C# bindings provide immutable records, `IDisposable` and `IAsyncDisposable` clients, synchronous methods, `Task` variants, and `IAsyncEnumerable` streams. Cancellation stops local waiting and closes a dedicated stream transport; it must not claim to cancel a server command.
 
 ## Swift
 

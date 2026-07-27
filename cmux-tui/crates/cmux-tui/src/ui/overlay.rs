@@ -8,9 +8,12 @@ use ratatui::Frame;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Position;
 use ratatui::style::{Modifier, Style};
+use unicode_width::UnicodeWidthStr;
 
 use crate::app::{App, ContextMenu, MenuItem};
 use crate::localization::catalog;
+
+use super::{ScrollbarState, ScrollbarStyle};
 
 /// Trusted approval dialog for a browser pairing request.
 pub fn draw_pairing_dialog(app: &mut App, frame: &mut Frame) {
@@ -249,20 +252,160 @@ pub fn draw_menu(app: &mut App, frame: &mut Frame) {
                 for dx in 0..inner_w {
                     set_cell(buf, inner_x + dx, row_y, " ", style);
                 }
+                let shortcut_width =
+                    item.shortcut().map(|shortcut| shortcut.width() as u16 + 2).unwrap_or(0);
                 let arrow_width = matches!(item, MenuItem::Submenu { .. }) as u16 * 2;
                 buf.set_stringn(
                     inner_x + pad + 1,
                     row_y,
                     label,
-                    inner_w.saturating_sub(pad * 2 + arrow_width) as usize,
+                    inner_w.saturating_sub(pad * 2 + arrow_width + shortcut_width) as usize,
                     style,
                 );
+                if let Some(shortcut) = item.shortcut() {
+                    let shortcut_width =
+                        (shortcut.width() as u16).min(inner_w.saturating_sub(pad * 2));
+                    if shortcut_width > 0 {
+                        let shortcut_x =
+                            x + level.rect.width.saturating_sub(pad + 1 + shortcut_width);
+                        buf.set_stringn(
+                            shortcut_x,
+                            row_y,
+                            shortcut,
+                            shortcut_width as usize,
+                            style,
+                        );
+                    }
+                }
                 if matches!(item, MenuItem::Submenu { .. }) && inner_w > 2 {
                     buf.set_stringn(x + width - pad - 3, row_y, " ›", 2, style);
                 }
             }
         }
     }
+}
+
+pub fn draw_shortcut_help(app: &mut App, frame: &mut Frame) {
+    let screen = frame.area();
+    if app.shortcut_help.is_none() {
+        return;
+    }
+    if screen.width < 24 || screen.height < 7 {
+        app.shortcut_help = None;
+        return;
+    }
+    let catalog = catalog();
+    let Some(help) = app.shortcut_help.as_ref() else { return };
+    let total_rows = help.rows.len();
+    let close_text = format!("[{}]", catalog.shortcuts.close_button);
+    let desired_width = help
+        .rows
+        .iter()
+        .map(|(action, shortcuts)| catalog.action_label(*action).width() + shortcuts.width() + 9)
+        .max()
+        .unwrap_or(44)
+        .max(catalog.shortcuts.title.width() + close_text.width() + 8);
+    let width = (desired_width as u16).min(76).min(screen.width.saturating_sub(2)).max(24);
+    let height = (total_rows as u16 + 4).min(screen.height.saturating_sub(2)).max(7);
+    let x = (screen.width - width) / 2;
+    let y = (screen.height - height) / 2;
+    let visible_rows = height.saturating_sub(4) as usize;
+    let chrome = app.chrome;
+    let base = Style::default().bg(chrome.prompt_bg).fg(chrome.prompt_fg);
+    let border = base.fg(chrome.prompt_border);
+    let title = base.fg(chrome.prompt_title_fg).add_modifier(Modifier::BOLD);
+    let shortcut_style = title;
+    let rect = Rect { x, y, width, height };
+    let Some(help) = app.shortcut_help.as_mut() else { return };
+    help.rect = rect;
+    help.visible_rows = visible_rows;
+    let close_width = close_text.width().min(width.saturating_sub(4) as usize) as u16;
+    help.close_button = Rect {
+        x: x + width.saturating_sub(close_width + 3),
+        y: y + 1,
+        width: close_width,
+        height: 1,
+    };
+    help.scroll_offset = help.scroll_offset.min(total_rows.saturating_sub(visible_rows));
+    help.scrollbar_track = if visible_rows > 0 && total_rows > visible_rows {
+        Rect { x: x + width - 2, y: y + 2, width: 1, height: visible_rows as u16 }
+    } else {
+        Rect::default()
+    };
+    let (thumb_y, thumb_height) = help.scrollbar_geometry(total_rows);
+    help.scrollbar_thumb = if help.scrollbar_track.height > 0 {
+        Rect {
+            x: help.scrollbar_track.x,
+            y: help.scrollbar_track.y + thumb_y,
+            width: 1,
+            height: thumb_height,
+        }
+    } else {
+        Rect::default()
+    };
+    let scroll_offset = help.scroll_offset;
+    let scrollbar_track = help.scrollbar_track;
+    let close_button = help.close_button;
+    let scrollbar_dragging = help.scrollbar_dragging();
+
+    let buf = frame.buffer_mut();
+    for dy in 0..height {
+        for dx in 0..width {
+            set_cell(buf, x + dx, y + dy, " ", base);
+        }
+    }
+    draw_border(buf, rect, border);
+    let title_width = close_button.x.saturating_sub(x + 3);
+    buf.set_stringn(x + 2, y + 1, catalog.shortcuts.title, title_width as usize, title);
+    buf.set_stringn(
+        close_button.x,
+        close_button.y,
+        &close_text,
+        close_button.width as usize,
+        shortcut_style,
+    );
+
+    let inner_width = width.saturating_sub(5);
+    let Some(help) = app.shortcut_help.as_ref() else { return };
+    for (line, (action, shortcuts)) in
+        help.rows.iter().skip(scroll_offset).take(visible_rows).enumerate()
+    {
+        let row_y = y + 2 + line as u16;
+        let label = catalog.action_label(*action);
+        let shortcuts = format!(" {shortcuts} ");
+        let shortcut_width = (shortcuts.width() as u16).min(inner_width / 2);
+        let shortcut_x = x + width.saturating_sub(shortcut_width + 2);
+        let shortcut_x = if scrollbar_track.height > 0 {
+            shortcut_x.min(scrollbar_track.x.saturating_sub(shortcut_width + 1))
+        } else {
+            shortcut_x
+        };
+        let label_width = shortcut_x.saturating_sub(x + 3);
+        buf.set_stringn(x + 2, row_y, label, label_width as usize, base);
+        buf.set_stringn(shortcut_x, row_y, &shortcuts, shortcut_width as usize, shortcut_style);
+    }
+    ScrollbarStyle::from_chrome(chrome).draw_thumb(
+        buf,
+        scrollbar_track,
+        (thumb_y, thumb_height),
+        base,
+        if scrollbar_dragging { ScrollbarState::Expanded } else { ScrollbarState::Highlighted },
+    );
+
+    let footer = if total_rows > visible_rows {
+        let start = scroll_offset.saturating_add(1).min(total_rows);
+        let end = (scroll_offset + visible_rows).min(total_rows);
+        format!("{}  {start}-{end}/{total_rows}", catalog.shortcuts.footer)
+    } else {
+        catalog.shortcuts.footer.to_string()
+    };
+    buf.set_stringn(
+        x + 2,
+        y + height - 2,
+        &footer,
+        width.saturating_sub(5) as usize,
+        base.fg(chrome.status_dim_fg),
+    );
 }
 
 pub fn draw_toast(app: &App, frame: &mut Frame) {
