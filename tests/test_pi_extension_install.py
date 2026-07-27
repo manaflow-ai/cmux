@@ -160,6 +160,9 @@ def main() -> int:
         fake_binding = root / "fake-surface-binding.json"
         nonblocking_started = root / "nonblocking-prompt-started"
         nonblocking_returned = root / "nonblocking-prompt-returned"
+        nonblocking_gated = root / "nonblocking-events-gated"
+        nonblocking_overtake = root / "nonblocking-event-overtook-prompt"
+        nonblocking_finished = root / "nonblocking-prompt-finished"
         nonblocking_release = root / "nonblocking-prompt-release"
         os.mkfifo(nonblocking_release)
         make_executable(
@@ -190,8 +193,13 @@ mv "$payload_tmp" "$CMUX_TEST_PI_STDIN_LOG.$payload_sequence"
 rmdir "$payload_lock"
 trap - EXIT
 if printf '%s' "$payload" | grep -q 'pi-session-nonblocking'; then
-  : > "$CMUX_TEST_PI_NONBLOCKING_STARTED"
-  cat "$CMUX_TEST_PI_NONBLOCKING_RELEASE" >/dev/null
+  if [[ "$*" == "hooks pi prompt-submit" ]]; then
+    : > "$CMUX_TEST_PI_NONBLOCKING_STARTED"
+    cat "$CMUX_TEST_PI_NONBLOCKING_RELEASE" >/dev/null
+    trap ': > "$CMUX_TEST_PI_NONBLOCKING_FINISHED"' EXIT
+  elif [[ ! -e "$CMUX_TEST_PI_NONBLOCKING_FINISHED" ]]; then
+    : > "$CMUX_TEST_PI_NONBLOCKING_OVERTAKE"
+  fi
 fi
 {
   printf 'kind=%s\n' "${CMUX_AGENT_LAUNCH_KIND-}"
@@ -262,6 +270,9 @@ esac
         check_env["CMUX_TEST_PI_BINDING_FILE"] = str(fake_binding)
         check_env["CMUX_TEST_PI_NONBLOCKING_STARTED"] = str(nonblocking_started)
         check_env["CMUX_TEST_PI_NONBLOCKING_RETURNED"] = str(nonblocking_returned)
+        check_env["CMUX_TEST_PI_NONBLOCKING_GATED"] = str(nonblocking_gated)
+        check_env["CMUX_TEST_PI_NONBLOCKING_OVERTAKE"] = str(nonblocking_overtake)
+        check_env["CMUX_TEST_PI_NONBLOCKING_FINISHED"] = str(nonblocking_finished)
         check_env["CMUX_TEST_PI_NONBLOCKING_RELEASE"] = str(nonblocking_release)
         check_env["CMUX_TEST_PI_MODERN_SCRIPT_PATH"] = str(modern_cli)
         check_env["CMUX_TEST_PI_LEGACY_SCRIPT_PATH"] = str(legacy_pi)
@@ -300,15 +311,29 @@ process.argv.splice(
 );
 const ctx = {
   cwd: "/tmp/pi-project",
+  isIdle() { return true; },
   sessionManager: {
     getSessionId() { return "pi-session-nonblocking"; }
   }
 };
 await handlers.get("before_agent_start")({ prompt: "do not block" }, ctx);
 await Bun.write(process.env.CMUX_TEST_PI_NONBLOCKING_RETURNED, "returned");
+await handlers.get("tool_execution_start")({
+  toolCallId: "blocked-tool-call",
+  toolName: "bash",
+  args: { command: "pwd" }
+}, ctx);
+await handlers.get("agent_end")({
+  messages: [{ role: "assistant", content: [{ type: "text", text: "blocked done" }] }],
+  stopReason: "completed"
+}, ctx);
+await handlers.get("agent_settled")({}, ctx);
+const shutdown = handlers.get("session_shutdown")({}, ctx);
+await Bun.write(process.env.CMUX_TEST_PI_NONBLOCKING_GATED, "queued");
 while (!(await Bun.file(process.env.CMUX_TEST_PI_NONBLOCKING_STARTED).exists())) {
   await Bun.sleep(20);
 }
+await shutdown;
 """
         nonblocking_check = subprocess.Popen(
             [bun, "--eval", nonblocking_source],
@@ -327,8 +352,19 @@ while (!(await Bun.file(process.env.CMUX_TEST_PI_NONBLOCKING_STARTED).exists()))
             print(f"args={fake_args_log.read_text(encoding='utf-8') if fake_args_log.exists() else ''}")
             return 1
 
-        # The lifecycle callback must return while the fake cmux hook remains blocked.
+        # Prompt-dependent events must remain gated while the lifecycle callback returns.
         returned_before_release = wait_for_path(nonblocking_returned, timeout=3.0)
+        gated_before_release = wait_for_path(nonblocking_gated, timeout=3.0)
+        event_overtook_prompt = wait_for_path(nonblocking_overtake, timeout=1.0)
+        pre_release_args = fake_args_log.read_text(encoding="utf-8").splitlines()
+        if event_overtook_prompt or pre_release_args != ["hooks pi prompt-submit"]:
+            nonblocking_release.write_text("release", encoding="utf-8")
+            nonblocking_check.kill()
+            stdout, stderr = nonblocking_check.communicate(timeout=5)
+            print(f"FAIL: Pi events overtook the blocked prompt hook: {pre_release_args!r}")
+            print(f"stdout={stdout.strip()}")
+            print(f"stderr={stderr.strip()}")
+            return 1
         nonblocking_release.write_text("release", encoding="utf-8")
         stdout, stderr = nonblocking_check.communicate(timeout=20)
         if nonblocking_check.returncode != 0:
@@ -339,6 +375,27 @@ while (!(await Bun.file(process.env.CMUX_TEST_PI_NONBLOCKING_STARTED).exists()))
             return 1
         if not returned_before_release:
             print("FAIL: Pi prompt lifecycle waited for the cmux hook subprocess")
+            return 1
+        if not gated_before_release:
+            print("FAIL: Pi lifecycle handlers did not queue while the prompt hook was blocked")
+            return 1
+        nonblocking_args = wait_for_text(fake_args_log, 5, timeout=5.0).splitlines()
+        for expected in [
+            "hooks feed --source pi --event PreToolUse",
+            "hooks pi notification",
+            "hooks pi stop",
+            "--json surface resume clear --workspace workspace-pi-test --surface surface-pi-test --checkpoint-id pi-session-nonblocking --source agent-hook",
+        ]:
+            if expected not in nonblocking_args:
+                print(f"FAIL: gated Pi event was not delivered after prompt release: {nonblocking_args!r}")
+                return 1
+        resume_clear = "--json surface resume clear --workspace workspace-pi-test --surface surface-pi-test --checkpoint-id pi-session-nonblocking --source agent-hook"
+        if not (
+            nonblocking_args.index("hooks pi notification")
+            < nonblocking_args.index("hooks pi stop")
+            < nonblocking_args.index(resume_clear)
+        ):
+            print(f"FAIL: completion hooks were out of order after prompt release: {nonblocking_args!r}")
             return 1
 
         check_source = """
@@ -580,9 +637,9 @@ if (await completionHookCount() !== completionCount) throw new Error("malformed 
             print(f"stderr={check.stderr.strip()}")
             return 1
 
-        args_log = wait_for_text(fake_args_log, 40, timeout=20.0)
-        stdin_log = wait_for_payload_text(fake_stdin_log, 40, timeout=20.0)
-        env_log = wait_for_text(fake_env_log, 40 * 3, timeout=20.0)
+        args_log = wait_for_text(fake_args_log, 44, timeout=20.0)
+        stdin_log = wait_for_payload_text(fake_stdin_log, 44, timeout=20.0)
+        env_log = wait_for_text(fake_env_log, 44 * 3, timeout=20.0)
         for expected in [
             "hooks pi session-start",
             "hooks pi prompt-submit",
@@ -608,6 +665,7 @@ if (await completionHookCount() !== completionCount) throw new Error("malformed 
             elif "surface resume clear" in line:
                 resume_ops.append("clear")
         expected_resume_ops = [
+            "clear",
             "set", "get", "clear",
             "set", "get", "clear",
             "set", "get",
@@ -721,7 +779,12 @@ if (await completionHookCount() !== completionCount) throw new Error("malformed 
                 f"got {interrupted_stop_payload!r}"
             )
             return 1
-        feed_events = [payload for payload in payloads if payload.get("hook_event_name") in {"PreToolUse", "PostToolUse"}]
+        feed_events = [
+            payload
+            for payload in payloads
+            if payload.get("session_id") == "pi-session-test"
+            and payload.get("hook_event_name") in {"PreToolUse", "PostToolUse"}
+        ]
         if len(feed_events) != 2 or {payload.get("tool_name") for payload in feed_events} != {"bash"}:
             print(f"FAIL: Pi Feed bridge payloads were incomplete: {feed_events!r}; args={args_log!r}")
             return 1
@@ -729,7 +792,12 @@ if (await completionHookCount() !== completionCount) throw new Error("malformed 
             print(f"FAIL: Pi Feed bridge did not use the active prompt turn id: {feed_events!r}")
             return 1
         notification_payload = next(
-            (payload for payload in payloads if payload.get("hook_event_name") == "Notification"),
+            (
+                payload
+                for payload in payloads
+                if payload.get("session_id") == "pi-session-test"
+                and payload.get("hook_event_name") == "Notification"
+            ),
             None,
         )
         if notification_payload is None or notification_payload.get("message") != "done":
