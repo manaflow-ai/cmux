@@ -789,7 +789,10 @@ impl Screen {
         let mut root = first.root.clone();
         let mut width_before = first.width;
         for column in self.layout_columns.iter().skip(1) {
-            let ratio = (width_before / (width_before + column.width)).clamp(0.05, 0.95);
+            // This tree is a read-compatibility projection, not a user resize
+            // request. Preserve exact authoritative proportions even when a
+            // wide layout requires a derived ratio outside mutation bounds.
+            let ratio = width_before / (width_before + column.width);
             root = Node::Split {
                 id: column.id,
                 dir: SplitDir::Right,
@@ -815,10 +818,7 @@ impl Screen {
         let mut ratios = BTreeMap::new();
         let mut width_before = first.width;
         for column in self.layout_columns.iter().skip(1) {
-            ratios.insert(
-                column.id,
-                (width_before / (width_before + column.width)).clamp(0.05, 0.95),
-            );
+            ratios.insert(column.id, width_before / (width_before + column.width));
             self.viewport_splits.insert(column.id, column.width);
             width_before += column.width;
         }

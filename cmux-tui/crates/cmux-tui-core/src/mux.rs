@@ -10361,7 +10361,7 @@ mod tests {
         assert!(events.try_iter().next().is_none());
     }
 
-    fn seed_clamped_viewport_projection() -> (Arc<Mux>, PaneId, SplitId) {
+    fn seed_high_ratio_viewport_projection() -> (Arc<Mux>, PaneId, SplitId) {
         let mux = test_mux();
         let first = mux.new_workspace(None, Some((80, 22))).unwrap();
         let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
@@ -10375,13 +10375,13 @@ mod tests {
             let Node::Split { id, ratio, .. } = &screen.root else {
                 panic!("three columns should expose a projected root split");
             };
-            assert_eq!(*ratio, 0.95);
+            assert!((*ratio - (2.0 / 2.1)).abs() < f32::EPSILON);
             *id
         });
         (mux, right_pane, split)
     }
 
-    fn assert_clamped_projection_resize_applied(
+    fn assert_high_ratio_projection_resize_applied(
         mux: &Mux,
         expected_width: f32,
         undo_count_before: usize,
@@ -10399,8 +10399,8 @@ mod tests {
     }
 
     #[test]
-    fn clamped_projected_split_ratio_still_resizes_authoritative_column() {
-        let (mux, _right_pane, split) = seed_clamped_viewport_projection();
+    fn maximum_projected_split_ratio_still_resizes_authoritative_column() {
+        let (mux, _right_pane, split) = seed_high_ratio_viewport_projection();
         let expected_width = 2.0 * (1.0 - 0.95) / 0.95;
         let undo_count_before =
             mux.with_state(|state| state.workspaces[0].screens[0].layout_undo.len());
@@ -10408,13 +10408,13 @@ mod tests {
 
         assert!(mux.set_split_ratio_checked(split, 0.95).is_ok());
 
-        assert_clamped_projection_resize_applied(&mux, expected_width, undo_count_before);
+        assert_high_ratio_projection_resize_applied(&mux, expected_width, undo_count_before);
         assert!(matches!(events.try_recv(), Ok(MuxEvent::LayoutChanged(_))));
     }
 
     #[test]
-    fn clamped_pane_addressed_ratio_still_resizes_authoritative_column() {
-        let (mux, right_pane, _split) = seed_clamped_viewport_projection();
+    fn maximum_pane_addressed_ratio_still_resizes_authoritative_column() {
+        let (mux, right_pane, _split) = seed_high_ratio_viewport_projection();
         let expected_width = 2.0 * (1.0 - 0.95) / 0.95;
         let undo_count_before =
             mux.with_state(|state| state.workspaces[0].screens[0].layout_undo.len());
@@ -10422,7 +10422,7 @@ mod tests {
 
         assert!(mux.set_ratio_checked(right_pane, SplitDir::Right, 0.95).is_ok());
 
-        assert_clamped_projection_resize_applied(&mux, expected_width, undo_count_before);
+        assert_high_ratio_projection_resize_applied(&mux, expected_width, undo_count_before);
         assert!(matches!(events.try_recv(), Ok(MuxEvent::TreeChanged)));
         assert!(matches!(events.try_recv(), Ok(MuxEvent::LayoutChanged(_))));
     }

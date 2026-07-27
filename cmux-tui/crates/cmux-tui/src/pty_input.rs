@@ -15,7 +15,7 @@ use smallvec::SmallVec;
 
 use crate::session::{SurfaceHandle, is_remote_timeout, is_remote_transport_failure};
 
-const QUEUE_CAPACITY: usize = 512;
+pub(crate) const PTY_OPERATION_QUEUE_CAPACITY: usize = 512;
 const MAX_QUEUED_BYTES: usize = 4 * 1024 * 1024;
 const RESERVED_RELEASE_BYTES: usize = 64;
 const REMOTE_RELEASE_MAX_ATTEMPTS: u8 = 3;
@@ -321,7 +321,7 @@ impl PtyInputSender {
             queued_bytes,
             release_reservations,
             event,
-            QUEUE_CAPACITY,
+            PTY_OPERATION_QUEUE_CAPACITY,
             MAX_QUEUED_BYTES,
         );
         let result = if outcome.accepted {
@@ -856,7 +856,7 @@ mod tests {
             sender.enqueue(event(7, 1, PtyInputKind::Motion)),
             PtyInputEnqueueResult::Accepted
         );
-        for _ in 0..QUEUE_CAPACITY - 1 {
+        for _ in 0..PTY_OPERATION_QUEUE_CAPACITY - 1 {
             assert_eq!(
                 sender.enqueue(PtyInputEvent::mutation("fill", None, false, || Ok(()))),
                 PtyInputEnqueueResult::Accepted

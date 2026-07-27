@@ -57,8 +57,8 @@ use crate::machine::{
     WorkspaceCreationPolicy, validate_machine_session,
 };
 use crate::pty_input::{
-    PtyInputBytes, PtyInputDispatcher, PtyInputEnqueueResult, PtyInputEvent, PtyInputKind,
-    PtyInputSender, PtyOperationDelivery, PtyOperationFailure,
+    PTY_OPERATION_QUEUE_CAPACITY, PtyInputBytes, PtyInputDispatcher, PtyInputEnqueueResult,
+    PtyInputEvent, PtyInputKind, PtyInputSender, PtyOperationDelivery, PtyOperationFailure,
 };
 use crate::session::tree::ScreenView;
 use crate::session::{
@@ -3365,6 +3365,10 @@ struct PaneFocusHistory {
 }
 
 const VIEWPORT_ANIMATION_DURATION: Duration = Duration::from_millis(180);
+// Animated prefetch is optional work on the same 512-entry ordered lane as
+// terminal input. Keep it to one eighth of that lane so a focus jump cannot
+// crowd out its destination or subsequent input.
+const VIEWPORT_ANIMATION_SYNC_OPERATION_BUDGET: usize = PTY_OPERATION_QUEUE_CAPACITY / 8;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ViewportGeometry {
@@ -3552,7 +3556,7 @@ fn full_pane_parts_for_layout(
 fn swept_viewport_size_leases(
     projection: PaneAreaProjection<'_>,
     target_offset: u64,
-) -> Vec<PaneSizeLease> {
+) -> Option<Vec<PaneSizeLease>> {
     let PaneAreaProjection {
         screen,
         layout,
@@ -3567,30 +3571,50 @@ fn swept_viewport_size_leases(
     let swept_right = u64::from(area.x)
         .saturating_add(current_offset.max(target_offset))
         .saturating_add(u64::from(area.width));
-    layout
+    let mut operation_cost = 0usize;
+    let mut leases = Vec::new();
+    for &(pane_id, full_rect) in layout {
+        let Some((surface, (_, _, content, _))) = full_pane_parts_for_layout(
+            screen,
+            pane_id,
+            full_rect,
+            stacked_headers,
+            scrollbar_position,
+            surface_only,
+        ) else {
+            continue;
+        };
+        let content_right = content.x.saturating_add(content.width);
+        if content.height == 0
+            || content.width == 0
+            || content.x >= swept_right
+            || content_right <= swept_left
+        {
+            continue;
+        }
+        let Some(pane) = screen.pane(pane_id) else { continue };
+        // One possible attach per tab and one resize for the active surface.
+        operation_cost = operation_cost.saturating_add(pane.tabs.len().saturating_add(1));
+        if operation_cost > VIEWPORT_ANIMATION_SYNC_OPERATION_BUDGET {
+            return None;
+        }
+        leases.push(PaneSizeLease {
+            pane: pane_id,
+            surface,
+            content_size: (u16::try_from(content.width).unwrap_or(u16::MAX), content.height),
+        });
+    }
+    Some(leases)
+}
+
+fn visible_pane_size_leases(pane_areas: &[PaneArea]) -> Vec<PaneSizeLease> {
+    pane_areas
         .iter()
-        .filter_map(|&(pane_id, full_rect)| {
-            let (surface, (_, _, content, _)) = full_pane_parts_for_layout(
-                screen,
-                pane_id,
-                full_rect,
-                stacked_headers,
-                scrollbar_position,
-                surface_only,
-            )?;
-            let content_right = content.x.saturating_add(content.width);
-            if content.height == 0
-                || content.width == 0
-                || content.x >= swept_right
-                || content_right <= swept_left
-            {
-                return None;
-            }
-            Some(PaneSizeLease {
-                pane: pane_id,
-                surface,
-                content_size: (u16::try_from(content.width).unwrap_or(u16::MAX), content.height),
-            })
+        .filter(|area| area.content.width > 0 && area.content.height > 0)
+        .map(|area| PaneSizeLease {
+            pane: area.pane,
+            surface: area.surface,
+            content_size: area.content_size(),
         })
         .collect()
 }
@@ -6867,8 +6891,10 @@ impl App {
             },
         );
 
-        // Size and attach every pane crossed by an animation up front.
-        // Paint-only ticks can then reveal cached surfaces without socket work.
+        // Size and attach every pane crossed by a short animation up front.
+        // Paint-only ticks can then reveal cached surfaces without socket
+        // work. Expensive jumps settle immediately and synchronize only the
+        // destination viewport instead of saturating the ordered PTY lane.
         let target_offset = viewport_enabled.then(|| {
             let maximum = layout.virtual_width.saturating_sub(u64::from(area.width));
             self.viewport_states
@@ -6876,8 +6902,10 @@ impl App {
                 .map_or(self.viewport_offset, |motion| motion.target.round() as u64)
                 .min(maximum)
         });
-        let size_leases = if let Some(target_offset) = target_offset {
-            swept_viewport_size_leases(
+        let size_leases = if let Some(target_offset) =
+            target_offset.filter(|target| *target != self.viewport_offset)
+        {
+            if let Some(leases) = swept_viewport_size_leases(
                 PaneAreaProjection {
                     screen: &screen,
                     layout: &layout.panes,
@@ -6888,17 +6916,29 @@ impl App {
                     viewport_offset: Some(self.viewport_offset),
                 },
                 target_offset,
-            )
+            ) {
+                leases
+            } else {
+                if let Some(motion) = self.viewport_states.get_mut(&screen.id) {
+                    motion.retarget(target_offset, false, Instant::now());
+                }
+                self.viewport_offset = target_offset;
+                rebuild_pane_areas(
+                    &mut self.pane_areas,
+                    PaneAreaProjection {
+                        screen: &screen,
+                        layout: &layout.panes,
+                        stacked_headers: &layout.stacked_headers,
+                        area,
+                        scrollbar_position: self.config.scrollbar.position,
+                        surface_only: self.surface_only,
+                        viewport_offset: Some(self.viewport_offset),
+                    },
+                );
+                visible_pane_size_leases(&self.pane_areas)
+            }
         } else {
-            self.pane_areas
-                .iter()
-                .filter(|area| area.content.width > 0 && area.content.height > 0)
-                .map(|area| PaneSizeLease {
-                    pane: area.pane,
-                    surface: area.surface,
-                    content_size: area.content_size(),
-                })
-                .collect()
+            visible_pane_size_leases(&self.pane_areas)
         };
 
         let visible = size_leases.iter().map(|lease| lease.surface).collect::<HashSet<_>>();
