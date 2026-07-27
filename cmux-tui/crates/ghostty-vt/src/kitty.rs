@@ -19,20 +19,17 @@ pub const KITTY_INFLIGHT_REPLAY_MAX_BYTES: usize =
 const PNG_SIGNATURE: &[u8; 8] = b"\x89PNG\r\n\x1a\n";
 
 #[cfg(test)]
-static SNAPSHOT_IMAGE_VISITS: std::sync::atomic::AtomicUsize =
-    std::sync::atomic::AtomicUsize::new(0);
-#[cfg(test)]
-static SNAPSHOT_PLACEMENT_VISITS: std::sync::atomic::AtomicUsize =
-    std::sync::atomic::AtomicUsize::new(0);
-#[cfg(test)]
-static PIXEL_CACHE_GENERATION_LOOKUPS: std::sync::atomic::AtomicUsize =
-    std::sync::atomic::AtomicUsize::new(0);
-#[cfg(test)]
-static PIXEL_CACHE_MISSES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+std::thread_local! {
+    static SNAPSHOT_IMAGE_VISITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static SNAPSHOT_PLACEMENT_VISITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static PIXEL_CACHE_GENERATION_LOOKUPS: std::cell::Cell<usize> =
+        const { std::cell::Cell::new(0) };
+    static PIXEL_CACHE_MISSES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
 
 #[cfg(test)]
 fn record_snapshot_image_visit() {
-    SNAPSHOT_IMAGE_VISITS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    SNAPSHOT_IMAGE_VISITS.with(|visits| visits.set(visits.get() + 1));
 }
 
 #[cfg(not(test))]
@@ -40,7 +37,7 @@ fn record_snapshot_image_visit() {}
 
 #[cfg(test)]
 fn record_snapshot_placement_visit() {
-    SNAPSHOT_PLACEMENT_VISITS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    SNAPSHOT_PLACEMENT_VISITS.with(|visits| visits.set(visits.get() + 1));
 }
 
 #[cfg(not(test))]
@@ -48,12 +45,12 @@ fn record_snapshot_placement_visit() {}
 
 #[cfg(test)]
 fn record_pixel_cache_generation_lookup() {
-    PIXEL_CACHE_GENERATION_LOOKUPS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    PIXEL_CACHE_GENERATION_LOOKUPS.with(|lookups| lookups.set(lookups.get() + 1));
 }
 
 #[cfg(test)]
 fn record_pixel_cache_miss() {
-    PIXEL_CACHE_MISSES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    PIXEL_CACHE_MISSES.with(|misses| misses.set(misses.get() + 1));
 }
 
 #[cfg(not(test))]
@@ -982,7 +979,13 @@ fn png_header_within_limits(encoded: &[u8]) -> bool {
 mod tests {
     use super::*;
 
-    static SNAPSHOT_COUNTER_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    fn reset_counter(counter: &'static std::thread::LocalKey<std::cell::Cell<usize>>) {
+        counter.with(|value| value.set(0));
+    }
+
+    fn counter(counter: &'static std::thread::LocalKey<std::cell::Cell<usize>>) -> usize {
+        counter.with(std::cell::Cell::get)
+    }
 
     #[test]
     fn inflight_tracker_replays_completed_and_partial_chunks() {
@@ -1052,7 +1055,6 @@ mod tests {
 
     #[test]
     fn snapshot_enumerates_each_stored_image_once() {
-        let _counter_guard = SNAPSHOT_COUNTER_TEST_LOCK.lock().unwrap();
         let mut terminal = Terminal::new(20, 8, 100, crate::Callbacks::default()).unwrap();
         for number in 1..=64 {
             terminal.vt_write(
@@ -1061,20 +1063,16 @@ mod tests {
         }
         terminal.vt_write(b"\x1b_Ga=t,t=d,f=24,s=1,v=1,q=2;AAEA\x1b\\");
 
-        SNAPSHOT_IMAGE_VISITS.store(0, std::sync::atomic::Ordering::Relaxed);
+        reset_counter(&SNAPSHOT_IMAGE_VISITS);
         let graphics = snapshot(&terminal, &mut HashMap::new(), true).unwrap();
 
         assert_eq!(graphics.images.len(), 65);
-        assert_eq!(
-            SNAPSHOT_IMAGE_VISITS.load(std::sync::atomic::Ordering::Relaxed),
-            graphics.images.len()
-        );
+        assert_eq!(counter(&SNAPSHOT_IMAGE_VISITS), graphics.images.len());
         assert_eq!(graphics.images.iter().filter(|image| image.number == 0).count(), 1);
     }
 
     #[test]
     fn snapshot_pixel_cache_retention_looks_up_each_generation_once() {
-        let _counter_guard = SNAPSHOT_COUNTER_TEST_LOCK.lock().unwrap();
         let mut terminal = Terminal::new(20, 8, 100, crate::Callbacks::default()).unwrap();
         for image_id in 1..=64 {
             terminal.vt_write(
@@ -1085,28 +1083,24 @@ mod tests {
         let graphics = snapshot(&terminal, &mut pixel_cache, true).unwrap();
         assert_eq!(pixel_cache.len(), graphics.images.len());
 
-        PIXEL_CACHE_GENERATION_LOOKUPS.store(0, std::sync::atomic::Ordering::Relaxed);
+        reset_counter(&PIXEL_CACHE_GENERATION_LOOKUPS);
         let refreshed = snapshot(&terminal, &mut pixel_cache, true).unwrap();
 
         assert_eq!(refreshed.images.len(), graphics.images.len());
-        assert_eq!(
-            PIXEL_CACHE_GENERATION_LOOKUPS.load(std::sync::atomic::Ordering::Relaxed),
-            graphics.images.len()
-        );
+        assert_eq!(counter(&PIXEL_CACHE_GENERATION_LOOKUPS), graphics.images.len());
     }
 
     #[test]
     fn repeated_vt_replay_reuses_cached_image_pixels() {
-        let _counter_guard = SNAPSHOT_COUNTER_TEST_LOCK.lock().unwrap();
         let mut terminal = Terminal::new(20, 8, 100, crate::Callbacks::default()).unwrap();
         terminal.vt_write(b"\x1b_Ga=T,t=d,f=24,i=41,p=7,s=1,v=1,c=1,r=1,q=2;AAAA\x1b\\");
 
-        PIXEL_CACHE_MISSES.store(0, std::sync::atomic::Ordering::Relaxed);
+        reset_counter(&PIXEL_CACHE_MISSES);
         terminal.vt_replay().unwrap();
         terminal.vt_replay().unwrap();
 
         assert_eq!(
-            PIXEL_CACHE_MISSES.load(std::sync::atomic::Ordering::Relaxed),
+            counter(&PIXEL_CACHE_MISSES),
             1,
             "an unchanged replay copied libghostty image pixels again"
         );
@@ -1114,7 +1108,6 @@ mod tests {
 
     #[test]
     fn render_snapshot_skips_unchanged_graphics_but_refreshes_geometry_damage() {
-        let _counter_guard = SNAPSHOT_COUNTER_TEST_LOCK.lock().unwrap();
         let mut terminal = Terminal::new(20, 8, 100, crate::Callbacks::default()).unwrap();
         terminal.vt_write(b"\x1b_Ga=T,t=d,f=24,i=41,p=7,s=1,v=1,c=1,r=1,q=2;AAAA\x1b\\");
         let mut pixel_cache = HashMap::new();
@@ -1123,20 +1116,20 @@ mod tests {
             .expect("forced first render snapshot");
         assert_eq!(first.placements.len(), 1);
 
-        SNAPSHOT_PLACEMENT_VISITS.store(0, std::sync::atomic::Ordering::Relaxed);
+        reset_counter(&SNAPSHOT_PLACEMENT_VISITS);
         terminal.vt_write(b"text");
         assert!(
             snapshot_for_render(&terminal, &mut pixel_cache, false).unwrap().is_none(),
             "ordinary text output rebuilt an unchanged Kitty scene"
         );
-        assert_eq!(SNAPSHOT_PLACEMENT_VISITS.load(std::sync::atomic::Ordering::Relaxed), 0);
+        assert_eq!(counter(&SNAPSHOT_PLACEMENT_VISITS), 0);
 
         terminal.resize(21, 8, 8, 16).unwrap();
         let resized = snapshot_for_render(&terminal, &mut pixel_cache, false)
             .unwrap()
             .expect("resize must refresh placement geometry");
         assert_eq!(resized.placements.len(), 1);
-        assert!(SNAPSHOT_PLACEMENT_VISITS.load(std::sync::atomic::Ordering::Relaxed) > 0);
+        assert!(counter(&SNAPSHOT_PLACEMENT_VISITS) > 0);
     }
 
     #[test]
