@@ -1552,6 +1552,7 @@ pub struct Mux {
     shutting_down: AtomicBool,
     daemon_shutdown_requested: AtomicBool,
     pub(crate) control_clients: crate::server::ClientRegistry,
+    pub(crate) surface_operation_admission: Arc<crate::server::ServerSurfaceOperationAdmission>,
     pairing: PairingBroker,
     #[cfg(test)]
     test_surface_runtime: bool,
@@ -1804,6 +1805,9 @@ impl Mux {
             shutting_down: AtomicBool::new(false),
             daemon_shutdown_requested: AtomicBool::new(false),
             control_clients: crate::server::ClientRegistry::new(),
+            surface_operation_admission: Arc::new(
+                crate::server::ServerSurfaceOperationAdmission::default(),
+            ),
             pairing: PairingBroker::new(),
             #[cfg(test)]
             test_surface_runtime,
@@ -12090,6 +12094,7 @@ mod tests {
                     workspace_key: String::new(),
                     supports_set_defaults: true,
                     supports_terminate_only: true,
+                    supports_clear_history: true,
                 },
                 record_path,
             );
@@ -12136,6 +12141,7 @@ mod tests {
                     workspace_key: String::new(),
                     supports_set_defaults: false,
                     supports_terminate_only: false,
+                    supports_clear_history: false,
                 },
                 record_path: std::path::PathBuf::new(),
                 next_attempt: Instant::now(),
@@ -12212,6 +12218,7 @@ mod tests {
                 workspace_key: String::new(),
                 supports_set_defaults: false,
                 supports_terminate_only: false,
+                supports_clear_history: false,
             };
             let path = root.join(format!("{terminal_id}.json"));
             std::fs::write(&path, serde_json::to_vec(&record).unwrap()).unwrap();
@@ -12261,6 +12268,7 @@ mod tests {
             workspace_key: String::new(),
             supports_set_defaults: false,
             supports_terminate_only: false,
+            supports_clear_history: false,
         };
         let task = TerminalAdoptionTask {
             options: SurfaceOptions::default(),
@@ -12330,6 +12338,7 @@ mod tests {
                 workspace_key: String::new(),
                 supports_set_defaults: true,
                 supports_terminate_only: true,
+                supports_clear_history: true,
             },
             record_path: std::path::PathBuf::new(),
             next_attempt: Instant::now(),
@@ -12403,6 +12412,7 @@ mod tests {
                         workspace_key: workspace.key.clone(),
                         supports_set_defaults: true,
                         supports_terminate_only: true,
+                        supports_clear_history: true,
                     },
                     record_path,
                 ));
@@ -12471,6 +12481,7 @@ mod tests {
             workspace_key: workspace.key.clone(),
             supports_set_defaults: true,
             supports_terminate_only: true,
+            supports_clear_history: true,
         };
         {
             let mut registry = mux.workspace_registry.lock().unwrap();
@@ -12959,6 +12970,7 @@ mod tests {
             workspace_key: String::new(),
             supports_set_defaults: false,
             supports_terminate_only: false,
+            supports_clear_history: false,
         };
         let record_path = record.record_path(&root);
         std::fs::write(&record_path, serde_json::to_vec(&record).unwrap()).unwrap();

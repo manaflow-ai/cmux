@@ -24,6 +24,8 @@ mod plugin_manager;
 mod process_diagnostics;
 #[cfg(target_os = "linux")]
 mod provider_authority;
+#[cfg(unix)]
+mod provider_notice_identity;
 mod pty_input;
 mod server_lifecycle;
 mod session;
@@ -314,7 +316,7 @@ CLI VERBS
   identify, ping, set-client-info, list-clients, detach-client, set-client-sizing,
   reload-config, set-window-title, clear-window-title,
   list-workspaces, export-layout, apply-layout, send,
-  read-screen, read-scrollback, vt-state, new-tab, new-browser-tab, new-workspace,
+  read-screen, read-scrollback, clear-history, vt-state, new-tab, new-browser-tab, new-workspace,
   new-screen, new-pane, split, set-ratio, set-split-ratio, pane-neighbor, focus-direction,
   swap-pane, zoom-pane, process-info, set-default-colors,
   close-surface, close-pane, close-screen, close-workspace,
@@ -1416,8 +1418,13 @@ fn run_provider_machine_client(
     local_machines: Vec<config::MachineConfig>,
     connect_external: bool,
 ) -> anyhow::Result<()> {
-    let mut runtime =
-        ProviderMachineController::connect_with(connector, local_machines, connect_external)?;
+    let state_root = cmux_tui_core::platform::workspace_state_dir();
+    let mut runtime = ProviderMachineController::connect_with(
+        connector,
+        local_machines,
+        connect_external,
+        state_root,
+    )?;
 
     let (session, label, machine_ui) = match runtime.open_selected() {
         Ok(opened) => opened,

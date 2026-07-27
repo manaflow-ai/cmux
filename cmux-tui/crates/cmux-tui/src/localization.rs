@@ -78,6 +78,37 @@ pub(crate) struct ServerMessages {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+pub(crate) struct TerminalMessages {
+    pub clear_history_help: &'static str,
+    pub clear_history_failed: &'static str,
+    pub clear_history_outcome_unknown: &'static str,
+    pub clear_history_unsupported: &'static str,
+    pub clear_history_fallback_unrepresentable: &'static str,
+    pub clear_history_preservation_impossible: &'static str,
+    pub clear_history_stream_timeout: &'static str,
+    pub clear_history_fallback_write_timeout: &'static str,
+    pub clear_history_host_unsupported: &'static str,
+    pub clear_history_host_exited: &'static str,
+    pub clear_history_host_failed: &'static str,
+    pub clear_history_host_malformed_response: &'static str,
+    pub clear_history_host_no_response: &'static str,
+    pub clear_history_remote_no_response: &'static str,
+    pub clear_history_remote_disconnected: &'static str,
+    pub clear_history_remote_rejected: &'static str,
+    pub clear_history_unexpected: &'static str,
+    pub keyboard_text_too_large: &'static str,
+    pub paste_text_too_large: &'static str,
+    pub deferred_input_destination_changed: &'static str,
+    pub pointer_input_discarded_during_layout_change: &'static str,
+    pub deferred_input_queue_full: &'static str,
+    pub pty_input_too_large: &'static str,
+    pub pty_input_queue_full: &'static str,
+    pub pty_input_unavailable: &'static str,
+    pub attach_outcome_unknown: &'static str,
+    pub operation_failed: &'static str,
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct MachineAgentMessages {
     pub help: &'static str,
     pub usage: &'static str,
@@ -131,6 +162,17 @@ pub(crate) struct ShortcutMessages {
     pub title: &'static str,
     pub close_button: &'static str,
     pub footer: &'static str,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct ConfigMessages {
+    invalid_macos_option_as_alt: &'static str,
+}
+
+impl ConfigMessages {
+    pub(crate) fn invalid_macos_option_as_alt(&self, value: &str) -> String {
+        self.invalid_macos_option_as_alt.replace("{value}", value)
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -214,6 +256,8 @@ pub(crate) struct SidebarMessages {
     pub confirm_destructive_action: &'static str,
     pub confirmation_mismatch: &'static str,
     pub initial_machine_connection_failed: &'static str,
+    pub provider_notice_identity_unavailable: &'static str,
+    pub provider_connection_already_running: &'static str,
     pub machine_provider_disconnected: &'static str,
     pub machine_action_failed: &'static str,
     pub provider_action_open_url: &'static str,
@@ -317,9 +361,11 @@ pub(crate) struct Catalog {
     pub pairing: PairingMessages,
     pub foreign_viewport: ForeignViewportMessages,
     pub server: ServerMessages,
+    pub terminal: TerminalMessages,
     pub machine_agent: MachineAgentMessages,
     pub menu: MenuMessages,
     pub shortcuts: ShortcutMessages,
+    pub config: ConfigMessages,
     pub attach: AttachMessages,
     pub sidebar: SidebarMessages,
 }
@@ -394,6 +440,35 @@ static ENGLISH: Catalog = Catalog {
         cleanup_retrying: "retrying",
         cleanup_degraded: "run server stop again",
     },
+    terminal: TerminalMessages {
+        clear_history_help: "Clear PTY history while preserving its active prompt.",
+        clear_history_failed: "Could not clear terminal history",
+        clear_history_outcome_unknown: "Terminal history clear outcome is unknown. Reconnect the session before retrying.",
+        clear_history_unsupported: "clear-history is not supported by this server; restart the cmux-tui server",
+        clear_history_fallback_unrepresentable: "the current terminal keyboard mode cannot encode the fallback key",
+        clear_history_preservation_impossible: "the active terminal input extends into retained history",
+        clear_history_stream_timeout: "terminal output did not reach a safe clear-history boundary",
+        clear_history_fallback_write_timeout: "terminal input did not accept the fallback key before timeout",
+        clear_history_host_unsupported: "the terminal host does not support clear-history; reconnect the session",
+        clear_history_host_exited: "the terminal host exited; reconnect the session",
+        clear_history_host_failed: "the terminal host could not clear its history",
+        clear_history_host_malformed_response: "the terminal host returned an invalid response; reconnect the session",
+        clear_history_host_no_response: "the terminal host did not acknowledge clear-history; reconnect the session",
+        clear_history_remote_no_response: "the remote session did not respond",
+        clear_history_remote_disconnected: "the remote session disconnected; reconnect it",
+        clear_history_remote_rejected: "the remote server rejected clear-history",
+        clear_history_unexpected: "an unexpected terminal error occurred",
+        keyboard_text_too_large: "Keyboard text exceeds the 4 MiB PTY buffer limit",
+        paste_text_too_large: "Paste exceeds the 4 MiB PTY buffer limit",
+        deferred_input_destination_changed: "Deferred input was discarded because its destination changed",
+        pointer_input_discarded_during_layout_change: "Pointer input was discarded while the layout changed",
+        deferred_input_queue_full: "Input queue byte limit reached while a session change is pending",
+        pty_input_too_large: "Input exceeds the 4 MiB PTY buffer limit",
+        pty_input_queue_full: "PTY input queue is full; input was not sent",
+        pty_input_unavailable: "PTY input is unavailable after a transport failure",
+        attach_outcome_unknown: "Surface attach outcome is unknown. Detach and reconnect before sending more input",
+        operation_failed: "Terminal input failed",
+    },
     machine_agent: MachineAgentMessages {
         help: "\
 cmux machine-agent - share one local cmux session through a remote service
@@ -443,6 +518,9 @@ edits shell files. Authenticate with the configured host before retrying.
         title: "Keyboard shortcuts",
         close_button: "Esc close",
         footer: "↑/↓ or wheel scroll · Esc or ? close",
+    },
+    config: ConfigMessages {
+        invalid_macos_option_as_alt: "cmux-tui: ignoring non-boolean keys.macos_option_as_alt = {value}",
     },
     attach: AttachMessages {
         filtered_subscription_unavailable: "single-terminal attach requires a newer cmux-tui server; restart the session",
@@ -508,6 +586,8 @@ edits shell files. Authenticate with the configured host before retrying.
         confirm_destructive_action: "Type CONFIRM to continue",
         confirmation_mismatch: "Type CONFIRM exactly to run this action",
         initial_machine_connection_failed: "Could not connect",
+        provider_notice_identity_unavailable: "Could not prepare the connection. Try again; if the problem persists, restart cmux.",
+        provider_connection_already_running: "Another connection is already running. Close it and try again.",
         machine_provider_disconnected: "Machine provider disconnected; reconnecting",
         machine_action_failed: "Machine action failed",
         provider_action_open_url: "Open",
@@ -596,6 +676,35 @@ static JAPANESE: Catalog = Catalog {
         cleanup_retrying: "再試行中",
         cleanup_degraded: "server stop をもう一度実行してください",
     },
+    terminal: TerminalMessages {
+        clear_history_help: "アクティブなプロンプトを保持したまま PTY 履歴を消去します。",
+        clear_history_failed: "ターミナル履歴を消去できませんでした",
+        clear_history_outcome_unknown: "ターミナル履歴の消去結果を確認できません。再試行する前にセッションを再接続してください。",
+        clear_history_unsupported: "このサーバーでは clear-history を使用できません。cmux-tui サーバーを再起動してください",
+        clear_history_fallback_unrepresentable: "現在のターミナルキーボードモードでは代替キーを送信できません",
+        clear_history_preservation_impossible: "アクティブなターミナル入力が保持中の履歴にまたがっています",
+        clear_history_stream_timeout: "ターミナル出力が履歴を安全に消去できる境界に達しませんでした",
+        clear_history_fallback_write_timeout: "タイムアウトまでにターミナル入力が代替キーを受け付けませんでした",
+        clear_history_host_unsupported: "ターミナルホストが clear-history に対応していません。セッションを再接続してください",
+        clear_history_host_exited: "ターミナルホストが終了しました。セッションを再接続してください",
+        clear_history_host_failed: "ターミナルホストで履歴の消去に失敗しました",
+        clear_history_host_malformed_response: "ターミナルホストから無効な応答が返されました。セッションを再接続してください",
+        clear_history_host_no_response: "ターミナルホストから clear-history の応答がありませんでした。セッションを再接続してください",
+        clear_history_remote_no_response: "リモートセッションから応答がありませんでした",
+        clear_history_remote_disconnected: "リモートセッションとの接続が切れました。再接続してください",
+        clear_history_remote_rejected: "リモートサーバーが clear-history を拒否しました",
+        clear_history_unexpected: "予期しないターミナルエラーが発生しました",
+        keyboard_text_too_large: "キーボード入力が 4 MiB の PTY バッファ上限を超えています",
+        paste_text_too_large: "貼り付けテキストが 4 MiB の PTY バッファ上限を超えています",
+        deferred_input_destination_changed: "遅延入力は送信先が変更されたため破棄されました",
+        pointer_input_discarded_during_layout_change: "レイアウトの変更中にポインター入力が破棄されました",
+        deferred_input_queue_full: "セッション変更の保留中に入力キューのバイト上限に達しました",
+        pty_input_too_large: "入力が 4 MiB の PTY バッファ上限を超えています",
+        pty_input_queue_full: "PTY 入力キューがいっぱいのため、入力は送信されませんでした",
+        pty_input_unavailable: "転送エラー後のため PTY 入力を使用できません",
+        attach_outcome_unknown: "サーフェスの接続結果を確認できません。入力を再開する前に切断して再接続してください",
+        operation_failed: "ターミナル入力に失敗しました",
+    },
     machine_agent: MachineAgentMessages {
         help: "\
 cmux machine-agent - ローカルの cmux セッションをリモートサービス経由で共有
@@ -645,6 +754,9 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
         title: "キーボードショートカット",
         close_button: "Esc 閉じる",
         footer: "↑/↓ またはホイールでスクロール · Esc または ? で閉じる",
+    },
+    config: ConfigMessages {
+        invalid_macos_option_as_alt: "cmux-tui: 真偽値ではない keys.macos_option_as_alt = {value} を無視します",
     },
     attach: AttachMessages {
         filtered_subscription_unavailable: "単一ターミナルへの接続には新しい cmux-tui サーバーが必要です。セッションを再起動してください",
@@ -710,6 +822,8 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
         confirm_destructive_action: "続行するには CONFIRM と入力",
         confirmation_mismatch: "この操作を実行するには CONFIRM と正確に入力してください",
         initial_machine_connection_failed: "マシンに接続できませんでした",
+        provider_notice_identity_unavailable: "接続を準備できませんでした。もう一度お試しください。問題が解決しない場合は、cmux を再起動してください。",
+        provider_connection_already_running: "別の接続がすでに実行中です。終了してから、もう一度お試しください。",
         machine_provider_disconnected: "マシンプロバイダーから切断されました。再接続しています",
         machine_action_failed: "マシン操作に失敗しました",
         provider_action_open_url: "リンクを開く",
@@ -785,6 +899,18 @@ mod tests {
             "サーフェス \"browser\" はブラウザであり、ターミナルではありません"
         );
         assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").terminal.keyboard_text_too_large,
+            "キーボード入力が 4 MiB の PTY バッファ上限を超えています"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").terminal.clear_history_help,
+            "アクティブなプロンプトを保持したまま PTY 履歴を消去します。"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").terminal.clear_history_unsupported,
+            "このサーバーでは clear-history を使用できません。cmux-tui サーバーを再起動してください"
+        );
+        assert_eq!(
             catalog_for_locale("ja_JP.UTF-8").sidebar.machine_provider_disconnected,
             "マシンプロバイダーから切断されました。再接続しています"
         );
@@ -848,6 +974,14 @@ mod tests {
             "Machine action failed"
         );
         assert_eq!(
+            catalog_for_locale("en_US.UTF-8").sidebar.provider_notice_identity_unavailable,
+            "Could not prepare the connection. Try again; if the problem persists, restart cmux."
+        );
+        assert_eq!(
+            catalog_for_locale("en_US.UTF-8").sidebar.provider_connection_already_running,
+            "Another connection is already running. Close it and try again."
+        );
+        assert_eq!(
             catalog_for_locale("en_US.UTF-8").sidebar.connect_prompt,
             "Host address or pairing code"
         );
@@ -862,6 +996,14 @@ mod tests {
         assert_eq!(
             catalog_for_locale("ja_JP.UTF-8").sidebar.machine_action_failed,
             "マシン操作に失敗しました"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").sidebar.provider_notice_identity_unavailable,
+            "接続を準備できませんでした。もう一度お試しください。問題が解決しない場合は、cmux を再起動してください。"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").sidebar.provider_connection_already_running,
+            "別の接続がすでに実行中です。終了してから、もう一度お試しください。"
         );
         assert_eq!(
             catalog_for_locale("ja_JP.UTF-8").sidebar.machine_provider_external_connect_ambiguous,
@@ -890,6 +1032,18 @@ mod tests {
         assert_eq!(
             catalog_for_locale("ja_JP.UTF-8").sidebar.machine_managed_authority_invalid,
             "マシンプロバイダーから無効な管理ワークスペース権限バインディングが返されました"
+        );
+    }
+
+    #[test]
+    fn option_mode_config_warning_is_localized() {
+        assert_eq!(
+            catalog_for_locale("en_US.UTF-8").config.invalid_macos_option_as_alt("\"guess\""),
+            "cmux-tui: ignoring non-boolean keys.macos_option_as_alt = \"guess\""
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").config.invalid_macos_option_as_alt("\"guess\""),
+            "cmux-tui: 真偽値ではない keys.macos_option_as_alt = \"guess\" を無視します"
         );
     }
 

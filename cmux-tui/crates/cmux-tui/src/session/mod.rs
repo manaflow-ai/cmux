@@ -15,11 +15,11 @@ use std::sync::atomic::Ordering;
 
 use cmux_tui_core::server::PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY;
 use cmux_tui_core::{
-    BrowserFrame, BrowserStatus, DefaultColors, Mux, MuxEventReceiver, PaneId, ScreenId,
-    SidebarPluginStatus, SplitDir, SplitId, Surface, SurfaceId, SurfaceKind, SurfaceRenderFrame,
-    SurfaceResizeReporter, WorkspaceId, ZoomMode,
+    BrowserFrame, BrowserStatus, ClearHistoryFailure, DefaultColors, Mux, MuxEventReceiver, PaneId,
+    ScreenId, SidebarPluginStatus, SplitDir, SplitId, Surface, SurfaceId, SurfaceKind,
+    SurfaceRenderFrame, SurfaceResizeReporter, WorkspaceId, ZoomMode,
 };
-use ghostty_vt::{MouseInput, RenderState, Terminal};
+use ghostty_vt::{KeyInput, MouseInput, RenderState, Terminal};
 use serde::Deserialize;
 use serde_json::json;
 
@@ -27,6 +27,9 @@ pub use remote::{
     RemoteMessageReader, RemoteMessageWriter, RemoteSession, RemoteSurface, RemoteTransport,
 };
 pub use tree::{TabNotificationView, TreeView, WorkspaceView};
+
+pub(crate) const CLEAR_HISTORY_UNSUPPORTED_ERROR: &str =
+    "remote server does not support clear-history; restart the cmux-tui server";
 
 #[derive(Clone)]
 pub enum Session {
@@ -50,7 +53,7 @@ pub(crate) fn is_remote_surface_unavailable(error: &anyhow::Error, surface: Surf
     error.downcast_ref::<remote::RemoteRequestError>().is_some_and(|error| {
         matches!(
             error,
-            remote::RemoteRequestError::Rejected(message)
+            remote::RemoteRequestError::Rejected { error: message, .. }
                 if message == &format!("unknown surface {surface}")
         )
     })
@@ -77,7 +80,7 @@ pub(crate) fn test_remote_rejected_error() -> anyhow::Error {
 
 #[cfg(test)]
 pub(crate) fn test_remote_rejected_error_with_message(message: &str) -> anyhow::Error {
-    remote::RemoteRequestError::Rejected(message.to_string()).into()
+    remote::RemoteRequestError::Rejected { error: message.to_string(), delivery: None }.into()
 }
 
 pub struct SidebarPluginSurface {
@@ -790,6 +793,49 @@ impl Session {
             }
             Session::Remote(remote) => {
                 remote.request(json!({"cmd": "close-surface", "surface": surface})).map(|_| ())
+            }
+        }
+    }
+
+    pub fn clear_history_classified(&self, surface: SurfaceId) -> Result<(), ClearHistoryFailure> {
+        match self {
+            Session::Local(mux) => mux
+                .surface(surface)
+                .ok_or_else(|| {
+                    ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
+                        "unknown surface {surface}"
+                    ))
+                })?
+                .clear_history_or_encode_key_classified(None),
+            Session::Remote(remote) => remote.clear_history_classified(surface),
+        }
+    }
+
+    pub fn supports_clear_history_key_fallback(&self, surface: SurfaceId) -> bool {
+        match self {
+            Session::Local(mux) => mux
+                .surface(surface)
+                .is_some_and(|surface| surface.supports_clear_history_key_fallback()),
+            Session::Remote(remote) => remote.supports_clear_history_key_fallback(surface),
+        }
+    }
+
+    pub fn clear_history_or_send_key_classified(
+        &self,
+        surface: SurfaceId,
+        fallback_key: &KeyInput,
+    ) -> Result<(), ClearHistoryFailure> {
+        match self {
+            Session::Local(mux) => mux
+                .surface(surface)
+                .ok_or_else(|| {
+                    ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
+                        "unknown surface {surface}"
+                    ))
+                })?
+                .clear_history_or_encode_key_classified(Some(fallback_key)),
+            Session::Remote(remote) => {
+                remote.clear_history_or_send_key_classified(surface, fallback_key)
             }
         }
     }
