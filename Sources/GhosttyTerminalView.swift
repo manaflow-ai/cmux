@@ -4184,13 +4184,51 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
         let terminalWidth = CGFloat(columns) * resolvedCellWidth
         let terminalHeight = CGFloat(rows) * resolvedCellHeight
+        var xInset = max(0, (bounds.width - terminalWidth) / 2)
+        var yInset = max(0, (bounds.height - terminalHeight) / 2)
+
+        var imeX: Double = 0
+        var imeY: Double = 0
+        var imeWidth: Double = 0
+        var imeHeight: Double = 0
+        ghostty_surface_ime_point(surface, &imeX, &imeY, &imeWidth, &imeHeight)
+        let nativeCursor = TerminalKeyboardCopyModeCursor(
+            row: terminalKeyboardCopyModeInitialViewportRow(
+                rows: rows,
+                imePointY: imeY,
+                imeCellHeight: Double(resolvedCellHeight),
+                topPadding: Double(yInset)
+            ),
+            column: terminalKeyboardCopyModeInitialViewportColumn(
+                columns: columns,
+                imePointX: imeX,
+                imeCellWidth: Double(resolvedCellWidth),
+                leftPadding: Double(xInset)
+            )
+        )
+        let tolerance = max(1 / backingScaleFactor, 0.5)
+        if let calibrated = terminalKeyboardCopyModeGridInsets(
+            cursor: nativeCursor,
+            imePointX: imeX,
+            imePointY: imeY,
+            cellWidth: Double(resolvedCellWidth),
+            cellHeight: Double(resolvedCellHeight)
+        ),
+           calibrated.left >= -Double(tolerance),
+           calibrated.top >= -Double(tolerance),
+           calibrated.left + Double(terminalWidth) <= Double(bounds.width + tolerance),
+           calibrated.top + Double(terminalHeight) <= Double(bounds.height + tolerance) {
+            xInset = max(0, CGFloat(calibrated.left))
+            yInset = max(0, CGFloat(calibrated.top))
+        }
+
         return KeyboardCopyModeGridMetrics(
             rows: rows,
             columns: columns,
             cellWidth: resolvedCellWidth,
             cellHeight: resolvedCellHeight,
-            xInset: max(0, (bounds.width - terminalWidth) / 2),
-            yInset: max(0, (bounds.height - terminalHeight) / 2),
+            xInset: xInset,
+            yInset: yInset,
             viewHeight: bounds.height
         )
     }

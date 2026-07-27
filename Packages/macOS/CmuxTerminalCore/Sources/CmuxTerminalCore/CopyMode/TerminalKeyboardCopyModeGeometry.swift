@@ -52,10 +52,50 @@ public func terminalKeyboardCopyModeVisibleViewportRows(
     return min(clampedBackingRows, fittedRows)
 }
 
+/// The top-left inset of Ghostty's rendered cell grid in AppKit points.
+public struct TerminalKeyboardCopyModeGridInsets: Equatable, Sendable {
+    public let left: Double
+    public let top: Double
+
+    public init(left: Double, top: Double) {
+        self.left = left
+        self.top = top
+    }
+}
+
+/// Resolves Ghostty's exact grid origin from its native cursor point.
+///
+/// Ghostty reports the cursor's horizontal midpoint and bottom edge after
+/// applying renderer padding and content scaling. Subtracting the cursor's
+/// integer cell offset recovers the same origin used to draw terminal glyphs.
+public func terminalKeyboardCopyModeGridInsets(
+    cursor: TerminalKeyboardCopyModeCursor,
+    imePointX: Double,
+    imePointY: Double,
+    cellWidth: Double,
+    cellHeight: Double
+) -> TerminalKeyboardCopyModeGridInsets? {
+    guard cursor.row >= 0,
+          cursor.column >= 0,
+          imePointX.isFinite,
+          imePointY.isFinite,
+          cellWidth.isFinite,
+          cellWidth > 0,
+          cellHeight.isFinite,
+          cellHeight > 0 else {
+        return nil
+    }
+
+    let left = imePointX - ((Double(cursor.column) + 0.5) * cellWidth)
+    let top = imePointY - ((Double(cursor.row) + 1) * cellHeight)
+    guard left.isFinite, top.isFinite else { return nil }
+    return TerminalKeyboardCopyModeGridInsets(left: left, top: top)
+}
+
 /// Resolves the initial copy-mode cursor row from Ghostty's IME point.
 ///
 /// Ghostty exposes the live cursor as an IME rectangle rather than as viewport
-/// cell coordinates. This helper converts that top-origin Y coordinate into the
+/// cell coordinates. This helper converts the rectangle's bottom edge into the
 /// row used by ``TerminalKeyboardCopyModeCursor`` when keyboard copy mode starts.
 ///
 /// ```swift
@@ -68,7 +108,7 @@ public func terminalKeyboardCopyModeVisibleViewportRows(
 ///
 /// - Parameters:
 ///   - rows: The current terminal viewport row count.
-///   - imePointY: Ghostty's top-origin IME Y coordinate.
+///   - imePointY: Ghostty's top-origin IME rectangle bottom edge.
 ///   - imeCellHeight: The current terminal cell height.
 ///   - topPadding: Vertical inset before the terminal grid begins.
 /// - Returns: A zero-based row clamped into the viewport.
@@ -79,9 +119,15 @@ public func terminalKeyboardCopyModeInitialViewportRow(
     topPadding: Double = 0
 ) -> Int {
     let clampedRows = max(rows, 1)
-    guard imeCellHeight > 0 else { return clampedRows - 1 }
+    guard imePointY.isFinite,
+          imeCellHeight.isFinite,
+          imeCellHeight > 0,
+          topPadding.isFinite else {
+        return clampedRows - 1
+    }
 
-    let estimatedRow = Int(floor(((imePointY - topPadding) / imeCellHeight) - 1))
+    let estimatedBoundary = ((imePointY - topPadding) / imeCellHeight).rounded()
+    let estimatedRow = Int(estimatedBoundary) - 1
     return max(0, min(clampedRows - 1, estimatedRow))
 }
 
@@ -113,7 +159,12 @@ public func terminalKeyboardCopyModeInitialViewportColumn(
     leftPadding: Double = 0
 ) -> Int {
     let clampedColumns = max(columns, 1)
-    guard imeCellWidth > 0 else { return 0 }
+    guard imePointX.isFinite,
+          imeCellWidth.isFinite,
+          imeCellWidth > 0,
+          leftPadding.isFinite else {
+        return 0
+    }
 
     let estimatedColumn = Int(floor((imePointX - leftPadding) / imeCellWidth))
     return max(0, min(clampedColumns - 1, estimatedColumn))
