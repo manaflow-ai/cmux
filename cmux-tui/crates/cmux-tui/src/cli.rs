@@ -2031,6 +2031,20 @@ mod tests {
     }
 
     #[test]
+    fn viewport_width_builder_localizes_nonfinite_values() {
+        let japanese = crate::localization::catalog_for_locale("ja_JP.UTF-8");
+        let flags = FlagMap {
+            values: BTreeMap::from([("width".to_string(), "NaN".to_string())]),
+            ..Default::default()
+        };
+
+        let error = required_viewport_width_with_messages(&flags, &japanese.layout).unwrap_err();
+
+        assert_eq!(error.0, japanese.layout.viewport_width_must_be_finite);
+        assert!(!error.0.contains("must be a finite number"));
+    }
+
+    #[test]
     fn layout_undo_builder_and_printer_preserve_the_confirmation_revision() {
         let flags = FlagMap {
             values: BTreeMap::from([

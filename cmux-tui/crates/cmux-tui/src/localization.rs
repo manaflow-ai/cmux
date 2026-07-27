@@ -953,6 +953,10 @@ mod tests {
             "ビューポートペインの幅は 0.1 から 1.0 の範囲で指定してください"
         );
         assert_eq!(
+            japanese_layout.viewport_width_must_be_finite,
+            "--width には有限の数値を指定してください"
+        );
+        assert_eq!(
             japanese_layout.pane_without_resizable_column(42),
             "ペイン 42 にはサイズ変更可能なビューポート列がありません"
         );
