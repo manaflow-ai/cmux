@@ -123,6 +123,25 @@ struct ClipboardWriteCaptureTests {
         #expect(board?.string(forType: .string) == marker)
         #expect(service.hasString(for: GHOSTTY_CLIPBOARD_SELECTION))
     }
+
+    @Test func mixedRepresentationsShareOnePasteboardItem() {
+        let service = TerminalPasteboardService()
+        let marker = "mixed-\(UUID().uuidString)"
+        let html = "<strong>\(marker)</strong>"
+
+        service.writeRepresentations(
+            [
+                (mimeType: "text/plain", string: marker),
+                (mimeType: "text/html", string: html),
+            ],
+            to: GHOSTTY_CLIPBOARD_SELECTION
+        )
+
+        let board = service.pasteboard(for: GHOSTTY_CLIPBOARD_SELECTION)
+        #expect(board?.pasteboardItems?.count == 1)
+        #expect(board?.string(forType: .string) == marker)
+        #expect(board?.string(forType: .html) == html)
+    }
 }
 
 @Suite("Image materialization and temp-file ownership")
