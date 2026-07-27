@@ -5630,6 +5630,14 @@ mod tests {
         let (start_tx, start_rx) = mpsc::channel();
         let (next_frame_tx, next_frame_rx) = mpsc::channel();
         let (recaptured_tx, recaptured_rx) = mpsc::channel();
+        let (race_start_tx, race_start_rx) = mpsc::channel();
+        let (stale_capture_started_tx, stale_capture_started_rx) = mpsc::channel();
+        let (send_replacement_tx, send_replacement_rx) = mpsc::channel();
+        let (replacement_sent_tx, replacement_sent_rx) = mpsc::channel();
+        let (release_stale_tx, release_stale_rx) = mpsc::channel();
+        let (replacement_captured_tx, replacement_captured_rx) = mpsc::channel();
+        let (final_frame_tx, final_frame_rx) = mpsc::channel();
+        let (final_capture_tx, final_capture_rx) = mpsc::channel();
         let (stop_tx, stop_rx) = mpsc::channel();
         let server = thread::spawn(move || {
             let (stream, _) = listener.accept().unwrap();
@@ -5790,6 +5798,190 @@ mod tests {
                 }
             }
             recaptured_tx.send(()).unwrap();
+            race_start_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            write_ws_json(
+                &mut ws,
+                json!({
+                    "method": "Page.screencastFrame",
+                    "sessionId": "session-1",
+                    "params": {
+                        "data": "c3RhbGU=",
+                        "sessionId": 11,
+                        "metadata": {"deviceWidth": 80, "deviceHeight": 48}
+                    }
+                }),
+            );
+            loop {
+                let request = read_ws_json(&mut ws);
+                match request["method"].as_str().unwrap() {
+                    "Page.screencastFrameAck" => {}
+                    "Page.getFrameTree" => {
+                        write_ws_json(
+                            &mut ws,
+                            json!({
+                                "id": request["id"],
+                                "result": {
+                                    "frameTree": {
+                                        "frame": {
+                                            "id": "main-frame",
+                                            "loaderId": "loader-2",
+                                            "url": "https://next.test"
+                                        }
+                                    }
+                                }
+                            }),
+                        );
+                    }
+                    "Page.captureScreenshot" => {
+                        stale_capture_started_tx.send(()).unwrap();
+                        send_replacement_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+                        write_ws_json(
+                            &mut ws,
+                            json!({
+                                "method": "Page.screencastFrame",
+                                "sessionId": "session-1",
+                                "params": {
+                                    "data": "dGltZWQ=",
+                                    "sessionId": 12,
+                                    "metadata": {
+                                        "deviceWidth": 80,
+                                        "deviceHeight": 48,
+                                        "timestamp": 10_001.0
+                                    }
+                                }
+                            }),
+                        );
+                        write_ws_json(
+                            &mut ws,
+                            json!({
+                                "method": "Page.screencastFrame",
+                                "sessionId": "session-1",
+                                "params": {
+                                    "data": "bmV3ZXI=",
+                                    "sessionId": 13,
+                                    "metadata": {"deviceWidth": 80, "deviceHeight": 48}
+                                }
+                            }),
+                        );
+                        replacement_sent_tx.send(()).unwrap();
+                        release_stale_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+                        write_ws_json(
+                            &mut ws,
+                            json!({
+                                "id": request["id"],
+                                "error": {
+                                    "code": -32000,
+                                    "message": "CDP call Page.captureScreenshot timed out"
+                                }
+                            }),
+                        );
+                        break;
+                    }
+                    method => panic!("unexpected CDP method {method}"),
+                }
+            }
+            let mut replacement_calls = 0;
+            while replacement_calls < 3 {
+                let request = read_ws_json(&mut ws);
+                match request["method"].as_str().unwrap() {
+                    "Page.screencastFrameAck" => {}
+                    "Page.getFrameTree" => {
+                        replacement_calls += 1;
+                        write_ws_json(
+                            &mut ws,
+                            json!({
+                                "id": request["id"],
+                                "result": {
+                                    "frameTree": {
+                                        "frame": {
+                                            "id": "main-frame",
+                                            "loaderId": "loader-2",
+                                            "url": "https://next.test"
+                                        }
+                                    }
+                                }
+                            }),
+                        );
+                    }
+                    "Page.captureScreenshot" => {
+                        replacement_calls += 1;
+                        write_ws_json(
+                            &mut ws,
+                            json!({
+                                "id": request["id"],
+                                "result": {"data": ONE_PIXEL_PNG}
+                            }),
+                        );
+                    }
+                    method => panic!("unexpected CDP method {method}"),
+                }
+            }
+            replacement_captured_tx.send(()).unwrap();
+            final_frame_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            write_ws_json(
+                &mut ws,
+                json!({
+                    "method": "Page.screencastFrame",
+                    "sessionId": "session-1",
+                    "params": {
+                        "data": "ZmluYWw=",
+                        "sessionId": 14,
+                        "metadata": {"deviceWidth": 80, "deviceHeight": 48}
+                    }
+                }),
+            );
+            ws.get_mut().set_read_timeout(Some(Duration::from_millis(20))).unwrap();
+            let deadline = Instant::now() + Duration::from_millis(500);
+            let mut final_calls = 0;
+            while final_calls < 3 && Instant::now() < deadline {
+                let request = match ws.read() {
+                    Ok(Message::Text(text)) => serde_json::from_str::<Value>(&text).unwrap(),
+                    Ok(Message::Binary(bytes)) => serde_json::from_slice::<Value>(&bytes).unwrap(),
+                    Ok(_) => continue,
+                    Err(tungstenite::Error::Io(error))
+                        if matches!(
+                            error.kind(),
+                            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                        ) =>
+                    {
+                        continue;
+                    }
+                    Err(_) => break,
+                };
+                match request["method"].as_str().unwrap() {
+                    "Page.screencastFrameAck" => {}
+                    "Page.getFrameTree" => {
+                        final_calls += 1;
+                        write_ws_json(
+                            &mut ws,
+                            json!({
+                                "id": request["id"],
+                                "result": {
+                                    "frameTree": {
+                                        "frame": {
+                                            "id": "main-frame",
+                                            "loaderId": "loader-2",
+                                            "url": "https://next.test"
+                                        }
+                                    }
+                                }
+                            }),
+                        );
+                    }
+                    "Page.captureScreenshot" => {
+                        final_calls += 1;
+                        write_ws_json(
+                            &mut ws,
+                            json!({
+                                "id": request["id"],
+                                "result": {"data": ONE_PIXEL_PNG}
+                            }),
+                        );
+                    }
+                    method => panic!("unexpected CDP method {method}"),
+                }
+            }
+            final_capture_tx.send(final_calls == 3).unwrap();
             stop_rx.recv_timeout(Duration::from_secs(1)).unwrap();
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
@@ -5845,9 +6037,57 @@ mod tests {
             "later timestamp-less pixels must update through a loader-verified capture"
         );
 
+        race_start_tx.send(()).unwrap();
+        stale_capture_started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        let stale_reservation = browser
+            .state
+            .lock()
+            .unwrap()
+            .pending_screencast_capture
+            .expect("first timestamp-less capture reservation")
+            .id;
+        send_replacement_tx.send(()).unwrap();
+        replacement_sent_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let replacement_reservation = loop {
+            let state = browser.state.lock().unwrap();
+            if state.latest_frame.as_ref().is_some_and(|frame| frame.data_b64 == "dGltZWQ=")
+                && let Some(reservation) = state.pending_screencast_capture
+                && reservation.id != stale_reservation
+            {
+                break reservation.id;
+            }
+            drop(state);
+            assert!(Instant::now() < deadline, "replacement reservation was not established");
+            thread::yield_now();
+        };
+        release_stale_tx.send(()).unwrap();
+        replacement_captured_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(1);
+        loop {
+            let state = browser.state.lock().unwrap();
+            if state.latest_frame.as_ref().is_some_and(|frame| frame.seq == 5)
+                && state.pending_screencast_capture.is_none()
+            {
+                break;
+            }
+            drop(state);
+            assert!(
+                Instant::now() < deadline,
+                "replacement capture {replacement_reservation} was not accepted"
+            );
+            thread::yield_now();
+        }
+        final_frame_tx.send(()).unwrap();
+        let final_capture_started = final_capture_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
         stop_tx.send(()).unwrap();
         runtime.shutdown();
         server.join().unwrap();
+        assert!(
+            final_capture_started,
+            "a stale capture failure must not suppress later same-epoch recovery"
+        );
     }
 
     #[test]
