@@ -81,12 +81,40 @@ private let alacrittyChildExitCallback:
         Task { @MainActor in callback(exitCode) }
     }
 
+protocol AlacrittyTerminalRuntimeProtocol: AnyObject {
+    func updateAppearance(_ appearance: TerminalRuntimeAppearance) -> Bool
+    func close()
+    func draw() -> Bool
+    func resize(
+        widthPixels: UInt32,
+        heightPixels: UInt32,
+        scaleFactor: CGFloat
+    ) -> Bool
+    func write(_ data: Data) -> Bool
+    func sendKey(
+        _ key: AlacrittyTerminalKey,
+        modifiers: AlacrittyTerminalModifiers
+    ) -> Bool
+    func scroll(lines: Int32) -> Bool
+    func setFocus(_ focused: Bool) -> Bool
+    func screenText(includeScrollback: Bool) -> String?
+    var processExited: Bool { get }
+    var needsConfirmClose: Bool { get }
+    var childPID: UInt32 { get }
+    func gridSize() -> (
+        columns: Int,
+        rows: Int,
+        cellWidthPixels: Int,
+        cellHeightPixels: Int
+    )?
+}
+
 /// One Alacritty core, PTY loop, and OpenGL renderer instance.
 ///
 /// The Rust dylib owns synchronization for terminal state. cmux invokes
 /// renderer functions on the main thread because the embedded target is an
 /// AppKit `NSView`.
-final class AlacrittyTerminalRuntime {
+final class AlacrittyTerminalRuntime: AlacrittyTerminalRuntimeProtocol {
     private let library: AlacrittyTerminalLibrary
     private var handle: UnsafeMutableRawPointer?
     private var callbackBox: Unmanaged<AlacrittyTerminalCallbackBox>?

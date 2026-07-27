@@ -24,6 +24,24 @@ private func rendererReleaseWasOccluded() -> Bool
 
 @MainActor
 @Suite(.serialized) struct TerminalSurfaceRendererPresentationTests {
+    @Test func alacrittyHiddenRuntimeReleasesRendererAndRestoresItWhenShown() {
+        let registry = TerminalSurfaceRegistry()
+        let surface = makeSurface(registry: registry, backend: .alacritty)
+        let runtime = FakeAlacrittyTerminalRuntime()
+        surface.setRendererPortalVisible(false, attachmentReady: true)
+        surface.alacrittyRuntime = runtime
+        surface.rendererRuntimeSurfaceDidCreate(attachmentReady: true)
+
+        #expect(!surface.isRendererRealized)
+        #expect(runtime.rendererRealizationRequests == [false])
+
+        surface.setRendererPortalVisible(true, attachmentReady: true)
+
+        #expect(surface.isRendererRealized)
+        #expect(surface.isRendererPresented)
+        #expect(runtime.rendererRealizationRequests == [false, true])
+    }
+
     @Test func firstPresentationWaitsUntilTheSurfaceIsAttachedToARealWindow() {
         let registry = TerminalSurfaceRegistry()
         let surface = makeSurface(registry: registry)
@@ -342,6 +360,7 @@ private func rendererReleaseWasOccluded() -> Bool
 
     private func makeSurface(
         registry: TerminalSurfaceRegistry,
+        backend: TerminalRuntimeBackend = .ghostty,
         rendererRealization: any TerminalRendererRealizationScheduling = FakeRendererRealizationScheduler()
     ) -> TerminalSurface {
         let nativeView = FakeTerminalSurfaceNativeView(
@@ -355,6 +374,7 @@ private func rendererReleaseWasOccluded() -> Bool
             dependencies: TerminalSurfaceRuntimeDependencies(
                 registry: registry,
                 engine: FakeTerminalEngine(),
+                backend: backend,
                 viewProvider: FakeTerminalSurfaceViewProvider(
                     surfaceView: nativeView,
                     paneHost: paneHost
@@ -380,4 +400,40 @@ private func rendererReleaseWasOccluded() -> Bool
         )
     }
 
+}
+
+private final class FakeAlacrittyTerminalRuntime: AlacrittyTerminalRuntimeProtocol {
+    private(set) var rendererRealizationRequests: [Bool] = []
+    private var rendererRealized = true
+
+    func setRendererRealized(_ realized: Bool) -> Bool {
+        rendererRealizationRequests.append(realized)
+        rendererRealized = realized
+        return true
+    }
+
+    var isRendererRealized: Bool { rendererRealized }
+
+    func updateAppearance(_: TerminalRuntimeAppearance) -> Bool { true }
+    func close() {}
+    func draw() -> Bool { rendererRealized }
+    func resize(widthPixels _: UInt32, heightPixels _: UInt32, scaleFactor _: CGFloat) -> Bool {
+        true
+    }
+    func write(_: Data) -> Bool { true }
+    func sendKey(_: AlacrittyTerminalKey, modifiers _: AlacrittyTerminalModifiers) -> Bool { true }
+    func scroll(lines _: Int32) -> Bool { true }
+    func setFocus(_: Bool) -> Bool { true }
+    func screenText(includeScrollback _: Bool) -> String? { "" }
+    var processExited: Bool { false }
+    var needsConfirmClose: Bool { false }
+    var childPID: UInt32 { 1 }
+    func gridSize() -> (
+        columns: Int,
+        rows: Int,
+        cellWidthPixels: Int,
+        cellHeightPixels: Int
+    )? {
+        (80, 24, 8, 16)
+    }
 }

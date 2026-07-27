@@ -91,7 +91,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let sessionPortRangeSize: Int
     let scrollbackReplayEnvironmentKey: String
     let globalFontMagnificationPercent: @Sendable () -> Int
-    var alacrittyRuntime: AlacrittyTerminalRuntime?
+    var alacrittyRuntime: (any AlacrittyTerminalRuntimeProtocol)?
     var alacrittyDrawScheduled = false
 
     /// Whether this surface uses Alacritty for terminal state and rendering.
