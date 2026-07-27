@@ -9723,13 +9723,16 @@ final class GhosttySurfaceScrollView: NSView {
         surfaceView.setVisibleInUI(visible)
         isHidden = !visible
         surfaceView.terminalSurface?.setRendererPortalVisible(visible)
-        // Hand the authoritative portal state to the surface on every call.
-        // `TerminalSurface.setOcclusion` dedupes and records the value for replay
-        // across runtime surface recreation. Gating here on the view's own
-        // previous value dropped the push whenever the view had already been
-        // marked hidden before its runtime surface existed, which left Ghostty on
-        // its `visible = true` default and its CVDisplayLink running off screen.
-        surfaceView.terminalSurface?.setOcclusion(visible)
+        // Only push on a real transition. `visibleInUI` starts `true` for every
+        // view, and a pane that is never mounted is never corrected, so an
+        // unconditional push here would tell Ghostty that off-screen panes are
+        // visible and *start* their CVDisplayLinks (measured: 9 running links of
+        // 10 surfaces vs 0 on main). `TerminalSurface.setOcclusion` records the
+        // value even when the runtime surface does not exist yet and replays it
+        // on creation, which is what keeps a hide from being lost.
+        if wasVisible != visible {
+            surfaceView.terminalSurface?.setOcclusion(visible)
+        }
 #if DEBUG
         if wasVisible != visible {
             let transition = "\(wasVisible ? 1 : 0)->\(visible ? 1 : 0)"
