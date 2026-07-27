@@ -127,6 +127,17 @@ impl BrowserStatus {
         }
         Some(BrowserFailure::Other(error))
     }
+
+    fn allows_navigation_recovery(&self) -> bool {
+        matches!(
+            self.failure(),
+            Some(
+                BrowserFailure::ResizeRecovery
+                    | BrowserFailure::NewPageVerification(_)
+                    | BrowserFailure::UpdatedPageVerification(_)
+            )
+        )
+    }
 }
 
 /// Latest-wins image update paired with the state that governs pointer input.
@@ -177,6 +188,10 @@ struct BrowserState {
     /// A targeted navigation may settle through a same-document event from
     /// the current main frame and loader.
     pending_same_document_navigation: bool,
+    /// The pending navigation was explicitly started while a retryable
+    /// terminal failure was visible. Only its verified paint may recover the
+    /// surface; unrelated page lifecycle events cannot clear that failure.
+    pending_failure_recovery: bool,
     /// Original rendered authority retained while a navigation remains
     /// unresolved. A latest-wins replacement may reuse it only when ingress
     /// proves the stopped navigation never committed.
@@ -846,6 +861,7 @@ pub(crate) fn new_surface(
             pending_navigation_epoch: None,
             pending_document_epoch: None,
             pending_same_document_navigation: false,
+            pending_failure_recovery: false,
             pending_navigation_rollback: None,
             pending_screencast_capture: None,
             failed_screencast_capture_epoch: None,
@@ -2013,6 +2029,7 @@ impl BrowserSurface {
             state.pending_navigation_epoch = None;
             state.pending_document_epoch = None;
             state.pending_same_document_navigation = false;
+            state.pending_failure_recovery = false;
             state.pending_frame = None;
             state.pending_navigation_rollback = None;
             self.mark_failed_locked(&mut state, BROWSER_RESIZE_RECOVERY_FAILED_MESSAGE);
@@ -2311,14 +2328,23 @@ impl BrowserSurface {
         self.dirty.store(true, Ordering::Release);
     }
 
-    fn clear_error(&self) {
-        let mut state = self.state.lock().unwrap();
+    fn clear_error_locked(&self, state: &mut BrowserState) -> bool {
         if matches!(state.status, BrowserStatus::Failed(_)) {
             state.status = BrowserStatus::Live;
-            // A successful navigation or reload is the explicit recovery
-            // action for an exhausted resize. Let the desired geometry enter
-            // a new bounded retry cycle after that lifecycle command.
+            // A verified paint from an explicit navigation or reload is the
+            // recovery action for an exhausted resize. Let the desired
+            // geometry enter a new bounded retry cycle only after that proof.
             state.reconfigure_failure = None;
+            state.title = state.url.clone();
+            return true;
+        }
+        false
+    }
+
+    #[cfg(test)]
+    fn clear_error(&self) {
+        let mut state = self.state.lock().unwrap();
+        if self.clear_error_locked(&mut state) {
             self.mark_state_dirty_locked(&mut state);
         }
     }
@@ -2347,7 +2373,6 @@ impl BrowserSurface {
         let mut state = self.state.lock().unwrap();
         state.url = url;
         state.title = title;
-        state.status = BrowserStatus::Live;
         state.stall_nudged = false;
         self.mark_state_dirty_locked(&mut state);
     }
@@ -2387,6 +2412,28 @@ impl BrowserSurface {
 
     fn require_live_session(&self) -> anyhow::Result<BrowserSession> {
         self.live_session()?.ok_or_else(|| anyhow::anyhow!("browser is still starting"))
+    }
+
+    fn require_navigation_session(&self) -> anyhow::Result<BrowserSession> {
+        if self.is_dead() {
+            anyhow::bail!("browser surface is closed");
+        }
+        let session = self
+            .session
+            .lock()
+            .unwrap()
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("browser is still starting"))?;
+        let status = self.status();
+        if matches!(&status, BrowserStatus::Live) || status.allows_navigation_recovery() {
+            Ok(session)
+        } else {
+            match status {
+                BrowserStatus::Starting => anyhow::bail!("browser is still starting"),
+                BrowserStatus::Failed(error) => anyhow::bail!("browser failed: {error}"),
+                BrowserStatus::Live => unreachable!(),
+            }
+        }
     }
 
     fn frames_stalled_at(&self, now: Instant) -> bool {
@@ -2600,6 +2647,7 @@ impl BrowserSurface {
         state.pending_frame_epoch = Some(pending_frame_epoch);
         state.pending_navigation_epoch = Some(pending_frame_epoch);
         state.pending_same_document_navigation = may_be_same_document;
+        state.pending_failure_recovery = state.status.allows_navigation_recovery();
         state.pending_frame = None;
         invalidation.expected_frame_epoch = Some(pending_frame_epoch);
         state.pending_navigation_rollback = Some(invalidation.clone());
@@ -2644,6 +2692,7 @@ impl BrowserSurface {
         state.pending_navigation_epoch = None;
         state.pending_document_epoch = None;
         state.pending_same_document_navigation = false;
+        state.pending_failure_recovery = false;
         state.pending_frame = None;
         state.pending_navigation_rollback = None;
         Ok(match preserved_rollback {
@@ -2697,6 +2746,7 @@ impl BrowserSurface {
         state.pending_navigation_epoch = None;
         state.pending_document_epoch = None;
         state.pending_same_document_navigation = false;
+        state.pending_failure_recovery = false;
         state.pending_frame = None;
         state.pending_navigation_rollback = None;
     }
@@ -2709,6 +2759,9 @@ impl BrowserSurface {
                 .is_some_and(|pending_epoch| frame_epoch < pending_epoch)
         {
             return false;
+        }
+        if state.pending_navigation_epoch.is_none() {
+            state.pending_failure_recovery = false;
         }
         let capture_revoked_at_command =
             state.pending_navigation_epoch.is_some() && !state.pending_same_document_navigation;
@@ -2822,9 +2875,11 @@ impl BrowserSurface {
         {
             return false;
         }
+        let recovers_failure = state.pending_failure_recovery;
         state.pending_document_epoch = None;
         state.pending_navigation_epoch = None;
         state.pending_same_document_navigation = false;
+        state.pending_failure_recovery = false;
         state.pending_frame_epoch = None;
         state.pending_frame = None;
         state.pending_navigation_rollback = None;
@@ -2837,6 +2892,9 @@ impl BrowserSurface {
             state.pending_screencast_capture = None;
         }
         state.failed_screencast_capture_epoch = None;
+        if recovers_failure {
+            self.clear_error_locked(&mut state);
+        }
         self.store_frame_locked(&mut state, frame);
         self.mark_state_dirty_locked(&mut state);
         true
@@ -2851,9 +2909,11 @@ impl BrowserSurface {
         {
             return false;
         }
+        let recovers_failure = state.pending_failure_recovery;
         state.pending_frame_epoch = None;
         state.pending_navigation_epoch = None;
         state.pending_same_document_navigation = false;
+        state.pending_failure_recovery = false;
         state.pending_frame = None;
         state.pending_navigation_rollback = None;
         state.accepted_frame_epoch = frame_epoch;
@@ -2864,6 +2924,9 @@ impl BrowserSurface {
             state.pending_screencast_capture = None;
         }
         state.failed_screencast_capture_epoch = None;
+        if recovers_failure {
+            self.clear_error_locked(&mut state);
+        }
         self.store_frame_locked(&mut state, frame);
         self.mark_state_dirty_locked(&mut state);
         true
@@ -2944,6 +3007,7 @@ impl BrowserSurface {
         state.pending_navigation_epoch = None;
         state.pending_document_epoch = None;
         state.pending_same_document_navigation = false;
+        state.pending_failure_recovery = false;
         state.pending_frame = None;
         state.pending_navigation_rollback = None;
         self.mark_failed_locked(
@@ -2964,6 +3028,7 @@ impl BrowserSurface {
         state.pending_frame_epoch = None;
         state.pending_navigation_epoch = None;
         state.pending_same_document_navigation = false;
+        state.pending_failure_recovery = false;
         state.pending_frame = None;
         state.pending_navigation_rollback = None;
         self.mark_failed_locked(
@@ -2983,13 +3048,16 @@ impl BrowserSurface {
                 rollback.revision == invalidation.revision
                     && rollback.expected_frame_epoch == invalidation.expected_frame_epoch
             });
+        let restoring_failed_recovery =
+            state.pending_failure_recovery && state.status.allows_navigation_recovery();
         if state.pointer_frame_revision != invalidation.revision
-            || !matches!(state.status, BrowserStatus::Live)
+            || !(matches!(state.status, BrowserStatus::Live) || restoring_failed_recovery)
             || state.latest_frame.as_ref().map(|frame| frame.seq)
                 != invalidation.previous_latest_frame_seq
         {
             if owns_navigation_rollback {
                 state.pending_navigation_rollback = None;
+                state.pending_failure_recovery = false;
             }
             return;
         }
@@ -3001,6 +3069,7 @@ impl BrowserSurface {
         state.pending_navigation_epoch = invalidation.previous_pending_navigation_epoch;
         state.pending_same_document_navigation =
             invalidation.previous_pending_same_document_navigation;
+        state.pending_failure_recovery = false;
         state.pending_frame = invalidation.previous_pending_frame;
         Self::set_pointer_frame_locked(&mut state, invalidation.previous);
         let retained_frame = state.latest_frame.clone();
@@ -3887,7 +3956,7 @@ impl BrowserSurface {
     }
 
     fn navigate_blocking(&self, url: &str) -> anyhow::Result<()> {
-        let session = self.require_live_session()?;
+        let session = self.require_navigation_session()?;
         let normalized = normalize_url(url);
         let invalidation = self.begin_latest_navigation_frame_transition(&session, true)?;
         match session.runtime.client.navigate(&session.session_id, &normalized) {
@@ -3935,7 +4004,7 @@ impl BrowserSurface {
     }
 
     fn navigate_history_blocking(&self, delta: isize) -> anyhow::Result<()> {
-        let session = self.require_live_session()?;
+        let session = self.require_navigation_session()?;
         let invalidation = self.begin_latest_navigation_frame_transition(&session, true)?;
         let history = match session.runtime.client.navigation_history(&session.session_id) {
             Ok(history) => history,
@@ -3957,7 +4026,6 @@ impl BrowserSurface {
             invalidation,
             session.runtime.client.navigate_to_history_entry(&session.session_id, entry.id),
         )?;
-        self.clear_error();
         Ok(())
     }
 
@@ -3966,13 +4034,12 @@ impl BrowserSurface {
     }
 
     fn reload_blocking(&self) -> anyhow::Result<()> {
-        let session = self.require_live_session()?;
+        let session = self.require_navigation_session()?;
         let invalidation = self.begin_latest_navigation_frame_transition(&session, false)?;
         self.finish_navigation_command(
             invalidation,
             session.runtime.client.reload(&session.session_id),
         )?;
-        self.clear_error();
         Ok(())
     }
 
@@ -4040,7 +4107,6 @@ fn handle_frame_navigated(browser: &BrowserSurface, params: serde_json::Value, f
             .unwrap_or(url);
         let _ = browser.set_title(title.to_string());
     }
-    browser.clear_error();
 }
 
 fn handle_same_document_navigated(
@@ -4052,7 +4118,6 @@ fn handle_same_document_navigated(
         browser.set_url(url.clone());
         let _ = browser.set_title(url.clone());
     }
-    browser.clear_error();
     Some(url)
 }
 
@@ -6507,6 +6572,29 @@ mod tests {
             browser.latest_frame_seq(),
             None,
             "unverified pixels must not recreate pointer authority"
+        );
+
+        browser.begin_targeted_navigation_frame_transition().expect("explicit recovery");
+        handle_same_document_navigated(
+            browser,
+            &json!({
+                "frameId": "main-frame",
+                "url": "https://example.test/#recovery"
+            }),
+        )
+        .expect("recovery URL");
+        assert!(
+            matches!(
+                browser.status().failure(),
+                Some(super::BrowserFailure::UpdatedPageVerification(_))
+            ),
+            "the recovery command acknowledgment must not clear failure before pixel verification"
+        );
+        assert!(browser.accept_same_document_paint(browser.frame_epoch.current(), test_frame(3)));
+        assert_eq!(browser.status(), BrowserStatus::Live);
+        assert!(
+            browser.latest_frame_seq().is_some(),
+            "the matching verified recovery paint must reopen pointer authority"
         );
     }
 
