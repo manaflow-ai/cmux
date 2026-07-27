@@ -174,7 +174,7 @@ describe("render graphics", () => {
     });
   });
 
-  it("drops hidden, missing, and below-background placements", () => {
+  it("drops hidden and missing placements while preserving both negative layers", () => {
     const image: RenderGraphicImage = {
       id: 9,
       generation: 1,
@@ -188,7 +188,10 @@ describe("render graphics", () => {
     expect(resolveRenderGraphicPlacement(image, { ...placement, image_id: 10 })).toBeNull();
     expect(resolveRenderGraphicPlacement(image, { ...placement, z: -1_073_741_824 }))
       .toMatchObject({ layer: "below", z: -1_073_741_824 });
-    expect(resolveRenderGraphicPlacement(image, { ...placement, z: -1_073_741_825 })).toBeNull();
+    expect(resolveRenderGraphicPlacement(image, { ...placement, z: -1_073_741_825 }))
+      .toMatchObject({ layer: "belowBackground", z: -1_073_741_825 });
+    expect(resolveRenderGraphicPlacement(image, { ...placement, z: -2_147_483_648 }))
+      .toMatchObject({ layer: "belowBackground", z: -2_147_483_648 });
   });
 
   it("rejects browser-unsafe intrinsic canvas dimensions independently of area", () => {

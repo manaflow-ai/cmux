@@ -73,11 +73,32 @@ const model: RenderModel = {
         viewport_visible: true,
         z: 2,
       },
+      {
+        image_id: 9,
+        placement_id: 5,
+        ordinal: 0,
+        x_offset: 0,
+        y_offset: 0,
+        source_x: 0,
+        source_y: 0,
+        source_width: 1,
+        source_height: 1,
+        columns: 1,
+        rows: 1,
+        grid_cols: 1,
+        grid_rows: 1,
+        pixel_width: 8,
+        pixel_height: 16,
+        viewport_col: 2,
+        viewport_row: 1,
+        viewport_visible: true,
+        z: -1_073_741_825,
+      },
     ],
   },
   rows: [
     { row: 0, runs: [{ text: "界", fg: null, bg: null, attrs: renderAttrs.bold, width_hint: 2 }] },
-    { row: 1, runs: [{ text: "ok  ", fg: "#00ff00", bg: null, attrs: 0, underline: "dashed" }] },
+    { row: 1, runs: [{ text: "ok  ", fg: "#00ff00", bg: "#223344", attrs: 0, underline: "dashed" }] },
   ],
 };
 
@@ -154,9 +175,12 @@ describe("RenderTerminal DOM grid", () => {
     );
 
     const below = container.querySelector<HTMLElement>(".render-graphics-below");
+    const belowBackground =
+      container.querySelector<HTMLElement>(".render-graphics-below-background");
     const above = container.querySelector<HTMLElement>(".render-graphics-above");
     await waitFor(() => {
       expect(below?.querySelector("[data-graphic-placement='9:3:0']")).not.toBeNull();
+      expect(belowBackground?.querySelector("[data-graphic-placement='9:5:0']")).not.toBeNull();
       expect(above?.querySelector("[data-graphic-placement='9:4:0']")).not.toBeNull();
     });
     const cropped = below?.querySelector<HTMLCanvasElement>("[data-graphic-placement='9:3:0']");
@@ -169,11 +193,18 @@ describe("RenderTerminal DOM grid", () => {
     expect(above?.querySelector("[data-graphic-placement='9:4:0']")).not.toBeNull();
 
     const gridChildren = [...container.querySelector(".render-grid")!.children];
-    const background = container.querySelector<HTMLElement>(".render-row-background");
-    expect(background?.querySelector(".render-run")).toHaveStyle({ backgroundColor: "#111111" });
+    const backgrounds =
+      container.querySelectorAll<HTMLElement>(".render-row-background .render-run");
+    expect(backgrounds[0]).toHaveStyle({ backgroundColor: "transparent" });
+    expect(backgrounds[1]).toHaveStyle({ backgroundColor: "#223344" });
     expect(container.querySelector<HTMLElement>(".render-row .render-run")?.style.backgroundColor)
       .toBe("transparent");
-    expect(gridChildren.indexOf(background!)).toBeLessThan(gridChildren.indexOf(below!));
+    expect(gridChildren.indexOf(belowBackground!)).toBeLessThan(
+      gridChildren.findIndex((child) => child.classList.contains("render-row-background")),
+    );
+    expect(gridChildren.indexOf(below!)).toBeGreaterThan(
+      gridChildren.findIndex((child) => child.classList.contains("render-row-background")),
+    );
     expect(gridChildren.indexOf(below!)).toBeLessThan(
       gridChildren.findIndex((child) => child.classList.contains("render-row")),
     );

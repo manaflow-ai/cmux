@@ -870,6 +870,7 @@ mod tests {
     use super::*;
     use crate::ui::graphics::{
         GraphicData, GraphicFormat, GraphicImage, GraphicImageKey, GraphicPlacementKey,
+        clear_image_transmission_observer, observe_image_transmissions,
     };
     use cmux_tui_core::Rect;
     use ghostty_vt::{Callbacks, Terminal};
@@ -972,7 +973,17 @@ mod tests {
     }
 
     fn rgba_placement(image_id: u32, generation: u64, x: u16, rgba: [u8; 4]) -> GraphicPlacement {
-        let image_key = GraphicImageKey { namespace: 91, surface: 7, image_id };
+        rgba_placement_in_namespace(91, image_id, generation, x, rgba)
+    }
+
+    fn rgba_placement_in_namespace(
+        namespace: u64,
+        image_id: u32,
+        generation: u64,
+        x: u16,
+        rgba: [u8; 4],
+    ) -> GraphicPlacement {
+        let image_key = GraphicImageKey { namespace, surface: 7, image_id };
         GraphicPlacement {
             key: GraphicPlacementKey { image: image_key, placement_id: 1, ordinal: 0 },
             image: Arc::new(GraphicImage {
@@ -1391,6 +1402,51 @@ mod tests {
         assert_eq!(snapshot.images[0].data.as_ref(), &[0, 0, 255, 255]);
         assert_eq!(snapshot.placements.len(), 1);
         writer.shutdown(Duration::from_secs(1));
+    }
+
+    #[test]
+    fn superseded_scene_does_not_encode_images_beyond_the_active_batch() {
+        let namespace = u64::MAX - 17;
+        let (observed_tx, observed_rx) = std::sync::mpsc::channel();
+        observe_image_transmissions(observed_tx);
+        let bytes = Arc::new(Mutex::new(Vec::new()));
+        let (entered_tx, entered_rx) = sync_channel(1);
+        let (release_tx, release_rx) = sync_channel(1);
+        let (flushed_tx, _flushed_rx) = sync_channel(8);
+        let output = SupersedingOutput {
+            bytes,
+            entered: Some(entered_tx),
+            release: Some(release_rx),
+            flushed: flushed_tx,
+        };
+        let mut writer =
+            GraphicsWriter::spawn_with_graphics_output(Arc::new(StdoutLock::new(())), output)
+                .unwrap();
+        let old = (0..3)
+            .map(|index| {
+                rgba_placement_in_namespace(
+                    namespace,
+                    41 + index,
+                    1,
+                    u16::try_from(index).unwrap(),
+                    [u8::try_from(index).unwrap(), 0, 0, 255],
+                )
+            })
+            .collect();
+
+        writer.submit(old);
+        entered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        let encoded_before_supersession =
+            observed_rx.try_iter().filter(|key| key.namespace == namespace).count();
+        writer.submit(Vec::new());
+        release_tx.send(()).unwrap();
+        writer.shutdown(Duration::from_secs(1));
+        clear_image_transmission_observer();
+
+        assert_eq!(
+            encoded_before_supersession, 1,
+            "the writer encoded later images before checking for a newer scene"
+        );
     }
 
     #[test]

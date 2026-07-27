@@ -22,6 +22,22 @@ const DEFAULT_KITTY_PLACEMENT_COUNT_LIMIT: u64 = 16_384;
 const KITTY_REPLAY_CHUNK: usize = 4096;
 const MAX_COLOR_OSC_BYTES: usize = 16 * 1024;
 
+#[cfg(test)]
+thread_local! {
+    static KITTY_REPLAY_IMAGE_ENCODINGS: std::cell::Cell<usize> =
+        const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+fn reset_kitty_replay_image_encodings() {
+    KITTY_REPLAY_IMAGE_ENCODINGS.set(0);
+}
+
+#[cfg(test)]
+fn kitty_replay_image_encodings() -> usize {
+    KITTY_REPLAY_IMAGE_ENCODINGS.get()
+}
+
 /// Terminal state replay plus Kitty aliases that cannot share one APC command.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct VtReplay {
@@ -2599,6 +2615,8 @@ impl<'a> KittyReplayCatalog<'a> {
 }
 
 fn kitty_replay_image(image: &KittyImage) -> Vec<u8> {
+    #[cfg(test)]
+    KITTY_REPLAY_IMAGE_ENCODINGS.set(KITTY_REPLAY_IMAGE_ENCODINGS.get() + 1);
     let mut bytes = Vec::new();
     let payload = base64::engine::general_purpose::STANDARD.encode(&image.data);
     for (index, chunk) in payload.as_bytes().chunks(KITTY_REPLAY_CHUNK).enumerate() {
@@ -2861,7 +2879,8 @@ mod tests {
     };
 
     use super::{
-        Callbacks, KittyReplayCatalog, MouseModeScan, PaletteOsc, Terminal, kitty_replay_placement,
+        Callbacks, KittyReplayCatalog, MouseModeScan, PaletteOsc, Terminal,
+        kitty_replay_image_encodings, kitty_replay_placement, reset_kitty_replay_image_encodings,
         vt_replay_row_window,
     };
 
@@ -3077,6 +3096,37 @@ mod tests {
         let catalog = KittyReplayCatalog::new(&snapshot, (1, 1), 24);
 
         assert_eq!(catalog.placement_grouping_visits, snapshot.graphics.placements.len());
+    }
+
+    #[test]
+    fn kitty_replay_does_not_encode_images_rejected_by_the_budget() {
+        let snapshot = KittyReplaySnapshot {
+            graphics: KittyGraphicsSnapshot {
+                generation: 1,
+                images: vec![KittyImage {
+                    id: 1,
+                    number: 0,
+                    generation: 1,
+                    width: 1,
+                    height: 1,
+                    format: KittyImageFormat::Rgb,
+                    data: std::sync::Arc::from([0_u8, 0, 0]),
+                }],
+                placements: Vec::new(),
+            },
+            anchors: Default::default(),
+        };
+
+        reset_kitty_replay_image_encodings();
+        let catalog = KittyReplayCatalog::new(&snapshot, (1, 1), 24);
+        let replay = catalog.plan(None, 0, false);
+
+        assert!(replay.image_bytes.is_empty());
+        assert_eq!(
+            kitty_replay_image_encodings(),
+            0,
+            "catalog construction encoded an image that the replay budget rejected"
+        );
     }
 
     #[test]

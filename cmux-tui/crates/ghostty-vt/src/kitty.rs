@@ -25,6 +25,8 @@ static SNAPSHOT_PLACEMENT_VISITS: std::sync::atomic::AtomicUsize =
 #[cfg(test)]
 static PIXEL_CACHE_GENERATION_LOOKUPS: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+static PIXEL_CACHE_MISSES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 #[cfg(test)]
 fn record_snapshot_image_visit() {
@@ -46,6 +48,14 @@ fn record_snapshot_placement_visit() {}
 fn record_pixel_cache_generation_lookup() {
     PIXEL_CACHE_GENERATION_LOOKUPS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 }
+
+#[cfg(test)]
+fn record_pixel_cache_miss() {
+    PIXEL_CACHE_MISSES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[cfg(not(test))]
+fn record_pixel_cache_miss() {}
 
 /// Bounded copy of a Kitty direct transmission that libghostty is still
 /// assembling. A fresh attach terminal must consume this exact prefix before
@@ -789,6 +799,7 @@ fn copy_image(
             data: data.clone(),
         });
     }
+    record_pixel_cache_miss();
     if data_ptr.is_null() && data_len != 0 {
         return Err(Error::InvalidValue);
     }
@@ -1079,6 +1090,23 @@ mod tests {
         assert_eq!(
             PIXEL_CACHE_GENERATION_LOOKUPS.load(std::sync::atomic::Ordering::Relaxed),
             graphics.images.len()
+        );
+    }
+
+    #[test]
+    fn repeated_vt_replay_reuses_cached_image_pixels() {
+        let _counter_guard = SNAPSHOT_COUNTER_TEST_LOCK.lock().unwrap();
+        let mut terminal = Terminal::new(20, 8, 100, crate::Callbacks::default()).unwrap();
+        terminal.vt_write(b"\x1b_Ga=T,t=d,f=24,i=41,p=7,s=1,v=1,c=1,r=1,q=2;AAAA\x1b\\");
+
+        PIXEL_CACHE_MISSES.store(0, std::sync::atomic::Ordering::Relaxed);
+        terminal.vt_replay().unwrap();
+        terminal.vt_replay().unwrap();
+
+        assert_eq!(
+            PIXEL_CACHE_MISSES.load(std::sync::atomic::Ordering::Relaxed),
+            1,
+            "an unchanged replay copied libghostty image pixels again"
         );
     }
 

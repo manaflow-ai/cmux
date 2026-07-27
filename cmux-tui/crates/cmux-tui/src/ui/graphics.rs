@@ -2,6 +2,8 @@ use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use std::sync::Arc;
+#[cfg(test)]
+use std::sync::{Mutex, OnceLock, mpsc::Sender};
 use std::time::Duration;
 #[cfg(unix)]
 use std::time::Instant;
@@ -12,6 +14,32 @@ use ghostty_vt::{KittyImage, KittyImageFormat, KittyPlacement};
 
 const ESC: &str = "\x1b";
 const CHUNK: usize = 4096;
+
+#[cfg(test)]
+static IMAGE_TRANSMISSION_OBSERVER: OnceLock<Mutex<Option<Sender<GraphicImageKey>>>> =
+    OnceLock::new();
+
+#[cfg(test)]
+pub(super) fn observe_image_transmissions(observer: Sender<GraphicImageKey>) {
+    *IMAGE_TRANSMISSION_OBSERVER.get_or_init(|| Mutex::new(None)).lock().unwrap() = Some(observer);
+}
+
+#[cfg(test)]
+pub(super) fn clear_image_transmission_observer() {
+    *IMAGE_TRANSMISSION_OBSERVER.get_or_init(|| Mutex::new(None)).lock().unwrap() = None;
+}
+
+#[cfg(test)]
+fn record_image_transmission(key: GraphicImageKey) {
+    if let Some(observer) =
+        IMAGE_TRANSMISSION_OBSERVER.get_or_init(|| Mutex::new(None)).lock().unwrap().as_ref()
+    {
+        let _ = observer.send(key);
+    }
+}
+
+#[cfg(not(test))]
+fn record_image_transmission(_key: GraphicImageKey) {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct GraphicImageKey {
@@ -716,6 +744,7 @@ fn allocate_id(next: &mut u32, used: &mut HashSet<u32>) -> (u32, usize) {
 }
 
 fn transmit_image(image_id: u32, image: &GraphicImage) -> Vec<u8> {
+    record_image_transmission(image.key);
     let data = image.data.base64();
     let mut out = Vec::new();
     for (index, chunk) in data.as_bytes().chunks(CHUNK).enumerate() {

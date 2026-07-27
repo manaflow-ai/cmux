@@ -2754,6 +2754,7 @@ mod tests {
     struct CellPixelFanoutWriter {
         session: Arc<Mutex<Option<Weak<RemoteSession>>>>,
         fail_next: bool,
+        deferred_failure: bool,
     }
 
     impl RemoteMessageWriter for CellPixelFanoutWriter {
@@ -2779,7 +2780,11 @@ mod tests {
             let data = if std::mem::take(&mut self.fail_next) {
                 json!({
                     "resizes": [],
-                    "failures": [{"surface": 7, "error": "injected fan-out failure"}],
+                    "failures": [{
+                        "surface": 7,
+                        "error": "injected fan-out failure",
+                        "deferred": self.deferred_failure,
+                    }],
                 })
             } else {
                 json!({"resizes": [], "failures": []})
@@ -3857,6 +3862,7 @@ mod tests {
         let session = test_session(Box::new(CellPixelFanoutWriter {
             session: session_slot.clone(),
             fail_next: true,
+            deferred_failure: false,
         }));
         *session_slot.lock().unwrap() = Some(Arc::downgrade(&session));
         let surface = test_remote_pty_surface(7, 80, 24, (8, 16));
@@ -3871,6 +3877,29 @@ mod tests {
         assert!(retried.failures.is_empty());
         assert_eq!(*session.cell_pixels.lock().unwrap(), (9, 18));
         assert_eq!(*surface.cell_pixels.lock().unwrap(), (9, 18));
+    }
+
+    #[test]
+    fn deferred_cell_pixel_failure_preserves_target_for_late_resize() {
+        let session_slot: Arc<Mutex<Option<Weak<RemoteSession>>>> = Arc::new(Mutex::new(None));
+        let session = test_session(Box::new(CellPixelFanoutWriter {
+            session: session_slot.clone(),
+            fail_next: true,
+            deferred_failure: true,
+        }));
+        *session_slot.lock().unwrap() = Some(Arc::downgrade(&session));
+        let surface = test_remote_pty_surface(7, 80, 24, (8, 16));
+        session.surfaces.lock().unwrap().insert(surface.id, surface.clone());
+
+        let update = session.set_cell_pixel_size(9, 18).unwrap();
+        assert_eq!(update.failures, vec![(7, "injected fan-out failure".to_string())]);
+        surface.apply_stream_resize(90, 31, None, &[]).unwrap();
+
+        assert_eq!(
+            surface.cell_pixel_size(),
+            (9, 18),
+            "a late authoritative resize used the geometry from before the deferred request"
+        );
     }
 
     #[test]
