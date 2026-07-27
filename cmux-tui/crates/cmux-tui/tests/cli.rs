@@ -317,6 +317,7 @@ fn legacy_server_process_helper() {
             | "cleanup-failure"
             | "applied-close-error"
             | "applied-close-disconnect"
+            | "exit-after-close"
             | "persistent-close-error"
             | "browser-surface"
     ) {
@@ -521,6 +522,7 @@ fn legacy_server_process_helper() {
                 | "kill-caller"
                 | "applied-close-error"
                 | "applied-close-disconnect"
+                | "exit-after-close"
                 | "persistent-close-error"
                 | "zombie-child"
                 | "reparent-on-close"
@@ -610,6 +612,13 @@ fn legacy_server_process_helper() {
             }
             assert_eq!(close_request["cmd"].as_str(), Some("close-surface"));
             assert_eq!(close_request["surface"].as_u64(), Some(expected_surface));
+            if scenario == "exit-after-close" {
+                drop(reader);
+                drop(stream);
+                drop(listener);
+                fs::remove_file(&socket).unwrap();
+                return;
+            }
             if scenario == "applied-close-disconnect" {
                 drop(reader);
                 drop(stream);
@@ -1673,6 +1682,32 @@ fn server_stop_reconnects_after_an_applied_legacy_close_drops_the_control_stream
         std::thread::sleep(Duration::from_millis(10));
     }
     assert!(!process_exists(descendant_pid));
+}
+
+#[cfg(unix)]
+#[test]
+fn server_stop_completes_when_the_last_legacy_surface_exits_with_its_server() {
+    let mut server =
+        LegacyServerProcess::start("legacy-server-exit-after-close", "exit-after-close", None);
+    let descendant_pid = server.descendant_pid().unwrap();
+
+    let output = Command::new(bin())
+        .args(["server", "stop", "--socket"])
+        .arg(&server.socket)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+
+    assert_success(&output);
+    assert!(server.child.wait().unwrap().success());
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while process_exists(descendant_pid) && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        !process_exists(descendant_pid),
+        "last-surface server exit leaked its captured PTY owner"
+    );
 }
 
 #[cfg(unix)]
