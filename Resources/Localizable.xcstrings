@@ -155888,13 +155888,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "New workspaces leave their working directory unset so Ghostty's working-directory setting can apply."
+            "value": "New workspaces use Ghostty's working-directory setting instead."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "新規ワークスペースの作業ディレクトリを未設定にして、Ghostty の working-directory 設定を適用します。"
+            "value": "新規ワークスペースでは、代わりに Ghostty の working-directory 設定を使用します。"
           }
         }
       }
