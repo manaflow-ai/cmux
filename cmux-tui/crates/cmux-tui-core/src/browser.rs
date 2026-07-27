@@ -6849,11 +6849,14 @@ mod tests {
     }
 
     #[test]
-    fn ordinary_repaint_preserves_pointer_authority() {
+    fn ordinary_repaint_rotates_pointer_authority_without_revoking_capture() {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
         browser.store_frame(test_frame(1));
         let authority = browser.latest_frame_seq().expect("initial pointer authority");
+        let (_, capture_generation) = browser
+            .capture_guarded_input_point(authority, 1.0, 1.0)
+            .expect("accepted pointer press");
 
         browser.store_frame(test_frame(2));
 
@@ -6864,12 +6867,20 @@ mod tests {
         );
         assert_eq!(
             browser.latest_frame_seq(),
-            Some(authority),
-            "an ordinary repaint must retain the document and geometry authority"
+            Some(2),
+            "each admitted bitmap must carry its own pointer authority"
         );
         assert!(
-            browser.capture_guarded_input_point(authority, 1.0, 1.0).is_some(),
-            "a click rendered under the stable authority must survive continuous repainting"
+            browser.capture_guarded_input_point(authority, 1.0, 1.0).is_none(),
+            "input rendered from the previous bitmap must not target the new DOM"
+        );
+        assert!(
+            browser.capture_guarded_input_point(2, 1.0, 1.0).is_some(),
+            "the newly admitted bitmap must accept guarded input"
+        );
+        assert!(
+            browser.scale_captured_input_point(capture_generation, 1.0, 1.0).is_some(),
+            "rotating bitmap authority must preserve ownership of a balancing release"
         );
     }
 
@@ -7257,6 +7268,18 @@ mod tests {
         assert!(
             !retry_needed,
             "an exhausted recovery epoch must not start another frame-rate capture batch"
+        );
+        assert_eq!(
+            browser.latest_frame_seq(),
+            None,
+            "exhausted timestamp-less recovery must revoke stale pixel authority"
+        );
+        assert!(
+            matches!(
+                browser.status(),
+                BrowserStatus::Failed(ref error) if error.contains("reload to retry")
+            ),
+            "exhausted timestamp-less recovery must expose a bounded reload action"
         );
     }
 
