@@ -29,7 +29,7 @@ Navigation swipes, scrolling, editable focus, popups, and ordinary browser point
 
 The tests were committed before the implementation and cover:
 
-1. Callback routing only when a handler is installed.
+1. Direct invocation of `CmuxWebView.magnify(with:)` using a controlled synthetic `NSEvent`, including routing only when a handler is installed.
 2. Positive and negative deltas applied to the current zoom.
 3. Rejection of `NaN` and infinity plus reuse of existing bounds.
 4. Preservation of the 4096 × 4096 automation viewport render limit.
@@ -65,9 +65,9 @@ The before/after PNG SHA-256 values differed; the report omits them because the 
 
 The public Core Graphics event API does not expose a supported way to synthesize a physical trackpad magnification event. The automated evidence therefore divides cleanly:
 
-- Unit coverage proves the optional magnification callback routes deltas into the panel and tests the resulting zoom behavior and safety boundaries; it does not synthesize `NSEvent` or directly exercise `magnify(with:)`.
-- The tagged-app smoke proves the resulting page-zoom mutation changes and restores real WebKit rendering.
-- A literal physical two-finger gesture was not programmatically injected, so the report does not claim HID-level gesture proof.
+- Unit coverage directly invokes `CmuxWebView.magnify(with:)` with an `NSEvent` test subclass whose magnification delta is controlled, proving that the responder override forwards the event delta into the installed callback.
+- The remaining focused cases test the resulting panel zoom behavior and safety boundaries, and the tagged-app smoke proves that the page-zoom mutation changes and restores real WebKit rendering.
+- A literal physical two-finger gesture was not programmatically injected, so the report does not claim HID-level event-delivery proof.
 
 ## Related issues
 

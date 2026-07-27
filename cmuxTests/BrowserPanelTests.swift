@@ -36,17 +36,33 @@ struct BrowserWebViewUserAgentRegressionTests {
     }
 }
 
+private final class TestMagnificationEvent: NSEvent {
+    private let delta: CGFloat
+
+    init(delta: CGFloat) {
+        self.delta = delta
+        super.init()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var magnification: CGFloat { delta }
+}
+
 @MainActor
 final class BrowserPanelTrackpadMagnificationTests: XCTestCase {
-    func testMagnificationDeltaRoutesOnlyToInstalledHandler() {
+    func testMagnifyResponderRoutesOnlyToInstalledHandler() {
         let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let event = TestMagnificationEvent(delta: 0.2)
         var receivedDelta: CGFloat?
 
-        XCTAssertFalse(webView.handleMagnificationDelta(0.2))
+        XCTAssertFalse(webView.handleMagnificationDelta(event.magnification))
 
         webView.onMagnificationDelta = { receivedDelta = $0 }
+        webView.magnify(with: event)
 
-        XCTAssertTrue(webView.handleMagnificationDelta(0.2))
         XCTAssertEqual(receivedDelta, 0.2)
     }
 
