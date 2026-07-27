@@ -16,6 +16,7 @@ use ratatui::style::{Color, Modifier, Style};
 use super::{ScrollbarState, ScrollbarStyle, thumb_geometry, truncate};
 use crate::app::{App, FocusTarget, Hit, PaneArea, PaneContentGeneration, PaneEdge, Selection};
 use crate::config::{Theme, tab_label};
+use crate::localization;
 use crate::session::{ClientInfo, TabNotificationView};
 
 /// Border style for a pane box: active gets the accent color, idle
@@ -423,13 +424,10 @@ fn draw_browser_content(
         }
     }
 
-    let message = if matches!(surface.browser_status(), Some(BrowserStatus::Failed(_))) {
-        let error = match surface.browser_status() {
-            Some(BrowserStatus::Failed(error)) => error,
-            _ => String::new(),
-        };
-        Some(format!("browser failed: {error}"))
-    } else if matches!(surface.browser_status(), Some(BrowserStatus::Starting)) {
+    let browser_status = surface.browser_status();
+    let message = if let Some(status @ BrowserStatus::Failed(_)) = browser_status.as_ref() {
+        status.failure().map(|failure| localization::catalog().browser.failure_message(failure))
+    } else if matches!(browser_status, Some(BrowserStatus::Starting)) {
         Some("starting browser...".to_string())
     } else if surface.browser_url().is_none() {
         Some("browser panes are not supported over attach yet".to_string())

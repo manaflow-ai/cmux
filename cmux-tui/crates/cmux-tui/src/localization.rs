@@ -1,6 +1,7 @@
 use std::io::{Cursor, Write};
 use std::sync::OnceLock;
 
+use cmux_tui_core::BrowserFailure;
 use cmux_tui_machine_protocol::provider_action_id;
 use unicode_width::UnicodeWidthStr;
 
@@ -82,6 +83,33 @@ pub(crate) struct ShortcutMessages {
 pub(crate) struct InputMessages {
     pub deferred_destination_changed: &'static str,
     pub deferred_queue_byte_limit: &'static str,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct BrowserMessages {
+    failed_prefix: &'static str,
+    not_responding: &'static str,
+    resize_recovery: &'static str,
+    new_page_verification_prefix: &'static str,
+    updated_page_verification_prefix: &'static str,
+    verification_suffix: &'static str,
+}
+
+impl BrowserMessages {
+    pub(crate) fn failure_message(&self, failure: BrowserFailure<'_>) -> String {
+        match failure {
+            BrowserFailure::NotResponding => self.not_responding.to_string(),
+            BrowserFailure::ResizeRecovery => self.resize_recovery.to_string(),
+            BrowserFailure::NewPageVerification(detail) => {
+                format!("{}{detail}{}", self.new_page_verification_prefix, self.verification_suffix)
+            }
+            BrowserFailure::UpdatedPageVerification(detail) => format!(
+                "{}{detail}{}",
+                self.updated_page_verification_prefix, self.verification_suffix
+            ),
+            BrowserFailure::Other(detail) => format!("{}{detail}", self.failed_prefix),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -271,6 +299,7 @@ pub(crate) struct Catalog {
     pub menu: MenuMessages,
     pub shortcuts: ShortcutMessages,
     pub input: InputMessages,
+    pub browser: BrowserMessages,
     pub attach: AttachMessages,
     pub sidebar: SidebarMessages,
 }
@@ -345,6 +374,14 @@ edits shell files. Authenticate with the configured host before retrying.
     input: InputMessages {
         deferred_destination_changed: "Deferred input was discarded because its destination changed",
         deferred_queue_byte_limit: "Input queue byte limit reached while a session change is pending",
+    },
+    browser: BrowserMessages {
+        failed_prefix: "browser failed: ",
+        not_responding: "browser failed: browser is not responding",
+        resize_recovery: "browser failed: browser resize recovery failed; reload to retry",
+        new_page_verification_prefix: "browser failed: could not verify new page pixels: ",
+        updated_page_verification_prefix: "browser failed: could not verify updated page pixels: ",
+        verification_suffix: "; reload to retry",
     },
     attach: AttachMessages {
         filtered_subscription_unavailable: "single-terminal attach requires a newer cmux-tui server; restart the session",
@@ -498,6 +535,14 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
     input: InputMessages {
         deferred_destination_changed: "送信先が変更されたため、保留中の入力を破棄しました",
         deferred_queue_byte_limit: "セッションの変更中に入力キューのバイト上限に達しました",
+    },
+    browser: BrowserMessages {
+        failed_prefix: "ブラウザでエラーが発生しました: ",
+        not_responding: "ブラウザが応答していません",
+        resize_recovery: "ブラウザのサイズ変更を復旧できませんでした。再読み込みして再試行してください",
+        new_page_verification_prefix: "新しいページの表示を確認できませんでした: ",
+        updated_page_verification_prefix: "更新後のページ表示を確認できませんでした: ",
+        verification_suffix: "。再読み込みして再試行してください",
     },
     attach: AttachMessages {
         filtered_subscription_unavailable: "単一ターミナルへの接続には新しい cmux-tui サーバーが必要です。セッションを再起動してください",

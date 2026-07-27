@@ -80,6 +80,15 @@ pub enum BrowserStatus {
     Failed(String),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BrowserFailure<'a> {
+    NotResponding,
+    ResizeRecovery,
+    NewPageVerification(&'a str),
+    UpdatedPageVerification(&'a str),
+    Other(&'a str),
+}
+
 impl BrowserStatus {
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -94,6 +103,29 @@ impl BrowserStatus {
             BrowserStatus::Failed(error) => Some(error.clone()),
             BrowserStatus::Starting | BrowserStatus::Live => None,
         }
+    }
+
+    pub fn failure(&self) -> Option<BrowserFailure<'_>> {
+        let BrowserStatus::Failed(error) = self else { return None };
+        if error == BROWSER_NOT_RESPONDING_MESSAGE {
+            return Some(BrowserFailure::NotResponding);
+        }
+        if error == BROWSER_RESIZE_RECOVERY_FAILED_MESSAGE {
+            return Some(BrowserFailure::ResizeRecovery);
+        }
+        if let Some(detail) = error
+            .strip_prefix(BROWSER_NEW_PAGE_VERIFICATION_FAILED_PREFIX)
+            .and_then(|detail| detail.strip_suffix(BROWSER_VERIFICATION_FAILED_SUFFIX))
+        {
+            return Some(BrowserFailure::NewPageVerification(detail));
+        }
+        if let Some(detail) = error
+            .strip_prefix(BROWSER_UPDATED_PAGE_VERIFICATION_FAILED_PREFIX)
+            .and_then(|detail| detail.strip_suffix(BROWSER_VERIFICATION_FAILED_SUFFIX))
+        {
+            return Some(BrowserFailure::UpdatedPageVerification(detail));
+        }
+        Some(BrowserFailure::Other(error))
     }
 }
 
@@ -373,6 +405,7 @@ struct BrowserWorkerErrorState {
 struct ActivePointerPress {
     input_owner: BrowserPointerOwner,
     capture_generation: u64,
+    frame_seq: u64,
     last_target_x: f64,
     last_target_y: f64,
     click_count: Option<u32>,
@@ -380,10 +413,18 @@ struct ActivePointerPress {
     release_retry_at: Option<Instant>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum CapturedPointerRoute {
+    Current((f64, f64)),
+    GeometryChanged,
+    InvalidCapture,
+}
+
 impl ActivePointerPress {
     fn new(
         input_owner: BrowserPointerOwner,
         capture_generation: u64,
+        frame_seq: u64,
         x: f64,
         y: f64,
         click_count: Option<u32>,
@@ -391,6 +432,7 @@ impl ActivePointerPress {
         Self {
             input_owner,
             capture_generation,
+            frame_seq,
             last_target_x: x,
             last_target_y: y,
             click_count,
@@ -572,6 +614,12 @@ const BROWSER_RETAINED_RELEASE_CAPACITY: usize = BROWSER_COMMAND_QUEUE_CAPACITY 
 const LEGACY_POINTER_PRESS_LEASE: Duration = Duration::from_secs(5);
 const MAX_RECONFIGURE_WAITERS_PER_RESERVATION: usize = 64;
 const BROWSER_NOT_RESPONDING_MESSAGE: &str = "browser is not responding";
+const BROWSER_RESIZE_RECOVERY_FAILED_MESSAGE: &str =
+    "browser resize recovery failed; reload to retry";
+const BROWSER_NEW_PAGE_VERIFICATION_FAILED_PREFIX: &str = "could not verify new page pixels: ";
+const BROWSER_UPDATED_PAGE_VERIFICATION_FAILED_PREFIX: &str =
+    "could not verify updated page pixels: ";
+const BROWSER_VERIFICATION_FAILED_SUFFIX: &str = "; reload to retry";
 const AUTHORITY_CAPTURE_ATTEMPTS: usize = 3;
 const BROWSER_RECONFIGURE_RETRY_DELAYS: [Duration; 2] =
     [Duration::from_millis(250), Duration::from_millis(500)];
@@ -1898,7 +1946,7 @@ impl BrowserSurface {
             state.pending_same_document_navigation = false;
             state.pending_frame = None;
             state.pending_navigation_rollback = None;
-            Self::mark_failed_locked(&mut state, "browser resize recovery failed; reload to retry");
+            Self::mark_failed_locked(&mut state, BROWSER_RESIZE_RECOVERY_FAILED_MESSAGE);
             Self::mark_state_dirty_locked(&mut state);
             self.dirty.store(true, Ordering::Release);
         }
@@ -2304,6 +2352,7 @@ impl BrowserSurface {
         Some((Self::scale_input_point_locked(&state, x, y), state.pointer_capture_generation))
     }
 
+    #[cfg(test)]
     fn scale_captured_input_point(
         &self,
         capture_generation: u64,
@@ -2317,6 +2366,35 @@ impl BrowserSurface {
             return None;
         }
         Some(Self::scale_input_point_locked(&state, x, y))
+    }
+
+    fn captured_pointer_route(
+        &self,
+        capture_generation: u64,
+        frame_seq: u64,
+        dispatch_frame_seq: u64,
+        x: f64,
+        y: f64,
+    ) -> CapturedPointerRoute {
+        let state = self.state.lock().unwrap();
+        if state.pointer_capture_generation != capture_generation
+            || state.accepted_navigation_epoch != self.frame_epoch.latest_navigation()
+        {
+            return CapturedPointerRoute::InvalidCapture;
+        }
+        if !self.pointer_epoch_is_current_locked(&state)
+            || state.pointer_frame_seq != Some(frame_seq)
+            || dispatch_frame_seq != frame_seq
+        {
+            return CapturedPointerRoute::GeometryChanged;
+        }
+        CapturedPointerRoute::Current(Self::scale_input_point_locked(&state, x, y))
+    }
+
+    fn pointer_capture_is_current(&self, capture_generation: u64) -> bool {
+        let state = self.state.lock().unwrap();
+        state.pointer_capture_generation == capture_generation
+            && state.accepted_navigation_epoch == self.frame_epoch.latest_navigation()
     }
 
     fn set_pointer_frame_locked(state: &mut BrowserState, frame_seq: Option<u64>) {
@@ -2666,7 +2744,9 @@ impl BrowserSurface {
         state.pending_navigation_rollback = None;
         Self::mark_failed_locked(
             &mut state,
-            &format!("could not verify new page pixels: {error}; reload to retry"),
+            &format!(
+                "{BROWSER_NEW_PAGE_VERIFICATION_FAILED_PREFIX}{error}{BROWSER_VERIFICATION_FAILED_SUFFIX}"
+            ),
         );
         Self::mark_state_dirty_locked(&mut state);
         self.dirty.store(true, Ordering::Release);
@@ -2684,7 +2764,9 @@ impl BrowserSurface {
         state.pending_navigation_rollback = None;
         Self::mark_failed_locked(
             &mut state,
-            &format!("could not verify updated page pixels: {error}; reload to retry"),
+            &format!(
+                "{BROWSER_UPDATED_PAGE_VERIFICATION_FAILED_PREFIX}{error}{BROWSER_VERIFICATION_FAILED_SUFFIX}"
+            ),
         );
         Self::mark_state_dirty_locked(&mut state);
         self.dirty.store(true, Ordering::Release);
@@ -3071,10 +3153,7 @@ impl BrowserSurface {
         if let Some(press) = active_pointer_presses.get(button).copied()
             && press.input_owner != dispatch.input_owner
         {
-            if self
-                .scale_captured_input_point(press.capture_generation, dispatch.x, dispatch.y)
-                .is_some()
-            {
+            if self.pointer_capture_is_current(press.capture_generation) {
                 return Ok(());
             }
             active_pointer_presses.remove(button);
@@ -3095,44 +3174,61 @@ impl BrowserSurface {
                 captured_press = Some(ActivePointerPress::new(
                     dispatch.input_owner,
                     generation,
+                    frame_seq,
                     point.0,
                     point.1,
                     dispatch.click_count,
                 ));
                 Some(point)
             }
-            ("mouseReleased", Some(_)) => {
+            ("mouseReleased", Some(dispatch_frame_seq)) => {
                 let Some(press) = active_pointer_presses.get(button).copied() else {
                     return Ok(());
                 };
-                let point = self.scale_captured_input_point(
+                let point = match self.captured_pointer_route(
                     press.capture_generation,
+                    press.frame_seq,
+                    dispatch_frame_seq,
                     dispatch.x,
                     dispatch.y,
-                );
+                ) {
+                    CapturedPointerRoute::Current(point) => Some(point),
+                    CapturedPointerRoute::GeometryChanged => {
+                        Some((press.last_target_x, press.last_target_y))
+                    }
+                    CapturedPointerRoute::InvalidCapture => {
+                        active_pointer_presses.remove(button);
+                        None
+                    }
+                };
                 if point.is_some() {
                     captured_release = true;
-                } else {
-                    active_pointer_presses.remove(button);
                 }
                 point
             }
-            ("mouseMoved", Some(_)) => {
+            ("mouseMoved", Some(dispatch_frame_seq)) => {
                 if let Some(press) = active_pointer_presses.get(button).copied() {
-                    let point = self.scale_captured_input_point(
+                    match self.captured_pointer_route(
                         press.capture_generation,
+                        press.frame_seq,
+                        dispatch_frame_seq,
                         dispatch.x,
                         dispatch.y,
-                    );
-                    if point.is_none() {
-                        active_pointer_presses.remove(button);
-                    } else if press.input_owner == dispatch.input_owner
-                        && let Some(press) = active_pointer_presses.get_mut(button)
-                        && let Some((target_x, target_y)) = point
-                    {
-                        press.refresh_pointer_position(target_x, target_y);
+                    ) {
+                        CapturedPointerRoute::Current(point) => {
+                            if press.input_owner == dispatch.input_owner
+                                && let Some(press) = active_pointer_presses.get_mut(button)
+                            {
+                                press.refresh_pointer_position(point.0, point.1);
+                            }
+                            Some(point)
+                        }
+                        CapturedPointerRoute::GeometryChanged => None,
+                        CapturedPointerRoute::InvalidCapture => {
+                            active_pointer_presses.remove(button);
+                            None
+                        }
                     }
-                    point
                 } else {
                     self.scale_guarded_input_point(dispatch.frame_seq, dispatch.x, dispatch.y)
                 }
@@ -5712,6 +5808,7 @@ mod tests {
         let mut press = super::ActivePointerPress::new(
             super::BrowserPointerOwner::Legacy,
             capture_generation,
+            1,
             1.0,
             1.0,
             Some(1),
@@ -5744,6 +5841,7 @@ mod tests {
             super::ActivePointerPress::new(
                 super::BrowserPointerOwner::Client(41),
                 1,
+                1,
                 1.0,
                 1.0,
                 Some(1),
@@ -5767,6 +5865,7 @@ mod tests {
         let deadline = Instant::now() + Duration::from_secs(1);
         let mut press = super::ActivePointerPress::new(
             super::BrowserPointerOwner::Legacy,
+            1,
             1,
             1.0,
             1.0,
@@ -5797,6 +5896,7 @@ mod tests {
         let press = super::ActivePointerPress::new(
             super::BrowserPointerOwner::Client(41),
             capture_generation,
+            1,
             1.0,
             1.0,
             Some(1),
@@ -6521,6 +6621,7 @@ mod tests {
             super::ActivePointerPress::new(
                 super::BrowserPointerOwner::Local,
                 capture_generation,
+                1,
                 1.0,
                 1.0,
                 Some(1),
@@ -6595,6 +6696,7 @@ mod tests {
             super::ActivePointerPress::new(
                 super::BrowserPointerOwner::Client(41),
                 capture_generation,
+                1,
                 1.0,
                 1.0,
                 Some(1),

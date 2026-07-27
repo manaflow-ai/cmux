@@ -42,7 +42,9 @@ use tungstenite::protocol::{Role, WebSocketConfig};
 use tungstenite::{Message, WebSocket, accept_with_config};
 use zeroize::Zeroize;
 
-use crate::browser::{BrowserFrameUpdate, BrowserMouseDispatch, BrowserPointerOwner};
+use crate::browser::{
+    BrowserAttachUpdate, BrowserFrameUpdate, BrowserMouseDispatch, BrowserPointerOwner,
+};
 use crate::model::{Screen, State, Workspace};
 use crate::mux::clamp_terminal_size;
 use crate::platform::{self, transport};
@@ -2875,6 +2877,21 @@ fn browser_frame_json(surface: SurfaceId, update: &BrowserFrameUpdate) -> Value 
     })
 }
 
+fn send_browser_attach_update(
+    writer: &MessageWriter,
+    surface: SurfaceId,
+    update: BrowserAttachUpdate,
+    outbound_stream: &OutboundStream,
+) -> std::io::Result<()> {
+    if let Some(frame) = update.frame {
+        writer.send_stream(&browser_frame_json(surface, &frame), outbound_stream)?;
+    }
+    if let Some(state) = update.state {
+        writer.send_stream(&browser_state_json(surface, &state, false), outbound_stream)?;
+    }
+    Ok(())
+}
+
 fn spawn_attach_notification_stream(
     mux: Arc<Mux>,
     surface_id: SurfaceId,
@@ -4566,19 +4583,14 @@ fn handle_command(
                             // A frame event applies its bitmap and authority
                             // atomically. Publish it before a paired state
                             // snapshot can expose the same positive token.
-                            if let Some(frame) = update.frame {
-                                let value = browser_frame_json(surface_id, &frame);
-                                if let Err(error) = writer.send_stream(&value, &outbound_stream) {
-                                    handle_attach_send_error(&lifecycle, &error);
-                                    break;
-                                }
-                            }
-                            if let Some(state) = update.state {
-                                let value = browser_state_json(surface_id, &state, false);
-                                if let Err(error) = writer.send_stream(&value, &outbound_stream) {
-                                    handle_attach_send_error(&lifecycle, &error);
-                                    break;
-                                }
+                            if let Err(error) = send_browser_attach_update(
+                                &writer,
+                                surface_id,
+                                update,
+                                &outbound_stream,
+                            ) {
+                                handle_attach_send_error(&lifecycle, &error);
+                                break;
                             }
                         }
                         report_attach_overflow(&writer, surface_id, &lifecycle, &outbound_stream);
@@ -5020,7 +5032,7 @@ mod tests {
             css_height: 48,
             seq: 7,
         };
-        let update = crate::browser::BrowserAttachUpdate {
+        let update = BrowserAttachUpdate {
             frame: Some(BrowserFrameUpdate {
                 frame: frame.clone(),
                 status: crate::BrowserStatus::Live,
