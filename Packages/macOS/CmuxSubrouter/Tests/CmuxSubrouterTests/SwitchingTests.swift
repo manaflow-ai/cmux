@@ -254,6 +254,26 @@ import Testing
         #expect(await client.usageCallCount == 0)
     }
 
+    @Test func remoteSwitchOkFalseBodySurfacesAsCommandFailed() async {
+        let client = FakeSubrouterClient()
+        // A 2xx response whose body reports ok=false must not read as a
+        // successful switch: no refresh, and the failure surfaces.
+        await client.setSwitchResult(.success(SubrouterRemoteSwitchResult(ok: false)))
+        let switcher = FakeAccountSwitcher()
+        let store = makeRemoteStore(client: client, switcher: switcher)
+
+        await #expect(throws: SubrouterSwitchError.self) {
+            try await store.switchAccount(provider: .codex, accountID: "dev@example.com")
+        }
+        guard case .commandFailed = store.lastSwitchError else {
+            Issue.record("lastSwitchError = \(String(describing: store.lastSwitchError))")
+            return
+        }
+        #expect(await switcher.invocations.isEmpty)
+        #expect(store.pendingSwitch == nil)
+        #expect(await client.usageCallCount == 0)
+    }
+
     @Test func loopbackEndpointsAreNotRemote() {
         #expect(!SubrouterConfiguration(isEnabled: true).isRemoteEndpoint)
         let remote = SubrouterConfiguration(

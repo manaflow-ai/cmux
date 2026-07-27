@@ -45,11 +45,20 @@ extension SubrouterStore {
 
         do {
             if isRemote {
-                _ = try await client.switchAccount(
+                let result = try await client.switchAccount(
                     endpoint: endpointAtSwitch,
                     provider: provider,
                     accountID: accountID
                 )
+                // Today's daemon signals failure by status code, but the
+                // contract carries `ok` — honor it like reloadAccounts
+                // does, so a 2xx body reporting failure never reads as a
+                // successful switch.
+                guard result.ok else {
+                    throw SubrouterSwitchError.commandFailed(
+                        description: "daemon reported switch failure"
+                    )
+                }
             } else {
                 try await switcher.switchAccount(
                     provider: provider,
