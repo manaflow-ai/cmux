@@ -16,6 +16,8 @@
 //!   call), pointer and key events are dropped instead of blocking the
 //!   UI. The latest rejected resize per surface and uninterrupted resize
 //!   run is retained so geometry catches up without crossing later input.
+//!   One ordered fallback slot is reserved for a paired mouse release because
+//!   losing one would leave the browser's input state logically pressed.
 //!
 //! Ordinary input errors are reported by the surface's own status. Resize
 //! failures are retained per surface and reported to the app because retrying a
@@ -141,6 +143,14 @@ impl BrowserInputKind {
         matches!(self, BrowserInputKind::Resize { .. })
     }
 
+    fn is_mouse_release(&self) -> bool {
+        matches!(self, BrowserInputKind::Mouse { event_type: "mouseReleased", .. })
+    }
+
+    fn is_mouse_press(&self) -> bool {
+        matches!(self, BrowserInputKind::Mouse { event_type: "mousePressed", .. })
+    }
+
     fn resize_dimensions(&self) -> Option<(u16, u16)> {
         match self {
             BrowserInputKind::Resize { cols, rows, .. } => Some((*cols, *rows)),
@@ -167,6 +177,7 @@ pub struct BrowserInputDispatcher {
     tx: SyncSender<SequencedBrowserInputEvent>,
     order: Arc<Mutex<BrowserEnqueueOrder>>,
     latest_resizes: Arc<Mutex<HashMap<(SurfaceId, u64), SequencedBrowserInputEvent>>>,
+    reliable_mouse_release: Arc<Mutex<Option<SequencedBrowserInputEvent>>>,
     failed_resizes: Arc<Mutex<HashMap<SurfaceId, FailedBrowserResize>>>,
     surface_lifetimes: Arc<Mutex<HashMap<SurfaceId, Arc<AtomicBool>>>>,
 }
@@ -174,6 +185,13 @@ pub struct BrowserInputDispatcher {
 #[cfg(test)]
 pub(crate) struct BlockedBrowserInput {
     _rx: Receiver<SequencedBrowserInputEvent>,
+}
+
+#[cfg(test)]
+impl BlockedBrowserInput {
+    pub(crate) fn recv_timeout(&self, timeout: Duration) -> Option<BrowserInputEvent> {
+        self._rx.recv_timeout(timeout).ok().map(|event| event.event)
+    }
 }
 
 impl BrowserInputDispatcher {
@@ -184,10 +202,12 @@ impl BrowserInputDispatcher {
         let (tx, rx) = sync_channel(QUEUE_CAPACITY);
         let order = Arc::new(Mutex::new(BrowserEnqueueOrder::default()));
         let latest_resizes = Arc::new(Mutex::new(HashMap::new()));
+        let reliable_mouse_release = Arc::new(Mutex::new(None));
         let failed_resizes = Arc::new(Mutex::new(HashMap::new()));
         let surface_lifetimes = Arc::new(Mutex::new(HashMap::new()));
         let worker_order = order.clone();
         let worker_resizes = latest_resizes.clone();
+        let worker_release = reliable_mouse_release.clone();
         let worker_failures = failed_resizes.clone();
         let on_resize_failure = Arc::new(on_resize_failure);
         let on_control_failure = Arc::new(on_control_failure);
@@ -196,12 +216,20 @@ impl BrowserInputDispatcher {
                 rx,
                 worker_order,
                 worker_resizes,
+                worker_release,
                 worker_failures,
                 on_resize_failure,
                 on_control_failure,
             );
         })?;
-        Ok(BrowserInputDispatcher { tx, order, latest_resizes, failed_resizes, surface_lifetimes })
+        Ok(BrowserInputDispatcher {
+            tx,
+            order,
+            latest_resizes,
+            reliable_mouse_release,
+            failed_resizes,
+            surface_lifetimes,
+        })
     }
 
     #[cfg(test)]
@@ -212,6 +240,7 @@ impl BrowserInputDispatcher {
                 tx,
                 order: Arc::new(Mutex::new(BrowserEnqueueOrder::default())),
                 latest_resizes: Arc::new(Mutex::new(HashMap::new())),
+                reliable_mouse_release: Arc::new(Mutex::new(None)),
                 failed_resizes: Arc::new(Mutex::new(HashMap::new())),
                 surface_lifetimes: Arc::new(Mutex::new(HashMap::new())),
             },
@@ -220,10 +249,12 @@ impl BrowserInputDispatcher {
     }
 
     /// Queue an event without blocking. A full queue retains the latest
-    /// resize per surface and input-delimited run, and drops other input.
+    /// resize per surface and input-delimited run, reserves one fallback
+    /// slot for a paired mouse release, and drops other input.
     #[must_use = "control commands must surface backpressure instead of dropping silently"]
     pub fn enqueue(&self, event: BrowserInputEvent) -> bool {
         let is_resize = event.kind.is_resize();
+        let is_mouse_release = event.kind.is_mouse_release();
         if let Some(desired) = event.kind.resize_dimensions()
             && self.resize_failed(event.surface_id, desired)
         {
@@ -237,6 +268,9 @@ impl BrowserInputDispatcher {
             .or_insert_with(|| Arc::new(AtomicBool::new(false)))
             .clone();
         let mut order = self.order.lock().unwrap();
+        if event.kind.is_mouse_press() && self.reliable_mouse_release.lock().unwrap().is_some() {
+            return false;
+        }
         let sequence = order.next_sequence;
         order.next_sequence = order.next_sequence.saturating_add(1);
         let event = SequencedBrowserInputEvent { sequence, event, lifetime };
@@ -250,6 +284,15 @@ impl BrowserInputDispatcher {
                     .lock()
                     .unwrap()
                     .insert((event.event.surface_id, order.barrier_epoch), event);
+                true
+            }
+            Err(TrySendError::Full(event)) if is_mouse_release => {
+                let mut fallback = self.reliable_mouse_release.lock().unwrap();
+                if fallback.is_some() {
+                    return false;
+                }
+                *fallback = Some(event);
+                order.barrier_epoch = order.barrier_epoch.saturating_add(1);
                 true
             }
             Ok(()) => true,
@@ -299,6 +342,10 @@ impl BrowserInputDispatcher {
         }
         self.failed_resizes.lock().unwrap().remove(&surface_id);
         self.latest_resizes.lock().unwrap().retain(|(surface, _), _| *surface != surface_id);
+        let mut release = self.reliable_mouse_release.lock().unwrap();
+        if release.as_ref().is_some_and(|event| event.event.surface_id == surface_id) {
+            *release = None;
+        }
     }
 
     pub fn clear_resize_failures(&self) {
@@ -310,6 +357,12 @@ impl BrowserInputDispatcher {
         self.surface_lifetimes.lock().unwrap().contains_key(&surface_id)
             || self.failed_resizes.lock().unwrap().contains_key(&surface_id)
             || self.latest_resizes.lock().unwrap().keys().any(|(surface, _)| *surface == surface_id)
+            || self
+                .reliable_mouse_release
+                .lock()
+                .unwrap()
+                .as_ref()
+                .is_some_and(|event| event.event.surface_id == surface_id)
     }
 }
 
@@ -317,13 +370,14 @@ fn worker(
     rx: Receiver<SequencedBrowserInputEvent>,
     order: Arc<Mutex<BrowserEnqueueOrder>>,
     latest_resizes: Arc<Mutex<HashMap<(SurfaceId, u64), SequencedBrowserInputEvent>>>,
+    reliable_mouse_release: Arc<Mutex<Option<SequencedBrowserInputEvent>>>,
     failed_resizes: Arc<Mutex<HashMap<SurfaceId, FailedBrowserResize>>>,
     on_resize_failure: Arc<dyn Fn(BrowserResizeFailure) + Send + Sync>,
     on_control_failure: Arc<dyn Fn(String) + Send + Sync>,
 ) {
     while let Ok(event) = rx.recv() {
         let mut batch = vec![event];
-        finish_ordered_batch(&rx, &order, &latest_resizes, &mut batch);
+        finish_ordered_batch(&rx, &order, &latest_resizes, &reliable_mouse_release, &mut batch);
         coalesce_sequenced_browser_events(&mut batch);
         for mut event in batch {
             if event.lifetime.load(Ordering::Acquire) {
@@ -389,6 +443,7 @@ fn finish_ordered_batch(
     rx: &Receiver<SequencedBrowserInputEvent>,
     order: &Mutex<BrowserEnqueueOrder>,
     latest_resizes: &Mutex<HashMap<(SurfaceId, u64), SequencedBrowserInputEvent>>,
+    reliable_mouse_release: &Mutex<Option<SequencedBrowserInputEvent>>,
     batch: &mut Vec<SequencedBrowserInputEvent>,
 ) {
     // Block new sequence assignments while establishing the batch cut.
@@ -398,6 +453,7 @@ fn finish_ordered_batch(
         batch.push(next);
     }
     let latest = std::mem::take(&mut *latest_resizes.lock().unwrap());
+    batch.extend(reliable_mouse_release.lock().unwrap().take());
     drop(order_guard);
     merge_latest_resizes(batch, latest);
 }
@@ -523,6 +579,20 @@ mod tests {
         }
     }
 
+    fn release_event(surface: SurfaceId) -> BrowserInputEvent {
+        BrowserInputEvent {
+            surface_id: surface,
+            surface: SurfaceHandle::RemoteBrowserUnsupported,
+            kind: BrowserInputKind::Mouse {
+                event_type: "mouseReleased",
+                x: 0.0,
+                y: 0.0,
+                button: Some("left"),
+                click_count: Some(1),
+            },
+        }
+    }
+
     fn resize_event(surface: SurfaceId, cols: u16) -> BrowserInputEvent {
         BrowserInputEvent {
             surface_id: surface,
@@ -581,6 +651,74 @@ mod tests {
             !dispatcher.enqueue(reload_event(1)),
             "a full queue must report the drop, not swallow it as accepted"
         );
+    }
+
+    #[test]
+    fn full_queue_preserves_mouse_release_ownership() {
+        let (dispatcher, blocked) = BrowserInputDispatcher::blocked(1);
+        assert!(dispatcher.enqueue(click_event(1)));
+
+        assert!(
+            dispatcher.enqueue(release_event(1)),
+            "a full disposable-input queue must retain the matching mouse release"
+        );
+
+        let mut batch = vec![blocked._rx.recv().unwrap()];
+        finish_ordered_batch(
+            &blocked._rx,
+            &dispatcher.order,
+            &dispatcher.latest_resizes,
+            &dispatcher.reliable_mouse_release,
+            &mut batch,
+        );
+        assert!(matches!(
+            batch[0].event.kind,
+            BrowserInputKind::Mouse { event_type: "mousePressed", .. }
+        ));
+        assert!(matches!(
+            batch[1].event.kind,
+            BrowserInputKind::Mouse { event_type: "mouseReleased", .. }
+        ));
+        assert!(
+            dispatcher.enqueue(click_event(1)),
+            "a new press may queue once the fallback release is owned by the earlier ordered batch"
+        );
+        assert!(matches!(
+            blocked._rx.recv().unwrap().event.kind,
+            BrowserInputKind::Mouse { event_type: "mousePressed", .. }
+        ));
+        drop(batch);
+    }
+
+    #[test]
+    fn queued_mouse_release_does_not_reject_a_following_press() {
+        let (dispatcher, blocked) = BrowserInputDispatcher::blocked(2);
+
+        assert!(dispatcher.enqueue(release_event(1)));
+        assert!(
+            dispatcher.enqueue(click_event(1)),
+            "a release in the FIFO must not reject a following press while capacity remains"
+        );
+        assert!(matches!(
+            blocked._rx.recv().unwrap().event.kind,
+            BrowserInputKind::Mouse { event_type: "mouseReleased", .. }
+        ));
+        assert!(matches!(
+            blocked._rx.recv().unwrap().event.kind,
+            BrowserInputKind::Mouse { event_type: "mousePressed", .. }
+        ));
+    }
+
+    #[test]
+    fn reliable_mouse_release_backlog_stays_bounded() {
+        let (dispatcher, _blocked) = BrowserInputDispatcher::blocked(1);
+        assert!(dispatcher.enqueue(click_event(1)));
+
+        let accepted = (1..=QUEUE_CAPACITY as SurfaceId + 1)
+            .filter(|surface| dispatcher.enqueue(release_event(*surface)))
+            .count();
+
+        assert_eq!(accepted, 1, "only one paired mouse release may remain in flight");
     }
 
     // Regression: a discrete control command that fails inside the worker
@@ -681,6 +819,7 @@ mod tests {
             tx,
             order: Arc::new(Mutex::new(BrowserEnqueueOrder::default())),
             latest_resizes: latest_resizes.clone(),
+            reliable_mouse_release: Arc::new(Mutex::new(None)),
             failed_resizes: Arc::new(Mutex::new(HashMap::new())),
             surface_lifetimes: Arc::new(Mutex::new(HashMap::new())),
         };
@@ -714,6 +853,7 @@ mod tests {
             tx,
             order: Arc::new(Mutex::new(BrowserEnqueueOrder::default())),
             latest_resizes: latest_resizes.clone(),
+            reliable_mouse_release: Arc::new(Mutex::new(None)),
             failed_resizes: Arc::new(Mutex::new(HashMap::new())),
             surface_lifetimes: Arc::new(Mutex::new(HashMap::new())),
         };
@@ -813,6 +953,7 @@ mod tests {
             tx,
             order: Arc::new(Mutex::new(BrowserEnqueueOrder::default())),
             latest_resizes: latest_resizes.clone(),
+            reliable_mouse_release: Arc::new(Mutex::new(None)),
             failed_resizes: Arc::new(Mutex::new(HashMap::new())),
             surface_lifetimes: Arc::new(Mutex::new(HashMap::new())),
         };
@@ -876,6 +1017,7 @@ mod tests {
             tx,
             order: Arc::new(Mutex::new(BrowserEnqueueOrder::default())),
             latest_resizes: latest_resizes.clone(),
+            reliable_mouse_release: Arc::new(Mutex::new(None)),
             failed_resizes: Arc::new(Mutex::new(HashMap::new())),
             surface_lifetimes: Arc::new(Mutex::new(HashMap::new())),
         };
@@ -886,7 +1028,13 @@ mod tests {
         let _ = dispatcher.enqueue(click_event(1));
         let _ = dispatcher.enqueue(resize_event(1, 144));
         let mut batch = vec![first];
-        finish_ordered_batch(&rx, &dispatcher.order, &latest_resizes, &mut batch);
+        finish_ordered_batch(
+            &rx,
+            &dispatcher.order,
+            &latest_resizes,
+            &dispatcher.reliable_mouse_release,
+            &mut batch,
+        );
 
         assert_eq!(batch.iter().map(|event| event.sequence).collect::<Vec<_>>(), vec![0, 1, 2, 3]);
         assert!(matches!(batch[0].event.kind, BrowserInputKind::Mouse { .. }));

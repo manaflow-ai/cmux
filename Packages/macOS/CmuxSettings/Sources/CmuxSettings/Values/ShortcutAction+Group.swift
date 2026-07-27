@@ -35,7 +35,9 @@ extension ShortcutAction {
              .canvasZoomIn, .canvasZoomOut, .canvasZoomReset, .canvasTidy,
              .canvasAlignLeft, .canvasAlignRight, .canvasAlignTop, .canvasAlignBottom,
              .canvasEqualizeWidths, .canvasEqualizeHeights,
-             .canvasDistributeHorizontally, .canvasDistributeVertically:
+             .canvasDistributeHorizontally, .canvasDistributeVertically,
+             .simulatorHome, .simulatorRotateLeft, .simulatorRotateRight,
+             .simulatorToggleAppearance, .simulatorToggleSoftwareKeyboard:
             return .panes
         case .openDiffViewer, .saveFilePreview, .openBrowser, .focusBrowserAddressBar,
              .browserBack, .browserForward, .browserReload, .browserHardReload,
