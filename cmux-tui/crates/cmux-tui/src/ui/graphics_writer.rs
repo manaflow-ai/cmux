@@ -420,12 +420,9 @@ impl GraphicsResponseFilter {
         let now = Instant::now();
         self.refresh_inactive_since(now);
         if self.buffered.as_ref().is_some_and(|buffered| {
-            buffered.inactive_since.is_some()
-                && ((!buffered.payload.is_empty() && !buffered.payload.starts_with('G'))
-                    || buffered.inactive_since.is_some_and(|inactive_since| {
-                        now.saturating_duration_since(inactive_since)
-                            >= INCOMPLETE_GRAPHICS_RESPONSE_GRACE
-                    }))
+            buffered.inactive_since.is_some_and(|inactive_since| {
+                now.saturating_duration_since(inactive_since) >= INCOMPLETE_GRAPHICS_RESPONSE_GRACE
+            })
         }) {
             let mut replay = self.buffered.take().unwrap().events;
             replay.extend(self.filter(event));
@@ -485,6 +482,9 @@ impl GraphicsResponseFilter {
             return self.buffered.take().unwrap().events;
         }
         buffered.payload.push(ch);
+        if !buffered.payload.starts_with('G') {
+            return self.buffered.take().unwrap().events;
+        }
         Vec::new()
     }
 }
