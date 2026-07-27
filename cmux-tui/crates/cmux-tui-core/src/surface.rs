@@ -949,7 +949,8 @@ impl LocalPtyProcess {
         #[cfg(not(unix))]
         {
             let process = self.clone();
-            let (child_sender, child_receiver) = sync_channel(1);
+            let (child_sender, child_receiver) =
+                sync_channel::<Box<dyn portable_pty::Child + Send + Sync>>(1);
             let observer =
                 std::thread::Builder::new().name("surface-child".into()).spawn(move || {
                     let Ok(mut child) = child_receiver.recv() else { return };
