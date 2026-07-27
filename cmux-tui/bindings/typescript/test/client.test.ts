@@ -694,6 +694,75 @@ test("undoLayout preserves the preview revision for confirmation", async () => {
   await client.close();
 });
 
+test("undoLayout rejects malformed result variants", async (t) => {
+  const invalidResults: Record<string, unknown>[] = [
+    {
+      undone: false,
+      confirmation_required: true,
+      screen: 3,
+      revision: 8,
+    },
+    {
+      confirmation_required: true,
+      screen: 3,
+      revision: 8,
+      closes_panes: [15],
+    },
+    {
+      undone: true,
+      confirmation_required: true,
+      screen: 3,
+      revision: 8,
+      closes_panes: [15],
+    },
+    {
+      undone: false,
+      confirmation_required: true,
+      screen: 3,
+      revision: -1,
+      closes_panes: [15],
+    },
+    {
+      undone: false,
+      confirmation_required: true,
+      screen: 3,
+      revision: 8,
+      closes_panes: [1.5],
+    },
+  ];
+
+  for (const [index, data] of invalidResults.entries()) {
+    await t.test(`case ${index + 1}`, async () => {
+      const transport = new ScriptedTransport((request, connection) => {
+        if (request.cmd === "identify") {
+          connection.emit({
+            id: request.id,
+            ok: true,
+            data: {
+              app: "cmux-tui",
+              version: "0.1.2",
+              protocol: 10,
+              capabilities: ["layout-undo-v1"],
+              session: "main",
+              pid: 1,
+            },
+          });
+          return;
+        }
+        connection.emit({ id: request.id, ok: true, data });
+      });
+      const client = new CmuxClient({ transport, timeoutMs: 100 });
+
+      await assert.rejects(
+        client.undoLayout(15),
+        (error: unknown) => error instanceof CmuxProtocolError
+          && error.message.includes("layout undo"),
+      );
+      await client.close();
+    });
+  }
+});
+
 test("stable terminal resolve and close serialize process identity", async () => {
   const terminalId = "0123456789abcdef0123456789abcdef";
   const incarnation = "fedcba9876543210fedcba9876543210";

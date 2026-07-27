@@ -2162,6 +2162,7 @@ mod tests {
         print_layout_undo(
             &json!({
                 "undone": false,
+                "confirmation_required": true,
                 "screen": 3,
                 "revision": 42,
                 "closes_panes": [7, 8],
@@ -2173,6 +2174,48 @@ mod tests {
             String::from_utf8(output).unwrap(),
             "confirmation required: rerun with --revision 42 --confirm-close (closes panes 7,8)\n"
         );
+    }
+
+    #[test]
+    fn layout_undo_printer_rejects_malformed_results() {
+        for data in [
+            json!({
+                "undone": false,
+                "confirmation_required": true,
+                "screen": 3,
+                "revision": 42,
+            }),
+            json!({
+                "confirmation_required": true,
+                "screen": 3,
+                "revision": 42,
+                "closes_panes": [7],
+            }),
+            json!({
+                "undone": true,
+                "confirmation_required": true,
+                "screen": 3,
+                "revision": 42,
+                "closes_panes": [7],
+            }),
+            json!({
+                "undone": false,
+                "confirmation_required": true,
+                "revision": 42,
+                "closes_panes": [7],
+            }),
+            json!({
+                "undone": false,
+                "confirmation_required": true,
+                "screen": 3,
+                "revision": 42,
+                "closes_panes": [7, "8"],
+            }),
+        ] {
+            let mut output = Vec::new();
+            assert!(print_layout_undo(&data, &mut output).is_err(), "accepted {data}");
+            assert!(output.is_empty());
+        }
     }
 
     #[test]

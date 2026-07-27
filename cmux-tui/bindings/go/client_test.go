@@ -690,6 +690,68 @@ func TestUndoLayoutRejectsMissingClosesPanes(t *testing.T) {
 	}
 }
 
+func TestUndoLayoutRejectsMalformedResultVariants(t *testing.T) {
+	tests := map[string]map[string]any{
+		"missing undone discriminator": {
+			"confirmation_required": true,
+			"screen":                3,
+			"revision":              8,
+			"closes_panes":          []uint64{15},
+		},
+		"missing screen": {
+			"undone":                false,
+			"confirmation_required": true,
+			"revision":              8,
+			"closes_panes":          []uint64{15},
+		},
+		"missing revision": {
+			"undone":                false,
+			"confirmation_required": true,
+			"screen":                3,
+			"closes_panes":          []uint64{15},
+		},
+		"contradictory outcomes": {
+			"undone":                true,
+			"confirmation_required": true,
+			"screen":                3,
+			"revision":              8,
+			"closes_panes":          []uint64{15},
+		},
+	}
+
+	for name, data := range tests {
+		t.Run(name, func(t *testing.T) {
+			clientConn, serverConn := net.Pipe()
+			defer serverConn.Close()
+			protocol := uint32(10)
+			client := &Client{
+				timeout:      time.Second,
+				conn:         &jsonLineConn{conn: clientConn, reader: bufio.NewReader(clientConn)},
+				protocol:     &protocol,
+				capabilities: map[string]struct{}{"layout-undo-v1": {}},
+			}
+			defer client.Close()
+
+			go func() {
+				decoder := json.NewDecoder(serverConn)
+				encoder := json.NewEncoder(serverConn)
+				var request map[string]any
+				if decoder.Decode(&request) != nil {
+					return
+				}
+				_ = encoder.Encode(map[string]any{
+					"id": request["id"], "ok": true, "data": data,
+				})
+			}()
+
+			_, err := client.UndoLayout(context.Background(), 15, nil)
+			if err == nil || !errors.Is(err, ErrDecode) {
+				t.Fatalf("UndoLayout() error = %v, want decode error", err)
+			}
+		})
+	}
+}
+
 func TestNewPaneRejectsServersOlderThanProtocolNine(t *testing.T) {
 	protocol := uint32(8)
 	client := &Client{protocol: &protocol}

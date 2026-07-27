@@ -51,6 +51,7 @@ public final class WireCaptureTest {
         assertResizeTransactionsAreForwarded();
         assertPartialAttachSizeIsRejected();
         assertCommandErrorPreservesMachineReadableCode();
+        assertMalformedLayoutUndoResultsAreRejected();
     }
 
     private static byte[] captureIdentify() throws Exception {
@@ -355,6 +356,34 @@ public final class WireCaptureTest {
             }
         } finally {
             server.close();
+        }
+    }
+
+    private static void assertMalformedLayoutUndoResultsAreRejected() throws Exception {
+        String[] malformed = new String[] {
+            "{\"confirmation_required\":true,\"screen\":3,\"revision\":8,\"closes_panes\":[15]}",
+            "{\"undone\":true,\"confirmation_required\":true,\"screen\":3,\"revision\":8,\"closes_panes\":[15]}",
+            "{\"undone\":false,\"confirmation_required\":true,\"screen\":\"3\",\"revision\":8,\"closes_panes\":[15]}",
+            "{\"undone\":false,\"confirmation_required\":true,\"screen\":3,\"revision\":-1,\"closes_panes\":[15]}",
+            "{\"undone\":false,\"confirmation_required\":true,\"screen\":3,\"revision\":8,\"closes_panes\":[\"15\"]}"
+        };
+        for (String data : malformed) {
+            Path socket = freshSocketPath();
+            CaptureServer server = new CaptureServer(socket, new String[] {
+                "{\"id\":1,\"ok\":true,\"data\":{\"app\":\"cmux-tui\",\"version\":\"test\",\"protocol\":10,\"capabilities\":[\"layout-undo-v1\"],\"session\":\"wire\",\"pid\":1}}",
+                "{\"id\":2,\"ok\":true,\"data\":" + data + "}"
+            }, true);
+            server.start();
+            try (CmuxClient client = CmuxClient.builder().socketPath(socket.toString()).timeout(Duration.ofSeconds(2)).build()) {
+                try {
+                    client.undoLayout(15, null);
+                    throw new AssertionError("malformed layout undo result must be rejected: " + data);
+                } catch (CmuxDecodeException expected) {
+                    // Expected.
+                }
+            } finally {
+                server.close();
+            }
         }
     }
 
