@@ -1575,7 +1575,7 @@
       "authCodeCommentFile": "直接編輯 ~/.zshenv，把這一行加入。",
       "authCodeCommentReplace": "不要讓它進入 shell history；如果已有舊項目，請替換掉。",
       "authRestart": "更新檔案後，重新啟動或重新開啟現有的 Claude session。只有新啟動或還原的 agent 會繼承固定 token，這樣它們就不會再互相使 token 失效。",
-      "authNoteShell": "此範例針對 zsh：cmux 透過非互動 shell 啟動 agent，而這些 shell 會略過 ~/.zshrc 和 ~/.zprofile，所以使用 ~/.zshenv。對於 bash，請在啟動 cmux 的環境中設定 export BASH_ENV=$HOME/.bash_env，然後把相同的 CLAUDE_CODE_OAUTH_TOKEN export 放進 ~/.bash_env；非互動 bash 不會讀取 ~/.bash_profile。如果你的 cmux 啟動路徑已指定某個 bash startup file，就使用該檔案。對於 fish，將 set -x CLAUDE_CODE_OAUTH_TOKEN sk-ant-oat01-… 加到 ~/.config/fish/config.fish。",
+      "authNoteShell": "此範例針對 zsh：cmux 透過非互動 shell 啟動 agent，而這些 shell 會略過 ~/.zshrc 和 ~/.zprofile，所以使用 ~/.zshenv。對於 bash，請在啟動 cmux 的環境中設定 export BASH_ENV=$HOME/.bash_env，然後把相同的 CLAUDE_CODE_OAUTH_TOKEN export 放進 ~/.bash_env；非互動 bash 不會讀取 ~/.bash_profile。如果你的 cmux 啟動路徑已指定某個 bash startup file，就使用該檔案。對於 fish，將 set -x CLAUDE_CODE_OAUTH_TOKEN sk-ant-oat01-… 加到 ~/.config/fish/config.fish。 如果從 Finder、Dock 或 Spotlight 開啟 cmux，launchd 不會載入 bash/fish startup file；請從已設定的 shell 啟動 cmux，或在開啟 cmux 前把 CLAUDE_CODE_OAUTH_TOKEN 設到 GUI 啟動環境中。",
       "authNoteSecret": "token 是以明文儲存在磁碟上的秘密資訊：請對你修改過的檔案（~/.zshenv、~/.bash_env 或已設定的 bash startup file，或 ~/.config/fish/config.fish）執行 chmod 600，且不要提交它。",
       "authNoteExpiry": "setup token 大約一年後會過期（也可以被撤銷）；過期後請重新執行 claude setup-token 並更新 export。"
     },
