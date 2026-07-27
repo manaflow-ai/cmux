@@ -767,6 +767,56 @@ final class ClaudeHookSessionStore {
         }
     }
 
+    func upsertCodexTeamsThread(
+        sessionId: String,
+        parentThreadId: String?,
+        workspaceId: String,
+        surfaceId: String,
+        cwd: String?
+    ) throws {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return }
+        try withLockedState { state in
+            let now = Date().timeIntervalSince1970
+            var record = makeSessionRecord(
+                state: state,
+                sessionId: normalized,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                now: now
+            )
+            update(
+                &record,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                cwd: cwd,
+                transcriptPath: nil,
+                pid: nil,
+                launchCommand: nil,
+                isRestorable: nil,
+                agentLifecycle: nil,
+                lastSubtitle: nil,
+                lastBody: nil,
+                lastNotificationStatus: nil,
+                updateLastNotificationStatus: false,
+                runtimeStatus: nil,
+                updateRuntimeStatus: false,
+                now: now
+            )
+            record.runId = normalized
+            if let normalizedParent = normalizeOptional(parentThreadId) {
+                record.parentRunId = normalizedParent
+                record.parentSessionId = normalizedParent
+                record.relationship = "spawned"
+            } else {
+                record.parentRunId = nil
+                record.parentSessionId = nil
+                record.relationship = nil
+            }
+            state.sessions[normalized] = record
+        }
+    }
+
     @discardableResult
     func upsertCodexSessionStartIfFresh(
         sessionId: String,
@@ -778,7 +828,8 @@ final class ClaudeHookSessionStore {
         launchCommand: AgentHookLaunchCommandRecord? = nil,
         agentLifecycle: AgentHibernationLifecycleState? = nil,
         runtimeStatus: AgentHookRuntimeStatus? = nil,
-        updateRuntimeStatus: Bool = false
+        updateRuntimeStatus: Bool = false,
+        codexTeamsParentThreadId: String? = nil
     ) throws -> Bool {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return false }
@@ -813,6 +864,12 @@ final class ClaudeHookSessionStore {
                 updateRuntimeStatus: updateRuntimeStatus,
                 now: now
             )
+            if let normalizedParent = normalizeOptional(codexTeamsParentThreadId) {
+                record.runId = normalized
+                record.parentRunId = normalizedParent
+                record.parentSessionId = normalizedParent
+                record.relationship = "spawned"
+            }
             state.sessions[normalized] = record
             return true
         }
@@ -20616,6 +20673,8 @@ struct CMUXCLI {
         private let maxAutoDepth: Int
         private let socketClient: SocketClient
         private let socketPassword: String?
+        private let sessionStore: ClaudeHookSessionStore
+        private let hookStateDirectory: String?
 
         private var knownThreadIds = Set<String>()
         private var parentByThreadId: [String: String] = [:]
@@ -20643,7 +20702,9 @@ struct CMUXCLI {
             launchPath: String?,
             maxAutoDepth: Int,
             socketClient: SocketClient,
-            socketPassword: String?
+            socketPassword: String?,
+            sessionStore: ClaudeHookSessionStore,
+            hookStateDirectory: String?
         ) {
             self.appServerURL = appServerURL
             self.workspaceId = workspaceId
@@ -20653,6 +20714,8 @@ struct CMUXCLI {
             self.maxAutoDepth = max(0, maxAutoDepth)
             self.socketClient = socketClient
             self.socketPassword = socketPassword
+            self.sessionStore = sessionStore
+            self.hookStateDirectory = hookStateDirectory
         }
 
         func run() throws {
@@ -20919,7 +20982,32 @@ struct CMUXCLI {
             try observeThread(thread)
         }
 
-        private func observeThread(_ thread: CodexTeamsThread) throws {
+        private func observeThread(_ incomingThread: CodexTeamsThread) throws {
+            let thread: CodexTeamsThread
+            if incomingThread.spawn == nil,
+               let knownParentThreadId = parentByThreadId[incomingThread.id] {
+                let existing = threadById[incomingThread.id]
+                let existingSpawn = existing?.spawn ?? CodexTeamsSpawn(
+                    parentThreadId: knownParentThreadId,
+                    sourceDepth: nil,
+                    agentNickname: nil,
+                    agentRole: nil
+                )
+                thread = CodexTeamsThread(
+                    id: incomingThread.id,
+                    cwd: incomingThread.cwd ?? existing?.cwd,
+                    statusType: incomingThread.statusType ?? existing?.statusType,
+                    agentNickname: incomingThread.agentNickname ?? existing?.agentNickname,
+                    agentRole: incomingThread.agentRole ?? existing?.agentRole,
+                    spawn: existingSpawn
+                )
+            } else {
+                thread = incomingThread
+            }
+            persistThread(
+                thread,
+                surfaceId: thread.spawn == nil ? rootSurfaceId : ""
+            )
             threadById[thread.id] = thread
             if knownThreadIds.contains(thread.id) {
                 if let spawn = thread.spawn {
@@ -20940,6 +21028,20 @@ struct CMUXCLI {
             }
 
             try drainPendingChildren(parentThreadId: thread.id)
+        }
+
+        private func persistThread(_ thread: CodexTeamsThread, surfaceId: String) {
+            do {
+                try sessionStore.upsertCodexTeamsThread(
+                    sessionId: thread.id,
+                    parentThreadId: thread.spawn?.parentThreadId,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    cwd: thread.cwd
+                )
+            } catch {
+                cliWriteStderr("cmux codex-teams watcher could not persist thread \(thread.id): \(error)\n")
+            }
         }
 
         private func observeSpawn(
@@ -21062,7 +21164,8 @@ struct CMUXCLI {
                 threadId: thread.id,
                 parentThreadId: spawn.parentThreadId,
                 depth: depth,
-                launchPath: launchPath
+                launchPath: launchPath,
+                hookStateDirectory: hookStateDirectory
             )
             guard let startupScript = CMUXCLI.codexTeamsStartupScript(commandText: commandText, cwd: thread.cwd) else {
                 throw CLIError(message: "Failed to create Codex subagent startup script")
@@ -21070,6 +21173,15 @@ struct CMUXCLI {
 
             let targetSurfaceId = lastAgentSurfaceId ?? rootSurfaceId
             let direction = lastAgentSurfaceId == nil ? "right" : "down"
+            var startupEnvironment = [
+                managedSubagentEnvironmentKey: "1",
+                codexTeamsThreadEnvironmentKey: thread.id,
+                codexTeamsParentThreadEnvironmentKey: spawn.parentThreadId,
+                codexTeamsDepthEnvironmentKey: String(max(1, depth))
+            ]
+            if let hookStateDirectory {
+                startupEnvironment["CMUX_AGENT_HOOK_STATE_DIR"] = hookStateDirectory
+            }
             var splitParams: [String: Any] = [
                 "workspace_id": workspaceId,
                 "surface_id": targetSurfaceId,
@@ -21077,12 +21189,7 @@ struct CMUXCLI {
                 "focus": false,
                 "initial_command": startupScript,
                 "tmux_start_command": commandText,
-                "startup_environment": [
-                    managedSubagentEnvironmentKey: "1",
-                    codexTeamsThreadEnvironmentKey: thread.id,
-                    codexTeamsParentThreadEnvironmentKey: spawn.parentThreadId,
-                    codexTeamsDepthEnvironmentKey: String(max(1, depth))
-                ]
+                "startup_environment": startupEnvironment
             ]
             if let cwd = thread.cwd?.trimmingCharacters(in: .whitespacesAndNewlines),
                !cwd.isEmpty {
@@ -21100,6 +21207,7 @@ struct CMUXCLI {
                 throw CLIError(message: "surface.split did not return surface_id")
             }
             lastAgentSurfaceId = surfaceId
+            persistThread(thread, surfaceId: surfaceId)
 
             do {
                 _ = try socketClient.sendV2(method: "tab.action", params: [
@@ -21249,12 +21357,16 @@ struct CMUXCLI {
         threadId: String,
         parentThreadId: String,
         depth: Int,
-        launchPath: String?
+        launchPath: String?,
+        hookStateDirectory: String?
     ) -> String {
         var parts = ["env"]
         if let launchPath,
            !launchPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             parts.append("PATH=\(launchPath)")
+        }
+        if let hookStateDirectory {
+            parts.append("CMUX_AGENT_HOOK_STATE_DIR=\(hookStateDirectory)")
         }
         parts += [
             "CMUX_CODEX_TEAMS_APP_SERVER_URL=\(appServerURL)",
@@ -21812,6 +21924,15 @@ struct CMUXCLI {
             ownerSource = source
         }
 
+        let watcherEnvironment = ProcessInfo.processInfo.environment
+        var sessionStoreEnvironment = watcherEnvironment
+        sessionStoreEnvironment["CMUX_CLAUDE_HOOK_STATE_PATH"] = agentHookStatePath(
+            sessionStoreSuffix: "codex",
+            env: watcherEnvironment
+        )
+        let hookStateDirectory = watcherEnvironment["CMUX_AGENT_HOOK_STATE_DIR"].flatMap { rawValue in
+            rawValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : rawValue
+        }
         let watcher = CodexTeamsWatcher(
             appServerURL: appServerURL,
             workspaceId: workspaceId,
@@ -21820,7 +21941,9 @@ struct CMUXCLI {
             launchPath: launchPath,
             maxAutoDepth: maxDepth,
             socketClient: client,
-            socketPassword: socketPassword
+            socketPassword: socketPassword,
+            sessionStore: ClaudeHookSessionStore(processEnv: sessionStoreEnvironment),
+            hookStateDirectory: hookStateDirectory
         )
         withExtendedLifetime(ownerSource) {
             do {
@@ -27497,6 +27620,26 @@ struct CMUXCLI {
         return parsed
     }
 
+    private func managedCodexTeamsLineage(
+        def: AgentHookDef,
+        inputSessionId: String?,
+        env: [String: String]
+    ) -> (threadId: String, parentThreadId: String)? {
+        guard def.name == "codex",
+              managedSubagentVisibleMutationSuppressionRequested(env: env),
+              let threadId = normalizedHookValue(env[codexTeamsThreadEnvironmentKey]),
+              let nativeSessionId = normalizedHookValue(inputSessionId),
+              nativeSessionId == threadId,
+              let parentThreadId = normalizedHookValue(env[codexTeamsParentThreadEnvironmentKey]),
+              threadId != parentThreadId,
+              let depthValue = normalizedHookValue(env[codexTeamsDepthEnvironmentKey]),
+              let depth = Int(depthValue),
+              depth > 0 else {
+            return nil
+        }
+        return (threadId, parentThreadId)
+    }
+
     private func subagentNotificationSuppressionEnabled(env: [String: String]) -> Bool {
         if let raw = normalizedHookValue(env[suppressSubagentNotificationsEnvironmentKey]),
            let parsed = Self.parseHookBoolean(raw) {
@@ -30193,6 +30336,13 @@ export default CMUXSessionRestore;
         env: [String: String],
         cwd: String?
     ) -> String {
+        if let lineage = managedCodexTeamsLineage(
+            def: def,
+            inputSessionId: input.sessionId,
+            env: env
+        ) {
+            return lineage.threadId
+        }
         if let sessionId = normalizedHookValue(input.sessionId) {
             return sessionId
         }
@@ -30333,6 +30483,11 @@ export default CMUXSessionRestore;
             ?? normalizedHookValue(env["CMUX_AGENT_LAUNCH_CWD"])
             ?? normalizedHookValue(env["PWD"]) ?? (def.name == "codex" ? normalizedHookValue(FileManager.default.currentDirectoryPath) : nil)
         let sessionId = resolvedAgentHookSessionId(def: def, input: input, env: env, cwd: hookCwd)
+        let codexTeamsLineage = managedCodexTeamsLineage(
+            def: def,
+            inputSessionId: input.sessionId,
+            env: env
+        )
         let action = Self.subcommandActions[subcommand] ?? .noop
 #if DEBUG
         agentHookDebugLog(
@@ -30635,7 +30790,8 @@ export default CMUXSessionRestore;
                         launchCommand: resumeLaunchCommand,
                         agentLifecycle: .unknown,
                         runtimeStatus: suppressVisibleMutations ? nil : .running,
-                        updateRuntimeStatus: !suppressVisibleMutations
+                        updateRuntimeStatus: !suppressVisibleMutations,
+                        codexTeamsParentThreadId: codexTeamsLineage?.parentThreadId
                     )) ?? false
                 } else {
                     try? store.upsert(

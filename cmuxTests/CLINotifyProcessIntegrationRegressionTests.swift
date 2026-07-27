@@ -3389,7 +3389,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         }
 
         let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
-        let firstChildSurfaceId = "surface-\(firstChildThreadId)"
+        let firstChildSurfaceId = firstChildThreadId
         let persisted = waitForCondition(timeout: 8) {
             guard let sessions = try? self.readClaudeHookSessions(at: stateURL),
                   sessions.count == 4,
@@ -3511,6 +3511,40 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertNil(record["parentRunId"])
         XCTAssertNil(record["parentSessionId"])
         XCTAssertNil(record["relationship"])
+    }
+
+    func testManagedCodexSessionStartRejectsMismatchedTeamsThreadIdentity() throws {
+        let context = try makeClaudeHookContext(name: "codex-managed-lineage-mismatch")
+        defer { context.cleanup() }
+
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 16)
+        let nativeSessionId = "native-codex-session"
+        let inheritedThreadId = "different-teams-thread"
+        let result = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(nativeSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: codexLaunchEnvironment(
+                context: context,
+                sessionId: nativeSessionId
+            ).merging([
+                "CMUX_AGENT_MANAGED_SUBAGENT": "1",
+                "CMUX_CODEX_TEAMS_THREAD_ID": inheritedThreadId,
+                "CMUX_CODEX_TEAMS_PARENT_THREAD_ID": "teams-parent-thread",
+                "CMUX_CODEX_TEAMS_DEPTH": "1",
+            ], uniquingKeysWith: { _, new in new })
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+        let sessions = try readClaudeHookSessions(at: stateURL)
+        let nativeRecord = try XCTUnwrap(sessions[nativeSessionId])
+        XCTAssertNil(nativeRecord["runId"])
+        XCTAssertNil(nativeRecord["parentRunId"])
+        XCTAssertNil(nativeRecord["parentSessionId"])
+        XCTAssertNil(nativeRecord["relationship"])
+        XCTAssertNil(sessions[inheritedThreadId], "Inherited Teams env must not relabel a distinct native Codex session")
     }
 
     func testCodexStopIgnoresStaleSubagentRelayFromCompletedTurnWithoutTurnId() throws {
@@ -9002,7 +9036,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                       let threadId = environment["CMUX_CODEX_TEAMS_THREAD_ID"] else {
                     continue
                 }
-                surfaceIds.append("surface-\(threadId)")
+                surfaceIds.append(threadId)
             }
             let surfaces = Array(Set(surfaceIds)).enumerated().map { index, surfaceId in
                 [
@@ -9029,7 +9063,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             return v2Response(
                 id: id,
                 ok: true,
-                result: ["surface_id": "surface-\(threadId)"]
+                result: ["surface_id": threadId]
             )
         case "tab.action":
             return v2Response(id: id, ok: true, result: ["renamed": true])
@@ -9119,8 +9153,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
     }
 
     private func readClaudeHookSessions(at stateURL: URL) throws -> [String: [String: Any]] {
-        let state = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
-        let rawSessions = try XCTUnwrap(state["sessions"] as? [String: Any])
+        guard let state = try JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any],
+              let rawSessions = state["sessions"] as? [String: Any] else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
         return rawSessions.compactMapValues { $0 as? [String: Any] }
     }
 

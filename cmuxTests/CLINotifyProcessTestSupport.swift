@@ -165,6 +165,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     ]], on: connection)
                     return
                 }
+                var partialThread = thread
+                partialThread.removeValue(forKey: "source")
                 send([
                     [
                         "method": "thread/started",
@@ -172,7 +174,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     ],
                     [
                         "id": requestId,
-                        "result": ["thread": thread],
+                        "result": ["thread": partialThread],
                     ],
                 ], on: connection)
             default:
