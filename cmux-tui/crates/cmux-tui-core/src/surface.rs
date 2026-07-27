@@ -3286,6 +3286,29 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn completed_natural_cleanup_does_not_revalidate_reusable_session_id() {
+        // A completed child may have its numeric session ID reassigned. Use
+        // this test process's live session as a deterministic reused value.
+        // SAFETY: getsid(0) only queries the calling process.
+        let reused_session = unsafe { libc::getsid(0) };
+        assert!(reused_session > 1);
+        let signals = Arc::new(AtomicUsize::new(0));
+        let process = LocalPtyProcess::new(
+            u32::try_from(reused_session).ok(),
+            Box::new(CountingChildKiller(signals.clone())),
+        );
+        process.group_escalation_complete.store(true, Ordering::Release);
+        process.child_reaped.store(true, Ordering::Release);
+
+        assert!(
+            process.terminate_and_wait(Instant::now() + Duration::from_millis(100)),
+            "exact completed cleanup was rejected through a reused numeric session ID"
+        );
+        assert_eq!(signals.load(Ordering::Relaxed), 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn normal_child_exit_cleans_same_session_descendants_before_reaping() {
         let root = std::env::temp_dir()
             .join(format!("cmux-local-reap-{}", crate::workspace_registry::new_uuid_v4()));

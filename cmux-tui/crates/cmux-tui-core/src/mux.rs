@@ -12634,6 +12634,51 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn server_shutdown_rejects_host_records_beyond_owner_capacity() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+        let root = std::env::temp_dir().join(format!(
+            "cmux-shutdown-host-capacity-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let terminal_id = TerminalId::random().unwrap().to_hex();
+        let record = crate::terminal_host_runtime::TerminalHostRecord {
+            record_version: 1,
+            terminal_id: terminal_id.clone(),
+            incarnation: crate::terminal_host::HostIncarnation::random().unwrap().to_hex(),
+            endpoint: format!(
+                "/tmp/cmux-th-{}/{}.sock",
+                std::fs::metadata(&root).unwrap().uid(),
+                terminal_id
+            ),
+            owner_token: "01".repeat(crate::terminal_host::CAPABILITY_TOKEN_LEN),
+            host_pid: 0,
+            host_start_nonce: String::new(),
+            workspace_key: String::new(),
+            supports_set_defaults: false,
+            supports_terminate_only: false,
+        };
+        let record_path = record.record_path(&root);
+        std::fs::write(&record_path, serde_json::to_vec(&record).unwrap()).unwrap();
+        std::fs::set_permissions(&record_path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let mux = Mux::new_for_test(
+            "strict-shutdown-capacity",
+            SurfaceOptions { terminal_host_root: Some(root.clone()), ..SurfaceOptions::default() },
+        );
+        mux.set_shutdown_owner_capacity_for_test(0);
+
+        let error = mux.close_all_surfaces_for_shutdown().unwrap_err();
+        let _ = std::fs::remove_dir_all(&root);
+
+        assert!(
+            format!("{error:#}").contains("capacity"),
+            "shutdown staged a host beyond owner capacity: {error:#}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn server_shutdown_preflights_process_control_before_removing_topology() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((80, 24))).unwrap();

@@ -1565,6 +1565,33 @@ mod tests {
     }
 
     #[test]
+    fn expired_resolution_does_not_block_the_next_request() {
+        let _guard = RESOLVE_TEST_LOCK.lock().unwrap();
+        NEXT_RESOLVE_DELAY_MS.store(300, Ordering::Release);
+
+        let first =
+            resolve_socket_addr_until("localhost", 1, Instant::now() + Duration::from_millis(50));
+        let started = Instant::now();
+        let second =
+            resolve_socket_addr_until("localhost", 2, Instant::now() + Duration::from_millis(100));
+        let elapsed = started.elapsed();
+
+        // Unblock the old single-worker implementation before failing so the
+        // process-wide test resolver cannot contaminate a later test.
+        if second.is_err() {
+            thread::sleep(Duration::from_millis(250));
+        }
+        NEXT_RESOLVE_DELAY_MS.store(0, Ordering::Release);
+
+        assert!(first.is_err(), "injected slow resolution unexpectedly completed");
+        assert!(second.is_ok(), "expired DNS work blocked the next request: {second:?}");
+        assert!(
+            elapsed < Duration::from_millis(200),
+            "the next DNS request waited behind expired work: {elapsed:?}"
+        );
+    }
+
+    #[test]
     fn concurrent_calls_complete_while_reader_receives_events() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
