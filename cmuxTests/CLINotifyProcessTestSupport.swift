@@ -46,11 +46,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
         private let queue = DispatchQueue(label: "cmux.tests.codex-teams-app-server")
         private let listener: NWListener
         private let threadsById: [String: [String: Any]]
-        private let loadedThreadIds: [String]
+        private let loadedThreadIdBatches: [[String]]
         private let lock = NSLock()
         private var connections: [NWConnection] = []
+        private var loadedThreadListRequestCountValue = 0
 
-        init(threads: [[String: Any]], loadedThreadIds: [String]) throws {
+        init(threads: [[String: Any]], loadedThreadIdBatches: [[String]]) throws {
             let parameters = NWParameters.tcp
             let webSocketOptions = NWProtocolWebSocket.Options()
             webSocketOptions.autoReplyPing = true
@@ -62,7 +63,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     return (id, thread)
                 }
             )
-            self.loadedThreadIds = loadedThreadIds
+            self.loadedThreadIdBatches = loadedThreadIdBatches.isEmpty ? [[]] : loadedThreadIdBatches
         }
 
         func start(timeout: TimeInterval = 5) throws -> URL {
@@ -114,6 +115,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
             }
         }
 
+        func loadedThreadListRequestCount() -> Int {
+            lock.lock()
+            let value = loadedThreadListRequestCountValue
+            lock.unlock()
+            return value
+        }
+
         private func accept(_ connection: NWConnection) {
             lock.lock()
             connections.append(connection)
@@ -154,6 +162,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             case "initialize":
                 send([["id": requestId, "result": [:]]], on: connection)
             case "thread/loaded/list":
+                let loadedThreadIds = nextLoadedThreadIds()
                 send([["id": requestId, "result": ["data": loadedThreadIds]]], on: connection)
             case "thread/resume":
                 guard let params = request["params"] as? [String: Any],
@@ -183,6 +192,15 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     "error": ["code": -32_601, "message": "unsupported test method \(method)"],
                 ]], on: connection)
             }
+        }
+
+        private func nextLoadedThreadIds() -> [String] {
+            lock.lock()
+            let index = min(loadedThreadListRequestCountValue, loadedThreadIdBatches.count - 1)
+            loadedThreadListRequestCountValue += 1
+            let value = loadedThreadIdBatches[index]
+            lock.unlock()
+            return value
         }
 
         private func send(_ objects: [[String: Any]], on connection: NWConnection) {

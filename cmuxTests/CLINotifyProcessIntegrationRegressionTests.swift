@@ -3332,11 +3332,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 thread(id: secondChildThreadId, status: "notLoaded", parentThreadId: rootThreadId, depth: 1),
                 thread(id: grandchildThreadId, status: "notLoaded", parentThreadId: firstChildThreadId, depth: 2),
             ],
-            loadedThreadIds: [
-                rootThreadId,
-                firstChildThreadId,
-                secondChildThreadId,
-                grandchildThreadId,
+            loadedThreadIdBatches: [
+                [rootThreadId],
+                [
+                    rootThreadId,
+                    firstChildThreadId,
+                    secondChildThreadId,
+                    grandchildThreadId,
+                ],
             ]
         )
         let appServerURL = try appServer.start()
@@ -3400,9 +3403,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         }
         XCTAssertTrue(
             persisted,
-            "Watcher should persist all observed Codex threads and update the attached child surface"
+            "Watcher should reconcile newly loaded Codex threads while the app-server connection stays healthy"
         )
         guard persisted else { return }
+        XCTAssertGreaterThanOrEqual(
+            appServer.loadedThreadListRequestCount(),
+            2,
+            "Watcher should request the loaded-thread inventory again after the initial root-only response"
+        )
 
         var sessions = try readClaudeHookSessions(at: stateURL)
         XCTAssertEqual(sessions.count, 4, "Duplicate app-server observations must stay one record per thread")
