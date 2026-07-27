@@ -12243,6 +12243,66 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn exited_placeholder_does_not_suppress_terminal_adoption_rescan() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+        let root = std::env::temp_dir().join(format!(
+            "cmux-adoption-exited-placeholder-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let mux = Mux::new_for_test("adoption-exited-placeholder", SurfaceOptions::default());
+        let workspace =
+            mux.create_empty_workspace(Some("adoption-placeholder".into()), None, None).unwrap();
+        let terminal_id = TerminalId::random().unwrap().to_hex();
+        let incarnation = crate::terminal_host::HostIncarnation::random().unwrap().to_hex();
+        let placeholder = insert_running_terminal_identity_surface(
+            &mux,
+            &terminal_id,
+            &incarnation,
+            &workspace.key,
+        );
+        assert!(placeholder.is_dead());
+
+        let record = crate::terminal_host_runtime::TerminalHostRecord {
+            record_version: 2,
+            terminal_id: terminal_id.clone(),
+            incarnation,
+            endpoint: format!(
+                "/tmp/cmux-th-{}/{}.sock",
+                std::fs::metadata(&root).unwrap().uid(),
+                terminal_id
+            ),
+            owner_token: "01".repeat(crate::terminal_host::CAPABILITY_TOKEN_LEN),
+            host_pid: 1,
+            host_start_nonce: "01".repeat(32),
+            workspace_key: workspace.key,
+            supports_set_defaults: true,
+            supports_terminate_only: true,
+            supports_clear_history: true,
+        };
+        let record_path = root.join(format!("{terminal_id}.json"));
+        std::fs::write(&record_path, serde_json::to_vec(&record).unwrap()).unwrap();
+        let mut permissions = std::fs::metadata(&record_path).unwrap().permissions();
+        permissions.set_mode(0o600);
+        std::fs::set_permissions(&record_path, permissions).unwrap();
+        mux.update_surface_options(|options| options.terminal_host_root = Some(root.clone()));
+        mux.terminal_adoption_coordinator.state.lock().unwrap().stopping = true;
+
+        assert!(mux.rescan_terminal_adoptions());
+        let rescan_required =
+            mux.terminal_adoption_coordinator.state.lock().unwrap().rescan_required;
+        mux.terminal_adoption_coordinator.state.lock().unwrap().stopping = false;
+        let _ = std::fs::remove_dir_all(root);
+
+        assert!(
+            rescan_required,
+            "an exited identity placeholder suppressed the retry for its live discovery record"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn terminal_adoption_retries_when_the_registry_read_is_uncertain() {
         use std::os::unix::fs::MetadataExt;
 

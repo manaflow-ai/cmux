@@ -4021,6 +4021,18 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn non_child_pid_is_not_reported_as_a_waitable_child() {
+        let current =
+            libc::pid_t::try_from(std::process::id()).expect("current process ID fits pid_t");
+
+        assert!(
+            !local_child_is_waitable(current).unwrap(),
+            "ECHILD was treated as proof that the numeric session remains reserved"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn normal_child_exit_cleans_same_session_descendants_before_reaping() {
         let root = std::env::temp_dir()
             .join(format!("cmux-local-reap-{}", crate::workspace_registry::new_uuid_v4()));
