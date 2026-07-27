@@ -59,6 +59,22 @@ struct KimiRestorableAgentTests {
         )
     }
 
+    @Test("Customized Kimi registration with canonical template keeps executable ownership")
+    func canonicalTemplateDoesNotOverrideCustomExecutable() {
+        var registration = CmuxVaultAgentRegistration.builtInKimi
+        registration.name = "Custom Kimi"
+        registration.detect = CmuxVaultAgentDetectRule(processName: "custom-kimi")
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .custom("kimi"),
+            sessionId: "custom-session",
+            workingDirectory: nil,
+            launchCommand: nil,
+            registration: registration
+        )
+
+        #expect(snapshot.resumeCommand == "'custom-kimi' '--resume' 'custom-session'")
+    }
+
     @Test("Kimi's OS process title remains detectable")
     func processTitleDetection() {
         let definition = CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
