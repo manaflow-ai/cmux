@@ -7225,7 +7225,7 @@ mod tests {
     }
 
     #[test]
-    fn ordinary_repaint_rotates_pointer_authority_without_revoking_capture() {
+    fn ordinary_repaint_retains_presented_pointer_authority_and_capture() {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
         browser.store_frame(test_frame(1));
@@ -7247,8 +7247,8 @@ mod tests {
             "each admitted bitmap must carry its own pointer authority"
         );
         assert!(
-            browser.capture_guarded_input_point(authority, 1.0, 1.0).is_none(),
-            "input rendered from the previous bitmap must not target the new DOM"
+            browser.capture_guarded_input_point(authority, 1.0, 1.0).is_some(),
+            "a still-presented bitmap must remain guarded while its route geometry is current"
         );
         assert!(
             browser.capture_guarded_input_point(2, 1.0, 1.0).is_some(),

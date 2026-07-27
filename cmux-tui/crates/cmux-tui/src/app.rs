@@ -18913,6 +18913,85 @@ mod tests {
     }
 
     #[test]
+    fn sustained_graphics_processing_advances_acknowledged_pointer_authority() {
+        let mux = Mux::new("graphics-processing-liveness-test", SurfaceOptions::default());
+        let surface = mux.new_browser_tab("about:blank".to_string(), None, Some((20, 8))).unwrap();
+        let surface_id = surface.id;
+        surface.kill();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.pending_graphics_submission = Some(3);
+        app.pointer_route_phase = PointerRoutePhase::GraphicsProcessingPending;
+
+        app.commit_graphics_processing(crate::ui::graphics_writer::GraphicsProcessing {
+            id: 2,
+            session_generation: app.session_generation,
+            graphics: vec![crate::ui::graphics_writer::ProcessedGraphic {
+                surface: surface_id,
+                rect: Rect { x: 1, y: 2, width: 3, height: 4 },
+                seq: 13,
+                pointer_frame_seq: Some(13),
+            }],
+        });
+
+        assert_eq!(
+            app.rendered_pointer_frame.pane_content_generations.get(&surface_id),
+            Some(&PaneContentGeneration::Browser(13)),
+            "every acknowledged presentation must advance pointer authority even when a successor is pending"
+        );
+        assert_eq!(app.pending_graphics_submission, Some(3));
+        assert_eq!(app.pointer_route_phase, PointerRoutePhase::GraphicsProcessingPending);
+        mux.close_surface(surface_id).unwrap();
+    }
+
+    #[test]
+    fn graphics_acknowledgment_discards_obsolete_affected_cells() {
+        let mux = Mux::new("graphics-processing-bounded-union-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let graphic = |surface, x| GraphicIdentity {
+            session_generation: app.session_generation,
+            surface,
+            rect: Rect { x, y: 2, width: 2, height: 2 },
+            seq: surface,
+            pointer_frame_seq: Some(surface),
+        };
+        let first = graphic(11, 2);
+        let second = graphic(12, 8);
+        let latest = graphic(13, 14);
+        app.pointer_route_phase = PointerRoutePhase::GraphicsProcessingPending;
+
+        app.track_graphics_submission(2, vec![first]);
+        app.track_graphics_submission(3, vec![second]);
+        app.commit_graphics_processing(crate::ui::graphics_writer::GraphicsProcessing {
+            id: 2,
+            session_generation: app.session_generation,
+            graphics: vec![crate::ui::graphics_writer::ProcessedGraphic {
+                surface: first.surface,
+                rect: first.rect,
+                seq: first.seq,
+                pointer_frame_seq: first.pointer_frame_seq,
+            }],
+        });
+        app.track_graphics_submission(4, vec![latest]);
+        app.commit_graphics_processing(crate::ui::graphics_writer::GraphicsProcessing {
+            id: 3,
+            session_generation: app.session_generation,
+            graphics: vec![crate::ui::graphics_writer::ProcessedGraphic {
+                surface: second.surface,
+                rect: second.rect,
+                seq: second.seq,
+                pointer_frame_seq: second.pointer_frame_seq,
+            }],
+        });
+
+        assert!(
+            !app.pending_graphics_changes_cell(first.rect.x, first.rect.y),
+            "an acknowledged successor must discard cells absent from both it and the latest pending snapshot"
+        );
+        assert!(app.pending_graphics_changes_cell(second.rect.x, second.rect.y));
+        assert!(app.pending_graphics_changes_cell(latest.rect.x, latest.rect.y));
+    }
+
+    #[test]
     fn newer_browser_render_keeps_an_older_processing_acknowledgment_stale() {
         let mux = Mux::new("graphics-processing-order-test", SurfaceOptions::default());
         let surface = mux.new_browser_tab("about:blank".to_string(), None, Some((20, 8))).unwrap();
