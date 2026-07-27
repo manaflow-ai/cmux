@@ -9,9 +9,9 @@ The embedded browser had four independent lifecycle costs on its main-thread res
 3. A presentation refresh ran immediately, on the next main-queue turn, and again after 30 ms.
 4. Closing a browser pane stopped WebKit navigation but left discard-manager timers and observers tied to the panel lifecycle.
 
-The change removes the duplicate geometry request, replaces synchronous display flushing with coalesced invalidation, reduces presentation recovery to one latest-wins main-queue pass, skips the deferred all-entry pass when the primary browser is the only portal entry, and synchronously tears down browser-pane lifecycle resources on close.
+The change removes the duplicate geometry request, replaces synchronous display flushing with coalesced invalidation, performs one synchronous presentation repair inside the owning portal synchronization for bind, reveal, and forced-refresh transitions, skips the deferred all-entry pass when the primary browser is the only portal entry, and synchronously tears down browser-pane lifecycle resources on close.
 
-The measured result is less portal work and better responsiveness in one continuous-resize run. Whole-window AppKit and SwiftUI layout still dominate sustained live resize, so this report does **not** claim that every long animation frame or all historical memory growth is eliminated.
+The measured result is less portal work and stable responsiveness across repeated resize probes. Whole-window AppKit and SwiftUI layout still dominate sustained live resize, so this report does **not** claim that every long animation frame or all historical memory growth is eliminated.
 
 ## Scope and environment
 
@@ -33,7 +33,7 @@ All pages were local fixtures. The report contains no account, browsing-history,
 
 The external geometry callback invalidated the browser portal directly and then queued another invalidation for the same event-loop turn. In a baseline trace, 203 external-geometry callbacks accompanied 180 requested frame changes.
 
-The corrected path has one coalescing boundary. A single primary browser synchronizes immediately from its anchor and no longer schedules a redundant all-entry pass. Multiple-browser and recovery paths retain the deferred full reconciliation.
+The corrected path has one coalescing boundary. A single primary browser synchronizes immediately from its anchor and no longer schedules a redundant all-entry pass. Multiple-browser reconciliation remains deferred; lifecycle transitions request presentation recovery through the owning synchronization rather than a second caller-side refresh.
 
 ### 2. Synchronous rendering flushes
 
@@ -45,7 +45,7 @@ The corrected geometry path updates frames inside a disabled-animation Core Anim
 
 The old recovery helper performed three refreshes: immediate, next-turn, and delayed. This was appropriate as a defensive workaround for stale WebKit hosted layers, but it was also used during ordinary frame churn.
 
-The corrected helper keeps one cancellable, latest-wins next-turn refresh. Reveal, reattach, and transient-recovery paths still request the WebKit rendering-state repair; pure geometry changes only invalidate display.
+The corrected helper performs one synchronous presentation repair from the portal synchronization that owns the transition. Reveal, same- and new-anchor rebind, reattach, hosted-inspector adjustment, and explicit force-refresh paths still request the WebKit rendering-state repair exactly once; pure geometry changes only invalidate layout and display.
 
 ### 4. Browser-pane close lifecycle
 
@@ -57,10 +57,14 @@ The focused regression suite covers:
 
 1. One external geometry callback producing one coalesced portal invalidation.
 2. Geometry-only synchronization invalidating direct and active-viewport-hosted browsers without synchronous AppKit display flushes.
-3. Reveal coalescing to one call for each required WebKit rendering-state selector.
-4. Single-browser portal synchronization avoiding a redundant deferred all-entry pass.
-5. Discard-manager shutdown clearing its timer and delegate synchronously.
-6. Closing a committed local page while the panel remains retained, including detachment from the local inline host and replacement with an unloaded view.
+3. Initial bind, reveal, and explicit force refresh producing one synchronous call to each required WebKit rendering-state selector with no next-turn duplicate.
+4. Same- and new-anchor rebinds refreshing a replaced host exactly once.
+5. Hosted-inspector divider adjustment honoring one explicit forced refresh without a caller-side duplicate.
+6. First-sized reveal retaining its one-shot size nudge while presentation recovery remains synchronous.
+7. Single-browser portal synchronization avoiding a redundant deferred all-entry pass.
+8. Bounded transient-anchor recovery hiding a genuinely detached stale slot after exhaustion while preserving an off-window drag reparent until rebind.
+9. Discard-manager shutdown clearing its timer and delegate synchronously.
+10. Closing a committed local page while the panel remains retained, including detachment from the local inline host and replacement with an unloaded view.
 
 ## CI and build evidence
 
@@ -124,31 +128,31 @@ These stacks overlap, so the counts are not additive percentages. They establish
 
 ### Browser process reclamation
 
-| Metric | Baseline range (2 runs) | Candidate run 1 | Final tagged run |
+| Metric | Baseline range (2 runs) | Candidate run 1 | Final reviewed-head run |
 |---|---:|---:|---:|
 | WebKit processes after loading surfaces | 15 | 15 | 15 |
 | WebKit processes after close and settle | 4 | 3 | 3 |
-| WebKit footprint loaded | 262.1–266.3 MB | 253.0 MB | 245.2 MB |
-| WebKit footprint settled | 87.4–92.3 MB | 83.2 MB | 78.0 MB |
-| Attributed tree footprint reclaimed | 191.1–196.0 MB | 151.2 MB | 150.0 MB |
+| WebKit footprint loaded | 262.1–266.3 MB | 253.0 MB | 253.2 MB |
+| WebKit footprint settled | 87.4–92.3 MB | 83.2 MB | 83.3 MB |
+| Attributed tree footprint reclaimed | 191.1–196.0 MB | 151.2 MB | 182.9 MB |
 
-Gross reclaimed bytes depend on the loaded starting footprint; the candidate's loaded WebKit footprint was lower, so the smaller gross delta is not evidence of a regression. The bounded signal is that the 12 closed surfaces did not leave 12 WebContent processes alive: both candidate runs returned to three processes and the final tagged run returned to 78.0 MB of WebKit footprint.
+Gross reclaimed bytes depend on the loaded starting footprint, so the bounded signal is process and settled-footprint behavior rather than the delta alone. The 12 closed surfaces did not leave 12 WebContent processes alive: both candidate runs and the final reviewed-head run returned to three processes; the latest run settled at 83.3 MB of WebKit footprint.
 
-A separate final tagged-app probe repeated three cycles of opening and closing eight additional browser surfaces. Every cycle loaded 11 WebKit processes and settled at three. The cycles reclaimed 117.3, 112.3, and 117.2 MB of WebKit footprint; their settled footprints were 41.4, 46.9, and 46.3 MB. All lifecycle assertions passed. These short synthetic tests do not replace a day-long soak for the broad reports in #4188 and #5305.
+An earlier tagged-app probe repeated three cycles of opening and closing eight additional browser surfaces. Every cycle loaded 11 WebKit processes and settled at three. The cycles reclaimed 117.3, 112.3, and 117.2 MB of WebKit footprint; their settled footprints were 41.4, 46.9, and 46.3 MB. All lifecycle assertions passed. The final reviewed-head probe then repeated the larger 12-surface cycle above. These short synthetic tests do not replace a day-long soak for the broad reports in #4188 and #5305.
 
 ### Final tagged-app resize validation
 
-The repository's release workflow produced the final test artifact, which was then exercised as an installed app rather than an in-tree executable. Activation, browser loading, scrolling, screenshots, resizing, close, and process reclamation all passed.
+The repository's release workflow produced an app from reviewed code-and-test commit `e779b88e3c`, which was then exercised as an installed app rather than an in-tree executable. Activation, browser loading, scrolling, screenshots, resizing, close, and process reclamation all passed.
 
 | Metric | Deterministic probe | 220-sample live-resize probe |
 |---|---:|---:|
-| rAF median / p95 | 15 / 55 ms | 16 / 55 ms |
-| rAF intervals > 33 ms | 180 of 631 | 227 of 1,519 |
-| Browser RPC median / p95 | 58.691 / 82.571 ms | 22.714 / 59.585 ms |
+| rAF median / p95 | 16 / 56 ms | 17 / 54 ms |
+| rAF intervals > 33 ms | 182 of 627 | 222 of 1,525 |
+| Browser RPC median / p95 | 59.030 / 84.691 ms | 23.180 / 60.900 ms |
 | Browser RPC errors | 0 | 0 |
-| App CPU during resize | 1.71% | 1.08% |
+| App CPU during resize | 1.73% | 1.05% |
 
-The deterministic probe also measured idle rAF at 17 / 19 ms median / p95 and 0.18% app CPU. The live-resize probe applied all 220 requested 150 × 90-point changes and produced a valid 15.5 KB browser-owned PNG.
+The deterministic probe also measured idle rAF at 17 / 18 ms median / p95 and 0.19% app CPU. The live-resize probe applied all 220 requested 150 × 90-point changes and produced a valid 15.5 KB browser-owned PNG.
 
 ## Visual validation and capture limitation
 
