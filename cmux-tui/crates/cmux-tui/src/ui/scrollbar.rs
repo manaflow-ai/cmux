@@ -213,9 +213,25 @@ pub(crate) fn horizontal_offset_at(
     Some(offset as u64)
 }
 
+/// Viewport offset produced by moving an anchored horizontal thumb.
+pub(crate) fn horizontal_drag_offset(
+    content_width: u64,
+    viewport_width: u16,
+    track_width: u16,
+    anchor_offset: u64,
+    delta_x: i128,
+) -> u64 {
+    let (_, thumb_width) =
+        horizontal_thumb_geometry(content_width, viewport_width, anchor_offset, track_width);
+    let travel = i128::from(track_width.saturating_sub(thumb_width).max(1));
+    let maximum = i128::from(content_width.saturating_sub(u64::from(viewport_width)));
+    let delta = delta_x * maximum / travel;
+    (i128::from(anchor_offset) + delta).clamp(0, maximum) as u64
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{horizontal_offset_at, horizontal_thumb_geometry};
+    use super::{horizontal_drag_offset, horizontal_offset_at, horizontal_thumb_geometry};
 
     #[test]
     fn horizontal_thumb_tracks_the_viewport() {
@@ -241,6 +257,13 @@ mod tests {
             let (thumb_x, thumb_width) = horizontal_thumb_geometry(120, 80, offset, 12);
             assert_eq!(horizontal_offset_at(120, 80, 12, thumb_x + thumb_width / 2), Some(offset));
         }
+    }
+
+    #[test]
+    fn horizontal_drag_preserves_its_anchor_and_covers_the_range() {
+        assert_eq!(horizontal_drag_offset(120, 80, 12, 40, 0), 40);
+        assert_eq!(horizontal_drag_offset(120, 80, 12, 0, 4), 40);
+        assert_eq!(horizontal_drag_offset(120, 80, 12, 40, -4), 0);
     }
 
     #[test]

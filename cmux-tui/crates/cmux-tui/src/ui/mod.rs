@@ -28,8 +28,9 @@ use crate::localization::catalog;
 use crate::machine::DurableNoticeLevel;
 
 pub(crate) use scrollbar::{
-    ScrollbarState, ScrollbarStyle, horizontal_offset_at, horizontal_thumb_geometry,
-    thumb_geometry, viewport_drag_offset, viewport_jump_offset, viewport_thumb_geometry,
+    ScrollbarState, ScrollbarStyle, horizontal_drag_offset, horizontal_offset_at,
+    horizontal_thumb_geometry, thumb_geometry, viewport_drag_offset, viewport_jump_offset,
+    viewport_thumb_geometry,
 };
 
 /// Copy one logical buffer row into a visible destination slice.

@@ -69,8 +69,8 @@ use crate::ui::graphics::GraphicPlacement;
 use crate::ui::graphics_writer::{GraphicsWriter, StdoutLock};
 use crate::ui::input::{InputEvent, TextInput};
 use crate::ui::{
-    horizontal_offset_at, thumb_geometry, viewport_drag_offset, viewport_jump_offset,
-    viewport_thumb_geometry,
+    horizontal_drag_offset, horizontal_offset_at, horizontal_thumb_geometry, thumb_geometry,
+    viewport_drag_offset, viewport_jump_offset, viewport_thumb_geometry,
 };
 
 const DEFERRED_INPUT_CAPACITY: usize = 512;
@@ -3294,7 +3294,7 @@ enum Drag {
     /// Scrollbar thumb drag.
     Scrollbar { surface: SurfaceId, track: Rect, anchor_y: u16, anchor_offset: u64 },
     /// Horizontal pane-column scrollbar drag.
-    HorizontalScrollbar { track: Rect },
+    HorizontalScrollbar { track: Rect, anchor_x: u16, anchor_offset: u64 },
     /// Workspace viewport scrollbar thumb drag.
     WorkspaceScrollbar {
         track: Rect,
@@ -7733,16 +7733,33 @@ impl App {
         )
     }
 
-    fn scroll_horizontal_track(&mut self, track: Rect, x: u16, animate: bool) {
-        let Some((content_width, viewport_width, _)) = self.horizontal_scrollbar_state() else {
+    /// Start a horizontal scrollbar drag. Grabbing the thumb freezes it at
+    /// its rendered offset; clicking the track jumps first and anchors there.
+    fn start_horizontal_scrollbar_drag(&mut self, track: Rect, x: u16) {
+        let Some((content_width, viewport_width, offset)) = self.horizontal_scrollbar_state()
+        else {
             return;
         };
-        let position = x.saturating_sub(track.x);
-        if let Some(offset) =
-            horizontal_offset_at(content_width, viewport_width, track.width, position)
-        {
-            self.set_viewport_target(offset, animate);
+        if track.width == 0 {
+            return;
         }
+        let relative = x.saturating_sub(track.x).min(track.width - 1);
+        let (thumb_x, thumb_width) =
+            horizontal_thumb_geometry(content_width, viewport_width, offset, track.width);
+        let on_thumb = relative >= thumb_x && relative < thumb_x.saturating_add(thumb_width);
+        let anchor_offset = if on_thumb {
+            self.set_viewport_target(offset, false);
+            offset
+        } else {
+            let Some(target) =
+                horizontal_offset_at(content_width, viewport_width, track.width, relative)
+            else {
+                return;
+            };
+            self.set_viewport_target(target, true);
+            target
+        };
+        self.drag = Some(Drag::HorizontalScrollbar { track, anchor_x: x, anchor_offset });
     }
 
     pub fn dragging_workspace_scrollbar(&self) -> bool {
@@ -11414,8 +11431,7 @@ impl App {
                     self.start_scrollbar_drag(surface, track, y);
                 }
                 Hit::HorizontalScrollbar { track } => {
-                    self.scroll_horizontal_track(track, x, true);
-                    self.drag = Some(Drag::HorizontalScrollbar { track });
+                    self.start_horizontal_scrollbar_drag(track, x);
                 }
                 Hit::WorkspaceScrollbar { track, total_rows, visible_rows } => {
                     self.focus = FocusTarget::WorkspaceRail;
@@ -11571,9 +11587,19 @@ impl App {
                 self.drag_scrollbar(surface, track, anchor_y, anchor_offset, y);
                 Ok(RenderAction::Draw)
             }
-            Some(Drag::HorizontalScrollbar { track }) => {
-                let track = *track;
-                self.scroll_horizontal_track(track, x, false);
+            Some(Drag::HorizontalScrollbar { track, anchor_x, anchor_offset }) => {
+                let (track, anchor_x, anchor_offset) = (*track, *anchor_x, *anchor_offset);
+                if let Some((content_width, viewport_width, _)) = self.horizontal_scrollbar_state()
+                {
+                    let target = horizontal_drag_offset(
+                        content_width,
+                        viewport_width,
+                        track.width,
+                        anchor_offset,
+                        i128::from(x) - i128::from(anchor_x),
+                    );
+                    self.set_viewport_target(target, false);
+                }
                 Ok(RenderAction::Draw)
             }
             Some(Drag::WorkspaceScrollbar {

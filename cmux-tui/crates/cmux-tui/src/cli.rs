@@ -1235,11 +1235,23 @@ fn build_set_viewport_pane_width(flags: &FlagMap) -> Result<Value, UsageError> {
 }
 
 fn build_undo_layout(flags: &FlagMap) -> Result<Value, UsageError> {
+    let revision = flags.optional("revision");
+    let confirm_close = flags.optional("confirm-close").is_some();
+    if revision.is_some() != confirm_close {
+        return Err(UsageError(
+            crate::localization::catalog()
+                .layout
+                .layout_undo_confirmation_flags_together
+                .to_string(),
+        ));
+    }
     let mut value = json!({
         "pane": flags.required_u64("pane")?,
-        "confirm_close": flags.optional("confirm-close").is_some(),
+        "confirm_close": confirm_close,
     });
-    flags.insert_optional_u64(&mut value, "revision")?;
+    if let Some(revision) = revision {
+        value["revision"] = json!(parse_u64("revision", &revision)?);
+    }
     Ok(value)
 }
 
@@ -2061,7 +2073,10 @@ mod tests {
             ]),
         ] {
             let error = build_undo_layout(&FlagMap { values, ..Default::default() }).unwrap_err();
-            assert_eq!(error.0, "--revision and --confirm-close must be supplied together");
+            assert_eq!(
+                error.0,
+                crate::localization::catalog().layout.layout_undo_confirmation_flags_together
+            );
         }
     }
 

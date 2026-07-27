@@ -100,6 +100,7 @@ pub(crate) struct LayoutMessages {
     pub layout_undo_missing_closes_panes: &'static str,
     pub layout_undo_invalid_pane: &'static str,
     pub layout_undo_missing_outcome: &'static str,
+    pub layout_undo_confirmation_flags_together: &'static str,
     pub layout_changed_before_undo: &'static str,
     unknown_split: &'static str,
     unknown_pane_split: &'static str,
@@ -468,6 +469,7 @@ edits shell files. Authenticate with the configured host before retrying.
         layout_undo_missing_closes_panes: "layout undo response is missing closes_panes",
         layout_undo_invalid_pane: "layout undo response contains an invalid pane",
         layout_undo_missing_outcome: "layout undo response has no outcome",
+        layout_undo_confirmation_flags_together: "--revision and --confirm-close must be supplied together",
         layout_changed_before_undo: "layout changed before undo",
         unknown_split: "unknown split {split}",
         unknown_pane_split: "unknown pane/split {pane}",
@@ -659,6 +661,7 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
         layout_undo_missing_closes_panes: "レイアウト取り消し応答に closes_panes がありません",
         layout_undo_invalid_pane: "レイアウト取り消し応答に無効なペインがあります",
         layout_undo_missing_outcome: "レイアウト取り消し応答に結果がありません",
+        layout_undo_confirmation_flags_together: "--revision と --confirm-close は同時に指定してください",
         layout_changed_before_undo: "取り消し前にレイアウトが変更されました",
         unknown_split: "分割 {split} が見つかりません",
         unknown_pane_split: "ペインまたは分割 {pane} が見つかりません",
@@ -958,6 +961,10 @@ mod tests {
         assert_eq!(
             japanese_layout.layout_undo_confirmation_required(8, "15,16"),
             "確認が必要です: --revision 8 --confirm-close を付けて再実行してください（閉じるペイン: 15,16）"
+        );
+        assert_eq!(
+            japanese_layout.layout_undo_confirmation_flags_together,
+            "--revision と --confirm-close は同時に指定してください"
         );
         assert_eq!(
             catalog_for_locale("ja_JP.UTF-8").runtime.renderer_panicked("描画セルが無効"),
