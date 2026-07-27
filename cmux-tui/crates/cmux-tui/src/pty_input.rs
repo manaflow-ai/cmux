@@ -2370,6 +2370,49 @@ mod tests {
     }
 
     #[test]
+    fn ambiguous_local_press_keeps_its_recovery_release_reservation() {
+        let (failure_tx, failure_rx) = std::sync::mpsc::channel();
+        let mut dispatcher = PtyInputDispatcher::spawn(move |failure| {
+            failure_tx.send(failure).unwrap();
+        })
+        .unwrap();
+        let mux = cmux_tui_core::Mux::new(
+            "ambiguous-local-press-recovery-test",
+            cmux_tui_core::SurfaceOptions::default(),
+        );
+        let surface = mux.new_workspace(None, Some((20, 8))).unwrap();
+        let handle = SurfaceHandle::Local(surface.clone(), mux.clone());
+        let mut press = PtyInputEvent::input(
+            surface.id,
+            handle.clone(),
+            PtyInputBytes::from_slice(b"press"),
+            PtyInputKind::Press,
+        );
+        press.mutation = Some(Box::new(|| Err(anyhow::anyhow!("flush failed"))));
+
+        let (result, reservation_id) = dispatcher.enqueue_with_reservation(press);
+        assert_eq!(result, PtyInputEnqueueResult::Accepted);
+        let reservation_id = reservation_id.unwrap();
+        let failure = failure_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(failure.delivery, PtyOperationDelivery::Ambiguous);
+        assert!(failure.lane_failed);
+        assert_eq!(failure.reservation_id, Some(reservation_id));
+
+        assert_eq!(
+            dispatcher.enqueue(PtyInputEvent::release(
+                surface.id,
+                handle,
+                PtyInputBytes::from_slice(b"release"),
+                reservation_id,
+            )),
+            PtyInputEnqueueResult::Accepted,
+            "lane quarantine rejected the matching recovery release"
+        );
+        assert!(dispatcher.shutdown(Duration::from_secs(1)));
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
     fn ambiguous_release_is_retained_for_retry() {
         let mut state = QueueState::default();
         let mut release = event(7, 3, PtyInputKind::Release);
