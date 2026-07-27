@@ -56,6 +56,8 @@ final class SimulatorFramebuffer {
     func start(device: NSObject) async throws {
         stop()
         publishingEnabled = true
+        // Scale 1 is the legacy "unknown" value when older CoreSimulator
+        // versions do not expose device-type scale metadata.
         displayScale = simulatorDeviceDisplayScale(device) ?? 1
         guard let io = objectProperty(device, selectorName: "io") as? NSObject else {
             throw SimulatorWorkerFailure.framebufferUnavailable("Simulator device I/O is unavailable.")

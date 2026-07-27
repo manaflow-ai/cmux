@@ -49,7 +49,8 @@ struct SimulatorDeviceStage: View {
         display: SimulatorDisplayMetadata,
         frameTransport: SimulatorFrameTransportDescriptor
     ) -> some View {
-        let maximumSize = maximumDeviceSize(for: display)
+        let family = selectedFamily
+        let maximumSize = maximumDeviceSize(for: display, family: family)
         return ZStack {
             SimulatorRemoteSurface(
                 coordinator: coordinator,
@@ -80,16 +81,21 @@ struct SimulatorDeviceStage: View {
             contentMode: .fit
         )
         .frame(maxWidth: maximumSize?.width, maxHeight: maximumSize?.height)
-        .clipShape(.rect(cornerRadius: coordinator.chromeProfile == nil ? deviceCornerRadius : 0))
+        .clipShape(.rect(
+            cornerRadius: coordinator.chromeProfile == nil
+                ? deviceCornerRadius(for: family)
+                : 0
+        ))
         .shadow(color: .black.opacity(0.28), radius: 18, y: 8)
         .padding(simulatorDeviceStagePadding)
         .accessibilityLabel(simulatorStrings.simulator)
     }
 
     private func maximumDeviceSize(
-        for display: SimulatorDisplayMetadata
+        for display: SimulatorDisplayMetadata,
+        family: SimulatorDeviceFamily?
     ) -> CGSize? {
-        guard selectedFamily == .iPhone else { return nil }
+        guard family == .iPhone else { return nil }
         if let chrome = coordinator.chromeProfile {
             return switch display.orientation {
             case .portrait, .portraitUpsideDown:
@@ -144,8 +150,10 @@ struct SimulatorDeviceStage: View {
         }
     }
 
-    private var deviceCornerRadius: CGFloat {
-        selectedFamily == .iPad ? 22 : 34
+    private func deviceCornerRadius(
+        for family: SimulatorDeviceFamily?
+    ) -> CGFloat {
+        family == .iPad ? 22 : 34
     }
 
     private var selectedFamily: SimulatorDeviceFamily? {
