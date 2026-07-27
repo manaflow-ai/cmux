@@ -21121,6 +21121,130 @@ mod tests {
     }
 
     #[test]
+    fn terminal_input_failure_statuses_use_the_selected_locale() {
+        const CHILD_ENV: &str = "CMUX_TERMINAL_INPUT_FAILURE_LOCALE_CHILD";
+        if std::env::var_os(CHILD_ENV).is_none() {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .arg("app::tests::terminal_input_failure_statuses_use_the_selected_locale")
+                .arg("--exact")
+                .arg("--nocapture")
+                .env(CHILD_ENV, "1")
+                .env("LC_ALL", "ja_JP.UTF-8")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "Japanese terminal input failure child failed:\nstdout:\n{}\nstderr:\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+
+        let mux = Mux::new("terminal-input-failure-locale", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let oversized =
+            "x".repeat(super::MAX_DEFERRED_INPUT_BYTES - super::BRACKETED_PASTE_MARKER_BYTES + 1);
+        app.handle(AppEvent::Input(Event::Paste(oversized))).unwrap();
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("貼り付けテキストが 4 MiB の PTY バッファ上限を超えています")
+        );
+
+        let half = "x".repeat(super::MAX_DEFERRED_INPUT_BYTES / 2);
+        app.defer_input(TerminalInput::Paste(half.clone()));
+        app.defer_input(TerminalInput::Paste(half));
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("セッション変更の保留中に入力キューのバイト上限に達しました")
+        );
+
+        app.session.pending_routing_mutations.store(1, Ordering::Release);
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 9,
+            row: 3,
+            modifiers: KeyModifiers::NONE,
+        })))
+        .unwrap();
+        app.session.pending_routing_mutations.store(0, Ordering::Release);
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("レイアウトの変更中にポインター入力が破棄されました")
+        );
+
+        for (result, expected) in [
+            (
+                PtyInputEnqueueResult::Oversized,
+                "入力が 4 MiB の PTY バッファ上限を超えています",
+            ),
+            (
+                PtyInputEnqueueResult::Saturated,
+                "PTY 入力キューがいっぱいのため、入力は送信されませんでした",
+            ),
+            (
+                PtyInputEnqueueResult::Failed,
+                "転送エラー後のため PTY 入力を使用できません",
+            ),
+        ] {
+            assert!(!app.handle_pty_enqueue_result(result));
+            assert_eq!(app.status_message.as_deref(), Some(expected));
+        }
+
+        app.apply_pty_operation_failure(PtyOperationFailure {
+            session_generation: 1,
+            surface_id: Some(1),
+            kind: None,
+            reservation_id: None,
+            label: "attach surface",
+            error: "timeout detail".into(),
+            lane_failed: true,
+            delivery: PtyOperationDelivery::Ambiguous,
+        });
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some(
+                "サーフェスの接続結果を確認できません。入力を再開する前に切断して再接続してください: timeout detail"
+            )
+        );
+
+        app.apply_pty_operation_failure(PtyOperationFailure {
+            session_generation: 1,
+            surface_id: Some(1),
+            kind: Some(PtyInputKind::Ordered),
+            reservation_id: None,
+            label: "PTY input",
+            error: "write failed".into(),
+            lane_failed: false,
+            delivery: PtyOperationDelivery::KnownNotDelivered,
+        });
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("ターミナル入力に失敗しました: write failed")
+        );
+
+        let destination_mux =
+            Mux::new("deferred-destination-failure-locale", SurfaceOptions::default());
+        let destination = destination_mux.new_workspace(None, None).unwrap();
+        let mut destination_app = test_app(Session::Local(destination_mux));
+        destination_app.replace_tree(destination_app.session.tree());
+        destination_app.session.pending_mutations.store(1, Ordering::Release);
+        destination_app
+            .handle(AppEvent::Input(Event::Key(KeyEvent::new(
+                KeyCode::Char('x'),
+                KeyModifiers::NONE,
+            ))))
+            .unwrap();
+        destination_app.session.pending_mutations.store(0, Ordering::Release);
+        destination_app.replace_tree(notify_tree(destination.id + 1, false));
+        destination_app.replay_deferred_input().unwrap();
+        assert_eq!(
+            destination_app.status_message.as_deref(),
+            Some("遅延入力は送信先が変更されたため破棄されました")
+        );
+    }
+
+    #[test]
     fn clear_history_failure_status_uses_the_selected_locale() {
         const CHILD_ENV: &str = "CMUX_CLEAR_HISTORY_FAILURE_LOCALE_CHILD";
         if std::env::var_os(CHILD_ENV).is_none() {

@@ -6197,6 +6197,38 @@ mod tests {
     }
 
     #[test]
+    fn queued_same_surface_clears_do_not_reserve_worker_permits() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        surface.with_terminal(|term| {
+            term.vt_write(b"history\r\n\x1b]133;A\x07prompt> \x1b[31");
+        });
+        let admission = Arc::new(ServerSurfaceOperationAdmission::default());
+        let scheduler = Arc::new(ConnectionSurfaceScheduler::new(admission.clone()));
+        let writer = test_writer();
+
+        for id in 0..SERVER_SURFACE_WORKER_CAPACITY {
+            let mut clear = Some(Request {
+                id: Some(json!(id)),
+                cmd: Command::ClearHistory { surface: surface.id, fallback_key: None },
+            });
+            assert_eq!(
+                scheduler.dispatch(mux.clone(), 0, &mut clear, 0, writer.clone()),
+                Some(true)
+            );
+        }
+
+        let reserved_workers = admission.state.lock().unwrap().workers;
+        let _ = scheduler.close_and_wait(Duration::from_secs(1));
+        mux.close_surface(surface.id).unwrap();
+
+        assert!(
+            reserved_workers <= 1,
+            "queued same-surface clears reserved {reserved_workers} mux-wide worker permits"
+        );
+    }
+
+    #[test]
     fn queued_wait_releases_clear_worker_permit_after_clear_settles() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
