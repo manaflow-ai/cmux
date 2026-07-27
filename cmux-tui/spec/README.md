@@ -24,7 +24,7 @@ Protocol v7 is additive for v6 clients: `attach-surface.mode` defaults to `"byte
 
 Generated clients must inspect `identify.protocol` before using features newer than the connected server. Bindings may expose proposed APIs behind version checks, but they must not send proposed commands to an older server unless the caller explicitly opts into probing.
 
-`identify.capabilities` negotiates additive build-level features within one protocol version. Clients must treat a missing capability list as empty. They must require `attach-initial-size` before sending initial `cols` or `rows` on `attach-surface`, `surface-subscribe-filter` before sending `surface` on `subscribe`, `workspace-registry-v1` before using registry creation, placement, stable-key, or revision-CAS APIs, and `provider-managed-workspace-authority-v2` before committing provider-owned workspace mirrors with a pre-provisioned authority.
+`identify.capabilities` negotiates additive build-level features within one protocol version. Clients must treat a missing capability list as empty. They must require `attach-initial-size` before sending initial `cols` or `rows` on `attach-surface`, `surface-subscribe-filter` before sending `surface` on `subscribe`, `workspace-registry-v1` before using registry creation, placement, stable-key, or revision-CAS APIs, `clear-history-v1` before sending `clear-history`, both `clear-history-v1` and `clear-history-key-v1` before including its structured `fallback_key`, and `provider-managed-workspace-authority-v2` before committing provider-owned workspace mirrors with a pre-provisioned authority.
 
 ## Generation Model
 
@@ -47,9 +47,10 @@ The generator must preserve the wire command names, parameter names, result shap
 | `bindings.md` | Language binding style sheets and conformance suite contract |
 | `plugins.md` | Sidebar plugin PTY, manifest, lifecycle, focus, and config contract |
 | `machine-provider.md` | Implemented static catalog and authenticated dynamic-provider v1 contract |
+| `machine-agent.md` | Implemented outbound local-machine registration, stream relay, and generation migration contract |
 
 ## Implemented Inventory
 
 Protocol v10 implements the socket commands listed in `commands.md` and the event names listed in `events.md`. Events include subscribe events, attach-stream events, and the implemented `empty` and `detached` lifecycle events.
 
-The client also implements `machine-provider-v0`, an in-process static Unix/SSH catalog, and `machine-provider-v1`, an authenticated dynamic-provider protocol over Unix sockets, direct child processes, or the built-in SSH connector. Both are versioned separately from protocol v10.
+The client also implements `machine-provider-v0`, an in-process static Unix/SSH catalog, `machine-provider-v1`, an authenticated dynamic-provider protocol over Unix sockets, direct child processes, or the built-in SSH connector, and `cmux.machine-agent` v1 for outbound local-machine registration. These contracts are versioned separately from protocol v10.

@@ -25,6 +25,16 @@ Exactly one provider mode may be active. The direct command's terminating `--` i
 
 The cloud transport invokes OpenSSH with exact remote commands `cmux provider control` and `cmux provider stream`. Provider bearers are generated client-side per connection generation and never carried in argv or environment variables. See [Machine Provider Contract](machine-provider.md#implemented-v1).
 
+`machine-agent` is another implemented hand-written process mode:
+
+```text
+cmux-tui machine-agent [--session <name>] [--socket <path>]
+  [--state <path>] [--cloud-host <host>] [--cloud-user <user>]
+  [--cloud-port <port>] [--cloud-identity <path>]
+```
+
+It verifies one local protocol-v10 session, then opens an outbound OpenSSH registration using the exact remote command `cmux machine register`. Packaged builds expose the same mode as `npx cmux machine-agent`. See [Machine Agent Contract](machine-agent.md).
+
 ## Global Conventions
 
 ### Socket Resolution
@@ -92,6 +102,7 @@ The generated CLI requires one of `--index` or `--delta` for `select-tab`, `sele
 | `apply-layout` | implemented | `--layout <json>` | `--workspace <id>`, `--name <name>`, `--cols <n> --rows <n>` | screen and pane/surface lines |
 | `send` | implemented; `--paste` protocol 7 | `--surface <id>` | `--text <text>`, `--bytes <base64>`, `--paste` | none |
 | `read-screen` | implemented | `--surface <id>` | none | screen text |
+| `clear-history` | implemented | `--surface <id>` | none | none |
 | `read-scrollback` | proposed protocol 7 | `--surface <id> --start <n> --count <n>` | none | scrollback text rows |
 | `vt-state` | implemented | `--surface <id>` | none | `cols=<n> rows=<n> data=<base64>` |
 | `new-tab` | implemented | none | `--pane <id>`, `--cwd <path>`, `--cols <n> --rows <n>` | surface id |

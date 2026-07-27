@@ -11,31 +11,31 @@ import Testing
 @Suite
 struct QuitConfirmationAlertPresenterTests {
     @Test
-    func pendingTerminateReplyWaitsOnlyForTerminateOwnedConfirmation() {
+    func pendingTerminateReplyWaitsForOwnedCleanupOrTerminateOwnedConfirmation() {
         #expect(
             AppDelegate.pendingTerminateReply(
-                isAwaitingTerminateKills: true,
+                isAwaitingTerminateCleanup: true,
                 hasActiveQuitConfirmation: false,
                 activeQuitConfirmationOwnsTerminateRequest: false
             ) == .terminateLater
         )
         #expect(
             AppDelegate.pendingTerminateReply(
-                isAwaitingTerminateKills: false,
+                isAwaitingTerminateCleanup: false,
                 hasActiveQuitConfirmation: true,
                 activeQuitConfirmationOwnsTerminateRequest: true
             ) == .terminateLater
         )
         #expect(
             AppDelegate.pendingTerminateReply(
-                isAwaitingTerminateKills: false,
+                isAwaitingTerminateCleanup: false,
                 hasActiveQuitConfirmation: true,
                 activeQuitConfirmationOwnsTerminateRequest: false
             ) == .terminateCancel
         )
         #expect(
             AppDelegate.pendingTerminateReply(
-                isAwaitingTerminateKills: false,
+                isAwaitingTerminateCleanup: false,
                 hasActiveQuitConfirmation: false,
                 activeQuitConfirmationOwnsTerminateRequest: false
             ) == nil
