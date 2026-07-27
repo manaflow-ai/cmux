@@ -12,12 +12,13 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `acefff5de`, the merged head of
-https://github.com/manaflow-ai/ghostty/pull/157. It adds bounded copy work and
-an atomic runtime cursor snapshot on top of the tracked navigation from
-https://github.com/manaflow-ai/ghostty/pull/156, the native selection geometry
-from https://github.com/manaflow-ai/ghostty/pull/154, and the current
-`manaflow-ai/ghostty` `main`.
+The submodule pinned by this branch is `7a5d08b7c`, the merged head of
+https://github.com/manaflow-ai/ghostty/pull/159. It preserves bounded plain-text
+and HTML clipboard output on top of the work bounds and atomic runtime cursor
+snapshot from https://github.com/manaflow-ai/ghostty/pull/157, the tracked
+navigation from https://github.com/manaflow-ai/ghostty/pull/156, the native
+selection geometry from https://github.com/manaflow-ai/ghostty/pull/154, and
+the current `manaflow-ai/ghostty` `main`.
 
 `4cc0933cf` adds the screen-anchored render-grid export for the iOS
 local-scrollback scroll work: `buildRenderGridJson` gains an active-area
@@ -56,7 +57,7 @@ and the product-main renderer/link fixes described below. It also bounds each
 renderer mailbox drain turn so continuous producers cannot starve lifecycle
 processing or rendering.
 
-No prebuilt checksum is pinned yet for `acefff5de`.
+No prebuilt checksum is pinned yet for `7a5d08b7c`.
 `scripts/ensure-ghosttykit.sh` therefore builds its universal ReleaseFast
 GhosttyKit archive locally.
 
@@ -886,10 +887,12 @@ tend to conflict together during rebases.
   - `aeed68c44` (Expose native keyboard selection geometry)
   - `65505e8c3` (Make keyboard copy navigation atomic)
   - `acefff5de` (Bound copy work and expose runtime cursor style)
+  - `7a5d08b7c` (Preserve rich bounded keyboard copies)
 - PRs:
   - https://github.com/manaflow-ai/ghostty/pull/154
   - https://github.com/manaflow-ai/ghostty/pull/156
   - https://github.com/manaflow-ai/ghostty/pull/157
+  - https://github.com/manaflow-ai/ghostty/pull/159
 - Files:
   - `include/ghostty.h`
   - `src/apprt/embedded.zig`
@@ -918,6 +921,9 @@ tend to conflict together during rebases.
   - Returns cursor geometry and effective runtime color in one terminal-state
     snapshot, including OSC overrides, semantic cell colors, inverse video,
     palette colors, and live manual-IO theme changes.
+  - Publishes bounded keyboard-copy selections as mixed plain text and styled
+    HTML, preserving rich paste targets without returning formatter buffers to
+    the Swift host.
 - Conflict notes:
   - Reconcile the exported C declarations with `src/apprt/embedded.zig` whenever the embedded surface API changes.
   - Keep character-cell canonicalization aligned with wide-cell and wrapped-spacer behavior in `src/terminal/Selection.zig`.

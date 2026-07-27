@@ -4400,29 +4400,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     private func copyKeyboardCopyModeSelectionToClipboard(surface: ghostty_surface_t) -> Bool {
         let maximumBytes = UInt(2 * 1024 * 1024)
-        var text = ghostty_text_s()
-        guard ghostty_surface_read_selection_clipboard_text(
+        return ghostty_surface_copy_selection_to_clipboard_bounded(
             surface,
-            maximumBytes,
-            &text
-        ) else { return false }
-        defer { ghostty_surface_free_text(surface, &text) }
-
-        guard let selectedText = Self.keyboardCopyModeSelectionString(text) else {
-            return false
-        }
-        GhosttyApp.terminalPasteboard.writeString(
-            selectedText,
-            to: GHOSTTY_CLIPBOARD_STANDARD
+            maximumBytes
         )
-        return true
-    }
-
-    static func keyboardCopyModeSelectionString(_ text: ghostty_text_s) -> String? {
-        guard text.text_len > 0 else { return "" }
-        guard let pointer = text.text else { return nil }
-        let data = Data(bytes: pointer, count: Int(text.text_len))
-        return String(decoding: data, as: UTF8.self)
     }
 
     private func hasCopyableTerminalSelection(surface: ghostty_surface_t) -> Bool {
