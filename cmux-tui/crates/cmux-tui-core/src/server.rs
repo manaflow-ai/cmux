@@ -6194,6 +6194,37 @@ mod tests {
     }
 
     #[test]
+    fn blocking_wait_cannot_overtake_input_queued_behind_a_clear_barrier() {
+        let admission = Arc::new(ServerSurfaceOperationAdmission::default());
+        let mut state = ConnectionSurfaceState::default();
+        state.active_clear_surfaces.insert(1);
+        for (id, cmd) in [
+            (
+                1,
+                Command::Send {
+                    surface: 1,
+                    text: Some("input".to_string()),
+                    bytes: None,
+                    paste: false,
+                },
+            ),
+            (2, Command::WaitFor { surface: 2, pattern: "never".to_string(), timeout_ms: 60_000 }),
+        ] {
+            state.requests.push_back(PendingSurfaceRequest {
+                request: Request { id: Some(json!(id)), cmd },
+                retained_bytes: 0,
+                _bytes_permit: admission.try_reserve_bytes(0).unwrap(),
+            });
+        }
+
+        assert_eq!(
+            ConnectionSurfaceScheduler::next_runnable_index(&state),
+            None,
+            "blocking wait overtook earlier input while its clear barrier was active"
+        );
+    }
+
+    #[test]
     fn queued_same_surface_clears_do_not_reserve_worker_permits() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
