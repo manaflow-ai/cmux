@@ -1,0 +1,172 @@
+#!/usr/bin/env bash
+# cmux opencode wrapper - installs cmux's OpenCode plugin when inside cmux.
+#
+# Outside cmux, or when hooks are disabled, this wrapper passes through to the
+# real opencode binary unchanged. Inside a live cmux terminal it best-effort
+# installs the bundled OpenCode plugin so OpenCode lifecycle events can update
+# cmux sidebar status.
+
+cmux_opencode_wrapper_is_self_or_shim() {
+    local candidate="$1"
+    [[ -n "$candidate" ]] || return 1
+    if [[ -e "$candidate" && "$candidate" -ef "$0" ]]; then
+        return 0
+    fi
+    case "$candidate" in
+        */cmux-cli-shims/*/opencode|*/cmux-cli-shims/opencode)
+            return 0
+            ;;
+        */Contents/Resources/bin/opencode|*/Resources/bin/opencode|*/cmux-opencode-wrapper)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+find_real_opencode() {
+    local custom="${CMUX_CUSTOM_OPENCODE_PATH:-}"
+    custom="${custom#"${custom%%[![:space:]]*}"}"
+    custom="${custom%"${custom##*[![:space:]]}"}"
+    if [[ -n "$custom" && -f "$custom" && -x "$custom" ]]; then
+        if ! cmux_opencode_wrapper_is_self_or_shim "$custom"; then
+            printf '%s' "$custom"
+            return 0
+        fi
+    fi
+
+    local self_dir
+    self_dir="$(cd "$(dirname "$0")" && pwd)"
+    local IFS=:
+    for d in $PATH; do
+        [[ "$d" == "$self_dir" ]] && continue
+        local candidate="$d/opencode"
+        cmux_opencode_wrapper_is_self_or_shim "$candidate" && continue
+        [[ -x "$candidate" ]] && printf '%s' "$candidate" && return 0
+    done
+    return 1
+}
+
+resolve_hook_cmux_bin() {
+    local self_dir bundled_cli
+    bundled_cli="${CMUX_BUNDLED_CLI_PATH:-}"
+    if [[ -n "$bundled_cli" && -x "$bundled_cli" ]]; then
+        printf '%s' "$bundled_cli"
+        return 0
+    fi
+
+    self_dir="$(cd "$(dirname "$0")" && pwd)"
+    bundled_cli="$self_dir/cmux"
+    if [[ -x "$bundled_cli" ]]; then
+        printf '%s' "$bundled_cli"
+        return 0
+    fi
+
+    bundled_cli="$(command -v cmux 2>/dev/null || true)"
+    if [[ -n "$bundled_cli" ]]; then
+        printf '%s' "$bundled_cli"
+        return 0
+    fi
+
+    printf '%s' "cmux"
+}
+
+cmux_socket_available() {
+    local socket="${CMUX_SOCKET_PATH:-}"
+    [[ -n "$socket" && -S "$socket" ]] || return 1
+
+    local cmux_bin
+    cmux_bin="$(resolve_hook_cmux_bin)"
+    [[ -n "$cmux_bin" ]] || return 1
+
+    CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.75 \
+        "$cmux_bin" --socket "$socket" ping >/dev/null 2>&1
+}
+
+# opencode subcommands that never start a session (and thus never load
+# ~/.config/opencode plugins). Sourced from `opencode --help`. When the first
+# non-option token is one of these, the plugin install is pure latency.
+# Conservative: bare `opencode`, a project path, and any UNKNOWN leading token
+# default to "needs plugin" so a new opencode subcommand can never be silently
+# skipped.
+opencode_known_non_session_subcommand() {
+    case "$1" in
+        completion|mcp|debug|providers|auth|agent|upgrade|uninstall|\
+        models|stats|export|import|github|session|plugin|plug|db)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+opencode_passthrough_option_flag() {
+    case "$1" in
+        --help|-h|--version|-v|-V)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+opencode_option_consumes_value() {
+    case "$1" in
+        -m|--model|-s|--session|--prompt|--agent|\
+        --port|--hostname|--mdns-domain|--cors|--replay-limit|--log-level)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+# Whether this invocation could load opencode plugins (i.e. starts or continues
+# a session). Mirrors should_inject_codex_hooks in cmux-codex-wrapper: a leading
+# --help/--version or a known non-session subcommand means skip; everything else
+# (bare opencode, a project path, `run`, `pr`, an unknown future subcommand) is
+# treated as a session and receives the install.
+opencode_invocation_needs_plugin() {
+    (( $# == 0 )) && return 0
+
+    local arg skip_next=false
+    for arg in "$@"; do
+        if [[ "$skip_next" == true ]]; then
+            skip_next=false
+            continue
+        fi
+        case "$arg" in
+            --)
+                return 0
+                ;;
+            -*)
+                if opencode_passthrough_option_flag "$arg"; then
+                    return 1
+                fi
+                if [[ "$arg" != *=* ]] && opencode_option_consumes_value "$arg"; then
+                    skip_next=true
+                fi
+                continue
+                ;;
+            *)
+                opencode_known_non_session_subcommand "$arg" && return 1
+                return 0
+                ;;
+        esac
+    done
+
+    return 0
+}
+
+REAL_OPENCODE="$(find_real_opencode || true)"
+if [[ -z "$REAL_OPENCODE" ]]; then
+    exec opencode "$@"
+fi
+
+if [[ "${CMUX_OPENCODE_HOOKS_DISABLED:-}" != "1" &&
+      -n "${CMUX_SURFACE_ID:-}" &&
+      -n "${CMUX_SOCKET_PATH:-}" ]] &&
+   opencode_invocation_needs_plugin "$@" &&
+   cmux_socket_available; then
+    CMUX_BIN="$(resolve_hook_cmux_bin)"
+    export CMUX_OPENCODE_CMUX_BIN="$CMUX_BIN"
+    "$CMUX_BIN" hooks opencode install --yes >/dev/null 2>&1 || true
+fi
+
+exec "$REAL_OPENCODE" "$@"

@@ -2,7 +2,7 @@
 
 cmux uses agent hooks to show running state, Feed approvals, notifications, and to restore agent sessions after a normal app relaunch.
 
-Claude Code is handled by the cmux Claude wrapper when Claude Code integration is enabled in Settings. Other agents are installed with:
+Claude Code is handled by the cmux Claude wrapper when Claude Code integration is enabled in Settings. OpenCode is also wrapped: the cmux OpenCode wrapper auto-installs the cmux OpenCode plugins (session and Feed) the first time you run `opencode` inside a cmux terminal, so no separate setup step is required. Other agents are installed with:
 
 ```bash
 cmux hooks setup
@@ -20,7 +20,7 @@ Supported agent names are `codex`, `grok`, `opencode`, `pi`, `omp`, `campfire`, 
 | Claude Code | `claude` through wrapper | wrapper-injected settings | `claude --resume <id>` | PermissionRequest |
 | Codex | `codex` | `~/.codex/hooks.json`, `~/.codex/config.toml` | `codex resume <id>` | PreToolUse, PermissionRequest telemetry |
 | Grok | `grok` | `~/.grok/hooks/cmux-session.json` | `grok -r <id>` | PreToolUse |
-| OpenCode | `opencode` | `~/.config/opencode/plugins/cmux-session.js`, `~/.config/opencode/plugins/cmux-feed.js` | `opencode --session <id>` | plugin event bus |
+| OpenCode | `opencode` through wrapper | `~/.config/opencode/plugins/cmux-session.js`, `~/.config/opencode/plugins/cmux-feed.js` | `opencode --session <id>` | plugin event bus |
 | Pi | `pi` | `~/.pi/agent/extensions/cmux-session.ts` | `pi --session <id>` | tool_execution_start / tool_execution_end telemetry |
 | OMP | `omp` | `~/.omp/agent/extensions/cmux-omp-session.ts` or `$PI_CODING_AGENT_DIR/extensions/cmux-omp-session.ts` | `omp --session <id>` | none |
 | Campfire | `campfire` | `~/.campfire/agent/extensions/cmux-campfire-session.ts` or `$CAMPFIRE_CODING_AGENT_DIR/extensions/cmux-campfire-session.ts` | `campfire --session <id>` | none |
@@ -52,6 +52,8 @@ The sanitizer preserves model, sandbox, config, and cwd-related flags. It drops 
 Claude Code's `PushNotification` tool (model-initiated "notify the user now" pushes) is bridged through a `PostToolUse` hook into cmux notifications. The tool normally delivers via a raw OSC desktop notification, which cmux suppresses on surfaces running a hook-integrated agent, so the bridge is what makes those pushes visible inside cmux. It mirrors the tool's own outcome: a push the tool reports as skipped (user active, channel disabled) is not duplicated.
 
 Grok uses its `Notification` hook for user-facing completion messages. cmux records `Stop` as idle state, but leaves the visible notification text to the `Notification` payload so repeated turns keep Grok's own message instead of a generic completion fallback.
+
+OpenCode's session plugin surfaces actionable moments as cmux notifications: permission prompts (`permission.asked`), questions (`question.asked`), and errors (`session.error`). A `session.status` event with a retrying type flips the sidebar status pill to a localized "Retrying" indicator (and marks the session running) so a stalled retry is visible without watching the terminal; a running status drives `prompt-submit` and an idle status drives `stop`, matching the other agents' turn lifecycle.
 
 ## Workspace auto-naming
 
