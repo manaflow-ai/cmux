@@ -1399,25 +1399,42 @@ impl std::fmt::Debug for Surface {
 }
 
 impl Surface {
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn spawn(
         id: SurfaceId,
         opts: SurfaceOptions,
         mux: Weak<Mux>,
     ) -> anyhow::Result<Arc<Surface>> {
-        Self::spawn_with_terminal_id(id, opts, mux, None)
+        let cell_pixels =
+            mux.upgrade().map(|mux| mux.cell_pixel_creation_size()).unwrap_or((8, 16));
+        Self::spawn_at_cell_pixels(id, opts, mux, cell_pixels)
     }
 
-    pub(crate) fn spawn_with_terminal_id(
+    pub(crate) fn spawn_at_cell_pixels(
+        id: SurfaceId,
+        opts: SurfaceOptions,
+        mux: Weak<Mux>,
+        cell_pixels: (u16, u16),
+    ) -> anyhow::Result<Arc<Surface>> {
+        Self::spawn_with_terminal_id_at_cell_pixels(id, opts, mux, None, cell_pixels)
+    }
+
+    pub(crate) fn spawn_with_terminal_id_at_cell_pixels(
         id: SurfaceId,
         opts: SurfaceOptions,
         mux: Weak<Mux>,
         terminal_id: Option<crate::terminal_host::TerminalId>,
+        cell_pixels: (u16, u16),
     ) -> anyhow::Result<Arc<Surface>> {
+        let kitty_reservation =
+            mux.upgrade().map(|mux| mux.reserve_kitty_image_surface(id)).transpose()?;
+        let initial_kitty_limits = kitty_reservation
+            .as_ref()
+            .map(crate::mux::KittyImageBudgetReservation::initial_limits)
+            .unwrap_or_default();
         #[cfg(unix)]
         if let Some(root) = opts.terminal_host_root.clone() {
             let default_colors = mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
-            let cell_pixels =
-                mux.upgrade().map(|mux| mux.cell_pixel_creation_size()).unwrap_or((8, 16));
             let attachment = match terminal_id {
                 Some(terminal_id) => {
                     crate::terminal_host_runtime::launch_terminal_host_with_identity(
@@ -1425,6 +1442,7 @@ impl Surface {
                         &root,
                         default_colors,
                         cell_pixels,
+                        initial_kitty_limits,
                         terminal_id,
                     )?
                 }
@@ -1433,13 +1451,12 @@ impl Surface {
                     &root,
                     default_colors,
                     cell_pixels,
+                    initial_kitty_limits,
                 )?,
             };
-            return Self::spawn_hosted(id, opts, mux, attachment, true);
+            return Self::spawn_hosted(id, opts, mux, attachment, kitty_reservation, true);
         }
         let _ = terminal_id;
-        let cell_pixels =
-            mux.upgrade().map(|mux| mux.cell_pixel_creation_size()).unwrap_or((8, 16));
         let initial_geometry = PtyGeometry {
             cols: opts.cols,
             rows: opts.rows,
@@ -1506,6 +1523,7 @@ impl Surface {
 
         let mut term = Terminal::new(opts.cols, opts.rows, opts.scrollback, callbacks)?;
         term.resize(opts.cols, opts.rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1))?;
+        term.set_kitty_graphics_limits(initial_kitty_limits)?;
         if let Some(mux) = mux.upgrade() {
             let colors = mux.default_colors();
             term.replace_default_colors(colors.fg, colors.bg, colors.cursor);
@@ -1536,7 +1554,7 @@ impl Surface {
             title: Mutex::new(String::new()),
             pwd: Mutex::new(None),
             geometry: Mutex::new(initial_geometry),
-            kitty_graphics_limits: Box::new(Mutex::new(KittyGraphicsLimits::default())),
+            kitty_graphics_limits: Box::new(Mutex::new(initial_kitty_limits)),
             #[cfg(test)]
             geometry_test_hook: Mutex::new(None),
             #[cfg(test)]
@@ -1559,7 +1577,12 @@ impl Surface {
             frame_requests,
         }));
 
-        surface.register_kitty_image_budget()?;
+        if let Some(reservation) = kitty_reservation
+            && let Err(error) = reservation.commit(&surface, initial_kitty_limits)
+        {
+            surface.kill();
+            return Err(error);
+        }
         spawn_frame_producer(&surface, frame_rx)?;
 
         // PTY reader: pty bytes -> terminal state -> SurfaceOutput events.
@@ -1761,6 +1784,7 @@ impl Surface {
         opts: SurfaceOptions,
         mux: Weak<Mux>,
         mut attachment: crate::terminal_host_runtime::HostAttachment,
+        kitty_reservation: Option<crate::mux::KittyImageBudgetReservation>,
         terminate_on_error: bool,
     ) -> anyhow::Result<Arc<Surface>> {
         let initial_defaults = mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
@@ -2376,7 +2400,10 @@ impl Surface {
                 }
             }
         })?;
-        if let Err(error) = surface.register_kitty_image_budget() {
+        let kitty_registration = kitty_reservation.map_or(Ok(()), |reservation| {
+            reservation.commit(&surface, snapshot.kitty_state.limits)
+        });
+        if let Err(error) = kitty_registration {
             if let Some(pty) = surface.as_pty()
                 && let PtyRuntime::Hosted(host) = &*pty.runtime.lock().unwrap()
             {
@@ -2404,8 +2431,10 @@ impl Surface {
         record: crate::terminal_host_runtime::TerminalHostRecord,
         record_path: PathBuf,
     ) -> anyhow::Result<Arc<Surface>> {
+        let kitty_reservation =
+            mux.upgrade().map(|mux| mux.reserve_kitty_image_surface(id)).transpose()?;
         let attachment = crate::terminal_host_runtime::adopt_terminal_host(record, record_path)?;
-        Self::spawn_hosted(id, opts, mux, attachment, false)
+        Self::spawn_hosted(id, opts, mux, attachment, kitty_reservation, false)
     }
 
     /// Materialize canonical Exited registry state without inventing a live
@@ -2419,6 +2448,12 @@ impl Surface {
         mux: Weak<Mux>,
         identity: crate::terminal_host_runtime::TerminalHostIdentity,
     ) -> anyhow::Result<Arc<Surface>> {
+        let kitty_reservation =
+            mux.upgrade().map(|mux| mux.reserve_kitty_image_surface(id)).transpose()?;
+        let initial_kitty_limits = kitty_reservation
+            .as_ref()
+            .map(crate::mux::KittyImageBudgetReservation::initial_limits)
+            .unwrap_or_default();
         let title_changed = Arc::new(AtomicBool::new(false));
         let callbacks = hosted_terminal_callbacks(id, mux.clone(), title_changed);
         let (cols, rows) = (opts.cols.max(1), opts.rows.max(1));
@@ -2426,6 +2461,7 @@ impl Surface {
             mux.upgrade().map(|mux| mux.cell_pixel_creation_size()).unwrap_or((8, 16));
         let mut term = Terminal::new(cols, rows, opts.scrollback, callbacks)?;
         term.resize(cols, rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1))?;
+        term.set_kitty_graphics_limits(initial_kitty_limits)?;
         if let Some(mux) = mux.upgrade() {
             let colors = mux.default_colors();
             term.replace_default_colors(colors.fg, colors.bg, colors.cursor);
@@ -2464,7 +2500,7 @@ impl Surface {
                 cell_width: cell_pixels.0,
                 cell_height: cell_pixels.1,
             }),
-            kitty_graphics_limits: Box::new(Mutex::new(KittyGraphicsLimits::default())),
+            kitty_graphics_limits: Box::new(Mutex::new(initial_kitty_limits)),
             #[cfg(test)]
             geometry_test_hook: Mutex::new(None),
             #[cfg(test)]
@@ -2486,7 +2522,9 @@ impl Surface {
             render_generation: AtomicU64::new(1),
             frame_requests,
         }));
-        surface.register_kitty_image_budget()?;
+        if let Some(reservation) = kitty_reservation {
+            reservation.commit(&surface, initial_kitty_limits)?;
+        }
         spawn_frame_producer(&surface, frame_rx)?;
         Ok(surface)
     }
@@ -2499,6 +2537,22 @@ impl Surface {
     ) -> anyhow::Result<Arc<Surface>> {
         let cell_pixels =
             mux.upgrade().map(|mux| mux.cell_pixel_creation_size()).unwrap_or((8, 16));
+        Self::spawn_for_test_at_cell_pixels(id, opts, mux, cell_pixels)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn spawn_for_test_at_cell_pixels(
+        id: SurfaceId,
+        opts: SurfaceOptions,
+        mux: Weak<Mux>,
+        cell_pixels: (u16, u16),
+    ) -> anyhow::Result<Arc<Surface>> {
+        let kitty_reservation =
+            mux.upgrade().map(|mux| mux.reserve_kitty_image_surface(id)).transpose()?;
+        let initial_kitty_limits = kitty_reservation
+            .as_ref()
+            .map(crate::mux::KittyImageBudgetReservation::initial_limits)
+            .unwrap_or_default();
         let initial_geometry = PtyGeometry {
             cols: opts.cols,
             rows: opts.rows,
@@ -2520,6 +2574,7 @@ impl Surface {
 
         let mut term = Terminal::new(opts.cols, opts.rows, opts.scrollback, callbacks)?;
         term.resize(opts.cols, opts.rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1))?;
+        term.set_kitty_graphics_limits(initial_kitty_limits)?;
         if let Some(mux) = mux.upgrade() {
             let colors = mux.default_colors();
             term.replace_default_colors(colors.fg, colors.bg, colors.cursor);
@@ -2558,7 +2613,7 @@ impl Surface {
             title: Mutex::new(String::new()),
             pwd: Mutex::new(None),
             geometry: Mutex::new(initial_geometry),
-            kitty_graphics_limits: Box::new(Mutex::new(KittyGraphicsLimits::default())),
+            kitty_graphics_limits: Box::new(Mutex::new(initial_kitty_limits)),
             geometry_test_hook: Mutex::new(None),
             test_master_control: Some(test_master_control),
             vt_replay_builds: AtomicUsize::new(0),
@@ -2577,15 +2632,10 @@ impl Surface {
             render_generation: AtomicU64::new(1),
             frame_requests,
         }));
-        surface.register_kitty_image_budget()?;
+        if let Some(reservation) = kitty_reservation {
+            reservation.commit(&surface, initial_kitty_limits)?;
+        }
         Ok(surface)
-    }
-
-    fn register_kitty_image_budget(self: &Arc<Self>) -> anyhow::Result<()> {
-        let Some(mux) = self.as_pty().and_then(|pty| pty.mux.upgrade()) else {
-            return Ok(());
-        };
-        mux.register_kitty_image_surface(self)
     }
 
     fn as_pty(&self) -> Option<&PtySurface> {
@@ -2696,6 +2746,7 @@ impl Surface {
         terminal.set_kitty_graphics_limits(limits).map_err(Into::into)
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn set_kitty_graphics_limits(
         &self,
         bytes: u64,
@@ -2703,11 +2754,22 @@ impl Surface {
         images: u64,
         placements: u64,
     ) -> anyhow::Result<()> {
+        let requested =
+            KittyGraphicsLimits { image_bytes: bytes, inflight_bytes, images, placements };
+        self.set_kitty_graphics_limits_until(
+            requested,
+            Instant::now() + crate::terminal_host_runtime::CONTROL_RESPONSE_TIMEOUT,
+        )
+    }
+
+    pub(crate) fn set_kitty_graphics_limits_until(
+        &self,
+        requested: KittyGraphicsLimits,
+        deadline: Instant,
+    ) -> anyhow::Result<()> {
         let Some(pty) = self.as_pty() else {
             return Ok(());
         };
-        let requested =
-            KittyGraphicsLimits { image_bytes: bytes, inflight_bytes, images, placements };
         let requested = requested
             .validate()
             .map_err(|_| anyhow::anyhow!("Kitty graphics limits are out of range"))?;
@@ -2718,7 +2780,7 @@ impl Surface {
                 if *pty.kitty_graphics_limits.lock().unwrap() == requested {
                     return Ok(());
                 }
-                if host.send_kitty_graphics_limits(requested)? {
+                if host.send_kitty_graphics_limits_until(requested, deadline)? {
                     // The host publishes a complete replacement before its
                     // acknowledgement. The reader has therefore committed the
                     // authoritative parser and cache before this returns.

@@ -451,6 +451,7 @@ mod unix {
         command: Vec<String>,
         extra_env: Vec<(String, String)>,
         default_colors: DefaultColors,
+        kitty_graphics_limits: KittyGraphicsLimits,
     }
 
     impl HostLaunch {
@@ -488,6 +489,7 @@ mod unix {
             encode_default_colors(&mut output, self.default_colors);
             output.extend_from_slice(&cell_pixels.0.to_le_bytes());
             output.extend_from_slice(&cell_pixels.1.to_le_bytes());
+            encode_kitty_graphics_limits(&mut output, self.kitty_graphics_limits)?;
             if output.len() > MAX_LAUNCH_PAYLOAD {
                 anyhow::bail!("terminal-host launch payload is too large");
             }
@@ -521,6 +523,7 @@ mod unix {
             let default_colors = decode_default_colors(&mut decoder)?;
             let cell_pixels = (decoder.u16()?.max(1), decoder.u16()?.max(1));
             pty_size(cols, rows, cell_pixels)?;
+            let kitty_graphics_limits = decode_kitty_graphics_limits(&mut decoder)?;
             decoder.finish()?;
             Ok(Self {
                 endpoint,
@@ -534,6 +537,7 @@ mod unix {
                 command,
                 extra_env,
                 default_colors,
+                kitty_graphics_limits,
             })
         }
     }
@@ -1002,6 +1006,14 @@ mod unix {
             &self,
             limits: KittyGraphicsLimits,
         ) -> anyhow::Result<bool> {
+            self.send_kitty_graphics_limits_until(limits, Instant::now() + CONTROL_RESPONSE_TIMEOUT)
+        }
+
+        pub fn send_kitty_graphics_limits_until(
+            &self,
+            limits: KittyGraphicsLimits,
+            deadline: Instant,
+        ) -> anyhow::Result<bool> {
             if self.protocol_version < 3 {
                 return Ok(false);
             }
@@ -1011,10 +1023,11 @@ mod unix {
             let mut payload = Vec::with_capacity(KITTY_GRAPHICS_LIMITS_ENCODED_LEN);
             encode_kitty_graphics_limits(&mut payload, limits)?;
             let response = self
-                .send_control_request(
+                .send_control_request_until(
                     MessageKind::SetKittyGraphicsLimits,
                     MessageKind::KittyGraphicsLimitsAck,
                     payload,
+                    deadline,
                 )
                 .map_err(ClearHistoryFailure::into_error)
                 .context("terminal host did not acknowledge Kitty graphics limits")?;
@@ -1111,6 +1124,21 @@ mod unix {
             response_kind: MessageKind,
             payload: Vec<u8>,
         ) -> Result<Vec<u8>, ClearHistoryFailure> {
+            self.send_control_request_until(
+                request_kind,
+                response_kind,
+                payload,
+                Instant::now() + CONTROL_RESPONSE_TIMEOUT,
+            )
+        }
+
+        fn send_control_request_until(
+            &self,
+            request_kind: MessageKind,
+            response_kind: MessageKind,
+            payload: Vec<u8>,
+            deadline: Instant,
+        ) -> Result<Vec<u8>, ClearHistoryFailure> {
             let request_id = self.next_request.fetch_add(1, Ordering::Relaxed);
             if request_id == 0 {
                 return Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
@@ -1145,7 +1173,13 @@ mod unix {
                 self.control_responses.waiters.lock().unwrap().remove(&request_id);
                 return Err(ClearHistoryFailure::ambiguous(error.into()));
             }
-            match receiver.recv_timeout(CONTROL_RESPONSE_TIMEOUT) {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            let response = if remaining.is_zero() {
+                Err(RecvTimeoutError::Timeout)
+            } else {
+                receiver.recv_timeout(remaining)
+            };
+            match response {
                 Ok(frame) => Ok(frame.payload),
                 Err(error) => {
                     self.control_responses.waiters.lock().unwrap().remove(&request_id);
@@ -1268,9 +1302,17 @@ mod unix {
         root: &Path,
         default_colors: DefaultColors,
         cell_pixels: (u16, u16),
+        kitty_graphics_limits: KittyGraphicsLimits,
     ) -> anyhow::Result<HostAttachment> {
         let terminal_id = TerminalId::random()?;
-        launch_terminal_host_with_identity(options, root, default_colors, cell_pixels, terminal_id)
+        launch_terminal_host_with_identity(
+            options,
+            root,
+            default_colors,
+            cell_pixels,
+            kitty_graphics_limits,
+            terminal_id,
+        )
     }
 
     /// Launch using a registry-reserved stable UUID. The workspace registry
@@ -1281,6 +1323,7 @@ mod unix {
         root: &Path,
         default_colors: DefaultColors,
         cell_pixels: (u16, u16),
+        kitty_graphics_limits: KittyGraphicsLimits,
         terminal_id: TerminalId,
     ) -> anyhow::Result<HostAttachment> {
         prepare_private_dir(root)?;
@@ -1317,6 +1360,7 @@ mod unix {
             command,
             extra_env: options.extra_env.clone(),
             default_colors,
+            kitty_graphics_limits,
         };
 
         let binary = std::env::current_exe().context("resolve cmux-tui terminal-host binary")?;
@@ -2881,6 +2925,7 @@ mod unix {
         };
         let mut term = Terminal::new(launch.cols, launch.rows, launch.scrollback, callbacks)?;
         term.resize(launch.cols, launch.rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1))?;
+        term.set_kitty_graphics_limits(launch.kitty_graphics_limits)?;
         term.replace_default_colors(
             launch.default_colors.fg,
             launch.default_colors.bg,
@@ -4048,11 +4093,18 @@ mod unix {
                 command: vec!["/bin/cat".into()],
                 extra_env: vec![("KEY".into(), "value".into())],
                 default_colors,
+                kitty_graphics_limits: KittyGraphicsLimits {
+                    image_bytes: 1_000,
+                    inflight_bytes: 500,
+                    images: 10,
+                    placements: 20,
+                },
             };
 
             let decoded = HostLaunch::decode(&launch.encode().unwrap()).unwrap();
             assert_eq!(decoded.default_colors, default_colors);
             assert_eq!(decoded.cell_pixels, (9, 18));
+            assert_eq!(decoded.kitty_graphics_limits, launch.kitty_graphics_limits);
             assert_eq!(decoded.command, launch.command);
             assert_eq!(decoded.extra_env, launch.extra_env);
             assert_eq!(
