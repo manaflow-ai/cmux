@@ -947,6 +947,27 @@ export class CmuxClient {
         `${event.event} graphics exceeds ${RENDER_GRAPHIC_MAX_PLACEMENTS} placements`,
       );
     }
+    const removedImageIds =
+      (graphics as { removed_image_ids?: unknown }).removed_image_ids;
+    if (removedImageIds !== undefined) {
+      if (!Array.isArray(removedImageIds)) {
+        throw new CmuxProtocolError(
+          `${event.event} graphics removed_image_ids is not an array`,
+        );
+      }
+      if (removedImageIds.length > RENDER_GRAPHIC_MAX_IMAGES) {
+        throw new CmuxProtocolError(
+          `${event.event} graphics exceeds ${RENDER_GRAPHIC_MAX_IMAGES} removed image IDs`,
+        );
+      }
+      if (removedImageIds.some((id) =>
+        !Number.isSafeInteger(id) || id <= 0 || id > 0xffff_ffff
+      )) {
+        throw new CmuxProtocolError(
+          `${event.event} graphics removed_image_ids contains an invalid image ID`,
+        );
+      }
+    }
     const images = (graphics as { images?: unknown }).images;
     if (images === undefined) return event as RenderAttachEvent;
     if (!Array.isArray(images)) {

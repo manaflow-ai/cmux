@@ -785,6 +785,7 @@ pub enum TerminalHostConnectionState {
     Connected = 0,
     Reconnecting = 1,
     Exited = 2,
+    Failed = 3,
 }
 
 impl TerminalHostConnectionState {
@@ -792,8 +793,45 @@ impl TerminalHostConnectionState {
         match value {
             1 => Self::Reconnecting,
             2 => Self::Exited,
+            3 => Self::Failed,
             _ => Self::Connected,
         }
+    }
+}
+
+#[cfg(unix)]
+const TERMINAL_HOST_RECONNECT_MAX_FAILURES: u8 = 16;
+#[cfg(unix)]
+const TERMINAL_HOST_RECONNECT_MAX_DELAY: Duration = Duration::from_secs(1);
+
+#[cfg(unix)]
+#[derive(Default)]
+struct TerminalHostReconnectBackoff {
+    failures: u8,
+}
+
+#[cfg(unix)]
+impl TerminalHostReconnectBackoff {
+    fn next_delay(&mut self) -> Option<Duration> {
+        if self.failures >= TERMINAL_HOST_RECONNECT_MAX_FAILURES {
+            return None;
+        }
+        let multiplier = 1_u32 << self.failures.min(6);
+        self.failures += 1;
+        Some((Duration::from_millis(25) * multiplier).min(TERMINAL_HOST_RECONNECT_MAX_DELAY))
+    }
+
+    fn wait_or_fail(&mut self, pty: &PtySurface) -> bool {
+        let Some(delay) = self.next_delay() else {
+            pty.host_connection_state
+                .store(TerminalHostConnectionState::Failed as u8, Ordering::Release);
+            if let PtyRuntime::Hosted(host) = &*pty.runtime.lock().unwrap() {
+                host.disconnect();
+            }
+            return false;
+        };
+        std::thread::sleep(delay);
+        true
     }
 }
 
@@ -1690,7 +1728,7 @@ impl Surface {
                         return;
                     }
 
-                    let mut retry_delay = Duration::from_millis(25);
+                    let mut retry = TerminalHostReconnectBackoff::default();
                     loop {
                         if pty.owner_detaching.load(Ordering::Acquire) {
                             return;
@@ -1732,8 +1770,9 @@ impl Surface {
                         ) {
                             Ok(replacement) if replacement.identity() == identity => replacement,
                             Ok(_) | Err(_) => {
-                                std::thread::sleep(retry_delay);
-                                retry_delay = (retry_delay * 2).min(Duration::from_secs(1));
+                                if !retry.wait_or_fail(pty) {
+                                    return;
+                                }
                                 continue;
                             }
                         };
@@ -1774,7 +1813,9 @@ impl Surface {
                             }
                         };
                         if !installed {
-                            std::thread::sleep(retry_delay);
+                            if !retry.wait_or_fail(pty) {
+                                return;
+                            }
                             continue;
                         }
                         Self::install_deferred_cell_pixel_handler(
@@ -1788,7 +1829,9 @@ impl Surface {
                             replacement.take_reader().ok()
                         };
                         let Some(replacement_reader) = replacement_reader else {
-                            std::thread::sleep(retry_delay);
+                            if !retry.wait_or_fail(pty) {
+                                return;
+                            }
                             continue;
                         };
 
@@ -1809,7 +1852,9 @@ impl Surface {
                             scrollback,
                             callbacks,
                         ) else {
-                            std::thread::sleep(retry_delay);
+                            if !retry.wait_or_fail(pty) {
+                                return;
+                            }
                             continue;
                         };
                         if replacement_term
@@ -1821,7 +1866,9 @@ impl Surface {
                             )
                             .is_err()
                         {
-                            std::thread::sleep(retry_delay);
+                            if !retry.wait_or_fail(pty) {
+                                return;
+                            }
                             continue;
                         }
                         replacement_term.replace_default_colors(
@@ -1836,7 +1883,9 @@ impl Surface {
                             .restore_kitty_image_aliases(&replacement_snapshot.kitty_image_aliases)
                             .is_err()
                         {
-                            std::thread::sleep(retry_delay);
+                            if !retry.wait_or_fail(pty) {
+                                return;
+                            }
                             continue;
                         }
                         let color_delta =
@@ -4115,10 +4164,31 @@ mod tests {
 
     #[test]
     fn terminal_reconnect_failure_state_never_decodes_as_connected() {
-        assert_ne!(
-            TerminalHostConnectionState::from_u8(3),
-            TerminalHostConnectionState::Connected
+        assert_ne!(TerminalHostConnectionState::from_u8(3), TerminalHostConnectionState::Connected);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn terminal_reconnect_backoff_advances_and_reaches_a_terminal_bound() {
+        let mut backoff = TerminalHostReconnectBackoff::default();
+        let delays = (0..TERMINAL_HOST_RECONNECT_MAX_FAILURES)
+            .map(|_| backoff.next_delay().expect("retry within failure bound"))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            &delays[..7],
+            &[
+                Duration::from_millis(25),
+                Duration::from_millis(50),
+                Duration::from_millis(100),
+                Duration::from_millis(200),
+                Duration::from_millis(400),
+                Duration::from_millis(800),
+                Duration::from_secs(1),
+            ]
         );
+        assert!(delays[7..].iter().all(|delay| *delay == Duration::from_secs(1)));
+        assert_eq!(backoff.next_delay(), None);
     }
 
     #[test]

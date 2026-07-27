@@ -1,6 +1,7 @@
-import { render, waitFor } from "@testing-library/react";
+import { render as renderInTestRoot, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RenderGraphicPlacement } from "cmux/browser";
+import type { ReactElement } from "react";
 import {
   RenderGraphics,
   RenderGraphicsBudgetProvider,
@@ -16,6 +17,20 @@ import type {
   RenderGraphicsDecodeRequest,
   RenderGraphicsDecodeResponse,
 } from "../src/workers/renderGraphicsDecoder";
+
+function render(element: ReactElement) {
+  const result = renderInTestRoot(
+    <RenderGraphicsBudgetProvider>{element}</RenderGraphicsBudgetProvider>,
+  );
+  return {
+    ...result,
+    rerender(nextElement: ReactElement) {
+      result.rerender(
+        <RenderGraphicsBudgetProvider>{nextElement}</RenderGraphicsBudgetProvider>,
+      );
+    },
+  };
+}
 
 function zeroBytesBase64(byteCount: number): string {
   const padding = byteCount % 3 === 1 ? "==" : byteCount % 3 === 2 ? "=" : "";
@@ -376,7 +391,7 @@ describe("RenderGraphics canvas resource policy", () => {
       ),
     };
     const surfaces = (includeFirst: boolean) => (
-      <RenderGraphicsBudgetProvider>
+      <>
         {includeFirst && (
           <section data-testid="first" key="first">
             <RenderGraphics graphics={graphics}>
@@ -389,7 +404,7 @@ describe("RenderGraphics canvas resource policy", () => {
             <div>second terminal</div>
           </RenderGraphics>
         </section>
-      </RenderGraphicsBudgetProvider>
+      </>
     );
     const { container, getByTestId, rerender } = render(surfaces(true));
 
@@ -588,13 +603,13 @@ describe("RenderGraphics canvas resource policy", () => {
     const surfaceCount = Math.floor(RENDER_GRAPHIC_DECODED_BYTE_CAP / decodedBytes) + 1;
 
     render(
-      <RenderGraphicsBudgetProvider>
+      <>
         {Array.from({ length: surfaceCount }, (_, index) => (
           <RenderGraphics graphics={graphics} key={index}>
             <div>terminal {index}</div>
           </RenderGraphics>
         ))}
-      </RenderGraphicsBudgetProvider>,
+      </>,
     );
 
     await waitFor(() => {
@@ -607,19 +622,39 @@ describe("RenderGraphics canvas resource policy", () => {
     let activeWorkers = 0;
     let maxActiveWorkers = 0;
     let startedRequests = 0;
+    const workers: PausedWorker[] = [];
     class PausedWorker {
       onmessage: ((event: MessageEvent<RenderGraphicsDecodeResponse>) => void) | null = null;
       onerror: ((event: ErrorEvent) => void) | null = null;
       onmessageerror: ((event: MessageEvent) => void) | null = null;
+      private request: RenderGraphicsDecodeRequest | null = null;
       private terminated = false;
 
       constructor() {
         activeWorkers += 1;
         maxActiveWorkers = Math.max(maxActiveWorkers, activeWorkers);
+        workers.push(this);
       }
 
-      postMessage(): void {
+      postMessage(request: RenderGraphicsDecodeRequest): void {
+        this.request = request;
         startedRequests += 1;
+      }
+
+      complete(): void {
+        const request = this.request;
+        if (request === null) throw new Error("worker has no pending request");
+        this.request = null;
+        this.onmessage?.(new MessageEvent("message", {
+          data: {
+            requestId: request.requestId,
+            results: request.images.map((image) => ({
+              id: image.id,
+              generation: image.generation,
+              pixels: null,
+            })),
+          },
+        }));
       }
 
       terminate(): void {
@@ -643,17 +678,21 @@ describe("RenderGraphics canvas resource policy", () => {
     };
 
     render(
-      <RenderGraphicsBudgetProvider>
+      <>
         {Array.from({ length: 8 }, (_, index) => (
           <RenderGraphics graphics={graphics} key={index}>
             <div>terminal {index}</div>
           </RenderGraphics>
         ))}
-      </RenderGraphicsBudgetProvider>,
+      </>,
     );
 
     await waitFor(() => expect(startedRequests).toBeGreaterThan(0));
     expect(maxActiveWorkers).toBeLessThanOrEqual(2);
+    expect(workers).toHaveLength(2);
+    workers[0]!.complete();
+    await waitFor(() => expect(startedRequests).toBeGreaterThan(2));
+    expect(workers).toHaveLength(2);
   });
 
   it("cancels a superseded decode before publishing stale pixels", async () => {

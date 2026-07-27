@@ -1,9 +1,17 @@
-import { fireEvent, render, waitFor } from "@testing-library/react";
+import { fireEvent, render as renderInTestRoot, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CmuxClient } from "cmux/browser";
+import type { ReactElement } from "react";
+import { RenderGraphicsBudgetProvider } from "../src/components/RenderGraphics";
 import type { RenderModel } from "../src/lib/renderModel";
 import { renderAttrs } from "../src/lib/renderStyles";
 import { RenderTerminal } from "../src/components/RenderTerminal";
+
+function render(element: ReactElement) {
+  return renderInTestRoot(
+    <RenderGraphicsBudgetProvider>{element}</RenderGraphicsBudgetProvider>,
+  );
+}
 
 const renderHook = vi.hoisted(() => ({
   focused: true,

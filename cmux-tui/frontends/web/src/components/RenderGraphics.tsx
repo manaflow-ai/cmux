@@ -2,6 +2,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -24,6 +25,7 @@ import {
   type RenderGraphicPlacementPlan,
   type ResolvedRenderGraphicPlacement,
 } from "../lib/renderGraphics";
+import { RenderGraphicsDecodeScheduler } from "../lib/renderGraphicsDecodeScheduler";
 
 interface RenderGraphicsProps {
   backgroundChildren?: ReactNode;
@@ -378,21 +380,39 @@ class GraphicsBudgetRegistry {
   }
 }
 
-const GraphicsBudgetContext = createContext<GraphicsBudgetRegistry | null>(null);
+interface RenderGraphicsResources {
+  budget: GraphicsBudgetRegistry;
+  decoder: RenderGraphicsDecodeScheduler;
+}
+
+const GraphicsResourcesContext = createContext<RenderGraphicsResources | null>(null);
+
+function useDecoderLifetime(decoder: RenderGraphicsDecodeScheduler): void {
+  useEffect(() => {
+    decoder.retain();
+    return () => decoder.scheduleDispose();
+  }, [decoder]);
+}
 
 export function RenderGraphicsBudgetProvider({ children }: { children: ReactNode }) {
-  const [registry] = useState(() => new GraphicsBudgetRegistry());
+  const [resources] = useState<RenderGraphicsResources>(() => ({
+    budget: new GraphicsBudgetRegistry(),
+    decoder: new RenderGraphicsDecodeScheduler(),
+  }));
+  useDecoderLifetime(resources.decoder);
   return (
-    <GraphicsBudgetContext.Provider value={registry}>
+    <GraphicsResourcesContext.Provider value={resources}>
       {children}
-    </GraphicsBudgetContext.Provider>
+    </GraphicsResourcesContext.Provider>
   );
 }
 
-function useGraphicsBudget(): GraphicsBudgetRegistry {
-  const shared = useContext(GraphicsBudgetContext);
-  const [local] = useState(() => new GraphicsBudgetRegistry());
-  return shared ?? local;
+function useGraphicsResources(): RenderGraphicsResources {
+  const resources = useContext(GraphicsResourcesContext);
+  if (resources === null) {
+    throw new Error("RenderGraphics requires RenderGraphicsBudgetProvider");
+  }
+  return resources;
 }
 
 function RenderGraphicCanvas({ decoded, placement }: RenderGraphicCanvasProps) {
@@ -441,7 +461,7 @@ export function RenderGraphics({
   graphics,
   plainChildren,
 }: RenderGraphicsProps) {
-  const graphicsBudget = useGraphicsBudget();
+  const { budget: graphicsBudget, decoder } = useGraphicsResources();
   const owner = useRef(Symbol("render-graphics")).current;
   const images = graphics?.images ?? EMPTY_IMAGES;
   const imageMetadata = useMemo(() => {
@@ -477,7 +497,7 @@ export function RenderGraphics({
     () => images.filter((image) => selected.images.has(renderGraphicImageKey(image))),
     [budgetRevision, images, selected],
   );
-  const decodedImages = useDecodedRenderGraphicImages(admittedImages);
+  const decodedImages = useDecodedRenderGraphicImages(decoder, owner, admittedImages);
   const placements = useMemo(() => {
     const rendered = [...selected.placements]
       .flatMap((candidate): RenderedPlacement[] => {
