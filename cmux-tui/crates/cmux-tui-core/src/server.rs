@@ -6550,6 +6550,43 @@ mod tests {
     }
 
     #[test]
+    fn guarded_browser_pointer_input_overtakes_an_unrelated_clear_barrier() {
+        for cmd in [
+            Command::BrowserMouseGuarded {
+                surface: 2,
+                kind: "move".to_string(),
+                x_px: 1.0,
+                y_px: 1.0,
+                button: None,
+                click_count: None,
+                frame_seq: 7,
+            },
+            Command::BrowserWheelGuarded {
+                surface: 2,
+                x_px: 1.0,
+                y_px: 1.0,
+                delta_y_px: 1.0,
+                frame_seq: 7,
+            },
+        ] {
+            let admission = Arc::new(ServerSurfaceOperationAdmission::default());
+            let mut state = ConnectionSurfaceState::default();
+            state.active_clear_surfaces.insert(1);
+            state.requests.push_back(PendingSurfaceRequest {
+                request: Request { id: Some(json!(1)), cmd },
+                retained_bytes: 0,
+                _bytes_permit: admission.try_reserve_bytes(0).unwrap(),
+            });
+
+            assert_eq!(
+                ConnectionSurfaceScheduler::next_runnable_index(&state),
+                Some(0),
+                "guarded browser pointer input waited behind an unrelated clear-history worker"
+            );
+        }
+    }
+
+    #[test]
     fn queued_same_surface_clears_do_not_reserve_worker_permits() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
