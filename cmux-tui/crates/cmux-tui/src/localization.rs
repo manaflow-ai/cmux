@@ -764,32 +764,57 @@ mod tests {
 
     #[test]
     fn deferred_input_discard_status_is_catalog_backed() {
-        let app_source = include_str!("app.rs");
-        assert!(
-            !app_source
-                .contains("\"Deferred input was discarded because its destination changed\""),
-            "user-visible status text must come from the locale catalog"
+        assert_eq!(
+            catalog_for_locale("en_US.UTF-8").input.deferred_destination_changed,
+            "Deferred input was discarded because its destination changed"
         );
-        assert!(
-            include_str!("localization.rs")
-                .contains("送信先が変更されたため、保留中の入力を破棄しました"),
-            "the deferred-input status must include a Japanese translation"
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").input.deferred_destination_changed,
+            "送信先が変更されたため、保留中の入力を破棄しました"
         );
     }
 
     #[test]
     fn deferred_input_overflow_status_is_catalog_backed() {
-        let app_source = include_str!("app.rs");
-        assert!(
-            !app_source
-                .contains("\"Input queue byte limit reached while a session change is pending\""),
-            "the deferred-input overflow status must come from the locale catalog"
+        assert_eq!(
+            catalog_for_locale("en_US.UTF-8").input.deferred_queue_byte_limit,
+            "Input queue byte limit reached while a session change is pending"
         );
-        assert!(
-            include_str!("localization.rs")
-                .contains("セッションの変更中に入力キューのバイト上限に達しました"),
-            "the deferred-input overflow status must include a Japanese translation"
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").input.deferred_queue_byte_limit,
+            "セッションの変更中に入力キューのバイト上限に達しました"
         );
+    }
+
+    #[test]
+    fn browser_recovery_failures_are_localized_at_the_ui_boundary() {
+        let cases = [
+            (
+                "browser resize recovery failed; reload to retry",
+                "browser failed: browser resize recovery failed; reload to retry",
+                "ブラウザのサイズ変更を復旧できませんでした。再読み込みして再試行してください",
+            ),
+            (
+                "could not verify new page pixels: capture timed out; reload to retry",
+                "browser failed: could not verify new page pixels: capture timed out; reload to retry",
+                "新しいページの表示を確認できませんでした: capture timed out。再読み込みして再試行してください",
+            ),
+            (
+                "could not verify updated page pixels: capture timed out; reload to retry",
+                "browser failed: could not verify updated page pixels: capture timed out; reload to retry",
+                "更新後のページ表示を確認できませんでした: capture timed out。再読み込みして再試行してください",
+            ),
+        ];
+
+        for (error, english, japanese) in cases {
+            let status = cmux_tui_core::BrowserStatus::Failed(error.to_string());
+            let failure = status.failure().expect("failed status");
+            assert_eq!(catalog_for_locale("en_US.UTF-8").browser.failure_message(failure), english);
+            assert_eq!(
+                catalog_for_locale("ja_JP.UTF-8").browser.failure_message(failure),
+                japanese
+            );
+        }
     }
 
     #[test]

@@ -874,21 +874,6 @@ mod tests {
     }
 
     #[test]
-    fn kitty_query_acknowledges_processing_not_presentation() {
-        let production = |source: &'static str| {
-            source.split("\n#[cfg(test)]\nmod tests {").next().expect("production graphics source")
-        };
-        let graphics_source = production(include_str!("graphics.rs"));
-        let writer_source = production(include_str!("graphics_writer.rs"));
-        assert!(
-            !graphics_source.contains("presentation_fence")
-                && !writer_source.contains("GraphicsPresentation")
-                && !writer_source.contains("Presented("),
-            "a Kitty query reply proves command processing, not compositor presentation"
-        );
-    }
-
-    #[test]
     fn snapshot_slot_is_latest_wins_and_shutdown_is_clean() {
         let (tx, rx) = sync_channel(1);
         let slot = Arc::new(Mutex::new(None));

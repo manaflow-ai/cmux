@@ -1975,6 +1975,42 @@ pub(super) fn test_session_without_provider_authority() -> Arc<RemoteSession> {
 }
 
 #[cfg(test)]
+pub(super) fn test_session_with_live_browser(
+    surface_id: SurfaceId,
+    frame_seq: u64,
+) -> Arc<RemoteSession> {
+    let session = test_session_with_provider_context(None, HashSet::new());
+    let frame = BrowserFrame {
+        session_id: "test-browser-session".to_string(),
+        data_b64: "AAAA".to_string(),
+        css_width: 80,
+        css_height: 48,
+        seq: frame_seq,
+    };
+    let surface = Arc::new(RemoteSurface {
+        id: surface_id,
+        kind: SurfaceKind::Browser,
+        term: Mutex::new(Terminal::new(10, 5, 100, Callbacks::default()).unwrap()),
+        mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
+        dirty: AtomicBool::new(false),
+        content_generation: AtomicU64::new(1),
+        reported_size: Mutex::new(None),
+        browser: Mutex::new(RemoteBrowserState {
+            url: Some("https://example.test".to_string()),
+            title: Some("example".to_string()),
+            status: BrowserStatus::Live,
+            live_since: Some(Instant::now()),
+            last_frame_at: Some(Instant::now()),
+            frame: Some(RemoteBrowserFrame { frame }),
+            pointer_frame_seq: Some(frame_seq),
+            ..RemoteBrowserState::default()
+        }),
+    });
+    session.surfaces.lock().unwrap().insert(surface_id, surface);
+    session
+}
+
+#[cfg(test)]
 pub(super) fn test_session_with_provider_authority_without_guard() -> Arc<RemoteSession> {
     test_session_with_provider_context(
         Some(BearerToken::new("test-provider-workspace-authority").unwrap()),

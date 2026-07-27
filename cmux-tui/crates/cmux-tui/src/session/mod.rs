@@ -1662,6 +1662,14 @@ pub(crate) fn test_remote_session_without_provider_authority() -> Session {
 }
 
 #[cfg(test)]
+pub(crate) fn test_remote_session_with_live_browser(
+    surface_id: SurfaceId,
+    frame_seq: u64,
+) -> Session {
+    Session::Remote(remote::test_session_with_live_browser(surface_id, frame_seq))
+}
+
+#[cfg(test)]
 pub(crate) fn test_remote_session_with_provider_authority_without_guard() -> Session {
     Session::Remote(remote::test_session_with_provider_authority_without_guard())
 }

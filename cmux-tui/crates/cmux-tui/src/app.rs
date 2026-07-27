@@ -15830,13 +15830,44 @@ mod tests {
 
     #[test]
     fn browser_hover_deduplication_is_scoped_to_pointer_authority() {
-        let production = include_str!("app.rs")
-            .split("\n#[cfg(test)]\nmod tests {")
-            .next()
-            .expect("production app source");
+        let surface_id = 7;
+        let mut app =
+            test_app(crate::session::test_remote_session_with_live_browser(surface_id, 41));
+        app.replace_tree(browser_completion_tree(surface_id, surface_id));
+        let area = browser_completion_area(surface_id);
+        app.pane_areas = vec![area];
+        app.rendered_pointer_frame.pane_content_generations =
+            Arc::new(HashMap::from([(surface_id, PaneContentGeneration::Browser(41))]));
+        let (dispatcher, blocked) = BrowserInputDispatcher::blocked(4);
+        app.browser_input = dispatcher;
+        let motion = MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: area.content.x + 2,
+            row: area.content.y + 1,
+            modifiers: KeyModifiers::NONE,
+        };
 
+        app.handle_mouse(motion).unwrap();
+        let first = blocked.recv_timeout(Duration::from_secs(1)).expect("initial browser hover");
+        app.handle_mouse(motion).unwrap();
+        let duplicate = blocked.recv_timeout(Duration::from_millis(20));
+        app.rendered_pointer_frame.pane_content_generations =
+            Arc::new(HashMap::from([(surface_id, PaneContentGeneration::Browser(42))]));
+        app.handle_mouse(motion).unwrap();
+        let rotated =
+            blocked.recv_timeout(Duration::from_secs(1)).expect("rotated-authority hover");
+
+        let frame_seq = |event: BrowserInputEvent| match event.kind {
+            BrowserInputKind::Mouse { frame_seq, .. } => frame_seq,
+            _ => panic!("expected browser mouse input"),
+        };
+        assert_eq!(frame_seq(first), 41);
         assert!(
-            production.contains("let next = (area.surface, cell.0, cell.1, frame_seq);"),
+            duplicate.is_none(),
+            "same-cell hover must be deduplicated within one pointer authority"
+        );
+        assert!(
+            frame_seq(rotated) == 42,
             "same-cell hover must be forwarded again when pointer authority changes"
         );
     }

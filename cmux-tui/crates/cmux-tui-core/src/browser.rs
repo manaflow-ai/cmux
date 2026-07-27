@@ -3906,6 +3906,55 @@ mod tests {
         (runtime, server)
     }
 
+    fn runtime_recording_mouse_dispatches()
+    -> (Arc<super::BrowserRuntime>, thread::JoinHandle<()>, mpsc::Receiver<Value>, mpsc::Sender<()>)
+    {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (events_tx, events_rx) = mpsc::channel();
+        let (stop_tx, stop_rx) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            stream.set_read_timeout(Some(Duration::from_millis(50))).unwrap();
+            let mut ws = accept(stream).unwrap();
+            let discover = read_ws_json(&mut ws);
+            assert_eq!(discover["method"], "Target.setDiscoverTargets");
+            write_ws_json(&mut ws, json!({"id": discover["id"], "result": {}}));
+
+            loop {
+                if stop_rx.try_recv().is_ok() {
+                    break;
+                }
+                let request = match ws.read() {
+                    Ok(Message::Text(text)) => serde_json::from_str::<Value>(&text).ok(),
+                    Ok(Message::Binary(bytes)) => serde_json::from_slice::<Value>(&bytes).ok(),
+                    Ok(_) => None,
+                    Err(tungstenite::Error::Io(error))
+                        if matches!(
+                            error.kind(),
+                            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                        ) =>
+                    {
+                        continue;
+                    }
+                    Err(_) => break,
+                };
+                let Some(request) = request else { continue };
+                if request["method"] == "Input.dispatchMouseEvent" {
+                    events_tx.send(request.clone()).unwrap();
+                }
+                write_ws_json(&mut ws, json!({"id": request["id"], "result": {}}));
+            }
+        });
+        let runtime = super::BrowserRuntime::connect_to_endpoint(
+            &format!("ws://{addr}/devtools/browser/fake"),
+            None,
+            BrowserSource::External,
+        )
+        .unwrap();
+        (runtime, server, events_rx, stop_tx)
+    }
+
     fn serve_json_version_until_stopped(
         listener: TcpListener,
         ready_tx: mpsc::Sender<()>,
@@ -5649,15 +5698,6 @@ mod tests {
 
     #[test]
     fn legacy_pointer_capture_has_a_bounded_worker_lease() {
-        let source = include_str!("browser.rs");
-        let production =
-            source.split("\n#[cfg(test)]\nmod tests {").next().expect("production browser source");
-        assert!(
-            production.contains("LEGACY_POINTER_PRESS_LEASE")
-                && production.contains("release_abandoned_pointer_presses"),
-            "owner-zero compatibility captures need periodic expiry and a balancing release"
-        );
-
         let (runtime, server) = runtime_accepting_mouse_dispatches(vec!["mouseReleased"]);
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
@@ -5718,14 +5758,27 @@ mod tests {
 
     #[test]
     fn idle_browser_worker_has_no_fixed_pointer_cleanup_poll() {
-        let source = include_str!("browser.rs");
-        let production =
-            source.split("\n#[cfg(test)]\nmod tests {").next().expect("production browser source");
-
+        let mut failures = super::BrowserWorkerErrorState::default();
         assert!(
-            !production.contains("BROWSER_WORKER_IDLE_TICK")
-                && production.contains("next_pointer_lifecycle_deadline"),
-            "an idle browser worker must block until a command or an actual pointer deadline"
+            super::next_pointer_lifecycle_deadline(&failures).is_none(),
+            "an idle browser worker must have no synthetic polling deadline"
+        );
+
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let mut press = super::ActivePointerPress::new(
+            super::BrowserPointerOwner::Legacy,
+            1,
+            1.0,
+            1.0,
+            Some(1),
+        );
+        press.compatibility_expires_at = Some(deadline);
+        failures.active_pointer_presses.insert("left".to_string(), press);
+
+        assert_eq!(
+            super::next_pointer_lifecycle_deadline(&failures),
+            Some(deadline),
+            "a compatibility capture must schedule only its real expiry"
         );
     }
 
@@ -6591,6 +6644,86 @@ mod tests {
         assert!(
             browser.scale_captured_input_point(capture_generation, 1.0, 1.0).is_some(),
             "a geometry barrier must preserve an accepted press's balancing release"
+        );
+    }
+
+    #[test]
+    fn geometry_change_suppresses_captured_motion_and_releases_at_last_authoritative_point() {
+        let (runtime, server, events, stop) = runtime_recording_mouse_dispatches();
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        *browser.session.lock().unwrap() = Some(BrowserSession {
+            runtime: runtime.clone(),
+            target_id: "target-1".to_string(),
+            session_id: "session-1".to_string(),
+        });
+        browser.store_frame(test_frame(1));
+        let mut active_pointer_presses = std::collections::HashMap::new();
+
+        browser
+            .mouse_event_blocking(
+                super::BrowserMouseDispatch {
+                    input_owner: super::BrowserPointerOwner::Local,
+                    event_type: "mousePressed",
+                    x: 8.0,
+                    y: 16.0,
+                    button: Some("left"),
+                    click_count: Some(1),
+                    frame_seq: Some(1),
+                },
+                &mut active_pointer_presses,
+            )
+            .unwrap();
+        let press = events.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let queued = browser.reserve_reconfigure(20, 10).expect("changed geometry");
+        browser.begin_reconfigure_frame_transition();
+        browser.confirm_reconfigure(queued, browser.frame_epoch.advance());
+        browser
+            .mouse_event_blocking(
+                super::BrowserMouseDispatch {
+                    input_owner: super::BrowserPointerOwner::Local,
+                    event_type: "mouseMoved",
+                    x: 80.0,
+                    y: 80.0,
+                    button: Some("left"),
+                    click_count: None,
+                    frame_seq: Some(1),
+                },
+                &mut active_pointer_presses,
+            )
+            .unwrap();
+        let motion = events.recv_timeout(Duration::from_millis(100)).ok();
+
+        browser
+            .mouse_event_blocking(
+                super::BrowserMouseDispatch {
+                    input_owner: super::BrowserPointerOwner::Local,
+                    event_type: "mouseReleased",
+                    x: 80.0,
+                    y: 80.0,
+                    button: Some("left"),
+                    click_count: Some(1),
+                    frame_seq: Some(1),
+                },
+                &mut active_pointer_presses,
+            )
+            .unwrap();
+        let release = events.recv_timeout(Duration::from_secs(1)).unwrap();
+        stop.send(()).unwrap();
+        runtime.shutdown();
+        server.join().unwrap();
+
+        assert!(
+            motion.is_none(),
+            "motion captured under the old geometry must not cross a resize barrier"
+        );
+        assert_eq!(release["params"]["type"], "mouseReleased");
+        assert_eq!(release["params"]["x"], press["params"]["x"]);
+        assert_eq!(release["params"]["y"], press["params"]["y"]);
+        assert!(
+            active_pointer_presses.is_empty(),
+            "the balancing release must settle the retained press"
         );
     }
 

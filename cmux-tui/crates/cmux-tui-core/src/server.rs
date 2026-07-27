@@ -5010,19 +5010,42 @@ mod tests {
 
     #[test]
     fn browser_attach_stream_publishes_frame_before_positive_state_authority() {
-        let source = include_str!("server.rs");
-        let (_, worker) = source
-            .split_once("let update = std::mem::take(&mut *frames.slot.lock().unwrap());")
-            .expect("browser attach worker");
-        let (worker, _) =
-            worker.split_once("report_attach_overflow").expect("browser attach worker end");
-        let frame = worker.find("if let Some(frame) = update.frame").expect("frame send");
-        let state = worker.find("if let Some(state) = update.state").expect("state send");
+        let outbound = Arc::new(BoundedOutbound::default());
+        let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+        let stream = writer.start_stream(&json!({"event": "overflow"})).unwrap();
+        let frame = crate::BrowserFrame {
+            session_id: "session-test".to_string(),
+            data_b64: "AAAA".to_string(),
+            css_width: 80,
+            css_height: 48,
+            seq: 7,
+        };
+        let update = crate::browser::BrowserAttachUpdate {
+            frame: Some(BrowserFrameUpdate {
+                frame: frame.clone(),
+                status: crate::BrowserStatus::Live,
+                pointer_frame_seq: Some(7),
+            }),
+            state: Some(crate::BrowserAttachState {
+                url: "https://example.test".to_string(),
+                title: "example".to_string(),
+                cols: 10,
+                rows: 5,
+                status: crate::BrowserStatus::Live,
+                frame: Some(frame),
+                pointer_frame_seq: Some(7),
+                frames_stalled: false,
+            }),
+        };
 
-        assert!(
-            frame < state,
-            "the frame carrying new pointer authority must arrive before state can expose it"
-        );
+        send_browser_attach_update(&writer, 1, update, &stream).unwrap();
+        let first: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        let second: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+
+        assert_eq!(first["event"], "frame");
+        assert_eq!(first["pointer_frame_seq"], 7);
+        assert_eq!(second["event"], "browser-state");
+        assert_eq!(second["pointer_frame_seq"], 7);
     }
 
     #[test]
@@ -5566,14 +5589,6 @@ mod tests {
             mux.control_clients.browser_pointer_owner(legacy).unwrap(),
             BrowserPointerOwner::Legacy,
             "a connection cannot change pointer identity after its first pointer command"
-        );
-
-        let source = include_str!("server.rs");
-        let production =
-            source.split("\n#[cfg(test)]\nmod tests {").next().expect("production server source");
-        assert!(
-            production.contains("browser_pointer_owner"),
-            "pointer ownership must remain stable when connection metadata changes"
         );
     }
 
@@ -6501,23 +6516,6 @@ mod tests {
 
         assert_eq!(mux.client_surface_size(surface.id, client), None);
         assert!(!mux.control_clients.contains(client));
-    }
-
-    #[test]
-    fn disconnect_explicitly_wakes_browser_pointer_cleanup() {
-        let source = include_str!("server.rs");
-        let production =
-            source.split("\n#[cfg(test)]\nmod tests {").next().expect("production server source");
-        let disconnect = production
-            .split("fn disconnect_client(")
-            .nth(1)
-            .and_then(|source| source.split("\npub fn detach_control_client").next())
-            .expect("disconnect_client body");
-
-        assert!(
-            disconnect.contains("wake_browser_pointer_cleanup"),
-            "client teardown must wake browser workers that otherwise block without a deadline"
-        );
     }
 
     #[test]
