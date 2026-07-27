@@ -60,7 +60,14 @@ public struct TerminalKeyInputPlanner: Sendable {
         }
 
         if snapshot.textInputCommandPerformed {
-            return [.sendKey(text: nil, composing: false)]
+            return [
+                .sendKey(
+                    text: forwardableCommandText(
+                        snapshot.event.translatedText
+                    ),
+                    composing: false
+                ),
+            ]
         }
 
         if snapshot.textInputConsumed {
@@ -83,5 +90,18 @@ public struct TerminalKeyInputPlanner: Sendable {
             return false
         }
         return scalar.value < 0x20
+    }
+
+    /// AppKit can delegate a physical key through `doCommand` even when the
+    /// layout resolver recovered printable text for it. Preserve that opaque
+    /// text while keeping native control keys textless for Ghostty's encoder.
+    private func forwardableCommandText(_ text: String?) -> String? {
+        guard let text, !text.isEmpty else { return nil }
+        let scalars = text.unicodeScalars
+        guard let scalar = scalars.first,
+              scalars.index(after: scalars.startIndex) == scalars.endIndex else {
+            return text
+        }
+        return scalar.value < 0x20 || scalar.value == 0x7F ? nil : text
     }
 }
