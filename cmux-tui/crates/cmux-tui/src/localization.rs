@@ -128,6 +128,7 @@ pub(crate) struct LayoutMessages {
     pub viewport_width_must_be_number: &'static str,
     pub viewport_width_must_be_finite: &'static str,
     pub viewport_width_out_of_range: &'static str,
+    surface_size_release_failed: &'static str,
     pane_without_resizable_column: &'static str,
     pub remote_viewport_resize_unsupported: &'static str,
     pub remote_layout_undo_unsupported: &'static str,
@@ -151,6 +152,12 @@ pub(crate) struct LayoutMessages {
 }
 
 impl LayoutMessages {
+    pub(crate) fn surface_size_release_failed(&self, surface: u64, error: &str) -> String {
+        self.surface_size_release_failed
+            .replace("{surface}", &surface.to_string())
+            .replace("{error}", error)
+    }
+
     pub(crate) fn pane_without_resizable_column(&self, pane: u64) -> String {
         self.pane_without_resizable_column.replace("{pane}", &pane.to_string())
     }
@@ -546,6 +553,7 @@ edits shell files. Authenticate with the configured host before retrying.
         viewport_width_must_be_number: "--width must be a number",
         viewport_width_must_be_finite: "--width must be a finite number",
         viewport_width_out_of_range: "viewport pane width must be between 0.1 and 1.0",
+        surface_size_release_failed: "surface {surface} size release failed; retrying on the next layout: {error}",
         pane_without_resizable_column: "pane {pane} has no resizable viewport column",
         remote_viewport_resize_unsupported: "remote cmux server does not support viewport pane resizing; upgrade the server",
         remote_layout_undo_unsupported: "remote cmux server does not support layout undo; upgrade the server",
@@ -777,6 +785,7 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
         viewport_width_must_be_number: "--width には数値を指定してください",
         viewport_width_must_be_finite: "--width には有限の数値を指定してください",
         viewport_width_out_of_range: "ビューポートペインの幅は 0.1 から 1.0 の範囲で指定してください",
+        surface_size_release_failed: "サーフェス {surface} のサイズ設定の解放に失敗しました。次回のレイアウト更新時に再試行します: {error}",
         pane_without_resizable_column: "ペイン {pane} にはサイズ変更可能なビューポート列がありません",
         remote_viewport_resize_unsupported: "リモート cmux サーバーはビューポートペインのサイズ変更に対応していません。サーバーをアップグレードしてください",
         remote_layout_undo_unsupported: "リモート cmux サーバーはレイアウトの取り消しに対応していません。サーバーをアップグレードしてください",

@@ -7892,9 +7892,11 @@ impl App {
                             if self.pane_areas.iter().any(|area| area.surface == surface) {
                                 self.visible_size_surfaces.remove(&surface);
                             }
-                            self.status_message = Some(format!(
-                                "surface {surface} size release failed; retrying on the next layout: {error}"
-                            ));
+                            self.status_message = Some(
+                                localization::catalog()
+                                    .layout
+                                    .surface_size_release_failed(surface, &error),
+                            );
                         }
                     }
                     SessionMutationOutcome::SurfaceSizeReleaseCanceled { surface } => {
