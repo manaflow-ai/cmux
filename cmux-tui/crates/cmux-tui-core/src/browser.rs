@@ -2259,8 +2259,20 @@ impl BrowserSurface {
             status: state.status.clone(),
             pointer_frame_seq: self.exported_pointer_frame_seq_locked(state),
         };
+        let attach_state = browser_attach_state_locked(
+            state,
+            Instant::now(),
+            false,
+            false,
+            update.pointer_frame_seq,
+        );
         state.taps.retain(|tap| {
-            tap.slot.lock().unwrap().frame = Some(update.clone());
+            let mut slot = tap.slot.lock().unwrap();
+            slot.frame = Some(update.clone());
+            if slot.state.is_some() {
+                slot.state = Some(attach_state.clone());
+            }
+            drop(slot);
             match tap.notify.try_send(()) {
                 Ok(()) | Err(TrySendError::Full(())) => true,
                 Err(TrySendError::Disconnected(())) => false,
