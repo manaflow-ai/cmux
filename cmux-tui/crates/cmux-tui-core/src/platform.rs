@@ -890,6 +890,114 @@ pub mod transport {
             assert!(flags >= 0 && flags & libc::FD_CLOEXEC != 0);
         }
 
+        #[cfg(target_os = "macos")]
+        #[test]
+        fn deadline_connect_excludes_concurrent_browser_process_creation() {
+            use std::os::unix::fs::PermissionsExt as _;
+            use std::sync::Arc;
+            use std::sync::mpsc;
+
+            let _guard = SOCKET_CREATED_TEST_LOCK.lock().unwrap();
+            let nonce = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let root = std::path::PathBuf::from("/tmp")
+                .join(format!("cmux-cxspawn-{}-{nonce}", std::process::id()));
+            std::fs::create_dir(&root).unwrap();
+            let socket_path = root.join("server.sock");
+            let listener = std::os::unix::net::UnixListener::bind(&socket_path).unwrap();
+            let marker_path = root.join("descriptor-state");
+            let browser_path = root.join("browser");
+            let profile_path = root.join("profile");
+            let (descriptor_sender, descriptor_receiver) = mpsc::sync_channel(1);
+            let (release_sender, release_receiver) = mpsc::sync_channel(1);
+            let release_receiver = Arc::new(std::sync::Mutex::new(release_receiver));
+            imp::set_socket_created_hook(Some(Arc::new({
+                let release_receiver = release_receiver.clone();
+                move |descriptor| {
+                    descriptor_sender.send(descriptor).unwrap();
+                    release_receiver
+                        .lock()
+                        .unwrap()
+                        .recv_timeout(Duration::from_secs(5))
+                        .expect("test did not release descriptor setup");
+                }
+            })));
+
+            let connector = std::thread::spawn({
+                let socket_path = socket_path.clone();
+                move || connect_unix_until(&socket_path, Instant::now() + Duration::from_secs(5))
+            });
+            let descriptor = descriptor_receiver
+                .recv_timeout(Duration::from_secs(5))
+                .expect("connector did not expose its descriptor setup window");
+            std::fs::write(
+                &browser_path,
+                format!(
+                    "#!/bin/sh\n\
+                     if [ -e /dev/fd/{descriptor} ]; then\n\
+                       printf inherited > {}\n\
+                     else\n\
+                       printf closed > {}\n\
+                     fi\n\
+                     printf 'DevTools listening on ws://127.0.0.1:1/devtools/browser/test\\n' >&2\n\
+                     exec /bin/sleep 30\n",
+                    marker_path.display(),
+                    marker_path.display()
+                ),
+            )
+            .unwrap();
+            let mut permissions = std::fs::metadata(&browser_path).unwrap().permissions();
+            permissions.set_mode(0o700);
+            std::fs::set_permissions(&browser_path, permissions).unwrap();
+
+            let (launch_started_sender, launch_started_receiver) = mpsc::sync_channel(1);
+            let (launch_result_sender, launch_result_receiver) = mpsc::sync_channel(1);
+            let launcher = std::thread::spawn(move || {
+                launch_started_sender.send(()).unwrap();
+                let result =
+                    cmux_tui_cdp::Chrome::launch_with(&cmux_tui_cdp::ChromeLaunchOptions {
+                        binary: browser_path,
+                        mode: cmux_tui_cdp::BrowserMode::Headless,
+                        user_data_dir: Some(profile_path),
+                        ephemeral: false,
+                    })
+                    .map(|browser| drop(browser))
+                    .map_err(|error| error.to_string());
+                launch_result_sender.send(result).unwrap();
+            });
+            launch_started_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+            let launch_result_before_close_on_exec =
+                launch_result_receiver.recv_timeout(Duration::from_millis(500)).ok();
+            let launched_before_close_on_exec = launch_result_before_close_on_exec.is_some();
+
+            release_sender.send(()).unwrap();
+            let stream = connector.join().unwrap().unwrap();
+            imp::set_socket_created_hook(None);
+            let (_accepted, _) = listener.accept().unwrap();
+            let launch_result = launch_result_before_close_on_exec.unwrap_or_else(|| {
+                launch_result_receiver
+                    .recv_timeout(Duration::from_secs(5))
+                    .expect("browser process did not launch after descriptor setup completed")
+            });
+            launcher.join().unwrap();
+            let descriptor_state = std::fs::read_to_string(&marker_path).unwrap();
+
+            drop(stream);
+            drop(listener);
+            std::fs::remove_dir_all(&root).unwrap();
+            launch_result.unwrap();
+            assert!(
+                !launched_before_close_on_exec,
+                "browser process launched while the connector descriptor was still inheritable"
+            );
+            assert_eq!(
+                descriptor_state, "closed",
+                "browser process inherited the connector descriptor"
+            );
+        }
+
         #[cfg(target_os = "linux")]
         #[test]
         fn deadline_connect_times_out_while_listener_backlog_is_saturated() {
