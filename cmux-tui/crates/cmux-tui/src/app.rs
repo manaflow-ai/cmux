@@ -11889,6 +11889,22 @@ mod tests {
     }
 
     #[test]
+    fn sync_layout_ignores_zero_sized_host_grids() {
+        let mux = Mux::new("zero-sized-layout-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sync_layout((80, 24));
+        let expected_content = app.content_area;
+        let expected_visible = app.visible_size_surfaces.clone();
+
+        for size in [(0, 24), (80, 0), (0, 0)] {
+            app.sync_layout(size);
+            assert_eq!(app.frame_layout_size, Some((80, 24)));
+            assert_eq!(app.content_area, expected_content);
+            assert_eq!(app.visible_size_surfaces, expected_visible);
+        }
+    }
+
+    #[test]
     fn panic_restore_waits_for_a_concurrent_stdout_owner() {
         let lock = Arc::new(StdoutLock::new(()));
         let (held_tx, held_rx) = std::sync::mpsc::sync_channel(1);
