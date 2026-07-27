@@ -172,6 +172,33 @@ import Testing
         #expect(actions == [.sendCommittedKey("你")])
     }
 
+    @Test func matchingCommandCallbackDoesNotReplayCommittedText() {
+        let actions = planner.actions(for: snapshot(
+            textInputConsumed: true,
+            textInputCommandPerformed: true,
+            committedText: ["~"],
+            translatedText: "~",
+            rawText: "\u{001B}"
+        ))
+
+        #expect(actions == [.sendCommittedKey("~")])
+    }
+
+    @Test func distinctCommandCallbackStillFollowsCommittedText() {
+        let actions = planner.actions(for: snapshot(
+            textInputConsumed: true,
+            textInputCommandPerformed: true,
+            committedText: ["你"],
+            translatedText: "\r",
+            rawText: "\r"
+        ))
+
+        #expect(actions == [
+            .sendCommittedKey("你"),
+            .sendKey(text: nil, composing: false),
+        ])
+    }
+
     @Test(arguments: [
         ("Korean", "한"),
         ("Simplified Chinese", "你"),
