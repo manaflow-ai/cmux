@@ -211,10 +211,16 @@ struct BrowserState {
     /// restore its previous authority only if no asynchronous browser event won
     /// the race in the meantime.
     pointer_frame_revision: u64,
-    /// Ownership epoch for pointer captures. Unlike pointer authority,
-    /// this survives ordinary repaint frames and geometry changes, and changes
-    /// only when navigation or failure invalidates the page that accepted it.
+    /// Release-ownership epoch for pointer captures. Unlike pointer authority,
+    /// this survives ordinary repaints, geometry changes, and recoverable
+    /// failures. It changes when a document replacement makes releasing into
+    /// the page that accepted the press unsafe.
     pointer_capture_generation: u64,
+    /// Coordinate-validity epoch for motion during an accepted press. This
+    /// survives ordinary repaints but changes when navigation, geometry, or a
+    /// failure makes the press's original coordinate mapping unsafe. Release
+    /// ownership remains governed separately by `pointer_capture_generation`.
+    pointer_motion_generation: u64,
     // Latest-wins attach frame taps. Broadcast overwrites each slot and
     // sends one wakeup; a slow client skips old frames but stays attached.
     taps: Vec<BrowserFrameTap>,
@@ -276,6 +282,7 @@ struct PointerFrameInvalidation {
     previous: Option<u64>,
     previous_latest_frame_seq: Option<u64>,
     previous_capture_generation: u64,
+    previous_motion_generation: u64,
     previous_pending_frame_epoch: Option<u64>,
     previous_pending_navigation_epoch: Option<u64>,
     previous_pending_same_document_navigation: bool,
@@ -437,6 +444,8 @@ type BrowserWorkerResult = anyhow::Result<BrowserWorkerSuccess>;
 struct ActivePointerPress {
     input_owner: BrowserPointerOwner,
     capture_generation: u64,
+    motion_generation: u64,
+    ingress_motion_generation: u64,
     frame_seq: u64,
     last_target_x: f64,
     last_target_y: f64,
@@ -448,7 +457,7 @@ struct ActivePointerPress {
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum CapturedPointerRoute {
     Current((f64, f64)),
-    GeometryChanged,
+    MotionInvalidated,
     InvalidCapture,
 }
 
@@ -456,17 +465,20 @@ impl ActivePointerPress {
     fn new(
         input_owner: BrowserPointerOwner,
         capture_generation: u64,
+        motion_generation: u64,
+        ingress_motion_generation: u64,
         frame_seq: u64,
-        x: f64,
-        y: f64,
+        point: (f64, f64),
         click_count: Option<u32>,
     ) -> Self {
         Self {
             input_owner,
             capture_generation,
+            motion_generation,
+            ingress_motion_generation,
             frame_seq,
-            last_target_x: x,
-            last_target_y: y,
+            last_target_x: point.0,
+            last_target_y: point.1,
             click_count,
             compatibility_expires_at: match input_owner {
                 BrowserPointerOwner::Local | BrowserPointerOwner::Client(_) => None,
@@ -869,6 +881,7 @@ pub(crate) fn new_surface(
             pointer_frame_seq: None,
             pointer_frame_revision: 0,
             pointer_capture_generation: 0,
+            pointer_motion_generation: 0,
             taps: Vec::new(),
             title: normalized_url.clone(),
             url: normalized_url,
@@ -1117,7 +1130,13 @@ fn start_router(runtime: Weak<BrowserRuntime>, events: Receiver<CdpEvent>) -> an
                         runtime.remove_route(&tx);
                     }
                 }
-                CdpEvent::NavigatedWithinDocument { params, session_id, frame_id, loader_id } => {
+                CdpEvent::NavigatedWithinDocument {
+                    params,
+                    session_id,
+                    frame_id,
+                    loader_id,
+                    frame_epoch,
+                } => {
                     let tx =
                         { runtime.routes.lock().unwrap().by_session.get(&session_id).cloned() };
                     if let Some(tx) = tx
@@ -1126,6 +1145,7 @@ fn start_router(runtime: Weak<BrowserRuntime>, events: Receiver<CdpEvent>) -> an
                             session_id,
                             frame_id,
                             loader_id,
+                            frame_epoch,
                         })
                     {
                         runtime.remove_route(&tx);
@@ -1303,10 +1323,15 @@ fn start_surface_thread(
                             navigation_epoch,
                         });
                 }
-                CdpEvent::NavigatedWithinDocument { params, session_id, frame_id, loader_id } => {
-                    if handle_same_document_navigated(browser, &params).is_some()
-                        && browser.needs_same_document_paint()
-                    {
+                CdpEvent::NavigatedWithinDocument {
+                    params,
+                    session_id,
+                    frame_id,
+                    loader_id,
+                    frame_epoch,
+                } => {
+                    let _ = handle_same_document_navigated(browser, &params, frame_epoch);
+                    if browser.needs_same_document_paint() {
                         let _ = browser.enqueue_latest_authority(
                             BrowserCommand::AuthorizeSameDocumentPaint {
                                 session_id,
@@ -2207,10 +2232,15 @@ impl BrowserSurface {
         state.next_frame_seq = state.next_frame_seq.saturating_add(1);
         state.last_frame_at = Some(Instant::now());
         state.stall_nudged = false;
-        state.page_viewport = Some((frame.css_width.max(1), frame.css_height.max(1)));
+        let page_viewport = (frame.css_width.max(1), frame.css_height.max(1));
+        if state.page_viewport.is_some_and(|previous| previous != page_viewport) {
+            state.pointer_motion_generation = state.pointer_motion_generation.wrapping_add(1);
+        }
+        state.page_viewport = Some(page_viewport);
         let can_authorize_pointer = matches!(state.status, BrowserStatus::Live)
             && state.pending_navigation_epoch.is_none()
-            && state.pending_document_epoch.is_none();
+            && state.pending_document_epoch.is_none()
+            && !state.pending_same_document_navigation;
         let pointer_frame_seq = can_authorize_pointer.then_some(frame.seq);
         if state.pointer_frame_seq != pointer_frame_seq {
             Self::set_pointer_frame_locked(state, pointer_frame_seq);
@@ -2459,6 +2489,7 @@ impl BrowserSurface {
         state.pending_frame_epoch.is_none()
             && state.pending_navigation_epoch.is_none()
             && state.pending_document_epoch.is_none()
+            && !state.pending_same_document_navigation
             && state.accepted_frame_epoch == self.frame_epoch.current()
             && state.accepted_navigation_epoch == self.frame_epoch.latest_navigation()
     }
@@ -2488,14 +2519,22 @@ impl BrowserSurface {
         frame_seq: u64,
         x: f64,
         y: f64,
-    ) -> Option<((f64, f64), u64)> {
+    ) -> Option<((f64, f64), u64, u64, u64)> {
+        let ingress_motion_generation = self.frame_epoch.pointer_motion_generation();
         let state = self.state.lock().unwrap();
-        if !self.pointer_epoch_is_current_locked(&state)
+        if !ingress_motion_generation.is_multiple_of(2)
+            || !self.pointer_epoch_is_current_locked(&state)
             || state.pointer_frame_seq != Some(frame_seq)
+            || ingress_motion_generation != self.frame_epoch.pointer_motion_generation()
         {
             return None;
         }
-        Some((Self::scale_input_point_locked(&state, x, y), state.pointer_capture_generation))
+        Some((
+            Self::scale_input_point_locked(&state, x, y),
+            state.pointer_capture_generation,
+            state.pointer_motion_generation,
+            ingress_motion_generation,
+        ))
     }
 
     #[cfg(test)]
@@ -2517,10 +2556,11 @@ impl BrowserSurface {
     fn captured_pointer_route(
         &self,
         capture_generation: u64,
+        motion_generation: u64,
+        ingress_motion_generation: u64,
         frame_seq: u64,
         dispatch_frame_seq: u64,
-        x: f64,
-        y: f64,
+        point: (f64, f64),
     ) -> CapturedPointerRoute {
         let state = self.state.lock().unwrap();
         if state.pointer_capture_generation != capture_generation
@@ -2528,13 +2568,13 @@ impl BrowserSurface {
         {
             return CapturedPointerRoute::InvalidCapture;
         }
-        if !self.pointer_epoch_is_current_locked(&state)
-            || state.pointer_frame_seq != Some(frame_seq)
+        if state.pointer_motion_generation != motion_generation
+            || self.frame_epoch.pointer_motion_generation() != ingress_motion_generation
             || dispatch_frame_seq != frame_seq
         {
-            return CapturedPointerRoute::GeometryChanged;
+            return CapturedPointerRoute::MotionInvalidated;
         }
-        CapturedPointerRoute::Current(Self::scale_input_point_locked(&state, x, y))
+        CapturedPointerRoute::Current(Self::scale_input_point_locked(&state, point.0, point.1))
     }
 
     fn pointer_capture_is_current(&self, capture_generation: u64) -> bool {
@@ -2571,6 +2611,7 @@ impl BrowserSurface {
         let previous = state.pointer_frame_seq;
         let previous_latest_frame_seq = state.latest_frame.as_ref().map(|frame| frame.seq);
         let previous_capture_generation = state.pointer_capture_generation;
+        let previous_motion_generation = state.pointer_motion_generation;
         let previous_pending_frame_epoch = state.pending_frame_epoch;
         let previous_pending_navigation_epoch = state.pending_navigation_epoch;
         let previous_pending_same_document_navigation = state.pending_same_document_navigation;
@@ -2579,6 +2620,7 @@ impl BrowserSurface {
         Self::set_pointer_frame_locked(state, None);
         self.set_pending_attach_frame_locked(state, None);
         state.pending_screencast_capture = None;
+        state.pointer_motion_generation = state.pointer_motion_generation.wrapping_add(1);
         if revoke_capture {
             state.pointer_capture_generation = state.pointer_capture_generation.wrapping_add(1);
         }
@@ -2586,6 +2628,7 @@ impl BrowserSurface {
             previous,
             previous_latest_frame_seq,
             previous_capture_generation,
+            previous_motion_generation,
             previous_pending_frame_epoch,
             previous_pending_navigation_epoch,
             previous_pending_same_document_navigation,
@@ -2891,6 +2934,41 @@ impl BrowserSurface {
         state.pending_document_epoch.is_none() && state.pending_same_document_navigation
     }
 
+    fn observe_same_document_frame_epoch(&self, frame_epoch: u64) -> bool {
+        let mut state = self.state.lock().unwrap();
+        if frame_epoch < state.accepted_frame_epoch
+            || state.pending_document_epoch.is_some()
+            || state.pending_navigation_epoch.is_some() && !state.pending_same_document_navigation
+            || !(matches!(state.status, BrowserStatus::Live)
+                || state.pending_failure_recovery && state.status.allows_navigation_recovery())
+        {
+            return false;
+        }
+        let already_pending = state.pending_same_document_navigation;
+        if already_pending {
+            // The ingress event proves the targeted command committed, so a
+            // later command error cannot roll pointer authority back. Motion
+            // was already invalidated when that command reserved its barrier.
+            Self::set_pointer_frame_locked(&mut state, None);
+            self.set_pending_attach_frame_locked(&mut state, None);
+            state.pending_screencast_capture = None;
+        } else {
+            // Page-initiated history/hash changes have no preceding cmux
+            // command. Establish the same fail-closed pixel barrier here while
+            // preserving only an accepted press's balancing release.
+            self.invalidate_pointer_frame_locked(&mut state, false);
+            state.pending_failure_recovery = false;
+        }
+        state.pending_frame_epoch =
+            Some(state.pending_frame_epoch.map_or(frame_epoch, |pending| pending.max(frame_epoch)));
+        state.pending_navigation_epoch = None;
+        state.pending_same_document_navigation = true;
+        state.pending_frame = None;
+        state.pending_navigation_rollback = None;
+        self.mark_state_dirty_locked(&mut state);
+        true
+    }
+
     fn accept_document_paint(
         &self,
         navigation_epoch: u64,
@@ -3106,10 +3184,13 @@ impl BrowserSurface {
             state.pending_failure_recovery = false;
             state.pending_navigation_rollback = None;
             state.pointer_capture_generation = invalidation.previous_capture_generation;
+            state.pointer_motion_generation = invalidation.previous_motion_generation;
             state.pending_frame = None;
             if state.accepted_navigation_epoch == committed_navigation_epoch {
                 state.pointer_capture_generation =
                     invalidation.previous_capture_generation.wrapping_add(1);
+                state.pointer_motion_generation =
+                    invalidation.previous_motion_generation.wrapping_add(1);
                 state.pending_frame_epoch = invalidation.previous_pending_frame_epoch;
                 let pointer_frame_seq = matches!(state.status, BrowserStatus::Live)
                     .then(|| state.latest_frame.as_ref().map(|frame| frame.seq))
@@ -3118,6 +3199,8 @@ impl BrowserSurface {
                 let retained_frame = state.latest_frame.clone();
                 self.set_pending_attach_frame_locked(&mut state, retained_frame);
             } else {
+                state.pointer_motion_generation =
+                    invalidation.previous_motion_generation.wrapping_add(1);
                 state.pending_frame_epoch = state.pending_document_epoch.map(|navigation_epoch| {
                     self.frame_epoch.current().max(navigation_epoch).max(state.accepted_frame_epoch)
                 });
@@ -3144,6 +3227,7 @@ impl BrowserSurface {
             state.pending_navigation_rollback = None;
         }
         state.pointer_capture_generation = invalidation.previous_capture_generation;
+        state.pointer_motion_generation = invalidation.previous_motion_generation;
         state.pending_frame_epoch = invalidation.previous_pending_frame_epoch;
         state.pending_navigation_epoch = invalidation.previous_pending_navigation_epoch;
         state.pending_same_document_navigation =
@@ -3478,8 +3562,9 @@ impl BrowserSurface {
 
     /// Queue a mouse event admitted by the opaque `frame_seq` authority token.
     /// Uncaptured events with stale authority are ignored. An accepted press
-    /// retains ownership of its balancing release after later bitmaps arrive,
-    /// while motion remains bound to the bitmap that admitted the press.
+    /// retains motion across ordinary repaints while its document and geometry
+    /// remain valid, plus ownership of its balancing release after either is
+    /// invalidated.
     pub fn mouse_event_for_frame(
         &self,
         event_type: &str,
@@ -3551,17 +3636,18 @@ impl BrowserSurface {
         let mut captured_release = false;
         let point = match (dispatch.event_type, dispatch.frame_seq) {
             ("mousePressed", Some(frame_seq)) => {
-                let Some((point, generation)) =
+                let Some((point, capture_generation, motion_generation, ingress_motion_generation)) =
                     self.capture_guarded_input_point(frame_seq, dispatch.x, dispatch.y)
                 else {
                     return Ok(BrowserWorkerSuccess::LocallySettled);
                 };
                 captured_press = Some(ActivePointerPress::new(
                     dispatch.input_owner,
-                    generation,
+                    capture_generation,
+                    motion_generation,
+                    ingress_motion_generation,
                     frame_seq,
-                    point.0,
-                    point.1,
+                    point,
                     dispatch.click_count,
                 ));
                 Some(point)
@@ -3572,13 +3658,14 @@ impl BrowserSurface {
                 };
                 let point = match self.captured_pointer_route(
                     press.capture_generation,
+                    press.motion_generation,
+                    press.ingress_motion_generation,
                     press.frame_seq,
                     dispatch_frame_seq,
-                    dispatch.x,
-                    dispatch.y,
+                    (dispatch.x, dispatch.y),
                 ) {
                     CapturedPointerRoute::Current(point) => Some(point),
-                    CapturedPointerRoute::GeometryChanged => {
+                    CapturedPointerRoute::MotionInvalidated => {
                         Some((press.last_target_x, press.last_target_y))
                     }
                     CapturedPointerRoute::InvalidCapture => {
@@ -3595,10 +3682,11 @@ impl BrowserSurface {
                 if let Some(press) = active_pointer_presses.get(button).copied() {
                     match self.captured_pointer_route(
                         press.capture_generation,
+                        press.motion_generation,
+                        press.ingress_motion_generation,
                         press.frame_seq,
                         dispatch_frame_seq,
-                        dispatch.x,
-                        dispatch.y,
+                        (dispatch.x, dispatch.y),
                     ) {
                         CapturedPointerRoute::Current(point) => {
                             if press.input_owner == dispatch.input_owner
@@ -3608,7 +3696,7 @@ impl BrowserSurface {
                             }
                             Some(point)
                         }
-                        CapturedPointerRoute::GeometryChanged => None,
+                        CapturedPointerRoute::MotionInvalidated => None,
                         CapturedPointerRoute::InvalidCapture => {
                             active_pointer_presses.remove(button);
                             None
@@ -4204,7 +4292,9 @@ fn handle_frame_navigated(browser: &BrowserSurface, params: serde_json::Value, f
 fn handle_same_document_navigated(
     browser: &BrowserSurface,
     params: &serde_json::Value,
+    frame_epoch: u64,
 ) -> Option<String> {
+    browser.observe_same_document_frame_epoch(frame_epoch);
     let url = params.get("url").and_then(|value| value.as_str())?.to_string();
     if !url.is_empty() {
         browser.set_url(url.clone());
@@ -5971,7 +6061,7 @@ mod tests {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
         browser.store_frame(test_frame(1));
-        let (_, capture_generation) =
+        let (_, capture_generation, _, _) =
             browser.capture_guarded_input_point(1, 1.0, 1.0).expect("live pointer capture");
 
         browser.frame_epoch.advance_navigation();
@@ -6590,9 +6680,12 @@ mod tests {
         let url = "https://example.test/#next";
         browser.begin_targeted_navigation_frame_transition().expect("same-document reservation");
 
-        let _observed =
-            handle_same_document_navigated(browser, &json!({"frameId": "main-frame", "url": url}))
-                .expect("same-document URL");
+        let _observed = handle_same_document_navigated(
+            browser,
+            &json!({"frameId": "main-frame", "url": url}),
+            browser.frame_epoch.advance_same_document(),
+        )
+        .expect("same-document URL");
         assert!(browser.needs_same_document_paint());
         let capture_epoch = browser.frame_epoch.advance();
         assert!(browser.accept_same_document_paint(capture_epoch, test_frame(2)));
@@ -6616,6 +6709,7 @@ mod tests {
                 "frameId": "main-frame",
                 "url": "https://example.test/#next"
             }),
+            browser.frame_epoch.advance_same_document(),
         )
         .expect("same-document URL");
         let failed_capture_epoch = browser.frame_epoch.advance();
@@ -6653,6 +6747,7 @@ mod tests {
                 "frameId": "main-frame",
                 "url": "https://example.test/#failed"
             }),
+            browser.frame_epoch.advance_same_document(),
         )
         .expect("same-document URL");
         browser.fail_same_document_authority(&anyhow::anyhow!("injected capture failure"));
@@ -6663,6 +6758,7 @@ mod tests {
                 "frameId": "main-frame",
                 "url": "https://example.test/#unrelated"
             }),
+            browser.frame_epoch.advance_same_document(),
         )
         .expect("later same-document URL");
         browser.store_frame_for_epoch(test_frame(2), browser.frame_epoch.current());
@@ -6691,6 +6787,7 @@ mod tests {
                 "frameId": "main-frame",
                 "url": "https://example.test/#recovery"
             }),
+            browser.frame_epoch.advance_same_document(),
         )
         .expect("recovery URL");
         assert!(
@@ -6728,6 +6825,7 @@ mod tests {
                 "frameId": "main-frame",
                 "url": "https://example.test/#failed"
             }),
+            browser.frame_epoch.advance_same_document(),
         )
         .expect("failed URL");
         browser.fail_same_document_authority(&anyhow::anyhow!("injected capture failure"));
@@ -6738,6 +6836,7 @@ mod tests {
                 "frameId": "main-frame",
                 "url": "https://example.test/#recovery"
             }),
+            browser.frame_epoch.advance_same_document(),
         )
         .expect("recovery URL");
         assert!(
@@ -6834,7 +6933,7 @@ mod tests {
         let browser = surface.as_browser().expect("browser surface");
         browser.store_frame(test_frame(1));
         let authority = browser.latest_frame_seq().expect("initial pointer authority");
-        let (_, capture_generation) = browser
+        let (_, capture_generation, _, _) = browser
             .capture_guarded_input_point(authority, 1.0, 1.0)
             .expect("accepted pointer press");
         browser.begin_targeted_navigation_frame_transition().expect("same-document reservation");
@@ -6842,6 +6941,7 @@ mod tests {
         let _observed = handle_same_document_navigated(
             browser,
             &json!({"frameId": "main-frame", "url": "https://example.test/#next"}),
+            browser.frame_epoch.advance_same_document(),
         )
         .expect("same-document URL");
         let capture_epoch = browser.frame_epoch.advance();
@@ -6859,11 +6959,11 @@ mod tests {
         let browser = surface.as_browser().expect("browser surface");
         browser.store_frame(test_frame(1));
         let authority = browser.latest_frame_seq().expect("initial pointer authority");
-        let (_, capture_generation) = browser
+        let (_, capture_generation, motion_generation, ingress_motion_generation) = browser
             .capture_guarded_input_point(authority, 1.0, 1.0)
             .expect("accepted pointer press");
         let navigation_epoch = browser.frame_epoch.latest_navigation();
-        let frame_epoch = browser.frame_epoch.advance();
+        let frame_epoch = browser.frame_epoch.advance_same_document();
 
         handle_same_document_navigated(
             browser,
@@ -6871,6 +6971,7 @@ mod tests {
                 "frameId": "main-frame",
                 "url": "https://example.test/#page-initiated"
             }),
+            frame_epoch,
         )
         .expect("same-document URL");
 
@@ -6892,6 +6993,18 @@ mod tests {
             browser.scale_captured_input_point(capture_generation, 1.0, 1.0).is_some(),
             "an accepted press must retain only its balancing release ownership"
         );
+        assert_eq!(
+            browser.captured_pointer_route(
+                capture_generation,
+                motion_generation,
+                ingress_motion_generation,
+                authority,
+                authority,
+                (1.0, 1.0),
+            ),
+            super::CapturedPointerRoute::MotionInvalidated,
+            "same-document navigation must stop motion from the pre-navigation press"
+        );
         assert!(browser.accept_same_document_paint(frame_epoch, test_frame(2)));
         assert_eq!(browser.latest_frame_seq(), Some(2));
     }
@@ -6902,7 +7015,7 @@ mod tests {
         let browser = surface.as_browser().expect("browser surface");
         browser.store_frame(test_frame(1));
         let authority = browser.latest_frame_seq().expect("initial pointer authority");
-        let (_, capture_generation) = browser
+        let (_, capture_generation, _, _) = browser
             .capture_guarded_input_point(authority, 1.0, 1.0)
             .expect("accepted pointer press");
 
@@ -7012,6 +7125,9 @@ mod tests {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
         browser.store_frame(test_frame(1));
+        let (_, capture_generation, motion_generation, ingress_motion_generation) = browser
+            .capture_guarded_input_point(1, 1.0, 1.0)
+            .expect("captured press under the original viewport");
         let mut resized = test_frame(2);
         resized.css_width += 1;
 
@@ -7021,6 +7137,18 @@ mod tests {
         assert!(
             browser.scale_guarded_input_point(Some(1), 1.0, 1.0).is_none(),
             "a bitmap viewport change must revoke the old coordinate mapping"
+        );
+        assert_eq!(
+            browser.captured_pointer_route(
+                capture_generation,
+                motion_generation,
+                ingress_motion_generation,
+                1,
+                1,
+                (1.0, 1.0),
+            ),
+            super::CapturedPointerRoute::MotionInvalidated,
+            "captured motion must not cross an unsolicited viewport mapping change"
         );
     }
 
@@ -7036,13 +7164,16 @@ mod tests {
         });
         browser.store_frame(test_frame(1));
         let capture_generation = browser.state.lock().unwrap().pointer_capture_generation;
+        let motion_generation = browser.state.lock().unwrap().pointer_motion_generation;
+        let ingress_motion_generation = browser.frame_epoch.pointer_motion_generation();
         let now = Instant::now();
         let mut press = super::ActivePointerPress::new(
             super::BrowserPointerOwner::Legacy,
             capture_generation,
+            motion_generation,
+            ingress_motion_generation,
             1,
-            1.0,
-            1.0,
+            (1.0, 1.0),
             Some(1),
         );
         press.compatibility_expires_at = Some(now);
@@ -7077,13 +7208,16 @@ mod tests {
         });
         browser.store_frame(test_frame(1));
         let capture_generation = browser.state.lock().unwrap().pointer_capture_generation;
+        let motion_generation = browser.state.lock().unwrap().pointer_motion_generation;
+        let ingress_motion_generation = browser.frame_epoch.pointer_motion_generation();
         let now = Instant::now();
         let mut press = super::ActivePointerPress::new(
             super::BrowserPointerOwner::Legacy,
             capture_generation,
+            motion_generation,
+            ingress_motion_generation,
             1,
-            1.0,
-            1.0,
+            (1.0, 1.0),
             Some(1),
         );
         press.compatibility_expires_at = Some(now);
@@ -7120,8 +7254,9 @@ mod tests {
                 super::BrowserPointerOwner::Client(41),
                 1,
                 1,
-                1.0,
-                1.0,
+                1,
+                1,
+                (1.0, 1.0),
                 Some(1),
             ),
         );
@@ -7145,8 +7280,9 @@ mod tests {
             super::BrowserPointerOwner::Legacy,
             1,
             1,
-            1.0,
-            1.0,
+            1,
+            1,
+            (1.0, 1.0),
             Some(1),
         );
         press.compatibility_expires_at = Some(deadline);
@@ -7171,12 +7307,15 @@ mod tests {
         });
         browser.store_frame(test_frame(1));
         let capture_generation = browser.state.lock().unwrap().pointer_capture_generation;
+        let motion_generation = browser.state.lock().unwrap().pointer_motion_generation;
+        let ingress_motion_generation = browser.frame_epoch.pointer_motion_generation();
         let press = super::ActivePointerPress::new(
             super::BrowserPointerOwner::Client(41),
             capture_generation,
+            motion_generation,
+            ingress_motion_generation,
             1,
-            1.0,
-            1.0,
+            (1.0, 1.0),
             Some(1),
         );
         let mut failures = super::BrowserWorkerErrorState::default();
@@ -7212,6 +7351,7 @@ mod tests {
                 "frameId": "main-frame",
                 "url": "https://example.test/path#section"
             }),
+            browser.frame_epoch.advance_same_document(),
         )
         .expect("same-document URL");
 
@@ -8021,7 +8161,7 @@ mod tests {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
         browser.store_frame(test_frame(1));
-        let (_, capture_generation) =
+        let (_, capture_generation, _, _) =
             browser.capture_guarded_input_point(1, 1.0, 1.0).expect("initial pointer authority");
         let first = browser.begin_navigation_frame_transition().unwrap();
         browser.finish_navigation_command(first, Ok(())).unwrap();
@@ -8159,14 +8299,17 @@ mod tests {
         });
         browser.store_frame(test_frame(1));
         let capture_generation = browser.state.lock().unwrap().pointer_capture_generation;
+        let motion_generation = browser.state.lock().unwrap().pointer_motion_generation;
+        let ingress_motion_generation = browser.frame_epoch.pointer_motion_generation();
         let mut active_pointer_presses = std::collections::HashMap::from([(
             "left".to_string(),
             super::ActivePointerPress::new(
                 super::BrowserPointerOwner::Local,
                 capture_generation,
+                motion_generation,
+                ingress_motion_generation,
                 1,
-                1.0,
-                1.0,
+                (1.0, 1.0),
                 Some(1),
             ),
         )]);
@@ -8233,15 +8376,18 @@ mod tests {
         });
         browser.store_frame(test_frame(1));
         let capture_generation = browser.state.lock().unwrap().pointer_capture_generation;
+        let motion_generation = browser.state.lock().unwrap().pointer_motion_generation;
+        let ingress_motion_generation = browser.frame_epoch.pointer_motion_generation();
         let mut failures = super::BrowserWorkerErrorState::default();
         failures.active_pointer_presses.insert(
             "left".to_string(),
             super::ActivePointerPress::new(
                 super::BrowserPointerOwner::Client(41),
                 capture_generation,
+                motion_generation,
+                ingress_motion_generation,
                 1,
-                1.0,
-                1.0,
+                (1.0, 1.0),
                 Some(1),
             ),
         );
@@ -8281,7 +8427,7 @@ mod tests {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
         browser.store_frame(test_frame(1));
-        let (_, capture_generation) =
+        let (_, capture_generation, _, _) =
             browser.capture_guarded_input_point(1, 1.0, 1.0).expect("live pointer capture");
 
         browser.begin_reconfigure_frame_transition();
@@ -8473,7 +8619,7 @@ mod tests {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
         browser.store_frame(test_frame(1));
-        let (_, capture_generation) =
+        let (_, capture_generation, _, _) =
             browser.capture_guarded_input_point(1, 1.0, 1.0).expect("live press frame");
 
         browser.store_frame(test_frame(2));
@@ -8530,7 +8676,7 @@ mod tests {
         });
         browser.store_frame(test_frame(1));
         assert!(browser.scale_guarded_input_point(Some(1), 1.0, 1.0).is_some());
-        let (_, capture_generation) =
+        let (_, capture_generation, _, _) =
             browser.capture_guarded_input_point(1, 1.0, 1.0).expect("live press frame");
 
         assert!(browser.navigate_blocking("https://next.test").is_err());
@@ -8908,7 +9054,7 @@ mod tests {
             session_id: "session-1".to_string(),
         });
         browser.store_frame(test_frame(1));
-        let (_, capture_generation) =
+        let (_, capture_generation, _, _) =
             browser.capture_guarded_input_point(1, 1.0, 1.0).expect("live pointer capture");
         let queued = browser.reserve_reconfigure(11, 5).expect("changed geometry");
 

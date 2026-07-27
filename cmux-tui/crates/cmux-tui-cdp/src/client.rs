@@ -41,6 +41,7 @@ static RETAINED_SIZE_CALLS: AtomicU64 = AtomicU64::new(0);
 pub struct FrameEpoch {
     current: AtomicU64,
     latest_navigation: AtomicU64,
+    pointer_motion_generation: AtomicU64,
     wait_lock: Mutex<()>,
     changed: Condvar,
 }
@@ -65,8 +66,24 @@ impl FrameEpoch {
         epoch
     }
 
+    pub fn advance_same_document(&self) -> u64 {
+        let _guard = self.wait_lock.lock().unwrap();
+        // Odd values mark the ingress transition itself. Captured motion sees
+        // the mismatch immediately, while new presses reject the unstable
+        // token until the frame epoch has advanced.
+        self.pointer_motion_generation.fetch_add(1, Ordering::AcqRel);
+        let epoch = self.current.fetch_add(1, Ordering::AcqRel).wrapping_add(1);
+        self.pointer_motion_generation.fetch_add(1, Ordering::AcqRel);
+        self.changed.notify_all();
+        epoch
+    }
+
     pub fn latest_navigation(&self) -> u64 {
         self.latest_navigation.load(Ordering::Acquire)
+    }
+
+    pub fn pointer_motion_generation(&self) -> u64 {
+        self.pointer_motion_generation.load(Ordering::Acquire)
     }
 
     pub fn wait_until_at_least(&self, expected: u64, timeout: Duration) -> bool {
@@ -173,6 +190,7 @@ pub enum CdpEvent {
         session_id: String,
         frame_id: String,
         loader_id: String,
+        frame_epoch: u64,
     },
     TargetCreated(TargetCreated),
     TargetInfoChanged(TargetInfo),
@@ -419,11 +437,14 @@ pub fn event_retained_bytes(event: &CdpEvent) -> usize {
             .saturating_add(frame_id.len())
             .saturating_add(loader_id.len())
             .saturating_add(size_of::<u64>()),
-        CdpEvent::NavigatedWithinDocument { params, session_id, frame_id, loader_id } => session_id
-            .len()
-            .saturating_add(frame_id.len())
-            .saturating_add(loader_id.len())
-            .saturating_add(json_retained_bytes(params)),
+        CdpEvent::NavigatedWithinDocument { params, session_id, frame_id, loader_id, .. } => {
+            session_id
+                .len()
+                .saturating_add(frame_id.len())
+                .saturating_add(loader_id.len())
+                .saturating_add(json_retained_bytes(params))
+                .saturating_add(size_of::<u64>())
+        }
         CdpEvent::TargetCreated(target) => target
             .target_id
             .len()
@@ -1486,12 +1507,11 @@ fn main_frame_same_document_navigation(
     if frame_session.main_frame_id.as_deref() != Some(frame_id.as_str()) {
         return None;
     }
-    Some(CdpEvent::NavigatedWithinDocument {
-        params,
-        session_id,
-        frame_id,
-        loader_id: frame_session.main_loader_id.clone()?,
-    })
+    let loader_id = frame_session.main_loader_id.clone()?;
+    // Advance at CDP ingress, before the bounded event queue, so guarded
+    // pointer input fails closed even if surface event handling is delayed.
+    let frame_epoch = frame_session.epoch.advance_same_document();
+    Some(CdpEvent::NavigatedWithinDocument { params, session_id, frame_id, loader_id, frame_epoch })
 }
 
 fn dispatch_event(inner: &Arc<Inner>, event: CdpEvent) {
@@ -2440,6 +2460,7 @@ mod tests {
             1,
             "an iframe navigation must not advance top-level pointer authority"
         );
+        assert_eq!(frame_epoch.pointer_motion_generation(), 0);
 
         handle_text(
             &inner,
@@ -2455,6 +2476,11 @@ mod tests {
             2,
             "a top-level same-document navigation must invalidate stale bitmap pointer authority"
         );
+        assert_eq!(
+            frame_epoch.pointer_motion_generation(),
+            2,
+            "captured motion must be blocked at ingress before surface event handling"
+        );
         let (event_tx, event_rx) = sync_channel(2);
         inner.events.drain_into(&event_tx).unwrap();
         assert!(matches!(event_rx.recv().unwrap(), CdpEvent::FrameNavigated { .. }));
@@ -2463,6 +2489,7 @@ mod tests {
             CdpEvent::NavigatedWithinDocument {
                 frame_id,
                 loader_id,
+                frame_epoch: 2,
                 ..
             } if frame_id == "main-frame" && loader_id == "loader-1"
         ));
