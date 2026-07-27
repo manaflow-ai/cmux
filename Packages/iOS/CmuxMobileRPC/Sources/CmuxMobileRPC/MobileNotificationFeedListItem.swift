@@ -39,6 +39,33 @@ public struct MobileNotificationFeedListItem: Decodable, Equatable, Sendable {
         case surfaceTitle = "surface_title"
     }
 
+    /// Creates a notification-feed list item from already-normalized values.
+    public init(
+        id: String,
+        workspaceID: String,
+        surfaceID: String?,
+        title: String,
+        subtitle: String?,
+        body: String,
+        createdAt: Date,
+        isRead: Bool,
+        retargetsToLiveSurfaceOwner: Bool,
+        workspaceTitle: String?,
+        surfaceTitle: String?
+    ) {
+        self.id = id
+        self.workspaceID = workspaceID
+        self.surfaceID = surfaceID
+        self.title = title
+        self.subtitle = subtitle
+        self.body = body
+        self.createdAt = createdAt
+        self.isRead = isRead
+        self.retargetsToLiveSurfaceOwner = retargetsToLiveSurfaceOwner
+        self.workspaceTitle = workspaceTitle
+        self.surfaceTitle = surfaceTitle
+    }
+
     /// Decodes one feed item from its wire representation.
     /// - Parameter decoder: The JSON decoder for the item payload.
     public init(from decoder: any Decoder) throws {

@@ -25,6 +25,19 @@ public struct KeyboardShortcutsCatalogSection: SettingCatalogSection {
         defaultValue: [:]
     )
 
+    /// Read projection that preserves every managed action ID even when its
+    /// binding is malformed. Derived from ``bindings`` so the catalog retains
+    /// one stored declaration for the `shortcuts.bindings` path.
+    public var bindingSnapshot: JSONKey<ShortcutBindingsSnapshot> {
+        JSONKey(
+            id: bindings.id,
+            defaultValue: ShortcutBindingsSnapshot(
+                bindings: [:],
+                managedActionIDs: []
+            )
+        )
+    }
+
     /// Per-action focus predicates (`shortcuts.when`), keyed by action id, as
     /// raw expression strings. The app target owns parsing/evaluation; the
     /// Settings UI only needs to know which actions are context-scoped so its

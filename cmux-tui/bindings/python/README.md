@@ -22,3 +22,7 @@ with CmuxClient() as client:
 
 `CmuxClient()` uses `CMUX_TUI_SOCKET` when set, then legacy `CMUX_MUX_SOCKET`,
 then the default session socket path.
+
+`clear_history(surface, fallback_key=TerminalKeyInput(...))` preserves a shortcut
+for alternate-screen applications and requires `clear-history-key-v1`. It
+rejects fallback `utf8` fields above the 4 KiB protocol limit before sending.

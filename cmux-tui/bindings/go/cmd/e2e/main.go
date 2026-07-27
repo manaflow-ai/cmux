@@ -41,7 +41,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	if info.App != "cmux-tui" || info.Protocol < 5 || info.Protocol > 9 {
+	if info.App != "cmux-tui" || info.Protocol < 5 || info.Protocol > 10 {
 		return fmt.Errorf("unexpected identify result: %+v", info)
 	}
 	cols, rows := uint16(80), uint16(24)
@@ -107,6 +107,28 @@ func run() error {
 	}
 	if first.EventName() != "vt-state" {
 		return fmt.Errorf("first attach event was %s", first.EventName())
+	}
+	if info.Protocol >= 10 {
+		sizingClient, size, ok, err := findClientSurfaceSize(ctx, client, created.Surface)
+		if err != nil {
+			return err
+		}
+		if !ok || size.SizeParticipating == nil || !*size.SizeParticipating {
+			return fmt.Errorf("protocol 10 surface sizing state missing: %+v", size)
+		}
+		if err := client.SetClientSizing(ctx, created.Surface, sizingClient, false); err != nil {
+			return err
+		}
+		_, size, ok, err = findClientSurfaceSize(ctx, client, created.Surface)
+		if err != nil {
+			return err
+		}
+		if !ok || size.SizeParticipating == nil || *size.SizeParticipating {
+			return fmt.Errorf("surface sizing mutation was not reflected: %+v", size)
+		}
+		if err := client.SetClientSizing(ctx, created.Surface, sizingClient, true); err != nil {
+			return err
+		}
 	}
 	outputText := fmt.Sprintf("printf '%s\\n'\r", later)
 	if err := client.Send(ctx, created.Surface, cmux.SendOptions{Text: &outputText}); err != nil {
@@ -198,4 +220,23 @@ func findWorkspaceForSurface(tree cmux.Tree, surface uint64) (uint64, bool) {
 		}
 	}
 	return 0, false
+}
+
+func findClientSurfaceSize(
+	ctx context.Context,
+	client *cmux.Client,
+	surface uint64,
+) (uint64, cmux.ClientSurfaceSize, bool, error) {
+	clients, err := client.ListClients(ctx)
+	if err != nil {
+		return 0, cmux.ClientSurfaceSize{}, false, err
+	}
+	for _, info := range clients {
+		for _, size := range info.Sizes {
+			if size.Surface == surface {
+				return info.Client, size, true, nil
+			}
+		}
+	}
+	return 0, cmux.ClientSurfaceSize{}, false, nil
 }

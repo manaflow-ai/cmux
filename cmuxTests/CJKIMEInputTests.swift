@@ -1496,8 +1496,11 @@ final class GhosttyBackquoteRegressionTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        let previousTextInputEventHandler = GhosttyNSView.debugTextInputEventHandler
+        let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
         defer {
-            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
+            GhosttyNSView.debugTextInputEventHandler = previousTextInputEventHandler
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
             window.orderOut(nil)
         }
 
@@ -1515,6 +1518,12 @@ final class GhosttyBackquoteRegressionTests: XCTestCase {
         hostedView.setVisibleInUI(true)
         hostedView.setActive(true)
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        // In a host without an active input context, interpretKeyEvents consumes the
+        // synthetic ESC as insertText("\u{1B}"); the lone control byte fills the key
+        // accumulator and the textForKeyEvent tilde fallback under test never runs.
+        // Route around AppKit interpretation the way the focus-reassertion suite does.
+        GhosttyNSView.debugTextInputEventHandler = { _, _ in true }
 
         var pressText: String?
         var pressUnshiftedCodepoint: UInt32?

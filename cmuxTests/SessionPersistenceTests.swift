@@ -2093,11 +2093,8 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
     /// Regression: the rendered claude resume command must parse in NON-POSIX login shells.
     ///
-    /// The restore launcher dispatches the resume command through the user's `$SHELL`
-    /// (`TerminalStartupReturnShellScript.commandThenReturnLines` runs
-    /// `"$_cmux_resume_shell" -c <command>` for its `csh|tcsh` branch), and the
-    /// session-index resume command is typed into — and copy-pasted into — the user's
-    /// interactive shell. tcsh has no `${VAR:-fallback}` parameter expansion
+    /// The session-index resume command is typed into — and copy-pasted into — the
+    /// user's interactive shell. tcsh has no `${VAR:-fallback}` parameter expansion
     /// ("Bad : modifier in $"), so a raw POSIX-only wrapper token makes the whole resume
     /// command fail to parse and claude never launches, even though the same string works
     /// under `zsh -lic`. https://github.com/manaflow-ai/cmux/issues/5639
@@ -2141,10 +2138,10 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
     }
 
     /// Regression: fish rejects `${…}` outright ("${ is not a valid variable"), and fish
-    /// is a shipped cmux integration (`Resources/shell-integration/fish/`). The restore
-    /// launcher's `*)` branch dispatches `"$_cmux_resume_shell" -c <command>` for fish
-    /// logins, so a POSIX-only wrapper token regresses fish users from working resume to
-    /// a hard parse error. Uses a working directory so the brace-free cwd guard
+    /// is a shipped cmux integration (`Resources/shell-integration/fish/`). Session-index
+    /// resume commands are typed into the user's shell, so a POSIX-only wrapper token
+    /// regresses fish users from working resume to a hard parse error. Uses a working
+    /// directory so the brace-free cwd guard
     /// (`cd … || [ ! -d … ] && …`, https://github.com/manaflow-ai/cmux/issues/6285) is
     /// exercised too — older fish rejects the POSIX `{ …; }` grouping the guard used to
     /// emit. https://github.com/manaflow-ai/cmux/issues/5639
@@ -5682,7 +5679,13 @@ extension SessionPersistenceTests {
     @MainActor
     private func restoredStartupPayload(for panel: TerminalPanel) throws -> String {
         if let input = panel.surface.debugInitialInputForTesting() {
-            return input
+            let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(input).map(\.value)
+            guard let launcherIndex = words.lastIndex(of: "/bin/zsh"),
+                  let scriptPath = words.dropFirst(launcherIndex + 1).first else {
+                return input
+            }
+            let script = try String(contentsOfFile: scriptPath, encoding: .utf8)
+            return input + script
         }
 
         let command = try XCTUnwrap(panel.surface.debugInitialCommand())
