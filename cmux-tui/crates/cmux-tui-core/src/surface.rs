@@ -3376,14 +3376,21 @@ mod tests {
             .join(format!("cmux-local-reap-{}", crate::workspace_registry::new_uuid_v4()));
         std::fs::create_dir_all(&root).unwrap();
         let pid_path = root.join("descendant.pid");
+        let ready_path = root.join("descendant.ready");
+        let release_path = root.join("leader.release");
         let mux = Mux::new_for_test("local-reap-descendants", SurfaceOptions::default());
         let options = SurfaceOptions {
             command: Some(vec![
                 "/bin/sh".into(),
                 "-c".into(),
                 format!(
-                    "trap '' HUP TERM; (exec sleep 30) </dev/null >/dev/null 2>&1 & echo $! > {}; exit 0",
-                    pid_path.display()
+                    "trap '' HUP TERM; terminal=$(tty); \
+                     sleep 30 3<>\"$terminal\" & child=$!; \
+                     : > {ready}; echo $child > {pid}; \
+                     while [ ! -e {release} ]; do sleep 0.01; done; exit 0",
+                    ready = ready_path.display(),
+                    pid = pid_path.display(),
+                    release = release_path.display(),
                 ),
             ]),
             ..SurfaceOptions::default()
@@ -3394,14 +3401,22 @@ mod tests {
                 LocalProcess::Owned(process) => process.clone(),
                 LocalProcess::Untracked(_) => unreachable!("real PTY process must be tracked"),
             };
-        let deadline = Instant::now() + Duration::from_secs(3);
-        while (!pid_path.exists() || !process.child_reaped.load(Ordering::Acquire))
-            && Instant::now() < deadline
-        {
+        let start_deadline = Instant::now() + Duration::from_secs(1);
+        while !pid_path.exists() && Instant::now() < start_deadline {
             std::thread::sleep(Duration::from_millis(10));
         }
         let descendant =
             std::fs::read_to_string(&pid_path).unwrap().trim().parse::<libc::pid_t>().unwrap();
+        // SAFETY: signal 0 only probes the test-owned PID.
+        assert_eq!(unsafe { libc::kill(descendant, 0) }, 0);
+        std::fs::write(&release_path, b"ready").unwrap();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while !process.child_reaped.load(Ordering::Acquire) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let naturally_reaped = process.child_reaped.load(Ordering::Acquire);
+        // SAFETY: signal 0 only probes the test-owned PID.
+        let descendant_alive_before_cleanup = unsafe { libc::kill(descendant, 0) } == 0;
 
         let terminated =
             surface.terminate_for_server_shutdown(Instant::now() + Duration::from_secs(1));
@@ -3422,11 +3437,14 @@ mod tests {
         }
         let _ = std::fs::remove_dir_all(root);
 
-        assert!(process.child_reaped.load(Ordering::Acquire));
+        assert!(
+            naturally_reaped,
+            "normal PTY exit waited for EOF from a same-session descendant before cleanup"
+        );
         assert!(terminated);
         assert!(
-            !descendant_alive,
-            "normal PTY exit reaped its leader while a same-session descendant remained alive"
+            !descendant_alive_before_cleanup,
+            "normal PTY exit left a same-session descendant holding the slave open"
         );
     }
 

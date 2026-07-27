@@ -1247,6 +1247,48 @@ mod tests {
         command.spawn().unwrap()
     }
 
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn natural_cleanup_does_not_wait_for_pty_drain() {
+        let signal_lock = Mutex::new(());
+        let pty_drained = AtomicBool::new(false);
+        let termination_started = AtomicBool::new(false);
+        let cleanup_complete = AtomicBool::new(false);
+        let child_reaped = AtomicBool::new(false);
+        let reap_called = AtomicBool::new(false);
+        let sync = || ReservedChildReap {
+            signal_lock: &signal_lock,
+            pty_drained: &pty_drained,
+            termination_started: &termination_started,
+            cleanup_complete: &cleanup_complete,
+            child_reaped: &child_reaped,
+        };
+
+        assert!(
+            reserved_child_needs_cleanup(sync()),
+            "a descendant holding the PTY open prevented its own cleanup"
+        );
+        assert!(
+            !poll_reserved_session_leader(sync(), true, || {
+                reap_called.store(true, Ordering::Release);
+            }),
+            "the session leader was reaped before the PTY reader drained"
+        );
+        assert!(
+            cleanup_complete.load(Ordering::Acquire),
+            "successful descendant cleanup was not recorded before PTY drain"
+        );
+        assert!(!child_reaped.load(Ordering::Acquire));
+        assert!(!reap_called.load(Ordering::Acquire));
+
+        pty_drained.store(true, Ordering::Release);
+        assert!(poll_reserved_session_leader(sync(), false, || {
+            reap_called.store(true, Ordering::Release);
+        }));
+        assert!(child_reaped.load(Ordering::Acquire));
+        assert!(reap_called.load(Ordering::Acquire));
+    }
+
     #[cfg(target_os = "linux")]
     fn enter_syscall_blocked_subprocess(
         child_env: &str,

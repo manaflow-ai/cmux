@@ -62,8 +62,20 @@ pub mod transport {
 
         use super::Stream;
 
+        #[cfg(test)]
+        type SocketCreatedHook = std::sync::Arc<dyn Fn(libc::c_int) + Send + Sync>;
+        #[cfg(test)]
+        static SOCKET_CREATED_HOOK: std::sync::OnceLock<
+            std::sync::Mutex<Option<SocketCreatedHook>>,
+        > = std::sync::OnceLock::new();
+
         pub(super) struct Listener {
             inner: UnixListener,
+        }
+
+        #[cfg(test)]
+        pub(super) fn set_socket_created_hook(hook: Option<SocketCreatedHook>) {
+            *SOCKET_CREATED_HOOK.get_or_init(Default::default).lock().unwrap() = hook;
         }
 
         pub(super) fn listen(path: &Path) -> io::Result<Listener> {
@@ -90,6 +102,12 @@ pub mod transport {
             // SAFETY: descriptor is a fresh successful socket result and this
             // OwnedFd takes its sole ownership.
             let descriptor = unsafe { OwnedFd::from_raw_fd(descriptor) };
+            #[cfg(test)]
+            if let Some(hook) =
+                SOCKET_CREATED_HOOK.get_or_init(Default::default).lock().unwrap().clone()
+            {
+                hook(descriptor.as_raw_fd());
+            }
             // SAFETY: F_GETFD only reads flags from this valid descriptor.
             let descriptor_flags = unsafe { libc::fcntl(descriptor.as_raw_fd(), libc::F_GETFD) };
             if descriptor_flags < 0 {
@@ -619,6 +637,9 @@ pub mod transport {
     mod tests {
         use super::*;
 
+        #[cfg(unix)]
+        static SOCKET_CREATED_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
         #[test]
         fn expired_connect_deadline_fails_before_socket_resolution() {
             let error = connect_until(
@@ -650,6 +671,47 @@ pub mod transport {
             drop(stream);
             drop(listener);
             std::fs::remove_file(path).unwrap();
+        }
+
+        #[cfg(unix)]
+        #[test]
+        fn deadline_connect_is_close_on_exec_at_socket_creation() {
+            use std::sync::Arc;
+            use std::sync::atomic::{AtomicBool, Ordering};
+
+            let _guard = SOCKET_CREATED_TEST_LOCK.lock().unwrap();
+            let path = std::env::temp_dir().join(format!(
+                "cmux-platform-cloexec-{}-{}.sock",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+            let close_on_exec = Arc::new(AtomicBool::new(false));
+            imp::set_socket_created_hook(Some(Arc::new({
+                let close_on_exec = close_on_exec.clone();
+                move |descriptor| {
+                    // SAFETY: the hook receives the fresh live socket
+                    // descriptor before connect_until performs any fallback.
+                    let flags = unsafe { libc::fcntl(descriptor, libc::F_GETFD) };
+                    close_on_exec
+                        .store(flags >= 0 && flags & libc::FD_CLOEXEC != 0, Ordering::Release);
+                }
+            })));
+
+            let stream = connect_until(&path, Instant::now() + Duration::from_secs(1)).unwrap();
+            imp::set_socket_created_hook(None);
+            let (_accepted, _) = listener.accept().unwrap();
+
+            drop(stream);
+            drop(listener);
+            std::fs::remove_file(path).unwrap();
+            assert!(
+                close_on_exec.load(Ordering::Acquire),
+                "deadline connector exposed an inheritable descriptor before setting close-on-exec"
+            );
         }
 
         #[cfg(target_os = "linux")]

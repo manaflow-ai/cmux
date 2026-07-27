@@ -4129,6 +4129,90 @@ mod unix {
         }
 
         #[test]
+        fn hosted_child_exit_cleans_descendants_that_keep_the_slave_open() {
+            let _guard = HOST_REAP_TEST_LOCK.lock().unwrap();
+            let root = std::env::temp_dir()
+                .join(format!("cmux-host-reap-{}", crate::workspace_registry::new_uuid_v4()));
+            fs::create_dir_all(&root).unwrap();
+            let pid_path = root.join("descendant.pid");
+            let ready_path = root.join("descendant.ready");
+            let release_path = root.join("leader.release");
+            let bootstrap = HostBootstrap {
+                min_version: PROTOCOL_VERSION,
+                max_version: PROTOCOL_VERSION,
+                terminal_id: TerminalId::random().unwrap(),
+                owner_token: CapabilityToken::random().unwrap(),
+            };
+            let mut bootstrap_bytes = Vec::new();
+            write_frame(&mut bootstrap_bytes, &bootstrap.into_frame(1)).unwrap();
+            let bootstrapped = crate::terminal_host::bootstrap_stdio_once(
+                &mut bootstrap_bytes.as_slice(),
+                &mut Vec::new(),
+            )
+            .unwrap();
+            let launch = HostLaunch {
+                endpoint: root.join("host.sock").to_string_lossy().into_owned(),
+                record_path: root.join("host.json").to_string_lossy().into_owned(),
+                term: "xterm-256color".into(),
+                cols: 80,
+                rows: 24,
+                scrollback: 100,
+                cwd: Some("/tmp".into()),
+                command: vec![
+                    "/bin/sh".into(),
+                    "-c".into(),
+                    format!(
+                        "trap '' HUP TERM; terminal=$(tty); \
+                         sleep 30 3<>\"$terminal\" & child=$!; \
+                         : > {ready}; echo $child > {pid}; \
+                         while [ ! -e {release} ]; do sleep 0.01; done; exit 0",
+                        ready = ready_path.display(),
+                        pid = pid_path.display(),
+                        release = release_path.display(),
+                    ),
+                ],
+                extra_env: Vec::new(),
+                default_colors: DefaultColors::default(),
+            };
+            let host = spawn_host_runtime(&launch, &bootstrapped).unwrap();
+            let start_deadline = Instant::now() + Duration::from_secs(1);
+            while !pid_path.exists() && Instant::now() < start_deadline {
+                thread::sleep(Duration::from_millis(10));
+            }
+            let descendant =
+                fs::read_to_string(&pid_path).unwrap().trim().parse::<libc::pid_t>().unwrap();
+            // SAFETY: signal 0 only probes the test-owned PID.
+            assert_eq!(unsafe { libc::kill(descendant, 0) }, 0);
+            fs::write(&release_path, b"ready").unwrap();
+            let deadline = Instant::now() + Duration::from_secs(3);
+            while !host.child_reaped.load(Ordering::Acquire) && Instant::now() < deadline {
+                thread::sleep(Duration::from_millis(10));
+            }
+            let naturally_reaped = host.child_reaped.load(Ordering::Acquire);
+            // SAFETY: signal 0 only probes the test-owned PID.
+            let descendant_alive_before_cleanup = unsafe { libc::kill(descendant, 0) } == 0;
+
+            host.request_termination();
+            let _ = host.wait_for_child_exit(Duration::from_secs(1));
+            if unsafe { libc::kill(descendant, 0) } == 0 {
+                // SAFETY: this PID was written by the test-owned descendant.
+                unsafe {
+                    libc::kill(descendant, libc::SIGKILL);
+                }
+            }
+            let _ = fs::remove_dir_all(root);
+
+            assert!(
+                naturally_reaped,
+                "hosted PTY exit waited for EOF from a same-session descendant before cleanup"
+            );
+            assert!(
+                !descendant_alive_before_cleanup,
+                "hosted PTY exit left a same-session descendant holding the slave open"
+            );
+        }
+
+        #[test]
         fn detached_host_process_retains_reap_ownership_when_worker_spawn_fails() {
             let _guard = HOST_REAP_TEST_LOCK.lock().unwrap();
             let child =

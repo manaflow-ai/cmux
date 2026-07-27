@@ -1386,7 +1386,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn legacy_helper_timeout_is_bounded_without_force_killing_the_helper() {
+    fn legacy_helper_timeout_retains_reap_ownership() {
         use std::io::BufRead as _;
 
         let mut helper = Command::new("/bin/sh")
@@ -1399,21 +1399,38 @@ mod tests {
         let mut ready = String::new();
         BufReader::new(helper.stdout.take().unwrap()).read_line(&mut ready).unwrap();
         assert_eq!(ready, "ready\n");
+        let helper_pid = libc::pid_t::try_from(helper.id()).unwrap();
         let started = Instant::now();
 
         let error = wait_for_child_until(&mut helper, Instant::now() + Duration::from_millis(50))
             .unwrap_err();
         let elapsed = started.elapsed();
-        let still_running = helper.try_wait().unwrap().is_none();
-        let _ = helper.kill();
-        let _ = helper.wait();
+        drop(helper);
+        // SAFETY: helper_pid names this exact test-owned child.
+        unsafe {
+            libc::kill(helper_pid, libc::SIGKILL);
+        }
+        std::thread::sleep(Duration::from_millis(250));
+        let mut status = 0;
+        // SAFETY: this probes whether another owner retained and reaped the
+        // exact test child after wait_for_child_until returned.
+        let reaped = unsafe { libc::waitpid(helper_pid, &raw mut status, libc::WNOHANG) };
+        let reaped_error = (reaped == -1).then(io::Error::last_os_error);
+        if reaped == 0 {
+            // SAFETY: the child is still owned by this test process.
+            unsafe {
+                libc::kill(helper_pid, libc::SIGKILL);
+                libc::waitpid(helper_pid, &raw mut status, 0);
+            }
+        }
 
         assert_eq!(error.to_string(), crate::localization::catalog().server.legacy_cleanup_failed);
         assert!(
             elapsed < Duration::from_millis(250),
             "helper wait exceeded its bound: {elapsed:?}"
         );
-        assert!(still_running, "parent force-killed the helper after its deadline");
+        assert_eq!(reaped, -1, "timed-out helper lost its reaping owner");
+        assert_eq!(reaped_error.and_then(|error| error.raw_os_error()), Some(libc::ECHILD));
     }
 
     #[cfg(unix)]
