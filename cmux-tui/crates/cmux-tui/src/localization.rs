@@ -87,6 +87,8 @@ pub(crate) struct ShortcutMessages {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct AttachMessages {
     pub filtered_subscription_unavailable: &'static str,
+    pub remote_attach_queue_full: &'static str,
+    remote_attach_workers_failed_template: &'static str,
     surface_sync_failed_template: &'static str,
     surface_sync_unknown_template: &'static str,
     surface_sync_attach: &'static str,
@@ -101,6 +103,10 @@ pub(crate) struct AttachMessages {
 }
 
 impl AttachMessages {
+    pub fn remote_attach_workers_failed(&self, error: &str) -> String {
+        self.remote_attach_workers_failed_template.replace("{error}", error)
+    }
+
     fn surface_sync_operation(&self, operation: &str) -> &'static str {
         match operation {
             "attach" => self.surface_sync_attach,
@@ -377,6 +383,8 @@ edits shell files. Authenticate with the configured host before retrying.
     },
     attach: AttachMessages {
         filtered_subscription_unavailable: "single-terminal attach requires a newer cmux-tui server; restart the session",
+        remote_attach_queue_full: "remote surface attach queue is full",
+        remote_attach_workers_failed_template: "could not start surface attach workers: {error}",
         surface_sync_failed_template: "surface {surface} {operation} failed; retries are rate-limited: {error}",
         surface_sync_unknown_template: "surface {surface} {operation} outcome is unknown; detach and reconnect before sending more input: {error}",
         surface_sync_attach: "attach",
@@ -537,6 +545,8 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
     },
     attach: AttachMessages {
         filtered_subscription_unavailable: "単一ターミナルへの接続には新しい cmux-tui サーバーが必要です。セッションを再起動してください",
+        remote_attach_queue_full: "リモートサーフェス接続キューがいっぱいです",
+        remote_attach_workers_failed_template: "リモートサーフェス接続ワーカーを開始できませんでした: {error}",
         surface_sync_failed_template: "サーフェス {surface} の{operation}に失敗しました。再試行は制限されています: {error}",
         surface_sync_unknown_template: "サーフェス {surface} の{operation}結果は不明です。入力を続ける前に切断して再接続してください: {error}",
         surface_sync_attach: "接続",
@@ -667,6 +677,19 @@ mod tests {
         assert_eq!(
             JAPANESE.attach.filtered_subscription_unavailable,
             "単一ターミナルへの接続には新しい cmux-tui サーバーが必要です。セッションを再起動してください"
+        );
+        assert_eq!(ENGLISH.attach.remote_attach_queue_full, "remote surface attach queue is full");
+        assert_eq!(
+            JAPANESE.attach.remote_attach_queue_full,
+            "リモートサーフェス接続キューがいっぱいです"
+        );
+        assert_eq!(
+            ENGLISH.attach.remote_attach_workers_failed("os detail"),
+            "could not start surface attach workers: os detail"
+        );
+        assert_eq!(
+            JAPANESE.attach.remote_attach_workers_failed("os detail"),
+            "リモートサーフェス接続ワーカーを開始できませんでした: os detail"
         );
         assert_eq!(
             ENGLISH.attach.unknown_terminal("missing"),

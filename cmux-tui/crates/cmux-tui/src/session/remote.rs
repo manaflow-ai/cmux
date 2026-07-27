@@ -1964,7 +1964,10 @@ fn parse_kitty_image_aliases(
         return Ok(Vec::new());
     };
     let aliases = aliases.as_array().ok_or("kitty_image_aliases must be an array")?;
-    aliases
+    if aliases.len() > cmux_tui_core::terminal_host_protocol::MAX_KITTY_IMAGE_ALIASES {
+        return Err("kitty_image_aliases has too many entries");
+    }
+    let aliases = aliases
         .iter()
         .map(|alias| {
             let image_id = alias
@@ -1979,7 +1982,10 @@ fn parse_kitty_image_aliases(
                 .ok_or("kitty image alias has an invalid image_number")?;
             Ok(ghostty_vt::KittyImageAlias { image_id, image_number })
         })
-        .collect()
+        .collect::<Result<Vec<_>, &'static str>>()?;
+    cmux_tui_core::terminal_host_runtime::validate_kitty_image_aliases(&aliases)
+        .map_err(|_| "kitty_image_aliases violates terminal-host invariants")?;
+    Ok(aliases)
 }
 
 fn dump_mirror(surface: &RemoteSurface) -> String {

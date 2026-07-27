@@ -1425,7 +1425,11 @@ impl OrderedSession {
                     Ok(created) => *executor = Some(created),
                     Err(error) => {
                         drop(executor);
-                        job.fail(format!("could not start surface attach workers: {error}"));
+                        job.fail(
+                            localization::catalog()
+                                .attach
+                                .remote_attach_workers_failed(&error.to_string()),
+                        );
                         return;
                     }
                 }
@@ -1435,7 +1439,7 @@ impl OrderedSession {
             match admission {
                 RemoteSurfaceAttachAdmission::Enqueued { displaced } => drop(displaced),
                 RemoteSurfaceAttachAdmission::Rejected(job) => {
-                    job.fail("remote surface attach queue is full".into());
+                    job.fail(localization::catalog().attach.remote_attach_queue_full.to_string());
                 }
             }
             return;

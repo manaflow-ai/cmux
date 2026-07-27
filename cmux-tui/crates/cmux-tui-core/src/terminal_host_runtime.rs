@@ -64,6 +64,24 @@ pub(crate) fn normalize_terminal_geometry(cols: u16, rows: u16) -> anyhow::Resul
     Ok((cols, rows))
 }
 
+pub fn validate_kitty_image_aliases(aliases: &[KittyImageAlias]) -> anyhow::Result<()> {
+    if aliases.len() > MAX_KITTY_IMAGE_ALIASES {
+        anyhow::bail!("terminal-host Kitty image alias count is too large");
+    }
+    // Repeated image numbers preserve Kitty's assignment history. Image IDs
+    // remain unique identities within a snapshot.
+    let mut image_ids = std::collections::HashSet::with_capacity(aliases.len());
+    for alias in aliases {
+        if alias.image_id == 0 || alias.image_number == 0 {
+            anyhow::bail!("terminal-host Kitty image aliases must be nonzero");
+        }
+        if !image_ids.insert(alias.image_id) {
+            anyhow::bail!("duplicate terminal-host Kitty image alias ID");
+        }
+    }
+    Ok(())
+}
+
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TerminalHostRecord {
     pub record_version: u32,
@@ -3064,24 +3082,6 @@ mod unix {
             command,
             cwd,
         })
-    }
-
-    fn validate_kitty_image_aliases(aliases: &[KittyImageAlias]) -> anyhow::Result<()> {
-        if aliases.len() > MAX_KITTY_IMAGE_ALIASES {
-            anyhow::bail!("terminal-host Kitty image alias count is too large");
-        }
-        // Repeated image numbers preserve Kitty's assignment history. Image
-        // IDs remain unique identities within a snapshot.
-        let mut image_ids = HashSet::with_capacity(aliases.len());
-        for alias in aliases {
-            if alias.image_id == 0 || alias.image_number == 0 {
-                anyhow::bail!("terminal-host Kitty image aliases must be nonzero");
-            }
-            if !image_ids.insert(alias.image_id) {
-                anyhow::bail!("duplicate terminal-host Kitty image alias ID");
-            }
-        }
-        Ok(())
     }
 
     fn encode_kitty_image_aliases(
