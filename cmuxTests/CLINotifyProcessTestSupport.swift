@@ -1,5 +1,6 @@
 import XCTest
 import Darwin
+import Network
 
 extension CLINotifyProcessIntegrationRegressionTests {
     struct ProcessRunResult {
@@ -12,6 +13,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
     final class MockSocketServerState: @unchecked Sendable {
         private let lock = NSLock()
         private(set) var commands: [String] = []
+        private var blankSurfaceAtSplitByThreadId: [String: Bool] = [:]
 
         func append(_ command: String) {
             lock.lock()
@@ -24,6 +26,200 @@ extension CLINotifyProcessIntegrationRegressionTests {
             let value = commands
             lock.unlock()
             return value
+        }
+
+        func recordBlankSurfaceAtSplit(_ wasBlank: Bool, threadId: String) {
+            lock.lock()
+            blankSurfaceAtSplitByThreadId[threadId] = wasBlank
+            lock.unlock()
+        }
+
+        func blankSurfaceAtSplit(threadId: String) -> Bool? {
+            lock.lock()
+            let value = blankSurfaceAtSplitByThreadId[threadId]
+            lock.unlock()
+            return value
+        }
+    }
+
+    final class CodexTeamsTestAppServer: @unchecked Sendable {
+        private let queue = DispatchQueue(label: "cmux.tests.codex-teams-app-server")
+        private let listener: NWListener
+        private let threadsById: [String: [String: Any]]
+        private let loadedThreadIds: [String]
+        private let lock = NSLock()
+        private var connections: [NWConnection] = []
+
+        init(threads: [[String: Any]], loadedThreadIds: [String]) throws {
+            let parameters = NWParameters.tcp
+            let webSocketOptions = NWProtocolWebSocket.Options()
+            webSocketOptions.autoReplyPing = true
+            parameters.defaultProtocolStack.applicationProtocols.insert(webSocketOptions, at: 0)
+            listener = try NWListener(using: parameters, on: .any)
+            threadsById = Dictionary(
+                uniqueKeysWithValues: threads.compactMap { thread in
+                    guard let id = thread["id"] as? String else { return nil }
+                    return (id, thread)
+                }
+            )
+            self.loadedThreadIds = loadedThreadIds
+        }
+
+        func start(timeout: TimeInterval = 5) throws -> URL {
+            let ready = DispatchSemaphore(value: 0)
+            let failed = LockedBox<NWError?>()
+            listener.stateUpdateHandler = { state in
+                switch state {
+                case .ready:
+                    ready.signal()
+                case .failed(let error):
+                    failed.set(error)
+                    ready.signal()
+                default:
+                    break
+                }
+            }
+            listener.newConnectionHandler = { [weak self] connection in
+                self?.accept(connection)
+            }
+            listener.start(queue: queue)
+            guard ready.wait(timeout: .now() + timeout) == .success else {
+                throw NSError(
+                    domain: "cmux.tests",
+                    code: 1,
+                    userInfo: [NSLocalizedDescriptionKey: "Codex Teams test app-server did not start"]
+                )
+            }
+            if let error = failed.get() ?? nil {
+                throw error
+            }
+            guard let port = listener.port else {
+                throw NSError(
+                    domain: "cmux.tests",
+                    code: 2,
+                    userInfo: [NSLocalizedDescriptionKey: "Codex Teams test app-server has no port"]
+                )
+            }
+            return URL(string: "ws://127.0.0.1:\(port.rawValue)")!
+        }
+
+        func stop() {
+            listener.cancel()
+            lock.lock()
+            let activeConnections = connections
+            connections.removeAll()
+            lock.unlock()
+            for connection in activeConnections {
+                connection.cancel()
+            }
+        }
+
+        private func accept(_ connection: NWConnection) {
+            lock.lock()
+            connections.append(connection)
+            lock.unlock()
+            connection.stateUpdateHandler = { [weak self, weak connection] state in
+                guard case .cancelled = state, let connection else { return }
+                self?.remove(connection)
+            }
+            connection.start(queue: queue)
+            receive(on: connection)
+        }
+
+        private func remove(_ connection: NWConnection) {
+            lock.lock()
+            connections.removeAll { $0 === connection }
+            lock.unlock()
+        }
+
+        private func receive(on connection: NWConnection) {
+            connection.receiveMessage { [weak self, weak connection] data, _, _, error in
+                guard let self, let connection else { return }
+                if error != nil {
+                    connection.cancel()
+                    return
+                }
+                if let data,
+                   let request = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                    self.handle(request, on: connection)
+                }
+                self.receive(on: connection)
+            }
+        }
+
+        private func handle(_ request: [String: Any], on connection: NWConnection) {
+            guard let method = request["method"] as? String else { return }
+            guard let requestId = request["id"] else { return }
+            switch method {
+            case "initialize":
+                send([["id": requestId, "result": [:]]], on: connection)
+            case "thread/loaded/list":
+                send([["id": requestId, "result": ["data": loadedThreadIds]]], on: connection)
+            case "thread/resume":
+                guard let params = request["params"] as? [String: Any],
+                      let threadId = params["threadId"] as? String,
+                      let thread = threadsById[threadId] else {
+                    send([[
+                        "id": requestId,
+                        "error": ["code": -32_602, "message": "unknown test thread"],
+                    ]], on: connection)
+                    return
+                }
+                send([
+                    [
+                        "method": "thread/started",
+                        "params": ["thread": thread],
+                    ],
+                    [
+                        "id": requestId,
+                        "result": ["thread": thread],
+                    ],
+                ], on: connection)
+            default:
+                send([[
+                    "id": requestId,
+                    "error": ["code": -32_601, "message": "unsupported test method \(method)"],
+                ]], on: connection)
+            }
+        }
+
+        private func send(_ objects: [[String: Any]], on connection: NWConnection) {
+            guard let first = objects.first,
+                  let data = try? JSONSerialization.data(withJSONObject: first) else {
+                return
+            }
+            let metadata = NWProtocolWebSocket.Metadata(opcode: .text)
+            let context = NWConnection.ContentContext(
+                identifier: UUID().uuidString,
+                metadata: [metadata]
+            )
+            connection.send(
+                content: data,
+                contentContext: context,
+                isComplete: true,
+                completion: .contentProcessed { [weak self, weak connection] error in
+                    guard error == nil, let self, let connection else { return }
+                    self.send(Array(objects.dropFirst()), on: connection)
+                }
+            )
+        }
+    }
+
+    final class LockedBox<Value>: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value: Value?
+
+        func set(_ value: Value) {
+            lock.lock()
+            self.value = value
+            lock.unlock()
+        }
+
+        func get() -> Value? {
+            lock.lock()
+            let current = value
+            lock.unlock()
+            return current
         }
     }
 

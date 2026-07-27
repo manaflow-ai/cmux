@@ -3292,6 +3292,227 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testCodexTeamsWatcherPersistsAuthoritativeLifecycleGraphAndManagedHookDeduplicates() throws {
+        let context = try makeClaudeHookContext(name: "codex-teams-lifecycle")
+        defer { context.cleanup() }
+
+        let rootThreadId = "019fa1f5-1e77-7000-8000-000000000001"
+        let firstChildThreadId = "019fa1f5-4c8c-7000-8000-000000000002"
+        let secondChildThreadId = "019fa1f5-55f3-7000-8000-000000000003"
+        let grandchildThreadId = "019fa1f5-70ef-7000-8000-000000000004"
+        func thread(
+            id: String,
+            status: String,
+            parentThreadId: String? = nil,
+            depth: Int? = nil
+        ) -> [String: Any] {
+            var value: [String: Any] = [
+                "id": id,
+                "cwd": context.root.path,
+                "status": ["type": status],
+            ]
+            if let parentThreadId {
+                var spawn: [String: Any] = ["parent_thread_id": parentThreadId]
+                if let depth {
+                    spawn["depth"] = depth
+                }
+                value["source"] = [
+                    "subagent": [
+                        "thread_spawn": spawn,
+                    ],
+                ]
+            }
+            return value
+        }
+
+        let appServer = try CodexTeamsTestAppServer(
+            threads: [
+                thread(id: rootThreadId, status: "idle"),
+                thread(id: firstChildThreadId, status: "idle", parentThreadId: rootThreadId, depth: 1),
+                thread(id: secondChildThreadId, status: "notLoaded", parentThreadId: rootThreadId, depth: 1),
+                thread(id: grandchildThreadId, status: "notLoaded", parentThreadId: firstChildThreadId, depth: 2),
+            ],
+            loadedThreadIds: [
+                rootThreadId,
+                firstChildThreadId,
+                secondChildThreadId,
+                grandchildThreadId,
+            ]
+        )
+        let appServerURL = try appServer.start()
+        defer { appServer.stop() }
+
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 64)
+
+        let owner = Process()
+        owner.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        owner.arguments = ["20"]
+        try owner.run()
+
+        let watcher = Process()
+        watcher.executableURL = URL(fileURLWithPath: context.cliPath)
+        watcher.arguments = [
+            "--socket",
+            context.socketPath,
+            "__codex-teams-watch",
+            "--workspace-id",
+            context.workspaceId,
+            "--surface-id",
+            context.surfaceId,
+            "--app-server-url",
+            appServerURL.absoluteString,
+            "--codex-path",
+            "/usr/bin/true",
+            "--max-auto-depth",
+            "4",
+            "--owner-pid",
+            String(owner.processIdentifier),
+        ]
+        var watcherEnvironment = ProcessInfo.processInfo.environment
+        watcherEnvironment["HOME"] = context.root.path
+        watcherEnvironment["CMUX_AGENT_HOOK_STATE_DIR"] = context.root.path
+        watcherEnvironment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        watcher.environment = watcherEnvironment
+        watcher.standardInput = FileHandle.nullDevice
+        watcher.standardOutput = FileHandle.nullDevice
+        watcher.standardError = FileHandle.nullDevice
+        try watcher.run()
+        defer {
+            if watcher.isRunning {
+                watcher.terminate()
+                watcher.waitUntilExit()
+            }
+            if owner.isRunning {
+                owner.terminate()
+                owner.waitUntilExit()
+            }
+        }
+
+        let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+        let firstChildSurfaceId = "surface-\(firstChildThreadId)"
+        let persisted = waitForCondition(timeout: 8) {
+            guard let sessions = try? self.readClaudeHookSessions(at: stateURL),
+                  sessions.count == 4,
+                  let child = sessions[firstChildThreadId] else {
+                return false
+            }
+            return child["surfaceId"] as? String == firstChildSurfaceId
+        }
+        XCTAssertTrue(
+            persisted,
+            "Watcher should persist all observed Codex threads and update the attached child surface"
+        )
+        guard persisted else { return }
+
+        var sessions = try readClaudeHookSessions(at: stateURL)
+        XCTAssertEqual(sessions.count, 4, "Duplicate app-server observations must stay one record per thread")
+
+        let root = try XCTUnwrap(sessions[rootThreadId])
+        XCTAssertEqual(root["workspaceId"] as? String, context.workspaceId)
+        XCTAssertEqual(root["surfaceId"] as? String, context.surfaceId)
+        XCTAssertEqual(root["runId"] as? String, rootThreadId)
+        XCTAssertNil(root["parentRunId"])
+        XCTAssertNil(root["parentSessionId"])
+        XCTAssertNil(root["relationship"])
+
+        for (childId, parentId) in [
+            (firstChildThreadId, rootThreadId),
+            (secondChildThreadId, rootThreadId),
+            (grandchildThreadId, firstChildThreadId),
+        ] {
+            let child = try XCTUnwrap(sessions[childId])
+            XCTAssertEqual(child["workspaceId"] as? String, context.workspaceId)
+            XCTAssertEqual(child["runId"] as? String, childId)
+            XCTAssertEqual(child["parentRunId"] as? String, parentId)
+            XCTAssertEqual(child["parentSessionId"] as? String, parentId)
+            XCTAssertEqual(child["relationship"] as? String, "spawned")
+        }
+        XCTAssertEqual(sessions[firstChildThreadId]?["surfaceId"] as? String, firstChildSurfaceId)
+        XCTAssertEqual(sessions[secondChildThreadId]?["surfaceId"] as? String, "")
+        XCTAssertEqual(sessions[grandchildThreadId]?["surfaceId"] as? String, "")
+        XCTAssertEqual(context.state.blankSurfaceAtSplit(threadId: firstChildThreadId), true)
+
+        let splitRequest = try XCTUnwrap(
+            context.state.snapshot().compactMap(jsonObject).first {
+                guard $0["method"] as? String == "surface.split",
+                      let params = $0["params"] as? [String: Any],
+                      let startupEnvironment = params["startup_environment"] as? [String: String] else {
+                    return false
+                }
+                return startupEnvironment["CMUX_CODEX_TEAMS_THREAD_ID"] == firstChildThreadId
+            }
+        )
+        let splitParams = try XCTUnwrap(splitRequest["params"] as? [String: Any])
+        let startupEnvironment = try XCTUnwrap(splitParams["startup_environment"] as? [String: String])
+        XCTAssertEqual(startupEnvironment["CMUX_AGENT_HOOK_STATE_DIR"], context.root.path)
+        XCTAssertTrue(
+            (splitParams["tmux_start_command"] as? String)?.contains("CMUX_AGENT_HOOK_STATE_DIR") == true
+        )
+
+        let childHookContext = ClaudeHookContext(
+            cliPath: context.cliPath,
+            socketPath: context.socketPath,
+            listenerFD: context.listenerFD,
+            state: context.state,
+            root: context.root,
+            workspaceId: context.workspaceId,
+            surfaceId: firstChildSurfaceId
+        )
+        let childStart = runCodexHook(
+            context: childHookContext,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(firstChildThreadId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: codexLaunchEnvironment(
+                context: childHookContext,
+                sessionId: firstChildThreadId
+            ).merging([
+                "CMUX_AGENT_MANAGED_SUBAGENT": "1",
+                "CMUX_CODEX_TEAMS_THREAD_ID": firstChildThreadId,
+                "CMUX_CODEX_TEAMS_PARENT_THREAD_ID": rootThreadId,
+                "CMUX_CODEX_TEAMS_DEPTH": "1",
+            ], uniquingKeysWith: { _, new in new })
+        )
+        XCTAssertFalse(childStart.timedOut, childStart.stderr)
+        XCTAssertEqual(childStart.status, 0, childStart.stderr)
+
+        sessions = try readClaudeHookSessions(at: stateURL)
+        XCTAssertEqual(sessions.count, 4, "Managed child SessionStart must deduplicate the watcher record")
+        let childAfterHook = try XCTUnwrap(sessions[firstChildThreadId])
+        XCTAssertEqual(childAfterHook["runId"] as? String, firstChildThreadId)
+        XCTAssertEqual(childAfterHook["parentRunId"] as? String, rootThreadId)
+        XCTAssertEqual(childAfterHook["parentSessionId"] as? String, rootThreadId)
+        XCTAssertEqual(childAfterHook["relationship"] as? String, "spawned")
+        XCTAssertEqual(childAfterHook["surfaceId"] as? String, firstChildSurfaceId)
+    }
+
+    func testManagedNonCodexSessionStartDoesNotPersistCodexTeamsLineage() throws {
+        let context = try makeClaudeHookContext(name: "non-codex-managed-lineage")
+        defer { context.cleanup() }
+
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 16)
+        let sessionId = "claude-managed-child"
+        let result = runAgentHook(
+            context: context,
+            agent: "claude",
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: [
+                "CMUX_AGENT_MANAGED_SUBAGENT": "1",
+                "CMUX_CODEX_TEAMS_THREAD_ID": "codex-child-thread",
+                "CMUX_CODEX_TEAMS_PARENT_THREAD_ID": "codex-root-thread",
+                "CMUX_CODEX_TEAMS_DEPTH": "1",
+            ]
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let record = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertNil(record["runId"])
+        XCTAssertNil(record["parentRunId"])
+        XCTAssertNil(record["parentSessionId"])
+        XCTAssertNil(record["relationship"])
+    }
+
     func testCodexStopIgnoresStaleSubagentRelayFromCompletedTurnWithoutTurnId() throws {
         let context = try makeClaudeHookContext(name: "codex-stale-relay")
         defer { context.cleanup() }
@@ -8772,7 +8993,48 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         }
         switch method {
         case "surface.list":
-            return surfaceListResponse(id: id, surfaceId: context.surfaceId)
+            var surfaceIds = [context.surfaceId]
+            for command in context.state.snapshot() {
+                guard let payload = jsonObject(command),
+                      payload["method"] as? String == "surface.split",
+                      let params = payload["params"] as? [String: Any],
+                      let environment = params["startup_environment"] as? [String: String],
+                      let threadId = environment["CMUX_CODEX_TEAMS_THREAD_ID"] else {
+                    continue
+                }
+                surfaceIds.append("surface-\(threadId)")
+            }
+            let surfaces = Array(Set(surfaceIds)).enumerated().map { index, surfaceId in
+                [
+                    "id": surfaceId,
+                    "ref": "surface:\(index + 1)",
+                    "index": index,
+                    "focused": surfaceId == context.surfaceId,
+                ] as [String: Any]
+            }
+            return v2Response(id: id, ok: true, result: ["surfaces": surfaces])
+        case "surface.split":
+            let params = payload["params"] as? [String: Any] ?? [:]
+            let environment = params["startup_environment"] as? [String: String] ?? [:]
+            let threadId = environment["CMUX_CODEX_TEAMS_THREAD_ID"] ?? "unknown"
+            let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+            let wasBlank: Bool
+            if let sessions = try? readClaudeHookSessions(at: stateURL),
+               let record = sessions[threadId] {
+                wasBlank = record["surfaceId"] as? String == ""
+            } else {
+                wasBlank = false
+            }
+            context.state.recordBlankSurfaceAtSplit(wasBlank, threadId: threadId)
+            return v2Response(
+                id: id,
+                ok: true,
+                result: ["surface_id": "surface-\(threadId)"]
+            )
+        case "tab.action":
+            return v2Response(id: id, ok: true, result: ["renamed": true])
+        case "workspace.equalize_splits":
+            return v2Response(id: id, ok: true, result: ["equalized": true])
         case "feed.push":
             return v2Response(id: id, ok: true, result: [:])
         case "surface.resume.set":
@@ -8852,9 +9114,29 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
     private func readClaudeHookSession(_ sessionId: String, context: ClaudeHookContext) throws -> [String: Any] {
         let stateURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        let sessions = try readClaudeHookSessions(at: stateURL)
+        return try XCTUnwrap(sessions[sessionId])
+    }
+
+    private func readClaudeHookSessions(at stateURL: URL) throws -> [String: [String: Any]] {
         let state = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
-        let sessions = try XCTUnwrap(state["sessions"] as? [String: Any])
-        return try XCTUnwrap(sessions[sessionId] as? [String: Any])
+        let rawSessions = try XCTUnwrap(state["sessions"] as? [String: Any])
+        return rawSessions.compactMapValues { $0 as? [String: Any] }
+    }
+
+    private func waitForCondition(
+        timeout: TimeInterval,
+        pollInterval: TimeInterval = 0.02,
+        _ condition: () -> Bool
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if condition() {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(pollInterval))
+        } while Date() < deadline
+        return condition()
     }
 
     private func feedPushEvents(in context: ClaudeHookContext) -> [[String: Any]] {
