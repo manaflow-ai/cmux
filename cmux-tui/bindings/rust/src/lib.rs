@@ -2114,6 +2114,57 @@ mod tests {
     }
 
     #[test]
+    fn new_pane_right_rejects_invalid_widths_without_sending_a_command() {
+        let (socket, mut peer) = UnixStream::pair().unwrap();
+        let writer = socket.try_clone().unwrap();
+        let mut client = CmuxClient {
+            config: ClientConfig::default(),
+            conn: JsonLineConnection { writer, reader: BufReader::new(socket) },
+            next_id: 1,
+            protocol: Some(10),
+            capabilities: vec!["viewport-splits-v1".to_string()],
+        };
+        let peer_reader = peer.try_clone().unwrap();
+        let capture = std::thread::spawn(move || {
+            let mut reader = BufReader::new(peer_reader);
+            let mut requests = Vec::new();
+            loop {
+                let mut line = String::new();
+                match reader.read_line(&mut line) {
+                    Ok(0) => break,
+                    Ok(_) => {
+                        let request: Value = serde_json::from_str(&line).unwrap();
+                        let id = request["id"].clone();
+                        requests.push(request);
+                        writeln!(
+                            peer,
+                            "{}",
+                            serde_json::json!({
+                                "id": id,
+                                "ok": true,
+                                "data": {"surface": 9},
+                            })
+                        )
+                        .unwrap();
+                    }
+                    Err(error) => panic!("failed to capture request: {error}"),
+                }
+            }
+            requests
+        });
+
+        for width in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, 0.09, 1.01] {
+            assert!(matches!(
+                client.new_pane_right(7, Some(width), None, None),
+                Err(CmuxError::InvalidArgument(message))
+                    if message == "viewport pane width must be between 0.1 and 1.0"
+            ));
+        }
+        drop(client);
+        assert!(capture.join().unwrap().is_empty());
+    }
+
+    #[test]
     fn overflow_decodes_recovery_fields() {
         let event = parse_event(serde_json::json!({
             "event": "overflow",

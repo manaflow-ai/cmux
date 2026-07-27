@@ -372,6 +372,39 @@ test("newPane rejects servers older than protocol 9", async () => {
   await client.close();
 });
 
+test("newPaneRight rejects invalid widths before transport", async () => {
+  const requests: Record<string, unknown>[] = [];
+  const transport = new ScriptedTransport((request, connection) => {
+    requests.push(request);
+    if (request.cmd === "identify") {
+      connection.emit({
+        id: request.id,
+        ok: true,
+        data: {
+          app: "cmux-tui",
+          version: "0.1.2",
+          protocol: 10,
+          capabilities: ["viewport-splits-v1"],
+          session: "main",
+          pid: 1,
+        },
+      });
+      return;
+    }
+    connection.emit({ id: request.id, ok: true, data: { surface: 9 } });
+  });
+  const client = new CmuxClient({ transport, timeoutMs: 100 });
+
+  for (const width of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, 0.09, 1.01]) {
+    await assert.rejects(
+      client.newPaneRight(7, { width }),
+      /viewport pane width must be between 0.1 and 1.0/,
+    );
+  }
+  assert.deepEqual(requests, []);
+  await client.close();
+});
+
 test("clearHistory rejects servers without the advertised capability", async () => {
   let clearRequests = 0;
   const transport = new ScriptedTransport((request, connection) => {
