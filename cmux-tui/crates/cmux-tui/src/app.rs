@@ -16294,6 +16294,60 @@ mod tests {
     }
 
     #[test]
+    fn surface_attach_failure_status_uses_the_selected_locale() {
+        const CHILD_ENV: &str = "CMUX_SURFACE_ATTACH_FAILURE_LOCALE_CHILD";
+        if std::env::var_os(CHILD_ENV).is_none() {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .arg("app::tests::surface_attach_failure_status_uses_the_selected_locale")
+                .arg("--exact")
+                .arg("--nocapture")
+                .env(CHILD_ENV, "1")
+                .env("LC_ALL", "ja_JP.UTF-8")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "Japanese surface attach failure child failed:\nstdout:\n{}\nstderr:\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+
+        let mux = Mux::new("surface-attach-failure-locale-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.handle(AppEvent::SurfaceAttachSettled {
+            outcome: super::SessionMutationOutcome::SurfaceSyncFailed {
+                surface: 77,
+                operation: "attach",
+                error: "offline".to_string(),
+                reconnect_required: false,
+            },
+        })
+        .unwrap();
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("サーフェス 77 の attach に失敗しました。再試行は制限されています: offline")
+        );
+
+        app.handle(AppEvent::SurfaceAttachSettled {
+            outcome: super::SessionMutationOutcome::SurfaceSyncFailed {
+                surface: 77,
+                operation: "attach",
+                error: "timeout".to_string(),
+                reconnect_required: true,
+            },
+        })
+        .unwrap();
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some(
+                "サーフェス 77 の attach の結果は不明です。入力を続ける前に切断して再接続してください: timeout"
+            )
+        );
+    }
+
+    #[test]
     fn first_input_for_missing_mirror_is_deferred_through_attach() {
         let mux = Mux::new("missing-mirror-input-test", SurfaceOptions::default());
         let (mut app, events) = test_app_with_events(Session::Local(mux));

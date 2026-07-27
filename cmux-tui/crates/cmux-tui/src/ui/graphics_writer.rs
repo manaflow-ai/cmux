@@ -966,6 +966,40 @@ mod tests {
         }
     }
 
+    struct RecoveringPartialOutput {
+        bytes: Vec<u8>,
+        recovery_attempts: usize,
+    }
+
+    impl GraphicsOutput for RecoveringPartialOutput {
+        fn write_segment(
+            &mut self,
+            bytes: &[u8],
+            _permit: &WritePermit<'_>,
+            emitted: &mut usize,
+        ) -> io::Result<bool> {
+            let partial = bytes.len().min(8);
+            self.bytes.extend_from_slice(&bytes[..partial]);
+            *emitted = partial;
+            Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "terminal stayed blocked after a partial APC",
+            ))
+        }
+
+        fn write_recovery(&mut self, bytes: &[u8]) -> io::Result<()> {
+            self.recovery_attempts += 1;
+            if self.recovery_attempts == 1 {
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "terminal still blocked during first recovery attempt",
+                ));
+            }
+            self.bytes.extend_from_slice(bytes);
+            Ok(())
+        }
+    }
+
     fn rgba_placement(image_id: u32, generation: u64, x: u16, rgba: [u8; 4]) -> GraphicPlacement {
         rgba_placement_in_namespace(91, image_id, generation, x, rgba)
     }
@@ -1655,6 +1689,34 @@ mod tests {
         assert_eq!(snapshot.images.len(), 1, "{snapshot:?}");
         assert_eq!(snapshot.images[0].data.as_ref(), &[0, 0, 255, 255]);
         assert_eq!(snapshot.placements.len(), 1);
+    }
+
+    #[test]
+    fn failed_partial_apc_recovery_precedes_later_terminal_output() {
+        let slot =
+            Arc::new(Mutex::new(PendingGraphics { revision: 1, ..PendingGraphics::default() }));
+        let control = WriterControl::default();
+        let stdout_lock = Arc::new(StdoutLock::new(()));
+        let mut output = RecoveringPartialOutput { bytes: Vec::new(), recovery_attempts: 0 };
+        let command = b"\x1b_Gq=2;payload\x1b\\";
+
+        assert_eq!(
+            write_batch(&mut output, &stdout_lock, &slot, &control, 1, command),
+            BatchWriteOutcome::Stopped
+        );
+        output.bytes.extend_from_slice(b"visible-after-recovery");
+
+        let mut host = Terminal::new(80, 4, 0, Callbacks::default()).unwrap();
+        host.resize(80, 4, 1, 1).unwrap();
+        host.vt_write(&output.bytes);
+        assert!(
+            host.viewport_text().unwrap().contains("visible-after-recovery"),
+            "normal terminal output was consumed by an unterminated Kitty APC"
+        );
+        assert!(
+            output.recovery_attempts >= 2,
+            "the pending parser reset was not retried after backpressure cleared"
+        );
     }
 
     #[test]

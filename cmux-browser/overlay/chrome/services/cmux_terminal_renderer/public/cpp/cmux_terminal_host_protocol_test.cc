@@ -63,9 +63,39 @@ struct HasCellPixels<
                 decltype(std::declval<Payload&>().cell_height)>>
     : std::true_type {};
 
+template <typename Grant, typename = void>
+struct HasProtocolVersion : std::false_type {};
+
+template <typename Grant>
+struct HasProtocolVersion<
+    Grant,
+    std::void_t<decltype(std::declval<Grant&>().protocol_version)>>
+    : std::true_type {};
+
+template <typename Grant>
+bool GrantProtocolVersionIs(const Grant& grant, uint16_t expected) {
+  if constexpr (!HasProtocolVersion<Grant>::value) {
+    return false;
+  } else {
+    return grant.protocol_version == expected;
+  }
+}
+
 template <typename Payload>
 constexpr size_t CellPixelSuffixLength() {
   return HasCellPixels<Payload>::value ? 4 : 0;
+}
+
+template <typename Payload>
+bool CellPixelsAre(const Payload& payload,
+                   uint16_t expected_width,
+                   uint16_t expected_height) {
+  if constexpr (!HasCellPixels<Payload>::value) {
+    return false;
+  } else {
+    return payload.cell_width == expected_width &&
+           payload.cell_height == expected_height;
+  }
 }
 
 template <typename Payload>
@@ -392,6 +422,17 @@ void TestRendererGrantValidation() {
             grant.token == Filled<32>(0xa5) &&
             grant.rights == Rights::kRenderer && grant.ttl_ms == 30000,
         "validated renderer grant contains typed binary identities and token");
+  Check(HasProtocolVersion<cmux::TerminalHostRendererGrant>::value &&
+            GrantProtocolVersionIs(grant,
+                                   cmux::kTerminalHostProtocolVersionV1),
+        "validated renderer grant carries the selected host protocol version");
+  using Validator = decltype(&cmux::ValidateTerminalHostRendererGrant);
+  Check(
+      (std::is_invocable_r_v<
+          Error, Validator, std::string_view, std::string_view,
+          std::string_view, std::string_view, uint64_t, uint64_t, uint64_t,
+          uint64_t, cmux::TerminalHostRendererGrant*>),
+      "renderer grant validation requires the selected protocol version");
   Check(std::string(cmux::TerminalHostRendererGrantErrorMessage(Error::kNone))
             .empty(),
         "successful grant validation has no error text");
@@ -877,6 +918,22 @@ void TestProtocolV2KittyAliasesAndBounds() {
   Check(KittyAliasesRoundTrip<cmux::TerminalHostResize>(
             cmux::EncodeTerminalHostResize, cmux::DecodeTerminalHostResize),
         "resized Kitty aliases round trip after replay");
+  Check(HasCellPixels<cmux::TerminalHostResize>::value,
+        "resized payload exposes the v2 cell-pixel suffix");
+  const std::vector<uint8_t> rust_v2_resize = {
+      101, 0, 33, 0, 3, 0, 0, 0, 'r', 's', 'z',
+      0,   0, 13, 0, 29, 0,
+  };
+  cmux::TerminalHostResize decoded_rust_v2_resize;
+  Check(cmux::DecodeTerminalHostResizeForVersion(
+            Bytes(rust_v2_resize), cmux::kTerminalHostProtocolVersion,
+            &decoded_rust_v2_resize) == Error::kNone &&
+            decoded_rust_v2_resize.cols == 101 &&
+            decoded_rust_v2_resize.rows == 33 &&
+            decoded_rust_v2_resize.replay ==
+                std::vector<uint8_t>({'r', 's', 'z'}) &&
+            CellPixelsAre(decoded_rust_v2_resize, 13, 29),
+        "C++ decodes the exact Rust v2 resized payload including cell pixels");
 
   for (InvalidKittyAlias invalid :
        {InvalidKittyAlias::kZeroId, InvalidKittyAlias::kZeroNumber,
