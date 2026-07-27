@@ -318,6 +318,56 @@ fn replay_preserves_duplicate_number_history_and_source_generation_order() {
 }
 
 #[test]
+fn replay_preserves_the_next_automatic_image_id_after_eviction() {
+    let mut source = terminal();
+    source.vt_write(&kitty("a=t,t=d,f=24,I=1,s=1,v=1,q=2", "/wAA"));
+    let first_id = source.kitty_graphics_snapshot().unwrap().images[0].id;
+    source.vt_write(&kitty(&format!("a=d,d=I,i={first_id},q=2"), ""));
+    assert!(source.kitty_graphics_snapshot().unwrap().images.is_empty());
+
+    let replay = source.vt_replay().unwrap();
+    let mut mirror = terminal();
+    mirror.vt_write(&replay.bytes);
+    mirror.restore_kitty_image_aliases(&replay.kitty_image_aliases).unwrap();
+
+    let next = kitty("a=t,t=d,f=24,I=2,s=1,v=1,q=2", "AP8A");
+    source.vt_write(&next);
+    mirror.vt_write(&next);
+    let source_id = source.kitty_graphics_snapshot().unwrap().images[0].id;
+    let mirror_id = mirror.kitty_graphics_snapshot().unwrap().images[0].id;
+    assert_eq!(
+        mirror_id, source_id,
+        "a replacement mirror reused an automatic image ID already consumed by the source"
+    );
+}
+
+#[test]
+fn replay_preserves_the_automatic_id_of_an_inflight_upload() {
+    let mut source = terminal();
+    source.vt_write(&kitty("a=t,t=d,f=24,I=1,s=1,v=1,q=2", "/wAA"));
+    let first_id = source.kitty_graphics_snapshot().unwrap().images[0].id;
+    source.vt_write(&kitty(&format!("a=d,d=I,i={first_id},q=2"), ""));
+    source.vt_write(&kitty("a=t,t=d,f=24,I=2,s=1,v=2,m=1,q=2", "////"));
+
+    let replay = source.vt_replay().unwrap();
+    let mut mirror = terminal();
+    mirror.vt_write(&replay.bytes);
+    mirror.restore_kitty_image_aliases(&replay.kitty_image_aliases).unwrap();
+
+    let final_chunk = kitty("m=0,q=2", "////");
+    source.vt_write(&final_chunk);
+    mirror.vt_write(&final_chunk);
+    let source_image = source.kitty_graphics_snapshot().unwrap().images[0].clone();
+    let mirror_image = mirror.kitty_graphics_snapshot().unwrap().images[0].clone();
+    assert_eq!(
+        mirror_image.id, source_image.id,
+        "replaying an in-flight upload allocated a different automatic image ID"
+    );
+    assert_eq!(mirror_image.number, source_image.number);
+    assert_eq!(mirror_image.data, source_image.data);
+}
+
+#[test]
 fn replay_aliases_follow_generation_order_and_exclude_omitted_images() {
     let mut source = terminal();
     source.vt_write(&kitty("a=t,t=d,f=24,i=90,s=1,v=1,q=2", "/wAA"));

@@ -5184,6 +5184,29 @@ mod tests {
     }
 
     #[test]
+    fn changed_kitty_limits_resynchronize_live_byte_attachments() {
+        let mux = Mux::new_for_test("kitty-limit-resync", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let attach = surface.attach_stream().unwrap();
+        surface
+            .with_terminal(|terminal| {
+                terminal.vt_write(b"\x1b_Ga=T,t=d,f=24,i=41,p=7,s=1,v=1,c=1,r=1,q=2;AAAA\x1b\\");
+            })
+            .unwrap();
+
+        surface.set_kitty_graphics_limits(0, 0, 0, 0).unwrap();
+
+        assert!(
+            matches!(
+                attach.stream.recv_timeout(Duration::from_secs(1)),
+                Ok(AttachFrame::Resized { .. } | AttachFrame::ResizedWithColors { .. })
+            ),
+            "a byte-stream mirror was left on the pre-eviction Kitty scene"
+        );
+    }
+
+    #[test]
     fn geometry_updates_skip_vt_replay_without_byte_attach_subscribers() {
         let mux = Mux::new_for_test("resize-without-byte-attach", SurfaceOptions::default());
         let surface =
