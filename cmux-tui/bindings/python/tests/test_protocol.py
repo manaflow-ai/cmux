@@ -422,6 +422,39 @@ class ProtocolTests(unittest.TestCase):
             ],
         )
 
+    def test_layout_undo_rejects_missing_or_invalid_closes_panes(self) -> None:
+        client = CmuxClient.__new__(CmuxClient)
+        client._protocol = 10
+        client._capabilities = {"layout-undo-v1"}
+        responses = (
+            {
+                "undone": False,
+                "confirmation_required": True,
+                "screen": 3,
+                "revision": 8,
+            },
+            {
+                "undone": False,
+                "confirmation_required": True,
+                "screen": 3,
+                "revision": 8,
+                "closes_panes": [True],
+            },
+            {
+                "undone": False,
+                "confirmation_required": True,
+                "screen": 3,
+                "revision": 8,
+                "closes_panes": [-1],
+            },
+        )
+
+        for response in responses:
+            with self.subTest(response=response):
+                client._request = lambda command, **params: response
+                with self.assertRaisesRegex(ProtocolError, "closes_panes"):
+                    client.undo_layout(15)
+
     def test_layout_preserves_protocol_seven_positional_constructor_order(self) -> None:
         first = Layout("leaf", 1)
         second = Layout("leaf", 2)

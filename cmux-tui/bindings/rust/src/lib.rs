@@ -1833,6 +1833,17 @@ mod tests {
     }
 
     #[test]
+    fn layout_undo_rejects_confirmation_without_closes_panes() {
+        let result = serde_json::from_value::<LayoutUndoResult>(serde_json::json!({
+            "undone": false,
+            "confirmation_required": true,
+            "screen": 3,
+            "revision": 8,
+        }));
+        assert!(result.is_err());
+    }
+
+    #[test]
     fn workspace_registry_selectors_reject_missing_and_empty_keys_locally() {
         assert!(matches!(
             validate_workspace_selector(None, None),

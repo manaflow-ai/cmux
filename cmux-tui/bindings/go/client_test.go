@@ -655,6 +655,41 @@ func TestUndoLayoutPreservesPreviewRevisionForConfirmation(t *testing.T) {
 	}
 }
 
+func TestUndoLayoutRejectsMissingClosesPanes(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	defer serverConn.Close()
+	protocol := uint32(10)
+	client := &Client{
+		timeout:      time.Second,
+		conn:         &jsonLineConn{conn: clientConn, reader: bufio.NewReader(clientConn)},
+		protocol:     &protocol,
+		capabilities: map[string]struct{}{"layout-undo-v1": {}},
+	}
+	defer client.Close()
+
+	go func() {
+		decoder := json.NewDecoder(serverConn)
+		encoder := json.NewEncoder(serverConn)
+		var request map[string]any
+		if decoder.Decode(&request) != nil {
+			return
+		}
+		_ = encoder.Encode(map[string]any{
+			"id": request["id"],
+			"ok": true,
+			"data": map[string]any{
+				"undone": false, "confirmation_required": true,
+				"screen": 3, "revision": 8,
+			},
+		})
+	}()
+
+	_, err := client.UndoLayout(context.Background(), 15, nil)
+	if err == nil || !errors.Is(err, ErrDecode) {
+		t.Fatalf("UndoLayout() error = %v, want decode error", err)
+	}
+}
+
 func TestNewPaneRejectsServersOlderThanProtocolNine(t *testing.T) {
 	protocol := uint32(8)
 	client := &Client{protocol: &protocol}
