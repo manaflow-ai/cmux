@@ -8,6 +8,7 @@ import { RenderTerminal } from "../src/components/RenderTerminal";
 const renderHook = vi.hoisted(() => ({
   focused: true,
   graphicsEnabled: true,
+  graphicsVisible: true,
   historyActive: false,
   sendKey: vi.fn(),
   sendText: vi.fn(),
@@ -107,7 +108,20 @@ vi.mock("../src/hooks/useRenderTerminal", () => ({
     terminalRef: () => undefined,
     focused: renderHook.focused,
     foreignSize: null,
-    model: renderHook.graphicsEnabled ? model : { ...model, graphics: undefined },
+    model: renderHook.graphicsEnabled
+      ? {
+        ...model,
+        graphics: renderHook.graphicsVisible
+          ? model.graphics
+          : {
+            ...model.graphics,
+            placements: model.graphics.placements.map((candidate) => ({
+              ...candidate,
+              viewport_visible: false,
+            })),
+          },
+      }
+      : { ...model, graphics: undefined },
     history: {
       active: renderHook.historyActive,
       loading: false,
@@ -123,6 +137,7 @@ vi.mock("../src/hooks/useRenderTerminal", () => ({
 beforeEach(() => {
   renderHook.focused = true;
   renderHook.graphicsEnabled = true;
+  renderHook.graphicsVisible = true;
   renderHook.historyActive = false;
   renderHook.sendKey.mockClear();
   renderHook.sendText.mockClear();
@@ -162,6 +177,20 @@ describe("RenderTerminal DOM grid", () => {
       <RenderTerminal client={{ protocol: 7 } as CmuxClient} surface={7} active error={null} onError={vi.fn()} />,
     );
 
+    expect(container.querySelectorAll(".render-row-background")).toHaveLength(0);
+    expect(container.querySelectorAll(".render-row")).toHaveLength(2);
+    expect(container.querySelector(".render-row .render-run")).toHaveStyle({
+      backgroundColor: "#111111",
+    });
+  });
+
+  it("renders one row layer when every Kitty placement is outside the viewport", () => {
+    renderHook.graphicsVisible = false;
+    const { container } = render(
+      <RenderTerminal client={{ protocol: 7 } as CmuxClient} surface={7} active error={null} onError={vi.fn()} />,
+    );
+
+    expect(container.querySelectorAll("[data-graphic-placement]")).toHaveLength(0);
     expect(container.querySelectorAll(".render-row-background")).toHaveLength(0);
     expect(container.querySelectorAll(".render-row")).toHaveLength(2);
     expect(container.querySelector(".render-row .render-run")).toHaveStyle({

@@ -273,6 +273,87 @@ describe("RenderGraphics canvas resource policy", () => {
     );
   });
 
+  it("refills the canvas budget from lower-priority placements after byte rejections", async () => {
+    const width = 1_024;
+    const height = 257;
+    const fullPlacementCount = RENDER_GRAPHIC_CANVAS_COUNT_CAP;
+    const graphics: RenderGraphicsModel = {
+      generation: 1,
+      images: [{
+        id: 1,
+        generation: 1,
+        width,
+        height,
+        format: "rgba",
+        data: zeroBytesBase64(width * height * 4),
+      }],
+      placements: [
+        ...Array.from(
+          { length: fullPlacementCount },
+          (_, index) => placement(index + 1, width, height, 1),
+        ),
+        placement(fullPlacementCount + 1, 1, 1),
+      ],
+    };
+
+    const { container } = render(
+      <RenderGraphics graphics={graphics}>
+        <div>terminal</div>
+      </RenderGraphics>,
+    );
+
+    await waitFor(() => {
+      expect(container.querySelectorAll("[data-graphic-placement]").length).toBeGreaterThan(0);
+    });
+    expect(container.querySelectorAll("[data-graphic-placement]")).toHaveLength(64);
+    expect(
+      container.querySelector(
+        `[data-graphic-placement='1:${fullPlacementCount + 1}:0']`,
+      ),
+    ).not.toBeNull();
+  });
+
+  it("reads layout geometry only for candidates considered under the canvas cap", async () => {
+    let viewportColumnReads = 0;
+    const placementCount = 16_384;
+    const placements = Array.from({ length: placementCount }, (_, index) => {
+      const candidate = placement(index + 1, 1, 1, index);
+      Object.defineProperty(candidate, "viewport_col", {
+        configurable: true,
+        enumerable: true,
+        get: () => {
+          viewportColumnReads += 1;
+          return 0;
+        },
+      });
+      return candidate;
+    });
+    const graphics: RenderGraphicsModel = {
+      generation: 1,
+      images: [{
+        id: 1,
+        generation: 1,
+        width: 1,
+        height: 1,
+        format: "rgba",
+        data: "AAAAAA==",
+      }],
+      placements,
+    };
+
+    const { container } = render(
+      <RenderGraphics graphics={graphics}>
+        <div>terminal</div>
+      </RenderGraphics>,
+    );
+
+    await waitFor(() => {
+      expect(container.querySelectorAll("[data-graphic-placement]"))
+        .toHaveLength(RENDER_GRAPHIC_CANVAS_COUNT_CAP);
+    });
+    expect(viewportColumnReads).toBeLessThanOrEqual(RENDER_GRAPHIC_CANVAS_COUNT_CAP * 2);
+  });
+
   it("shares one backing budget across terminal surfaces and releases it on unmount", async () => {
     const width = 1_024;
     const height = 1_024;
