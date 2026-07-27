@@ -153,12 +153,12 @@ extension GlobalSearchShortcutBehaviorTests {
         let shortcut = try #require(availableSyntheticShortcuts().first)
         let registration = try #require(shortcut.carbonHotKeyRegistration)
         let encodedShortcut = try JSONEncoder().encode(shortcut)
+        UserDefaults.standard.removeObject(
+            forKey: KeyboardShortcutSettings.Action.showHideAllWindows.defaultsKey
+        )
         UserDefaults.standard.set(
             encodedShortcut,
             forKey: SystemWideHotkeySettings.legacyShortcutKey
-        )
-        UserDefaults.standard.removeObject(
-            forKey: KeyboardShortcutSettings.Action.showHideAllWindows.defaultsKey
         )
         defer {
             SystemWideHotkeySettings.setEnabled(false)
