@@ -999,4 +999,46 @@ describe("RenderGraphics canvas resource policy", () => {
       getContext.mockRestore();
     }
   });
+
+  it("does not recalculate placement admission for a pixel-only image update", async () => {
+    const placements = [placement(1, 1, 1)];
+    const first: RenderGraphicsModel = {
+      generation: 1,
+      images: [{
+        id: 1,
+        generation: 1,
+        width: 1,
+        height: 1,
+        format: "rgba",
+        data: zeroBytesBase64(4),
+      }],
+      placements,
+    };
+    const second: RenderGraphicsModel = {
+      generation: 2,
+      images: [{
+        ...first.images[0]!,
+        generation: 2,
+      }],
+      placements,
+    };
+    const { container, rerender } = render(
+      <RenderGraphics graphics={first}>
+        <div>terminal</div>
+      </RenderGraphics>,
+    );
+    await waitFor(
+      () => expect(container.querySelectorAll("[data-graphic-placement]")).toHaveLength(1),
+    );
+    const queueMicrotaskSpy = vi.spyOn(globalThis, "queueMicrotask");
+    queueMicrotaskSpy.mockClear();
+
+    rerender(
+      <RenderGraphics graphics={second}>
+        <div>terminal</div>
+      </RenderGraphics>,
+    );
+
+    expect(queueMicrotaskSpy).not.toHaveBeenCalled();
+  });
 });

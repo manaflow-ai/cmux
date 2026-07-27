@@ -4499,6 +4499,28 @@ struct RenderClientState {
     graphics_image_generations: HashMap<u32, u64>,
 }
 
+#[cfg(test)]
+static RENDER_CLIENT_IMAGE_SCAN_COUNT: AtomicUsize = AtomicUsize::new(0);
+#[cfg(test)]
+static RENDER_CLIENT_PLACEMENT_SCAN_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+fn render_client_image_generations(
+    graphics: &ghostty_vt::KittyGraphicsSnapshot,
+) -> HashMap<u32, u64> {
+    #[cfg(test)]
+    RENDER_CLIENT_IMAGE_SCAN_COUNT.fetch_add(graphics.images.len(), Ordering::Relaxed);
+    graphics.images.iter().map(|image| (image.id, image.generation)).collect()
+}
+
+fn render_client_placements_changed(
+    previous: &[ghostty_vt::KittyPlacement],
+    next: &[ghostty_vt::KittyPlacement],
+) -> bool {
+    #[cfg(test)]
+    RENDER_CLIENT_PLACEMENT_SCAN_COUNT.fetch_add(previous.len().max(next.len()), Ordering::Relaxed);
+    previous != next
+}
+
 impl RenderClientState {
     fn new(render_service: Arc<RenderService>, frame: &SurfaceRenderFrame) -> Self {
         Self {
@@ -4507,13 +4529,9 @@ impl RenderClientState {
             default_colors: frame.frame.default_colors,
             scrollback_rows: frame.scrollback_rows,
             graphics_snapshot: frame.frame.kitty_graphics.clone(),
-            graphics_image_generations: frame
-                .frame
-                .kitty_graphics
-                .images
-                .iter()
-                .map(|image| (image.id, image.generation))
-                .collect(),
+            graphics_image_generations: render_client_image_generations(
+                &frame.frame.kitty_graphics,
+            ),
         }
     }
 
@@ -4552,11 +4570,7 @@ impl RenderClientState {
         };
         if !Arc::ptr_eq(&self.graphics_snapshot, &frame.frame.kitty_graphics) {
             let graphics = &frame.frame.kitty_graphics;
-            let image_generations = graphics
-                .images
-                .iter()
-                .map(|image| (image.id, image.generation))
-                .collect::<HashMap<_, _>>();
+            let image_generations = render_client_image_generations(graphics);
             let upsert_image_ids = image_generations
                 .iter()
                 .filter_map(|(&id, &generation)| {
@@ -4571,7 +4585,10 @@ impl RenderClientState {
                 .collect::<Vec<_>>();
             removed_image_ids.sort_unstable();
             let images_changed = !upsert_image_ids.is_empty() || !removed_image_ids.is_empty();
-            let placements_changed = self.graphics_snapshot.placements != graphics.placements;
+            let placements_changed = render_client_placements_changed(
+                &self.graphics_snapshot.placements,
+                &graphics.placements,
+            );
             if images_changed || placements_changed {
                 message.graphics = Some(render_graphics_message(
                     &self.render_service,
@@ -7017,6 +7034,37 @@ mod tests {
         assert_eq!(images[0]["id"], 41);
         assert_eq!(images[0]["data"], "AAD/");
         assert!(delta["graphics"].get("placements").is_none(), "{delta:#}");
+    }
+
+    #[test]
+    fn pixel_only_render_delta_does_not_rescan_the_full_graphics_scene() {
+        let mut terminal = Terminal::new(10, 3, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(RED_IMAGE_41);
+        terminal.vt_write(GREEN_IMAGE_42);
+        let mut render_state = RenderState::new().unwrap();
+        let mut frame = render_protocol_frame(&mut terminal, &mut render_state);
+        let mut client = RenderClientState::new(Arc::new(RenderService::new()), &frame);
+        RENDER_CLIENT_IMAGE_SCAN_COUNT.store(0, Ordering::Relaxed);
+        RENDER_CLIENT_PLACEMENT_SCAN_COUNT.store(0, Ordering::Relaxed);
+
+        let graphics = Arc::make_mut(&mut frame.frame.kitty_graphics);
+        graphics.generation += 1;
+        let image = graphics.images.iter_mut().find(|image| image.id == 41).unwrap();
+        image.generation += 1;
+        image.data = Arc::<[u8]>::from([0, 0, 255]);
+        let delta = serde_json::to_value(client.delta_message(1, &frame)).unwrap();
+
+        assert_eq!(delta["graphics"]["images"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            RENDER_CLIENT_IMAGE_SCAN_COUNT.load(Ordering::Relaxed),
+            0,
+            "pixel-only animation rebuilt the complete image-generation map"
+        );
+        assert_eq!(
+            RENDER_CLIENT_PLACEMENT_SCAN_COUNT.load(Ordering::Relaxed),
+            0,
+            "pixel-only animation compared every placement for one render attachment"
+        );
     }
 
     #[test]

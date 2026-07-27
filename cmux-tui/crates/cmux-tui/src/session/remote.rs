@@ -4305,6 +4305,30 @@ mod tests {
     }
 
     #[test]
+    fn ambiguous_cell_pixel_timeout_does_not_overwrite_the_requested_geometry() {
+        let session = test_session(Box::new(SilentWriter));
+        let surface = test_remote_pty_surface(7, 80, 24, (8, 16));
+        session.surfaces.lock().unwrap().insert(surface.id, surface.clone());
+
+        let error = session.set_cell_pixel_size(9, 18).err().expect("silent remote must time out");
+
+        assert!(matches!(
+            error.downcast_ref::<RemoteRequestError>(),
+            Some(RemoteRequestError::Timeout)
+        ));
+        assert_eq!(
+            *session.cell_pixels.lock().unwrap(),
+            (9, 18),
+            "an ambiguous timeout restored a stale global geometry mirror"
+        );
+        assert_eq!(
+            *surface.cell_pixels.lock().unwrap(),
+            (9, 18),
+            "an ambiguous timeout overwrote geometry that the server may have committed"
+        );
+    }
+
+    #[test]
     fn partial_cell_pixel_fanout_retries_before_publishing_the_remote_default() {
         let session_slot: Arc<Mutex<Option<Weak<RemoteSession>>>> = Arc::new(Mutex::new(None));
         let session = test_session(Box::new(CellPixelFanoutWriter {

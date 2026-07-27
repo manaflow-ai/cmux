@@ -9636,6 +9636,82 @@ mod tests {
     }
 
     #[test]
+    fn terminal_creation_never_exposes_a_disabled_kitty_quota() {
+        let mux = test_mux();
+        let survivor = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(survivor.id).unwrap());
+        let mut surfaces = vec![survivor.clone()];
+        for _ in 1..8 {
+            surfaces.push(mux.new_tab(Some(pane), None, Some((80, 24))).unwrap());
+        }
+        wait_for_kitty_image_budget(&mux);
+
+        let expansion = kitty_image_limits_for_capacity(1);
+        let gate = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
+        let (started_sender, started_receiver) = std::sync::mpsc::sync_channel(1);
+        *mux.kitty_image_budget_operation.lock().unwrap() = Some(Arc::new({
+            let gate = gate.clone();
+            let survivor_id = survivor.id;
+            move |surface, limits, _deadline| {
+                if surface.id == survivor_id && limits == expansion {
+                    let _ = started_sender.try_send(());
+                    let (released, changed) = &*gate;
+                    let mut released = released.lock().unwrap();
+                    while !*released {
+                        released = changed.wait(released).unwrap();
+                    }
+                }
+                surface.set_kitty_graphics_limits(
+                    limits.image_bytes,
+                    limits.inflight_bytes,
+                    limits.images,
+                    limits.placements,
+                )
+            }
+        }));
+        for surface in surfaces.iter().skip(1) {
+            assert!(mux.close_surface(surface.id).unwrap());
+        }
+        started_receiver.recv_timeout(Duration::from_secs(2)).unwrap();
+
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let creating_mux = mux.clone();
+        let creator = std::thread::spawn(move || {
+            let _ = sender.send(creating_mux.new_tab(Some(pane), None, Some((80, 24))));
+        });
+        let created_before_rebalance = receiver.recv_timeout(Duration::from_millis(250)).ok();
+        let startup_limit = created_before_rebalance.as_ref().map(|result| {
+            result
+                .as_ref()
+                .unwrap()
+                .with_terminal(|terminal| terminal.kitty_image_storage_limit().unwrap())
+                .unwrap()
+        });
+        {
+            let (released, changed) = &*gate;
+            *released.lock().unwrap() = true;
+            changed.notify_all();
+        }
+        let concurrent = match created_before_rebalance {
+            Some(result) => result.unwrap(),
+            None => receiver.recv_timeout(Duration::from_secs(2)).unwrap().unwrap(),
+        };
+        creator.join().unwrap();
+        *mux.kitty_image_budget_operation.lock().unwrap() = None;
+        wait_for_kitty_image_budget(&mux);
+
+        let initial_limit = startup_limit.unwrap_or_else(|| {
+            concurrent
+                .with_terminal(|terminal| terminal.kitty_image_storage_limit().unwrap())
+                .unwrap()
+        });
+        assert!(
+            initial_limit > 0,
+            "a newly launched terminal could consume startup output while Kitty graphics were disabled"
+        );
+    }
+
+    #[test]
     fn kitty_quota_worker_retries_a_transient_update_failure() {
         let mux = test_mux();
         let first = mux.new_workspace(None, Some((80, 24))).unwrap();
@@ -9735,6 +9811,39 @@ mod tests {
             returned_before_release,
             "fanout joined an operation after its shared deadline elapsed"
         );
+    }
+
+    #[test]
+    fn timed_out_cell_pixel_failure_is_retried_after_the_worker_finishes() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let attempts = Arc::new(AtomicUsize::new(0));
+        *mux.cell_pixel_fanout_timeout.lock().unwrap() = Some(Duration::from_millis(20));
+        *mux.cell_pixel_operation.lock().unwrap() = Some(Arc::new({
+            let attempts = attempts.clone();
+            move |surface, target, _deadline| {
+                if attempts.fetch_add(1, Ordering::AcqRel) == 0 {
+                    std::thread::sleep(Duration::from_millis(60));
+                    anyhow::bail!("injected late cell-pixel failure");
+                }
+                surface.set_cell_pixel_size(target.0, target.1).map(|changed| changed.then_some(0))
+            }
+        }));
+
+        let update = mux.set_cell_pixel_size(9, 18);
+        assert_eq!(update.failures.len(), 1);
+        assert!(update.failures[0].deferred);
+
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while mux.cell_pixel_size() != (9, 18) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(
+            attempts.load(Ordering::Acquire) >= 2,
+            "the failed operation that finished after the shared deadline was never retried"
+        );
+        assert_eq!(mux.cell_pixel_size(), (9, 18));
+        assert_eq!(surface.test_cell_pixel_size(), (9, 18));
     }
 
     #[test]
