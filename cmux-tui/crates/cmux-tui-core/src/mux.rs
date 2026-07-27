@@ -2511,10 +2511,13 @@ impl Mux {
         let Some(terminal) = terminal else {
             return cleanup_terminal_host_record(&task.record, &task.record_path);
         };
-        if matches!(terminal.lifecycle, TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned) {
-            if terminal.lifecycle == TerminalLifecycle::Exited {
-                let _ = self.materialize_exited_terminal(terminal_id, &task.options);
+        if terminal.lifecycle == TerminalLifecycle::Exited {
+            if self.materialize_exited_terminal(terminal_id, &task.options).is_err() {
+                return false;
             }
+            return cleanup_terminal_host_record(&task.record, &task.record_path);
+        }
+        if terminal.lifecycle == TerminalLifecycle::Tombstoned {
             return cleanup_terminal_host_record(&task.record, &task.record_path);
         }
         if terminal
@@ -2522,20 +2525,24 @@ impl Mux {
             .as_deref()
             .is_some_and(|incarnation| incarnation != task.record.incarnation)
         {
-            let _ = self.mark_terminal_exited_and_materialize(
-                terminal_id,
-                "terminal-incarnation-mismatch",
-                "host-incarnation-mismatch",
-                &task.options,
-            );
+            if self
+                .mark_terminal_exited_and_materialize(
+                    terminal_id,
+                    "terminal-incarnation-mismatch",
+                    "host-incarnation-mismatch",
+                    &task.options,
+                )
+                .is_err()
+            {
+                return false;
+            }
             return cleanup_terminal_host_record(&task.record, &task.record_path);
         }
         if terminal.lifecycle == TerminalLifecycle::Running {
-            let already_live = self
-                .resolve_terminal(terminal_id)
-                .ok()
-                .flatten()
-                .is_some_and(|resolution| resolution.surface.is_some());
+            let already_live = match self.resolve_terminal(terminal_id) {
+                Ok(resolution) => resolution.is_some_and(|resolution| resolution.surface.is_some()),
+                Err(_) => return false,
+            };
             if already_live {
                 return true;
             }
@@ -2550,7 +2557,37 @@ impl Mux {
                 )
                 .is_err()
             {
-                return true;
+                let current =
+                    match self.workspace_registry.lock().unwrap().terminal_record(terminal_id) {
+                        Ok(Some(current)) => current,
+                        Ok(None) | Err(_) => return false,
+                    };
+                if current.lifecycle == TerminalLifecycle::Exited {
+                    if self.materialize_exited_terminal(terminal_id, &task.options).is_err() {
+                        return false;
+                    }
+                    return cleanup_terminal_host_record(&task.record, &task.record_path);
+                }
+                if current.lifecycle == TerminalLifecycle::Tombstoned {
+                    return cleanup_terminal_host_record(&task.record, &task.record_path);
+                }
+                if current.incarnation.as_deref() != Some(task.record.incarnation.as_str()) {
+                    return false;
+                }
+                match current.lifecycle {
+                    TerminalLifecycle::Adopting => {}
+                    TerminalLifecycle::Running => {
+                        return match self.resolve_terminal(terminal_id) {
+                            Ok(resolution) => {
+                                resolution.is_some_and(|resolution| resolution.surface.is_some())
+                            }
+                            Err(_) => false,
+                        };
+                    }
+                    TerminalLifecycle::Launching
+                    | TerminalLifecycle::Exited
+                    | TerminalLifecycle::Tombstoned => return false,
+                }
             }
         }
         if terminal_host_record_liveness(&task.record_path, &task.record)
@@ -2560,13 +2597,14 @@ impl Mux {
                 &task.record_path,
                 &task.record,
             );
-            let _ = self.mark_terminal_exited_and_materialize(
-                terminal_id,
-                "terminal-host-proven-dead",
-                "host-process-ended-before-adoption",
-                &task.options,
-            );
-            return true;
+            return self
+                .mark_terminal_exited_and_materialize(
+                    terminal_id,
+                    "terminal-host-proven-dead",
+                    "host-process-ended-before-adoption",
+                    &task.options,
+                )
+                .is_ok();
         }
         let Ok(_creation) = self.begin_surface_creation() else {
             return true;

@@ -111,6 +111,21 @@ PACKAGE_VERSION = {version!r}
 
 def _launcher_command(argv0: str) -> str:
     parts = pathlib.PurePath(argv0).parts
+    uv_cache = os.environ.get("UV_CACHE_DIR")
+    if uv_cache and argv0:
+        executable = pathlib.PurePath(os.path.abspath(os.path.expanduser(argv0)))
+        cache = pathlib.PurePath(os.path.abspath(os.path.expanduser(uv_cache)))
+        try:
+            relative = executable.relative_to(cache)
+        except ValueError:
+            pass
+        else:
+            if any(
+                candidate.startswith("archive-v")
+                and candidate.removeprefix("archive-v").isdigit()
+                for candidate in relative.parts
+            ):
+                return "uvx cmux==" + PACKAGE_VERSION
     for index, part in enumerate(parts):
         if part != "uv":
             continue
