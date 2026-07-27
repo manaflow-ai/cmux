@@ -4226,7 +4226,6 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         defer {
             BrowserWindowPortalRegistry.detach(webView: webView)
             window.orderOut(nil)
-            window.close()
         }
         let initialEnterInWindowCount = webView.enterInWindowCount
         let initialEndDeferringCount = webView.endDeferringViewInWindowChangesCount
@@ -4275,7 +4274,6 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         defer {
             BrowserWindowPortalRegistry.detach(webView: webView)
             window.orderOut(nil)
-            window.close()
         }
 
         BrowserWindowPortalRegistry.bind(
