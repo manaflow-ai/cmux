@@ -6,17 +6,19 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
-import type { RenderGraphicImage } from "cmux/browser";
+import type { RenderGraphicImage, RenderGraphicPlacement } from "cmux/browser";
 import { useDecodedRenderGraphicImages } from "../hooks/useDecodedRenderGraphicImages";
 import type { RenderGraphicsModel } from "../lib/renderModel";
 import {
+  planRenderGraphicPlacement,
   RENDER_GRAPHIC_CANVAS_BACKING_BYTE_CAP,
   RENDER_GRAPHIC_CANVAS_COUNT_CAP,
   RENDER_GRAPHIC_DECODED_BYTE_CAP,
   renderGraphicImageKey,
   renderGraphicRgbaByteLength,
-  resolveRenderGraphicPlacement,
+  resolveRenderGraphicPlacementPlan,
   type DecodedRenderGraphicImage,
+  type RenderGraphicPlacementPlan,
   type ResolvedRenderGraphicPlacement,
 } from "../lib/renderGraphics";
 
@@ -24,6 +26,7 @@ interface RenderGraphicsProps {
   backgroundChildren?: ReactNode;
   children: ReactNode;
   graphics?: RenderGraphicsModel;
+  plainChildren?: ReactNode;
 }
 
 interface RenderGraphicCanvasProps {
@@ -31,10 +34,14 @@ interface RenderGraphicCanvasProps {
   placement: ResolvedRenderGraphicPlacement;
 }
 
-interface RenderGraphicCandidate {
-  image: RenderGraphicImage;
-  placement: ResolvedRenderGraphicPlacement;
+interface CandidatePriority {
+  z: number;
   order: number;
+}
+
+interface RenderGraphicCandidate extends CandidatePriority {
+  image: RenderGraphicImage;
+  placement: RenderGraphicPlacementPlan;
   decodedBytes: number;
 }
 
@@ -43,21 +50,43 @@ interface GraphicsSelection {
   images: ReadonlySet<string>;
 }
 
-interface RenderedPlacement extends RenderGraphicCandidate {
+interface RenderedPlacement {
   decoded: DecodedRenderGraphicImage;
+  order: number;
+  placement: ResolvedRenderGraphicPlacement;
+}
+
+interface ImageAdmissionMetadata {
+  decodedBytes: number;
+  image: RenderGraphicImage;
+}
+
+interface RawRenderGraphicCandidate extends CandidatePriority, ImageAdmissionMetadata {
+  placement: RenderGraphicPlacement;
 }
 
 const EMPTY_IMAGES: readonly RenderGraphicImage[] = [];
+const EMPTY_PLACEMENTS: readonly RenderGraphicPlacement[] = [];
 const EMPTY_SELECTION: GraphicsSelection = {
   placements: new Set(),
   images: new Set(),
 };
+const CANDIDATE_PAGE_SIZE = RENDER_GRAPHIC_CANVAS_COUNT_CAP;
 
 function compareCandidates(
-  left: RenderGraphicCandidate,
-  right: RenderGraphicCandidate,
+  left: CandidatePriority,
+  right: CandidatePriority,
 ): number {
-  return left.placement.z - right.placement.z || left.order - right.order;
+  return compareCandidateValues(left.z, left.order, right.z, right.order);
+}
+
+function compareCandidateValues(
+  leftZ: number,
+  leftOrder: number,
+  rightZ: number,
+  rightOrder: number,
+): number {
+  return leftZ - rightZ || leftOrder - rightOrder;
 }
 
 function heapPush<T>(
@@ -97,41 +126,116 @@ function heapPop<T>(
   return root;
 }
 
-function selectTopCandidates(
-  candidates: readonly RenderGraphicCandidate[],
-): readonly RenderGraphicCandidate[] {
-  const worstFirst: RenderGraphicCandidate[] = [];
-  const compareWorst = (
-    left: RenderGraphicCandidate,
-    right: RenderGraphicCandidate,
-  ) => -compareCandidates(left, right);
-  for (const candidate of candidates) {
-    if (worstFirst.length < RENDER_GRAPHIC_CANVAS_COUNT_CAP) {
-      heapPush(worstFirst, candidate, compareWorst);
-      continue;
+class RenderGraphicCandidateSource {
+  private readonly ordered: RenderGraphicCandidate[] = [];
+  private page: readonly RawRenderGraphicCandidate[] = [];
+  private pageIndex = 0;
+  private upperBound: CandidatePriority | undefined;
+  private exhausted = false;
+
+  constructor(
+    private readonly placements: readonly RenderGraphicPlacement[],
+    private readonly images: ReadonlyMap<number, ImageAdmissionMetadata>,
+  ) {}
+
+  candidateAt(index: number): RenderGraphicCandidate | undefined {
+    while (this.ordered.length <= index) {
+      const candidate = this.nextCandidate();
+      if (candidate === undefined) break;
+      this.ordered.push(candidate);
     }
-    if (compareCandidates(candidate, worstFirst[0]) <= 0) continue;
-    worstFirst[0] = candidate;
-    let index = 0;
+    return this.ordered[index];
+  }
+
+  private nextCandidate(): RenderGraphicCandidate | undefined {
     while (true) {
-      const left = index * 2 + 1;
-      const right = left + 1;
-      let next = index;
-      if (left < worstFirst.length
-        && compareWorst(worstFirst[left], worstFirst[next]) > 0) next = left;
-      if (right < worstFirst.length
-        && compareWorst(worstFirst[right], worstFirst[next]) > 0) next = right;
-      if (next === index) break;
-      [worstFirst[index], worstFirst[next]] = [worstFirst[next], worstFirst[index]];
-      index = next;
+      if (this.pageIndex >= this.page.length) {
+        if (this.exhausted) return undefined;
+        this.fillPage();
+        if (this.page.length === 0) return undefined;
+      }
+      const raw = this.page[this.pageIndex++]!;
+      const placement = planRenderGraphicPlacement(raw.image, raw.placement);
+      if (placement === null) continue;
+      return {
+        image: raw.image,
+        placement,
+        order: raw.order,
+        z: raw.z,
+        decodedBytes: raw.decodedBytes,
+      };
     }
   }
-  return worstFirst.sort((left, right) => -compareCandidates(left, right));
+
+  private fillPage(): void {
+    // Keep only one bounded page of lightweight placement references while
+    // scanning. Full geometry plans and CSS strings are created only as the
+    // global registry consumes candidates, and later pages refill rejected
+    // byte-budget slots without materializing the whole protocol-sized list.
+    const worstFirst: RawRenderGraphicCandidate[] = [];
+    const compareWorst = (
+      left: RawRenderGraphicCandidate,
+      right: RawRenderGraphicCandidate,
+    ) => -compareCandidates(left, right);
+    for (const [order, placement] of this.placements.entries()) {
+      if (!placement.viewport_visible || !Number.isSafeInteger(placement.z)) continue;
+      const image = this.images.get(placement.image_id);
+      if (image === undefined) continue;
+      if (this.upperBound !== undefined
+        && compareCandidateValues(
+          placement.z,
+          order,
+          this.upperBound.z,
+          this.upperBound.order,
+        ) >= 0) continue;
+      if (worstFirst.length < CANDIDATE_PAGE_SIZE) {
+        heapPush(
+          worstFirst,
+          { ...image, placement, z: placement.z, order },
+          compareWorst,
+        );
+        continue;
+      }
+      if (compareCandidateValues(
+        placement.z,
+        order,
+        worstFirst[0].z,
+        worstFirst[0].order,
+      ) <= 0) continue;
+      const replacement = worstFirst[0];
+      replacement.decodedBytes = image.decodedBytes;
+      replacement.image = image.image;
+      replacement.placement = placement;
+      replacement.z = placement.z;
+      replacement.order = order;
+      let index = 0;
+      while (true) {
+        const left = index * 2 + 1;
+        const right = left + 1;
+        let next = index;
+        if (left < worstFirst.length
+          && compareWorst(worstFirst[left], worstFirst[next]) > 0) next = left;
+        if (right < worstFirst.length
+          && compareWorst(worstFirst[right], worstFirst[next]) > 0) next = right;
+        if (next === index) break;
+        [worstFirst[index], worstFirst[next]] = [worstFirst[next], worstFirst[index]];
+        index = next;
+      }
+    }
+    this.page = worstFirst.sort((left, right) => -compareCandidates(left, right));
+    this.pageIndex = 0;
+    const last = this.page.at(-1);
+    if (last === undefined) {
+      this.exhausted = true;
+      return;
+    }
+    this.upperBound = { z: last.z, order: last.order };
+  }
 }
 
 interface OwnerCandidates {
   order: number;
-  values: readonly RenderGraphicCandidate[];
+  source: RenderGraphicCandidateSource;
 }
 
 interface GlobalCandidateCursor {
@@ -170,12 +274,12 @@ class GraphicsBudgetRegistry {
     return this.selections.get(owner) ?? EMPTY_SELECTION;
   }
 
-  update(owner: symbol, candidates: readonly RenderGraphicCandidate[]): void {
+  update(owner: symbol, source: RenderGraphicCandidateSource): void {
     this.pendingRemovals.delete(owner);
     const current = this.candidates.get(owner);
     this.candidates.set(owner, {
       order: current?.order ?? this.nextOwnerOrder++,
-      values: candidates.slice(0, RENDER_GRAPHIC_CANVAS_COUNT_CAP),
+      source,
     });
     this.recalculate();
   }
@@ -207,7 +311,7 @@ class GraphicsBudgetRegistry {
       || right.ownerOrder - left.ownerOrder;
     const cursors: GlobalCandidateCursor[] = [];
     for (const [owner, state] of this.candidates) {
-      const candidate = state.values[0];
+      const candidate = state.source.candidateAt(0);
       if (candidate !== undefined) {
         heapPush(cursors, {
           owner,
@@ -222,8 +326,24 @@ class GraphicsBudgetRegistry {
     let decodedBytes = 0;
     while (cursors.length > 0 && admitted < RENDER_GRAPHIC_CANVAS_COUNT_CAP) {
       const { owner, ownerOrder, candidate, index } = heapPop(cursors, compareGlobal)!;
+      if (candidate.placement.backingBytes
+        <= RENDER_GRAPHIC_CANVAS_BACKING_BYTE_CAP - backingBytes) {
+        const images = nextImages.get(owner)!;
+        const imageKey = renderGraphicImageKey(candidate.image);
+        if (images.has(imageKey)
+          || candidate.decodedBytes <= RENDER_GRAPHIC_DECODED_BYTE_CAP - decodedBytes) {
+          nextPlacements.get(owner)!.add(candidate);
+          if (!images.has(imageKey)) {
+            images.add(imageKey);
+            decodedBytes += candidate.decodedBytes;
+          }
+          backingBytes += candidate.placement.backingBytes;
+          admitted += 1;
+        }
+      }
+      if (admitted >= RENDER_GRAPHIC_CANVAS_COUNT_CAP) continue;
       const nextIndex = index + 1;
-      const nextCandidate = this.candidates.get(owner)?.values[nextIndex];
+      const nextCandidate = this.candidates.get(owner)?.source.candidateAt(nextIndex);
       if (nextCandidate !== undefined) {
         heapPush(cursors, {
           owner,
@@ -232,19 +352,6 @@ class GraphicsBudgetRegistry {
           index: nextIndex,
         }, compareGlobal);
       }
-      if (candidate.placement.backingBytes
-        > RENDER_GRAPHIC_CANVAS_BACKING_BYTE_CAP - backingBytes) continue;
-      const images = nextImages.get(owner)!;
-      const imageKey = renderGraphicImageKey(candidate.image);
-      if (!images.has(imageKey)
-        && candidate.decodedBytes > RENDER_GRAPHIC_DECODED_BYTE_CAP - decodedBytes) continue;
-      nextPlacements.get(owner)!.add(candidate);
-      if (!images.has(imageKey)) {
-        images.add(imageKey);
-        decodedBytes += candidate.decodedBytes;
-      }
-      backingBytes += candidate.placement.backingBytes;
-      admitted += 1;
     }
 
     const next = new Map<symbol, GraphicsSelection>();
@@ -314,25 +421,25 @@ export function RenderGraphics({
   backgroundChildren,
   children,
   graphics,
+  plainChildren,
 }: RenderGraphicsProps) {
   const owner = useRef(Symbol("render-graphics")).current;
   const images = graphics?.images ?? EMPTY_IMAGES;
-  const imageById = useMemo(
-    () => new Map(images.map((image) => [image.id, image])),
-    [images],
-  );
-  const candidates = useMemo(() => {
-    const rendered: RenderGraphicCandidate[] = [];
-    for (const [order, candidate] of (graphics?.placements ?? []).entries()) {
-      const image = imageById.get(candidate.image_id);
-      if (image === undefined) continue;
+  const imageMetadata = useMemo(() => {
+    const metadata = new Map<number, ImageAdmissionMetadata>();
+    for (const image of images) {
       const decodedBytes = renderGraphicRgbaByteLength(image);
-      if (decodedBytes === null) continue;
-      const placement = resolveRenderGraphicPlacement(image, candidate);
-      if (placement !== null) rendered.push({ image, placement, order, decodedBytes });
+      if (decodedBytes !== null) metadata.set(image.id, { image, decodedBytes });
     }
-    return selectTopCandidates(rendered);
-  }, [graphics?.placements, imageById]);
+    return metadata;
+  }, [images]);
+  const candidateSource = useMemo(
+    () => new RenderGraphicCandidateSource(
+      graphics?.placements ?? EMPTY_PLACEMENTS,
+      imageMetadata,
+    ),
+    [graphics?.placements, imageMetadata],
+  );
   const subscribeBudget = useCallback(
     (listener: () => void) => graphicsBudget.subscribe(owner, listener),
     [owner],
@@ -353,11 +460,16 @@ export function RenderGraphics({
   );
   const decodedImages = useDecodedRenderGraphicImages(admittedImages);
   const placements = useMemo(() => {
-    const rendered = candidates
-      .filter((candidate) => selected.placements.has(candidate))
+    const rendered = [...selected.placements]
       .flatMap((candidate): RenderedPlacement[] => {
         const decoded = decodedImages.get(candidate.image.id);
-        return decoded === undefined ? [] : [{ ...candidate, decoded }];
+        return decoded === undefined
+          ? []
+          : [{
+            decoded,
+            order: candidate.order,
+            placement: resolveRenderGraphicPlacementPlan(candidate.placement),
+          }];
       })
       .sort((left, right) =>
         left.placement.z - right.placement.z || left.order - right.order
@@ -375,19 +487,33 @@ export function RenderGraphics({
       }
     }
     return { belowBackground, below, above };
-  }, [budgetRevision, candidates, decodedImages, selected]);
-  const registerBudget = useCallback((element: HTMLDivElement | null) => {
+  }, [budgetRevision, decodedImages, selected]);
+  const registerBudget = useCallback((element: HTMLSpanElement | null) => {
     if (element === null) return;
-    graphicsBudget.update(owner, candidates);
+    graphicsBudget.update(owner, candidateSource);
     return () => graphicsBudget.scheduleRemove(owner);
-  }, [candidates, owner]);
+  }, [candidateSource, owner]);
+  const registration = (
+    <span aria-hidden="true" hidden ref={registerBudget} />
+  );
+  const hasDrawablePlacement = placements.belowBackground.length > 0
+    || placements.below.length > 0
+    || placements.above.length > 0;
+  if (!hasDrawablePlacement) {
+    return (
+      <>
+        {registration}
+        {plainChildren ?? children}
+      </>
+    );
+  }
 
   return (
     <>
+      {registration}
       <div
         aria-hidden="true"
         className="render-graphics-layer render-graphics-below-background"
-        ref={registerBudget}
       >
         {placements.belowBackground.map(({ decoded, placement, order }) => (
           <RenderGraphicCanvas

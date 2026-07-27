@@ -43,6 +43,20 @@ export interface ResolvedRenderGraphicPlacement {
   };
 }
 
+export interface RenderGraphicPlacementPlan {
+  key: string;
+  layer: "belowBackground" | "below" | "above";
+  z: number;
+  backingBytes: number;
+  source: { x: number; y: number; width: number; height: number };
+  viewportCol: number;
+  viewportRow: number;
+  xOffset: number;
+  yOffset: number;
+  columns: number;
+  rows: number;
+}
+
 export function renderGraphicImageKey(image: RenderGraphicImage): string {
   return `${image.id}:${image.generation}`;
 }
@@ -147,10 +161,10 @@ export function updateDecodedRenderGraphicImages(
   return decoded;
 }
 
-export function resolveRenderGraphicPlacement(
+export function planRenderGraphicPlacement(
   image: RenderGraphicImage,
   placement: RenderGraphicPlacement,
-): ResolvedRenderGraphicPlacement | null {
+): RenderGraphicPlacementPlan | null {
   if (!placement.viewport_visible || placement.image_id !== image.id
     || !Number.isSafeInteger(placement.viewport_col)
     || !Number.isSafeInteger(placement.viewport_row)
@@ -175,21 +189,6 @@ export function resolveRenderGraphicPlacement(
   const backingBytes = sourcePixels * 4;
   if (!Number.isSafeInteger(sourcePixels) || !Number.isSafeInteger(backingBytes)) return null;
 
-  const width = placement.columns > 0
-    ? `calc(var(--render-cell-width) * ${placement.columns})`
-    : placement.rows > 0
-      ? `calc(var(--render-cell-height) * ${
-        placement.rows * placement.source_width / placement.source_height
-      })`
-      : `${placement.source_width}px`;
-  const height = placement.rows > 0
-    ? `calc(var(--render-cell-height) * ${placement.rows})`
-    : placement.columns > 0
-      ? `calc(var(--render-cell-width) * ${
-        placement.columns * placement.source_height / placement.source_width
-      })`
-      : `${placement.source_height}px`;
-
   return {
     key: `${placement.image_id}:${placement.placement_id}:${placement.ordinal}`,
     layer: placement.z < KITTY_BELOW_BACKGROUND_Z
@@ -203,11 +202,52 @@ export function resolveRenderGraphicPlacement(
       width: placement.source_width,
       height: placement.source_height,
     },
+    viewportCol: placement.viewport_col,
+    viewportRow: placement.viewport_row,
+    xOffset: placement.x_offset,
+    yOffset: placement.y_offset,
+    columns: placement.columns,
+    rows: placement.rows,
+  };
+}
+
+export function resolveRenderGraphicPlacementPlan(
+  plan: RenderGraphicPlacementPlan,
+): ResolvedRenderGraphicPlacement {
+  const width = plan.columns > 0
+    ? `calc(var(--render-cell-width) * ${plan.columns})`
+    : plan.rows > 0
+      ? `calc(var(--render-cell-height) * ${
+        plan.rows * plan.source.width / plan.source.height
+      })`
+      : `${plan.source.width}px`;
+  const height = plan.rows > 0
+    ? `calc(var(--render-cell-height) * ${plan.rows})`
+    : plan.columns > 0
+      ? `calc(var(--render-cell-width) * ${
+        plan.columns * plan.source.height / plan.source.width
+      })`
+      : `${plan.source.height}px`;
+
+  return {
+    key: plan.key,
+    layer: plan.layer,
+    z: plan.z,
+    backingBytes: plan.backingBytes,
+    source: plan.source,
     style: {
-      left: `calc(var(--render-cell-width) * ${placement.viewport_col} + ${placement.x_offset}px)`,
-      top: `calc(var(--render-cell-height) * ${placement.viewport_row} + ${placement.y_offset}px)`,
+      left: `calc(var(--render-cell-width) * ${plan.viewportCol} + ${plan.xOffset}px)`,
+      top: `calc(var(--render-cell-height) * ${plan.viewportRow} + ${plan.yOffset}px)`,
       width,
       height,
     },
   };
+}
+
+export function resolveRenderGraphicPlacement(
+  image: RenderGraphicImage,
+  placement: RenderGraphicPlacement,
+): ResolvedRenderGraphicPlacement | null {
+  const plan = planRenderGraphicPlacement(image, placement);
+  return plan === null ? null : resolveRenderGraphicPlacementPlan(plan);
 }

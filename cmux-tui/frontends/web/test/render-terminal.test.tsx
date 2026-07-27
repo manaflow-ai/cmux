@@ -203,15 +203,15 @@ describe("RenderTerminal DOM grid", () => {
       <RenderTerminal client={{ protocol: 7 } as CmuxClient} surface={7} active error={null} onError={vi.fn()} />,
     );
 
+    await waitFor(() => {
+      expect(container.querySelector("[data-graphic-placement='9:3:0']")).not.toBeNull();
+      expect(container.querySelector("[data-graphic-placement='9:5:0']")).not.toBeNull();
+      expect(container.querySelector("[data-graphic-placement='9:4:0']")).not.toBeNull();
+    });
     const below = container.querySelector<HTMLElement>(".render-graphics-below");
     const belowBackground =
       container.querySelector<HTMLElement>(".render-graphics-below-background");
     const above = container.querySelector<HTMLElement>(".render-graphics-above");
-    await waitFor(() => {
-      expect(below?.querySelector("[data-graphic-placement='9:3:0']")).not.toBeNull();
-      expect(belowBackground?.querySelector("[data-graphic-placement='9:5:0']")).not.toBeNull();
-      expect(above?.querySelector("[data-graphic-placement='9:4:0']")).not.toBeNull();
-    });
     const cropped = below?.querySelector<HTMLCanvasElement>("[data-graphic-placement='9:3:0']");
     expect(cropped).toHaveAttribute("width", "1");
     expect(cropped).toHaveAttribute("height", "2");

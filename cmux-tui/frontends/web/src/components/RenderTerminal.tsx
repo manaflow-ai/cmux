@@ -70,6 +70,33 @@ const RenderRowView = memo(function RenderRowView({
   );
 });
 
+interface RenderRowsViewProps {
+  defaultBg: string;
+  defaultFg: string;
+  keyPrefix: string;
+  mode?: "plain" | "background" | "foreground";
+  rows: readonly RenderRow[];
+}
+
+const RenderRowsView = memo(function RenderRowsView({
+  defaultBg,
+  defaultFg,
+  keyPrefix,
+  mode = "plain",
+  rows,
+}: RenderRowsViewProps) {
+  return rows.map((row, index) => (
+    <RenderRowView
+      defaultBg={defaultBg}
+      defaultFg={defaultFg}
+      index={index}
+      key={`${keyPrefix}-${row.row}`}
+      mode={mode}
+      row={row}
+    />
+  ));
+});
+
 export function RenderTerminal({
   client,
   surface,
@@ -126,38 +153,41 @@ export function RenderTerminal({
           data-render-scroll
         >
           <div className="render-grid" style={gridStyle} role="log">
-            {layeredGraphics === undefined ? rows.map((row, index) => (
-              <RenderRowView
-                row={row}
-                index={index}
+            {layeredGraphics === undefined ? (
+              <RenderRowsView
                 defaultFg={defaultFg}
                 defaultBg={defaultBg}
-                key={`${history.active ? "history" : "live"}-${row.row}`}
+                keyPrefix={history.active ? "history" : "live"}
+                rows={rows}
               />
-            )) : (
+            ) : (
               <RenderGraphics
-                backgroundChildren={rows.map((row, index) => (
-                  <RenderRowView
+                backgroundChildren={(
+                  <RenderRowsView
+                    defaultBg={defaultBg}
+                    defaultFg={defaultFg}
+                    keyPrefix="background-live"
                     mode="background"
-                    row={row}
-                    index={index}
-                    defaultFg={defaultFg}
-                    defaultBg={defaultBg}
-                    key={`background-live-${row.row}`}
+                    rows={rows}
                   />
-                ))}
+                )}
                 graphics={layeredGraphics}
-              >
-                {rows.map((row, index) => (
-                  <RenderRowView
-                    mode="foreground"
-                    row={row}
-                    index={index}
-                    defaultFg={defaultFg}
+                plainChildren={(
+                  <RenderRowsView
                     defaultBg={defaultBg}
-                    key={`live-${row.row}`}
+                    defaultFg={defaultFg}
+                    keyPrefix="plain-live"
+                    rows={rows}
                   />
-                ))}
+                )}
+              >
+                <RenderRowsView
+                  defaultBg={defaultBg}
+                  defaultFg={defaultFg}
+                  keyPrefix="live"
+                  mode="foreground"
+                  rows={rows}
+                />
               </RenderGraphics>
             )}
             {!history.active && cursor?.visible && cursorStyle !== undefined && (
