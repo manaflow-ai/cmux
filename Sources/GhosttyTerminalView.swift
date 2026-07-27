@@ -3605,12 +3605,20 @@ extension TerminalSurface {
 // MARK: - Ghostty Surface View
 
 class GhosttyNSView: NSView, NSUserInterfaceValidations {
-    private static let focusDebugEnabled: Bool = {
+    private static let configuredFocusDebugEnabled: Bool = {
         if ProcessInfo.processInfo.environment["CMUX_FOCUS_DEBUG"] == "1" {
             return true
         }
         return UserDefaults.standard.bool(forKey: "cmuxFocusDebug")
     }()
+    private static var focusDebugEnabled: Bool {
+#if DEBUG
+        if let debugFocusScrollMonitorEnabledOverride {
+            return debugFocusScrollMonitorEnabledOverride
+        }
+#endif
+        return configuredFocusDebugEnabled
+    }
     internal enum DropPlan: Equatable {
         case insertText(String)
         case uploadFiles([URL])
@@ -3868,6 +3876,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }()
     @MainActor static var debugGhosttySurfaceKeyEventObserver: ((ghostty_input_key_s) -> Void)?
     @MainActor static var debugTextInputEventHandler: ((GhosttyNSView, NSEvent) -> Bool)?
+    enum DebugFocusScrollMonitorLifecycleEvent: Equatable {
+        case installed
+        case removed
+    }
+    @MainActor static var debugFocusScrollMonitorEnabledOverride: Bool?
+    @MainActor static var debugFocusScrollMonitorLifecycleObserver: ((DebugFocusScrollMonitorLifecycleEvent) -> Void)?
+    var debugHasFocusScrollMonitor: Bool { eventMonitor != nil }
 #endif
     private var eventMonitor: Any?
     private var trackingArea: NSTrackingArea?
@@ -3949,7 +3964,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         wantsLayer = true
         layer?.masksToBounds = true
         setupKeyboardCopyModeCursorOverlay()
-        installEventMonitor()
+        if Self.focusDebugEnabled {
+            installEventMonitor()
+        }
         updateTrackingAreas()
         registerForDraggedTypes(Array(Self.dropTypes))
     }
@@ -4071,6 +4088,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel]) { [weak self] event in
             return self?.localEventHandler(event) ?? event
         }
+#if DEBUG
+        if eventMonitor != nil {
+            Self.debugFocusScrollMonitorLifecycleObserver?(.installed)
+        }
+#endif
     }
 
     private func localEventHandler(_ event: NSEvent) -> NSEvent? {
@@ -7579,6 +7601,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
         if let eventMonitor {
             NSEvent.removeMonitor(eventMonitor)
+#if DEBUG
+            Self.debugFocusScrollMonitorLifecycleObserver?(.removed)
+#endif
         }
         if let windowObserver {
             NotificationCenter.default.removeObserver(windowObserver)
