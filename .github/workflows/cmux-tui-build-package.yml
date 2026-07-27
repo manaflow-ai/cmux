@@ -373,7 +373,7 @@ jobs:
     name: verify Linux package entrypoints (${{ matrix.architecture }})
     needs: package
     if: ${{ inputs.package_npm || inputs.package_pypi }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 30
     permissions:
       contents: read
