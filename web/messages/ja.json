@@ -2229,8 +2229,8 @@
       "authCodeCommentFile": "この行は ~/.zshenv を直接編集して追加します。",
       "authCodeCommentReplace": "シェル履歴に残さず、既存のエントリがあれば置き換えてください。",
       "authRestart": "ファイルを更新した後、既存のClaudeセッションを再起動または開き直してください。固定トークンを引き継ぐのは新しく起動または復元されたエージェントだけで、以降は互いにトークンを無効化しなくなります。",
-      "authNoteShell": "この例はzsh向けです。cmuxは非対話型シェルでエージェントを起動し、それらは ~/.zshrc や ~/.zprofile を読み込まないため ~/.zshenv を使います。bashの場合は同じexportを ~/.bash_profile に追加し、fishの場合は set -x CLAUDE_CODE_OAUTH_TOKEN sk-ant-oat01-… を ~/.config/fish/config.fish に追加してください。",
-      "authNoteSecret": "トークンはディスク上の平文の秘密情報です。変更したファイル（~/.zshenv、~/.bash_profile、または ~/.config/fish/config.fish）に chmod 600 を実行し、コミットしないでください。",
+      "authNoteShell": "この例はzsh向けです。cmuxは非対話型シェルでエージェントを起動し、それらは ~/.zshrc や ~/.zprofile を読み込まないため ~/.zshenv を使います。bashの場合は、BASH_ENV で読み込まれるファイル（例: ~/.bash_env）またはcmuxが起動シェル用に設定している起動ファイルに同じexportを追加してください。非対話型bashは ~/.bash_profile を読みません。fishの場合は set -x CLAUDE_CODE_OAUTH_TOKEN sk-ant-oat01-… を ~/.config/fish/config.fish に追加してください。",
+      "authNoteSecret": "トークンはディスク上の平文の秘密情報です。変更したファイル（~/.zshenv、~/.bash_env または設定済みのbash起動ファイル、または ~/.config/fish/config.fish）に chmod 600 を実行し、コミットしないでください。",
       "authNoteExpiry": "セットアップトークンは約1年で失効します（取り消しも可能）。失効したら claude setup-token を再実行し、exportを更新してください。"
     },
     "ohMyOpenCode": {

@@ -2362,8 +2362,8 @@
       "authCodeCommentFile": "Add this line to ~/.zshenv by editing the file directly.",
       "authCodeCommentReplace": "Keep it out of shell history, and replace any earlier entry.",
       "authRestart": "Restart or reopen existing Claude sessions after updating the file. Only newly launched or restored agents inherit the fixed token, which stops them from rotating each other out.",
-      "authNoteShell": "The example targets zsh — ~/.zshenv is used because cmux launches agents through non-interactive shells, which skip ~/.zshrc and ~/.zprofile. For bash, add the same export to ~/.bash_profile; for fish, add set -x CLAUDE_CODE_OAUTH_TOKEN sk-ant-oat01-… to ~/.config/fish/config.fish.",
-      "authNoteSecret": "The token is a plaintext secret on disk — run chmod 600 on whichever file you changed (~/.zshenv, ~/.bash_profile, or ~/.config/fish/config.fish), and do not commit it.",
+      "authNoteShell": "The example targets zsh — ~/.zshenv is used because cmux launches agents through non-interactive shells, which skip ~/.zshrc and ~/.zprofile. For bash, put the export in a file loaded through BASH_ENV (for example ~/.bash_env) or the startup file cmux configures for its invoked shell; non-interactive bash does not read ~/.bash_profile. For fish, add set -x CLAUDE_CODE_OAUTH_TOKEN sk-ant-oat01-… to ~/.config/fish/config.fish.",
+      "authNoteSecret": "The token is a plaintext secret on disk — run chmod 600 on whichever file you changed (~/.zshenv, ~/.bash_env or your configured bash startup file, or ~/.config/fish/config.fish), and do not commit it.",
       "authNoteExpiry": "Setup tokens expire after about a year (and can be revoked); when yours lapses, re-run claude setup-token and update the export."
     },
     "ohMyOpenCode": {
