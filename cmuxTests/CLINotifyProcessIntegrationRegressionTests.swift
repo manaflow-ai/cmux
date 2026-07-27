@@ -3387,6 +3387,89 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testCodexTeamsWatcherLocalizesRepeatedPaginationCursorError() throws {
+        let context = try makeClaudeHookContext(name: "codex-teams-pagination-locale")
+        defer { context.cleanup() }
+
+        let appServer = try CodexTeamsTestAppServer(
+            threads: [],
+            loadedThreadPages: [
+                .init(requestCursor: nil, data: [], nextCursor: "loop"),
+                .init(requestCursor: "loop", data: [], nextCursor: "loop"),
+            ]
+        )
+        let appServerURL = try appServer.start()
+        defer { appServer.stop() }
+
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 32)
+
+        let owner = Process()
+        owner.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        owner.arguments = ["20"]
+        try owner.run()
+
+        let stderrPipe = Pipe()
+        let watcher = Process()
+        watcher.executableURL = URL(fileURLWithPath: context.cliPath)
+        watcher.arguments = [
+            "--socket",
+            context.socketPath,
+            "__codex-teams-watch",
+            "--workspace-id",
+            context.workspaceId,
+            "--surface-id",
+            context.surfaceId,
+            "--app-server-url",
+            appServerURL.absoluteString,
+            "--codex-path",
+            "/usr/bin/true",
+            "--max-auto-depth",
+            "0",
+            "--owner-pid",
+            String(owner.processIdentifier),
+        ]
+        var watcherEnvironment = ProcessInfo.processInfo.environment
+        watcherEnvironment["HOME"] = context.root.path
+        watcherEnvironment["CMUX_AGENT_HOOK_STATE_DIR"] = context.root.path
+        watcherEnvironment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        watcherEnvironment["AppleLanguages"] = "(ja)"
+        watcherEnvironment["LANG"] = "ja_JP.UTF-8"
+        watcher.environment = watcherEnvironment
+        watcher.standardInput = FileHandle.nullDevice
+        watcher.standardOutput = FileHandle.nullDevice
+        watcher.standardError = stderrPipe
+        try watcher.run()
+        defer {
+            if watcher.isRunning {
+                watcher.terminate()
+                watcher.waitUntilExit()
+            }
+            if owner.isRunning {
+                owner.terminate()
+                owner.waitUntilExit()
+            }
+        }
+
+        let repeatedCursorObserved = waitForCondition(timeout: 5) {
+            appServer.loadedThreadListRequestCount() >= 2
+        }
+        XCTAssertTrue(repeatedCursorObserved, "Watcher must detect a repeated pagination cursor")
+
+        if watcher.isRunning {
+            watcher.terminate()
+            watcher.waitUntilExit()
+        }
+        let stderr = String(
+            decoding: stderrPipe.fileHandleForReading.readDataToEndOfFile(),
+            as: UTF8.self
+        )
+        XCTAssertTrue(
+            stderr.contains("Codex app-server が読み込み済みスレッドのカーソルを繰り返しました。"),
+            stderr
+        )
+        XCTAssertFalse(stderr.contains("Codex app-server repeated a loaded-thread cursor"), stderr)
+    }
+
     func testCodexTeamsWatcherPersistsAuthoritativeLifecycleGraphAndManagedHookDeduplicates() throws {
         let context = try makeClaudeHookContext(name: "codex-teams-lifecycle")
         defer { context.cleanup() }
