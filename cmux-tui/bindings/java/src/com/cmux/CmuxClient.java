@@ -261,6 +261,7 @@ public final class CmuxClient implements AutoCloseable {
         Integer cols,
         Integer rows
     ) throws CmuxException {
+        validateViewportPaneWidth(width);
         requireCapability("viewport-splits-v1", "viewport panes");
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("pane", pane);
@@ -306,6 +307,7 @@ public final class CmuxClient implements AutoCloseable {
 
     public void setViewportPaneWidth(long pane, double width, Long transaction)
         throws CmuxException {
+        validateViewportPaneWidth(width);
         requireCapability("viewport-column-resize-v1", "viewport pane resizing");
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("pane", pane);
@@ -603,6 +605,17 @@ public final class CmuxClient implements AutoCloseable {
     static void putIfNotNull(Map<String, Object> params, String key, Object value) {
         if (value != null) {
             params.put(key, value);
+        }
+    }
+
+    static void validateViewportPaneWidth(Double width) {
+        if (width == null) {
+            return;
+        }
+        if (!Double.isFinite(width) || width < 0.1 || width > 1.0) {
+            throw new IllegalArgumentException(
+                "viewport pane width must be between 0.1 and 1.0"
+            );
         }
     }
 

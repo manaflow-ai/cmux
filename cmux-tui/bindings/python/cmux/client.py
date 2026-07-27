@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import math
 import os
 import socket
 import tempfile
@@ -42,6 +43,11 @@ def _validate_workspace_selector(workspace: Optional[int], key: Optional[str]) -
         raise ValueError("workspace or key is required")
     if key is not None and not key.strip():
         raise ValueError("workspace key cannot be empty")
+
+
+def _validate_viewport_pane_width(width: float) -> None:
+    if not math.isfinite(width) or not 0.1 <= width <= 1.0:
+        raise ValueError("viewport pane width must be between 0.1 and 1.0")
 
 
 @dataclass(frozen=True)
@@ -833,6 +839,8 @@ class CmuxClient:
         cols: Optional[int] = None,
         rows: Optional[int] = None,
     ) -> SurfaceResult:
+        if width is not None:
+            _validate_viewport_pane_width(width)
         self._require_capability("viewport-splits-v1", "viewport panes")
         data = self._request(
             "new-pane-right", pane=pane, width=width, cols=cols, rows=rows
@@ -865,6 +873,7 @@ class CmuxClient:
     def set_viewport_pane_width(
         self, pane: int, width: float, *, transaction: Optional[int] = None
     ) -> EmptyResult:
+        _validate_viewport_pane_width(width)
         self._require_capability(
             "viewport-column-resize-v1", "viewport pane resizing"
         )
