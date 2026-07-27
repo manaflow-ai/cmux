@@ -68,7 +68,10 @@ INTEGRATION = REPO_ROOT / "Resources/shell-integration/cmux-bash-integration.bas
 # missing, so a broken driver can never look like a passing scenario.
 DRIVER = r"""
 set -o noclobber
-source "$CMUX_BASH_INTEGRATION"
+if ! source "$CMUX_BASH_INTEGRATION"; then
+    printf '%s\n' 'driver: sourcing the integration returned non-zero' >&2
+    exit 91
+fi
 if ! declare -F _cmux_install_cli_command_shim >/dev/null 2>&1; then
     printf '%s\n' 'driver: _cmux_install_cli_command_shim undefined after sourcing' >&2
     exit 90
