@@ -137,6 +137,19 @@ import Testing
                         "preedit command U+\(String(value, radix: 16, uppercase: true))"
                     )
                 }
+
+                let recoveredCommitActions = planner.actions(for: snapshot(
+                    textInputConsumed: true,
+                    committedText: ["\u{001B}"],
+                    translatedText: text,
+                    rawText: "\u{001B}"
+                ))
+                if recoveredCommitActions != [.sendCommittedKey(text)],
+                   mismatches.count < 10 {
+                    mismatches.append(
+                        "recovered commit U+\(String(value, radix: 16, uppercase: true))"
+                    )
+                }
             }
 
             let committedActions = planner.actions(for: snapshot(
@@ -176,6 +189,12 @@ import Testing
                 translatedText: nil,
                 rawText: nil
             ))
+            let recoveredCommitActions = planner.actions(for: snapshot(
+                textInputConsumed: true,
+                committedText: ["\u{001B}"],
+                translatedText: text,
+                rawText: "\u{001B}"
+            ))
 
             if directActions != [.sendKey(text: text, composing: false)],
                mismatches.count < 10 {
@@ -184,6 +203,10 @@ import Testing
             if committedActions != [.sendCommittedText(text)],
                mismatches.count < 10 {
                 mismatches.append("committed sequence \(index)")
+            }
+            if recoveredCommitActions != [.sendCommittedKey(text)],
+               mismatches.count < 10 {
+                mismatches.append("recovered commit sequence \(index)")
             }
         }
 
@@ -197,10 +220,14 @@ import Testing
         for snapshot: TerminalKeyInputSnapshot
     ) -> [TerminalKeyInputAction] {
         let composing = snapshot.hadMarkedText || snapshot.hasMarkedText
-        let committedText = snapshot.committedText.filter {
+        let normalizedCommittedText = ghosttyNormalizedCommittedText(
+            for: snapshot,
+            composing: composing
+        )
+        let committedText = normalizedCommittedText.filter {
             !ghosttySuppressesControlText($0, composing: composing)
         }
-        let suppressedAccumulatedControl = snapshot.committedText.contains {
+        let suppressedAccumulatedControl = normalizedCommittedText.contains {
             ghosttySuppressesControlText($0, composing: composing)
         }
 
@@ -271,6 +298,32 @@ import Testing
             return false
         }
         return scalar.value < 0x20
+    }
+
+    private func ghosttyNormalizedCommittedText(
+        for snapshot: TerminalKeyInputSnapshot,
+        composing: Bool
+    ) -> [String] {
+        guard !composing,
+              snapshot.committedText.count == 1,
+              let rawText = snapshot.event.rawText,
+              snapshot.committedText[0] == rawText,
+              ghosttyIsSingleCommandControlText(rawText),
+              let recoveredText = ghosttyCommandText(
+                  snapshot.event.translatedText
+              ) else {
+            return snapshot.committedText
+        }
+        return [recoveredText]
+    }
+
+    private func ghosttyIsSingleCommandControlText(_ text: String) -> Bool {
+        let scalars = text.unicodeScalars
+        guard let scalar = scalars.first,
+              scalars.index(after: scalars.startIndex) == scalars.endIndex else {
+            return false
+        }
+        return scalar.value < 0x20 || scalar.value == 0x7F
     }
 
     private func ghosttyCommandDuplicatesCommittedText(

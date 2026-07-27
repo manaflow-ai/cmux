@@ -23,10 +23,14 @@ public struct TerminalKeyInputPlanner: Sendable {
 
     private func plannedActions(for snapshot: TerminalKeyInputSnapshot) -> [TerminalKeyInputAction] {
         let composing = snapshot.hadMarkedText || snapshot.hasMarkedText
-        let committedText = snapshot.committedText.filter {
+        let normalizedCommittedText = normalizedCommittedText(
+            for: snapshot,
+            composing: composing
+        )
+        let committedText = normalizedCommittedText.filter {
             !shouldSuppressControlText($0, composing: composing)
         }
-        let suppressedAccumulatedControl = snapshot.committedText.contains {
+        let suppressedAccumulatedControl = normalizedCommittedText.contains {
             shouldSuppressControlText($0, composing: composing)
         }
 
@@ -101,6 +105,37 @@ public struct TerminalKeyInputPlanner: Sendable {
             return false
         }
         return scalar.value < 0x20
+    }
+
+    /// AppKit can surface the event's raw C0/DEL payload through `insertText`
+    /// even when layout translation recovered printable text for that same
+    /// physical event. The raw control is not committed terminal text. Replace
+    /// it only when all semantic signals agree, leaving composition and genuine
+    /// control input on their existing physical-key paths.
+    private func normalizedCommittedText(
+        for snapshot: TerminalKeyInputSnapshot,
+        composing: Bool
+    ) -> [String] {
+        guard !composing,
+              snapshot.committedText.count == 1,
+              let rawText = snapshot.event.rawText,
+              snapshot.committedText[0] == rawText,
+              isSingleCommandControlText(rawText),
+              let recoveredText = forwardableCommandText(
+                  snapshot.event.translatedText
+              ) else {
+            return snapshot.committedText
+        }
+        return [recoveredText]
+    }
+
+    private func isSingleCommandControlText(_ text: String) -> Bool {
+        let scalars = text.unicodeScalars
+        guard let scalar = scalars.first,
+              scalars.index(after: scalars.startIndex) == scalars.endIndex else {
+            return false
+        }
+        return scalar.value < 0x20 || scalar.value == 0x7F
     }
 
     /// `interpretKeyEvents` may report the same physical key through both
