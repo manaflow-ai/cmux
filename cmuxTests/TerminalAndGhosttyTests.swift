@@ -2716,6 +2716,53 @@ final class PanelAppearanceBackgroundTests: XCTestCase {
     }
 }
 
+@MainActor
+final class ApplicationSurfacePickerThemeTests: XCTestCase {
+    func testPickerAllowsGhosttyThemeBackgroundToShowThrough() throws {
+        let themeColor = NSColor(
+            srgbRed: 39.0 / 255.0,
+            green: 40.0 / 255.0,
+            blue: 35.0 / 255.0,
+            alpha: 1.0
+        )
+        let model = ApplicationSurfacePickerModel()
+        model.phase = .ready
+        model.replaceWindows([])
+
+        let size = NSSize(width: 320, height: 240)
+        let host = NSHostingView(
+            rootView: ZStack {
+                Color(nsColor: themeColor)
+                ApplicationSurfacePickerView(
+                    model: model,
+                    onRefresh: {},
+                    onSetUpPermissions: {},
+                    onSelect: { _ in }
+                )
+            }
+            .frame(width: size.width, height: size.height)
+        )
+        let window = NSWindow(
+            contentRect: NSRect(origin: .zero, size: size),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = host
+        host.frame = NSRect(origin: .zero, size: size)
+        host.layoutSubtreeIfNeeded()
+
+        let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+        let sampled = try XCTUnwrap(bitmap.colorAt(x: 12, y: 12)?.usingColorSpace(.sRGB))
+        let expected = try XCTUnwrap(themeColor.usingColorSpace(.sRGB))
+
+        XCTAssertEqual(sampled.redComponent, expected.redComponent, accuracy: 0.01)
+        XCTAssertEqual(sampled.greenComponent, expected.greenComponent, accuracy: 0.01)
+        XCTAssertEqual(sampled.blueComponent, expected.blueComponent, accuracy: 0.01)
+    }
+}
+
 
 final class GhosttyResponderResolutionTests: XCTestCase {
     private final class FocusProbeView: NSView {
