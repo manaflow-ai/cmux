@@ -8,14 +8,73 @@ use std::time::{Duration, Instant};
 
 use cmux_tui_core::{Rect, SurfaceId};
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use parking_lot::ReentrantMutex;
+use parking_lot::{ReentrantMutex, ReentrantMutexGuard};
 
 use super::graphics::{
     GraphicPlacement, GraphicsState, PROCESSING_FENCE_ID_BASE, processing_fence,
     processing_fence_id,
 };
 
-pub type StdoutLock = ReentrantMutex<()>;
+pub struct StdoutLock {
+    mutex: ReentrantMutex<()>,
+    pending_recovery: Mutex<PendingStreamRecovery>,
+}
+
+#[derive(Default)]
+struct PendingStreamRecovery {
+    required: bool,
+    possibly_visible: BTreeSet<SurfaceId>,
+}
+
+impl StdoutLock {
+    pub fn new(_: ()) -> Self {
+        Self {
+            mutex: ReentrantMutex::new(()),
+            pending_recovery: Mutex::new(PendingStreamRecovery::default()),
+        }
+    }
+
+    pub fn lock(&self) -> ReentrantMutexGuard<'_, ()> {
+        self.mutex.lock()
+    }
+
+    pub fn try_lock(&self) -> Option<ReentrantMutexGuard<'_, ()>> {
+        self.mutex.try_lock()
+    }
+
+    fn pending_stream_recovery(&self) -> Option<BTreeSet<SurfaceId>> {
+        let pending = self.pending_recovery.lock().unwrap();
+        pending.required.then(|| pending.possibly_visible.clone())
+    }
+
+    fn mark_stream_recovery(&self, possibly_visible: &BTreeSet<SurfaceId>) {
+        let mut pending = self.pending_recovery.lock().unwrap();
+        pending.required = true;
+        pending.possibly_visible.extend(possibly_visible);
+    }
+
+    fn clear_stream_recovery(&self) {
+        let mut pending = self.pending_recovery.lock().unwrap();
+        pending.required = false;
+        pending.possibly_visible.clear();
+    }
+
+    pub(crate) fn recover_stream_locked(&self) -> std::io::Result<()> {
+        let Some(possibly_visible) = self.pending_stream_recovery() else {
+            return Ok(());
+        };
+        let mode = GraphicsOutputMode::stdout();
+        let mut output = std::io::stdout();
+        let mut nonblocking = NonblockingOutputGuard::begin(mode)?;
+        let result = recover_partial_graphics_output(&mut output, mode, &possibly_visible);
+        let restored = nonblocking.restore();
+        if result.is_ok() {
+            self.clear_stream_recovery();
+        }
+        result.and(restored)
+    }
+}
+
 const PROCESSING_FENCE_TIMEOUT: Duration = Duration::from_secs(1);
 const PROCESSING_FENCE_SHUTDOWN_POLL: Duration = Duration::from_millis(25);
 const LATE_FENCE_RESPONSE_GRACE: Duration = Duration::from_secs(4);
@@ -24,7 +83,9 @@ const MAX_RETIRED_FENCES: usize = 4;
 const MAX_GRAPHICS_RESPONSE_EVENTS: usize = 128;
 const MAX_CONSECUTIVE_GRAPHICS_FENCE_TIMEOUTS: u8 = 2;
 const GRAPHICS_OUTPUT_TIMEOUT: Duration = Duration::from_secs(1);
+const GRAPHICS_OUTPUT_RECOVERY_TIMEOUT: Duration = Duration::from_millis(250);
 const GRAPHICS_OUTPUT_POLL: Duration = Duration::from_millis(25);
+const KITTY_STRING_TERMINATOR: &[u8] = b"\x1b\\";
 
 #[derive(Clone, Copy)]
 enum GraphicsOutputMode {
@@ -717,6 +778,7 @@ fn write_graphics_bytes<W: Write>(
     mut bytes: &[u8],
     deadline: Instant,
     shutdown: &AtomicBool,
+    wrote_any: &mut bool,
 ) -> std::io::Result<()> {
     while !bytes.is_empty() {
         check_graphics_output_deadline(deadline, shutdown)?;
@@ -727,7 +789,10 @@ fn write_graphics_bytes<W: Write>(
                     "graphics output made no progress",
                 ));
             }
-            Ok(written) => bytes = &bytes[written..],
+            Ok(written) => {
+                *wrote_any = true;
+                bytes = &bytes[written..];
+            }
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                 wait_for_graphics_output(mode, deadline, shutdown)?;
@@ -757,11 +822,53 @@ fn flush_graphics_output<W: Write>(
     }
 }
 
+fn recover_partial_graphics_output<W: Write>(
+    output: &mut W,
+    mode: GraphicsOutputMode,
+    possibly_visible: &BTreeSet<SurfaceId>,
+) -> std::io::Result<()> {
+    let deadline = Instant::now() + GRAPHICS_OUTPUT_RECOVERY_TIMEOUT;
+    let recovery = AtomicBool::new(false);
+    let mut wrote_any = false;
+    let mut result = write_graphics_bytes(
+        output,
+        mode,
+        KITTY_STRING_TERMINATOR,
+        deadline,
+        &recovery,
+        &mut wrote_any,
+    );
+    for surface in possibly_visible {
+        if result.is_err() {
+            break;
+        }
+        result = write_graphics_bytes(
+            output,
+            mode,
+            &super::graphics::delete_image(*surface),
+            deadline,
+            &recovery,
+            &mut wrote_any,
+        );
+    }
+    let terminated = write_graphics_bytes(
+        output,
+        mode,
+        KITTY_STRING_TERMINATOR,
+        deadline,
+        &recovery,
+        &mut wrote_any,
+    )
+    .and_then(|()| flush_graphics_output(output, mode, deadline, &recovery));
+    result.and(terminated)
+}
+
 fn write_graphics_output<W, I, B>(
     stdout_lock: &StdoutLock,
     output: &mut W,
     output_mode: GraphicsOutputMode,
     chunks: I,
+    possibly_visible: &BTreeSet<SurfaceId>,
     shutdown: &AtomicBool,
 ) -> std::io::Result<()>
 where
@@ -780,12 +887,35 @@ where
         );
     };
     let mut nonblocking = NonblockingOutputGuard::begin(output_mode)?;
+    if let Some(pending) = stdout_lock.pending_stream_recovery() {
+        let recovered = recover_partial_graphics_output(output, output_mode, &pending);
+        if recovered.is_ok() {
+            stdout_lock.clear_stream_recovery();
+        } else {
+            let restored = nonblocking.restore();
+            return recovered.and(restored);
+        }
+    }
+    let mut wrote_any = false;
     let result = (|| {
         for chunk in chunks {
-            write_graphics_bytes(output, output_mode, chunk.as_ref(), deadline, shutdown)?;
+            write_graphics_bytes(
+                output,
+                output_mode,
+                chunk.as_ref(),
+                deadline,
+                shutdown,
+                &mut wrote_any,
+            )?;
         }
         flush_graphics_output(output, output_mode, deadline, shutdown)
     })();
+    if result.is_err()
+        && wrote_any
+        && recover_partial_graphics_output(output, output_mode, possibly_visible).is_err()
+    {
+        stdout_lock.mark_stream_recovery(possibly_visible);
+    }
     let restored = nonblocking.restore();
     result.and(restored)
 }
@@ -857,6 +987,7 @@ where
                 &mut output,
                 output_mode,
                 batches.into_iter().chain(std::iter::once(processing_fence(fence_id))),
+                &possibly_visible,
                 &shutdown,
             );
             if output_result.is_err() {
@@ -883,6 +1014,7 @@ where
                     &mut output,
                     output_mode,
                     std::iter::once(processing_fence(fence_id)),
+                    &possibly_visible,
                     &shutdown,
                 );
                 if retry_output.is_err() {
@@ -916,6 +1048,7 @@ where
                             &mut output,
                             output_mode,
                             cleanup,
+                            &possibly_visible,
                             &shutdown,
                         );
                         *completion.lock().unwrap() = Some(GraphicsCompletion::Failed);

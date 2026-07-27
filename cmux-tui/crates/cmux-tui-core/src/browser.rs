@@ -2522,10 +2522,12 @@ impl BrowserSurface {
         self.begin_frame_transition(true)
     }
 
+    #[cfg(test)]
     fn begin_navigation_frame_transition(&self) -> anyhow::Result<PointerFrameInvalidation> {
         self.begin_navigation_frame_transition_to(false)
     }
 
+    #[cfg(test)]
     fn begin_targeted_navigation_frame_transition(
         &self,
     ) -> anyhow::Result<PointerFrameInvalidation> {
@@ -2581,8 +2583,9 @@ impl BrowserSurface {
             || state.pending_same_document_navigation
     }
 
-    fn begin_superseding_targeted_navigation_frame_transition(
+    fn begin_superseding_navigation_frame_transition(
         &self,
+        may_be_same_document: bool,
     ) -> anyhow::Result<PointerFrameInvalidation> {
         let mut state = self.state.lock().unwrap();
         let navigation_pending = state.pending_navigation_epoch.is_some()
@@ -2592,16 +2595,20 @@ impl BrowserSurface {
             anyhow::bail!("browser frame reconfiguration is still committing");
         }
         let current_frame_epoch = self.frame_epoch.current();
-        let preserved_rollback = state.pending_navigation_rollback.as_ref().filter(|rollback| {
-            state.pending_document_epoch.is_none()
-                && rollback.revision == state.pointer_frame_revision
-                && rollback
-                    .expected_frame_epoch
-                    .is_some_and(|expected_epoch| current_frame_epoch < expected_epoch)
-                && state.latest_frame.as_ref().map(|frame| frame.seq)
-                    == rollback.previous_latest_frame_seq
-        });
-        let preserved_rollback = preserved_rollback.cloned();
+        let preserved_rollback = may_be_same_document
+            .then(|| {
+                state.pending_navigation_rollback.as_ref().filter(|rollback| {
+                    state.pending_document_epoch.is_none()
+                        && rollback.revision == state.pointer_frame_revision
+                        && rollback
+                            .expected_frame_epoch
+                            .is_some_and(|expected_epoch| current_frame_epoch < expected_epoch)
+                        && state.latest_frame.as_ref().map(|frame| frame.seq)
+                            == rollback.previous_latest_frame_seq
+                })
+            })
+            .flatten()
+            .cloned();
         state.pending_frame_epoch = None;
         state.pending_navigation_epoch = None;
         state.pending_document_epoch = None;
@@ -2614,9 +2621,15 @@ impl BrowserSurface {
                 // this CDP session. An ingress epoch still below the old
                 // reservation proves that navigation never committed, so the
                 // replacement may retain the original rollback authority.
-                self.install_navigation_frame_transition_locked(&mut state, true, rollback)
+                self.install_navigation_frame_transition_locked(
+                    &mut state,
+                    may_be_same_document,
+                    rollback,
+                )
             }
-            None => self.reserve_navigation_frame_transition_locked(&mut state, true),
+            None => {
+                self.reserve_navigation_frame_transition_locked(&mut state, may_be_same_document)
+            }
         })
     }
 
@@ -3789,8 +3802,9 @@ impl BrowserSurface {
     fn begin_latest_navigation_frame_transition(
         &self,
         session: &BrowserSession,
+        may_be_same_document: bool,
     ) -> anyhow::Result<PointerFrameInvalidation> {
-        match self.begin_targeted_navigation_frame_transition() {
+        match self.begin_navigation_frame_transition_to(may_be_same_document) {
             Ok(invalidation) => Ok(invalidation),
             Err(_) if self.navigation_transition_pending() => {
                 // Page.stopLoading is ordered on the same CDP session. By the
@@ -3799,12 +3813,13 @@ impl BrowserSurface {
                 // reservation rejects any old event still queued to the
                 // surface while allowing the latest-wins URL to proceed.
                 session.runtime.client.stop_loading(&session.session_id)?;
-                self.begin_superseding_targeted_navigation_frame_transition()
+                self.begin_superseding_navigation_frame_transition(may_be_same_document)
             }
             Err(first_error) => {
                 // The previous transition may have settled between the first
                 // reservation attempt and the state check.
-                self.begin_targeted_navigation_frame_transition().map_err(|_| first_error)
+                self.begin_navigation_frame_transition_to(may_be_same_document)
+                    .map_err(|_| first_error)
             }
         }
     }
@@ -3830,7 +3845,7 @@ impl BrowserSurface {
     fn navigate_blocking(&self, url: &str) -> anyhow::Result<()> {
         let session = self.require_live_session()?;
         let normalized = normalize_url(url);
-        let invalidation = self.begin_latest_navigation_frame_transition(&session)?;
+        let invalidation = self.begin_latest_navigation_frame_transition(&session, true)?;
         match session.runtime.client.navigate(&session.session_id, &normalized) {
             Ok(result) => {
                 if result.is_download {
@@ -3877,16 +3892,23 @@ impl BrowserSurface {
 
     fn navigate_history_blocking(&self, delta: isize) -> anyhow::Result<()> {
         let session = self.require_live_session()?;
-        let history = session.runtime.client.navigation_history(&session.session_id)?;
+        let invalidation = self.begin_latest_navigation_frame_transition(&session, true)?;
+        let history = match session.runtime.client.navigation_history(&session.session_id) {
+            Ok(history) => history,
+            Err(error) => {
+                self.restore_pointer_frame_after_failed_command(invalidation);
+                return Err(error);
+            }
+        };
         let next = history.current_index as isize + delta;
         if next < 0 || next as usize >= history.entries.len() {
+            self.restore_pointer_frame_after_failed_command(invalidation);
             anyhow::bail!(
                 "browser has no {} history entry",
                 if delta < 0 { "back" } else { "forward" }
             );
         }
         let entry = &history.entries[next as usize];
-        let invalidation = self.begin_targeted_navigation_frame_transition()?;
         self.finish_navigation_command(
             invalidation,
             session.runtime.client.navigate_to_history_entry(&session.session_id, entry.id),
@@ -3901,7 +3923,7 @@ impl BrowserSurface {
 
     fn reload_blocking(&self) -> anyhow::Result<()> {
         let session = self.require_live_session()?;
-        let invalidation = self.begin_navigation_frame_transition()?;
+        let invalidation = self.begin_latest_navigation_frame_transition(&session, false)?;
         self.finish_navigation_command(
             invalidation,
             session.runtime.client.reload(&session.session_id),
@@ -7315,7 +7337,7 @@ mod tests {
         browser.finish_navigation_command(first, Ok(())).unwrap();
         assert_eq!(browser.latest_frame_seq(), None);
 
-        let replacement = browser.begin_superseding_targeted_navigation_frame_transition().unwrap();
+        let replacement = browser.begin_superseding_navigation_frame_transition(true).unwrap();
         browser.restore_pointer_frame_after_failed_command(replacement);
 
         assert_eq!(

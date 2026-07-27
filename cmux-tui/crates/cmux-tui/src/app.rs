@@ -4890,6 +4890,7 @@ pub fn run_with_machine_updates(
     enable_raw_mode()?;
     if let Err(e) = (|| -> anyhow::Result<()> {
         let _guard = stdout_lock.lock();
+        stdout_lock.recover_stream_locked()?;
         let mut stdout = std::io::stdout();
         stdout.execute(EnterAlternateScreen)?;
         stdout.execute(EnableMouseCapture)?;
@@ -5132,6 +5133,12 @@ pub fn run_with_machine_updates(
 
 fn restore_terminal(stdout_lock: Option<&Arc<StdoutLock>>) -> anyhow::Result<()> {
     let _guard = stdout_lock.map(|lock| lock.lock());
+    if let Some(stdout_lock) = stdout_lock
+        && let Err(error) = stdout_lock.recover_stream_locked()
+    {
+        let _ = disable_raw_mode();
+        return Err(error.into());
+    }
     restore_terminal_unlocked()
 }
 
@@ -5139,11 +5146,18 @@ fn with_panic_stdout_lock(stdout_lock: &Arc<StdoutLock>, restore: impl FnOnce())
     // Render panics may recurse on the owner thread. Reentrant acquisition
     // preserves that path while still waiting for a different stdout writer.
     let _guard = stdout_lock.lock();
-    restore();
+    if stdout_lock.recover_stream_locked().is_ok() {
+        restore();
+    } else {
+        let _ = disable_raw_mode();
+    }
 }
 
 fn restore_terminal_unlocked() -> anyhow::Result<()> {
     let mut stdout = std::io::stdout();
+    // Close an interrupted terminal string before emitting any restoration
+    // sequences. A standalone ST is ignored when no string is active.
+    let _ = write!(stdout, "\x1b\\");
     // Reset the mouse pointer shape in case we left it as a hand.
     let _ = write!(stdout, "\x1b]22;default\x07");
     // Cursor color and DECSCUSR shape are outer-terminal global state. Always
@@ -6975,6 +6989,7 @@ impl App {
     {
         let lock = self.stdout_lock.clone();
         let _guard = lock.lock();
+        lock.recover_stream_locked()?;
         self.painted_durable_notice_this_frame = None;
         terminal.draw(|f| crate::ui::draw(self, f))?;
         self.commit_successful_durable_notice_paint();
@@ -7303,6 +7318,7 @@ impl App {
     fn write_window_title(&self, title: &str) -> anyhow::Result<()> {
         let lock = self.stdout_lock.clone();
         let _guard = lock.lock();
+        lock.recover_stream_locked()?;
         let mut stdout = std::io::stdout();
         stdout.write_all(&cmux_tui_core::server::window_title_osc(title))?;
         stdout.flush()?;
@@ -12447,10 +12463,13 @@ impl App {
         if want_pointer == self.pointer_shape {
             return;
         }
-        self.pointer_shape = want_pointer;
         let shape = if want_pointer { "pointer" } else { "default" };
         let lock = self.stdout_lock.clone();
         let _guard = lock.lock();
+        if lock.recover_stream_locked().is_err() {
+            return;
+        }
+        self.pointer_shape = want_pointer;
         let mut stdout = std::io::stdout();
         let _ = write!(stdout, "\x1b]22;{shape}\x07");
         let _ = stdout.flush();
@@ -13163,6 +13182,9 @@ impl App {
         let encoded = base64::engine::general_purpose::STANDARD.encode(text.as_bytes());
         let lock = self.stdout_lock.clone();
         let _guard = lock.lock();
+        if lock.recover_stream_locked().is_err() {
+            return;
+        }
         let mut stdout = std::io::stdout();
         let _ = write!(stdout, "\x1b]52;c;{encoded}\x07");
         let _ = stdout.flush();
