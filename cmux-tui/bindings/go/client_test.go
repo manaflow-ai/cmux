@@ -332,6 +332,50 @@ func TestClearHistoryFallbackRequiresCapabilityAndPreservesKey(t *testing.T) {
 	}
 }
 
+func TestClearHistoryFailurePreservesDeliveryClassification(t *testing.T) {
+	protocol := uint32(9)
+	clientConn, serverConn := net.Pipe()
+	defer serverConn.Close()
+	client := &Client{
+		timeout:  time.Second,
+		conn:     &jsonLineConn{conn: clientConn, reader: bufio.NewReader(clientConn)},
+		protocol: &protocol,
+		capabilities: map[string]struct{}{
+			"clear-history-v1":     {},
+			"clear-history-key-v1": {},
+		},
+	}
+	defer client.Close()
+
+	go func() {
+		decoder := json.NewDecoder(serverConn)
+		encoder := json.NewEncoder(serverConn)
+		var request map[string]any
+		if decoder.Decode(&request) != nil {
+			return
+		}
+		_ = encoder.Encode(map[string]any{
+			"id":             request["id"],
+			"ok":             false,
+			"error":          "clear failed",
+			"error_delivery": "known-not-delivered",
+		})
+	}()
+
+	err := client.ClearHistoryWithFallback(
+		context.Background(),
+		7,
+		TerminalKeyInput{Key: TerminalKeyK},
+	)
+	var commandError *CommandError
+	if !errors.As(err, &commandError) {
+		t.Fatalf("ClearHistoryWithFallback() error = %v, want CommandError", err)
+	}
+	if commandError.Delivery != ErrorDeliveryKnownNotDelivered {
+		t.Fatalf("CommandError.Delivery = %q", commandError.Delivery)
+	}
+}
+
 func TestClearHistoryFallbackRejectsOversizedKeyTextLocally(t *testing.T) {
 	protocol := uint32(9)
 	client := &Client{

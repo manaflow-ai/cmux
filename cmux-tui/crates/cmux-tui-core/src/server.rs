@@ -8365,6 +8365,17 @@ mod tests {
     }
 
     #[test]
+    fn identify_advertises_clear_history_key_only_with_bounded_fallback_writes() {
+        let unsupported = advertised_capabilities(false);
+        assert!(unsupported.contains(&CLEAR_HISTORY_CAPABILITY));
+        assert!(!unsupported.contains(&CLEAR_HISTORY_KEY_CAPABILITY));
+
+        let supported = advertised_capabilities(true);
+        assert!(supported.contains(&CLEAR_HISTORY_CAPABILITY));
+        assert!(supported.contains(&CLEAR_HISTORY_KEY_CAPABILITY));
+    }
+
+    #[test]
     fn protocol_key_input_round_trips_encoder_metadata() {
         let input = KeyInput {
             key: sys::GHOSTTY_KEY_NUMPAD_ENTER,

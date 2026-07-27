@@ -14432,6 +14432,13 @@ mod tests {
     }
 
     #[test]
+    fn clear_history_shortcut_requires_atomic_fallback_support() {
+        assert!(!should_claim_clear_history_shortcut(SurfaceKind::Pty, false));
+        assert!(should_claim_clear_history_shortcut(SurfaceKind::Pty, true));
+        assert!(!should_claim_clear_history_shortcut(SurfaceKind::Browser, true));
+    }
+
+    #[test]
     fn prefixed_clear_history_never_forwards_only_the_suffix_key() {
         let mux = Mux::new(
             "prefixed-clear-history-fallback-test",

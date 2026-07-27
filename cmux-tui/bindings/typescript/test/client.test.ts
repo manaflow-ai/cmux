@@ -315,6 +315,40 @@ test("clearHistory preserves the structured fallback key", async () => {
   await client.close();
 });
 
+test("clearHistory failures preserve delivery classification", async () => {
+  const transport = new ScriptedTransport((request, connection) => {
+    if (request.cmd === "identify") {
+      connection.emit({
+        id: request.id,
+        ok: true,
+        data: {
+          app: "cmux-tui",
+          version: "0.1.2",
+          protocol: 9,
+          capabilities: ["clear-history-v1"],
+          session: "main",
+          pid: 1,
+        },
+      });
+      return;
+    }
+    connection.emit({
+      id: request.id,
+      ok: false,
+      error: "clear failed",
+      error_delivery: "known-not-delivered",
+    });
+  });
+  const client = new CmuxClient({ transport, timeoutMs: 100 });
+
+  await assert.rejects(client.clearHistory(7), (error: unknown) => {
+    assert.ok(error instanceof CmuxCommandError);
+    assert.equal(error.delivery, "known-not-delivered");
+    return true;
+  });
+  await client.close();
+});
+
 test("clearHistory rejects oversized fallback key text locally", async () => {
   let clearRequests = 0;
   const transport = new ScriptedTransport((request, connection) => {

@@ -1785,6 +1785,37 @@ mod tests {
     }
 
     #[test]
+    fn clear_history_failure_preserves_delivery_classification() {
+        let (socket, peer) = UnixStream::pair().unwrap();
+        let writer = socket.try_clone().unwrap();
+        let server = std::thread::spawn(move || {
+            let mut response_writer = peer.try_clone().unwrap();
+            let mut reader = BufReader::new(peer);
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            response_writer
+                .write_all(
+                    b"{\"id\":1,\"ok\":false,\"error\":\"clear failed\",\"error_delivery\":\"known-not-delivered\"}\n",
+                )
+                .unwrap();
+        });
+        let mut client = CmuxClient {
+            config: ClientConfig::default(),
+            conn: JsonLineConnection { writer, reader: BufReader::new(socket) },
+            next_id: 1,
+            protocol: Some(9),
+            capabilities: vec!["clear-history-v1".to_string(), "clear-history-key-v1".to_string()],
+        };
+
+        let error = client.clear_history(7).unwrap_err();
+        assert!(matches!(
+            error,
+            CmuxError::Command { delivery: Some(ErrorDelivery::KnownNotDelivered), .. }
+        ));
+        server.join().unwrap();
+    }
+
+    #[test]
     fn set_split_ratio_accepts_newer_additive_protocols() {
         let (socket, _peer) = UnixStream::pair().unwrap();
         let writer = socket.try_clone().unwrap();

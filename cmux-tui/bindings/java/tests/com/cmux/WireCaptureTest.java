@@ -43,6 +43,7 @@ public final class WireCaptureTest {
         );
         assertMissingClearHistoryCapabilityIsRejected();
         assertMissingClearHistoryFallbackCapabilityIsRejected();
+        assertClearHistoryFailurePreservesDeliveryClassification();
         assertOversizedClearHistoryFallbackIsRejectedLocally();
         assertProtocolV7RejectsSetSplitRatio();
         assertProtocolV8RejectsNewPane();
@@ -170,6 +171,27 @@ public final class WireCaptureTest {
             TerminalKeyAction.PRESS,
             true
         );
+    }
+
+    private static void assertClearHistoryFailurePreservesDeliveryClassification() throws Exception {
+        Path socket = freshSocketPath();
+        CaptureServer server = new CaptureServer(socket, new String[] {
+            "{\"id\":1,\"ok\":true,\"data\":{\"app\":\"cmux-tui\",\"version\":\"test\",\"protocol\":9,\"capabilities\":[\"clear-history-v1\"],\"session\":\"wire\",\"pid\":1}}",
+            "{\"id\":2,\"ok\":false,\"error\":\"clear failed\",\"error_delivery\":\"known-not-delivered\"}"
+        }, true);
+        server.start();
+        try (CmuxClient client = CmuxClient.builder().socketPath(socket.toString()).timeout(Duration.ofSeconds(2)).build()) {
+            try {
+                client.clearHistory(9);
+                throw new AssertionError("clearHistory must preserve its delivery classification");
+            } catch (CmuxCommandException error) {
+                if (error.errorDelivery() != CmuxErrorDelivery.KNOWN_NOT_DELIVERED) {
+                    throw new AssertionError("unexpected delivery classification: " + error.errorDelivery());
+                }
+            }
+        } finally {
+            server.close();
+        }
     }
 
     private static void assertOversizedClearHistoryFallbackIsRejectedLocally() throws Exception {
