@@ -9934,6 +9934,45 @@ mod tests {
     }
 
     #[test]
+    fn kitty_quota_exhaustion_disables_only_overflow_surfaces_and_promotes_them() {
+        let mux = test_mux();
+        let opts = mux.surface_options.lock().unwrap().clone();
+        let owner_limit =
+            usize::try_from(KITTY_IMAGE_PROCESS_BUDGET_COUNT / KITTY_OBJECT_OWNERS_PER_SURFACE)
+                .unwrap();
+        assert_eq!(owner_limit, 2_048);
+        let mut surfaces = Vec::with_capacity(owner_limit + 1);
+        for _ in 0..=owner_limit {
+            surfaces.push(
+                Surface::spawn_for_test(mux.next_id(), opts.clone(), Arc::downgrade(&mux)).unwrap(),
+            );
+        }
+        wait_for_kitty_image_budget(&mux);
+
+        let participating_limit = surfaces[0]
+            .with_terminal(|terminal| terminal.kitty_image_count_limit().unwrap())
+            .unwrap();
+        assert!(participating_limit > 0);
+        assert_eq!(
+            surfaces[owner_limit]
+                .with_terminal(|terminal| terminal.kitty_image_count_limit().unwrap())
+                .unwrap(),
+            0,
+            "quota exhaustion disabled terminals that already owned a graphics share"
+        );
+
+        mux.unregister_kitty_image_surface(&surfaces[0]).unwrap();
+        wait_for_kitty_image_budget(&mux);
+        assert_eq!(
+            surfaces[owner_limit]
+                .with_terminal(|terminal| terminal.kitty_image_count_limit().unwrap())
+                .unwrap(),
+            participating_limit,
+            "an overflow terminal was not promoted when a graphics share became available"
+        );
+    }
+
+    #[test]
     fn kitty_quota_worker_retries_a_transient_update_failure() {
         let mux = test_mux();
         let first = mux.new_workspace(None, Some((80, 24))).unwrap();

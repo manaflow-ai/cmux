@@ -7088,6 +7088,46 @@ mod tests {
     }
 
     #[test]
+    fn placing_an_initially_unplaced_image_does_not_resend_its_pixels() {
+        let mut terminal = Terminal::new(10, 3, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(b"\x1b_Ga=t,t=d,f=24,i=43,s=1,v=1,q=2;/wAA\x1b\\");
+        let mut render_state = RenderState::new().unwrap();
+        let mut initial = render_protocol_frame(&mut terminal, &mut render_state);
+        initial.frame.kitty_graphics =
+            render_state.snapshot_kitty_graphics(&terminal, true).unwrap();
+        assert!(initial.frame.kitty_graphics.image(43).is_some());
+        assert!(initial.frame.kitty_graphics_delta.image_generations.is_empty());
+        let mut client = RenderClientState::new(Arc::new(RenderService::new()), &initial);
+
+        terminal.vt_write(b"\x1b_Ga=p,i=43,p=9,c=1,r=1,q=2;\x1b\\");
+        let frame = render_protocol_frame(&mut terminal, &mut render_state);
+        let delta = serde_json::to_value(client.delta_message(1, &frame)).unwrap();
+        let graphics = &delta["graphics"];
+
+        assert!(graphics.get("images").is_none(), "{delta:#}");
+        assert_eq!(graphics["placements"].as_array().unwrap().len(), 1);
+        assert_eq!(graphics["placements"][0]["image_id"], 43);
+    }
+
+    #[test]
+    fn deleting_an_initially_unplaced_image_releases_client_pixels() {
+        let mut terminal = Terminal::new(10, 3, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(b"\x1b_Ga=t,t=d,f=24,i=43,s=1,v=1,q=2;/wAA\x1b\\");
+        let mut render_state = RenderState::new().unwrap();
+        let mut initial = render_protocol_frame(&mut terminal, &mut render_state);
+        initial.frame.kitty_graphics =
+            render_state.snapshot_kitty_graphics(&terminal, true).unwrap();
+        let mut client = RenderClientState::new(Arc::new(RenderService::new()), &initial);
+
+        terminal.vt_write(b"\x1b_Ga=d,d=I,i=43,q=2;\x1b\\");
+        let frame = render_protocol_frame(&mut terminal, &mut render_state);
+        let delta = serde_json::to_value(client.delta_message(1, &frame)).unwrap();
+
+        assert_eq!(delta["graphics"]["removed_image_ids"], json!([43]), "{delta:#}");
+        assert!(delta["graphics"].get("images").is_none(), "{delta:#}");
+    }
+
+    #[test]
     fn render_delta_upserts_only_images_with_changed_generations() {
         let mut terminal = Terminal::new(10, 3, 0, Callbacks::default()).unwrap();
         terminal.vt_write(RED_IMAGE_41);
