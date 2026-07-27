@@ -5,16 +5,14 @@ enum ComputerUsePermissionRowAction: Equatable, Sendable {
     }
 
     case allow
-    case openSystemSettings
     case done
 
-    /// Both visible permission actions lead directly to the permanent macOS
-    /// permission pane. `allow` is the concise first-run label; it must not
-    /// raise an intermediate native TCC alert that then asks the user to open
-    /// System Settings a second time.
+    /// Allow always leads directly to the permanent macOS permission pane. It
+    /// stays Allow until the helper reports the grant, including after System
+    /// Settings has already opened once.
     var destination: Destination? {
         switch self {
-        case .allow, .openSystemSettings:
+        case .allow:
             .systemSettings
         case .done:
             nil
@@ -24,15 +22,9 @@ enum ComputerUsePermissionRowAction: Equatable, Sendable {
     static func resolve(
         granted: Bool,
         statusIsKnown: Bool,
-        systemSettingsOpened: Bool
+        systemSettingsOpened _: Bool
     ) -> Self {
-        guard statusIsKnown else {
-            return granted || systemSettingsOpened
-                ? .openSystemSettings
-                : .allow
-        }
-        if granted { return .done }
-        return systemSettingsOpened ? .openSystemSettings : .allow
+        statusIsKnown && granted ? .done : .allow
     }
 
     /// Helper installation happens independently when onboarding appears.
