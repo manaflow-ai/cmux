@@ -110,6 +110,17 @@ pub(crate) struct ShortcutMessages {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+pub(crate) struct ConfigMessages {
+    invalid_macos_option_as_alt: &'static str,
+}
+
+impl ConfigMessages {
+    pub(crate) fn invalid_macos_option_as_alt(&self, value: &str) -> String {
+        self.invalid_macos_option_as_alt.replace("{value}", value)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct AttachMessages {
     pub filtered_subscription_unavailable: &'static str,
     unknown_terminal_prefix: &'static str,
@@ -296,6 +307,7 @@ pub(crate) struct Catalog {
     pub machine_agent: MachineAgentMessages,
     pub menu: MenuMessages,
     pub shortcuts: ShortcutMessages,
+    pub config: ConfigMessages,
     pub attach: AttachMessages,
     pub sidebar: SidebarMessages,
 }
@@ -395,6 +407,9 @@ edits shell files. Authenticate with the configured host before retrying.
         title: "Keyboard shortcuts",
         close_button: "Esc close",
         footer: "↑/↓ or wheel scroll · Esc or ? close",
+    },
+    config: ConfigMessages {
+        invalid_macos_option_as_alt: "cmux-tui: ignoring non-boolean keys.macos_option_as_alt = {value}",
     },
     attach: AttachMessages {
         filtered_subscription_unavailable: "single-terminal attach requires a newer cmux-tui server; restart the session",
@@ -573,6 +588,9 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
         title: "キーボードショートカット",
         close_button: "Esc 閉じる",
         footer: "↑/↓ またはホイールでスクロール · Esc または ? で閉じる",
+    },
+    config: ConfigMessages {
+        invalid_macos_option_as_alt: "cmux-tui: 真偽値ではない keys.macos_option_as_alt = {value} を無視します",
     },
     attach: AttachMessages {
         filtered_subscription_unavailable: "単一ターミナルへの接続には新しい cmux-tui サーバーが必要です。セッションを再起動してください",
@@ -836,15 +854,11 @@ mod tests {
     #[test]
     fn option_mode_config_warning_is_localized() {
         assert_eq!(
-            catalog_for_locale("en_US.UTF-8")
-                .config
-                .invalid_macos_option_as_alt("\"guess\""),
+            catalog_for_locale("en_US.UTF-8").config.invalid_macos_option_as_alt("\"guess\""),
             "cmux-tui: ignoring non-boolean keys.macos_option_as_alt = \"guess\""
         );
         assert_eq!(
-            catalog_for_locale("ja_JP.UTF-8")
-                .config
-                .invalid_macos_option_as_alt("\"guess\""),
+            catalog_for_locale("ja_JP.UTF-8").config.invalid_macos_option_as_alt("\"guess\""),
             "cmux-tui: 真偽値ではない keys.macos_option_as_alt = \"guess\" を無視します"
         );
     }

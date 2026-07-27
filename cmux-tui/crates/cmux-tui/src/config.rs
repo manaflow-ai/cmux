@@ -131,6 +131,8 @@ use ratatui::style::Color;
 use serde::{Deserialize, Deserializer};
 use serde_json::{Value, json};
 
+use crate::localization::catalog;
+
 /// For a field typed `Option<Option<T>>`: makes an explicit `null` in the
 /// input deserialize to `Some(None)` rather than the `None` an absent key
 /// also produces, so callers can tell "not set" from "set to null".
@@ -1492,7 +1494,8 @@ impl Keys {
             if let Some(value) = value.as_bool() {
                 self.macos_option_as_alt = value;
             } else {
-                eprintln!("cmux-tui: ignoring non-boolean keys.macos_option_as_alt = {value:?}");
+                let value = format!("{value:?}");
+                eprintln!("{}", catalog().config.invalid_macos_option_as_alt(&value));
             }
         }
         if raw.get("alt_shortcuts").and_then(Value::as_bool) == Some(false) {
