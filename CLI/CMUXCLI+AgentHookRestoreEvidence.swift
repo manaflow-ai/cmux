@@ -4,6 +4,43 @@ import CMUXAgentLaunch
 extension CMUXCLI {
     private static let codexPermissionEvidenceChunkBytes = 64 * 1024
 
+    func agentHookProviderOwnsResumeTarget(
+        kind: String,
+        sessionId: String,
+        transcriptPath: String?,
+        launchCommand: AgentHookLaunchCommandRecord?
+    ) -> Bool {
+        guard let sessionId = normalizedHookValue(sessionId) else { return false }
+        return agentHookCanonicalResumeSessionId(
+            kind: kind,
+            sessionId: sessionId,
+            transcriptPath: transcriptPath,
+            launchCommand: launchCommand
+        ) == sessionId
+    }
+
+    func agentHookCanonicalResumeSessionId(
+        kind: String,
+        sessionId: String,
+        transcriptPath: String?,
+        launchCommand: AgentHookLaunchCommandRecord?
+    ) -> String? {
+        guard let sessionId = normalizedHookValue(sessionId) else { return nil }
+        guard kind == "codex" else { return sessionId }
+        let environment = ProcessInfo.processInfo.environment
+        let codexHome = normalizedHookValue(launchCommand?.environment?["CODEX_HOME"])
+            ?? normalizedHookValue(environment["CODEX_HOME"])
+            ?? URL(
+                fileURLWithPath: normalizedHookValue(environment["HOME"]) ?? NSHomeDirectory(),
+                isDirectory: true
+            ).appendingPathComponent(".codex", isDirectory: true).path
+        return CodexSessionResumeVerifier().evidence(
+            sessionId: sessionId,
+            transcriptPath: transcriptPath,
+            codexHome: codexHome
+        )?.sessionId
+    }
+
     private func codexLaunchHasExplicitPermissions(_ launchCommand: AgentHookLaunchCommandRecord?) -> Bool {
         guard let launchCommand,
               AgentLaunchCaptureTrust.launcherDescribesKind(launchCommand.launcher, kind: "codex") else {
@@ -222,6 +259,14 @@ extension CMUXCLI {
         )
         guard !permissionArguments.isEmpty else {
             return launchCommand
+        }
+        // Environment-only captures intentionally have no argv. Establish the
+        // logical executable before appending repaired flags, or the first flag
+        // becomes argv[0] and the saved command tries to execute `--yolo`.
+        if launchCommand.arguments.isEmpty {
+            launchCommand.arguments = [
+                normalizedHookValue(launchCommand.executablePath) ?? "codex"
+            ]
         }
         launchCommand.arguments.append(contentsOf: permissionArguments)
         return launchCommand

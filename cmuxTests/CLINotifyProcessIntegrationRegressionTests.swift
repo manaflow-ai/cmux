@@ -5826,7 +5826,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(row["tab_title"] is NSNull)
     }
 
-    func testCodexPromptSubmitRebindsRestoredSessionToCurrentCallerSurface() throws {
+    func testCodexPromptSubmitRebindsRestoredSessionToCurrentCallerSurfaceAndPID() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("codex-rebind")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -5857,6 +5857,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                     "workspaceId": staleWorkspaceId,
                     "surfaceId": staleSurfaceId,
                     "cwd": root.path,
+                    "pid": 4100,
                     "startedAt": now,
                     "updatedAt": now,
                     "launchCommand": [
@@ -5906,6 +5907,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_WORKSPACE_ID"] = currentWorkspaceId
         environment["CMUX_SURFACE_ID"] = currentSurfaceId
+        environment["CMUX_CODEX_PID"] = "4200"
         environment["CMUX_CLI_TTY_NAME"] = ttyName
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
@@ -5929,9 +5931,17 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let session = try XCTUnwrap(sessions[sessionId] as? [String: Any])
         XCTAssertEqual(session["workspaceId"] as? String, currentWorkspaceId)
         XCTAssertEqual(session["surfaceId"] as? String, currentSurfaceId)
+        XCTAssertEqual(session["pid"] as? Int, 4200)
         XCTAssertTrue(
             state.commands.contains { $0.contains("set_status codex Running") && $0.contains("--tab=\(currentWorkspaceId)") },
             "Expected Codex prompt status to target current workspace, saw \(state.commands)"
+        )
+        XCTAssertTrue(
+            state.commands.contains {
+                $0.contains("set_agent_pid codex.\(sessionId) 4200")
+                    && $0.contains("--tab=\(currentWorkspaceId)")
+            },
+            "Expected Codex prompt PID to rebind to the current process, saw \(state.commands)"
         )
     }
 

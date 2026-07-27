@@ -7,20 +7,17 @@ import Testing
 @testable import cmux
 #endif
 
-/// Regression coverage for #8446: `isStaleAgentHookBinding` must only judge
-/// staleness for `.local` agent-hook bindings. `RestorableAgentSessionIndex`
-/// is built from a local process scan, so a `.persistentSSH` binding's
-/// remote-host process can never appear in it; treating that absence as
-/// "stale" would prune every live remote agent-hook binding on the very next
-/// reconciliation.
+/// Agent-hook bindings are durable session identity. Process liveness controls
+/// automatic launch through `wasAgentRunning`; it must not erase the binding.
 @MainActor
 @Suite
-struct WorkspaceIsStaleAgentHookBindingTests {
+struct WorkspaceDurableAgentHookBindingTests {
     private static func agentHookBinding(
         launchFlavor: SurfaceResumeLaunchFlavor
     ) -> SurfaceResumeBindingSnapshot {
         SurfaceResumeBindingSnapshot(
-            command: "claude --resume session-1",
+            kind: "codex",
+            command: "codex resume session-1",
             checkpointId: "session-1",
             source: "agent-hook",
             launchFlavor: launchFlavor
@@ -28,17 +25,27 @@ struct WorkspaceIsStaleAgentHookBindingTests {
     }
 
     @Test
-    func localAgentHookBindingWithNoLiveProcessIsStale() throws {
+    func snapshotPreservesDurableAgentHookBindingWhenProcessScanIsEmpty() throws {
         let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
         let panelId = try #require(workspace.focusedPanelId)
         let binding = Self.agentHookBinding(launchFlavor: .local)
+        #expect(workspace.setSurfaceResumeBinding(binding, panelId: panelId))
 
-        #expect(workspace.isStaleAgentHookBinding(binding, panelId: panelId) == true)
+        let snapshot = workspace.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: .empty,
+            surfaceResumeBindingIndex: .empty
+        )
+
+        #expect(snapshot.panels.first?.terminal?.resumeBinding == binding)
+        #expect(snapshot.panels.first?.terminal?.wasAgentRunning == false)
     }
 
     @Test
-    func persistentSSHAgentHookBindingIsNeverConsideredStaleByLocalScan() throws {
+    func snapshotPreservesPersistentSSHAgentHookBindingWhenLocalScanIsEmpty() throws {
         let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
         let panelId = try #require(workspace.focusedPanelId)
         let remoteContext = SurfaceResumeRemoteContext(
             workspaceID: workspace.id,
@@ -46,10 +53,15 @@ struct WorkspaceIsStaleAgentHookBindingTests {
             persistentPTYSessionID: "remote-pty-1"
         )
         let binding = Self.agentHookBinding(launchFlavor: .persistentSSH(remoteContext))
+        #expect(workspace.setSurfaceResumeBinding(binding, panelId: panelId))
 
-        // No local process can ever exist for a remote agent, so this must
-        // NOT be reported as stale (that would delete a still-live remote
-        // binding on the next reconciliation).
-        #expect(workspace.isStaleAgentHookBinding(binding, panelId: panelId) == false)
+        let snapshot = workspace.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: .empty,
+            surfaceResumeBindingIndex: .empty
+        )
+
+        #expect(snapshot.panels.first?.terminal?.resumeBinding == binding)
+        #expect(snapshot.panels.first?.terminal?.wasAgentRunning == false)
     }
 }

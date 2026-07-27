@@ -124,15 +124,13 @@ extension DockSplitStore {
     ) -> UUID? {
         guard let terminalSnapshot = snapshot.terminal else { return nil }
         let policy = Workspace.makeSessionRestorePolicyService()
-        let restorableAgent = Workspace.restorableAgentForSessionRestore(
-            terminalSnapshot.agent,
-            resumeBinding: terminalSnapshot.resumeBinding
+        let restoreInputs = Workspace.verifiedSessionRestoreInputs(
+            binding: terminalSnapshot.resumeBinding,
+            restorableAgent: terminalSnapshot.agent
         )
+        let restorableAgent = restoreInputs.restorableAgent
         let hibernation = restorableAgent != nil ? terminalSnapshot.hibernation : nil
-        let resumeBinding = Workspace.resumeBindingForSessionRestore(
-            terminalSnapshot.resumeBinding,
-            restorableAgent: restorableAgent
-        )
+        let resumeBinding = restoreInputs.binding
         let agentWasRunning = terminalSnapshot.wasAgentRunning ?? true
         let shouldAutoResumeAgent = AgentSessionAutoResumeSettings.isEnabled(
             defaults: agentSessionAutoResumeDefaults

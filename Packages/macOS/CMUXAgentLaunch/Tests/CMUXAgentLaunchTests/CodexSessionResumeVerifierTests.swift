@@ -1,0 +1,346 @@
+import Foundation
+import SQLite3
+import Testing
+@testable import CMUXAgentLaunch
+
+@Suite(.serialized)
+struct CodexSessionResumeVerifierTests {
+    @Test func indexedThreadWithExistingRolloutIsResumable() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+
+        let sessionId = "019f656e-cb8a-7ff2-9bef-81bf82fd6cb3"
+        let rollout = try fixture.writeRollout(sessionId: sessionId)
+        try fixture.insertThread(sessionId: sessionId, rolloutPath: rollout.path)
+
+        let evidence = CodexSessionResumeVerifier().evidence(
+            sessionId: sessionId,
+            transcriptPath: nil,
+            codexHome: fixture.codexHome.path
+        )
+        #expect(evidence == CodexSessionResumeEvidence(
+            sessionId: sessionId,
+            rolloutPath: rollout.path,
+            source: .threadIndex
+        ))
+    }
+
+    @Test func unindexedReviewIdentifierIsNotResumable() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+
+        let evidence = CodexSessionResumeVerifier().evidence(
+            sessionId: "019f6dbc-5095-74f3-8035-ab8cdf772bb7",
+            transcriptPath: nil,
+            codexHome: fixture.codexHome.path
+        )
+        #expect(evidence == nil)
+    }
+
+    @Test func indexedExecThreadIsNotResumable() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+
+        let sessionId = "019f9bc6-8eca-76d0-aa09-ae1edb8da649"
+        let rollout = try fixture.writeRollout(
+            sessionId: sessionId,
+            source: "exec",
+            originator: "codex_exec"
+        )
+        try fixture.insertThread(
+            sessionId: sessionId,
+            rolloutPath: rollout.path,
+            threadSource: "user"
+        )
+
+        #expect(CodexSessionResumeVerifier().evidence(
+            sessionId: sessionId,
+            transcriptPath: rollout.path,
+            codexHome: fixture.codexHome.path
+        ) == nil)
+    }
+
+    @Test func indexedExecThreadWithNestedSourceIsNotResumable() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+
+        let sessionId = "019f9c52-a430-72e1-b6e9-e563bc74b434"
+        let rollout = try fixture.writeRollout(
+            sessionId: sessionId,
+            nestedExecSource: true
+        )
+        try fixture.insertThread(
+            sessionId: sessionId,
+            rolloutPath: rollout.path,
+            threadSource: "user"
+        )
+
+        #expect(CodexSessionResumeVerifier().evidence(
+            sessionId: sessionId,
+            transcriptPath: rollout.path,
+            codexHome: fixture.codexHome.path
+        ) == nil)
+    }
+
+    @Test func indexedExecThreadWithLargeMetadataLineIsNotResumable() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+
+        let sessionId = "019f9c52-c523-77c2-a3cb-31d165897f31"
+        let rollout = try fixture.writeRollout(
+            sessionId: sessionId,
+            source: "exec",
+            originator: "codex_exec",
+            metadataPaddingBytes: 300 * 1_024
+        )
+        try fixture.insertThread(
+            sessionId: sessionId,
+            rolloutPath: rollout.path,
+            threadSource: "user"
+        )
+
+        #expect(CodexSessionResumeVerifier().evidence(
+            sessionId: sessionId,
+            transcriptPath: rollout.path,
+            codexHome: fixture.codexHome.path
+        ) == nil)
+    }
+
+    @Test func verifierSeesThreadInsertedAfterEarlierMiss() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+
+        let sessionId = "019f9bc6-f62f-7d60-ba26-463faf7f8b19"
+        let verifier = CodexSessionResumeVerifier()
+        #expect(verifier.evidence(
+            sessionId: sessionId,
+            transcriptPath: nil,
+            codexHome: fixture.codexHome.path
+        ) == nil)
+
+        let rollout = try fixture.writeRollout(sessionId: sessionId)
+        try fixture.insertThread(sessionId: sessionId, rolloutPath: rollout.path)
+
+        #expect(verifier.evidence(
+            sessionId: sessionId,
+            transcriptPath: nil,
+            codexHome: fixture.codexHome.path
+        ) == CodexSessionResumeEvidence(
+            sessionId: sessionId,
+            rolloutPath: rollout.path,
+            source: .threadIndex
+        ))
+    }
+
+    @Test func indexedSubagentResolvesToUserOwnedParent() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+
+        let parentSessionId = "019f652f-e1c3-7521-859c-5f57e33b4c80"
+        let childSessionId = "019f8c3d-72d0-7d91-8714-4bf5e541cb4d"
+        let parentRollout = try fixture.writeRollout(sessionId: parentSessionId)
+        let childRollout = try fixture.writeRollout(
+            sessionId: childSessionId,
+            parentSessionId: parentSessionId
+        )
+        try fixture.insertThread(
+            sessionId: parentSessionId,
+            rolloutPath: parentRollout.path,
+            threadSource: "user"
+        )
+        try fixture.insertThread(
+            sessionId: childSessionId,
+            rolloutPath: childRollout.path,
+            threadSource: "subagent"
+        )
+
+        let evidence = CodexSessionResumeVerifier().evidence(
+            sessionId: childSessionId,
+            transcriptPath: childRollout.path,
+            codexHome: fixture.codexHome.path
+        )
+
+        #expect(evidence?.rolloutPath == parentRollout.path)
+        #expect(evidence?.sessionId == parentSessionId)
+    }
+
+    @Test func indexedAutomationThreadIsNotResumable() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+
+        let sessionId = "019f936f-8626-79a2-8519-5d60f06740cf"
+        let rollout = try fixture.writeRollout(sessionId: sessionId)
+        try fixture.insertThread(
+            sessionId: sessionId,
+            rolloutPath: rollout.path,
+            threadSource: "automation"
+        )
+
+        #expect(CodexSessionResumeVerifier().evidence(
+            sessionId: sessionId,
+            transcriptPath: rollout.path,
+            codexHome: fixture.codexHome.path
+        ) == nil)
+    }
+
+    @Test func indexedSubagentWithoutIndexedParentIsNotResumable() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+
+        let parentSessionId = "019f652f-e1c3-7521-859c-5f57e33b4c80"
+        let childSessionId = "019f8c3d-72d0-7d91-8714-4bf5e541cb4d"
+        let childRollout = try fixture.writeRollout(
+            sessionId: childSessionId,
+            parentSessionId: parentSessionId
+        )
+        try fixture.insertThread(
+            sessionId: childSessionId,
+            rolloutPath: childRollout.path,
+            threadSource: "subagent"
+        )
+
+        #expect(CodexSessionResumeVerifier().evidence(
+            sessionId: childSessionId,
+            transcriptPath: childRollout.path,
+            codexHome: fixture.codexHome.path
+        ) == nil)
+    }
+
+    @Test func legacyRolloutRequiresMatchingSessionMetadata() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+
+        let sessionId = "019f656e-cb8a-7ff2-9bef-81bf82fd6cb3"
+        let rollout = try fixture.writeRollout(sessionId: sessionId)
+        let verifier = CodexSessionResumeVerifier()
+        #expect(verifier.evidence(
+            sessionId: sessionId,
+            transcriptPath: rollout.path,
+            codexHome: fixture.root.appendingPathComponent("missing-codex-home").path
+        )?.source == .legacyRollout)
+        #expect(verifier.evidence(
+            sessionId: "019f6dbc-5095-74f3-8035-ab8cdf772bb7",
+            transcriptPath: rollout.path,
+            codexHome: fixture.root.appendingPathComponent("missing-codex-home").path
+        ) == nil)
+    }
+
+    private final class Fixture {
+        let root: URL
+        let codexHome: URL
+        private let database: OpaquePointer
+
+        init() throws {
+            root = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-codex-resume-verifier-\(UUID().uuidString)", isDirectory: true)
+            codexHome = root.appendingPathComponent(".codex", isDirectory: true)
+            try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+            var opened: OpaquePointer?
+            let path = codexHome.appendingPathComponent("state_5.sqlite").path
+            guard sqlite3_open(path, &opened) == SQLITE_OK, let opened else {
+                throw FixtureError.database
+            }
+            database = opened
+            guard sqlite3_exec(
+                database,
+                """
+                CREATE TABLE threads (
+                    id TEXT PRIMARY KEY,
+                    rollout_path TEXT NOT NULL,
+                    thread_source TEXT
+                )
+                """,
+                nil,
+                nil,
+                nil
+            ) == SQLITE_OK else {
+                throw FixtureError.database
+            }
+        }
+
+        deinit {
+            sqlite3_close(database)
+        }
+
+        func remove() {
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        func writeRollout(
+            sessionId: String,
+            parentSessionId: String? = nil,
+            source: String? = nil,
+            originator: String? = nil,
+            nestedExecSource: Bool = false,
+            metadataPaddingBytes: Int = 0
+        ) throws -> URL {
+            let rollout = root.appendingPathComponent("rollout-2026-07-16T19-29-41-\(sessionId).jsonl")
+            var payload: [String: Any] = ["id": sessionId]
+            if let parentSessionId {
+                payload["session_id"] = parentSessionId
+                payload["parent_thread_id"] = parentSessionId
+                payload["forked_from_id"] = parentSessionId
+                payload["source"] = [
+                    "subagent": [
+                        "thread_spawn": [
+                            "parent_thread_id": parentSessionId,
+                            "depth": 1,
+                        ],
+                    ],
+                ]
+            } else if let source {
+                payload["source"] = source
+            } else if nestedExecSource {
+                payload["source"] = [
+                    "exec": [
+                        "command": "review",
+                    ],
+                ]
+            }
+            if let originator {
+                payload["originator"] = originator
+            }
+            if metadataPaddingBytes > 0 {
+                payload["aaa_padding"] = String(repeating: "x", count: metadataPaddingBytes)
+            }
+            let metadata: [String: Any] = [
+                "type": "session_meta",
+                "payload": payload,
+            ]
+            let data = try JSONSerialization.data(withJSONObject: metadata, options: [.sortedKeys])
+            try data.write(to: rollout, options: .atomic)
+            return rollout
+        }
+
+        func insertThread(
+            sessionId: String,
+            rolloutPath: String,
+            threadSource: String? = nil
+        ) throws {
+            var statement: OpaquePointer?
+            guard sqlite3_prepare_v2(
+                database,
+                "INSERT INTO threads (id, rollout_path, thread_source) VALUES (?, ?, ?)",
+                -1,
+                &statement,
+                nil
+            ) == SQLITE_OK, let statement else {
+                throw FixtureError.database
+            }
+            defer { sqlite3_finalize(statement) }
+            let transient = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
+            sqlite3_bind_text(statement, 1, sessionId, -1, transient)
+            sqlite3_bind_text(statement, 2, rolloutPath, -1, transient)
+            if let threadSource {
+                sqlite3_bind_text(statement, 3, threadSource, -1, transient)
+            } else {
+                sqlite3_bind_null(statement, 3)
+            }
+            guard sqlite3_step(statement) == SQLITE_DONE else { throw FixtureError.database }
+        }
+    }
+
+    private enum FixtureError: Error {
+        case database
+    }
+}

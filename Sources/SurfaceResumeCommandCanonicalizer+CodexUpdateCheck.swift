@@ -182,6 +182,152 @@ extension SurfaceResumeCommandCanonicalizer {
         return updated
     }
 
+    static func codexResumeSessionId(in command: String, kind: String?) -> String? {
+        codexResumeSessionId(
+            in: command,
+            normalizedKind: kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+            depth: 0
+        )
+    }
+
+    static func replacingCodexResumeSession(
+        in command: String,
+        kind: String?,
+        expectedSessionId: String,
+        replacementSessionId: String
+    ) -> String? {
+        replacingCodexResumeSession(
+            in: command,
+            normalizedKind: kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+            expectedSessionId: expectedSessionId,
+            replacementSessionId: replacementSessionId,
+            depth: 0
+        )
+    }
+
+    private static func codexResumeSessionId(
+        in command: String,
+        normalizedKind: String?,
+        depth: Int
+    ) -> String? {
+        guard depth < 4 else { return nil }
+        let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(command)
+        guard let executableIndex = commandExecutableWordIndex(in: words, command: command) else {
+            return nil
+        }
+        if let sessionWord = codexResumeSessionWord(
+            in: words,
+            executableIndex: executableIndex,
+            normalizedKind: normalizedKind
+        ) {
+            return sessionWord.value
+        }
+        guard let commandWord = shellWrapperCommandWord(
+            in: words,
+            executableIndex: executableIndex
+        ) else {
+            return nil
+        }
+        return codexResumeSessionId(
+            in: commandWord.value,
+            normalizedKind: normalizedKind,
+            depth: depth + 1
+        )
+    }
+
+    private static func replacingCodexResumeSession(
+        in command: String,
+        normalizedKind: String?,
+        expectedSessionId: String,
+        replacementSessionId: String,
+        depth: Int
+    ) -> String? {
+        guard depth < 4 else { return nil }
+        let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(command)
+        guard let executableIndex = commandExecutableWordIndex(in: words, command: command) else {
+            return nil
+        }
+        if let sessionWord = codexResumeSessionWord(
+            in: words,
+            executableIndex: executableIndex,
+            normalizedKind: normalizedKind
+        ) {
+            guard sessionWord.value == expectedSessionId else { return nil }
+            var updated = command
+            updated.replaceSubrange(sessionWord.range, with: shellQuoted(replacementSessionId))
+            return updated
+        }
+        guard let commandWord = shellWrapperCommandWord(
+            in: words,
+            executableIndex: executableIndex
+        ), let updatedInner = replacingCodexResumeSession(
+            in: commandWord.value,
+            normalizedKind: normalizedKind,
+            expectedSessionId: expectedSessionId,
+            replacementSessionId: replacementSessionId,
+            depth: depth + 1
+        ) else {
+            return nil
+        }
+        var updated = command
+        updated.replaceSubrange(commandWord.range, with: shellQuoted(updatedInner))
+        return updated
+    }
+
+    private static func codexResumeSessionWord(
+        in words: [TerminalStartupWorkingDirectoryPrefix.ShellWordRange],
+        executableIndex: Int,
+        normalizedKind: String?
+    ) -> TerminalStartupWorkingDirectoryPrefix.ShellWordRange? {
+        let executable = words[executableIndex].value
+        let executableBasename = (executable as NSString).lastPathComponent
+        let commandWordIndex = executableIndex + 1
+        let isCodexTeamsCommand =
+            commandWordIndex < words.count && words[commandWordIndex].value == "codex-teams"
+        let isCodexWrapper = executable == AgentResumeArgv.codexWrapperShellExecutableToken
+        guard normalizedKind == "codex" ||
+                executableBasename == "codex" ||
+                isCodexTeamsCommand ||
+                isCodexWrapper else {
+            return nil
+        }
+
+        let resumeIndex = isCodexTeamsCommand ? commandWordIndex + 1 : commandWordIndex
+        let sessionIndex = resumeIndex + 1
+        guard sessionIndex < words.count, words[resumeIndex].value == "resume" else {
+            return nil
+        }
+        if words[sessionIndex].value == "--remote" {
+            let threadIndex = resumeIndex + 3
+            guard threadIndex < words.count,
+                  !words[threadIndex].value.hasPrefix("-") else {
+                return nil
+            }
+            return words[threadIndex]
+        }
+        guard !words[sessionIndex].value.hasPrefix("-") else { return nil }
+        return words[sessionIndex]
+    }
+
+    private static func shellWrapperCommandWord(
+        in words: [TerminalStartupWorkingDirectoryPrefix.ShellWordRange],
+        executableIndex: Int
+    ) -> TerminalStartupWorkingDirectoryPrefix.ShellWordRange? {
+        let executableBasename = (words[executableIndex].value as NSString).lastPathComponent
+        guard executableBasename == "sh" ||
+                executableBasename == "zsh" ||
+                executableBasename == "bash" else {
+            return nil
+        }
+        let optionIndex = executableIndex + 1
+        let commandIndex = executableIndex + 2
+        guard commandIndex < words.count,
+              words[optionIndex].value == "-c" || words[optionIndex].value == "-lc" else {
+            return nil
+        }
+        return words[commandIndex]
+    }
+
     private static func codexResumeConfigOverrideAlreadyPresent(in arguments: [String]) -> Bool {
         AgentResumeArgv().hasExplicitCheckForUpdateOnStartupOverride(in: arguments)
     }

@@ -66,10 +66,7 @@ extension Workspace {
         let layoutCodec = SessionSplitContainerLayoutCodec(controller: bonsplitController)
         let rawLayout = layoutCodec.snapshot(panelIdForTabId: { [self] in surfaceIdToPanelId[$0] })
         if let surfaceResumeBindingIndex {
-            reconcileSurfaceResumeBindings(
-                using: surfaceResumeBindingIndex,
-                restorableAgentIndex: restorableAgentIndex
-            )
+            reconcileSurfaceResumeBindings(using: surfaceResumeBindingIndex)
         }
         let orderedPanelIds = sidebarOrderedPanelIds()
         var seen: Set<UUID> = []
@@ -932,19 +929,56 @@ extension Workspace {
     }
 
     nonisolated static func resumeBindingForSessionRestore(
-        _ binding: SurfaceResumeBindingSnapshot?,
-        restorableAgent: SessionRestorableAgentSnapshot?
+        _ savedBinding: SurfaceResumeBindingSnapshot?,
+        restorableAgent: SessionRestorableAgentSnapshot?,
+        codexResumeVerifier: CodexSessionResumeVerifier
     ) -> SurfaceResumeBindingSnapshot? {
-        guard let binding, binding.isAgentHookBinding, let restorableAgent else {
+        guard var binding = savedBinding else { return nil }
+        if binding.isAgentHookBinding {
+            let declaredKind = binding.kind.flatMap(RestorableAgentKind.init(rawValue:))
+            let commandSessionId = SurfaceResumeCommandCanonicalizer.codexResumeSessionId(
+                in: binding.command,
+                kind: binding.kind
+            )
+            let requiresCodexVerification =
+                declaredKind == .codex ||
+                restorableAgent?.kind == .codex ||
+                commandSessionId != nil
+            if requiresCodexVerification {
+                guard let checkpointId = normalizedResumeBindingValue(binding.checkpointId),
+                      commandSessionId == checkpointId,
+                      let evidence = codexResumeEvidence(
+                        checkpointId,
+                        environment: binding.environment,
+                        transcriptPath: restorableAgent?.transcriptPath,
+                        verifier: codexResumeVerifier
+                      ),
+                      let retargetedCommand = SurfaceResumeCommandCanonicalizer.replacingCodexResumeSession(
+                        in: binding.command,
+                        kind: binding.kind,
+                        expectedSessionId: checkpointId,
+                        replacementSessionId: evidence.sessionId
+                      ) else {
+                    return nil
+                }
+                binding.kind = RestorableAgentKind.codex.rawValue
+                binding.command = retargetedCommand
+                binding.checkpointId = evidence.sessionId
+            }
+        }
+        guard binding.isAgentHookBinding, let restorableAgent else {
             return binding
         }
         guard binding.checkpointId?.trimmingCharacters(in: .whitespacesAndNewlines) == restorableAgent.sessionId else {
-            return binding
+            // The hook store is rebuilt from provider-owned resume evidence. If an
+            // older snapshot points at a different hook UUID, discard that poisoned
+            // binding and let the verified restorable-agent snapshot launch instead.
+            return nil
         }
         if let bindingKind = binding.kind?.trimmingCharacters(in: .whitespacesAndNewlines),
            !bindingKind.isEmpty,
            RestorableAgentKind(rawValue: bindingKind) != restorableAgent.kind {
-            return binding
+            return nil
         }
 
         // Restore has no live hook cwd; use the snapshot's derived restorable cwd
@@ -984,12 +1018,70 @@ extension Workspace {
         return restorableAgent
     }
 
+    nonisolated static func verifiedSessionRestoreInputs(
+        binding: SurfaceResumeBindingSnapshot?,
+        restorableAgent: SessionRestorableAgentSnapshot?,
+        codexResumeVerifier: CodexSessionResumeVerifier = CodexSessionResumeVerifier()
+    ) -> (binding: SurfaceResumeBindingSnapshot?, restorableAgent: SessionRestorableAgentSnapshot?) {
+        let verifiedAgent = providerVerifiedRestorableAgentForSessionRestore(
+            restorableAgent,
+            codexResumeVerifier: codexResumeVerifier
+        )
+        let verifiedBinding = resumeBindingForSessionRestore(
+            binding,
+            restorableAgent: verifiedAgent,
+            codexResumeVerifier: codexResumeVerifier
+        )
+        return (
+            verifiedBinding,
+            restorableAgentForSessionRestore(
+                verifiedAgent,
+                resumeBinding: verifiedBinding
+            )
+        )
+    }
+
     nonisolated private static func normalizedResumeBindingValue(_ value: String?) -> String? {
         guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty else {
             return nil
         }
         return trimmed
+    }
+
+    nonisolated private static func providerVerifiedRestorableAgentForSessionRestore(
+        _ restorableAgent: SessionRestorableAgentSnapshot?,
+        codexResumeVerifier: CodexSessionResumeVerifier
+    ) -> SessionRestorableAgentSnapshot? {
+        guard var restorableAgent, restorableAgent.kind == .codex else { return restorableAgent }
+        guard let evidence = codexResumeEvidence(
+            restorableAgent.sessionId,
+            environment: restorableAgent.launchCommand?.environment,
+            transcriptPath: restorableAgent.transcriptPath,
+            verifier: codexResumeVerifier
+        ) else {
+            return nil
+        }
+        restorableAgent.sessionId = evidence.sessionId
+        restorableAgent.transcriptPath = evidence.rolloutPath
+        return restorableAgent
+    }
+
+    nonisolated private static func codexResumeEvidence(
+        _ sessionId: String,
+        environment: [String: String]?,
+        transcriptPath: String? = nil,
+        verifier: CodexSessionResumeVerifier
+    ) -> CodexSessionResumeEvidence? {
+        let codexHome = normalizedResumeBindingValue(environment?["CODEX_HOME"])
+            ?? URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+                .appendingPathComponent(".codex", isDirectory: true)
+                .path
+        return verifier.evidence(
+            sessionId: sessionId,
+            transcriptPath: transcriptPath,
+            codexHome: codexHome
+        )
     }
 
     nonisolated static func restorableTmuxStartCommand(_ rawCommand: String?) -> String? {
@@ -1181,8 +1273,7 @@ extension Workspace {
     }
 
     func reconcileSurfaceResumeBindings(
-        using surfaceResumeBindingIndex: SurfaceResumeBindingIndex,
-        restorableAgentIndex: RestorableAgentSessionIndex? = nil
+        using surfaceResumeBindingIndex: SurfaceResumeBindingIndex
     ) {
         for panelId in panels.keys {
             let storedBinding = surfaceResumeBindingsByPanelId[panelId]
@@ -1197,17 +1288,11 @@ extension Workspace {
             guard let detectedBinding else {
                 if storedBinding.isProcessDetected {
                     surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
-                } else if isStaleAgentHookBinding(
-                    storedBinding,
-                    panelId: panelId,
-                    restorableAgentIndex: restorableAgentIndex
-                ) {
-                    // Generalizes the tmux-only reconciliation above: a plain
-                    // (non-tmux) agent-hook binding whose session no longer
-                    // shows up as live gets dropped here too, instead of being
-                    // replayed as a resume on the next relaunch (#8446).
-                    surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
                 }
+                // An agent-hook binding is durable session identity. A process
+                // scan can decide `wasAgentRunning` and whether restore should
+                // launch it automatically, but an empty or ambiguous scan must
+                // not erase the command needed for a later resume.
                 continue
             }
             if storedBinding.shouldYieldToDetectedSurfaceResumeBinding(detectedBinding) {
@@ -1246,12 +1331,14 @@ extension Workspace {
                 restoresLegacyRemoteDirectoryWithoutProvenance(snapshot))
         switch snapshot.type {
         case .terminal:
-            let snapshotRestorableAgent = snapshot.terminal?.agent
-            let persistedResumeBinding = snapshot.terminal?.resumeBinding
-            let restorableAgent = Self.restorableAgentForSessionRestore(
-                snapshotRestorableAgent,
-                resumeBinding: persistedResumeBinding
+            let codexResumeVerifier = CodexSessionResumeVerifier()
+            let restoreInputs = Self.verifiedSessionRestoreInputs(
+                binding: snapshot.terminal?.resumeBinding,
+                restorableAgent: snapshot.terminal?.agent,
+                codexResumeVerifier: codexResumeVerifier
             )
+            let persistedResumeBinding = restoreInputs.binding
+            let restorableAgent = restoreInputs.restorableAgent
             let restoredHibernation = restorableAgent != nil ? snapshot.terminal?.hibernation : nil
             let autoResumeAgentSessions = AgentSessionAutoResumeSettings.isEnabled(defaults: agentSessionAutoResumeDefaults)
             // Only auto-resume if the agent was actively running when the snapshot was saved.
@@ -1290,7 +1377,8 @@ extension Workspace {
             )
             let resumeBinding = Self.resumeBindingForSessionRestore(
                 locatedResumeBinding,
-                restorableAgent: restorableAgent
+                restorableAgent: restorableAgent,
+                codexResumeVerifier: codexResumeVerifier
             )
             let resumeBindingForStartup =
                 restoredHibernation != nil ||
