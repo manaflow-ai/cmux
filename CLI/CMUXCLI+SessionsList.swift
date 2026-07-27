@@ -227,8 +227,6 @@ extension CMUXCLI {
                 payload["relationship"] = sessionsListNormalized(record.relationship) ?? NSNull()
                 payload["restore_authority"] = record.restoreAuthority ?? record.isRestorable ?? false
 
-                var transcriptBacked = false
-
                 if spec.name == "codex" {
                     let codexHome = sessionsListExpandedPath(
                         sessionsListNormalized(record.launchCommand?.environment?["CODEX_HOME"]) ?? defaultCodexHome
@@ -248,21 +246,21 @@ extension CMUXCLI {
                     payload["codex_indexed"] = index.indexedSessionIds.contains(record.sessionId)
                     payload["codex_transcript_found"] = transcriptPath != nil || expandedSavedTranscriptPath.map { fileManager.fileExists(atPath: $0) } == true
                     payload["codex_transcript_path"] = transcriptPath ?? expandedSavedTranscriptPath ?? NSNull()
-                    transcriptBacked = payload["codex_transcript_found"] as? Bool == true
                 } else if let envKey = spec.configDirEnvOverride,
                           let value = sessionsListNormalized(record.launchCommand?.environment?[envKey]) {
                     payload["session_home"] = sessionsListExpandedPath(value)
                     payload["session_dir"] = sessionsListExpandedPath(value)
-                    if let transcriptPath = sessionsListNormalized(record.transcriptPath) {
-                        transcriptBacked = fileManager.fileExists(atPath: sessionsListExpandedPath(transcriptPath))
-                    }
                 } else {
                     payload["session_home"] = NSNull()
                     payload["session_dir"] = NSNull()
-                    if let transcriptPath = sessionsListNormalized(record.transcriptPath) {
-                        transcriptBacked = fileManager.fileExists(atPath: sessionsListExpandedPath(transcriptPath))
-                    }
                 }
+                let transcriptBacked = try sessionsListTranscriptBacked(
+                    agent: spec.name,
+                    record: record,
+                    defaultCodexHome: defaultCodexHome,
+                    codexIndexes: &codexIndexes,
+                    fileManager: fileManager
+                )
                 payload["transcript_backed"] = transcriptBacked
                 let launchBacked = record.launchCommand != nil && agentHookSessionHasDurableResumeEvidence(
                     kind: spec.name,
@@ -270,12 +268,13 @@ extension CMUXCLI {
                 )
                 payload["launch_backed"] = launchBacked
 
-                let defaultVisible = activeForWorkspace
-                    || activeForSurface
-                    || record.restoreAuthority == true
-                    || record.isRestorable == true
-                    || launchBacked
-                    || transcriptBacked
+                let defaultVisible = sessionsListDefaultVisible(
+                    activeForWorkspace: activeForWorkspace,
+                    activeForSurface: activeForSurface,
+                    record: record,
+                    launchBacked: launchBacked,
+                    transcriptBacked: transcriptBacked
+                )
                 payload["default_visible"] = defaultVisible
                 guard includeAll || hasRecordFilter || defaultVisible else {
                     continue
@@ -489,6 +488,13 @@ extension CMUXCLI {
         let surfaceFilter = sessionsListNormalizedIDRef(surfaceRaw)?.lowercased()
         let hasRecordFilter = sessionFilter != nil || workspaceFilter != nil || surfaceFilter != nil
         let decoder = JSONDecoder()
+        let defaultCodexHome = sessionsListExpandedPath(
+            processEnv["CODEX_HOME"]
+                ?? URL(fileURLWithPath: processEnv["HOME"] ?? NSHomeDirectory(), isDirectory: true)
+                    .appendingPathComponent(".codex", isDirectory: true)
+                    .path
+        )
+        var codexIndexes: [String: CodexSessionListIndex] = [:]
         let claudeTranscriptLookup = SessionsListClaudeTranscriptLookupCache(
             homeDirectory: sessionsListExpandedPath(processEnv["HOME"] ?? NSHomeDirectory())
         )
@@ -525,6 +531,22 @@ extension CMUXCLI {
                 let activeForSurface = surfaceActiveSessionID == rawRecord.sessionId
                     || surfaceActiveSessionID == record.sessionId
                 let restoreAuthority = record.restoreAuthority ?? record.isRestorable ?? false
+                let needsDefaultVisibilityEvidence = !includeAll && !hasRecordFilter
+                let launchBacked = needsDefaultVisibilityEvidence
+                    && record.launchCommand != nil
+                    && agentHookSessionHasDurableResumeEvidence(
+                        kind: spec.name,
+                        launchCommand: record.launchCommand
+                    )
+                let transcriptBacked = needsDefaultVisibilityEvidence
+                    ? try sessionsListTranscriptBacked(
+                        agent: spec.name,
+                        record: record,
+                        defaultCodexHome: defaultCodexHome,
+                        codexIndexes: &codexIndexes,
+                        fileManager: fileManager
+                    )
+                    : false
                 let runID = sessionsListNormalized(record.runId) ?? record.sessionId
                 let parentRunID = sessionsListNormalized(record.parentRunId)
                 let parentSessionID = sessionsListNormalized(record.parentSessionId)
@@ -562,7 +584,13 @@ extension CMUXCLI {
                 candidateNodes.append((
                     node: outputNode,
                     matchesFilters: matchesFilters,
-                    defaultVisible: activeForWorkspace || activeForSurface || restoreAuthority
+                    defaultVisible: sessionsListDefaultVisible(
+                        activeForWorkspace: activeForWorkspace,
+                        activeForSurface: activeForSurface,
+                        record: record,
+                        launchBacked: launchBacked,
+                        transcriptBacked: transcriptBacked
+                    )
                 ))
                 if nodeByID[nodeID] == nil {
                     nodeByID[nodeID] = outputNode
@@ -1150,6 +1178,47 @@ extension CMUXCLI {
             indexedSessionIds: indexedSessionIds,
             transcriptPathBySessionId: transcriptPathBySessionId
         )
+    }
+
+    private func sessionsListTranscriptBacked(
+        agent: String,
+        record: ClaudeHookSessionRecord,
+        defaultCodexHome: String,
+        codexIndexes: inout [String: CodexSessionListIndex],
+        fileManager: FileManager
+    ) throws -> Bool {
+        if agent == "codex" {
+            let codexHome = sessionsListExpandedPath(
+                sessionsListNormalized(record.launchCommand?.environment?["CODEX_HOME"]) ?? defaultCodexHome
+            )
+            let index = try codexIndexes[codexHome] ?? buildCodexDebugIndex(
+                codexHome: codexHome,
+                fileManager: fileManager
+            )
+            codexIndexes[codexHome] = index
+            if index.transcriptPathBySessionId[record.sessionId] != nil {
+                return true
+            }
+        }
+        guard let transcriptPath = sessionsListNormalized(record.transcriptPath) else {
+            return false
+        }
+        return fileManager.fileExists(atPath: sessionsListExpandedPath(transcriptPath))
+    }
+
+    private func sessionsListDefaultVisible(
+        activeForWorkspace: Bool,
+        activeForSurface: Bool,
+        record: ClaudeHookSessionRecord,
+        launchBacked: Bool,
+        transcriptBacked: Bool
+    ) -> Bool {
+        activeForWorkspace
+            || activeForSurface
+            || record.restoreAuthority == true
+            || record.isRestorable == true
+            || launchBacked
+            || transcriptBacked
     }
 
     private func sessionsListUUIDs(in value: String) -> [String] {

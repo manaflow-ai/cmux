@@ -20780,24 +20780,43 @@ struct CMUXCLI {
         }
 
         private func backfillLoadedThreads(connection: CodexTeamsAppServerConnection) throws {
-            let loaded = try connection.request(
-                method: "thread/loaded/list",
-                params: ["limit": 200],
-                notificationHandler: { [weak self] message in
-                    try self?.handleAppServerMessage(
-                        message,
-                        connection: connection,
-                        allowThreadSubscribe: false
-                    )
+            var cursor: String?
+            var seenCursors = Set<String>()
+            while true {
+                var params: [String: Any] = ["limit": 200]
+                if let cursor {
+                    params["cursor"] = cursor
                 }
-            )
-            let threadIds = loaded["data"] as? [String] ?? []
-            for threadId in threadIds {
-                do {
-                    try subscribeToThreadIfNeeded(threadId, connection: connection)
-                } catch {
-                    cliWriteStderr("cmux codex-teams watcher skipped thread \(threadId): \(error)\n")
+                let loaded = try connection.request(
+                    method: "thread/loaded/list",
+                    params: params,
+                    notificationHandler: { [weak self] message in
+                        try self?.handleAppServerMessage(
+                            message,
+                            connection: connection,
+                            allowThreadSubscribe: false
+                        )
+                    }
+                )
+                let threadIds = loaded["data"] as? [String] ?? []
+                for threadId in threadIds {
+                    do {
+                        try subscribeToThreadIfNeeded(threadId, connection: connection)
+                    } catch {
+                        cliWriteStderr("cmux codex-teams watcher skipped thread \(threadId): \(error)\n")
+                    }
                 }
+                guard let rawNextCursor = loaded["nextCursor"] as? String else {
+                    return
+                }
+                let nextCursor = rawNextCursor.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !nextCursor.isEmpty else {
+                    return
+                }
+                guard seenCursors.insert(nextCursor).inserted else {
+                    throw CLIError(message: "Codex app-server repeated a loaded-thread cursor")
+                }
+                cursor = nextCursor
             }
         }
 
