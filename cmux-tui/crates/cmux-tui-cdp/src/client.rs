@@ -225,7 +225,6 @@ struct FrameSession {
     main_loader_id: Option<String>,
     pending_document: Option<PendingDocument>,
     minimum_screencast_timestamp: Option<f64>,
-    timestampless_authority_epoch: Option<u64>,
     suppressed_timestampless_epoch: Option<u64>,
 }
 
@@ -558,7 +557,6 @@ impl CdpClient {
                 main_loader_id: None,
                 pending_document: None,
                 minimum_screencast_timestamp: None,
-                timestampless_authority_epoch: None,
                 suppressed_timestampless_epoch: None,
             },
         );
@@ -752,7 +750,6 @@ impl CdpClient {
             // stopScreencast may otherwise be emitted after this restart with
             // the new Chromium session id.
             frame_session.minimum_screencast_timestamp = Some(minimum_screencast_timestamp);
-            frame_session.timestampless_authority_epoch = None;
             frame_session.suppressed_timestampless_epoch = None;
         }
         self.call_with_frame_barrier(
@@ -769,25 +766,6 @@ impl CdpClient {
         Ok(frame_epoch.current())
     }
 
-    /// Admit timestamp-less frames after a loader-verified capture establishes
-    /// that this restarted stream is presenting the current document.
-    pub fn authorize_timestampless_screencast_epoch(
-        &self,
-        session_id: &str,
-        frame_epoch: u64,
-    ) -> bool {
-        let mut frame_sessions = self.inner.frame_epochs.lock().unwrap();
-        let Some(frame_session) = frame_sessions.get_mut(session_id) else {
-            return false;
-        };
-        if frame_session.epoch.current() != frame_epoch {
-            return false;
-        }
-        frame_session.timestampless_authority_epoch = Some(frame_epoch);
-        frame_session.suppressed_timestampless_epoch = None;
-        true
-    }
-
     /// Reject timestamp-less screencast frames at ingress after bounded
     /// loader verification failed for this exact stream epoch.
     pub fn suppress_timestampless_screencast_epoch(
@@ -802,7 +780,6 @@ impl CdpClient {
         if frame_session.epoch.current() != frame_epoch {
             return false;
         }
-        frame_session.timestampless_authority_epoch = None;
         frame_session.suppressed_timestampless_epoch = Some(frame_epoch);
         true
     }
@@ -1201,18 +1178,16 @@ fn handle_text(inner: &Arc<Inner>, text: &str) {
                     frame_epoch,
                     navigation_epoch,
                     minimum_screencast_timestamp,
-                    timestampless_authority_epoch,
                     suppressed_timestampless_epoch,
                     frame_id,
                     loader_id,
                 ) = inner.frame_epochs.lock().unwrap().get(target_session).map_or(
-                    (0, 0, None, None, None, None, None),
+                    (0, 0, None, None, None, None),
                     |frame_session| {
                         (
                             frame_session.epoch.current(),
                             frame_session.epoch.latest_navigation(),
                             frame_session.minimum_screencast_timestamp,
-                            frame_session.timestampless_authority_epoch,
                             frame_session.suppressed_timestampless_epoch,
                             frame_session.main_frame_id.clone(),
                             frame_session.main_loader_id.clone(),
@@ -1224,29 +1199,14 @@ fn handle_text(inner: &Arc<Inner>, text: &str) {
                     .and_then(|metadata| metadata.get("timestamp"))
                     .and_then(Value::as_f64)
                     .filter(|value| value.is_finite());
-                if minimum_screencast_timestamp.is_some()
-                    && capture_timestamp.is_none()
-                    && suppressed_timestampless_epoch == Some(frame_epoch)
-                {
-                    return;
-                }
-                let Some(frame) = screencast_frame(params, target_session, frame_epoch, None)
-                else {
-                    return;
-                };
                 if let Some(minimum_timestamp) = minimum_screencast_timestamp {
                     match capture_timestamp {
                         Some(timestamp) if timestamp < minimum_timestamp => return,
-                        Some(_) => {
-                            if let Some(frame_session) =
-                                inner.frame_epochs.lock().unwrap().get_mut(target_session)
-                                && frame_session.epoch.current() == frame_epoch
-                            {
-                                frame_session.timestampless_authority_epoch = Some(frame_epoch);
-                                frame_session.suppressed_timestampless_epoch = None;
+                        Some(_) => {}
+                        None => {
+                            if suppressed_timestampless_epoch == Some(frame_epoch) {
+                                return;
                             }
-                        }
-                        None if timestampless_authority_epoch != Some(frame_epoch) => {
                             let (Some(frame_id), Some(loader_id)) = (frame_id, loader_id) else {
                                 return;
                             };
@@ -1262,8 +1222,22 @@ fn handle_text(inner: &Arc<Inner>, text: &str) {
                             );
                             return;
                         }
-                        None => {}
                     }
+                }
+                let Some(frame) = screencast_frame(params, target_session, frame_epoch, None)
+                else {
+                    return;
+                };
+                if capture_timestamp.is_some()
+                    && suppressed_timestampless_epoch == Some(frame_epoch)
+                    && let Some(frame_session) =
+                        inner.frame_epochs.lock().unwrap().get_mut(target_session)
+                    && frame_session.epoch.current() == frame_epoch
+                {
+                    // A timestamped post-barrier frame can reopen bounded
+                    // loader verification without granting authority to any
+                    // later timestamp-less pixels.
+                    frame_session.suppressed_timestampless_epoch = None;
                 }
                 dispatch_event(inner, CdpEvent::ScreencastFrame(frame));
             }
@@ -1874,7 +1848,6 @@ mod tests {
                 main_loader_id: None,
                 pending_document: None,
                 minimum_screencast_timestamp: None,
-                timestampless_authority_epoch: None,
                 suppressed_timestampless_epoch: None,
             },
         );
@@ -1956,7 +1929,6 @@ mod tests {
                 main_loader_id: None,
                 pending_document: None,
                 minimum_screencast_timestamp: None,
-                timestampless_authority_epoch: None,
                 suppressed_timestampless_epoch: None,
             },
         );
@@ -2189,7 +2161,6 @@ mod tests {
                 main_loader_id: None,
                 pending_document: None,
                 minimum_screencast_timestamp: None,
-                timestampless_authority_epoch: None,
                 suppressed_timestampless_epoch: None,
             },
         );
@@ -2252,7 +2223,6 @@ mod tests {
                 main_loader_id: None,
                 pending_document: None,
                 minimum_screencast_timestamp: None,
-                timestampless_authority_epoch: None,
                 suppressed_timestampless_epoch: None,
             },
         );
@@ -2303,7 +2273,6 @@ mod tests {
                 main_loader_id: None,
                 pending_document: None,
                 minimum_screencast_timestamp: None,
-                timestampless_authority_epoch: None,
                 suppressed_timestampless_epoch: None,
             },
         );
@@ -2444,7 +2413,6 @@ mod tests {
                 main_loader_id: Some("loader-1".to_string()),
                 pending_document: None,
                 minimum_screencast_timestamp: Some(1.0),
-                timestampless_authority_epoch: None,
                 suppressed_timestampless_epoch: None,
             },
         );
@@ -2493,7 +2461,6 @@ mod tests {
                 main_loader_id: Some("loader-1".to_string()),
                 pending_document: None,
                 minimum_screencast_timestamp: Some(1.0),
-                timestampless_authority_epoch: None,
                 suppressed_timestampless_epoch: None,
             },
         );
@@ -2563,7 +2530,6 @@ mod tests {
                 main_loader_id: Some("loader-1".to_string()),
                 pending_document: None,
                 minimum_screencast_timestamp: Some(1.0),
-                timestampless_authority_epoch: None,
                 suppressed_timestampless_epoch: None,
             },
         );
