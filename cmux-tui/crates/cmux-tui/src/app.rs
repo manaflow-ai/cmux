@@ -5913,6 +5913,9 @@ impl App {
     /// content sizes to surfaces.
     pub(crate) fn sync_layout(&mut self, size: (u16, u16)) {
         let (width, height) = size;
+        if width == 0 || height == 0 {
+            return;
+        }
         self.frame_layout_size = Some(size);
         self.sidebar_layout = if self.surface_only.is_some() {
             SidebarLayout {
