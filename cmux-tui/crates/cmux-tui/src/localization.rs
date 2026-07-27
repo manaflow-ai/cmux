@@ -42,6 +42,15 @@ pub(crate) struct TerminalMessages {
     pub clear_history_remote_rejected: &'static str,
     pub clear_history_unexpected: &'static str,
     pub keyboard_text_too_large: &'static str,
+    pub paste_text_too_large: &'static str,
+    pub deferred_input_destination_changed: &'static str,
+    pub pointer_input_discarded_during_layout_change: &'static str,
+    pub deferred_input_queue_full: &'static str,
+    pub pty_input_too_large: &'static str,
+    pub pty_input_queue_full: &'static str,
+    pub pty_input_unavailable: &'static str,
+    pub attach_outcome_unknown: &'static str,
+    pub operation_failed: &'static str,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -327,6 +336,15 @@ static ENGLISH: Catalog = Catalog {
         clear_history_remote_rejected: "the remote server rejected clear-history",
         clear_history_unexpected: "an unexpected terminal error occurred",
         keyboard_text_too_large: "Keyboard text exceeds the 4 MiB PTY buffer limit",
+        paste_text_too_large: "Paste exceeds the 4 MiB PTY buffer limit",
+        deferred_input_destination_changed: "Deferred input was discarded because its destination changed",
+        pointer_input_discarded_during_layout_change: "Pointer input was discarded while the layout changed",
+        deferred_input_queue_full: "Input queue byte limit reached while a session change is pending",
+        pty_input_too_large: "Input exceeds the 4 MiB PTY buffer limit",
+        pty_input_queue_full: "PTY input queue is full; input was not sent",
+        pty_input_unavailable: "PTY input is unavailable after a transport failure",
+        attach_outcome_unknown: "Surface attach outcome is unknown. Detach and reconnect before sending more input",
+        operation_failed: "Terminal input failed",
     },
     machine_agent: MachineAgentMessages {
         help: "\
@@ -496,6 +514,15 @@ static JAPANESE: Catalog = Catalog {
         clear_history_remote_rejected: "リモートサーバーが clear-history を拒否しました",
         clear_history_unexpected: "予期しないターミナルエラーが発生しました",
         keyboard_text_too_large: "キーボード入力が 4 MiB の PTY バッファ上限を超えています",
+        paste_text_too_large: "貼り付けテキストが 4 MiB の PTY バッファ上限を超えています",
+        deferred_input_destination_changed: "遅延入力は送信先が変更されたため破棄されました",
+        pointer_input_discarded_during_layout_change: "レイアウトの変更中にポインター入力が破棄されました",
+        deferred_input_queue_full: "セッション変更の保留中に入力キューのバイト上限に達しました",
+        pty_input_too_large: "入力が 4 MiB の PTY バッファ上限を超えています",
+        pty_input_queue_full: "PTY 入力キューがいっぱいのため、入力は送信されませんでした",
+        pty_input_unavailable: "転送エラー後のため PTY 入力を使用できません",
+        attach_outcome_unknown: "サーフェスの接続結果を確認できません。入力を再開する前に切断して再接続してください",
+        operation_failed: "ターミナル入力に失敗しました",
     },
     machine_agent: MachineAgentMessages {
         help: "\

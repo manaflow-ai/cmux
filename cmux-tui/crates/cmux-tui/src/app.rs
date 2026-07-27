@@ -5651,7 +5651,7 @@ impl App {
                 && self.input_destination(&input.event) != input.destination
             {
                 self.status_message = Some(
-                    "Deferred input was discarded because its destination changed".to_string(),
+                    localization::catalog().terminal.deferred_input_destination_changed.to_string(),
                 );
                 action = action.merge(RenderAction::Draw);
                 continue;
@@ -5764,7 +5764,8 @@ impl App {
                 && failure.delivery == PtyOperationDelivery::Ambiguous
             {
                 format!(
-                    "surface attach outcome is unknown; detach and reconnect before sending more input: {}",
+                    "{}: {}",
+                    localization::catalog().terminal.attach_outcome_unknown,
                     failure.error
                 )
             } else if failure.label == "clear terminal history"
@@ -5775,7 +5776,7 @@ impl App {
                 let detail = localized_clear_history_failure(&failure.error);
                 format!("{}: {}", localization::catalog().terminal.clear_history_failed, detail)
             } else {
-                format!("{} failed: {}", failure.label, failure.error)
+                format!("{}: {}", localization::catalog().terminal.operation_failed, failure.error)
             },
         );
         RenderAction::Draw
@@ -6933,7 +6934,9 @@ impl App {
         if input.retained_bytes() > MAX_DEFERRED_INPUT_BYTES {
             self.status_message = Some(
                 match &input {
-                    TerminalInput::Paste(_) => "Paste exceeds the 4 MiB PTY buffer limit",
+                    TerminalInput::Paste(_) => {
+                        localization::catalog().terminal.paste_text_too_large
+                    }
                     TerminalInput::Keyboard(_) => {
                         localization::catalog().terminal.keyboard_text_too_large
                     }
@@ -6961,8 +6964,12 @@ impl App {
                 || self.routing_refresh_pending)
             && !self.input_can_update_pending_mutation(&input)
         {
-            self.status_message =
-                Some("Pointer input was discarded while the layout changed".to_string());
+            self.status_message = Some(
+                localization::catalog()
+                    .terminal
+                    .pointer_input_discarded_during_layout_change
+                    .to_string(),
+            );
             return Ok(RenderAction::Draw);
         }
         if input.is_routable()
@@ -7162,9 +7169,8 @@ impl App {
             || queued_bytes.saturating_add(input_bytes) > MAX_DEFERRED_INPUT_BYTES
         {
             if !prioritize_release {
-                self.status_message = Some(
-                    "Input queue byte limit reached while a session change is pending".to_string(),
-                );
+                self.status_message =
+                    Some(localization::catalog().terminal.deferred_input_queue_full.to_string());
                 return RenderAction::Draw;
             }
             let Some(removed) = self.deferred_input.pop_front() else { break };
@@ -10559,17 +10565,18 @@ impl App {
         match result {
             PtyInputEnqueueResult::Accepted => true,
             PtyInputEnqueueResult::Oversized => {
-                self.status_message = Some("Input exceeds the 4 MiB PTY buffer limit".to_string());
+                self.status_message =
+                    Some(localization::catalog().terminal.pty_input_too_large.to_string());
                 false
             }
             PtyInputEnqueueResult::Saturated => {
                 self.status_message =
-                    Some("PTY input queue is full; input was not sent".to_string());
+                    Some(localization::catalog().terminal.pty_input_queue_full.to_string());
                 false
             }
             PtyInputEnqueueResult::Failed => {
                 self.status_message =
-                    Some("PTY input is unavailable after a transport failure".to_string());
+                    Some(localization::catalog().terminal.pty_input_unavailable.to_string());
                 false
             }
         }
@@ -21174,18 +21181,12 @@ mod tests {
         );
 
         for (result, expected) in [
-            (
-                PtyInputEnqueueResult::Oversized,
-                "入力が 4 MiB の PTY バッファ上限を超えています",
-            ),
+            (PtyInputEnqueueResult::Oversized, "入力が 4 MiB の PTY バッファ上限を超えています"),
             (
                 PtyInputEnqueueResult::Saturated,
                 "PTY 入力キューがいっぱいのため、入力は送信されませんでした",
             ),
-            (
-                PtyInputEnqueueResult::Failed,
-                "転送エラー後のため PTY 入力を使用できません",
-            ),
+            (PtyInputEnqueueResult::Failed, "転送エラー後のため PTY 入力を使用できません"),
         ] {
             assert!(!app.handle_pty_enqueue_result(result));
             assert_eq!(app.status_message.as_deref(), Some(expected));

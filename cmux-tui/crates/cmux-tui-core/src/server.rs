@@ -1148,7 +1148,6 @@ pub(crate) struct ServerSurfaceOperationAdmission {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ServerSurfaceAdmissionError {
-    WorkerCapacity,
     RetainedByteCapacity,
 }
 
@@ -1176,26 +1175,13 @@ impl Drop for ServerSurfaceBytesPermit {
 }
 
 impl ServerSurfaceOperationAdmission {
-    fn try_reserve_worker_and_bytes(
-        self: &Arc<Self>,
-        retained_bytes: usize,
-    ) -> Result<(ServerSurfaceWorkerPermit, ServerSurfaceBytesPermit), ServerSurfaceAdmissionError>
-    {
+    fn try_reserve_worker(self: &Arc<Self>) -> Option<ServerSurfaceWorkerPermit> {
         let mut state = self.state.lock().unwrap();
         if state.workers >= SERVER_SURFACE_WORKER_CAPACITY {
-            return Err(ServerSurfaceAdmissionError::WorkerCapacity);
-        }
-        if retained_bytes
-            > SERVER_SURFACE_RETAINED_BYTE_CAPACITY.saturating_sub(state.retained_bytes)
-        {
-            return Err(ServerSurfaceAdmissionError::RetainedByteCapacity);
+            return None;
         }
         state.workers += 1;
-        state.retained_bytes += retained_bytes;
-        Ok((
-            ServerSurfaceWorkerPermit { admission: self.clone() },
-            ServerSurfaceBytesPermit { admission: self.clone(), retained_bytes },
-        ))
+        Some(ServerSurfaceWorkerPermit { admission: self.clone() })
     }
 
     fn try_reserve_bytes(
@@ -1217,7 +1203,6 @@ struct PendingSurfaceRequest {
     request: Request,
     retained_bytes: usize,
     _bytes_permit: ServerSurfaceBytesPermit,
-    _worker_permit: Option<ServerSurfaceWorkerPermit>,
 }
 
 #[derive(Default)]
@@ -1422,39 +1407,25 @@ impl ConnectionSurfaceScheduler {
             ));
         }
         let request_id = request.as_ref().unwrap().id.clone();
-        let (worker_permit, bytes_permit) = if is_clear_history {
-            match self.admission.try_reserve_worker_and_bytes(retained_bytes) {
-                Ok((worker, bytes)) => (Some(worker), bytes),
-                Err(ServerSurfaceAdmissionError::WorkerCapacity) => {
-                    drop(state);
-                    return Some(send_request_error_with_delivery(
+        let bytes_permit = match self.admission.try_reserve_bytes(retained_bytes) {
+            Ok(bytes) => bytes,
+            Err(ServerSurfaceAdmissionError::RetainedByteCapacity) => {
+                drop(state);
+                let request_id = request.take().unwrap().id;
+                return Some(if is_clear_history {
+                    send_request_error_with_delivery(
                         &writer,
-                        request.take().unwrap().id,
-                        "too many clear-history operations are already in progress",
-                        Some(ResponseErrorDelivery::KnownNotDelivered),
-                    ));
-                }
-                Err(ServerSurfaceAdmissionError::RetainedByteCapacity) => {
-                    drop(state);
-                    return Some(send_request_error_with_delivery(
-                        &writer,
-                        request.take().unwrap().id,
+                        request_id,
                         "server surface-operation byte budget is full; request was not executed",
                         Some(ResponseErrorDelivery::KnownNotDelivered),
-                    ));
-                }
-            }
-        } else {
-            match self.admission.try_reserve_bytes(retained_bytes) {
-                Ok(bytes) => (None, bytes),
-                Err(_) => {
-                    drop(state);
-                    return Some(send_request_error(
+                    )
+                } else {
+                    send_request_error(
                         &writer,
-                        request.take().unwrap().id,
+                        request_id,
                         "server surface-operation byte budget is full; request was not executed",
-                    ));
-                }
+                    )
+                });
             }
         };
         let start_dispatcher = !state.dispatcher_started;
@@ -1464,7 +1435,6 @@ impl ConnectionSurfaceScheduler {
             request: request.take().unwrap(),
             retained_bytes,
             _bytes_permit: bytes_permit,
-            _worker_permit: worker_permit,
         });
         self.changed.notify_all();
         drop(state);
@@ -1642,7 +1612,7 @@ fn run_pending_request(
     pending: PendingSurfaceRequest,
     writer: &MessageWriter,
 ) -> bool {
-    let PendingSurfaceRequest { request, _bytes_permit, _worker_permit, .. } = pending;
+    let PendingSurfaceRequest { request, _bytes_permit, .. } = pending;
     handle_request_with_cancellation(mux, client, request, writer, Some(&scheduler.cancelled))
 }
 
@@ -1661,6 +1631,21 @@ fn run_connection_surface_dispatcher(
                 .cmd
                 .ordering_surface()
                 .expect("clear-history is ordered by surface");
+            let Some(worker_permit) = scheduler.admission.try_reserve_worker() else {
+                let id = pending.request.id.clone();
+                drop(pending);
+                scheduler.finish_clear(surface);
+                if !send_request_error_with_delivery(
+                    &writer,
+                    id,
+                    "too many clear-history operations are already in progress",
+                    Some(ResponseErrorDelivery::KnownNotDelivered),
+                ) {
+                    scheduler.close();
+                    return;
+                }
+                continue;
+            };
             let shared_pending = Arc::new(Mutex::new(Some(pending)));
             let worker_pending = shared_pending.clone();
             let worker_scheduler = scheduler.clone();
@@ -1669,6 +1654,9 @@ fn run_connection_surface_dispatcher(
             let spawn =
                 std::thread::Builder::new().name("mux-surface-control".into()).spawn(move || {
                     let _active = ActiveClearGuard { scheduler: worker_scheduler.clone(), surface };
+                    // Drop the mux-wide permit before `_active` wakes the next
+                    // request queued behind this surface barrier.
+                    let _worker_permit = worker_permit;
                     let pending = worker_pending.lock().unwrap().take().unwrap();
                     if !run_pending_request(
                         &worker_scheduler,
@@ -6311,14 +6299,14 @@ mod tests {
         let second =
             ConnectionSurfaceScheduler::new(second_mux.surface_operation_admission.clone());
         let permits = (0..SERVER_SURFACE_WORKER_CAPACITY)
-            .map(|_| first.admission.try_reserve_worker_and_bytes(0).unwrap())
+            .map(|_| first.admission.try_reserve_worker().unwrap())
             .collect::<Vec<_>>();
 
-        let isolated = second.admission.try_reserve_worker_and_bytes(0);
+        let isolated = second.admission.try_reserve_worker();
         drop(permits);
 
         assert!(
-            isolated.is_ok(),
+            isolated.is_some(),
             "one mux exhausted the hidden process-global admission budget of another mux"
         );
     }
