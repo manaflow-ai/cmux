@@ -2969,6 +2969,10 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         }
     }
 
+    private func drainFormerPresentationRetryWindow() {
+        RunLoop.current.run(until: Date().addingTimeInterval(0.08))
+    }
+
     private func dropZoneOverlay(in slot: WindowBrowserSlotView, excluding webView: WKWebView) -> NSView? {
         let candidates = slot.subviews + (slot.superview?.subviews ?? [])
         return candidates.first(where: {
@@ -3711,7 +3715,11 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         splitView.setPosition(280, ofDividerAt: 0)
         contentView.layoutSubtreeIfNeeded()
         NotificationCenter.default.post(name: NSSplitView.didResizeSubviewsNotification, object: splitView)
-        let displayCountAfterResizeRequest = webView.displayIfNeededCount
+        XCTAssertEqual(
+            webView.displayIfNeededCount,
+            initialDisplayCount,
+            "External split resize request must not synchronously flush WebKit display"
+        )
 
         await waitForNextMainTurn()
 
@@ -3727,9 +3735,9 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             "External split resize should invalidate the hosted browser for redraw"
         )
         XCTAssertEqual(
-            displayCountAfterResizeRequest,
+            webView.displayIfNeededCount,
             initialDisplayCount,
-            "External split resize request must not synchronously flush WebKit display"
+            "The completed external split resize pass must not flush WebKit display"
         )
         XCTAssertEqual(
             webView.reattachRenderingStateCount,
@@ -4041,6 +4049,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         portal.synchronizeWebViewForAnchor(anchor)
         let revealedEnterInWindowCount = webView.enterInWindowCount
         let revealedEndDeferringCount = webView.endDeferringViewInWindowChangesCount
+        let revealedSetNeedsDisplayCount = webView.setNeedsDisplayCount
 
         XCTAssertGreaterThanOrEqual(hiddenDisplayCount, initialDisplayCount)
         XCTAssertEqual(
@@ -4069,7 +4078,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             "A visibility-only reveal refreshes presentation but must not run the enter/exit-window reattach lifecycle, or every tab switch fires page visibilitychange"
         )
 
-        await waitForNextMainTurn()
+        drainFormerPresentationRetryWindow()
 
         XCTAssertEqual(
             webView.enterInWindowCount,
@@ -4080,6 +4089,11 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             webView.endDeferringViewInWindowChangesCount,
             revealedEndDeferringCount,
             "Reveal must not enqueue a later duplicate deferred-window repair"
+        )
+        XCTAssertEqual(
+            webView.setNeedsDisplayCount,
+            revealedSetNeedsDisplayCount,
+            "Reveal must not enqueue a delayed presentation invalidation"
         )
     }
 
@@ -4112,6 +4126,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         portal.forceRefreshWebView(withId: webViewId, reason: "unitTest")
         let refreshedEnterInWindowCount = webView.enterInWindowCount
         let refreshedEndDeferringCount = webView.endDeferringViewInWindowChangesCount
+        let refreshedSetNeedsDisplayCount = webView.setNeedsDisplayCount
 
         XCTAssertEqual(
             refreshedEnterInWindowCount - initialEnterInWindowCount,
@@ -4124,10 +4139,15 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             "A forced refresh should invoke the WebKit deferred-window selector once in the portal sync"
         )
 
-        await waitForNextMainTurn()
+        drainFormerPresentationRetryWindow()
 
         XCTAssertEqual(webView.enterInWindowCount, refreshedEnterInWindowCount)
         XCTAssertEqual(webView.endDeferringViewInWindowChangesCount, refreshedEndDeferringCount)
+        XCTAssertEqual(
+            webView.setNeedsDisplayCount,
+            refreshedSetNeedsDisplayCount,
+            "Forced refresh must not enqueue a delayed presentation invalidation"
+        )
     }
 
     func testForcedPortalRefreshBypassesInspectorDividerAdjustmentSkip() async {
@@ -4188,6 +4208,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         portal.forceRefreshWebView(withId: webViewId, reason: "inspectorRedock")
         let refreshedEnterInWindowCount = webView.enterInWindowCount
         let refreshedEndDeferringCount = webView.endDeferringViewInWindowChangesCount
+        let refreshedSetNeedsDisplayCount = webView.setNeedsDisplayCount
 
         XCTAssertEqual(inspectorContainer.frame.width, preferredInspectorWidth, accuracy: 0.5)
         XCTAssertEqual(
@@ -4201,10 +4222,15 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             "An explicit refresh must still end deferred WebKit changes after adjusting the inspector divider"
         )
 
-        await waitForNextMainTurn()
+        drainFormerPresentationRetryWindow()
 
         XCTAssertEqual(webView.enterInWindowCount, refreshedEnterInWindowCount)
         XCTAssertEqual(webView.endDeferringViewInWindowChangesCount, refreshedEndDeferringCount)
+        XCTAssertEqual(
+            webView.setNeedsDisplayCount,
+            refreshedSetNeedsDisplayCount,
+            "Inspector refresh must not enqueue a delayed presentation invalidation"
+        )
     }
 
     func testRegistryBindOwnsOneSynchronousPresentationRefresh() async {
@@ -4229,6 +4255,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         }
         let initialEnterInWindowCount = webView.enterInWindowCount
         let initialEndDeferringCount = webView.endDeferringViewInWindowChangesCount
+        let initialSetNeedsDisplayCount = webView.setNeedsDisplayCount
 
         BrowserWindowPortalRegistry.bind(
             webView: webView,
@@ -4237,6 +4264,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         )
         let boundEnterInWindowCount = webView.enterInWindowCount
         let boundEndDeferringCount = webView.endDeferringViewInWindowChangesCount
+        let boundSetNeedsDisplayCount = webView.setNeedsDisplayCount
 
         XCTAssertEqual(
             boundEnterInWindowCount - initialEnterInWindowCount,
@@ -4249,10 +4277,16 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             "Registry bind should own one synchronous deferred-window refresh"
         )
 
-        await waitForNextMainTurn()
+        drainFormerPresentationRetryWindow()
 
         XCTAssertEqual(webView.enterInWindowCount, boundEnterInWindowCount)
         XCTAssertEqual(webView.endDeferringViewInWindowChangesCount, boundEndDeferringCount)
+        XCTAssertGreaterThan(boundSetNeedsDisplayCount, initialSetNeedsDisplayCount)
+        XCTAssertEqual(
+            webView.setNeedsDisplayCount,
+            boundSetNeedsDisplayCount,
+            "Registry bind must not enqueue a delayed presentation invalidation"
+        )
     }
 
     func testRegistrySameAnchorRebindForcesOneSynchronousPresentationRefresh() async {
@@ -4285,6 +4319,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         let viewDidUnhideCountBeforeRebind = webView.viewDidUnhideCount
         let enterInWindowCountBeforeRebind = webView.enterInWindowCount
         let endDeferringCountBeforeRebind = webView.endDeferringViewInWindowChangesCount
+        let setNeedsDisplayCountBeforeRebind = webView.setNeedsDisplayCount
 
         BrowserWindowPortalRegistry.bind(
             webView: webView,
@@ -4295,6 +4330,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         let viewDidUnhideCountAfterRebind = webView.viewDidUnhideCount
         let enterInWindowCountAfterRebind = webView.enterInWindowCount
         let endDeferringCountAfterRebind = webView.endDeferringViewInWindowChangesCount
+        let setNeedsDisplayCountAfterRebind = webView.setNeedsDisplayCount
 
         XCTAssertEqual(
             viewDidUnhideCountAfterRebind - viewDidUnhideCountBeforeRebind,
@@ -4312,11 +4348,17 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             "Same-anchor host replacement should invoke one synchronous deferred-window refresh"
         )
 
-        await waitForNextMainTurn()
+        drainFormerPresentationRetryWindow()
         XCTAssertEqual(webView.viewDidUnhideCount, viewDidUnhideCountAfterRebind)
 
         XCTAssertEqual(webView.enterInWindowCount, enterInWindowCountAfterRebind)
         XCTAssertEqual(webView.endDeferringViewInWindowChangesCount, endDeferringCountAfterRebind)
+        XCTAssertGreaterThan(setNeedsDisplayCountAfterRebind, setNeedsDisplayCountBeforeRebind)
+        XCTAssertEqual(
+            webView.setNeedsDisplayCount,
+            setNeedsDisplayCountAfterRebind,
+            "Same-anchor rebind must not enqueue a delayed presentation invalidation"
+        )
     }
 
     func testVisiblePortalEntryHidesWithoutDetachingDuringTransientAnchorRemovalUntilRebind() async {
@@ -4371,6 +4413,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         portal.bind(webView: webView, to: anchor2, visibleInUI: true)
         let enterInWindowCountAfterRebind = webView.enterInWindowCount
         let endDeferringCountAfterRebind = webView.endDeferringViewInWindowChangesCount
+        let redrawCountAfterRebind = webView.setNeedsDisplayCount
 
         XCTAssertTrue(webView.superview === slot, "Rebinding after transient anchor removal should reuse the existing portal slot")
         XCTAssertFalse(slot.isHidden)
@@ -4396,10 +4439,15 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             "Anchor rebind should invoke one synchronous deferred-window refresh"
         )
 
-        await waitForNextMainTurn()
+        drainFormerPresentationRetryWindow()
 
         XCTAssertEqual(webView.enterInWindowCount, enterInWindowCountAfterRebind)
         XCTAssertEqual(webView.endDeferringViewInWindowChangesCount, endDeferringCountAfterRebind)
+        XCTAssertEqual(
+            webView.setNeedsDisplayCount,
+            redrawCountAfterRebind,
+            "Anchor rebind must not enqueue a delayed presentation invalidation"
+        )
     }
 
     func testVisiblePortalEntryStaysVisibleDuringOffWindowAnchorReparentUntilRebind() async {
