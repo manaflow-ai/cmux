@@ -2101,7 +2101,6 @@ impl BrowserSurface {
                 // consume that transition and suppress the local recovery
                 // redraw, leaving the local status line stuck on the failure.
                 state.title = state.url.clone();
-                Self::mark_state_dirty_locked(state);
             }
         }
         frame.seq = state.next_frame_seq;
@@ -2124,6 +2123,9 @@ impl BrowserSurface {
         });
         if state.pointer_frame_seq != pointer_frame_seq {
             Self::set_pointer_frame_locked(state, pointer_frame_seq);
+        }
+        if clears_not_responding {
+            Self::mark_state_dirty_locked(state);
         }
         state.latest_frame = Some(frame.clone());
         let update = BrowserFrameUpdate {
@@ -3610,9 +3612,10 @@ impl BrowserSurface {
                     anyhow::bail!("browser failed: {error}");
                 }
                 let loaderless = result.loader_id.is_none();
-                self.finish_navigation_command(invalidation, Ok(()))?;
                 if loaderless {
                     self.reconcile_loaderless_navigation(&session)?;
+                } else {
+                    self.finish_navigation_command(invalidation, Ok(()))?;
                 }
             }
             Err(error) => self.finish_navigation_command(invalidation, Err(error))?,
