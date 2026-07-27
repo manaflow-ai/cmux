@@ -1553,11 +1553,18 @@ mod tests {
             .lines()
             .find_map(|line| line.strip_prefix("version = \"")?.strip_suffix('"'))
             .unwrap();
+        let release_runbook = include_str!("../../RELEASING.md");
+        let documented_version = release_runbook
+            .split_once("Current SDK package versions are")
+            .and_then(|(_, suffix)| suffix.trim_start().strip_prefix('`'))
+            .and_then(|suffix| suffix.split_once('`').map(|(version, _)| version))
+            .unwrap();
 
         assert_eq!(typescript["version"].as_str(), Some(rust_version));
         assert_eq!(typescript_lock["version"].as_str(), Some(rust_version));
         assert_eq!(typescript_lock["packages"][""]["version"].as_str(), Some(rust_version));
         assert_eq!(python_version, rust_version);
+        assert_eq!(documented_version, rust_version);
     }
 
     #[test]
