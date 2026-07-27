@@ -12355,7 +12355,7 @@ mod tests {
         WorkspaceCreationMode, WorkspaceCreationPolicy,
     };
     use crate::pty_input::{
-        PtyInputBytes, PtyInputDispatcher, PtyInputEnqueueResult, PtyInputKind,
+        PtyInputBytes, PtyInputDispatcher, PtyInputEnqueueResult, PtyInputEvent, PtyInputKind,
         PtyOperationDelivery, PtyOperationFailure,
     };
     use crate::session::tree::{PaneView, ScreenView, TabNotificationView, TabView, WorkspaceView};
@@ -15761,6 +15761,56 @@ mod tests {
         .unwrap();
 
         assert!(matches!(app.drag, Some(Drag::PtyMouse { button: MouseButton::Left, .. })));
+    }
+
+    #[test]
+    fn dispatcher_timeout_preserves_ambiguous_press_for_recovery_release() {
+        let mux = Mux::new("dispatcher-timeout-press-drag-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(None, Some((20, 8))).unwrap();
+        let handle = SurfaceHandle::Local(surface.clone(), mux.clone());
+        let mut app = test_app(Session::Local(mux.clone()));
+        let (result, reservation_id) =
+            app.pty_input.enqueue_with_reservation(PtyInputEvent::test_remote_timeout_input(
+                surface.id,
+                handle.clone(),
+                PtyInputBytes::from_slice(b"press"),
+                PtyInputKind::Press,
+            ));
+        assert_eq!(result, PtyInputEnqueueResult::Accepted);
+        let reservation_id = reservation_id.unwrap();
+        app.drag = Some(Drag::PtyMouse {
+            surface: surface.id,
+            handle: Some(handle.clone()),
+            reservation_id,
+            release_bytes: PtyInputBytes::from_slice(b"release"),
+            content: Rect { x: 1, y: 1, width: 20, height: 8 },
+            button: MouseButton::Left,
+            position: (4, 3),
+            modifiers: KeyModifiers::NONE,
+        });
+
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while app.pty_failures.state.lock().unwrap().failures.is_empty()
+            && Instant::now() < deadline
+        {
+            std::thread::yield_now();
+        }
+        assert!(!app.pty_failures.state.lock().unwrap().failures.is_empty());
+        app.apply_pty_failures();
+
+        assert!(matches!(
+            app.drag,
+            Some(Drag::PtyMouse { surface: active, reservation_id: active_reservation, .. })
+                if active == surface.id && active_reservation == reservation_id
+        ));
+        assert!(app.enqueue_pty_release(
+            surface.id,
+            Some(handle),
+            reservation_id,
+            PtyInputBytes::from_slice(b"release"),
+        ));
+        app.drag = None;
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]

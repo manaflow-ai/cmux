@@ -136,6 +136,19 @@ impl PtyInputEvent {
     }
 
     #[cfg(test)]
+    pub(crate) fn test_remote_timeout_input(
+        surface_id: SurfaceId,
+        surface: SurfaceHandle,
+        bytes: PtyInputBytes,
+        kind: PtyInputKind,
+    ) -> Self {
+        let mut event = Self::input(surface_id, surface, bytes, kind);
+        event.remote = true;
+        event.mutation = Some(Box::new(|| Err(crate::session::test_remote_timeout_error())));
+        event
+    }
+
+    #[cfg(test)]
     fn mutation(
         label: &'static str,
         coalesce_key: Option<MutationCoalesceKey>,

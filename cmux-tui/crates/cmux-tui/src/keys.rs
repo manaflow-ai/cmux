@@ -732,6 +732,20 @@ mod tests {
     }
 
     #[test]
+    fn enhanced_dead_key_preserves_authoritative_empty_text() {
+        let input = KeyboardInput::from_enhanced(EnhancedKeyEvent {
+            key_event: KeyEvent::new(KeyCode::Char('e'), KeyModifiers::ALT),
+            shifted_key: Some('E'),
+            base_layout_key: Some('e'),
+            text: String::new(),
+        })
+        .into_terminal_input()
+        .unwrap();
+
+        assert!(input.utf8.is_empty());
+    }
+
+    #[test]
     fn option_generated_text_keeps_associated_text_in_kitty_mode() {
         let event = EnhancedKeyEvent {
             key_event: KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT),
