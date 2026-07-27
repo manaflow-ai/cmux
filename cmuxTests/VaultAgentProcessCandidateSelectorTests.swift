@@ -55,6 +55,52 @@ struct VaultAgentProcessCandidateSelectorTests {
     }
 
     @Test
+    func sharedLiveLoaderKeepsProductionCandidateFiltering() throws {
+        let fileManager = FileManager.default
+        let homeDirectory = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-shared-live-candidates-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: homeDirectory, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: homeDirectory) }
+
+        let candidateCount = 2
+        let workspaceID = UUID()
+        let processes = (0..<64).map { index in
+            let isCandidate = index < candidateCount
+            return processInfo(
+                pid: 60_000 + index,
+                workspaceID: workspaceID,
+                panelID: UUID(),
+                name: isCandidate ? (index == 0 ? "node" : "codex") : "zsh",
+                path: isCandidate
+                    ? (index == 0 ? "/opt/homebrew/bin/node" : "/usr/local/bin/codex")
+                    : "/bin/zsh"
+            )
+        }
+        let bytesByPID = Dictionary(uniqueKeysWithValues: processes.map { process in
+            (
+                process.pid,
+                kernProcArgs(arguments: [process.path ?? process.name], environmentEntries: [])
+            )
+        })
+        var fullDecodeCount = 0
+
+        _ = SharedLiveAgentIndexLoader(
+            homeDirectory: homeDirectory.path,
+            fileManager: fileManager,
+            registry: builtInRegistry,
+            processSnapshotProvider: { processSnapshot(processes) },
+            processArgumentBytesProvider: { bytesByPID[$0] },
+            processArgumentsDecoder: { bytes in
+                fullDecodeCount += 1
+                return CmuxTopProcessSnapshot.processArgumentsAndEnvironment(fromKernProcArgs: bytes)
+            },
+            processIdentityProvider: { _ in nil }
+        ).loadResultSynchronously()
+
+        #expect(fullDecodeCount == candidateCount)
+    }
+
+    @Test
     func globalCustomRuleKeepsExhaustiveDetection() throws {
         let processCount = 64
         let workspaceID = UUID()
