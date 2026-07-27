@@ -28,7 +28,7 @@ import Testing
         ))
 
         #expect(plan.actions == [.sendKey(text: "ᄒ", composing: true)])
-        #expect(!plan.forwardsPhysicalKey)
+        #expect(plan.forwardsPhysicalKey)
     }
 
     @Test func textInputCommandForwardsPhysicalKey() {

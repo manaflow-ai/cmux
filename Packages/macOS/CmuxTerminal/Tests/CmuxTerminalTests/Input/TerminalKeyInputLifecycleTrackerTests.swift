@@ -22,7 +22,7 @@ import Testing
         #expect(release.forwardsPhysicalKey)
     }
 
-    @Test func terminalOwnedRepeatRetainsInitialPhysicalMeaning() {
+    @Test func terminalOwnedRepeatUsesCurrentSemanticMeaning() {
         var tracker = TerminalKeyInputLifecycleTracker()
 
         _ = tracker.actions(
@@ -36,10 +36,10 @@ import Testing
             isRepeat: true
         )
 
-        #expect(repeatActions == [.sendKey(text: "a", composing: false)])
+        #expect(repeatActions == [.sendKey(text: "q", composing: false)])
     }
 
-    @Test func terminalOwnedRepeatPreservesNewCommittedPreeditText() {
+    @Test func terminalOwnedRepeatDoesNotDuplicateNewCommittedPreeditText() {
         var tracker = TerminalKeyInputLifecycleTracker()
 
         _ = tracker.actions(
@@ -55,10 +55,24 @@ import Testing
             isRepeat: true
         )
 
-        #expect(repeatActions == [
-            .sendCommittedText("한"),
-            .sendKey(text: "a", composing: false),
+        #expect(repeatActions == [.sendCommittedText("한")])
+    }
+
+    @Test func composingPressOwnsItsMatchingRelease() {
+        var tracker = TerminalKeyInputLifecycleTracker()
+        let composingPlan = TerminalKeyInputPlan(actions: [
+            .sendKey(text: "ᄒ", composing: true),
         ])
+
+        let pressActions = tracker.actions(
+            for: composingPlan,
+            keyCode: 4,
+            isRepeat: false
+        )
+        let release = tracker.release(forKeyUp: 4)
+
+        #expect(pressActions == [.sendKey(text: "ᄒ", composing: true)])
+        #expect(release.forwardsPhysicalKey)
     }
 
     @Test func forwardedRepeatCannotCreateLifecycleForConsumedPress() {
@@ -171,11 +185,15 @@ import Testing
         #expect(release.forwardsPhysicalKey)
     }
 
-    @Test func physicalIdentitySurvivesRepeatAndRelease() {
+    @Test func repeatUsesCurrentIdentityWhileReleaseKeepsInitialIdentity() {
         var tracker = TerminalKeyInputLifecycleTracker()
         let initialIdentity = TerminalKeyInputPhysicalIdentity(
             unshiftedCodepoint: 0x63,
             consumedModifierMask: 0x04
+        )
+        let repeatIdentity = TerminalKeyInputPhysicalIdentity(
+            unshiftedCodepoint: 0x0441,
+            consumedModifierMask: 0
         )
         _ = tracker.actions(
             for: physicalPlan(text: "c"),
@@ -188,18 +206,15 @@ import Testing
             resolvedIdentity: initialIdentity,
             isRepeat: false
         )
-        let repeatIdentity = tracker.physicalIdentity(
+        let resolvedRepeatIdentity = tracker.physicalIdentity(
             forKeyDown: 8,
-            resolvedIdentity: TerminalKeyInputPhysicalIdentity(
-                unshiftedCodepoint: 0x0441,
-                consumedModifierMask: 0
-            ),
+            resolvedIdentity: repeatIdentity,
             isRepeat: true
         )
         let release = tracker.release(forKeyUp: 8)
 
         #expect(pressIdentity == initialIdentity)
-        #expect(repeatIdentity == initialIdentity)
+        #expect(resolvedRepeatIdentity == repeatIdentity)
         #expect(release == TerminalKeyInputRelease(
             forwardsPhysicalKey: true,
             physicalIdentity: initialIdentity

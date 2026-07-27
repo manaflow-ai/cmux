@@ -484,6 +484,61 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
     }
 
     @Test
+    func distinctZeroTimestampShortcutEventsDispatchIndependently() throws {
+        try withIsolatedShortcutRoutingState {
+            let appDelegate = try #require(AppDelegate.shared)
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let testWindow = try #require(self.window(withId: windowId))
+            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+            let workspaceCountBefore = manager.tabs.count
+            let optionQShortcut = StoredShortcut(
+                key: "q",
+                command: false,
+                shift: false,
+                option: true,
+                control: false
+            )
+
+            try withTemporaryShortcut(action: .newTab, shortcut: optionQShortcut) {
+                let firstKeyDown = try #require(NSEvent.keyEvent(
+                    with: .keyDown,
+                    location: .zero,
+                    modifierFlags: [.option],
+                    timestamp: 0,
+                    windowNumber: testWindow.windowNumber,
+                    context: nil,
+                    characters: "@",
+                    charactersIgnoringModifiers: "q",
+                    isARepeat: false,
+                    keyCode: 12
+                ))
+                let secondKeyDown = try #require(NSEvent.keyEvent(
+                    with: .keyDown,
+                    location: .zero,
+                    modifierFlags: [.option],
+                    timestamp: 0,
+                    windowNumber: testWindow.windowNumber,
+                    context: nil,
+                    characters: "@",
+                    charactersIgnoringModifiers: "q",
+                    isARepeat: false,
+                    keyCode: 12
+                ))
+
+                #expect(appDelegate.debugHandleShortcutMonitorEvent(event: firstKeyDown))
+                #expect(appDelegate.debugHandleShortcutMonitorEvent(event: secondKeyDown))
+                RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+                #expect(
+                    manager.tabs.count == workspaceCountBefore + 2,
+                    "Distinct synthetic key-downs must not collapse into one shortcut dispatch"
+                )
+            }
+        }
+    }
+
+    @Test
     func repeatCannotAcquireShortcutOwnershipAfterResponderOwnedPress() throws {
         try withIsolatedShortcutRoutingState {
             let appDelegate = try #require(AppDelegate.shared)

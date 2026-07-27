@@ -16,7 +16,7 @@ private struct CapturedGhosttyKeyIdentityEvent {
 
 @MainActor
 final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
-    func testRepeatAndReleaseKeepConsumedModifiersFromInitialPress() throws {
+    func testRepeatUsesCurrentMeaningAndReleaseKeepsInitialIdentity() throws {
         _ = NSApplication.shared
 
         let surface = TerminalSurface(
@@ -127,13 +127,13 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
         XCTAssertEqual(capturedEvents[1].action, GHOSTTY_ACTION_REPEAT)
         XCTAssertEqual(
             capturedEvents[1].text,
-            "A",
-            "A repeat must keep the initial press text after translation changes"
+            "a",
+            "A repeat must use the current AppKit text after translation changes"
         )
         XCTAssertEqual(
             capturedEvents[1].consumedModifiers,
-            GHOSTTY_MODS_SHIFT.rawValue,
-            "A repeat must keep the modifiers that produced its retained text"
+            GHOSTTY_MODS_NONE.rawValue,
+            "A repeat must use the modifiers that produced its current text"
         )
         XCTAssertEqual(capturedEvents[2].action, GHOSTTY_ACTION_RELEASE)
         XCTAssertNil(capturedEvents[2].text)
