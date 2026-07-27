@@ -45,7 +45,7 @@ struct BrowserDesignModePromptPayload: Encodable {
     }
 }
 
-private func browserDesignModePromptSegments(
+func browserDesignModePromptSegments(
     runs: [BrowserDesignModePromptRun],
     selections: [BrowserDesignModeSelection]
 ) -> [BrowserDesignModePromptPayloadSegment] {

@@ -34,25 +34,62 @@ public struct BrowserDesignModePromptFormatter: Sendable {
         let screenshotPaths = context.screenshotPaths.compactMap { $0 }
 
         let requestedChange = context.requestedChange.trimmingCharacters(in: .whitespacesAndNewlines)
+        let composedPrompt = composedPrompt(
+            segments: browserDesignModePromptSegments(
+                runs: context.prompt,
+                selections: selections
+            ),
+            screenshotPaths: screenshotPaths
+        )
         var lines = [
-            requestedChange.isEmpty
+            composedPrompt ?? (requestedChange.isEmpty
                 ? String(
                     localized: "browser.designMode.handoff.contextOnly",
                     defaultValue: "Design-mode context for the selected page elements."
                 )
-                : requestedChange,
+                : requestedChange),
             "",
             String(
                 localized: "browser.designMode.handoff.pageURL",
                 defaultValue: "Page: \(context.pageURL)"
             ),
         ]
-        lines.append(contentsOf: screenshotPaths)
+        if composedPrompt == nil {
+            lines.append(contentsOf: screenshotPaths)
+        }
 
         lines.append(String(
             localized: "browser.designMode.handoff.contextJSON",
             defaultValue: "Details: \(contextJSONPath)"
         ))
         return lines.joined(separator: "\n")
+    }
+
+    private func composedPrompt(
+        segments: [BrowserDesignModePromptPayloadSegment],
+        screenshotPaths: [String]
+    ) -> String? {
+        guard !segments.isEmpty else { return nil }
+        var result = ""
+        var previousSegmentWasScreenshot = false
+        for segment in segments {
+            switch segment {
+            case .text(let value):
+                guard !value.isEmpty else { continue }
+                if previousSegmentWasScreenshot, value.first?.isWhitespace == false {
+                    result.append(" ")
+                }
+                result.append(value)
+                previousSegmentWasScreenshot = false
+            case .selection(let index):
+                guard screenshotPaths.indices.contains(index) else { return nil }
+                if result.last?.isWhitespace == false {
+                    result.append(" ")
+                }
+                result.append(screenshotPaths[index])
+                previousSegmentWasScreenshot = true
+            }
+        }
+        return result.isEmpty ? nil : result
     }
 }
