@@ -199,6 +199,60 @@ func TestNewPaneRightRejectsInvalidWidthsWithoutSendingACommand(t *testing.T) {
 	}
 }
 
+func TestSetViewportPaneWidthRejectsInvalidWidthsWithoutSendingACommand(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	defer serverConn.Close()
+	protocol := uint32(10)
+	client := &Client{
+		timeout:      time.Second,
+		conn:         &jsonLineConn{conn: clientConn, reader: bufio.NewReader(clientConn)},
+		protocol:     &protocol,
+		capabilities: map[string]struct{}{"viewport-column-resize-v1": {}},
+	}
+	defer client.Close()
+
+	requests := make(chan map[string]any, 1)
+	go func() {
+		decoder := json.NewDecoder(serverConn)
+		encoder := json.NewEncoder(serverConn)
+		for {
+			var request map[string]any
+			if decoder.Decode(&request) != nil {
+				return
+			}
+			requests <- request
+			_ = encoder.Encode(map[string]any{
+				"id":   request["id"],
+				"ok":   true,
+				"data": map[string]any{},
+			})
+		}
+	}()
+
+	for _, width := range []float32{
+		float32(math.NaN()),
+		float32(math.Inf(1)),
+		float32(math.Inf(-1)),
+		0.09,
+		1.01,
+	} {
+		err := client.SetViewportPaneWidth(context.Background(), 7, width)
+		if !errors.Is(err, ErrInvalidArgument) {
+			t.Fatalf(
+				"SetViewportPaneWidth(width=%v) error = %v, want invalid argument",
+				width,
+				err,
+			)
+		}
+	}
+
+	select {
+	case request := <-requests:
+		t.Fatalf("invalid width sent request: %#v", request)
+	default:
+	}
+}
+
 func TestWorkspaceRegistrySelectorsRejectMissingAndEmptyKeysLocally(t *testing.T) {
 	if err := validateWorkspaceSelector(nil, nil); !errors.Is(err, ErrInvalidArgument) {
 		t.Fatalf("missing selector error = %v", err)
