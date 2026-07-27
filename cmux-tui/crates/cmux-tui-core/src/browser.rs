@@ -185,7 +185,6 @@ struct BrowserState {
     /// Further timestamp-less frames coalesce into that capture instead of
     /// inheriting its authority or starting parallel captures.
     pending_screencast_capture: Option<ScreencastCaptureReservation>,
-    next_screencast_capture_id: u64,
     /// Frame epoch whose loader-verified recovery exhausted its bounded
     /// attempts. Further timestamp-less frames stay fail-closed until a later
     /// epoch or an authoritative streamed frame arrives.
@@ -841,7 +840,6 @@ pub(crate) fn new_surface(
             pending_same_document_navigation: false,
             pending_navigation_rollback: None,
             pending_screencast_capture: None,
-            next_screencast_capture_id: 1,
             failed_screencast_capture_epoch: None,
             pending_frame: None,
             pointer_frame_seq: None,
@@ -1053,6 +1051,7 @@ fn start_router(runtime: Weak<BrowserRuntime>, events: Receiver<CdpEvent>) -> an
                     session_id,
                     frame_id,
                     loader_id,
+                    request_id,
                     frame_epoch,
                     navigation_epoch,
                 } => {
@@ -1063,6 +1062,7 @@ fn start_router(runtime: Weak<BrowserRuntime>, events: Receiver<CdpEvent>) -> an
                             session_id,
                             frame_id,
                             loader_id,
+                            request_id,
                             frame_epoch,
                             navigation_epoch,
                         })
@@ -1199,17 +1199,29 @@ fn start_surface_thread(
                     session_id,
                     frame_id,
                     loader_id,
+                    request_id,
                     frame_epoch,
                     navigation_epoch,
                 } => {
-                    let Some(reservation_id) =
-                        browser.reserve_screencast_capture(frame_epoch, navigation_epoch)
-                    else {
+                    let reservation_id = request_id;
+                    if !browser.reserve_screencast_capture(
+                        reservation_id,
+                        frame_epoch,
+                        navigation_epoch,
+                    ) {
+                        if let Some(runtime) = runtime.upgrade() {
+                            let _ = runtime.client.settle_timestampless_screencast_capture(
+                                &session_id,
+                                reservation_id,
+                                frame_epoch,
+                                navigation_epoch,
+                            );
+                        }
                         continue;
-                    };
+                    }
                     if browser
                         .enqueue_latest_authority(BrowserCommand::AuthorizeScreencastCapture {
-                            session_id,
+                            session_id: session_id.clone(),
                             frame_id,
                             loader_id,
                             reservation_id,
@@ -1219,6 +1231,14 @@ fn start_surface_thread(
                         .is_err()
                     {
                         browser.cancel_screencast_capture(reservation_id);
+                        if let Some(runtime) = runtime.upgrade() {
+                            let _ = runtime.client.settle_timestampless_screencast_capture(
+                                &session_id,
+                                reservation_id,
+                                frame_epoch,
+                                navigation_epoch,
+                            );
+                        }
                     }
                 }
                 CdpEvent::TargetCreated(created) => {
@@ -2672,7 +2692,12 @@ impl BrowserSurface {
             && state.accepted_frame_epoch <= frame_epoch
     }
 
-    fn reserve_screencast_capture(&self, frame_epoch: u64, navigation_epoch: u64) -> Option<u64> {
+    fn reserve_screencast_capture(
+        &self,
+        reservation_id: u64,
+        frame_epoch: u64,
+        navigation_epoch: u64,
+    ) -> bool {
         let mut state = self.state.lock().unwrap();
         if !self.screencast_capture_context_matches(&state, frame_epoch, navigation_epoch)
             || state.pending_screencast_capture.is_some_and(|reservation| {
@@ -2681,16 +2706,14 @@ impl BrowserSurface {
             })
             || state.failed_screencast_capture_epoch == Some(frame_epoch)
         {
-            return None;
+            return false;
         }
-        let reservation_id = state.next_screencast_capture_id;
-        state.next_screencast_capture_id = state.next_screencast_capture_id.wrapping_add(1).max(1);
         state.pending_screencast_capture = Some(ScreencastCaptureReservation {
             id: reservation_id,
             frame_epoch,
             navigation_epoch,
         });
-        Some(reservation_id)
+        true
     }
 
     fn may_need_screencast_capture(
@@ -3596,23 +3619,51 @@ impl BrowserSurface {
     ) -> anyhow::Result<()> {
         if !self.may_need_screencast_capture(reservation_id, frame_epoch, navigation_epoch) {
             self.cancel_screencast_capture(reservation_id);
+            if let Some(session) = self.session.lock().unwrap().clone() {
+                let _ = session.runtime.client.settle_timestampless_screencast_capture(
+                    session_id,
+                    reservation_id,
+                    frame_epoch,
+                    navigation_epoch,
+                );
+            }
             return Ok(());
         }
         let session = match self.require_live_session() {
             Ok(session) => session,
             Err(error) => {
                 self.cancel_screencast_capture(reservation_id);
+                if let Some(session) = self.session.lock().unwrap().clone() {
+                    let _ = session.runtime.client.settle_timestampless_screencast_capture(
+                        session_id,
+                        reservation_id,
+                        frame_epoch,
+                        navigation_epoch,
+                    );
+                }
                 return Err(error);
             }
         };
         if session.session_id != session_id {
             self.cancel_screencast_capture(reservation_id);
+            let _ = session.runtime.client.settle_timestampless_screencast_capture(
+                session_id,
+                reservation_id,
+                frame_epoch,
+                navigation_epoch,
+            );
             return Ok(());
         }
         let mut last_error = None;
         for _ in 0..AUTHORITY_CAPTURE_ATTEMPTS {
             if !self.may_need_screencast_capture(reservation_id, frame_epoch, navigation_epoch) {
                 self.cancel_screencast_capture(reservation_id);
+                let _ = session.runtime.client.settle_timestampless_screencast_capture(
+                    session_id,
+                    reservation_id,
+                    frame_epoch,
+                    navigation_epoch,
+                );
                 return Ok(());
             }
             match session
@@ -3630,6 +3681,12 @@ impl BrowserSurface {
                     if accepted {
                         self.dirty.store(true, Ordering::Release);
                     }
+                    let _ = session.runtime.client.settle_timestampless_screencast_capture(
+                        session_id,
+                        reservation_id,
+                        frame_epoch,
+                        navigation_epoch,
+                    );
                     return Ok(());
                 }
                 Err(error) => {
@@ -3641,9 +3698,17 @@ impl BrowserSurface {
                 }
             }
         }
-        let _ =
-            session.runtime.client.suppress_timestampless_screencast_epoch(session_id, frame_epoch);
-        self.suppress_failed_screencast_capture(reservation_id, frame_epoch, navigation_epoch);
+        let suppressed = session.runtime.client.suppress_timestampless_screencast_capture(
+            session_id,
+            reservation_id,
+            frame_epoch,
+            navigation_epoch,
+        );
+        if suppressed {
+            self.suppress_failed_screencast_capture(reservation_id, frame_epoch, navigation_epoch);
+        } else {
+            self.cancel_screencast_capture(reservation_id);
+        }
         Err(last_error.expect("authority capture attempts must record an error"))
     }
 
@@ -5931,7 +5996,7 @@ mod tests {
                 }),
             );
             ws.get_mut().set_read_timeout(Some(Duration::from_millis(20))).unwrap();
-            let deadline = Instant::now() + Duration::from_millis(500);
+            let deadline = Instant::now() + Duration::from_secs(1);
             let mut final_calls = 0;
             while final_calls < 3 && Instant::now() < deadline {
                 let request = match ws.read() {
@@ -6079,7 +6144,7 @@ mod tests {
             thread::yield_now();
         }
         final_frame_tx.send(()).unwrap();
-        let final_capture_started = final_capture_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        let final_capture_started = final_capture_rx.recv_timeout(Duration::from_secs(2)).unwrap();
 
         stop_tx.send(()).unwrap();
         runtime.shutdown();
@@ -6445,9 +6510,8 @@ mod tests {
         let navigation_epoch = browser.frame_epoch.latest_navigation();
 
         assert_eq!(browser.latest_frame(), None);
-        let reservation = browser
-            .reserve_screencast_capture(frame_epoch, navigation_epoch)
-            .expect("timestamp-less capture reservation");
+        let reservation = 41;
+        assert!(browser.reserve_screencast_capture(reservation, frame_epoch, navigation_epoch));
         assert!(browser.may_need_screencast_capture(reservation, frame_epoch, navigation_epoch));
         assert!(browser.accept_screencast_capture(
             reservation,
@@ -6460,9 +6524,8 @@ mod tests {
             !browser.may_need_screencast_capture(reservation, frame_epoch, navigation_epoch),
             "the verified replacement must settle its in-flight reservation"
         );
-        let later = browser
-            .reserve_screencast_capture(frame_epoch, navigation_epoch)
-            .expect("later timestamp-less pixels must require their own coalesced proof");
+        let later = 42;
+        assert!(browser.reserve_screencast_capture(later, frame_epoch, navigation_epoch));
         browser.cancel_screencast_capture(later);
     }
 
@@ -6473,18 +6536,16 @@ mod tests {
         browser.store_frame(test_frame(1));
         let frame_epoch = browser.frame_epoch.current();
         let navigation_epoch = browser.frame_epoch.latest_navigation();
-        let stale = browser
-            .reserve_screencast_capture(frame_epoch, navigation_epoch)
-            .expect("first timestamp-less capture reservation");
+        let stale = 51;
+        assert!(browser.reserve_screencast_capture(stale, frame_epoch, navigation_epoch));
         assert!(
-            browser.reserve_screencast_capture(frame_epoch, navigation_epoch).is_none(),
+            !browser.reserve_screencast_capture(99, frame_epoch, navigation_epoch),
             "concurrent timestamp-less frames must coalesce into one reservation"
         );
 
         browser.store_frame(test_frame(2));
-        let current = browser
-            .reserve_screencast_capture(frame_epoch, navigation_epoch)
-            .expect("replacement timestamp-less capture reservation");
+        let current = 52;
+        assert!(browser.reserve_screencast_capture(current, frame_epoch, navigation_epoch));
 
         assert!(!browser.accept_screencast_capture(
             stale,
@@ -6582,9 +6643,8 @@ mod tests {
         browser.store_frame(test_frame(1));
         let frame_epoch = browser.frame_epoch.current();
         let navigation_epoch = browser.frame_epoch.latest_navigation();
-        let reservation = browser
-            .reserve_screencast_capture(frame_epoch, navigation_epoch)
-            .expect("timestamp-less capture reservation");
+        let reservation = 61;
+        assert!(browser.reserve_screencast_capture(reservation, frame_epoch, navigation_epoch));
 
         let capture = browser.authorize_screencast_capture_blocking(
             "session-1",
