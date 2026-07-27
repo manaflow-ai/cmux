@@ -2,7 +2,8 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 #[cfg(test)]
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::Duration;
@@ -83,6 +84,59 @@ struct KeyRegistry {
     next: u64,
 }
 
+enum ProviderNoticeIdentity {
+    #[cfg(test)]
+    Ephemeral(protocol::OpaqueId),
+    Persisted {
+        state_root: Option<PathBuf>,
+        lease: Option<crate::provider_notice_identity::ProviderNoticeIdentityLease>,
+    },
+}
+
+impl ProviderNoticeIdentity {
+    fn consumer_id(&mut self) -> anyhow::Result<&protocol::OpaqueId> {
+        match self {
+            #[cfg(test)]
+            Self::Ephemeral(consumer_id) => Ok(consumer_id),
+            Self::Persisted { state_root, lease } => {
+                if lease.is_none() {
+                    let message =
+                        localization::catalog().sidebar.provider_notice_identity_unavailable;
+                    let state_root = state_root.as_deref().ok_or_else(|| {
+                        anyhow::anyhow!("cannot determine durable state directory").context(message)
+                    })?;
+                    let acquired =
+                        crate::provider_notice_identity::acquire(state_root).map_err(|error| {
+                            let message = if error
+                                .downcast_ref::<crate::provider_notice_identity::ProviderNoticeIdentityInUse>()
+                                .is_some()
+                            {
+                                localization::catalog()
+                                    .sidebar
+                                    .provider_connection_already_running
+                            } else {
+                                localization::catalog()
+                                    .sidebar
+                                    .provider_notice_identity_unavailable
+                            };
+                            error.context(message)
+                        })?;
+                    *lease = Some(acquired);
+                }
+                Ok(lease.as_ref().expect("notice identity lease was initialized").consumer_id())
+            }
+        }
+    }
+
+    #[cfg(test)]
+    fn acquired_consumer_id(&self) -> Option<&protocol::OpaqueId> {
+        match self {
+            Self::Ephemeral(consumer_id) => Some(consumer_id),
+            Self::Persisted { lease, .. } => lease.as_ref().map(|identity| identity.consumer_id()),
+        }
+    }
+}
+
 /// Owns the provider control connection and stable process-local machine keys.
 pub(crate) struct ProviderMachineRuntime {
     connector: Arc<dyn MachineProviderConnector>,
@@ -93,7 +147,6 @@ pub(crate) struct ProviderMachineRuntime {
     keys: Arc<Mutex<KeyRegistry>>,
     mutation_nonce: String,
     mutation_sequence: AtomicU64,
-    notice_consumer_id: protocol::OpaqueId,
     open: Option<OpenConnection>,
     pending: Option<PendingConnection>,
     pending_external_connect: Option<PendingExternalConnect>,
@@ -101,6 +154,7 @@ pub(crate) struct ProviderMachineRuntime {
     last_snapshot_notice: Option<protocol::ProviderNotice>,
     pending_notice_messages: HashSet<String>,
     notice: Option<String>,
+    notice_identity: ProviderNoticeIdentity,
 }
 
 /// Composes a provider-owned catalog with client-local socket and SSH targets.
@@ -119,9 +173,10 @@ impl ProviderMachineController {
         connector: Arc<dyn MachineProviderConnector>,
         configured: Vec<MachineConfig>,
         connect_external: bool,
+        state_root: Option<PathBuf>,
     ) -> anyhow::Result<Self> {
         Ok(Self {
-            provider: ProviderMachineRuntime::connect_with(connector)?,
+            provider: ProviderMachineRuntime::connect_with(connector, state_root)?,
             local: MachineRuntime::external(configured, connect_external),
             active_local: None,
             pending_active_local: None,
@@ -335,18 +390,51 @@ impl ProviderMachineRuntime {
         socket_path: impl AsRef<Path>,
         token: protocol::BearerToken,
     ) -> anyhow::Result<Self> {
-        Self::connect_with(Arc::new(UnixProviderConnector::new(
-            socket_path.as_ref().to_path_buf(),
-            token,
-        )))
+        Self::connect_with_notice_identity(
+            Arc::new(UnixProviderConnector::new(socket_path.as_ref().to_path_buf(), token)),
+            ProviderNoticeIdentity::Ephemeral(random_notice_consumer_id()?),
+        )
     }
 
     pub(crate) fn connect_with(
         connector: Arc<dyn MachineProviderConnector>,
+        state_root: Option<PathBuf>,
     ) -> anyhow::Result<Self> {
-        let notice_consumer_id = random_notice_consumer_id()?;
+        Self::connect_with_notice_identity(
+            connector,
+            ProviderNoticeIdentity::Persisted { state_root, lease: None },
+        )
+    }
+
+    #[cfg(test)]
+    fn connect_in_state_root(
+        socket_path: impl AsRef<Path>,
+        token: protocol::BearerToken,
+        state_root: &Path,
+    ) -> anyhow::Result<Self> {
+        Self::connect_with(
+            Arc::new(UnixProviderConnector::new(socket_path.as_ref().to_path_buf(), token)),
+            Some(state_root.to_path_buf()),
+        )
+    }
+
+    #[cfg(test)]
+    fn connect_without_state_root(
+        socket_path: impl AsRef<Path>,
+        token: protocol::BearerToken,
+    ) -> anyhow::Result<Self> {
+        Self::connect_with(
+            Arc::new(UnixProviderConnector::new(socket_path.as_ref().to_path_buf(), token)),
+            None,
+        )
+    }
+
+    fn connect_with_notice_identity(
+        connector: Arc<dyn MachineProviderConnector>,
+        mut notice_identity: ProviderNoticeIdentity,
+    ) -> anyhow::Result<Self> {
         let (client, snapshot, machine_lifecycle_snapshot, workspace_snapshot) =
-            connect_client(Arc::clone(&connector), &notice_consumer_id)?;
+            connect_client(Arc::clone(&connector), &mut notice_identity)?;
         let client = Arc::new(client);
         let surface_initial_snapshot_notice = !client.has_retained_durable_notices()?;
         let mut runtime = Self {
@@ -362,7 +450,6 @@ impl ProviderMachineRuntime {
             })),
             mutation_nonce: random_mutation_nonce()?,
             mutation_sequence: AtomicU64::new(1),
-            notice_consumer_id,
             open: None,
             pending: None,
             pending_external_connect: None,
@@ -370,6 +457,7 @@ impl ProviderMachineRuntime {
             last_snapshot_notice: None,
             pending_notice_messages: HashSet::new(),
             notice: None,
+            notice_identity,
         };
         runtime.observe_snapshot_notice(
             runtime.snapshot.notice.clone(),
@@ -1183,7 +1271,7 @@ impl ProviderMachineRuntime {
 
     fn reconnect_control(&mut self) -> anyhow::Result<()> {
         let (client, initial_snapshot, initial_machine_lifecycle, initial_workspace) =
-            connect_client(Arc::clone(&self.connector), &self.notice_consumer_id)?;
+            connect_client(Arc::clone(&self.connector), &mut self.notice_identity)?;
         let (mut desired_scope_id, mut desired_machine_id) = self.desired_selection();
         let mut snapshot = reconcile_snapshot_selection(
             &client,
@@ -1623,6 +1711,7 @@ fn random_mutation_nonce() -> anyhow::Result<String> {
     Ok(encoded)
 }
 
+#[cfg(test)]
 fn random_notice_consumer_id() -> anyhow::Result<protocol::OpaqueId> {
     protocol::OpaqueId::new(format!("cmux-tui-{}", random_mutation_nonce()?))
         .map_err(anyhow::Error::from)
@@ -1659,7 +1748,7 @@ impl MachineController for ProviderMachineRuntime {
 
 fn connect_client(
     connector: Arc<dyn MachineProviderConnector>,
-    notice_consumer_id: &protocol::OpaqueId,
+    notice_identity: &mut ProviderNoticeIdentity,
 ) -> anyhow::Result<(
     ProviderClient,
     protocol::SnapshotResult,
@@ -1674,7 +1763,8 @@ fn connect_client(
     let (client, _hello) =
         ProviderClient::connect_authenticated_with(connector, client_descriptor)?;
     if client.supports_capability(protocol::DURABLE_NOTICES_CAPABILITY)? {
-        client.subscribe_notices(notice_consumer_id.clone())?;
+        let consumer_id = notice_identity.consumer_id()?.clone();
+        client.subscribe_notices(consumer_id)?;
     }
     let snapshot = client.snapshot(None)?;
     let machine_lifecycle_snapshot = load_machine_lifecycle_snapshot(&client, &snapshot)?;
@@ -2013,12 +2103,13 @@ fn provider_presentation(snapshot: &protocol::SnapshotResult) -> ProviderPresent
 
 #[cfg(test)]
 mod tests {
-    use std::io::{BufRead, BufReader, Write};
+    use std::io::{BufRead, BufReader, ErrorKind as IoErrorKind, Write};
+    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
     use std::os::unix::net::{UnixListener, UnixStream};
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::mpsc;
     use std::thread;
-    use std::time::Duration;
+    use std::time::{Duration, Instant as TestInstant};
 
     use serde::Serialize;
     use serde::de::DeserializeOwned;
@@ -2052,6 +2143,35 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_file(&self.path);
         }
+    }
+
+    struct TestStateRoot {
+        path: PathBuf,
+    }
+
+    impl TestStateRoot {
+        fn create(label: &str) -> Self {
+            let id = NEXT_SOCKET_ID.fetch_add(1, Ordering::Relaxed);
+            let path = std::env::temp_dir()
+                .join(format!("cmux-provider-state-{label}-{}-{id}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&path);
+            let mut builder = std::fs::DirBuilder::new();
+            builder.mode(0o700).create(&path).unwrap();
+            Self { path }
+        }
+    }
+
+    impl Drop for TestStateRoot {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.path);
+        }
+    }
+
+    fn connect_after_runtime_start(
+        socket_path: &Path,
+        state_root: &Path,
+    ) -> ProviderMachineRuntime {
+        ProviderMachineRuntime::connect_in_state_root(socket_path, token(), state_root).unwrap()
     }
 
     fn id(value: &str) -> protocol::OpaqueId {
@@ -2103,7 +2223,15 @@ mod tests {
         snapshot: protocol::SnapshotResult,
         additional_capabilities: &[&str],
     ) -> (UnixStream, BufReader<UnixStream>) {
-        let (mut stream, _) = listener.accept().unwrap();
+        let (stream, _) = listener.accept().unwrap();
+        serve_initial_snapshot_on_stream(stream, snapshot, additional_capabilities)
+    }
+
+    fn serve_initial_snapshot_on_stream(
+        mut stream: UnixStream,
+        snapshot: protocol::SnapshotResult,
+        additional_capabilities: &[&str],
+    ) -> (UnixStream, BufReader<UnixStream>) {
         let mut reader = BufReader::new(stream.try_clone().unwrap());
         let hello: protocol::RequestEnvelope = read_frame(&mut reader);
         let protocol::ProviderRequest::Hello(params) = hello.request else {
@@ -2138,6 +2266,53 @@ mod tests {
         );
         serve_machine_lifecycle_snapshot(&mut stream, &mut reader, &snapshot);
         (stream, reader)
+    }
+
+    fn accept_with_timeout(listener: &UnixListener) -> Option<UnixStream> {
+        listener.set_nonblocking(true).unwrap();
+        let deadline = TestInstant::now() + Duration::from_secs(2);
+        loop {
+            match listener.accept() {
+                Ok((stream, _)) => {
+                    stream.set_nonblocking(false).unwrap();
+                    return Some(stream);
+                }
+                Err(error) if error.kind() == IoErrorKind::WouldBlock => {
+                    if TestInstant::now() >= deadline {
+                        return None;
+                    }
+                    thread::sleep(Duration::from_millis(10));
+                }
+                Err(error) => panic!("accept provider connection: {error}"),
+            }
+        }
+    }
+
+    fn negotiate_durable_then_expect_disconnect(listener: &UnixListener) -> bool {
+        let Some(mut stream) = accept_with_timeout(listener) else { return false };
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let hello: protocol::RequestEnvelope = read_frame(&mut reader);
+        assert!(matches!(hello.request, protocol::ProviderRequest::Hello(_)));
+        write_frame(
+            &mut stream,
+            &protocol::ResponseEnvelope::success(
+                hello.id,
+                protocol::HelloResult {
+                    provider_id: id("test-provider"),
+                    provider_name: "Test Provider".into(),
+                    negotiated_version: protocol::Version,
+                },
+            )
+            .with_capabilities([protocol::DURABLE_NOTICES_CAPABILITY]),
+        );
+
+        let mut next = String::new();
+        assert_eq!(
+            reader.read_line(&mut next).unwrap(),
+            0,
+            "identity failure did not stop before durable subscription: {next}"
+        );
+        true
     }
 
     fn serve_initial_durable_snapshot(
@@ -4050,8 +4225,14 @@ mod tests {
             finished.recv_timeout(Duration::from_secs(2)).unwrap();
         });
         let connector = Arc::new(UnixProviderConnector::new(socket.path.clone(), token()));
-        let mut controller =
-            ProviderMachineController::connect_with(connector, Vec::new(), false).unwrap();
+        let state_root = TestStateRoot::create("provider-reconnect");
+        let mut controller = ProviderMachineController::connect_with(
+            connector,
+            Vec::new(),
+            false,
+            Some(state_root.path.clone()),
+        )
+        .unwrap();
 
         let result = controller.perform_request(MachineRequest::ReconnectProvider).unwrap();
         assert!(result.replacement.is_some());
@@ -4158,8 +4339,14 @@ mod tests {
             );
         });
         let connector = Arc::new(UnixProviderConnector::new(socket.path.clone(), token()));
-        let mut controller =
-            ProviderMachineController::connect_with(connector, Vec::new(), false).unwrap();
+        let state_root = TestStateRoot::create("provider-delete");
+        let mut controller = ProviderMachineController::connect_with(
+            connector,
+            Vec::new(),
+            false,
+            Some(state_root.path.clone()),
+        )
+        .unwrap();
         let machine = key_for_id(&controller.provider.keys, &id("machine-1")).unwrap();
         controller.provider.open = Some(OpenConnection {
             client: controller.provider.client.clone(),
@@ -5240,9 +5427,225 @@ mod tests {
         let second = consumer_ids.recv_timeout(Duration::from_secs(2)).unwrap();
 
         assert_eq!(first, second);
-        assert_eq!(first, runtime.notice_consumer_id);
+        assert_eq!(Some(&first), runtime.notice_identity.acquired_consumer_id());
         finish.send(()).unwrap();
         drop(runtime);
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn legacy_provider_does_not_require_notice_identity_state() {
+        let socket = TestProviderSocket::bind();
+        let listener = socket.listener();
+        let state = TestStateRoot::create("legacy-without-identity");
+        let identity_parent = crate::provider_notice_identity::identity_parent(&state.path);
+        std::fs::DirBuilder::new().mode(0o755).create(&identity_parent).unwrap();
+        std::fs::set_permissions(&identity_parent, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let (release, release_connection) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let Some(stream) = accept_with_timeout(&listener) else { return false };
+            let (stream, reader) = serve_initial_snapshot_on_stream(
+                stream,
+                snapshot(1, "Legacy", protocol::MachineStatus::Running),
+                &[],
+            );
+            release_connection.recv_timeout(Duration::from_secs(2)).unwrap();
+            drop(reader);
+            drop(stream);
+            true
+        });
+
+        let runtime =
+            ProviderMachineRuntime::connect_in_state_root(&socket.path, token(), &state.path);
+        release.send(()).unwrap();
+        assert!(
+            server.join().unwrap(),
+            "legacy provider was not contacted before identity state was accessed"
+        );
+        let runtime = runtime.expect("legacy provider should not require durable identity state");
+        assert_eq!(runtime.ui_state(false).snapshot.machines[0].name, "Legacy");
+    }
+
+    #[test]
+    fn legacy_provider_connects_without_a_resolvable_state_root() {
+        let socket = TestProviderSocket::bind();
+        let listener = socket.listener();
+        let (release, release_connection) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let Some(stream) = accept_with_timeout(&listener) else { return false };
+            let (stream, reader) = serve_initial_snapshot_on_stream(
+                stream,
+                snapshot(1, "Legacy", protocol::MachineStatus::Running),
+                &[],
+            );
+            release_connection.recv_timeout(Duration::from_secs(2)).unwrap();
+            drop(reader);
+            drop(stream);
+            true
+        });
+
+        let runtime = ProviderMachineRuntime::connect_without_state_root(&socket.path, token());
+        release.send(()).unwrap();
+        assert!(
+            server.join().unwrap(),
+            "legacy provider was not contacted before the missing state root was required"
+        );
+        let runtime = runtime.expect("legacy provider should not require a durable state root");
+        assert_eq!(runtime.ui_state(false).snapshot.machines[0].name, "Legacy");
+    }
+
+    #[test]
+    fn unavailable_notice_identity_preserves_localized_context_after_durable_handshake() {
+        let socket = TestProviderSocket::bind();
+        let listener = socket.listener();
+        let state = TestStateRoot::create("unavailable-identity");
+        let identity_parent = crate::provider_notice_identity::identity_parent(&state.path);
+        std::fs::DirBuilder::new().mode(0o755).create(&identity_parent).unwrap();
+        std::fs::set_permissions(&identity_parent, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let server = thread::spawn(move || negotiate_durable_then_expect_disconnect(&listener));
+
+        let error =
+            ProviderMachineRuntime::connect_in_state_root(&socket.path, token(), &state.path)
+                .err()
+                .expect("permissive identity state unexpectedly connected");
+        assert!(
+            server.join().unwrap(),
+            "durable capability was not negotiated before identity state was accessed"
+        );
+        assert_eq!(
+            error.to_string(),
+            localization::catalog().sidebar.provider_notice_identity_unavailable
+        );
+        assert!(
+            format!("{error:?}")
+                .contains("provider notice identity directory must not be accessible")
+        );
+    }
+
+    #[test]
+    fn missing_notice_identity_root_uses_localized_error_after_durable_handshake() {
+        let socket = TestProviderSocket::bind();
+        let listener = socket.listener();
+        let server = thread::spawn(move || negotiate_durable_then_expect_disconnect(&listener));
+
+        let error = ProviderMachineRuntime::connect_without_state_root(&socket.path, token())
+            .err()
+            .expect("missing identity root unexpectedly connected");
+        assert!(
+            server.join().unwrap(),
+            "durable capability was not negotiated before the missing state root was required"
+        );
+        assert_eq!(
+            error.to_string(),
+            localization::catalog().sidebar.provider_notice_identity_unavailable
+        );
+        assert!(format!("{error:?}").contains("cannot determine durable state directory"));
+    }
+
+    #[test]
+    fn runtime_identity_lease_blocks_a_second_cursor_and_reuses_it_after_release() {
+        let socket = TestProviderSocket::bind();
+        let listener = socket.listener();
+        let first_root = TestStateRoot::create("first");
+        let second_root = TestStateRoot::create("second");
+        let (consumers, consumer_ids) = mpsc::channel();
+        let (release, release_connection) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let first_catalog = snapshot(1, "Machine", protocol::MachineStatus::Running);
+            let (first_stream, first_reader, first_consumer_id) =
+                serve_initial_durable_snapshot(&listener, first_catalog, None);
+            consumers.send(first_consumer_id).unwrap();
+
+            let (mut blocked_stream, _) = listener.accept().unwrap();
+            let mut blocked_reader = BufReader::new(blocked_stream.try_clone().unwrap());
+            let hello: protocol::RequestEnvelope = read_frame(&mut blocked_reader);
+            assert!(matches!(hello.request, protocol::ProviderRequest::Hello(_)));
+            write_frame(
+                &mut blocked_stream,
+                &protocol::ResponseEnvelope::success(
+                    hello.id,
+                    protocol::HelloResult {
+                        provider_id: id("test-provider"),
+                        provider_name: "Test Provider".into(),
+                        negotiated_version: protocol::Version,
+                    },
+                )
+                .with_capabilities([protocol::DURABLE_NOTICES_CAPABILITY]),
+            );
+            let mut blocked_request = String::new();
+            assert_eq!(
+                blocked_reader.read_line(&mut blocked_request).unwrap(),
+                0,
+                "competing runtime subscribed with the leased identity: {blocked_request}"
+            );
+            drop(blocked_reader);
+            drop(blocked_stream);
+
+            release_connection.recv().unwrap();
+            drop(first_reader);
+            drop(first_stream);
+
+            for revision in [2, 3] {
+                let catalog = snapshot(revision, "Machine", protocol::MachineStatus::Running);
+                let (stream, reader, consumer_id) =
+                    serve_initial_durable_snapshot(&listener, catalog, None);
+                consumers.send(consumer_id).unwrap();
+                release_connection.recv().unwrap();
+                drop(reader);
+                drop(stream);
+            }
+        });
+
+        let first = connect_after_runtime_start(&socket.path, &first_root.path);
+        let first_id = consumer_ids.recv_timeout(Duration::from_secs(2)).unwrap();
+
+        let blocked_socket = socket.path.clone();
+        let blocked_root = first_root.path.clone();
+        let (blocked_result, blocked_outcome) = mpsc::channel();
+        let blocked = thread::spawn(move || {
+            let result = ProviderMachineRuntime::connect_in_state_root(
+                blocked_socket,
+                token(),
+                &blocked_root,
+            );
+            blocked_result
+                .send(match result {
+                    Ok(runtime) => {
+                        drop(runtime);
+                        Ok(())
+                    }
+                    Err(error) => Err(error.to_string()),
+                })
+                .unwrap();
+        });
+        let blocked_error = blocked_outcome
+            .recv_timeout(Duration::from_secs(2))
+            .expect("second runtime did not fail before subscribing")
+            .expect_err("second runtime unexpectedly acquired the shared notice cursor");
+        assert_eq!(
+            blocked_error,
+            localization::catalog().sidebar.provider_connection_already_running
+        );
+        blocked.join().unwrap();
+        assert!(consumer_ids.try_recv().is_err());
+
+        let first_ui = first.ui_state(false);
+        assert_eq!(first_ui.snapshot.machines[0].name, "Machine");
+        drop(first);
+        release.send(()).unwrap();
+
+        let restarted = connect_after_runtime_start(&socket.path, &first_root.path);
+        let restarted_id = consumer_ids.recv_timeout(Duration::from_secs(2)).unwrap();
+        drop(restarted);
+        release.send(()).unwrap();
+
+        let separate = connect_after_runtime_start(&socket.path, &second_root.path);
+        let separate_id = consumer_ids.recv_timeout(Duration::from_secs(2)).unwrap();
+        drop(separate);
+        release.send(()).unwrap();
+
+        assert_eq!(restarted_id, first_id);
+        assert_ne!(separate_id, first_id);
         server.join().unwrap();
     }
 

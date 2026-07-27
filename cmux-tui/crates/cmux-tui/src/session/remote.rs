@@ -13,20 +13,25 @@ use std::time::{Duration, Instant};
 
 use base64::Engine;
 use cmux_tui_core::{
-    BrowserFrame, BrowserFrameUpdate, BrowserSource, BrowserStatus, DefaultColors,
-    GuardedMouseEncode, MuxEvent, MuxEventBroadcaster, MuxEventReceiver, NotificationEvent,
-    NotificationLevel, PairingChallenge, PointerSemanticProbe, PointerSnapshotProbe, Rgb,
-    SurfaceId, SurfaceKind, TerminalPointerSnapshot, platform::transport,
-    server::GUARDED_BROWSER_POINTER_CAPABILITY,
+    BrowserFrame, BrowserFrameUpdate, BrowserSource, BrowserStatus, ClearHistoryDelivery,
+    ClearHistoryFailure, DefaultColors, GuardedMouseEncode, MuxEvent, MuxEventBroadcaster,
+    MuxEventReceiver, NotificationEvent, NotificationLevel, PairingChallenge, PointerSemanticProbe,
+    PointerSnapshotProbe, Rgb, SurfaceId, SurfaceKind, TerminalPointerSnapshot,
+    platform::transport,
+    server::{
+        CLEAR_HISTORY_CAPABILITY, CLEAR_HISTORY_KEY_CAPABILITY, GUARDED_BROWSER_POINTER_CAPABILITY,
+        ProtocolKeyInput,
+    },
 };
 use cmux_tui_machine_protocol::BearerToken;
 use ghostty_vt::{
-    Callbacks, CursorShape, MouseEncoders, MouseInput, RenderState, Terminal,
+    Callbacks, CursorShape, KeyInput, MouseEncoders, MouseInput, RenderState, Terminal,
     TerminalColorOverrides, TerminalPointerSemanticSnapshot, parse_color,
 };
 use serde_json::{Value, json};
 use zeroize::Zeroize;
 
+use super::CLEAR_HISTORY_UNSUPPORTED_ERROR;
 use super::tree::{TreeView, parse_tree};
 
 const SUPPORTED_PROTOCOL_VERSION: u64 = 10;
@@ -62,6 +67,31 @@ fn validate_remote_identity(ident: &Value) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn identity_capabilities(ident: &Value) -> HashSet<String> {
+    ident
+        .get("capabilities")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::to_string)
+        .collect()
+}
+
+fn require_capability(
+    capabilities: &HashSet<String>,
+    capability: &str,
+    operation: &str,
+) -> anyhow::Result<()> {
+    if capabilities.contains(capability) {
+        Ok(())
+    } else if operation == "clear-history" {
+        anyhow::bail!(CLEAR_HISTORY_UNSUPPORTED_ERROR)
+    } else {
+        anyhow::bail!("remote server does not support {operation}; restart the cmux-tui server")
+    }
+}
+
 pub(crate) type RemoteResizeReservation = (SurfaceId, (u16, u16), Option<u64>);
 
 pub(crate) struct RemoteCellPixelUpdate {
@@ -74,7 +104,7 @@ pub(crate) enum RemoteRequestError {
     Encode(serde_json::Error),
     Transport(io::Error),
     Timeout,
-    Rejected(String),
+    Rejected { error: String, delivery: Option<ClearHistoryDelivery> },
     Shutdown,
 }
 
@@ -100,7 +130,7 @@ impl std::fmt::Display for RemoteRequestError {
             Self::Encode(error) => write!(formatter, "could not encode remote request: {error}"),
             Self::Transport(error) => write!(formatter, "remote transport write failed: {error}"),
             Self::Timeout => write!(formatter, "remote session did not respond"),
-            Self::Rejected(error) => write!(formatter, "remote command rejected: {error}"),
+            Self::Rejected { error, .. } => write!(formatter, "remote command rejected: {error}"),
             Self::Shutdown => write!(formatter, "remote response wait canceled for shutdown"),
         }
     }
@@ -812,14 +842,7 @@ impl RemoteSession {
         // Identify the endpoint and register this connection before any optional subscription.
         let ident = self.request(json!({"cmd": "identify"}))?;
         validate_remote_identity(&ident)?;
-        *self.capabilities.lock().unwrap() = ident
-            .get("capabilities")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_str)
-            .map(str::to_string)
-            .collect();
+        *self.capabilities.lock().unwrap() = identity_capabilities(&ident);
         let mut client_info = json!({"cmd": "set-client-info", "kind": "tui"});
         if let Some(hostname) = local_hostname() {
             client_info["name"] = json!(hostname);
@@ -1343,7 +1366,10 @@ impl RemoteSession {
     }
 
     fn subscription_recovery_is_retryable(error: &anyhow::Error) -> bool {
-        matches!(error.downcast_ref::<RemoteRequestError>(), Some(RemoteRequestError::Rejected(_)))
+        matches!(
+            error.downcast_ref::<RemoteRequestError>(),
+            Some(RemoteRequestError::Rejected { .. })
+        )
     }
 
     fn log_frame(&self, surface: SurfaceId, line: String) {
@@ -1402,7 +1428,12 @@ impl RemoteSession {
             Ok(response.get("data").cloned().unwrap_or(Value::Null))
         } else {
             let error = response.get("error").and_then(|v| v.as_str()).unwrap_or("unknown error");
-            Err(RemoteRequestError::Rejected(error.to_string()).into())
+            let delivery = match response.get("error_delivery").and_then(Value::as_str) {
+                Some("known-not-delivered") => Some(ClearHistoryDelivery::KnownNotDelivered),
+                Some("ambiguous") => Some(ClearHistoryDelivery::Ambiguous),
+                _ => None,
+            };
+            Err(RemoteRequestError::Rejected { error: error.to_string(), delivery }.into())
         }
     }
 
@@ -1430,6 +1461,80 @@ impl RemoteSession {
     pub fn send_bytes(&self, surface: SurfaceId, bytes: &[u8]) -> anyhow::Result<()> {
         let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
         self.request(json!({"cmd": "send", "surface": surface, "bytes": encoded})).map(|_| ())
+    }
+
+    pub fn clear_history_classified(&self, surface: SurfaceId) -> Result<(), ClearHistoryFailure> {
+        self.clear_history_request_classified(surface, None)
+    }
+
+    pub fn supports_clear_history_key_fallback(&self, surface: SurfaceId) -> bool {
+        let server_supports_fallback = {
+            let capabilities = self.capabilities.lock().unwrap();
+            capabilities.contains(CLEAR_HISTORY_CAPABILITY)
+                && capabilities.contains(CLEAR_HISTORY_KEY_CAPABILITY)
+        };
+        server_supports_fallback
+            && self
+                .tree
+                .lock()
+                .unwrap()
+                .view
+                .surface(surface)
+                .is_some_and(|tab| tab.supports_clear_history_key_fallback)
+    }
+
+    pub fn clear_history_or_send_key_classified(
+        &self,
+        surface: SurfaceId,
+        fallback_key: &KeyInput,
+    ) -> Result<(), ClearHistoryFailure> {
+        if self.supports_clear_history_key_fallback(surface) {
+            let fallback_key = ProtocolKeyInput::try_from(fallback_key)
+                .map_err(ClearHistoryFailure::known_not_delivered)?;
+            return self.clear_history_request_classified(surface, Some(fallback_key));
+        }
+
+        // Plain clear-history remains available as a dedicated request, but
+        // only an atomic-capability server can choose the active screen and
+        // encode the fallback from authoritative keyboard modes. A mirrored
+        // terminal is never safe for correctness-critical input routing.
+        Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
+            CLEAR_HISTORY_UNSUPPORTED_ERROR
+        )))
+    }
+
+    fn clear_history_request_classified(
+        &self,
+        surface: SurfaceId,
+        fallback_key: Option<ProtocolKeyInput>,
+    ) -> Result<(), ClearHistoryFailure> {
+        require_capability(
+            &self.capabilities.lock().unwrap(),
+            CLEAR_HISTORY_CAPABILITY,
+            "clear-history",
+        )
+        .map_err(ClearHistoryFailure::known_not_delivered)?;
+        self.request(json!({
+            "cmd": "clear-history",
+            "surface": surface,
+            "fallback_key": fallback_key,
+        }))
+        .map(|_| ())
+        .map_err(|error| {
+            let known_not_delivered = matches!(
+                error.downcast_ref::<RemoteRequestError>(),
+                Some(RemoteRequestError::Encode(_))
+                    | Some(RemoteRequestError::Rejected {
+                        delivery: Some(ClearHistoryDelivery::KnownNotDelivered),
+                        ..
+                    })
+            );
+            if known_not_delivered {
+                ClearHistoryFailure::known_not_delivered(error)
+            } else {
+                ClearHistoryFailure::ambiguous(error)
+            }
+        })
     }
 
     pub fn begin_shutdown(&self) {
@@ -2065,7 +2170,7 @@ mod tests {
     use std::sync::mpsc::{Receiver, Sender};
     use std::sync::{Mutex, Weak};
 
-    use ghostty_vt::{Callbacks, ColorSpec, RenderState, Terminal};
+    use ghostty_vt::{Callbacks, ColorSpec, KeyAction, Mods, RenderState, Terminal};
     use serde_json::json;
 
     use super::*;
@@ -2110,6 +2215,38 @@ mod tests {
             "capabilities": ["browser-pointer-frame-guard-v1"],
         }))
         .unwrap();
+    }
+
+    #[test]
+    fn clear_history_requires_its_additive_capability() {
+        let without = identity_capabilities(&json!({
+            "capabilities": ["attach-initial-size", "workspace-registry-v1"]
+        }));
+        let error =
+            require_capability(&without, CLEAR_HISTORY_CAPABILITY, "clear-history").unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "remote server does not support clear-history; restart the cmux-tui server"
+        );
+
+        let with = identity_capabilities(&json!({
+            "capabilities": ["clear-history-v1"]
+        }));
+        require_capability(&with, CLEAR_HISTORY_CAPABILITY, "clear-history").unwrap();
+        let error =
+            require_capability(&with, CLEAR_HISTORY_KEY_CAPABILITY, "clear-history").unwrap_err();
+        assert_eq!(error.to_string(), CLEAR_HISTORY_UNSUPPORTED_ERROR);
+
+        let with_key_fallback = identity_capabilities(&json!({
+            "capabilities": ["clear-history-v1", "clear-history-key-v1"]
+        }));
+        require_capability(&with_key_fallback, CLEAR_HISTORY_KEY_CAPABILITY, "clear-history")
+            .unwrap();
+    }
+
+    #[test]
+    fn protocol_10_identity_is_accepted() {
+        validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 10})).unwrap();
     }
 
     #[test]
@@ -2373,6 +2510,42 @@ mod tests {
         }
     }
 
+    struct RecordingAcknowledgingWriter {
+        session: Arc<Mutex<Option<Weak<RemoteSession>>>>,
+        requests: Arc<Mutex<Vec<Value>>>,
+    }
+
+    impl RemoteMessageWriter for RecordingAcknowledgingWriter {
+        fn send(&mut self, message: &str) -> io::Result<()> {
+            let request: Value = serde_json::from_str(message).map_err(io::Error::other)?;
+            self.requests.lock().unwrap().push(request.clone());
+            let id = request
+                .get("id")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| io::Error::other("remote request omitted its id"))?;
+            let session = self
+                .session
+                .lock()
+                .unwrap()
+                .as_ref()
+                .and_then(Weak::upgrade)
+                .ok_or_else(|| io::Error::other("test remote session was dropped"))?;
+            let response = session
+                .pending
+                .lock()
+                .unwrap()
+                .remove(&id)
+                .ok_or_else(|| io::Error::other("remote request was not pending"))?;
+            response
+                .send(json!({"id": id, "ok": true, "data": null}))
+                .map_err(|_| io::Error::other("remote response receiver was dropped"))
+        }
+
+        fn close(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
     fn test_session_with_provider_context(
         writer: Box<dyn RemoteMessageWriter>,
         capabilities: HashSet<String>,
@@ -2403,6 +2576,249 @@ mod tests {
 
     fn test_session(writer: Box<dyn RemoteMessageWriter>) -> Arc<RemoteSession> {
         test_session_with_provider_context(writer, HashSet::new(), None)
+    }
+
+    #[test]
+    fn clear_history_shortcut_rejects_older_remote_server() {
+        let session_slot = Arc::new(Mutex::new(None));
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let session = test_session(Box::new(RecordingAcknowledgingWriter {
+            session: session_slot.clone(),
+            requests: requests.clone(),
+        }));
+        *session_slot.lock().unwrap() = Some(Arc::downgrade(&session));
+        session.surfaces.lock().unwrap().insert(
+            7,
+            Arc::new(RemoteSurface {
+                id: 7,
+                kind: SurfaceKind::Pty,
+                term: Mutex::new(Terminal::new(80, 24, 1_000, Callbacks::default()).unwrap()),
+                mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
+                dirty: AtomicBool::new(false),
+                content_generation: AtomicU64::new(1),
+                reported_size: Mutex::new(None),
+                browser: Mutex::new(RemoteBrowserState::default()),
+            }),
+        );
+        let fallback = KeyInput {
+            key: ghostty_vt::sys::GHOSTTY_KEY_L,
+            mods: Mods::CTRL,
+            unshifted_codepoint: 'l' as u32,
+            action: Some(KeyAction::Press),
+            ..Default::default()
+        };
+
+        let error =
+            session.clear_history_or_send_key_classified(7, &fallback).unwrap_err().into_error();
+
+        assert_eq!(error.to_string(), CLEAR_HISTORY_UNSUPPORTED_ERROR);
+        assert!(requests.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn clear_history_shortcut_requires_active_surface_support() {
+        let session = test_session_with_provider_context(
+            Box::new(UnexpectedWriteWriter),
+            HashSet::from([
+                CLEAR_HISTORY_CAPABILITY.to_string(),
+                CLEAR_HISTORY_KEY_CAPABILITY.to_string(),
+            ]),
+            None,
+        );
+        session.tree.lock().unwrap().replace(
+            parse_tree(&json!({
+                "workspaces": [{
+                    "id": 1,
+                    "active": true,
+                    "screens": [{
+                        "id": 2,
+                        "active": true,
+                        "active_pane": 3,
+                        "layout": {"type": "leaf", "pane": 3},
+                        "panes": [{
+                            "id": 3,
+                            "active_tab": 0,
+                            "tabs": [
+                                {
+                                    "surface": 7,
+                                    "supports_clear_history_key_fallback": false
+                                },
+                                {
+                                    "surface": 8,
+                                    "supports_clear_history_key_fallback": true
+                                }
+                            ]
+                        }]
+                    }]
+                }]
+            })),
+            0,
+        );
+
+        assert!(!session.supports_clear_history_key_fallback(7));
+        assert!(session.supports_clear_history_key_fallback(8));
+        assert!(!session.supports_clear_history_key_fallback(9));
+    }
+
+    #[test]
+    fn older_remote_server_reports_unencodable_command_shortcut() {
+        let session_slot = Arc::new(Mutex::new(None));
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let session = test_session(Box::new(RecordingAcknowledgingWriter {
+            session: session_slot.clone(),
+            requests: requests.clone(),
+        }));
+        *session_slot.lock().unwrap() = Some(Arc::downgrade(&session));
+        session.surfaces.lock().unwrap().insert(
+            7,
+            Arc::new(RemoteSurface {
+                id: 7,
+                kind: SurfaceKind::Pty,
+                term: Mutex::new(Terminal::new(80, 24, 1_000, Callbacks::default()).unwrap()),
+                mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
+                dirty: AtomicBool::new(false),
+                content_generation: AtomicU64::new(1),
+                reported_size: Mutex::new(None),
+                browser: Mutex::new(RemoteBrowserState::default()),
+            }),
+        );
+        let fallback = KeyInput {
+            key: ghostty_vt::sys::GHOSTTY_KEY_K,
+            mods: Mods::SUPER,
+            unshifted_codepoint: 'k' as u32,
+            action: Some(KeyAction::Press),
+            ..Default::default()
+        };
+
+        assert!(session.clear_history_or_send_key_classified(7, &fallback).is_err());
+        assert!(requests.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn intermediate_remote_server_keeps_plain_clear_but_rejects_shortcut() {
+        let session_slot = Arc::new(Mutex::new(None));
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let session = test_session_with_provider_context(
+            Box::new(RecordingAcknowledgingWriter {
+                session: session_slot.clone(),
+                requests: requests.clone(),
+            }),
+            HashSet::from([CLEAR_HISTORY_CAPABILITY.to_string()]),
+            None,
+        );
+        *session_slot.lock().unwrap() = Some(Arc::downgrade(&session));
+        session.surfaces.lock().unwrap().insert(
+            7,
+            Arc::new(RemoteSurface {
+                id: 7,
+                kind: SurfaceKind::Pty,
+                term: Mutex::new(Terminal::new(80, 24, 1_000, Callbacks::default()).unwrap()),
+                mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
+                dirty: AtomicBool::new(false),
+                content_generation: AtomicU64::new(1),
+                reported_size: Mutex::new(None),
+                browser: Mutex::new(RemoteBrowserState::default()),
+            }),
+        );
+        let fallback = KeyInput {
+            key: ghostty_vt::sys::GHOSTTY_KEY_L,
+            mods: Mods::CTRL,
+            unshifted_codepoint: 'l' as u32,
+            action: Some(KeyAction::Press),
+            ..Default::default()
+        };
+
+        let error =
+            session.clear_history_or_send_key_classified(7, &fallback).unwrap_err().into_error();
+
+        assert_eq!(error.to_string(), CLEAR_HISTORY_UNSUPPORTED_ERROR);
+        assert!(requests.lock().unwrap().is_empty());
+        session.clear_history_classified(7).unwrap();
+
+        let recorded = requests.lock().unwrap();
+        assert_eq!(recorded.len(), 1);
+        assert_eq!(recorded[0]["cmd"], "clear-history");
+        assert_eq!(recorded[0]["surface"], 7);
+        assert_eq!(recorded[0]["fallback_key"], Value::Null);
+    }
+
+    #[test]
+    fn clear_history_transport_failure_is_ambiguous() {
+        struct FailingWriter;
+
+        impl RemoteMessageWriter for FailingWriter {
+            fn send(&mut self, _message: &str) -> io::Result<()> {
+                Err(io::Error::new(io::ErrorKind::BrokenPipe, "socket closed"))
+            }
+
+            fn close(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let session = test_session_with_provider_context(
+            Box::new(FailingWriter),
+            HashSet::from([CLEAR_HISTORY_CAPABILITY.to_string()]),
+            None,
+        );
+
+        let failure = session.clear_history_classified(7).unwrap_err();
+
+        assert_eq!(failure.delivery(), ClearHistoryDelivery::Ambiguous);
+    }
+
+    #[test]
+    fn clear_history_rejection_preserves_known_not_delivered_delivery() {
+        struct RejectingWriter {
+            session: Arc<Mutex<Option<Weak<RemoteSession>>>>,
+        }
+
+        impl RemoteMessageWriter for RejectingWriter {
+            fn send(&mut self, message: &str) -> io::Result<()> {
+                let request: Value = serde_json::from_str(message).map_err(io::Error::other)?;
+                let id = request
+                    .get("id")
+                    .and_then(Value::as_u64)
+                    .ok_or_else(|| io::Error::other("remote request omitted its id"))?;
+                let session = self
+                    .session
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .and_then(Weak::upgrade)
+                    .ok_or_else(|| io::Error::other("test remote session was dropped"))?;
+                let response = session
+                    .pending
+                    .lock()
+                    .unwrap()
+                    .remove(&id)
+                    .ok_or_else(|| io::Error::other("remote request was not pending"))?;
+                response
+                    .send(json!({
+                        "id": id,
+                        "ok": false,
+                        "error": "active terminal input extends into retained history",
+                        "error_delivery": "known-not-delivered",
+                    }))
+                    .map_err(|_| io::Error::other("remote response receiver was dropped"))
+            }
+
+            fn close(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let session_slot = Arc::new(Mutex::new(None));
+        let session = test_session_with_provider_context(
+            Box::new(RejectingWriter { session: session_slot.clone() }),
+            HashSet::from([CLEAR_HISTORY_CAPABILITY.to_string()]),
+            None,
+        );
+        *session_slot.lock().unwrap() = Some(Arc::downgrade(&session));
+
+        let failure = session.clear_history_classified(7).unwrap_err();
+
+        assert_eq!(failure.delivery(), ClearHistoryDelivery::KnownNotDelivered);
     }
 
     fn acknowledging_provider_session() -> Arc<RemoteSession> {
@@ -3690,7 +4106,10 @@ mod tests {
 
     #[test]
     fn subscription_recovery_retries_only_explicit_rejection() {
-        let rejected = anyhow::Error::new(RemoteRequestError::Rejected("no capacity".to_string()));
+        let rejected = anyhow::Error::new(RemoteRequestError::Rejected {
+            error: "no capacity".to_string(),
+            delivery: None,
+        });
         let timeout = anyhow::Error::new(RemoteRequestError::Timeout);
         let shutdown = anyhow::Error::new(RemoteRequestError::Shutdown);
 
