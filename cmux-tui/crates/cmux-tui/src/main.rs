@@ -25,6 +25,7 @@ mod process_diagnostics;
 #[cfg(target_os = "linux")]
 mod provider_authority;
 mod pty_input;
+mod server_lifecycle;
 mod session;
 mod sidebar_files;
 mod ui;
@@ -58,6 +59,7 @@ static SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
 #[cfg(unix)]
 const MACHINE_PROVIDER_TOKEN_ENV: &str = "CMUX_MACHINE_PROVIDER_TOKEN";
 const PROVIDER_WORKSPACE_AUTHORITY_ENV: &str = "CMUX_PROVIDER_WORKSPACE_AUTHORITY";
+const SERVER_SHUTDOWN_EXIT_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
 
 #[cfg(target_os = "linux")]
 unsafe extern "C" {
@@ -511,20 +513,8 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
 }
 
 fn version_string() -> String {
-    // Packaged builds stamp both source identities so artifact validation can
-    // reject a cmux binary built against a different Ghostty checkout before
-    // it enters an app bundle. Local builds report the crate version alone.
-    let commit = option_env!("CMUX_TUI_BUILD_COMMIT")
-        .or(option_env!("CMUX_MUX_BUILD_COMMIT"))
-        .filter(|commit| !commit.is_empty());
-    let ghostty = option_env!("CMUX_TUI_GHOSTTY_COMMIT").filter(|commit| !commit.is_empty());
-    match (commit, ghostty) {
-        (Some(commit), Some(ghostty)) => {
-            format!("{} ({commit}; ghostty {ghostty})", env!("CARGO_PKG_VERSION"))
-        }
-        (Some(commit), None) => format!("{} ({commit})", env!("CARGO_PKG_VERSION")),
-        (None, _) => env!("CARGO_PKG_VERSION").to_string(),
-    }
+    cmux_tui_core::release::ReleaseIdentity::current(cmux_tui_core::server::PROTOCOL_VERSION)
+        .version_with_build_metadata()
 }
 
 impl Args {
@@ -683,6 +673,15 @@ fn main() {
     if raw_args.first().map(String::as_str) == Some("__terminal-host") {
         if let Err(error) = run_terminal_host_process(&raw_args[1..]) {
             eprintln!("cmux-tui terminal host: {error}");
+            std::process::exit(1);
+        }
+        return;
+    }
+    #[cfg(unix)]
+    if raw_args.first().map(String::as_str) == Some("__legacy-stop-helper") {
+        discard_provider_secret_environment();
+        if let Err(error) = server_lifecycle::run_legacy_stop_helper(&raw_args[1..]) {
+            eprintln!("{error}");
             std::process::exit(1);
         }
         return;
@@ -942,6 +941,75 @@ fn socket_option(fd: std::os::fd::RawFd, option: libc::c_int) -> io::Result<libc
     Ok(value)
 }
 
+struct ServerProcessShutdownGuard {
+    socket_path: PathBuf,
+    shutdown_watch: cmux_tui_core::ShutdownRequestWatch,
+    completion: Option<std::sync::mpsc::Sender<()>>,
+    worker: Option<std::thread::JoinHandle<()>>,
+}
+
+impl ServerProcessShutdownGuard {
+    fn start(mux: &Arc<Mux>, socket_path: PathBuf) -> io::Result<Self> {
+        let shutdown_watch = mux.watch_shutdown_request();
+        let worker_watch = shutdown_watch.clone();
+        let worker_socket_path = socket_path.clone();
+        let (completion, completed) = std::sync::mpsc::channel();
+        let worker = std::thread::Builder::new().name("cmux-server-exit-watchdog".into()).spawn(
+            move || {
+                if !worker_watch.wait() {
+                    return;
+                }
+
+                if matches!(
+                    completed.recv_timeout(server_shutdown_exit_grace()),
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+                ) {
+                    // A successful shutdown request drains every surface and
+                    // attempts its confirmed response before setting
+                    // shutdown_requested. If the interactive driver cannot
+                    // return after that boundary, it owns no remaining work
+                    // that can justify retaining the process or control socket.
+                    cmux_tui_core::server::cleanup(&worker_socket_path);
+                    std::process::exit(0);
+                }
+            },
+        )?;
+        Ok(Self { socket_path, shutdown_watch, completion: Some(completion), worker: Some(worker) })
+    }
+
+    fn complete(mut self) {
+        self.finish();
+    }
+
+    fn finish(&mut self) {
+        let Some(completion) = self.completion.take() else { return };
+        cmux_tui_core::server::cleanup(&self.socket_path);
+        let _ = completion.send(());
+        self.shutdown_watch.cancel();
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+    }
+}
+
+impl Drop for ServerProcessShutdownGuard {
+    fn drop(&mut self) {
+        self.finish();
+    }
+}
+
+fn server_shutdown_exit_grace() -> std::time::Duration {
+    #[cfg(debug_assertions)]
+    if let Some(milliseconds) = std::env::var("CMUX_TUI_TEST_SHUTDOWN_EXIT_GRACE_MS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|milliseconds| (1..=5_000).contains(milliseconds))
+    {
+        return std::time::Duration::from_millis(milliseconds);
+    }
+    SERVER_SHUTDOWN_EXIT_GRACE
+}
+
 fn run_server(
     args: Args,
     provider_workspace_authority: Option<ProviderWorkspaceAuthority>,
@@ -967,18 +1035,27 @@ fn run_server(
         .socket
         .clone()
         .unwrap_or_else(|| cmux_tui_core::server::default_socket_path(&args.session));
-    if args.should_attach_existing(&ws_addr, &ws_token)
-        && socket_path.exists()
-        && let Ok(remote) = RemoteSession::connect(&socket_path)
-    {
-        return run_connected_session_client(
-            socket_path,
-            args.session,
-            config,
-            Session::Remote(remote),
-            None,
-        );
+    if args.should_attach_existing(&ws_addr, &ws_token) && socket_path.exists() {
+        match RemoteSession::connect(&socket_path) {
+            Ok(remote) => {
+                return run_connected_session_client(
+                    socket_path,
+                    args.session,
+                    config,
+                    Session::Remote(remote),
+                    None,
+                );
+            }
+            Err(error) if cmux_tui_core::platform::transport::connect(&socket_path).is_ok() => {
+                return Err(error);
+            }
+            Err(_) => {}
+        }
     }
+
+    #[cfg(unix)]
+    cmux_tui_core::process_session::require_stable_process_signaling()
+        .map_err(|_| anyhow::anyhow!(localization::catalog().server.process_cleanup_unsupported))?;
 
     let mut surface_options = SurfaceOptions::default();
     config::apply_browser_to_surface_options(&config, &mut surface_options);
@@ -1059,19 +1136,33 @@ fn run_server(
         eprintln!("cmux-tui: WebSocket control at ws://{}", server.local_addr());
     }
     cmux_tui_core::server::serve(mux.clone(), Some(socket_path.clone()))?;
+    let server_process = match ServerProcessShutdownGuard::start(&mux, socket_path.clone()) {
+        Ok(server_process) => server_process,
+        Err(error) => {
+            cmux_tui_core::server::cleanup(&socket_path);
+            return Err(error.into());
+        }
+    };
+
+    #[cfg(debug_assertions)]
+    if !args.headless && std::env::var_os("CMUX_TUI_TEST_BLOCK_INTERACTIVE_DRIVER").is_some() {
+        loop {
+            std::thread::park();
+        }
+    }
 
     let machine_runtime = (config.machine_sidebar.enabled || !config.machines.is_empty())
         .then(|| MachineRuntime::new(socket_path.clone(), config.machines.clone()));
     let result = if args.headless {
         run_headless(&mux, &socket_path)
     } else if let Some(runtime) = machine_runtime {
-        run_machine_client(runtime)
+        run_machine_client(runtime, mux.clone())
     } else {
         run_tui(Session::Local(mux.clone()), args.session, None)
     };
     drop(websocket_server);
     mux.shutdown();
-    cmux_tui_core::server::cleanup(&socket_path);
+    server_process.complete();
     result
 }
 
@@ -1080,7 +1171,7 @@ fn run_tui(
     session_label: String,
     surface_only: Option<cmux_tui_core::SurfaceId>,
 ) -> anyhow::Result<()> {
-    match run_tui_once(session, session_label, surface_only, None, None)? {
+    match run_tui_once(session, session_label, surface_only, None, None, None)? {
         app::RunOutcome::Quit => Ok(()),
         app::RunOutcome::Machine(_) => {
             anyhow::bail!("machine request returned without a machine runtime")
@@ -1116,27 +1207,28 @@ fn run_connected_session_client(
         SessionClientMode::Plain => run_tui(session, session_label, None),
         SessionClientMode::Machines => {
             let runtime = MachineRuntime::new(socket_path, config.machines);
-            run_machine_client_with_initial(runtime, session)
+            run_machine_client_with_initial(runtime, session, None)
         }
     }
 }
 
-fn run_machine_client(mut runtime: MachineRuntime) -> anyhow::Result<()> {
+fn run_machine_client(mut runtime: MachineRuntime, host_mux: Arc<Mux>) -> anyhow::Result<()> {
     let active = runtime.initial_key();
     let session = runtime.connect(active)?;
-    run_machine_client_with_initial(runtime, session)
+    run_machine_client_with_initial(runtime, session, Some(host_mux))
 }
 
 fn run_machine_client_with_initial(
     runtime: MachineRuntime,
     session: Session,
+    host_mux: Option<Arc<Mux>>,
 ) -> anyhow::Result<()> {
     let active = runtime.initial_key();
     let label = runtime.name(active).unwrap_or("machine").to_string();
     let machine_ui = MachineUiState::new(runtime.snapshot(active));
     let controller: Box<dyn MachineController> =
         Box::new(StaticMachineController { runtime, active, pending_active: None });
-    match run_tui_once(session, label, None, Some(machine_ui), Some(controller))? {
+    match run_tui_once(session, label, None, Some(machine_ui), Some(controller), host_mux)? {
         app::RunOutcome::Quit => Ok(()),
         app::RunOutcome::Machine(_) => {
             anyhow::bail!("machine request escaped its in-place controller")
@@ -1230,7 +1322,7 @@ fn run_provider_machine_client(
         )),
     };
     let controller: Box<dyn MachineController> = Box::new(runtime);
-    match run_tui_once(session, label, None, Some(machine_ui), Some(controller))? {
+    match run_tui_once(session, label, None, Some(machine_ui), Some(controller), None)? {
         app::RunOutcome::Quit => Ok(()),
         app::RunOutcome::Machine(_) => {
             anyhow::bail!("provider request escaped its in-place controller")
@@ -1265,6 +1357,7 @@ fn run_tui_once(
     surface_only: Option<cmux_tui_core::SurfaceId>,
     machine_ui: Option<MachineUiState>,
     machine_controller: Option<Box<dyn MachineController>>,
+    host_mux: Option<Arc<Mux>>,
 ) -> anyhow::Result<app::RunOutcome> {
     crossterm::terminal::enable_raw_mode()?;
     let config = config::load();
@@ -1289,6 +1382,7 @@ fn run_tui_once(
         surface_only,
         machine_ui,
         machine_controller,
+        host_mux,
     )
 }
 
@@ -1298,7 +1392,7 @@ fn run_headless(mux: &Arc<Mux>, socket_path: &std::path::Path) -> anyhow::Result
     // the mux reaps exited surfaces itself.
     let events = mux.subscribe();
     loop {
-        if shutdown_requested() || mux.daemon_shutdown_requested() {
+        if shutdown_requested() || mux.shutdown_requested() || mux.daemon_shutdown_requested() {
             break;
         }
         match events.recv_timeout(std::time::Duration::from_millis(250)) {
@@ -1322,6 +1416,44 @@ mod tests {
 
     fn args(values: &[&str]) -> Args {
         parse_args_result(values.iter().map(|value| value.to_string())).unwrap()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn completed_server_guard_never_unlinks_a_replacement_socket() {
+        use std::os::unix::net::{UnixListener, UnixStream};
+        use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+        let suffix = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let socket_path =
+            std::env::temp_dir().join(format!("cg-{}-{suffix:x}.sock", std::process::id()));
+        let original = UnixListener::bind(&socket_path).unwrap();
+        let mux = Mux::new("server-guard-test", SurfaceOptions::default());
+        let shutdown_watch = mux.watch_shutdown_request();
+        let (completion, completed) = std::sync::mpsc::channel();
+        let (replacement_tx, replacement_rx) = std::sync::mpsc::sync_channel(1);
+        let replacement_path = socket_path.clone();
+        let worker = std::thread::spawn(move || {
+            completed.recv().unwrap();
+            let replacement = UnixListener::bind(&replacement_path).unwrap();
+            replacement_tx.send(replacement).unwrap();
+        });
+        let guard = ServerProcessShutdownGuard {
+            socket_path: socket_path.clone(),
+            shutdown_watch,
+            completion: Some(completion),
+            worker: Some(worker),
+        };
+
+        guard.complete();
+
+        let replacement = replacement_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        let client = UnixStream::connect(&socket_path)
+            .expect("guard completion unlinked the replacement server socket");
+        drop(client);
+        drop(replacement);
+        drop(original);
+        cmux_tui_core::server::cleanup(&socket_path);
     }
 
     #[test]

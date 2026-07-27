@@ -8,6 +8,8 @@ use std::os::fd::FromRawFd;
 use std::os::unix::fs::PermissionsExt;
 #[cfg(unix)]
 use std::os::unix::net::UnixListener;
+#[cfg(unix)]
+use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::PathBuf;
 use std::process::{Child, Command, Output, Stdio};
 use std::sync::mpsc;
@@ -24,19 +26,25 @@ struct HeadlessServer {
 
 impl HeadlessServer {
     fn start(name: &str) -> Self {
+        Self::start_with(name, false, &[])
+    }
+
+    fn start_with(name: &str, ephemeral: bool, environment: &[(&str, &str)]) -> Self {
         let dir = unique_temp_dir(name);
         fs::create_dir_all(&dir).unwrap();
         let socket = dir.join("mux.sock");
         let state = dir.join("state");
-        let child = Command::new(bin())
-            .args(["--headless", "--socket"])
-            .arg(&socket)
-            .arg("--state")
-            .arg(&state)
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
+        let mut command = Command::new(bin());
+        command.args(["--headless", "--socket"]).arg(&socket);
+        if ephemeral {
+            command.arg("--ephemeral");
+        } else {
+            command.arg("--state").arg(&state);
+        }
+        for (name, value) in environment {
+            command.env(name, value);
+        }
+        let child = command.stdout(Stdio::null()).stderr(Stdio::piped()).spawn().unwrap();
         let server = Self { child, socket, state, dir };
         server.wait_for_socket();
         server
@@ -198,6 +206,418 @@ fn process_exists(_pid: u32) -> bool {
 #[cfg(not(unix))]
 fn process_group_exists(_pid: u32) -> bool {
     false
+}
+
+#[cfg(unix)]
+fn wait_for_pid_file(path: &std::path::Path, timeout: Duration) -> u32 {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if let Some(pid) =
+            fs::read_to_string(path).ok().and_then(|value| value.trim().parse::<u32>().ok())
+        {
+            return pid;
+        }
+        assert!(Instant::now() < deadline, "PID file was not ready: {}", path.display());
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+#[cfg(unix)]
+struct LegacyServerProcess {
+    child: Child,
+    socket: PathBuf,
+    dir: PathBuf,
+    descendant_pid_file: PathBuf,
+}
+
+#[cfg(unix)]
+impl LegacyServerProcess {
+    fn start(name: &str, scenario: &str, reported_pid: Option<u32>) -> Self {
+        Self::start_with_surface_pid(name, scenario, reported_pid, None)
+    }
+
+    fn start_with_surface_pid(
+        name: &str,
+        scenario: &str,
+        reported_pid: Option<u32>,
+        surface_pid: Option<u32>,
+    ) -> Self {
+        let dir = unique_temp_dir(name);
+        fs::create_dir_all(&dir).unwrap();
+        let socket = dir.join("mux.sock");
+        let descendant_pid_file = dir.join("descendant.pid");
+        let mut command = Command::new(std::env::current_exe().unwrap());
+        command
+            .args(["--ignored", "--exact", "legacy_server_process_helper"])
+            .env("CMUX_TUI_TEST_LEGACY_SOCKET", &socket)
+            .env("CMUX_TUI_TEST_LEGACY_SCENARIO", scenario)
+            .env("CMUX_TUI_TEST_LEGACY_DESCENDANT_PID_FILE", &descendant_pid_file)
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped());
+        if let Some(reported_pid) = reported_pid {
+            command.env("CMUX_TUI_TEST_LEGACY_REPORTED_PID", reported_pid.to_string());
+        }
+        if let Some(surface_pid) = surface_pid {
+            command.env("CMUX_TUI_TEST_LEGACY_SURFACE_PID", surface_pid.to_string());
+        }
+        let child = command.spawn().unwrap();
+        let mut server = Self { child, socket, dir, descendant_pid_file };
+        let deadline = Instant::now() + Duration::from_secs(15);
+        while Instant::now() < deadline {
+            if server.socket.exists() {
+                return server;
+            }
+            if let Some(status) = server.child.try_wait().unwrap() {
+                let mut stderr = String::new();
+                server.child.stderr.take().unwrap().read_to_string(&mut stderr).unwrap();
+                panic!("legacy server helper exited with {status}: {stderr}");
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        panic!("legacy server helper did not create socket at {}", server.socket.display());
+    }
+
+    fn descendant_pid(&self) -> Option<u32> {
+        fs::read_to_string(&self.descendant_pid_file).ok()?.trim().parse().ok()
+    }
+}
+
+#[cfg(unix)]
+impl Drop for LegacyServerProcess {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+        if let Some(pid) = self.descendant_pid().and_then(|pid| libc::pid_t::try_from(pid).ok()) {
+            // SAFETY: test cleanup targets the PID written by this fixture.
+            let _ = unsafe { libc::kill(pid, libc::SIGKILL) };
+        }
+        let _ = fs::remove_file(&self.socket);
+        let _ = fs::remove_dir_all(&self.dir);
+    }
+}
+
+#[cfg(unix)]
+#[test]
+#[ignore]
+fn legacy_server_process_helper() {
+    let socket = PathBuf::from(std::env::var_os("CMUX_TUI_TEST_LEGACY_SOCKET").unwrap());
+    let scenario = std::env::var("CMUX_TUI_TEST_LEGACY_SCENARIO").unwrap();
+    let reported_pid = std::env::var("CMUX_TUI_TEST_LEGACY_REPORTED_PID")
+        .ok()
+        .map(|value| value.parse::<u32>().unwrap())
+        .unwrap_or_else(std::process::id);
+    let reported_surface_pid = std::env::var("CMUX_TUI_TEST_LEGACY_SURFACE_PID")
+        .ok()
+        .map(|value| value.parse::<u32>().unwrap());
+    let mut reparent_on_close = None;
+    if matches!(
+        scenario.as_str(),
+        "success"
+            | "kill-caller"
+            | "cleanup-failure"
+            | "applied-close-error"
+            | "applied-close-disconnect"
+            | "persistent-close-error"
+            | "browser-surface"
+    ) {
+        let mut command = Command::new("yes");
+        command.stdout(Stdio::null()).stderr(Stdio::null());
+        unsafe {
+            command.pre_exec(|| {
+                if libc::setsid() < 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        let descendant = command.spawn().unwrap();
+        fs::write(
+            std::env::var_os("CMUX_TUI_TEST_LEGACY_DESCENDANT_PID_FILE").unwrap(),
+            descendant.id().to_string(),
+        )
+        .unwrap();
+        drop(descendant);
+    } else if scenario == "zombie-child" {
+        let descendant =
+            Command::new("true").stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
+        let descendant_pid = descendant.id();
+        fs::write(
+            std::env::var_os("CMUX_TUI_TEST_LEGACY_DESCENDANT_PID_FILE").unwrap(),
+            descendant_pid.to_string(),
+        )
+        .unwrap();
+        drop(descendant);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let status = Command::new("ps")
+                .args(["-o", "stat=", "-p", &descendant_pid.to_string()])
+                .output()
+                .unwrap();
+            if String::from_utf8_lossy(&status.stdout).trim_start().starts_with('Z') {
+                break;
+            }
+            assert!(Instant::now() < deadline, "descendant did not become a zombie");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    } else if scenario == "reparent-on-close" {
+        let mut command = Command::new("/bin/bash");
+        command
+            .args([
+                "--noprofile",
+                "--norc",
+                "-c",
+                concat!(
+                    "set -m; trap '' HUP; ",
+                    "(trap '' HUP; while :; do sleep 60; done) & ",
+                    "printf '%s' \"$!\" > \"$CMUX_TUI_TEST_LEGACY_DESCENDANT_PID_FILE\"; wait"
+                ),
+            ])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        unsafe {
+            command.pre_exec(|| {
+                if libc::setsid() < 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        reparent_on_close = Some(command.spawn().unwrap());
+    }
+    let listener = transport::listen(&socket).unwrap();
+    let serve_identify = |stream: &mut Box<dyn transport::Stream>| {
+        let mut reader = BufReader::new(stream.try_clone_box().unwrap());
+        let mut request = String::new();
+        reader.read_line(&mut request).unwrap();
+        let identify_request: serde_json::Value = serde_json::from_str(&request).unwrap();
+        assert_eq!(identify_request["cmd"].as_str(), Some("identify"));
+        let release = cmux_tui_core::release::ReleaseIdentity::current(
+            cmux_tui_core::server::PROTOCOL_VERSION,
+        );
+        let modern =
+            matches!(scenario.as_str(), "compatible-failure" | "mismatched-modern-failure");
+        let (version, build_commit, ghostty_commit, protocol) = if scenario == "compatible-failure"
+        {
+            (release.version, release.build_commit, release.ghostty_commit, release.protocol)
+        } else {
+            ("0.0.0-stale".to_string(), None, None, 8)
+        };
+        let capabilities = if modern { vec!["server-shutdown-v1"] } else { Vec::new() };
+        writeln!(
+            stream,
+            "{}",
+            serde_json::json!({
+                "id": identify_request["id"],
+                "ok": true,
+                "data": {
+                    "app": "cmux-tui",
+                    "session": "test",
+                    "pid": reported_pid,
+                    "version": version,
+                    "build_commit": build_commit,
+                    "ghostty_commit": ghostty_commit,
+                    "protocol": protocol,
+                    "capabilities": capabilities,
+                },
+            })
+        )
+        .unwrap();
+    };
+
+    let reject_shutdown = |stream: &mut Box<dyn transport::Stream>| {
+        let mut reader = BufReader::new(stream.try_clone_box().unwrap());
+        let mut request = String::new();
+        reader.read_line(&mut request).unwrap();
+        let request: serde_json::Value = serde_json::from_str(&request).unwrap();
+        assert_eq!(request["cmd"].as_str(), Some("shutdown"));
+        writeln!(
+            stream,
+            "{}",
+            serde_json::json!({
+                "id": request["id"],
+                "ok": false,
+                "error": "shutdown failed",
+            })
+        )
+        .unwrap();
+    };
+
+    let mut initial_stream = listener.accept().unwrap();
+    let caller_pid = initial_stream.peer_process_id().unwrap().unwrap();
+    serve_identify(&mut initial_stream);
+    if matches!(scenario.as_str(), "compatible-failure" | "mismatched-modern-failure") {
+        reject_shutdown(&mut initial_stream);
+        loop {
+            std::thread::park();
+        }
+    }
+    drop(initial_stream);
+    if scenario == "spoofed-pid" {
+        loop {
+            std::thread::park();
+        }
+    }
+
+    let mut stream = listener.accept().unwrap();
+    serve_identify(&mut stream);
+    let mut reader = BufReader::new(stream.try_clone_box().unwrap());
+    let mut request = String::new();
+    let mut snapshot_index = 0;
+    'snapshots: loop {
+        request.clear();
+        if reader.read_line(&mut request).unwrap() == 0 {
+            loop {
+                std::thread::park();
+            }
+        }
+        let list_request: serde_json::Value = serde_json::from_str(&request).unwrap();
+        assert_eq!(list_request["cmd"].as_str(), Some("list-workspaces"));
+        if scenario == "cleanup-failure" {
+            writeln!(
+                stream,
+                "{}",
+                serde_json::json!({
+                    "id": list_request["id"],
+                    "ok": false,
+                    "error": "cleanup unavailable",
+                })
+            )
+            .unwrap();
+            loop {
+                std::thread::park();
+            }
+        }
+        assert!(matches!(
+            scenario.as_str(),
+            "success"
+                | "kill-caller"
+                | "applied-close-error"
+                | "applied-close-disconnect"
+                | "persistent-close-error"
+                | "zombie-child"
+                | "reparent-on-close"
+                | "unowned-surface"
+                | "browser-surface"
+                | "dead-surface"
+        ));
+        let surfaces: &[u64] = match (scenario.as_str(), snapshot_index) {
+            ("zombie-child", _) => &[],
+            ("persistent-close-error", _) | (_, 0) => &[41],
+            ("success" | "kill-caller", 1) => &[42],
+            _ => &[],
+        };
+        let tabs = surfaces
+            .iter()
+            .map(|surface| {
+                if scenario == "browser-surface" {
+                    serde_json::json!({"surface": surface, "kind": "browser"})
+                } else if scenario == "dead-surface" {
+                    serde_json::json!({"surface": surface, "kind": "pty", "dead": true})
+                } else {
+                    serde_json::json!({"surface": surface, "kind": "pty"})
+                }
+            })
+            .collect::<Vec<_>>();
+        writeln!(
+            stream,
+            "{}",
+            serde_json::json!({
+                "id": list_request["id"],
+                "ok": true,
+                "data": {
+                    "workspaces": [{
+                        "screens": [{
+                            "panes": [{
+                                "tabs": tabs,
+                            }],
+                        }],
+                    }],
+                },
+            })
+        )
+        .unwrap();
+        for &expected_surface in surfaces {
+            request.clear();
+            if reader.read_line(&mut request).unwrap() == 0 {
+                loop {
+                    std::thread::park();
+                }
+            }
+            let mut close_request: serde_json::Value = serde_json::from_str(&request).unwrap();
+            if close_request["cmd"].as_str() == Some("process-info") {
+                assert_eq!(close_request["surface"].as_u64(), Some(expected_surface));
+                let pid = if scenario == "dead-surface" {
+                    None
+                } else if let Some(pid) = reported_surface_pid {
+                    Some(pid)
+                } else {
+                    Some(
+                        fs::read_to_string(
+                            std::env::var_os("CMUX_TUI_TEST_LEGACY_DESCENDANT_PID_FILE").unwrap(),
+                        )
+                        .unwrap()
+                        .trim()
+                        .parse::<u32>()
+                        .unwrap(),
+                    )
+                };
+                writeln!(
+                    stream,
+                    "{}",
+                    serde_json::json!({
+                        "id": close_request["id"],
+                        "ok": true,
+                        "data": {"pid": pid},
+                    })
+                )
+                .unwrap();
+                request.clear();
+                if reader.read_line(&mut request).unwrap() == 0 {
+                    loop {
+                        std::thread::park();
+                    }
+                }
+                close_request = serde_json::from_str(&request).unwrap();
+            }
+            assert_eq!(close_request["cmd"].as_str(), Some("close-surface"));
+            assert_eq!(close_request["surface"].as_u64(), Some(expected_surface));
+            if scenario == "applied-close-disconnect" {
+                drop(reader);
+                drop(stream);
+                stream = listener.accept().unwrap();
+                serve_identify(&mut stream);
+                reader = BufReader::new(stream.try_clone_box().unwrap());
+                snapshot_index += 1;
+                continue 'snapshots;
+            }
+            let response =
+                if matches!(scenario.as_str(), "applied-close-error" | "persistent-close-error") {
+                    serde_json::json!({
+                        "id": close_request["id"],
+                        "ok": false,
+                        "error": "surface cleanup reported an error",
+                    })
+                } else {
+                    serde_json::json!({
+                        "id": close_request["id"],
+                        "ok": true,
+                        "data": {},
+                    })
+                };
+            writeln!(stream, "{response}").unwrap();
+            if scenario == "reparent-on-close"
+                && let Some(mut direct) = reparent_on_close.take()
+            {
+                direct.kill().unwrap();
+                direct.wait().unwrap();
+            }
+            if scenario == "kill-caller" && expected_surface == 41 {
+                let caller_pid = libc::pid_t::try_from(caller_pid).unwrap();
+                assert_eq!(unsafe { libc::kill(caller_pid, libc::SIGKILL) }, 0);
+            }
+        }
+        snapshot_index += 1;
+    }
 }
 
 fn wait_for_socket_path(path: &std::path::Path) {
@@ -496,6 +916,915 @@ fn plain_launch_attaches_to_existing_local_session() {
     panic!("plain launch never attached as a TUI client");
 }
 
+#[test]
+fn plain_launch_explains_how_to_replace_an_incompatible_local_server() {
+    let dir = unique_temp_dir("incompatible-server");
+    fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("mux.sock");
+    let listener = transport::listen(&socket).unwrap();
+    let server = std::thread::spawn(move || {
+        for connection in 0..2 {
+            let mut stream = listener.accept().unwrap();
+            if connection == 0 {
+                let mut request = String::new();
+                BufReader::new(stream.try_clone_box().unwrap()).read_line(&mut request).unwrap();
+                let request: serde_json::Value = serde_json::from_str(&request).unwrap();
+                let response = serde_json::json!({
+                    "id": request["id"],
+                    "ok": true,
+                    "data": {
+                        "app": "cmux-tui",
+                        "session": "test",
+                        "pid": 4242,
+                        "version": "0.0.0-stale",
+                        "protocol": 8,
+                    },
+                });
+                writeln!(stream, "{response}").unwrap();
+            }
+        }
+    });
+
+    let output = Command::new(bin())
+        .args(["--socket"])
+        .arg(&socket)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    server.join().unwrap();
+    let _ = fs::remove_file(&socket);
+    let _ = fs::remove_dir_all(&dir);
+
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("server: v0.0.0-stale protocol 8"), "{stderr}");
+    assert!(
+        stderr.contains(&format!(
+            "client: v{} protocol {}",
+            env!("CARGO_PKG_VERSION"),
+            cmux_tui_core::server::PROTOCOL_VERSION
+        )),
+        "{stderr}"
+    );
+    assert!(stderr.contains("Stopping exits pane processes."), "{stderr}");
+    assert!(stderr.contains("cmux-tui server stop"), "{stderr}");
+    assert!(!stderr.contains("already in use"), "{stderr}");
+}
+
+#[test]
+fn incompatible_server_allows_identity_and_status_but_rejects_ping() {
+    let dir = unique_temp_dir("incompatible-cli");
+    fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("mux.sock");
+    let listener = transport::listen(&socket).unwrap();
+    let server = std::thread::spawn(move || {
+        let mut commands = Vec::new();
+        for _ in 0..4 {
+            let mut stream = listener.accept().unwrap();
+            let mut request = String::new();
+            BufReader::new(stream.try_clone_box().unwrap()).read_line(&mut request).unwrap();
+            let request: serde_json::Value = serde_json::from_str(&request).unwrap();
+            commands.push(request["cmd"].as_str().unwrap().to_string());
+            let response = serde_json::json!({
+                "id": request["id"],
+                "ok": true,
+                "data": {
+                    "app": "cmux-tui",
+                    "session": "test",
+                    "pid": 4242,
+                    "version": "0.0.0-stale",
+                    "protocol": cmux_tui_core::server::PROTOCOL_VERSION,
+                },
+            });
+            writeln!(stream, "{response}").unwrap();
+        }
+        commands
+    });
+
+    let status = Command::new(bin())
+        .args(["server", "status", "--socket"])
+        .arg(&socket)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_success(&status);
+    let status_text = String::from_utf8_lossy(&status.stdout);
+    assert!(status_text.contains("status: incompatible"));
+    assert!(status_text.contains("reason: distribution version differs"));
+    assert!(status_text.contains("source build differs"));
+    assert!(status_text.contains("terminal engine build differs"));
+
+    let status_json = Command::new(bin())
+        .args(["--json", "server", "status", "--socket"])
+        .arg(&socket)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_success(&status_json);
+    let status_json: serde_json::Value = serde_json::from_slice(&status_json.stdout).unwrap();
+    assert_eq!(
+        status_json["mismatch_reasons"],
+        serde_json::json!(["distribution-version", "source-build", "terminal-engine"])
+    );
+
+    let identify = Command::new(bin())
+        .args(["identify", "--socket"])
+        .arg(&socket)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_success(&identify);
+    assert!(String::from_utf8_lossy(&identify.stdout).contains("version=0.0.0-stale"));
+
+    let ping = Command::new(bin())
+        .args(["ping", "--socket"])
+        .arg(&socket)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_eq!(ping.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&ping.stderr).contains("cmux-tui server stop"));
+
+    assert_eq!(server.join().unwrap(), ["identify", "identify", "identify", "identify"]);
+    let _ = fs::remove_file(&socket);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn packaged_launcher_name_is_used_in_upgrade_instructions() {
+    let dir = unique_temp_dir("packaged-launcher-message");
+    fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("mux.sock");
+    let listener = transport::listen(&socket).unwrap();
+    let server = std::thread::spawn(move || {
+        let mut stream = listener.accept().unwrap();
+        let mut request = String::new();
+        BufReader::new(stream.try_clone_box().unwrap()).read_line(&mut request).unwrap();
+        let request: serde_json::Value = serde_json::from_str(&request).unwrap();
+        let response = serde_json::json!({
+            "id": request["id"],
+            "ok": true,
+            "data": {
+                "app": "cmux-tui",
+                "session": "test",
+                "pid": 4242,
+                "version": "0.0.0-stale",
+                "protocol": cmux_tui_core::server::PROTOCOL_VERSION,
+            },
+        });
+        writeln!(stream, "{response}").unwrap();
+    });
+
+    let output = Command::new(bin())
+        .arg0("cmux")
+        .args(["ping", "--socket"])
+        .arg(&socket)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("cmux server stop"), "{stderr}");
+    assert!(stderr.contains("then run `cmux` again"), "{stderr}");
+    server.join().unwrap();
+    let _ = fs::remove_file(&socket);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn server_status_and_stop_control_a_compatible_headless_session() {
+    let mut server = HeadlessServer::start("server-lifecycle");
+    let status = cli(&server, &["--json", "server", "status"]);
+    assert_success(&status);
+    let status: serde_json::Value = serde_json::from_slice(&status.stdout).unwrap();
+    assert_eq!(status["running"].as_bool(), Some(true));
+    assert_eq!(status["compatible"].as_bool(), Some(true));
+    assert_eq!(status["mismatch_reasons"], serde_json::json!([]));
+    assert_eq!(
+        status["server"]["version"].as_str(),
+        Some(cmux_tui_core::release::distribution_version())
+    );
+
+    let stop = cli(&server, &["--json", "server", "stop"]);
+    assert_success(&stop);
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&stop.stdout).unwrap(),
+        serde_json::json!({"stopped": true})
+    );
+    assert!(server.child.wait().unwrap().success());
+    assert!(!server.socket.exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn server_shutdown_exits_when_the_interactive_driver_cannot_progress() {
+    let dir = unique_temp_dir("server-stop-blocked-interactive-driver");
+    fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("mux.sock");
+    let state = dir.join("state");
+    let mut server = PtyChild::start_with_env(
+        &["--socket", socket.to_str().unwrap(), "--state", state.to_str().unwrap()],
+        &[
+            ("CMUX_TUI_TEST_BLOCK_INTERACTIVE_DRIVER", std::ffi::OsStr::new("1")),
+            ("CMUX_TUI_TEST_SHUTDOWN_EXIT_GRACE_MS", std::ffi::OsStr::new("100")),
+        ],
+    );
+    wait_for_socket_path(&socket);
+
+    let response = json_socket_request(&socket, serde_json::json!({"id": 1, "cmd": "shutdown"}));
+    assert_eq!(response, serde_json::json!({}));
+
+    let deadline = Instant::now() + Duration::from_secs(3);
+    let status = loop {
+        if let Some(status) = server.child.try_wait().unwrap() {
+            break status;
+        }
+        assert!(Instant::now() < deadline, "server remained alive after acknowledging shutdown");
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    assert!(status.success(), "server exited with {status}");
+    assert!(transport::connect(&socket).is_err());
+    drop(server);
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn server_stop_cancels_a_blocked_terminal_host_launch() {
+    let mut server = HeadlessServer::start_with(
+        "server-stop-blocked-launch",
+        false,
+        &[("CMUX_TUI_TEST_BOOTSTRAP_READY_DELAY_MS", "3000")],
+    );
+    let mut create = Command::new(bin())
+        .args(["--socket"])
+        .arg(&server.socket)
+        .arg("new-workspace")
+        .env_remove("CMUX_TUI_SOCKET")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let host_root = cmux_tui_core::terminal_host_runtime::terminal_host_root(&server.state, "main");
+    std::thread::sleep(Duration::from_millis(250));
+    assert!(create.try_wait().unwrap().is_none(), "terminal creation did not remain in flight");
+
+    let stop_started = Instant::now();
+    let stop = cli(&server, &["--json", "server", "stop"]);
+
+    assert_success(&stop);
+    assert!(
+        stop_started.elapsed() < Duration::from_secs(2),
+        "shutdown waited for the blocked creator: {:?}",
+        stop_started.elapsed()
+    );
+    assert!(server.child.wait().unwrap().success());
+    assert!(!create.wait().unwrap().success());
+    assert!(terminal_host_pids(&host_root).is_empty());
+}
+
+#[cfg(unix)]
+#[test]
+fn server_stop_cancels_a_blocked_terminal_host_launch_write() {
+    let mut server = HeadlessServer::start_with(
+        "server-stop-blocked-launch-write",
+        false,
+        &[("CMUX_TUI_TEST_STALL_AFTER_BOOTSTRAP_READY_MS", "3000")],
+    );
+    let command = format!(": #{}", "x".repeat(128 * 1024));
+    let mut create = Command::new(bin())
+        .args(["--socket"])
+        .arg(&server.socket)
+        .args(["run", "--new-workspace", "--command"])
+        .arg(command)
+        .env_remove("CMUX_TUI_SOCKET")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let host_root = cmux_tui_core::terminal_host_runtime::terminal_host_root(&server.state, "main");
+    std::thread::sleep(Duration::from_millis(250));
+    assert!(create.try_wait().unwrap().is_none(), "terminal creation did not block on Launch");
+
+    let stop_started = Instant::now();
+    let stop = cli(&server, &["--json", "server", "stop"]);
+    let stop_elapsed = stop_started.elapsed();
+
+    assert_success(&stop);
+    assert!(server.child.wait().unwrap().success());
+    assert!(!create.wait().unwrap().success());
+    assert!(terminal_host_pids(&host_root).is_empty());
+    assert!(
+        stop_elapsed < Duration::from_secs(2),
+        "shutdown waited for the blocked Launch write: {stop_elapsed:?}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn cancelled_published_host_is_terminated_through_its_record() {
+    let mut server = HeadlessServer::start_with(
+        "server-stop-published-launch",
+        false,
+        &[("CMUX_TUI_TEST_HOST_READY_DELAY_MS", "1000")],
+    );
+    let direct_pid_file = server.dir.join("published-direct.pid");
+    let descendant_pid_file = server.dir.join("published-descendant.pid");
+    let command = format!(
+        "echo $$ > {}; trap '' HUP; (trap '' HUP; while :; do sleep 1; done) & echo $! > {}; wait",
+        direct_pid_file.display(),
+        descendant_pid_file.display()
+    );
+    let mut create = Command::new(bin())
+        .args(["--socket"])
+        .arg(&server.socket)
+        .args(["run", "--new-workspace", "--command", &command])
+        .env_remove("CMUX_TUI_SOCKET")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let host_root = cmux_tui_core::terminal_host_runtime::terminal_host_root(&server.state, "main");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while (!direct_pid_file.exists()
+        || !descendant_pid_file.exists()
+        || terminal_host_pids(&host_root).is_empty())
+        && Instant::now() < deadline
+    {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let direct_pid = wait_for_pid_file(&direct_pid_file, Duration::from_secs(5));
+    let descendant_pid = wait_for_pid_file(&descendant_pid_file, Duration::from_secs(5));
+
+    let stop = cli(&server, &["--json", "server", "stop"]);
+
+    assert_success(&stop);
+    assert!(server.child.wait().unwrap().success());
+    assert!(!create.wait().unwrap().success());
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while (process_exists(direct_pid)
+        || process_group_exists(direct_pid)
+        || process_exists(descendant_pid))
+        && Instant::now() < deadline
+    {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(!process_exists(direct_pid));
+    assert!(!process_group_exists(direct_pid));
+    assert!(!process_exists(descendant_pid));
+    assert!(terminal_host_pids(&host_root).is_empty());
+}
+
+#[cfg(unix)]
+#[test]
+fn server_stop_kills_ephemeral_pty_process_groups() {
+    let mut server = HeadlessServer::start_with("server-stop-ephemeral-process-group", true, &[]);
+    let descendant_pid_file = server.dir.join("ephemeral-descendant.pid");
+    let command = format!(
+        "trap '' HUP; (trap '' HUP; while :; do sleep 1; done) & echo $! > {}; wait",
+        descendant_pid_file.display()
+    );
+    let run = cli(&server, &["run", "--command", &command]);
+    assert_success(&run);
+    let surface = String::from_utf8(run.stdout).unwrap().trim().parse::<u64>().unwrap();
+    let info = cli(&server, &["--json", "process-info", "--surface", &surface.to_string()]);
+    assert_success(&info);
+    let direct_pid = u32::try_from(
+        serde_json::from_slice::<serde_json::Value>(&info.stdout).unwrap()["pid"].as_u64().unwrap(),
+    )
+    .unwrap();
+    let descendant_pid = wait_for_pid_file(&descendant_pid_file, Duration::from_secs(5));
+
+    let stop = cli(&server, &["--json", "server", "stop"]);
+
+    assert_success(&stop);
+    assert!(server.child.wait().unwrap().success());
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while (process_exists(direct_pid)
+        || process_group_exists(direct_pid)
+        || process_exists(descendant_pid))
+        && Instant::now() < deadline
+    {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(!process_exists(direct_pid));
+    assert!(!process_group_exists(direct_pid));
+    assert!(!process_exists(descendant_pid));
+}
+
+#[cfg(unix)]
+#[test]
+fn server_stop_kills_background_jobs_in_separate_pty_process_groups() {
+    let mut server =
+        HeadlessServer::start_with("server-stop-ephemeral-job-control-group", true, &[]);
+    let descendant_pid_file = server.dir.join("ephemeral-background-job.pid");
+    let command = format!(
+        concat!(
+            "exec /bin/bash --noprofile --norc -i -c '",
+            "trap \"\" HUP; ",
+            "(trap \"\" HUP; while :; do sleep 60; done) & ",
+            "printf \"%s\" \"$!\" > {}; wait'",
+        ),
+        descendant_pid_file.display()
+    );
+    let run = cli(&server, &["run", "--command", &command]);
+    assert_success(&run);
+    let surface = String::from_utf8(run.stdout).unwrap().trim().parse::<u64>().unwrap();
+    let info = cli(&server, &["--json", "process-info", "--surface", &surface.to_string()]);
+    assert_success(&info);
+    let direct_pid = u32::try_from(
+        serde_json::from_slice::<serde_json::Value>(&info.stdout).unwrap()["pid"].as_u64().unwrap(),
+    )
+    .unwrap();
+    let descendant_pid = wait_for_pid_file(&descendant_pid_file, Duration::from_secs(5));
+    let direct_pid_raw = libc::pid_t::try_from(direct_pid).unwrap();
+    let descendant_pid_raw = libc::pid_t::try_from(descendant_pid).unwrap();
+    // SAFETY: both fixture processes are live and owned by this test.
+    let direct_group = unsafe { libc::getpgid(direct_pid_raw) };
+    // SAFETY: both fixture processes are live and owned by this test.
+    let descendant_group = unsafe { libc::getpgid(descendant_pid_raw) };
+    // SAFETY: both fixture processes are live and owned by this test.
+    let direct_session = unsafe { libc::getsid(direct_pid_raw) };
+    // SAFETY: both fixture processes are live and owned by this test.
+    let descendant_session = unsafe { libc::getsid(descendant_pid_raw) };
+
+    let stop = cli(&server, &["--json", "server", "stop"]);
+
+    assert_success(&stop);
+    assert!(server.child.wait().unwrap().success());
+    let deadline = Instant::now() + Duration::from_secs(1);
+    while process_exists(descendant_pid) && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let descendant_remained = process_exists(descendant_pid);
+    if descendant_remained {
+        // SAFETY: the live process and group belong to this isolated fixture.
+        let _ = unsafe { libc::killpg(descendant_group, libc::SIGKILL) };
+        // SAFETY: the live process belongs to this isolated fixture.
+        let _ = unsafe { libc::kill(descendant_pid_raw, libc::SIGKILL) };
+    }
+
+    assert!(direct_group > 0);
+    assert!(descendant_group > 0);
+    assert_ne!(
+        descendant_group, direct_group,
+        "fixture background job did not enter a separate process group"
+    );
+    assert_eq!(
+        descendant_session, direct_session,
+        "fixture background job left the owned PTY session"
+    );
+    assert!(!process_exists(direct_pid));
+    assert!(
+        !descendant_remained,
+        "server acknowledged shutdown while a background job in its PTY session remained alive"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn server_stop_drains_many_hosted_panes_before_acknowledging() {
+    let mut server = HeadlessServer::start("server-stop-many-panes");
+    let applied = cli(
+        &server,
+        &[
+            "--json",
+            "apply-layout",
+            "--layout",
+            r#"{"type":"stack","panes":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32],"expanded":1}"#,
+        ],
+    );
+    assert_success(&applied);
+    let applied: serde_json::Value = serde_json::from_slice(&applied.stdout).unwrap();
+    let surfaces = applied["panes"].as_array().unwrap();
+    assert_eq!(surfaces.len(), 32);
+    let first_surface = surfaces[0]["surface"].as_u64().unwrap();
+    let info = cli(&server, &["--json", "process-info", "--surface", &first_surface.to_string()]);
+    assert_success(&info);
+    let first_terminal_pid = u32::try_from(
+        serde_json::from_slice::<serde_json::Value>(&info.stdout).unwrap()["pid"].as_u64().unwrap(),
+    )
+    .unwrap();
+    let host_root = cmux_tui_core::terminal_host_runtime::terminal_host_root(&server.state, "main");
+    let host_pids = terminal_host_pids(&host_root);
+    assert_eq!(host_pids.len(), 32);
+
+    let stop_started = Instant::now();
+    let stop = cli(&server, &["--json", "server", "stop"]);
+
+    assert_success(&stop);
+    assert!(stop_started.elapsed() < Duration::from_secs(5));
+    assert!(server.child.wait().unwrap().success());
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while Instant::now() < deadline
+        && (host_pids.iter().copied().any(process_exists)
+            || process_exists(first_terminal_pid)
+            || process_group_exists(first_terminal_pid))
+    {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(!host_pids.iter().copied().any(process_exists));
+    assert!(!process_exists(first_terminal_pid));
+    assert!(!process_group_exists(first_terminal_pid));
+    assert!(!server.socket.exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn server_stop_falls_back_when_an_older_server_lacks_shutdown_capability() {
+    let mut server = LegacyServerProcess::start("legacy-server-stop", "success", None);
+    let descendant_pid = server.descendant_pid().unwrap();
+
+    let output = Command::new(bin())
+        .args(["server", "stop", "--socket"])
+        .arg(&server.socket)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+
+    assert_success(&output);
+    let status = server.child.wait().unwrap();
+    assert_eq!(status.signal(), Some(libc::SIGKILL));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while process_exists(descendant_pid) && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(!process_exists(descendant_pid));
+}
+
+#[cfg(unix)]
+#[test]
+fn server_stop_closes_exited_legacy_placeholders_without_a_pid() {
+    let mut server =
+        LegacyServerProcess::start("legacy-server-dead-placeholder", "dead-surface", None);
+
+    let output = Command::new(bin())
+        .args(["server", "stop", "--socket"])
+        .arg(&server.socket)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+
+    assert_success(&output);
+    let status = server.child.wait().unwrap();
+    assert_eq!(status.signal(), Some(libc::SIGKILL));
+}
+
+#[cfg(unix)]
+#[test]
+fn published_host_launch_errors_reap_the_complete_pty_session() {
+    let mut server = HeadlessServer::start_with(
+        "published-host-launch-error",
+        false,
+        &[("CMUX_TUI_TEST_INVALID_HOST_READY", "1"), ("CMUX_TUI_TEST_HOST_READY_DELAY_MS", "500")],
+    );
+    let direct_pid_file = server.dir.join("failed-launch-direct.pid");
+    let descendant_pid_file = server.dir.join("failed-launch-descendant.pid");
+    let command = format!(
+        "echo $$ > {}; trap '' HUP; (trap '' HUP; while :; do sleep 1; done) & echo $! > {}; wait",
+        direct_pid_file.display(),
+        descendant_pid_file.display()
+    );
+
+    let output = cli(&server, &["run", "--new-workspace", "--command", &command]);
+    assert!(!output.status.success(), "injected invalid launch acknowledgement succeeded");
+    let direct_pid = wait_for_pid_file(&direct_pid_file, Duration::from_secs(5));
+    let descendant_pid = wait_for_pid_file(&descendant_pid_file, Duration::from_secs(5));
+    let host_root = cmux_tui_core::terminal_host_runtime::terminal_host_root(&server.state, "main");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while (process_exists(direct_pid)
+        || process_group_exists(direct_pid)
+        || process_exists(descendant_pid)
+        || !terminal_host_pids(&host_root).is_empty())
+        && Instant::now() < deadline
+    {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let cleaned = !process_exists(direct_pid)
+        && !process_group_exists(direct_pid)
+        && !process_exists(descendant_pid)
+        && terminal_host_pids(&host_root).is_empty();
+
+    let stop = cli(&server, &["--json", "server", "stop"]);
+    assert_success(&stop);
+    assert!(server.child.wait().unwrap().success());
+    for pid in [direct_pid, descendant_pid] {
+        if let Ok(pid) = libc::pid_t::try_from(pid) {
+            // SAFETY: both PIDs came from this isolated test fixture.
+            let _ = unsafe { libc::kill(pid, libc::SIGKILL) };
+        }
+    }
+
+    assert!(cleaned, "post-publication launch error left PTY ownership unreconciled");
+}
+
+#[cfg(unix)]
+#[test]
+fn legacy_stop_retains_pty_ownership_captured_before_surface_close() {
+    let mut server =
+        LegacyServerProcess::start("legacy-server-reparent-on-close", "reparent-on-close", None);
+    let descendant_pid = wait_for_pid_file(&server.descendant_pid_file, Duration::from_secs(5));
+
+    let output = Command::new(bin())
+        .args(["server", "stop", "--socket"])
+        .arg(&server.socket)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+
+    assert_success(&output);
+    let status = server.child.wait().unwrap();
+    assert_eq!(status.signal(), Some(libc::SIGKILL));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while process_exists(descendant_pid) && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        !process_exists(descendant_pid),
+        "surface close reparented a captured PTY job outside the final server tree"
+    );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn server_stop_handles_an_exited_unreaped_legacy_descendant() {
+    let mut server = LegacyServerProcess::start("legacy-server-zombie-child", "zombie-child", None);
+    let descendant_pid = server.descendant_pid().unwrap();
+
+    let output = Command::new(bin())
+        .args(["server", "stop", "--socket"])
+        .arg(&server.socket)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+
+    assert_success(&output);
+    let status = server.child.wait().unwrap();
+    assert_eq!(status.signal(), Some(libc::SIGKILL));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while process_exists(descendant_pid) && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(!process_exists(descendant_pid));
+}
+
+#[cfg(unix)]
+#[test]
+fn server_stop_reconciles_an_applied_legacy_close_that_returned_an_error() {
+    let mut server = LegacyServerProcess::start(
+        "legacy-server-applied-close-error",
+        "applied-close-error",
+        None,
+    );
+    let descendant_pid = server.descendant_pid().unwrap();
+
+    let output = Command::new(bin())
+        .args(["server", "stop", "--socket"])
+        .arg(&server.socket)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+
+    assert_success(&output);
+    let status = server.child.wait().unwrap();
+    assert_eq!(status.signal(), Some(libc::SIGKILL));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while process_exists(descendant_pid) && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(!process_exists(descendant_pid));
+}
+
+#[cfg(unix)]
+#[test]
+fn server_stop_reconnects_after_an_applied_legacy_close_drops_the_control_stream() {
+    let mut server = LegacyServerProcess::start(
+        "legacy-server-applied-close-disconnect",
+        "applied-close-disconnect",
+        None,
+    );
+    let descendant_pid = server.descendant_pid().unwrap();
+
+    let output = Command::new(bin())
+        .args(["server", "stop", "--socket"])
+        .arg(&server.socket)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+
+    assert_success(&output);
+    let status = server.child.wait().unwrap();
+    assert_eq!(status.signal(), Some(libc::SIGKILL));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while process_exists(descendant_pid) && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(!process_exists(descendant_pid));
+}
+
+#[cfg(unix)]
+#[test]
+fn server_stop_refuses_when_a_legacy_close_error_leaves_the_surface_present() {
+    let mut server = LegacyServerProcess::start(
+        "legacy-server-persistent-close-error",
+        "persistent-close-error",
+        None,
+    );
+    let descendant_pid = server.descendant_pid().unwrap();
+
+    let output = Command::new(bin())
+        .args(["server", "stop", "--socket"])
+        .arg(&server.socket)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("could not close pane processes before stopping the older server")
+    );
+    assert!(server.child.try_wait().unwrap().is_none());
+    assert!(process_exists(descendant_pid));
+}
+
+#[cfg(unix)]
+#[test]
+fn detached_legacy_stop_survives_the_calling_pane_process_exit() {
+    let mut server = LegacyServerProcess::start("legacy-server-detached", "kill-caller", None);
+    let descendant_pid = server.descendant_pid().unwrap();
+
+    let output = Command::new(bin())
+        .args(["server", "stop", "--socket"])
+        .arg(&server.socket)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.signal(), Some(libc::SIGKILL));
+    let status = server.child.wait().unwrap();
+    assert_eq!(status.signal(), Some(libc::SIGKILL));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while process_exists(descendant_pid) && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(!process_exists(descendant_pid));
+}
+
+#[cfg(unix)]
+#[test]
+fn server_stop_does_not_force_kill_a_compatible_server_after_shutdown_failure() {
+    let mut server =
+        LegacyServerProcess::start("server-shutdown-failure", "compatible-failure", None);
+
+    let output = Command::new(bin())
+        .args(["server", "stop", "--socket"])
+        .arg(&server.socket)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("could not stop cleanly"));
+    assert!(server.child.try_wait().unwrap().is_none());
+}
+
+#[cfg(unix)]
+#[test]
+fn server_stop_does_not_force_kill_a_mismatched_modern_server_after_shutdown_failure() {
+    let mut server = LegacyServerProcess::start(
+        "mismatched-server-shutdown-failure",
+        "mismatched-modern-failure",
+        None,
+    );
+
+    let output = Command::new(bin())
+        .args(["server", "stop", "--socket"])
+        .arg(&server.socket)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("could not stop cleanly"));
+    assert!(server.child.try_wait().unwrap().is_none());
+}
+
+#[cfg(unix)]
+#[test]
+fn server_stop_does_not_signal_an_older_server_when_pane_cleanup_fails() {
+    let mut server =
+        LegacyServerProcess::start("legacy-server-cleanup-failure", "cleanup-failure", None);
+    let descendant_pid = server.descendant_pid().unwrap();
+
+    let output = Command::new(bin())
+        .args(["server", "stop", "--socket"])
+        .arg(&server.socket)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("could not close pane processes before stopping the older server")
+    );
+    assert!(server.child.try_wait().unwrap().is_none());
+    assert!(process_exists(descendant_pid));
+}
+
+#[cfg(unix)]
+#[test]
+fn server_stop_refuses_an_older_browser_without_target_confirmation() {
+    let mut server = LegacyServerProcess::start("legacy-server-browser", "browser-surface", None);
+
+    let output = Command::new(bin())
+        .args(["server", "stop", "--socket"])
+        .arg(&server.socket)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("could not close pane processes before stopping the older server")
+    );
+    assert!(server.child.try_wait().unwrap().is_none());
+}
+
+#[cfg(unix)]
+#[test]
+fn server_stop_refuses_a_legacy_server_that_spoofs_another_process_id() {
+    let mut victim =
+        Command::new("yes").stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
+    let mut server =
+        LegacyServerProcess::start("legacy-server-spoofed-pid", "spoofed-pid", Some(victim.id()));
+
+    let output = Command::new(bin())
+        .args(["server", "stop", "--socket"])
+        .arg(&server.socket)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("reported process does not own its socket")
+    );
+    assert!(victim.try_wait().unwrap().is_none());
+    assert!(server.child.try_wait().unwrap().is_none());
+    victim.kill().unwrap();
+    victim.wait().unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn server_stop_never_signals_an_unowned_legacy_surface_pid() {
+    let mut command = Command::new("yes");
+    command.stdout(Stdio::null()).stderr(Stdio::null());
+    unsafe {
+        command.pre_exec(|| {
+            if libc::setsid() < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    let mut victim = command.spawn().unwrap();
+    let mut server = LegacyServerProcess::start_with_surface_pid(
+        "legacy-server-unowned-surface",
+        "unowned-surface",
+        None,
+        Some(victim.id()),
+    );
+
+    let output = Command::new(bin())
+        .args(["server", "stop", "--socket"])
+        .arg(&server.socket)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+
+    let victim_survived = victim.try_wait().unwrap().is_none();
+    let server_survived = server.child.try_wait().unwrap().is_none();
+    if victim_survived {
+        victim.kill().unwrap();
+        victim.wait().unwrap();
+    }
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("could not close pane processes before stopping the older server")
+    );
+    assert!(victim_survived, "legacy cleanup signaled a process outside the server tree");
+    assert!(server_survived, "legacy cleanup stopped the server after ownership proof failed");
+}
+
 #[cfg(unix)]
 #[test]
 fn surface_attach_uses_the_full_terminal_and_attaches_only_its_target() {
@@ -627,6 +1956,7 @@ fn client_sizing_rejects_protocol_9_without_forwarding_mutation() {
                     "id": id,
                     "ok": true,
                     "data": {
+                        "app": "cmux-tui",
                         "protocol": 9,
                         "capabilities": []
                     }
@@ -661,7 +1991,10 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
 
     let identify = cli(&server, &["identify"]);
     assert_success(&identify);
-    assert!(String::from_utf8_lossy(&identify.stdout).starts_with("cmux-tui session="));
+    let identify = String::from_utf8(identify.stdout).unwrap();
+    assert!(identify.starts_with("cmux-tui session=main protocol="));
+    assert!(identify.contains(" pid="));
+    assert!(identify.contains(" version="));
 
     let identify_json = cli(&server, &["--json", "identify"]);
     assert_success(&identify_json);
@@ -996,12 +2329,37 @@ fn stream_preserves_partial_line_across_read_timeout() {
     let listener = transport::listen(&socket).unwrap();
     let server = std::thread::spawn(move || {
         let mut stream = listener.accept().unwrap();
+        let read_half = stream.try_clone_box().unwrap();
+        let mut reader = BufReader::new(read_half);
         let mut request = String::new();
-        {
-            let read_half = stream.try_clone_box().unwrap();
-            let mut reader = BufReader::new(read_half);
-            reader.read_line(&mut request).unwrap();
-        }
+        reader.read_line(&mut request).unwrap();
+        let request_json: serde_json::Value = serde_json::from_str(&request).unwrap();
+        assert_eq!(request_json["cmd"].as_str(), Some("identify"));
+        let release = cmux_tui_core::release::ReleaseIdentity::current(
+            cmux_tui_core::server::PROTOCOL_VERSION,
+        );
+        writeln!(
+            stream,
+            "{}",
+            serde_json::json!({
+                "id": request_json["id"],
+                "ok": true,
+                "data": {
+                    "app": "cmux-tui",
+                    "version": release.version,
+                    "build_commit": release.build_commit,
+                    "ghostty_commit": release.ghostty_commit,
+                    "protocol": release.protocol,
+                    "capabilities": [],
+                    "session": "test",
+                    "pid": std::process::id(),
+                },
+            })
+        )
+        .unwrap();
+
+        request.clear();
+        reader.read_line(&mut request).unwrap();
         assert!(request.contains("\"cmd\":\"subscribe\""));
 
         stream.write_all(br#"{"event":"status","message":""#).unwrap();

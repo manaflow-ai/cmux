@@ -27,6 +27,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=CMUX_GHOSTTY_VT_ZIG_CPU");
     println!("cargo:rerun-if-changed={}", ghostty_dir.join("include").display());
     println!("cargo:rerun-if-changed={}", ghostty_dir.join("build.zig").display());
+    println!("cargo:rerun-if-changed={}", ghostty_dir.join("build.zig.zon").display());
     println!("cargo:rerun-if-changed={}", ghostty_dir.join("src").display());
 
     // Build libghostty-vt.a with zig. ReleaseFast regardless of the cargo

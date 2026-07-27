@@ -117,6 +117,8 @@ jobs:
         if: matrix.cross == false
         working-directory: cmux-tui
         shell: bash
+        env:
+          CMUX_TUI_DISTRIBUTION_VERSION: ${{ (inputs.package_npm || inputs.package_pypi) && inputs.version || '' }}
         run: |
           # Package artifacts must build and stamp the checked-out submodule,
           # independent of any self-hosted runner source override.
@@ -130,6 +132,8 @@ jobs:
         if: matrix.cross == true
         working-directory: cmux-tui
         shell: bash
+        env:
+          CMUX_TUI_DISTRIBUTION_VERSION: ${{ (inputs.package_npm || inputs.package_pypi) && inputs.version || '' }}
         run: |
           # Package artifacts must build and stamp the checked-out submodule,
           # independent of any self-hosted runner source override.
@@ -149,6 +153,24 @@ jobs:
             cp "$binary" "dist/cmux-tui-${{ matrix.compatibility_target }}${{ matrix.ext }}"
           fi
           ls -la dist
+
+      - name: Verify native binary identity
+        if: matrix.cross == false
+        shell: bash
+        env:
+          EXPECTED_VERSION: ${{ (inputs.package_npm || inputs.package_pypi) && inputs.version || '' }}
+        run: |
+          if [[ -z "$EXPECTED_VERSION" ]]; then
+            EXPECTED_VERSION="$(
+              cargo metadata --manifest-path cmux-tui/Cargo.toml --no-deps --format-version 1 |
+                python3 -c 'import json, sys; print(next(package["version"] for package in json.load(sys.stdin)["packages"] if package["name"] == "cmux-tui"))'
+            )"
+          fi
+          python3 cmux-tui/dist/scripts/verify_artifact_identity.py \
+            --binary "dist/cmux-tui-${{ matrix.target }}${{ matrix.ext }}" \
+            --version "$EXPECTED_VERSION" \
+            --build-commit "$(git rev-parse HEAD)" \
+            --ghostty-commit "$(git -C ghostty rev-parse HEAD)"
 
       - name: Upload binary artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -202,6 +224,8 @@ jobs:
 
       - name: Build libghostty-vt + cmux-tui (Windows GNU)
         shell: bash
+        env:
+          CMUX_TUI_DISTRIBUTION_VERSION: ${{ (inputs.package_npm || inputs.package_pypi) && inputs.version || '' }}
         run: |
           # Keep the manual Zig build and Cargo's build script on the same
           # checked-out Ghostty source whose revision is stamped below.
@@ -277,6 +301,15 @@ jobs:
           name: cmux-tui-aarch64-unknown-linux-musl
           path: dist/binaries
 
+      - name: Verify downloaded binary identity
+        run: |
+          chmod +x dist/binaries/cmux-tui-x86_64-unknown-linux-gnu
+          python3 cmux-tui/dist/scripts/verify_artifact_identity.py \
+            --binary dist/binaries/cmux-tui-x86_64-unknown-linux-gnu \
+            --version "$NPM_VERSION" \
+            --build-commit "$(git rev-parse HEAD)" \
+            --ghostty-commit "$(git rev-parse HEAD:ghostty)"
+
       - name: Build npm package directories
         if: inputs.package_npm
         run: |
@@ -288,6 +321,7 @@ jobs:
       - name: Build PyPI wheels
         if: inputs.package_pypi
         run: |
+          python3 cmux-tui/dist/scripts/test_package_pypi.py
           python3 cmux-tui/dist/scripts/package_pypi.py \
             --binaries-dir dist/binaries \
             --version "$PYPI_VERSION" \
@@ -330,6 +364,14 @@ jobs:
           chmod +x dist/binaries/cmux-tui-x86_64-unknown-linux-musl
           dist/binaries/cmux-tui-x86_64-unknown-linux-musl --version >/tmp/cmux-tui-version.txt 2>&1 || \
             dist/binaries/cmux-tui-x86_64-unknown-linux-musl --help >/tmp/cmux-tui-version.txt 2>&1
+          mkdir -p dist/npm-smoke/node_modules
+          cp -R dist/npm-packages/cmux dist/npm-smoke/node_modules/cmux
+          cp -R dist/npm-packages/cmux-tui-linux-x64 dist/npm-smoke/node_modules/cmux-tui-linux-x64
+          python3 cmux-tui/dist/scripts/verify_artifact_identity.py \
+            --binary dist/npm-smoke/node_modules/cmux/bin/cmux.js \
+            --version "$NPM_VERSION" \
+            --build-commit "$(git rev-parse HEAD)" \
+            --ghostty-commit "$(git rev-parse HEAD:ghostty)"
 
       - name: Archive npm package directories with executable modes
         if: inputs.package_npm
@@ -350,8 +392,11 @@ jobs:
             dist/binaries/cmux-tui-x86_64-unknown-linux-musl --help >/tmp/cmux-tui-version.txt 2>&1
           python3 -m venv /tmp/cmux-tui-wheel-smoke
           /tmp/cmux-tui-wheel-smoke/bin/python -m pip install --no-index --find-links dist/pypi-wheels cmux=="$PYPI_VERSION"
-          /tmp/cmux-tui-wheel-smoke/bin/cmux --help >/tmp/cmux-help.txt
-          grep -i usage /tmp/cmux-help.txt
+          python3 cmux-tui/dist/scripts/verify_artifact_identity.py \
+            --binary /tmp/cmux-tui-wheel-smoke/bin/cmux \
+            --version "$NPM_VERSION" \
+            --build-commit "$(git rev-parse HEAD)" \
+            --ghostty-commit "$(git rev-parse HEAD:ghostty)"
 
       - name: Upload npm package directories
         if: inputs.package_npm
@@ -373,7 +418,7 @@ jobs:
     name: verify Linux package entrypoints (${{ matrix.architecture }})
     needs: package
     if: ${{ inputs.package_npm || inputs.package_pypi }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 30
     permissions:
       contents: read

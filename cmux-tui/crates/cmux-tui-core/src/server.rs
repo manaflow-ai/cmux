@@ -45,6 +45,7 @@ use zeroize::Zeroize;
 use crate::model::{Screen, State, Workspace};
 use crate::mux::clamp_terminal_size;
 use crate::platform::{self, transport};
+use crate::release::ReleaseIdentity;
 use crate::surface::AttachLifecycle;
 use crate::{
     AgentRecord, AgentSource, AgentState, AttachFrame, DefaultColors, Direction, LayoutLeafSpec,
@@ -56,6 +57,11 @@ use crate::{
 
 const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
 const WORKSPACE_REGISTRY_CAPABILITY: &str = "workspace-registry-v1";
+pub const SERVER_SHUTDOWN_CAPABILITY: &str = "server-shutdown-v1";
+pub const SERVER_SHUTDOWN_INCOMPLETE_ERROR: &str = "shutdown_cleanup_incomplete";
+/// Maximum wall-clock time the server spends draining a shutdown request.
+/// Clients add their own transport margin to this server-owned bound.
+pub const SERVER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 pub const SURFACE_SUBSCRIBE_FILTER_CAPABILITY: &str = "surface-subscribe-filter";
 pub const PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY: &str =
     "provider-managed-workspace-authority-v2";
@@ -110,6 +116,7 @@ enum Command {
         generation: String,
     },
     Ping,
+    Shutdown,
     SetClientInfo {
         #[serde(default)]
         name: Option<String>,
@@ -685,6 +692,7 @@ struct Response {
 
 const STREAM_DISCONNECT_POLL: Duration = Duration::from_millis(100);
 const STREAM_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
+const SHUTDOWN_ACK_WRITE_TIMEOUT: Duration = SERVER_SHUTDOWN_TIMEOUT;
 #[cfg(not(test))]
 const WEBSOCKET_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
 #[cfg(test)]
@@ -729,6 +737,7 @@ trait MessageSink: Send + Sync {
     fn send_initial(&self, value: &Value, stream: &OutboundStream) -> std::io::Result<()>;
     fn send_stream(&self, value: &Value, stream: &OutboundStream) -> std::io::Result<()>;
     fn send_control(&self, value: &Value) -> std::io::Result<()>;
+    fn send_control_confirmed(&self, value: &Value, timeout: Duration) -> std::io::Result<()>;
     fn send_terminal(&self, value: &Value, stream: &OutboundStream) -> std::io::Result<()>;
     fn set_write_timeout(&self, _timeout: Option<Duration>) -> std::io::Result<()> {
         Ok(())
@@ -805,6 +814,17 @@ impl MessageWriter {
         result
     }
 
+    fn send_control_confirmed(&self, value: &Value, timeout: Duration) -> std::io::Result<()> {
+        if !self.is_open() {
+            return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
+        }
+        let result = self.sink.send_control_confirmed(value, timeout);
+        if result.is_err() {
+            self.close();
+        }
+        result
+    }
+
     fn is_open(&self) -> bool {
         self.open.load(Ordering::Acquire) && self.sink.is_open()
     }
@@ -829,7 +849,7 @@ struct BoundedOutbound {
 #[derive(Default)]
 struct BoundedOutboundState {
     initial: VecDeque<RegularOutbound>,
-    control: VecDeque<String>,
+    control: VecDeque<ControlOutbound>,
     regular: VecDeque<RegularOutbound>,
     control_bytes: usize,
     regular_bytes: usize,
@@ -839,6 +859,44 @@ struct BoundedOutboundState {
 struct RegularOutbound {
     text: String,
     stream: OutboundStream,
+}
+
+struct ControlOutbound {
+    text: String,
+    completion: Option<std::sync::mpsc::SyncSender<bool>>,
+}
+
+struct OutboundMessage {
+    text: String,
+    completion: Option<std::sync::mpsc::SyncSender<bool>>,
+}
+
+impl OutboundMessage {
+    fn take_text(&mut self) -> String {
+        std::mem::take(&mut self.text)
+    }
+
+    fn finish(mut self, written: bool) {
+        if let Some(completion) = self.completion.take() {
+            let _ = completion.send(written);
+        }
+    }
+
+    #[cfg(test)]
+    fn into_test_text(mut self) -> String {
+        if let Some(completion) = self.completion.take() {
+            let _ = completion.send(true);
+        }
+        std::mem::take(&mut self.text)
+    }
+}
+
+impl Drop for OutboundMessage {
+    fn drop(&mut self) {
+        if let Some(completion) = self.completion.take() {
+            let _ = completion.send(false);
+        }
+    }
 }
 
 struct ConnectionPermit(Arc<AtomicU64>);
@@ -926,9 +984,27 @@ impl BoundedOutbound {
 
     fn push_control(&self, text: String) -> std::io::Result<()> {
         let mut state = self.state.lock().unwrap();
-        Self::push_control_locked(&mut state, text)?;
+        Self::push_control_locked(&mut state, text, None)?;
         self.changed.notify_one();
         Ok(())
+    }
+
+    fn push_control_confirmed(&self, text: String, timeout: Duration) -> std::io::Result<()> {
+        let (completion, written) = std::sync::mpsc::sync_channel(1);
+        {
+            let mut state = self.state.lock().unwrap();
+            Self::push_control_locked(&mut state, text, Some(completion))?;
+            self.changed.notify_one();
+        }
+        match written.recv_timeout(timeout) {
+            Ok(true) => Ok(()),
+            Ok(false) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "response write failed"))
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "response write timed out"))
+            }
+        }
     }
 
     fn push_terminal(&self, text: String, stream: &OutboundStream) -> std::io::Result<()> {
@@ -938,7 +1014,7 @@ impl BoundedOutbound {
         if stream.terminal_enqueued.swap(true, Ordering::AcqRel) {
             return Ok(());
         }
-        Self::push_control_locked(&mut state, text)?;
+        Self::push_control_locked(&mut state, text, None)?;
         self.changed.notify_one();
         Ok(())
     }
@@ -952,7 +1028,8 @@ impl BoundedOutbound {
         if stream.terminal_enqueued.swap(true, Ordering::AcqRel) {
             return Ok(());
         }
-        if let Err(error) = Self::push_control_locked(state, stream.overflow_text.to_string()) {
+        if let Err(error) = Self::push_control_locked(state, stream.overflow_text.to_string(), None)
+        {
             state.closed = true;
             return Err(std::io::Error::new(
                 std::io::ErrorKind::BrokenPipe,
@@ -997,7 +1074,11 @@ impl BoundedOutbound {
             .map(|(_, _, stream)| stream)
     }
 
-    fn push_control_locked(state: &mut BoundedOutboundState, text: String) -> std::io::Result<()> {
+    fn push_control_locked(
+        state: &mut BoundedOutboundState,
+        text: String,
+        completion: Option<std::sync::mpsc::SyncSender<bool>>,
+    ) -> std::io::Result<()> {
         if state.closed {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
         }
@@ -1011,21 +1092,21 @@ impl BoundedOutbound {
             ));
         }
         state.control_bytes += bytes;
-        state.control.push_back(text);
+        state.control.push_back(ControlOutbound { text, completion });
         Ok(())
     }
 
     #[cfg(test)]
     fn try_pop(&self) -> Option<String> {
         let mut state = self.state.lock().unwrap();
-        Self::pop_locked(&mut state)
+        Self::pop_locked(&mut state).map(OutboundMessage::into_test_text)
     }
 
-    fn recv(&self) -> Option<String> {
+    fn recv(&self) -> Option<OutboundMessage> {
         let mut state = self.state.lock().unwrap();
         loop {
-            if let Some(text) = Self::pop_locked(&mut state) {
-                return Some(text);
+            if let Some(message) = Self::pop_locked(&mut state) {
+                return Some(message);
             }
             if state.closed {
                 return None;
@@ -1034,18 +1115,18 @@ impl BoundedOutbound {
         }
     }
 
-    fn pop_locked(state: &mut BoundedOutboundState) -> Option<String> {
+    fn pop_locked(state: &mut BoundedOutboundState) -> Option<OutboundMessage> {
         if let Some(message) = state.initial.pop_front() {
             state.regular_bytes -= message.text.len();
-            return Some(message.text);
+            return Some(OutboundMessage { text: message.text, completion: None });
         }
-        if let Some(text) = state.control.pop_front() {
-            state.control_bytes -= text.len();
-            return Some(text);
+        if let Some(message) = state.control.pop_front() {
+            state.control_bytes -= message.text.len();
+            return Some(OutboundMessage { text: message.text, completion: message.completion });
         }
         let message = state.regular.pop_front()?;
         state.regular_bytes -= message.text.len();
-        Some(message.text)
+        Some(OutboundMessage { text: message.text, completion: None })
     }
 
     fn is_open(&self) -> bool {
@@ -1053,7 +1134,14 @@ impl BoundedOutbound {
     }
 
     fn close(&self) {
-        self.state.lock().unwrap().closed = true;
+        let mut state = self.state.lock().unwrap();
+        state.closed = true;
+        for message in &mut state.control {
+            if let Some(completion) = message.completion.take() {
+                let _ = completion.send(false);
+            }
+        }
+        drop(state);
         self.changed.notify_all();
     }
 }
@@ -1140,6 +1228,14 @@ impl MessageSink for QueuedSink {
     fn send_control(&self, value: &Value) -> std::io::Result<()> {
         let text = serde_json::to_string(value)?;
         self.outbound.push_control(text)
+    }
+
+    fn send_control_confirmed(&self, value: &Value, timeout: Duration) -> std::io::Result<()> {
+        let text = serde_json::to_string(value)?;
+        if self.control.is_none() {
+            return self.outbound.push_control(text);
+        }
+        self.outbound.push_control_confirmed(text, timeout)
     }
 
     fn send_terminal(&self, value: &Value, stream: &OutboundStream) -> std::io::Result<()> {
@@ -1738,14 +1834,17 @@ fn handle_connection(mux: Arc<Mux>, stream: Box<dyn transport::Stream>) {
     let writer_outbound = outbound;
     let Ok(writer_thread) =
         std::thread::Builder::new().name("mux-line-out".into()).spawn(move || {
-            while let Some(text) = writer_outbound.recv() {
-                if write_half.write_all(text.as_bytes()).is_err()
-                    || write_half.write_all(b"\n").is_err()
-                {
+            while let Some(message) = writer_outbound.recv() {
+                let written = write_half
+                    .write_all(message.text.as_bytes())
+                    .and_then(|()| write_half.write_all(b"\n"));
+                if written.is_err() {
+                    message.finish(false);
                     writer_outbound.close();
                     let _ = write_half.shutdown(Shutdown::Both);
                     break;
                 }
+                message.finish(true);
             }
             let _ = write_half.shutdown(Shutdown::Both);
         })
@@ -1816,11 +1915,13 @@ fn handle_websocket_connection(
     let Ok(writer_thread) =
         std::thread::Builder::new().name("mux-ws-out".into()).spawn(move || {
             let mut websocket = WebSocket::from_raw_socket(writer_stream, Role::Server, None);
-            while let Some(text) = writer_outbound.recv() {
-                if websocket.send(Message::Text(text.into())).is_err() {
+            while let Some(mut message) = writer_outbound.recv() {
+                if websocket.send(Message::Text(message.take_text().into())).is_err() {
+                    message.finish(false);
                     writer_outbound.close();
                     break;
                 }
+                message.finish(true);
             }
             let _ = websocket.close(None);
             let _ = websocket.flush();
@@ -1949,12 +2050,14 @@ pub fn detach_control_client(mux: &Mux, client: u64) -> bool {
 
 fn handle_message(mux: &Arc<Mux>, client: u64, message: &str, writer: &MessageWriter) -> bool {
     let mut detach_self = false;
+    let mut shutdown = false;
     let mut shutdown_daemon = false;
     let response = match serde_json::from_str::<Request>(message) {
         Ok(req) => {
             let id = req.id.clone();
             detach_self =
                 matches!(&req.cmd, Command::DetachClient { client: target } if *target == client);
+            shutdown = matches!(&req.cmd, Command::Shutdown);
             shutdown_daemon = matches!(&req.cmd, Command::ShutdownDaemon { .. });
             match handle_command(mux, client, req.cmd, writer) {
                 Ok(data) => Response { id, ok: true, data: Some(data), error: None },
@@ -1966,11 +2069,16 @@ fn handle_message(mux: &Arc<Mux>, client: u64, message: &str, writer: &MessageWr
         }
     };
     let response_ok = response.ok;
-    let sent =
-        serde_json::to_value(&response).is_ok_and(|value| writer.send_control(&value).is_ok());
-    // Queue the successful acknowledgement before making the owning loop
-    // leave. The headless loop polls at a bounded interval, giving the writer
-    // thread time to flush the response before normal process teardown.
+    let sent = serde_json::to_value(&response).is_ok_and(|value| {
+        if shutdown && response_ok {
+            writer.send_control_confirmed(&value, SHUTDOWN_ACK_WRITE_TIMEOUT).is_ok()
+        } else {
+            writer.send_control(&value).is_ok()
+        }
+    });
+    // Daemon handoff remains reversible until its response is queued. Full
+    // shutdown uses the confirmed control path above and requests process exit
+    // only after the writer reports that the ACK reached the socket.
     if shutdown_daemon && response_ok {
         if sent {
             mux.request_daemon_shutdown();
@@ -1981,6 +2089,13 @@ fn handle_message(mux: &Arc<Mux>, client: u64, message: &str, writer: &MessageWr
     if detach_self && response_ok && sent {
         disconnect_client(mux, client, true);
         return false;
+    }
+    if shutdown && response_ok {
+        // Cleanup is irreversible once the registry and runtimes have been
+        // drained. A peer that disconnects before the best-effort ACK must
+        // not leave an empty, permanently fenced daemon behind.
+        mux.request_shutdown();
+        return sent;
     }
     sent
 }
@@ -2969,6 +3084,22 @@ fn detach_committed_attach(mux: &Mux, client: u64, surface: SurfaceId, stream: u
     }
 }
 
+fn advertised_capabilities() -> Vec<&'static str> {
+    let mut capabilities = vec![
+        ATTACH_INITIAL_SIZE_CAPABILITY,
+        WORKSPACE_REGISTRY_CAPABILITY,
+        SURFACE_SUBSCRIBE_FILTER_CAPABILITY,
+        PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
+    ];
+    // Atomic shutdown is advertised only where PTY session descendants can
+    // be enumerated and signaled through exact process handles.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    if crate::process_session::require_stable_process_signaling().is_ok() {
+        capabilities.push(SERVER_SHUTDOWN_CAPABILITY);
+    }
+    capabilities
+}
+
 fn handle_command(
     mux: &Arc<Mux>,
     client: u64,
@@ -2977,19 +3108,16 @@ fn handle_command(
 ) -> anyhow::Result<Value> {
     match cmd {
         Command::Identify => {
+            let release = ReleaseIdentity::current(PROTOCOL_VERSION);
             let (registry_id, generation) = mux.registry_identity();
+            let shutdown_cleanup = mux.shutdown_cleanup_health();
             Ok(json!({
                 "app": "cmux-tui",
-                "version": env!("CARGO_PKG_VERSION"),
-                "build_commit": stamped_build_commit(),
-                "ghostty_commit": stamped_ghostty_commit(),
-                "protocol": PROTOCOL_VERSION,
-                "capabilities": [
-                    ATTACH_INITIAL_SIZE_CAPABILITY,
-                    WORKSPACE_REGISTRY_CAPABILITY,
-                    SURFACE_SUBSCRIBE_FILTER_CAPABILITY,
-                    PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY
-                ],
+                "version": release.version,
+                "build_commit": release.build_commit,
+                "ghostty_commit": release.ghostty_commit,
+                "protocol": release.protocol,
+                "capabilities": advertised_capabilities(),
                 "session": mux.session,
                 "pid": std::process::id(),
                 "registry_id": registry_id,
@@ -2997,7 +3125,30 @@ fn handle_command(
                 "workspace_revision": mux.with_state(|state| state.workspace_revision),
                 "terminal_revision": mux.terminal_registry_snapshot()?.revision,
                 "daemon_handoff": 1,
+                "shutdown_cleanup": {
+                    "pending": shutdown_cleanup.pending,
+                    "retrying": shutdown_cleanup.retrying,
+                    "degraded": shutdown_cleanup.degraded,
+                },
             }))
+        }
+        Command::Ping => {
+            let release = ReleaseIdentity::current(PROTOCOL_VERSION);
+            Ok(json!({
+                "ok": true,
+                "version": release.version,
+                "build_commit": release.build_commit,
+                "ghostty_commit": release.ghostty_commit,
+                "protocol": release.protocol,
+            }))
+        }
+        Command::Shutdown => {
+            if !mux.control_clients.is_unix(client) {
+                anyhow::bail!("shutdown is only available over the local session socket");
+            }
+            mux.close_all_surfaces_for_shutdown()
+                .map_err(|_| anyhow::anyhow!(SERVER_SHUTDOWN_INCOMPLETE_ERROR))?;
+            Ok(json!({}))
         }
         Command::ShutdownDaemon { pid, generation } => {
             let actual_pid = std::process::id();
@@ -3015,13 +3166,6 @@ fn handle_command(
                 "generation": actual_generation,
             }))
         }
-        Command::Ping => Ok(json!({
-            "ok": true,
-            "version": env!("CARGO_PKG_VERSION"),
-            "build_commit": stamped_build_commit(),
-            "ghostty_commit": stamped_ghostty_commit(),
-            "protocol": PROTOCOL_VERSION,
-        })),
         Command::SetClientInfo { name, kind } => {
             let (name, kind) =
                 mux.control_clients.set_info(client, name, kind, &mux.daemon_handoff_pending)?;
@@ -4560,16 +4704,6 @@ fn handle_command(
     }
 }
 
-fn stamped_build_commit() -> Option<&'static str> {
-    option_env!("CMUX_TUI_BUILD_COMMIT")
-        .or(option_env!("CMUX_MUX_BUILD_COMMIT"))
-        .filter(|commit| !commit.is_empty())
-}
-
-fn stamped_ghostty_commit() -> Option<&'static str> {
-    option_env!("CMUX_TUI_GHOSTTY_COMMIT").filter(|commit| !commit.is_empty())
-}
-
 fn subscribed_event_json(event: &MuxEvent) -> Value {
     match event {
         MuxEvent::SurfaceOutput(id) => json!({"event": "surface-output", "surface": id}),
@@ -5102,7 +5236,7 @@ mod tests {
 
         outbound.close();
 
-        assert_eq!(drain.join().unwrap(), None);
+        assert!(drain.join().unwrap().is_none());
     }
 
     #[test]
@@ -5119,24 +5253,170 @@ mod tests {
     #[test]
     fn identify_and_ping_return_build_metadata() {
         let mux = test_mux();
+        let release = ReleaseIdentity::current(PROTOCOL_VERSION);
         let identity = handle_command(&mux, 0, Command::Identify, &test_writer()).unwrap();
         assert_eq!(identity["app"].as_str(), Some("cmux-tui"));
-        assert_eq!(identity["version"].as_str(), Some(env!("CARGO_PKG_VERSION")));
+        assert_eq!(identity["version"].as_str(), Some(release.version.as_str()));
         assert_eq!(identity["protocol"].as_u64(), Some(PROTOCOL_VERSION as u64));
-        assert_eq!(identity["build_commit"].as_str(), stamped_build_commit());
-        assert_eq!(identity["ghostty_commit"].as_str(), stamped_ghostty_commit());
+        assert_eq!(identity["build_commit"].as_str(), release.build_commit.as_deref());
+        assert_eq!(identity["ghostty_commit"].as_str(), release.ghostty_commit.as_deref());
 
         let data = handle_command(&mux, 0, Command::Ping, &test_writer()).unwrap();
         assert_eq!(data["ok"].as_bool(), Some(true));
-        assert_eq!(data["version"].as_str(), Some(env!("CARGO_PKG_VERSION")));
-        assert_eq!(data["build_commit"].as_str(), stamped_build_commit());
-        assert_eq!(data["ghostty_commit"].as_str(), stamped_ghostty_commit());
+        assert_eq!(data["version"].as_str(), Some(release.version.as_str()));
+        assert_eq!(data["build_commit"].as_str(), release.build_commit.as_deref());
+        assert_eq!(data["ghostty_commit"].as_str(), release.ghostty_commit.as_deref());
         assert_eq!(data["protocol"].as_u64(), Some(PROTOCOL_VERSION as u64));
         assert_eq!(identity["daemon_handoff"].as_u64(), Some(1));
         assert_eq!(STABLE_SPLIT_IDS_PROTOCOL_VERSION, 8);
         assert_eq!(STACK_LAYOUT_PROTOCOL_VERSION, 9);
         assert_eq!(PER_SURFACE_CLIENT_SIZING_PROTOCOL_VERSION, 10);
         assert_eq!(PROTOCOL_VERSION, 10);
+    }
+
+    #[test]
+    fn identify_exposes_shutdown_cleanup_health() {
+        let mux = test_mux();
+        let identity = handle_command(&mux, 0, Command::Identify, &test_writer()).unwrap();
+
+        assert_eq!(identity["shutdown_cleanup"]["pending"].as_u64(), Some(0));
+        assert_eq!(identity["shutdown_cleanup"]["retrying"].as_bool(), Some(false));
+        assert_eq!(identity["shutdown_cleanup"]["degraded"].as_bool(), Some(false));
+    }
+
+    #[test]
+    fn local_shutdown_responds_before_requesting_mux_exit() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let outbound = Arc::new(BoundedOutbound::default());
+        let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+
+        assert!(handle_message(&mux, client, r#"{"id":7,"cmd":"shutdown"}"#, &writer));
+        assert!(mux.shutdown_requested());
+        assert!(mux.surface(surface.id).is_none());
+        let response: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(response, json!({"id": 7, "ok": true, "data": {}}));
+    }
+
+    struct ConfirmedControlSink {
+        entered: std::sync::mpsc::SyncSender<()>,
+        release: Mutex<std::sync::mpsc::Receiver<()>>,
+        open: AtomicBool,
+    }
+
+    impl MessageSink for ConfirmedControlSink {
+        fn send_initial(&self, _value: &Value, _stream: &OutboundStream) -> std::io::Result<()> {
+            Ok(())
+        }
+
+        fn send_stream(&self, _value: &Value, _stream: &OutboundStream) -> std::io::Result<()> {
+            Ok(())
+        }
+
+        fn send_control(&self, _value: &Value) -> std::io::Result<()> {
+            Ok(())
+        }
+
+        fn send_control_confirmed(
+            &self,
+            _value: &Value,
+            _timeout: Duration,
+        ) -> std::io::Result<()> {
+            self.entered
+                .send(())
+                .map_err(|_| std::io::Error::new(std::io::ErrorKind::BrokenPipe, "test closed"))?;
+            self.release
+                .lock()
+                .unwrap()
+                .recv()
+                .map_err(|_| std::io::Error::new(std::io::ErrorKind::BrokenPipe, "test closed"))
+        }
+
+        fn send_terminal(&self, _value: &Value, _stream: &OutboundStream) -> std::io::Result<()> {
+            Ok(())
+        }
+
+        fn is_open(&self) -> bool {
+            self.open.load(Ordering::Acquire)
+        }
+
+        fn close(&self) {
+            self.open.store(false, Ordering::Release);
+        }
+    }
+
+    #[test]
+    fn local_shutdown_waits_for_the_acknowledgement_write() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let (entered_tx, entered_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        let writer = MessageWriter::new(ConfirmedControlSink {
+            entered: entered_tx,
+            release: Mutex::new(release_rx),
+            open: AtomicBool::new(true),
+        });
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let (done_tx, done_rx) = std::sync::mpsc::sync_channel(1);
+        let request = std::thread::spawn({
+            let mux = mux.clone();
+            move || {
+                done_tx
+                    .send(handle_message(&mux, client, r#"{"id":7,"cmd":"shutdown"}"#, &writer))
+                    .unwrap();
+            }
+        });
+
+        entered_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("shutdown did not use the confirmed control path");
+        assert!(!mux.shutdown_requested());
+        assert!(mux.surface(surface.id).is_none());
+        assert!(done_rx.recv_timeout(Duration::from_millis(50)).is_err());
+
+        release_tx.send(()).unwrap();
+        assert!(done_rx.recv_timeout(Duration::from_secs(1)).unwrap());
+        request.join().unwrap();
+        assert!(mux.shutdown_requested());
+    }
+
+    #[test]
+    fn local_shutdown_exits_after_cleanup_when_the_peer_drops_before_ack() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        writer.close();
+
+        assert!(!handle_message(&mux, client, r#"{"id":7,"cmd":"shutdown"}"#, &writer));
+        assert!(mux.shutdown_requested());
+        assert!(mux.surface(surface.id).is_none());
+    }
+
+    #[test]
+    fn websocket_clients_cannot_shutdown_the_server() {
+        let mux = test_mux();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::WebSocket, writer.clone());
+
+        let error = handle_command(&mux, client, Command::Shutdown, &writer).unwrap_err();
+
+        assert!(error.to_string().contains("local session socket"));
+        assert!(!mux.shutdown_requested());
+    }
+
+    #[test]
+    fn local_shutdown_returns_a_stable_cleanup_error_code() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        surface.set_server_shutdown_failure_for_test(true);
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+
+        let error = handle_command(&mux, client, Command::Shutdown, &writer).unwrap_err();
+
+        assert_eq!(error.to_string(), SERVER_SHUTDOWN_INCOMPLETE_ERROR);
     }
 
     #[test]
@@ -6900,6 +7180,14 @@ mod tests {
         ] {
             assert!(capabilities.iter().any(|value| value.as_str() == Some(expected)));
         }
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
+        assert!(
+            capabilities.iter().any(|value| value.as_str() == Some(SERVER_SHUTDOWN_CAPABILITY))
+        );
+        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+        assert!(
+            capabilities.iter().all(|value| value.as_str() != Some(SERVER_SHUTDOWN_CAPABILITY))
+        );
     }
 
     #[test]

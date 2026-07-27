@@ -21,6 +21,10 @@ pub const FLAG_COLORS_FOLLOW: u32 = 1 << 0;
 /// control responses. This handshake-only flag lets v1 peers negotiate the
 /// optimization without exposing an unknown ResizeAck to legacy renderers.
 pub const FLAG_VIEWER_SIZE_ACKS: u32 = 1 << 1;
+/// ClientHello opt-in and HostHello acknowledgement for an authenticated
+/// owner that will send exactly one Terminate control. This path deliberately
+/// skips Snapshot registration and replay materialization.
+pub const FLAG_TERMINATE_ONLY: u32 = 1 << 2;
 /// ResizeAck payload flag: this request changed the canonical grid and its
 /// sequenced Resized+Colors transition was enqueued immediately before the
 /// targeted acknowledgement.
@@ -119,9 +123,10 @@ pub struct Frame {
     /// consumers stage the first frame and expose only the paired state.
     /// Snapshot keeps flags zero: its same-boundary Colors frame is a mandatory
     /// bootstrap rule rather than a live-stream transition.
-    /// ClientHello/HostHello may negotiate [`FLAG_VIEWER_SIZE_ACKS`]. Unknown
-    /// flags, flags on Colors or other message kinds, an unflagged Resized, and
-    /// a flagged live frame not followed by Colors are protocol errors.
+    /// ClientHello/HostHello may negotiate [`FLAG_VIEWER_SIZE_ACKS`] or
+    /// [`FLAG_TERMINATE_ONLY`]. Unknown flags, flags on Colors or other message
+    /// kinds, an unflagged Resized, and a flagged live frame not followed by
+    /// Colors are protocol errors.
     pub sequence: u64,
     pub payload: Vec<u8>,
 }

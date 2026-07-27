@@ -27,6 +27,16 @@ fn write_json(ws: &mut tungstenite::WebSocket<std::net::TcpStream>, value: Value
     ws.send(Message::Text(value.to_string().into())).unwrap();
 }
 
+fn write_target_list(
+    ws: &mut tungstenite::WebSocket<std::net::TcpStream>,
+    id: Value,
+    targets: &[&str],
+) {
+    let target_infos =
+        targets.iter().map(|target_id| json!({"targetId": target_id})).collect::<Vec<_>>();
+    write_json(ws, json!({"id": id, "result": {"targetInfos": target_infos}}));
+}
+
 fn rpc(path: &std::path::Path, mut cmd: Value) -> Value {
     let mut stream = UnixStream::connect(path).unwrap();
     if cmd.get("id").is_none() {
@@ -274,6 +284,9 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
                         opener_ack_count += 1;
                     }
                     write_json(&mut ws, json!({"id": id, "result": {}}));
+                }
+                "Target.getTargets" => {
+                    write_target_list(&mut ws, id, &["target-1", "target-popup"]);
                 }
                 "Target.closeTarget" => {
                     write_json(&mut ws, json!({"id": id, "result": {"success": true}}));
@@ -614,6 +627,9 @@ fn wedged_browser_navigate_does_not_block_same_socket_connection() {
                     // sit in CdpClient::call until timeout, but this mux
                     // socket connection must remain usable.
                 }
+                "Target.getTargets" => {
+                    write_target_list(&mut ws, id, &["target-1"]);
+                }
                 "Target.closeTarget" => {
                     write_json(&mut ws, json!({"id": id, "result": {"success": true}}));
                     break;
@@ -775,6 +791,9 @@ fn queued_back_and_forward_do_not_collapse_while_worker_is_blocked() {
                 "Page.navigateToHistoryEntry" => {
                     write_json(&mut ws, json!({"id": id, "result": {}}));
                 }
+                "Target.getTargets" => {
+                    write_target_list(&mut ws, id, &["target-1"]);
+                }
                 "Target.closeTarget" => {
                     write_json(&mut ws, json!({"id": id, "result": {"success": true}}));
                     break;
@@ -884,6 +903,9 @@ fn control_command_reports_backpressure_when_worker_queue_is_full() {
                 }
                 "Page.reload" | "Page.navigateToHistoryEntry" => {
                     write_json(&mut ws, json!({"id": id, "result": {}}));
+                }
+                "Target.getTargets" => {
+                    write_target_list(&mut ws, id, &["target-1"]);
                 }
                 "Target.closeTarget" => {
                     write_json(&mut ws, json!({"id": id, "result": {"success": true}}));

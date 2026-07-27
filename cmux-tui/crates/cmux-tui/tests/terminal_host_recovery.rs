@@ -15,8 +15,9 @@ use cmux_tui_core::terminal_host::{
     CAPABILITY_TOKEN_LEN, CapabilityRights, CapabilityToken, ClientHello, ClientRole, TerminalId,
 };
 use cmux_tui_core::terminal_host_protocol::{
-    FLAG_COLORS_FOLLOW, FLAG_VIEWER_SIZE_ACKS, Frame, MAX_FRAME_PAYLOAD, MessageKind,
-    PROTOCOL_VERSION, ProtocolError, RESIZE_ACK_CANONICAL_CHANGED, read_frame, write_frame,
+    FLAG_COLORS_FOLLOW, FLAG_TERMINATE_ONLY, FLAG_VIEWER_SIZE_ACKS, Frame, MAX_FRAME_PAYLOAD,
+    MessageKind, PROTOCOL_VERSION, ProtocolError, RESIZE_ACK_CANONICAL_CHANGED, read_frame,
+    write_frame,
 };
 use cmux_tui_core::terminal_host_runtime::{
     TerminalHostLiveness, adopt_terminal_host, decode_terminal_color_overrides,
@@ -507,6 +508,86 @@ fn explicit_terminate_reaps_descendants_in_the_pty_group() {
 }
 
 #[test]
+fn explicit_terminate_reaps_background_jobs_in_separate_pty_process_groups() {
+    let harness = RecoveryHarness::start("terminate-job-control-group");
+    let marker = format!("job-control-background-ready-{}", std::process::id());
+    let descendant_pid_path = harness.dir.join("job-control-background.pid");
+    let created = request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 1,
+            "cmd": "run",
+            "argv": [
+                "/bin/bash",
+                "--noprofile",
+                "--norc",
+                "-i",
+                "-c",
+                concat!(
+                    "trap '' HUP; ",
+                    "(trap '' HUP; while :; do sleep 60; done) & ",
+                    "printf '%s' \"$!\" > \"$1\"; printf '%s\\n' \"$2\"; wait",
+                ),
+                "cmux-job-control-background",
+                descendant_pid_path,
+                marker,
+            ],
+            "new_workspace": true,
+            "name": "job-control-background",
+        }),
+    );
+    let surface = created["surface"].as_u64().unwrap();
+    assert!(wait_for_screen(&harness.socket, surface, &marker).contains(&marker));
+    let descendant_pid = wait_for_pid_file(&harness.dir.join("job-control-background.pid"));
+    let (record_path, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
+    let observer = adopt_terminal_host(record.clone(), record_path.clone()).unwrap();
+    let direct_pid = observer.snapshot.pid.unwrap() as libc::pid_t;
+    observer.disconnect();
+    assert!(process_exists(direct_pid), "direct PTY child exited before Terminate");
+    assert!(process_exists(descendant_pid), "background job exited before Terminate");
+    // SAFETY: both fixture processes are live and owned by this test.
+    let direct_group = unsafe { libc::getpgid(direct_pid) };
+    // SAFETY: both fixture processes are live and owned by this test.
+    let descendant_group = unsafe { libc::getpgid(descendant_pid) };
+    // SAFETY: both fixture processes are live and owned by this test.
+    let direct_session = unsafe { libc::getsid(direct_pid) };
+    // SAFETY: both fixture processes are live and owned by this test.
+    let descendant_session = unsafe { libc::getsid(descendant_pid) };
+
+    let host = adopt_terminal_host(record, record_path).unwrap();
+    host.terminate().unwrap();
+    host.disconnect();
+    wait_for_no_host_records(&harness.host_root());
+    let deadline = Instant::now() + Duration::from_secs(1);
+    while process_exists(descendant_pid) && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let descendant_remained = process_exists(descendant_pid);
+    if descendant_remained {
+        // SAFETY: the live process and group belong to this isolated fixture.
+        let _ = unsafe { libc::killpg(descendant_group, libc::SIGKILL) };
+        // SAFETY: the live process belongs to this isolated fixture.
+        let _ = unsafe { libc::kill(descendant_pid, libc::SIGKILL) };
+    }
+
+    assert!(direct_group > 0);
+    assert!(descendant_group > 0);
+    assert_ne!(
+        descendant_group, direct_group,
+        "fixture background job did not enter a separate process group"
+    );
+    assert_eq!(
+        descendant_session, direct_session,
+        "fixture background job left the owned PTY session"
+    );
+    wait_for_process_and_group_absent(direct_pid);
+    assert!(
+        !descendant_remained,
+        "terminal host exited after killing only the shell and foreground process groups"
+    );
+}
+
+#[test]
 fn exit_follows_all_final_pty_bytes_on_the_live_stream() {
     let harness = RecoveryHarness::start("exit-after-final-bytes");
     request(
@@ -862,6 +943,53 @@ fn mint_capability_fences_prior_admin_input_before_renderer_input() {
         &harness.socket,
         serde_json::json!({"id": 2, "cmd": "close-surface", "surface": surface}),
     );
+    wait_for_no_host_records(&harness.host_root());
+}
+
+#[test]
+fn terminate_only_owner_handshake_never_materializes_a_snapshot() {
+    let harness = RecoveryHarness::start("terminate-only");
+    request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 1,
+            "cmd": "run",
+            "argv": ["/bin/cat"],
+            "new_workspace": true,
+        }),
+    );
+    let (_, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
+    assert!(record.supports_terminate_only);
+    let mut stream = UnixStream::connect(&record.endpoint).unwrap();
+    let hello = ClientHello {
+        min_version: PROTOCOL_VERSION,
+        max_version: PROTOCOL_VERSION,
+        role: ClientRole::Admin,
+        requested_rights: CapabilityRights::TERMINATE,
+        terminal_id: TerminalId::from_bytes(decode_hex(&record.terminal_id).unwrap()),
+        token: CapabilityToken::from_bytes(decode_hex(&record.owner_token).unwrap()),
+    };
+    let mut hello = hello.into_frame(1);
+    hello.flags = FLAG_TERMINATE_ONLY;
+    write_frame(&mut stream, &hello).unwrap();
+    let response = read_frame(&mut stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
+    assert_eq!(response.kind, MessageKind::HostHello);
+    assert_eq!(response.flags, FLAG_TERMINATE_ONLY);
+
+    write_frame(&mut stream, &Frame::new(MessageKind::Terminate, Vec::new())).unwrap();
+    stream.set_read_timeout(Some(Duration::from_millis(250))).unwrap();
+    match read_frame(&mut stream, MAX_FRAME_PAYLOAD) {
+        Ok(None) => {}
+        Err(ProtocolError::Io(error))
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::WouldBlock
+                    | std::io::ErrorKind::TimedOut
+                    | std::io::ErrorKind::ConnectionReset
+            ) => {}
+        Ok(Some(frame)) => panic!("terminate-only handshake emitted {:?}", frame.kind),
+        Err(error) => panic!("unexpected terminate-only close error: {error}"),
+    }
     wait_for_no_host_records(&harness.host_root());
 }
 

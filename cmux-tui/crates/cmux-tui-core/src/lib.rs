@@ -13,6 +13,8 @@ mod event_bus;
 mod model;
 mod mux;
 mod pairing;
+#[cfg(unix)]
+pub mod process_session;
 pub mod provider_management;
 mod short_id;
 mod surface;
@@ -20,6 +22,7 @@ mod workspace_registry;
 
 pub mod layout;
 pub mod platform;
+pub mod release;
 pub mod server;
 pub mod terminal_host;
 pub mod terminal_host_protocol;
@@ -38,8 +41,9 @@ pub use mux::{
     CellPixelUpdateFailure, Direction, LayoutLeafSpec, LayoutSpec, Mux, MuxEvent,
     NotificationEvent, NotificationLevel, ProviderWorkspaceAuthority,
     ProviderWorkspaceAuthorityStatus, ProviderWorkspaceAuthorityUpdateError, RunPlacement,
-    SidebarPluginOptions, SidebarPluginStatus, SurfaceNotification, SurfaceResizeReporter,
-    TreeDelta, TreeDeltaKind, WorkspaceMutationResult, WorkspacePlacement, ZoomMode, ZoomState,
+    ShutdownRequestWatch, SidebarPluginOptions, SidebarPluginStatus, SurfaceNotification,
+    SurfaceResizeReporter, TreeDelta, TreeDeltaKind, WorkspaceMutationResult, WorkspacePlacement,
+    ZoomMode, ZoomState,
 };
 pub use pairing::{PairingChallenge, PairingDecision, PairingError};
 pub use short_id::assign_short_ids;

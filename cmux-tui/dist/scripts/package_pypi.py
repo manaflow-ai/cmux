@@ -99,15 +99,46 @@ def wheel_bytes(version: str, tag: str, binary: bytes) -> list[tuple[str, bytes,
         (
             f"{PACKAGE_NAME}/_main.py",
             text_bytes(
-                """from __future__ import annotations
+                f"""from __future__ import annotations
 
 import os
 import pathlib
+import shlex
 import sys
+
+PACKAGE_VERSION = {version!r}
+
+
+def _launcher_command(argv0: str) -> str:
+    parts = pathlib.PurePath(argv0).parts
+    for index, part in enumerate(parts):
+        if part != "uv":
+            continue
+        if any(
+            candidate.startswith("archive-v")
+            and candidate.removeprefix("archive-v").isdigit()
+            for candidate in parts[index + 1 :]
+        ):
+            return "uvx cmux==" + PACKAGE_VERSION
+    pipx_seen = False
+    for index, part in enumerate(parts):
+        if part == "pipx":
+            pipx_seen = True
+            continue
+        if (
+            pipx_seen
+            and len(part) == 15
+            and all(character in "0123456789abcdef" for character in part)
+            and index + 1 < len(parts)
+            and parts[index + 1] == "bin"
+        ):
+            return "pipx run --spec cmux==" + PACKAGE_VERSION + " cmux"
+    return shlex.quote(argv0) if argv0 else "cmux"
 
 
 def main() -> None:
     binary = pathlib.Path(__file__).resolve().parent / "bin" / "cmux-tui"
+    os.environ["CMUX_TUI_LAUNCHER_COMMAND"] = _launcher_command(sys.argv[0])
     os.execv(str(binary), ["cmux", *sys.argv[1:]])
 """
             ),

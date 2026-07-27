@@ -15,7 +15,7 @@ use base64::Engine;
 use cmux_tui_core::{
     BrowserFrame, BrowserSource, BrowserStatus, DefaultColors, MuxEvent, MuxEventBroadcaster,
     MuxEventReceiver, NotificationEvent, NotificationLevel, PairingChallenge, Rgb, SurfaceId,
-    SurfaceKind, platform::transport,
+    SurfaceKind, platform::transport, server::PROTOCOL_VERSION,
 };
 use cmux_tui_machine_protocol::BearerToken;
 use ghostty_vt::{
@@ -27,7 +27,7 @@ use zeroize::Zeroize;
 
 use super::tree::{TreeView, parse_tree};
 
-const SUPPORTED_PROTOCOL_VERSION: u64 = 10;
+const SUPPORTED_PROTOCOL_VERSION: u64 = PROTOCOL_VERSION as u64;
 const SURFACE_OVERFLOW_RETRY_DELAYS: [Duration; 3] =
     [Duration::from_millis(250), Duration::from_millis(500), Duration::from_secs(1)];
 const SURFACE_OVERFLOW_STABLE: Duration = Duration::from_secs(5);
@@ -538,11 +538,10 @@ impl RemoteSession {
         let stream = transport::connect(path).map_err(|e| {
             anyhow::anyhow!("cannot connect to session socket {}: {e}", path.display())
         })?;
-        if subscribe {
-            Self::connect_stream(stream)
-        } else {
-            Self::connect_stream_with_subscription(stream, false)
-        }
+        let transport = RemoteTransport::json_lines(stream).map_err(|error| {
+            anyhow::anyhow!("cannot configure JSON-lines session transport: {error}")
+        })?;
+        Self::connect_transport_with_provider_authority(transport, None, Some(path), subscribe)
     }
 
     /// Connect over an already-established full-duplex byte stream.
@@ -551,6 +550,7 @@ impl RemoteSession {
     /// establishment outside `RemoteSession` lets clients use a local socket,
     /// an SSH relay, or another authenticated tunnel without teaching the
     /// session and rendering layers about those transports.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn connect_stream(stream: Box<dyn transport::Stream>) -> anyhow::Result<Arc<Self>> {
         Self::connect_stream_with_subscription(stream, true)
     }
@@ -573,19 +573,20 @@ impl RemoteSession {
         transport: RemoteTransport,
         subscribe: bool,
     ) -> anyhow::Result<Arc<Self>> {
-        Self::connect_transport_with_provider_authority(transport, None, subscribe)
+        Self::connect_transport_with_provider_authority(transport, None, None, subscribe)
     }
 
     pub fn connect_provider_transport(
         transport: RemoteTransport,
         authority: BearerToken,
     ) -> anyhow::Result<Arc<Self>> {
-        Self::connect_transport_with_provider_authority(transport, Some(authority), true)
+        Self::connect_transport_with_provider_authority(transport, Some(authority), None, true)
     }
 
     fn connect_transport_with_provider_authority(
         transport: RemoteTransport,
         provider_workspace_authority: Option<BearerToken>,
+        local_path: Option<&Path>,
         subscribe: bool,
     ) -> anyhow::Result<Arc<Self>> {
         let RemoteTransport { mut reader, writer } = transport;
@@ -625,17 +626,21 @@ impl RemoteSession {
             }
         })?;
 
-        if let Err(error) = session.initialize(subscribe) {
+        if let Err(error) = session.initialize(local_path, subscribe) {
             session.disconnect_transport();
             return Err(error);
         }
         Ok(session)
     }
 
-    fn initialize(&self, subscribe: bool) -> anyhow::Result<()> {
+    fn initialize(&self, local_path: Option<&Path>, subscribe: bool) -> anyhow::Result<()> {
         // Identify the endpoint and register this connection before any optional subscription.
         let ident = self.request(json!({"cmd": "identify"}))?;
-        validate_remote_identity(&ident)?;
+        if let Some(path) = local_path {
+            crate::server_lifecycle::validate_local_identity(&ident, path)?;
+        } else {
+            validate_remote_identity(&ident)?;
+        }
         *self.capabilities.lock().unwrap() = ident
             .get("capabilities")
             .and_then(Value::as_array)

@@ -252,6 +252,7 @@ dependencies = [
  "sha2",
  "tungstenite",
  "uds_windows",
+ "windows-sys",
  "zeroize",
 ]
 
