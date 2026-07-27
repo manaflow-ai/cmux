@@ -12,7 +12,7 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `921d4efaa`, the head of
+The submodule pinned by this branch is `7b24d1c5d`, the head of
 https://github.com/manaflow-ai/ghostty/pull/153. It adds lossless hidden-tab
 renderer reclamation on top of the teardown-safe action lease release from
 https://github.com/manaflow-ai/ghostty/pull/152, transactional menu-owned key
@@ -57,8 +57,8 @@ and the product-main renderer/link fixes described below. It also bounds each
 renderer mailbox drain turn so continuous producers cannot starve lifecycle
 processing or rendering.
 
-The pinned `921d4efaa` universal ReleaseFast GhosttyKit archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-921d4efaac3daf63e6a2d6e83b15e5c55fda2c1e-crashsubdir-cmux-crash-v1
+The pinned `7b24d1c5d` universal ReleaseFast GhosttyKit archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-7b24d1c5d14921d5cdfda4325997189a62eee542-crashsubdir-cmux-crash-v1
 and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### Hidden macOS renderer reclamation
@@ -70,6 +70,18 @@ and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
   - `517a4c75a` (renderer: reclaim hidden macOS tab GPU memory)
   - `cc4ac8141` (test: require shared standard Metal pipelines)
   - `921d4efaa` (renderer: share standard Metal pipelines)
+  - `f9d7262e1` (test: prevent concurrent Metal pipeline compilation)
+  - `1e8aecd93` (renderer: serialize standard Metal pipeline creation)
+  - `267541adf` (test: preserve Metal pipelines across renderer handoffs)
+  - `b2c78d61a` (renderer: retain standard Metal pipelines across handoffs)
+  - `e5702c1ab` (test: keep selected key tabs renderer-visible)
+  - `19555c20f` (macos: keep selected key tab renderer visible)
+  - `9ee855755` (test: recycle Metal command queues on renderer release)
+  - `88fe92c27` (renderer: release hidden Metal command queues)
+  - `532bbb0a5` (test: reclaim deselected tab renderers synchronously)
+  - `7d0009af6` (macos: reclaim deselected tab renderers immediately)
+  - `68ffad656` (test: prevent main-queue renderer teardown deadlock)
+  - `7b24d1c5d` (renderer: avoid main-queue teardown deadlock)
 - Files:
   - `macos/Sources/Features/Terminal/BaseTerminalController.swift`
   - `macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift`
@@ -87,22 +99,29 @@ and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
   - `src/renderer/metal/buffer.zig`
   - `src/renderer/metal/shaders.zig`
 - Summary:
-  - Reclaims a hidden native tab's renderer after five seconds while retaining
-    its PTY, terminal state, scrollback, and surface.
+  - Reclaims a deselected native tab's renderer in the same AppKit visibility
+    pass while retaining its PTY, terminal state, scrollback, and surface.
   - Publishes renderer realization through an idempotent atomic latest-value
     slot, preserving the newest request when the renderer mailbox is full.
   - Drains outstanding frame leases and detaches the compositor layer before
     releasing teardown-only Metal resources.
   - Shares immutable standard shader pipelines by Metal device and pixel
-    format, preventing restored tabs from recompiling driver-owned pipeline
-    state. Custom shader source remains renderer-owned.
+    format, serializes cache misses, and retains the cache through zero-renderer
+    handoffs. Custom shader source remains renderer-owned.
+  - Releases renderer-owned Metal command queues while tabs are hidden and
+    recreates them when their renderers return.
   - Observes native tab selection directly and treats ambiguous selection as
     visible, preventing transient AppKit state from reclaiming the active tab.
+  - Clears the compositor asynchronously after frame leases drain when teardown
+    starts off the main thread, avoiding a renderer-to-main synchronous wait
+    while AppKit joins the renderer.
   - Conflict note: future renderer lifecycle work must preserve lossless
-    realization publication and conservative tab selection. Do not mark Metal
-    resources purgeable during ordinary resize or replacement, and do not rely
-    only on window occlusion or a bounded mailbox for realization state.
-    Standard pipeline sharing must remain device- and pixel-format-scoped.
+    realization publication, deselection-before-selection ordering, and
+    conservative tab selection. Do not mark Metal resources purgeable during
+    ordinary resize or replacement, and do not rely only on window occlusion or
+    a bounded mailbox for realization state. Standard pipeline sharing must
+    remain device- and pixel-format-scoped, and off-main teardown must not wait
+    synchronously for the main queue.
 
 ### Bounded renderer mailbox turns and continuation recovery
 
