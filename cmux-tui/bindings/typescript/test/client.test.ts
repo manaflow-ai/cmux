@@ -220,7 +220,7 @@ test("browser frames reject missing, nonnumeric, and invalid dimensions", async 
         height: 24,
         data: "cG5n",
       },
-      error: /frame width is not a positive integer/,
+      error: /frame width is not a nonnegative integer/,
     },
     {
       event: {
@@ -231,7 +231,18 @@ test("browser frames reject missing, nonnumeric, and invalid dimensions", async 
         height: 24,
         data: "cG5n",
       },
-      error: /frame width is not a positive integer/,
+      error: /frame width is not a nonnegative integer/,
+    },
+    {
+      event: {
+        event: "frame",
+        surface: 7,
+        seq: 1,
+        width: 80,
+        height: -1,
+        data: "cG5n",
+      },
+      error: /frame height is not a nonnegative integer/,
     },
     {
       event: {

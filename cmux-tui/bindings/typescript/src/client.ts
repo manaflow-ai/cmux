@@ -952,8 +952,8 @@ export class CmuxClient {
     }
     const frame = value as Record<string, unknown>;
     const seq = this.validateFrameSequence(frame.seq, eventName);
-    const width = this.validateFrameDimension(frame.width, eventName, "width");
-    const height = this.validateFrameDimension(frame.height, eventName, "height");
+    const width = this.validateFrameCssDimension(frame.width, eventName, "width");
+    const height = this.validateFrameCssDimension(frame.height, eventName, "height");
     const imageWidth = frame.image_width === undefined
       ? width
       : this.validateFrameDimension(frame.image_width, eventName, "image_width");
@@ -975,6 +975,17 @@ export class CmuxClient {
   private validateFrameSequence(value: unknown, eventName: string): number {
     if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
       throw new CmuxProtocolError(`${eventName} seq is not a nonnegative integer`);
+    }
+    return value;
+  }
+
+  private validateFrameCssDimension(
+    value: unknown,
+    eventName: string,
+    field: string,
+  ): number {
+    if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+      throw new CmuxProtocolError(`${eventName} ${field} is not a nonnegative integer`);
     }
     return value;
   }

@@ -246,9 +246,9 @@ export interface ColorsChangedEvent extends TerminalColors {
 
 export interface BrowserFrame {
   seq: number;
-  /** CSS viewport width used for browser input mapping. */
+  /** CSS viewport width used for browser input mapping, or 0 when CDP omits it. */
   width: number;
-  /** CSS viewport height used for browser input mapping. */
+  /** CSS viewport height used for browser input mapping, or 0 when CDP omits it. */
   height: number;
   /** Encoded PNG width. Older servers omit this field. */
   image_width?: number;
