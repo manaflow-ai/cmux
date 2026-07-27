@@ -1,17 +1,5 @@
 public import GhosttyKit
 
-/// One textual representation supplied by the terminal runtime for a single
-/// clipboard write.
-public struct TerminalClipboardRepresentation: Equatable, Sendable {
-    public let mimeType: String
-    public let string: String
-
-    public init(mimeType: String, string: String) {
-        self.mimeType = mimeType
-        self.string = string
-    }
-}
-
 /// Write-side clipboard capability consumed by the ghostty runtime's
 /// write-clipboard callback and by app flows that intercept it.
 ///
@@ -22,6 +10,11 @@ public struct TerminalClipboardRepresentation: Equatable, Sendable {
 /// non-main threads and cannot await.
 public protocol TerminalClipboardWriting: AnyObject, Sendable {
     /// Publishes every supplied representation as one pasteboard item.
+    ///
+    /// - Parameters:
+    ///   - representations: Textual MIME variants for the same clipboard
+    ///     payload, in runtime preference order.
+    ///   - location: The system or selection clipboard to update.
     func writeRepresentations(
         _ representations: [TerminalClipboardRepresentation],
         to location: ghostty_clipboard_e
