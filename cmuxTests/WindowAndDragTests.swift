@@ -3959,6 +3959,19 @@ final class TmuxWorkspacePaneOverlayTests: XCTestCase {
         )
     }
 
+    /// `colorHexOrNull` is `#RRGGBB` only, so an alpha channel must not be
+    /// silently accepted with the alpha dropped.
+    func testFlashColorFallsBackWhenHexCarriesAlpha() {
+        let defaults = UserDefaults(suiteName: "flash-color-alpha")!
+        defaults.removePersistentDomain(forName: "flash-color-alpha")
+        defaults.set("#FF69B4AA", forKey: WorkspaceAttentionFlashColorSettings.colorHexKey)
+
+        XCTAssertEqual(
+            WorkspaceAttentionFlashColorSettings.resolvedColor(defaults: defaults).hexString(),
+            NSColor.systemBlue.hexString()
+        )
+    }
+
     func testTmuxWorkspacePaneExactRectReturnsContentRelativeFrameForDescendantView() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 640, height: 400),

@@ -124,7 +124,9 @@ public struct WorkspaceColorsSection: View {
                 subtitle: String(localized: "settings.workspaceColors.paneFlashColor.subtitle", defaultValue: "Color of the attention ring and pane flash when a pane needs input."),
                 json: "notifications.paneFlashColor",
                 resetLabel: String(localized: "settings.workspaceColors.paneFlashColor.reset", defaultValue: "Reset"),
-                model: paneFlashHex
+                model: paneFlashHex,
+                // Matches the runtime fallback in `WorkspaceAttentionFlashColorSettings`.
+                fallback: Color(nsColor: .systemBlue)
             )
             SettingsCardDivider()
 
@@ -163,7 +165,7 @@ public struct WorkspaceColorsSection: View {
     }
 
     @ViewBuilder
-    private func colorRow(title: String, subtitle: String, json: String, resetLabel: String, model: DefaultsValueModel<String>) -> some View {
+    private func colorRow(title: String, subtitle: String, json: String, resetLabel: String, model: DefaultsValueModel<String>, fallback: Color = Self.cmuxAccentColor()) -> some View {
         let isCustom = !model.current.isEmpty
         SettingsCardRow(
             configurationReview: .json(json),
@@ -178,7 +180,7 @@ public struct WorkspaceColorsSection: View {
                 }
                 HexColorPicker(
                     storedHex: model.current,
-                    fallback: Self.cmuxAccentColor(),
+                    fallback: fallback,
                     reconcileRevision: model.revision
                 ) { hex in
                     model.set(hex)

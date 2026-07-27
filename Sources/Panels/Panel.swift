@@ -121,9 +121,15 @@ enum WorkspaceAttentionFlashColorSettings {
     static let colorHexKey = "notificationPaneFlashColorHex"
     static let defaultColor = NSColor.systemBlue
 
+    /// Resolves the configured accent, rejecting anything the schema would not
+    /// accept. `NSColor(hex:)` tolerates a missing `#`, so the prefix and length
+    /// are checked here to keep this in step with `colorHexOrNull` (`#RRGGBB`,
+    /// no alpha).
     static func resolvedColor(defaults: UserDefaults = .standard) -> NSColor {
         guard
             let hex = defaults.string(forKey: colorHexKey),
+            hex.count == 7,
+            hex.hasPrefix("#"),
             let color = NSColor(hex: hex)
         else {
             return defaultColor
