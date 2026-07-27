@@ -6467,6 +6467,50 @@ mod tests {
     }
 
     #[test]
+    fn unrelated_same_document_event_cannot_clear_verification_failure() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        browser.store_frame(test_frame(1));
+        browser.begin_targeted_navigation_frame_transition().expect("same-document reservation");
+        handle_same_document_navigated(
+            browser,
+            &json!({
+                "frameId": "main-frame",
+                "url": "https://example.test/#failed"
+            }),
+        )
+        .expect("same-document URL");
+        browser.fail_same_document_authority(&anyhow::anyhow!("injected capture failure"));
+
+        handle_same_document_navigated(
+            browser,
+            &json!({
+                "frameId": "main-frame",
+                "url": "https://example.test/#unrelated"
+            }),
+        )
+        .expect("later same-document URL");
+        browser.store_frame_for_epoch(test_frame(2), browser.frame_epoch.current());
+
+        assert!(
+            matches!(
+                browser.status().failure(),
+                Some(super::BrowserFailure::UpdatedPageVerification(_))
+            ),
+            "an unrelated lifecycle event must preserve the terminal verification failure"
+        );
+        assert!(
+            browser.latest_frame().is_none(),
+            "unverified pixels must remain hidden after the unrelated event"
+        );
+        assert_eq!(
+            browser.latest_frame_seq(),
+            None,
+            "unverified pixels must not recreate pointer authority"
+        );
+    }
+
+    #[test]
     fn rejected_streamed_frames_do_not_emit_surface_output() {
         let options = SurfaceOptions::default();
         let mux = Mux::new("rejected-browser-frame-redraw-test", options.clone());
