@@ -11,6 +11,8 @@ use std::time::Duration;
 
 pub type Result<T> = std::result::Result<T, CmuxError>;
 pub const TERMINAL_KEY_TEXT_MAX_BYTES: usize = 4 * 1024;
+const MIN_VIEWPORT_PANE_WIDTH: f32 = 0.1;
+const MAX_VIEWPORT_PANE_WIDTH: f32 = 1.0;
 
 #[derive(Debug)]
 pub enum CmuxError {
@@ -473,6 +475,15 @@ fn validate_workspace_selector(workspace: Option<u64>, key: Option<&str>) -> Res
     Ok(())
 }
 
+fn validate_viewport_pane_width(width: f32) -> Result<()> {
+    if !width.is_finite() || !(MIN_VIEWPORT_PANE_WIDTH..=MAX_VIEWPORT_PANE_WIDTH).contains(&width) {
+        return Err(CmuxError::InvalidArgument(
+            "viewport pane width must be between 0.1 and 1.0".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone, Copy, Default)]
 pub struct AttachSurfaceOptions {
     pub cols: Option<u16>,
@@ -931,6 +942,9 @@ impl CmuxClient {
         cols: Option<u16>,
         rows: Option<u16>,
     ) -> Result<SurfaceResult> {
+        if let Some(width) = width {
+            validate_viewport_pane_width(width)?;
+        }
         self.require_capability("viewport-splits-v1", "viewport panes")?;
         let mut params = Map::new();
         params.insert("pane".to_string(), Value::from(pane));
@@ -1009,6 +1023,7 @@ impl CmuxClient {
         width: f32,
         transaction: Option<u64>,
     ) -> Result<()> {
+        validate_viewport_pane_width(width)?;
         self.require_capability("viewport-column-resize-v1", "viewport pane resizing")?;
         let mut params = Map::new();
         params.insert("pane".to_string(), Value::from(pane));

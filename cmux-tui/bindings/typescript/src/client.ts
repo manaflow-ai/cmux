@@ -86,6 +86,17 @@ export const DEFAULT_MAX_BUFFERED_EVENTS = 256;
 export const DEFAULT_MAX_ATTACH_ENCODED_CHARS = 16 * 1024 * 1024;
 export const TERMINAL_KEY_TEXT_MAX_BYTES = 4 * 1024;
 
+function validateViewportPaneWidth(width: unknown): asserts width is number {
+  if (
+    typeof width !== "number"
+    || !Number.isFinite(width)
+    || width < 0.1
+    || width > 1.0
+  ) {
+    throw new CmuxProtocolError("viewport pane width must be between 0.1 and 1.0");
+  }
+}
+
 export interface ResizeTransactionOptions {
   /** Reuse across one continuous drag, then choose a new value for the next drag. */
   transaction?: number | null;
@@ -577,6 +588,7 @@ export class CmuxClient {
     pane: Id,
     options: NewPaneRightOptions = {},
   ): Promise<SurfaceResult> {
+    if (options.width !== undefined) validateViewportPaneWidth(options.width);
     await this.requireCapability("viewport-splits-v1", "viewport panes");
     return this.request("new-pane-right", { pane, ...options });
   }
@@ -599,6 +611,7 @@ export class CmuxClient {
     width: number,
     options: ResizeTransactionOptions = {},
   ): Promise<EmptyResult> {
+    validateViewportPaneWidth(width);
     await this.requireCapability(
       "viewport-column-resize-v1",
       "viewport pane resizing",
