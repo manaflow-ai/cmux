@@ -52,17 +52,6 @@ public func terminalKeyboardCopyModeVisibleViewportRows(
     return min(clampedBackingRows, fittedRows)
 }
 
-/// The top-left inset of Ghostty's rendered cell grid in AppKit points.
-public struct TerminalKeyboardCopyModeGridInsets: Equatable, Sendable {
-    public let left: Double
-    public let top: Double
-
-    public init(left: Double, top: Double) {
-        self.left = left
-        self.top = top
-    }
-}
-
 /// Resolves Ghostty's exact grid origin from its native cursor point.
 ///
 /// Ghostty reports the cursor's horizontal midpoint and bottom edge after

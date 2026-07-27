@@ -5,32 +5,16 @@
 /// range when the user copies.
 public struct TerminalKeyboardCopyModeVisualSelection: Equatable, Sendable {
     /// An absolute terminal cell.
-    public struct Cell: Equatable, Sendable {
-        public var screenRow: UInt64
-        public var column: Int
-
-        public init(screenRow: UInt64, column: Int) {
-            self.screenRow = screenRow
-            self.column = column
-        }
-    }
-
+    public typealias Cell = TerminalKeyboardCopyModeVisualSelectionCell
     /// A selected row segment expressed in viewport coordinates.
-    public struct VisibleSegment: Equatable, Sendable {
-        public let viewportRow: Int
-        public let startColumn: Int
-        public let endColumn: Int
+    public typealias VisibleSegment = TerminalKeyboardCopyModeVisualSelectionVisibleSegment
 
-        public init(viewportRow: Int, startColumn: Int, endColumn: Int) {
-            self.viewportRow = viewportRow
-            self.startColumn = startColumn
-            self.endColumn = endColumn
-        }
-    }
-
+    /// The fixed start of the characterwise selection.
     public var anchor: Cell
+    /// The movable end of the characterwise selection.
     public var endpoint: Cell
 
+    /// Creates a characterwise selection with absolute endpoints.
     public init(anchor: Cell, endpoint: Cell) {
         self.anchor = anchor
         self.endpoint = endpoint
@@ -38,7 +22,7 @@ public struct TerminalKeyboardCopyModeVisualSelection: Equatable, Sendable {
 
     /// The selected cells in terminal reading order.
     public var normalizedCells: (start: Cell, end: Cell) {
-        Self.precedes(anchor, endpoint) ? (anchor, endpoint) : (endpoint, anchor)
+        terminalKeyboardCopyModeCellPrecedes(anchor, endpoint) ? (anchor, endpoint) : (endpoint, anchor)
     }
 
     /// The absolute rows touched by the selection.
@@ -67,10 +51,10 @@ public struct TerminalKeyboardCopyModeVisualSelection: Equatable, Sendable {
         segments.reserveCapacity(Int(clamping: lastVisibleRow - firstVisibleRow + 1))
         for screenRow in firstVisibleRow ... lastVisibleRow {
             let startColumn = screenRow == cells.start.screenRow
-                ? Self.clamp(cells.start.column, columns: columns)
+                ? terminalKeyboardCopyModeClampColumn(cells.start.column, columns: columns)
                 : 0
             let endColumn = screenRow == cells.end.screenRow
-                ? Self.clamp(cells.end.column, columns: columns)
+                ? terminalKeyboardCopyModeClampColumn(cells.end.column, columns: columns)
                 : columns - 1
             segments.append(VisibleSegment(
                 viewportRow: Int(clamping: screenRow - scrollOffset),
@@ -164,7 +148,25 @@ public struct TerminalKeyboardCopyModeVisualSelection: Equatable, Sendable {
                 scrollOffset: scrollOffset,
                 viewportRows: viewportRows
             ),
-            column: Self.clamp(endpoint.column, columns: viewportColumns)
+            column: terminalKeyboardCopyModeClampColumn(endpoint.column, columns: viewportColumns)
+        )
+    }
+
+    /// Moves the endpoint to a cursor projected into an absolute screen row.
+    public mutating func updateEndpoint(
+        from cursor: TerminalKeyboardCopyModeCursor,
+        viewportRows: Int,
+        scrollOffset: UInt64,
+        totalRows: UInt64?
+    ) {
+        endpoint = Cell(
+            screenRow: TerminalKeyboardCopyModeVisualLineSelection.screenRow(
+                forViewportRow: cursor.row,
+                viewportRows: viewportRows,
+                scrollOffset: scrollOffset,
+                totalRows: totalRows
+            ),
+            column: max(0, cursor.column)
         )
     }
 
@@ -180,13 +182,16 @@ public struct TerminalKeyboardCopyModeVisualSelection: Equatable, Sendable {
         }
         endpoint.screenRow = totalRows.flatMap { $0 > 0 ? min(moved, $0 - 1) : 0 } ?? moved
     }
+}
 
-    private static func precedes(_ lhs: Cell, _ rhs: Cell) -> Bool {
-        lhs.screenRow < rhs.screenRow
-            || (lhs.screenRow == rhs.screenRow && lhs.column <= rhs.column)
-    }
+private func terminalKeyboardCopyModeCellPrecedes(
+    _ lhs: TerminalKeyboardCopyModeVisualSelection.Cell,
+    _ rhs: TerminalKeyboardCopyModeVisualSelection.Cell
+) -> Bool {
+    lhs.screenRow < rhs.screenRow
+        || (lhs.screenRow == rhs.screenRow && lhs.column <= rhs.column)
+}
 
-    private static func clamp(_ column: Int, columns: Int) -> Int {
-        max(0, min(max(columns, 1) - 1, column))
-    }
+private func terminalKeyboardCopyModeClampColumn(_ column: Int, columns: Int) -> Int {
+    max(0, min(max(columns, 1) - 1, column))
 }

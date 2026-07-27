@@ -2531,15 +2531,36 @@ struct TerminalKeyboardCopyModeCursorSwiftTests {
 @Suite("Terminal keyboard copy mode cursor appearance")
 @MainActor
 struct TerminalKeyboardCopyModeCursorAppearanceTests {
-    @Test func cursorUsesAnUnfilledCellOutline() {
+    @Test func cursorUsesAnUnfilledCellOutline() throws {
         let surfaceView = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         let cursorColor = NSColor(srgbRed: 0.2, green: 0.4, blue: 0.8, alpha: 1)
         surfaceView.setKeyboardCopyModeCursorColor(cursorColor)
-        let state = surfaceView.debugKeyboardCopyModeCursorOverlayState()
+        let layer = try #require(surfaceView.keyboardCopyModeCursorOverlayView.layer)
+        let backgroundAlpha = layer.backgroundColor
+            .flatMap { NSColor(cgColor: $0)?.alphaComponent } ?? 0
+        let borderColor = layer.borderColor.flatMap(NSColor.init(cgColor:))
 
-        #expect(state.backgroundAlpha == 0)
-        #expect(state.borderWidth == 1)
-        #expect(state.borderColor?.hexString() == cursorColor.hexString())
+        #expect(backgroundAlpha == 0)
+        #expect(layer.borderWidth == 1)
+        #expect(borderColor?.hexString() == cursorColor.hexString())
+    }
+
+    @Test func selectionUsesConfiguredTerminalSelectionColor() {
+        var config = GhosttyConfig()
+        config.selectionBackground = NSColor(hex: "#993366")!
+
+        let appearance = PanelAppearance.fromConfig(config, usesTransparentWindow: false)
+
+        #expect(appearance.selectionColor.hexString() == "#993366")
+    }
+
+    @Test func cursorUsesConfiguredTerminalCursorColor() {
+        var config = GhosttyConfig()
+        config.cursorColor = NSColor(hex: "#336699")!
+
+        let appearance = PanelAppearance.fromConfig(config, usesTransparentWindow: false)
+
+        #expect(appearance.cursorColor.hexString() == "#336699")
     }
 }
 
@@ -2654,24 +2675,6 @@ final class PanelAppearanceBackgroundTests: XCTestCase {
         let appearance = PanelAppearance.fromConfig(config, usesTransparentWindow: false)
 
         XCTAssertEqual(appearance.foregroundColor.hexString(), "#FDF6E3")
-    }
-
-    func testCopyModeSelectionUsesConfiguredTerminalSelectionColor() {
-        var config = GhosttyConfig()
-        config.selectionBackground = NSColor(hex: "#993366")!
-
-        let appearance = PanelAppearance.fromConfig(config, usesTransparentWindow: false)
-
-        XCTAssertEqual(appearance.selectionColor.hexString(), "#993366")
-    }
-
-    func testCopyModeCursorUsesConfiguredTerminalCursorColor() {
-        var config = GhosttyConfig()
-        config.cursorColor = NSColor(hex: "#336699")!
-
-        let appearance = PanelAppearance.fromConfig(config, usesTransparentWindow: false)
-
-        XCTAssertEqual(appearance.cursorColor.hexString(), "#336699")
     }
 
     func testGhosttyGlassBackgroundUsesClearContentBackground() {
