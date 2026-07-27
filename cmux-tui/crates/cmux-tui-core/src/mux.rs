@@ -10617,6 +10617,38 @@ mod tests {
     }
 
     #[test]
+    fn layout_undo_public_edge_failures_are_typed() {
+        let mux = test_mux();
+        let unknown_pane = mux.undo_layout(u64::MAX, None, false).unwrap_err();
+
+        let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let right = mux.new_pane_right(first_pane, 0.5, Some((38, 22))).unwrap();
+        let right_pane = mux.with_state(|state| state.pane_of(right.id).unwrap());
+        let LayoutUndoResult::ConfirmationRequired { .. } =
+            mux.undo_layout(right_pane, None, false).unwrap()
+        else {
+            panic!("pane creation undo must require confirmation");
+        };
+        let missing_revision = mux.undo_layout(right_pane, None, true).unwrap_err();
+
+        assert_eq!(
+            [
+                matches!(
+                    unknown_pane.downcast_ref::<LayoutUndoError>(),
+                    Some(LayoutUndoError::Stale(_))
+                ),
+                matches!(
+                    missing_revision.downcast_ref::<LayoutUndoError>(),
+                    Some(LayoutUndoError::Stale(_))
+                ),
+            ],
+            [true, true],
+            "public layout-undo edge failures must preserve their typed error"
+        );
+    }
+
+    #[test]
     fn layout_undo_coalesces_resize_and_fences_pane_closure() {
         let mux = test_mux();
         let first = mux.new_workspace(None, Some((80, 22))).unwrap();
