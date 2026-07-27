@@ -319,7 +319,7 @@ extension CMUXCLIErrorOutputRegressionTests {
 
     @Test func testSessionsListDoesNotInferPiFamilyFromBasenameWhenStructuredIdentityDisagrees() throws {
         let session = try sessionsListDiagnosticSession(
-            agent: "project-agent",
+            agent: "opencode",
             launcher: "omo",
             executablePath: "/tmp/pi",
             arguments: ["/tmp/pi", "omo"]
