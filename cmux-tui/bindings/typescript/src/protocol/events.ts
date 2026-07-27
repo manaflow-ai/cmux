@@ -40,6 +40,7 @@ export interface NotificationEvent {
   event: "notification";
   notification: Id;
   title: string;
+  subtitle?: string | null;
   body: string;
   level: NotificationLevel;
   surface: Id | null;
@@ -275,7 +276,7 @@ export interface BrowserFrameEvent extends BrowserFrame {
   surface: Id;
 }
 
-/** Proposed event retained for forward-compatible protocol v6 clients. */
+/** Agent lifecycle telemetry added in protocol 11. */
 export interface AgentStateChangedEvent {
   event: "agent-state-changed";
   surface: Id;
@@ -283,13 +284,16 @@ export interface AgentStateChangedEvent {
   state: AgentState;
   source: AgentSource;
   session: string | null;
+  label?: string | null;
+  detail?: string | null;
+  started_at_ms?: number | null;
+  tasks_completed?: number | null;
+  tasks_total?: number | null;
+  jobs_running?: number | null;
+  agents_active?: number | null;
   updated_at_ms: number;
 }
 
-/** Proposed notification event shape with its creation timestamp. */
-export interface ProposedNotificationEvent extends NotificationEvent {
-  created_at_ms: number;
-}
 
 /** A forward-compatible event that is not known to this SDK version. */
 export interface UnknownEvent {
@@ -309,6 +313,7 @@ export type KnownSubscribeEvent =
   | SurfaceExitedEvent
   | TitleChangedEvent
   | BellEvent
+  | AgentStateChangedEvent
   | NotificationEvent
   | ConfigReloadRequestedEvent
   | WindowTitleRequestedEvent
@@ -340,7 +345,7 @@ export type KnownAttachEvent =
 export type AttachEvent = KnownAttachEvent | UnknownEvent;
 
 /** Every known implemented subscribe or attach event. */
-export type KnownCmuxEvent = KnownSubscribeEvent | KnownAttachEvent | AgentStateChangedEvent | ProposedNotificationEvent;
+export type KnownCmuxEvent = KnownSubscribeEvent | KnownAttachEvent;
 
 /** Every cmux event, discriminated by `event`, with an unknown-event fallback. */
 export type CmuxEvent = KnownCmuxEvent | UnknownEvent;

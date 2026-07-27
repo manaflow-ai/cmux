@@ -1546,6 +1546,58 @@ test("send serializes base64 input and the protocol v7 paste flag", async () => 
   await client.close();
 });
 
+test("protocol 11 helpers serialize notification subtitles and agent telemetry", async () => {
+  const transport = new ScriptedTransport((request, connection) => {
+    if (request.cmd === "notify") {
+      assert.deepEqual(request, {
+        id: 1,
+        cmd: "notify",
+        title: "Agent",
+        body: "ready",
+        subtitle: "Completed",
+        level: "info",
+        surface: 41,
+      });
+      connection.emit({ id: request.id, ok: true, data: { notification: 9 } });
+      return;
+    }
+    assert.deepEqual(request, {
+      id: 2,
+      cmd: "report-agent",
+      surface: 41,
+      state: "error",
+      source: "socket",
+      session: "session-1",
+      label: "root",
+      detail: "reviewing",
+      started_at_ms: 1_700_000_000_000,
+      tasks_completed: 3,
+      tasks_total: 5,
+      jobs_running: 2,
+      agents_active: 4,
+    });
+    connection.emit({ id: request.id, ok: true, data: { ...request, updated_at_ms: 1_700_000_001_000 } });
+  });
+  const client = new CmuxClient({ transport });
+
+  await client.notify("Agent", "ready", {
+    subtitle: "Completed",
+    level: "info",
+    surface: 41,
+  });
+  await client.reportAgent(41, "error", "socket", {
+    session: "session-1",
+    label: "root",
+    detail: "reviewing",
+    started_at_ms: 1_700_000_000_000,
+    tasks_completed: 3,
+    tasks_total: 5,
+    jobs_running: 2,
+    agents_active: 4,
+  });
+  await client.close();
+});
+
 test("protocol v7 commands preserve protocol v6 server failures as command errors", async () => {
   const transport = new ScriptedTransport((request, connection) => {
     connection.emit({

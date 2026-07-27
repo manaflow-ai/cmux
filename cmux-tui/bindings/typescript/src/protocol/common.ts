@@ -63,7 +63,7 @@ export type PaneDirection = "left" | "right" | "up" | "down";
 export type NotificationLevel = "info" | "warning" | "error";
 
 /** An agent's reported lifecycle state. */
-export type AgentState = "working" | "blocked" | "idle" | "done" | "unknown";
+export type AgentState = "working" | "blocked" | "idle" | "done" | "error" | "unknown";
 
 /** The authority that produced an agent record. */
 export type AgentSource = "detected" | "socket" | "hook";
@@ -77,6 +77,13 @@ export interface AgentRecord {
   state: AgentState;
   source: AgentSource;
   session: string | null;
+  label?: string | null;
+  detail?: string | null;
+  started_at_ms?: number | null;
+  tasks_completed?: number | null;
+  tasks_total?: number | null;
+  jobs_running?: number | null;
+  agents_active?: number | null;
   updated_at_ms: number;
 }
 
@@ -84,6 +91,7 @@ export interface AgentRecord {
 export interface Notification {
   notification: Id;
   title: string;
+  subtitle?: string | null;
   body: string;
   level: NotificationLevel;
   surface: Id | null;

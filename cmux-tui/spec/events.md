@@ -1,6 +1,6 @@
 # Event Contract
 
-This file specifies event lines emitted by protocol v10, including compatibility notes for fields and attach behavior introduced in earlier versions. Event lines are JSON objects with an `event` string and no response envelope.
+This file specifies event lines emitted by protocol v11, including compatibility notes for fields and attach behavior introduced in earlier versions. Event lines are JSON objects with an `event` string and no response envelope.
 
 The schema notation and `Id`, `Workspace`, `Screen`, `Pane`, and `Tab` types come from [`commands.md`](commands.md#notation). `Cursor`, `Row`, and `Run` come from [`render.md`](render.md#shared-render-types).
 
@@ -855,15 +855,15 @@ Example:
 {"event":"detached","surface":1}
 ```
 
-## Proposed Events
+## Protocol 11 Telemetry Events
 
 ### agent-state-changed
 
 | Field | Value |
 | --- | --- |
 | event | `agent-state-changed` |
-| status | proposed |
-| since | proposed protocol 10 |
+| status | implemented |
+| since | protocol 11 |
 
 Payload:
 
@@ -871,10 +871,17 @@ Payload:
 object{
   event:"agent-state-changed",
   surface:Id,
-  previous:"working"|"blocked"|"idle"|"done"|"unknown"|null,
-  state:"working"|"blocked"|"idle"|"done"|"unknown",
+  previous:"working"|"blocked"|"idle"|"done"|"error"|"unknown"|null,
+  state:"working"|"blocked"|"idle"|"done"|"error"|"unknown",
   source:"detected"|"socket"|"hook",
   session:string|null,
+  label:string|null,
+  detail:string|null,
+  started_at_ms:uint64|null,
+  tasks_completed:uint64|null,
+  tasks_total:uint64|null,
+  jobs_running:uint64|null,
+  agents_active:uint64|null,
   updated_at_ms:uint64
 }
 ```
@@ -884,7 +891,7 @@ Meaning: The authoritative agent state for a surface changed. Hook-authority and
 Example:
 
 ```json
-{"event":"agent-state-changed","surface":1,"previous":"working","state":"blocked","source":"hook","session":"abc","updated_at_ms":1710000000000}
+{"event":"agent-state-changed","surface":1,"previous":"working","state":"blocked","source":"hook","session":"abc","label":"root","detail":"awaiting approval","started_at_ms":1710000000000,"tasks_completed":3,"tasks_total":5,"jobs_running":0,"agents_active":2,"updated_at_ms":1710000001000}
 ```
 
 ### notification
@@ -892,8 +899,8 @@ Example:
 | Field | Value |
 | --- | --- |
 | event | `notification` |
-| status | proposed |
-| since | proposed protocol 10 |
+| status | implemented |
+| since | protocol 6; optional `subtitle` protocol 11 |
 
 Payload:
 
@@ -902,10 +909,10 @@ object{
   event:"notification",
   notification:Id,
   title:string,
+  subtitle:string|null,
   body:string,
   level:"info"|"warning"|"error",
   surface:Id|null,
-  created_at_ms:uint64
 }
 ```
 
@@ -914,7 +921,7 @@ Meaning: A notification was posted by `notify`, a hook, or an internal mux actio
 Example:
 
 ```json
-{"event":"notification","notification":44,"title":"Build failed","body":"api tests failed","level":"error","surface":1,"created_at_ms":1710000000000}
+{"event":"notification","notification":44,"title":"Build","subtitle":"Error","body":"api tests failed","level":"error","surface":1}
 ```
 
 ## Surface-Scoped Subscriptions and Proposed Filters

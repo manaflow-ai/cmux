@@ -2,7 +2,7 @@
 
 Generated bindings live under `cmux-tui/bindings/<lang>/` in a future round. They are generated from this spec and validated by the conformance suite in this file.
 
-All bindings must expose the implemented protocol v10 commands, events, transports, stable split ids, stack layouts, per-surface client sizing, and `set-split-ratio` API. APIs newer than the connected server must be guarded by explicit version checks or feature gates.
+All bindings must expose the implemented protocol v11 commands, events, transports, stable split ids, stack layouts, per-surface client sizing, agent telemetry/events, notification subtitles, and `set-split-ratio` API. APIs newer than the connected server must be guarded by explicit version checks or feature gates.
 
 ## Shared Requirements
 
@@ -35,9 +35,9 @@ SDKs must treat stack layout nodes and `new-pane` as protocol-v9 features. `new-
 
 SDKs must expose `clear-history` as a typed method and fail locally before sending when the identified server omits `clear-history-v1`. They must expose `TerminalKeyInput` and `TerminalModifiers` as typed values, preserve every `fallback_key` field, and fail locally before sending a fallback when the server omits `clear-history-key-v1` or its `utf8` field exceeds 4 KiB of UTF-8.
 
-## Protocol v10 SDK Expectations
+## Protocol v11 SDK Expectations
 
-SDKs must require a surface id for every client-sizing mutation and expose `size_participating` on each surface-size report. They must not model participation as one client-wide boolean.
+SDKs must retain protocol-v10 per-surface sizing, model `error` alongside all earlier agent states, expose every optional agent telemetry field on records, reports, and events, and expose optional notification subtitles. Missing additive fields must remain decodable as null/absent.
 
 ## Rust
 

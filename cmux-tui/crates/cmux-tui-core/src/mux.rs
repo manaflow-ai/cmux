@@ -210,6 +210,10 @@ pub enum MuxEvent {
     },
     Bell(SurfaceId),
     Notification(NotificationEvent),
+    AgentStateChanged {
+        previous: Option<AgentState>,
+        record: AgentRecord,
+    },
     Status(String),
     /// A frontend should reload its local mux configuration and redraw.
     ConfigReloadRequested,
@@ -344,6 +348,7 @@ impl NotificationLevel {
 pub struct NotificationEvent {
     pub notification: u64,
     pub title: String,
+    pub subtitle: Option<String>,
     pub body: String,
     pub level: NotificationLevel,
     pub surface: Option<SurfaceId>,
@@ -355,6 +360,7 @@ pub enum AgentState {
     Blocked,
     Idle,
     Done,
+    Error,
     Unknown,
 }
 
@@ -365,6 +371,7 @@ impl AgentState {
             AgentState::Blocked => "blocked",
             AgentState::Idle => "idle",
             AgentState::Done => "done",
+            AgentState::Error => "error",
             AgentState::Unknown => "unknown",
         }
     }
@@ -426,12 +433,24 @@ impl AgentSource {
     }
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AgentTelemetry {
+    pub label: Option<String>,
+    pub detail: Option<String>,
+    pub started_at_ms: Option<u64>,
+    pub tasks_completed: Option<u64>,
+    pub tasks_total: Option<u64>,
+    pub jobs_running: Option<u64>,
+    pub agents_active: Option<u64>,
+}
+
 #[derive(Debug, Clone)]
 pub struct AgentRecord {
     pub surface: SurfaceId,
     pub state: AgentState,
     pub source: AgentSource,
     pub session: Option<String>,
+    pub telemetry: AgentTelemetry,
     pub updated_at_ms: u64,
 }
 
@@ -2434,6 +2453,22 @@ impl Mux {
     ) -> anyhow::Result<Arc<Surface>> {
         let id = self.next_id();
         let mut opts = self.surface_options.lock().unwrap().clone();
+        opts.extra_env.retain(|(name, _)| {
+            !matches!(name.as_str(), "CMUX_TUI_SURFACE_ID" | "CMUX_TUI_WORKSPACE_ID")
+        });
+        opts.extra_env.push(("CMUX_TUI_SURFACE_ID".to_string(), id.to_string()));
+        if let Some(workspace_key) = workspace_key
+            && let Some(workspace_id) = self
+                .state
+                .lock()
+                .unwrap()
+                .workspaces
+                .iter()
+                .find(|workspace| workspace.key == workspace_key)
+                .map(|workspace| workspace.id)
+        {
+            opts.extra_env.push(("CMUX_TUI_WORKSPACE_ID".to_string(), workspace_id.to_string()));
+        }
         if cwd.is_some() {
             opts.cwd = cwd;
         }
@@ -3751,6 +3786,7 @@ impl Mux {
     pub fn post_notification(
         &self,
         title: String,
+        subtitle: Option<String>,
         body: String,
         level: NotificationLevel,
         surface: Option<SurfaceId>,
@@ -3769,6 +3805,7 @@ impl Mux {
         self.emit(MuxEvent::Notification(NotificationEvent {
             notification: id,
             title,
+            subtitle,
             body,
             level,
             surface,
@@ -3785,16 +3822,23 @@ impl Mux {
         state: AgentState,
         source: AgentSource,
         session: Option<String>,
+        telemetry: AgentTelemetry,
     ) -> AgentRecord {
-        let mut records = self.agent_records.lock().unwrap();
-        if let Some(existing) = records.get(&surface)
-            && existing.source == AgentSource::Hook
-            && source == AgentSource::Socket
-        {
-            return existing.clone();
-        }
-        let record = AgentRecord { surface, state, source, session, updated_at_ms: now_ms() };
-        records.insert(surface, record.clone());
+        let (previous, record) = {
+            let mut records = self.agent_records.lock().unwrap();
+            if let Some(existing) = records.get(&surface)
+                && existing.source == AgentSource::Hook
+                && source == AgentSource::Socket
+            {
+                return existing.clone();
+            }
+            let previous = records.get(&surface).map(|existing| existing.state);
+            let record =
+                AgentRecord { surface, state, source, session, telemetry, updated_at_ms: now_ms() };
+            records.insert(surface, record.clone());
+            (previous, record)
+        };
+        self.emit(MuxEvent::AgentStateChanged { previous, record: record.clone() });
         record
     }
 
@@ -8044,7 +8088,16 @@ fn terminal_launch_spec(options: &SurfaceOptions) -> Value {
         .extra_env
         .iter()
         .map(|(key, _)| key.as_str())
-        .filter(|key| matches!(*key, "CMUX_TUI_SOCKET" | "CMUX_MUX_SOCKET" | "CMUX_SIDEBAR"))
+        .filter(|key| {
+            matches!(
+                *key,
+                "CMUX_TUI_SOCKET"
+                    | "CMUX_MUX_SOCKET"
+                    | "CMUX_TUI_SURFACE_ID"
+                    | "CMUX_TUI_WORKSPACE_ID"
+                    | "CMUX_SIDEBAR"
+            )
+        })
         .collect::<Vec<_>>();
     serde_json::json!({
         // This is diagnostic shape, not a respawn recipe. argv and cwd can
@@ -9554,6 +9607,40 @@ mod tests {
     }
 
     #[test]
+    fn agent_reports_round_trip_telemetry_and_emit_state_changes() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let events = mux.subscribe();
+        let telemetry = AgentTelemetry {
+            label: Some("root".to_string()),
+            detail: Some("reviewing".to_string()),
+            started_at_ms: Some(1_700_000_000_000),
+            tasks_completed: Some(3),
+            tasks_total: Some(5),
+            jobs_running: Some(2),
+            agents_active: Some(4),
+        };
+
+        let record = mux.report_agent(
+            surface.id,
+            AgentState::Error,
+            AgentSource::Socket,
+            Some("session-1".to_string()),
+            telemetry.clone(),
+        );
+
+        assert_eq!(record.telemetry, telemetry);
+        let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(matches!(
+            event,
+            MuxEvent::AgentStateChanged { previous: None, record: changed }
+                if changed.surface == surface.id
+                    && changed.state == AgentState::Error
+                    && changed.telemetry == telemetry
+        ));
+    }
+
+    #[test]
     fn agent_reports_apply_hook_authority() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();
@@ -9562,6 +9649,7 @@ mod tests {
             AgentState::Working,
             AgentSource::Socket,
             Some("socket-session".to_string()),
+            AgentTelemetry::default(),
         );
         assert_eq!(socket.state, AgentState::Working);
         assert_eq!(socket.source, AgentSource::Socket);
@@ -9571,6 +9659,7 @@ mod tests {
             AgentState::Blocked,
             AgentSource::Hook,
             Some("hook-session".to_string()),
+            AgentTelemetry::default(),
         );
         assert_eq!(hook.state, AgentState::Blocked);
         assert_eq!(hook.source, AgentSource::Hook);
@@ -9580,6 +9669,7 @@ mod tests {
             AgentState::Done,
             AgentSource::Socket,
             Some("late-socket".to_string()),
+            AgentTelemetry::default(),
         );
         assert_eq!(ignored_socket.state, AgentState::Blocked);
         assert_eq!(ignored_socket.source, AgentSource::Hook);
@@ -9604,9 +9694,11 @@ mod tests {
             AgentState::Working,
             AgentSource::Socket,
             Some("conf".to_string()),
+            AgentTelemetry::default(),
         );
         mux.post_notification(
             "Build".to_string(),
+            None,
             "ok".to_string(),
             NotificationLevel::Warning,
             Some(first.id),
@@ -9655,6 +9747,7 @@ mod tests {
         let second = mux.new_tab(Some(pane), None, None).unwrap();
         let notification = mux.post_notification(
             "Build".to_string(),
+            Some("Completed".to_string()),
             "ok".to_string(),
             NotificationLevel::Warning,
             Some(first.id),
@@ -9681,6 +9774,7 @@ mod tests {
 
         let notification = mux.post_notification(
             "Build".to_string(),
+            Some("Waiting".to_string()),
             "ok".to_string(),
             NotificationLevel::Info,
             Some(surface.id),
@@ -9691,7 +9785,9 @@ mod tests {
             matches!(
                 event,
                 MuxEvent::Notification(note)
-                    if note.notification == notification && note.surface == Some(surface.id)
+                    if note.notification == notification
+                        && note.surface == Some(surface.id)
+                        && note.subtitle.as_deref() == Some("Waiting")
             )
         }));
     }

@@ -14,10 +14,11 @@ use std::time::{Duration, Instant};
 use base64::Engine;
 use cmux_tui_core::server::{VIEWPORT_COLUMN_RESIZE_CAPABILITY, VIEWPORT_SPLITS_CAPABILITY};
 use cmux_tui_core::{
-    BrowserFrame, BrowserFrameUpdate, BrowserSource, BrowserStatus, ClearHistoryDelivery,
-    ClearHistoryFailure, DefaultColors, GuardedMouseEncode, MuxEvent, MuxEventBroadcaster,
-    MuxEventReceiver, NotificationEvent, NotificationLevel, PairingChallenge, PointerSemanticProbe,
-    PointerSnapshotProbe, Rgb, SurfaceId, SurfaceKind, TerminalPointerSnapshot,
+    AgentRecord, AgentSource, AgentState, AgentTelemetry, BrowserFrame, BrowserFrameUpdate,
+    BrowserSource, BrowserStatus, ClearHistoryDelivery, ClearHistoryFailure, DefaultColors,
+    GuardedMouseEncode, MuxEvent, MuxEventBroadcaster, MuxEventReceiver, NotificationEvent,
+    NotificationLevel, PairingChallenge, PointerSemanticProbe, PointerSnapshotProbe, Rgb, SurfaceId,
+    SurfaceKind, TerminalPointerSnapshot,
     platform::transport,
     server::{
         CLEAR_HISTORY_CAPABILITY, CLEAR_HISTORY_KEY_CAPABILITY, GUARDED_BROWSER_POINTER_CAPABILITY,
@@ -37,7 +38,7 @@ use super::CLEAR_HISTORY_UNSUPPORTED_ERROR;
 use super::tree::parse_tree;
 use super::tree::{TreeCapabilities, TreeView, parse_tree_with_capabilities};
 
-const SUPPORTED_PROTOCOL_VERSION: u64 = 10;
+const SUPPORTED_PROTOCOL_VERSION: u64 = 12;
 const SURFACE_OVERFLOW_RETRY_DELAYS: [Duration; 3] =
     [Duration::from_millis(250), Duration::from_millis(500), Duration::from_secs(1)];
 const SURFACE_OVERFLOW_STABLE: Duration = Duration::from_secs(5);
@@ -93,6 +94,39 @@ fn require_capability(
     } else {
         anyhow::bail!("remote server does not support {operation}; restart the cmux-tui server")
     }
+}
+
+pub(super) fn parse_agent_record(value: &Value) -> Option<AgentRecord> {
+    let state = match value.get("state")?.as_str()? {
+        "working" => AgentState::Working,
+        "blocked" => AgentState::Blocked,
+        "idle" => AgentState::Idle,
+        "done" => AgentState::Done,
+        "error" => AgentState::Error,
+        _ => AgentState::Unknown,
+    };
+    let source = match value.get("source")?.as_str()? {
+        "detected" => AgentSource::Detected,
+        "hook" => AgentSource::Hook,
+        "socket" => AgentSource::Socket,
+        _ => return None,
+    };
+    Some(AgentRecord {
+        surface: value.get("surface")?.as_u64()?,
+        state,
+        source,
+        session: value.get("session").and_then(Value::as_str).map(str::to_string),
+        telemetry: AgentTelemetry {
+            label: value.get("label").and_then(Value::as_str).map(str::to_string),
+            detail: value.get("detail").and_then(Value::as_str).map(str::to_string),
+            started_at_ms: value.get("started_at_ms").and_then(Value::as_u64),
+            tasks_completed: value.get("tasks_completed").and_then(Value::as_u64),
+            tasks_total: value.get("tasks_total").and_then(Value::as_u64),
+            jobs_running: value.get("jobs_running").and_then(Value::as_u64),
+            agents_active: value.get("agents_active").and_then(Value::as_u64),
+        },
+        updated_at_ms: value.get("updated_at_ms").and_then(Value::as_u64).unwrap_or(0),
+    })
 }
 
 pub(crate) type RemoteResizeReservation = (SurfaceId, (u16, u16), Option<u64>);
@@ -1042,6 +1076,7 @@ impl RemoteSession {
             | "client-detached"
             | "client-list-invalidated" => false,
             "notification" => surface.is_none_or(|surface| surface == target),
+            "agent-state-changed" => surface == Some(target),
             "overflow" if value.get("scope").and_then(Value::as_str) == Some("surface") => {
                 surface == Some(target)
             }
@@ -1276,6 +1311,20 @@ impl RemoteSession {
                     self.emit(MuxEvent::Bell(id));
                 }
             }
+            Some("agent-state-changed") => {
+                if let Some(record) = parse_agent_record(&value) {
+                    let previous = match value.get("previous").and_then(Value::as_str) {
+                        Some("working") => Some(AgentState::Working),
+                        Some("blocked") => Some(AgentState::Blocked),
+                        Some("idle") => Some(AgentState::Idle),
+                        Some("done") => Some(AgentState::Done),
+                        Some("error") => Some(AgentState::Error),
+                        Some("unknown") => Some(AgentState::Unknown),
+                        _ => None,
+                    };
+                    self.emit(MuxEvent::AgentStateChanged { previous, record });
+                }
+            }
             Some("notification") => {
                 let Some(notification) = value.get("notification").and_then(Value::as_u64) else {
                     return;
@@ -1292,6 +1341,7 @@ impl RemoteSession {
                         .and_then(Value::as_str)
                         .unwrap_or_default()
                         .to_string(),
+                    subtitle: value.get("subtitle").and_then(Value::as_str).map(str::to_string),
                     body: value.get("body").and_then(Value::as_str).unwrap_or_default().to_string(),
                     level,
                     surface: surface_id(),
@@ -2304,8 +2354,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn protocol_10_identity_without_browser_capability_keeps_pty_sessions_compatible() {
-        validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 10})).unwrap();
+    fn protocol_12_identity_without_browser_capability_keeps_pty_sessions_compatible() {
+        validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 12})).unwrap();
     }
 
     #[test]
@@ -2321,25 +2371,25 @@ mod tests {
     }
 
     #[test]
-    fn per_surface_client_sizing_requires_protocol_10() {
-        assert_eq!(SUPPORTED_PROTOCOL_VERSION, 10);
+    fn agent_telemetry_requires_protocol_12() {
+        assert_eq!(SUPPORTED_PROTOCOL_VERSION, 12);
     }
 
     #[test]
-    fn protocol_9_identity_is_rejected_before_workspace_loading() {
+    fn protocol_11_identity_is_rejected_before_workspace_loading() {
         let error =
-            validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 9})).unwrap_err();
+            validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 11})).unwrap_err();
         assert_eq!(
             error.to_string(),
-            "unsupported cmux-tui protocol 9; this client requires protocol 10; restart the cmux-tui server"
+            "unsupported cmux-tui protocol 11; this client requires protocol 12; restart the cmux-tui server"
         );
     }
 
     #[test]
-    fn protocol_10_identity_with_guarded_pointer_capability_is_accepted() {
+    fn protocol_12_identity_with_guarded_pointer_capability_is_accepted() {
         validate_remote_identity(&json!({
             "app": "cmux-tui",
-            "protocol": 10,
+            "protocol": 12,
             "capabilities": ["browser-pointer-frame-guard-v1"],
         }))
         .unwrap();
@@ -2373,8 +2423,37 @@ mod tests {
     }
 
     #[test]
-    fn protocol_10_identity_is_accepted() {
-        validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 10})).unwrap();
+    fn protocol_12_identity_is_accepted() {
+        validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 12})).unwrap();
+    }
+
+    #[test]
+    fn protocol_12_agent_records_decode_all_optional_telemetry() {
+        let record = parse_agent_record(&json!({
+            "surface": 41,
+            "state": "error",
+            "source": "hook",
+            "session": "session-1",
+            "label": "root",
+            "detail": "reviewing",
+            "started_at_ms": 1700000000000_u64,
+            "tasks_completed": 3,
+            "tasks_total": 5,
+            "jobs_running": 2,
+            "agents_active": 4,
+            "updated_at_ms": 1700000001000_u64
+        }))
+        .unwrap();
+
+        assert_eq!(record.state, AgentState::Error);
+        assert_eq!(record.source, AgentSource::Hook);
+        assert_eq!(record.telemetry.label.as_deref(), Some("root"));
+        assert_eq!(record.telemetry.detail.as_deref(), Some("reviewing"));
+        assert_eq!(record.telemetry.started_at_ms, Some(1_700_000_000_000));
+        assert_eq!(record.telemetry.tasks_completed, Some(3));
+        assert_eq!(record.telemetry.tasks_total, Some(5));
+        assert_eq!(record.telemetry.jobs_running, Some(2));
+        assert_eq!(record.telemetry.agents_active, Some(4));
     }
 
     #[test]

@@ -828,7 +828,7 @@ export class CmuxClient {
   notify(
     title: string,
     body: string,
-    options: { level?: NotificationLevel | null; surface?: IdRef | null } = {},
+    options: { subtitle?: string | null; level?: NotificationLevel | null; surface?: IdRef | null } = {},
   ): Promise<NotifyResult> {
     return this.request("notify", { title, body, ...options });
   }
@@ -839,9 +839,18 @@ export class CmuxClient {
     surface: IdRef,
     state: AgentState,
     source: AgentReportSource,
-    session?: string | null,
+    options: {
+      session?: string | null;
+      label?: string | null;
+      detail?: string | null;
+      started_at_ms?: number | null;
+      tasks_completed?: number | null;
+      tasks_total?: number | null;
+      jobs_running?: number | null;
+      agents_active?: number | null;
+    } = {},
   ): Promise<ReportAgentResult> {
-    return this.request("report-agent", { surface, state, source, session });
+    return this.request("report-agent", { surface, state, source, ...options });
   }
 
   private async openStream<T extends { event: string }>(

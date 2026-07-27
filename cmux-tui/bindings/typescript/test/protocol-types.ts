@@ -123,9 +123,22 @@ const requests = [
   { cmd: "send-key", surface: 1, keys: ["ctrl+c"] },
   { cmd: "copy", surface: 1, mode: "screen" },
   { cmd: "ids", kind: "surface" },
-  { cmd: "notify", title: "Build", body: "done" },
+  { cmd: "notify", title: "Build", subtitle: "Completed", body: "done", level: "info" },
   { cmd: "list-agents", state: "working" },
-  { cmd: "report-agent", surface: 1, state: "working", source: "socket" },
+  {
+    cmd: "report-agent",
+    surface: 1,
+    state: "error",
+    source: "socket",
+    session: "session-1",
+    label: "root",
+    detail: "reviewing",
+    started_at_ms: 1_700_000_000_000,
+    tasks_completed: 3,
+    tasks_total: 5,
+    jobs_running: 2,
+    agents_active: 4,
+  },
 ] satisfies CmuxRequest[];
 
 type IdentifyData = CmuxResponseData<(typeof requests)[0]>;

@@ -211,7 +211,7 @@ const VERBS: &[VerbSpec] = &[
     VerbSpec {
         name: "notify",
         help: HelpText::Literal("Show a cmux notification."),
-        allowed: &["title", "body", "level", "surface"],
+        allowed: &["title", "subtitle", "body", "level", "surface"],
         kind: socket(build_notify, print_notification, false),
     },
     VerbSpec {
@@ -223,7 +223,19 @@ const VERBS: &[VerbSpec] = &[
     VerbSpec {
         name: "report-agent",
         help: HelpText::Literal("Report an agent state."),
-        allowed: &["surface", "state", "source", "session"],
+        allowed: &[
+            "surface",
+            "state",
+            "source",
+            "session",
+            "label",
+            "detail",
+            "started-at-ms",
+            "tasks-completed",
+            "tasks-total",
+            "jobs-running",
+            "agents-active",
+        ],
         kind: socket(build_report_agent, print_empty, false),
     },
     VerbSpec {
@@ -1167,6 +1179,7 @@ fn build_notify(flags: &FlagMap) -> Result<Value, UsageError> {
         "title": flags.required("title")?,
         "body": flags.required("body")?,
     });
+    flags.insert_optional_string(&mut value, "subtitle");
     if let Some(level) = flags.optional("level") {
         if !matches!(level.as_str(), "info" | "warning" | "error") {
             return Err(UsageError("--level must be info, warning, or error".to_string()));
@@ -1181,9 +1194,10 @@ fn build_list_agents(flags: &FlagMap) -> Result<Value, UsageError> {
     let mut value = json!({});
     flags.insert_optional_u64(&mut value, "surface")?;
     if let Some(state) = flags.optional("state") {
-        if !matches!(state.as_str(), "working" | "blocked" | "idle" | "done" | "unknown") {
+        if !matches!(state.as_str(), "working" | "blocked" | "idle" | "done" | "error" | "unknown")
+        {
             return Err(UsageError(
-                "--state must be working, blocked, idle, done, or unknown".to_string(),
+                "--state must be working, blocked, idle, done, error, or unknown".to_string(),
             ));
         }
         value["state"] = json!(state);
@@ -1193,9 +1207,9 @@ fn build_list_agents(flags: &FlagMap) -> Result<Value, UsageError> {
 
 fn build_report_agent(flags: &FlagMap) -> Result<Value, UsageError> {
     let state = flags.required("state")?;
-    if !matches!(state.as_str(), "working" | "blocked" | "idle" | "done" | "unknown") {
+    if !matches!(state.as_str(), "working" | "blocked" | "idle" | "done" | "error" | "unknown") {
         return Err(UsageError(
-            "--state must be working, blocked, idle, done, or unknown".to_string(),
+            "--state must be working, blocked, idle, done, error, or unknown".to_string(),
         ));
     }
     let source = flags.required("source")?;
@@ -1208,6 +1222,19 @@ fn build_report_agent(flags: &FlagMap) -> Result<Value, UsageError> {
         "source": source,
     });
     flags.insert_optional_string(&mut value, "session");
+    flags.insert_optional_string(&mut value, "label");
+    flags.insert_optional_string(&mut value, "detail");
+    for (flag, field) in [
+        ("started-at-ms", "started_at_ms"),
+        ("tasks-completed", "tasks_completed"),
+        ("tasks-total", "tasks_total"),
+        ("jobs-running", "jobs_running"),
+        ("agents-active", "agents_active"),
+    ] {
+        if let Some(raw) = flags.optional(flag) {
+            value[field] = json!(parse_u64(flag, &raw)?);
+        }
+    }
     Ok(value)
 }
 
@@ -2301,6 +2328,43 @@ mod tests {
                 crate::localization::catalog().layout.layout_undo_confirmation_flags_together
             );
         }
+    }
+
+    #[test]
+    fn report_agent_builder_accepts_protocol_11_telemetry_and_error() {
+        let flags = FlagMap {
+            values: BTreeMap::from([
+                ("surface".to_string(), "9".to_string()),
+                ("state".to_string(), "error".to_string()),
+                ("source".to_string(), "socket".to_string()),
+                ("session".to_string(), "session-1".to_string()),
+                ("label".to_string(), "root".to_string()),
+                ("detail".to_string(), "reviewing".to_string()),
+                ("started-at-ms".to_string(), "1700000000000".to_string()),
+                ("tasks-completed".to_string(), "3".to_string()),
+                ("tasks-total".to_string(), "5".to_string()),
+                ("jobs-running".to_string(), "2".to_string()),
+                ("agents-active".to_string(), "4".to_string()),
+            ]),
+            ..Default::default()
+        };
+
+        assert_eq!(
+            build_report_agent(&flags).unwrap(),
+            json!({
+                "surface": 9,
+                "state": "error",
+                "source": "socket",
+                "session": "session-1",
+                "label": "root",
+                "detail": "reviewing",
+                "started_at_ms": 1_700_000_000_000_u64,
+                "tasks_completed": 3,
+                "tasks_total": 5,
+                "jobs_running": 2,
+                "agents_active": 4,
+            })
+        );
     }
 
     #[test]

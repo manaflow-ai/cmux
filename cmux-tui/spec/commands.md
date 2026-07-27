@@ -1,6 +1,6 @@
 # Command Contract
 
-This file specifies the JSON command contract for the cmux-tui protocol. Implemented commands match protocol v10 in `cmux-tui/crates/cmux-tui-core/src/server.rs`.
+This file specifies the JSON command contract for the cmux-tui protocol. Implemented commands match protocol v11 in `cmux-tui/crates/cmux-tui-core/src/server.rs`.
 
 ## Notation
 
@@ -210,10 +210,10 @@ Example:
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":10,"capabilities":["attach-initial-size","surface-subscribe-filter","workspace-registry-v1","browser-pointer-frame-guard-v1","viewport-splits-v1","viewport-column-resize-v1","layout-undo-v1","clear-history-v1","clear-history-key-v1","provider-managed-workspace-authority-v2"],"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":12,"capabilities":["attach-initial-size","surface-subscribe-filter","workspace-registry-v1","browser-pointer-frame-guard-v1","viewport-splits-v1","viewport-column-resize-v1","layout-undo-v1","clear-history-v1","clear-history-key-v1","provider-managed-workspace-authority-v2"],"session":"main","pid":12345}}
 ```
 
-The current server reports protocol `10` in this field and in `ping`. Clients must negotiate protocol 8 before requiring stable split ids or sending `set-split-ratio`, protocol 9 before decoding stack layouts or sending `new-pane`, and protocol 10 before using per-surface client sizing.
+The current server reports protocol `11` in this field and in `ping`. Clients must negotiate protocol 8 before requiring stable split ids or sending `set-split-ratio`, protocol 9 before decoding stack layouts or sending `new-pane`, protocol 10 before using per-surface client sizing, and protocol 11 before using agent telemetry fields, `agent-state-changed`, or notification subtitles.
 
 ### ping
 
@@ -243,7 +243,7 @@ Example:
 
 ```json
 {"id":2,"cmd":"ping"}
-{"id":2,"ok":true,"data":{"ok":true,"version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":10}}
+{"id":2,"ok":true,"data":{"ok":true,"version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":11}}
 ```
 
 ### set-client-info
@@ -3132,6 +3132,7 @@ Params:
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
 | `title` | `string` | required | Non-empty |
+| `subtitle` | `string` | default null | Optional concise notification category, rendered separately from title/body |
 | `body` | `string` | required | May be empty |
 | `level` | `string` | default `"info"` | `"info"`, `"warning"`, or `"error"` |
 | `surface` | `IdRef` | default null | Optional originating surface |
@@ -3156,7 +3157,7 @@ CLI mapping:
 | Item | Value |
 | --- | --- |
 | Verb | `notify` |
-| Flags | `--title <title> --body <body> [--level info|warning|error] [--surface <id>]` |
+| Flags | `--title <title> --body <body> [--subtitle <subtitle>] [--level info|warning|error] [--surface <id>]` |
 | Plain stdout | notification id followed by newline |
 | JSON stdout | exact result object |
 | Exit codes | common |
@@ -3164,7 +3165,7 @@ CLI mapping:
 Example:
 
 ```json
-{"id":106,"cmd":"notify","title":"Build failed","body":"api tests failed","level":"error","surface":1}
+{"id":106,"cmd":"notify","title":"Build","subtitle":"Error","body":"api tests failed","level":"error","surface":1}
 {"id":106,"ok":true,"data":{"notification":44}}
 ```
 
@@ -3191,9 +3192,16 @@ Result:
 object{
   agents: array<object{
     surface: Id,
-    state: "working"|"blocked"|"idle"|"done"|"unknown",
+    state: "working"|"blocked"|"idle"|"done"|"error"|"unknown",
     source: "detected"|"socket"|"hook",
     session: string|null,
+    label: string|null,
+    detail: string|null,
+    started_at_ms: uint64|null,
+    tasks_completed: uint64|null,
+    tasks_total: uint64|null,
+    jobs_running: uint64|null,
+    agents_active: uint64|null,
     updated_at_ms: uint64
   }>
 }
@@ -3212,7 +3220,7 @@ CLI mapping:
 | Item | Value |
 | --- | --- |
 | Verb | `list-agents` |
-| Flags | `[--surface <id>] [--state working|blocked|idle|done|unknown]` |
+| Flags | `[--surface <id>] [--state working|blocked|idle|done|error|unknown]` |
 | Plain stdout | one line per agent: `<surface> <state> <source> <session-or->` |
 | JSON stdout | exact result object |
 | Exit codes | common |
@@ -3239,14 +3247,21 @@ Params:
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
 | `surface` | `IdRef` | required | Surface associated with the agent |
-| `state` | `string` | required | `"working"`, `"blocked"`, `"idle"`, `"done"`, or `"unknown"` |
+| `state` | `string` | required | `"working"`, `"blocked"`, `"idle"`, `"done"`, `"error"`, or `"unknown"` |
 | `source` | `string` | required | `"socket"` or `"hook"` |
 | `session` | `string` | default null | Optional upstream agent session id |
+| `label` | `string` | default null | Human-readable agent label |
+| `detail` | `string` | default null | Current tool, todo phase/item, or subagent activity |
+| `started_at_ms` | `uint64` | default null | Unix epoch milliseconds when work started |
+| `tasks_completed` | `uint64` | default null | Completed todo/task count |
+| `tasks_total` | `uint64` | default null | Total todo/task count |
+| `jobs_running` | `uint64` | default null | Running asynchronous job count |
+| `agents_active` | `uint64` | default null | Root plus live subagent count |
 
 Result:
 
 ```text
-object{surface:Id,state:string,source:string,session:string|null}
+object{surface:Id,state:string,source:string,session:string|null,label:string|null,detail:string|null,started_at_ms:uint64|null,tasks_completed:uint64|null,tasks_total:uint64|null,jobs_running:uint64|null,agents_active:uint64|null,updated_at_ms:uint64}
 ```
 
 Errors:
@@ -3263,7 +3278,7 @@ CLI mapping:
 | Item | Value |
 | --- | --- |
 | Verb | `report-agent` |
-| Flags | `--surface <id> --state working|blocked|idle|done|unknown --source socket|hook [--session <id>]` |
+| Flags | `--surface <id> --state working|blocked|idle|done|error|unknown --source socket|hook [--session <id>] [--label <label>] [--detail <detail>] [--started-at-ms <n>] [--tasks-completed <n>] [--tasks-total <n>] [--jobs-running <n>] [--agents-active <n>]` |
 | Plain stdout | no output |
 | JSON stdout | exact result object |
 | Exit codes | common |
@@ -3271,8 +3286,8 @@ CLI mapping:
 Example:
 
 ```json
-{"id":108,"cmd":"report-agent","surface":1,"state":"working","source":"socket","session":"abc"}
-{"id":108,"ok":true,"data":{"surface":1,"state":"working","source":"socket","session":"abc"}}
+{"id":108,"cmd":"report-agent","surface":1,"state":"working","source":"socket","session":"abc","label":"root","detail":"reviewing","started_at_ms":1710000000000,"tasks_completed":3,"tasks_total":5,"jobs_running":2,"agents_active":4}
+{"id":108,"ok":true,"data":{"surface":1,"state":"working","source":"socket","session":"abc","label":"root","detail":"reviewing","started_at_ms":1710000000000,"tasks_completed":3,"tasks_total":5,"jobs_running":2,"agents_active":4,"updated_at_ms":1710000001000}}
 ```
 
 ## Proposed Hooks Config

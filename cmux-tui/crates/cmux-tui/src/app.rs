@@ -14,18 +14,18 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, TrySendError, sync_channel};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use base64::Engine;
 use cmux_tui_core::{
-    BrowserFrame, BrowserSource, BrowserStatus, ClearHistoryDelivery, ClearHistoryFailure,
-    DEFAULT_VIEWPORT_PANE_WIDTH, Direction, GuardedMouseEncode, LayoutUndoError, LayoutUndoResult,
-    MAX_VIEWPORT_PANE_WIDTH, MIN_VIEWPORT_PANE_WIDTH, MuxEvent, Node, PairingChallenge, PaneId,
-    PointerSemanticProbe, PointerSnapshotProbe, Rect, ScreenId, SplitDir, SplitEdge, SplitId,
-    SurfaceId, SurfaceKind, TerminalPointerSnapshot, ViewportColumn, ViewportLayoutResult,
-    VirtualRect, WorkspaceId, ZoomMode, exact_split_for_pane_edge,
-    exact_split_for_pane_edge_with_viewport, layout_screen, layout_screen_with_viewport,
-    split_sides, zellij_default_pane_layout,
+    AgentRecord, AgentState, BrowserFrame, BrowserSource, BrowserStatus, ClearHistoryDelivery,
+    ClearHistoryFailure, DEFAULT_VIEWPORT_PANE_WIDTH, Direction, GuardedMouseEncode,
+    LayoutUndoError, LayoutUndoResult, MAX_VIEWPORT_PANE_WIDTH, MIN_VIEWPORT_PANE_WIDTH, MuxEvent,
+    Node, NotificationEvent, PairingChallenge, PaneId, PointerSemanticProbe, PointerSnapshotProbe,
+    Rect, ScreenId, SplitDir, SplitEdge, SplitId, SurfaceId, SurfaceKind, TerminalPointerSnapshot,
+    ViewportColumn, ViewportLayoutResult, VirtualRect, WorkspaceId, ZoomMode,
+    exact_split_for_pane_edge, exact_split_for_pane_edge_with_viewport, layout_screen,
+    layout_screen_with_viewport, split_sides, zellij_default_pane_layout,
 };
 use crossterm::ExecutableCommand;
 use crossterm::event::{
@@ -253,6 +253,7 @@ impl SessionEventSender {
             MuxEvent::Notification(notification) => {
                 notification.surface.is_none_or(|surface| surface == filter)
             }
+            MuxEvent::AgentStateChanged { record, .. } => record.surface == filter,
             _ => true,
         }
     }
@@ -1117,6 +1118,9 @@ impl OrderedSession {
         self.inner.respond_pairing(request, approve)
     }
 
+    fn agents(&self) -> anyhow::Result<Vec<AgentRecord>> {
+        self.inner.agents()
+    }
     fn refresh_clients_background(&self) {
         self.client_refresh_generation.fetch_add(1, Ordering::AcqRel);
         self.client_refresh_dirty.store(true, Ordering::Release);
@@ -3540,6 +3544,11 @@ pub struct Toast {
     deadline: Instant,
 }
 
+pub struct NotificationBanner {
+    pub event: NotificationEvent,
+    deadline: Instant,
+}
+
 #[derive(Debug, Clone, Copy)]
 struct BrowserMouseDispatch {
     event_type: &'static str,
@@ -4820,6 +4829,8 @@ pub struct App {
     default_colors: cmux_tui_core::DefaultColors,
     pub tree: TreeView,
     tab_locations: HashMap<SurfaceId, [usize; 4]>,
+    pub(crate) agent_records: HashMap<SurfaceId, AgentRecord>,
+    last_agent_elapsed_second: Option<u64>,
     pub render_states: HashMap<SurfaceId, RenderState>,
     pub(crate) chrome_row_scratch: ReusableRowBuffer,
     /// Terminal grid dimensions from the frame actually drawn for each
@@ -4914,6 +4925,7 @@ pub struct App {
     pub shortcut_help: Option<ShortcutHelp>,
     pub omnibar: Option<OmnibarState>,
     pub toast: Option<Toast>,
+    pub(crate) notification_banner: Option<NotificationBanner>,
     pub(crate) shake_frames: u8,
     pub selection: Option<Selection>,
     selection_generation: u64,
@@ -5979,6 +5991,12 @@ pub fn run_with_machine_updates(
     let sidebar_view = config.sidebar.view;
     let fallback_cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let initial_machine_notice = machine_ui.as_ref().and_then(|machine| machine.notice.clone());
+    let agent_records = session
+        .agents()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|record| (record.surface, record))
+        .collect();
     let mut app = App {
         session,
         session_event_worker: Some(session_event_worker),
@@ -6004,6 +6022,8 @@ pub fn run_with_machine_updates(
         default_colors,
         tree: TreeView::default(),
         tab_locations: HashMap::new(),
+        agent_records,
+        last_agent_elapsed_second: None,
         render_states: HashMap::new(),
         chrome_row_scratch: ReusableRowBuffer::default(),
         rendered_terminal_sizes: HashMap::new(),
@@ -6074,6 +6094,7 @@ pub fn run_with_machine_updates(
         shortcut_help: None,
         omnibar: None,
         toast: None,
+        notification_banner: None,
         shake_frames: 0,
         selection: None,
         selection_generation: 0,
@@ -6442,9 +6463,88 @@ fn should_claim_clear_history_shortcut(
     surface_kind == SurfaceKind::Pty && supports_atomic_fallback
 }
 
+fn wall_clock_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        .min(u128::from(u64::MAX)) as u64
+}
+
+fn format_elapsed(seconds: u64, compact: bool) -> String {
+    if seconds >= 3_600 {
+        let hours = seconds / 3_600;
+        let minutes = (seconds % 3_600) / 60;
+        if compact { format!("{hours}h") } else { format!("{hours}h{minutes:02}m") }
+    } else if seconds >= 60 {
+        let minutes = seconds / 60;
+        let remainder = seconds % 60;
+        if compact { format!("{minutes}m") } else { format!("{minutes}m{remainder:02}s") }
+    } else {
+        format!("{seconds}s")
+    }
+}
 impl App {
     pub fn is_surface_only(&self) -> bool {
         self.surface_only.is_some()
+    }
+
+    pub(crate) fn agent_record(&self, surface: SurfaceId) -> Option<&AgentRecord> {
+        self.agent_records.get(&surface)
+    }
+
+    pub(crate) fn active_agent_record(&self) -> Option<&AgentRecord> {
+        self.tree.active_surface().and_then(|surface| self.agent_record(surface))
+    }
+
+    fn agent_elapsed_seconds(&self, record: &AgentRecord) -> Option<u64> {
+        let started = record.telemetry.started_at_ms?;
+        let end = match record.state {
+            AgentState::Done | AgentState::Error => record.updated_at_ms,
+            _ => wall_clock_ms(),
+        };
+        Some(end.saturating_sub(started) / 1_000)
+    }
+
+    pub(crate) fn agent_summary(&self, record: &AgentRecord, compact: bool) -> String {
+        let telemetry = &record.telemetry;
+        let mut parts = vec![record.state.as_str().to_string()];
+        if !compact {
+            if let Some(label) = telemetry.label.as_deref().filter(|value| !value.is_empty()) {
+                parts.push(label.to_string());
+            }
+        }
+        if let Some((completed, total)) = telemetry.tasks_completed.zip(telemetry.tasks_total) {
+            parts.push(format!("{completed}/{total}"));
+        }
+        if let Some(jobs) = telemetry.jobs_running {
+            parts.push(format!("{jobs}j"));
+        }
+        if let Some(agents) = telemetry.agents_active {
+            parts.push(format!("{agents}a"));
+        }
+        if let Some(elapsed) = self.agent_elapsed_seconds(record) {
+            parts.push(format_elapsed(elapsed, compact));
+        }
+        if let Some(detail) = telemetry.detail.as_deref().filter(|value| !value.is_empty()) {
+            parts.push(detail.to_string());
+        }
+        parts.join(" ")
+    }
+
+    fn tick_agent_elapsed(&mut self) -> bool {
+        let elapsed =
+            self.active_agent_record().and_then(|record| self.agent_elapsed_seconds(record));
+        if elapsed == self.last_agent_elapsed_second {
+            false
+        } else {
+            self.last_agent_elapsed_second = elapsed;
+            true
+        }
+    }
+
+    pub(crate) fn notification_banner(&self) -> Option<&NotificationEvent> {
+        self.notification_banner.as_ref().map(|banner| &banner.event)
     }
 
     pub fn session_available(&self) -> bool {
@@ -6580,6 +6680,7 @@ impl App {
             } else if self.shake_frames > 0
                 || self.selection_auto_scroll_active()
                 || self.toast.is_some()
+                || self.notification_banner.is_some()
             {
                 Duration::from_millis(30)
             } else {
@@ -6633,6 +6734,12 @@ impl App {
             action = action.merge(self.apply_graphics_completion());
             action = action.merge(self.process_machine_requests());
             // Always drain retained failures. PtyFailuresReady only shortens
+            if self.tick_agent_elapsed() {
+                action = action.merge(RenderAction::Draw);
+            }
+            if self.expire_notification_banner() {
+                action = action.merge(RenderAction::Draw);
+            }
             // the idle wait, so a failed try_send cannot create a lost wakeup.
             action = action.merge(self.apply_pty_failures());
             if self.session.take_cancellation_pending() {
@@ -7274,6 +7381,14 @@ impl App {
         self.tree = tree;
         self.tab_locations.clear();
         self.rebuild_tab_locations();
+        self.agent_records = self
+            .session
+            .agents()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|record| (record.surface, record))
+            .collect();
+        self.last_agent_elapsed_second = None;
         self.render_states.clear();
         self.pane_areas.clear();
         self.viewport_projection.clear();
@@ -7314,6 +7429,7 @@ impl App {
         self.pairing_queue.clear();
         self.omnibar = None;
         self.toast = None;
+        self.notification_banner = None;
         self.shake_frames = 0;
         self.replace_selection(None);
         self.last_browser_hover = None;
@@ -8271,6 +8387,7 @@ impl App {
         self.pending_size_releases.remove(&surface);
         self.mux_titles.remove(surface);
         self.session.retire_surface_input(surface);
+        self.agent_records.remove(&surface);
         self.session.forget_surface(surface);
         if self.sidebar_plugin_surface == Some(surface) {
             self.session.invalidate_sidebar_plugin_sync();
@@ -9593,6 +9710,18 @@ impl App {
                     MachineUpdate::Ui(update) => self.apply_machine_ui_update(*update),
                     MachineUpdate::DurableNotice(notice) => self.accept_durable_notice(notice),
                 })
+            }
+            AppEvent::Mux(MuxEvent::AgentStateChanged { record, .. }) => {
+                self.agent_records.insert(record.surface, record);
+                self.last_agent_elapsed_second = None;
+                Ok(RenderAction::Draw)
+            }
+            AppEvent::Mux(MuxEvent::Notification(event)) => {
+                self.notification_banner = Some(NotificationBanner {
+                    event,
+                    deadline: Instant::now() + Duration::from_secs(4),
+                });
+                Ok(RenderAction::Draw)
             }
             AppEvent::MachineControllerCompleted(completion) => {
                 Ok(self.apply_machine_controller_completion(*completion))
@@ -15242,6 +15371,16 @@ impl App {
         let _ = stdout.flush();
     }
 
+    fn expire_notification_banner(&mut self) -> bool {
+        if self.notification_banner.as_ref().is_some_and(|banner| Instant::now() >= banner.deadline)
+        {
+            self.notification_banner = None;
+            true
+        } else {
+            false
+        }
+    }
+
     fn copy_short_id(&mut self, short_id: String) {
         self.copy_text_to_clipboard(&short_id);
         self.show_toast(format!("Copied {short_id}"));
@@ -16438,7 +16577,7 @@ mod tests {
         record_surface_resize_dispatch_result, reset_pane_area_projection_work,
         should_claim_clear_history_shortcut, sidebar_layout_for,
         sidebar_plugin_status_settles_passive_claim, start_ordered_session,
-        swept_viewport_size_leases, thumb_geometry, with_panic_stdout_lock,
+        swept_viewport_size_leases, thumb_geometry, wall_clock_ms, with_panic_stdout_lock,
     };
     use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
     use std::path::PathBuf;
@@ -16448,7 +16587,8 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use cmux_tui_core::{
-        BrowserFrame, BrowserStatus, Direction, LayoutUndoError, Mux, MuxEvent, Node,
+        AgentRecord, AgentSource, AgentState, AgentTelemetry, BrowserFrame, BrowserStatus, Direction,
+        LayoutUndoError, Mux, MuxEvent, Node, NotificationEvent, NotificationLevel,
         PointerSnapshotProbe, Rect, SplitDir, SurfaceId, SurfaceKind, SurfaceOptions, VirtualRect,
         ZoomMode, layout_screen, server,
     };
@@ -17916,6 +18056,219 @@ mod tests {
         assert_eq!(terminal.backend().buffer()[(0, 7)].fg, ratatui::style::Color::Red);
 
         mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn agent_telemetry_renders_in_status_and_workspace_sidebar_without_hiding_chrome() {
+        let mux = Mux::new("agent-summary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.tree = notify_tree(41, false);
+        app.sidebar_view = SidebarView::Workspaces;
+        app.sidebar_width = 44;
+        app.session_label = "session".to_string();
+        app.agent_records.insert(
+            41,
+            AgentRecord {
+                surface: 41,
+                state: AgentState::Working,
+                source: AgentSource::Socket,
+                session: Some("session-1".to_string()),
+                telemetry: AgentTelemetry {
+                    label: Some("root".to_string()),
+                    detail: Some("reviewing".to_string()),
+                    started_at_ms: Some(wall_clock_ms().saturating_sub(65_000)),
+                    tasks_completed: Some(3),
+                    tasks_total: Some(5),
+                    jobs_running: Some(2),
+                    agents_active: Some(4),
+                },
+                updated_at_ms: wall_clock_ms(),
+            },
+        );
+
+        let mut terminal = Terminal::new(TestBackend::new(120, 12)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let rendered = buffer_text(terminal.backend().buffer());
+
+        assert!(rendered.contains("working"), "{rendered}");
+        assert!(rendered.contains("3/5"), "{rendered}");
+        assert!(rendered.contains("2j"), "{rendered}");
+        assert!(rendered.contains("4a"), "{rendered}");
+        assert!(rendered.contains("1m"), "{rendered}");
+        let status = rendered.lines().last().unwrap();
+        assert!(status.contains("screens"), "{status}");
+        assert!(status.contains("[session]"), "{status}");
+    }
+
+    #[test]
+    fn narrow_status_keeps_screen_and_session_before_agent_summary() {
+        let mux = Mux::new("agent-summary-narrow-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.tree = notify_tree(41, false);
+        app.sidebar_visible = false;
+        app.session_label = "sess".to_string();
+        app.agent_records.insert(
+            41,
+            AgentRecord {
+                surface: 41,
+                state: AgentState::Working,
+                source: AgentSource::Socket,
+                session: None,
+                telemetry: AgentTelemetry {
+                    label: Some("very-long-agent-label".to_string()),
+                    tasks_completed: Some(123),
+                    tasks_total: Some(456),
+                    jobs_running: Some(78),
+                    agents_active: Some(90),
+                    ..AgentTelemetry::default()
+                },
+                updated_at_ms: wall_clock_ms(),
+            },
+        );
+
+        let mut terminal = Terminal::new(TestBackend::new(34, 8)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let rendered = buffer_text(terminal.backend().buffer());
+        let status = rendered.lines().last().unwrap();
+
+        assert!(status.contains("screens"), "{status}");
+        assert!(status.contains("[sess]"), "{status}");
+    }
+
+    #[test]
+    fn agent_state_events_update_cache_and_keep_blocked_distinct_from_error() {
+        let mux = Mux::new("agent-event-render-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.tree = notify_tree(41, false);
+        app.sidebar_visible = false;
+        let record = |state| AgentRecord {
+            surface: 41,
+            state,
+            source: AgentSource::Hook,
+            session: None,
+            telemetry: AgentTelemetry {
+                detail: Some("awaiting approval".to_string()),
+                ..AgentTelemetry::default()
+            },
+            updated_at_ms: wall_clock_ms(),
+        };
+
+        app.handle(AppEvent::Mux(MuxEvent::AgentStateChanged {
+            previous: Some(AgentState::Working),
+            record: record(AgentState::Blocked),
+        }))
+        .unwrap();
+        assert_eq!(app.agent_records[&41].state, AgentState::Blocked);
+        let mut blocked = Terminal::new(TestBackend::new(80, 8)).unwrap();
+        blocked.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let blocked_buffer = blocked.backend().buffer();
+        let blocked_x = (0..80).find(|x| blocked_buffer[(*x, 7)].symbol() == "!").unwrap();
+        assert_eq!(blocked_buffer[(blocked_x, 7)].fg, app.config.theme.notification_warning);
+        assert!(buffer_text(blocked_buffer).contains("awaiting approval"));
+
+        app.handle(AppEvent::Mux(MuxEvent::AgentStateChanged {
+            previous: Some(AgentState::Blocked),
+            record: record(AgentState::Error),
+        }))
+        .unwrap();
+        assert_eq!(app.agent_records[&41].state, AgentState::Error);
+        let mut failed = Terminal::new(TestBackend::new(80, 8)).unwrap();
+        failed.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let failed_buffer = failed.backend().buffer();
+        let error_x = (0..80).find(|x| failed_buffer[(*x, 7)].symbol() == "×").unwrap();
+        assert_eq!(failed_buffer[(error_x, 7)].fg, app.config.theme.notification_error);
+    }
+
+    #[test]
+    fn notification_banner_renders_optional_subtitles_and_all_severities() {
+        let mux = Mux::new("notification-banner-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.tree = notify_tree(41, false);
+        app.sidebar_visible = false;
+        let cases = [
+            ("Permission", NotificationLevel::Warning),
+            ("Error", NotificationLevel::Error),
+            ("Completed", NotificationLevel::Info),
+            ("Waiting", NotificationLevel::Warning),
+        ];
+        for (index, (subtitle, level)) in cases.into_iter().enumerate() {
+            app.handle(AppEvent::Mux(MuxEvent::Notification(NotificationEvent {
+                notification: index as u64 + 1,
+                title: "Agent".to_string(),
+                subtitle: Some(subtitle.to_string()),
+                body: "needs attention".to_string(),
+                level,
+                surface: Some(41),
+            })))
+            .unwrap();
+            let mut terminal = Terminal::new(TestBackend::new(80, 8)).unwrap();
+            terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+            let buffer = terminal.backend().buffer();
+            let rendered = buffer_text(buffer);
+            assert!(
+                rendered.contains(&format!("Agent · {subtitle} — needs attention")),
+                "{rendered}"
+            );
+            let expected = match level {
+                NotificationLevel::Info => app.config.theme.notification_info,
+                NotificationLevel::Warning => app.config.theme.notification_warning,
+                NotificationLevel::Error => app.config.theme.notification_error,
+            };
+            assert_eq!(buffer[(0, 6)].bg, expected);
+            let subtitle_x = rendered.lines().nth(6).unwrap().find(subtitle).unwrap() as u16;
+            assert!(buffer[(subtitle_x, 6)].modifier.contains(Modifier::UNDERLINED));
+        }
+
+        app.handle(AppEvent::Mux(MuxEvent::Notification(NotificationEvent {
+            notification: 5,
+            title: "Build".to_string(),
+            subtitle: None,
+            body: "ok".to_string(),
+            level: NotificationLevel::Info,
+            surface: None,
+        })))
+        .unwrap();
+        let mut terminal = Terminal::new(TestBackend::new(80, 8)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let rendered = buffer_text(terminal.backend().buffer());
+        assert!(rendered.contains("Build — ok"), "{rendered}");
+        assert!(!rendered.contains("Build ·"), "{rendered}");
+    }
+
+    #[test]
+    fn notification_unread_badge_reports_count_and_highest_severity() {
+        let mux = Mux::new("notification-summary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sidebar_view = SidebarView::Files;
+        app.sidebar_width = 24;
+        let cases = [
+            (vec!["info"], app.config.theme.notification_info),
+            (vec!["info", "warning"], app.config.theme.notification_warning),
+            (vec!["info", "warning", "error"], app.config.theme.notification_error),
+        ];
+        for (levels, expected) in cases {
+            let mut tree = notify_tree(41, false);
+            let pane = &mut tree.workspaces[0].screens[0].panes[0];
+            let template = pane.tabs[0].clone();
+            pane.tabs = levels
+                .iter()
+                .enumerate()
+                .map(|(index, level)| {
+                    let mut tab = template.clone();
+                    tab.surface = 41 + index as u64;
+                    tab.notification = Some(TabNotificationView { unread: true, level });
+                    tab
+                })
+                .collect();
+            app.tree = tree;
+            let mut terminal = Terminal::new(TestBackend::new(80, 10)).unwrap();
+            terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+            let buffer = terminal.backend().buffer();
+            let header = (0..24).map(|x| buffer[(x, 0)].symbol()).collect::<String>();
+            assert!(header.contains(&format!("• {}", levels.len())), "{header}");
+            let badge_x = (0..24).find(|x| buffer[(*x, 0)].symbol() == "•").unwrap();
+            assert_eq!(buffer[(badge_x, 0)].fg, expected);
+        }
     }
 
     #[test]
@@ -31288,6 +31641,8 @@ mod tests {
             default_colors: cmux_tui_core::DefaultColors::default(),
             tree: TreeView::default(),
             tab_locations: HashMap::new(),
+            agent_records: HashMap::new(),
+            last_agent_elapsed_second: None,
             render_states: HashMap::<u64, RenderState>::new(),
             chrome_row_scratch: crate::ui::ReusableRowBuffer::default(),
             rendered_terminal_sizes: HashMap::new(),
@@ -31358,6 +31713,7 @@ mod tests {
             shortcut_help: None,
             omnibar: None,
             toast: None,
+            notification_banner: None,
             shake_frames: 0,
             selection: None,
             selection_generation: 0,

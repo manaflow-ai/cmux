@@ -271,6 +271,22 @@ impl Session {
         serde_json::from_value(value).map_err(Into::into)
     }
 
+    pub fn agents(&self) -> anyhow::Result<Vec<AgentRecord>> {
+        match self {
+            Session::Local(mux) => Ok(mux.list_agents(None, None)),
+            Session::Remote(remote) => {
+                let value = remote.request(json!({"cmd": "list-agents"}))?;
+                Ok(value
+                    .get("agents")
+                    .and_then(serde_json::Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(remote::parse_agent_record)
+                    .collect())
+            }
+        }
+    }
+
     pub fn set_client_sizing(
         &self,
         surface: SurfaceId,

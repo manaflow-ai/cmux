@@ -702,6 +702,7 @@ export interface IdsResult { ids: IdMapping[] }
 export interface NotifyRequest extends CmuxRequestBase {
   cmd: "notify";
   title: string;
+  subtitle?: string | null;
   body: string;
   level?: NotificationLevel | null;
   surface?: IdRef | null;
@@ -721,13 +722,15 @@ export interface ReportAgentRequest extends CmuxRequestBase {
   state: AgentState;
   source: AgentReportSource;
   session?: string | null;
+  label?: string | null;
+  detail?: string | null;
+  started_at_ms?: number | null;
+  tasks_completed?: number | null;
+  tasks_total?: number | null;
+  jobs_running?: number | null;
+  agents_active?: number | null;
 }
-export interface ReportAgentResult {
-  surface: Id;
-  state: AgentState;
-  source: AgentReportSource;
-  session: string | null;
-}
+export interface ReportAgentResult extends AgentRecord {}
 
 /** Every implemented command request, discriminated by exact wire `cmd`. */
 export type CmuxRequest =

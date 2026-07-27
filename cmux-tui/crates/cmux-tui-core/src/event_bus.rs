@@ -125,6 +125,7 @@ impl MuxEventFilter {
             Self::All => true,
             Self::AttachedSurface(surface) => match event {
                 MuxEvent::Notification(notification) => notification.surface == Some(*surface),
+                MuxEvent::AgentStateChanged { record, .. } => record.surface == *surface,
                 MuxEvent::ScrollChanged { surface: event_surface, .. } => {
                     *event_surface == *surface
                 }
@@ -145,6 +146,7 @@ impl SurfaceSessionScope {
             | MuxEvent::SurfaceResizeFailed { surface, .. }
             | MuxEvent::TitleChanged { surface, .. }
             | MuxEvent::ScrollChanged { surface, .. } => *surface == self.surface,
+            MuxEvent::AgentStateChanged { record, .. } => record.surface == self.surface,
             MuxEvent::Notification(notification) => {
                 notification.surface.is_none_or(|surface| surface == self.surface)
             }

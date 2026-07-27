@@ -8,7 +8,8 @@ use ratatui::Frame;
 use ratatui::style::{Color, Modifier, Style};
 
 use super::{
-    ScrollbarState, ScrollbarStyle, middle_truncate, rail, truncate, viewport_thumb_geometry,
+    ScrollbarState, ScrollbarStyle, agent_color, agent_icon, middle_truncate, rail, truncate,
+    viewport_thumb_geometry,
 };
 use crate::app::{App, Hit, RailKind, WorkspaceRailSelection};
 use crate::config::SidebarView;
@@ -411,14 +412,23 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
             && i == app.sidebar_workspace_selection;
         let highlighted = active || focused_selection;
         let screen = ws.active_screen_ref();
-        let pane = screen.and_then(|s| s.pane(s.active_pane));
-        let title = pane.map(|p| p.display_name()).unwrap_or("shell");
+        let pane = screen.and_then(|screen| screen.pane(screen.active_pane));
+        let title = pane.map(|pane| pane.display_name()).unwrap_or("shell");
+        let agent = pane
+            .and_then(|pane| pane.active_surface())
+            .and_then(|surface| app.agent_record(surface))
+            .cloned();
         let screen_count = ws.screens.len();
-        let subtitle = if screen_count > 1 {
-            format!("{title} ({screen_count} screens)")
-        } else {
-            title.to_string()
-        };
+        let subtitle = agent.as_ref().map_or_else(
+            || {
+                if screen_count > 1 {
+                    format!("{title} ({screen_count} screens)")
+                } else {
+                    title.to_string()
+                }
+            },
+            |record| format!("{} {}", agent_icon(record.state), app.agent_summary(record, true)),
+        );
         rail::entry(
             frame,
             area,
@@ -433,6 +443,12 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
             },
             palette,
         );
+        if let Some(record) = agent {
+            let style = if highlighted { palette.active } else { palette.dim }
+                .fg(agent_color(app, record.state))
+                .add_modifier(Modifier::BOLD);
+            frame.buffer_mut()[(area.x + 1, y + 1)].set_style(style);
+        }
         hits.push((rail::row(area, y), Hit::Workspace { index: i, id: ws.id }));
         hits.push((rail::row(area, y + 1), Hit::Workspace { index: i, id: ws.id }));
     }
