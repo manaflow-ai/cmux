@@ -23,14 +23,14 @@ extension TerminalSurface {
         source: RuntimeSurfaceCreationSource
     ) {
         guard allowsRuntimeSurfaceCreation() else { return }
-        guard surface == nil else { return }
+        guard !hasNativeRuntime else { return }
         ensureHeadlessStartupWindowIfNeeded(reason: reason)
         // Production pane hosts synchronously call attachToView; carry the requested creation source through that callback.
         let previousAttachCreationSource = paneHostAttachCreationSource
         paneHostAttachCreationSource = source
         paneHost.attachSurface(self)
         paneHostAttachCreationSource = previousAttachCreationSource
-        if source == .inputDemand, surface == nil, attachedView !== surfaceView {
+        if source == .inputDemand, !hasNativeRuntime, attachedView !== surfaceView {
             attachToViewForInputDemand(surfaceView)
         }
     }
@@ -118,7 +118,7 @@ extension TerminalSurface {
     /// surface.
     @MainActor
     public func isAttached(to view: any TerminalSurfaceNativeViewing) -> Bool {
-        attachedView === view && surface != nil
+        attachedView === view && hasNativeRuntime
     }
 
     /// Validates the runtime pointer (registry ownership + allocation
@@ -236,6 +236,7 @@ extension TerminalSurface {
         backgroundSurfaceStartSource = .normal
         cancelClaudeCommandShimInstallLifecycle()
         closeHeadlessStartupWindowIfNeeded()
+        teardownAlacrittyRuntime()
 
         let callbackContext = surfaceCallbackContext
         surfaceCallbackContext = nil
@@ -308,6 +309,7 @@ extension TerminalSurface {
         backgroundSurfaceStartSource = .normal
         cancelClaudeCommandShimInstallLifecycle()
         closeHeadlessStartupWindowIfNeeded()
+        teardownAlacrittyRuntime()
         let callbackContext = surfaceCallbackContext
         surfaceCallbackContext = nil
         let manualIOContext = manualIOContext
@@ -391,7 +393,7 @@ extension TerminalSurface {
 #if DEBUG
         logDebugEvent(
             "surface.attach surface=\(id.uuidString.prefix(5)) view=\(Unmanaged.passUnretained(view as NSView).toOpaque()) " +
-            "attached=\(attachedView != nil ? 1 : 0) hasSurface=\(surface != nil ? 1 : 0) inWindow=\(view.window != nil ? 1 : 0)"
+            "attached=\(attachedView != nil ? 1 : 0) hasSurface=\(hasNativeRuntime ? 1 : 0) inWindow=\(view.window != nil ? 1 : 0)"
         )
 #endif
 
@@ -401,7 +403,7 @@ extension TerminalSurface {
         // Ghostty's renderer depends on a valid display id; if it is missing or stale,
         // the surface can freeze visually until focus/visibility changes. Avoid forcing refresh when the attachment
         // itself is unchanged.
-        if attachedView === view && surface != nil {
+        if attachedView === view && hasNativeRuntime {
             releaseHeadlessStartupWindowIfNeeded(for: view)
             flushPendingManualSizeReportIfAttached()
 #if DEBUG
@@ -433,7 +435,7 @@ extension TerminalSurface {
         // Ordinary portal attachment can arrive before AppKit has put the view in
         // a window. Defer those. Startup and cold-input paths install the owned
         // view in a hidden bootstrap window first, then come through here.
-        if surface == nil {
+        if !hasNativeRuntime {
             guard allowsRuntimeSurfaceCreation() else {
 #if DEBUG
                 logDebugEvent(
@@ -460,7 +462,7 @@ extension TerminalSurface {
 #endif
             createSurface(for: view, source: paneHostAttachCreationSource)
 #if DEBUG
-            logDebugEvent("surface.attach.create.done surface=\(id.uuidString.prefix(5)) hasSurface=\(surface != nil ? 1 : 0)")
+            logDebugEvent("surface.attach.create.done surface=\(id.uuidString.prefix(5)) hasSurface=\(hasNativeRuntime ? 1 : 0)")
 #endif
         } else if let screen = view.window?.screen ?? NSScreen.main,
                   let displayID = screen.displayID,
@@ -504,6 +506,13 @@ extension TerminalSurface {
 #if DEBUG
         runtimeSurfaceCreateAttemptCountForTesting += 1
 #endif
+        if isAlacrittyBacked {
+            if createAlacrittyRuntime(for: view, claudeShim: claudeShim),
+               source == .scheduledRestore || source == .inputDemand {
+                requiresRestoreSpawnPacing = false
+            }
+            return
+        }
         #if DEBUG
         let resourcesDir = getenv("GHOSTTY_RESOURCES_DIR").flatMap { String(cString: $0) } ?? "(unset)"
         let terminfo = getenv("TERMINFO").flatMap { String(cString: $0) } ?? "(unset)"

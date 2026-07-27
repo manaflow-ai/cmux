@@ -15,6 +15,9 @@ public struct TerminalSurfaceRuntimeDependencies {
     /// The embedded Ghostty engine owner.
     public let engine: any TerminalEngineHosting
 
+    /// The native terminal implementation for local desktop surfaces.
+    public let backend: TerminalRuntimeBackend
+
     /// The factory for the surface's native view pair.
     public let viewProvider: any TerminalSurfaceViewProviding
 
@@ -58,6 +61,7 @@ public struct TerminalSurfaceRuntimeDependencies {
     public init(
         registry: any TerminalSurfaceRegistering,
         engine: any TerminalEngineHosting,
+        backend: TerminalRuntimeBackend = .ghostty,
         viewProvider: any TerminalSurfaceViewProviding,
         spawnPolicy: any TerminalSurfaceSpawnPolicyProviding,
         byteTee: any TerminalByteTeeBinding,
@@ -73,6 +77,7 @@ public struct TerminalSurfaceRuntimeDependencies {
     ) {
         self.registry = registry
         self.engine = engine
+        self.backend = backend
         self.viewProvider = viewProvider
         self.spawnPolicy = spawnPolicy
         self.byteTee = byteTee

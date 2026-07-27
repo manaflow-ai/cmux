@@ -199,6 +199,23 @@ extension TerminalSurface {
         coalescePixelOnlyResize: Bool = false,
         suppressAssignedGridPin: Bool = false
     ) -> Bool {
+        if isAlacrittyBacked {
+            let resolvedBackingWidth = backingSize?.width ?? (width * xScale)
+            let resolvedBackingHeight = backingSize?.height ?? (height * yScale)
+            let widthPixels = pixelDimension(from: resolvedBackingWidth)
+            let heightPixels = pixelDimension(from: resolvedBackingHeight)
+            guard widthPixels > 0, heightPixels > 0 else { return false }
+            let scaleChanged = !scaleApproximatelyEqual(xScale, lastXScale)
+                || !scaleApproximatelyEqual(yScale, lastYScale)
+            let sizeChanged = widthPixels != lastPixelWidth
+                || heightPixels != lastPixelHeight
+            guard scaleChanged || sizeChanged else { return false }
+            return resizeAlacrittySurface(
+                widthPixels: widthPixels,
+                heightPixels: heightPixels,
+                scaleFactor: layerScale
+            )
+        }
         guard let surface = liveSurfaceForGhosttyAccess(reason: "updateSize") else { return false }
         _ = layerScale
 
@@ -420,6 +437,14 @@ extension TerminalSurface {
     /// surface is not ready. Used by remote tmux mirror sizing.
     @MainActor
     public func cellSizePoints() -> CGSize? {
+        if isAlacrittyBacked {
+            guard let size = alacrittyGridSize() else { return nil }
+            let scale = max(Double(lastXScale), 1)
+            return CGSize(
+                width: Double(size.cellWidthPixels) / scale,
+                height: Double(size.cellHeightPixels) / scale
+            )
+        }
         guard let surface = liveSurfaceForGhosttyAccess(reason: "cellSize") else { return nil }
         let size = ghostty_surface_size(surface)
         guard size.cell_width_px > 0, size.cell_height_px > 0 else { return nil }
@@ -438,6 +463,19 @@ extension TerminalSurface {
     /// as points in one place and as pixels in another).
     @MainActor
     public func rawSizingSample() -> TerminalSurfaceRawSizingSample? {
+        if isAlacrittyBacked {
+            guard let size = alacrittyGridSize() else { return nil }
+            return TerminalSurfaceRawSizingSample(
+                columns: size.columns,
+                rows: size.rows,
+                cellWidthPx: size.cellWidthPixels,
+                cellHeightPx: size.cellHeightPixels,
+                surfaceWidthPx: Int(lastPixelWidth),
+                surfaceHeightPx: Int(lastPixelHeight),
+                viewBoundsPt: attachedView?.bounds.size,
+                backingScale: attachedView?.window?.backingScaleFactor
+            )
+        }
         guard let surface = liveSurfaceForGhosttyAccess(reason: "rawSizingSample") else { return nil }
         let size = ghostty_surface_size(surface)
         return TerminalSurfaceRawSizingSample(
@@ -475,7 +513,9 @@ extension TerminalSurface {
     public func renderedGridDiagnostics() -> (viewInWindow: Bool, surfaceLive: Bool) {
         (
             viewInWindow: attachedView?.window != nil,
-            surfaceLive: liveSurfaceForGhosttyAccess(reason: "renderedGridDiagnostics") != nil
+            surfaceLive: isAlacrittyBacked
+                ? alacrittyRuntime != nil
+                : liveSurfaceForGhosttyAccess(reason: "renderedGridDiagnostics") != nil
         )
     }
 
@@ -483,6 +523,15 @@ extension TerminalSurface {
     /// live, is not in a window, or has no real grid yet.
     @MainActor
     public func renderedGridCells() -> (columns: Int, rows: Int)? {
+        if isAlacrittyBacked {
+            guard attachedView?.window != nil,
+                  let size = alacrittyGridSize(),
+                  size.columns > 1,
+                  size.rows > 1 else {
+                return nil
+            }
+            return (size.columns, size.rows)
+        }
         guard attachedView?.window != nil,
               let surface = liveSurfaceForGhosttyAccess(reason: "renderedGridCells") else { return nil }
         let size = ghostty_surface_size(surface)

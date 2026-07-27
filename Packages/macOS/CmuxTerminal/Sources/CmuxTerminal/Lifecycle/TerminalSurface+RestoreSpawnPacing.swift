@@ -3,7 +3,7 @@ extension TerminalSurface {
     func shouldPaceRuntimeSurfaceCreation(source: RuntimeSurfaceCreationSource) -> Bool {
         guard requiresRestoreSpawnPacing else { return false }
         guard source == .normal else { return false }
-        guard surface == nil else { return false }
+        guard !hasNativeRuntime else { return false }
         return true
     }
 
@@ -16,7 +16,7 @@ extension TerminalSurface {
             guard let self else { return }
             self.restoredRuntimeSurfaceStartQueued = false
             guard self.allowsRuntimeSurfaceCreation() else { return }
-            guard self.surface == nil else { return }
+            guard !self.hasNativeRuntime else { return }
             guard let view, view.window != nil else { return }
             guard self.attachedView === view else { return }
             self.createSurface(for: view, source: .scheduledRestore)

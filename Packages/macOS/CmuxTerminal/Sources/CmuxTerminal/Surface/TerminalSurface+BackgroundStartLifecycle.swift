@@ -24,7 +24,7 @@ extension TerminalSurface {
         reason: String
     ) {
         guard allowsRuntimeSurfaceCreation() else { return }
-        guard surface == nil else { return }
+        guard !hasNativeRuntime else { return }
 
         backgroundSurfaceStartSource = backgroundSurfaceStartSource.promoted(with: source)
         guard !backgroundSurfaceStartQueued else { return }
@@ -36,7 +36,7 @@ extension TerminalSurface {
             self.backgroundSurfaceStartQueued = false
             self.backgroundSurfaceStartSource = .normal
             guard self.allowsRuntimeSurfaceCreation() else { return }
-            guard self.surface == nil else { return }
+            guard !self.hasNativeRuntime else { return }
         #if DEBUG
             let startedAt = ProcessInfo.processInfo.systemUptime
         #endif
@@ -50,7 +50,7 @@ extension TerminalSurface {
             let view = self.attachedView ?? self.surfaceView
             logDebugEvent(
                 "surface.background_start surface=\(self.id.uuidString.prefix(8)) " +
-                "inWindow=\(view.window != nil ? 1 : 0) ready=\(self.surface != nil ? 1 : 0) " +
+                "inWindow=\(view.window != nil ? 1 : 0) ready=\(self.hasNativeRuntime ? 1 : 0) " +
                 "source=\(source) ms=\(String(format: "%.2f", elapsedMs))"
             )
         #endif

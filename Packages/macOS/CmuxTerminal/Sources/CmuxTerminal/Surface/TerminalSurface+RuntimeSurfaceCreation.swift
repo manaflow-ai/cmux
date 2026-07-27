@@ -10,6 +10,17 @@ internal import CMUXDebugLog
 
 // MARK: - Native runtime-surface creation/config assembly
 
+struct ResolvedTerminalRuntimeLaunchConfiguration {
+    let templateFontSize: Float32
+    let fontSize: Float32
+    let waitAfterCommand: Bool
+    let environment: [String: String]
+    let workingDirectory: String?
+    let command: String?
+    let initialInput: String?
+    let runtimeInitialInput: String?
+}
+
 extension TerminalSurface {
     @MainActor
     func createNativeRuntimeSurface(
@@ -18,14 +29,10 @@ extension TerminalSurface {
         scaleFactors: (x: CGFloat, y: CGFloat, layer: CGFloat),
         claudeShim: ClaudeCommandShim?
     ) -> (createdSurface: ghostty_surface_t?, runtimeInitialInput: String?) {
-        let baseConfig = runtimeCreationConfigTemplate()
+        let launchConfiguration = resolvedRuntimeLaunchConfiguration(claudeShim: claudeShim)
         var surfaceConfig = ghostty_surface_config_new()
-        let magnificationPercent = globalFontMagnificationPercent()
-        surfaceConfig.font_size = CmuxSurfaceConfigTemplate.runtimeFontSize(
-            fromBasePoints: baseConfig.fontSize,
-            percent: magnificationPercent
-        )
-        surfaceConfig.wait_after_command = baseConfig.waitAfterCommand
+        surfaceConfig.font_size = launchConfiguration.fontSize
+        surfaceConfig.wait_after_command = launchConfiguration.waitAfterCommand
         surfaceConfig.platform_tag = GHOSTTY_PLATFORM_MACOS
         surfaceConfig.platform = ghostty_platform_u(macos: ghostty_platform_macos_s(
             nsview: Unmanaged.passUnretained(view as NSView).toOpaque()
@@ -60,7 +67,7 @@ extension TerminalSurface {
             surfaceConfig.io_write_userdata = box.toOpaque()
         }
 #if DEBUG
-        let templateFontText = String(format: "%.2f", baseConfig.fontSize)
+        let templateFontText = String(format: "%.2f", launchConfiguration.templateFontSize)
         let runtimeFontText = String(format: "%.2f", surfaceConfig.font_size)
         logDebugEvent(
             "zoom.create surface=\(id.uuidString.prefix(5)) context=\(GhosttySurfaceRuntimeProbe.contextName(surfaceContext)) " +
@@ -76,15 +83,53 @@ extension TerminalSurface {
             }
         }
 
-        var env = baseConfig.environmentVariables
+        if !launchConfiguration.environment.isEmpty {
+            envVars.reserveCapacity(launchConfiguration.environment.count)
+            envStorage.reserveCapacity(launchConfiguration.environment.count)
+            for (key, value) in launchConfiguration.environment {
+                guard let keyPtr = strdup(key) else { continue }
+                guard let valuePtr = strdup(value) else {
+                    free(keyPtr)
+                    continue
+                }
+                envStorage.append((keyPtr, valuePtr))
+                envVars.append(ghostty_env_var_s(key: keyPtr, value: valuePtr))
+            }
+        }
 
+        let createdSurface = withOptionalCString(launchConfiguration.command) { cCommand in
+            surfaceConfig.command = cCommand
+            return withOptionalCString(launchConfiguration.workingDirectory) { cWorkingDir in
+                surfaceConfig.working_directory = cWorkingDir
+                return withOptionalCString(launchConfiguration.initialInput) { cInitialInput in
+                    surfaceConfig.initial_input = cInitialInput
+                    return makeGhosttySurface(app: app, config: &surfaceConfig, envVars: &envVars)
+                }
+            }
+        }
+
+        return (createdSurface, launchConfiguration.runtimeInitialInput)
+    }
+
+    @MainActor
+    func resolvedRuntimeLaunchConfiguration(
+        claudeShim: ClaudeCommandShim?
+    ) -> ResolvedTerminalRuntimeLaunchConfiguration {
+        let baseConfig = runtimeCreationConfigTemplate()
+        let magnificationPercent = globalFontMagnificationPercent()
+        let fontSize = CmuxSurfaceConfigTemplate.runtimeFontSize(
+            fromBasePoints: baseConfig.fontSize,
+            percent: magnificationPercent
+        )
+        var environment = baseConfig.environmentVariables
         var protectedStartupEnvironmentKeys: Set<String> = []
         Self.applyManagedTerminalIdentityEnvironment(
-            to: &env,
+            to: &environment,
             protectedKeys: &protectedStartupEnvironmentKeys
         )
+
         func setManagedEnvironmentValue(_ key: String, _ value: String) {
-            env[key] = value
+            environment[key] = value
             protectedStartupEnvironmentKeys.insert(key)
         }
 
@@ -99,13 +144,15 @@ extension TerminalSurface {
                 surfaceId: id,
                 socketPath: socketPath
             ),
-            to: &env,
+            to: &environment,
             protectedKeys: &protectedStartupEnvironmentKeys
         )
         setManagedEnvironmentValue("CMUX_SOCKET", "")
         if let inheritedClaudeConfigDir = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"],
            !inheritedClaudeConfigDir.isEmpty {
-            env["CLAUDE_CONFIG_DIR"] = ClaudeConfigDirectoryPath.preferredPath(inheritedClaudeConfigDir)
+            environment["CLAUDE_CONFIG_DIR"] = ClaudeConfigDirectoryPath.preferredPath(
+                inheritedClaudeConfigDir
+            )
         }
         if let bundledCLIURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux"),
            runtimeFilesystem.isExecutableFile(bundledCLIURL.path) {
@@ -115,27 +162,22 @@ extension TerminalSurface {
             setManagedEnvironmentValue("CMUX_BUNDLE_ID", bundleId)
         }
 
-        // Port range for this workspace is snapshotted once per app session.
-        do {
-            let startPort = sessionPortBase + portOrdinal * sessionPortRangeSize
-            setManagedEnvironmentValue("CMUX_PORT", String(startPort))
-            setManagedEnvironmentValue("CMUX_PORT_END", String(startPort + sessionPortRangeSize - 1))
-            setManagedEnvironmentValue("CMUX_PORT_RANGE", String(sessionPortRangeSize))
-        }
+        let startPort = sessionPortBase + portOrdinal * sessionPortRangeSize
+        setManagedEnvironmentValue("CMUX_PORT", String(startPort))
+        setManagedEnvironmentValue(
+            "CMUX_PORT_END",
+            String(startPort + sessionPortRangeSize - 1)
+        )
+        setManagedEnvironmentValue("CMUX_PORT_RANGE", String(sessionPortRangeSize))
 
         let spawnPolicy = spawnPolicyProvider.currentSpawnPolicy()
         for (key, value) in spawnPolicy.socketAuthenticationEnvironment
             where !key.isEmpty && !value.isEmpty {
             setManagedEnvironmentValue(key, value)
         }
-        let claudeHooksEnabled = spawnPolicy.claudeHooksEnabled
-        if !claudeHooksEnabled {
+        if !spawnPolicy.claudeHooksEnabled {
             setManagedEnvironmentValue("CMUX_CLAUDE_HOOKS_DISABLED", "1")
         }
-        // The codex wrapper shim is still installed (it stays on PATH so a
-        // resumed codex routes through it), but when the Codex integration is
-        // off the wrapper no-ops on this env var and injects no hooks, mirroring
-        // the Claude toggle.
         if !spawnPolicy.codexHooksEnabled {
             setManagedEnvironmentValue("CMUX_CODEX_HOOKS_DISABLED", "1")
         }
@@ -155,7 +197,10 @@ extension TerminalSurface {
         if !spawnPolicy.kiroHooksEnabled {
             setManagedEnvironmentValue("CMUX_KIRO_HOOKS_DISABLED", "1")
         }
-        setManagedEnvironmentValue("CMUX_KIRO_NOTIFICATION_LEVEL", spawnPolicy.kiroNotificationLevel)
+        setManagedEnvironmentValue(
+            "CMUX_KIRO_NOTIFICATION_LEVEL",
+            spawnPolicy.kiroNotificationLevel
+        )
         if !spawnPolicy.ampHooksEnabled {
             setManagedEnvironmentValue("CMUX_AMP_HOOKS_DISABLED", "1")
         }
@@ -166,7 +211,7 @@ extension TerminalSurface {
             if FileManager.default.isExecutableFile(atPath: ghosttyCLIPath) {
                 setManagedEnvironmentValue("GHOSTTY_BIN", ghosttyCLIPath)
             }
-            let currentPath = env["PATH"]
+            let currentPath = environment["PATH"]
                 ?? getenv("PATH").map { String(cString: $0) }
                 ?? ProcessInfo.processInfo.environment["PATH"]
                 ?? ""
@@ -179,20 +224,25 @@ extension TerminalSurface {
         }
 
         if let claudeShim {
-            setManagedEnvironmentValue("CMUX_CLAUDE_WRAPPER_SHIM", claudeShim.executablePath)
-            setManagedEnvironmentValue("CMUX_CLAUDE_WRAPPER_SHIM_ROOT", claudeShim.directoryPath)
-            // Carry the sibling codex wrapper-shim path into the managed env too,
-            // mirroring the claude shim. The auto-resume command for a codex
-            // session resolves the codex executable through CMUX_CODEX_WRAPPER_SHIM
-            // (see AgentResumeArgv.codexWrapperShellExecutableToken), so without
-            // this the resumed codex bypasses cmux-codex-wrapper and loses its
-            // hooks (iOS GUI stays read-only). The shim lives in the same
-            // per-surface directory already prepended to PATH below.
+            setManagedEnvironmentValue(
+                "CMUX_CLAUDE_WRAPPER_SHIM",
+                claudeShim.executablePath
+            )
+            setManagedEnvironmentValue(
+                "CMUX_CLAUDE_WRAPPER_SHIM_ROOT",
+                claudeShim.directoryPath
+            )
             if let codexShim = claudeShim.codexCommandShim {
-                setManagedEnvironmentValue("CMUX_CODEX_WRAPPER_SHIM", codexShim.executablePath)
-                setManagedEnvironmentValue("CMUX_CODEX_WRAPPER_SHIM_ROOT", codexShim.directoryPath)
+                setManagedEnvironmentValue(
+                    "CMUX_CODEX_WRAPPER_SHIM",
+                    codexShim.executablePath
+                )
+                setManagedEnvironmentValue(
+                    "CMUX_CODEX_WRAPPER_SHIM_ROOT",
+                    codexShim.directoryPath
+                )
             }
-            let currentPath = env["PATH"]
+            let currentPath = environment["PATH"]
                 ?? getenv("PATH").map { String(cString: $0) }
                 ?? ProcessInfo.processInfo.environment["PATH"]
                 ?? ""
@@ -204,48 +254,35 @@ extension TerminalSurface {
 
         var managedShellCommand: String?
         if spawnPolicy.shellIntegrationEnabled,
-           let integrationDir = Bundle.main.resourceURL?.appendingPathComponent("shell-integration").path,
-           Self.shellIntegrationDirectoryExists(integrationDir) {
+           let integrationDirectory = Bundle.main.resourceURL?
+               .appendingPathComponent("shell-integration").path,
+           Self.shellIntegrationDirectoryExists(integrationDirectory) {
             setManagedEnvironmentValue("CMUX_SHELL_INTEGRATION", "1")
-            setManagedEnvironmentValue("CMUX_SHELL_INTEGRATION_DIR", integrationDir)
+            setManagedEnvironmentValue("CMUX_SHELL_INTEGRATION_DIR", integrationDirectory)
             Self.applyManagedGitWatchEnvironment(
                 watchGitStatusEnabled: spawnPolicy.watchGitStatusEnabled,
                 showPullRequestsEnabled: spawnPolicy.showPullRequestsEnabled,
-                to: &env,
+                to: &environment,
                 protectedKeys: &protectedStartupEnvironmentKeys
             )
 
             if let shell = engine.resolvedUserShell {
                 managedShellCommand = Self.applyManagedShellSpecificStartupEnvironment(
                     shell: shell,
-                    integrationDir: integrationDir,
+                    integrationDir: integrationDirectory,
                     userGhosttyShellIntegrationMode: engine.userGhosttyShellIntegrationMode,
-                    to: &env,
+                    to: &environment,
                     protectedKeys: &protectedStartupEnvironmentKeys
                 )
             }
         }
-        env = Self.mergedStartupEnvironment(
-            base: env,
+        environment = Self.mergedStartupEnvironment(
+            base: environment,
             protectedKeys: protectedStartupEnvironmentKeys,
             additionalEnvironment: additionalEnvironment,
             initialEnvironmentOverrides: initialEnvironmentOverrides
         )
-        env["CMUX_SOCKET"] = ""
-
-        if !env.isEmpty {
-            envVars.reserveCapacity(env.count)
-            envStorage.reserveCapacity(env.count)
-            for (key, value) in env {
-                guard let keyPtr = strdup(key) else { continue }
-                guard let valuePtr = strdup(value) else {
-                    free(keyPtr)
-                    continue
-                }
-                envStorage.append((keyPtr, valuePtr))
-                envVars.append(ghostty_env_var_s(key: keyPtr, value: valuePtr))
-            }
-        }
+        environment["CMUX_SOCKET"] = ""
 
         let resolvedWorkingDirectory: String? = {
             if let workingDirectory, !workingDirectory.isEmpty {
@@ -271,18 +308,16 @@ extension TerminalSurface {
             return baseConfig.initialInput
         }()
 
-        let createdSurface = withOptionalCString(resolvedCommand) { cCommand in
-            surfaceConfig.command = cCommand
-            return withOptionalCString(resolvedWorkingDirectory) { cWorkingDir in
-                surfaceConfig.working_directory = cWorkingDir
-                return withOptionalCString(resolvedInitialInput) { cInitialInput in
-                    surfaceConfig.initial_input = cInitialInput
-                    return makeGhosttySurface(app: app, config: &surfaceConfig, envVars: &envVars)
-                }
-            }
-        }
-
-        return (createdSurface, runtimeInitialInput)
+        return ResolvedTerminalRuntimeLaunchConfiguration(
+            templateFontSize: baseConfig.fontSize,
+            fontSize: fontSize,
+            waitAfterCommand: baseConfig.waitAfterCommand,
+            environment: environment,
+            workingDirectory: resolvedWorkingDirectory,
+            command: resolvedCommand,
+            initialInput: resolvedInitialInput,
+            runtimeInitialInput: runtimeInitialInput
+        )
     }
 
     private func withOptionalCString<T>(_ value: String?, _ body: (UnsafePointer<CChar>?) -> T) -> T {

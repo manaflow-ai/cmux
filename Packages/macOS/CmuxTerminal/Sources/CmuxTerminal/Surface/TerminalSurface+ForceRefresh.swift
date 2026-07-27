@@ -9,6 +9,17 @@ extension TerminalSurface {
     /// Force a full size recalculation and surface redraw.
     @MainActor
     public func forceRefresh(reason: String = "unspecified") {
+        if isAlacrittyBacked {
+            guard let view = attachedView,
+                  uiWindow != nil,
+                  view.bounds.width > 0,
+                  view.bounds.height > 0 else {
+                return
+            }
+            _ = view.forceRefreshSurface()
+            _ = drawAlacrittySurface()
+            return
+        }
 #if DEBUG
         let hasSurface = surface != nil
         let viewState: String

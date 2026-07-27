@@ -29,6 +29,9 @@ extension TerminalSurface {
             return needsConfirmCloseOverrideForTesting
         }
 #endif
+        if isAlacrittyBacked {
+            return alacrittyRuntime?.needsConfirmClose ?? false
+        }
         guard let surface, hasCloseConfirmationProcessRisk(surface) else { return false }
         return ghostty_surface_needs_confirm_quit(surface)
     }
@@ -50,7 +53,7 @@ extension TerminalSurface {
     public func sendText(_ text: String) -> Bool {
         guard let data = text.data(using: .utf8), !data.isEmpty else { return true }
         didReceiveExplicitInput()
-        guard surface != nil else {
+        guard hasNativeRuntime else {
             guard allowsRuntimeSurfaceCreation() else { return false }
             let queued = enqueuePendingSocketInput(.pasteText(data))
             if queued {
@@ -58,6 +61,11 @@ extension TerminalSurface {
                 requestInputDemandSurfaceStartIfNeeded()
             }
             return queued
+        }
+        if isAlacrittyBacked {
+            guard let alacrittyRuntime, !alacrittyRuntime.processExited else { return false }
+            hibernationRecorder.recordTerminalInput(workspaceId: tabId, panelId: id)
+            return alacrittyRuntime.write(data)
         }
         guard let liveSurface = liveSurfaceForSocketWrite(reason: "socket.sendText") else {
             return false
@@ -76,6 +84,9 @@ extension TerminalSurface {
     public func sendKeyText(_ text: String) -> Bool {
         guard !text.isEmpty else { return true }
         didReceiveExplicitInput()
+        if isAlacrittyBacked {
+            return sendAlacrittyCommittedText(text)
+        }
         guard let liveSurface = liveSurfaceForSocketWrite(reason: "socket.sendKeyText") else {
             return false
         }
@@ -101,12 +112,18 @@ extension TerminalSurface {
     public func sendNamedKey(_ keyName: String) -> NamedKeySendResult {
         guard let event = pendingKeyEvent(for: keyName) else { return .unknownKey }
         didReceiveExplicitInput()
-        guard surface != nil else {
+        guard hasNativeRuntime else {
             guard allowsRuntimeSurfaceCreation() else { return .surfaceUnavailable }
             guard enqueuePendingSocketInput(.key(event)) else { return .inputQueueFull }
             hibernationRecorder.recordTerminalInput(workspaceId: tabId, panelId: id)
             requestInputDemandSurfaceStartIfNeeded()
             return .queued
+        }
+        if isAlacrittyBacked {
+            guard let alacrittyRuntime else { return .surfaceUnavailable }
+            guard !alacrittyRuntime.processExited else { return .processExited }
+            hibernationRecorder.recordTerminalInput(workspaceId: tabId, panelId: id)
+            return sendAlacrittyPendingKey(event) ? .sent : .unknownKey
         }
         guard let liveSurface = liveSurfaceForSocketWrite(reason: "socket.sendNamedKey") else {
             return .surfaceUnavailable
@@ -140,6 +157,9 @@ extension TerminalSurface {
     /// The visible viewport text, or nil without a live surface.
     @MainActor
     public func visibleText() -> String? {
+        if isAlacrittyBacked {
+            return visibleAlacrittyText()
+        }
         guard let surface = liveSurfaceForGhosttyAccess(reason: "visibleText") else { return nil }
         return Self.readText(surface: surface, pointTag: GHOSTTY_POINT_VIEWPORT)
     }
@@ -160,7 +180,7 @@ extension TerminalSurface {
     public func sendInputResult(_ text: String) -> InputSendResult {
         guard !text.isEmpty else { return .sent }
         didReceiveExplicitInput()
-        guard surface != nil else {
+        guard hasNativeRuntime else {
             guard allowsRuntimeSurfaceCreation() else { return .surfaceUnavailable }
             let queued = enqueuePendingSocketInput(text)
             if queued {
@@ -168,6 +188,22 @@ extension TerminalSurface {
                 requestInputDemandSurfaceStartIfNeeded()
             }
             return queued ? .queued : .inputQueueFull
+        }
+        if isAlacrittyBacked {
+            guard let alacrittyRuntime else { return .surfaceUnavailable }
+            guard !alacrittyRuntime.processExited else { return .processExited }
+            hibernationRecorder.recordTerminalInput(workspaceId: tabId, panelId: id)
+            for event in Self.parsedSocketInputEvents(for: text) {
+                switch event {
+                case .rawBytes(let data):
+                    guard alacrittyRuntime.write(data) else { return .surfaceUnavailable }
+                case .terminalBytes:
+                    continue
+                case .key(let keyEvent):
+                    guard sendAlacrittyPendingKey(keyEvent) else { return .surfaceUnavailable }
+                }
+            }
+            return .sent
         }
         guard let liveSurface = liveSurfaceForSocketWrite(reason: "socket.sendInput") else {
             return .surfaceUnavailable
