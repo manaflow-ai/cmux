@@ -373,16 +373,21 @@ jobs:
     name: verify Linux package entrypoints (${{ matrix.architecture }})
     needs: package
     if: ${{ inputs.package_npm || inputs.package_pypi }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     permissions:
       contents: read
     strategy:
       fail-fast: false
       matrix:
-        architecture:
-          - x64
-          - arm64
+        include:
+          - architecture: x64
+            runner: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+          # Run ARM64 containers on native hardware. QEMU registration is not
+          # persistent on every third-party x64 runner and can disappear
+          # between setup and the package smoke test.
+          - architecture: arm64
+            runner: ubuntu-24.04-arm
     env:
       PYPI_VERSION: ${{ inputs.pypi_version != '' && inputs.pypi_version || inputs.version }}
     steps:
@@ -398,12 +403,6 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ inputs.checkout_ref }}
-
-      - name: Set up ARM64 emulation
-        if: matrix.architecture == 'arm64'
-        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
-        with:
-          platforms: arm64
 
       - name: Download npm package archive
         if: inputs.package_npm
