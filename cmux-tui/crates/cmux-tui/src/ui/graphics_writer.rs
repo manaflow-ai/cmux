@@ -1107,6 +1107,63 @@ mod tests {
     }
 
     #[test]
+    fn persistent_fence_loss_emits_final_cleanup_for_known_images() {
+        let lock = Arc::new(StdoutLock::new(()));
+        let output = SharedOutput::default();
+        let attempts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+        let mut writer = GraphicsWriter::spawn_with_output_and_fence(
+            lock,
+            output.clone(),
+            move || {
+                if attempts.fetch_add(1, Ordering::AcqRel) == 0 {
+                    Ok(())
+                } else {
+                    Err(std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "injected persistent deletion timeout",
+                    ))
+                }
+            },
+            move || {
+                ready_tx.send(()).unwrap();
+            },
+        )
+        .unwrap();
+        let placement = GraphicPlacement {
+            surface: 12,
+            rect: Rect { x: 1, y: 2, width: 3, height: 4 },
+            seq: 18,
+            pointer_frame_seq: Some(18),
+            data_b64: "AAAA".to_string(),
+        };
+
+        assert!(writer.submit(31, 1, vec![placement]));
+        ready_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(matches!(
+            writer.take_completion(),
+            Some(GraphicsCompletion::Processed(GraphicsProcessing { id: 31, .. }))
+        ));
+        assert!(writer.submit(32, 1, Vec::new()));
+        ready_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(matches!(
+            writer.take_completion(),
+            Some(GraphicsCompletion::TimedOut { id: 32, .. })
+        ));
+        assert!(writer.submit(33, 1, Vec::new()));
+        ready_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(writer.take_completion(), Some(GraphicsCompletion::Failed));
+        writer.shutdown(Duration::from_secs(1));
+
+        let deletion = delete_image(12);
+        assert_eq!(
+            occurrences(&output.bytes(), &deletion),
+            3,
+            "disabling graphics must make one final best-effort deletion of every known image"
+        );
+    }
+
+    #[test]
     fn exhausted_processing_timeout_remains_recoverable() {
         let lock = Arc::new(StdoutLock::new(()));
         let (ready_tx, ready_rx) = std::sync::mpsc::channel();
