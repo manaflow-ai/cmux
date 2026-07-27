@@ -134,6 +134,18 @@ import Testing
         ])
     }
 
+    @Test func matchingCommandCallbackDoesNotReplayCommittedPreeditText() {
+        let actions = planner.actions(for: snapshot(
+            hadMarkedText: true,
+            textInputCommandPerformed: true,
+            committedText: ["é"],
+            translatedText: "é",
+            rawText: "é"
+        ))
+
+        #expect(actions == [.sendCommittedText("é")])
+    }
+
     @Test func preeditCommandAndNavigationPolicyReplayPhysicalKeyOnce() {
         let actions = planner.actions(for: snapshot(
             hadMarkedText: true,
