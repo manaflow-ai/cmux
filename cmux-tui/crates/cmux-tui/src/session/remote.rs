@@ -565,6 +565,7 @@ impl RemoteSurface {
         let mut browser = self.browser.lock().unwrap();
         if !matches!(browser.status, BrowserStatus::Live)
             || !pointer_frame_is_in_range(&browser, frame_seq)
+            || browser.presented_pointer_frame_seq == Some(frame_seq)
             || browser.presented_pointer_frame_seq.is_some_and(|presented| presented > frame_seq)
         {
             return false;

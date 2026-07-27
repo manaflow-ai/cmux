@@ -1502,6 +1502,7 @@ impl SurfaceHandle {
     }
 
     /// Update the renderer-local presentation acknowledgement immediately.
+    /// Returns whether the exact acknowledged token changed.
     pub fn browser_acknowledge_pointer_frame(&self, frame_seq: u64) -> bool {
         match self {
             SurfaceHandle::Local(surface, _) => {

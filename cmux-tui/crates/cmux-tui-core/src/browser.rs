@@ -1866,9 +1866,18 @@ impl BrowserSurface {
         self.pointer_frame_is_in_current_route_locked(&state, frame_seq)
     }
 
-    /// Record that the local renderer presented this exact bitmap.
+    /// Record that the local renderer presented this exact bitmap. Returns
+    /// whether the renderer's acknowledged token changed.
     pub fn acknowledge_pointer_frame(&self, frame_seq: u64) -> bool {
-        self.acknowledge_pointer_frame_from(BrowserPointerOwner::Local, frame_seq)
+        let mut state = self.state.lock().unwrap();
+        let changed =
+            state.presented_pointer_frames.get(&BrowserPointerOwner::Local) != Some(&frame_seq);
+        changed
+            && self.acknowledge_pointer_frame_locked(
+                &mut state,
+                BrowserPointerOwner::Local,
+                frame_seq,
+            )
     }
 
     pub(crate) fn acknowledge_pointer_frame_from(
