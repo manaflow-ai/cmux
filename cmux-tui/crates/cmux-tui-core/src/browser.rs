@@ -145,6 +145,9 @@ impl BrowserStatus {
 pub struct BrowserFrameUpdate {
     pub frame: BrowserFrame,
     pub status: BrowserStatus,
+    /// Oldest exact bitmap token that is still valid for the current
+    /// document and coordinate mapping.
+    pub pointer_frame_floor_seq: Option<u64>,
     pub pointer_frame_seq: Option<u64>,
 }
 
@@ -159,6 +162,9 @@ pub struct BrowserAttachState {
     /// Opaque pointer-authority token for this exact admitted bitmap.
     /// A later bitmap always carries a different token.
     pub pointer_frame_seq: Option<u64>,
+    /// Oldest exact bitmap token that remains valid for the current document
+    /// and coordinate mapping.
+    pub pointer_frame_floor_seq: Option<u64>,
     pub frames_stalled: bool,
 }
 
@@ -211,6 +217,9 @@ struct BrowserState {
     /// Opaque pointer-authority token for the exact admitted bitmap.
     /// Every later admissible bitmap rotates it.
     pointer_frame_seq: Option<u64>,
+    /// First exact bitmap token admitted since the last document or geometry
+    /// invalidation. This bounds validation without retaining per-frame state.
+    pointer_frame_floor_seq: Option<u64>,
     /// Changes whenever pointer admission changes, so a failed command can
     /// restore its previous authority only if no asynchronous browser event won
     /// the race in the meantime.
@@ -284,6 +293,7 @@ struct BrowserReconfigureCommandError {
 #[derive(Clone)]
 struct PointerFrameInvalidation {
     previous: Option<u64>,
+    previous_floor: Option<u64>,
     previous_latest_frame_seq: Option<u64>,
     previous_capture_generation: u64,
     previous_motion_generation: u64,
@@ -892,6 +902,7 @@ pub(crate) fn new_surface(
             failed_screencast_capture_epoch: None,
             pending_frame: None,
             pointer_frame_seq: None,
+            pointer_frame_floor_seq: None,
             pointer_frame_revision: 0,
             pointer_capture_generation: 0,
             pointer_motion_generation: 0,
@@ -1821,6 +1832,13 @@ impl BrowserSurface {
         self.exported_pointer_frame_seq_locked(&state)
     }
 
+    /// Return whether an exact bitmap token is still valid for the current
+    /// document and coordinate mapping.
+    pub fn accepts_pointer_frame(&self, frame_seq: u64) -> bool {
+        let state = self.state.lock().unwrap();
+        self.pointer_frame_is_current_locked(&state, frame_seq)
+    }
+
     pub fn latest_frame_update(&self) -> Option<BrowserFrameUpdate> {
         let state = self.state.lock().unwrap();
         if matches!(state.status, BrowserStatus::Failed(_)) {
@@ -1829,6 +1847,7 @@ impl BrowserSurface {
         state.latest_frame.clone().map(|frame| BrowserFrameUpdate {
             frame,
             status: state.status.clone(),
+            pointer_frame_floor_seq: self.exported_pointer_frame_floor_seq_locked(&state),
             pointer_frame_seq: self.exported_pointer_frame_seq_locked(&state),
         })
     }
@@ -2165,12 +2184,14 @@ impl BrowserSurface {
         let (tx, rx) = sync_channel(1);
         let slot = Arc::new(Mutex::new(BrowserAttachUpdate::default()));
         let mut state = self.state.lock().unwrap();
+        let pointer_frame_floor_seq = self.exported_pointer_frame_floor_seq_locked(&state);
         let pointer_frame_seq = self.exported_pointer_frame_seq_locked(&state);
         let snapshot = browser_attach_state_locked(
             &state,
             Instant::now(),
             self.is_dead(),
             true,
+            pointer_frame_floor_seq,
             pointer_frame_seq,
         );
         if !self.is_dead() {
@@ -2257,7 +2278,9 @@ impl BrowserSurface {
         state.last_frame_at = Some(Instant::now());
         state.stall_nudged = false;
         let page_viewport = (frame.css_width.max(1), frame.css_height.max(1));
-        if state.page_viewport.is_some_and(|previous| previous != page_viewport) {
+        let pointer_geometry_changed =
+            state.page_viewport.is_some_and(|previous| previous != page_viewport);
+        if pointer_geometry_changed {
             state.pointer_motion_generation = state.pointer_motion_generation.wrapping_add(1);
         }
         state.page_viewport = Some(page_viewport);
@@ -2266,8 +2289,10 @@ impl BrowserSurface {
             && state.pending_document_epoch.is_none()
             && !state.pending_same_document_navigation;
         let pointer_frame_seq = can_authorize_pointer.then_some(frame.seq);
-        if state.pointer_frame_seq != pointer_frame_seq {
+        if pointer_geometry_changed {
             Self::set_pointer_frame_locked(state, pointer_frame_seq);
+        } else if state.pointer_frame_seq != pointer_frame_seq {
+            Self::advance_pointer_frame_locked(state, pointer_frame_seq);
         }
         if clears_not_responding {
             self.mark_state_dirty_locked(state);
@@ -2276,6 +2301,7 @@ impl BrowserSurface {
         let update = BrowserFrameUpdate {
             frame,
             status: state.status.clone(),
+            pointer_frame_floor_seq: self.exported_pointer_frame_floor_seq_locked(state),
             pointer_frame_seq: self.exported_pointer_frame_seq_locked(state),
         };
         let attach_state = browser_attach_state_locked(
@@ -2283,6 +2309,7 @@ impl BrowserSurface {
             Instant::now(),
             false,
             false,
+            update.pointer_frame_floor_seq,
             update.pointer_frame_seq,
         );
         state.taps.retain(|tap| {
@@ -2434,13 +2461,21 @@ impl BrowserSurface {
     }
 
     fn mark_state_dirty_locked(&self, state: &mut BrowserState) {
+        let pointer_frame_floor_seq = self.exported_pointer_frame_floor_seq_locked(state);
         let pointer_frame_seq = self.exported_pointer_frame_seq_locked(state);
-        let snapshot =
-            browser_attach_state_locked(state, Instant::now(), false, false, pointer_frame_seq);
+        let snapshot = browser_attach_state_locked(
+            state,
+            Instant::now(),
+            false,
+            false,
+            pointer_frame_floor_seq,
+            pointer_frame_seq,
+        );
         state.taps.retain(|tap| {
             let mut slot = tap.slot.lock().unwrap();
             if let Some(frame) = slot.frame.as_mut() {
                 frame.status = snapshot.status.clone();
+                frame.pointer_frame_floor_seq = snapshot.pointer_frame_floor_seq;
                 frame.pointer_frame_seq = snapshot.pointer_frame_seq;
             }
             slot.state = Some(snapshot.clone());
@@ -2536,6 +2571,20 @@ impl BrowserSurface {
         self.pointer_epoch_is_current_locked(state).then_some(state.pointer_frame_seq).flatten()
     }
 
+    fn exported_pointer_frame_floor_seq_locked(&self, state: &BrowserState) -> Option<u64> {
+        self.pointer_epoch_is_current_locked(state)
+            .then_some(state.pointer_frame_floor_seq)
+            .flatten()
+    }
+
+    fn pointer_frame_is_current_locked(&self, state: &BrowserState, frame_seq: u64) -> bool {
+        let Some((floor, latest)) = state.pointer_frame_floor_seq.zip(state.pointer_frame_seq)
+        else {
+            return false;
+        };
+        self.pointer_epoch_is_current_locked(state) && (floor..=latest).contains(&frame_seq)
+    }
+
     fn scale_guarded_input_point(
         &self,
         frame_seq: Option<u64>,
@@ -2543,12 +2592,15 @@ impl BrowserSurface {
         y: f64,
     ) -> Option<(f64, f64)> {
         let state = self.state.lock().unwrap();
-        let pointer_frame_seq = state.pointer_frame_seq?;
+        let latest = state.pointer_frame_seq?;
         if !self.pointer_epoch_is_current_locked(&state)
-            || frame_seq.is_some_and(|frame_seq| pointer_frame_seq != frame_seq)
+            || frame_seq
+                .is_some_and(|frame_seq| !self.pointer_frame_is_current_locked(&state, frame_seq))
+            || frame_seq.is_none() && state.pointer_frame_floor_seq.is_none()
         {
             return None;
         }
+        debug_assert!(state.pointer_frame_floor_seq.is_some_and(|floor| floor <= latest));
         Some(Self::scale_input_point_locked(&state, x, y))
     }
 
@@ -2561,8 +2613,7 @@ impl BrowserSurface {
         let ingress_motion_generation = self.frame_epoch.pointer_motion_generation();
         let state = self.state.lock().unwrap();
         if !ingress_motion_generation.is_multiple_of(2)
-            || !self.pointer_epoch_is_current_locked(&state)
-            || state.pointer_frame_seq != Some(frame_seq)
+            || !self.pointer_frame_is_current_locked(&state, frame_seq)
             || ingress_motion_generation != self.frame_epoch.pointer_motion_generation()
         {
             return None;
@@ -2621,9 +2672,25 @@ impl BrowserSurface {
             && state.accepted_navigation_epoch == self.frame_epoch.latest_navigation()
     }
 
-    fn set_pointer_frame_locked(state: &mut BrowserState, frame_seq: Option<u64>) {
-        state.pointer_frame_seq = frame_seq;
+    fn set_pointer_frame_range_locked(
+        state: &mut BrowserState,
+        floor: Option<u64>,
+        latest: Option<u64>,
+    ) {
+        debug_assert_eq!(floor.is_some(), latest.is_some());
+        debug_assert!(floor.zip(latest).is_none_or(|(floor, latest)| floor <= latest));
+        state.pointer_frame_floor_seq = floor;
+        state.pointer_frame_seq = latest;
         state.pointer_frame_revision = state.pointer_frame_revision.wrapping_add(1);
+    }
+
+    fn set_pointer_frame_locked(state: &mut BrowserState, frame_seq: Option<u64>) {
+        Self::set_pointer_frame_range_locked(state, frame_seq, frame_seq);
+    }
+
+    fn advance_pointer_frame_locked(state: &mut BrowserState, frame_seq: Option<u64>) {
+        let floor = frame_seq.and(state.pointer_frame_floor_seq.or(frame_seq));
+        Self::set_pointer_frame_range_locked(state, floor, frame_seq);
     }
 
     fn set_pending_attach_frame_locked(
@@ -2634,6 +2701,7 @@ impl BrowserSurface {
         let update = frame.map(|frame| BrowserFrameUpdate {
             frame,
             status: state.status.clone(),
+            pointer_frame_floor_seq: self.exported_pointer_frame_floor_seq_locked(state),
             pointer_frame_seq: self.exported_pointer_frame_seq_locked(state),
         });
         for tap in &state.taps {
@@ -2647,6 +2715,7 @@ impl BrowserSurface {
         revoke_capture: bool,
     ) -> PointerFrameInvalidation {
         let previous = state.pointer_frame_seq;
+        let previous_floor = state.pointer_frame_floor_seq;
         let previous_latest_frame_seq = state.latest_frame.as_ref().map(|frame| frame.seq);
         let previous_capture_generation = state.pointer_capture_generation;
         let previous_motion_generation = state.pointer_motion_generation;
@@ -2664,6 +2733,7 @@ impl BrowserSurface {
         }
         PointerFrameInvalidation {
             previous,
+            previous_floor,
             previous_latest_frame_seq,
             previous_capture_generation,
             previous_motion_generation,
@@ -3295,7 +3365,11 @@ impl BrowserSurface {
             invalidation.previous_pending_same_document_navigation;
         state.pending_failure_recovery = false;
         state.pending_frame = invalidation.previous_pending_frame;
-        Self::set_pointer_frame_locked(&mut state, invalidation.previous);
+        Self::set_pointer_frame_range_locked(
+            &mut state,
+            invalidation.previous_floor,
+            invalidation.previous,
+        );
         let retained_frame = state.latest_frame.clone();
         self.set_pending_attach_frame_locked(&mut state, retained_frame);
         self.mark_state_dirty_locked(&mut state);
@@ -3361,9 +3435,11 @@ impl BrowserSurface {
         delta_y: f64,
     ) -> Option<(f64, f64, f64)> {
         let state = self.state.lock().unwrap();
-        let pointer_frame_seq = state.pointer_frame_seq?;
+        state.pointer_frame_seq?;
         if !self.pointer_epoch_is_current_locked(&state)
-            || frame_seq.is_some_and(|frame_seq| pointer_frame_seq != frame_seq)
+            || frame_seq
+                .is_some_and(|frame_seq| !self.pointer_frame_is_current_locked(&state, frame_seq))
+            || frame_seq.is_none() && state.pointer_frame_floor_seq.is_none()
         {
             return None;
         }
@@ -4372,6 +4448,7 @@ fn browser_attach_state_locked(
     now: Instant,
     dead: bool,
     include_frame: bool,
+    pointer_frame_floor_seq: Option<u64>,
     pointer_frame_seq: Option<u64>,
 ) -> BrowserAttachState {
     BrowserAttachState {
@@ -4382,6 +4459,7 @@ fn browser_attach_state_locked(
         status: state.status.clone(),
         frame: include_frame.then(|| state.latest_frame.clone()).flatten(),
         pointer_frame_seq,
+        pointer_frame_floor_seq,
         frames_stalled: frames_stalled_locked(state, now, dead),
     }
 }
@@ -6223,14 +6301,14 @@ mod tests {
     }
 
     #[test]
-    fn guarded_input_mapping_requires_the_current_live_pointer_authority() {
+    fn guarded_input_mapping_requires_current_route_pointer_authority() {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
         browser.store_frame(test_frame(1));
         assert!(browser.scale_guarded_input_point(Some(1), 1.0, 1.0).is_some());
 
         browser.store_frame(test_frame(2));
-        assert!(browser.scale_guarded_input_point(Some(1), 1.0, 1.0).is_none());
+        assert!(browser.scale_guarded_input_point(Some(1), 1.0, 1.0).is_some());
         assert!(browser.scale_guarded_input_point(Some(2), 1.0, 1.0).is_some());
 
         browser.mark_failed("failed".to_string());
@@ -7246,6 +7324,7 @@ mod tests {
             Some(2),
             "each admitted bitmap must carry its own pointer authority"
         );
+        assert_eq!(browser.state.lock().unwrap().pointer_frame_floor_seq, Some(1));
         assert!(
             browser.capture_guarded_input_point(authority, 1.0, 1.0).is_some(),
             "a still-presented bitmap must remain guarded while its route geometry is current"
@@ -7349,6 +7428,7 @@ mod tests {
         browser.store_frame(resized);
 
         assert_eq!(browser.latest_frame_seq(), Some(2));
+        assert_eq!(browser.state.lock().unwrap().pointer_frame_floor_seq, Some(2));
         assert!(
             browser.scale_guarded_input_point(Some(1), 1.0, 1.0).is_none(),
             "a bitmap viewport change must revoke the old coordinate mapping"

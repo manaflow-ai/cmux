@@ -2878,6 +2878,12 @@ impl Surface {
         self.as_browser().and_then(BrowserSurface::latest_frame_seq)
     }
 
+    /// Return whether an exact browser bitmap token is still valid for guarded
+    /// input in the current document and coordinate mapping.
+    pub fn browser_accepts_pointer_frame(&self, frame_seq: u64) -> bool {
+        self.as_browser().is_some_and(|browser| browser.accepts_pointer_frame(frame_seq))
+    }
+
     pub fn browser_url(&self) -> Option<String> {
         self.as_browser().map(BrowserSurface::url)
     }

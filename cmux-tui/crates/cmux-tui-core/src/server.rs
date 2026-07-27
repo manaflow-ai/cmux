@@ -3876,6 +3876,7 @@ fn browser_state_json(
         "title": state.title,
         "status": state.status.as_str(),
         "error": state.status.error(),
+        "pointer_frame_floor_seq": state.pointer_frame_floor_seq,
         "pointer_frame_seq": state.pointer_frame_seq,
         "frames_stalled": state.frames_stalled,
     });
@@ -3903,6 +3904,7 @@ fn browser_frame_json(surface: SurfaceId, update: &BrowserFrameUpdate) -> Value 
         "data": update.frame.data_b64,
         "status": update.status.as_str(),
         "error": update.status.error(),
+        "pointer_frame_floor_seq": update.pointer_frame_floor_seq,
         "pointer_frame_seq": update.pointer_frame_seq,
     })
 }
@@ -6066,6 +6068,7 @@ mod tests {
                 css_height: 48,
                 seq: 7,
             }),
+            pointer_frame_floor_seq: None,
             pointer_frame_seq: None,
             frames_stalled: false,
         };
@@ -6090,6 +6093,7 @@ mod tests {
                 seq: 7,
             },
             status: crate::BrowserStatus::Failed("navigation failed".to_string()),
+            pointer_frame_floor_seq: None,
             pointer_frame_seq: None,
         };
 
@@ -6117,6 +6121,7 @@ mod tests {
             frame: Some(BrowserFrameUpdate {
                 frame: frame.clone(),
                 status: crate::BrowserStatus::Live,
+                pointer_frame_floor_seq: Some(7),
                 pointer_frame_seq: Some(7),
             }),
             state: Some(crate::BrowserAttachState {
@@ -6126,6 +6131,7 @@ mod tests {
                 rows: 5,
                 status: crate::BrowserStatus::Live,
                 frame: Some(frame),
+                pointer_frame_floor_seq: Some(7),
                 pointer_frame_seq: Some(7),
                 frames_stalled: false,
             }),
@@ -6136,8 +6142,10 @@ mod tests {
         let second: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
 
         assert_eq!(first["event"], "frame");
+        assert_eq!(first["pointer_frame_floor_seq"], 7);
         assert_eq!(first["pointer_frame_seq"], 7);
         assert_eq!(second["event"], "browser-state");
+        assert_eq!(second["pointer_frame_floor_seq"], 7);
         assert_eq!(second["pointer_frame_seq"], 7);
     }
 

@@ -3505,12 +3505,19 @@ struct GraphicIdentity {
 }
 
 impl GraphicIdentity {
-    fn same_pointer_route(self, other: Self) -> bool {
+    fn same_pointer_layout(self, other: Self) -> bool {
         self.session_generation == other.session_generation
             && self.surface == other.surface
             && self.rect == other.rect
-            && self.pointer_frame_seq == other.pointer_frame_seq
     }
+}
+
+fn bounding_rect(first: Rect, second: Rect) -> Rect {
+    let left = first.x.min(second.x);
+    let top = first.y.min(second.y);
+    let right = first.x.saturating_add(first.width).max(second.x.saturating_add(second.width));
+    let bottom = first.y.saturating_add(first.height).max(second.y.saturating_add(second.height));
+    Rect { x: left, y: top, width: right.saturating_sub(left), height: bottom.saturating_sub(top) }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -4008,7 +4015,7 @@ pub struct App {
     next_graphics_submission: u64,
     pending_graphics_submission: Option<u64>,
     pending_graphics_snapshot: Option<Vec<GraphicIdentity>>,
-    pending_graphics_affected_rects: Vec<Rect>,
+    pending_graphics_affected_rect: Option<Rect>,
     /// Graphics placements confirmed written to the outer terminal.
     last_graphics_snapshot: Vec<GraphicIdentity>,
     pub graphics_supported: bool,
@@ -5156,7 +5163,7 @@ pub fn run_with_machine_updates(
         next_graphics_submission: 0,
         pending_graphics_submission: None,
         pending_graphics_snapshot: None,
-        pending_graphics_affected_rects: Vec::new(),
+        pending_graphics_affected_rect: None,
         last_graphics_snapshot: Vec::new(),
         graphics_supported,
         stdout_lock: stdout_lock.clone(),
@@ -6898,9 +6905,55 @@ impl App {
         let Some((surface, rendered_generation)) = route.browser_content_generation() else {
             return false;
         };
-        let live_generation =
-            self.session.surface(surface).and_then(|surface| surface.browser_frame_seq());
-        rendered_generation.is_none() || rendered_generation != live_generation
+        rendered_generation.is_none_or(|generation| {
+            !self
+                .session
+                .surface(surface)
+                .is_some_and(|surface| surface.browser_accepts_pointer_frame(generation))
+        })
+    }
+
+    fn graphics_share_pointer_route(
+        &self,
+        processed: GraphicIdentity,
+        pending: GraphicIdentity,
+    ) -> bool {
+        if !processed.same_pointer_layout(pending) {
+            return false;
+        }
+        let surface_id = processed.surface;
+        match (processed.pointer_frame_seq, pending.pointer_frame_seq) {
+            (None, None) => true,
+            (Some(processed), Some(pending)) if processed == pending => true,
+            (Some(processed), Some(pending)) => {
+                self.session.surface(surface_id).is_some_and(|surface| {
+                    surface.browser_accepts_pointer_frame(processed)
+                        && surface.browser_accepts_pointer_frame(pending)
+                })
+            }
+            (None, Some(_)) | (Some(_), None) => false,
+        }
+    }
+
+    fn graphics_changed_rect_bound(
+        &self,
+        previous: &[GraphicIdentity],
+        next: &[GraphicIdentity],
+    ) -> Option<Rect> {
+        previous
+            .iter()
+            .filter(|graphic| {
+                !next
+                    .iter()
+                    .any(|candidate| self.graphics_share_pointer_route(**graphic, *candidate))
+            })
+            .chain(next.iter().filter(|graphic| {
+                !previous
+                    .iter()
+                    .any(|candidate| self.graphics_share_pointer_route(**graphic, *candidate))
+            }))
+            .map(|graphic| graphic.rect)
+            .reduce(bounding_rect)
     }
 
     fn pending_graphics_changes_cell(&self, x: u16, y: u16) -> bool {
@@ -6909,7 +6962,7 @@ impl App {
         {
             return false;
         }
-        if self.pending_graphics_affected_rects.iter().any(|rect| rect.contains(x, y)) {
+        if self.pending_graphics_affected_rect.is_some_and(|rect| rect.contains(x, y)) {
             return true;
         }
         let pending = self.pending_graphics_snapshot.as_deref().unwrap_or(&[]);
@@ -6917,7 +6970,9 @@ impl App {
             snapshot.iter().copied().find(|graphic| graphic.rect.contains(x, y))
         };
         match (graphic_at(&self.last_graphics_snapshot), graphic_at(pending)) {
-            (Some(processed), Some(pending)) => !processed.same_pointer_route(pending),
+            (Some(processed), Some(pending)) => {
+                !self.graphics_share_pointer_route(processed, pending)
+            }
             (None, None) => false,
             (Some(_), None) | (None, Some(_)) => true,
         }
@@ -7365,20 +7420,11 @@ impl App {
     fn track_graphics_submission(&mut self, submission: u64, snapshot: Vec<GraphicIdentity>) {
         let previous =
             self.pending_graphics_snapshot.as_deref().unwrap_or(&self.last_graphics_snapshot);
-        let changed_rects = previous
-            .iter()
-            .filter(|graphic| !snapshot.iter().any(|next| graphic.same_pointer_route(*next)))
-            .chain(
-                snapshot
-                    .iter()
-                    .filter(|graphic| !previous.iter().any(|old| graphic.same_pointer_route(*old))),
-            )
-            .map(|graphic| graphic.rect)
-            .collect::<Vec<_>>();
-        for rect in changed_rects {
-            if !self.pending_graphics_affected_rects.contains(&rect) {
-                self.pending_graphics_affected_rects.push(rect);
-            }
+        if let Some(changed) = self.graphics_changed_rect_bound(previous, &snapshot) {
+            self.pending_graphics_affected_rect = Some(
+                self.pending_graphics_affected_rect
+                    .map_or(changed, |affected| bounding_rect(affected, changed)),
+            );
         }
         self.pending_graphics_submission = Some(submission);
         self.pending_graphics_snapshot = Some(snapshot);
@@ -7475,7 +7521,7 @@ impl App {
     fn reset_unconfirmed_graphics(&mut self) {
         self.pending_graphics_submission = None;
         self.pending_graphics_snapshot = None;
-        self.pending_graphics_affected_rects.clear();
+        self.pending_graphics_affected_rect = None;
         self.last_graphics_snapshot.clear();
         self.rendered_pane_content_generations
             .retain(|_, generation| !matches!(generation, PaneContentGeneration::Browser(_)));
@@ -7505,21 +7551,20 @@ impl App {
     fn commit_graphics_processing(&mut self, processing: GraphicsProcessing) {
         let settles_latest = self.pending_graphics_submission == Some(processing.id);
         let belongs_to_current_session = processing.session_generation == self.session_generation;
-        let current_browser_authorities =
-            (settles_latest && belongs_to_current_session).then(|| {
-                processing
-                    .graphics
-                    .iter()
-                    .filter(|graphic| {
-                        self.session
-                            .surface(graphic.surface)
-                            .is_some_and(|surface| surface.kind() == SurfaceKind::Browser)
-                    })
-                    .filter_map(|graphic| {
-                        graphic.pointer_frame_seq.map(|authority| (graphic.surface, authority))
-                    })
-                    .collect::<Vec<_>>()
-            });
+        let current_browser_authorities = belongs_to_current_session.then(|| {
+            processing
+                .graphics
+                .iter()
+                .filter(|graphic| {
+                    self.session
+                        .surface(graphic.surface)
+                        .is_some_and(|surface| surface.kind() == SurfaceKind::Browser)
+                })
+                .filter_map(|graphic| {
+                    graphic.pointer_frame_seq.map(|authority| (graphic.surface, authority))
+                })
+                .collect::<Vec<_>>()
+        });
         self.last_graphics_snapshot = processing
             .graphics
             .iter()
@@ -7534,7 +7579,10 @@ impl App {
         if settles_latest {
             self.pending_graphics_submission = None;
             self.pending_graphics_snapshot = None;
-            self.pending_graphics_affected_rects.clear();
+            self.pending_graphics_affected_rect = None;
+        } else if let Some(pending) = self.pending_graphics_snapshot.as_deref() {
+            self.pending_graphics_affected_rect =
+                self.graphics_changed_rect_bound(&self.last_graphics_snapshot, pending);
         }
         if let Some(current_browser_authorities) = current_browser_authorities {
             self.rendered_pane_content_generations
@@ -28096,7 +28144,7 @@ mod tests {
             next_graphics_submission: 0,
             pending_graphics_submission: None,
             pending_graphics_snapshot: None,
-            pending_graphics_affected_rects: Vec::new(),
+            pending_graphics_affected_rect: None,
             last_graphics_snapshot: Vec::new(),
             graphics_supported: false,
             stdout_lock: Arc::new(StdoutLock::new(())),

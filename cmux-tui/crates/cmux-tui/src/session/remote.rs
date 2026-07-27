@@ -152,6 +152,7 @@ struct RemoteBrowserState {
     live_since: Option<Instant>,
     last_frame_at: Option<Instant>,
     frame: Option<RemoteBrowserFrame>,
+    pointer_frame_floor_seq: Option<u64>,
     pointer_frame_seq: Option<u64>,
 }
 
@@ -166,6 +167,7 @@ impl Default for RemoteBrowserState {
             live_since: None,
             last_frame_at: None,
             frame: None,
+            pointer_frame_floor_seq: None,
             pointer_frame_seq: None,
         }
     }
@@ -529,6 +531,7 @@ impl RemoteSurface {
         browser.frame.as_ref().map(|frame| BrowserFrameUpdate {
             frame: frame.frame.clone(),
             status: browser.status.clone(),
+            pointer_frame_floor_seq: browser.pointer_frame_floor_seq,
             pointer_frame_seq: browser.pointer_frame_seq,
         })
     }
@@ -540,6 +543,15 @@ impl RemoteSurface {
         } else {
             browser.pointer_frame_seq
         }
+    }
+
+    pub fn browser_accepts_pointer_frame(&self, frame_seq: u64) -> bool {
+        let browser = self.browser.lock().unwrap();
+        matches!(browser.status, BrowserStatus::Live)
+            && browser
+                .pointer_frame_floor_seq
+                .zip(browser.pointer_frame_seq)
+                .is_some_and(|(floor, latest)| (floor..=latest).contains(&frame_seq))
     }
 
     pub fn browser_url(&self) -> Option<String> {
@@ -588,17 +600,20 @@ impl RemoteSurface {
             browser.frame = Some(frame);
             received_frame = true;
         }
-        let advertised_pointer_frame_seq = matches!(browser.status, BrowserStatus::Live)
-            .then(|| value.get("pointer_frame_seq").and_then(Value::as_u64))
-            .flatten();
+        let advertised_pointer_range =
+            matches!(browser.status, BrowserStatus::Live).then(|| parse_pointer_frame_range(value));
+        let advertised_pointer_range = advertised_pointer_range.flatten();
+        let current_pointer_range = browser.pointer_frame_floor_seq.zip(browser.pointer_frame_seq);
         // State-only messages may retain existing authority or revoke it.
         // New authority must arrive atomically with its pixels.
-        browser.pointer_frame_seq =
-            if received_frame || advertised_pointer_frame_seq == browser.pointer_frame_seq {
-                advertised_pointer_frame_seq
+        let accepted_pointer_range =
+            if received_frame || advertised_pointer_range == current_pointer_range {
+                advertised_pointer_range
             } else {
                 None
             };
+        (browser.pointer_frame_floor_seq, browser.pointer_frame_seq) = accepted_pointer_range
+            .map_or((None, None), |(floor, latest)| (Some(floor), Some(latest)));
     }
 
     fn update_browser_frame(&self, value: &Value) {
@@ -614,12 +629,20 @@ impl RemoteSurface {
                 browser.live_since = Some(Instant::now());
             }
             browser.last_frame_at = Some(Instant::now());
-            browser.pointer_frame_seq = matches!(status, Some(BrowserStatus::Live))
-                .then(|| value.get("pointer_frame_seq").and_then(Value::as_u64))
+            let pointer_range = matches!(status, Some(BrowserStatus::Live))
+                .then(|| parse_pointer_frame_range(value))
                 .flatten();
+            (browser.pointer_frame_floor_seq, browser.pointer_frame_seq) =
+                pointer_range.map_or((None, None), |(floor, latest)| (Some(floor), Some(latest)));
             browser.frame = Some(frame);
         }
     }
+}
+
+fn parse_pointer_frame_range(value: &Value) -> Option<(u64, u64)> {
+    let latest = value.get("pointer_frame_seq").and_then(Value::as_u64)?;
+    let floor = value.get("pointer_frame_floor_seq").and_then(Value::as_u64).unwrap_or(latest);
+    (floor <= latest).then_some((floor, latest))
 }
 
 #[derive(Default)]
@@ -3563,6 +3586,34 @@ mod tests {
         }));
         assert_eq!(surface.browser_frame().map(|frame| frame.seq), Some(9));
         assert_eq!(surface.browser_frame_seq(), Some(9));
+    }
+
+    #[test]
+    fn browser_pointer_range_retains_an_older_presented_frame() {
+        let surface = RemoteSurface {
+            id: 1,
+            kind: SurfaceKind::Browser,
+            term: Mutex::new(Terminal::new(10, 5, 100, Callbacks::default()).unwrap()),
+            mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
+            dirty: AtomicBool::new(false),
+            content_generation: AtomicU64::new(1),
+            reported_size: Mutex::new(None),
+            browser: Mutex::new(RemoteBrowserState::default()),
+        };
+        surface.update_browser_frame(&json!({
+            "seq": 9,
+            "width": 80,
+            "height": 40,
+            "data": "bmV3",
+            "status": "live",
+            "pointer_frame_floor_seq": 8,
+            "pointer_frame_seq": 9,
+        }));
+
+        assert!(surface.browser_accepts_pointer_frame(8));
+        assert!(surface.browser_accepts_pointer_frame(9));
+        assert!(!surface.browser_accepts_pointer_frame(7));
+        assert!(!surface.browser_accepts_pointer_frame(10));
     }
 
     #[test]
