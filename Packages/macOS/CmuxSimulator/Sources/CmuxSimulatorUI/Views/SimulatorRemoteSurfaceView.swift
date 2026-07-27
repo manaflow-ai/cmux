@@ -349,18 +349,28 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
             )
             return
         }
+        // Resize transports may take a frame to start. Keep the immutable
+        // host-owned image visible until that replacement frame completes.
+        let preservesPresentedFrame =
+            frameTransportDescriptor.map {
+                $0.width != frameTransport.width || $0.height != frameTransport.height
+            } ?? false
         stopPresentationTimer()
-        retireFramePipeline()
-        frameLayer?.removeFromSuperlayer()
-        frameLayer = nil
+        retireFramePipeline(clearPresentedFrame: !preservesPresentedFrame)
+        if !preservesPresentedFrame {
+            frameLayer?.removeFromSuperlayer()
+            frameLayer = nil
+        }
         frameTransportDescriptor = nil
         lastFrameSequence = nil
-        let frameLayer = CALayer()
-        frameLayer.contentsGravity = .resize
-        frameLayer.minificationFilter = .nearest
-        frameLayer.magnificationFilter = .nearest
-        layer?.addSublayer(frameLayer)
-        self.frameLayer = frameLayer
+        if frameLayer == nil {
+            let frameLayer = CALayer()
+            frameLayer.contentsGravity = .resize
+            frameLayer.minificationFilter = .nearest
+            frameLayer.magnificationFilter = .nearest
+            layer?.addSublayer(frameLayer)
+            self.frameLayer = frameLayer
+        }
         updateFrameLayerBackingScale()
         framePipeline = SimulatorFramePresentationPipeline(
             source: source,
@@ -444,10 +454,10 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
         renderLatestFrame()
     }
 
-    private func retireFramePipeline() {
+    private func retireFramePipeline(clearPresentedFrame: Bool = true) {
         let pipeline = framePipeline
         framePipeline = nil
-        frameLayer?.contents = nil
+        if clearPresentedFrame { frameLayer?.contents = nil }
         pipeline?.invalidate()
     }
 
