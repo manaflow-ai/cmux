@@ -1486,9 +1486,24 @@ import Testing
         let outputLock = NSLock()
         var outputData = Data()
         let outputGroup = DispatchGroup()
+        let outputFD = outputPipe.fileHandleForReading.fileDescriptor
         outputGroup.enter()
-        DispatchQueue.global(qos: .utility).async {
-            let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
+        Thread.detachNewThread {
+            var data = Data()
+            var buffer = [UInt8](repeating: 0, count: 16 * 1024)
+            while true {
+                let bytesRead = buffer.withUnsafeMutableBytes { bytes in
+                    Darwin.read(outputFD, bytes.baseAddress, bytes.count)
+                }
+                if bytesRead > 0 {
+                    data.append(contentsOf: buffer.prefix(bytesRead))
+                    continue
+                }
+                if bytesRead < 0 && errno == EINTR {
+                    continue
+                }
+                break
+            }
             outputLock.lock()
             outputData = data
             outputLock.unlock()
@@ -1496,7 +1511,7 @@ import Testing
         }
 
         let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
+        Thread.detachNewThread {
             process.waitUntilExit()
             exitSignal.signal()
         }
