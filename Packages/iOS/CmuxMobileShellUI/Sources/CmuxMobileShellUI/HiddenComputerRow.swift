@@ -43,7 +43,7 @@ struct HiddenComputerRow: View {
             }
             Spacer(minLength: 8)
             Button(action: performUnhide) {
-                if forgetTask != nil {
+                if actionTask != nil {
                     ProgressView().controlSize(.small)
                 } else {
                     Text(L10n.string(
