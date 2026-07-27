@@ -508,6 +508,92 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(sessions.map { $0["session_id"] as? String } == ["restorable-session"])
     }
 
+    @Test func agentsTreeSharesListDefaultVisibilityPolicy() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agents-default-visibility-\(UUID().uuidString)", isDirectory: true)
+        let stateDir = root.appendingPathComponent("state", isDirectory: true)
+        let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
+        let savedTranscript = root.appendingPathComponent("saved-transcript.jsonl", isDirectory: false)
+        try FileManager.default.createDirectory(at: stateDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        try "{}\n".write(to: savedTranscript, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                "launch-backed": [
+                    "sessionId": "launch-backed",
+                    "workspaceId": "workspace-root",
+                    "surfaceId": "surface-launch",
+                    "launchCommand": [
+                        "launcher": "codex",
+                        "executablePath": "/usr/local/bin/codex",
+                        "arguments": ["/usr/local/bin/codex", "--yolo"],
+                        "workingDirectory": "/tmp/cmux/launch-backed",
+                        "capturedAt": 100.0,
+                        "source": "process",
+                    ],
+                    "startedAt": 100.0,
+                    "updatedAt": 100.0,
+                ],
+                "transcript-backed": [
+                    "sessionId": "transcript-backed",
+                    "workspaceId": "workspace-root",
+                    "surfaceId": "surface-transcript",
+                    "transcriptPath": savedTranscript.path,
+                    "startedAt": 110.0,
+                    "updatedAt": 110.0,
+                ],
+                "stale": [
+                    "sessionId": "stale",
+                    "workspaceId": "workspace-root",
+                    "surfaceId": "surface-stale",
+                    "startedAt": 120.0,
+                    "updatedAt": 120.0,
+                ],
+            ],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: store, options: [.sortedKeys])
+        try data.write(to: stateDir.appendingPathComponent("codex-hook-sessions.json"), options: .atomic)
+        let responder = try agentsInstanceResponder(workspaces: [
+            "workspace-root": ["surface-launch", "surface-transcript", "surface-stale"],
+        ])
+        defer { responder.stop() }
+
+        var environment = agentsTestEnvironment()
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = stateDir.path
+        environment["CODEX_HOME"] = codexHome.path
+
+        let listResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["--socket", responder.path, "agents", "list", "--agent", "codex", "--json"],
+            environment: environment,
+            timeout: 5
+        )
+        #expect(listResult.status == 0, Comment(rawValue: listResult.stdout))
+        let listPayload = try #require(
+            JSONSerialization.jsonObject(with: Data(listResult.stdout.utf8)) as? [String: Any]
+        )
+        let sessions = try #require(listPayload["sessions"] as? [[String: Any]])
+        let expectedSessionIDs: Set<String> = ["launch-backed", "transcript-backed"]
+        #expect(Set(sessions.compactMap { $0["session_id"] as? String }) == expectedSessionIDs)
+
+        let treeResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["--socket", responder.path, "agents", "tree", "--agent", "codex", "--json"],
+            environment: environment,
+            timeout: 5
+        )
+        #expect(treeResult.status == 0, Comment(rawValue: treeResult.stdout))
+        let treePayload = try #require(
+            JSONSerialization.jsonObject(with: Data(treeResult.stdout.utf8)) as? [String: Any]
+        )
+        let nodes = try #require(treePayload["nodes"] as? [[String: Any]])
+        #expect(Set(nodes.compactMap { $0["session_id"] as? String }) == expectedSessionIDs)
+    }
+
     @Test func agentsTreeResolvesClaudeWorkflowSessionBeforeFiltering() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
