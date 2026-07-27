@@ -409,6 +409,11 @@ impl BrowserInputDispatcher {
         self.lanes.lock().unwrap().contains_key(&surface_id)
             || self.failed_resizes.lock().unwrap().contains_key(&surface_id)
     }
+
+    #[cfg(test)]
+    fn worker_count(&self) -> usize {
+        self.lanes.lock().unwrap().len()
+    }
 }
 
 impl SurfaceInputLane {
@@ -1011,6 +1016,29 @@ mod tests {
         );
         release_tx.send(()).unwrap();
         assert_eq!(observed_rx.recv_timeout(Duration::from_secs(1)), Ok(1));
+    }
+
+    #[test]
+    fn many_surfaces_use_a_bounded_worker_count() {
+        const MAX_BROWSER_INPUT_WORKERS: usize = 8;
+        let dispatcher = BrowserInputDispatcher::spawn(|_| {}, |_| {}).unwrap();
+        let (observed_tx, observed_rx) = std::sync::mpsc::channel();
+
+        for surface_id in 1..=32 {
+            assert!(dispatcher.enqueue(BrowserInputEvent {
+                surface_id,
+                surface: SurfaceHandle::RemoteBrowserUnsupported,
+                kind: BrowserInputKind::TestProbe(observed_tx.clone()),
+            }));
+        }
+        for _ in 1..=32 {
+            observed_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        }
+
+        assert!(
+            dispatcher.worker_count() <= MAX_BROWSER_INPUT_WORKERS,
+            "visiting browser surfaces must not create an unbounded OS-thread-per-surface pool"
+        );
     }
 
     fn positions(batch: &[BrowserInputEvent]) -> Vec<(&'static str, SurfaceId)> {
