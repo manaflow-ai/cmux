@@ -677,18 +677,15 @@ enum KeyboardShortcutSettings {
             if shortcut.isUnbound {
                 return .accepted(.unbound)
             }
-            if shortcut.hasChord && !allowsChordShortcut {
-                return .rejected(.reservedBySystem)
-            }
 
-            if let conflictingAction = KeyboardShortcutSettings.conflictingAction(
-                for: shortcut,
-                excluding: self
-            ) {
+            let resolved = resolvedRecordedShortcutIgnoringConflicts(shortcut)
+            guard case .accepted = resolved else { return resolved }
+
+            if let conflictingAction = KeyboardShortcutSettings.conflictingAction(for: shortcut, excluding: self) {
                 return .rejected(.conflictsWithAction(conflictingAction))
             }
 
-            return resolvedRecordedShortcutIgnoringConflicts(shortcut)
+            return resolved
         }
 
         func normalizedSettingsFileShortcut(_ shortcut: StoredShortcut) -> StoredShortcut? {
@@ -696,9 +693,6 @@ enum KeyboardShortcutSettings {
             // Keep this path free of conflict and hotkey checks that consult global shortcut state.
             if shortcut.isUnbound {
                 return .unbound
-            }
-            if shortcut.hasChord && !allowsChordShortcut {
-                return nil
             }
 
             if case let .accepted(normalized) = resolvedRecordedShortcutIgnoringConflicts(
@@ -720,14 +714,19 @@ enum KeyboardShortcutSettings {
             if shortcut.isUnbound {
                 return .accepted(.unbound)
             }
+            if let rejection = shortcutBindingPolicyRejection(for: shortcut) {
+                return .rejected(rejection)
+            }
 
             switch self {
-            case .showHideAllWindows, .globalSearch:
+            case .showHideAllWindows:
                 return KeyboardShortcutSettings.normalizedSystemWideHotkeyShortcutResult(
                     shortcut,
                     for: self,
                     checkingConflicts: checkingSystemWideConflicts
                 )
+            case .globalSearch:
+                return .accepted(shortcut)
             case .selectSurfaceByNumber, .selectWorkspaceByNumber:
                 return resolvedNumberedDigitShortcut(shortcut)
             default:
@@ -782,23 +781,6 @@ enum KeyboardShortcutSettings {
             return nil
         }
         return normalized
-    }
-
-    private static func systemWideHotkeyConflicts(with shortcut: StoredShortcut, excluding action: Action) -> Bool {
-        guard let registration = shortcut.carbonHotKeyRegistration else { return false }
-        let keyCode = UInt16(registration.keyCode)
-        let modifierFlags = shortcut.modifierFlags
-        // Validate against the keystroke AppKit shortcuts would see for the
-        // registered Carbon hotkey under the current input source.
-        let eventCharacter = KeyboardLayout.character(forKeyCode: keyCode)
-
-        return reservedSystemWideHotkeyShortcuts(excluding: action).contains { reserved in
-            reserved.matches(
-                keyCode: keyCode,
-                modifierFlags: modifierFlags,
-                eventCharacter: eventCharacter
-            )
-        }
     }
 
     private static func conflictingAction(
@@ -929,7 +911,7 @@ enum KeyboardShortcutSettings {
         if shortcut.isUnbound { return shortcut }
         if shortcut.hasChord && !action.allowsChordShortcut { return nil }
 
-        switch action.resolvedRecordedShortcutIgnoringConflicts(shortcut) {
+        switch action.normalizedRecordedShortcutResult(shortcut) {
         case let .accepted(normalizedShortcut):
             return normalizedShortcut
         case .rejected:
@@ -1099,10 +1081,7 @@ enum SystemWideHotkeySettings {
 
     static func shortcut() -> StoredShortcut {
         migrateLegacyShortcutIfNeeded()
-        if let managedShortcut = KeyboardShortcutSettings.settingsFileStore.override(for: action) {
-            return managedShortcut
-        }
-        return storedShortcut() ?? defaultShortcut
+        return KeyboardShortcutSettings.shortcut(for: action)
     }
 
     static func setShortcut(_ shortcut: StoredShortcut) {
@@ -1132,10 +1111,10 @@ enum SystemWideHotkeySettings {
 
     private static func migrateLegacyShortcutIfNeeded(defaults: UserDefaults = .standard) {
         guard defaults.object(forKey: legacyShortcutKey) != nil else { return }
-        defer { defaults.removeObject(forKey: legacyShortcutKey) }
-
+        let legacyData = defaults.data(forKey: legacyShortcutKey)
+        defaults.removeObject(forKey: legacyShortcutKey)
         guard defaults.object(forKey: action.defaultsKey) == nil,
-              let data = defaults.data(forKey: legacyShortcutKey),
+              let data = legacyData,
               let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
             return
         }
@@ -1162,16 +1141,10 @@ struct CarbonHotKeyRegistration: Equatable {
 final class SystemWideHotkeyController {
     static let shared = SystemWideHotkeyController()
     private static let hotKeySignature: OSType = 0x434D484B // "CMHK"
-    private static let hotKeyIDs: [KeyboardShortcutSettings.Action: UInt32] = [
-        .showHideAllWindows: 1,
-        .globalSearch: 2,
-    ]
-    private static let systemWideActions: [KeyboardShortcutSettings.Action] = [
-        .showHideAllWindows,
-        .globalSearch,
-    ]
+    private static let hotKeyID: UInt32 = 1
+    private static let action = SystemWideHotkeySettings.action
 
-    private var hotKeyRefs: [KeyboardShortcutSettings.Action: EventHotKeyRef] = [:]
+    private var hotKeyRef: EventHotKeyRef?
     private var hotKeyHandler: EventHandlerRef?
     private var defaultsObserver: NSObjectProtocol?
     private var shortcutObserver: NSObjectProtocol?
@@ -1179,8 +1152,8 @@ final class SystemWideHotkeyController {
     private var packageRecorderObserver: NSObjectProtocol?
     private var inputSourceObserver: NSObjectProtocol?
     private var appHideObserver: NSObjectProtocol?
-    private var registeredShortcuts: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
-    private var registeredHotKeyRegistrations: [KeyboardShortcutSettings.Action: CarbonHotKeyRegistration] = [:]
+    private var registeredShortcut: StoredShortcut?
+    private var registeredHotKeyRegistration: CarbonHotKeyRegistration?
 
     private init() {}
 
@@ -1243,44 +1216,38 @@ final class SystemWideHotkeyController {
     }
 
     private func refreshRegistration() {
+        let shortcut = SystemWideHotkeySettings.shortcut()
         // Stand down while either recorder is armed (legacy app-target recorder or the CmuxSettingsUI
-        // package recorder) so a system-wide hotkey being rebound in Settings is captured rather than fired.
+        // package recorder) so the opt-in hotkey is captured rather than fired while being rebound.
         let isShortcutRecordingActive = KeyboardShortcutRecorderActivity.isAnyRecorderActive
             || RecorderHostButton.isActivelyRecording
 
-        guard !isShortcutRecordingActive else {
-            unregisterHotKeys()
+        guard SystemWideHotkeySettings.isEnabled(),
+              !shortcut.isUnbound,
+              !isShortcutRecordingActive else {
+            unregisterHotKey()
             return
         }
 
-        for action in Self.systemWideActions {
-            refreshRegistration(for: action)
+        guard let candidate = SystemWideHotkeySettings.registrationCandidate(
+            for: shortcut
+        ) else {
+            unregisterHotKey()
+            return
         }
-    }
+        let normalizedShortcut = candidate.shortcut
+        let registration = candidate.registration
 
-    private func refreshRegistration(for action: KeyboardShortcutSettings.Action) {
-        let configuredShortcut = shortcut(for: action)
-        guard isSystemWideActionEnabled(action, shortcut: configuredShortcut) else {
-            unregisterHotKey(for: action)
+        if registeredShortcut == normalizedShortcut,
+           registeredHotKeyRegistration == registration,
+           hotKeyRef != nil {
             return
         }
 
-        guard let normalizedShortcut = action.normalizedRecordedShortcut(configuredShortcut),
-              let registration = normalizedShortcut.carbonHotKeyRegistration else {
-            unregisterHotKey(for: action)
-            return
-        }
-
-        if registeredShortcuts[action] == normalizedShortcut,
-           registeredHotKeyRegistrations[action] == registration,
-           hotKeyRefs[action] != nil {
-            return
-        }
-
-        unregisterHotKey(for: action)
+        unregisterHotKey()
         installHotKeyHandlerIfNeeded()
 
-        let hotKeyID = EventHotKeyID(signature: Self.hotKeySignature, id: Self.hotKeyID(for: action))
+        let hotKeyID = EventHotKeyID(signature: Self.hotKeySignature, id: Self.hotKeyID)
         var hotKeyRef: EventHotKeyRef?
         let status = RegisterEventHotKey(
             registration.keyCode,
@@ -1294,48 +1261,23 @@ final class SystemWideHotkeyController {
         guard status == noErr, let hotKeyRef else {
 #if DEBUG
             cmuxDebugLog(
-                "globalHotkey.register failed action=\(action.rawValue) shortcut=\(normalizedShortcut.displayString) " +
+                "globalHotkey.register failed action=\(Self.action.rawValue) shortcut=\(normalizedShortcut.displayString) " +
                 "keyCode=\(registration.keyCode) modifiers=\(registration.modifiers) status=\(status)"
             )
 #endif
             return
         }
 
-        hotKeyRefs[action] = hotKeyRef
-        registeredShortcuts[action] = normalizedShortcut
-        registeredHotKeyRegistrations[action] = registration
+        self.hotKeyRef = hotKeyRef
+        registeredShortcut = normalizedShortcut
+        registeredHotKeyRegistration = registration
 
 #if DEBUG
         cmuxDebugLog(
-            "globalHotkey.register success action=\(action.rawValue) shortcut=\(normalizedShortcut.displayString) " +
+            "globalHotkey.register success action=\(Self.action.rawValue) shortcut=\(normalizedShortcut.displayString) " +
             "keyCode=\(registration.keyCode) modifiers=\(registration.modifiers)"
         )
 #endif
-    }
-
-    private func shortcut(for action: KeyboardShortcutSettings.Action) -> StoredShortcut {
-        switch action {
-        case .showHideAllWindows:
-            return SystemWideHotkeySettings.shortcut()
-        default:
-            return KeyboardShortcutSettings.shortcut(for: action)
-        }
-    }
-
-    private func isSystemWideActionEnabled(
-        _ action: KeyboardShortcutSettings.Action,
-        shortcut: StoredShortcut
-    ) -> Bool {
-        guard !shortcut.isUnbound else { return false }
-        switch action {
-        case .showHideAllWindows:
-            return SystemWideHotkeySettings.isEnabled()
-        case .globalSearch:
-            return true
-        default:
-            assertionFailure("Unhandled system-wide hotkey action: \(action.rawValue)")
-            return false
-        }
     }
 
     private func installHotKeyHandlerIfNeeded() {
@@ -1363,18 +1305,13 @@ final class SystemWideHotkeyController {
 #endif
     }
 
-    private func unregisterHotKey(for action: KeyboardShortcutSettings.Action) {
-        if let hotKeyRef = hotKeyRefs.removeValue(forKey: action) {
+    private func unregisterHotKey() {
+        if let hotKeyRef {
             UnregisterEventHotKey(hotKeyRef)
+            self.hotKeyRef = nil
         }
-        registeredShortcuts[action] = nil
-        registeredHotKeyRegistrations[action] = nil
-    }
-
-    private func unregisterHotKeys() {
-        for action in Self.systemWideActions {
-            unregisterHotKey(for: action)
-        }
+        registeredShortcut = nil
+        registeredHotKeyRegistration = nil
     }
 
     private static let hotKeyEventHandler: EventHandlerUPP = { _, event, userInfo in
@@ -1401,32 +1338,27 @@ final class SystemWideHotkeyController {
 
         guard status == noErr,
               hotKeyID.signature == Self.hotKeySignature,
-              let action = Self.action(forHotKeyID: hotKeyID.id) else {
+              hotKeyID.id == Self.hotKeyID else {
             return OSStatus(eventNotHandledErr)
         }
 
 #if DEBUG
-        let shortcut = registeredShortcuts[action]?.displayString ?? "unknown"
-        cmuxDebugLog("globalHotkey.fire action=\(action.rawValue) shortcut=\(shortcut) active=\(NSApp.isActive ? 1 : 0)")
+        let shortcut = registeredShortcut?.displayString ?? "unknown"
+        cmuxDebugLog(
+            "globalHotkey.fire action=\(Self.action.rawValue) " +
+            "shortcut=\(shortcut) active=\(NSApp.isActive ? 1 : 0)"
+        )
 #endif
 
         Task { @MainActor [weak self] in
-            self?.perform(action)
+            self?.toggleApplicationVisibility()
         }
         return OSStatus(noErr)
     }
 
     @MainActor
-    private func perform(_ action: KeyboardShortcutSettings.Action) {
-        switch action {
-        case .showHideAllWindows:
-            AppDelegate.shared?.toggleApplicationVisibilityFromGlobalHotkey()
-        case .globalSearch:
-            AppDelegate.shared?.toggleGlobalSearchPaletteFromGlobalHotkey()
-        default:
-            assertionFailure("Unhandled system-wide hotkey action: \(action.rawValue)")
-            break
-        }
+    private func toggleApplicationVisibility() {
+        AppDelegate.shared?.toggleApplicationVisibilityFromGlobalHotkey()
     }
 
     @MainActor
@@ -1434,17 +1366,6 @@ final class SystemWideHotkeyController {
         AppDelegate.shared?.captureMainWindowVisibilityRestoreTargetsForApplicationHide()
     }
 
-    private static func hotKeyID(for action: KeyboardShortcutSettings.Action) -> UInt32 {
-        guard let hotKeyID = hotKeyIDs[action] else {
-            assertionFailure("Unhandled system-wide hotkey action: \(action.rawValue)")
-            return 0
-        }
-        return hotKeyID
-    }
-
-    private static func action(forHotKeyID hotKeyID: UInt32) -> KeyboardShortcutSettings.Action? {
-        systemWideActions.first { Self.hotKeyID(for: $0) == hotKeyID }
-    }
 }
 
 struct ShortcutStroke: Equatable, Hashable {

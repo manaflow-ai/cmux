@@ -161,6 +161,7 @@ extension ShortcutAction {
         case .toggleBrowserDeveloperTools: return ShortcutStroke(key: "i", command: true, option: true)
         case .showBrowserJavaScriptConsole: return ShortcutStroke(key: "c", command: true, option: true)
         case .toggleBrowserFocusMode: return ShortcutStroke(key: "\r", command: true, option: true)
+        case .toggleBrowserDesignMode: return ShortcutStroke(key: "d", command: true, option: true, control: true)
         case .toggleReactGrab: return ShortcutStroke(key: "g", command: true, shift: true)
         case .diffViewerScrollDown: return ShortcutStroke(key: "j")
         case .diffViewerScrollUp: return ShortcutStroke(key: "k")

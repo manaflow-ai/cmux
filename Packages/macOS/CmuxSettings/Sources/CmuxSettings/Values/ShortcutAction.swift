@@ -160,6 +160,8 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case toggleBrowserDeveloperTools
     case showBrowserJavaScriptConsole
     case toggleBrowserFocusMode
+    /// Toggles design-mode editing for the focused browser.
+    case toggleBrowserDesignMode
     case toggleReactGrab
     /// Scrolls the focused diff viewer down one step.
     case diffViewerScrollDown
@@ -245,7 +247,8 @@ extension ShortcutAction {
 
     /// Whether this action supports a two-stroke shortcut chord.
     public var allowsChordShortcut: Bool {
-        self != .fileExplorerOpenSelection
+        self != .showHideAllWindows
+            && self != .fileExplorerOpenSelection
             && self != .fileExplorerOpenSelectionFinderAlias
             && self != .cycleTextBoxSubmitAction
     }
@@ -272,7 +275,8 @@ extension ShortcutAction {
             return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
         case .browserBack, .browserForward, .browserReload, .browserHardReload,
              .toggleBrowserDeveloperTools, .showBrowserJavaScriptConsole, .toggleBrowserFocusMode,
-             .diffViewerOpenFileSearch, .diffViewerNextFile, .diffViewerPreviousFile:
+             .toggleBrowserDesignMode, .diffViewerOpenFileSearch, .diffViewerNextFile,
+             .diffViewerPreviousFile:
             return .atom(.browserFocus)
         case .diffViewerScrollDown, .diffViewerScrollUp,
              .diffViewerScrollHalfPageDown, .diffViewerScrollHalfPageUp,
