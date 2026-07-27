@@ -1,11 +1,11 @@
 extension CMUXCLI {
     static let piExtensionSourcePart1 = #"""
-// cmux-pi-session-extension-marker v2
+// cmux-pi-session-extension-marker v3
 // Bridges Pi session lifecycle, tool telemetry, notifications, and resume bindings into cmux.
 // Installed by `cmux hooks pi install` or `cmux hooks setup`.
 // DO NOT EDIT MANUALLY. cmux upgrades this file in place.
 
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -328,25 +328,55 @@ function cmuxExecutable(): string {
   return process.env.CMUX_PI_CMUX_BIN || "cmux";
 }
 
-function runCmux(args: string[], cwd: string, input?: string): CommandResult {
-  try {
-    const result = spawnSync(cmuxExecutable(), args, {
-      input,
-      encoding: "utf8",
-      env: hookEnvironment(cwd, true),
-      stdio: ["pipe", "pipe", "pipe"],
-      timeout: 5000,
-    });
-    const status = typeof result.status === "number" ? result.status : null;
-    return {
-      ok: status === 0 && !result.error,
-      status,
-      stdout: typeof result.stdout === "string" ? result.stdout : "",
-      stderr: typeof result.stderr === "string" ? result.stderr : "",
-      error: result.error,
-    };
-  } catch (error) {
-    return { ok: false, status: null, stdout: "", stderr: "", error };
-  }
+// cmux CLI calls run asynchronously so they never block Pi's event loop
+// (a blocked loop stalls streamed completions and trips Pi's watchdog).
+// Calls are serialized through a promise chain to preserve the strict
+// dispatch ordering the previous synchronous implementation guaranteed.
+let cmuxCallQueue: Promise<unknown> = Promise.resolve();
+
+function runCmux(args: string[], cwd: string, input?: string): Promise<CommandResult> {
+  const run = () => runCmuxOnce(args, cwd, input);
+  const next = cmuxCallQueue.then(run, run);
+  cmuxCallQueue = next;
+  return next;
+}
+
+function runCmuxOnce(args: string[], cwd: string, input?: string): Promise<CommandResult> {
+  return new Promise((resolve) => {
+    try {
+      const child = spawn(cmuxExecutable(), args, {
+        env: hookEnvironment(cwd, true),
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+      let stdout = "";
+      let stderr = "";
+      let settled = false;
+      const settle = (result: CommandResult) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(result);
+      };
+      const timer = setTimeout(() => {
+        try { child.kill("SIGKILL"); } catch (_) {}
+        settle({ ok: false, status: null, stdout, stderr, error: new Error("cmux command timed out") });
+      }, 5000);
+      child.stdout.setEncoding("utf8");
+      child.stderr.setEncoding("utf8");
+      child.stdout.on("error", () => {});
+      child.stdout.on("data", (chunk: string) => { stdout += chunk; });
+      child.stderr.on("error", () => {});
+      child.stderr.on("data", (chunk: string) => { stderr += chunk; });
+      child.on("error", (error) => settle({ ok: false, status: null, stdout, stderr, error }));
+      child.on("close", (code) => {
+        const status = typeof code === "number" ? code : null;
+        settle({ ok: status === 0, status, stdout, stderr });
+      });
+      child.stdin.on("error", () => {});
+      child.stdin.end(input ?? "");
+    } catch (error) {
+      resolve({ ok: false, status: null, stdout: "", stderr: "", error });
+    }
+  });
 """#
 }
