@@ -1,3 +1,4 @@
+import os
 import SwiftUI
 
 /// Owns the lifecycle of one settings-store change-stream subscription:
@@ -22,11 +23,16 @@ import SwiftUI
 // Deliberately NOT @MainActor: it is held by the nonisolated `LiveSetting`
 // DynamicProperty (see LiveSetting.swift for why that must stay nonisolated on
 // macOS 26.4.x), so its methods must be callable from a nonisolated context.
-// The only mutable state is `task`, and every access happens on the main thread
-// (SwiftUI drives `update()` there) except `deinit`'s cancel, which is
-// thread-safe — so `nonisolated(unsafe)` is sound here.
 final class SettingReadDriver<Value: Sendable> {
-    nonisolated(unsafe) private var task: Task<Void, Never>?
+    private struct State {
+        var didActivate = false
+        var task: Task<Void, Never>?
+    }
+
+    // DynamicProperty.update() is synchronous and nonisolated, so this lock
+    // protects only the one-shot activation claim and task handle shared with
+    // unconstrained deinit; it is never held while calling a closure or awaiting.
+    private let state = OSAllocatedUnfairLock(initialState: State())
 
     /// Starts forwarding `makeStream()`'s elements into `sink`. Idempotent:
     /// the first call wins and later calls are no-ops, so the subscription is
@@ -40,14 +46,15 @@ final class SettingReadDriver<Value: Sendable> {
         _ makeStream: () -> AsyncStream<Value>,
         sink: @escaping @MainActor (Value) -> Void
     ) {
-        guard task == nil else { return }
+        guard claimActivation() else { return }
         let stream = makeStream()
-        task = Task { @MainActor in
+        let task = Task { @MainActor in
             for await value in stream {
                 if Task.isCancelled { break }
                 sink(value)
             }
         }
+        store(task)
     }
 
     /// Starts forwarding an asynchronously-created stream into `sink`.
@@ -63,15 +70,33 @@ final class SettingReadDriver<Value: Sendable> {
         _ makeStream: @escaping @MainActor @Sendable () async -> AsyncStream<Value>,
         sink: @escaping @MainActor @Sendable (Value) -> Void
     ) {
-        guard task == nil else { return }
-        task = Task { @MainActor in
+        guard claimActivation() else { return }
+        let task = Task { @MainActor in
             let stream = await makeStream()
             for await value in stream {
                 if Task.isCancelled { break }
                 sink(value)
             }
         }
+        store(task)
     }
 
-    deinit { task?.cancel() }
+    private func claimActivation() -> Bool {
+        state.withLock { state in
+            guard !state.didActivate else { return false }
+            state.didActivate = true
+            return true
+        }
+    }
+
+    private func store(_ task: Task<Void, Never>) {
+        state.withLock { state in
+            state.task = task
+        }
+    }
+
+    deinit {
+        let task = state.withLock { state in state.task }
+        task?.cancel()
+    }
 }
