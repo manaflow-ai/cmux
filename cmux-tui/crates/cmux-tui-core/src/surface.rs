@@ -2139,6 +2139,25 @@ impl Surface {
             .map_err(ClearHistoryFailure::into_error)
     }
 
+    pub fn supports_clear_history_key_fallback(&self) -> bool {
+        let Some(pty) = self.as_pty() else {
+            return false;
+        };
+        #[cfg(unix)]
+        {
+            match &*pty.runtime.lock().unwrap() {
+                PtyRuntime::Local { master, .. } => master.as_raw_fd().is_some(),
+                PtyRuntime::Hosted(host) => host.supports_clear_history(),
+                PtyRuntime::ExitedHosted => false,
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = pty;
+            false
+        }
+    }
+
     pub fn clear_history_or_encode_key_classified(
         &self,
         fallback_key: Option<&KeyInput>,

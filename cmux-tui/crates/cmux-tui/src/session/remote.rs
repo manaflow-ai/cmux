@@ -1259,10 +1259,20 @@ impl RemoteSession {
         self.clear_history_request_classified(surface, None)
     }
 
-    pub fn supports_clear_history_key_fallback(&self) -> bool {
-        let capabilities = self.capabilities.lock().unwrap();
-        capabilities.contains(CLEAR_HISTORY_CAPABILITY)
-            && capabilities.contains(CLEAR_HISTORY_KEY_CAPABILITY)
+    pub fn supports_clear_history_key_fallback(&self, surface: SurfaceId) -> bool {
+        let server_supports_fallback = {
+            let capabilities = self.capabilities.lock().unwrap();
+            capabilities.contains(CLEAR_HISTORY_CAPABILITY)
+                && capabilities.contains(CLEAR_HISTORY_KEY_CAPABILITY)
+        };
+        server_supports_fallback
+            && self
+                .tree
+                .lock()
+                .unwrap()
+                .view
+                .surface(surface)
+                .is_some_and(|tab| tab.supports_clear_history_key_fallback)
     }
 
     pub fn clear_history_or_send_key_classified(
@@ -1270,7 +1280,7 @@ impl RemoteSession {
         surface: SurfaceId,
         fallback_key: &KeyInput,
     ) -> Result<(), ClearHistoryFailure> {
-        if self.supports_clear_history_key_fallback() {
+        if self.supports_clear_history_key_fallback(surface) {
             let fallback_key = ProtocolKeyInput::try_from(fallback_key)
                 .map_err(ClearHistoryFailure::known_not_delivered)?;
             return self.clear_history_request_classified(surface, Some(fallback_key));
@@ -2305,6 +2315,51 @@ mod tests {
 
         assert_eq!(error.to_string(), CLEAR_HISTORY_UNSUPPORTED_ERROR);
         assert!(requests.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn clear_history_shortcut_requires_active_surface_support() {
+        let session = test_session_with_provider_context(
+            Box::new(UnexpectedWriteWriter),
+            HashSet::from([
+                CLEAR_HISTORY_CAPABILITY.to_string(),
+                CLEAR_HISTORY_KEY_CAPABILITY.to_string(),
+            ]),
+            None,
+        );
+        session.tree.lock().unwrap().replace(
+            parse_tree(&json!({
+                "workspaces": [{
+                    "id": 1,
+                    "active": true,
+                    "screens": [{
+                        "id": 2,
+                        "active": true,
+                        "active_pane": 3,
+                        "layout": {"type": "leaf", "pane": 3},
+                        "panes": [{
+                            "id": 3,
+                            "active_tab": 0,
+                            "tabs": [
+                                {
+                                    "surface": 7,
+                                    "supports_clear_history_key_fallback": false
+                                },
+                                {
+                                    "surface": 8,
+                                    "supports_clear_history_key_fallback": true
+                                }
+                            ]
+                        }]
+                    }]
+                }]
+            })),
+            0,
+        );
+
+        assert!(!session.supports_clear_history_key_fallback(7));
+        assert!(session.supports_clear_history_key_fallback(8));
+        assert!(!session.supports_clear_history_key_fallback(9));
     }
 
     #[test]

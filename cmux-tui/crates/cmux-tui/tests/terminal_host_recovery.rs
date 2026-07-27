@@ -916,8 +916,7 @@ fn adopted_legacy_host_rejects_clear_history_fallback() {
     };
     assert!(wait_for_screen(&harness.socket, adopted_surface, "ready").contains("ready"));
 
-    let tree =
-        request(&harness.socket, serde_json::json!({"id": 3, "cmd": "list-workspaces"}));
+    let tree = request(&harness.socket, serde_json::json!({"id": 3, "cmd": "list-workspaces"}));
     let adopted_tab = tree["workspaces"]
         .as_array()
         .into_iter()

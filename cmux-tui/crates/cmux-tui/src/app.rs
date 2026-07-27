@@ -1021,8 +1021,8 @@ impl OrderedSession {
         self.pending_mutation_with_routing(false)
     }
 
-    fn supports_clear_history_key_fallback(&self) -> bool {
-        self.inner.supports_clear_history_key_fallback()
+    fn supports_clear_history_key_fallback(&self, surface: SurfaceId) -> bool {
+        self.inner.supports_clear_history_key_fallback(surface)
     }
 
     fn retire_surface_input(&self, surface: SurfaceId) {
@@ -9545,7 +9545,7 @@ impl App {
         };
         if !should_claim_clear_history_shortcut(
             self.tree.surface_kind(surface_id),
-            self.session.supports_clear_history_key_fallback(),
+            self.session.supports_clear_history_key_fallback(surface_id),
         ) {
             self.replace_selection(None);
             self.forward_key(input);
@@ -18709,6 +18709,7 @@ mod tests {
             kind: SurfaceKind::Browser,
             browser_source: None,
             browser_frames_stalled: false,
+            supports_clear_history_key_fallback: false,
             notification: None,
         };
         let mut tabs = vec![tab(created_surface)];
@@ -22102,6 +22103,7 @@ mod tests {
                             kind: SurfaceKind::Pty,
                             browser_source: None,
                             browser_frames_stalled: false,
+                            supports_clear_history_key_fallback: false,
                             notification: unread
                                 .then_some(TabNotificationView { unread: true, level: "warning" }),
                         }],

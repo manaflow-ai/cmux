@@ -3187,6 +3187,8 @@ fn pane_json(
                 "browser_status": surface.and_then(|s| s.browser_status().map(|status| status.as_str())),
                 "browser_error": surface.and_then(|s| s.browser_status().and_then(|status| status.error())),
                 "browser_frames_stalled": surface.and_then(|s| s.browser_frames_stalled()),
+                "supports_clear_history_key_fallback": surface
+                    .is_some_and(|surface| surface.supports_clear_history_key_fallback()),
                 "notification": notifications.get(sid).copied().map(|n| {
                     json!({
                         "notification": n.notification,
