@@ -25,6 +25,13 @@ pub const EXTERNAL_MACHINE_CONNECT_CAPABILITY: &str = "connect-external-machine-
 pub const MACHINE_LIFECYCLE_CAPABILITY: &str = "machine-lifecycle-v1";
 pub const WORKSPACE_LIFECYCLE_CAPABILITY: &str = "workspace-lifecycle-v1";
 pub const WORKSPACE_MIRROR_AUTHORITY_CAPABILITY: &str = "workspace-mirror-authority-v1";
+pub const DURABLE_NOTICES_CAPABILITY: &str = "durable-notices-v1";
+/// Lets a client explicitly enable additive response fields that older strict
+/// v1 decoders cannot accept.
+pub const CLIENT_CAPABILITY_NEGOTIATION_CAPABILITY: &str = "client-capability-negotiation-v1";
+/// Enables non-scope `ProviderAction::target` values for one control
+/// generation after client-capability negotiation succeeds.
+pub const PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY: &str = "provider-action-targets-v1";
 pub const MIN_WORKSPACE_MIRROR_AUTHORITY_BYTES: usize = 32;
 
 const MAX_OPAQUE_ID_BYTES: usize = 512;
@@ -317,6 +324,9 @@ impl RequestEnvelope {
 #[serde(tag = "method", content = "params", rename_all = "snake_case")]
 pub enum ProviderRequest {
     Hello(HelloParams),
+    NegotiateClientCapabilities(NegotiateClientCapabilitiesParams),
+    SubscribeNotices(SubscribeNoticesParams),
+    AcknowledgeNotice(AcknowledgeNoticeParams),
     Snapshot(SnapshotParams),
     OpenMachine(OpenMachineParams),
     SelectScope(SelectScopeParams),
@@ -460,13 +470,19 @@ pub enum ProviderResponse<T> {
 pub struct EventEnvelope {
     pub protocol: Protocol,
     pub version: Version,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delivery: Option<NoticeDelivery>,
     #[serde(flatten)]
     pub event: ProviderEvent,
 }
 
 impl EventEnvelope {
     pub fn new(event: ProviderEvent) -> Self {
-        Self { protocol: Protocol, version: Version, event }
+        Self { protocol: Protocol, version: Version, delivery: None, event }
+    }
+
+    pub fn with_delivery(event: ProviderEvent, delivery: NoticeDelivery) -> Self {
+        Self { protocol: Protocol, version: Version, delivery: Some(delivery), event }
     }
 }
 
@@ -501,6 +517,43 @@ pub struct HelloResult {
     pub negotiated_version: Version,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NegotiateClientCapabilitiesParams {
+    pub capabilities: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NegotiateClientCapabilitiesResult {
+    pub capabilities: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SubscribeNoticesParams {
+    pub consumer_id: OpaqueId,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SubscribeNoticesResult {
+    pub sequence: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AcknowledgeNoticeParams {
+    pub notice_id: OpaqueId,
+    pub sequence: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AcknowledgeNoticeResult {
+    pub sequence: u64,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SnapshotParams {
@@ -522,6 +575,20 @@ pub struct SnapshotResult {
     pub actions: Vec<ProviderAction>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notice: Option<ProviderNotice>,
+}
+
+impl SnapshotResult {
+    /// Removes action shapes that are unsafe for a strict pre-negotiation v1
+    /// decoder. Providers call this before every snapshot-shaped response,
+    /// using the capabilities accepted for that control generation.
+    pub fn retain_actions_for_client_capabilities(&mut self, capabilities: &[String]) {
+        if !capabilities
+            .iter()
+            .any(|capability| capability == PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY)
+        {
+            self.actions.retain(|action| action.target == ProviderActionTarget::Scope);
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -585,11 +652,35 @@ pub struct ProviderCapabilities {
     pub connect_external_machine: bool,
 }
 
+pub mod provider_action_id {
+    pub const LIST_WORKSPACE_PORTS: &str = "workspace.ports.list";
+    pub const MAKE_WORKSPACE_PORT_PUBLIC: &str = "workspace.port.make_public";
+    pub const MAKE_WORKSPACE_PORT_PRIVATE: &str = "workspace.port.make_private";
+    pub const OPEN_PRIVATE_WORKSPACE_PORT: &str = "workspace.port.open_private";
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderActionTarget {
+    #[default]
+    Scope,
+    SelectedMachine,
+    SelectedWorkspace,
+    #[serde(other)]
+    Unsupported,
+}
+
+fn provider_action_target_is_scope(target: &ProviderActionTarget) -> bool {
+    *target == ProviderActionTarget::Scope
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProviderAction {
     pub id: OpaqueId,
     pub label: String,
+    #[serde(default, skip_serializing_if = "provider_action_target_is_scope")]
+    pub target: ProviderActionTarget,
     #[serde(default)]
     pub destructive: bool,
     #[serde(default)]
@@ -890,6 +981,10 @@ pub struct InvokeActionParams {
     pub action_id: OpaqueId,
     #[serde(default)]
     pub values: BTreeMap<String, ActionValue>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub machine_id: Option<OpaqueId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<OpaqueId>,
     pub mutation_id: OpaqueId,
 }
 
@@ -967,6 +1062,13 @@ pub struct ConnectionClosedEvent {
 pub struct ProviderNotice {
     pub level: NoticeLevel,
     pub message: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NoticeDelivery {
+    pub notice_id: OpaqueId,
+    pub sequence: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1156,6 +1258,121 @@ mod tests {
     }
 
     #[test]
+    fn provider_action_context_is_additive_and_legacy_compatible() {
+        let legacy: ProviderAction = serde_json::from_value(serde_json::json!({
+            "id": "legacy.action",
+            "label": "Legacy action"
+        }))
+        .unwrap();
+        assert_eq!(legacy.target, ProviderActionTarget::Scope);
+        let encoded = serde_json::to_value(&legacy).unwrap();
+        assert!(encoded.get("target").is_none());
+
+        let params: InvokeActionParams = serde_json::from_value(serde_json::json!({
+            "action_id": "legacy.action",
+            "mutation_id": "mutation-1"
+        }))
+        .unwrap();
+        assert_eq!(params.machine_id, None);
+        assert_eq!(params.workspace_id, None);
+    }
+
+    #[test]
+    fn client_capability_negotiation_matches_the_v1_golden_document() {
+        let request = RequestEnvelope::new(
+            id("capabilities-1"),
+            ProviderRequest::NegotiateClientCapabilities(NegotiateClientCapabilitiesParams {
+                capabilities: vec![PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY.to_string()],
+            }),
+        );
+        let document = json!({
+            "protocol": "cmux.machine-provider",
+            "version": 1,
+            "id": "capabilities-1",
+            "method": "negotiate_client_capabilities",
+            "params": {
+                "capabilities": ["provider-action-targets-v1"]
+            }
+        });
+        assert_eq!(serde_json::to_value(&request).unwrap(), document);
+        assert_eq!(serde_json::from_value::<RequestEnvelope>(document).unwrap(), request);
+        assert_response_round_trip(NegotiateClientCapabilitiesResult {
+            capabilities: vec![PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY.to_string()],
+        });
+    }
+
+    #[test]
+    fn targeted_actions_are_removed_until_the_client_capability_is_negotiated() {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct LegacyProviderAction {
+            id: OpaqueId,
+            label: String,
+            #[serde(default)]
+            destructive: bool,
+            #[serde(default)]
+            fields: Vec<ActionField>,
+        }
+
+        let scope = ProviderAction {
+            id: id("scope.action"),
+            label: "Scope action".into(),
+            target: ProviderActionTarget::Scope,
+            destructive: false,
+            fields: Vec::new(),
+        };
+        let targeted = ProviderAction {
+            id: id("workspace.action"),
+            label: "Workspace action".into(),
+            target: ProviderActionTarget::SelectedWorkspace,
+            destructive: false,
+            fields: Vec::new(),
+        };
+        assert_eq!(serde_json::to_value(&targeted).unwrap()["target"], json!("selected_workspace"));
+        let mut snapshot = empty_snapshot();
+        snapshot.actions = vec![scope.clone(), targeted.clone()];
+        snapshot.retain_actions_for_client_capabilities(&[]);
+        assert_eq!(snapshot.actions, vec![scope.clone()]);
+
+        let legacy: LegacyProviderAction =
+            serde_json::from_value(serde_json::to_value(scope).unwrap()).unwrap();
+        assert_eq!(legacy.id, id("scope.action"));
+        assert_eq!(legacy.label, "Scope action");
+        assert!(!legacy.destructive);
+        assert!(legacy.fields.is_empty());
+        assert!(
+            serde_json::from_value::<LegacyProviderAction>(
+                serde_json::to_value(targeted.clone()).unwrap()
+            )
+            .is_err()
+        );
+
+        let mut negotiated = empty_snapshot();
+        negotiated.actions = vec![targeted.clone()];
+        negotiated.retain_actions_for_client_capabilities(&[
+            PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY.to_string(),
+        ]);
+        assert_eq!(negotiated.actions, vec![targeted]);
+    }
+
+    #[test]
+    fn unknown_provider_action_targets_do_not_reject_the_action_list() {
+        let actions: Vec<ProviderAction> = serde_json::from_value(serde_json::json!([
+            {
+                "id": "workspace.pane.inspect",
+                "label": "Inspect selected pane",
+                "target": "selected_pane"
+            }
+        ]))
+        .unwrap();
+
+        assert_eq!(
+            serde_json::to_value(actions[0].target).unwrap(),
+            serde_json::json!("unsupported")
+        );
+    }
+
+    #[test]
     fn snapshot_request_matches_the_v1_golden_document() {
         let request = RequestEnvelope::new(
             id("17"),
@@ -1172,6 +1389,56 @@ mod tests {
         let encoded = serde_json::to_value(&request).unwrap();
         assert_eq!(encoded, expected);
         assert_eq!(serde_json::from_value::<RequestEnvelope>(expected).unwrap(), request);
+    }
+
+    #[test]
+    fn durable_notice_requests_match_the_v1_golden_documents() {
+        let subscribe = RequestEnvelope::new(
+            id("subscribe-1"),
+            ProviderRequest::SubscribeNotices(SubscribeNoticesParams {
+                consumer_id: id("cmux-process-1"),
+            }),
+        );
+        let subscribe_document = json!({
+            "protocol": "cmux.machine-provider",
+            "version": 1,
+            "id": "subscribe-1",
+            "method": "subscribe_notices",
+            "params": {
+                "consumer_id": "cmux-process-1"
+            }
+        });
+        assert_eq!(serde_json::to_value(&subscribe).unwrap(), subscribe_document);
+        assert_eq!(
+            serde_json::from_value::<RequestEnvelope>(subscribe_document).unwrap(),
+            subscribe
+        );
+
+        let acknowledge = RequestEnvelope::new(
+            id("ack-1"),
+            ProviderRequest::AcknowledgeNotice(AcknowledgeNoticeParams {
+                notice_id: id("usage-warning-80"),
+                sequence: 42,
+            }),
+        );
+        let acknowledge_document = json!({
+            "protocol": "cmux.machine-provider",
+            "version": 1,
+            "id": "ack-1",
+            "method": "acknowledge_notice",
+            "params": {
+                "notice_id": "usage-warning-80",
+                "sequence": 42
+            }
+        });
+        assert_eq!(serde_json::to_value(&acknowledge).unwrap(), acknowledge_document);
+        assert_eq!(
+            serde_json::from_value::<RequestEnvelope>(acknowledge_document).unwrap(),
+            acknowledge
+        );
+
+        assert_response_round_trip(SubscribeNoticesResult { sequence: 41 });
+        assert_response_round_trip(AcknowledgeNoticeResult { sequence: 42 });
     }
 
     #[test]
@@ -1267,6 +1534,7 @@ mod tests {
             actions: vec![ProviderAction {
                 id: id("team.invite"),
                 label: "Invite member".into(),
+                target: ProviderActionTarget::Scope,
                 destructive: false,
                 fields: vec![ActionField {
                     id: "email".into(),
@@ -1381,6 +1649,99 @@ mod tests {
                 "params": { "revision": 14 }
             })
         );
+    }
+
+    #[test]
+    fn durable_notice_metadata_is_additive_to_the_legacy_notice_event() {
+        #[derive(Debug, Deserialize, PartialEq, Eq)]
+        struct LegacyEventEnvelope {
+            protocol: Protocol,
+            version: Version,
+            #[serde(flatten)]
+            event: ProviderEvent,
+        }
+
+        let event = EventEnvelope::with_delivery(
+            ProviderEvent::Notice(ProviderNotice {
+                level: NoticeLevel::Warning,
+                message: "Trial compute is almost exhausted".into(),
+            }),
+            NoticeDelivery { notice_id: id("usage-warning-80"), sequence: 42 },
+        );
+        let document = json!({
+            "protocol": "cmux.machine-provider",
+            "version": 1,
+            "delivery": {
+                "notice_id": "usage-warning-80",
+                "sequence": 42
+            },
+            "event": "notice",
+            "params": {
+                "level": "warning",
+                "message": "Trial compute is almost exhausted"
+            }
+        });
+        assert_eq!(serde_json::to_value(&event).unwrap(), document);
+        assert_eq!(serde_json::from_value::<EventEnvelope>(document.clone()).unwrap(), event);
+
+        let legacy: LegacyEventEnvelope = serde_json::from_value(document).unwrap();
+        assert_eq!(legacy.protocol, Protocol);
+        assert_eq!(legacy.version, Version);
+        assert_eq!(legacy.event, event.event);
+
+        let legacy_event = EventEnvelope::new(ProviderEvent::Notice(ProviderNotice {
+            level: NoticeLevel::Info,
+            message: "Legacy notice".into(),
+        }));
+        assert_eq!(
+            serde_json::to_value(legacy_event).unwrap(),
+            json!({
+                "protocol": "cmux.machine-provider",
+                "version": 1,
+                "event": "notice",
+                "params": {
+                    "level": "info",
+                    "message": "Legacy notice"
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn durable_notice_metadata_is_strict_while_event_metadata_remains_additive() {
+        let future_metadata = json!({
+            "protocol": "cmux.machine-provider",
+            "version": 1,
+            "delivery": {
+                "notice_id": "usage-warning-80",
+                "sequence": 42
+            },
+            "future_trace": "trace-1",
+            "event": "notice",
+            "params": {
+                "level": "warning",
+                "message": "Trial compute is almost exhausted"
+            }
+        });
+        assert!(serde_json::from_value::<EventEnvelope>(future_metadata).is_ok());
+
+        for invalid_delivery in [
+            json!({ "notice_id": "usage-warning-80" }),
+            json!({ "notice_id": "usage-warning-80", "sequence": 42, "future": true }),
+            json!({ "notice_id": "", "sequence": 42 }),
+        ] {
+            let document = json!({
+                "protocol": "cmux.machine-provider",
+                "version": 1,
+                "delivery": invalid_delivery,
+                "event": "notice",
+                "params": {
+                    "level": "warning",
+                    "message": "Trial compute is almost exhausted"
+                }
+            });
+            assert!(serde_json::from_value::<EventEnvelope>(document).is_err());
+        }
     }
 
     #[test]
@@ -1519,6 +1880,8 @@ mod tests {
             ProviderRequest::InvokeAction(InvokeActionParams {
                 action_id: id("team.invite"),
                 values: action_values,
+                machine_id: Some(id("machine")),
+                workspace_id: Some(id("workspace")),
                 mutation_id: id("mutation-action"),
             }),
             ProviderRequest::CloseMachine(CloseMachineParams { connection_id: id("connection") }),

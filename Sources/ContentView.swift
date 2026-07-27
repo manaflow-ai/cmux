@@ -5684,58 +5684,6 @@ struct ContentView: View {
             ports: ports
         )
     }
-    private func commandPaletteSurfaceKindLabel(for panelType: PanelType) -> String {
-        switch panelType {
-        case .terminal:
-            return String(localized: "commandPalette.kind.terminal", defaultValue: "Terminal")
-        case .browser:
-            return String(localized: "commandPalette.kind.browser", defaultValue: "Browser")
-        case .markdown:
-            return String(localized: "commandPalette.kind.markdown", defaultValue: "Markdown")
-        case .filePreview:
-            return String(localized: "commandPalette.kind.filePreview", defaultValue: "File Preview")
-        case .rightSidebarTool:
-            return String(localized: "commandPalette.kind.rightSidebarTool", defaultValue: "Tool")
-        case .customSidebar:
-            return String(localized: "commandPalette.kind.customSidebar", defaultValue: "Custom Sidebar")
-        case .agentSession:
-            return String(localized: "commandPalette.kind.agentSession", defaultValue: "Agent")
-        case .project:
-            return String(localized: "commandPalette.kind.project", defaultValue: "Project")
-        case .extensionBrowser:
-            return String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions")
-        case .workspaceTodo:
-            return String(localized: "commandPalette.kind.workspaceTodo", defaultValue: "Todos")
-        case .cloudVMLoading:
-            return String(localized: "commandPalette.kind.cloudVMLoading", defaultValue: "Cloud VM")
-        }
-    }
-    private func commandPaletteSurfaceKeywords(for panelType: PanelType) -> [String] {
-        switch panelType {
-        case .terminal:
-            return ["terminal", "shell", "console"]
-        case .browser:
-            return ["browser", "web", "page"]
-        case .markdown:
-            return ["markdown", "note", "preview"]
-        case .filePreview:
-            return ["file", "preview", "text", "pdf", "image", "audio", "video"]
-        case .rightSidebarTool:
-            return ["tool", "files", "find", "vault", "sidebar"]
-        case .customSidebar:
-            return ["custom", "sidebar", "pane"]
-        case .agentSession:
-            return ["agent", "codex", "claude", "opencode", "react", "solid"]
-        case .project:
-            return ["project", "xcode", "build", "settings", "schemes", "targets"]
-        case .extensionBrowser:
-            return ["sidebar", "extensions", "extensionkit", "browser"]
-        case .workspaceTodo:
-            return ["todo", "todos", "checklist", "task", "status"]
-        case .cloudVMLoading:
-            return ["cloud", "vm", "loading"]
-        }
-    }
     private func commandPaletteCachedCommandsContext() -> CommandPaletteCommandsContext {
         commandPaletteCommandsContext(
             terminalOpenTargets: commandPaletteTerminalOpenTargetAvailability
@@ -6844,6 +6792,7 @@ struct ContentView: View {
             snapshot.setBool(CommandPaletteContextKeys.hasFocusedPanel, true)
             snapshot.setString(CommandPaletteContextKeys.panelName, panelDisplayName(workspace: workspace, panelId: panelId, fallback: panelContext.panel.displayTitle))
             snapshot.setBool(CommandPaletteContextKeys.panelIsBrowser, panelContext.panel.panelType == .browser)
+            snapshot.setBool(CommandPaletteContextKeys.panelIsSimulator, panelContext.panel.panelType == .simulator)
             if let browserPanel = panelContext.panel as? BrowserPanel {
                 snapshot.setBool(CommandPaletteContextKeys.panelBrowserFocusModeActive, browserPanel.isBrowserFocusModeActive)
             }
@@ -7083,6 +7032,9 @@ struct ContentView: View {
                 when: { !$0.bool(CommandPaletteContextKeys.browserDisabled) }
             )
         )
+        if CmuxFeatureFlags.shared.isSimulatorEnabled {
+            contributions.append(.newSimulatorPane)
+        }
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.closeTab",
@@ -7572,22 +7524,7 @@ struct ContentView: View {
             )
         )
         contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.nextTabInPane",
-                title: constant(String(localized: "command.nextTabInPane.title", defaultValue: "Next Tab in Pane")),
-                subtitle: constant(String(localized: "command.nextTabInPane.subtitle", defaultValue: "Tab Navigation")),
-                keywords: ["next", "tab", "pane"],
-                when: { $0.bool(CommandPaletteContextKeys.hasFocusedPanel) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.previousTabInPane",
-                title: constant(String(localized: "command.previousTabInPane.title", defaultValue: "Previous Tab in Pane")),
-                subtitle: constant(String(localized: "command.previousTabInPane.subtitle", defaultValue: "Tab Navigation")),
-                keywords: ["previous", "tab", "pane"],
-                when: { $0.bool(CommandPaletteContextKeys.hasFocusedPanel) }
-            )
+            contentsOf: Self.commandPaletteSurfaceNavigationContributions()
         )
 
         contributions.append(
@@ -8290,6 +8227,7 @@ struct ContentView: View {
                 _ = AppDelegate.shared?.openBrowserAndFocusAddressBar()
             }
         }
+        registry.registerNewSimulatorPane(tabManager: tabManager, windowId: windowId)
         registry.register(commandId: "palette.closeTab") {
             tabManager.closeCurrentPanelWithConfirmation()
         }
@@ -8571,12 +8509,7 @@ struct ContentView: View {
                 panelContext.workspace.markPanelUnread(panelContext.panelId)
             }
         }
-        registry.register(commandId: "palette.nextTabInPane") {
-            tabManager.selectNextSurface()
-        }
-        registry.register(commandId: "palette.previousTabInPane") {
-            tabManager.selectPreviousSurface()
-        }
+        registerSurfaceNavigationCommandHandlers(&registry) { observedWindow }
         registry.register(commandId: "palette.openWorkspacePullRequests") {
             DispatchQueue.main.async {
                 if !openWorkspacePullRequestsInConfiguredBrowser() {
@@ -10562,7 +10495,7 @@ struct VerticalTabsSidebar: View, Equatable {
     @StateObject private var tabItemSettingsStore = SidebarTabItemSettingsStore(
         initialSidebarFontSize: GhosttyConfig.load().sidebarFontSize
     )
-    @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    @State private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @State var dragState = SidebarDragState()
     // Bonsplit tab drags arrive through AppKit pasteboard callbacks, not
     // `SidebarDragState`, so they need a separate transient collection flag.
@@ -12298,31 +12231,6 @@ struct VerticalTabsSidebar: View, Equatable {
             )
         }
     }
-    private func cmuxSidebarSurfaceKind(for panelType: PanelType) -> CmuxSidebarSurfaceKind {
-        switch panelType {
-        case .terminal:
-            return .terminal
-        case .browser:
-            return .browser
-        case .markdown:
-            return .markdown
-        case .filePreview:
-            return .filePreview
-        case .rightSidebarTool:
-            return .rightSidebarTool
-        case .customSidebar:
-            return .unknown
-        case .agentSession:
-            return .agentSession
-        case .project:
-            return .project
-        case .extensionBrowser:
-            return .unknown
-        case .workspaceTodo, .cloudVMLoading:
-            return .unknown
-        }
-    }
-
     private func handleCMUXSidebarExtensionAction(
         _ action: CmuxSidebarAction
     ) -> CmuxSidebarActionResult {
@@ -14616,7 +14524,7 @@ private struct SidebarHelpMenuButton: View {
     private let helpTitle = String(localized: "sidebar.help.button", defaultValue: "Help")
     private let buttonSize: CGFloat = 22
     private let iconSize: CGFloat = 11
-    @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    @State private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
 
     let onSendFeedback: () -> Void
 

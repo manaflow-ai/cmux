@@ -946,6 +946,7 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_contract_help.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_layout_focus_contract.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_socket_operation_deadline.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_simulator_contract.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_browser_profile_cli.py
           python3 tests/test_stress_cli_socket_api.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_omo_openagent_plugin_migration.py
@@ -962,6 +963,7 @@ jobs:
           python3 tests/test_issue_2448_shell_claude_wrapper_dispatch.py
           python3 tests/test_issue_8093_ghostty_ssh_binary_path.py
           python3 tests/test_issue_6714_zsh_shim_noclobber.py
+          python3 tests/test_issue_8953_zsh_prompt_wrap_guard.py
           python3 tests/test_shell_git_branch_stale_cwd.py
           python3 tests/test_shell_git_config_remote_url_parsing.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_claude_hook_stop_last_assistant.py

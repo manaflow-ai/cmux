@@ -142,6 +142,8 @@ test("shared web test runner preserves recursive discovery", () => {
         `default Bun test root was not preserved:\n${rootedResult.output}`,
       );
     }
+    // Configured discovery belongs to Bun, so verify the selected set without
+    // imposing filesystem-dependent reporter order.
     expectHeadings(rootedResult.output, [
       "tests/beta.test.ts:",
       "tests/nested/gamma_test.tsx:",
