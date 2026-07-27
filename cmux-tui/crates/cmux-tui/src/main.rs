@@ -59,11 +59,9 @@ static SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
 #[cfg(unix)]
 const MACHINE_PROVIDER_TOKEN_ENV: &str = "CMUX_MACHINE_PROVIDER_TOKEN";
 const PROVIDER_WORKSPACE_AUTHORITY_ENV: &str = "CMUX_PROVIDER_WORKSPACE_AUTHORITY";
-// One second beyond the core cleanup budget lets `run_server` report a
-// bounded cleanup error before the last-resort watchdog exits the process.
-const SERVER_SHUTDOWN_EXIT_GRACE: std::time::Duration =
-    cmux_tui_core::server::SERVER_SHUTDOWN_TIMEOUT
-        .saturating_add(std::time::Duration::from_secs(1));
+// Once core cleanup owns no external processes, give the interactive driver
+// one final second to unwind before releasing the socket and exiting.
+const SERVER_SHUTDOWN_EXIT_GRACE: std::time::Duration = std::time::Duration::from_secs(1);
 
 #[cfg(target_os = "linux")]
 unsafe extern "C" {
@@ -945,9 +943,60 @@ fn socket_option(fd: std::os::fd::RawFd, option: libc::c_int) -> io::Result<libc
     Ok(value)
 }
 
+enum ServerShutdownCleanupState {
+    Pending,
+    Running,
+    Finished(Result<(), String>),
+}
+
+struct ServerShutdownCleanup {
+    mux: Arc<Mux>,
+    state: std::sync::Mutex<ServerShutdownCleanupState>,
+    changed: std::sync::Condvar,
+}
+
+impl ServerShutdownCleanup {
+    fn new(mux: Arc<Mux>) -> Self {
+        Self {
+            mux,
+            state: std::sync::Mutex::new(ServerShutdownCleanupState::Pending),
+            changed: std::sync::Condvar::new(),
+        }
+    }
+
+    fn run(&self) -> anyhow::Result<()> {
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        loop {
+            match &*state {
+                ServerShutdownCleanupState::Pending => {
+                    *state = ServerShutdownCleanupState::Running;
+                    break;
+                }
+                ServerShutdownCleanupState::Running => {
+                    state =
+                        self.changed.wait(state).unwrap_or_else(std::sync::PoisonError::into_inner);
+                }
+                ServerShutdownCleanupState::Finished(result) => {
+                    return result.clone().map_err(anyhow::Error::msg);
+                }
+            }
+        }
+        drop(state);
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.mux.shutdown()))
+            .map_err(|_| "server shutdown cleanup panicked".to_string())
+            .and_then(|result| result.map_err(|error| format!("{error:#}")));
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        *state = ServerShutdownCleanupState::Finished(result.clone());
+        self.changed.notify_all();
+        result.map_err(anyhow::Error::msg)
+    }
+}
+
 struct ServerProcessShutdownGuard {
     socket_path: PathBuf,
     shutdown_watch: cmux_tui_core::ShutdownRequestWatch,
+    cleanup: Arc<ServerShutdownCleanup>,
     completion: Option<std::sync::mpsc::Sender<()>>,
     worker: Option<std::thread::JoinHandle<()>>,
 }
@@ -957,6 +1006,8 @@ impl ServerProcessShutdownGuard {
         let shutdown_watch = mux.watch_shutdown_request();
         let worker_watch = shutdown_watch.clone();
         let worker_socket_path = socket_path.clone();
+        let cleanup = Arc::new(ServerShutdownCleanup::new(mux.clone()));
+        let worker_cleanup = cleanup.clone();
         let (completion, completed) = std::sync::mpsc::channel();
         let worker = std::thread::Builder::new().name("cmux-server-exit-watchdog".into()).spawn(
             move || {
@@ -964,21 +1015,36 @@ impl ServerProcessShutdownGuard {
                     return;
                 }
 
+                // A blocked frontend cannot own process cleanup. Complete the
+                // same bounded cleanup path that run_server joins below, and
+                // retain the socket indefinitely if cleanup cannot prove that
+                // every external owner was released.
+                if worker_cleanup.run().is_err() {
+                    return;
+                }
                 if matches!(
                     completed.recv_timeout(server_shutdown_exit_grace()),
                     Err(std::sync::mpsc::RecvTimeoutError::Timeout)
                 ) {
-                    // Full shutdown drains every surface before requesting
-                    // exit. Daemon handoff fences new work and gives normal
-                    // cleanup the same bounded grace. If the interactive
-                    // driver cannot return after either accepted boundary,
-                    // the old process must release its control socket.
+                    // Cleanup already proved that no external ownership
+                    // remains. The frontend alone is stuck, so the old
+                    // process can now release its control socket.
                     cmux_tui_core::server::cleanup(&worker_socket_path);
                     std::process::exit(0);
                 }
             },
         )?;
-        Ok(Self { socket_path, shutdown_watch, completion: Some(completion), worker: Some(worker) })
+        Ok(Self {
+            socket_path,
+            shutdown_watch,
+            cleanup,
+            completion: Some(completion),
+            worker: Some(worker),
+        })
+    }
+
+    fn shutdown(&self) -> anyhow::Result<()> {
+        self.cleanup.run()
     }
 
     fn complete(mut self) {
@@ -1160,12 +1226,12 @@ fn run_server(
     let result = if args.headless {
         run_headless(&mux, &socket_path)
     } else if let Some(runtime) = machine_runtime {
-        run_machine_client(runtime, mux.clone())
+        run_machine_client(runtime, mux)
     } else {
-        run_tui(Session::Local(mux.clone()), args.session, None)
+        run_tui(Session::Local(mux), args.session, None)
     };
     drop(websocket_server);
-    let shutdown_result = mux.shutdown();
+    let shutdown_result = server_process.shutdown();
     server_process.complete();
     shutdown_result?;
     result
@@ -1435,6 +1501,7 @@ mod tests {
         let original = UnixListener::bind(&socket_path).unwrap();
         let mux = Mux::new("server-guard-test", SurfaceOptions::default());
         let shutdown_watch = mux.watch_shutdown_request();
+        let cleanup = Arc::new(ServerShutdownCleanup::new(mux));
         let (completion, completed) = std::sync::mpsc::channel();
         let (replacement_tx, replacement_rx) = std::sync::mpsc::sync_channel(1);
         let replacement_path = socket_path.clone();
@@ -1446,6 +1513,7 @@ mod tests {
         let guard = ServerProcessShutdownGuard {
             socket_path: socket_path.clone(),
             shutdown_watch,
+            cleanup,
             completion: Some(completion),
             worker: Some(worker),
         };

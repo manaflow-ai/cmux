@@ -3173,6 +3173,7 @@ mod unix {
                     reaper,
                     session,
                     HOST_KILL_WAIT,
+                    || Ok(true),
                     move || {
                         crate::process_session::reserved_child_needs_cleanup(
                             crate::process_session::ReservedChildReap {

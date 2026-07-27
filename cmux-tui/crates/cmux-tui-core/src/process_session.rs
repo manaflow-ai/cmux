@@ -83,6 +83,8 @@ enum NaturalReaperCommand {
 struct NaturalReapRequest {
     session: libc::pid_t,
     cleanup_timeout: Duration,
+    observe_child: Box<dyn FnMut() -> io::Result<bool> + Send>,
+    child_observed: bool,
     needs_cleanup: Box<dyn Fn() -> bool + Send>,
     prepare_cleanup: Box<dyn FnMut() -> bool + Send>,
     finish: Box<dyn FnMut(bool) -> bool + Send>,
@@ -169,6 +171,7 @@ pub(crate) fn enqueue_reserved_session_leader(
     lease: ReservedChildReaperLease,
     session: libc::pid_t,
     cleanup_timeout: Duration,
+    observe_child: impl FnMut() -> io::Result<bool> + Send + 'static,
     needs_cleanup: impl Fn() -> bool + Send + 'static,
     prepare_cleanup: impl FnMut() -> bool + Send + 'static,
     finish: impl FnMut(bool) -> bool + Send + 'static,
@@ -178,6 +181,8 @@ pub(crate) fn enqueue_reserved_session_leader(
         .send(NaturalReaperCommand::Add(NaturalReapRequest {
             session,
             cleanup_timeout,
+            observe_child: Box::new(observe_child),
+            child_observed: false,
             needs_cleanup: Box::new(needs_cleanup),
             prepare_cleanup: Box::new(prepare_cleanup),
             finish: Box::new(finish),
@@ -268,11 +273,26 @@ fn run_natural_reaper(
             continue;
         }
 
-        let needs_cleanup = due.iter().map(|request| (request.needs_cleanup)()).collect::<Vec<_>>();
+        let child_observed = due
+            .iter_mut()
+            .map(|request| {
+                if !request.child_observed {
+                    request.child_observed = (request.observe_child)().unwrap_or(false);
+                }
+                request.child_observed
+            })
+            .collect::<Vec<_>>();
+        let needs_cleanup = due
+            .iter()
+            .zip(&child_observed)
+            .map(|(request, observed)| *observed && (request.needs_cleanup)())
+            .collect::<Vec<_>>();
         let prepared = due
             .iter_mut()
-            .zip(&needs_cleanup)
-            .map(|(request, needed)| !needed || (request.prepare_cleanup)())
+            .zip(child_observed.iter().zip(&needs_cleanup))
+            .map(|(request, (observed, needed))| {
+                !observed || !needed || (request.prepare_cleanup)()
+            })
             .collect::<Vec<_>>();
         let sessions = due
             .iter()
@@ -302,7 +322,15 @@ fn run_natural_reaper(
                 .unwrap_or_default()
         };
 
-        for ((mut request, needed), prepared) in due.into_iter().zip(needs_cleanup).zip(prepared) {
+        for (((mut request, observed), needed), prepared) in
+            due.into_iter().zip(child_observed).zip(needs_cleanup).zip(prepared)
+        {
+            if !observed {
+                request.next_attempt = Instant::now() + request.retry_delay;
+                request.retry_delay = (request.retry_delay * 2).min(NATURAL_REAP_RETRY_MAX);
+                pending.push(request);
+                continue;
+            }
             let cleanup_succeeded = needed && prepared && cleaned.contains(&request.session);
             let done = (request.finish)(cleanup_succeeded);
             if done {

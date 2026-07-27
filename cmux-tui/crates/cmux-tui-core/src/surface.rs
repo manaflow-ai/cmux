@@ -877,81 +877,103 @@ impl LocalPtyProcess {
         mut child: Box<dyn portable_pty::Child + Send + Sync>,
         reaper: LocalChildReaperLease,
     ) -> std::io::Result<()> {
-        let process = self.clone();
-        #[cfg(all(unix, test))]
-        DEDICATED_LOCAL_CHILD_OBSERVER_SPAWNS.fetch_add(1, Ordering::AcqRel);
-        std::thread::Builder::new().name("surface-child".into()).spawn(move || {
-            #[cfg(unix)]
-            {
-                let observed_without_reaping = process
-                    .pid
-                    .and_then(|pid| libc::pid_t::try_from(pid).ok())
-                    .is_some_and(|pid| wait_for_local_child_without_reaping(pid).is_ok());
-                if observed_without_reaping {
-                    let session =
-                        libc::pid_t::try_from(process.pid.expect("observed child has a PID"))
-                            .expect("portable-pty child PID fits pid_t");
-                    process.child_waitable.store(true, Ordering::Release);
-                    process.exited.1.notify_all();
-                    let cleanup_process = process.clone();
-                    let prepare_process = process.clone();
-                    let reap_process = process.clone();
-                    let mut child = Some(child);
-                    crate::process_session::enqueue_reserved_session_leader(
-                        reaper,
-                        session,
-                        NORMAL_EXIT_SESSION_CLEANUP_TIMEOUT,
-                        move || {
-                            crate::process_session::reserved_child_needs_cleanup(
-                                crate::process_session::ReservedChildReap {
-                                    signal_lock: &cleanup_process.child_signal_lock,
-                                    pty_drained: &cleanup_process.pty_drained,
-                                    termination_started: &cleanup_process.termination_started,
-                                    cleanup_complete: &cleanup_process.group_escalation_complete,
-                                    child_reaped: &cleanup_process.child_reaped,
-                                },
-                            )
+        #[cfg(unix)]
+        {
+            let process = self.clone();
+            let Some(session) = process.pid.and_then(|pid| libc::pid_t::try_from(pid).ok()) else {
+                let _ = child.kill();
+                let _ = child.wait();
+                process.child_reaped.store(true, Ordering::Release);
+                process.child_waitable.store(true, Ordering::Release);
+                *process.exited.0.lock().unwrap() = true;
+                process.exited.1.notify_all();
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Unsupported,
+                    "native PTY child did not expose a process ID",
+                ));
+            };
+            let observe_process = process.clone();
+            let cleanup_process = process.clone();
+            let prepare_process = process.clone();
+            let reap_process = process;
+            let mut child = Some(child);
+            crate::process_session::enqueue_reserved_session_leader(
+                reaper,
+                session,
+                NORMAL_EXIT_SESSION_CLEANUP_TIMEOUT,
+                move || {
+                    let observed = local_child_is_waitable(session)?;
+                    if observed {
+                        observe_process.child_waitable.store(true, Ordering::Release);
+                        observe_process.exited.1.notify_all();
+                    }
+                    Ok(observed)
+                },
+                move || {
+                    crate::process_session::reserved_child_needs_cleanup(
+                        crate::process_session::ReservedChildReap {
+                            signal_lock: &cleanup_process.child_signal_lock,
+                            pty_drained: &cleanup_process.pty_drained,
+                            termination_started: &cleanup_process.termination_started,
+                            cleanup_complete: &cleanup_process.group_escalation_complete,
+                            child_reaped: &cleanup_process.child_reaped,
                         },
-                        move || prepare_process.prepare_natural_cleanup(),
-                        move |cleanup_succeeded| {
-                            let done = crate::process_session::poll_reserved_session_leader(
-                                crate::process_session::ReservedChildReap {
-                                    signal_lock: &reap_process.child_signal_lock,
-                                    pty_drained: &reap_process.pty_drained,
-                                    termination_started: &reap_process.termination_started,
-                                    cleanup_complete: &reap_process.group_escalation_complete,
-                                    child_reaped: &reap_process.child_reaped,
-                                },
-                                cleanup_succeeded,
-                                || {
-                                    let mut child =
-                                        child.take().expect("reserved child is reaped once");
-                                    let _ = child.wait();
-                                },
-                            );
-                            if done {
-                                *reap_process.exited.0.lock().unwrap() = true;
-                                reap_process.exited.1.notify_all();
-                            }
-                            done
+                    )
+                },
+                move || prepare_process.prepare_natural_cleanup(),
+                move |cleanup_succeeded| {
+                    let done = crate::process_session::poll_reserved_session_leader(
+                        crate::process_session::ReservedChildReap {
+                            signal_lock: &reap_process.child_signal_lock,
+                            pty_drained: &reap_process.pty_drained,
+                            termination_started: &reap_process.termination_started,
+                            cleanup_complete: &reap_process.group_escalation_complete,
+                            child_reaped: &reap_process.child_reaped,
+                        },
+                        cleanup_succeeded,
+                        || {
+                            let mut child = child.take().expect("reserved child is reaped once");
+                            let _ = child.wait();
                         },
                     );
-                    return;
-                } else {
+                    if done {
+                        *reap_process.exited.0.lock().unwrap() = true;
+                        reap_process.exited.1.notify_all();
+                    }
+                    done
+                },
+            );
+            Ok(())
+        }
+
+        #[cfg(not(unix))]
+        {
+            let process = self.clone();
+            let (child_sender, child_receiver) = sync_channel(1);
+            let observer =
+                std::thread::Builder::new().name("surface-child".into()).spawn(move || {
+                    let Ok(mut child) = child_receiver.recv() else { return };
                     let _ = child.wait();
-                    process.child_reaped.store(true, Ordering::Release);
-                    process.child_waitable.store(true, Ordering::Release);
-                }
-            }
-            #[cfg(not(unix))]
-            {
-                let _ = reaper;
+                    *process.exited.0.lock().unwrap() = true;
+                    process.exited.1.notify_all();
+                });
+            if let Err(error) = observer {
+                let _ = child.kill();
                 let _ = child.wait();
+                return Err(error);
             }
-            *process.exited.0.lock().unwrap() = true;
-            process.exited.1.notify_all();
-        })?;
-        Ok(())
+            if let Err(error) = child_sender.send(child) {
+                let mut child = error.0;
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::BrokenPipe,
+                    "surface child observer exited before accepting ownership",
+                ));
+            }
+            let _ = reaper;
+            Ok(())
+        }
     }
 
     fn request_hangup(&self) -> bool {
@@ -1180,24 +1202,30 @@ impl Drop for LocalPtyProcess {
 }
 
 #[cfg(unix)]
-fn wait_for_local_child_without_reaping(pid: libc::pid_t) -> std::io::Result<()> {
+fn local_child_is_waitable(pid: libc::pid_t) -> std::io::Result<bool> {
     loop {
-        let mut status = std::mem::MaybeUninit::<libc::siginfo_t>::uninit();
+        let mut status = std::mem::MaybeUninit::<libc::siginfo_t>::zeroed();
         let result = unsafe {
             libc::waitid(
                 libc::P_PID,
                 pid as libc::id_t,
                 status.as_mut_ptr(),
-                libc::WEXITED | libc::WNOWAIT,
+                libc::WEXITED | libc::WNOWAIT | libc::WNOHANG,
             )
         };
         if result == 0 {
-            return Ok(());
+            // SAFETY: waitid initialized status on success; zeroed storage
+            // keeps si_signo at zero when WNOHANG finds no waitable child.
+            return Ok(unsafe { status.assume_init() }.si_signo != 0);
         }
         let error = std::io::Error::last_os_error();
-        if error.kind() != std::io::ErrorKind::Interrupted {
-            return Err(error);
+        if error.kind() == std::io::ErrorKind::Interrupted {
+            continue;
         }
+        if error.raw_os_error() == Some(libc::ECHILD) {
+            return Ok(true);
+        }
+        return Err(error);
     }
 }
 

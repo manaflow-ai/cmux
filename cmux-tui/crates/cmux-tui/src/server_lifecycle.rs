@@ -51,6 +51,8 @@ const LEGACY_HELPER_POLL_INTERVAL: Duration = Duration::from_millis(10);
 const LEGACY_HELPER_CANCEL_MARGIN: Duration = Duration::from_millis(100);
 #[cfg(unix)]
 const LEGACY_HELPER_REAPER_CAPACITY: usize = 64;
+#[cfg(unix)]
+const LEGACY_HELPER_REAPER_RETRY_MAX: Duration = Duration::from_secs(1);
 const LAUNCHER_COMMAND_ENV: &str = "CMUX_TUI_LAUNCHER_COMMAND";
 const MAX_LAUNCHER_COMMAND_BYTES: usize = 4096;
 
@@ -74,6 +76,8 @@ struct LegacyHelperReaper {
 struct LegacyHelperReap {
     child: Child,
     _lease: LegacyHelperReaperLease,
+    next_attempt: Instant,
+    retry_delay: Duration,
 }
 
 #[cfg(unix)]
@@ -93,11 +97,14 @@ impl Drop for LegacyHelperReaperLease {
 impl LegacyHelperReaperLease {
     fn retain_reap_ownership(self, child: Child) {
         let pending = self.pending.clone();
-        pending
-            .0
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .push(LegacyHelperReap { child, _lease: self });
+        pending.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(
+            LegacyHelperReap {
+                child,
+                _lease: self,
+                next_attempt: Instant::now(),
+                retry_delay: LEGACY_HELPER_POLL_INTERVAL,
+            },
+        );
         pending.1.notify_one();
     }
 }
@@ -149,19 +156,35 @@ fn run_legacy_helper_reaper(pending: Arc<(Mutex<Vec<LegacyHelperReap>>, Condvar)
             pending_children =
                 pending.1.wait(pending_children).unwrap_or_else(std::sync::PoisonError::into_inner);
         }
-        let mut index = 0;
-        while index < pending_children.len() {
-            match pending_children[index].child.try_wait() {
-                Ok(Some(_)) => drop(pending_children.swap_remove(index)),
-                Ok(None) | Err(_) => index += 1,
-            }
-        }
-        if !pending_children.is_empty() {
+        let now = Instant::now();
+        let next_attempt =
+            pending_children.iter().map(|entry| entry.next_attempt).min().unwrap_or(now);
+        if next_attempt > now {
             let waited = pending
                 .1
-                .wait_timeout(pending_children, LEGACY_HELPER_POLL_INTERVAL)
+                .wait_timeout(pending_children, next_attempt.saturating_duration_since(now))
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             pending_children = waited.0;
+            continue;
+        }
+        let mut index = 0;
+        while index < pending_children.len() {
+            if pending_children[index].next_attempt > now {
+                index += 1;
+                continue;
+            }
+            match pending_children[index].child.try_wait() {
+                Ok(Some(_)) => drop(pending_children.swap_remove(index)),
+                Err(error) if error.raw_os_error() == Some(libc::ECHILD) => {
+                    drop(pending_children.swap_remove(index));
+                }
+                Ok(None) | Err(_) => {
+                    let entry = &mut pending_children[index];
+                    entry.next_attempt = Instant::now() + entry.retry_delay;
+                    entry.retry_delay = (entry.retry_delay * 2).min(LEGACY_HELPER_REAPER_RETRY_MAX);
+                    index += 1;
+                }
+            }
         }
     }
 }
