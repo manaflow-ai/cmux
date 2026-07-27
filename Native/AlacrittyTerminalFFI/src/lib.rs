@@ -192,7 +192,7 @@ impl EventListener for CmuxEventProxy {
 }
 
 struct DisplayState {
-    renderer: Renderer,
+    renderer: Option<Renderer>,
     glyph_cache: GlyphCache,
     gl_surface: Surface<WindowSurface>,
     gl_context: PossiblyCurrentContext,
@@ -264,7 +264,7 @@ impl DisplayState {
         renderer.with_loader(|mut loader| glyph_cache.load_common_glyphs(&mut loader));
 
         Ok(Self {
-            renderer,
+            renderer: Some(renderer),
             glyph_cache,
             gl_surface,
             gl_context,
@@ -303,6 +303,8 @@ impl DisplayState {
                 .update_font_size(&font)
                 .map_err(|error| format!("resize font: {error}"))?;
             self.renderer
+                .as_mut()
+                .expect("renderer exists until display teardown")
                 .with_loader(|mut loader| self.glyph_cache.reset_glyph_cache(&mut loader));
         }
 
@@ -316,30 +318,49 @@ impl DisplayState {
             padding,
             padding,
         );
-        self.renderer.resize(&self.size_info);
+        self.renderer
+            .as_ref()
+            .expect("renderer exists until display teardown")
+            .resize(&self.size_info);
         Ok(())
     }
 
     fn draw(&mut self, term: &Term<CmuxEventProxy>) -> Result<(), String> {
         self.make_current()?;
-        self.renderer.clear(DEFAULT_BACKGROUND, 1.0);
+        let renderer = self
+            .renderer
+            .as_mut()
+            .expect("renderer exists until display teardown");
+        renderer.clear(DEFAULT_BACKGROUND, 1.0);
 
         // AppKit can reset the OpenGL viewport while moving or resizing a
         // layer-backed NSView. Alacritty restores it before every macOS frame.
-        self.renderer.set_viewport(&self.size_info);
+        renderer.set_viewport(&self.size_info);
         let cells = renderable_cells(term);
         let mut lines = RenderLines::new();
         for cell in &cells {
             lines.update(cell);
         }
-        self.renderer
-            .draw_cells(&self.size_info, &mut self.glyph_cache, cells.into_iter());
+        renderer.draw_cells(&self.size_info, &mut self.glyph_cache, cells.into_iter());
         let rects = lines.rects(&self.glyph_cache.font_metrics(), &self.size_info);
-        self.renderer
-            .draw_rects(&self.size_info, &self.glyph_cache.font_metrics(), rects);
+        renderer.draw_rects(&self.size_info, &self.glyph_cache.font_metrics(), rects);
         self.gl_surface
             .swap_buffers(&self.gl_context)
             .map_err(|error| format!("swap OpenGL buffers: {error}"))
+    }
+}
+
+impl Drop for DisplayState {
+    fn drop(&mut self) {
+        // Alacritty's renderer releases context-local shader, buffer, and
+        // texture objects from its field destructors. Make this display's
+        // context current first so closing one terminal cannot delete another
+        // terminal's same-numbered OpenGL objects.
+        if self.gl_context.make_current(&self.gl_surface).is_err() {
+            let _ = self.gl_context.make_not_current_in_place();
+        }
+        drop(self.renderer.take());
+        let _ = self.gl_context.make_not_current_in_place();
     }
 }
 
