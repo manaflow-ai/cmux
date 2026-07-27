@@ -4408,14 +4408,21 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         ) else { return false }
         defer { ghostty_surface_free_text(surface, &text) }
 
-        guard let pointer = text.text, text.text_len > 0 else { return false }
-        let data = Data(bytes: pointer, count: Int(text.text_len))
-        let selectedText = String(decoding: data, as: UTF8.self)
+        guard let selectedText = Self.keyboardCopyModeSelectionString(text) else {
+            return false
+        }
         GhosttyApp.terminalPasteboard.writeString(
             selectedText,
             to: GHOSTTY_CLIPBOARD_STANDARD
         )
         return true
+    }
+
+    static func keyboardCopyModeSelectionString(_ text: ghostty_text_s) -> String? {
+        guard text.text_len > 0 else { return "" }
+        guard let pointer = text.text else { return nil }
+        let data = Data(bytes: pointer, count: Int(text.text_len))
+        return String(decoding: data, as: UTF8.self)
     }
 
     private func hasCopyableTerminalSelection(surface: ghostty_surface_t) -> Bool {
