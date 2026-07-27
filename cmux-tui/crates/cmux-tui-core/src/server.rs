@@ -5785,6 +5785,87 @@ mod tests {
     }
 
     #[test]
+    fn write_side_eof_drains_accepted_surface_requests() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        surface.with_terminal(|term| {
+            term.vt_write(b"history\r\n\x1b]133;A\x07prompt> \x1b[31");
+        });
+
+        let nonce =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let path = platform::fallback_runtime_dir().join(format!(
+            "write-eof-drain-{}-{}.sock",
+            std::process::id(),
+            nonce % 1_000_000_000
+        ));
+        let _ = std::fs::remove_file(&path);
+        let listener = transport::listen(&path).unwrap();
+        let mut client = transport::connect(&path).unwrap();
+        let server = listener.accept().unwrap();
+        let server_mux = mux.clone();
+        let handler = std::thread::spawn(move || handle_connection(server_mux, server));
+
+        writeln!(client, "{}", json!({"id": 1, "cmd": "clear-history", "surface": surface.id}))
+            .unwrap();
+        writeln!(
+            client,
+            "{}",
+            json!({"id": 2, "cmd": "send", "surface": surface.id, "text": "after-eof"})
+        )
+        .unwrap();
+        client.flush().unwrap();
+        client.shutdown(Shutdown::Write).unwrap();
+        client.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+
+        let mut responses = Vec::new();
+        let mut reader = BufReader::new(client);
+        while responses.len() < 2 {
+            let mut line = String::new();
+            match reader.read_line(&mut line) {
+                Ok(0) => break,
+                Ok(_) => responses.push(serde_json::from_str::<Value>(&line).unwrap()),
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    ) =>
+                {
+                    break;
+                }
+                Err(error) => panic!("unexpected response read error: {error}"),
+            }
+        }
+        let _ = reader.get_ref().shutdown(Shutdown::Both);
+        handler.join().unwrap();
+        let _ = std::fs::remove_file(path);
+        mux.close_surface(surface.id).unwrap();
+
+        let response_ids =
+            responses.iter().filter_map(|response| response["id"].as_u64()).collect::<Vec<_>>();
+        assert_eq!(response_ids, [1, 2], "write-side EOF discarded an accepted request");
+    }
+
+    #[test]
+    fn clear_history_rejection_reports_known_not_delivered_delivery() {
+        let mux = test_mux();
+        let outbound = Arc::new(BoundedOutbound::default());
+        let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+
+        assert!(handle_message(
+            &mux,
+            client,
+            &json!({"id": 1, "cmd": "clear-history", "surface": 999_999}).to_string(),
+            &writer,
+        ));
+        let response: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+
+        assert_eq!(response["ok"], false);
+        assert_eq!(response["error_delivery"], "known-not-delivered");
+    }
+
+    #[test]
     fn clear_history_does_not_block_unrelated_surface_input_on_one_connection() {
         let mux = test_mux();
         let blocked = mux.new_workspace(None, Some((80, 24))).unwrap();

@@ -2398,6 +2398,60 @@ mod tests {
         assert_eq!(failure.delivery(), cmux_tui_core::ClearHistoryDelivery::Ambiguous);
     }
 
+    #[test]
+    fn clear_history_rejection_preserves_known_not_delivered_delivery() {
+        struct RejectingWriter {
+            session: Arc<Mutex<Option<Weak<RemoteSession>>>>,
+        }
+
+        impl RemoteMessageWriter for RejectingWriter {
+            fn send(&mut self, message: &str) -> io::Result<()> {
+                let request: Value = serde_json::from_str(message).map_err(io::Error::other)?;
+                let id = request
+                    .get("id")
+                    .and_then(Value::as_u64)
+                    .ok_or_else(|| io::Error::other("remote request omitted its id"))?;
+                let session = self
+                    .session
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .and_then(Weak::upgrade)
+                    .ok_or_else(|| io::Error::other("test remote session was dropped"))?;
+                let response = session
+                    .pending
+                    .lock()
+                    .unwrap()
+                    .remove(&id)
+                    .ok_or_else(|| io::Error::other("remote request was not pending"))?;
+                response
+                    .send(json!({
+                        "id": id,
+                        "ok": false,
+                        "error": "active terminal input extends into retained history",
+                        "error_delivery": "known-not-delivered",
+                    }))
+                    .map_err(|_| io::Error::other("remote response receiver was dropped"))
+            }
+
+            fn close(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let session_slot = Arc::new(Mutex::new(None));
+        let session = test_session_with_provider_context(
+            Box::new(RejectingWriter { session: session_slot.clone() }),
+            HashSet::from([CLEAR_HISTORY_CAPABILITY.to_string()]),
+            None,
+        );
+        *session_slot.lock().unwrap() = Some(Arc::downgrade(&session));
+
+        let failure = session.clear_history_classified(7).unwrap_err();
+
+        assert_eq!(failure.delivery(), cmux_tui_core::ClearHistoryDelivery::KnownNotDelivered);
+    }
+
     fn acknowledging_provider_session() -> Arc<RemoteSession> {
         let session_slot = Arc::new(Mutex::new(None));
         let session = test_session_with_provider_context(
