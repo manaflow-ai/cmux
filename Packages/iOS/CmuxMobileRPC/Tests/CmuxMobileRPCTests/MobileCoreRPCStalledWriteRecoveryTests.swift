@@ -204,7 +204,6 @@ import Testing
         await stalled.waitUntilSendStarted()
         task.cancel()
         _ = try? await task.value
-        try await Task.sleep(nanoseconds: 50_000_000)
 
         #expect(factory.createdTransportCount() == 1)
         #expect(!(await stalled.closed()))
