@@ -56,6 +56,40 @@ func TestClientInfoNormalizesProtocolNineSizingParticipation(t *testing.T) {
 	}
 }
 
+func TestCommandErrorPreservesMachineReadableCode(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	defer serverConn.Close()
+	client := &Client{
+		timeout: time.Second,
+		conn:    &jsonLineConn{conn: clientConn, reader: bufio.NewReader(clientConn)},
+	}
+	defer client.Close()
+
+	go func() {
+		decoder := json.NewDecoder(serverConn)
+		encoder := json.NewEncoder(serverConn)
+		var request map[string]any
+		if decoder.Decode(&request) != nil {
+			return
+		}
+		_ = encoder.Encode(map[string]any{
+			"id":         request["id"],
+			"ok":         false,
+			"error":      "layout changed",
+			"error_code": "layout-undo-stale",
+		})
+	}()
+
+	err := client.request(context.Background(), "undo-layout", nil, nil)
+	var commandError *CommandError
+	if !errors.As(err, &commandError) {
+		t.Fatalf("error = %v, want CommandError", err)
+	}
+	if commandError.ErrorCode != "layout-undo-stale" {
+		t.Fatalf("error code = %q, want layout-undo-stale", commandError.ErrorCode)
+	}
+}
+
 func TestWorkspaceRegistryTypesDecode(t *testing.T) {
 	var tree Tree
 	if err := json.Unmarshal([]byte(`{"workspace_revision":4,"pane_revision":7,"workspaces":[{"id":1,"key":"stable","name":"one","active":true,"screens":[]}]}`), &tree); err != nil {

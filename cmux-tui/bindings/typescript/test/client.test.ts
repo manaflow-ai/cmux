@@ -37,6 +37,76 @@ test("stream fails closed at the default buffered-event cap", async () => {
   assert.equal(cleanups, 1);
 });
 
+test("command errors expose machine-readable codes", async () => {
+  const transport = new ScriptedTransport((request, connection) => {
+    connection.emit({
+      id: request.id,
+      ok: false,
+      error: "layout changed",
+      error_code: "layout-undo-stale",
+    });
+  });
+  const client = new CmuxClient({ transport, timeoutMs: 100 });
+
+  await assert.rejects(client.request("ping"), (error: unknown) => {
+    assert.ok(error instanceof CmuxCommandError);
+    assert.equal(error.errorCode, "layout-undo-stale");
+    return true;
+  });
+  await client.close();
+});
+
+test("decoded browser frames preserve encoded dimensions and fill legacy defaults", async () => {
+  const transport = new ScriptedTransport((request, connection) => {
+    if (request.cmd === "identify") {
+      connection.emit({
+        id: request.id,
+        ok: true,
+        data: { app: "cmux-tui", version: "0.1.2", protocol: 10, session: "main", pid: 1 },
+      });
+      return;
+    }
+    connection.emit({
+      event: "frame",
+      surface: 7,
+      seq: 1,
+      width: 80,
+      height: 24,
+      data: "cG5n",
+    });
+    connection.emit({
+      event: "frame",
+      surface: 7,
+      seq: 2,
+      width: 80,
+      height: 24,
+      image_width: 160,
+      image_height: 48,
+      data: "cG5n",
+    });
+    connection.emit({ id: request.id, ok: true, data: {} });
+  });
+  const client = new CmuxClient({
+    transport,
+    timeoutMs: 100,
+    allowProtocolV6Attach: true,
+  });
+  const stream = await client.attachSurface(7);
+
+  const legacy = await stream.next();
+  const scaled = await stream.next();
+  assert.equal(legacy.event, "frame");
+  assert.equal(scaled.event, "frame");
+  if (legacy.event === "frame" && scaled.event === "frame") {
+    assert.equal(legacy.image_width, 80);
+    assert.equal(legacy.image_height, 24);
+    assert.equal(scaled.image_width, 160);
+    assert.equal(scaled.image_height, 48);
+  }
+  stream.close();
+  await client.close();
+});
+
 test("async iteration reports buffered-event overflow before the first pull", async () => {
   const stream = new CmuxStream<{ event: string }>(100, () => undefined, 1);
   stream.push({ event: "first" });

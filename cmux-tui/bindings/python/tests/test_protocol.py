@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-from cmux import CmuxClient, ProtocolError
+from cmux import CmuxClient, CommandError, ProtocolError
 from cmux.client import (
     IdentifyResult,
     Layout,
@@ -12,6 +12,14 @@ from cmux.client import (
 
 
 class ProtocolTests(unittest.TestCase):
+    def test_command_error_preserves_machine_readable_code(self) -> None:
+        error = CommandError(
+            "layout changed",
+            {"ok": False, "error": "layout changed", "error_code": "layout-undo-stale"},
+        )
+
+        self.assertEqual(error.error_code, "layout-undo-stale")
+
     def test_identify_result_preserves_positional_artifact_revisions(self) -> None:
         result = IdentifyResult(
             "cmux-tui", "0.1.2", 7, "main", 42, "cmux-sha", "ghostty-sha"

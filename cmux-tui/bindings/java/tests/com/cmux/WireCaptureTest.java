@@ -32,6 +32,7 @@ public final class WireCaptureTest {
         assertProtocolV9AllowsSetSplitRatio();
         assertResizeTransactionsAreForwarded();
         assertPartialAttachSizeIsRejected();
+        assertCommandErrorPreservesMachineReadableCode();
     }
 
     private static byte[] captureIdentify() throws Exception {
@@ -163,6 +164,26 @@ public final class WireCaptureTest {
             } catch (IllegalArgumentException error) {
                 if (!error.getMessage().equals("attach-surface cols and rows must be supplied together")) {
                     throw error;
+                }
+            }
+        } finally {
+            server.close();
+        }
+    }
+
+    private static void assertCommandErrorPreservesMachineReadableCode() throws Exception {
+        Path socket = freshSocketPath();
+        CaptureServer server = new CaptureServer(socket, new String[] {
+            "{\"id\":1,\"ok\":false,\"error\":\"layout changed\",\"error_code\":\"layout-undo-stale\"}"
+        });
+        server.start();
+        try (CmuxClient client = CmuxClient.builder().socketPath(socket.toString()).timeout(Duration.ofSeconds(2)).build()) {
+            try {
+                client.listWorkspaces();
+                throw new AssertionError("failed command must throw");
+            } catch (CmuxCommandException error) {
+                if (!"layout-undo-stale".equals(error.errorCode())) {
+                    throw new AssertionError("error code = " + error.errorCode());
                 }
             }
         } finally {

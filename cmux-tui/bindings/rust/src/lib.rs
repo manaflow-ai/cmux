@@ -1504,6 +1504,36 @@ mod tests {
     }
 
     #[test]
+    fn command_errors_preserve_machine_readable_codes() {
+        let (socket, mut peer) = UnixStream::pair().unwrap();
+        let writer = socket.try_clone().unwrap();
+        let mut client = CmuxClient {
+            config: ClientConfig::default(),
+            conn: JsonLineConnection { writer, reader: BufReader::new(socket) },
+            next_id: 1,
+            protocol: None,
+            capabilities: Vec::new(),
+        };
+        let server = std::thread::spawn(move || {
+            let mut request = String::new();
+            BufReader::new(peer.try_clone().unwrap()).read_line(&mut request).unwrap();
+            peer.write_all(
+                br#"{"id":1,"ok":false,"error":"layout changed","error_code":"layout-undo-stale"}
+"#,
+            )
+            .unwrap();
+        });
+
+        let error = client.request::<Value>("undo-layout", Map::new()).unwrap_err();
+        server.join().unwrap();
+
+        assert!(matches!(
+            error,
+            CmuxError::Command { code: Some(code), .. } if code == "layout-undo-stale"
+        ));
+    }
+
+    #[test]
     fn workspace_registry_placements_decode() {
         let workspace: WorkspacePlacement = serde_json::from_value(serde_json::json!({
             "workspace": 1,

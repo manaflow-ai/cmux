@@ -1,10 +1,13 @@
 import type {
   CmuxClient,
   CmuxEvent,
+  CmuxFailureResponse,
   CmuxRequest,
   CmuxResponseData,
   CmuxStream,
+  BrowserFrame,
   DecodedAttachEvent,
+  ExportLayoutResult,
   KnownCmuxEvent,
   NewPaneRightOptions,
   RenderAttachEvent,
@@ -14,6 +17,29 @@ import type {
   Tree,
   TreeDeltaEvent,
 } from "../src/browser.js";
+
+const failureResponse: CmuxFailureResponse = {
+  ok: false,
+  error: "layout changed",
+  error_code: "layout-undo-stale",
+};
+void failureResponse;
+const scaledBrowserFrame: BrowserFrame = {
+  seq: 1,
+  width: 80,
+  height: 24,
+  image_width: 160,
+  image_height: 48,
+  data: "cG5n",
+};
+void scaledBrowserFrame;
+const exportedViewportLayout: ExportLayoutResult = {
+  layout: { type: "leaf", pane: 1 },
+  panes: [{ pane: 1, surfaces: [2] }],
+  viewport_base_width: 1,
+  viewport_splits: [{ split: 3, width: 2 / 3 }],
+};
+void exportedViewportLayout;
 
 const treeWithPaneRevision: Tree = { pane_revision: 7, workspaces: [] };
 void treeWithPaneRevision;
