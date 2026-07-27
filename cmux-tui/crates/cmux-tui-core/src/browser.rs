@@ -6621,6 +6621,8 @@ mod tests {
         let (runtime, server, _dispatched, stop) = runtime_recording_mouse_dispatches();
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
+        runtime.client.register_frame_epoch("session-1", browser.frame_epoch.clone());
+        runtime.client.seed_main_frame("session-1").unwrap();
         *browser.session.lock().unwrap() = Some(BrowserSession {
             runtime: runtime.clone(),
             target_id: "target-1".to_string(),
@@ -6660,7 +6662,7 @@ mod tests {
 
         assert!(
             recovery.is_ok(),
-            "the explicit retry must be allowed to capture verification pixels"
+            "the explicit retry must be allowed to capture verification pixels: {recovery:?}"
         );
         assert_eq!(browser.status(), BrowserStatus::Live);
         assert!(
