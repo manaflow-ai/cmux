@@ -7593,6 +7593,32 @@ mod tests {
     }
 
     #[test]
+    fn ingress_navigation_hides_stale_pointer_authority_from_attach_clients() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        browser.store_frame(test_frame(1));
+        let stale_epoch = browser.frame_epoch.current();
+
+        browser.frame_epoch.advance_navigation();
+        let (snapshot, stream) = browser.attach_frames();
+        browser.store_frame_for_epoch(test_frame(2), stale_epoch);
+        stream
+            .notify
+            .recv_timeout(Duration::from_secs(1))
+            .expect("stale queued frame must still update retained pixels");
+        let update = stream.slot.lock().unwrap().frame.take().expect("stale retained frame");
+
+        assert_eq!(
+            snapshot.pointer_frame_seq, None,
+            "an initial attach must not export authority after ingress observes navigation"
+        );
+        assert_eq!(
+            update.pointer_frame_seq, None,
+            "a queued old-epoch frame must not regain exported pointer authority"
+        );
+    }
+
+    #[test]
     fn geometry_pointer_admission_invalidation_is_broadcast_to_attach_clients() {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
