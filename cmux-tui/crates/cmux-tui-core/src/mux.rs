@@ -10702,6 +10702,31 @@ mod tests {
     }
 
     #[test]
+    fn layout_undo_restores_focus_to_the_restored_zoomed_pane() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let right = mux.split(first_pane, SplitDir::Right, Some((38, 22))).unwrap();
+        let right_pane = mux.with_state(|state| state.pane_of(right.id).unwrap());
+
+        assert!(mux.focus_pane(first_pane));
+        mux.zoom_pane(Some(first_pane), ZoomMode::On).unwrap();
+        mux.zoom_pane(Some(first_pane), ZoomMode::Off).unwrap();
+        assert!(mux.focus_pane(right_pane));
+        assert!(matches!(
+            mux.undo_layout(right_pane, None, false).unwrap(),
+            LayoutUndoResult::Undone { .. }
+        ));
+
+        mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            assert_eq!(screen.zoomed_pane, Some(first_pane));
+            assert_eq!(screen.active_pane, first_pane);
+            assert_eq!(state.active_pane(), Some(first_pane));
+        });
+    }
+
+    #[test]
     fn layout_undo_preserves_inactive_stack_selection() {
         let mux = test_mux();
         let applied = mux

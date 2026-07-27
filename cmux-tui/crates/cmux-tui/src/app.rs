@@ -22134,6 +22134,35 @@ mod tests {
         );
     }
 
+    #[test]
+    fn remote_tree_refresh_keeps_restored_zoom_and_focus_aligned() {
+        let mut previous = notify_tree(11, false);
+        let screen = &mut previous.workspaces[0].screens[0];
+        let mut second = screen.panes[0].clone();
+        second.id = 5;
+        second.tabs[0].surface = 12;
+        screen.panes.push(second);
+        screen.layout = Node::Split {
+            id: 9,
+            dir: SplitDir::Right,
+            ratio: 0.5,
+            a: Box::new(Node::Leaf(2)),
+            b: Box::new(Node::Leaf(5)),
+        };
+        screen.active_pane = 5;
+
+        let mut restored = previous.clone();
+        let restored_screen = &mut restored.workspaces[0].screens[0];
+        restored_screen.zoomed_pane = Some(2);
+        restored_screen.active_pane = 2;
+
+        preserve_client_view(&previous, &mut restored);
+
+        let restored_screen = &restored.workspaces[0].screens[0];
+        assert_eq!(restored_screen.zoomed_pane, Some(2));
+        assert_eq!(restored_screen.active_pane, 2);
+    }
+
     fn row_contains(buffer: &ratatui::buffer::Buffer, y: u16, needle: &str) -> bool {
         (0..buffer.area.width).any(|x| buffer[(x, y)].symbol() == needle)
     }
