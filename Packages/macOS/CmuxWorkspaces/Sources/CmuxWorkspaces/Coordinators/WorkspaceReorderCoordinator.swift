@@ -404,8 +404,14 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
         let membershipChanged = movingTabs.contains {
             previousGroupIds[$0.id] != $0.groupId
         }
-        guard orderChanged || membershipChanged else { return false }
-        host?.workspaceOrderDidChange(movedWorkspaceIds: movingIds)
+        if orderChanged || membershipChanged {
+            host?.workspaceOrderDidChange(movedWorkspaceIds: movingIds)
+        }
+        // A drop that resolved to the block's own position (common inside a
+        // group section, where the painted gap can be the block's boundary)
+        // is a handled no-op, not a refusal: reporting false here makes the
+        // AppKit table animate a snap-back. Mirrors the single-drag path,
+        // which returns true for from == to.
         return true
     }
 
