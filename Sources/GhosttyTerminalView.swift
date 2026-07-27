@@ -5799,7 +5799,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
     }
 
-    private func sendCommittedText(
+    fileprivate func sendCommittedText(
         _ text: String,
         action: ghostty_input_action_e,
         surface: ghostty_surface_t
@@ -11319,17 +11319,11 @@ extension GhosttyNSView: NSTextInputClient {
 
         func flushBufferedText() {
             guard !bufferedText.isEmpty else { return }
-            var keyEvent = ghostty_input_key_s()
-            keyEvent.action = GHOSTTY_ACTION_PRESS
-            keyEvent.keycode = 0
-            keyEvent.mods = GHOSTTY_MODS_NONE
-            keyEvent.consumed_mods = GHOSTTY_MODS_NONE
-            keyEvent.unshifted_codepoint = 0
-            keyEvent.composing = false
-            bufferedText.withCString { ptr in
-                keyEvent.text = ptr
-                _ = sendGhosttyKey(surface, keyEvent)
-            }
+            sendCommittedText(
+                bufferedText,
+                action: GHOSTTY_ACTION_PRESS,
+                surface: surface
+            )
             bufferedText.removeAll(keepingCapacity: true)
         }
 
