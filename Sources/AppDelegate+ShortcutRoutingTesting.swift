@@ -28,7 +28,7 @@ private let didInstallShortcutRoutingWindowMakeKeyAndOrderFrontSwizzleForTesting
 extension AppDelegate {
     func debugResetShortcutRoutingStateForTesting(clearFocusedWindowOverride: Bool = true) {
         clearConfiguredShortcutChordState()
-        resetShortcutMonitorPressOwnership()
+        resetShortcutPressOwnership()
         shortcutEventFocusContextCache = nil
         debugShortcutRoutingFocusedWindowOverrideForTesting.keyRepairFirstResponder = nil
         debugFocusedTerminalKeyRepairObserverForTesting = nil
