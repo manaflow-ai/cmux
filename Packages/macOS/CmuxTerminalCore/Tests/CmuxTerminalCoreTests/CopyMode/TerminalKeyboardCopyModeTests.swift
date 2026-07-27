@@ -266,6 +266,32 @@ struct TerminalKeyboardCopyModeCursorPackageTests {
         )
     }
 
+    @Test func initialCursorRowUsesTheNearestGridBoundary() {
+        #expect(
+            terminalKeyboardCopyModeInitialViewportRow(
+                rows: 47,
+                imePointY: 660,
+                imeCellHeight: 14,
+                topPadding: 7
+            ) == 46
+        )
+    }
+
+    @Test func nativeCursorPointCalibratesExactGridInsets() throws {
+        let insets = try #require(
+            terminalKeyboardCopyModeGridInsets(
+                cursor: TerminalKeyboardCopyModeCursor(row: 46, column: 80),
+                imePointX: 605.75,
+                imePointY: 660,
+                cellWidth: 7.5,
+                cellHeight: 14
+            )
+        )
+
+        #expect(abs(insets.left - 2) < 0.0001)
+        #expect(abs(insets.top - 2) < 0.0001)
+    }
+
     @Test func motionThenVisualSelectionUsesMovedCursorAsAnchor() {
         var cursor = TerminalKeyboardCopyModeCursor(row: 8, column: 7)
 
