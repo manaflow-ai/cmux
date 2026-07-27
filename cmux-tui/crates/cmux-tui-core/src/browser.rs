@@ -2059,7 +2059,7 @@ impl BrowserSurface {
         width: u32,
         height: u32,
     ) -> Result<(u64, BrowserWorkerSuccess), BrowserReconfigureCommandError> {
-        let Some(session) = self.live_session().map_err(|error| {
+        let Some(session) = self.attached_session().map_err(|error| {
             BrowserReconfigureCommandError { error, definitely_unchanged: true }
         })?
         else {
@@ -2396,34 +2396,28 @@ impl BrowserSurface {
         });
     }
 
-    fn live_session(&self) -> anyhow::Result<Option<BrowserSession>> {
+    fn attached_session(&self) -> anyhow::Result<Option<BrowserSession>> {
         if self.is_dead() {
             anyhow::bail!("browser surface is closed");
         }
-        if let Some(session) = self.session.lock().unwrap().clone() {
-            return Ok(Some(session));
-        }
+        Ok(self.session.lock().unwrap().clone())
+    }
+
+    fn require_attached_session(&self) -> anyhow::Result<BrowserSession> {
+        self.attached_session()?.ok_or_else(|| anyhow::anyhow!("browser is still starting"))
+    }
+
+    fn require_live_session(&self) -> anyhow::Result<BrowserSession> {
+        let session = self.require_attached_session()?;
         match self.status() {
-            BrowserStatus::Starting => Ok(None),
-            BrowserStatus::Live => Ok(None),
+            BrowserStatus::Live => Ok(session),
+            BrowserStatus::Starting => anyhow::bail!("browser is still starting"),
             BrowserStatus::Failed(error) => anyhow::bail!("browser failed: {error}"),
         }
     }
 
-    fn require_live_session(&self) -> anyhow::Result<BrowserSession> {
-        self.live_session()?.ok_or_else(|| anyhow::anyhow!("browser is still starting"))
-    }
-
     fn require_navigation_session(&self) -> anyhow::Result<BrowserSession> {
-        if self.is_dead() {
-            anyhow::bail!("browser surface is closed");
-        }
-        let session = self
-            .session
-            .lock()
-            .unwrap()
-            .clone()
-            .ok_or_else(|| anyhow::anyhow!("browser is still starting"))?;
+        let session = self.require_attached_session()?;
         let status = self.status();
         if matches!(&status, BrowserStatus::Live) || status.allows_navigation_recovery() {
             Ok(session)
@@ -2433,6 +2427,21 @@ impl BrowserSurface {
                 BrowserStatus::Failed(error) => anyhow::bail!("browser failed: {error}"),
                 BrowserStatus::Live => unreachable!(),
             }
+        }
+    }
+
+    fn require_verification_session(&self) -> anyhow::Result<BrowserSession> {
+        let session = self.require_attached_session()?;
+        let state = self.state.lock().unwrap();
+        if matches!(state.status, BrowserStatus::Live)
+            || state.pending_failure_recovery && state.status.allows_navigation_recovery()
+        {
+            return Ok(session);
+        }
+        match &state.status {
+            BrowserStatus::Starting => anyhow::bail!("browser is still starting"),
+            BrowserStatus::Failed(error) => anyhow::bail!("browser failed: {error}"),
+            BrowserStatus::Live => unreachable!(),
         }
     }
 
@@ -3457,7 +3466,13 @@ impl BrowserSurface {
             }
             active_pointer_presses.remove(button);
         }
-        let session = self.require_live_session()?;
+        let session = if dispatch.event_type == "mouseReleased"
+            && active_pointer_presses.contains_key(button)
+        {
+            self.require_attached_session()?
+        } else {
+            self.require_live_session()?
+        };
         if dispatch.event_type == "mousePressed" {
             self.maybe_nudge_stalled_external(&session);
         }
@@ -3588,7 +3603,7 @@ impl BrowserSurface {
         if !self.pointer_capture_is_current(press.capture_generation) {
             return Ok(BrowserWorkerSuccess::LocallySettled);
         }
-        let session = self.require_live_session()?;
+        let session = self.require_attached_session()?;
         session
             .runtime
             .client
@@ -3695,7 +3710,7 @@ impl BrowserSurface {
         {
             return Ok(BrowserWorkerSuccess::LocallySettled);
         }
-        let session = self.require_live_session()?;
+        let session = self.require_verification_session()?;
         if session.session_id != session_id {
             return Ok(BrowserWorkerSuccess::LocallySettled);
         }
@@ -3744,7 +3759,7 @@ impl BrowserSurface {
         if !self.needs_same_document_paint() {
             return Ok(BrowserWorkerSuccess::LocallySettled);
         }
-        let session = self.require_live_session()?;
+        let session = self.require_verification_session()?;
         if session.session_id != session_id {
             return Ok(BrowserWorkerSuccess::LocallySettled);
         }
