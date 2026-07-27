@@ -841,6 +841,7 @@ fn delete_image(image_id: u32) -> Vec<u8> {
 
 const FALLBACK_CELL_PIXELS: (u16, u16) = (8, 16);
 const TERMINAL_PROBE_TIMEOUT: Duration = Duration::from_millis(180);
+const STARTUP_INPUT_MAX_INCOMPLETE_BYTES: usize = 4 * 1024;
 #[cfg(unix)]
 const STARTUP_INPUT_CONTINUATION_TIMEOUT: Duration = Duration::from_millis(100);
 
@@ -852,10 +853,25 @@ pub struct StartupTerminalInput {
 
 impl StartupTerminalInput {
     fn append(&mut self, bytes: &[u8]) {
-        self.incomplete.extend_from_slice(bytes);
-        let parsed = split_pending_input(&self.incomplete);
-        self.events.extend(parsed.events);
-        self.incomplete = parsed.incomplete;
+        let mut remaining = bytes;
+        while !remaining.is_empty() {
+            let available =
+                STARTUP_INPUT_MAX_INCOMPLETE_BYTES.saturating_sub(self.incomplete.len());
+            let take = available.min(remaining.len());
+            self.incomplete.extend_from_slice(&remaining[..take]);
+            remaining = &remaining[take..];
+
+            let parsed = split_pending_input(&self.incomplete);
+            self.events.extend(parsed.events);
+            self.incomplete = parsed.incomplete;
+            if remaining.is_empty() {
+                break;
+            }
+            if self.incomplete.len() >= STARTUP_INPUT_MAX_INCOMPLETE_BYTES {
+                self.events.extend(parse_incomplete_input_lossy(&self.incomplete));
+                self.incomplete.clear();
+            }
+        }
     }
 }
 
@@ -959,6 +975,10 @@ fn read_stdin_until(timeout: Duration, complete: impl Fn(&[u8]) -> bool) -> Vec<
     let start = Instant::now();
     let mut out = Vec::new();
     while start.elapsed() < timeout {
+        let available = STARTUP_INPUT_MAX_INCOMPLETE_BYTES.saturating_sub(out.len());
+        if available == 0 {
+            break;
+        }
         let remaining = timeout.saturating_sub(start.elapsed());
         let poll_ms = remaining.min(Duration::from_millis(20)).as_millis() as i32;
         let mut fd = libc::pollfd { fd: libc::STDIN_FILENO, events: libc::POLLIN, revents: 0 };
@@ -967,7 +987,9 @@ fn read_stdin_until(timeout: Duration, complete: impl Fn(&[u8]) -> bool) -> Vec<
             continue;
         }
         let mut buf = [0u8; 1024];
-        let n = unsafe { libc::read(libc::STDIN_FILENO, buf.as_mut_ptr().cast(), buf.len()) };
+        let n = unsafe {
+            libc::read(libc::STDIN_FILENO, buf.as_mut_ptr().cast(), buf.len().min(available))
+        };
         if n <= 0 {
             break;
         }
@@ -1109,8 +1131,8 @@ pub(crate) fn finish_startup_input(
 ) -> Vec<crossterm::event::Event> {
     #[cfg(unix)]
     {
+        let deadline = Instant::now() + STARTUP_INPUT_CONTINUATION_TIMEOUT;
         while !pending.incomplete.is_empty() {
-            let deadline = Instant::now() + STARTUP_INPUT_CONTINUATION_TIMEOUT;
             let mut read_more = false;
             while Instant::now() < deadline {
                 let remaining = deadline.saturating_duration_since(Instant::now());

@@ -1978,9 +1978,8 @@ impl Terminal {
             active_start,
             include_palette,
         )?;
-        let visible_budget = remaining.saturating_sub(active_text.bytes.len());
         let visible_cost =
-            active_text.range.map(|range| catalog.visible_cost(range, visible_budget)).unwrap_or(0);
+            active_text.range.map(|range| catalog.visible_cost(range, remaining)).unwrap_or(0);
 
         let text_budget = remaining.saturating_sub(visible_cost);
         let text = self.vt_replay_text_layout_bounded(

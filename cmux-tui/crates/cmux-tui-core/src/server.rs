@@ -3459,7 +3459,6 @@ struct RenderClientState {
     scrollback_rows: u32,
     graphics_snapshot: Arc<ghostty_vt::KittyGraphicsSnapshot>,
     graphics_image_generations: HashMap<u32, u64>,
-    graphics_placements: Vec<ghostty_vt::KittyPlacement>,
 }
 
 impl RenderClientState {
@@ -3477,7 +3476,6 @@ impl RenderClientState {
                 .iter()
                 .map(|image| (image.id, image.generation))
                 .collect(),
-            graphics_placements: frame.frame.kitty_graphics.placements.clone(),
         }
     }
 
@@ -3535,7 +3533,7 @@ impl RenderClientState {
                 .collect::<Vec<_>>();
             removed_image_ids.sort_unstable();
             let images_changed = !upsert_image_ids.is_empty() || !removed_image_ids.is_empty();
-            let placements_changed = self.graphics_placements != graphics.placements;
+            let placements_changed = self.graphics_snapshot.placements != graphics.placements;
             if images_changed || placements_changed {
                 message.graphics = Some(render_graphics_message(
                     &self.render_service,
@@ -3547,9 +3545,6 @@ impl RenderClientState {
             }
             if images_changed {
                 self.graphics_image_generations = image_generations;
-            }
-            if placements_changed {
-                self.graphics_placements = graphics.placements.clone();
             }
             self.graphics_snapshot = frame.frame.kitty_graphics.clone();
         }

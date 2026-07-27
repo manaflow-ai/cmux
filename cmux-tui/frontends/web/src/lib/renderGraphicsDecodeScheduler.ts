@@ -29,14 +29,15 @@ interface DecodeWorkerSlot {
 function decodeWithoutWorker(
   images: readonly RenderGraphicImage[],
 ): RenderGraphicsDecodeResult[] {
+  let remainingDecodedBytes =
+    RENDER_GRAPHIC_MAIN_THREAD_FALLBACK_MAX_DECODED_BYTES;
   return images.map((image) => {
     // A failed or unavailable worker must not turn a multi-megabyte validation
     // scan and decode into one long task on the browser thread.
     const byteLength = renderGraphicDecodedByteLength(image);
-    const decoded = byteLength !== null
-      && byteLength <= RENDER_GRAPHIC_MAIN_THREAD_FALLBACK_MAX_DECODED_BYTES
-      ? decodeRenderGraphicImage(image)
-      : null;
+    const admitted = byteLength !== null && byteLength <= remainingDecodedBytes;
+    if (admitted) remainingDecodedBytes -= byteLength;
+    const decoded = admitted ? decodeRenderGraphicImage(image) : null;
     return {
       id: image.id,
       generation: image.generation,

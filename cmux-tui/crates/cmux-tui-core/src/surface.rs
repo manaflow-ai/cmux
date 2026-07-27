@@ -758,6 +758,7 @@ impl Drop for RenderAttachFrameReceiver {
 pub struct RenderAttachStream {
     pub initial: Arc<SurfaceRenderFrame>,
     pub stream: RenderAttachFrameReceiver,
+    _permit: crate::mux::RenderAttachmentPermit,
 }
 
 struct RenderHub {
@@ -2735,6 +2736,11 @@ impl Surface {
         let Some(pty) = self.as_pty() else {
             return Err(ghostty_vt::Error::InvalidValue);
         };
+        let permit = pty
+            .mux
+            .upgrade()
+            .and_then(|mux| mux.claim_render_attachment())
+            .ok_or(ghostty_vt::Error::OutOfSpace)?;
         let mut term = pty.term.lock().unwrap();
         let generation = pty.render_generation.load(Ordering::Acquire);
         let _ = pty.build_frame_locked(&mut term, generation, false)?;
@@ -2760,7 +2766,7 @@ impl Surface {
             render.taps.push(tap);
             Arc::new(initial)
         };
-        Ok(RenderAttachStream { initial, stream })
+        Ok(RenderAttachStream { initial, stream, _permit: permit })
     }
 
     pub fn kill(&self) {

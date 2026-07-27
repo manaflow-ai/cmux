@@ -42,6 +42,17 @@ const WORKSPACE_NAME_MAX_BYTES: usize = 1_024;
 const PROVIDER_WORKSPACE_AUTHORITY_MIN_BYTES: usize = 32;
 const PROVIDER_WORKSPACE_AUTHORITY_MAX_BYTES: usize = 512;
 const CELL_PIXEL_FANOUT_MAX_WORKERS: usize = 32;
+pub(crate) const RENDER_ATTACHMENT_LIMIT: usize = 64;
+
+pub(crate) struct RenderAttachmentPermit {
+    active: Arc<AtomicUsize>,
+}
+
+impl Drop for RenderAttachmentPermit {
+    fn drop(&mut self) {
+        self.active.fetch_sub(1, Ordering::AcqRel);
+    }
+}
 
 /// An opaque per-mux credential provisioned by the external machine
 /// provider. Debug output is deliberately redacted.
@@ -855,6 +866,7 @@ pub struct Mux {
     #[cfg(test)]
     terminal_create_after_workspace_reservation: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     browser_runtime: Mutex<Option<Arc<BrowserRuntime>>>,
+    active_render_attachments: Arc<AtomicUsize>,
     cell_pixel_lifecycle: Mutex<()>,
     cell_pixels: Mutex<(u16, u16)>,
     pending_cell_pixels: Mutex<Option<PendingCellPixelUpdate>>,
@@ -1083,6 +1095,7 @@ impl Mux {
             #[cfg(test)]
             terminal_create_after_workspace_reservation: Mutex::new(None),
             browser_runtime: Mutex::new(None),
+            active_render_attachments: Arc::new(AtomicUsize::new(0)),
             cell_pixel_lifecycle: Mutex::new(()),
             cell_pixels: Mutex::new((8, 16)),
             pending_cell_pixels: Mutex::new(None),
@@ -3725,6 +3738,18 @@ impl Mux {
     fn purge_surface_side_tables(&self, surface: SurfaceId) {
         self.agent_records.lock().unwrap().remove(&surface);
         self.surface_notifications.lock().unwrap().remove(&surface);
+        {
+            let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
+            let mut pending = self.pending_cell_pixels.lock().unwrap();
+            if let Some(update) = pending.as_mut() {
+                update.failures.remove(&surface);
+                if update.failures.is_empty() {
+                    let target = update.target;
+                    *self.cell_pixels.lock().unwrap() = target;
+                    *pending = None;
+                }
+            }
+        }
         let _lifecycle = self.lock_client_sizing_lifecycle();
         let mut sizing = self.client_sizing.lock().unwrap();
         sizing.surfaces.remove(&surface);
@@ -3879,6 +3904,15 @@ impl Mux {
 
     pub fn cell_pixel_size(&self) -> (u16, u16) {
         *self.cell_pixels.lock().unwrap()
+    }
+
+    pub(crate) fn claim_render_attachment(&self) -> Option<RenderAttachmentPermit> {
+        self.active_render_attachments
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |active| {
+                (active < RENDER_ATTACHMENT_LIMIT).then_some(active + 1)
+            })
+            .ok()?;
+        Some(RenderAttachmentPermit { active: self.active_render_attachments.clone() })
     }
 
     pub(crate) fn cell_pixel_creation_size(&self) -> (u16, u16) {
