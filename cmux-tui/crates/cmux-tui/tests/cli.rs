@@ -1208,19 +1208,30 @@ fn server_shutdown_exits_when_the_interactive_driver_cannot_progress() {
 
 #[cfg(unix)]
 #[test]
-fn daemon_handoff_exits_when_the_interactive_driver_cannot_progress() {
+fn daemon_handoff_cleans_local_ptys_before_forcing_a_blocked_interactive_driver_to_exit() {
     let dir = unique_temp_dir("daemon-handoff-blocked-interactive-driver");
     fs::create_dir_all(&dir).unwrap();
     let socket = dir.join("mux.sock");
-    let state = dir.join("state");
+    let pid_file = dir.join("local-pty.pid");
     let mut server = PtyChild::start_with_env(
-        &["--socket", socket.to_str().unwrap(), "--state", state.to_str().unwrap()],
+        &["--socket", socket.to_str().unwrap(), "--ephemeral"],
         &[
             ("CMUX_TUI_TEST_BLOCK_INTERACTIVE_DRIVER", std::ffi::OsStr::new("1")),
             ("CMUX_TUI_TEST_SHUTDOWN_EXIT_GRACE_MS", std::ffi::OsStr::new("100")),
         ],
     );
     wait_for_socket_path(&socket);
+    let command =
+        format!("trap '' HUP TERM; echo $$ > {}; while :; do sleep 1; done", pid_file.display());
+    let run = Command::new(bin())
+        .args(["--socket"])
+        .arg(&socket)
+        .args(["run", "--new-workspace", "--command", &command])
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_success(&run);
+    let local_pid = wait_for_pid_file(&pid_file, Duration::from_secs(5));
     let identity = json_socket_request(&socket, serde_json::json!({"id": 1, "cmd": "identify"}));
 
     let response = json_socket_request(
@@ -1247,8 +1258,24 @@ fn daemon_handoff_exits_when_the_interactive_driver_cannot_progress() {
     };
     assert!(status.success(), "server exited with {status}");
     assert!(transport::connect(&socket).is_err());
+    let cleanup_deadline = Instant::now() + Duration::from_secs(3);
+    while (process_exists(local_pid) || process_group_exists(local_pid))
+        && Instant::now() < cleanup_deadline
+    {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let cleaned = !process_exists(local_pid) && !process_group_exists(local_pid);
+    if !cleaned {
+        let local_pid = libc::pid_t::try_from(local_pid).unwrap();
+        // SAFETY: local_pid names the isolated PTY session created by this test.
+        unsafe {
+            libc::kill(-local_pid, libc::SIGKILL);
+            libc::kill(local_pid, libc::SIGKILL);
+        }
+    }
     drop(server);
     fs::remove_dir_all(dir).unwrap();
+    assert!(cleaned, "forced interactive-driver exit abandoned its local PTY session");
 }
 
 #[cfg(unix)]

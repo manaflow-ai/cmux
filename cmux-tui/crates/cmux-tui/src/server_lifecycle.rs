@@ -60,6 +60,8 @@ type TransportReader = BufReader<Box<dyn transport::Stream>>;
 static LEGACY_HELPER_CANCELLED: AtomicBool = AtomicBool::new(false);
 #[cfg(unix)]
 static LEGACY_HELPER_REAPER: OnceLock<Option<LegacyHelperReaper>> = OnceLock::new();
+#[cfg(all(unix, test))]
+static LEGACY_HELPER_REAPER_TEST_LOCK: Mutex<()> = Mutex::new(());
 
 #[cfg(unix)]
 struct LegacyHelperReaper {
@@ -129,6 +131,14 @@ fn reserve_legacy_helper_reaper() -> anyhow::Result<LegacyHelperReaperLease> {
         .as_ref()
         .and_then(LegacyHelperReaper::reserve)
         .ok_or_else(|| anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed))
+}
+
+#[cfg(all(unix, test))]
+fn active_legacy_helper_reapers_for_test() -> usize {
+    LEGACY_HELPER_REAPER
+        .get()
+        .and_then(Option::as_ref)
+        .map_or(0, |reaper| reaper.active.load(Ordering::Acquire))
 }
 
 #[cfg(unix)]
@@ -1497,6 +1507,7 @@ mod tests {
     fn legacy_helper_timeout_retains_reap_ownership() {
         use std::io::BufRead as _;
 
+        let _serial = LEGACY_HELPER_REAPER_TEST_LOCK.lock().unwrap();
         let mut helper = Command::new("/bin/sh")
             .arg("-c")
             .arg("trap '' TERM; printf 'ready\\n'; while :; do sleep 1; done")
@@ -1540,6 +1551,38 @@ mod tests {
         );
         assert_eq!(reaped, -1, "timed-out helper lost its reaping owner");
         assert_eq!(reaped_error.and_then(|error| error.raw_os_error()), Some(libc::ECHILD));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn legacy_reaper_releases_children_with_lost_wait_ownership() {
+        let _serial = LEGACY_HELPER_REAPER_TEST_LOCK.lock().unwrap();
+        let child = Command::new("/usr/bin/true")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let child_pid = libc::pid_t::try_from(child.id()).unwrap();
+        let mut status = 0;
+        // SAFETY: child_pid is this test's exact child. Reaping it here
+        // simulates another library consuming the wait status first.
+        assert_eq!(unsafe { libc::waitpid(child_pid, &raw mut status, 0) }, child_pid);
+
+        let baseline = active_legacy_helper_reapers_for_test();
+        let reaper = reserve_legacy_helper_reaper().unwrap();
+        assert_eq!(active_legacy_helper_reapers_for_test(), baseline + 1);
+        reaper.retain_reap_ownership(child);
+
+        let deadline = Instant::now() + Duration::from_millis(250);
+        while active_legacy_helper_reapers_for_test() != baseline && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+
+        assert_eq!(
+            active_legacy_helper_reapers_for_test(),
+            baseline,
+            "legacy reaper retained a child after the kernel reported no wait ownership"
+        );
     }
 
     #[cfg(unix)]

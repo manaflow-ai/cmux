@@ -813,6 +813,14 @@ struct LocalPtyProcess {
 #[cfg(unix)]
 type LocalChildReaperLease = crate::process_session::ReservedChildReaperLease;
 
+#[cfg(all(unix, test))]
+static DEDICATED_LOCAL_CHILD_OBSERVER_SPAWNS: AtomicUsize = AtomicUsize::new(0);
+
+#[cfg(all(unix, test))]
+fn dedicated_local_child_observer_spawns_for_test() -> usize {
+    DEDICATED_LOCAL_CHILD_OBSERVER_SPAWNS.load(Ordering::Acquire)
+}
+
 #[cfg(not(unix))]
 struct LocalChildReaperLease;
 
@@ -870,6 +878,8 @@ impl LocalPtyProcess {
         reaper: LocalChildReaperLease,
     ) -> std::io::Result<()> {
         let process = self.clone();
+        #[cfg(all(unix, test))]
+        DEDICATED_LOCAL_CHILD_OBSERVER_SPAWNS.fetch_add(1, Ordering::AcqRel);
         std::thread::Builder::new().name("surface-child".into()).spawn(move || {
             #[cfg(unix)]
             {
@@ -3491,7 +3501,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn persistent_natural_cleanup_uses_one_shared_reaper() {
+    fn local_child_observation_uses_the_reserved_shared_reaper() {
         const CHILDREN: usize = 8;
 
         let root = std::env::temp_dir()
@@ -3500,6 +3510,7 @@ mod tests {
         let release_path = root.join("release");
         let mux = Mux::new_for_test("local-reap-bound", SurfaceOptions::default());
         let baseline = crate::process_session::dedicated_natural_reap_workers_for_test();
+        let observer_baseline = dedicated_local_child_observer_spawns_for_test();
         let mut surfaces = Vec::new();
         let mut processes = Vec::new();
         for index in 0..CHILDREN {
@@ -3526,6 +3537,8 @@ mod tests {
             surfaces.push(surface);
             processes.push(process);
         }
+        let dedicated_observers =
+            dedicated_local_child_observer_spawns_for_test().saturating_sub(observer_baseline);
         std::fs::write(&release_path, b"ready").unwrap();
 
         let deadline = Instant::now() + Duration::from_secs(3);
@@ -3548,6 +3561,10 @@ mod tests {
         assert!(
             dedicated <= 1,
             "persistent natural cleanup retained {dedicated} dedicated retry workers"
+        );
+        assert_eq!(
+            dedicated_observers, 0,
+            "local child observation bypassed the reserved shared reaper"
         );
     }
 
