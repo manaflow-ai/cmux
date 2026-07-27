@@ -3589,7 +3589,13 @@ impl BrowserSurface {
         // corresponding event was delayed or absent, snapshot the subscribed
         // session and authorize freshly captured pixels for that loader.
         let (frame_id, loader_id) =
-            session.runtime.client.snapshot_main_frame(&session.session_id)?;
+            match session.runtime.client.snapshot_main_frame(&session.session_id) {
+                Ok(snapshot) => snapshot,
+                Err(error) => {
+                    self.fail_same_document_authority(&error);
+                    return Err(error);
+                }
+            };
         self.authorize_same_document_paint_blocking(&session.session_id, &frame_id, &loader_id)
     }
 
