@@ -4374,6 +4374,7 @@ mod tests {
     fn runtime_recording_mouse_dispatches()
     -> (Arc<super::BrowserRuntime>, thread::JoinHandle<()>, mpsc::Receiver<Value>, mpsc::Sender<()>)
     {
+        const ONE_PIXEL_PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
         let (events_tx, events_rx) = mpsc::channel();
@@ -4408,7 +4409,24 @@ mod tests {
                 if request["method"] == "Input.dispatchMouseEvent" {
                     events_tx.send(request.clone()).unwrap();
                 }
-                write_ws_json(&mut ws, json!({"id": request["id"], "result": {}}));
+                let result = match request["method"].as_str().unwrap() {
+                    "Page.createIsolatedWorld" => json!({"executionContextId": 41}),
+                    "Runtime.evaluate" => {
+                        json!({"result": {"type": "number", "value": 10_000.0}})
+                    }
+                    "Page.getFrameTree" => json!({
+                        "frameTree": {
+                            "frame": {
+                                "id": "main-frame",
+                                "loaderId": "loader-1",
+                                "url": "https://example.test/#recovery"
+                            }
+                        }
+                    }),
+                    "Page.captureScreenshot" => json!({"data": ONE_PIXEL_PNG}),
+                    _ => json!({}),
+                };
+                write_ws_json(&mut ws, json!({"id": request["id"], "result": result}));
             }
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
@@ -6595,6 +6613,55 @@ mod tests {
         assert!(
             browser.latest_frame_seq().is_some(),
             "the matching verified recovery paint must reopen pointer authority"
+        );
+    }
+
+    #[test]
+    fn explicit_retry_can_verify_pixels_while_surface_is_failed() {
+        let (runtime, server, _dispatched, stop) = runtime_recording_mouse_dispatches();
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        *browser.session.lock().unwrap() = Some(BrowserSession {
+            runtime: runtime.clone(),
+            target_id: "target-1".to_string(),
+            session_id: "session-1".to_string(),
+        });
+        browser.store_frame(test_frame(1));
+        browser.begin_targeted_navigation_frame_transition().expect("failed navigation");
+        handle_same_document_navigated(
+            browser,
+            &json!({
+                "frameId": "main-frame",
+                "url": "https://example.test/#failed"
+            }),
+        )
+        .expect("failed URL");
+        browser.fail_same_document_authority(&anyhow::anyhow!("injected capture failure"));
+        browser.begin_targeted_navigation_frame_transition().expect("explicit retry");
+        handle_same_document_navigated(
+            browser,
+            &json!({
+                "frameId": "main-frame",
+                "url": "https://example.test/#recovery"
+            }),
+        )
+        .expect("recovery URL");
+
+        let recovery =
+            browser.authorize_same_document_paint_blocking("session-1", "main-frame", "loader-1");
+
+        stop.send(()).unwrap();
+        runtime.shutdown();
+        server.join().unwrap();
+
+        assert!(
+            recovery.is_ok(),
+            "the explicit retry must be allowed to capture verification pixels"
+        );
+        assert_eq!(browser.status(), BrowserStatus::Live);
+        assert!(
+            browser.latest_frame_seq().is_some(),
+            "verified retry pixels must restore pointer authority"
         );
     }
 
