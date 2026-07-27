@@ -8,9 +8,9 @@ public import Foundation
 /// The anchor workspace is always a real member workspace. It is created
 /// fresh when the group is created (never promoted from an existing member at
 /// creation time) and rendered IMPLICITLY as the group header (no separate
-/// sidebar row). Closing the anchor promotes the group's next member to be the
-/// new anchor and keeps the group; the group is removed only when the anchor
-/// was its last workspace.
+/// sidebar row). Closing the anchor promotes the group's first remaining
+/// member in `tabs` order to be the new anchor and keeps the group; the group
+/// is removed only when the anchor was its last workspace.
 public struct WorkspaceGroup: Identifiable, Equatable, Sendable {
     /// The group's stable identity.
     public let id: UUID
@@ -23,8 +23,8 @@ public struct WorkspaceGroup: Identifiable, Equatable, Sendable {
     /// Identifier of the member workspace that owns this group's lifecycle.
     /// Always present and always points to a workspace in the window's tabs
     /// whose `groupId == self.id`. Closing this workspace promotes the group's
-    /// next member to be the new anchor; the group is removed only when the
-    /// anchor was its last workspace.
+    /// first remaining member in `tabs` order to be the new anchor; the group
+    /// is removed only when the anchor was its last workspace.
     public var anchorWorkspaceId: UUID
     /// Group-level color override (hex string). When nil, falls back to the
     /// cwd-config color resolved from `cmux.json` for the anchor's cwd, then

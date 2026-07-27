@@ -584,11 +584,18 @@ struct WorkspaceCoordinatorTests {
         let (model, host, groups, _) = makeWorld()
         _ = host
         let a = CoordinatorStubTab()
-        model.tabs = [a]
-        let groupId = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [a.id]))
+        let b = CoordinatorStubTab()
+        model.tabs = [a, b]
+        let groupId = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [a.id, b.id]))
         let anchorId = model.workspaceGroups[0].anchorWorkspaceId
-        // createWorkspaceGroup mints a fresh synthetic anchor; `a` is a member.
+        // createWorkspaceGroup mints a fresh synthetic anchor; `a`/`b` are members.
         #expect(anchorId != a.id)
+        #expect(anchorId != b.id)
+        // `a` precedes `b` in tabs order, so `a` is the deterministic promotion
+        // target once the anchor is removed.
+        let aIndex = try #require(model.tabs.firstIndex(where: { $0.id == a.id }))
+        let bIndex = try #require(model.tabs.firstIndex(where: { $0.id == b.id }))
+        #expect(aIndex < bIndex)
 
         // Simulate the close path: the anchor is removed from tabs, then the
         // model's close-path group fixup runs.
@@ -597,12 +604,14 @@ struct WorkspaceCoordinatorTests {
         }
         model.promoteAnchorOrRemoveGroupsAnchoredBy(closedWorkspaceId: anchorId)
 
-        // The group survives with `a` promoted to anchor; `a` stays grouped and
-        // is never released to root.
+        // The group survives with the FIRST remaining member in tabs order (`a`,
+        // not `b`) promoted to anchor; both members stay grouped and neither is
+        // released to root.
         #expect(model.workspaceGroups.count == 1)
         #expect(model.workspaceGroups.first?.id == groupId)
         #expect(model.workspaceGroups.first?.anchorWorkspaceId == a.id)
         #expect(a.groupId == groupId)
+        #expect(b.groupId == groupId)
     }
 
     /// Closing the anchor of a group with no other members removes the now-empty

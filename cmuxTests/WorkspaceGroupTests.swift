@@ -845,16 +845,17 @@ struct WorkspaceGroupTests {
         let otherMemberIds = manager.tabs
             .filter { $0.groupId == groupId && $0.id != anchor.id }
             .map(\.id)
-        #expect(!otherMemberIds.isEmpty)
+        let expectedAnchorId = try #require(otherMemberIds.first)
 
         manager.closeWorkspace(anchor)
 
-        // The closed anchor is gone, but the group survives: its next member is
-        // promoted to anchor and every remaining member stays grouped rather
-        // than scattering to the ungrouped root tier.
+        // The closed anchor is gone, but the group survives: its FIRST remaining
+        // member in tabs order (not just any member) is promoted to anchor and
+        // every remaining member stays grouped rather than scattering to the
+        // ungrouped root tier.
         #expect(!manager.tabs.contains(where: { $0.id == anchor.id }))
         let survivingGroup = try #require(manager.workspaceGroups.first(where: { $0.id == groupId }))
-        #expect(otherMemberIds.contains(survivingGroup.anchorWorkspaceId))
+        #expect(survivingGroup.anchorWorkspaceId == expectedAnchorId)
         #expect(otherMemberIds.allSatisfy { id in
             manager.tabs.contains(where: { $0.id == id && $0.groupId == groupId })
         })

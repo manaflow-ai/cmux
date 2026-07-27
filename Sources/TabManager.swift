@@ -2103,12 +2103,13 @@ class TabManager: ObservableObject {
         if let index = tabs.firstIndex(where: { $0.id == workspace.id }) {
             tabs.remove(at: index)
             // Real-close path: if the closed workspace anchored a group, keep
-            // the group by promoting its next member to anchor so closing one
-            // workspace only closes that workspace and never scatters the rest
-            // of its group out to the ungrouped root tier. A group with no
-            // members left after the anchor's removal is dropped. This lives at
-            // the explicit close site (not in the tabs didSet) so transient
-            // remove/insert reorders never trigger the fixup.
+            // the group by promoting its first remaining member (in tabs order)
+            // to anchor so closing one workspace only closes that workspace and
+            // never scatters the rest of its group out to the ungrouped root
+            // tier. A group with no members left after the anchor's removal is
+            // dropped. This lives at the explicit close site (not in the tabs
+            // didSet) so transient remove/insert reorders never trigger the
+            // fixup.
             let promotedAnchorIds = workspaces.promoteAnchorOrRemoveGroupsAnchoredBy(closedWorkspaceId: workspace.id)
 
             if selectedTabId == workspace.id {
