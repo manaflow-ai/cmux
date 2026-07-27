@@ -651,14 +651,16 @@ impl CdpClient {
             .get("loaderId")
             .and_then(Value::as_str)
             .ok_or_else(|| anyhow::anyhow!("Page.getFrameTree root frame missing loaderId"))?;
-        commit_main_frame_snapshot(
+        if !commit_main_frame_snapshot(
             &self.inner,
             session_id,
             &frame_epoch,
             observed_epoch,
             frame_id,
             loader_id,
-        );
+        ) {
+            anyhow::bail!("Page.getFrameTree snapshot was invalidated by concurrent navigation");
+        }
         Ok((frame_id.to_string(), loader_id.to_string()))
     }
 

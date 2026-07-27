@@ -1176,8 +1176,9 @@ fn start_surface_thread(
                         css_height: frame.css_height,
                         seq: 0,
                     };
-                    browser.store_frame_for_epoch(frame, frame_epoch);
-                    if !browser.dirty.swap(true, Ordering::AcqRel)
+                    let visible_state_changed = browser.store_frame_for_epoch(frame, frame_epoch);
+                    if visible_state_changed
+                        && !browser.dirty.swap(true, Ordering::AcqRel)
                         && let Some(mux) = mux.upgrade()
                     {
                         mux.emit(MuxEvent::SurfaceOutput(id));
@@ -2042,7 +2043,7 @@ impl BrowserSurface {
         self.store_frame_for_epoch(frame, self.frame_epoch.current());
     }
 
-    fn store_frame_for_epoch(&self, frame: BrowserFrame, frame_epoch: u64) {
+    fn store_frame_for_epoch(&self, frame: BrowserFrame, frame_epoch: u64) -> bool {
         let mut state = self.state.lock().unwrap();
         if let Some(pending_epoch) = state.pending_frame_epoch {
             if frame_epoch >= pending_epoch
@@ -2053,7 +2054,7 @@ impl BrowserSurface {
             {
                 state.pending_frame = Some((frame_epoch, frame));
             }
-            return;
+            return false;
         }
         if frame_epoch > state.accepted_frame_epoch {
             if state
@@ -2063,15 +2064,16 @@ impl BrowserSurface {
             {
                 state.pending_frame = Some((frame_epoch, frame));
             }
-            return;
+            return false;
         }
         if frame_epoch < state.accepted_frame_epoch {
-            return;
+            return false;
         }
         if state.failed_screencast_capture_epoch == Some(frame_epoch) {
             state.failed_screencast_capture_epoch = None;
         }
         Self::store_frame_locked(&mut state, frame);
+        true
     }
 
     fn store_frame_locked(state: &mut BrowserState, mut frame: BrowserFrame) {
