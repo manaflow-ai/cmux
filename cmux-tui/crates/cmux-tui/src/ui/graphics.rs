@@ -67,12 +67,6 @@ impl GraphicsState {
         self.visible = now_visible;
         out
     }
-
-    pub(crate) fn visible_image_deletions(&self) -> Vec<Vec<u8>> {
-        let mut visible = self.visible.iter().copied().collect::<Vec<_>>();
-        visible.sort_unstable();
-        visible.into_iter().map(delete_image).collect()
-    }
 }
 
 pub fn image_id(surface: SurfaceId) -> u32 {

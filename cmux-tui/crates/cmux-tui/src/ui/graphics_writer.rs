@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{BTreeSet, VecDeque};
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
@@ -23,6 +23,79 @@ const INCOMPLETE_GRAPHICS_RESPONSE_GRACE: Duration = Duration::from_millis(200);
 const MAX_RETIRED_FENCES: usize = 4;
 const MAX_GRAPHICS_RESPONSE_EVENTS: usize = 128;
 const MAX_CONSECUTIVE_GRAPHICS_FENCE_TIMEOUTS: u8 = 2;
+const GRAPHICS_OUTPUT_TIMEOUT: Duration = Duration::from_secs(1);
+const GRAPHICS_OUTPUT_POLL: Duration = Duration::from_millis(25);
+
+#[derive(Clone, Copy)]
+enum GraphicsOutputMode {
+    #[cfg_attr(all(unix, not(test)), allow(dead_code))]
+    Cooperative,
+    #[cfg(unix)]
+    NonblockingFd(std::os::fd::RawFd),
+}
+
+impl GraphicsOutputMode {
+    fn stdout() -> Self {
+        #[cfg(unix)]
+        {
+            Self::NonblockingFd(libc::STDOUT_FILENO)
+        }
+        #[cfg(not(unix))]
+        {
+            Self::Cooperative
+        }
+    }
+}
+
+struct NonblockingOutputGuard {
+    #[cfg(unix)]
+    restore: Option<(std::os::fd::RawFd, libc::c_int)>,
+}
+
+impl NonblockingOutputGuard {
+    fn begin(mode: GraphicsOutputMode) -> std::io::Result<Self> {
+        #[cfg(unix)]
+        if let GraphicsOutputMode::NonblockingFd(fd) = mode {
+            // SAFETY: `fd` is the live stdout descriptor supplied by the
+            // process, and F_GETFL does not mutate memory.
+            let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+            if flags < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            if flags & libc::O_NONBLOCK == 0 {
+                // SAFETY: the descriptor remains live while the graphics
+                // writer owns the shared stdout lock.
+                if unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                return Ok(Self { restore: Some((fd, flags)) });
+            }
+        }
+        Ok(Self {
+            #[cfg(unix)]
+            restore: None,
+        })
+    }
+
+    fn restore(&mut self) -> std::io::Result<()> {
+        #[cfg(unix)]
+        if let Some((fd, flags)) = self.restore.take() {
+            // SAFETY: the guard only stores a descriptor after a successful
+            // F_GETFL/F_SETFL pair, and restoration runs before releasing the
+            // shared stdout lock.
+            if unsafe { libc::fcntl(fd, libc::F_SETFL, flags) } < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Drop for NonblockingOutputGuard {
+    fn drop(&mut self) {
+        let _ = self.restore();
+    }
+}
 
 struct GraphicsSubmission {
     id: u64,
@@ -440,7 +513,13 @@ impl GraphicsWriter {
         processing_fence: GraphicsFenceWaiter,
         on_ready: impl Fn() + Send + 'static,
     ) -> std::io::Result<Self> {
-        Self::spawn_with_fence(stdout_lock, std::io::stdout(), processing_fence, on_ready)
+        Self::spawn_with_fence(
+            stdout_lock,
+            std::io::stdout(),
+            GraphicsOutputMode::stdout(),
+            processing_fence,
+            on_ready,
+        )
     }
 
     #[cfg(test)]
@@ -462,6 +541,7 @@ impl GraphicsWriter {
         Self::spawn_with_fence(
             stdout_lock,
             output,
+            GraphicsOutputMode::Cooperative,
             ClosureProcessingFence(processing_fence),
             on_ready,
         )
@@ -470,6 +550,7 @@ impl GraphicsWriter {
     fn spawn_with_fence(
         stdout_lock: Arc<StdoutLock>,
         output: impl Write + Send + 'static,
+        output_mode: GraphicsOutputMode,
         processing_fence: impl ProcessingFence,
         on_ready: impl Fn() + Send + 'static,
     ) -> std::io::Result<Self> {
@@ -489,6 +570,7 @@ impl GraphicsWriter {
                     rx,
                     stdout_lock,
                     output,
+                    output_mode,
                     processing_fence_waiter: processing_fence,
                     on_ready,
                     done_tx,
@@ -567,10 +649,145 @@ struct WriterLoop<W, P, F> {
     rx: Receiver<()>,
     stdout_lock: Arc<StdoutLock>,
     output: W,
+    output_mode: GraphicsOutputMode,
     processing_fence_waiter: P,
     on_ready: F,
     done_tx: SyncSender<()>,
     shutdown: Arc<AtomicBool>,
+}
+
+fn graphics_output_interrupted() -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::Interrupted, "graphics output interrupted by shutdown")
+}
+
+fn graphics_output_timed_out() -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::TimedOut, "graphics output timed out")
+}
+
+fn check_graphics_output_deadline(
+    deadline: Instant,
+    shutdown: &AtomicBool,
+) -> std::io::Result<Duration> {
+    if shutdown.load(Ordering::Acquire) {
+        return Err(graphics_output_interrupted());
+    }
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    if remaining.is_zero() {
+        return Err(graphics_output_timed_out());
+    }
+    Ok(remaining)
+}
+
+fn wait_for_graphics_output(
+    mode: GraphicsOutputMode,
+    deadline: Instant,
+    shutdown: &AtomicBool,
+) -> std::io::Result<()> {
+    let wait = check_graphics_output_deadline(deadline, shutdown)?.min(GRAPHICS_OUTPUT_POLL);
+    #[cfg(unix)]
+    if let GraphicsOutputMode::NonblockingFd(fd) = mode {
+        let timeout_ms = wait.as_millis().clamp(1, i32::MAX as u128) as i32;
+        let mut descriptor = libc::pollfd { fd, events: libc::POLLOUT, revents: 0 };
+        // SAFETY: `descriptor` points to one initialized pollfd for the live
+        // stdout descriptor, and poll only mutates its revents field.
+        let ready = unsafe { libc::poll(&mut descriptor, 1, timeout_ms) };
+        if ready < 0 {
+            let error = std::io::Error::last_os_error();
+            if error.kind() != std::io::ErrorKind::Interrupted {
+                return Err(error);
+            }
+            return Ok(());
+        }
+        let terminal_events = libc::POLLERR | libc::POLLHUP | libc::POLLNVAL;
+        if descriptor.revents & terminal_events != 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                "graphics output descriptor closed",
+            ));
+        }
+        return Ok(());
+    }
+    std::thread::sleep(wait);
+    Ok(())
+}
+
+fn write_graphics_bytes<W: Write>(
+    output: &mut W,
+    mode: GraphicsOutputMode,
+    mut bytes: &[u8],
+    deadline: Instant,
+    shutdown: &AtomicBool,
+) -> std::io::Result<()> {
+    while !bytes.is_empty() {
+        check_graphics_output_deadline(deadline, shutdown)?;
+        match output.write(bytes) {
+            Ok(0) => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::WriteZero,
+                    "graphics output made no progress",
+                ));
+            }
+            Ok(written) => bytes = &bytes[written..],
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                wait_for_graphics_output(mode, deadline, shutdown)?;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(())
+}
+
+fn flush_graphics_output<W: Write>(
+    output: &mut W,
+    mode: GraphicsOutputMode,
+    deadline: Instant,
+    shutdown: &AtomicBool,
+) -> std::io::Result<()> {
+    loop {
+        check_graphics_output_deadline(deadline, shutdown)?;
+        match output.flush() {
+            Ok(()) => return Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                wait_for_graphics_output(mode, deadline, shutdown)?;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+fn write_graphics_output<W, I, B>(
+    stdout_lock: &StdoutLock,
+    output: &mut W,
+    output_mode: GraphicsOutputMode,
+    chunks: I,
+    shutdown: &AtomicBool,
+) -> std::io::Result<()>
+where
+    W: Write,
+    I: IntoIterator<Item = B>,
+    B: AsRef<[u8]>,
+{
+    let deadline = Instant::now() + GRAPHICS_OUTPUT_TIMEOUT;
+    let _guard = loop {
+        check_graphics_output_deadline(deadline, shutdown)?;
+        if let Some(guard) = stdout_lock.try_lock() {
+            break guard;
+        }
+        std::thread::sleep(
+            check_graphics_output_deadline(deadline, shutdown)?.min(GRAPHICS_OUTPUT_POLL),
+        );
+    };
+    let mut nonblocking = NonblockingOutputGuard::begin(output_mode)?;
+    let result = (|| {
+        for chunk in chunks {
+            write_graphics_bytes(output, output_mode, chunk.as_ref(), deadline, shutdown)?;
+        }
+        flush_graphics_output(output, output_mode, deadline, shutdown)
+    })();
+    let restored = nonblocking.restore();
+    result.and(restored)
 }
 
 fn writer_loop<W, P, F>(worker: WriterLoop<W, P, F>)
@@ -585,6 +802,7 @@ where
         rx,
         stdout_lock,
         mut output,
+        output_mode,
         mut processing_fence_waiter,
         on_ready,
         done_tx,
@@ -592,6 +810,8 @@ where
     } = worker;
     let _done = DoneOnDrop(done_tx);
     let mut graphics = GraphicsState::default();
+    let mut acknowledged_visible = BTreeSet::new();
+    let mut possibly_visible = BTreeSet::new();
     let mut consecutive_fence_timeouts = 0_u8;
     while rx.recv().is_ok() {
         if shutdown.load(Ordering::Acquire) {
@@ -613,34 +833,32 @@ where
                     pointer_frame_seq: placement.pointer_frame_seq,
                 })
                 .collect();
+            let submitted_visible = submission
+                .placements
+                .iter()
+                .filter(|placement| placement.rect.width > 0 && placement.rect.height > 0)
+                .map(|placement| placement.surface)
+                .collect::<BTreeSet<_>>();
             let acknowledged_graphics = graphics.clone();
-            let batches =
-                graphics.frame_batches(submission.session_generation, &submission.placements);
+            let mut batches = possibly_visible
+                .difference(&acknowledged_visible)
+                .filter(|surface| !submitted_visible.contains(surface))
+                .copied()
+                .map(super::graphics::delete_image)
+                .collect::<Vec<_>>();
+            batches.extend(
+                graphics.frame_batches(submission.session_generation, &submission.placements),
+            );
+            possibly_visible.extend(submitted_visible.iter().copied());
             let fence_id = processing_fence_id(submission.id);
             processing_fence_waiter.prepare(fence_id);
-            let output_result = {
-                let _guard = stdout_lock.lock();
-                if shutdown.load(Ordering::Acquire) {
-                    Err(std::io::Error::new(
-                        std::io::ErrorKind::Interrupted,
-                        "graphics output interrupted by shutdown",
-                    ))
-                } else {
-                    let mut result = Ok(());
-                    for batch in batches {
-                        if result.is_ok() {
-                            result = output.write_all(&batch);
-                        }
-                    }
-                    if result.is_ok() {
-                        result = output.write_all(&processing_fence(fence_id));
-                    }
-                    if result.is_ok() {
-                        result = output.flush();
-                    }
-                    result
-                }
-            };
+            let output_result = write_graphics_output(
+                &stdout_lock,
+                &mut output,
+                output_mode,
+                batches.into_iter().chain(std::iter::once(processing_fence(fence_id))),
+                &shutdown,
+            );
             if output_result.is_err() {
                 processing_fence_waiter.cancel(fence_id);
                 if shutdown.load(Ordering::Acquire) {
@@ -660,17 +878,13 @@ where
                 // ordered query distinguishes a delayed response from a
                 // failed output stream without retransmitting image data.
                 processing_fence_waiter.prepare(fence_id);
-                let retry_output = {
-                    let _guard = stdout_lock.lock();
-                    if shutdown.load(Ordering::Acquire) {
-                        Err(std::io::Error::new(
-                            std::io::ErrorKind::Interrupted,
-                            "graphics output interrupted by shutdown",
-                        ))
-                    } else {
-                        output.write_all(&processing_fence(fence_id)).and_then(|()| output.flush())
-                    }
-                };
+                let retry_output = write_graphics_output(
+                    &stdout_lock,
+                    &mut output,
+                    output_mode,
+                    std::iter::once(processing_fence(fence_id)),
+                    &shutdown,
+                );
                 if retry_output.is_err() {
                     processing_fence_waiter.cancel(fence_id);
                     if shutdown.load(Ordering::Acquire) {
@@ -692,14 +906,18 @@ where
                     consecutive_fence_timeouts = consecutive_fence_timeouts.saturating_add(1);
                     graphics = acknowledged_graphics;
                     if consecutive_fence_timeouts >= MAX_CONSECUTIVE_GRAPHICS_FENCE_TIMEOUTS {
-                        let cleanup = graphics.visible_image_deletions();
-                        let _guard = stdout_lock.lock();
-                        for deletion in cleanup {
-                            if output.write_all(&deletion).is_err() {
-                                break;
-                            }
-                        }
-                        let _ = output.flush();
+                        let cleanup = possibly_visible
+                            .iter()
+                            .copied()
+                            .map(super::graphics::delete_image)
+                            .collect::<Vec<_>>();
+                        let _ = write_graphics_output(
+                            &stdout_lock,
+                            &mut output,
+                            output_mode,
+                            cleanup,
+                            &shutdown,
+                        );
                         *completion.lock().unwrap() = Some(GraphicsCompletion::Failed);
                         on_ready();
                         return;
@@ -718,6 +936,8 @@ where
                 return;
             }
             consecutive_fence_timeouts = 0;
+            acknowledged_visible = submitted_visible.clone();
+            possibly_visible = submitted_visible;
             *completion.lock().unwrap() = Some(GraphicsCompletion::Processed(GraphicsProcessing {
                 id: submission.id,
                 session_generation: submission.session_generation,
@@ -1375,8 +1595,14 @@ mod tests {
         let lock = Arc::new(StdoutLock::new(()));
         let output = SharedOutput::default();
         let (fence, _notifier) = graphics_fence_channel();
-        let mut writer =
-            GraphicsWriter::spawn_with_fence(lock, output.clone(), fence, || {}).unwrap();
+        let mut writer = GraphicsWriter::spawn_with_fence(
+            lock,
+            output.clone(),
+            GraphicsOutputMode::Cooperative,
+            fence,
+            || {},
+        )
+        .unwrap();
         let id = 15;
         let query = processing_fence(processing_fence_id(id));
         assert!(writer.submit(
