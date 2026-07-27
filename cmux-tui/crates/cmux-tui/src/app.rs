@@ -16331,7 +16331,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             app.status_message.as_deref(),
-            Some("サーフェス 77 の attach に失敗しました。再試行は制限されています: offline")
+            Some("サーフェス 77 の接続に失敗しました。再試行は制限されています: offline")
         );
 
         app.handle(AppEvent::SurfaceAttachSettled {
@@ -16346,8 +16346,23 @@ mod tests {
         assert_eq!(
             app.status_message.as_deref(),
             Some(
-                "サーフェス 77 の attach の結果は不明です。入力を続ける前に切断して再接続してください: timeout"
+                "サーフェス 77 の接続結果は不明です。入力を続ける前に切断して再接続してください: timeout"
             )
+        );
+
+        app.handle(AppEvent::SessionMutationSettled {
+            outcome: super::SessionMutationOutcome::SurfaceSyncFailed {
+                surface: 77,
+                operation: "resize",
+                error: "offline".to_string(),
+                reconnect_required: false,
+            },
+            routing: false,
+        })
+        .unwrap();
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("サーフェス 77 のサイズ変更に失敗しました。再試行は制限されています: offline")
         );
     }
 

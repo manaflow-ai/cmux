@@ -1049,6 +1049,30 @@ mod tests {
         }
     }
 
+    struct PermanentRecoveryFailureOutput {
+        attempted: SyncSender<()>,
+    }
+
+    impl GraphicsOutput for PermanentRecoveryFailureOutput {
+        fn write_segment(
+            &mut self,
+            bytes: &[u8],
+            _permit: &WritePermit<'_>,
+            emitted: &mut usize,
+        ) -> io::Result<bool> {
+            *emitted = bytes.len().min(8);
+            Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "terminal stayed blocked after a partial APC",
+            ))
+        }
+
+        fn write_recovery(&mut self, _bytes: &[u8]) -> io::Result<()> {
+            let _ = self.attempted.try_send(());
+            Err(io::Error::new(io::ErrorKind::BrokenPipe, "terminal output is gone"))
+        }
+    }
+
     fn rgba_placement(image_id: u32, generation: u64, x: u16, rgba: [u8; 4]) -> GraphicPlacement {
         rgba_placement_in_namespace(91, image_id, generation, x, rgba)
     }
@@ -1172,6 +1196,63 @@ mod tests {
             "cancelable stdout did not stop within its bounded poll interval"
         );
         drop(read_fd);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn segment_backpressure_has_a_total_deadline_without_external_supersession() {
+        let mut raw_fds = [-1; 2];
+        assert_eq!(unsafe { libc::pipe(raw_fds.as_mut_ptr()) }, 0);
+        let _read_fd = unsafe { OwnedFd::from_raw_fd(raw_fds[0]) };
+        let write_fd = unsafe { OwnedFd::from_raw_fd(raw_fds[1]) };
+        let flags = unsafe { libc::fcntl(write_fd.as_raw_fd(), libc::F_GETFL) };
+        assert!(flags >= 0);
+        assert_eq!(
+            unsafe { libc::fcntl(write_fd.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK) },
+            0
+        );
+        let fill = [0_u8; 4_096];
+        loop {
+            let written =
+                unsafe { libc::write(write_fd.as_raw_fd(), fill.as_ptr().cast(), fill.len()) };
+            if written >= 0 {
+                continue;
+            }
+            assert_eq!(io::Error::last_os_error().raw_os_error(), Some(libc::EAGAIN));
+            break;
+        }
+
+        let control = Arc::new(WriterControl::default());
+        let slot =
+            Arc::new(Mutex::new(PendingGraphics { revision: 1, ..PendingGraphics::default() }));
+        let (attempt_tx, attempt_rx) = sync_channel(1);
+        control.observe_write_attempts(attempt_tx);
+        let (done_tx, done_rx) = sync_channel(1);
+        let worker_control = control.clone();
+        let worker = std::thread::spawn(move || {
+            let mut output = InterruptibleStdout { fd: write_fd };
+            let mut emitted = 0;
+            let result = output.write_segment(
+                b"\x1b_Gq=2;payload\x1b\\",
+                &WritePermit { slot: &slot, control: &worker_control, revision: 1 },
+                &mut emitted,
+            );
+            let _ = done_tx.send(result);
+        });
+
+        attempt_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("writer never reached terminal backpressure");
+        let result = match done_rx.recv_timeout(Duration::from_secs(1)) {
+            Ok(result) => result,
+            Err(_) => {
+                control.cancelled.store(true, Ordering::Release);
+                worker.join().unwrap();
+                panic!("graphics segment ignored its total output deadline");
+            }
+        };
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::TimedOut);
+        worker.join().unwrap();
     }
 
     #[cfg(unix)]
@@ -1766,6 +1847,43 @@ mod tests {
             output.recovery_attempts >= 2,
             "the pending parser reset was not retried after backpressure cleared"
         );
+    }
+
+    #[test]
+    fn permanent_parser_recovery_failure_returns_without_retrying_forever() {
+        let slot =
+            Arc::new(Mutex::new(PendingGraphics { revision: 1, ..PendingGraphics::default() }));
+        let control = Arc::new(WriterControl::default());
+        let stdout_lock = Arc::new(StdoutLock::new(()));
+        let (attempted_tx, attempted_rx) = sync_channel(1);
+        let (done_tx, done_rx) = sync_channel(1);
+        let worker_control = control.clone();
+        let worker = std::thread::spawn(move || {
+            let mut output = PermanentRecoveryFailureOutput { attempted: attempted_tx };
+            let outcome = write_batch(
+                &mut output,
+                &stdout_lock,
+                &slot,
+                &worker_control,
+                1,
+                b"\x1b_Gq=2;payload\x1b\\",
+            );
+            let _ = done_tx.send(outcome);
+        });
+
+        attempted_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("writer never attempted parser recovery");
+        let outcome = match done_rx.recv_timeout(Duration::from_millis(250)) {
+            Ok(outcome) => outcome,
+            Err(_) => {
+                control.cancelled.store(true, Ordering::Release);
+                worker.join().unwrap();
+                panic!("permanent parser recovery failure retried forever");
+            }
+        };
+        assert_eq!(outcome, BatchWriteOutcome::Stopped);
+        worker.join().unwrap();
     }
 
     #[test]
