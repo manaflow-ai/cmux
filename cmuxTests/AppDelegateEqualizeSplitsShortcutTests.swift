@@ -1957,6 +1957,66 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    func testWorkspaceSnapshotWithholdsPostBarrierChangeUntilExecutionConfigurationIsKnown() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let terminalPanels =
+            workspace.panels.values.compactMap {
+                $0 as? TerminalPanel
+            }
+        XCTAssertFalse(terminalPanels.isEmpty)
+        for panel in terminalPanels {
+            panel.surface.recordCurrentFontSizeLineage(
+                TerminalFontSizeLineage(
+                    basePoints: 15,
+                    isExplicitOverride: true
+                )
+            )
+        }
+
+        let arbiter = WorkspaceTerminalFontSizeArbiter()
+        let coordinator =
+            WorkspaceTerminalFontSizeCoordinator(
+                tabManager: manager,
+                arbiter: arbiter,
+                schedule:
+                    ManualWorkspaceFontSizeDrainScheduler()
+                        .schedule(delay:action:),
+                configurationSnapshot: {
+                    WorkspaceTerminalFontConfigurationSnapshot(
+                        configuredRuntimePoints: 15,
+                        magnificationPercent: 100
+                    )
+                }
+            )
+        defer { coordinator.cancelAll() }
+        var finishConfigurationBarrier:
+            (@MainActor () -> Void)?
+        arbiter.performWhenFontSizeWorkIsIdle {
+            finishConfigurationBarrier =
+                arbiter.extendCurrentFontSizeWorkIdleBarrier()
+        }
+        defer { finishConfigurationBarrier?() }
+
+        XCTAssertTrue(
+            coordinator.enqueue(
+                .relative([1]),
+                workspaceId: workspace.id,
+                deferFlush: true
+            )
+        )
+        let snapshot = workspace.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: .empty
+        )
+        XCTAssertTrue(
+            snapshot.panels.compactMap(\.terminal).allSatisfy {
+                $0.fontSize == 15
+            },
+            "Projection must wait rather than guess with the pre-reload configuration"
+        )
+    }
+
     func testClosedPanelHistoryProjectsPendingFontChange() throws {
         ClosedItemHistoryStore.shared.removeAll()
         defer { ClosedItemHistoryStore.shared.removeAll() }
@@ -3337,6 +3397,88 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
                 $0.surface.fontSizeLineageSnapshot()?.basePoints == 19
             },
             "Closing the source window must not cancel destination-owned work"
+        )
+    }
+
+    func testSourceWindowTeardownPreservesMovedWorkspaceDeferredBehindConfigurationBarrier() {
+        let sourceManager = TabManager()
+        let destinationManager = TabManager()
+        guard let workspace = sourceManager.selectedWorkspace else {
+            XCTFail("Expected a source workspace")
+            return
+        }
+        let testPanels = workspace.panels.values.compactMap {
+            $0 as? TerminalPanel
+        }
+        XCTAssertFalse(testPanels.isEmpty)
+        for panel in testPanels {
+            panel.surface.recordCurrentFontSizeLineage(
+                TerminalFontSizeLineage(
+                    basePoints: 20,
+                    isExplicitOverride: true
+                )
+            )
+        }
+
+        let arbiter = WorkspaceTerminalFontSizeCoordinator.Arbiter()
+        let sourceCoordinator =
+            WorkspaceTerminalFontSizeCoordinator(
+                tabManager: sourceManager,
+                arbiter: arbiter,
+                schedule:
+                    ManualWorkspaceFontSizeDrainScheduler()
+                        .schedule(delay:action:)
+            )
+        let destinationCoordinator =
+            WorkspaceTerminalFontSizeCoordinator(
+                tabManager: destinationManager,
+                arbiter: arbiter,
+                schedule:
+                    ManualWorkspaceFontSizeDrainScheduler()
+                        .schedule(delay:action:)
+            )
+        defer {
+            sourceCoordinator.cancelAll()
+            destinationCoordinator.cancelAll()
+        }
+
+        var finishConfigurationBarrier:
+            (@MainActor () -> Void)?
+        arbiter.performWhenFontSizeWorkIsIdle {
+            finishConfigurationBarrier =
+                arbiter.extendCurrentFontSizeWorkIdleBarrier()
+        }
+        defer { finishConfigurationBarrier?() }
+        XCTAssertTrue(
+            sourceCoordinator.enqueue(
+                .relative([-1]),
+                workspaceId: workspace.id,
+                deferFlush: true
+            )
+        )
+        guard let detached =
+                sourceManager.detachWorkspace(tabId: workspace.id) else {
+            XCTFail("Expected the source manager to detach the workspace")
+            return
+        }
+        destinationManager.attachWorkspace(detached, select: true)
+
+        sourceCoordinator.cancelWindowOwnedWork()
+        finishConfigurationBarrier?()
+        finishConfigurationBarrier = nil
+#if DEBUG
+        sourceCoordinator.debugDrainAll()
+        destinationCoordinator.debugDrainAll()
+#else
+        XCTFail("Workspace font-size coalescer hooks require DEBUG")
+        return
+#endif
+
+        XCTAssertTrue(
+            testPanels.allSatisfy {
+                $0.surface.fontSizeLineageSnapshot()?.basePoints == 19
+            },
+            "Closing the source window must preserve a deferred request owned by the moved workspace"
         )
     }
 
@@ -5335,6 +5477,26 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             context.inheritedLineage(from: panel),
             context.fallbackLineage,
             "Inheritance and mutation must use the same hibernated baseline"
+        )
+    }
+
+    func testZeroNetRelativeChangeMakesProjectedLineageExplicit() {
+        let lineage =
+            WorkspaceTerminalFontSizeChange
+                .relative([1, -1])
+                .resultingInheritanceLineage(
+                    from: TerminalFontSizeLineage(
+                        basePoints: 12,
+                        isExplicitOverride: false
+                    ),
+                    configuredRuntimePoints: 12,
+                    magnificationPercent: 100
+                )
+
+        XCTAssertEqual(lineage.basePoints, 12)
+        XCTAssertTrue(
+            lineage.isExplicitOverride,
+            "Explicit relative input must claim ownership even when its net numeric delta is zero"
         )
     }
 

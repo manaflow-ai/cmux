@@ -195,6 +195,66 @@ private func setFontBindingResult(_ result: Bool)
         #expect(surface.sessionFontSizeOverrideBasePoints() == 5.5)
     }
 
+    @Test func zeroNetDormantAdjustmentMakesFollowerExplicit() throws {
+        var template = CmuxSurfaceConfigTemplate()
+        template.setFontSize(12, isExplicitOverride: false)
+        let surface = makeSurface(configTemplate: template)
+
+        #expect(
+            surface.adjustFontSizeOutcome(
+                applying: TerminalFontSizeDeltaTransform(
+                    orderedRuntimePointDeltas: [1, -1]
+                )
+            ) == .applied
+        )
+
+        let lineage = try #require(surface.fontSizeLineageSnapshot())
+        #expect(lineage.basePoints == 12)
+        #expect(lineage.isExplicitOverride)
+        #expect(surface.sessionFontSizeOverrideBasePoints() == 12)
+    }
+
+    @Test func zeroNetLiveAdjustmentMakesFollowerExplicit() throws {
+        var template = CmuxSurfaceConfigTemplate()
+        template.setFontSize(12, isExplicitOverride: false)
+        let registry = FakeSurfaceRegistry()
+        let surface = makeSurface(
+            configTemplate: template,
+            registry: registry
+        )
+        let runtimeSurface = UnsafeMutableRawPointer.allocate(
+            byteCount: 1,
+            alignment: 1
+        )
+        registry.registerRuntimeSurface(
+            runtimeSurface,
+            ownerId: surface.id
+        )
+        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        beginFontState(runtimeSurface, 12, false, 12)
+        defer {
+            endFontState()
+            surface.releaseSurfaceForTesting()
+            runtimeSurface.deallocate()
+        }
+
+        #expect(
+            surface.adjustFontSizeOutcome(
+                applying: TerminalFontSizeDeltaTransform(
+                    orderedRuntimePointDeltas: [1, -1]
+                )
+            ) == .applied
+        )
+        #expect(
+            GhosttySurfaceRuntimeProbe.currentSurfaceFontSizePoints(
+                runtimeSurface
+            ) == 12
+        )
+        let lineage = try #require(surface.fontSizeLineageSnapshot())
+        #expect(lineage.basePoints == 12)
+        #expect(lineage.isExplicitOverride)
+    }
+
     @Test func deferredSurfaceUsesConfiguredFallbackAndNativeMinimum() throws {
         let surface = makeSurface(configTemplate: CmuxSurfaceConfigTemplate())
 
