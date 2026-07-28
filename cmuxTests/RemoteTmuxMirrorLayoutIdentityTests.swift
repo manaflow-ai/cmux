@@ -9,7 +9,7 @@ import Testing
 #endif
 
 @MainActor
-@Suite struct RemoteTmuxMirrorLayoutIdentityTests {
+@Suite(.serialized) struct RemoteTmuxMirrorLayoutIdentityTests {
     @Test("remote layout changes reconcile pane identities incrementally")
     func remoteLayoutChangesReconcilePaneIdentitiesIncrementally() throws {
         let harness = try Harness()
@@ -381,10 +381,15 @@ final class RemoteTmuxSessionMirrorLayoutHarness {
         ))
         let rectsByWindow = initialRectsByWindow ?? [1: initialRects]
         while let kind = connection.pendingCommandKindsForTesting.first {
-            guard case .paneRects(let windowID, _) = kind else { break }
+            let lines: [String]
+            if case .paneRects(let windowID, _) = kind {
+                lines = rectsByWindow[windowID] ?? []
+            } else {
+                lines = []
+            }
             connection.handleMessageForTesting(.commandResult(
                 commandNumber: 2,
-                lines: rectsByWindow[windowID] ?? [],
+                lines: lines,
                 isError: false
             ))
         }

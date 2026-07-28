@@ -10,7 +10,7 @@ type FetchMock = (input: RequestInfo | URL, init?: RequestInit) => Promise<Respo
 let root: Root | null = null;
 let dom: JSDOM | null = null;
 const originalGlobals = new Map<string, any>();
-for (const key of ["window", "document", "navigator", "Element", "Node", "HTMLElement", "HTMLStyleElement", "customElements", "fetch"]) {
+for (const key of ["window", "document", "navigator", "Element", "Node", "HTMLElement", "HTMLStyleElement", "customElements", "fetch", "requestAnimationFrame", "cancelAnimationFrame"]) {
   originalGlobals.set(key, (globalThis as any)[key]);
 }
 
@@ -56,6 +56,422 @@ test("App renders the React-owned shell without starting a patch fetch for statu
   expect(dom.window.document.getElementById("files-sidebar")).toBeTruthy();
   expect(dom.window.document.getElementById("status-text")?.textContent).toBe("Waiting for diff");
   expect(fetched).toBe(false);
+});
+
+test("custom-scheme pending pages wait for native navigation without HTTP polling", () => {
+  dom = createDom("cmux-diff-viewer://0123456789abcdef/opening.html");
+  let fetched = false;
+  installDomGlobals(dom, () => {
+    fetched = true;
+    throw new Error("unexpected fetch");
+  });
+
+  renderApp(
+    <App
+      config={{
+        payload: {
+          pendingReplacement: true,
+          statusMessage: "Loading diff",
+          title: "Diff",
+        },
+      }}
+      initialStatus={createDiffViewerStatus("Loading diff", { loading: true, pending: true })}
+    />,
+  );
+
+  expect(dom.window.document.getElementById("status-text")?.textContent).toBe("Loading diff");
+  expect(fetched).toBe(false);
+  expect(dom.window.document.documentElement.dataset.cmuxDiffWait).toBeUndefined();
+});
+
+test("custom-scheme pending pages stream exactly one typed Rust session", async () => {
+  dom = createDom("cmux-diff-viewer://0123456789abcdef/branch.html");
+  const requests: any[] = [];
+  const commentRequests: any[] = [];
+  const fetched: string[] = [];
+  let releaseSecondSession: (() => void) | undefined;
+  installDomGlobals(dom, (input) => {
+    fetched.push(String(input));
+    return new Response("", { status: 200 });
+  });
+  (dom.window as any).webkit = {
+    messageHandlers: {
+      cmuxDiff: {
+        async postMessage(request: any) {
+          requests.push(request);
+          if (request.method === "sessionClose") {
+            return { id: request.id, version: 1, result: { type: "sessionClosed" }, error: null };
+          }
+          if (requests.filter((candidate) => candidate.method === "sessionOpen").length === 2) {
+            await new Promise<void>((resolve) => {
+              releaseSecondSession = resolve;
+            });
+          }
+          return {
+            id: request.id,
+            version: 1,
+            result: {
+              type: "sessionOpened",
+              value: {
+                sessionId: "01234567-89ab-cdef-0123-456789abcdef",
+                patch: {
+                  id: "cmux-diff-viewer://0123456789abcdef/diff-session.patch",
+                  mediaType: "text/x-diff",
+                  byteLength: 128,
+                  revision: 1,
+                },
+                source: request.params.source,
+              },
+            },
+            error: null,
+          };
+        },
+      },
+      cmuxDiffComments: {
+        async postMessage(request: any) {
+          commentRequests.push(request);
+          return { ok: true, value: { comments: [] } };
+        },
+      },
+    },
+  };
+
+  renderApp(
+    <App
+      config={{
+        payload: {
+          capabilityToken: "0123456789abcdef",
+          pendingReplacement: true,
+          sessionSource: { kind: "branch", repoRoot: "/tmp/repo", baseRef: "main" },
+          sourceOptions: [
+            { label: "Branch", selected: true, sessionSource: { kind: "branch", repoRoot: "/tmp/repo", baseRef: "main" }, value: "branch" },
+            { label: "Unstaged", selected: false, sessionSource: { kind: "unstaged", repoRoot: "/tmp/repo" }, value: "unstaged" },
+            { label: "Last turn", selected: false, sessionSource: { kind: "patch", path: "/last-turn.patch" }, value: "last-turn" },
+          ],
+          repoOptions: [
+            { label: "repo", selected: true, sessionSource: { kind: "branch", repoRoot: "/tmp/repo", baseRef: "main" }, value: "/tmp/repo" },
+            { label: "other-repo", selected: false, sessionSource: { kind: "branch", repoRoot: "/tmp/other-repo" }, value: "/tmp/other-repo" },
+          ],
+          statusMessage: "Loading diff",
+          title: "Diff",
+          transport: { kind: "webKit", endpoint: "cmuxDiff", protocolVersion: 1 },
+        },
+      }}
+      initialStatus={createDiffViewerStatus("Loading diff", { loading: true, pending: true })}
+    />,
+  );
+
+  await waitFor(() => dom?.window.document.body.dataset.streamFileCount === "0");
+  expect(requests.filter((request) => request.method === "sessionOpen")).toHaveLength(1);
+  await waitFor(() => commentRequests.length === 1);
+  expect(commentRequests[0].params.repoRoot).toBe("/tmp/repo");
+  expect(requests[0].params.source).toEqual({ kind: "branch", repoRoot: "/tmp/repo", baseRef: "main" });
+  expect(fetched).toEqual(["cmux-diff-viewer://0123456789abcdef/diff-session.patch"]);
+  expect(requests.filter((request) => request.method === "sessionClose")).toHaveLength(0);
+  const repoSelect = dom.window.document.getElementById("repo-select") as HTMLSelectElement;
+  repoSelect.value = "/tmp/other-repo";
+  repoSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  await waitFor(() => requests.filter((request) => request.method === "sessionOpen").length === 2);
+  dom.window.document.getElementById("options-button")?.click();
+  await waitFor(() => Boolean(copyGitApplyButton()));
+  copyGitApplyButton()?.click();
+  await waitFor(() => dom?.window.document.getElementById("copy-feedback")?.textContent === "Could not copy git apply command.");
+  releaseSecondSession?.();
+  await waitFor(() => fetched.length === 2);
+  expect(requests.filter((request) => request.method === "sessionOpen")[1].params.source)
+    .toEqual({ kind: "branch", repoRoot: "/tmp/other-repo" });
+
+  const sourceSelect = dom.window.document.getElementById("source-select") as HTMLSelectElement;
+  sourceSelect.value = "unstaged";
+  sourceSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  await waitFor(() => requests.filter((request) => request.method === "sessionOpen").length === 3);
+  await waitFor(() => fetched.length === 3);
+  expect(requests.filter((request) => request.method === "sessionOpen")[2].params.source)
+    .toEqual({ kind: "unstaged", repoRoot: "/tmp/other-repo" });
+
+  repoSelect.value = "/tmp/repo";
+  repoSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  await waitFor(() => requests.filter((request) => request.method === "sessionOpen").length === 4);
+  await waitFor(() => fetched.length === 4);
+  expect(requests.filter((request) => request.method === "sessionOpen")[3].params.source)
+    .toEqual({ kind: "unstaged", repoRoot: "/tmp/repo" });
+
+  sourceSelect.value = "last-turn";
+  sourceSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  await waitFor(() => requests.filter((request) => request.method === "sessionOpen").length === 5);
+  await waitFor(() => fetched.length === 5);
+  expect(requests.filter((request) => request.method === "sessionOpen")[4].params.source)
+    .toEqual({ kind: "patch", path: "/last-turn.patch" });
+  const closeCountBeforePageHide = requests.filter((request) => request.method === "sessionClose").length;
+  dom.window.dispatchEvent(new dom.window.Event("pagehide"));
+  await waitFor(() => requests.filter((request) => request.method === "sessionClose").length > closeCountBeforePageHide);
+  flushSync(() => root?.unmount());
+  root = null;
+  expect(requests.filter((request) => request.method === "sessionClose").length)
+    .toBeGreaterThan(closeCountBeforePageHide);
+});
+
+test("typed Rust empty diffs keep the localized source-specific message", async () => {
+  dom = createDom("cmux-diff-viewer://0123456789abcdef/unstaged.html");
+  let fetched = false;
+  installDomGlobals(dom, () => {
+    fetched = true;
+    return new Response("", { status: 200 });
+  });
+  (dom.window as any).webkit = {
+    messageHandlers: {
+      cmuxDiff: {
+        async postMessage(request: any) {
+          return {
+            id: request.id,
+            version: 1,
+            result: null,
+            error: { code: "emptyDiff", message: "No changes to diff" },
+          };
+        },
+      },
+    },
+  };
+
+  renderApp(
+    <App
+      config={{
+        payload: {
+          capabilityToken: "0123456789abcdef",
+          emptyMessage: "No unstaged changes to diff.",
+          pendingReplacement: true,
+          sessionSource: { kind: "unstaged", repoRoot: "/tmp/repo" },
+          statusMessage: "Loading diff",
+          transport: { kind: "webKit", endpoint: "cmuxDiff", protocolVersion: 1 },
+        },
+      }}
+      initialStatus={createDiffViewerStatus("Loading diff", { loading: true, pending: true })}
+    />,
+  );
+
+  await waitFor(() => dom?.window.document.getElementById("status-text")?.textContent === "No unstaged changes to diff.");
+  expect(fetched).toBe(false);
+});
+
+test("typed branch empty diffs keep the base picker available before base resolution", async () => {
+  dom = createDom("cmux-diff-viewer://0123456789abcdef/branch.html");
+  installDomGlobals(dom, () => new Response("", { status: 200 }));
+  (dom.window as any).webkit = {
+    messageHandlers: {
+      cmuxDiff: {
+        async postMessage(request: any) {
+          if (request.method === "sessionOpen") {
+            return {
+              id: request.id,
+              version: 1,
+              result: null,
+              error: { code: "emptyDiff", message: "No changes to diff" },
+            };
+          }
+          return {
+            id: request.id,
+            version: 1,
+            result: { type: "branches", value: { groups: [] } },
+            error: null,
+          };
+        },
+      },
+    },
+  };
+
+  renderApp(
+    <App
+      config={{
+        payload: {
+          capabilityToken: "0123456789abcdef",
+          emptyMessage: "No branch changes to diff.",
+          sessionSource: { kind: "branch", repoRoot: "/tmp/repo" },
+          transport: { kind: "webKit", endpoint: "cmuxDiff", protocolVersion: 1 },
+        },
+      }}
+      initialStatus={createDiffViewerStatus("Loading diff", { loading: true })}
+    />,
+  );
+
+  await waitFor(() => dom?.window.document.getElementById("status-text")?.textContent === "No branch changes to diff.");
+  expect(dom.window.document.querySelector(".base-picker-button")).toBeTruthy();
+});
+
+test("typed source switching preserves the last resolved branch base", async () => {
+  dom = createDom("cmux-diff-viewer://0123456789abcdef/branch.html");
+  const requests: any[] = [];
+  installDomGlobals(dom, () => new Response("", { status: 200 }));
+  (dom.window as any).webkit = {
+    messageHandlers: {
+      cmuxDiff: {
+        async postMessage(request: any) {
+          requests.push(request);
+          if (request.method === "sessionClose") {
+            return { id: request.id, version: 1, result: { type: "sessionClosed" }, error: null };
+          }
+          const source = request.params.source.kind === "branch"
+            ? {
+                ...request.params.source,
+                baseRef: request.params.source.baseRef
+                  ?? (request.params.source.repoRoot === "/tmp/other-repo" ? "other-base" : "chosen-base"),
+              }
+            : request.params.source;
+          return {
+            id: request.id,
+            version: 1,
+            result: {
+              type: "sessionOpened",
+              value: {
+                sessionId: crypto.randomUUID(),
+                patch: { id: "/diff.patch", mediaType: "text/x-diff", byteLength: 23, revision: 1 },
+                source,
+              },
+            },
+            error: null,
+          };
+        },
+      },
+    },
+  };
+
+  renderApp(
+    <App
+      config={{ payload: {
+        capabilityToken: "0123456789abcdef",
+        sessionSource: { kind: "branch", repoRoot: "/tmp/repo" },
+        sourceOptions: [
+          { label: "Branch", selected: true, sessionSource: { kind: "branch", repoRoot: "/tmp/repo" }, value: "branch" },
+          { label: "Unstaged", selected: false, sessionSource: { kind: "unstaged", repoRoot: "/tmp/repo" }, value: "unstaged" },
+        ],
+        repoOptions: [
+          { label: "repo", selected: true, sessionSource: { kind: "branch", repoRoot: "/tmp/repo" }, value: "/tmp/repo" },
+          { label: "other-repo", selected: false, sessionSource: { kind: "branch", repoRoot: "/tmp/other-repo" }, value: "/tmp/other-repo" },
+        ],
+        transport: { kind: "webKit", endpoint: "cmuxDiff", protocolVersion: 1 },
+      } }}
+      initialStatus={createDiffViewerStatus("Loading diff", { loading: true })}
+    />,
+  );
+
+  await waitFor(() => requests.filter((request) => request.method === "sessionOpen").length === 1);
+  await waitFor(() => dom?.window.document.querySelector(".base-picker-button")?.textContent?.includes("chosen-base") === true);
+  const sourceSelect = dom.window.document.getElementById("source-select") as HTMLSelectElement;
+  sourceSelect.value = "unstaged";
+  sourceSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  await waitFor(() => requests.filter((request) => request.method === "sessionOpen").length === 2);
+  sourceSelect.value = "branch";
+  sourceSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  await waitFor(() => requests.filter((request) => request.method === "sessionOpen").length === 3);
+  expect(requests.filter((request) => request.method === "sessionOpen")[2].params.source)
+    .toEqual({ kind: "branch", repoRoot: "/tmp/repo", baseRef: "chosen-base" });
+
+  const repoSelect = dom.window.document.getElementById("repo-select") as HTMLSelectElement;
+  repoSelect.value = "/tmp/other-repo";
+  repoSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  await waitFor(() => requests.filter((request) => request.method === "sessionOpen").length === 4);
+  await waitFor(() => dom?.window.document.querySelector(".base-picker-button")?.textContent?.includes("other-base") === true);
+  repoSelect.value = "/tmp/repo";
+  repoSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  await waitFor(() => requests.filter((request) => request.method === "sessionOpen").length === 5);
+  expect(requests.filter((request) => request.method === "sessionOpen")[4].params.source)
+    .toEqual({ kind: "branch", repoRoot: "/tmp/repo", baseRef: "chosen-base" });
+});
+
+test("pagehide cancels a typed session while its initial open is pending", async () => {
+  dom = createDom("cmux-diff-viewer://0123456789abcdef/unstaged.html");
+  const requests: any[] = [];
+  installDomGlobals(dom, () => new Response("", { status: 200 }));
+  (dom.window as any).webkit = {
+    messageHandlers: {
+      cmuxDiff: {
+        async postMessage(request: any) {
+          requests.push(request);
+          if (request.method === "sessionClose") {
+            return { id: request.id, version: 1, result: { type: "sessionClosed" }, error: null };
+          }
+          await new Promise<void>(() => {});
+        },
+      },
+    },
+  };
+  renderApp(
+    <App
+      config={{ payload: {
+        capabilityToken: "0123456789abcdef",
+        sessionSource: { kind: "unstaged", repoRoot: "/tmp/repo" },
+        transport: { kind: "webKit", endpoint: "cmuxDiff", protocolVersion: 1 },
+      } }}
+      initialStatus={createDiffViewerStatus("Loading diff", { loading: true })}
+    />,
+  );
+  await waitFor(() => requests.filter((request) => request.method === "sessionOpen").length === 1);
+  dom.window.dispatchEvent(new dom.window.Event("pagehide"));
+  await waitFor(() => requests.filter((request) => request.method === "sessionClose").length === 1);
+  expect(requests.find((request) => request.method === "sessionClose").params.sessionId)
+    .toBe("00000000-0000-0000-0000-000000000000");
+});
+
+test("Last Turn reveals repo selection after switching to a typed git source", async () => {
+  dom = createDom("cmux-diff-viewer://0123456789abcdef/last-turn.html");
+  const requests: any[] = [];
+  installDomGlobals(dom, () => new Response("", { status: 200 }));
+  (dom.window as any).webkit = {
+    messageHandlers: {
+      cmuxDiff: {
+        async postMessage(request: any) {
+          requests.push(request);
+          if (request.method === "sessionClose") {
+            return { id: request.id, version: 1, result: { type: "sessionClosed" }, error: null };
+          }
+          return {
+            id: request.id,
+            version: 1,
+            result: {
+              type: "sessionOpened",
+              value: {
+                sessionId: "01234567-89ab-cdef-0123-456789abcdef",
+                patch: { id: "/session.patch", mediaType: "text/x-diff", byteLength: 1, revision: 1 },
+                source: request.params.source,
+              },
+            },
+            error: null,
+          };
+        },
+      },
+    },
+  };
+  renderApp(
+    <App
+      config={{ payload: {
+        capabilityToken: "0123456789abcdef",
+        sessionSource: { kind: "patch", path: "/last-turn.patch" },
+        sourceOptions: [
+          { label: "Last turn", selected: true, sessionSource: { kind: "patch", path: "/last-turn.patch" }, value: "last-turn" },
+          { label: "Unstaged", selected: false, sessionSource: { kind: "unstaged", repoRoot: "/tmp/repo" }, value: "unstaged" },
+        ],
+        repoOptions: [
+          { label: "repo", selected: true, sessionSource: { kind: "unstaged", repoRoot: "/tmp/repo" }, value: "/tmp/repo" },
+          { label: "other", selected: false, sessionSource: { kind: "unstaged", repoRoot: "/tmp/other" }, value: "/tmp/other" },
+        ],
+        transport: { kind: "webKit", endpoint: "cmuxDiff", protocolVersion: 1 },
+      } }}
+      initialStatus={createDiffViewerStatus("Loading diff", { loading: true })}
+    />,
+  );
+  await waitFor(() => requests.filter((request) => request.method === "sessionOpen").length === 1);
+  expect(dom.window.document.getElementById("repo-select")).toBeNull();
+
+  const sourceSelect = dom.window.document.getElementById("source-select") as HTMLSelectElement;
+  sourceSelect.value = "unstaged";
+  sourceSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  await waitFor(() => requests.filter((request) => request.method === "sessionOpen").length === 2);
+  const repoSelect = dom.window.document.getElementById("repo-select") as HTMLSelectElement;
+  expect(repoSelect).toBeTruthy();
+  repoSelect.value = "/tmp/other";
+  repoSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  await waitFor(() => requests.filter((request) => request.method === "sessionOpen").length === 3);
+  expect(requests.filter((request) => request.method === "sessionOpen")[2].params.source)
+    .toEqual({ kind: "unstaged", repoRoot: "/tmp/other" });
 });
 
 test("App still starts diff rendering when statusMessage is an empty string", async () => {
@@ -248,9 +664,9 @@ test("native viewer navigation remains installed after an unrelated render", asy
   await waitFor(() => dom?.window.document.getElementById("file-search-toggle")?.getAttribute("aria-pressed") === "true");
 });
 
-function createDom(): JSDOM {
+function createDom(url = "http://127.0.0.1/diff"): JSDOM {
   return new JSDOM("<!doctype html><html><body><div id='root'></div></body></html>", {
-    url: "http://127.0.0.1/diff",
+    url,
   });
 }
 
@@ -264,6 +680,8 @@ function installDomGlobals(nextDom: JSDOM, fetchImpl: FetchMock): void {
   (globalThis as any).HTMLStyleElement = nextDom.window.HTMLStyleElement;
   (globalThis as any).customElements = nextDom.window.customElements;
   (globalThis as any).fetch = fetchImpl;
+  (globalThis as any).requestAnimationFrame = (callback: FrameRequestCallback) => setTimeout(() => callback(performance.now()), 0);
+  (globalThis as any).cancelAnimationFrame = (handle: number) => clearTimeout(handle);
 }
 
 function renderApp(element: React.ReactNode): void {

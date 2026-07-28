@@ -298,6 +298,32 @@ public protocol ControlSurfaceContext: AnyObject {
         path: String
     ) -> ControlSurfaceReportPWDResolution
 
+    /// Records a reported Git branch for `surface.report_git_branch`.
+    ///
+    /// - Parameters:
+    ///   - workspaceID: The target workspace.
+    ///   - requestedSurfaceID: The explicit `surface_id`, or `nil` to resolve.
+    ///   - branch: The reported non-empty branch name.
+    ///   - isDirty: The dirty state, or `nil` to preserve a matching branch's state.
+    /// - Returns: The Git metadata report resolution.
+    func controlSurfaceReportGitBranch(
+        workspaceID: UUID,
+        requestedSurfaceID: UUID?,
+        branch: String,
+        isDirty: Bool?
+    ) -> ControlSurfaceReportGitBranchResolution
+
+    /// Clears a reported Git branch for `surface.clear_git_branch`.
+    ///
+    /// - Parameters:
+    ///   - workspaceID: The target workspace.
+    ///   - requestedSurfaceID: The explicit `surface_id`, or `nil` to resolve.
+    /// - Returns: The Git metadata report resolution.
+    func controlSurfaceClearGitBranch(
+        workspaceID: UUID,
+        requestedSurfaceID: UUID?
+    ) -> ControlSurfaceReportGitBranchResolution
+
     /// Parses a raw shell-activity token via the app's
     /// `parseReportedShellActivityState`, returning the state's raw value (the
     /// coordinator rejects a `nil` result as `invalid_params`).

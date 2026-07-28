@@ -1,6 +1,12 @@
 # Transport Contract
 
-The command schema is transport-independent. Protocol v5 introduced the Unix domain socket JSON-lines transport. Protocol v6 also implements an opt-in WebSocket transport with the same command and event payloads. HTTP and SSE remain proposals.
+The command schema is transport-independent. Protocol v5 introduced the Unix domain socket JSON-lines transport. Protocol v6 also implements an opt-in WebSocket transport with the same command and event payloads. Protocol v7 leaves both framing contracts unchanged and adds render-mode negotiation at the command layer. HTTP and SSE remain proposals.
+
+## Protocol Negotiation
+
+The current server reports `protocol:10` from `identify` and `ping`. Clients must inspect `identify.protocol` before using versioned additions. A client selecting `attach-surface` with `mode:"render"` must require `protocol >= 7`; on protocol 6 it must use the default byte mode or refuse the attachment. A client requiring stable split ids or sending `set-split-ratio` must require protocol 8. A client decoding stack layouts or sending `new-pane` must require protocol 9. A client using `set-client-sizing` must require protocol 10 and include its target surface. A client sending `new-pane-right` or interpreting `Screen.viewport_splits` must require the additive `viewport-splits-v1` capability. A client sending `set-viewport-pane-width` or interpreting `Screen.viewport_base_width` must require `viewport-column-resize-v1`. A client sending `undo-layout` must require `layout-undo-v1`.
+
+There is no transport-level version preamble. Omitting `attach-surface.mode` selects `"bytes"`, and omitting `subscribe.tree_events` selects `"coarse"`; those defaults preserve the exact protocol-v6 attach and tree-event behavior. Unix socket paths, WebSocket upgrade/authentication, request ids, response envelopes, and message framing do not change in protocol 7.
 
 ## Unix Socket
 
@@ -19,7 +25,13 @@ $TMPDIR/cmux-tui-<uid>/<session>.sock
 
 The implementation uses Rust `std::env::temp_dir()` for `$TMPDIR`, appends `cmux-tui-<uid>`, and then appends `<session>.sock`. The TUI exports the resolved path to child surfaces as `CMUX_TUI_SOCKET` and legacy `CMUX_MUX_SOCKET`.
 
-The `cmux-tui` process accepts `--session <name>` to select the default socket name and `--socket <path>` to override the path.
+The `cmux-tui` process accepts `--session <name>` to select the default socket name and `--socket <path>` to override the path. The socket contains no canonical state. Workspace identity/order, mutation results/tombstones, and frontend projections are stored in SQLite under the platform state directory (macOS: `~/Library/Application Support/cmux-tui/sessions`), or under `--state <root>`. An explicit temporary `--socket` derives an isolated `<socket>.state` root unless `--state` is supplied. `--ephemeral` selects an in-memory registry and is mutually exclusive with `--state`.
+
+One process holds an exclusive cross-platform writer lease for each session
+database. SQLite uses WAL, foreign keys, `synchronous=FULL`, and macOS
+`fullfsync`. A second daemon for the same state/session fails startup instead
+of racing. Corruption or an unsupported schema also fails closed; the daemon
+never silently falls back to ephemeral state.
 
 ### Framing And Canonical Envelope
 
@@ -39,14 +51,22 @@ Response envelope:
 
 ```text
 object{id?:any,ok:true,data:any}
-| object{id?:any,ok:false,error:string}
+| object{id?:any,ok:false,error:string,error_code?:string,error_delivery?:"known-not-delivered"|"ambiguous"}
 ```
+
+`error_code` is an additive machine-readable classification for commands that
+define one. Clients must continue to display or log `error` and ignore unknown
+codes.
 
 Decode errors return:
 
 ```text
 object{ok:false,error:"bad request: ..."}
 ```
+
+`clear-history` errors include `error_delivery`. `"known-not-delivered"` proves that neither a
+clear nor fallback input reached the terminal. `"ambiguous"` means terminal delivery may have
+started before the error. Clients must treat a missing or unknown value as `"ambiguous"`.
 
 ### Id Correlation
 
@@ -68,6 +88,34 @@ When binding, the server creates the runtime directory if needed, refuses to clo
 Access to the Unix socket is equivalent to access to the mux session. A client can type into PTYs, read screens, close surfaces, and change focus. Hosts must keep the runtime directory private.
 
 The Unix socket does not use the WebSocket auth preamble. Its filesystem permissions remain the access boundary.
+
+## Relay Stdio
+
+| Field | Value |
+| --- | --- |
+| status | implemented client transport primitive |
+| since | protocol 9 client |
+
+`cmux-tui relay` copies bytes between stdin/stdout and one existing local Unix session socket:
+
+```text
+cmux-tui relay --session main
+cmux-tui relay --socket /absolute/path/to/session.sock
+```
+
+Relay does not start a mux server, render a TUI, authenticate a caller, or interpret command payloads. Its stdout contains only server protocol bytes. When stdin is a terminal because a provider allocated a PTY, relay enables raw terminal mode for its lifetime to prevent echo and newline conversion. Providers should use a pipe when possible. When relay stdin reaches EOF, relay half-closes the Unix socket write side and continues copying server output. The server stops accepting requests on that connection, completes every parsed request, and then closes the response stream. Requests for one surface remain ordered, and an active `clear-history` also blocks later lifecycle commands. Requests for unrelated surfaces may complete first, so clients must correlate responses by request id.
+
+The implemented SSH machine connector starts relay as:
+
+```text
+ssh -T [-p PORT] [-i IDENTITY_FILE] -- [USER@]HOST 'BINARY' relay --session SESSION
+```
+
+SSH supplies authentication, encryption, host verification, and process transport. The connector splits child stdout and stdin into independently owned reader and writer halves. Its JSON-lines adapter removes one line delimiter before giving a complete message to `RemoteSession` and appends one delimiter when sending. EOF cancels pending session requests and closes the child process transport.
+
+Complete-message framing is the session-client boundary. Unix sockets and relay stdio use JSON lines. WebSocket adapters use one text frame per message without adding a newline. A future transport can supply different framing without changing terminal mirroring or the machine rail.
+
+Relay grants the remote SSH principal the authority of the selected local Unix socket. Deployments must restrict SSH admission and the remote socket with the same care as direct socket access.
 
 ## WebSocket
 
@@ -93,27 +141,39 @@ The equivalent config is:
 
 ### Framing
 
-Each client request is one UTF-8 JSON object in one WebSocket text frame. Each response or event is one complete JSON object in one WebSocket text frame. Do not append a newline. Responses and events may be interleaved after `subscribe` or `attach-surface`, exactly as on the Unix socket. The request/response envelopes, command names, event payloads, protocol version, attach ordering, and base64 encoding are unchanged.
+Each client request is one UTF-8 JSON object in one WebSocket text frame. Each response or event is one complete JSON object in one WebSocket text frame. Do not append a newline. Responses and events may be interleaved after `subscribe` or `attach-surface`, exactly as on the Unix socket. For a selected protocol feature, the request/response envelopes, command names, event payloads, attach ordering, and base64 encoding are identical across Unix and WebSocket transports.
+
+WebSocket `permessage-deflate` may be negotiated as optional transport compression. Compression is hop-by-hop WebSocket behavior, not part of the cmux-tui protocol: clients cannot require it for correctness, payload schemas remain JSON text, and intermediaries may enable or disable it independently.
 
 Binary frames are not protocol messages and cause the connection to close. The server accepts a normal WebSocket upgrade on any request path and does not require a WebSocket subprotocol.
 
 This framing exactly matches the TypeScript SDK's `WebSocketTransport`: `send(json)` sends that string as one text frame, and every received text frame is delivered as one complete JSON message.
 
-### Authentication Preamble
+### Authentication and Pairing
 
-Authentication is optional. Set it with `--ws-token <token>` or `server.ws_token`; the command-line flag takes precedence over config:
+Every WebSocket authenticates before protocol commands are dispatched. Interactive clients request pairing as their first frame:
+
+```json
+{"pair":{"request":true}}
+```
+
+The server returns a 60-second six-digit challenge. It sends the same challenge to trusted Unix-socket subscribers as `pairing-requested`. A local or attached TUI approves or denies it. Approval authorizes the waiting socket and returns an eight-hour reconnect credential. The comparison code is not a secret.
+
+Set `--ws-token <token>` or `server.ws_token` to add a non-interactive static-token bypass; the command-line flag takes precedence over config:
 
 ```json
 {"server":{"ws":"127.0.0.1:7681","ws_token":"replace-with-a-secret"}}
 ```
 
-When a token is configured, the first WebSocket frame must be this transport-level preamble:
+Static and server-issued reconnect credentials use this transport-level preamble:
 
 ```json
 {"auth":{"token":"replace-with-a-secret"}}
 ```
 
-The preamble is not a protocol command, has no `id`, and receives no success response. After sending it, the client may immediately send normal protocol requests. A missing, malformed, or incorrect preamble closes the connection with WebSocket policy code `1008` before dispatch. When no token is configured, the first text frame is a normal protocol request.
+The preamble is not a protocol command, has no `id`, and receives no success response. After sending it, the client may immediately send normal protocol requests. A missing, malformed, oversized, or incorrect authentication or pairing frame closes the connection with WebSocket policy code `1008` before dispatch. Pre-authentication frames are capped at 4 KiB, and authenticated protocol frames are capped at 4 MiB.
+
+The listener permits one pending request per source address, five starts per minute per address, 16 pending challenges, 64 total sockets, and 4 MiB frames. Pairing expires after 60 seconds and at most 64 reconnect credentials remain valid in memory.
 
 ### Bind Security
 
@@ -124,7 +184,7 @@ By default the listener accepts only an IP loopback address such as `127.0.0.1` 
 | Field | Value |
 | --- | --- |
 | status | proposed |
-| since | proposed protocol 6 |
+| since | proposed protocol 10 |
 
 HTTP is opt-in. The server binds localhost by default when enabled:
 
@@ -188,16 +248,16 @@ Attach streams use WebSocket:
 GET /api/v1/attach/{surface}
 ```
 
-`{surface}` accepts an implemented numeric id or, when protocol v6 short ids are enabled, a short id. WebSocket messages are text JSON objects using the same `vt-state`, `output`, and `detached` event schemas from `events.md`.
+`{surface}` accepts an implemented numeric id or, when protocol v6 short ids are enabled, a short id. WebSocket messages are text JSON objects using the same `vt-state`, `resized`, `output`, `colors-changed`, and `detached` event schemas from `events.md`.
 
-The attach ordering contract is identical to the socket `attach-surface` command for the negotiated protocol. Protocol v5 sends `vt-state`, then live `output`, then `detached`. Protocol v6 sends `vt-state`, then zero or more `resized` or `output` events, then `detached`; each `resized` event carries a fresh replay and requires the client to replace its mirror before applying later output.
+The attach ordering contract is identical to the socket `attach-surface` command for the negotiated protocol. Protocol v5 sends `vt-state`, then live `output`, then `detached`. Protocol v6 sends `vt-state`, then zero or more `resized`, `output`, or `colors-changed` events, then `detached`; each `resized` event carries a fresh replay and requires the client to replace its mirror before applying later output. The additive `vt-state.colors` object and `colors-changed` event have the same schema on every transport.
 
 ## HTTP Auth
 
 | Field | Value |
 | --- | --- |
 | status | proposed |
-| since | proposed protocol 6 |
+| since | proposed protocol 10 |
 
 When HTTP is enabled securely, the server mints one token per mux session at:
 

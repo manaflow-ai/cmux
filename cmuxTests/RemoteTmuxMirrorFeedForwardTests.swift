@@ -92,6 +92,168 @@ import Testing
         connection.lastWindowSizes[0].map { (cols: $0.0, rows: $0.1) }
     }
 
+    // MARK: fresh-connect wedge (container reading resolution)
+
+    /// With a real window bounding the reading: a sane (within-bound) reading
+    /// banks as-is; an OVERSIZED one is an ancestor's content ideal, says
+    /// nothing about the true slot, and must be DROPPED — banking the bound
+    /// itself overstated the region by the window-to-mirror chrome and the
+    /// live fuzz measured plans running ~40pt wide at rest. Only a first-ever
+    /// reading clamps, so the initial claim still exists.
+    @Test func visibleWindowBanksSaneReadingsAndDropsOversizedOnes() {
+        let bound = CGSize(width: 1200, height: 800)
+        let (mirror, _) = makeMirror(
+            layout: reflow123,
+            geometry: calibratedGeometry,
+            hostingContentSizeSource: { bound }
+        )
+        mirror.isVisibleForSizing = true
+        // Sane reading within the bound: banked verbatim.
+        mirror.noteContainerSize(pointSize: CGSize(width: 1100, height: 700), scale: 2)
+        #expect(mirror.containerSizePt == CGSize(width: 1100, height: 700))
+        // Oversized with a good reading on record: dropped, not clamped, not
+        // stashed — the last good reading stays authoritative.
+        mirror.noteContainerSize(pointSize: CGSize(width: 3000, height: 2000), scale: 2)
+        #expect(mirror.containerSizePt == CGSize(width: 1100, height: 700))
+        #expect(mirror.pendingContainerSizePt == nil)
+        // One oversized axis is as pathological as two.
+        mirror.noteContainerSize(pointSize: CGSize(width: 1100, height: 2000), scale: 2)
+        #expect(mirror.containerSizePt == CGSize(width: 1100, height: 700))
+    }
+
+    /// During an AppKit window resize, SwiftUI can deliver the CORRECT
+    /// post-resize slot reading while the window's transient frame still
+    /// holds the old bound — the reading is truth, the bound is noise.
+    /// Dropping it permanently freezes the mirror at the pre-resize size:
+    /// geometry callbacks only re-fire when the region changes again, and
+    /// the pass-top clamp cannot recover the width because the window bound
+    /// overstates the mirror slot by the sidebar. A reading dropped against
+    /// a torn bound must be re-judged once against the next settled bound
+    /// and banked when it fits.
+    @Test func readingDroppedAgainstATornBoundIsReJudgedAtTheSettledBound() {
+        var hostingBound: CGSize? = CGSize(width: 1789, height: 875)
+        let (mirror, connection) = makeMirror(
+            layout: reflow123,
+            geometry: calibratedGeometry,
+            hostingContentSizeSource: { hostingBound }
+        )
+        mirror.isVisibleForSizing = true
+        // A good reading on record, banked against a settled window.
+        mirror.noteContainerSize(pointSize: CGSize(width: 1549, height: 819), scale: 2)
+        #expect(mirror.containerSizePt == CGSize(width: 1549, height: 819))
+        // Mid-resize tear: the slot already reads its post-resize size while
+        // the window still reports a transient smaller frame. Oversized on
+        // both axes against that torn bound, so today this reading is lost.
+        hostingBound = CGSize(width: 1250, height: 583)
+        mirror.noteContainerSize(pointSize: CGSize(width: 1334, height: 593), scale: 2)
+        // The window settles larger than the reading; the next pass is the
+        // only re-judgment edge — no further geometry callback is coming.
+        hostingBound = CGSize(width: 1574, height: 617)
+        mirror.performSizingPassNow()
+        #expect(mirror.containerSizePt == CGSize(width: 1334, height: 593))
+        // (1334 − 3 × (pad 4 + slack 1) − 2 × (divider 1 − cell 8)) / 8 → 166.
+        #expect(pushed(connection)?.cols == 166)
+    }
+
+    /// The asymmetry the drop guard exists for, pinned so the re-judgment
+    /// cannot decay into a clamp: a content-ideal reading that still exceeds
+    /// the settled bound carries no truth about the slot and stays dropped —
+    /// banking it (or the bound) would resurrect the ~40pt-wide-at-rest
+    /// plans the drop path was built to prevent.
+    @Test func parkedReadingStillOversizedAtTheSettledBoundStaysDropped() {
+        let bound = CGSize(width: 1728, height: 663)
+        let (mirror, _) = makeMirror(
+            layout: reflow123,
+            geometry: calibratedGeometry,
+            hostingContentSizeSource: { bound }
+        )
+        mirror.isVisibleForSizing = true
+        mirror.noteContainerSize(pointSize: CGSize(width: 1549, height: 639), scale: 2)
+        #expect(mirror.containerSizePt == CGSize(width: 1549, height: 639))
+        // An ancestor's content ideal, far beyond any real window.
+        mirror.noteContainerSize(pointSize: CGSize(width: 6133, height: 639), scale: 2)
+        mirror.performSizingPassNow()
+        #expect(mirror.containerSizePt == CGSize(width: 1549, height: 639))
+    }
+
+    /// A HIDDEN-tab reading is parked into `pendingContainerSizePt` and
+    /// consumed on the next visible pass — but it must be REJECTED, not
+    /// clamped, when it exceeds the settled bound. An inflated portal-limbo
+    /// reading taken while the tab was unselected carries no truth about the
+    /// slot; clamping it to the bound (which overstates the slot by the
+    /// window-to-mirror chrome) would overwrite a correct container with a
+    /// too-wide one, exactly the reject rule the sibling oversized consumer
+    /// already applies.
+    @Test func parkedHiddenReadingOverTheBoundIsRejectedNotClamped() {
+        let bound = CGSize(width: 1200, height: 800)
+        let (mirror, _) = makeMirror(
+            layout: reflow123,
+            geometry: calibratedGeometry,
+            hostingContentSizeSource: { bound }
+        )
+        // A correct container banked while visible.
+        mirror.isVisibleForSizing = true
+        mirror.noteContainerSize(pointSize: CGSize(width: 800, height: 620), scale: 2)
+        #expect(mirror.containerSizePt == CGSize(width: 800, height: 620))
+        // Tab hidden: an inflated portal-limbo reading is PARKED, never banked.
+        mirror.isVisibleForSizing = false
+        mirror.noteContainerSize(pointSize: CGSize(width: 3000, height: 620), scale: 2)
+        #expect(mirror.pendingContainerSizePt == CGSize(width: 3000, height: 620))
+        // Revealed: the parked reading exceeds the settled bound, so it is
+        // dropped and the last good container survives — NOT clamped to the
+        // bound (which would bank 1200 and overstate the slot).
+        mirror.isVisibleForSizing = true
+        mirror.performSizingPassNow()
+        #expect(mirror.containerSizePt == CGSize(width: 800, height: 620))
+        #expect(mirror.pendingContainerSizePt == nil)
+    }
+
+    /// An oversized FIRST reading clamps to the bound so the initial claim
+    /// can still be made — only later readings have a good value to keep.
+    @Test func oversizedFirstReadingClampsToTheWindowBound() {
+        let bound = CGSize(width: 1200, height: 800)
+        let (mirror, _) = makeMirror(
+            layout: reflow123,
+            geometry: calibratedGeometry,
+            hostingContentSizeSource: { bound }
+        )
+        mirror.isVisibleForSizing = true
+        mirror.noteContainerSize(pointSize: CGSize(width: 3000, height: 2000), scale: 2)
+        #expect(mirror.containerSizePt == bound)
+    }
+
+    /// A degenerate reading (portal mount/teardown 0x0 or 1x1) is never
+    /// sizing truth and must not consume the first-measurement slot.
+    @Test func degenerateFirstReadingIsSkipped() {
+        let (mirror, _) = makeMirror(
+            layout: reflow123,
+            geometry: calibratedGeometry,
+            hostingContentSizeSource: { nil }
+        )
+        mirror.noteContainerSize(pointSize: CGSize(width: 1, height: 1), scale: 2)
+        #expect(mirror.containerSizePt == nil)
+    }
+
+    // MARK: grid parity
+
+    /// A pane rendering MORE cells than tmux assigned it is a mismatch just
+    /// as a short pane is: the surplus rows/columns hold content tmux never
+    /// repaints. The parity check must flag either direction (`!=`, not a
+    /// one-sided `<`) so the recovery pass re-applies the pin and clamps the
+    /// over-render back down.
+    @Test func gridParityFlagsAnOverRenderedPane() {
+        let (mirror, _) = makeMirror(layout: reflow123, geometry: calibratedGeometry)
+        // Pane 1's tmux assignment is 41×35; the surface rendered 43 columns.
+        mirror.lastRenderedGrids[1] = (cols: 43, rows: 35)
+        #expect(mirror.gridParityMismatch() != nil)
+        // At exactly the assignment there is no mismatch.
+        mirror.lastRenderedGrids[1] = (cols: 41, rows: 35)
+        #expect(mirror.gridParityMismatch() == nil)
+        // A short pane is still a mismatch.
+        mirror.lastRenderedGrids[1] = (cols: 39, rows: 35)
+        #expect(mirror.gridParityMismatch() != nil)
+    }
+
     // MARK: structure signature
 
     @Test func signatureIgnoresGeometry() {
@@ -173,9 +335,11 @@ import Testing
         // Both present: ready, and it lands per-window.
         mirror.noteContainerSize(pointSize: CGSize(width: 800, height: 620), scale: 2)
         #expect(mirror.updateClientSize())
-        // Claims remove only real chrome; rail-rounding slack belongs to the
-        // native plan: (800 − 3 × pad 4 − 2 × (divider 1 − cell 8)) / 8 → 100.
-        #expect(pushed(connection)?.cols == 100)
+        // Claims charge real chrome AND one rail-slack point per pane —
+        // whole-point rails cannot always place a slack-free claim's cells
+        // (the tight-container fuzz measures the dropped cell):
+        // (800 − 3 × (pad 4 + slack 1) − 2 × (divider 1 − cell 8)) / 8 → 99.
+        #expect(pushed(connection)?.cols == 99)
         #expect(pushed(connection)?.rows == 34) // 620pt − the native 30pt pane tab bar
         #expect(connection.lastWindowSizes[0] != nil)
         // A pass already queued on the main actor must not resurrect the
@@ -275,7 +439,7 @@ import Testing
         let (mirror, connection) = readyMirror(layout: reflow123)
         mirror.reconcile(layout: reflow122)
         let claim = pushed(connection)
-        #expect(claim?.cols == 100)
+        #expect(claim?.cols == 99)
         mirror.reconcile(layout: reflow123)
         mirror.reconcile(layout: reflow122)
         #expect(pushed(connection)?.cols == claim?.cols)
@@ -364,7 +528,7 @@ import Testing
         #expect(Self.imposedExtents(of: mirror.bonsplitController.treeSnapshot()).isEmpty)
         #expect(mirror.updateClientSize())
         // The claim reflects the frozen 800pt container, not limbo bounds.
-        #expect(pushed(connection)?.cols == 100)
+        #expect(pushed(connection)?.cols == 99)
         #expect(connection.lastWindowSizes.count == 1)
     }
 
@@ -481,6 +645,580 @@ import Testing
         ))
         #expect(mirror.zoomed == false)
         #expect(mirror.visibleLayout == nil)
+    }
+
+    // MARK: render ownership: divider drag sessions
+
+    /// Mid-drag the user owns divider geometry: a sizing pass firing while a
+    /// drag session is live must hold — not claim, not impose — and the
+    /// session end (the deterministic mouseUp signal, delivered through the
+    /// controller delegate) must re-arm the pass.
+    @Test func sizingPassDefersMidDragAndSessionEndReschedules() {
+        let (mirror, connection) = readyMirror(layout: reflow123)
+        mirror.isVisibleForSizing = true
+        mirror.performSizingPassNow()
+        #expect(pushed(connection) != nil)
+
+        mirror.bonsplitController.noteDividerDragSession(true)
+        #expect(mirror.bonsplitController.isDividerDragActive)
+        mirror.setNeedsSizingPassIgnoringInputs() // views no longer hold the plan
+        mirror.performSizingPassNow()
+        #expect(!mirror.sizingPassScheduled, "a held pass must not re-arm itself mid-drag")
+        #expect(
+            mirror.lastCompletedSizingInputs == nil,
+            "a pass firing mid-drag must hold, not complete"
+        )
+
+        mirror.bonsplitController.noteDividerDragSession(false)
+        #expect(!mirror.bonsplitController.isDividerDragActive)
+        #expect(mirror.sizingPassScheduled, "session end must reschedule the held pass")
+    }
+
+    /// A drag ending while a remote layout apply is in flight cannot run the
+    /// divider sync mid-apply, but it must still schedule a sizing pass so a
+    /// pass held mid-drag reruns once the apply completes.
+    @Test func dragEndDuringRemoteApplySchedulesAPass() {
+        let (mirror, _) = readyMirror(layout: reflow123)
+        mirror.isVisibleForSizing = true
+        mirror.performSizingPassNow()
+        mirror.bonsplitController.noteDividerDragSession(true)
+        mirror.setNeedsSizingPassIgnoringInputs()
+        mirror.performSizingPassNow()
+        #expect(!mirror.sizingPassScheduled, "a held pass must not re-arm itself mid-drag")
+
+        mirror.isApplyingRemoteLayout = true
+        mirror.splitTabBarDividerDragDidEnd(mirror.bonsplitController)
+        mirror.isApplyingRemoteLayout = false
+        #expect(
+            mirror.sizingPassScheduled,
+            "drag end during a remote apply must schedule the pass held for the drag"
+        )
+        mirror.bonsplitController.noteDividerDragSession(false)
+    }
+
+    /// A drag ending during a remote apply must still land the user's final
+    /// divider position at tmux. Skipping the send outright (only scheduling a
+    /// pass) loses the move: it never reaches tmux and the next sizing pass
+    /// re-imposes the pre-drag layout. The send is deferred one runloop turn,
+    /// after the apply's synchronous scope clears the flag, and then fires.
+    @Test func dragEndDuringRemoteApplyStillSendsTheFinalPosition() throws {
+        let two = node(.horizontal([
+            node(.pane(1), w: 61, h: 34, x: 0, y: 0),
+            node(.pane(2), w: 61, h: 34, x: 62, y: 0),
+        ]), w: 123, h: 34, x: 0, y: 0)
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "drag-defer-\(UUID().uuidString)@host"),
+            sessionName: "work"
+        )
+        let pipe = Pipe()
+        let writer = RemoteTmuxControlPipeWriter(
+            handle: pipe.fileHandleForWriting,
+            label: "remote-tmux-drag-defer-test",
+            maxPendingBytes: 1 << 16,
+            onFailure: {}
+        )
+        defer { writer.close(); try? pipe.fileHandleForReading.close() }
+        connection.installStdinWriterForTesting(writer)
+        connection.handleMessageForTesting(.enter)
+        let geometry = calibratedGeometry
+        let mirror = RemoteTmuxWindowMirror(
+            windowId: 0,
+            panelId: UUID(),
+            connection: connection,
+            layout: two,
+            geometrySource: { geometry },
+            hostingContentSizeSource: { CGSize(width: 800, height: 620) },
+            makePanel: { _ in nil }
+        )
+        mirror.isVisibleForSizing = true
+        mirror.containerSizePt = CGSize(width: 800, height: 620)
+        mirror.containerScale = 2
+        mirror.reconcile(layout: two)
+        mirror.performSizingPassNow()
+        guard case .split(let split) = mirror.bonsplitController.treeSnapshot(),
+              let splitId = UUID(uuidString: split.id) else {
+            Issue.record("the reconciled tree holds no split")
+            return
+        }
+        // Rebaseline the drag detector off the imposed state (no live views
+        // ever mirror the fraction back headlessly).
+        _ = mirror.syncChangedDividerPositions()
+
+        // The user drags to a feasible position, then releases WHILE a remote
+        // apply is in flight.
+        mirror.bonsplitController.noteDividerDragSession(true)
+        mirror.bonsplitController.setDividerPosition(0.3, forSplit: splitId)
+        let pendingBefore = connection.pendingCommandKindsForTesting.count
+        mirror.isApplyingRemoteLayout = true
+        mirror.splitTabBarDividerDragDidEnd(mirror.bonsplitController)
+        #expect(
+            connection.pendingCommandKindsForTesting.count == pendingBefore,
+            "the send must not run mid-apply"
+        )
+        mirror.isApplyingRemoteLayout = false
+        mirror.bonsplitController.noteDividerDragSession(false)
+
+        // The deferred flush runs on the next runloop turn and sends the move.
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        #expect(
+            connection.pendingCommandKindsForTesting.count == pendingBefore + 1,
+            "the deferred drag-end must send the user's final divider position"
+        )
+    }
+
+    // MARK: assigned-grid pin lag (marathon residual)
+
+    /// The input-only settle proof cannot see a pin that fell behind: when
+    /// tmux grows a pane's assignment between our claim and settle and the pin
+    /// applied against stale cell metrics, the surface renders one row short
+    /// and wraps while the sizing inputs read unchanged. The output-parity
+    /// re-arm treats a rendered grid behind its assignment as a miss — but
+    /// ONLY for a mirror whose panes are actually on screen. A grid lag on an
+    /// offscreen mirror (a hidden tab whose views were dismantled, leaving
+    /// isVisibleForSizing stale-true) must NOT spin recovery passes against
+    /// grids nothing renders: the re-arm is gated on effective visibility.
+    @Test func gridLagFlagsAShortRenderButAnOffscreenMirrorDoesNotRearm() {
+        let (mirror, _) = readyMirror(layout: reflow123)
+        mirror.isVisibleForSizing = true
+        mirror.performSizingPassNow()
+        #expect(!mirror.sizingPassScheduled)
+        #expect(mirror.gridParityMismatch() == nil, "no samples yet is not a lag")
+
+        // tmux assigned pane 1 41×35; the surface still renders one row short.
+        mirror.lastRenderedGrids = [1: (41, 34), 2: (40, 35), 3: (40, 35)]
+        #expect(mirror.gridParityMismatch() != nil, "a short render is a grid lag")
+
+        // This headless mirror has no on-screen panes, so it is not
+        // effectively visible; the lag must not re-arm the pass.
+        #expect(!mirror.isEffectivelyVisibleForSizing)
+        mirror.rearmIfOutputMissedPlan()
+        #expect(
+            !mirror.sizingPassScheduled,
+            "a lag on a mirror with no on-screen views must not re-arm"
+        )
+    }
+
+    /// The mirror is settled once every renderable pane renders exactly its
+    /// assigned grid — a grid at or beyond the assignment is not a lag (the
+    /// pin clips a surplus; only a short render wraps).
+    @Test func gridParityIgnoresPanesThatRenderTheirAssignment() {
+        let (mirror, _) = readyMirror(layout: reflow123)
+        mirror.isVisibleForSizing = true
+        mirror.lastRenderedGrids = [1: (41, 35), 2: (40, 35), 3: (40, 35)]
+        #expect(mirror.gridParityMismatch() == nil)
+    }
+
+    // MARK: drag → tmux cell conversion: grid feasibility
+
+    /// A divider drag converts to a resize-pane span in cells, and tmux can
+    /// only move the boundary within what the split's two subtrees hold: the
+    /// gap between them (separator column, or the title rows that replace
+    /// it) is fixed, so the first subtree caps at the combined span minus
+    /// the least the second can shrink to, and floors at its own minimum.
+    @Test func feasibleFirstSpanClampsToWhatTmuxCanAssign() throws {
+        let metrics = RemoteTmuxNativeLayoutMetrics(
+            cellSize: CGSize(width: 8, height: 17),
+            surfacePadding: CGSize(width: 4, height: 0),
+            tabBarHeight: 30,
+            dividerThickness: 1
+        )
+        func splitHalves(
+            _ layout: RemoteTmuxLayoutNode
+        ) throws -> (first: RemoteTmuxNativeMeasuredSplitTree, second: RemoteTmuxNativeMeasuredSplitTree, orientation: RemoteTmuxSplitOrientation) {
+            let measured = RemoteTmuxNativeMeasuredSplitTree(
+                tree: RemoteTmuxNativeSplitTree(layout: layout),
+                metrics: metrics
+            )
+            guard case .split(_, _, _, let orientation, let first, let second) = measured else {
+                throw TestSetupError.notASplit
+            }
+            return (first, second, orientation)
+        }
+
+        // Sibling pane already at the one-cell minimum: the cap is the
+        // assigned span itself, so an over-drag clamps back to "no change".
+        let starved = try splitHalves(node(.horizontal([
+            node(.pane(1), w: 97, h: 34, x: 0, y: 0),
+            node(.pane(2), w: 1, h: 34, x: 98, y: 0),
+        ]), w: 99, h: 34, x: 0, y: 0))
+        #expect(RemoteTmuxNativeMeasuredSplitTree.clampToFeasibleFirstSpan(
+            98, first: starved.first, second: starved.second, orientation: starved.orientation
+        ) == 97)
+        #expect(RemoteTmuxNativeMeasuredSplitTree.clampToFeasibleFirstSpan(
+            45, first: starved.first, second: starved.second, orientation: starved.orientation
+        ) == 45)
+        #expect(RemoteTmuxNativeMeasuredSplitTree.clampToFeasibleFirstSpan(
+            0, first: starved.first, second: starved.second, orientation: starved.orientation
+        ) == 1)
+
+        // Nested same-axis sibling: its minimum is one cell per pane plus
+        // the separator column the current assignment holds between them.
+        let fanned = try splitHalves(node(.horizontal([
+            node(.pane(1), w: 40, h: 34, x: 0, y: 0),
+            node(.pane(2), w: 30, h: 34, x: 41, y: 0),
+            node(.pane(3), w: 28, h: 34, x: 72, y: 0),
+        ]), w: 100, h: 34, x: 0, y: 0))
+        // Combined 40 + 59, second's minimum 1 + 1 + 1 separator = 3.
+        #expect(RemoteTmuxNativeMeasuredSplitTree.clampToFeasibleFirstSpan(
+            1_000, first: fanned.first, second: fanned.second, orientation: fanned.orientation
+        ) == 96)
+
+        // Cross-axis sibling: along this axis its panes overlay, so its
+        // minimum is the max of theirs — one cell.
+        let crossed = try splitHalves(node(.horizontal([
+            node(.pane(1), w: 50, h: 34, x: 0, y: 0),
+            node(.vertical([
+                node(.pane(2), w: 49, h: 20, x: 51, y: 0),
+                node(.pane(3), w: 49, h: 13, x: 51, y: 21),
+            ]), w: 49, h: 34, x: 51, y: 0),
+        ]), w: 100, h: 34, x: 0, y: 0))
+        #expect(RemoteTmuxNativeMeasuredSplitTree.clampToFeasibleFirstSpan(
+            200, first: crossed.first, second: crossed.second, orientation: crossed.orientation
+        ) == 98)
+
+        // Titled stack: adjacent spans, no separator rows — the gap read off
+        // the assignment is zero and the cap is combined minus one.
+        let titled = try splitHalves(node(.vertical([
+            node(.pane(1), w: 80, h: 9, x: 0, y: 0),
+            node(.pane(2), w: 80, h: 9, x: 0, y: 9),
+        ]), w: 80, h: 18, x: 0, y: 0))
+        #expect(RemoteTmuxNativeMeasuredSplitTree.clampToFeasibleFirstSpan(
+            25, first: titled.first, second: titled.second, orientation: titled.orientation
+        ) == 17)
+    }
+
+    private enum TestSetupError: Error { case notASplit }
+
+    /// Desk repro of the parked-divider stall: the sibling pane already sits
+    /// at tmux's one-cell minimum, and the user drags further out anyway.
+    /// Un-clamped, the walk converts the drag to more cells than tmux can
+    /// assign and sends a resize-pane that changes no layout — no layout
+    /// reply ever comes, drag-end trusts the reply to settle the divider,
+    /// and the split parks off-grid while later passes early-return on
+    /// unchanged inputs. Clamped, the request rounds back to the assigned
+    /// span: nothing is sent and drag-end re-imposes the plan locally.
+    @Test func dragBeyondTheFeasibleGridSendsNothingAndReimposesAtDragEnd() throws {
+        let starved = node(.horizontal([
+            node(.pane(1), w: 97, h: 34, x: 0, y: 0),
+            node(.pane(2), w: 1, h: 34, x: 98, y: 0),
+        ]), w: 99, h: 34, x: 0, y: 0)
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "drag-clamp-\(UUID().uuidString)@host"),
+            sessionName: "work"
+        )
+        let pipe = Pipe()
+        let writer = RemoteTmuxControlPipeWriter(
+            handle: pipe.fileHandleForWriting,
+            label: "remote-tmux-drag-clamp-test",
+            maxPendingBytes: 1 << 16,
+            onFailure: {}
+        )
+        defer { writer.close(); try? pipe.fileHandleForReading.close() }
+        connection.installStdinWriterForTesting(writer)
+        connection.handleMessageForTesting(.enter)
+        let geometry = calibratedGeometry
+        let mirror = RemoteTmuxWindowMirror(
+            windowId: 0,
+            panelId: UUID(),
+            connection: connection,
+            layout: starved,
+            geometrySource: { geometry },
+            hostingContentSizeSource: { CGSize(width: 800, height: 620) },
+            makePanel: { _ in nil }
+        )
+        mirror.isVisibleForSizing = true
+        mirror.containerSizePt = CGSize(width: 800, height: 620)
+        mirror.containerScale = 2
+        mirror.reconcile(layout: starved)
+        mirror.performSizingPassNow()
+        let snapshot = mirror.bonsplitController.treeSnapshot()
+        guard case .split(let split) = snapshot, let splitId = UUID(uuidString: split.id) else {
+            Issue.record("the reconciled tree holds no split")
+            return
+        }
+        #expect(split.imposedFirstExtent != nil, "the sizing pass must impose the plan")
+        // Rebaseline the drag detector from the imposed state: with no live
+        // views, no geometry callback ever mirrors the applied fraction back,
+        // and an unseeded baseline would route the first drag event to the
+        // seed path instead of the conversion under test.
+        _ = mirror.syncChangedDividerPositions()
+
+        // Drag past the grid's edge: the session clears the imposition and
+        // parks the fraction where tmux has nothing left to assign.
+        mirror.bonsplitController.noteDividerDragSession(true)
+        mirror.bonsplitController.setDividerPosition(0.995, forSplit: splitId)
+        let pendingBefore = connection.pendingCommandKindsForTesting.count
+        #expect(
+            mirror.syncChangedDividerPositions() == false,
+            "an infeasible drag must not count as sent"
+        )
+        #expect(
+            connection.pendingCommandKindsForTesting.count == pendingBefore,
+            "no resize-pane may go to tmux for a span it cannot assign"
+        )
+        mirror.bonsplitController.noteDividerDragSession(false)
+        mirror.performSizingPassNow()
+        let reimposed = Self.imposedExtents(of: mirror.bonsplitController.treeSnapshot())
+        #expect(
+            reimposed[split.id] != nil,
+            "drag end must re-impose locally when no tmux reply is coming"
+        )
+        // Rebaseline again: the re-imposition renewed divider ownership and
+        // cleared the baseline pending a post-layout callback that headless
+        // tests never get.
+        _ = mirror.syncChangedDividerPositions()
+
+        // Control: a feasible drag on the same split really sends — the
+        // clamp trims only what tmux cannot assign.
+        mirror.bonsplitController.noteDividerDragSession(true)
+        mirror.bonsplitController.setDividerPosition(0.3, forSplit: splitId)
+        #expect(mirror.syncChangedDividerPositions(), "a feasible drag must send")
+        #expect(connection.pendingCommandKindsForTesting.count == pendingBefore + 1)
+        mirror.bonsplitController.noteDividerDragSession(false)
+    }
+
+    /// The first drag after a non-continuing imposition must still reach
+    /// tmux. Imposing a changed extent parks the split's baseline at nil,
+    /// waiting for a post-layout geometry callback to record the clamped
+    /// outcome — but that callback can never arrive: the deferred apply runs
+    /// under the programmatic-sync guard (didResize returns before
+    /// onGeometryChange fires), and once the user grabs the divider the drag
+    /// guard eats every mid-drag callback. Drag end then found no baseline,
+    /// seeded it from the post-drag fraction, sent nothing (sent=0 in five
+    /// of six live drags), and re-imposed the pre-drag extent — the divider
+    /// snapped back in the user's hand. Drag begin is the correct seeding
+    /// edge: by then the deferred apply HAS landed, so the model fraction is
+    /// exactly the outcome the nil was waiting for.
+    @Test func firstDragAfterANonContinuingImpositionStillSendsResizePane() throws {
+        let starved = node(.horizontal([
+            node(.pane(1), w: 97, h: 34, x: 0, y: 0),
+            node(.pane(2), w: 1, h: 34, x: 98, y: 0),
+        ]), w: 99, h: 34, x: 0, y: 0)
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "drag-baseline-\(UUID().uuidString)@host"),
+            sessionName: "work"
+        )
+        let pipe = Pipe()
+        let writer = RemoteTmuxControlPipeWriter(
+            handle: pipe.fileHandleForWriting,
+            label: "remote-tmux-drag-baseline-test",
+            maxPendingBytes: 1 << 16,
+            onFailure: {}
+        )
+        defer { writer.close(); try? pipe.fileHandleForReading.close() }
+        connection.installStdinWriterForTesting(writer)
+        connection.handleMessageForTesting(.enter)
+        let geometry = calibratedGeometry
+        let mirror = RemoteTmuxWindowMirror(
+            windowId: 0,
+            panelId: UUID(),
+            connection: connection,
+            layout: starved,
+            geometrySource: { geometry },
+            hostingContentSizeSource: { CGSize(width: 800, height: 620) },
+            makePanel: { _ in nil }
+        )
+        mirror.isVisibleForSizing = true
+        mirror.containerSizePt = CGSize(width: 800, height: 620)
+        mirror.containerScale = 2
+        mirror.reconcile(layout: starved)
+        mirror.performSizingPassNow()
+        guard case .split(let split) = mirror.bonsplitController.treeSnapshot(),
+              let splitId = UUID(uuidString: split.id) else {
+            Issue.record("the reconciled tree holds no split")
+            return
+        }
+        let imposedBeforeDrag = try #require(
+            split.imposedFirstExtent, "the sizing pass must impose the plan"
+        )
+        // The live pre-drag state this pins: the imposition parked the
+        // baseline at nil and no geometry callback ever reseeded it.
+        try #require(
+            mirror.lastDividerPositions[splitId] == nil,
+            "precondition: the non-continuing imposition must park the baseline at nil"
+        )
+
+        // The user's drag, delivered through the same hooks bonsplit drives
+        // live: session begin, one committed feasible fraction several cells
+        // away (setDividerPosition clears the imposition exactly like a live
+        // grab), session end.
+        let pendingBefore = connection.pendingCommandKindsForTesting.count
+        mirror.bonsplitController.noteDividerDragSession(true)
+        _ = mirror.bonsplitController.setDividerPosition(0.3, forSplit: splitId)
+        mirror.bonsplitController.noteDividerDragSession(false)
+
+        #expect(
+            connection.pendingCommandKindsForTesting.count == pendingBefore + 1,
+            "a multi-cell drag must produce exactly one resize-pane request, not be swallowed by a missing baseline"
+        )
+        // The sent branch defers to tmux's layout reply: no local re-impose
+        // of the pre-drag extent may fire from unchanged inputs.
+        mirror.performSizingPassNow()
+        let reimposed = Self.imposedExtents(
+            of: mirror.bonsplitController.treeSnapshot()
+        )[split.id]
+        #expect(
+            reimposed != Double(imposedBeforeDrag),
+            "drag end re-imposed the pre-drag extent (\(imposedBeforeDrag)pt) — the snap-back"
+        )
+    }
+
+    /// A parked oversized reading is the ONE chance to bank a mid-resize
+    /// truth (no later callback re-delivers it). A pass that runs during
+    /// portal darkness — every hosted view briefly detached or hidden, no
+    /// bound anywhere — can judge nothing, so it must leave the reading
+    /// parked for the next bounded pass. Consuming it there lost the
+    /// re-judgment and the frozen-claim class returned.
+    @Test func parkedOversizedReadingSurvivesABoundlessPass() throws {
+        let layout = node(.horizontal([
+            node(.pane(1), w: 48, h: 35, x: 0, y: 0),
+            node(.pane(2), w: 49, h: 35, x: 49, y: 0),
+        ]), w: 98, h: 35, x: 0, y: 0)
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "parked-\(UUID().uuidString)@host"),
+            sessionName: "work"
+        )
+        final class BoundBox { var size: CGSize? = CGSize(width: 800, height: 620) }
+        let box = BoundBox()
+        let geometry = calibratedGeometry
+        let mirror = RemoteTmuxWindowMirror(
+            windowId: 0,
+            panelId: UUID(),
+            connection: connection,
+            layout: layout,
+            geometrySource: { geometry },
+            hostingContentSizeSource: { box.size },
+            makePanel: { _ in nil }
+        )
+        mirror.isVisibleForSizing = true
+        mirror.containerSizePt = CGSize(width: 800, height: 620)
+        mirror.containerScale = 2
+        mirror.reconcile(layout: layout)
+        mirror.performSizingPassNow()
+
+        // Park: an oversized proposal against the live 800pt bound.
+        mirror.noteContainerSize(pointSize: CGSize(width: 1200, height: 900), scale: 2)
+        try #require(
+            mirror.pendingOversizedReading != nil,
+            "precondition: the oversized proposal must park, not bank"
+        )
+
+        // Darkness: no bound anywhere, a pass runs.
+        box.size = nil
+        mirror.performSizingPassNow()
+        #expect(
+            mirror.pendingOversizedReading != nil,
+            "a bound-less pass judges nothing — it must keep the reading parked"
+        )
+
+        // Reveal with a bound the reading fits: the parked truth banks.
+        box.size = CGSize(width: 1300, height: 950)
+        mirror.performSizingPassNow()
+        #expect(
+            mirror.containerSizePt == CGSize(width: 1200, height: 900),
+            "the parked reading must bank at the first bounded pass after the reveal, got \(String(describing: mirror.containerSizePt))"
+        )
+        withExtendedLifetime(connection) {}
+    }
+
+    /// The drag path must apply the same resize-pane routing rule the
+    /// control path already tests: tmux resizes the TARGET pane's nearest
+    /// split along the axis, so the pane addressed for a split's first
+    /// subtree must not sit behind an inner same-axis split. In this nested
+    /// shape — a root horizontal whose first child holds an inner
+    /// horizontal [11,22] above 33, with 44 as the second child — dragging
+    /// the ROOT divider must address %33 (the only first-subtree pane whose
+    /// nearest horizontal split IS the root). Addressing
+    /// first.paneIDsInOrder.first (%11) makes tmux resize the inner split
+    /// instead, or no-op entirely.
+    @Test func rootDividerDragInNestedSameAxisShapeTargetsTheRoutablePane() throws {
+        let layout = node(.vertical([
+            node(.horizontal([
+                node(.vertical([
+                    node(.pane(11), w: 30, h: 17, x: 0, y: 0),
+                    node(.pane(22), w: 30, h: 17, x: 0, y: 18),
+                ]), w: 30, h: 35, x: 0, y: 0),
+                node(.pane(33), w: 30, h: 35, x: 31, y: 0),
+            ]), w: 61, h: 35, x: 0, y: 0),
+            node(.pane(44), w: 61, h: 35, x: 0, y: 36),
+        ]), w: 61, h: 71, x: 0, y: 0)
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "drag-routing-\(UUID().uuidString)@host"),
+            sessionName: "work"
+        )
+        let pipe = Pipe()
+        let writer = RemoteTmuxControlPipeWriter(
+            handle: pipe.fileHandleForWriting,
+            label: "remote-tmux-drag-routing-test",
+            maxPendingBytes: 1 << 16,
+            onFailure: {}
+        )
+        defer { try? pipe.fileHandleForReading.close() }
+        connection.installStdinWriterForTesting(writer)
+        connection.handleMessageForTesting(.enter)
+        let geometry = calibratedGeometry
+        let mirror = RemoteTmuxWindowMirror(
+            windowId: 0,
+            panelId: UUID(),
+            connection: connection,
+            layout: layout,
+            geometrySource: { geometry },
+            hostingContentSizeSource: { CGSize(width: 800, height: 1400) },
+            makePanel: { _ in nil }
+        )
+        mirror.isVisibleForSizing = true
+        mirror.containerSizePt = CGSize(width: 800, height: 1400)
+        mirror.containerScale = 2
+        mirror.reconcile(layout: layout)
+        mirror.performSizingPassNow()
+        guard case .split(let root) = mirror.bonsplitController.treeSnapshot(),
+              let rootId = UUID(uuidString: root.id) else {
+            Issue.record("the reconciled tree holds no root split")
+            return
+        }
+        // Dragging the root (vertical axis) addresses its FIRST subtree.
+        // Inside it, %11 and %22 sit behind the inner vertical split — their
+        // nearest vertical split is the inner one, so tmux would resize that
+        // instead. %33 is the routable pane: its nearest vertical split is
+        // the root itself.
+        mirror.bonsplitController.noteDividerDragSession(true)
+        _ = mirror.bonsplitController.setDividerPosition(0.75, forSplit: rootId)
+        mirror.bonsplitController.noteDividerDragSession(false)
+
+        writer.close()
+        let sentText = String(
+            bytes: (try? pipe.fileHandleForReading.readToEnd()) ?? Data(),
+            encoding: .utf8
+        ) ?? ""
+        let resizeCommands = sentText
+            .split(separator: "\n")
+            .map(String.init)
+            .filter { $0.contains("resize-pane") }
+        #expect(
+            resizeCommands.count == 1,
+            "the drag must produce exactly one resize-pane, got: \(resizeCommands)"
+        )
+        #expect(
+            resizeCommands.first?.contains("%33") == true,
+            "the root drag must address the pane whose nearest same-axis split IS the root (%33), not a pane behind the inner same-axis split (%11): \(resizeCommands)"
+        )
+        withExtendedLifetime(connection) {}
+    }
+
+    /// The session counter is authoritative and survives imbalance: an
+    /// unmatched end clamps at zero instead of going negative, so the next
+    /// begin still reads as an active drag.
+    @Test func dividerDragSessionCounterClampsAtZero() {
+        let controller = BonsplitController()
+        #expect(!controller.isDividerDragActive)
+        controller.noteDividerDragSession(true)
+        #expect(controller.isDividerDragActive)
+        controller.noteDividerDragSession(false)
+        controller.noteDividerDragSession(false) // unmatched end
+        #expect(!controller.isDividerDragActive)
+        controller.noteDividerDragSession(true)
+        #expect(controller.isDividerDragActive, "a clamped counter must not absorb the next begin")
+        controller.noteDividerDragSession(false)
     }
 
 }

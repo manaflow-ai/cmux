@@ -24,6 +24,15 @@ export const DEV_URL_SCHEME = "cmux-ios-dev";
 /** The pairing/attach URL scheme Release (beta + prod) builds emit. */
 export const RELEASE_URL_SCHEME = "cmux-ios";
 
+function isCanonicalAttachURL(value) {
+  if (typeof value !== "string") {
+    return false;
+  }
+  return [DEV_URL_SCHEME, RELEASE_URL_SCHEME].some(
+    (candidate) => value.startsWith(`${candidate}://attach?`),
+  );
+}
+
 /**
  * Filter a ticket's routes by id and/or kind. Returns the matching subset.
  *
@@ -85,8 +94,7 @@ export function buildAttachURL(payload, filter = {}) {
   // unfiltered payload locally, the canonical URL may point at a different
   // route set, so fall through to the lossless v1 reconstruction.
   if (
-    typeof payload.attach_url === "string" &&
-    payload.attach_url.startsWith("cmux-ios://attach?") &&
+    isCanonicalAttachURL(payload.attach_url) &&
     routes.length === payload.ticket.routes.length
   ) {
     result.attach_url = payload.attach_url;

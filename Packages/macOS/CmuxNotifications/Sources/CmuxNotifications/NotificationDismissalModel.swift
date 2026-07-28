@@ -123,6 +123,8 @@ public final class NotificationDismissalModel: NotificationDismissing {
             }
         }
         guard host.hasNotificationStore else { return false }
+        guard host.storeHasDismissibleState(workspaceId: workspaceId) ||
+            host.workspaceHasDismissiblePanelState(workspaceId: workspaceId) else { return false }
         let targetPanelId = surfaceId.flatMap {
             host.panelId(forSurfaceOrPanelId: $0, in: workspaceId)
         }
@@ -147,20 +149,27 @@ public final class NotificationDismissalModel: NotificationDismissing {
             (hasRestoredPanelUnread || hasRestoredWorkspaceUnread)
         let canDismissUnreadIndicator = canDismissManualUnreadIndicator || canDismissRestoredUnreadIndicator
         let hasUnreadNotification: Bool
+        let hasPendingNotification: Bool
         let hasFocusedIndicator: Bool
         if notificationSurfaceIds.isEmpty {
             hasUnreadNotification = host.storeHasUnreadNotification(workspaceId: workspaceId, surfaceId: nil)
+            hasPendingNotification = host.storeHasPendingNotification(workspaceId: workspaceId, surfaceId: nil)
             hasFocusedIndicator = host.storeHasVisibleNotificationIndicator(workspaceId: workspaceId, surfaceId: nil)
         } else {
             hasUnreadNotification = notificationSurfaceIds.contains {
                 host.storeHasUnreadNotification(workspaceId: workspaceId, surfaceId: $0)
             }
+            hasPendingNotification = notificationSurfaceIds.contains {
+                host.storeHasPendingNotification(workspaceId: workspaceId, surfaceId: $0)
+            }
             hasFocusedIndicator = notificationSurfaceIds.contains {
                 host.storeHasVisibleNotificationIndicator(workspaceId: workspaceId, surfaceId: $0)
             }
         }
-        guard hasUnreadNotification || hasFocusedIndicator || canDismissUnreadIndicator else { return false }
-        if hasUnreadNotification {
+        guard hasUnreadNotification || hasPendingNotification || hasFocusedIndicator || canDismissUnreadIndicator else {
+            return false
+        }
+        if hasUnreadNotification || hasPendingNotification {
             if notificationSurfaceIds.isEmpty {
                 host.storeMarkRead(workspaceId: workspaceId, surfaceId: nil)
             } else {

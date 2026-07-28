@@ -23,6 +23,30 @@ struct ChatArtifactScopeTests {
         #expect(scope.canonicalFilePath(for: "/safe/dir/nested/image.png") == nil)
     }
 
+    @Test("subtree mode allows nested descendants and nested directory listings")
+    func subtreeAllowsNestedDescendants() {
+        let scope = scope(
+            referenced: ["/safe/dir"],
+            directories: ["/safe/dir", "/safe/dir/nested"],
+            accessMode: .subtree
+        )
+        #expect(scope.canonicalFilePath(for: "/safe/dir/nested/image.png") == "/safe/dir/nested/image.png")
+        #expect(scope.canonicalDirectoryListPath(for: "/safe/dir/nested") == "/safe/dir/nested")
+    }
+
+    @Test("one-level mode preserves legacy file and list authorization")
+    func oneLevelParity() {
+        let scope = scope(
+            referenced: ["/safe/dir"],
+            directories: ["/safe/dir", "/safe/dir/nested"],
+            accessMode: .oneLevel
+        )
+        #expect(scope.canonicalFilePath(for: "/safe/dir/image.png") == "/safe/dir/image.png")
+        #expect(scope.canonicalFilePath(for: "/safe/dir/nested/image.png") == nil)
+        #expect(scope.canonicalDirectoryListPath(for: "/safe/dir") == "/safe/dir")
+        #expect(scope.canonicalDirectoryListPath(for: "/safe/dir/nested") == nil)
+    }
+
     @Test("denies parent traversal escape")
     func deniesParentTraversalEscape() {
         let scope = scope(referenced: ["/safe/dir"], directories: ["/safe/dir"])
@@ -37,6 +61,30 @@ struct ChatArtifactScopeTests {
             symlinks: ["/safe/dir/link": "/etc/passwd"]
         )
         #expect(scope.canonicalFilePath(for: "/safe/dir/link") == nil)
+    }
+
+    @Test("subtree mode denies a symlink escape before containment comparison")
+    func subtreeDeniesSymlinkEscape() {
+        let scope = scope(
+            referenced: ["/safe/dir"],
+            directories: ["/safe/dir"],
+            symlinks: ["/safe/dir/nested/link": "/outside/secret.txt"],
+            accessMode: .subtree
+        )
+        #expect(scope.canonicalFilePath(for: "/safe/dir/nested/link") == nil)
+    }
+
+    @Test("subtree mode uniformly denies existing and missing paths outside scope")
+    func subtreeUniformOutsideDenial() {
+        let scope = scope(
+            referenced: ["/safe/dir"],
+            directories: ["/safe/dir", "/outside/existing"],
+            accessMode: .subtree
+        )
+        #expect(scope.canonicalFilePath(for: "/outside/existing/file.txt") == nil)
+        #expect(scope.canonicalFilePath(for: "/outside/missing/file.txt") == nil)
+        #expect(scope.canonicalDirectoryListPath(for: "/outside/existing") == nil)
+        #expect(scope.canonicalDirectoryListPath(for: "/outside/missing") == nil)
     }
 
     @Test("denies relative path")
@@ -64,10 +112,12 @@ struct ChatArtifactScopeTests {
     private func scope(
         referenced: Set<String>,
         directories: Set<String> = [],
-        symlinks: [String: String] = [:]
+        symlinks: [String: String] = [:],
+        accessMode: ChatArtifactScope.DirectoryAccessMode = .oneLevel
     ) -> ChatArtifactScope {
         ChatArtifactScope(
             referencedPaths: referenced,
+            directoryAccessMode: accessMode,
             resolver: FakeResolver(directories: directories, symlinks: symlinks)
         )
     }

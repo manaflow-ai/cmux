@@ -14,8 +14,14 @@ public actor MobileChatEventSource: ChatEventSource {
     private let client: MobileCoreRPCClient
     private let coding = ChatWireCoding()
     public nonisolated let supportsArtifacts: Bool
+    /// Whether the connected Mac supports recursive chat folder browsing.
+    public nonisolated let supportsArtifactFolders: Bool
+    /// Whether the connected Mac supports terminal-scoped directory listing.
+    public nonisolated let supportsTerminalArtifactList: Bool
     /// Whether the connected Mac supports session-wide artifact gallery pages.
     public nonisolated let supportsArtifactGallery: Bool
+    /// Whether raw artifact bytes may use a peer-bound Iroh application lane.
+    public nonisolated let supportsArtifactLane: Bool
 
     /// Creates the adapter.
     ///
@@ -23,11 +29,17 @@ public actor MobileChatEventSource: ChatEventSource {
     public init(
         client: MobileCoreRPCClient,
         supportsArtifacts: Bool = false,
-        supportsArtifactGallery: Bool = false
+        supportsArtifactGallery: Bool = false,
+        supportsArtifactFolders: Bool = false,
+        supportsTerminalArtifactList: Bool = false,
+        supportsArtifactLane: Bool = false
     ) {
         self.client = client
         self.supportsArtifacts = supportsArtifacts
         self.supportsArtifactGallery = supportsArtifactGallery
+        self.supportsArtifactFolders = supportsArtifactFolders
+        self.supportsTerminalArtifactList = supportsTerminalArtifactList
+        self.supportsArtifactLane = supportsArtifactLane
     }
 
     /// Lists chat-capable agent sessions the Mac knows about.
@@ -254,31 +266,27 @@ public actor MobileChatEventSource: ChatEventSource {
         path: String,
         progress: (@Sendable (_ fetchedBytes: Int64, _ totalBytes: Int64) -> Void)?
     ) async throws -> Data {
-        var offset: Int64 = 0
-        var result = Data()
-        while true {
-            let chunk: ChatArtifactChunk = try await artifactCall(
-                method: "mobile.chat.artifact.fetch",
-                params: [
-                    "session_id": sessionID,
-                    "path": path,
-                    "offset": offset,
-                    "length": ChatArtifactTransferPolicy.defaultPolicy.maxRawChunkBytes,
-                ]
-            )
-            if result.isEmpty, chunk.totalSize > 0, chunk.totalSize <= Int64(Int.max) {
-                result.reserveCapacity(Int(chunk.totalSize))
-            }
-            result.append(chunk.data)
-            offset = chunk.offset + Int64(chunk.data.count)
-            progress?(offset, chunk.totalSize)
-            if chunk.eof {
-                return result
-            }
-            guard !chunk.data.isEmpty else {
-                throw ChatArtifactError.macUnreachable
-            }
-        }
+        try await fetchArtifactChunks(
+            method: "mobile.chat.artifact.fetch",
+            stringParams: ["session_id": sessionID, "path": path],
+            collectsData: true,
+            progress: progress,
+            onChunk: { _ in }
+        )
+    }
+
+    public func artifactFetch(
+        sessionID: String,
+        path: String,
+        onChunk: @Sendable (ChatArtifactChunk) async throws -> Void
+    ) async throws {
+        _ = try await fetchArtifactChunks(
+            method: "mobile.chat.artifact.fetch",
+            stringParams: ["session_id": sessionID, "path": path],
+            collectsData: false,
+            progress: nil,
+            onChunk: onChunk
+        )
     }
 
     public func artifactThumbnail(
@@ -297,7 +305,10 @@ public actor MobileChatEventSource: ChatEventSource {
     }
 
     public func artifactList(sessionID: String, path: String) async throws -> ChatArtifactDirectoryListing {
-        try await artifactCall(
+        guard supportsArtifactFolders else {
+            throw ChatArtifactError.unsupported
+        }
+        return try await artifactCall(
             method: "mobile.chat.artifact.list",
             params: [
                 "session_id": sessionID,
@@ -330,111 +341,17 @@ public actor MobileChatEventSource: ChatEventSource {
         if let query, !query.isEmpty {
             params["query"] = query
         }
-        return try await artifactCall(
+        if supportsArtifactFolders {
+            params["include_directories"] = true
+        }
+        let page: ChatArtifactGalleryPage = try await artifactCall(
             method: "mobile.chat.artifact.gallery",
             params: params
         )
+        return supportsArtifactFolders ? page : page.excludingDirectories()
     }
 
-    /// Scans file references rendered by one terminal surface.
-    ///
-    /// - Parameters:
-    ///   - workspaceID: Workspace containing the terminal.
-    ///   - surfaceID: Terminal surface to scan.
-    ///   - visibleOnly: Whether to scan only the rendered viewport. The default
-    ///     keeps the existing visible-screen-plus-scrollback behavior.
-    ///   - countOnly: Whether to skip terminal items and return only the bound
-    ///     session's complete gallery count when supported.
-    /// - Returns: Capped file references detected by the Mac.
-    public func terminalArtifactScan(
-        workspaceID: String,
-        surfaceID: String,
-        visibleOnly: Bool = false,
-        countOnly: Bool = false
-    ) async throws -> TerminalArtifactScanResponse {
-        var params: [String: Any] = [
-            "workspace_id": workspaceID,
-            "surface_id": surfaceID,
-        ]
-        if visibleOnly {
-            params["visible_only"] = true
-        }
-        if countOnly {
-            params["count_only"] = true
-        }
-        return try await artifactCall(
-            method: "mobile.terminal.artifact.scan",
-            params: params
-        )
-    }
-
-    public func terminalArtifactStat(
-        workspaceID: String,
-        surfaceID: String,
-        path: String
-    ) async throws -> ChatArtifactStat {
-        try await artifactCall(
-            method: "mobile.terminal.artifact.stat",
-            params: [
-                "workspace_id": workspaceID,
-                "surface_id": surfaceID,
-                "path": path,
-            ]
-        )
-    }
-
-    public func terminalArtifactFetch(
-        workspaceID: String,
-        surfaceID: String,
-        path: String,
-        progress: (@Sendable (_ fetchedBytes: Int64, _ totalBytes: Int64) -> Void)?
-    ) async throws -> Data {
-        var offset: Int64 = 0
-        var result = Data()
-        while true {
-            let chunk: ChatArtifactChunk = try await artifactCall(
-                method: "mobile.terminal.artifact.fetch",
-                params: [
-                    "workspace_id": workspaceID,
-                    "surface_id": surfaceID,
-                    "path": path,
-                    "offset": offset,
-                    "length": ChatArtifactTransferPolicy.defaultPolicy.maxRawChunkBytes,
-                ]
-            )
-            if result.isEmpty, chunk.totalSize > 0, chunk.totalSize <= Int64(Int.max) {
-                result.reserveCapacity(Int(chunk.totalSize))
-            }
-            result.append(chunk.data)
-            offset = chunk.offset + Int64(chunk.data.count)
-            progress?(offset, chunk.totalSize)
-            if chunk.eof {
-                return result
-            }
-            guard !chunk.data.isEmpty else {
-                throw ChatArtifactError.macUnreachable
-            }
-        }
-    }
-
-    public func terminalArtifactThumbnail(
-        workspaceID: String,
-        surfaceID: String,
-        path: String,
-        maxDimension: Int
-    ) async throws -> ChatArtifactThumbnail {
-        try await artifactCall(
-            method: "mobile.terminal.artifact.thumbnail",
-            params: [
-                "workspace_id": workspaceID,
-                "surface_id": surfaceID,
-                "path": path,
-                "max_dimension": maxDimension,
-            ]
-        )
-    }
-
-    private func artifactCall<T: Decodable>(
+    func artifactCall<T: Decodable>(
         method: String,
         params: [String: Any]
     ) async throws -> T {
@@ -442,8 +359,98 @@ public actor MobileChatEventSource: ChatEventSource {
             let request = try MobileCoreRPCClient.requestData(method: method, params: params)
             let result = try await client.sendRequest(request)
             return try coding.decode(T.self, from: result)
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             throw Self.artifactError(from: error)
+        }
+    }
+
+    func fetchArtifactChunks(
+        method: String,
+        stringParams: [String: String],
+        collectsData: Bool,
+        progress: (@Sendable (_ fetchedBytes: Int64, _ totalBytes: Int64) -> Void)?,
+        onChunk: @Sendable (ChatArtifactChunk) async throws -> Void
+    ) async throws -> Data {
+        if supportsArtifactLane {
+            let descriptor: ChatArtifactLaneDescriptor
+            let connection: any MobileArtifactLaneConnection
+            do {
+                var descriptorParams: [String: Any] = stringParams
+                descriptorParams["transport"] = "iroh_artifact_v1"
+                descriptor = try await artifactCall(
+                    method: method,
+                    params: descriptorParams
+                )
+                guard descriptor.totalSize >= 0 else {
+                    throw MobileArtifactLaneFetchError.invalidDescriptor
+                }
+                connection = try await client.openArtifactLane(
+                    resourceID: descriptor.resourceID,
+                    offset: 0
+                )
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                // Descriptor mint/open failed before any lane byte was exposed.
+                // Preserve compatibility by using the existing RPC path.
+                return try await fetchArtifactChunksOverRPC(
+                    method: method,
+                    stringParams: stringParams,
+                    collectsData: collectsData,
+                    progress: progress,
+                    onChunk: onChunk
+                )
+            }
+            do {
+                return try await MobileArtifactLaneFetchLoop().run(
+                    descriptor: descriptor,
+                    connection: connection,
+                    collectsData: collectsData,
+                    progress: progress,
+                    onChunk: onChunk
+                )
+            } catch MobileArtifactLaneFetchError.failedBeforeFirstByte {
+                // No consumer-visible bytes were delivered, so the legacy
+                // authorized RPC can safely restart from offset zero.
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch MobileArtifactLaneFetchError.failedAfterFirstByte {
+                // Once the lane exposed bytes, mixing in an RPC restart could
+                // splice two file versions into one preview.
+                throw ChatArtifactError.macUnreachable
+            } catch MobileArtifactLaneFetchError.invalidDescriptor {
+                throw ChatArtifactError.macUnreachable
+            }
+        }
+        return try await fetchArtifactChunksOverRPC(
+            method: method,
+            stringParams: stringParams,
+            collectsData: collectsData,
+            progress: progress,
+            onChunk: onChunk
+        )
+    }
+
+    private func fetchArtifactChunksOverRPC(
+        method: String,
+        stringParams: [String: String],
+        collectsData: Bool,
+        progress: (@Sendable (_ fetchedBytes: Int64, _ totalBytes: Int64) -> Void)?,
+        onChunk: @Sendable (ChatArtifactChunk) async throws -> Void
+    ) async throws -> Data {
+        let loop = MobileArtifactChunkFetchLoop()
+        return try await loop.run(
+            collectsData: collectsData,
+            progress: progress
+        ) { offset in
+            var params: [String: Any] = stringParams
+            params["offset"] = offset
+            params["length"] = ChatArtifactTransferPolicy.defaultPolicy.maxRawChunkBytes
+            return try await self.artifactCall(method: method, params: params)
+        } onChunk: { chunk in
+            try await onChunk(chunk)
         }
     }
 
@@ -453,6 +460,7 @@ public actor MobileChatEventSource: ChatEventSource {
         }
         switch connectionError {
         case .invalidResponse, .connectionClosed, .requestTimedOut,
+             .transportWriteTimedOut,
              .insecureManualRoute, .attachTicketExpired,
              .authorizationFailed, .accountMismatch:
             return .macUnreachable

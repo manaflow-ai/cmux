@@ -3,10 +3,10 @@ public import Foundation
 /// Identifies one tagged iOS development build.
 ///
 /// The canonical tag owns the iOS saved-Mac and backup partitions. The Mac app
-/// instance used for route authority is resolved separately because a tagged
-/// `--prod-auth` iOS build pairs with a stable/beta Mac whose tag is `default`.
-/// Stable and untagged iOS builds have no scope, so they keep the legacy
-/// device-level behavior instead of manufacturing a tagged identity.
+/// instance used for route authority is resolved separately. Authentication
+/// environment changes do not relax this tag boundary. Stable and untagged iOS
+/// builds have no scope, so they keep the official build policy instead of
+/// manufacturing a tagged identity.
 public struct MobileIOSBuildScope: Sendable, Equatable {
     private static let serializedScopeVersion = "v2"
 

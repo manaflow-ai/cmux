@@ -11,6 +11,62 @@ import Testing
 
 struct AgentChatSessionRegistryLifecycleReviewRegressionTests {
     @MainActor
+    @Test func onlyHookEventsProvideAuthoritativeAgentLifecycleState() throws {
+        let registry = AgentChatSessionRegistry()
+        let sessionID = "24ec0052-450c-4914-b1dd-2ee80d4bc84b"
+        let workspaceID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+        registry.applyObservedSessions([
+            ObservedAgentSession(
+                sessionID: sessionID,
+                agentKind: .claude,
+                surfaceID: surfaceID,
+                workspaceID: workspaceID,
+                pid: 123,
+                workingDirectory: "/Users/example/project",
+                transcriptPath: nil
+            )
+        ])
+
+        #expect(registry.record(sessionID: sessionID)?.hasHookLifecycleState == false)
+
+        registry.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID,
+            hookEventName: .sessionStart,
+            source: "claude",
+            workspaceId: workspaceID,
+            surfaceId: surfaceID,
+            ppid: 123
+        ))
+
+        #expect(registry.record(sessionID: sessionID)?.hasHookLifecycleState == true)
+    }
+
+    @MainActor
+    @Test func transcriptInferredIdleIsNotHookAuthoritative() throws {
+        let registry = AgentChatSessionRegistry()
+        let sessionID = "24ec0052-450c-4914-b1dd-2ee80d4bc84b"
+        registry.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID,
+            hookEventName: .userPromptSubmit,
+            source: "claude",
+            workspaceId: UUID().uuidString,
+            surfaceId: UUID().uuidString,
+            ppid: 123,
+            receivedAt: Date(timeIntervalSince1970: 10)
+        ))
+
+        registry.noteAssistantTurnCompleted(
+            sessionID: sessionID,
+            at: Date(timeIntervalSince1970: 11)
+        )
+
+        let record = try #require(registry.record(sessionID: sessionID))
+        #expect(record.state == .idle)
+        #expect(!record.hasHookLifecycleState)
+    }
+
+    @MainActor
     @Test func relaunchOnlyPlaceholderCannotBecomeResumeSessionIdentity() {
         #expect(!AgentChatTranscriptService.isValidResumeSessionID(""))
         #expect(!AgentChatTranscriptService.isValidResumeSessionID("  \n"))

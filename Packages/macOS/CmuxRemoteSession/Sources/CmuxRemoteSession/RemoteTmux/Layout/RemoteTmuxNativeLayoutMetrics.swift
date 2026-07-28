@@ -13,7 +13,23 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
     /// the claim must reserve it and the ideals must grant it, or every pane
     /// renders one row over and the accounting drifts.
     public var paneTitleRowHeight: CGFloat
+    /// Feasibility floor for planned pane extents, per axis. Zero disables
+    /// it (the pure-math and fuzz suites drive the walk with synthetic
+    /// metrics and no renderer behind them); production metrics carry
+    /// ``bonsplitMinimumPaneExtent``.
+    public var minimumPaneExtent: CGFloat
     private let paneTitleRowPaneIDs: Set<Int>?
+
+    /// The smallest outer extent bonsplit actually renders a pane at. The
+    /// embedded configuration asks for a 1pt minimum, but the pane chrome's
+    /// required AppKit constraints (the tab-bar controls) hold a ~32pt
+    /// floor: imposing less parks the divider at the floor and the outcome
+    /// never matches the target, so a smaller planned extent is permanently
+    /// unappliable (observed live: plan=21x192 rendered at 32x192, and
+    /// plan=13x381 at 32x380). bonsplit exposes no constant for this floor
+    /// — it is emergent layout behavior, measured — so this is the one
+    /// shared definition.
+    public static let bonsplitMinimumPaneExtent: CGFloat = 32
     /// One point of slack per pane per axis: extents are quantized to whole
     /// points on cumulative rails rounded to NEAREST, so a pane sits within
     /// half a point of its exact span — and half a point below an exact
@@ -25,6 +41,31 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
     /// and compound across cross-axis nesting levels.
     public static let paneQuantizationSlack: CGFloat = 1
 
+    /// The grid a pane's outer point size renders to, in the shipping
+    /// surface's own arithmetic: the portal floors points→pixels exactly like
+    /// `TerminalSurface.pixelDimension`, and ghostty floors the padded pixel
+    /// budget to whole cells. Both steps FLOOR — rounding would credit a cell
+    /// the surface cannot paint (a scaled size landing in [B−0.5, B) would
+    /// pass a rounded model while wrapping on the real surface). This is the
+    /// ONE source for points→cells: the sizing tests and the DEBUG
+    /// chrome-parity check both call it, so the two cannot drift.
+    public static func renderedCells(
+        outer: CGSize,
+        tabBarHeight: CGFloat,
+        scale: CGFloat,
+        surfacePadPx: (width: Int, height: Int),
+        cellPx: (width: Int, height: Int)
+    ) -> (columns: Int, rows: Int) {
+        let widthPx = Int((outer.width * scale).rounded(.down))
+        let surfaceHeightPx = Int(
+            ((outer.height - tabBarHeight) * scale).rounded(.down)
+        )
+        return (
+            columns: (widthPx - surfacePadPx.width) / cellPx.width,
+            rows: (surfaceHeightPx - surfacePadPx.height) / cellPx.height
+        )
+    }
+
     /// Creates the point-space metrics used by the remote-tmux layout planner.
     ///
     /// - Parameters:
@@ -33,6 +74,9 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
     ///   - tabBarHeight: Native tab-strip height carried by every pane.
     ///   - dividerThickness: Native split divider thickness.
     ///   - paneTitleRowHeight: Height of tmux's configured pane status row.
+    ///   - minimumPaneExtent: Smallest pane extent the renderer will apply,
+    ///     per axis. Zero (the default) disables the floor for synthetic
+    ///     metrics; production metrics pass ``bonsplitMinimumPaneExtent``.
     ///   - paneTitleRowPaneIDs: Panes touching the configured status-row edge.
     ///     Pass `nil` only when the full patched layout will be supplied to each operation.
     public init(
@@ -41,6 +85,7 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
         tabBarHeight: CGFloat,
         dividerThickness: CGFloat,
         paneTitleRowHeight: CGFloat = 0,
+        minimumPaneExtent: CGFloat = 0,
         paneTitleRowPaneIDs: Set<Int>? = nil
     ) {
         self.cellSize = cellSize
@@ -48,7 +93,24 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
         self.tabBarHeight = tabBarHeight
         self.dividerThickness = dividerThickness
         self.paneTitleRowHeight = paneTitleRowHeight
+        self.minimumPaneExtent = minimumPaneExtent
         self.paneTitleRowPaneIDs = paneTitleRowPaneIDs
+    }
+
+    /// The point size at which a tree renders a `columns`×`rows` grid with
+    /// zero leftover: the grid at this cell size plus `layout`'s residual
+    /// chrome. The render frame and the exact-fit tests both size regions
+    /// with this, so neither can drift from ``residual(of:)``.
+    public func exactFitSize(
+        columns: Int,
+        rows: Int,
+        layout: RemoteTmuxLayoutNode
+    ) -> CGSize {
+        let residual = residual(of: layout)
+        return CGSize(
+            width: CGFloat(columns) * cellSize.width + residual.width,
+            height: CGFloat(rows) * cellSize.height + residual.height
+        )
     }
 
     public func clientGrid(
@@ -57,11 +119,16 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
     ) -> (columns: Int, rows: Int)? {
         guard contentSize.width > 1, contentSize.height > 1,
               cellSize.width > 1, cellSize.height > 1 else { return nil }
-        // Tmux owns pane-title rows inside the client grid: after the client
-        // claims the window size, tmux removes those rows from pane_height.
-        // Native layout adds them back to each pane's outer extent below, but
-        // subtracting them here would charge the same server chrome twice.
-        let overhead = clientGridResidual(of: layout)
+        // The claim charges real chrome AND the per-pane rail slack. The
+        // slack is not chrome — nothing paints it — but the native plan
+        // places extents on the whole-point rail, and at a container exactly
+        // at a slack-free claim boundary the rounded rails cannot give every
+        // pane its cells: with fractional chrome, one side of some split
+        // lands a device pixel under a cell boundary and the surface floors
+        // it away (the tight-container fuzz measures exactly this). Claiming
+        // one point per pane fewer cells keeps every claimed cell honestly
+        // placeable; the cost is at most one column/row at boundary sizes.
+        let overhead = claimResidual(of: layout)
         let columns = Int(floor((contentSize.width - overhead.width) / cellSize.width))
         let rows = Int(floor((contentSize.height - overhead.height) / cellSize.height))
         return (
@@ -94,36 +161,72 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
         )
     }
 
-    private func clientGridResidual(of node: RemoteTmuxLayoutNode) -> CGSize {
-        residual(of: node, panePlacementSlack: 0, paneTitleRowPaneIDs: [])
+    /// Chrome residual for the window-size CLAIM.
+    ///
+    /// ``residual(of:)`` reads the LIVE parent-minus-children gap, so it moves
+    /// by a cell whenever tmux folds the pane-border title row in or out of a
+    /// child span across a reflow. Feeding that into the claim makes the claim
+    /// read its own effect: it resizes the window, tmux republishes the tree
+    /// with the title row on the other side of the gap, and the next claim
+    /// lands a row away — the window-size claim oscillates and never settles.
+    ///
+    /// This variant reserves chrome from the stable model instead: one native
+    /// divider per STRUCTURAL boundary (`children.count - 1` per split), never
+    /// the assigned gap, plus one title row at the configured window edge under
+    /// `pane-border-status`. Every interior title row shares a border row that
+    /// is already charged as a structural separator, so the single edge title
+    /// is the whole reservation with no double count. The result depends only
+    /// on the container, cell size, pane structure, and border-status setting —
+    /// so the same window always yields the same claim, titled or not, and tmux
+    /// converges instead of the claim chasing the reflow.
+    func claimResidual(of node: RemoteTmuxLayoutNode) -> CGSize {
+        let structural = residual(
+            of: node,
+            panePlacementSlack: Self.paneQuantizationSlack,
+            paneTitleRowPaneIDs: resolvedPaneTitleRowPaneIDs(for: node),
+            useStructuralGap: true
+        )
+        guard paneTitleRowHeight > 0,
+              !resolvedPaneTitleRowPaneIDs(for: node).isEmpty else { return structural }
+        return CGSize(
+            width: structural.width,
+            height: structural.height - paneTitleRowHeight
+        )
     }
 
     private func residual(
         of node: RemoteTmuxLayoutNode,
         panePlacementSlack: CGFloat,
-        paneTitleRowPaneIDs: Set<Int>
+        paneTitleRowPaneIDs: Set<Int>,
+        useStructuralGap: Bool = false
     ) -> CGSize {
         switch node.content {
-        case .pane(let paneID):
+        case .pane:
+            // No per-pane title charge: tmux's title rows live in the tree's
+            // COORDINATES (the gaps between siblings and the window-edge row),
+            // and the fold below credits those actual gap cells directly. A
+            // native charge here granted the pane points nothing native
+            // renders — the surface floored them into a phantom grid row.
             return CGSize(
                 width: surfacePadding.width + panePlacementSlack,
-                height: tabBarHeight + surfacePadding.height
-                    + (paneTitleRowPaneIDs.contains(paneID) ? paneTitleRowHeight : 0)
-                    + panePlacementSlack
+                height: tabBarHeight + surfacePadding.height + panePlacementSlack
             )
         case .horizontal(let children):
             let childResiduals = children.map {
                 residual(
                     of: $0,
                     panePlacementSlack: panePlacementSlack,
-                    paneTitleRowPaneIDs: paneTitleRowPaneIDs
+                    paneTitleRowPaneIDs: paneTitleRowPaneIDs,
+                    useStructuralGap: useStructuralGap
                 )
             }
             return CGSize(
                 width: childResiduals.reduce(0) { $0 + $1.width }
                     + separatorResidual(
-                        count: children.count,
-                        cellExtent: cellSize.width
+                        parent: node,
+                        children: children,
+                        axis: .horizontal,
+                        useStructuralGap: useStructuralGap
                     ),
                 height: childResiduals.map(\.height).max() ?? 0
             )
@@ -132,15 +235,18 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
                 residual(
                     of: $0,
                     panePlacementSlack: panePlacementSlack,
-                    paneTitleRowPaneIDs: paneTitleRowPaneIDs
+                    paneTitleRowPaneIDs: paneTitleRowPaneIDs,
+                    useStructuralGap: useStructuralGap
                 )
             }
             return CGSize(
                 width: childResiduals.map(\.width).max() ?? 0,
                 height: childResiduals.reduce(0) { $0 + $1.height }
                     + separatorResidual(
-                        count: children.count,
-                        cellExtent: cellSize.height
+                        parent: node,
+                        children: children,
+                        axis: .vertical,
+                        useStructuralGap: useStructuralGap
                     )
             )
         }
@@ -154,6 +260,7 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
             tabBarHeight: tabBarHeight,
             dividerThickness: dividerThickness,
             paneTitleRowHeight: paneTitleRowHeight,
+            minimumPaneExtent: minimumPaneExtent,
             paneTitleRowPaneIDs: resolvedPaneTitleRowPaneIDs(for: layout)
         )
     }
@@ -213,6 +320,32 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
             residual: tree.minimumResidual,
             along: orientation
         )
+    }
+
+    /// The narrowest extent the plan may grant `tree` along `orientation`
+    /// and still be appliable: ``minimumPaneExtent`` per pane stacked on the
+    /// axis, plus the native divider between same-axis siblings; a
+    /// cross-axis split needs only its widest child. The divider charge is
+    /// native — unlike the cell-domain gap fold, the renderer spends exactly
+    /// one ``dividerThickness`` per same-axis boundary regardless of what
+    /// tmux's assignment holds between the spans. Zero when the metrics
+    /// carry no floor.
+    func minimumImposableExtent(
+        of tree: RemoteTmuxNativeMeasuredSplitTree,
+        along orientation: RemoteTmuxSplitOrientation
+    ) -> CGFloat {
+        guard minimumPaneExtent > 0 else { return 0 }
+        switch tree {
+        case .atomic:
+            return minimumPaneExtent
+        case .split(_, _, _, let splitOrientation, let first, let second):
+            let firstMinimum = minimumImposableExtent(of: first, along: orientation)
+            let secondMinimum = minimumImposableExtent(of: second, along: orientation)
+            guard splitOrientation == orientation else {
+                return max(firstMinimum, secondMinimum)
+            }
+            return firstMinimum + secondMinimum + dividerThickness
+        }
     }
 
     /// The whole-point extent the FIRST subtree of a split should receive:
@@ -394,20 +527,29 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
         )
     }
 
+    /// Binary form of ``residual(of:)``'s fold, used by the measured tree.
+    /// The two MUST apply the same gap rule: this fold feeds the plan's
+    /// ideals and the drag-end cell conversion, while the n-ary fold feeds
+    /// the claim and the render frame — a disagreement is misallocated by
+    /// exactly its size. `gapCells` is the ACTUAL coordinate cells between
+    /// (and around) the joined spans, read off the assignment.
     func joinedResidual(
         first: CGSize,
         second: CGSize,
-        orientation: RemoteTmuxSplitOrientation
+        orientation: RemoteTmuxSplitOrientation,
+        gapCells: Int = 1
     ) -> CGSize {
         if orientation == .horizontal {
             return CGSize(
-                width: first.width + second.width + dividerThickness - cellSize.width,
+                width: first.width + second.width + dividerThickness
+                    - CGFloat(gapCells) * cellSize.width,
                 height: max(first.height, second.height)
             )
         }
         return CGSize(
             width: max(first.width, second.width),
-            height: first.height + second.height + dividerThickness - cellSize.height
+            height: first.height + second.height + dividerThickness
+                - CGFloat(gapCells) * cellSize.height
         )
     }
 
@@ -442,7 +584,59 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
         orientation == .horizontal ? cellSize.width : cellSize.height
     }
 
-    private func separatorResidual(count: Int, cellExtent: CGFloat) -> CGFloat {
-        CGFloat(max(0, count - 1)) * (dividerThickness - cellExtent)
+    /// Native points a split spends on the chrome BETWEEN and AROUND its
+    /// children along the split axis: one native divider per boundary, minus
+    /// the ACTUAL coordinate cells the assignment holds outside the children
+    /// (separator columns/rows, or the title rows that replace them, plus a
+    /// window-edge title row when one is inside this node's span). Reading
+    /// the gaps off the assigned spans — parent minus children — makes a
+    /// node's extent equal its children's sum by construction, titled or
+    /// not; assuming one cell per boundary charged titled trees for rows
+    /// they spend elsewhere. Degenerate spans (structure-only placeholders)
+    /// fall back to the one-cell-per-boundary reading.
+    private func separatorResidual(
+        parent: RemoteTmuxLayoutNode,
+        children: [RemoteTmuxLayoutNode],
+        axis: RemoteTmuxSplitOrientation,
+        useStructuralGap: Bool = false
+    ) -> CGFloat {
+        let boundaries = max(0, children.count - 1)
+        // The claim reserves the STRUCTURAL separator count — one gap cell per
+        // boundary — never the assigned gap. tmux draws the interior title rows
+        // on those same separator rows (no double count), and the single
+        // window-edge title is charged once by ``claimResidual(of:)``. Reading
+        // `parentSpan - childSpans` here instead would let the claim move by a
+        // cell as tmux folds the title row in and out of a child span.
+        let gapCells = useStructuralGap
+            ? boundaries
+            : Self.assignedGapCells(
+                parentSpan: axis == .horizontal ? parent.width : parent.height,
+                childSpans: children.map { axis == .horizontal ? $0.width : $0.height },
+                fallback: boundaries
+            )
+        let cell = axis == .horizontal ? cellSize.width : cellSize.height
+        return CGFloat(boundaries) * dividerThickness - CGFloat(gapCells) * cell
+    }
+
+    /// The coordinate cells a split's assignment holds OUTSIDE its children
+    /// along the split axis — parent span minus child spans: separator
+    /// columns/rows, or the title rows that replace them, plus a window-edge
+    /// title row inside the parent's span. Degenerate spans (structure-only
+    /// placeholders, or a parent briefly narrower than its children
+    /// mid-reconcile) make the subtraction meaningless, so each call site
+    /// supplies its own fallback for that case: the n-ary residual fold reads
+    /// one cell per boundary, the binary fold reads one cell, and the
+    /// minimum-span walk keeps the clamped raw gap.
+    static func assignedGapCells(
+        parentSpan: Int,
+        childSpans: [Int],
+        fallback: @autoclosure () -> Int
+    ) -> Int {
+        let childSpanSum = childSpans.reduce(0, +)
+        let spansUsable = parentSpan > 0
+            && !childSpans.isEmpty
+            && childSpans.allSatisfy { $0 > 0 }
+            && parentSpan >= childSpanSum
+        return spansUsable ? parentSpan - childSpanSum : fallback()
     }
 }

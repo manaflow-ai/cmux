@@ -110,8 +110,21 @@ extension SocketControlServer {
 
             // Capture peer PID immediately, before short-lived clients can disconnect.
             let peerPid = transport.peerProcessID(of: clientSocket)
+            let snapshot = listenerStateSnapshot()
+            guard snapshot.isRunning,
+                  snapshot.serverSocket == listenerSocket,
+                  snapshot.activeGeneration == generation else {
+                close(clientSocket)
+                return
+            }
+            let authorization = acceptedConnectionAuthorization()
             let yielded = connectionsContinuation.yield(
-                ControlConnection(socket: clientSocket, peerProcessID: peerPid)
+                ControlConnection(
+                    socket: clientSocket,
+                    peerProcessID: peerPid,
+                    authorizationGeneration: authorization.generation,
+                    authorizationRevocationSignal: authorization.revocationSignal
+                )
             )
             switch yielded {
             case .enqueued:

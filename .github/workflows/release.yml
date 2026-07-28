@@ -190,19 +190,7 @@ jobs:
       - name: Install build deps
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
-          export PATH="$HOME/.cargo/bin:$PATH"
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-          if ! command -v rustup >/dev/null 2>&1; then
-            export HOMEBREW_NO_AUTO_UPDATE=1
-            export HOMEBREW_NO_INSTALL_CLEANUP=1
-            export HOMEBREW_NO_ENV_HINTS=1
-            brew install rustup-init
-            rustup-init -y --profile minimal --default-toolchain stable
-          fi
-          if ! rustup show active-toolchain >/dev/null 2>&1; then
-            rustup default stable
-          fi
-          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+          ./scripts/install-rust-ci.sh
           CMUX_NODE_BIN="$(command -v node)"
           export npm_config_prefix="$RUNNER_TEMP/npm-global"
           mkdir -p "$npm_config_prefix"
@@ -285,6 +273,7 @@ jobs:
           APP_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/MacOS/cmux"
           CLI_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux"
           HELPER_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/ghostty"
+          DIFF_SIDECAR="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-diff-sidecar"
           APP_ARCHS="$(lipo -archs "$APP_BINARY")"
           CLI_ARCHS="$(lipo -archs "$CLI_BINARY")"
           HELPER_ARCHS="$(lipo -archs "$HELPER_BINARY")"
@@ -296,6 +285,7 @@ jobs:
           [[ "$APP_ARCHS" == *arm64* && "$APP_ARCHS" == *x86_64* ]]
           [[ "$CLI_ARCHS" == *arm64* && "$CLI_ARCHS" == *x86_64* ]]
           [[ "$HELPER_ARCHS" == *arm64* && "$HELPER_ARCHS" == *x86_64* ]]
+          ./scripts/verify-diff-sidecar-artifact.sh "$DIFF_SIDECAR"
           [[ "$SDK_VERSION" == 26.* ]]
 
       - name: Build remote daemon release assets and inject manifest
@@ -449,6 +439,7 @@ jobs:
           CMUX_SMOKE_ALLOW_UNSUPPORTED_GUI=1 CMUX_SMOKE_DEBUG_LOGS=1 ./scripts/smoke-launch-macos-app.sh "$APP_PATH"
           CMUX_SMOKE_DIRECT_EXEC=1 CMUX_SMOKE_DEBUG_LOGS=1 ./scripts/smoke-launch-macos-app.sh "$APP_PATH"
           ./scripts/verify-app-bundle-channel-metadata.sh "$APP_PATH" stable
+          ./scripts/verify-app-bundle-licenses.sh "$APP_PATH"
           rm -f "$ZIP_SUBMIT"
           # create-dmg generates a styled drag-to-install DMG
           create-dmg \

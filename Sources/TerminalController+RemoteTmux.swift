@@ -298,6 +298,46 @@ extension TerminalController {
         }
     }
 
+    /// `remote.tmux.pane_surfaces` — the tmux pane id → cmux surface id map for
+    /// EVERY mirrored window, single-pane windows included.
+    ///
+    /// Content oracles need this. Reading "the focused surface" cannot verify a
+    /// named pane: cmux does not follow tmux's active pane or current window
+    /// (see handleActivePaneChanged, and %session-window-changed is only
+    /// recorded), so a harness that runs `select-pane` and then reads the
+    /// focused surface silently reads whatever pane the app already showed —
+    /// and passes only when the two panes happen to share dimensions. With this
+    /// map a harness reads the exact pane's surface (`surface.read_text` with
+    /// `surface_id`) and compares it against that pane's `capture-pane`.
+    ///
+    /// Params: `host` (required), `session` (required).
+    nonisolated func v2RemoteTmuxPaneSurfaces(id: Any?, params: [String: Any]) -> String {
+        guard RemoteTmuxController.isEnabled else {
+            return v2Error(id: id, code: "disabled", message: String(localized: "socket.remoteTmux.disabled", defaultValue: "remote tmux beta is disabled"))
+        }
+        guard let host = Self.remoteTmuxHost(from: params),
+              let session = Self.remoteTmuxSessionName(from: params)
+        else {
+            return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.remoteTmux.hostAndSessionRequired", defaultValue: "host and session are required"))
+        }
+        return v2VmCall(id: id, timeoutSeconds: 10) {
+            let entries: [[String: Any]]? = await MainActor.run {
+                guard let mirror = AppDelegate.shared?.remoteTmuxController
+                    .sessionMirror(host: host, sessionName: session) else { return nil }
+                return mirror.paneSurfaceEntries()
+            }
+            guard let entries else {
+                return ["host": host.destination, "session": session, "mirrored": false]
+            }
+            return [
+                "host": host.destination,
+                "session": session,
+                "mirrored": true,
+                "panes": entries,
+            ]
+        }
+    }
+
     /// `remote.tmux.pane_grids` — per mirrored multi-pane window, each pane's
     /// tmux-assigned dims (from the layout tree) next to the grid its ghostty
     /// surface actually renders, plus the sizing state they converge toward

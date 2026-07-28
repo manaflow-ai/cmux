@@ -54,13 +54,17 @@ public struct CmxPairingQRCode: Sendable {
     public init() {}
 
     /// Encode `ticket` as a v2 pairing URL, or `nil` when the ticket does not
-    /// qualify (see ``canEncode(_:)``); callers fall back to the compact v1
-    /// payload so every ticket still has an attach URL.
+    /// qualify (see ``canEncode(_:routeDisclosureMode:)``); callers fall back
+    /// to the compact v1 payload so every ticket still has an attach URL.
     ///
     /// Only the ticket's Tailscale routes are encoded: a DEBUG Mac's dev
     /// loopback route is dropped, never written into a scannable code.
-    public func encode(_ ticket: CmxAttachTicket) -> String? {
-        guard let routes = encodableRoutes(of: ticket) else {
+    public func encode(
+        _ ticket: CmxAttachTicket,
+        routeDisclosureMode: CmxPairingRouteDisclosureMode
+    ) -> String? {
+        guard routeDisclosureMode == .legacyPrivateNetworkCompatibility,
+              let routes = encodableRoutes(of: ticket) else {
             return nil
         }
         var items: [String] = ["v=\(Self.version)"]
@@ -91,10 +95,15 @@ public struct CmxPairingQRCode: Sendable {
         return "\(CmxPairingURLScheme.current)://attach?" + items.joined(separator: "&")
     }
 
-    /// Whether `ticket` is expressible in the minimal grammar; see
-    /// ``encodableRoutes(of:)`` for the rules.
-    public func canEncode(_ ticket: CmxAttachTicket) -> Bool {
-        encodableRoutes(of: ticket) != nil
+    /// Whether `ticket` is expressible in the minimal grammar under the
+    /// explicitly selected disclosure mode; see ``encodableRoutes(of:)`` for
+    /// the rules.
+    public func canEncode(
+        _ ticket: CmxAttachTicket,
+        routeDisclosureMode: CmxPairingRouteDisclosureMode
+    ) -> Bool {
+        routeDisclosureMode == .legacyPrivateNetworkCompatibility
+            && encodableRoutes(of: ticket) != nil
     }
 
     /// The route subsequence a v2 pairing URL would carry for `ticket`, or

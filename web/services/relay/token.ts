@@ -4,14 +4,24 @@
 // The web API is the token issuer: it holds the Ed25519 PRIVATE signing key
 // (`CMUX_RELAY_JWT_PRIVATE_KEY_PEM`); every relay VM holds only the matching
 // PUBLIC key and verifies tokens offline. A minted token is a short-TTL EdDSA
-// JWT with `iss=cmux`, `aud=cmux-relay`, `sub=<user>`, and an optional
+// JWT with `iss=cmux`, `aud=cmux-relay`, `sub=<user>`, and a required
 // `endpoint_id` binding (so a leaked token cannot be replayed from another key).
 
 import { createPrivateKey, sign as edSign, type KeyObject } from "node:crypto";
+import { configuredRelayCatalog } from "./catalog";
 
 export const RELAY_TOKEN_ISS = "cmux";
 export const RELAY_TOKEN_AUD = "cmux-relay";
 export const RELAY_TOKEN_TTL_SECONDS = 300; // short-lived; the client refreshes
+export const RELAY_TOKEN_REFRESH_LEAD_SECONDS = 60;
+
+export type ManagedRelayCredentialGrant = {
+  readonly relayUrl: string;
+  readonly token: string;
+  readonly expiresAt: number;
+  readonly refreshAfter: number;
+  readonly ttlSeconds: number;
+};
 
 // iroh EndpointId is a 32-byte Ed25519 public key. The cmux relay parses the
 // JWT claim with `EndpointId::from_str`, which (in iroh-base 1.0.0-rc.1) accepts
@@ -28,28 +38,9 @@ const HEX_ENDPOINT_ID_RE = /^[0-9a-f]{64}$/;
 // iroh's BASE32_NOPAD decoder rejects — so require the canonical final symbol.
 const BASE32_ENDPOINT_ID_RE = /^[a-z2-7]{51}[aq]$/;
 
-// The relay fleet the client should probe (nearest wins). Overridable via env
-// (comma-separated) so the RelayMap can change without a code deploy.
-const DEFAULT_RELAYS = [
-  "https://usc1.relay.cmux.dev",
-  "https://usw1.relay.cmux.dev",
-  "https://use4.relay.cmux.dev",
-  "https://euw4.relay.cmux.dev",
-  "https://apne1.relay.cmux.dev",
-  "https://apse1.relay.cmux.dev",
-  "https://ape1.relay.cmux.dev",
-];
-
+/** Exact canonical fleet retained for compatibility with older route callers. */
 export function relayUrls(): string[] {
-  const raw = process.env.CMUX_RELAY_URLS;
-  if (raw && raw.trim()) {
-    const urls = raw
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
-    if (urls.length > 0) return urls;
-  }
-  return DEFAULT_RELAYS;
+  return configuredRelayCatalog().relays.map((relay) => relay.url);
 }
 
 // Note: this checks the exact encoding shape, not that the 32 bytes decode to a
@@ -121,4 +112,22 @@ export function mintRelayToken(params: {
   )}`;
   const signature = edSign(null, Buffer.from(signingInput), key);
   return { token: `${signingInput}.${b64url(signature)}`, expiresAt };
+}
+
+/** Mint URL-keyed grants without coupling clients to a relay provider. */
+export function mintManagedRelayCredentials(params: {
+  readonly sub: string;
+  readonly endpointId: string;
+  readonly relayUrls: readonly string[];
+  readonly key: KeyObject;
+  readonly nowSeconds: number;
+}): ManagedRelayCredentialGrant[] {
+  const minted = mintRelayToken(params);
+  return params.relayUrls.map((relayUrl) => ({
+    relayUrl,
+    token: minted.token,
+    expiresAt: minted.expiresAt,
+    refreshAfter: minted.expiresAt - RELAY_TOKEN_REFRESH_LEAD_SECONDS,
+    ttlSeconds: RELAY_TOKEN_TTL_SECONDS,
+  }));
 }

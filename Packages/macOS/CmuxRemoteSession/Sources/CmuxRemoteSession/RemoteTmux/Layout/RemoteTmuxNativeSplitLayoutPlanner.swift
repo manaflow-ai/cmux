@@ -78,14 +78,23 @@ public struct RemoteTmuxNativeSplitLayoutPlanner: Sendable {
                     ? parentSize.width
                     : parentSize.height
                 let available = parentExtent - metrics.dividerThickness
+                // Each subtree's minimum is the larger of two floors: the
+                // chrome-only extent that preserves its assigned cells, and
+                // the extent the renderer will actually apply
+                // (``RemoteTmuxNativeLayoutMetrics/minimumImposableExtent(of:along:)``
+                // — bonsplit's pane chrome refuses anything smaller, so a
+                // plan below it parks the divider at the rendered floor and
+                // the imposition re-arms forever without ever matching).
                 if let allocation = metrics.railAllocation(
                     firstIdeal: metrics.idealExtent(of: firstTree, along: orientation),
                     secondIdeal: metrics.idealExtent(of: secondTree, along: orientation),
-                    firstMinimum: metrics.minimumIdealExtent(
-                        of: firstTree, along: orientation
+                    firstMinimum: max(
+                        metrics.minimumIdealExtent(of: firstTree, along: orientation),
+                        metrics.minimumImposableExtent(of: firstTree, along: orientation)
                     ),
-                    secondMinimum: metrics.minimumIdealExtent(
-                        of: secondTree, along: orientation
+                    secondMinimum: max(
+                        metrics.minimumIdealExtent(of: secondTree, along: orientation),
+                        metrics.minimumImposableExtent(of: secondTree, along: orientation)
                     ),
                     carry: axisCarry,
                     available: available

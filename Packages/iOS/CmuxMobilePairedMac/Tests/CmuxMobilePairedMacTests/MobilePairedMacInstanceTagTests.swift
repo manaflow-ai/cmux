@@ -5,7 +5,7 @@ import Testing
 @testable import CmuxMobilePairedMac
 
 @Suite struct MobilePairedMacInstanceTagTests {
-    @Test func conditionalRestoreCannotOverwriteNewerAuthenticatedAuthority() async throws {
+    @Test func conditionalRestoreAddsDistinctTagWithoutOverwritingNewerAuthority() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -44,7 +44,12 @@ import Testing
             now: Date(timeIntervalSince1970: 10)
         )
 
-        #expect(!restored)
+        #expect(restored)
+        let records = try await store.loadAll(
+            stackUserID: "user-1",
+            teamID: "team-a"
+        )
+        #expect(Set(records.compactMap(\.instanceTag)) == ["feature-a", "feature-b"])
         let current = try #require(await store.activeMac(
             stackUserID: "user-1",
             teamID: "team-a"

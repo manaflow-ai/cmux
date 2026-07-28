@@ -433,13 +433,17 @@ struct UserDefaultsSettingsStoreNotificationTests {
         #expect(matchingEvents.count == 1)
     }
 
+    // Wall-clock-bounded waits: pure Task.yield() spins can exhaust their
+    // budget in well under 100ms without ever servicing the queues the store
+    // hops through, which made these tests flake on loaded CI machines.
     private func waitForEventCount<Value: SettingCodable>(
         _ expectedCount: Int,
         in recorder: UserDefaultsSettingsEventRecorder<Value>
     ) async {
         var spins = 0
-        while await recorder.count() < expectedCount, spins < 100_000 {
+        while await recorder.count() < expectedCount, spins < 5_000 {
             await Task.yield()
+            try? await Task.sleep(nanoseconds: 1_000_000)
             spins += 1
         }
     }
@@ -449,11 +453,12 @@ struct UserDefaultsSettingsStoreNotificationTests {
         matching predicate: (UserDefaultsSettingsValueEvent<Value>) -> Bool
     ) async -> UserDefaultsSettingsValueEvent<Value>? {
         var spins = 0
-        while spins < 100_000 {
+        while spins < 5_000 {
             if let event = await recorder.snapshot().first(where: predicate) {
                 return event
             }
             await Task.yield()
+            try? await Task.sleep(nanoseconds: 1_000_000)
             spins += 1
         }
         return nil

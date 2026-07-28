@@ -70,6 +70,14 @@ describe("docs search index", () => {
     ).toBe(true);
   });
 
+  test("indexes Base only for the nightly channel", () => {
+    const releaseHrefs = docsSearchRoutes("release").map((route) => route.href);
+    const nightlyHrefs = docsSearchRoutes("nightly").map((route) => route.href);
+
+    expect(releaseHrefs).not.toContain("/docs/base");
+    expect(nightlyHrefs).toContain("/docs/base");
+  });
+
   test("uses the API page message namespace in every locale", async () => {
     const pages = await pagesPromise;
 

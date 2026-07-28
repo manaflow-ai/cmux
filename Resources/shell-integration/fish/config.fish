@@ -21,6 +21,116 @@ if test "$_cmux_integration_enabled" != 0
     set -g _CMUX_TTY_NAME ""
     set -g _CMUX_TTY_REPORTED 0
     set -g _CMUX_PWD_LAST_PWD ""
+    set -g _CMUX_TMUX_PULL_SIGNATURE ""
+    set -g _CMUX_TMUX_PUSH_SIGNATURE ""
+    set -g _CMUX_TMUX_SYNC_KEYS \
+        CMUX_BUNDLED_CLI_PATH \
+        CMUX_BUNDLE_ID \
+        CMUXD_UNIX_PATH \
+        CMUXTERM_REPO_ROOT \
+        CMUX_DEBUG_LOG \
+        CMUX_LOAD_GHOSTTY_ZSH_INTEGRATION \
+        CMUX_PORT \
+        CMUX_PORT_END \
+        CMUX_PORT_RANGE \
+        CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD \
+        CMUX_SHELL_INTEGRATION \
+        CMUX_SHELL_INTEGRATION_DIR \
+        CMUX_SOCKET_ENABLE \
+        CMUX_SOCKET_MODE \
+        CMUX_SOCKET_PATH \
+        CMUX_TAB_ID \
+        CMUX_TAG \
+        CMUX_WORKSPACE_ID
+    set -g _CMUX_TMUX_SURFACE_SCOPED_KEYS CMUX_PANEL_ID CMUX_SURFACE_ID
+
+    function _cmux_tmux_sync_key_is_managed --argument-names candidate
+        contains -- "$candidate" $_CMUX_TMUX_SYNC_KEYS
+    end
+
+    function _cmux_tmux_shell_env_signature
+        set -l parts
+        for key in $_CMUX_TMUX_SYNC_KEYS
+            set -q $key; or continue
+            test -n "$$key"; or continue
+            set -a parts "$key=$$key"
+        end
+        string join \x1f -- $parts
+    end
+
+    function _cmux_tmux_publish_cmux_environment
+        if set -q TMUX; and test -n "$TMUX"
+            return 0
+        end
+        command -sq tmux; or functions -q tmux; or return 0
+
+        set -l signature (_cmux_tmux_shell_env_signature)
+        test -n "$signature"; or return 0
+        test "$signature" = "$_CMUX_TMUX_PUSH_SIGNATURE"; and return 0
+
+        for key in $_CMUX_TMUX_SYNC_KEYS
+            set -q $key; or continue
+            test -n "$$key"; or continue
+            tmux set-environment -g "$key" "$$key" >/dev/null 2>&1; or return 0
+        end
+        for key in $_CMUX_TMUX_SURFACE_SCOPED_KEYS
+            tmux set-environment -gu "$key" >/dev/null 2>&1; or return 0
+        end
+        set -g _CMUX_TMUX_PUSH_SIGNATURE "$signature"
+    end
+
+    function _cmux_tmux_refresh_cmux_environment
+        set -q TMUX; and test -n "$TMUX"; or return 0
+        command -sq tmux; or functions -q tmux; or return 0
+
+        set -l did_change 0
+        for key in $_CMUX_TMUX_SURFACE_SCOPED_KEYS
+            if set -q $key
+                set -e $key
+                set did_change 1
+            end
+        end
+
+        set -l output (tmux show-environment 2>/dev/null); or return 0
+        set -l filtered
+        for line in $output
+            string match -q 'CMUX_*=*' -- "$line"; or continue
+            set -l parts (string split -m 1 '=' -- "$line")
+            _cmux_tmux_sync_key_is_managed "$parts[1]"; or continue
+            set -a filtered "$line"
+        end
+        test (count $filtered) -gt 0; or return 0
+
+        set -l signature (string join \x1e -- $filtered)
+        if test "$signature" = "$_CMUX_TMUX_PULL_SIGNATURE"; and test "$did_change" = 0
+            return 0
+        end
+
+        for line in $filtered
+            set -l parts (string split -m 1 '=' -- "$line")
+            set -l key "$parts[1]"
+            set -l value "$parts[2]"
+            if not set -q $key; or test "$$key" != "$value"
+                set -gx $key "$value"
+                set did_change 1
+            end
+        end
+
+        set -g _CMUX_TMUX_PULL_SIGNATURE "$signature"
+        if test "$did_change" = 1
+            set -g _CMUX_TTY_REPORTED 0
+            set -g _CMUX_SHELL_ACTIVITY_LAST ""
+            set -g _CMUX_PWD_LAST_PWD ""
+        end
+    end
+
+    function _cmux_tmux_sync_cmux_environment
+        if set -q TMUX; and test -n "$TMUX"
+            _cmux_tmux_refresh_cmux_environment
+        else
+            _cmux_tmux_publish_cmux_environment
+        end
+    end
 
     function _cmux_restore_scrollback_once
         set -l path "$CMUX_RESTORE_SCROLLBACK_FILE"
@@ -136,6 +246,18 @@ if test "$_cmux_integration_enabled" != 0
         end
         set params "$params}"
         _cmux_relay_rpc_bg surface.report_pwd "$params"
+    end
+
+    function _cmux_report_shell_activity_state_via_relay --argument-names state
+        _cmux_socket_uses_remote_relay; or return 1
+        test -n "$state"; or return 1
+        set -l workspace_id (_cmux_relay_workspace_id); or return 1
+        set -l params "{\"workspace_id\":\"$workspace_id\",\"state\":\"$state\""
+        if test -n "$CMUX_PANEL_ID"
+            set params "$params,\"surface_id\":\"$CMUX_PANEL_ID\""
+        end
+        set params "$params}"
+        _cmux_relay_rpc_bg surface.report_shell_state "$params"
     end
 
     function _cmux_ports_kick_via_relay --argument-names reason
@@ -277,12 +399,17 @@ if test "$_cmux_integration_enabled" != 0
 
     function _cmux_report_shell_activity_state --argument-names state
         test -n "$state"; or return 0
-        _cmux_socket_is_unix; or return 0
         test -n "$CMUX_TAB_ID"; or return 0
-        test -n "$CMUX_PANEL_ID"; or return 0
+        if _cmux_socket_is_unix
+            test -n "$CMUX_PANEL_ID"; or return 0
+        end
         test "$_CMUX_SHELL_ACTIVITY_LAST" = "$state"; and return 0
         set -g _CMUX_SHELL_ACTIVITY_LAST "$state"
-        _cmux_send_bg "report_shell_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+        if _cmux_socket_is_unix
+            _cmux_send_bg "report_shell_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+        else
+            _cmux_report_shell_activity_state_via_relay "$state"; or set -g _CMUX_SHELL_ACTIVITY_LAST ""
+        end
     end
 
     function _cmux_reset_terminal_keyboard_protocols
@@ -303,12 +430,14 @@ if test "$_cmux_integration_enabled" != 0
     end
 
     function _cmux_preexec --on-event fish_preexec
+        _cmux_tmux_sync_cmux_environment
         _cmux_report_tty_once
         _cmux_report_shell_activity_state running
         _cmux_ports_kick command
     end
 
     function _cmux_prompt --on-event fish_prompt
+        _cmux_tmux_sync_cmux_environment
         _cmux_reset_terminal_keyboard_protocols
         _cmux_report_tty_once
         _cmux_report_shell_activity_state prompt

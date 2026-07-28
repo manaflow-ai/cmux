@@ -8,6 +8,19 @@
 #
 # The attach URL is a bearer credential: callers must never print it.
 
+# Resolve the backend shared by a tagged Mac and its mobile build. Localhost
+# remains the default for ordinary simulator work. Physical-device dogfood can
+# select a trusted shared backend without giving every developer the relay
+# fleet's private JWT signing key.
+cmux_attach_resolve_dev_api_base_url() {
+  local fallback="$1"
+  if [[ -n "${CMUX_DEV_API_BASE_URL:-}" ]]; then
+    printf '%s' "$CMUX_DEV_API_BASE_URL"
+  else
+    printf '%s' "$fallback"
+  fi
+}
+
 # Raw slug WITHOUT the empty-input fallback: lowercase, ASCII non-[a-z0-9] -> '-',
 # trimmed/collapsed. Empty when the tag has no ASCII alphanumerics. The ASCII
 # class is deliberate (matches reload.sh + cmux-debug-cli.sh socket/DerivedData
@@ -83,6 +96,26 @@ cmux_attach_socket_path() {
   printf '/tmp/cmux-debug-%s.sock' "$(cmux_attach__slug "$1")"
 }
 
+# Remove a stale socket only for one validated tagged-build identity. Callers
+# must first prove the exact tagged app process has exited. Refuse regular files
+# and symlinks so this cleanup cannot delete an unrelated path substituted at
+# the tag's predictable socket location.
+cmux_attach_remove_stale_socket() {
+  local tag="$1" sock
+  cmux_attach_validate_dev_tag "$tag" || return 1
+  sock="$(cmux_attach_socket_path "$tag")"
+  if [[ -L "$sock" ]]; then
+    echo "error: refusing to remove symlink at tagged socket path: $sock" >&2
+    return 1
+  fi
+  if [[ -e "$sock" ]] && [[ ! -S "$sock" ]]; then
+    echo "error: refusing to remove non-socket at tagged socket path: $sock" >&2
+    return 1
+  fi
+  [[ -S "$sock" ]] || return 0
+  rm -f -- "$sock"
+}
+
 # The locally-built tagged macOS Debug .app bundle path (cloud/local reloads both
 # download/install here). Both the DerivedData dir AND the .app basename use the
 # sanitized slug, matching reload.sh (`APP_NAME="cmux DEV ${TAG_SLUG}"`); the raw
@@ -110,7 +143,7 @@ cmux_attach_mac_socket_ready() {
   [[ -S "$sock" ]]
 }
 
-# Best-effort: ensure the tagged Mac app is running AND its iOS pairing listener
+# Ensure the tagged Mac app is running AND its iOS pairing listener
 # is actually bound, so a ticket can be minted. Enables the pairing host, then:
 #   - socket down  -> launch the local tagged build and wait for the socket.
 #   - socket up    -> the pairing default is only read at launch, so a live
@@ -122,10 +155,10 @@ cmux_attach_mac_socket_ready() {
 #                     the tagged app so it binds the listener.
 # Args: <tag> [<repo_root>] [<target>] (repo_root enables the mint readiness
 # probe). Returns
-# 0 if the Mac is ready to mint, 1 otherwise (caller degrades to signed-in-only).
-# Never fails the calling script and never force-kills a running app by default.
+# 0 if the Mac is ready to mint a usable target-specific ticket, 1 otherwise.
+# Never force-kills a running app by default.
 cmux_attach_ensure_mac() {
-  local tag="$1" repo_root="${2:-}" target="${3:?attach target is required}" sock app slug _i
+  local tag="$1" repo_root="${2:-}" target="${3:?attach target is required}" sock app slug mint_attempts _i
   sock="$(cmux_attach_socket_path "$tag")"
   app="$(cmux_attach_mac_app_path "$tag")"
   slug="$(cmux_attach__slug "$tag")"
@@ -140,11 +173,15 @@ cmux_attach_ensure_mac() {
     # before the default was set, prompt pending, or briefly busy). Protect the
     # running instance: do NOT force-kill it unless explicitly opted in.
     if [[ "${CMUX_ATTACH_ALLOW_RELAUNCH:-0}" != "1" ]]; then
-      echo "warning: tagged Mac app for '$tag' is running but its iOS pairing listener is not bound (it was likely launched before pairing was enabled, or the macOS Local Network prompt is pending). Relaunch it to enable auto-pair, or re-run with CMUX_ATTACH_ALLOW_RELAUNCH=1; signing in only for now." >&2
+      if [[ "$target" == "physical_device" ]]; then
+        echo "warning: tagged Mac app for '$tag' cannot mint a trusted physical-device ticket (an encrypted Iroh route may still be starting). Relaunch it to retry, or re-run with CMUX_ATTACH_ALLOW_RELAUNCH=1." >&2
+      else
+        echo "warning: tagged Mac app for '$tag' is running but its iOS pairing listener is not ready (it was likely launched before pairing was enabled, or the macOS Local Network prompt is pending). Relaunch it to enable auto-pair, or re-run with CMUX_ATTACH_ALLOW_RELAUNCH=1." >&2
+      fi
       return 1
     fi
     if [[ ! -d "$app" ]]; then
-      echo "warning: tagged Mac app for '$tag' is running but not ready, and there is no local build to relaunch; auto-pair unavailable (signing in only)." >&2
+      echo "warning: tagged Mac app for '$tag' is running but not ready, and there is no local build to relaunch; auto-pair unavailable (signing in only). Re-run without --attach for an intentionally unpaired launch." >&2
       return 1
     fi
     echo "==> relaunching tagged Mac app to bind the pairing listener ($tag) [CMUX_ATTACH_ALLOW_RELAUNCH=1]" >&2
@@ -162,7 +199,21 @@ cmux_attach_ensure_mac() {
   # binds /tmp/cmux-debug-<slug>.sock without extra env.
   open -g "$app" >/dev/null 2>&1 || open "$app" >/dev/null 2>&1 || true
   for _i in $(seq 1 60); do
-    [[ -S "$sock" ]] && return 0
+    if [[ -S "$sock" ]]; then
+      if [[ -z "$repo_root" ]]; then
+        return 0
+      fi
+      mint_attempts="${CMUX_ATTACH_MINT_MAX_ATTEMPTS:-20}"
+      if [[ -n "$(cmux_attach_mint_url "$tag" 60 "$repo_root" "$target" "$mint_attempts")" ]]; then
+        return 0
+      fi
+      if [[ "$target" == "physical_device" ]]; then
+        echo "warning: tagged Mac app for '$tag' launched, but no trusted Iroh ticket became ready." >&2
+      else
+        echo "warning: tagged Mac app for '$tag' launched, but its iOS pairing ticket did not become ready." >&2
+      fi
+      return 1
+    fi
     sleep 0.2
   done
   echo "warning: tagged Mac socket $sock did not appear after launch; auto-pair unavailable (signing in only)." >&2
@@ -173,8 +224,13 @@ cmux_attach_ensure_mac() {
 # URL on stdout (bearer credential; do not log). Args: <tag> <ttl_seconds>
 # <repo_root> <simulator_injection|physical_device>. The Mac owns route selection
 # and URL encoding for the target. Polls the mint RPC until routes are bound.
+# A physical-device ticket is usable only with an encrypted Iroh route. Plain
+# Tailscale TCP cannot carry the phone's Stack credential, so fail closed here
+# instead of launching an app that must reject the ticket as untrusted.
 cmux_attach_mint_url() {
-  local tag="$1" ttl="$2" repo_root="$3" target="$4" max="${5:-20}" sock slug payload url _i
+  local tag="$1" ttl="$2" repo_root="$3" target="$4" max="${5:-20}"
+  local sock slug payload cli_output url node_status cli_status _i
+  local last_reason="route_not_ready" saw_no_iroh=0
   case "$target" in
     simulator_injection|physical_device) ;;
     *) echo "error: invalid attach target '$target'" >&2; return 1 ;;
@@ -186,23 +242,62 @@ cmux_attach_mint_url() {
   slug="$(cmux_attach__slug "$tag")"
   for _i in $(seq 1 "$max"); do
     if [[ ! -S "$sock" ]]; then
+      last_reason="control_socket_unavailable"
       sleep 0.5
       continue
     fi
-    payload="$(CMUX_TAG="$slug" "$repo_root/scripts/cmux-debug-cli.sh" rpc mobile.attach_ticket.create \
-      "{\"ttl_seconds\":${ttl},\"scope\":\"mac\",\"target\":\"${target}\"}" 2>/dev/null || true)"
-    if [[ -n "$payload" ]]; then
-      url="$(PAYLOAD="$payload" node --input-type=module <<'NODE' 2>/dev/null || true
+    cli_status=0
+    cli_output="$(CMUX_TAG="$slug" "$repo_root/scripts/cmux-debug-cli.sh" rpc mobile.attach_ticket.create \
+      "{\"ttl_seconds\":${ttl},\"scope\":\"mac\",\"target\":\"${target}\"}" 2>&1)" || cli_status=$?
+    if [[ "$cli_status" -ne 0 ]]; then
+      case "$cli_output" in
+        *"Mobile host routes are not available yet"*) last_reason="host_routes_unavailable" ;;
+        *"Requested mobile host route is not available"*) last_reason="requested_route_unavailable" ;;
+        *"Selected mobile host routes cannot be represented"*) last_reason="route_representation_unavailable" ;;
+        *) last_reason="attach_rpc_unavailable" ;;
+      esac
+    elif [[ -n "$cli_output" ]]; then
+      payload="$cli_output"
+      node_status=0
+      url="$(
+        PAYLOAD="$payload" ATTACH_TARGET="$target" node --input-type=module <<'NODE' 2>/dev/null
 const payload = JSON.parse(process.env.PAYLOAD);
+const routes = payload?.ticket?.routes;
+if (
+  process.env.ATTACH_TARGET === "physical_device" &&
+  (!Array.isArray(routes) || !routes.some((route) => route?.kind === "iroh"))
+) {
+  process.exit(2);
+}
 if (typeof payload.attach_url === "string") process.stdout.write(payload.attach_url);
 NODE
-)"
+      )" || node_status=$?
+      if [[ "$node_status" -eq 2 ]]; then
+        # The legacy listener can publish Tailscale before asynchronous Iroh
+        # broker registration finishes. Remember that the Mac is reachable,
+        # but keep polling for the encrypted route until the readiness window
+        # closes.
+        saw_no_iroh=1
+        last_reason="iroh_route_unavailable"
+      elif [[ "$node_status" -ne 0 ]]; then
+        last_reason="malformed_response"
+      elif [[ -z "$url" ]]; then
+        last_reason="ticket_url_missing"
+      fi
       if [[ -n "$url" ]]; then
         printf '%s' "$url"
         return 0
       fi
+    else
+      last_reason="empty_response"
     fi
+    # Empty output, malformed output, and a valid ticket that has not gained an
+    # Iroh route yet are all transient during startup. Poll to the deadline.
     sleep 0.5
   done
+  printf 'warning: attach readiness exhausted: %s\n' "$last_reason" >&2
+  if [[ "$saw_no_iroh" -eq 1 ]]; then
+    return 2
+  fi
   return 1
 }

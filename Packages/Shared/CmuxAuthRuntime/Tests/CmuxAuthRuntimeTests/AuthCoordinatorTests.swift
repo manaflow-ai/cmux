@@ -382,6 +382,20 @@ import Testing
         #expect(coordinator.availableTeams.isEmpty)
     }
 
+    @Test func persistedTeamSelectionRemainsEffectiveWhileTeamRefreshIsUnavailable() async throws {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = FakeAuthClient(user: user)
+        await client.setThrowOnListTeams(AuthError.networkError)
+        let (coordinator, _) = makeCoordinator(client: client)
+        coordinator.selectedTeamID = "team_b"
+
+        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
+
+        #expect(coordinator.isAuthenticated)
+        #expect(coordinator.availableTeams.isEmpty)
+        #expect(coordinator.resolvedTeamID == "team_b")
+    }
+
     @Test func signOutClearsTeamsAndSelection() async throws {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
         let client = FakeAuthClient(user: user)

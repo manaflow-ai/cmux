@@ -42,7 +42,7 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     private let deviceID: String
     private let tokenSource: TokenSource
     private let teamIDProvider: @Sendable () async -> String?
-    private let session: URLSession
+    private let session: CmxCredentialedHTTPSession
     private let requestTimeout: TimeInterval
 
     /// - Parameters:
@@ -51,7 +51,8 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     ///   - tokenSource: Supplies the Stack access/refresh tokens.
     ///   - teamIDProvider: Supplies the team id to scope to, or `nil` to let the
     ///     server use the Stack-selected team.
-    ///   - session: The URLSession used for API calls.
+    ///   - sessionConfiguration: URL loading configuration. Redirect rejection,
+    ///     cookie isolation, and cache isolation are enforced by the service.
     ///   - requestTimeout: Per-request deadline, bounding the worst-case latency
     ///     of a registry call so it never stalls the reconnect refresh.
     public init(
@@ -59,14 +60,14 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         deviceID: String,
         tokenSource: TokenSource,
         teamIDProvider: @escaping @Sendable () async -> String? = { nil },
-        session: sending URLSession = .shared,
+        sessionConfiguration: sending URLSessionConfiguration = .ephemeral,
         requestTimeout: TimeInterval = 5
     ) {
         self.apiBaseURL = apiBaseURL
         self.deviceID = deviceID
         self.tokenSource = tokenSource
         self.teamIDProvider = teamIDProvider
-        self.session = session
+        self.session = CmxCredentialedHTTPSession(configuration: sessionConfiguration)
         self.requestTimeout = requestTimeout
     }
 
@@ -242,9 +243,9 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
             let deviceId = device.deviceId.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !deviceId.isEmpty else { return nil }
             let instances = (device.instances ?? []).map { instance in
-                RegistryAppInstance(
-                    tag: instance.tag?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-                        ? instance.tag! : "default",
+                let tag = instance.tag?.trimmingCharacters(in: .whitespacesAndNewlines)
+                return RegistryAppInstance(
+                    tag: tag?.isEmpty == false ? tag! : "default",
                     routes: (instance.routes ?? []).compactMap(\.value),
                     lastSeenAt: Self.parseTimestamp(instance.lastSeenAt)
                 )
@@ -278,66 +279,40 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         return .distantPast
     }
 
+    /// Return authoritative routes for a matching device from one decoded
+    /// registry snapshot. A scoped client selects its exact Mac app-instance
+    /// tag; an unscoped client accepts routes only when exactly one instance on
+    /// that physical device advertises any. Returns `nil` when ownership cannot
+    /// be proven.
+    static func routes(
+        forMacDeviceID macDeviceID: String,
+        pairedMacInstanceTag: String? = nil,
+        in devices: [RegistryDevice]
+    ) -> [CmxAttachRoute]? {
+        guard case .unique(let routes) = DeviceRegistryRouteIndex(devices: devices).resolve(
+            macDeviceID: macDeviceID,
+            instanceTag: pairedMacInstanceTag
+        ) else { return nil }
+        return routes
+    }
+
     /// Decode the `/api/devices` list response and return authoritative routes
-    /// for the matching device. A scoped client selects its resolved Mac
-    /// app-instance tag; unscoped builds require one sole route-advertising
-    /// instance. Returns `nil` when that ownership cannot be proven.
-    ///
-    /// Each route is decoded *failably* and individually: a malformed or
-    /// unknown-kind route from any instance (even another Mac's) is skipped
-    /// rather than failing the whole response. This keeps one bad sibling row
-    /// from disabling registry refresh for every Mac, and makes old clients
-    /// forward-compatible when a newer build advertises a route kind they cannot
-    /// decode.
+    /// for the matching device. Each route is decoded *failably* and
+    /// individually by ``parseDeviceList(in:)``: a malformed or unknown-kind
+    /// route from any instance is skipped rather than failing the whole response.
+    /// This keeps one bad sibling row from disabling registry refresh for every
+    /// Mac and makes old clients forward-compatible with new route kinds.
     static func routes(
         forMacDeviceID macDeviceID: String,
         pairedMacInstanceTag: String? = nil,
         in data: Data
     ) -> [CmxAttachRoute]? {
-        // Decode each route element through an optional wrapper so a single bad
-        // element decodes to `nil` and is dropped, never throwing for the array.
-        struct FailableRoute: Decodable {
-            let value: CmxAttachRoute?
-            init(from decoder: Decoder) throws {
-                value = try? CmxAttachRoute(from: decoder)
-            }
-        }
-        struct Instance: Decodable {
-            let tag: String?
-            let routes: [FailableRoute]
-        }
-        struct Device: Decodable {
-            let deviceId: String
-            let instances: [Instance]
-        }
-        struct ListResponse: Decodable {
-            let devices: [Device]
-        }
-        guard let decoded = try? JSONDecoder().decode(ListResponse.self, from: data) else {
-            return nil
-        }
-        let target = macDeviceID.lowercased()
-        guard let device = decoded.devices.first(where: { $0.deviceId.lowercased() == target }) else {
-            return nil
-        }
-        let candidates: [Instance]
-        if let pairedMacInstanceTag {
-            // Route authority is an exact Mac-instance identity resolved at app
-            // composition. Another tag becoming the device's sole live instance
-            // must not redirect this build's persisted reconnect route.
-            candidates = device.instances.filter {
-                $0.tag?.trimmingCharacters(in: .whitespacesAndNewlines) == pairedMacInstanceTag
-            }
-        } else {
-            // Stable/unscoped storage has no tag ownership to prove. Keep the
-            // existing safe fallback: accept routes only when one instance on
-            // the physical Mac advertises any.
-            candidates = device.instances
-        }
-        let nonEmpty = candidates
-            .map { $0.routes.compactMap(\.value) }
-            .filter { !$0.isEmpty }
-        return nonEmpty.count == 1 ? nonEmpty[0] : nil
+        guard let devices = parseDeviceList(in: data) else { return nil }
+        return routes(
+            forMacDeviceID: macDeviceID,
+            pairedMacInstanceTag: pairedMacInstanceTag,
+            in: devices
+        )
     }
 
     // MARK: - Request building
@@ -362,4 +337,48 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         }
         return request
     }
+}
+
+/// Exact, immutable authority lookup for one authenticated registry generation.
+/// Building it once keeps a reconnect pass linear even with many saved Macs.
+struct DeviceRegistryRouteIndex: Sendable {
+    private let devicesByID: [String: [RegistryDevice]]
+
+    init(devices: [RegistryDevice]) {
+        devicesByID = Dictionary(grouping: devices) { device in
+            Self.normalizedDeviceID(device.deviceId)
+        }
+    }
+
+    func resolve(
+        macDeviceID: String,
+        instanceTag: String?
+    ) -> DeviceRegistryRouteResolution {
+        let matches = devicesByID[Self.normalizedDeviceID(macDeviceID)] ?? []
+        guard !matches.isEmpty else { return .missing }
+        guard matches.count == 1, let device = matches.first else { return .ambiguous }
+
+        let instances: [RegistryAppInstance]
+        if let expectedTag = MobileMacInstanceTagAuthority.normalized(instanceTag) {
+            instances = device.instances.filter {
+                MobileMacInstanceTagAuthority.normalized($0.tag) == expectedTag
+            }
+        } else {
+            instances = device.instances
+        }
+        let nonEmptyRoutes = instances.map(\.routes).filter { !$0.isEmpty }
+        guard !nonEmptyRoutes.isEmpty else { return .missing }
+        guard nonEmptyRoutes.count == 1 else { return .ambiguous }
+        return .unique(nonEmptyRoutes[0])
+    }
+
+    private static func normalizedDeviceID(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+}
+
+enum DeviceRegistryRouteResolution: Equatable, Sendable {
+    case unique([CmxAttachRoute])
+    case missing
+    case ambiguous
 }

@@ -9,33 +9,23 @@ import SwiftUI
 /// the name/body selects (and, in push navigation, opens) the anchor workspace.
 /// The anchor is represented by this header and never rendered as a separate row,
 /// so this split is what keeps the anchor's terminals reachable from the phone.
-struct WorkspaceGroupHeaderRow: View {
-    let group: MobileWorkspaceGroupPreview
+struct WorkspaceGroupHeaderRow: View, Equatable {
+    let value: WorkspaceGroupHeaderRowValue
+    let actions: WorkspaceGroupHeaderRowActions
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.value == rhs.value
+    }
+
+    private var group: MobileWorkspaceGroupPreview { value.group }
     /// Aggregate unread state for the header dot, computed by
     /// `MobileWorkspaceListItem.items`: the anchor's unread while expanded,
     /// the whole group's (anchor included) while collapsed, mirroring the Mac
     /// sidebar header badge so collapsing a group never hides activity.
-    let hasUnread: Bool
-    let navigationStyle: WorkspaceNavigationStyle
+    private var hasUnread: Bool { value.hasUnread }
+    private var navigationStyle: WorkspaceNavigationStyle { value.navigationStyle }
     /// Whether the anchor workspace is the current selection (sidebar style only).
-    let isAnchorSelected: Bool
-    /// Select the anchor workspace in sidebar layouts.
-    let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
-    /// Create a new workspace inside this group. Hidden when `nil`.
-    var createWorkspaceInGroup: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil
-    /// Rename the group on the Mac. Hidden when `nil`.
-    var renameGroup: ((MobileWorkspaceGroupPreview.ID, String) -> Void)? = nil
-    /// Pin or unpin the group on the Mac. Hidden when `nil`.
-    var setGroupPinned: ((MobileWorkspaceGroupPreview.ID, Bool) -> Void)? = nil
-    /// Dissolve the group on the Mac, keeping its workspaces. Hidden when `nil`.
-    var ungroupWorkspaceGroup: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil
-    /// Delete the group on the Mac, including its workspaces. Hidden when `nil`.
-    var deleteWorkspaceGroup: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil
-    /// Toggle the group's collapsed state on the Mac. When `nil` (previews, or a
-    /// Mac without the groups capability), the chevron renders without a tap
-    /// action.
-    let toggleCollapsed: ((MobileWorkspaceGroupPreview.ID, Bool) -> Void)?
-    var unreadIndicatorLeftShift: Double = MobileDisplaySettings.defaultUnreadIndicatorLeftShift
+    private var isAnchorSelected: Bool { value.isAnchorSelected }
 
     @State private var isRenaming = false
     @State private var pendingDestructiveAction: WorkspaceGroupHeaderPendingDestructiveAction?
@@ -54,7 +44,7 @@ struct WorkspaceGroupHeaderRow: View {
         // can press to no effect. The collapsed/expanded state stays readable
         // through the label either way.
         return Group {
-            if let toggleCollapsed {
+            if value.canToggleCollapsed, let toggleCollapsed = actions.toggleCollapsed {
                 Button {
                     toggleCollapsed(group.id, !group.isCollapsed)
                 } label: {
@@ -102,14 +92,14 @@ struct WorkspaceGroupHeaderRow: View {
         switch navigationStyle {
         case .push:
             Button {
-                selectWorkspace(group.anchorWorkspaceID)
+                actions.selectWorkspace(group.anchorWorkspaceID)
             } label: {
                 nameLabel
             }
             .buttonStyle(.plain)
         case .sidebar:
             Button {
-                selectWorkspace(group.anchorWorkspaceID)
+                actions.selectWorkspace(group.anchorWorkspaceID)
             } label: {
                 nameLabel
             }
@@ -121,7 +111,7 @@ struct WorkspaceGroupHeaderRow: View {
         HStack(spacing: 6) {
             // Same leading unread gutter as workspace rows (dot hidden when
             // read) so headers and top-level rows keep their columns aligned.
-            WorkspaceUnreadDot(isUnread: hasUnread, leftShift: unreadIndicatorLeftShift)
+            WorkspaceUnreadDot(isUnread: hasUnread, leftShift: value.unreadIndicatorLeftShift)
             chevron
             anchorTarget
                 // The dot itself is accessibility-hidden; VoiceOver hears the
@@ -146,7 +136,7 @@ struct WorkspaceGroupHeaderRow: View {
         .contextMenu { contextMenu }
         .sheet(isPresented: $isRenaming) {
             WorkspaceGroupRenameSheet(currentName: group.name) { newName in
-                renameGroup?(group.id, newName)
+                actions.renameGroup?(group.id, newName)
             }
         }
         .confirmationDialog(
@@ -154,7 +144,9 @@ struct WorkspaceGroupHeaderRow: View {
             isPresented: destructiveDialogIsPresented,
             titleVisibility: .visible
         ) {
-            if pendingDestructiveAction == .ungroup, let ungroupWorkspaceGroup {
+            if pendingDestructiveAction == .ungroup,
+               value.canUngroupWorkspaceGroup,
+               let ungroupWorkspaceGroup = actions.ungroupWorkspaceGroup {
                 Button(
                     L10n.string("mobile.workspaceGroup.ungroup.confirmAction", defaultValue: "Ungroup"),
                     role: .destructive
@@ -164,7 +156,9 @@ struct WorkspaceGroupHeaderRow: View {
                 }
                 .accessibilityIdentifier("MobileWorkspaceGroupUngroupConfirmButton-\(group.id.rawValue)")
             }
-            if pendingDestructiveAction == .delete, let deleteWorkspaceGroup {
+            if pendingDestructiveAction == .delete,
+               value.canDeleteWorkspaceGroup,
+               let deleteWorkspaceGroup = actions.deleteWorkspaceGroup {
                 Button(
                     L10n.string("mobile.workspaceGroup.delete.confirmAction", defaultValue: "Delete Group"),
                     role: .destructive
@@ -186,7 +180,7 @@ struct WorkspaceGroupHeaderRow: View {
 
     @ViewBuilder
     private var contextMenu: some View {
-        if let setGroupPinned {
+        if value.canSetGroupPinned, let setGroupPinned = actions.setGroupPinned {
             Button {
                 setGroupPinned(group.id, !group.isPinned)
             } label: {
@@ -198,7 +192,7 @@ struct WorkspaceGroupHeaderRow: View {
             }
             .accessibilityIdentifier("MobileWorkspaceGroupPinButton-\(group.id.rawValue)")
         }
-        if renameGroup != nil {
+        if value.canRenameGroup {
             Button {
                 isRenaming = true
             } label: {
@@ -206,10 +200,11 @@ struct WorkspaceGroupHeaderRow: View {
             }
             .accessibilityIdentifier("MobileWorkspaceGroupRenameButton-\(group.id.rawValue)")
         }
-        if renameGroup != nil || setGroupPinned != nil {
+        if value.canRenameGroup || value.canSetGroupPinned {
             Divider()
         }
-        if let createWorkspaceInGroup {
+        if value.canCreateWorkspaceInGroup,
+           let createWorkspaceInGroup = actions.createWorkspaceInGroup {
             Button {
                 createWorkspaceInGroup(group.id)
             } label: {
@@ -220,10 +215,10 @@ struct WorkspaceGroupHeaderRow: View {
             }
             .accessibilityIdentifier("MobileWorkspaceGroupNewWorkspace-\(group.id.rawValue)")
         }
-        if ungroupWorkspaceGroup != nil || deleteWorkspaceGroup != nil {
+        if value.canUngroupWorkspaceGroup || value.canDeleteWorkspaceGroup {
             Divider()
         }
-        if ungroupWorkspaceGroup != nil {
+        if value.canUngroupWorkspaceGroup {
             Button(role: .destructive) {
                 pendingDestructiveAction = .ungroup
             } label: {
@@ -234,7 +229,7 @@ struct WorkspaceGroupHeaderRow: View {
             }
             .accessibilityIdentifier("MobileWorkspaceGroupUngroupButton-\(group.id.rawValue)")
         }
-        if deleteWorkspaceGroup != nil {
+        if value.canDeleteWorkspaceGroup {
             Button(role: .destructive) {
                 pendingDestructiveAction = .delete
             } label: {

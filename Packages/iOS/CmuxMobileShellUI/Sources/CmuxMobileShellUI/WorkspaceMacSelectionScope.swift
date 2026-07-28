@@ -7,11 +7,13 @@ struct WorkspaceMacSelectionScope {
     let machineIDs: Set<String>
     let foregroundMachineIDs: Set<String>
     let workspaces: [MobileWorkspacePreview]
+    private let displayPairedMacs: [MobilePairedMac]
 
     init(
         selection: WorkspaceMacSelection,
         workspaces: [MobileWorkspacePreview],
         displayPairedMacs: [MobilePairedMac],
+        notificationFeedItems: [MobileNotificationFeedItem] = [],
         foregroundMacDeviceID: String?,
         aliasesFor: (String) -> [String]
     ) {
@@ -24,7 +26,10 @@ struct WorkspaceMacSelectionScope {
             machineIDs.insert(aliasIndex.representativeID(for: id))
         }
         for mac in displayPairedMacs {
-            machineIDs.insert(mac.macDeviceID)
+            machineIDs.insert(mac.id)
+        }
+        for item in notificationFeedItems {
+            machineIDs.insert(aliasIndex.representativeID(for: item.macDeviceID))
         }
         let foregroundMachineIDs: Set<String>
         if let foregroundMacDeviceID {
@@ -39,6 +44,7 @@ struct WorkspaceMacSelectionScope {
         self.machineIDs = machineIDs
         self.foregroundMachineIDs = foregroundMachineIDs
         self.workspaces = workspaces
+        self.displayPairedMacs = displayPairedMacs
     }
 
     var visibleSelection: WorkspaceMacSelection {
@@ -66,6 +72,25 @@ struct WorkspaceMacSelectionScope {
         return active
     }
 
+    /// The exact saved app instance selected by a pairing-scoped menu entry.
+    func switchTarget(for id: String) -> (macDeviceID: String, instanceTag: String?)? {
+        displayPairedMacs.first { $0.id == id }
+            .map { ($0.macDeviceID, $0.instanceTag) }
+    }
+
+    /// Whether selecting `id` must move the foreground connection to another
+    /// saved app instance. Workspace-only device entries remain local filters.
+    func shouldSwitch(to id: String) -> Bool {
+        guard let target = displayPairedMacs.first(where: { $0.id == id }) else {
+            return false
+        }
+        if let active = displayPairedMacs.first(where: \.isActive) {
+            return active.id != target.id
+        }
+        let targetIDs = aliasIndex.filterMachineIDs(for: target.id)
+        return foregroundMachineIDs.isDisjoint(with: targetIDs)
+    }
+
     func canCreateWorkspace(base canCreateWorkspace: Bool, switchPending: Bool = false) -> Bool {
         guard canCreateWorkspace else { return false }
         guard !switchPending else { return false }
@@ -74,6 +99,36 @@ struct WorkspaceMacSelectionScope {
             return !foregroundMachineIDs.isDisjoint(with: aliasIndex.filterMachineIDs(for: id))
         case .all, .automatic:
             return true
+        }
+    }
+
+    /// Whether content owned by `macDeviceID` belongs to the computer scope
+    /// shown by the shared title picker.
+    func includes(macDeviceID: String) -> Bool {
+        switch visibleSelection {
+        case .machine(let id):
+            return aliasIndex.filterMachineIDs(for: id).contains(macDeviceID)
+        case .all, .automatic:
+            return true
+        }
+    }
+
+    /// Applies the shared computer selection to notification rows through the
+    /// same alias index used by workspace rows and the title picker.
+    func notificationFeedItems(
+        from items: [MobileNotificationFeedItem]
+    ) -> [MobileNotificationFeedItem] {
+        items.filter { includes(macDeviceID: $0.macDeviceID) }
+    }
+
+    /// Exact Mac identifiers represented by a machine selection. `nil` means
+    /// the global All Computers scope.
+    var selectedMachineIDs: Set<String>? {
+        switch visibleSelection {
+        case .machine(let id):
+            aliasIndex.filterMachineIDs(for: id)
+        case .all, .automatic:
+            nil
         }
     }
 

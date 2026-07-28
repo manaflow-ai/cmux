@@ -73,7 +73,8 @@ struct TerminalArtifactChipCountState: Sendable {
     mutating func complete(
         _ request: Request,
         sessionTotal: Int?,
-        currentSurfaceGeneration: UInt64
+        currentSurfaceGeneration: UInt64,
+        freshestLocalCount: Int
     ) -> Completion {
         guard request.stateGeneration == stateGeneration,
               inFlight == request else {
@@ -110,7 +111,7 @@ struct TerminalArtifactChipCountState: Sendable {
         consecutiveRearmCount += 1
         let nextRequest = makeRequest(Pending(
             surfaceGeneration: currentSurfaceGeneration,
-            localCount: request.localCount
+            localCount: freshestLocalCount
         ))
         inFlight = nextRequest
         return Completion(outcome: outcome, nextRequest: nextRequest)

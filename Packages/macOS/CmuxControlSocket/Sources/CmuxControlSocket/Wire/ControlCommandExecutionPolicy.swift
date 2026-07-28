@@ -29,7 +29,13 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
     /// - Parameter method: The trimmed method name.
     public init(forMethod method: String) {
 #if DEBUG
-        if method == "remote.tmux.test_exec" || method == "remote.tmux.test_set_frame" { self = .socketWorker(mainThreadCallable: false); return }
+        if method == "remote.tmux.test_exec" || method == "remote.tmux.test_set_frame"
+            || method == "remote.tmux.test_perturb_divider"
+            || method == "remote.tmux.root_frames"
+            || method == "remote.tmux.window" {
+            self = .socketWorker(mainThreadCallable: false)
+            return
+        }
 #endif
         if method.hasPrefix("vm.") || method.hasPrefix("remotes.") || method.hasPrefix("aiAccounts.")
             || Self.socketWorkerMethods.contains(method) {
@@ -69,7 +75,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
     }
 
     /// Socket-worker methods; internal so package tests can pin the exact set.
-    static let socketWorkerMethods: Set<String> = [
+    static let socketWorkerMethods: Set<String> = Set([
         "system.ping",
         "system.capabilities",
         "auth.status",
@@ -124,7 +130,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "remote.tmux.attach",
         "remote.tmux.detach",
         "remote.tmux.state",
-        "remote.tmux.mirror", "remote.tmux.window", "remote.tmux.pane_grids",
+        "remote.tmux.mirror", "remote.tmux.pane_grids", "remote.tmux.pane_surfaces",
         "sidebar.custom.validate",
         "sidebar.custom.reload",
         "sidebar.custom.select",
@@ -201,7 +207,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "browser.state.load",
         "browser.addinitscript",
         "browser.addscript",
-        "browser.addstyle",
+        "browser.addstyle", "browser.design_mode.set", "browser.design_mode.status",
         // The v2 surface-telemetry twins of the v1 report family. Parse and
         // response encoding run on the worker; each body crosses to the main
         // actor exactly once (the resolution + write + ref minting hop), so
@@ -209,6 +215,8 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // (cmux-zsh-integration.zsh `_cmux_report_tty_once`) still returns
         // only after the TTY registration is visible to later commands.
         "surface.report_pwd",
+        "surface.report_git_branch",
+        "surface.clear_git_branch",
         "surface.report_shell_state",
         "surface.report_tty",
         "surface.ports_kick",
@@ -257,7 +265,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // sending input never activates or reselects anything.
         "surface.send_text",
         "surface.send_key",
-    ]
+    ]).union(simulatorMethods)
 
     /// Socket-worker methods that are also safe to invoke from the main
     /// thread. The invariant is deadlock-freedom, not zero cost: a member's
@@ -275,6 +283,8 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "system.ping",
         "system.capabilities",
         "surface.report_pwd",
+        "surface.report_git_branch",
+        "surface.clear_git_branch",
         "surface.report_shell_state",
         "surface.report_tty",
         "surface.ports_kick",
@@ -379,6 +389,13 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "read_screen",
     ]
 
+    /// The v1 diagnostic-read family. These commands await actor-owned
+    /// diagnostic snapshots, so they run on the socket worker and are not
+    /// callable from the main thread.
+    static let diagnosticReadV1Commands: Set<String> = [
+        "iroh_diag",
+    ]
+
     /// The v1 resolution-read family (tranche D): the v1 twins of the v2
     /// resolution reads. Nonisolated `TerminalController` bodies take one
     /// `v2MainSync` snapshot hop and format their reply lines on the worker.
@@ -416,6 +433,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         sidebarTelemetryV1Commands
             .union(notificationV1Commands)
             .union(terminalReadV1Commands)
+            .union(diagnosticReadV1Commands)
             .union(resolutionReadV1Commands)
             .union(terminalSendV1Commands)
             .union(["ping"])

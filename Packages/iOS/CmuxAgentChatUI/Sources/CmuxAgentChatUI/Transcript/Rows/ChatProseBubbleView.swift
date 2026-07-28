@@ -7,12 +7,13 @@ import UIKit
 /// The core prose bubble: user prompts render trailing-aligned plain text
 /// on the outgoing fill; agent prose renders leading-aligned with markdown
 /// text runs and embedded monospace code blocks.
-public struct ChatProseBubbleView: View {
+public struct ChatProseBubbleView: View, Equatable {
     private let prose: ChatProse
     private let message: ChatMessage
     private let groupPosition: ChatGroupPosition
     private let showsTimestamp: Bool
     private let onShowCodeDetail: (String, Int) -> Void
+    private let onCopied: () -> Void
 
     @Environment(\.chatTheme) private var theme
     @Environment(\.chatBubbleMaxWidth) private var bubbleMaxWidth
@@ -28,18 +29,28 @@ public struct ChatProseBubbleView: View {
     ///   - showsTimestamp: Whether the group timestamp renders under this
     ///     bubble.
     ///   - onShowCodeDetail: Opens full code block text outside the row.
+    ///   - onCopied: Reports a completed copy so the host can confirm it.
     public init(
         prose: ChatProse,
         message: ChatMessage,
         groupPosition: ChatGroupPosition,
         showsTimestamp: Bool,
-        onShowCodeDetail: @escaping (String, Int) -> Void = { _, _ in }
+        onShowCodeDetail: @escaping (String, Int) -> Void = { _, _ in },
+        onCopied: @escaping () -> Void = {}
     ) {
         self.prose = prose
         self.message = message
         self.groupPosition = groupPosition
         self.showsTimestamp = showsTimestamp
         self.onShowCodeDetail = onShowCodeDetail
+        self.onCopied = onCopied
+    }
+
+    nonisolated public static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.prose == rhs.prose
+            && lhs.message == rhs.message
+            && lhs.groupPosition == rhs.groupPosition
+            && lhs.showsTimestamp == rhs.showsTimestamp
     }
 
     public var body: some View {
@@ -90,6 +101,7 @@ public struct ChatProseBubbleView: View {
     private func copyProse() {
         #if canImport(UIKit)
         UIPasteboard.general.string = prose.text
+        onCopied()
         #endif
     }
 

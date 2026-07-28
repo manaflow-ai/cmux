@@ -229,13 +229,14 @@ final class PresenceHeartbeatClient {
         bundleID: String?,
         displayName: String?,
         routes: [CmxAttachRoute],
-        stopping: Bool
+        stopping: Bool,
+        now: Date = Date()
     ) -> [String: Any] {
         var bodyDict: [String: Any] = [
             "deviceId": deviceID,
             "platform": "mac",
             "tag": tag,
-            "routes": routes.map(\.mobileHostJSONObject),
+            "routes": routes.mobileHostJSONObjects(for: .cloudRendezvous, at: now),
         ]
         // The app's bundle id lets the phone label the build channel on the
         // Computers screen (com.cmuxterm.app = Stable, .nightly/.rc/.staging

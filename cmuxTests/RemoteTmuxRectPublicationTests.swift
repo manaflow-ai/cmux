@@ -202,9 +202,13 @@ import Testing
         #expect(paneRectsFIFOCount(connection) == 1)
         reply(connection, lines: ["can't find window: @1"], isError: true)
         // …then the pending layout is dropped: observers keep the verified
-        // 80×24 tree, never the raw 120×40 string geometry, and no fetch loops.
+        // 80×24 tree, never the raw 120×40 string geometry, and no fetch
+        // loops. The drop still notifies once — it RESOLVES the pending
+        // layout, and a mirror deferring a divider-hold verdict to "this
+        // window's pending layout resolved" needs that edge to reconcile
+        // against the kept tree.
         #expect(paneRectsFIFOCount(connection) == 0)
-        #expect(notifies == 0)
+        #expect(notifies == 1)
         #expect(connection.windowsByID[1]?.layout.width == 80)
     }
 
@@ -244,7 +248,7 @@ import Testing
         #expect(notifies == 1)
     }
 
-    @Test func staleGenerationReplyIsDiscardedAndRefetched() {
+    @Test func staleGenerationReplyPublishesInterimStateThenReconciles() {
         let (connection, writer, pipe) = attachedConnection()
         defer { writer.close(); try? pipe.fileHandleForReading.close() }
         publishSinglePaneWindow(connection)
@@ -267,16 +271,19 @@ import Testing
         ))
         #expect(paneRectsFIFOCount(connection) == 1)
 
-        // The reply for the SUPERSEDED fetch is stale: discarded (no publish,
-        // no notify) and the owed fetch for the newer generation goes out.
+        // The reply for the SUPERSEDED fetch is stale but covers both panes
+        // of the current tree: it publishes as interim verified state (its
+        // rects are the freshest list-panes snapshot observers can have) and
+        // the owed fetch for the newer generation goes out.
         reply(connection, lines: ["%0 0 0 60 40 1 off :stale", "%2 61 0 59 40 0 off :stale"])
-        #expect(notifies == 0)
-        #expect(connection.windowsByID[1]?.layout.width == 80)
+        #expect(notifies == 1)
+        #expect(paneRect(in: connection.windowsByID[1]!.layout, id: 2)! == (61, 0, 59, 40))
         #expect(paneRectsFIFOCount(connection) == 1)
 
         reply(connection, lines: ["%0 0 0 80 40 1 off :wide", "%2 81 0 39 40 0 off :narrow"])
-        #expect(notifies == 1)
+        #expect(notifies == 2)
         #expect(paneRect(in: connection.windowsByID[1]!.layout, id: 2)! == (81, 0, 39, 40))
+        #expect(connection.hasPendingLayout(windowId: 1) == false)
     }
 
     @Test func layoutWhileDisconnectedStaysQuarantinedWithoutSending() {
@@ -364,8 +371,11 @@ import Testing
         #expect(connection.windowsByID[1]?.layout.width == 80)
         #expect(paneRectsFIFOCount(connection) == 1)
         // A zero-sized rect is a mid-resize artifact, equally unverified.
+        // Exhausting the retry drops the pending layout; the drop notifies
+        // once (it resolves the pending layout for divider-hold reconciles)
+        // while observers keep the verified tree.
         reply(connection, lines: ["%0 0 0 60 40 1 off :left", "%2 61 0 0 40 0 off :right"])
-        #expect(notifies == 0)
+        #expect(notifies == 1)
         #expect(connection.windowsByID[1]?.layout.width == 80)
         #expect(paneRectsFIFOCount(connection) == 0)
     }
@@ -402,7 +412,9 @@ import Testing
         reply(connection, lines: ["can't find window"], isError: true)
         #expect(connection.windowsByID[healthyWindow] != nil)
         #expect(connection.windowsByID[erroringWindow] == nil)
-        #expect(notifies == 1)
+        // Two notifies: the dead window's drop resolves its pending layout
+        // (one), which drains the batch and flushes the healthy window (two).
+        #expect(notifies == 2)
     }
 
     @Test func styleTokensAreStrippedFromExpandedHeaderFormats() {
@@ -492,6 +504,91 @@ import Testing
         #expect(connection.snapshot().paneOutputByteCounts[5] == nil)
         #expect(connection.paneForegroundStates[4] != nil)
         #expect(connection.paneForegroundStates[5] == nil)
+    }
+
+    /// Layout events that arrive faster than one round trip must not starve
+    /// publication. Discarding every generation-stale rects reply livelocks:
+    /// under continuous churn each reply is one generation behind by the time
+    /// it lands, `windowsByID` freezes at the pre-churn tree, and the settle
+    /// oracle times out even though claims and tmux agree (seed-1 fuzz,
+    /// iter 10: published layout stuck at 184x42 for 32 s). A stale reply
+    /// that still covers every pane of the current tree publishes — true as
+    /// of that reply — and owes exactly one follow-up fetch.
+    @Test func staleGenerationReplyCoveringCurrentTreeStillPublishes() {
+        let (connection, writer, pipe) = attachedConnection()
+        defer { writer.close(); try? pipe.fileHandleForReading.close() }
+        publishSinglePaneWindow(connection)
+
+        var notifies = 0
+        let token = connection.addObserver(onTopologyChanged: { notifies += 1 })
+        defer { connection.removeObserver(token) }
+
+        // First churn event: one rects fetch goes out.
+        connection.handleMessageForTesting(.layoutChange(
+            windowId: 1, layout: "f92f,90x24,0,0,0", visibleLayout: nil, zoomed: false
+        ))
+        #expect(paneRectsFIFOCount(connection) == 1)
+        // Second event lands while that fetch is in flight: coalesced, no
+        // second fetch, generation moves past the in-flight one.
+        connection.handleMessageForTesting(.layoutChange(
+            windowId: 1, layout: "f92f,100x24,0,0,0", visibleLayout: nil, zoomed: false
+        ))
+        #expect(paneRectsFIFOCount(connection) == 1)
+
+        // The now-stale reply covers the current tree's only pane: publish.
+        reply(connection, lines: ["%0 0 0 90 24 1 off :zsh"])
+        #expect(notifies == 1)
+        #expect(connection.windowsByID[1]?.width == 100)
+        #expect(paneRect(in: connection.windowsByID[1]!.layout, id: 0)! == (0, 0, 90, 24))
+        #expect(paneRectsFIFOCount(connection) == 1)
+
+        // The owed follow-up lands with exact rects: quarantine drains.
+        reply(connection, lines: ["%0 0 0 100 24 1 off :zsh"])
+        #expect(notifies == 2)
+        #expect(paneRect(in: connection.windowsByID[1]!.layout, id: 0)! == (0, 0, 100, 24))
+        #expect(connection.hasPendingLayout(windowId: 1) == false)
+        #expect(paneRectsFIFOCount(connection) == 0)
+    }
+
+    /// The publish-what-you-verified path only applies while the reply still
+    /// covers the current tree. When the structure changed mid-flight (the
+    /// stale reply lacks a pane the current tree requires), observers keep
+    /// the last verified tree and the refetch proceeds without burning the
+    /// garbled-reply retry budget.
+    @Test func staleReplyMissingCurrentPanesKeepsLastVerifiedTreeAndRefetches() {
+        let (connection, writer, pipe) = attachedConnection()
+        defer { writer.close(); try? pipe.fileHandleForReading.close() }
+        publishSinglePaneWindow(connection)
+
+        var notifies = 0
+        let token = connection.addObserver(onTopologyChanged: { notifies += 1 })
+        defer { connection.removeObserver(token) }
+
+        connection.handleMessageForTesting(.layoutChange(
+            windowId: 1, layout: "f92f,90x24,0,0,0", visibleLayout: nil, zoomed: false
+        ))
+        // A split arrives while the single-pane fetch is in flight: the
+        // current tree now requires %0 AND %2.
+        connection.handleMessageForTesting(.layoutChange(
+            windowId: 1,
+            layout: "abcd,120x40,0,0{60x40,0,0,0,59x40,61,0,2}",
+            visibleLayout: nil, zoomed: false
+        ))
+
+        // The stale single-pane reply cannot cover the split tree: no
+        // publish, last verified tree kept, one refetch owed.
+        reply(connection, lines: ["%0 0 0 90 24 1 off :zsh"])
+        #expect(notifies == 0)
+        #expect(connection.windowsByID[1]?.layout.width == 80)
+        #expect(paneRectsFIFOCount(connection) == 1)
+
+        reply(connection, lines: [
+            "%0 0 0 60 40 1 off :zsh",
+            "%2 61 0 59 40 0 off :zsh",
+        ])
+        #expect(notifies == 1)
+        #expect(connection.windowsByID[1]?.width == 120)
+        #expect(connection.hasPendingLayout(windowId: 1) == false)
     }
 
 }

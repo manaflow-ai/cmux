@@ -327,6 +327,7 @@ struct RemotePortScanGatingTests {
             host: host,
             configuration: configuration,
             proxyBroker: UnusedRemoteProxyBroker(),
+            connectionBroker: NativeSSHConnectionBroker(),
             manifestRepository: RemoteDaemonManifestRepository(
                 homeDirectory: FileManager.default.temporaryDirectory
             ),
@@ -378,7 +379,6 @@ final class SpyProcessRunner: RemoteSessionProcessRunning, @unchecked Sendable {
         }
     }
 }
-
 struct PortScanNoopRemoteSessionHost: RemoteSessionHosting {
     func publishConnectionState(_ state: WorkspaceRemoteConnectionState, detail: String?) {}
     func publishDaemonStatus(_ status: WorkspaceRemoteDaemonStatus) {}
@@ -387,7 +387,6 @@ struct PortScanNoopRemoteSessionHost: RemoteSessionHosting {
     func publishHeartbeat(count: Int, lastSeenAt: Date?) {}
     func publishBootstrapRemoteTTY(_ ttyName: String) {}
 }
-
 final class RecordingRemoteSessionHost: RemoteSessionHosting, @unchecked Sendable {
     private let lock = NSLock()
     private var _connectionStates: [(state: WorkspaceRemoteConnectionState, detail: String?)] = []

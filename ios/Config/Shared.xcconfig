@@ -38,14 +38,23 @@ CMUX_PRESENCE_BASE_URL =
 
 // Auth-environment override, baked into the CMUXAuthEnvironment Info.plist key
 // so a normally-tapped dev device build (no shell env) can sign in against the
-// PRODUCTION Stack project and pair with a release (beta/stable) Mac — a
-// DEBUG build otherwise signs in to the development project, whose user ids
-// can never match a release Mac's QR account binding
-// (https://github.com/manaflow-ai/cmux/issues/7145). Empty by default
-// (DEBUG -> development, Release -> production). ios/scripts/reload.sh
-// --prod-auth sets it to "production". Keep the Info.plist key name in sync
-// with MobileAuthComposition.authEnvironmentInfoPlistKey.
+// PRODUCTION Stack project when testing production-account behavior. Build
+// compatibility remains separate: a tagged DEV iOS build may connect only to
+// the same tagged DEV Mac build. Empty by default (DEBUG -> development,
+// Release -> production). ios/scripts/reload.sh --prod-auth sets it to
+// "production". Keep the Info.plist key name in sync with
+// MobileAuthComposition.authEnvironmentInfoPlistKey.
 CMUX_IOS_AUTH_ENV =
+
+// Tagged reloads bake the matching macOS tag's isolated web origin here.
+// Empty normal builds retain AuthConfig's channel default.
+CMUX_API_BASE_URL =
+
+// Iroh trust-broker origin, independent of the general app API. Tagged dev
+// reloads bake shared staging here so parallel Mac/iOS lanes can discover one
+// another without moving their local feature APIs. Empty release builds fall
+// back to AuthConfig's production API origin.
+CMUX_IROH_BROKER_BASE_URL =
 
 // Crash reporting stays enabled for development and TestFlight. The official
 // App Store lane overrides this to NO until its consent lifecycle is proven.
@@ -54,6 +63,11 @@ CMUX_CRASH_REPORTING_ENABLED = YES
 // ==========================================
 // Platform Configuration
 // ==========================================
+// Keep >= 18.0: every cmux iOS Swift package declares .iOS(.v18), so a lower
+// app target fails the build. The ITMS-90208 rejections that motivated the
+// brief 18.0/17.5 lowering were caused by an embedded static-archive
+// Iroh.framework (stripped in ios/scripts/upload-testflight.sh), not by this
+// value.
 IPHONEOS_DEPLOYMENT_TARGET = 18.4
 
 // (1 == iPhone, 2 == iPad)

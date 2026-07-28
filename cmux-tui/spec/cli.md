@@ -2,6 +2,39 @@
 
 The generated CLI is `cmux-tui <verb> ...`. The current checked-in binary also has TUI server modes; this file specifies the future generated command verbs that map 1:1 to `commands.md`.
 
+## Process Modes
+
+`relay` is an implemented hand-written process mode, not a generated protocol command:
+
+```text
+cmux-tui relay [--session <name>] [--socket <path>]
+```
+
+It resolves the target socket with the normal server-mode arguments, with `--socket` taking precedence, and copies raw protocol bytes between that socket and stdio. It produces no human output on stdout. Machine connectors use `ssh -T host cmux-tui relay --session main` to carry a remote session without nesting a TUI. See [Transport Contract](transports.md#relay-stdio).
+
+Dynamic machine providers are implemented TUI startup modes:
+
+```text
+cmux-tui --machine-provider <unix-socket>
+cmux-tui --machine-provider-command <program> [arg ...] --
+cmux-tui --cloud [--cloud-host <host>] [--cloud-user <user>]
+                   [--cloud-port <port>] [--cloud-identity <path>]
+```
+
+Exactly one provider mode may be active. The direct command's terminating `--` is mandatory; every preceding value is a literal argv element, and the client appends `control` or `stream` without a shell. Cloud override flags imply `--cloud`, take precedence over `machine_provider.cloud` config values, and default the host to `cmux.cloud`. An explicit Unix-socket or command mode overrides an enabled cloud config. Provider modes reject static `machines`, attach/server flags, `--headless`, and `--term` instead of silently ignoring them.
+
+The cloud transport invokes OpenSSH with exact remote commands `cmux provider control` and `cmux provider stream`. Provider bearers are generated client-side per connection generation and never carried in argv or environment variables. See [Machine Provider Contract](machine-provider.md#implemented-v1).
+
+`machine-agent` is another implemented hand-written process mode:
+
+```text
+cmux-tui machine-agent [--session <name>] [--socket <path>]
+  [--state <path>] [--cloud-host <host>] [--cloud-user <user>]
+  [--cloud-port <port>] [--cloud-identity <path>]
+```
+
+It verifies one local protocol-v10 session, then opens an outbound OpenSSH registration using the exact remote command `cmux machine register`. Packaged builds expose the same mode as `npx cmux machine-agent`. See [Machine Agent Contract](machine-agent.md).
+
 ## Global Conventions
 
 ### Socket Resolution
@@ -35,13 +68,17 @@ Human output is stable, greppable, and minimal. It must not include colors, tabl
 
 ### Stdin
 
-`send` reads stdin when neither `--text` nor `--bytes` is supplied. Stdin is read to EOF and sent as the `text` field.
+`send` reads stdin when neither `--text` nor `--bytes` is supplied. Stdin is read to EOF and sent as the `text` field. `--paste` applies equally to argument or stdin payloads and requires protocol 7.
 
 Future commands may opt into stdin only when their command block says so. By default commands do not read stdin.
 
+### Interactive attach
+
+`cmux-tui attach` opens the full session TUI. `cmux-tui attach --surface <id>` accepts a numeric or short surface id and opens only that PTY terminal, using the full host grid without session chrome. This interactive mode is separate from the JSON-lines `attach-surface` verb.
+
 ### Id Arguments
 
-Protocol v5 CLI arguments for ids are numeric. Protocol v6 accepts numeric ids and short ids for any `IdRef` parameter. Numeric-looking strings are rejected as ambiguous when short-id mode is active.
+Generated command verbs accept canonical decimal ids. They reject leading-zero values instead of interpreting a copied short id as a different numeric object. Interactive `attach --surface` also accepts exact six-character short ids; digit-only short ids beginning with zero stay in that fixed-width namespace, so their meaning cannot change when live ids change.
 
 ### Selector Arguments
 
@@ -53,24 +90,35 @@ The generated CLI requires one of `--index` or `--delta` for `select-tab`, `sele
 | --- | --- | --- | --- | --- |
 | `identify` | implemented | none | global flags | one metadata line |
 | `ping` | implemented | none | global flags | one liveness line |
+| `set-client-info` | implemented | none | `--name <name>`, `--kind <kind>` | none |
+| `list-clients` | implemented | none | global flags | client lines |
+| `set-client-sizing` | implemented protocol 10 | `--surface <id> --enabled <true-or-false>` | `--client <id>`, global flags | none |
+| `detach-client` | implemented | `--client <id>` | global flags | none |
 | `reload-config` | implemented | none | global flags | none |
 | `set-window-title` | implemented | `--title <title>` | global flags | none |
 | `clear-window-title` | implemented | none | global flags | none |
 | `list-workspaces` | implemented | none | global flags | tree lines |
 | `export-layout` | implemented | none | `--screen <id>` | JSON result object |
-| `apply-layout` | implemented | `--layout <json>` | `--workspace <id>`, `--name <name>` | screen and pane/surface lines |
-| `send` | implemented | `--surface <id>` | `--text <text>`, `--bytes <base64>` | none |
+| `apply-layout` | implemented | `--layout <json>` | `--workspace <id>`, `--name <name>`, `--cols <n> --rows <n>` | screen and pane/surface lines |
+| `send` | implemented; `--paste` protocol 7 | `--surface <id>` | `--text <text>`, `--bytes <base64>`, `--paste` | none |
 | `read-screen` | implemented | `--surface <id>` | none | screen text |
+| `clear-history` | implemented | `--surface <id>` | none | none |
+| `read-scrollback` | proposed protocol 7 | `--surface <id> --start <n> --count <n>` | none | scrollback text rows |
 | `vt-state` | implemented | `--surface <id>` | none | `cols=<n> rows=<n> data=<base64>` |
 | `new-tab` | implemented | none | `--pane <id>`, `--cwd <path>`, `--cols <n> --rows <n>` | surface id |
 | `new-browser-tab` | implemented | `--url <url>` | `--pane <id>`, `--cols <n> --rows <n>` | surface id |
 | `new-workspace` | implemented | none | `--name <name>`, `--cols <n> --rows <n>` | surface id |
 | `new-screen` | implemented | none | `--workspace <id>`, `--cols <n> --rows <n>` | surface id |
-| `split` | implemented | `--pane <id> --dir right|down` | `--cols <n> --rows <n>` | surface id |
-| `set-ratio` | implemented | `--pane <id> --dir right|down --ratio <n>` | none | none |
-| `pane-neighbor` | implemented | `--pane <id> --dir left|right|up|down` | none | pane id or `null` |
-| `focus-direction` | implemented | `--dir left|right|up|down` | `--pane <id>` | pane id |
-| `swap-pane` | implemented | `--pane <id>` plus one of `--dir left|right|up|down`, `--target <id>` | none | none |
+| `new-pane` | implemented | `--pane <id>` | `--cols <n> --rows <n>` | surface id |
+| `new-pane-right` | implemented; `viewport-splits-v1` | `--pane <id>` | `--width <fraction>`, `--cols <n> --rows <n>` | surface id |
+| `split` | implemented | `--pane <id> --dir right\|down` | `--cols <n> --rows <n>` | surface id |
+| `set-ratio` | implemented | `--pane <id> --dir right\|down --ratio <n>` | none | none |
+| `set-split-ratio` | implemented | `--split <id> --ratio <n>` | none | none |
+| `set-viewport-pane-width` | implemented; `viewport-column-resize-v1` | `--pane <id> --width <fraction>` | none | none |
+| `undo-layout` | implemented; `layout-undo-v1` | `--pane <id>` | `--revision <n> --confirm-close` | undo or confirmation line |
+| `pane-neighbor` | implemented | `--pane <id> --dir left\|right\|up\|down` | none | pane id or `null` |
+| `focus-direction` | implemented | `--dir left\|right\|up\|down` | `--pane <id>` | pane id |
+| `swap-pane` | implemented | `--pane <id>` plus one of `--dir left\|right\|up\|down`, `--target <id>` | none | none |
 | `zoom-pane` | implemented | none | `--pane <id>`, `--mode toggle|on|off` | zoom state line |
 | `process-info` | implemented | `--surface <id>` | none | process metadata line |
 | `set-default-colors` | implemented | none | `--fg #rrggbb`, `--bg #rrggbb` | none |
@@ -83,6 +131,7 @@ The generated CLI requires one of `--index` or `--delta` for `select-tab`, `sele
 | `rename-screen` | implemented | `--screen <id> --name <name>` | none | none |
 | `rename-workspace` | implemented | `--workspace <id> --name <name>` | none | none |
 | `resize-surface` | implemented | `--surface <id> --cols <n> --rows <n>` | none | none |
+| `release-surface-size` | implemented | `--surface <id>` | none | none |
 | `focus-pane` | implemented | `--pane <id>` | none | none |
 | `select-tab` | implemented | one of `--index`, `--delta` | `--pane <id>` | none |
 | `select-screen` | implemented | one of `--index`, `--delta` | none | none |
@@ -90,10 +139,10 @@ The generated CLI requires one of `--index` or `--delta` for `select-tab`, `sele
 | `move-tab` | implemented | `--surface <id> --pane <id> --index <n>` | none | none |
 | `move-workspace` | implemented | `--workspace <id> --index <n>` | none | none |
 | `scroll-surface` | implemented | `--surface <id> --delta <n>` | none | none |
-| `subscribe` | implemented | none | none in v5 | event JSON lines |
-| `attach-surface` | implemented | `--surface <id>` | none | event JSON lines |
+| `subscribe` | implemented; tree deltas protocol 7 | none | `--tree-events coarse|deltas` | event JSON lines |
+| `attach-surface` | implemented; render mode protocol 7, initial sizing capability-gated | `--surface <id>` | `--mode bytes\|render`, paired `--cols <n> --rows <n>` | event JSON lines |
 | `wait-for` | implemented | `--surface <id> --pattern <regex> --timeout-ms <n>` | none | none |
-| `run` | implemented | `-- <argv...>` or `--command <cmd>` | `--pane <id>`, `--new-workspace`, `--cwd <path>`, `--name <name>` | surface id |
+| `run` | implemented | `-- <argv...>` or `--command <cmd>` | `--pane <id>`, `--new-workspace`, `--key <stable-key>` with `--new-workspace`, `--cwd <path>`, `--name <name>` | surface id |
 | `send-key` | implemented | `--surface <id> <key>...` | none | none |
 | `copy` | implemented | `--surface <id> --mode screen\|selection\|scrollback` | none | text |
 | `ids` | implemented | none | `--kind workspace\|screen\|pane\|surface` | id lines |
@@ -159,7 +208,8 @@ done
 
 ```bash
 new_surface=$(cmux-tui split --pane 2 --dir right)
-cmux-tui set-ratio --pane 2 --dir right --ratio 0.65
+split=$(cmux-tui --json export-layout | jq -r '.layout.split')
+cmux-tui set-split-ratio --split "$split" --ratio 0.65
 ```
 
 8. Subscribe to events and react to bells:

@@ -16,6 +16,26 @@ import CmuxBrowser
 @testable import cmux
 #endif
 
+@MainActor
+@Suite
+struct BrowserWebViewUserAgentRegressionTests {
+    @Test func browserNavigationUsesEmbeddedWebKitIdentity() {
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer {
+            panel.webView.stopLoading()
+        }
+
+        panel.webView.customUserAgent =
+            "Mozilla/5.0 Chrome/125.0.0.0 Safari/537.36"
+        panel.navigate(to: URL(string: "about:blank")!)
+
+        #expect(
+            panel.webView.customUserAgent == nil,
+            "Embedded WKWebView must keep its native identity so canvas apps do not select Safari-only rendering paths"
+        )
+    }
+}
+
 private func drainBrowserPanelMainQueue() {
     let expectation = XCTestExpectation(description: "drain main queue")
     DispatchQueue.main.async {
@@ -715,7 +735,6 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
         let indexURL = rootURL.appendingPathComponent("index.html", isDirectory: false)
         try FileManager.default.createDirectory(at: assetURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: rootURL) }
-
         let deflatedAssetURL = assetURL.appendingPathExtension("deflate")
         let deflatedWorkerAssetURL = workerAssetURL.appendingPathExtension("deflate")
         try DeflatedAssetTestSupport.writeText("""
@@ -729,13 +748,13 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
         <html>
         <body>
         <script type="module">
-          import { marker } from "./assets/mod.mjs";
-          import { workerMarker } from "./assets/worker.js";
-          WebAssembly.compile(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]))
-            .then(() => {
+          Promise.all([import("./assets/mod.mjs"), import("./assets/worker.js"), fetch("./assets/mod.mjs").then((response) => response.text())]).then(([{ marker }, { workerMarker }, source]) => {
+            if (!source.includes('marker = "module-ok"')) throw new Error("custom-scheme fetch returned compressed module bytes");
+            return WebAssembly.compile(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0])).then(() => ({ marker, workerMarker }));
+          })
+            .then(({ marker, workerMarker }) => {
               const result = `${marker}:${workerMarker}:wasm-ok`;
-              document.body.dataset.loaded = result;
-              window.webkit.messageHandlers.moduleLoaded.postMessage(result);
+              document.body.dataset.loaded = result; window.webkit.messageHandlers.moduleLoaded.postMessage(result);
             })
             .catch((error) => {
               const result = `wasm-error:${error.message}`;
@@ -758,16 +777,17 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
                 .init(requestPath: "/index.patch", fileURL: patchURL, mimeType: "text/x-diff"),
             ]
         )
-
         let allowedURL = try XCTUnwrap(URL(string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://\(token)/index.html"))
         let allowedPatchURL = try XCTUnwrap(URL(string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://\(token)/index.patch"))
-        let blockedURL = try XCTUnwrap(URL(string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://\(token)/not-allowed.html"))
-        let queryURL = try XCTUnwrap(URL(string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://\(token)/index.html?copy=1"))
+        let rejectedURLs = try ["\(CmuxDiffViewerURLSchemeHandler.scheme)://\(token)/not-allowed.html", "\(CmuxDiffViewerURLSchemeHandler.scheme)://\(token)/index.html?copy=1", "\(CmuxDiffViewerURLSchemeHandler.scheme)://\(token)/index.html#route", "\(CmuxDiffViewerURLSchemeHandler.scheme)://user@\(token)/index.html", "\(CmuxDiffViewerURLSchemeHandler.scheme)://\(token):42/index.html"].map { try XCTUnwrap(URL(string: $0)) }
         XCTAssertNotNil(CmuxDiffViewerURLSchemeHandler.shared.registeredFile(for: allowedURL))
         XCTAssertNotNil(CmuxDiffViewerURLSchemeHandler.shared.registeredFile(for: allowedPatchURL))
-        XCTAssertNil(CmuxDiffViewerURLSchemeHandler.shared.registeredFile(for: blockedURL))
-        XCTAssertNil(CmuxDiffViewerURLSchemeHandler.shared.registeredFile(for: queryURL))
-
+        XCTAssertNil(CmuxDiffViewerURLSchemeHandler.shared.registeredFile(for: rejectedURLs[0]))
+        XCTAssertNil(CmuxDiffViewerURLSchemeHandler.shared.registeredFile(for: rejectedURLs[1]))
+        XCTAssertTrue(CmuxDiffViewerURLSchemeHandler.shared.allowsNavigation(to: allowedURL))
+        for rejectedURL in rejectedURLs {
+            XCTAssertFalse(CmuxDiffViewerURLSchemeHandler.shared.allowsNavigation(to: rejectedURL))
+        }
         let config = WKWebViewConfiguration()
         let contentController = WKUserContentController()
         let moduleLoaded = expectation(description: "module evaluated")

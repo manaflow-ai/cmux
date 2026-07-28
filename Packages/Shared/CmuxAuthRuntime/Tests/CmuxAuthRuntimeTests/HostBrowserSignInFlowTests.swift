@@ -8,6 +8,62 @@ import Testing
 /// the sign-out-vs-callback race guards, deadlines, and attempt cancellation.
 @MainActor
 @Suite(.serialized) struct HostBrowserSignInFlowTests {
+    @Test func concurrentSignOutBeginsOnceAndClearsLocalAuthBeforeTeardownCompletes() async {
+        let teardownStarted = TestPhaseSignal()
+        let teardownBlocker = TestContinuationBlocker()
+        let recorder = HostBrowserSignOutOrderingRecorder()
+        let harness = HostBrowserSignInFlowHarness(
+            beginSignOut: {
+                recorder.record(.prepare)
+            },
+            onSignedOut: { _, _ in
+                await recorder.record(.signedOut)
+                await teardownStarted.markStarted()
+                await teardownBlocker.wait()
+            }
+        )
+        await harness.tokenStore.setTokens(
+            accessToken: "access-1",
+            refreshToken: "refresh-1"
+        )
+
+        let firstSignOut = Task { await harness.flow.signOut() }
+        await teardownStarted.waitUntilStarted()
+        let racedSignOut = Task { await harness.flow.signOut() }
+
+        #expect(await harness.tokenStore.getStoredAccessToken() == nil)
+        #expect(await harness.tokenStore.getStoredRefreshToken() == nil)
+        #expect(recorder.values() == [.prepare, .signedOut])
+
+        await teardownBlocker.release()
+        await firstSignOut.value
+        await racedSignOut.value
+
+        #expect(recorder.values() == [.prepare, .signedOut])
+        #expect(await harness.tokenStore.getStoredAccessToken() == nil)
+        #expect(await harness.tokenStore.getStoredRefreshToken() == nil)
+    }
+
+    @Test func signOutRunsCompositionTeardownWithCapturedCredentials() async {
+        let recorder = HostBrowserSignOutHookRecorder()
+        let harness = HostBrowserSignInFlowHarness(
+            onSignedOut: { accessToken, refreshToken in
+                await recorder.record(accessToken, refreshToken)
+            }
+        )
+        await harness.tokenStore.setTokens(
+            accessToken: "access-1",
+            refreshToken: "refresh-1"
+        )
+
+        await harness.flow.signOut()
+
+        let calls = await recorder.values()
+        #expect(calls.count == 1)
+        #expect(calls.first?.accessToken == "access-1")
+        #expect(calls.first?.refreshToken == "refresh-1")
+    }
+
     @Test func browserCallbackSignsInAndSeedsTokens() async throws {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
         let harness = HostBrowserSignInFlowHarness(user: user)
@@ -427,49 +483,4 @@ import Testing
         #expect(harness.flow.lastFailure == nil)
     }
 
-    @Test func signOutDuringCallbackValidationStillRevokesWithCapturedCredentials() async {
-        // flow.signOut() advances the flow's sign-out generation BEFORE the
-        // coordinator captures the teardown credentials with raw store reads.
-        // If the parked callback validation resumes inside that capture
-        // window, a flow-side seed clear runs first, the capture reads an
-        // empty store, and the best-effort server teardown (push unregister,
-        // session revocation) silently loses its credentials even though the
-        // device is online. The coordinator owns the local clear AFTER the
-        // capture; the flow must not clear the shared store underneath it.
-        let clock = ManualTestClock()
-        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
-        let harness = HostBrowserSignInFlowHarness(user: user, clock: clock)
-        await harness.client.closeUserGate()
-
-        let attempt = Task { await harness.flow.signIn(timeout: 60) }
-        await harness.waitForSession()
-        await clock.waitUntilSleepers(count: 3)
-        harness.factory.sessions[0].deliver(harness.callbackURL(state: harness.callbackState(harness.factory.sessions[0])))
-        await harness.waitForPendingUserRequest()
-
-        // Sign-out parks inside its credential capture, before its local
-        // clear.
-        await harness.client.armStoredAccessTokenGate()
-        let signOut = Task { await harness.flow.signOut() }
-        await harness.client.storedAccessTokenDidPark()
-
-        // The parked validation resumes and fails as cancelled while
-        // sign-out is still inside the capture window.
-        await harness.client.openUserGate()
-        clock.advance(by: .seconds(60))
-        #expect(await attempt.value == false)
-
-        // Sign-out proceeds: capture, local-first clear, bounded revocation.
-        await harness.client.releaseStoredAccessTokenGate()
-        await signOut.value
-
-        #expect(harness.coordinator.isAuthenticated == false)
-        #expect(await harness.tokenStore.getStoredRefreshToken() == nil)
-        #expect(await harness.tokenStore.getStoredAccessToken() == nil)
-        // The teardown must authenticate as the signed-out session.
-        let revoked = await harness.client.revokedCredentials
-        #expect(revoked.count == 1)
-        #expect(revoked.first?.access == "access-1")
-        #expect(revoked.first?.refresh == "refresh-1")
-    }
 }

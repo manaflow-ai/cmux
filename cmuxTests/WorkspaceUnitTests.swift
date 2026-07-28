@@ -1327,6 +1327,58 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertEqual(defaults.object(forKey: SidebarWorkspaceTitleWrapSettings.key) as? Bool, true)
     }
 
+    func testSettingsFileStoreParsesWorkspaceTodoControlsBetaSetting() throws {
+        let defaults = UserDefaults.standard
+        let managedKey = SettingCatalog().betaFeatures.workspaceTodoControls.userDefaultsKey
+        let previousValue = defaults.object(forKey: managedKey)
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            if let previousValue {
+                defaults.set(previousValue, forKey: managedKey)
+            } else {
+                defaults.removeObject(forKey: managedKey)
+            }
+
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+
+        defaults.removeObject(forKey: managedKey)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "sidebar": {
+                "beta": {
+                  "workspaceTodos": {
+                    "controls": {
+                      "enabled": true
+                    }
+                  }
+                }
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(defaults.object(forKey: managedKey) as? Bool, true)
+    }
+
     func testSettingsFileStoreDoesNotApplyAutomaticAppIconDuringStartupReplay() throws {
         let defaults = UserDefaults.standard
         let previousMode = defaults.object(forKey: AppIconSettings.modeKey)
@@ -2999,27 +3051,31 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
         }
     }
 
-    func testDisabledInheritanceLeavesNewWorkspaceCwdUnsetForGhosttyConfigFallback() throws {
+    func testDisabledInheritanceUsesGhosttyDefaultForNewWorkspaceCwd() throws {
         try withWorkspaceWorkingDirectoryInheritanceSetting(false) {
             let sourceCwd = "/tmp/cmux-source-\(UUID().uuidString)"
+            let fallbackCwd = "/tmp/cmux-ghostty-default-\(UUID().uuidString)"
             let manager = TabManager(
                 initialWorkingDirectory: sourceCwd,
-                autoWelcomeIfNeeded: false
+                autoWelcomeIfNeeded: false,
+                defaultWorkspaceWorkingDirectoryProvider: { fallbackCwd }
             )
 
             let inserted = manager.addWorkspace(autoWelcomeIfNeeded: false)
 
-            XCTAssertNil(inserted.focusedTerminalPanel?.requestedWorkingDirectory)
-            XCTAssertNotEqual(inserted.currentDirectory, sourceCwd)
+            XCTAssertEqual(inserted.focusedTerminalPanel?.requestedWorkingDirectory, fallbackCwd)
+            XCTAssertEqual(inserted.currentDirectory, fallbackCwd)
         }
     }
 
-    func testExplicitNoInheritanceLeavesNewWorkspaceCwdUnsetWhenGlobalInheritanceEnabled() throws {
+    func testExplicitNoInheritanceUsesGhosttyDefaultWhenGlobalInheritanceEnabled() throws {
         try withWorkspaceWorkingDirectoryInheritanceSetting(nil) {
             let sourceCwd = "/tmp/cmux-source-\(UUID().uuidString)"
+            let fallbackCwd = "/tmp/cmux-ghostty-default-\(UUID().uuidString)"
             let manager = TabManager(
                 initialWorkingDirectory: sourceCwd,
-                autoWelcomeIfNeeded: false
+                autoWelcomeIfNeeded: false,
+                defaultWorkspaceWorkingDirectoryProvider: { fallbackCwd }
             )
 
             let inserted = manager.addWorkspace(
@@ -3027,8 +3083,8 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
                 autoWelcomeIfNeeded: false
             )
 
-            XCTAssertNil(inserted.focusedTerminalPanel?.requestedWorkingDirectory)
-            XCTAssertNotEqual(inserted.currentDirectory, sourceCwd)
+            XCTAssertEqual(inserted.focusedTerminalPanel?.requestedWorkingDirectory, fallbackCwd)
+            XCTAssertEqual(inserted.currentDirectory, fallbackCwd)
         }
     }
 
@@ -3175,6 +3231,7 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
         let panel = DetachedWorkspaceTestPanel()
         return Workspace.DetachedSurfaceTransfer(
             sourceWorkspaceId: sourceWorkspaceId,
+            sessionRestoreSourceWorkspaceId: nil,
             panelId: panel.id,
             panel: panel,
             title: panel.displayTitle,
@@ -3217,6 +3274,7 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
         }
 
         override func makeWorkspaceForCreation(
+            id: UUID? = nil,
             title: String,
             workingDirectory: String?,
             portOrdinal: Int,
@@ -3233,6 +3291,7 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
         ) -> Workspace {
             beforeCreateWorkspace?()
             return super.makeWorkspaceForCreation(
+                id: id,
                 title: title,
                 workingDirectory: workingDirectory,
                 portOrdinal: portOrdinal,
@@ -3528,6 +3587,7 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
         }
 
         override func makeWorkspaceForCreation(
+            id: UUID? = nil,
             title: String,
             workingDirectory: String?,
             portOrdinal: Int,
@@ -3544,6 +3604,7 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
         ) -> Workspace {
             capturedConfigTemplate = configTemplate
             return super.makeWorkspaceForCreation(
+                id: id,
                 title: title,
                 workingDirectory: workingDirectory,
                 portOrdinal: portOrdinal,
@@ -4510,6 +4571,19 @@ final class WorkspaceTeardownTests: XCTestCase {
 #else
         throw XCTSkip("Debug-only regression test")
 #endif
+    }
+
+    func testSelectingWorkspaceTodoPaneHidesDeselectedTerminalPortal() throws {
+        let workspace = Workspace()
+        let terminalPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let terminalPanel = try XCTUnwrap(workspace.terminalPanel(for: terminalPanelId))
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+
+        terminalPanel.hostedView.setVisibleInUI(true)
+        let todoPanel = try XCTUnwrap(workspace.newWorkspaceTodoSurface(inPane: paneId, focus: true))
+
+        XCTAssertEqual(workspace.focusedPanelId, todoPanel.id)
+        XCTAssertFalse(terminalPanel.hostedView.debugPortalVisibleInUI)
     }
 }
 

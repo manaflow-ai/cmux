@@ -1,3 +1,4 @@
+public import CMUXMobileCore
 public import Foundation
 
 /// A seam exposing per-surface terminal output as an `AsyncStream`.
@@ -24,15 +25,27 @@ public struct MobileTerminalOutputChunk: Sendable {
     public let data: Data
     public let streamToken: UUID
     public let viewportPolicy: MobileTerminalOutputViewportPolicy?
+    /// Source grid whose VT replay bytes are carried by this chunk.
+    public let sourceRenderGridFrame: MobileTerminalRenderGridFrame?
+    /// Whether nonempty output must pass render-grid verification before display.
+    public let requiresVerifiedReplay: Bool
+    /// Raw Ghostty defaults that must be installed before this chunk's VT replay.
+    public let terminalConfigTheme: TerminalTheme?
 
     public init(
         data: Data,
         streamToken: UUID,
-        viewportPolicy: MobileTerminalOutputViewportPolicy? = nil
+        viewportPolicy: MobileTerminalOutputViewportPolicy? = nil,
+        sourceRenderGridFrame: MobileTerminalRenderGridFrame? = nil,
+        requiresVerifiedReplay: Bool = false,
+        terminalConfigTheme: TerminalTheme? = nil
     ) {
         self.data = data
         self.streamToken = streamToken
         self.viewportPolicy = viewportPolicy
+        self.sourceRenderGridFrame = sourceRenderGridFrame
+        self.requiresVerifiedReplay = requiresVerifiedReplay
+        self.terminalConfigTheme = terminalConfigTheme
     }
 }
 

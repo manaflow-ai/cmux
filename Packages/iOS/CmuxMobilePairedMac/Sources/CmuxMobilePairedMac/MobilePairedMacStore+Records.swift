@@ -112,14 +112,16 @@ extension MobilePairedMacStore {
     }
 
     func hasOtherActiveMac(
-        than macDeviceID: String,
+        thanOwnerKey ownerKey: String,
+        macDeviceID: String,
         stackUserID: String?,
         teamID: String?
     ) throws -> Bool {
         var statement: OpaquePointer?
         defer { sqlite3_finalize(statement) }
         let sql = """
-            SELECT 1 FROM paired_macs WHERE is_active = 1 AND mac_device_id <> ?
+            SELECT 1 FROM paired_macs WHERE is_active = 1
+              AND (mac_device_id <> ? OR owner_key <> ?)
               AND stack_user_id IS ? AND ((? IS NULL AND team_id IS NULL)
                 OR (? IS NOT NULL AND (team_id IS ? OR team_id IS NULL))) LIMIT 1;
         """
@@ -129,7 +131,8 @@ extension MobilePairedMacStore {
         }
         let team = teamID.map(BindValue.text) ?? .null
         try bind(statement: statement, parameters: [
-            .text(macDeviceID), stackUserID.map(BindValue.text) ?? .null,
+            .text(macDeviceID), .text(ownerKey),
+            stackUserID.map(BindValue.text) ?? .null,
             team, team, team,
         ])
         return sqlite3_step(statement) == SQLITE_ROW
@@ -159,6 +162,15 @@ extension MobilePairedMacStore {
         ])
         try exec("""
             UPDATE mac_routes
+            SET owner_key = ?
+            WHERE mac_device_id = ? AND owner_key = ?;
+        """, binding: [
+            .text(toOwnerKey),
+            .text(macDeviceID),
+            .text(fromOwnerKey),
+        ])
+        try exec("""
+            UPDATE legacy_tailscale_route_grants
             SET owner_key = ?
             WHERE mac_device_id = ? AND owner_key = ?;
         """, binding: [
@@ -238,6 +250,10 @@ extension MobilePairedMacStore {
 
         return try rows.map { row in
             let routes = try fetchRoutes(macDeviceID: row.macDeviceID, ownerKey: row.ownerKey)
+            let legacyTailscaleRoutes = try fetchLegacyTailscaleRoutes(
+                macDeviceID: row.macDeviceID,
+                ownerKey: row.ownerKey
+            )
             return MobilePairedMac(
                 macDeviceID: row.macDeviceID,
                 displayName: row.displayName,
@@ -250,9 +266,48 @@ extension MobilePairedMacStore {
                 customName: row.customName,
                 customColor: row.customColor,
                 customIcon: row.customIcon,
-                instanceTag: row.instanceTag
+                instanceTag: row.instanceTag,
+                legacyTailscaleRoutes: legacyTailscaleRoutes.isEmpty
+                    ? nil
+                    : legacyTailscaleRoutes
             )
         }
+    }
+
+    func fetchLegacyTailscaleRoutes(
+        macDeviceID: String,
+        ownerKey: String
+    ) throws -> [CmxAttachRoute] {
+        var statement: OpaquePointer?
+        defer { sqlite3_finalize(statement) }
+        let result = sqlite3_prepare_v2(
+            db,
+            """
+            SELECT endpoint_json
+            FROM legacy_tailscale_route_grants
+            WHERE mac_device_id = ? AND owner_key = ?
+            ORDER BY id ASC;
+            """,
+            -1,
+            &statement,
+            nil
+        )
+        guard result == SQLITE_OK else {
+            throw MobilePairedMacStoreError.prepareFailed(result, lastErrorMessage())
+        }
+        try bind(statement: statement, parameters: [.text(macDeviceID), .text(ownerKey)])
+        let decoder = JSONDecoder()
+        var routes: [CmxAttachRoute] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            guard let json = Self.readNullableText(statement, column: 0),
+                  let data = json.data(using: .utf8),
+                  let route = try? decoder.decode(CmxAttachRoute.self, from: data),
+                  route.kind == .tailscale else {
+                continue
+            }
+            routes.append(route)
+        }
+        return routes
     }
 
     func fetchRoutes(macDeviceID: String, ownerKey: String) throws -> [CmxAttachRoute] {

@@ -24,6 +24,7 @@ extension RemoteTmuxSessionMirror {
         }
         controlPaneIdByPane.removeAll()
         controlSurfaceIdByPane.removeAll()
+        tmuxPaneIdByControlSurface.removeAll()
     }
 
     func updateControlSurface(tmuxPaneID: Int, surfaceID: UUID?, windowID: Int?) {
@@ -35,8 +36,12 @@ extension RemoteTmuxSessionMirror {
         }
         let previousSurfaceID = controlSurfaceIdByPane[tmuxPaneID]
         guard previousSurfaceID != surfaceID else { return }
-        if let previousSurfaceID { onControlSurfaceRemoved(previousSurfaceID) }
+        if let previousSurfaceID {
+            tmuxPaneIdByControlSurface[previousSurfaceID] = nil
+            onControlSurfaceRemoved(previousSurfaceID)
+        }
         controlSurfaceIdByPane[tmuxPaneID] = surfaceID
+        if let surfaceID { tmuxPaneIdByControlSurface[surfaceID] = tmuxPaneID }
     }
 
     func controlPaneLocations(
@@ -114,11 +119,37 @@ extension RemoteTmuxSessionMirror {
         return connection.send("send-keys -t %\(tmuxPaneID) \(key)") ? .sent : .rejected
     }
 
-    func requestSplit(fromPane tmuxPaneID: Int, vertical: Bool) -> Bool {
+    func requestSplit(
+        fromPane tmuxPaneID: Int,
+        vertical: Bool,
+        focusIntent: RemoteTmuxSplitFocusIntent
+    ) -> Bool {
         guard let windowID = windowIdByPane[tmuxPaneID] else { return false }
-        return connection.send(
-            "split-window \(vertical ? "-v" : "-h") -t @\(windowID).%\(tmuxPaneID)"
-        )
+        return connection.send(focusIntent.command(
+            vertical: vertical,
+            windowID: windowID,
+            paneID: tmuxPaneID
+        ))
+    }
+
+    /// Routes a split of a mirror window-tab to tmux, targeting its focused
+    /// pane (or its only pane). Requires a live stream so callers never report a
+    /// mutation that reconnecting tmux could not receive.
+    func requestSplit(
+        windowPanelId panelId: UUID,
+        vertical: Bool,
+        focusIntent: RemoteTmuxSplitFocusIntent
+    ) -> Bool {
+        guard connection.connectionState == .connected,
+              let windowID = windowId(forPanel: panelId) else { return false }
+        let targetPane = windowMirrorByWindowId[windowID]?.activePaneId
+            ?? connection.windowsByID[windowID]?.paneIDsInOrder.first
+        guard let targetPane else { return false }
+        return connection.send(focusIntent.command(
+            vertical: vertical,
+            windowID: windowID,
+            paneID: targetPane
+        ))
     }
 
     func requestResizePane(_ tmuxPaneID: Int, direction: String, amountCells: Int) -> Bool {
@@ -179,6 +210,7 @@ extension RemoteTmuxSessionMirror {
     private func cleanupControlPaneIdentity(tmuxPaneID: Int) {
         guard let paneID = controlPaneIdByPane[tmuxPaneID] else { return }
         let surfaceID = controlSurfaceIdByPane.removeValue(forKey: tmuxPaneID)
+        if let surfaceID { tmuxPaneIdByControlSurface[surfaceID] = nil }
         onControlPaneRemoved(paneID, surfaceID)
     }
 }

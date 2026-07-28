@@ -115,30 +115,32 @@ extension AppDelegate {
 
         guard let detached = detachSurfaceFromContainer(source) else { return false }
 
-        guard destinationDock.attachDetachedSurface(
-            detached,
-            inPane: target.pane,
-            atIndex: target.index,
-            focus: true
-        ) != nil else {
+        let attachedPanelId: UUID?
+        if let split = target.split {
+            attachedPanelId = destinationDock.attachDetachedSurface(
+                detached,
+                bySplitting: target.pane,
+                orientation: split.orientation,
+                insertFirst: split.insertFirst,
+                focus: true
+            )
+        } else {
+            attachedPanelId = destinationDock.attachDetachedSurface(
+                detached,
+                inPane: target.pane,
+                atIndex: target.index,
+                focus: true
+            )
+        }
+        guard attachedPanelId != nil else {
             reattachSurfaceToContainer(detached, source)
             return false
         }
-
-        if let split = target.split,
-           let movedTabId = destinationDock.surfaceId(forPanelId: detached.panelId) {
-            // Not wrapped in `withProgrammaticDockSplit`: this moves the just-attached
-            // tab out of `target.pane` to form the split, which can leave `target.pane`
-            // holding only Bonsplit's placeholder "Empty" tab (when it was empty before
-            // the drop). Letting `didSplitPane` run repairs that placeholder-only pane
-            // into a real terminal (and is a no-op when the pane still has a surface).
-            _ = destinationDock.bonsplitController.splitPane(
-                target.pane,
-                orientation: split.orientation,
-                movingTab: movedTabId,
-                insertFirst: split.insertFirst
-            )
-        }
+        notificationStore?.rebindSurfaceNotifications(
+            fromTabId: detached.sourceWorkspaceId,
+            toTabId: destinationDock.workspaceId,
+            surfaceId: detached.panelId
+        )
         destinationDock.scheduleDockPortalReconcile(reason: "dock.moveSurfaceIntoDock")
 
         // The surface was attached into the Dock with focus, so record Dock focus
@@ -277,14 +279,21 @@ extension AppDelegate {
     }
 
     private func canMoveSurfaceIntoDock(_ source: ContainerSurfaceLocation) -> Bool {
-        if case .workspace(_, let workspace, _, _) = source,
-           workspace.isRemoteTmuxMirror {
+        switch source {
+        case .workspace(_, let workspace, let panelId, _):
+            if workspace.panels[panelId]?.panelType == .simulator {
+                // Simulator control and persistence route through Workspace. Until
+                // Dock has an equivalent owner, keep the live panel with that owner.
+                return false
+            }
+            guard workspace.isRemoteTmuxMirror else { return true }
             // Remote tmux mirror panes are manually driven by the mirror
             // workspace. Dock has no mirror-owned I/O routing yet, so moving one
             // would leave the Dock panel detached from its remote owner.
             return false
+        case .dock(let dock, let panelId):
+            return dock.panels[panelId]?.panelType != .simulator
         }
-        return true
     }
 
     private func shouldPreserveSourceWorkspaceAfterDockMove(

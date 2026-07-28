@@ -1,6 +1,7 @@
 import CmuxCommandPalette
 import CmuxCore
 import CmuxFoundation
+import CmuxTerminal
 import XCTest
 import AppKit
 import SwiftUI
@@ -1381,6 +1382,10 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
         override var acceptsFirstResponder: Bool { true }
     }
 
+    private final class TestHostedTerminalDescendantResponder: NSView {
+        override var acceptsFirstResponder: Bool { true }
+    }
+
     @MainActor
     func testHiddenRightSidebarClearsFocusIntentWhenNoTerminalCanRestore() {
         let controller = MainWindowFocusController(
@@ -1533,6 +1538,36 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
 
         XCTAssertFalse(controller.toggleRightSidebarOrTerminalFocus())
         XCTAssertTrue(controller.allowsTerminalFocus(workspaceId: workspaceId, panelId: panelId))
+    }
+
+    @MainActor
+    func testHostedTerminalDescendantClearsRightSidebarIntentOnFocusSync() {
+        let workspaceId = UUID()
+        let surface = TerminalSurface(
+            tabId: workspaceId,
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+        let descendant = TestHostedTerminalDescendantResponder(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+        hostedView.addSubview(descendant)
+
+        let controller = MainWindowFocusController(
+            windowId: UUID(),
+            window: nil,
+            tabManager: TabManager(),
+            fileExplorerState: FileExplorerState()
+        )
+        let panelId = surface.id
+
+        controller.noteRightSidebarInteraction(mode: .sessions)
+        XCTAssertFalse(controller.allowsTerminalFocus(workspaceId: workspaceId, panelId: panelId))
+
+        controller.debugSyncAfterResponderChange(responder: descendant)
+
+        XCTAssertTrue(controller.allowsTerminalFocus(workspaceId: workspaceId, panelId: panelId))
+        XCTAssertEqual(controller.focusToggleDestination(currentResponder: descendant), .rightSidebar)
     }
 }
 

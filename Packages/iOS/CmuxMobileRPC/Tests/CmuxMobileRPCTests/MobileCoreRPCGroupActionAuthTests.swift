@@ -5,7 +5,7 @@ import Testing
 
 @Suite struct MobileCoreRPCWorkspaceMutationAuthTests {
     @Test func workspaceMoveCarriesWorkspaceScopedAttachTicketContext() async throws {
-        let route = try hostPortRoute(kind: .tailscale, host: "100.64.0.5", port: 58465)
+        let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 58465)
         let transport = QueuedCancellationProbeTransport()
         let runtime = TestMobileSyncRuntime(
             transportFactory: QueuedCancellationProbeTransportFactory(transport: transport),
@@ -46,7 +46,7 @@ import Testing
     }
 
     @Test func workspaceGroupActionCarriesWorkspaceScopedAttachTicketContext() async throws {
-        let route = try hostPortRoute(kind: .tailscale, host: "100.64.0.5", port: 58465)
+        let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 58465)
         let transport = QueuedCancellationProbeTransport()
         let runtime = TestMobileSyncRuntime(
             transportFactory: QueuedCancellationProbeTransportFactory(transport: transport),
@@ -88,7 +88,7 @@ import Testing
     }
 
     @Test func workspaceGroupActionCarriesMacWideAttachTicketContext() async throws {
-        let route = try hostPortRoute(kind: .tailscale, host: "100.64.0.5", port: 58465)
+        let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 58465)
         let transport = QueuedCancellationProbeTransport()
         let runtime = TestMobileSyncRuntime(
             transportFactory: QueuedCancellationProbeTransportFactory(transport: transport),
@@ -130,7 +130,7 @@ import Testing
     }
 
     @Test func workspaceGroupCreateCarriesWorkspaceScopedAttachTicketContext() async throws {
-        let route = try hostPortRoute(kind: .tailscale, host: "100.64.0.5", port: 58465)
+        let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 58465)
         let transport = QueuedCancellationProbeTransport()
         let runtime = TestMobileSyncRuntime(
             transportFactory: QueuedCancellationProbeTransportFactory(transport: transport),

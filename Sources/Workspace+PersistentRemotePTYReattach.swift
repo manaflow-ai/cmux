@@ -58,8 +58,14 @@ extension Workspace {
             let usesPersistentSSHPTY = configuration.transport == .ssh &&
                 !configuration.skipDaemonBootstrap && configuration.persistentDaemonSlot != nil
             if usesPersistentSSHPTY {
+                let remoteResumeCommand = approvedPersistentSSHResumeCommand(
+                    for: resumeBinding,
+                    panelID: panelId,
+                    persistentPTYSessionID: sessionID
+                )
                 command = remotePTYAttachStartupCommand(
                     sessionID: sessionID,
+                    remoteCommand: remoteResumeCommand,
                     requireExisting: !sessionEnded
                 )
             } else {

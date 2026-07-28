@@ -189,6 +189,47 @@ _cmux_report_pwd_via_relay() {
     _cmux_relay_rpc_bg "surface.report_pwd" "$params"
 }
 
+_cmux_report_git_branch_via_relay() {
+    local branch="$1"
+    _cmux_socket_uses_remote_relay || return 1
+    [[ -n "$branch" ]] || return 1
+    local workspace_id="" branch_json="" params=""
+    workspace_id="$(_cmux_relay_workspace_id)" || return 1
+    branch_json="$(_cmux_json_escape "$branch")"
+    params="{\"workspace_id\":\"$workspace_id\",\"branch\":\"$branch_json\""
+    if [[ -n "${CMUX_PANEL_ID:-}" ]]; then
+        params+=",\"surface_id\":\"$CMUX_PANEL_ID\""
+    fi
+    params+="}"
+    _cmux_relay_rpc "surface.report_git_branch" "$params"
+}
+
+_cmux_clear_git_branch_via_relay() {
+    _cmux_socket_uses_remote_relay || return 1
+    local workspace_id="" params=""
+    workspace_id="$(_cmux_relay_workspace_id)" || return 1
+    params="{\"workspace_id\":\"$workspace_id\""
+    if [[ -n "${CMUX_PANEL_ID:-}" ]]; then
+        params+=",\"surface_id\":\"$CMUX_PANEL_ID\""
+    fi
+    params+="}"
+    _cmux_relay_rpc "surface.clear_git_branch" "$params"
+}
+
+_cmux_report_shell_activity_state_via_relay() {
+    local state="$1"
+    _cmux_socket_uses_remote_relay || return 1
+    [[ -n "$state" ]] || return 1
+    local workspace_id="" params=""
+    workspace_id="$(_cmux_relay_workspace_id)" || return 1
+    params="{\"workspace_id\":\"$workspace_id\",\"state\":\"$state\""
+    if [[ -n "${CMUX_PANEL_ID:-}" ]]; then
+        params+=",\"surface_id\":\"$CMUX_PANEL_ID\""
+    fi
+    params+="}"
+    _cmux_relay_rpc_bg "surface.report_shell_state" "$params"
+}
+
 _cmux_ports_kick_via_relay() {
     local reason="${1:-command}"
     _cmux_socket_uses_remote_relay || return 1
@@ -428,8 +469,6 @@ typeset -g _CMUX_CMD_START=0
 typeset -g _CMUX_SHELL_ACTIVITY_LAST=""
 typeset -g _CMUX_TTY_NAME=""
 typeset -g _CMUX_TTY_REPORTED=0
-typeset -g _CMUX_GHOSTTY_SEMANTIC_PATCHED=0
-typeset -g _CMUX_WINCH_GUARD_INSTALLED=0
 typeset -g _CMUX_TMUX_PUSH_SIGNATURE=""
 typeset -g _CMUX_TMUX_PULL_SIGNATURE=""
 typeset -g _CMUX_DELAY_TERM_RESTORE_UNTIL_FIRST_PROMPT=${_CMUX_DELAY_TERM_RESTORE_UNTIL_FIRST_PROMPT:-0}
@@ -505,10 +544,18 @@ _cmux_tmux_refresh_cmux_environment() {
     [[ -n "$TMUX" ]] || return 0
     command -v tmux >/dev/null 2>&1 || return 0
 
-    local output
-    output="$(tmux show-environment -g 2>/dev/null)" || return 0
+    local key did_change=0
+    for key in "${_CMUX_TMUX_SURFACE_SCOPED_KEYS[@]}"; do
+        if [[ -n "${(P)key}" ]]; then
+            unset "$key"
+            did_change=1
+        fi
+    done
 
-    local line key filtered="" did_change=0
+    local output
+    output="$(tmux show-environment 2>/dev/null)" || return 0
+
+    local line filtered=""
     while IFS= read -r line; do
         [[ "$line" == CMUX_* ]] || continue
         key="${line%%=*}"
@@ -517,7 +564,7 @@ _cmux_tmux_refresh_cmux_environment() {
     done <<< "$output"
 
     [[ -n "$filtered" ]] || return 0
-    [[ "$filtered" == "$_CMUX_TMUX_PULL_SIGNATURE" ]] && return 0
+    [[ "$filtered" == "$_CMUX_TMUX_PULL_SIGNATURE" ]] && (( ! did_change )) && return 0
 
     local value
     while IFS= read -r line; do
@@ -554,56 +601,6 @@ _cmux_tmux_sync_cmux_environment() {
         _cmux_tmux_publish_cmux_environment
     fi
 }
-
-_cmux_ensure_ghostty_preexec_strips_both_marks() {
-    local fn_name="$1"
-    (( $+functions[$fn_name] )) || return 0
-
-    local old_strip new_strip updated
-    old_strip=$'PS1=${PS1//$\'%{\\e]133;A;cl=line\\a%}\'}'
-    new_strip=$'PS1=${PS1//$\'%{\\e]133;A;redraw=last;cl=line\\a%}\'}'
-    updated="${functions[$fn_name]}"
-
-    if [[ "$updated" == *"$new_strip"* && "$updated" != *"$old_strip"* ]]; then
-        updated="${updated/$new_strip/$old_strip
-        $new_strip}"
-        functions[$fn_name]="$updated"
-        _CMUX_GHOSTTY_SEMANTIC_PATCHED=1
-        return 0
-    fi
-    if [[ "$updated" == *"$old_strip"* && "$updated" != *"$new_strip"* ]]; then
-        updated="${updated/$old_strip/$old_strip
-        $new_strip}"
-        functions[$fn_name]="$updated"
-        _CMUX_GHOSTTY_SEMANTIC_PATCHED=1
-    fi
-}
-
-_cmux_patch_ghostty_semantic_redraw() {
-    local old_frag new_frag
-    old_frag='133;A;cl=line'
-    new_frag='133;A;redraw=last;cl=line'
-
-    # Patch both deferred and live hook definitions, depending on init timing.
-    if (( $+functions[_ghostty_deferred_init] )); then
-        functions[_ghostty_deferred_init]="${functions[_ghostty_deferred_init]//$old_frag/$new_frag}"
-        _CMUX_GHOSTTY_SEMANTIC_PATCHED=1
-    fi
-    if (( $+functions[_ghostty_precmd] )); then
-        functions[_ghostty_precmd]="${functions[_ghostty_precmd]//$old_frag/$new_frag}"
-        _CMUX_GHOSTTY_SEMANTIC_PATCHED=1
-    fi
-    if (( $+functions[_ghostty_preexec] )); then
-        functions[_ghostty_preexec]="${functions[_ghostty_preexec]//$old_frag/$new_frag}"
-        _CMUX_GHOSTTY_SEMANTIC_PATCHED=1
-    fi
-
-    # Keep legacy + redraw-aware strip lines so prompts created before patching
-    # are still cleared by preexec.
-    _cmux_ensure_ghostty_preexec_strips_both_marks _ghostty_deferred_init
-    _cmux_ensure_ghostty_preexec_strips_both_marks _ghostty_preexec
-}
-_cmux_patch_ghostty_semantic_redraw
 
 _cmux_prepend_job_table_guard_to_function() {
     local fn_name="$1"
@@ -684,47 +681,6 @@ _cmux_patch_ghostty_job_table_guard() {
     _cmux_prepend_job_table_guard_to_function _ghostty_zle_keymap_select
 }
 _cmux_patch_ghostty_job_table_guard
-
-_cmux_prompt_wrap_guard() {
-    local cmd_start="$1"
-    local pwd="$2"
-    [[ -n "$cmd_start" && "$cmd_start" != 0 ]] || return 0
-
-    local cols="${COLUMNS:-0}"
-    (( cols > 0 )) || return 0
-
-    local budget=$(( cols - 24 ))
-    (( budget < 20 )) && budget=20
-    (( ${#pwd} >= budget )) || return 0
-
-    # Keep a spacer line between command output and a wrapped prompt so
-    # resize-driven prompt redraw cannot overwrite the command tail.
-    builtin print -r -- ""
-}
-
-_cmux_install_winch_guard() {
-    (( _CMUX_WINCH_GUARD_INSTALLED )) && return 0
-
-    # Respect user-defined WINCH handlers (function-based or trap-based).
-    local existing_winch_trap=""
-    existing_winch_trap="$(trap -p WINCH 2>/dev/null || true)"
-    if (( $+functions[TRAPWINCH] )) || [[ -n "$existing_winch_trap" ]]; then
-        _CMUX_WINCH_GUARD_INSTALLED=1
-        return 0
-    fi
-
-    TRAPWINCH() {
-        [[ -n "$CMUX_TAB_ID" ]] || return 0
-        [[ -n "$CMUX_PANEL_ID" ]] || return 0
-
-        # Ghostty already marks prompt redraws on SIGWINCH. Writing to the PTY
-        # here grows the screen and makes resize look like a fresh prompt.
-        return 0
-    }
-
-    _CMUX_WINCH_GUARD_INSTALLED=1
-}
-_cmux_install_winch_guard
 
 _cmux_git_resolve_head_path() {
     # Resolve the HEAD file path without invoking git (fast; works for worktrees).
@@ -856,13 +812,18 @@ _cmux_report_tty_once() {
 _cmux_report_shell_activity_state() {
     local state="$1"
     [[ -n "$state" ]] || return 0
-    [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
-    [[ -n "$CMUX_PANEL_ID" ]] || return 0
+    if _cmux_socket_is_unix; then
+        [[ -n "$CMUX_PANEL_ID" ]] || return 0
+    fi
     [[ "$_CMUX_SHELL_ACTIVITY_LAST" == "$state" ]] && return 0
     _CMUX_SHELL_ACTIVITY_LAST="$state"
-    _cmux_send_bg "report_shell_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID" \
-        || _CMUX_SHELL_ACTIVITY_LAST=""
+    if _cmux_socket_is_unix; then
+        _cmux_send_bg "report_shell_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID" \
+            || _CMUX_SHELL_ACTIVITY_LAST=""
+    else
+        _cmux_report_shell_activity_state_via_relay "$state" || _CMUX_SHELL_ACTIVITY_LAST=""
+    fi
 }
 
 _cmux_reset_terminal_keyboard_protocols() {
@@ -893,18 +854,27 @@ _cmux_report_git_branch_for_path() {
     local repo_path="$1"
     [[ "${CMUX_NO_GIT_WATCH:-}" == "1" ]] && return 0
     [[ -n "$repo_path" ]] || return 0
-    [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
-    [[ -n "$CMUX_PANEL_ID" ]] || return 0
+    if _cmux_socket_is_unix; then
+        [[ -n "$CMUX_PANEL_ID" ]] || return 0
+    fi
     _cmux_git_report_path_is_active "$repo_path" || return 0
 
     local branch dirty_opt="--status=unknown"
     branch="$(_cmux_git_branch_for_path "$repo_path" 2>/dev/null || true)"
     _cmux_git_report_path_is_active "$repo_path" || return 0
     if [[ -n "$branch" ]]; then
-        _cmux_send "report_git_branch $branch $dirty_opt --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+        if _cmux_socket_is_unix; then
+            _cmux_send "report_git_branch $branch $dirty_opt --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+        else
+            _cmux_report_git_branch_via_relay "$branch" || true
+        fi
     else
-        _cmux_send "clear_git_branch --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+        if _cmux_socket_is_unix; then
+            _cmux_send "clear_git_branch --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+        else
+            _cmux_clear_git_branch_via_relay || true
+        fi
     fi
 }
 
@@ -1715,10 +1685,9 @@ _cmux_preexec() {
 
 _cmux_precmd() {
     local last_status=$?
-    # Handle cases where Ghostty integration initializes after this file. This
-    # is pure function-body patching, so it remains safe under job saturation.
+    # Ghostty integration can initialize after this file, so retry its job-table
+    # guards when each prompt begins.
     _cmux_patch_ghostty_job_table_guard
-    (( _CMUX_GHOSTTY_SEMANTIC_PATCHED )) || _cmux_patch_ghostty_semantic_redraw
     _cmux_stop_git_head_watch
     _cmux_zsh_job_table_saturated && return 0
 
@@ -1734,6 +1703,8 @@ _cmux_precmd() {
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     if [[ -n "$CMUX_PANEL_ID" ]]; then
         _cmux_reset_terminal_keyboard_protocols
+    fi
+    if [[ -n "$CMUX_PANEL_ID" ]] || (( ! cmux_has_unix_socket )); then
         _cmux_report_shell_activity_state prompt
     fi
 
@@ -1759,16 +1730,11 @@ _cmux_precmd() {
         if [[ "$pwd" != "$_CMUX_PWD_LAST_PWD" ]]; then
             _cmux_report_pwd_via_relay "$pwd" && _CMUX_PWD_LAST_PWD="$pwd"
         fi
-        if (( cmd_dur >= 2 || now - _CMUX_PORTS_LAST_RUN >= 10 )); then
-            _cmux_ports_kick refresh
-        fi
-        return 0
+    else
+        [[ -n "$CMUX_PANEL_ID" ]] || return 0
     fi
 
-    [[ -n "$CMUX_PANEL_ID" ]] || return 0
     _cmux_set_git_active_pwd "$pwd"
-
-    _cmux_prompt_wrap_guard "$cmd_start" "$pwd"
 
     # Post-wake socket writes can occasionally leave a probe process wedged.
     # If one probe is stale, clear the guard so fresh async probes can resume.
@@ -1785,7 +1751,7 @@ _cmux_precmd() {
 
     # CWD: keep the app in sync with the actual shell directory.
     # This is also the simplest way to test sidebar directory behavior end-to-end.
-    if [[ "$pwd" != "$_CMUX_PWD_LAST_PWD" ]]; then
+    if (( cmux_has_unix_socket )) && [[ "$pwd" != "$_CMUX_PWD_LAST_PWD" ]]; then
         _CMUX_PWD_LAST_PWD="$pwd"
         local qpwd="${pwd//\"/\\\"}"
         _cmux_send_bg "report_pwd \"${qpwd}\" --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
@@ -1880,15 +1846,17 @@ _cmux_precmd() {
             _CMUX_GIT_JOB_STARTED_AT=$now
         fi
     fi
-    if (( git_head_changed )); then
-        _cmux_pr_cache_clear
-        _cmux_clear_pr_for_panel
-    fi
-    if [[ "${CMUX_NO_GIT_WATCH:-}" != "1" ]] && (( last_status == 0 )); then
-        _cmux_emit_pr_command_hint
-    else
-        _CMUX_LAST_PR_ACTION=""
-        _CMUX_LAST_PR_TARGET=""
+    if (( cmux_has_unix_socket )); then
+        if (( git_head_changed )); then
+            _cmux_pr_cache_clear
+            _cmux_clear_pr_for_panel
+        fi
+        if [[ "${CMUX_NO_GIT_WATCH:-}" != "1" ]] && (( last_status == 0 )); then
+            _cmux_emit_pr_command_hint
+        else
+            _CMUX_LAST_PR_ACTION=""
+            _CMUX_LAST_PR_TARGET=""
+        fi
     fi
 
     # Ports: lightweight kick to the app's batched scanner.

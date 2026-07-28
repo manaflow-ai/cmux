@@ -3,7 +3,16 @@ import type { Id, Size, SplitDirection } from "./common.js";
 /** The canonical pane split tree. */
 export type Layout =
   | { type: "leaf"; pane: Id }
-  | { type: "split"; dir: SplitDirection; ratio: number; a: Layout; b: Layout };
+  | {
+      type: "split";
+      /** Stable split id. Absent only when connected to a pre-v8 server. */
+      split?: Id;
+      dir: SplitDirection;
+      ratio: number;
+      a: Layout;
+      b: Layout;
+    }
+  | { type: "stack"; panes: [Id, ...Id[]]; expanded: Id };
 
 /** A declarative split tree used by `apply-layout`. */
 export type DeclarativeLayout =
@@ -14,7 +23,8 @@ export type DeclarativeLayout =
       ratio: number;
       a: DeclarativeLayout;
       b: DeclarativeLayout;
-    };
+    }
+  | { type: "stack"; panes: [Id, ...Id[]]; expanded: Id };
 
 /** A live PTY or browser tab. */
 export interface Tab {
@@ -32,6 +42,7 @@ export interface LivePane {
   id: Id;
   name: string | null;
   active_tab: number;
+  focused_at?: number;
   tabs: Tab[];
 }
 
@@ -44,6 +55,12 @@ export interface DeadPane {
 /** A pane in a tree snapshot. */
 export type Pane = LivePane | DeadPane;
 
+/** One appended horizontal viewport column and its frontend-relative width. */
+export interface ViewportSplit {
+  split: Id;
+  width: number;
+}
+
 /** A named split-tree screen. */
 export interface Screen {
   id: Id;
@@ -52,12 +69,18 @@ export interface Screen {
   active_pane: Id;
   zoomed_pane: Id | null;
   layout: Layout;
+  /** First viewport column width; absent on ordinary tiled screens. */
+  viewport_base_width?: number;
+  /** Appended viewport columns; absent on ordinary tiled screens. */
+  viewport_splits?: ViewportSplit[];
   panes: Pane[];
 }
 
 /** A workspace containing one or more screens. */
 export interface Workspace {
   id: Id;
+  /** Stable registry key. Absent without the `workspace-registry-v1` capability. */
+  key?: string;
   name: string;
   active: boolean;
   screens: Screen[];
@@ -65,5 +88,9 @@ export interface Workspace {
 
 /** The complete workspace, screen, pane, tab, and layout snapshot. */
 export interface Tree {
+  /** Ordered-registry revision. Absent without the `workspace-registry-v1` capability. */
+  workspace_revision?: number;
+  /** Live pane-membership revision. Absent on older servers. */
+  pane_revision?: number;
   workspaces: Workspace[];
 }

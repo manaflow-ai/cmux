@@ -434,7 +434,7 @@
         "workspaceInheritWorkingDirectory": {
           "type": "boolean",
           "default": true,
-          "description": "When true, new workspaces inherit the current workspace working directory. When false, new workspaces leave the working directory unset so Ghostty's working-directory setting can provide the default."
+          "description": "When true, new workspaces inherit the current workspace working directory. When false, new workspaces use Ghostty's working-directory setting instead."
         },
         "minimalMode": {
           "type": "boolean",
@@ -450,6 +450,11 @@
           "type": "boolean",
           "default": true,
           "description": "When cmux is inactive, the first click can activate and focus the clicked pane."
+        },
+        "focusHistoryIncludesPanesAndTabs": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, Back and Forward include focus changes between panes and tabs. When false, they navigate between workspaces only."
         },
         "preferredEditor": {
           "type": "string",
@@ -550,6 +555,29 @@
           "default": 1.0,
           "descriptionKey": "schemaDescriptions.terminal.scrollSpeed",
           "description": "Multiplier applied to terminal scroll wheel and trackpad deltas. Higher values scroll faster; lower values scroll slower."
+        },
+        "sessionContentMaxWidth": {
+          "oneOf": [
+            {
+              "type": "boolean",
+              "const": false
+            },
+            {
+              "type": "number",
+              "minimum": 320,
+              "multipleOf": 20
+            }
+          ],
+          "default": false,
+          "descriptionKey": "schemaDescriptions.terminal.sessionContentMaxWidth",
+          "description": "Optional maximum width, in points, for terminal and built-in agent chat content. Set false to use the full pane width."
+        },
+        "sessionContentAlignment": {
+          "type": "string",
+          "enum": ["left", "center", "right"],
+          "default": "center",
+          "descriptionKey": "schemaDescriptions.terminal.sessionContentAlignment",
+          "description": "Horizontal placement for terminal and built-in agent chat content when sessionContentMaxWidth is enabled."
         },
         "copyOnSelect": {
           "type": "boolean",
@@ -1425,6 +1453,20 @@
         }
       }
     },
+    "mobile": {
+      "title": "mobile",
+      "description": "Mac-side settings for cmux on iOS.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "artifactFolderAccess": {
+          "type": "string",
+          "enum": ["subtree", "oneLevel"],
+          "default": "subtree",
+          "description": "Controls whether a referenced or terminal-visible directory authorizes its full canonical subtree or only immediate children."
+        }
+      }
+    },
     "markdown": {
       "title": "markdown",
       "description": "Built-in markdown viewer settings.",
@@ -1571,9 +1613,19 @@
               "triggerFlash",
               "nextSurface",
               "prevSurface",
+              "moveSurfaceLeft",
+              "moveSurfaceRight",
+              "moveSurfaceToPreviousPane",
+              "moveSurfaceToNextPane",
+              "moveSurfaceToPaneLeft",
+              "moveSurfaceToPaneRight",
+              "moveSurfaceToPaneUp",
+              "moveSurfaceToPaneDown",
               "selectSurfaceByNumber",
               "nextSidebarTab",
               "prevSidebarTab",
+              "moveWorkspaceUp",
+              "moveWorkspaceDown",
               "focusHistoryBack",
               "focusHistoryForward",
               "selectWorkspaceByNumber",
@@ -1589,6 +1641,7 @@
               "newWorkspaceGroup",
               "groupSelectedWorkspaces",
               "toggleFocusedWorkspaceGroupCollapsed",
+              "reopenClosedWorkspace",
               "reopenClosedBrowserPanel",
               "newSurface",
               "toggleTerminalCopyMode",
@@ -1597,6 +1650,11 @@
               "attachTextBoxFile",
               "sendCtrlFToTerminal",
               "clearScreenKeepScrollback",
+              "simulatorHome",
+              "simulatorRotateLeft",
+              "simulatorRotateRight",
+              "simulatorToggleAppearance",
+              "simulatorToggleSoftwareKeyboard",
               "focusLeft",
               "focusRight",
               "focusUp",
@@ -1647,6 +1705,7 @@
               "toggleBrowserDeveloperTools",
               "showBrowserJavaScriptConsole",
               "toggleBrowserFocusMode",
+              "toggleBrowserDesignMode",
               "toggleReactGrab",
               "openDiffViewer",
               "diffViewerScrollDown",
@@ -1710,7 +1769,7 @@
         "when": {
           "type": "object",
           "default": {},
-          "description": "Optional per-action context predicates (VS Code-style `when` clauses), keyed by cmux action id. Each value is a boolean expression over context keys combined with !, &&, ||, and parentheses. Boolean keys: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Typed keys support comparisons: the string sidebarMode (files, find, sessions, feed, or dock) and the integers paneCount and workspaceCount. Comparison operators are ==, !=, =~ (regex), <, <=, >, >=, and `in [a, b]`; an unknown or absent key reads as false. The boolean literals true and false are also accepted; `key == false` is the same as `!key`. The action's shortcut only fires (and only conflicts with other shortcuts) when the clause holds. Examples: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } selects workspaces with Ctrl+1–9 everywhere except when the right sidebar is focused; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } scopes a binding to the Find sidebar when the workspace has multiple panes.",
+          "description": "Optional per-action context predicates (VS Code-style `when` clauses), keyed by cmux action id. Each value is a boolean expression over context keys combined with !, &&, ||, and parentheses. Boolean keys: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Typed keys support comparisons: the string sidebarMode (files, find, sessions, feed, or dock) and the integers paneCount and workspaceCount. Comparison operators are ==, !=, =~ (regex), <, <=, >, >=, and `in [a, b]`; an unknown or absent key reads as false. The boolean literals true and false are also accepted; `key == false` is the same as `!key`. The action's shortcut only fires (and only conflicts with other shortcuts) when the clause holds. Examples: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } selects workspaces with Ctrl+1–9 everywhere except when the right sidebar is focused; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } scopes a binding to the Find sidebar when the workspace has multiple panes.",
           "descriptionKey": "schemaDescriptions.shortcuts.when",
           "additionalProperties": {
             "type": "string"

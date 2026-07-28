@@ -1,3 +1,4 @@
+import CmuxBrowser
 import Foundation
 import Testing
 import WebKit
@@ -238,7 +239,11 @@ struct BrowserWebContentProcessTests {
         )
         defer { panel.close() }
         let oldWebView = panel.webView
+        let viewportHost = panel.viewportHostView
         let oldInstanceID = panel.webViewInstanceID
+
+        #expect(oldWebView.superview == nil)
+        #expect(oldWebView.cmuxBrowserViewportHostView === viewportHost)
 
         panel.debugSimulateWebContentProcessTermination()
 
@@ -247,6 +252,33 @@ struct BrowserWebContentProcessTests {
         #expect(panel.hasRecoverableWebContentTermination)
         #expect(panel.webView.navigationDelegate != nil)
         #expect(panel.webView.uiDelegate != nil)
+        #expect(panel.webView.superview == nil)
+        #expect(panel.webView.cmuxBrowserViewportHostView === viewportHost)
+        #expect(oldWebView.cmuxBrowserViewportHostView == nil)
+    }
+
+    @Test
+    func webViewReplacementPreservesActiveEmulatedViewportHost() throws {
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: recoveryURL
+        )
+        defer { panel.close() }
+        let oldWebView = panel.webView
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 380, height: 610))
+        container.addSubview(oldWebView)
+        let viewport = try #require(BrowserViewport(width: 1_280, height: 720))
+        _ = try panel.setAutomationViewport(viewport).get()
+
+        #expect(oldWebView.superview === panel.viewportHostView)
+
+        panel.debugSimulateWebContentProcessTermination()
+
+        #expect(!(panel.webView === oldWebView))
+        #expect(panel.webView.superview === panel.viewportHostView)
+        #expect(panel.webView.cmuxBrowserViewportPresentationView === panel.viewportHostView)
+        #expect(panel.webView.cmuxBrowserViewportHostView === panel.viewportHostView)
+        #expect(oldWebView.cmuxBrowserViewportHostView == nil)
     }
 
     @Test

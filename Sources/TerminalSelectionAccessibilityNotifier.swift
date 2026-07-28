@@ -3,7 +3,7 @@ import AppKit
 /// Thread-safe, bounded ingress from Ghostty's renderer callback into the UI.
 /// `bufferingNewest(1)` keeps at most one undelivered event per surface, so a
 /// stalled main actor cannot accumulate one task per drag update.
-nonisolated final class TerminalSelectionAccessibilitySignal: Sendable {
+final class TerminalSelectionAccessibilitySignal: Sendable {
     let events: AsyncStream<Void>
     private let continuation: AsyncStream<Void>.Continuation
 

@@ -7,8 +7,12 @@ import Foundation
 @MainActor
 final class AgentChatSessionRegistry {
     private var records: [String: AgentChatSessionRecord] = [:]
+    private var sessionSurfaceIndex = ChatSessionSurfaceIndex<String>()
     private var liveSessionIDBySurfaceID: [String: String] = [:]
     private var liveClaudeSessionIDsBySurfaceID: [String: Set<String>] = [:]
+    static let codexHookBindingCapacity = 256
+    /// Latest authoritative Codex hook/store binding per terminal surface.
+    var codexHookBindingBySurfaceID: [String: (sessionID: String, updatedAt: Date)] = [:]
     private let hookStore: AgentChatHookSessionStore
 
     /// Called after a record mutation with the previous value (nil for a
@@ -46,9 +50,22 @@ final class AgentChatSessionRegistry {
 
     /// Creates a registry.
     ///
-    /// - Parameter hookStore: Reader for the per-agent hook session stores.
-    init(hookStore: AgentChatHookSessionStore = AgentChatHookSessionStore()) {
+    /// - Parameters:
+    ///   - hookStore: Reader for the per-agent hook session stores.
+    ///   - restoredRecords: Records restored before live observation begins.
+    init(
+        hookStore: AgentChatHookSessionStore = AgentChatHookSessionStore(),
+        restoredRecords: [AgentChatSessionRecord] = []
+    ) {
         self.hookStore = hookStore
+        for record in restoredRecords {
+            records[record.sessionID] = record
+            versionBySessionID[record.sessionID] = record.version
+        }
+        rebuildSessionIndexes()
+        for record in records.values {
+            syncProcessExitWatch(for: record)
+        }
     }
 
     /// All known sessions, optionally restricted to one workspace, most
@@ -138,10 +155,7 @@ final class AgentChatSessionRegistry {
                 }
                 stampLifecycleTransition(previous: nil, current: &record, at: session.sampledAt)
                 stampVersion(&record)
-                records[targetSessionID] = record
-                syncProcessExitWatch(for: record)
-                updateLiveSessionIndex(previous: nil, current: record)
-                onRecordChanged?(record, nil)
+                storeRecord(record, replacing: nil)
             } else {
                 guard let current = records[targetSessionID] else { continue }
                 if reviveEndedObservedSessionIfNeeded(current: current, observed: session, now: now) {
@@ -259,8 +273,7 @@ final class AgentChatSessionRegistry {
         if let live = liveSession(surfaceID: surfaceID) {
             return live
         }
-        return records.values
-            .filter { $0.surfaceID == surfaceID }
+        return indexedRecords(surfaceID: surfaceID)
             .max { $0.lastActivityAt < $1.lastActivityAt }
     }
 
@@ -281,6 +294,13 @@ final class AgentChatSessionRegistry {
             store.entry(agentSource: source, sessionID: lookupSessionID)
         }.value
         guard let entry else { return records[sessionID] }
+        if source == "codex", let surfaceID = entry.surfaceID {
+            rememberCodexHookBinding(
+                sessionID: entry.sessionID,
+                surfaceID: surfaceID,
+                updatedAt: entry.updatedAt ?? .distantPast
+            )
+        }
         update(sessionID: sessionID) { $0.adoptBindings(from: entry, includingPID: false) }
         return records[sessionID]
     }
@@ -300,7 +320,6 @@ final class AgentChatSessionRegistry {
         mutate(&record)
         stampLifecycleTransition(previous: previous, current: &record, at: Date())
         stampVersion(&record)
-        records[sessionID] = record
         #if DEBUG
         if previous.state != record.state {
             cmuxDebugLog(
@@ -309,9 +328,7 @@ final class AgentChatSessionRegistry {
             )
         }
         #endif
-        syncProcessExitWatch(for: record)
-        updateLiveSessionIndex(previous: previous, current: record)
-        onRecordChanged?(record, previous)
+        storeRecord(record, replacing: previous)
     }
 
     #if DEBUG
@@ -330,7 +347,7 @@ final class AgentChatSessionRegistry {
     func noteAssistantTurnCompleted(sessionID: String, at timestamp: Date) {
         update(sessionID: sessionID) { record in
             guard case .working = record.state else { return }
-            record.state = .idle
+            record.setTranscriptObservedIdle()
             if timestamp > record.lastActivityAt {
                 record.lastActivityAt = timestamp
             }
@@ -352,6 +369,13 @@ final class AgentChatSessionRegistry {
         for (source, entries) in parsed {
             let kind = ChatAgentKind(source: source)
             for entry in entries {
+                if source == "codex", let surfaceID = entry.surfaceID {
+                    rememberCodexHookBinding(
+                        sessionID: entry.sessionID,
+                        surfaceID: surfaceID,
+                        updatedAt: entry.updatedAt ?? .distantPast
+                    )
+                }
                 let sessionID = canonicalClaudeSessionID(
                     incomingSessionID: entry.sessionID,
                     source: source,
@@ -386,10 +410,7 @@ final class AgentChatSessionRegistry {
                 record.rememberHookStoreSessionID(entry.sessionID)
                 stampLifecycleTransition(previous: nil, current: &record, at: entry.updatedAt ?? Date())
                 stampVersion(&record)
-                records[sessionID] = record
-                syncProcessExitWatch(for: record)
-                updateLiveSessionIndex(previous: nil, current: record)
-                onRecordChanged?(record, nil)
+                storeRecord(record, replacing: nil)
             }
         }
     }
@@ -402,6 +423,15 @@ final class AgentChatSessionRegistry {
     @discardableResult
     func noteHookEvent(_ event: WorkstreamEvent) -> AgentChatSessionRecord {
         let hookSessionID = Self.normalizedSessionID(event.sessionId, source: event.source)
+        if event.source == "codex",
+           let surfaceID = event.surfaceId,
+           !surfaceID.isEmpty {
+            rememberCodexHookBinding(
+                sessionID: hookSessionID,
+                surfaceID: surfaceID,
+                updatedAt: event.receivedAt
+            )
+        }
         let sessionID = canonicalClaudeSessionID(
             incomingSessionID: hookSessionID,
             source: event.source,
@@ -471,13 +501,10 @@ final class AgentChatSessionRegistry {
         record.lastActivityAt = event.receivedAt
 
         let previous = records[sessionID]
-        record.state = Self.nextState(previous: record.state, event: event)
+        record.setHookLifecycleState(Self.nextState(previous: record.state, event: event))
         stampLifecycleTransition(previous: previous, current: &record, at: event.receivedAt)
         stampVersion(&record)
-        records[sessionID] = record
-        syncProcessExitWatch(for: record)
-        updateLiveSessionIndex(previous: previous, current: record)
-        onRecordChanged?(record, previous)
+        storeRecord(record, replacing: previous)
         if shouldConsultStore {
             backfillBindingsFromStore(
                 sessionID: sessionID,
@@ -554,18 +581,7 @@ final class AgentChatSessionRegistry {
             .map(\.sessionID)
         guard !aliases.isEmpty else { return }
         for alias in aliases {
-            guard var record = records.removeValue(forKey: alias) else { continue }
-            stampVersion(&record)
-            exitWatchers[alias]?.source.cancel()
-            exitWatchers[alias] = nil
-            hookStoreConsultedAt.removeValue(forKey: alias)
-            updateLiveSessionIndex(previous: record, current: nil)
-            onRecordRemoved?(record)
-        }
-        if let indexed = liveSessionIDBySurfaceID[surfaceID],
-           aliases.contains(indexed) {
-            liveSessionIDBySurfaceID.removeValue(forKey: surfaceID)
-            rebuildLiveSessionIndex(surfaceID: surfaceID)
+            removeRecord(sessionID: alias)
         }
     }
 
@@ -626,7 +642,7 @@ final class AgentChatSessionRegistry {
                 if let normalizedWorkspace { record.workspaceID = normalizedWorkspace }
                 if let normalizedCwd { record.workingDirectory = normalizedCwd }
                 record.pid = nil
-                record.state = .idle
+                record.setProcessObservedIdle()
                 record.lastActivityAt = now
             }
             return
@@ -648,10 +664,7 @@ final class AgentChatSessionRegistry {
         )
         stampLifecycleTransition(previous: nil, current: &record, at: now)
         stampVersion(&record)
-        records[sessionID] = record
-        syncProcessExitWatch(for: record)
-        updateLiveSessionIndex(previous: nil, current: record)
-        onRecordChanged?(record, nil)
+        storeRecord(record, replacing: nil)
     }
 
     /// Reads one session's hook-store entry OFF the main actor and applies any
@@ -671,6 +684,13 @@ final class AgentChatSessionRegistry {
                 store.entry(agentSource: agentSource, sessionID: lookupSessionID)
             }.value
             guard let self, let entry else { return }
+            if agentSource == "codex", let surfaceID = entry.surfaceID {
+                self.rememberCodexHookBinding(
+                    sessionID: entry.sessionID,
+                    surfaceID: surfaceID,
+                    updatedAt: entry.updatedAt ?? .distantPast
+                )
+            }
             self.applyStoreBackfill(sessionID: sessionID, entry: entry)
         }
     }
@@ -692,10 +712,68 @@ final class AgentChatSessionRegistry {
         }
     }
 
-    private func updateLiveSessionIndex(
+    /// Stores one record and reconciles every derived registry structure.
+    private func storeRecord(
+        _ record: AgentChatSessionRecord,
+        replacing previous: AgentChatSessionRecord?
+    ) {
+        records[record.sessionID] = record
+        syncProcessExitWatch(for: record)
+        updateSessionIndexes(previous: previous, current: record)
+        onRecordChanged?(record, previous)
+    }
+
+    /// Removes one record and reconciles every derived registry structure.
+    private func removeRecord(sessionID: String) {
+        guard var record = records.removeValue(forKey: sessionID) else { return }
+        stampVersion(&record)
+        exitWatchers[sessionID]?.source.cancel()
+        exitWatchers[sessionID] = nil
+        hookStoreConsultedAt.removeValue(forKey: sessionID)
+        updateSessionIndexes(previous: record, current: nil)
+        onRecordRemoved?(record)
+    }
+
+    /// Rebuilds all derived indexes after records are restored at initialization.
+    private func rebuildSessionIndexes() {
+        sessionSurfaceIndex = ChatSessionSurfaceIndex<String>()
+        liveSessionIDBySurfaceID.removeAll(keepingCapacity: true)
+        liveClaudeSessionIDsBySurfaceID.removeAll(keepingCapacity: true)
+        for record in records.values {
+            updateSessionIndexes(previous: nil, current: record)
+        }
+    }
+
+    /// Resolves indexed records and repairs a missing or stale surface entry.
+    private func indexedRecords(surfaceID: String) -> [AgentChatSessionRecord] {
+        let before = sessionSurfaceIndex.sessionIDs(surfaceID: surfaceID)
+        let sessionIDs = sessionSurfaceIndex.sessionIDs(
+            surfaceID: surfaceID,
+            healingFrom: records,
+            recordSurfaceID: \.surfaceID
+        )
+        #if DEBUG
+        if before != sessionIDs, !sessionIDs.isEmpty {
+            cmuxDebugLog(
+                "agentChat.surfaceIndex divergence surface=\(surfaceID.prefix(8)) "
+                + "indexed=\(before.count) recovered=\(sessionIDs.count)"
+            )
+        }
+        #endif
+        return sessionIDs.compactMap { records[$0] }
+    }
+
+    private func updateSessionIndexes(
         previous: AgentChatSessionRecord?,
         current: AgentChatSessionRecord?
     ) {
+        if let sessionID = current?.sessionID ?? previous?.sessionID {
+            sessionSurfaceIndex.update(
+                sessionID: sessionID,
+                previousSurfaceID: previous?.surfaceID,
+                currentSurfaceID: current?.surfaceID
+            )
+        }
         updateLiveClaudeSessionIndex(previous: previous, current: current)
         let previousSurfaceID = Self.liveSurfaceID(previous)
         let currentSurfaceID = Self.liveSurfaceID(current)
@@ -736,7 +814,7 @@ final class AgentChatSessionRegistry {
 
     private func rebuildLiveSessionIndex(surfaceID: String?) {
         guard let surfaceID else { return }
-        if let newest = records.values
+        if let newest = indexedRecords(surfaceID: surfaceID)
             .filter({ $0.surfaceID == surfaceID && $0.state != .ended })
             .max(by: { $0.lastActivityAt < $1.lastActivityAt }) {
             liveSessionIDBySurfaceID[surfaceID] = newest.sessionID

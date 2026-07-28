@@ -355,6 +355,8 @@ describe("agent page variants", () => {
     expect(llms).toContain("[Remote tmux](https://cmux.com/docs/remote-tmux.md)");
     expect(llms).toContain("Remote tmux: attach to existing tmux sessions over SSH");
     expect(llms).toContain("Text: https://cmux.com/docs/getting-started.txt");
+    expect(llms).not.toContain("https://cmux.com/docs/base.md");
+    expect(llms).not.toContain("https://cmux.com/docs/base.txt");
     expect(variantPathForPage("/", "md")).toBe("/index.md");
   });
 
@@ -406,10 +408,14 @@ describe("agent page variants", () => {
   });
 
   test("limits partially translated blog variants to authored locales", () => {
-    const path = "/blog/cmux-ssh";
-    expect(resolveAgentPageVariant(`${path}.md`)).not.toBeNull();
-    expect(resolveAgentPageVariant(`/ja${path}.md`)).not.toBeNull();
-    expect(resolveAgentPageVariant(`/de${path}.txt`)).toBeNull();
+    for (const path of [
+      "/blog/claude-code-best-worktree-manager",
+      "/blog/cmux-ssh",
+    ]) {
+      expect(resolveAgentPageVariant(`${path}.md`)).not.toBeNull();
+      expect(resolveAgentPageVariant(`/ja${path}.md`)).not.toBeNull();
+      expect(resolveAgentPageVariant(`/de${path}.txt`)).toBeNull();
+    }
   });
 
   test("limits en-ja docs alternate links to live localized routes", () => {

@@ -1,4 +1,10 @@
+import type { DiffResponse } from "./diff/generated/protocol";
+
 export {};
+
+type AgentSessionNativeReply =
+  | { ok: true; value: unknown }
+  | { ok: false; error?: { code?: string; userMessage?: string } };
 
 declare global {
   var CmuxViewerNavigation: {
@@ -24,6 +30,16 @@ declare global {
       state?: unknown;
       streamMetrics?: unknown;
       workerPool?: unknown;
+    };
+    webkit?: {
+      messageHandlers?: {
+        agentSession?: {
+          postMessage(message: unknown): Promise<AgentSessionNativeReply>;
+        };
+        cmuxDiff?: {
+          postMessage(message: unknown): Promise<DiffResponse>;
+        };
+      };
     };
   }
 }

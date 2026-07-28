@@ -74,6 +74,36 @@ struct RemoteSessionSSHRemoteCommandOverrideTests {
         }
     }
 
+    @Test("File-backed SSH exec overrides a configured StdinNull")
+    func fileBackedSSHExecOverridesConfiguredStdinNull() throws {
+        let runner = RecordingProcessRunner()
+        let coordinator = Self.makeCoordinator(
+            runner: runner,
+            sshOptions: ["StdinNull=yes"]
+        )
+        defer { coordinator.stop() }
+
+        let localFile = URL(fileURLWithPath: "/tmp/cmux-test-helper")
+        _ = try coordinator.sshExec(
+            arguments: coordinator.sshCommonArguments(batchMode: true) + [
+                "user@example.test",
+                "sh -c 'cat > remote-helper'",
+            ],
+            stdinFile: localFile,
+            timeout: 1
+        )
+
+        let request = try #require(runner.requests.first)
+        #expect(request.stdinFile == localFile)
+        let overrideIndex = Self.pairIndex(request.arguments, "-o", "StdinNull=no")
+        let configuredIndex = Self.pairIndex(request.arguments, "-o", "StdinNull=yes")
+        #expect(overrideIndex != nil)
+        #expect(configuredIndex != nil)
+        if let overrideIndex, let configuredIndex {
+            #expect(overrideIndex < configuredIndex)
+        }
+    }
+
     // MARK: - Helpers
 
     private static func consecutive(_ args: [String], _ a: String, _ b: String) -> Bool {
@@ -110,14 +140,15 @@ struct RemoteSessionSSHRemoteCommandOverrideTests {
         return RemoteSessionCoordinator(
             host: NoopRemoteSessionHost(),
             configuration: configuration,
-            proxyBroker: UnusedRemoteProxyBroker(),
+            proxyBroker: SSHOverrideUnusedRemoteProxyBroker(),
+            connectionBroker: NativeSSHConnectionBroker(),
             manifestRepository: RemoteDaemonManifestRepository(
                 homeDirectory: FileManager.default.temporaryDirectory
             ),
             processRunner: runner,
-            reachabilityProbe: NoopReachabilityProbe(),
-            relayCommandRewriter: PassthroughRelayCommandRewriter(),
-            buildInfo: StubBuildInfo(),
+            reachabilityProbe: SSHOverrideNoopReachabilityProbe(),
+            relayCommandRewriter: SSHOverridePassthroughRelayCommandRewriter(),
+            buildInfo: SSHOverrideStubBuildInfo(),
             daemonStrings: RemoteDaemonStrings(
                 missingPersistentPTYCapability: "",
                 missingRequiredFunctionality: ""
@@ -132,11 +163,23 @@ struct RemoteSessionSSHRemoteCommandOverrideTests {
 
 // MARK: - Stubs
 
-/// Records every subprocess request the coordinator issues and returns a
-/// canned successful result, so the argv can be asserted without touching ssh.
-private final class RecordingProcessRunner: RemoteSessionProcessRunning, @unchecked Sendable {
+/// Records every subprocess request and returns an injected response.
+/// Synchronization: the lock guards request storage; `response` is immutable
+/// and `@Sendable`, which makes the unchecked conformance safe.
+final class RecordingProcessRunner: RemoteSessionProcessRunning, @unchecked Sendable {
+    typealias Response = @Sendable (RemoteProcessRequest) throws -> RemoteCommandResult
+
     private let lock = NSLock()
     private var _requests: [RemoteProcessRequest] = []
+    private let response: Response
+
+    init(
+        response: @escaping Response = { _ in
+            RemoteCommandResult(status: 0, stdout: "", stderr: "")
+        }
+    ) {
+        self.response = response
+    }
 
     var requests: [RemoteProcessRequest] { lock.withLock { _requests } }
 
@@ -145,11 +188,11 @@ private final class RecordingProcessRunner: RemoteSessionProcessRunning, @unchec
         operation: (any RemoteTransferCancelling)?
     ) throws -> RemoteCommandResult {
         lock.withLock { _requests.append(request) }
-        return RemoteCommandResult(status: 0, stdout: "", stderr: "")
+        return try response(request)
     }
 }
 
-private struct NoopRemoteSessionHost: RemoteSessionHosting {
+struct NoopRemoteSessionHost: RemoteSessionHosting {
     func publishConnectionState(_ state: WorkspaceRemoteConnectionState, detail: String?) {}
     func publishDaemonStatus(_ status: WorkspaceRemoteDaemonStatus) {}
     func publishProxyEndpoint(_ endpoint: BrowserProxyEndpoint?) {}
@@ -158,13 +201,13 @@ private struct NoopRemoteSessionHost: RemoteSessionHosting {
     func publishBootstrapRemoteTTY(_ ttyName: String) {}
 }
 
-private final class UnusedRemoteProxyBroker: RemoteProxyBrokering, @unchecked Sendable {
+final class SSHOverrideUnusedRemoteProxyBroker: RemoteProxyBrokering, @unchecked Sendable {
     func acquire(
         configuration: WorkspaceRemoteConfiguration,
         remotePath: String,
         onUpdate: @escaping @Sendable (RemoteProxyBrokerUpdate) -> Void
     ) -> RemoteProxyLease {
-        fatalError("UnusedRemoteProxyBroker.acquire is not exercised by these tests")
+        fatalError("SSHOverrideUnusedRemoteProxyBroker.acquire is not exercised by these tests")
     }
 
     func listPTY(configuration: WorkspaceRemoteConfiguration) throws -> [[String: Any]] { [] }
@@ -206,11 +249,11 @@ private final class UnusedRemoteProxyBroker: RemoteProxyBrokering, @unchecked Se
         command: String?,
         requireExisting: Bool
     ) throws -> RemotePTYBridgeServer.Endpoint {
-        fatalError("UnusedRemoteProxyBroker.startPTYBridge is not exercised by these tests")
+        fatalError("SSHOverrideUnusedRemoteProxyBroker.startPTYBridge is not exercised by these tests")
     }
 }
 
-private struct NoopReachabilityProbe: RemoteHostReachabilityProbing {
+struct SSHOverrideNoopReachabilityProbe: RemoteHostReachabilityProbing {
     func probe(
         destination: String,
         port: Int?,
@@ -220,7 +263,7 @@ private struct NoopReachabilityProbe: RemoteHostReachabilityProbing {
     ) {}
 }
 
-private struct PassthroughRelayCommandRewriter: RemoteRelayCommandRewriting {
+struct SSHOverridePassthroughRelayCommandRewriter: RemoteRelayCommandRewriting {
     func rewriteRemoteRelayCommandLine(
         _ commandLine: Data,
         workspaceAliases: [UUID: UUID],
@@ -230,7 +273,7 @@ private struct PassthroughRelayCommandRewriter: RemoteRelayCommandRewriting {
     }
 }
 
-private struct StubBuildInfo: RemoteSessionBuildInfoProviding {
+struct SSHOverrideStubBuildInfo: RemoteSessionBuildInfoProviding {
     func appVersion() -> String? { nil }
     func embeddedDaemonManifest() -> WorkspaceRemoteDaemonManifest? { nil }
     func executableDirectoryURL() -> URL? { nil }

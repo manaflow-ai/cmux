@@ -298,6 +298,7 @@ struct RemoteReconnectPolicyTests {
             host: IntentionalCleanupTestHost(),
             configuration: configuration,
             proxyBroker: broker,
+            connectionBroker: NativeSSHConnectionBroker(),
             manifestRepository: RemoteDaemonManifestRepository(
                 homeDirectory: FileManager.default.temporaryDirectory
             ),

@@ -14,6 +14,8 @@ struct PanelContentView: View {
     let isFocused: Bool
     let isSelectedInPane: Bool
     let isVisibleInUI: Bool
+    let allowsPointerInput: Bool
+    var pointerEntryEventFilter: (@MainActor (NSEvent) -> Bool)? = nil
     let portalPriority: Int
     let isSplit: Bool
     let appearance: PanelAppearance
@@ -25,6 +27,9 @@ struct PanelContentView: View {
     /// Explicit browser pane-ownership signal for hosts whose panels live outside
     /// the main `Workspace` tree (the Dock). `nil` keeps the main-area behavior.
     var paneOwnershipOverride: Bool? = nil
+    /// Live terminal pane ownership. Portal callbacks invoke this again instead
+    /// of trusting the SwiftUI snapshot captured before a cross-container move.
+    var terminalPaneOwnershipResolver: (@MainActor () -> Bool)? = nil
     let onFocus: () -> Void
     let onRequestPanelFocus: () -> Void
     let onResumeAgentHibernation: () -> Void
@@ -48,6 +53,7 @@ struct PanelContentView: View {
                     paneId: paneId,
                     isFocused: isFocused,
                     isVisibleInUI: isVisibleInUI,
+                    portalPaneOwnershipResolver: terminalPaneOwnershipResolver,
                     portalPriority: portalPriority,
                     isSplit: isSplit,
                     appearance: appearance,
@@ -70,6 +76,10 @@ struct PanelContentView: View {
                     paneOwnershipOverride: paneOwnershipOverride,
                     onRequestPanelFocus: onRequestPanelFocus
                 )
+                // Browser chrome owns panel-scoped edit/focus state. Bonsplit reuses this
+                // structural slot when a pane selects another browser, so bind its lifetime
+                // to the panel instead of carrying the prior panel's omnibar draft forward.
+                .id(browserPanel.id)
             }
         case .markdown:
             if let markdownPanel = panel as? MarkdownPanel {
@@ -115,6 +125,26 @@ struct PanelContentView: View {
                         appearance: appearance,
                         windowAppearance: windowAppearance,
                         onRequestPanelFocus: onRequestPanelFocus
+                    )
+                }
+            }
+        case .simulator:
+            if let simulatorPanel = panel as? SimulatorPanel {
+                if CmuxFeatureFlags.shared.isSimulatorEnabled,
+                   simulatorPanel.isFeatureReady {
+                    SimulatorPanelView(
+                        panel: simulatorPanel,
+                        isFocused: isFocused,
+                        isVisibleInUI: isVisibleInUI,
+                        allowsPointerInput: allowsPointerInput,
+                        pointerEntryEventFilter: pointerEntryEventFilter,
+                        appearance: appearance,
+                        onRequestPanelFocus: onRequestPanelFocus
+                    )
+                } else {
+                    SimulatorFeatureDisabledView(
+                        panel: simulatorPanel,
+                        appearance: appearance
                     )
                 }
             }
@@ -175,7 +205,7 @@ struct PanelContentView: View {
     private var shouldInstallPaneDropTarget: Bool {
         guard isVisibleInUI else { return false }
         switch panel.panelType {
-        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .agentSession, .project, .extensionBrowser, .workspaceTodo, .cloudVMLoading:
+        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .simulator, .agentSession, .project, .extensionBrowser, .workspaceTodo, .cloudVMLoading:
             return true
         case .terminal, .browser:
             return false

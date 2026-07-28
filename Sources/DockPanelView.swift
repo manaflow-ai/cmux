@@ -124,6 +124,7 @@ private struct DockSplitContentView: View {
                 isFocused: isFocused,
                 isSelectedInPane: isSelectedInPane,
                 isVisibleInUI: isVisibleInUI,
+                allowsPointerInput: isVisibleInUI,
                 portalPriority: Self.portalPriority,
                 isSplit: isSplit,
                 appearance: appearance,
@@ -132,6 +133,10 @@ private struct DockSplitContentView: View {
                 hasUnreadNotification: false,
                 terminalAgentContext: "",
                 paneOwnershipOverride: isVisibleInUI,
+                terminalPaneOwnershipResolver: {
+                    guard store.paneId(forPanelId: panel.id)?.id == paneId.id else { return false }
+                    return store.panelIsSelectedInVisibleDockPane(panel.id)
+                },
                 onFocus: {
                     store.bonsplitController.focusPane(paneId)
                     store.noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow)
@@ -140,8 +145,12 @@ private struct DockSplitContentView: View {
                     store.noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow)
                     store.focusPanel(panel.id)
                 },
-                onResumeAgentHibernation: {},
-                onAutoResumeAgentHibernation: {},
+                onResumeAgentHibernation: {
+                    _ = store.resumeAgentHibernation(panelId: panel.id, focus: true)
+                },
+                onAutoResumeAgentHibernation: {
+                    _ = store.resumeAgentHibernation(panelId: panel.id, focus: false)
+                },
                 onTriggerFlash: {}
             )
             .onTapGesture { store.bonsplitController.focusPane(paneId) }
@@ -276,7 +285,7 @@ final class DockKeyboardFocusView: NSView {
     func ownsKeyboardFocus(_ responder: NSResponder) -> Bool {
         if responder === self { return true }
         if let window, ownsDockBrowserFocus?(responder, window) == true { return true }
-        guard let ghosttyView = cmuxOwningGhosttyView(for: responder),
+        guard let ghosttyView = responder.cmuxStrictOwningGhosttyView(),
               let surfaceId = ghosttyView.terminalSurface?.id else {
             return false
         }

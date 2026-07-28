@@ -137,4 +137,24 @@ struct TerminalWireCodableTests {
         let newerResponse = try ChatWireCoding().decode(TerminalArtifactScanResponse.self, from: newer)
         #expect(newerResponse.sessionArtifactTotal == 9)
     }
+
+    @Test("terminal directory listing round-trips cap metadata and decodes legacy payloads")
+    func terminalDirectoryListingRoundTrip() throws {
+        let listing = ChatArtifactDirectoryListing(
+            entries: [
+                ChatArtifactDirectoryEntry(name: "Sources", isDirectory: true, size: 0, kind: .directory),
+                ChatArtifactDirectoryEntry(name: "README.md", isDirectory: false, size: 42, kind: .text),
+            ],
+            isTruncated: true
+        )
+        let coding = ChatWireCoding()
+        let data = try coding.encode(listing)
+        let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+
+        #expect(object["is_truncated"] as? Bool == true)
+        #expect(try coding.decode(ChatArtifactDirectoryListing.self, from: data) == listing)
+
+        let legacy = Data(#"{"entries":[]}"#.utf8)
+        #expect(try coding.decode(ChatArtifactDirectoryListing.self, from: legacy).isTruncated == false)
+    }
 }

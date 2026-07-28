@@ -68,6 +68,17 @@ import Testing
         ))
     }
 
+    @Test func deviceAuthorityCanonicalizesUUIDsWithoutFoldingOpaqueIDs() {
+        #expect(MobileMacInstanceTagAuthority.authenticatedDeviceMatches(
+            reportedDeviceID: "AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE",
+            expectedDeviceID: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+        ))
+        #expect(!MobileMacInstanceTagAuthority.authenticatedDeviceMatches(
+            reportedDeviceID: "Legacy-Mac-ID",
+            expectedDeviceID: "legacy-mac-id"
+        ))
+    }
+
     @Test func registryRefreshRequiresSameDeviceAndInstanceAuthority() {
         #expect(DeviceRegistryService.shouldApplyRegistryRefresh(
             isSignedIn: true,

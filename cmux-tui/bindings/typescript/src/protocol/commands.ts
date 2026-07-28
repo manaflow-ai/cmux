@@ -8,17 +8,112 @@ import type {
   EmptyResult,
   Id,
   IdRef,
+  Json,
   NotificationLevel,
   PaneDirection,
   SplitDirection,
 } from "./common.js";
-import type { DeclarativeLayout, Layout, Tree } from "./tree.js";
+import type { DeclarativeLayout, Layout, Tree, ViewportSplit } from "./tree.js";
+import type { RenderRow } from "./render.js";
 
 export interface IdentifyRequest extends CmuxRequestBase { cmd: "identify" }
-export interface IdentifyResult { app: "cmux-tui"; version: string; protocol: number; session: string; pid: number }
+export interface IdentifyResult {
+  app: "cmux-tui";
+  version: string;
+  build_commit?: string | null;
+  ghostty_commit?: string | null;
+  protocol: number;
+  capabilities?: string[];
+  session: string;
+  pid: number;
+  registry_id: string;
+  generation: string;
+  workspace_revision: number;
+  terminal_revision: number;
+}
 
 export interface PingRequest extends CmuxRequestBase { cmd: "ping" }
-export interface PingResult { ok: true; version: string; protocol: number }
+export interface PingResult {
+  ok: true;
+  version: string;
+  build_commit?: string | null;
+  ghostty_commit?: string | null;
+  protocol: number;
+}
+
+export interface SetClientInfoRequest extends CmuxRequestBase {
+  cmd: "set-client-info";
+  name?: string;
+  kind?: string;
+}
+
+export interface ListClientsRequest extends CmuxRequestBase { cmd: "list-clients" }
+export type ClientTransport = "local" | "unix" | "ws";
+export interface ClientSize {
+  surface: Id;
+  cols: number | null;
+  rows: number | null;
+  /** Protocol v10; protocol v9 reports this on ClientInfo instead. */
+  size_participating?: boolean;
+}
+export interface ClientInfo {
+  client: Id;
+  transport: ClientTransport;
+  name: string | null;
+  kind: string | null;
+  connected_seconds: number;
+  attached: Id[];
+  sizes: ClientSize[];
+  /** Protocol v9 compatibility; protocol v10 reports this per size entry. */
+  size_participating?: boolean;
+  self: boolean;
+}
+export type ListClientsResult = ClientInfo[];
+
+export type TerminalLifecycle = "launching" | "adopting" | "running" | "exited" | "tombstoned";
+export interface TerminalRecord {
+  terminal_id: string;
+  workspace_key: string;
+  terminal_incarnation: string | null;
+  lifecycle: TerminalLifecycle;
+  launch_spec: Json;
+  exit: Json | null;
+}
+export interface ListTerminalsRequest extends CmuxRequestBase { cmd: "list-terminals" }
+export interface ListTerminalsResult {
+  registry_id: string;
+  generation: string;
+  terminal_revision: number;
+  terminals: TerminalRecord[];
+}
+export interface TerminalEventsRequest extends CmuxRequestBase {
+  cmd: "terminal-events";
+  after_revision?: number;
+}
+export interface TerminalRegistryEvent {
+  terminal_revision: number;
+  kind: string;
+  terminal_id: string;
+  workspace_key: string;
+  origin: string;
+  mutation_id: string;
+  result: Json;
+}
+export interface TerminalEventsResult {
+  registry_id: string;
+  generation: string;
+  terminal_revision: number;
+  events: TerminalRegistryEvent[];
+}
+
+export interface DetachClientRequest extends CmuxRequestBase { cmd: "detach-client"; client: Id }
+export interface SetClientSizingRequest extends CmuxRequestBase {
+  cmd: "set-client-sizing";
+  surface: Id;
+  client?: Id;
+  enabled: boolean;
+  exclusive?: boolean;
+}
 
 export interface ReloadConfigRequest extends CmuxRequestBase { cmd: "reload-config" }
 export interface ReloadConfigResult { reloaded: true; path: string | null }
@@ -33,7 +128,14 @@ export interface ExportLayoutRequest extends CmuxRequestBase {
   screen?: Id | null;
 }
 export interface ExportedPane { pane: Id; surfaces: Id[] }
-export interface ExportLayoutResult { layout: Layout; panes: ExportedPane[] }
+export interface ExportLayoutResult {
+  layout: Layout;
+  panes: ExportedPane[];
+  /** Authoritative width of the first viewport column. Older servers omit it. */
+  viewport_base_width?: number;
+  /** Authoritative widths of appended viewport columns. Older servers omit them. */
+  viewport_splits?: ViewportSplit[];
+}
 
 export interface ApplyLayoutRequest extends CmuxRequestBase {
   cmd: "apply-layout";
@@ -50,10 +152,167 @@ export interface SendRequest extends CmuxRequestBase {
   /** When both are supplied, `text` is written before `bytes`. */
   text?: string | null;
   bytes?: Base64 | null;
+  /** Protocol v7 bracketed-paste request. */
+  paste?: boolean;
+}
+
+export type TerminalKey =
+  | "unidentified"
+  | "backquote"
+  | "backslash"
+  | "bracket-left"
+  | "bracket-right"
+  | "comma"
+  | "digit0"
+  | "digit1"
+  | "digit2"
+  | "digit3"
+  | "digit4"
+  | "digit5"
+  | "digit6"
+  | "digit7"
+  | "digit8"
+  | "digit9"
+  | "equal"
+  | "a"
+  | "b"
+  | "c"
+  | "d"
+  | "e"
+  | "f"
+  | "g"
+  | "h"
+  | "i"
+  | "j"
+  | "k"
+  | "l"
+  | "m"
+  | "n"
+  | "o"
+  | "p"
+  | "q"
+  | "r"
+  | "s"
+  | "t"
+  | "u"
+  | "v"
+  | "w"
+  | "x"
+  | "y"
+  | "z"
+  | "minus"
+  | "period"
+  | "quote"
+  | "semicolon"
+  | "slash"
+  | "backspace"
+  | "enter"
+  | "space"
+  | "tab"
+  | "delete"
+  | "end"
+  | "home"
+  | "insert"
+  | "page-down"
+  | "page-up"
+  | "arrow-down"
+  | "arrow-left"
+  | "arrow-right"
+  | "arrow-up"
+  | "numpad0"
+  | "numpad1"
+  | "numpad2"
+  | "numpad3"
+  | "numpad4"
+  | "numpad5"
+  | "numpad6"
+  | "numpad7"
+  | "numpad8"
+  | "numpad9"
+  | "numpad-add"
+  | "numpad-backspace"
+  | "numpad-comma"
+  | "numpad-decimal"
+  | "numpad-divide"
+  | "numpad-enter"
+  | "numpad-equal"
+  | "numpad-multiply"
+  | "numpad-subtract"
+  | "numpad-up"
+  | "numpad-down"
+  | "numpad-right"
+  | "numpad-left"
+  | "numpad-begin"
+  | "numpad-home"
+  | "numpad-end"
+  | "numpad-insert"
+  | "numpad-delete"
+  | "numpad-page-up"
+  | "numpad-page-down"
+  | "escape"
+  | "f1"
+  | "f2"
+  | "f3"
+  | "f4"
+  | "f5"
+  | "f6"
+  | "f7"
+  | "f8"
+  | "f9"
+  | "f10"
+  | "f11"
+  | "f12"
+  | "f13"
+  | "f14"
+  | "f15"
+  | "f16"
+  | "f17"
+  | "f18"
+  | "f19"
+  | "f20";
+
+export interface TerminalModifiers {
+  shift: boolean;
+  control: boolean;
+  alt: boolean;
+  super: boolean;
+  caps_lock: boolean;
+  num_lock: boolean;
+}
+
+export interface TerminalKeyInput {
+  key: TerminalKey;
+  mods: TerminalModifiers;
+  consumed_mods: TerminalModifiers;
+  composing: boolean;
+  utf8: string;
+  unshifted_codepoint: string | null;
+  shifted_codepoint: string | null;
+  base_layout_codepoint: string | null;
+  action: "press" | "release" | "repeat" | null;
+  macos_option_as_alt: boolean;
+}
+
+export interface ClearHistoryRequest extends CmuxRequestBase {
+  cmd: "clear-history";
+  surface: Id;
+  fallback_key?: TerminalKeyInput | null;
 }
 
 export interface ReadScreenRequest extends CmuxRequestBase { cmd: "read-screen"; surface: Id }
 export interface ReadScreenResult { text: string }
+
+export interface ReadScrollbackRequest extends CmuxRequestBase {
+  cmd: "read-scrollback";
+  surface: Id;
+  start: number;
+  count: number;
+}
+export interface ReadScrollbackResult {
+  rows: RenderRow[];
+  start: number;
+  total: number;
+}
 
 export interface SidebarPluginRequest extends CmuxRequestBase {
   cmd: "sidebar-plugin";
@@ -69,6 +328,44 @@ export interface SidebarPluginResult {
 
 export interface VtStateRequest extends CmuxRequestBase { cmd: "vt-state"; surface: Id }
 export interface VtStateResult { cols: number; rows: number; data: Base64 }
+
+export interface ResolveTerminalRequest extends CmuxRequestBase {
+  cmd: "resolve-terminal";
+  /** Stable 16-byte terminal UUID encoded as exactly 32 lowercase hex characters. */
+  terminal_id: string;
+}
+export interface ResolveTerminalResult {
+  surface: Id | null;
+  terminal_id: string;
+  terminal_incarnation: string | null;
+  workspace_key: string;
+  lifecycle: TerminalLifecycle;
+  launch_spec: Json;
+  exit: Json | null;
+  registry_id: string;
+  generation: string;
+  terminal_revision: number;
+}
+
+export interface CloseTerminalRequest extends CmuxRequestBase {
+  cmd: "close-terminal";
+  terminal_id: string;
+  terminal_incarnation?: string | null;
+  origin?: string;
+  mutation_id?: string;
+  expected_generation?: string | null;
+  expected_terminal_revision?: number | null;
+}
+export interface CloseTerminalResult {
+  surface: Id | null;
+  terminal_id: string;
+  terminal_incarnation: string | null;
+  closed: true;
+  already_closed: boolean;
+  registry_id: string;
+  generation: string;
+  terminal_revision: number;
+}
 
 export interface NewTabRequest extends CmuxRequestBase {
   cmd: "new-tab";
@@ -94,9 +391,73 @@ export interface NewWorkspaceRequest extends CmuxRequestBase {
   rows?: number | null;
 }
 
+export interface CreateWorkspaceRequest extends CmuxRequestBase {
+  cmd: "create-workspace";
+  name?: string | null;
+  key?: string | null;
+  expected_revision?: number | null;
+}
+
+export interface WorkspacePlacement {
+  workspace: Id;
+  key: string;
+  index: number;
+  workspace_revision: number;
+}
+
+export type WorkspaceSelector =
+  | { workspace: Id; key?: string | null }
+  | { key: string; workspace?: Id | null };
+
+interface CreateTerminalRequestBase extends CmuxRequestBase {
+  cmd: "create-terminal";
+  argv?: string[] | null;
+  command?: string | null;
+  cwd?: string | null;
+  name?: string | null;
+  cols?: number | null;
+  rows?: number | null;
+  terminal_id?: string | null;
+  origin?: string;
+  mutation_id?: string;
+  expected_generation?: string | null;
+  expected_terminal_revision?: number | null;
+}
+export type CreateTerminalRequest = CreateTerminalRequestBase & WorkspaceSelector;
+
+export interface TerminalPlacement {
+  surface: Id;
+  pane: Id;
+  screen: Id;
+  workspace: Id;
+  key: string;
+  terminal_id: string | null;
+  terminal_incarnation: string | null;
+  lifecycle: "running" | null;
+  terminal_revision: number;
+  replayed: boolean;
+  registry_id: string;
+  generation: string;
+}
+
 export interface NewScreenRequest extends CmuxRequestBase {
   cmd: "new-screen";
   workspace?: Id | null;
+  cols?: number | null;
+  rows?: number | null;
+}
+
+export interface NewPaneRequest extends CmuxRequestBase {
+  cmd: "new-pane";
+  pane: Id;
+  cols?: number | null;
+  rows?: number | null;
+}
+
+export interface NewPaneRightRequest extends CmuxRequestBase {
+  cmd: "new-pane-right";
+  pane: Id;
+  width?: number | null;
   cols?: number | null;
   rows?: number | null;
 }
@@ -109,7 +470,12 @@ export interface SplitRequest extends CmuxRequestBase {
   rows?: number | null;
 }
 
-export interface SurfaceResult { surface: Id }
+export interface SurfaceResult {
+  surface: Id;
+  /** Present for process-hosted terminal creation, absent for browser surfaces. */
+  terminal_id?: string | null;
+  terminal_incarnation?: string | null;
+}
 
 export interface SetRatioRequest extends CmuxRequestBase {
   cmd: "set-ratio";
@@ -118,6 +484,46 @@ export interface SetRatioRequest extends CmuxRequestBase {
   /** The server clamps this value to `0.05..0.95`. */
   ratio: number;
 }
+
+export interface SetSplitRatioRequest extends CmuxRequestBase {
+  cmd: "set-split-ratio";
+  split: Id;
+  /** The server clamps this value to `0.05..0.95`. */
+  ratio: number;
+  /** Samples sharing one client-scoped transaction form one undo entry. */
+  transaction?: number | null;
+}
+
+export interface SetViewportPaneWidthRequest extends CmuxRequestBase {
+  cmd: "set-viewport-pane-width";
+  pane: Id;
+  width: number;
+  /** Samples sharing one client-scoped transaction form one undo entry. */
+  transaction?: number | null;
+}
+
+interface UndoLayoutRequestBase extends CmuxRequestBase {
+  cmd: "undo-layout";
+  pane: Id;
+}
+export type UndoLayoutRequest =
+  | (UndoLayoutRequestBase & { revision?: null; confirm_close?: false | null })
+  | (UndoLayoutRequestBase & { revision: number; confirm_close: true });
+
+export type LayoutUndoResult =
+  | {
+      undone: true;
+      confirmation_required?: false;
+      screen: Id;
+      revision: number;
+    }
+  | {
+      undone: false;
+      confirmation_required: true;
+      screen: Id;
+      revision: number;
+      closes_panes: Id[];
+    };
 
 export interface PaneNeighborRequest extends CmuxRequestBase { cmd: "pane-neighbor"; pane: Id; dir: PaneDirection }
 export interface PaneNeighborResult { pane: Id | null }
@@ -153,18 +559,37 @@ export interface SetDefaultColorsRequest extends CmuxRequestBase {
 export interface CloseSurfaceRequest extends CmuxRequestBase { cmd: "close-surface"; surface: Id }
 export interface ClosePaneRequest extends CmuxRequestBase { cmd: "close-pane"; pane: Id }
 export interface CloseScreenRequest extends CmuxRequestBase { cmd: "close-screen"; screen: Id }
-export interface CloseWorkspaceRequest extends CmuxRequestBase { cmd: "close-workspace"; workspace: Id }
+export interface WorkspaceMutation {
+  workspace: Id;
+  key: string;
+  workspace_revision: number;
+}
+interface CloseWorkspaceRequestBase extends CmuxRequestBase {
+  cmd: "close-workspace";
+  expected_revision?: number | null;
+}
+export type CloseWorkspaceRequest = CloseWorkspaceRequestBase & WorkspaceSelector;
 
 export interface RenamePaneRequest extends CmuxRequestBase { cmd: "rename-pane"; pane: Id; name: string }
 export interface RenameSurfaceRequest extends CmuxRequestBase { cmd: "rename-surface"; surface: Id; name: string }
 export interface RenameScreenRequest extends CmuxRequestBase { cmd: "rename-screen"; screen: Id; name: string }
-export interface RenameWorkspaceRequest extends CmuxRequestBase { cmd: "rename-workspace"; workspace: Id; name: string }
+interface RenameWorkspaceRequestBase extends CmuxRequestBase {
+  cmd: "rename-workspace";
+  name: string;
+  expected_revision?: number | null;
+}
+export type RenameWorkspaceRequest = RenameWorkspaceRequestBase & WorkspaceSelector;
 
 export interface ResizeSurfaceRequest extends CmuxRequestBase {
   cmd: "resize-surface";
   surface: Id;
   cols: number;
   rows: number;
+}
+export interface ResizeSurfaceResult { accepted: boolean; reservation_id?: number | null }
+export interface ReleaseSurfaceSizeRequest extends CmuxRequestBase {
+  cmd: "release-surface-size";
+  surface: Id;
 }
 
 export interface FocusPaneRequest extends CmuxRequestBase { cmd: "focus-pane"; pane: Id }
@@ -191,19 +616,54 @@ export interface SelectWorkspaceRequest extends CmuxRequestBase {
   delta?: number | null;
 }
 
+export interface MoveTerminalRequest extends CmuxRequestBase {
+  cmd: "move-terminal";
+  terminal_id: string;
+  workspace_key: string;
+  terminal_incarnation?: string | null;
+  origin?: string;
+  mutation_id?: string;
+  expected_generation?: string | null;
+  expected_terminal_revision?: number | null;
+}
+export interface MoveTerminalResult {
+  surface: Id | null;
+  pane: Id | null;
+  screen: Id | null;
+  workspace: Id | null;
+  terminal_id: string;
+  terminal_incarnation: string | null;
+  workspace_key: string;
+  lifecycle: TerminalLifecycle;
+  changed: boolean;
+  replayed: boolean;
+  terminal_revision: number;
+  registry_id: string;
+  generation: string;
+}
+
 export interface MoveTabRequest extends CmuxRequestBase { cmd: "move-tab"; surface: Id; pane: Id; index: number }
-export interface MoveWorkspaceRequest extends CmuxRequestBase { cmd: "move-workspace"; workspace: Id; index: number }
+interface MoveWorkspaceRequestBase extends CmuxRequestBase {
+  cmd: "move-workspace";
+  index: number;
+  expected_revision?: number | null;
+}
+export type MoveWorkspaceRequest = MoveWorkspaceRequestBase & WorkspaceSelector;
 export interface ScrollSurfaceRequest extends CmuxRequestBase { cmd: "scroll-surface"; surface: Id; delta: number }
 
 export interface SubscribeRequest extends CmuxRequestBase {
   cmd: "subscribe";
-  /** Proposed protocol v6 event-name filter. */
-  events?: string[] | null;
-  /** Proposed protocol v6 surface filter. */
-  surfaces?: IdRef[] | null;
+  /** Protocol v7 tree lifecycle delivery mode. */
+  tree_events?: "coarse" | "deltas";
 }
 
-export interface AttachSurfaceRequest extends CmuxRequestBase { cmd: "attach-surface"; surface: Id }
+export interface AttachSurfaceRequest extends CmuxRequestBase {
+  cmd: "attach-surface";
+  surface: Id;
+  mode?: "bytes" | "render";
+  cols?: number;
+  rows?: number;
+}
 
 export interface WaitForRequest extends CmuxRequestBase {
   cmd: "wait-for";
@@ -273,6 +733,12 @@ export interface ReportAgentResult {
 export type CmuxRequest =
   | IdentifyRequest
   | PingRequest
+  | SetClientInfoRequest
+  | ListClientsRequest
+  | ListTerminalsRequest
+  | TerminalEventsRequest
+  | DetachClientRequest
+  | SetClientSizingRequest
   | ReloadConfigRequest
   | SetWindowTitleRequest
   | ClearWindowTitleRequest
@@ -280,15 +746,26 @@ export type CmuxRequest =
   | ExportLayoutRequest
   | ApplyLayoutRequest
   | SendRequest
+  | ClearHistoryRequest
   | ReadScreenRequest
+  | ReadScrollbackRequest
   | SidebarPluginRequest
   | VtStateRequest
+  | ResolveTerminalRequest
+  | CloseTerminalRequest
   | NewTabRequest
   | NewBrowserTabRequest
   | NewWorkspaceRequest
+  | CreateWorkspaceRequest
+  | CreateTerminalRequest
   | NewScreenRequest
+  | NewPaneRequest
+  | NewPaneRightRequest
   | SplitRequest
   | SetRatioRequest
+  | SetSplitRatioRequest
+  | SetViewportPaneWidthRequest
+  | UndoLayoutRequest
   | PaneNeighborRequest
   | FocusDirectionRequest
   | SwapPaneRequest
@@ -304,10 +781,12 @@ export type CmuxRequest =
   | RenameScreenRequest
   | RenameWorkspaceRequest
   | ResizeSurfaceRequest
+  | ReleaseSurfaceSizeRequest
   | FocusPaneRequest
   | SelectTabRequest
   | SelectScreenRequest
   | SelectWorkspaceRequest
+  | MoveTerminalRequest
   | MoveTabRequest
   | MoveWorkspaceRequest
   | ScrollSurfaceRequest
@@ -326,6 +805,12 @@ export type CmuxRequest =
 export interface CmuxResponseDataMap {
   identify: IdentifyResult;
   ping: PingResult;
+  "set-client-info": EmptyResult;
+  "list-clients": ListClientsResult;
+  "list-terminals": ListTerminalsResult;
+  "terminal-events": TerminalEventsResult;
+  "detach-client": EmptyResult;
+  "set-client-sizing": EmptyResult;
   "reload-config": ReloadConfigResult;
   "set-window-title": EmptyResult;
   "clear-window-title": EmptyResult;
@@ -333,15 +818,26 @@ export interface CmuxResponseDataMap {
   "export-layout": ExportLayoutResult;
   "apply-layout": ApplyLayoutResult;
   send: EmptyResult;
+  "clear-history": EmptyResult;
   "read-screen": ReadScreenResult;
+  "read-scrollback": ReadScrollbackResult;
   "sidebar-plugin": SidebarPluginResult;
   "vt-state": VtStateResult;
+  "resolve-terminal": ResolveTerminalResult;
+  "close-terminal": CloseTerminalResult;
   "new-tab": SurfaceResult;
   "new-browser-tab": SurfaceResult;
   "new-workspace": SurfaceResult;
+  "create-workspace": WorkspacePlacement;
+  "create-terminal": TerminalPlacement;
   "new-screen": SurfaceResult;
+  "new-pane": SurfaceResult;
+  "new-pane-right": SurfaceResult;
   split: SurfaceResult;
   "set-ratio": EmptyResult;
+  "set-viewport-pane-width": EmptyResult;
+  "undo-layout": LayoutUndoResult;
+  "set-split-ratio": EmptyResult;
   "pane-neighbor": PaneNeighborResult;
   "focus-direction": FocusDirectionResult;
   "swap-pane": EmptyResult;
@@ -351,18 +847,20 @@ export interface CmuxResponseDataMap {
   "close-surface": EmptyResult;
   "close-pane": EmptyResult;
   "close-screen": EmptyResult;
-  "close-workspace": EmptyResult;
+  "close-workspace": EmptyResult | WorkspaceMutation;
   "rename-pane": EmptyResult;
   "rename-surface": EmptyResult;
   "rename-screen": EmptyResult;
-  "rename-workspace": EmptyResult;
-  "resize-surface": EmptyResult;
+  "rename-workspace": EmptyResult | WorkspaceMutation;
+  "resize-surface": ResizeSurfaceResult;
+  "release-surface-size": EmptyResult;
   "focus-pane": EmptyResult;
   "select-tab": EmptyResult;
   "select-screen": EmptyResult;
   "select-workspace": EmptyResult;
+  "move-terminal": MoveTerminalResult;
   "move-tab": EmptyResult;
-  "move-workspace": EmptyResult;
+  "move-workspace": EmptyResult | WorkspaceMutation;
   "scroll-surface": EmptyResult;
   subscribe: EmptyResult;
   "attach-surface": EmptyResult;

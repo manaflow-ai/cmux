@@ -1,7 +1,7 @@
 import { useLocale, useTranslations } from "next-intl";
 import { auditedDocsMetadata } from "../audited-docs-metadata";
 import { DocsSchema } from "../docs-schema";
-import { Link } from "@/i18n/navigation";
+import { DocsLink as Link } from "@/app/[locale]/components/docs-link";
 import { CodeBlock } from "@/app/[locale]/components/code-block";
 import { Callout } from "@/app/[locale]/components/callout";
 import settingsSchema from "@/data/cmux.schema.json";
@@ -478,7 +478,8 @@ working-directory = ~/code`}</CodeBlock>
       <ul>
         <li>
           <code>sidebarFocus</code>, <code>browserFocus</code>, <code>markdownFocus</code>,{" "}
-          <code>filePreviewTextEditorFocus</code>, <code>terminalFocus</code>,{" "}
+          <code>filePreviewTextEditorFocus</code>, <code>simulatorFocus</code>,{" "}
+          <code>terminalFocus</code>,{" "}
           <code>commandPaletteVisible</code>, <code>terminalFindVisible</code>,{" "}
           <code>workspaceCanvasLayout</code> &mdash; {t("shortcutsWhenBooleanKeys")}
         </li>
