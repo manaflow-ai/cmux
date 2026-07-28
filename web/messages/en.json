@@ -4733,19 +4733,19 @@
     "marketing": {
       "sectionLabel": "TUI",
       "metaTitle": "cmux TUI: a terminal workspace for agents",
-      "metaDescription": "Run workspaces, split panes, browser tabs, and remote machines from a fast open-source terminal UI for macOS and Linux.",
+      "metaDescription": "Run workspaces, split panes, browser tabs, and remote machines from a fast open-source terminal UI for macOS, Linux, and Windows.",
       "eyebrow": "cmux TUI · open source",
       "title": "A terminal workspace that runs anywhere.",
-      "intro": "cmux TUI brings the workspace model built for coding agents to macOS and Linux. Keep shells, browsers, tests, and long-running agents in one keyboard-first tree.",
-      "runButton": "Run with npx",
+      "intro": "cmux TUI brings the workspace model built for coding agents to macOS, Linux, and Windows. Keep shells, browsers, tests, and long-running agents in one keyboard-first tree.",
+      "runButton": "Install cmux",
       "docsButton": "Read the docs",
       "sourceButton": "View source",
-      "screenshotAlt": "cmux TUI running inside cmux on macOS with Neovim, OpenCode, and a Git diff in three panes",
-      "screenshotCaption": "A real cmux-tui session inside cmux on macOS, with both sidebars hidden.",
+      "screenshotAlt": "cmux TUI running inside cmux on macOS with Neovim, OpenCode, and Hunk in three panes beside the TUI workspace rail",
+      "screenshotCaption": "A real cmux-tui session inside cmux on macOS. The TUI workspace rail is visible; the macOS app sidebar is hidden.",
       "facts": {
         "platforms": {
           "label": "Runs on",
-          "value": "macOS + Linux"
+          "value": "macOS + Linux + Windows"
         },
         "engine": {
           "label": "Terminal engine",
@@ -4792,8 +4792,15 @@
       },
       "installEyebrow": "Start now",
       "installTitle": "One command. No app window required.",
-      "installBody": "The npm package selects the native binary for your platform. Run it once with npx, or install it globally for a persistent cmux command.",
-      "installOr": "or install globally",
+      "installBody": "The installer selects the native binary for your platform, verifies its SHA-256 checksum, and adds the cmux command to your PATH.",
+      "installTabs": {
+        "label": "Operating system",
+        "unix": "macOS & Linux",
+        "windows": "Windows",
+        "unixNote": "Installs to ~/.cmux/bin and updates your shell PATH.",
+        "windowsNote": "Installs the x64 build to %USERPROFILE%\\.cmux\\bin and updates your user PATH. Windows on Arm uses x64 emulation."
+      },
+      "installNpx": "Already have Node.js? You can also run",
       "fullDocs": "Installation, keys, remote sessions, and automation",
       "browseSource": "Browse cmux-tui on GitHub"
     },
@@ -4801,13 +4808,20 @@
       "metaTitle": "cmux TUI documentation",
       "metaDescription": "Install cmux TUI, learn its workspace model and keyboard controls, attach to sessions, connect remote machines, and automate it.",
       "title": "cmux TUI",
-      "intro": "cmux TUI is a Rust terminal multiplexer for macOS and Linux. It combines workspaces, screens, split panes, terminal tabs, browser tabs, remote sessions, and a control socket in one process.",
-      "screenshotAlt": "cmux TUI running inside cmux on macOS with Neovim, OpenCode, and a Git diff in three panes",
-      "screenshotCaption": "A live session with Neovim, OpenCode, and a Git diff.",
+      "intro": "cmux TUI is a Rust terminal multiplexer for macOS, Linux, and Windows. It combines workspaces, screens, split panes, terminal tabs, browser tabs, remote sessions, and a control socket in one process.",
+      "screenshotAlt": "cmux TUI running inside cmux on macOS with Neovim, OpenCode, and Hunk in three panes beside the TUI workspace rail",
+      "screenshotCaption": "A live session with Neovim, OpenCode, and the Hunk review TUI.",
       "installTitle": "Install and run",
-      "installIntro": "The quickest start uses the published npm package, which selects a native binary for your platform.",
-      "installGlobal": "Install the command globally when you use it regularly.",
-      "platforms": "Packaged builds support macOS and Linux. Building from source requires Rust, Zig 0.15.2, and the repository's Ghostty submodule.",
+      "installIntro": "The install scripts select the native binary for your operating system and architecture, verify its SHA-256 checksum, and add cmux to your PATH.",
+      "installTabs": {
+        "label": "Operating system",
+        "unix": "macOS & Linux",
+        "windows": "Windows",
+        "unixNote": "Installs to ~/.cmux/bin and updates your shell PATH.",
+        "windowsNote": "Installs the x64 build to %USERPROFILE%\\.cmux\\bin and updates your user PATH. Windows on Arm uses x64 emulation."
+      },
+      "installNpx": "If Node.js is already installed, you can run cmux without installing it permanently:",
+      "platforms": "Packaged builds support Apple Silicon and Intel Macs, x64 and Arm64 Linux, and x64 Windows. Windows on Arm runs the x64 build through emulation. Building from source requires Rust, Zig 0.15.2, and the repository's Ghostty submodule.",
       "modelTitle": "The workspace model",
       "modelIntro": "cmux TUI keeps one durable tree instead of flattening every process into an unrelated terminal tab.",
       "modelBody": "A session owns one control socket. Each workspace can contain multiple screens; each screen owns a pane layout; each pane can contain terminal and browser tabs. Closing a tab does not close its pane when other tabs remain.",

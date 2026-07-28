@@ -3,6 +3,7 @@ import { getTranslations } from "next-intl/server";
 import { buildAlternates, openGraphDefaults, twitterSummary } from "@/i18n/seo";
 import { Link } from "@/i18n/navigation";
 import { SiteHeader } from "@/app/[locale]/components/site-header";
+import { TuiInstallTabs } from "./install-tabs";
 
 export async function generateMetadata({
   params,
@@ -27,8 +28,8 @@ export async function generateMetadata({
       images: [
         {
           url: "/tui/cmux-tui-overview.png",
-          width: 4608,
-          height: 2538,
+          width: 5120,
+          height: 2820,
           alt: t("screenshotAlt"),
         },
       ],
@@ -98,10 +99,10 @@ export default async function TuiPage() {
         <figure className="relative left-1/2 mb-12 mt-12 w-[min(90rem,100vw_-_3rem)] -translate-x-1/2">
           <Image
             src="/tui/cmux-tui-overview.png"
-            width={4608}
-            height={2538}
+            width={5120}
+            height={2820}
             priority
-            quality={85}
+            unoptimized
             sizes="(min-width: 1440px) 1440px, calc(100vw - 3rem)"
             alt={t("screenshotAlt")}
             className="h-auto w-full [filter:drop-shadow(0_24px_44px_rgba(0,0,0,0.45))]"
@@ -119,13 +120,17 @@ export default async function TuiPage() {
           <p className="text-[15px] leading-relaxed text-muted">
             {t("installBody")}
           </p>
-          <pre className="mt-4 overflow-x-auto rounded-lg bg-code-bg px-4 py-3 font-mono text-[13px] leading-7">
-            <code>{`$ npx cmux
-
-${t("installOr")}
-$ npm install --global cmux
-$ cmux`}</code>
-          </pre>
+          <TuiInstallTabs
+            unixLabel={t("installTabs.unix")}
+            windowsLabel={t("installTabs.windows")}
+            tabListLabel={t("installTabs.label")}
+            unixNote={t("installTabs.unixNote")}
+            windowsNote={t("installTabs.windowsNote")}
+          />
+          <p className="mt-4 text-[13px] text-muted">
+            {t("installNpx")}{" "}
+            <code className="font-mono text-foreground">npx cmux</code>
+          </p>
         </section>
 
         <section className="mb-10">

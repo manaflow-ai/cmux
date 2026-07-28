@@ -4643,19 +4643,19 @@
     "marketing": {
       "sectionLabel": "TUI",
       "metaTitle": "cmux TUI：エージェント向けターミナルワークスペース",
-      "metaDescription": "macOS と Linux で動く高速なオープンソース TUI から、ワークスペース、分割ペイン、ブラウザタブ、リモートマシンを操作できます。",
+      "metaDescription": "macOS、Linux、Windows で動く高速なオープンソース TUI から、ワークスペース、分割ペイン、ブラウザタブ、リモートマシンを操作できます。",
       "eyebrow": "cmux TUI · オープンソース",
       "title": "どこでも動くターミナルワークスペース。",
-      "intro": "cmux TUI は、コーディングエージェント向けのワークスペースモデルを macOS と Linux に提供します。シェル、ブラウザ、テスト、長時間動くエージェントを、キーボード中心の一つのツリーで管理できます。",
-      "runButton": "npx で実行",
+      "intro": "cmux TUI は、コーディングエージェント向けのワークスペースモデルを macOS、Linux、Windows に提供します。シェル、ブラウザ、テスト、長時間動くエージェントを、キーボード中心の一つのツリーで管理できます。",
+      "runButton": "cmux をインストール",
       "docsButton": "ドキュメントを読む",
       "sourceButton": "ソースを見る",
-      "screenshotAlt": "macOS の cmux 内で Neovim、OpenCode、Git diff を3つのペインに表示する cmux TUI",
-      "screenshotCaption": "両方のサイドバーを非表示にした、macOS の cmux 内で動く実際の cmux-tui セッション。",
+      "screenshotAlt": "macOS の cmux 内で TUI ワークスペースレールの横に Neovim、OpenCode、Hunk を3つのペインで表示する cmux TUI",
+      "screenshotCaption": "macOS の cmux 内で動く実際の cmux-tui セッション。TUI のワークスペースレールは表示し、macOS アプリのサイドバーは非表示にしています。",
       "facts": {
         "platforms": {
           "label": "対応環境",
-          "value": "macOS + Linux"
+          "value": "macOS + Linux + Windows"
         },
         "engine": {
           "label": "ターミナルエンジン",
@@ -4702,8 +4702,15 @@
       },
       "installEyebrow": "今すぐ開始",
       "installTitle": "コマンド一つ。アプリウィンドウは不要です。",
-      "installBody": "npm パッケージがプラットフォームに合うネイティブバイナリを選びます。npx で一度実行するか、グローバルにインストールして cmux コマンドを常用できます。",
-      "installOr": "またはグローバルにインストール",
+      "installBody": "インストーラーがプラットフォームに合うネイティブバイナリを選び、SHA-256 チェックサムを検証して、cmux コマンドを PATH に追加します。",
+      "installTabs": {
+        "label": "オペレーティングシステム",
+        "unix": "macOS & Linux",
+        "windows": "Windows",
+        "unixNote": "~/.cmux/bin にインストールし、シェルの PATH を更新します。",
+        "windowsNote": "x64 ビルドを %USERPROFILE%\\.cmux\\bin にインストールし、ユーザー PATH を更新します。Windows on Arm では x64 エミュレーションを使います。"
+      },
+      "installNpx": "Node.js がある場合は、次のコマンドでも実行できます。",
       "fullDocs": "インストール、キー、リモートセッション、自動化",
       "browseSource": "GitHub で cmux-tui を見る"
     },
@@ -4711,13 +4718,20 @@
       "metaTitle": "cmux TUI ドキュメント",
       "metaDescription": "cmux TUI のインストール、ワークスペースモデル、キーボード操作、セッションへのアタッチ、リモート接続、自動化を説明します。",
       "title": "cmux TUI",
-      "intro": "cmux TUI は macOS と Linux 向けの Rust 製ターミナルマルチプレクサです。ワークスペース、スクリーン、分割ペイン、ターミナルタブ、ブラウザタブ、リモートセッション、制御ソケットを一つのプロセスにまとめます。",
-      "screenshotAlt": "macOS の cmux 内で Neovim、OpenCode、Git diff を3つのペインに表示する cmux TUI",
-      "screenshotCaption": "Neovim、OpenCode、Git diff を表示するライブセッション。",
+      "intro": "cmux TUI は macOS、Linux、Windows 向けの Rust 製ターミナルマルチプレクサです。ワークスペース、スクリーン、分割ペイン、ターミナルタブ、ブラウザタブ、リモートセッション、制御ソケットを一つのプロセスにまとめます。",
+      "screenshotAlt": "macOS の cmux 内で TUI ワークスペースレールの横に Neovim、OpenCode、Hunk を3つのペインで表示する cmux TUI",
+      "screenshotCaption": "Neovim、OpenCode、Hunk レビュー TUI を表示するライブセッション。",
       "installTitle": "インストールと実行",
-      "installIntro": "公開 npm パッケージを使うと、プラットフォームに合うネイティブバイナリが自動で選ばれます。",
-      "installGlobal": "日常的に使う場合は、コマンドをグローバルにインストールします。",
-      "platforms": "配布ビルドは macOS と Linux に対応します。ソースからのビルドには Rust、Zig 0.15.2、リポジトリの Ghostty サブモジュールが必要です。",
+      "installIntro": "インストールスクリプトが OS とアーキテクチャに合うネイティブバイナリを選び、SHA-256 チェックサムを検証して、cmux を PATH に追加します。",
+      "installTabs": {
+        "label": "オペレーティングシステム",
+        "unix": "macOS & Linux",
+        "windows": "Windows",
+        "unixNote": "~/.cmux/bin にインストールし、シェルの PATH を更新します。",
+        "windowsNote": "x64 ビルドを %USERPROFILE%\\.cmux\\bin にインストールし、ユーザー PATH を更新します。Windows on Arm では x64 エミュレーションを使います。"
+      },
+      "installNpx": "Node.js がインストール済みなら、恒久的にインストールせずに実行できます。",
+      "platforms": "配布ビルドは Apple Silicon と Intel Mac、x64 と Arm64 Linux、x64 Windows に対応します。Windows on Arm では x64 ビルドをエミュレーションで実行します。ソースからのビルドには Rust、Zig 0.15.2、リポジトリの Ghostty サブモジュールが必要です。",
       "modelTitle": "ワークスペースモデル",
       "modelIntro": "cmux TUI は各プロセスを無関係なターミナルタブへ平坦化せず、一つの永続ツリーで管理します。",
       "modelBody": "セッションは一つの制御ソケットを持ちます。各ワークスペースには複数のスクリーン、各スクリーンにはペインレイアウト、各ペインにはターミナルとブラウザのタブを置けます。他のタブが残っていれば、タブを閉じてもペインは閉じません。",

@@ -5,6 +5,7 @@ import { DocsHeading } from "@/app/[locale]/components/docs-heading";
 import { CodeBlock } from "@/app/[locale]/components/code-block";
 import { Callout } from "@/app/[locale]/components/callout";
 import { DocsLink as Link } from "@/app/[locale]/components/docs-link";
+import { TuiInstallTabs } from "@/app/[locale]/(landing)/tui/install-tabs";
 
 export async function generateMetadata({
   params,
@@ -43,8 +44,9 @@ export default async function TuiDocsPage() {
       <figure className="not-prose my-6">
         <Image
           src="/tui/cmux-tui-overview.png"
-          width={4608}
-          height={2538}
+          width={5120}
+          height={2820}
+          unoptimized
           alt={t("screenshotAlt")}
           className="h-auto w-full rounded-lg border border-border"
         />
@@ -57,10 +59,15 @@ export default async function TuiDocsPage() {
         {t("installTitle")}
       </DocsHeading>
       <p>{t("installIntro")}</p>
+      <TuiInstallTabs
+        unixLabel={t("installTabs.unix")}
+        windowsLabel={t("installTabs.windows")}
+        tabListLabel={t("installTabs.label")}
+        unixNote={t("installTabs.unixNote")}
+        windowsNote={t("installTabs.windowsNote")}
+      />
+      <p>{t("installNpx")}</p>
       <CodeBlock lang="bash">{`npx cmux`}</CodeBlock>
-      <p>{t("installGlobal")}</p>
-      <CodeBlock lang="bash">{`npm install --global cmux
-cmux`}</CodeBlock>
       <Callout>{t("platforms")}</Callout>
 
       <DocsHeading level={2} id="model">
