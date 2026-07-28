@@ -219,6 +219,37 @@ fn resolve_host_addresses_until(
     let mut command = host_resolver_command(host, port)?;
     command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
     let mut child = cmux_tui_process::spawn_until(&mut command, deadline)?;
+    let mut stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| std::io::Error::other("host resolver helper stdout was unavailable"))?;
+    let (output_sender, output_receiver) = sync_channel(1);
+    // Resolver workers bound the number of concurrent helpers and readers.
+    // Timeout cleanup kills the owned helper, which closes this pipe even
+    // when the helper was blocked while producing output.
+    let output_reader =
+        std::thread::Builder::new().name("cmux-tui-cdp-resolver-output".into()).spawn(move || {
+            let mut output = Vec::new();
+            let mut buffer = [0_u8; 8 * 1024];
+            let limit = usize::try_from(CDP_RESOLVER_OUTPUT_LIMIT).unwrap_or(usize::MAX);
+            let result = loop {
+                match stdout.read(&mut buffer) {
+                    Ok(0) => break Ok(output),
+                    Ok(count) => {
+                        let retained =
+                            limit.saturating_add(1).saturating_sub(output.len()).min(count);
+                        output.extend_from_slice(&buffer[..retained]);
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+                    Err(error) => break Err(error),
+                }
+            };
+            let _ = output_sender.send(result);
+        });
+    if let Err(error) = output_reader {
+        handoff_resolver_child(child, reaper);
+        return Err(error);
+    }
     loop {
         match child.try_wait() {
             Ok(Some(status)) => {
@@ -228,11 +259,24 @@ fn resolve_host_addresses_until(
                         "host resolver helper exited with {status}"
                     )));
                 }
-                let stdout = child.stdout.take().ok_or_else(|| {
-                    std::io::Error::other("host resolver helper stdout was unavailable")
-                })?;
-                let mut output = Vec::new();
-                stdout.take(CDP_RESOLVER_OUTPUT_LIMIT + 1).read_to_end(&mut output)?;
+                let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "CDP address resolution deadline expired",
+                    ));
+                };
+                let output = match output_receiver.recv_timeout(remaining) {
+                    Ok(output) => output?,
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::TimedOut,
+                            "CDP address resolution deadline expired",
+                        ));
+                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                        return Err(std::io::Error::other("host resolver output reader stopped"));
+                    }
+                };
                 if output.len() as u64 > CDP_RESOLVER_OUTPUT_LIMIT {
                     return Err(std::io::Error::new(
                         std::io::ErrorKind::InvalidData,
