@@ -1,4 +1,5 @@
 import Foundation
+import CmuxSettings
 import Testing
 
 #if canImport(cmux_DEV)
@@ -27,10 +28,24 @@ struct RendererRealizationPlannerTests {
 
     private func settings(
         enabled: Bool = true,
-        idle: TimeInterval = 30,
+        idle: TimeInterval = RendererRealizationSettings.defaultIdleSeconds,
         warm: Int = 12
     ) -> RendererRealizationSettings.Values {
         .init(enabled: enabled, idleSeconds: idle, maxWarmRenderers: warm)
+    }
+
+    @Test func defaultsUseLongUnfocusedIdleThreshold() throws {
+        let suiteName = "RendererRealizationPlannerTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let defaultIdleSeconds = RendererRealizationSettings.defaultIdleSeconds
+        #expect(defaultIdleSeconds == 10 * 60)
+        #expect(RendererRealizationSettings.idleSeconds(defaults: defaults) == defaultIdleSeconds)
+        #expect(RendererRealizationSettings.sanitizedIdleSeconds(.infinity) == defaultIdleSeconds)
+        #expect(TerminalCatalogSection().rendererRealizationIdleSeconds.defaultValue == defaultIdleSeconds)
     }
 
     @Test func disabledSelectsNothing() {
@@ -68,6 +83,39 @@ struct RendererRealizationPlannerTests {
         #expect(selected.contains(old))
     }
 
+    @Test func idleThresholdReclaimsHiddenSurfaceInsideWarmCap() {
+        let now: TimeInterval = 1000
+        let oldHidden = UUID()
+        let selected = RendererRealizationPlanner.selectedSurfaceIds(
+            inputs: [input(oldHidden, lastVisibleAt: now - 601)],
+            settings: settings(idle: 600, warm: 12),
+            now: now
+        )
+        #expect(selected.count == 1)
+        #expect(selected.contains(oldHidden))
+    }
+
+    @Test func warmCapOverflowReclaimsBeforeLongIdleThreshold() {
+        let now: TimeInterval = 1000
+        var ids: [UUID] = []
+        var inputs: [RendererRealizationPlannerInput] = []
+        for i in 0..<5 {
+            let id = UUID()
+            ids.append(id)
+            inputs.append(input(id, lastVisibleAt: now - TimeInterval(i)))
+        }
+
+        let selected = RendererRealizationPlanner.selectedSurfaceIds(
+            inputs: inputs, settings: settings(idle: 600, warm: 2), now: now
+        )
+
+        #expect(!selected.contains(ids[0]))
+        #expect(!selected.contains(ids[1]))
+        #expect(selected.contains(ids[2]))
+        #expect(selected.contains(ids[3]))
+        #expect(selected.contains(ids[4]))
+    }
+
     @Test func keepsWarmCapMostRecent() {
         let now: TimeInterval = 1000
         var ids: [UUID] = []
@@ -75,8 +123,13 @@ struct RendererRealizationPlannerTests {
         for i in 0..<5 {
             let id = UUID()
             ids.append(id)
-            // i = 0 is most recently visible; all are idle past the threshold.
-            inputs.append(input(id, lastVisibleAt: now - TimeInterval(100 + i)))
+            // i = 0 is most recently visible; the warm entries are still under
+            // the idle threshold, while the overflow entries are old enough to
+            // release either way.
+            let lastVisibleAt = i < 2
+                ? now - TimeInterval(i + 1)
+                : now - TimeInterval(100 + i)
+            inputs.append(input(id, lastVisibleAt: lastVisibleAt))
         }
         let selected = RendererRealizationPlanner.selectedSurfaceIds(
             inputs: inputs, settings: settings(idle: 5, warm: 2), now: now
@@ -106,7 +159,7 @@ struct RendererRealizationPlannerTests {
         let off3 = UUID()
         let inputs = [
             input(visible, visible: true, lastVisibleAt: now), // rank 1 (warm)
-            input(off1, lastVisibleAt: now - 10),              // rank 2 (warm)
+            input(off1, lastVisibleAt: now - 1),               // rank 2 (warm)
             input(off2, lastVisibleAt: now - 20),              // rank 3 (release)
             input(off3, lastVisibleAt: now - 30),              // rank 4 (release)
         ]

@@ -38,13 +38,26 @@ class InteractiveBash:
             os.execvpe("bash", ["bash", "--noprofile", "--norc", "-i"], self.env)
         self.pid = pid
         self.fd = fd
-        self.run(f"PS1='{PROMPT}'")
+        prompt_setup = "PS1=$(printf '\\137\\137CMUX\\137TEST\\137PROMPT\\137\\137 ')\n"
+        os.write(self.fd, prompt_setup.encode("utf-8"))
+        chunk = self._read_until(PROMPT.encode("utf-8"), timeout=5)
+        if PROMPT.encode("utf-8") not in chunk:
+            raise AssertionError(
+                "timed out waiting for initial bash prompt\n\n"
+                f"Captured output:\n{self.text}"
+            )
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:
         if self.fd is not None:
             try:
-                os.write(self.fd, b"exit\n")
+                cleanup_command = (
+                    "jobs -pr | while IFS= read -r job_pid; do "
+                    "kill -TERM -- \"-$job_pid\" 2>/dev/null || "
+                    "kill -TERM \"$job_pid\" 2>/dev/null || true; "
+                    "done; wait 2>/dev/null || true; exit\n"
+                )
+                os.write(self.fd, cleanup_command.encode("utf-8"))
                 self._read_until(b"exit", timeout=1)
             except OSError:
                 pass
