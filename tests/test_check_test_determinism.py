@@ -89,6 +89,11 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 "try await clock.sleep(until: deadline)\n"
                 "#expect(finished)\n"
             ),
+            "nonleading-continuous-clock.swift": (
+                "let marker = false, clock = ContinuousClock()\n"
+                "try await clock.sleep(until: deadline)\n"
+                "#expect(finished)\n"
+            ),
             "typed-suspending-clock.swift": (
                 "let clock: SuspendingClock = .init()\n"
                 "try await clock.sleep(until: deadline)\n"
@@ -240,6 +245,12 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 "    expect(fakeFinished).toBe(true)\n"
                 "}\n"
                 "await sleep(1)\n"
+                "expect(finished).toBe(true)\n"
+            ),
+            "timer-alias-after-unbraced-for-shadow.ts": (
+                'import { setTimeout as delay } from "timers/promises"\n'
+                "for (const delay of fakeDelays) await delay(1)\n"
+                "await delay(1)\n"
                 "expect(finished).toBe(true)\n"
             ),
             "timer-alias-after-unrelated-import.ts": (
@@ -477,6 +488,13 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 "    time.sleep(0.1)\n"
                 "    assert done\n"
             ),
+            "constant-false-shadow.py": (
+                "import time\n"
+                "if False:\n"
+                "    time = fake_clock\n"
+                "time.sleep(0.01)\n"
+                "assert finished\n"
+            ),
             "shell-assert-arithmetic-substitution.sh": (
                 'assert "$(echo $((1 + 2)); sleep 1)"\n'
             ),
@@ -655,6 +673,7 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "self-type-qualified-suspending-clock.swift",
                     "shell-multiline-arithmetic-before-sleep.sh",
                     "deferred-global-write.py",
+                    "constant-false-shadow.py",
                     "mixed-quoted-heredoc-then-sleep.sh",
                     "quoted-backslash-heredoc-then-sleep.sh",
                     "nested-multiline-substitutions.sh",
@@ -669,6 +688,7 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "swift-multiline-interpolation.swift",
                     "swift-raw-multiline-interpolation.swift",
                     "timer-alias-after-unrelated-import.ts",
+                    "timer-alias-after-unbraced-for-shadow.ts",
                     "shell-assert-multiline-substitution.sh",
                     "class-name-visible-during-body.py",
                     "case-esac-argument.sh",
@@ -680,6 +700,7 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 in (
                     "shell-shebang.sh",
                     "named-continuous-clock.swift",
+                    "nonleading-continuous-clock.swift",
                     "typed-suspending-clock.swift",
                     "qualified-typed-continuous-clock.swift",
                     "typed-mutable-continuous-clock.swift",
