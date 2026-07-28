@@ -35,7 +35,7 @@ use crate::crypto::{
 pub use crate::crypto::{
     InboundAuthEvidence, NetworkPeer, VerifiedKernelPeer, VerifiedSshPrincipal,
 };
-use crate::identity::AuthDatabase;
+use crate::identity::{AuthDatabase, IdentityError};
 use crate::link::{FrameLink, LaneMuxLink, LinkError, LinkRoute};
 use crate::observability::{ConnectionState, ServerConnectionSnapshot};
 use crate::provider::AxumWebSocketLink;
@@ -932,6 +932,12 @@ impl RemoteDaemon {
                 "device authorization changed during connection setup".into(),
             )));
         }
+        if let Err(error) =
+            self.auth.record_connection_attempt(&key.device_id, accepted.connection_attempt).await
+        {
+            let _ = connection.close().await;
+            return Err(DaemonError::Identity(error));
+        }
         if is_new && self.accepted_tx.send(connection.clone()).await.is_err() {
             let _ = connection.close().await;
             return Err(DaemonError::Protocol("daemon service receiver was dropped".into()));
@@ -1426,6 +1432,7 @@ fn validate_unix_socket_directory(
 #[derive(Debug)]
 pub enum DaemonError {
     Crypto(CryptoError),
+    Identity(IdentityError),
     Connection(ConnectionError),
     Link(LinkError),
     Session(SessionError),
@@ -1442,6 +1449,7 @@ impl fmt::Display for DaemonError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Crypto(error) => error.fmt(formatter),
+            Self::Identity(error) => error.fmt(formatter),
             Self::Connection(error) => error.fmt(formatter),
             Self::Link(error) => error.fmt(formatter),
             Self::Session(error) => error.fmt(formatter),
@@ -1466,6 +1474,12 @@ impl std::error::Error for DaemonError {}
 impl From<CryptoError> for DaemonError {
     fn from(error: CryptoError) -> Self {
         Self::Crypto(error)
+    }
+}
+
+impl From<IdentityError> for DaemonError {
+    fn from(error: IdentityError) -> Self {
+        Self::Identity(error)
     }
 }
 
@@ -1497,9 +1511,10 @@ mod tests {
     use tokio::sync::{Mutex as AsyncMutex, Semaphore};
 
     use super::*;
-    use crate::connection::{ClientConnection, ClientConnectionConfig, ReconnectPolicy};
+    use crate::connection::{ClientConnection, ClientConnectionConfig, LinkReady, ReconnectPolicy};
     use crate::crypto::{
-        AuthRequest, ClientAuthMode, ServerAuthenticator, StaticIdentity, public_key_fingerprint,
+        AuthRequest, ClientAuthMode, ClientHandshake, ServerAuthenticator, StaticIdentity,
+        initiate_secure_link, public_key_fingerprint,
     };
     use crate::link::test_support;
     use crate::provider::{
@@ -1881,6 +1896,148 @@ mod tests {
         async fn close(&self) -> Result<(), ProviderError> {
             Ok(())
         }
+    }
+
+    async fn enroll_test_device(auth: &Arc<AuthDatabase>, identity: &StaticIdentity) -> String {
+        let invitation = auth.create_invitation(Duration::from_secs(60), Vec::new()).await.unwrap();
+        let authorization = tokio::spawn({
+            let auth = auth.clone();
+            let invitation_id = invitation.id.clone();
+            let public_key = identity.public_key();
+            async move {
+                ServerAuthenticator::authorize(
+                    &*auth,
+                    AuthRequest {
+                        mode: AuthKind::Invitation,
+                        invitation_id: Some(invitation_id),
+                        device_public_key: public_key,
+                        device_name: "lane-count-client".into(),
+                        session: SessionId([70; 16]),
+                        lane: Lane::Control,
+                        lanes: Lane::ALL.to_vec(),
+                        generation: 0,
+                        inbound: InboundAuthEvidence::Network(NetworkPeer::Tls),
+                    },
+                )
+                .await
+            }
+        });
+        auth.wait_for_pending(Duration::from_secs(1)).await.unwrap();
+        let device = auth.approve(&invitation.id).await.unwrap();
+        assert_eq!(authorization.await.unwrap().unwrap().device_id, device.id);
+        device.id
+    }
+
+    async fn connect_enrolled_lane_partition(
+        daemon: &Arc<RemoteDaemon>,
+        accepted: &mut mpsc::Receiver<Arc<ServerConnection>>,
+        identity: &StaticIdentity,
+        session: SessionId,
+        connection_attempt: ConnectionAttemptId,
+        lane_bindings: Vec<Vec<Lane>>,
+    ) -> (Arc<ServerConnection>, Vec<crate::crypto::SecureLink>) {
+        let daemon_key = daemon.auth().identity().public_key();
+        let mut client_tasks = Vec::new();
+        let mut server_tasks = Vec::new();
+        for lanes in lane_bindings {
+            let (client_link, server_link) = test_support::pair(128 * 1024);
+            let daemon = daemon.clone();
+            server_tasks.push(tokio::spawn(async move {
+                daemon.accept(InboundLink::network(Box::new(server_link), NetworkPeer::Tls)).await
+            }));
+            let identity = identity.clone();
+            client_tasks.push(tokio::spawn(async move {
+                let secure = initiate_secure_link(
+                    Box::new(client_link),
+                    ClientHandshake {
+                        identity,
+                        expected_daemon: Some(daemon_key),
+                        auth: ClientAuthMode::Enrolled,
+                        device_name: "lane-count-client".into(),
+                        session,
+                        lane: lanes[0],
+                        lanes,
+                        generation: 0,
+                        connection_attempt,
+                        resume: BTreeMap::new(),
+                    },
+                )
+                .await
+                .unwrap();
+                let ready = secure.receive().await.unwrap().unwrap();
+                serde_json::from_slice::<LinkReady>(&ready).unwrap();
+                secure
+            }));
+        }
+
+        let mut client_links = Vec::new();
+        for task in client_tasks {
+            client_links.push(
+                tokio::time::timeout(Duration::from_secs(2), task)
+                    .await
+                    .expect("client lane handshake timed out")
+                    .unwrap(),
+            );
+        }
+        let connection = tokio::time::timeout(Duration::from_secs(2), accepted.recv())
+            .await
+            .expect("logical connection registration timed out")
+            .expect("daemon acceptance stream closed");
+        for task in server_tasks {
+            tokio::time::timeout(Duration::from_secs(2), task)
+                .await
+                .expect("server lane handshake timed out")
+                .unwrap()
+                .unwrap();
+        }
+        (connection, client_links)
+    }
+
+    #[tokio::test]
+    async fn logical_attempt_persists_once_across_one_to_four_physical_links() {
+        let directory = tempdir().unwrap();
+        let auth =
+            AuthDatabase::load_or_create(directory.path(), "logical-attempt", false).unwrap();
+        let identity = StaticIdentity::generate().unwrap();
+        let device_id = enroll_test_device(&auth, &identity).await;
+        let (daemon, mut accepted) = RemoteDaemon::new(auth.clone(), SessionLimits::default());
+        let partitions = [
+            vec![Lane::ALL.to_vec()],
+            vec![vec![Lane::Interactive, Lane::Control], vec![Lane::Bulk, Lane::Tunnel]],
+            vec![vec![Lane::Interactive], vec![Lane::Control], vec![Lane::Bulk, Lane::Tunnel]],
+            Lane::ALL.into_iter().map(|lane| vec![lane]).collect(),
+        ];
+        let mut live_connections = Vec::new();
+        let mut live_links = Vec::new();
+
+        for (index, lane_bindings) in partitions.into_iter().enumerate() {
+            let expected_physical_links = lane_bindings.len();
+            let writes_before = auth.test_persistence_writes_succeeded();
+            let attempt = ConnectionAttemptId([(index + 1) as u8; 16]);
+            let (connection, links) = connect_enrolled_lane_partition(
+                &daemon,
+                &mut accepted,
+                &identity,
+                SessionId([(index + 1) as u8; 16]),
+                attempt,
+                lane_bindings,
+            )
+            .await;
+
+            assert_eq!(connection.device_id, device_id);
+            assert_eq!(connection.snapshot().await.physical_link_count, expected_physical_links);
+            assert_eq!(
+                auth.test_persistence_writes_succeeded(),
+                writes_before + 1,
+                "{expected_physical_links} physical links persisted more than one logical attempt"
+            );
+            live_connections.push(connection);
+            live_links.extend(links);
+        }
+
+        assert_eq!(auth.test_persistence_started_revisions(), (1..=6).collect::<Vec<_>>());
+        drop(live_links);
+        drop(live_connections);
     }
 
     #[tokio::test]
