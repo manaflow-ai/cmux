@@ -497,6 +497,31 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertFalse(line.contains("secret"))
     }
 
+    func testPublishWorkstreamEventPreservesSurfaceId() throws {
+        let bus = CmuxEventBus(retainedEventLimit: 4)
+        let event = WorkstreamEvent(
+            sessionId: "session",
+            hookEventName: .stop,
+            source: "codex",
+            workspaceId: "workspace",
+            surfaceId: "surface"
+        )
+
+        bus.publishWorkstreamEvent(event, phase: "received")
+
+        let published = bus.retainedSnapshot()
+        XCTAssertEqual(published.count, 2)
+        XCTAssertEqual(published.compactMap { $0["name"] as? String }, [
+            "agent.hook.Stop",
+            "feed.item.received",
+        ])
+        for publishedEvent in published {
+            XCTAssertEqual(publishedEvent["surface_id"] as? String, "surface")
+            let payload = try XCTUnwrap(publishedEvent["payload"] as? [String: Any])
+            XCTAssertEqual(payload["surface_id"] as? String, "surface")
+        }
+    }
+
     func testPublishAppendsDurableEventLog() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-event-log-\(UUID().uuidString)", isDirectory: true)

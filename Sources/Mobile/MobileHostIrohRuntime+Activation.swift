@@ -217,7 +217,7 @@ extension MobileHostIrohRuntime {
                     return
                 }
                 let diagnosticSessionID = await self.makeDiagnosticSessionID()
-                let diagnosticLog = await self.diagnosticLog
+                let diagnosticLog = self.diagnosticLog
                 diagnosticLog.record(DiagnosticEvent(
                     .admissionSucceeded,
                     a: DiagnosticTransportKind.iroh.rawValue
