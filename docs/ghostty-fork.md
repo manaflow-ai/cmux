@@ -12,13 +12,53 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `232b24bf2`, the head of
-https://github.com/manaflow-ai/ghostty/pull/153. It adds lossless hidden-tab
-renderer reclamation on top of the teardown-safe action lease release from
-https://github.com/manaflow-ai/ghostty/pull/152, transactional menu-owned key
-binding consumption and modifier-independent paired-release tracking from
-https://github.com/manaflow-ai/ghostty/pull/151, and the current
-`manaflow-ai/ghostty` `main`.
+The submodule pinned by this branch is `0b1734f1e`, the current
+`manaflow-ai/ghostty` `main` merge head. It combines the `os/open` stderr drain
+fix from `8f31fb57c` with the keyboard copy-mode selection, cursor geometry,
+bounded rich clipboard, and plain-text fallback fixes through `4a6c443c3`.
+
+### `os/open` stderr drain spin and zombie leak
+
+`openThread` drained a spawned child's stderr with
+`std.Io.Reader.takeDelimiterExclusive`, which advances only *up to* the
+delimiter. Once the seek position sits on a `\n` it returns a zero-length slice
+forever, without progressing and without erroring, so the loop spun at 100% CPU
+after the very first stderr line, emitting empty `open stderr=` records until
+macOS throttled the process-wide logging firehose
+(`__FIREHOSE_CLIENT_THROTTLED_DUE_TO_HEAVY_LOGGING__`, which makes *every*
+`os_log` call in the process expensive). `exe.wait()` was only reachable by
+exiting that loop, so the child was never reaped either.
+
+Measured live on cmux 0.64.20 after ~1 day uptime: 11 zombie children matched
+one-for-one by 11 threads burning ~12.4% CPU each, ~95% of the process total
+(500-600% observed), each with 94-97% of its stack inside
+`zig_os_log_with_type`.
+
+The fix switches to `takeDelimiter` (consumes the delimiter, reports
+end-of-stream as `null`), reaps via `defer` so `wait()` is unconditional, and
+caps reporting at 32 lines while still draining so a child blocked writing into
+a full pipe can finish and exit. The drain loop is extracted as `drainStderr`
+with tests covering termination, blank-line input, and the reporting cap.
+
+- Commits:
+  - `8f31fb57c` (os/open: stop the stderr drain from spinning and leaking zombies)
+- Files:
+  - `src/os/open.zig`
+
+The intermediate `8f31fb57c` universal ReleaseFast GhosttyKit archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-8f31fb57cde291e7b8fecb46203bc398c44459f4-crashsubdir-cmux-crash-v1
+and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
+
+### Inherited from `af4dfb43f`
+
+The common base for both merged lines is `af4dfb43f`, the reviewed head of
+https://github.com/manaflow-ai/ghostty/pull/152. It adds teardown-safe action
+lease release on top of transactional menu-owned key binding consumption and
+modifier-independent paired-release tracking from
+https://github.com/manaflow-ai/ghostty/pull/151, based on the current
+`manaflow-ai/ghostty` `main`, including the synchronous embedder teardown from
+https://github.com/manaflow-ai/ghostty/pull/146 and the render-grid work from
+https://github.com/manaflow-ai/ghostty/pull/147.
 
 `4cc0933cf` adds the screen-anchored render-grid export for the iOS
 local-scrollback scroll work: `buildRenderGridJson` gains an active-area
@@ -57,79 +97,29 @@ and the product-main renderer/link fixes described below. It also bounds each
 renderer mailbox drain turn so continuous producers cannot starve lifecycle
 processing or rendering.
 
-The pinned `232b24bf2` universal ReleaseFast GhosttyKit archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-232b24bf2db2f05538a3e034d88f53a4fc548d56-crashsubdir-cmux-crash-v1
+The pinned `0b1734f1e` universal ReleaseFast GhosttyKit archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-0b1734f1eeca32ff6e0c17af2c95641639e682ba-crashsubdir-cmux-crash-v1
 and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
 
-### Hidden macOS renderer reclamation
+### PTY reader and child lifecycle teardown
 
-- Pull request:
-  - https://github.com/manaflow-ai/ghostty/pull/153
 - Commits:
-  - `1de584d1e` (test: require lossless renderer realization requests)
-  - `517a4c75a` (renderer: reclaim hidden macOS tab GPU memory)
-  - `cc4ac8141` (test: require shared standard Metal pipelines)
-  - `921d4efaa` (renderer: share standard Metal pipelines)
-  - `f9d7262e1` (test: prevent concurrent Metal pipeline compilation)
-  - `1e8aecd93` (renderer: serialize standard Metal pipeline creation)
-  - `267541adf` (test: preserve Metal pipelines across renderer handoffs)
-  - `b2c78d61a` (renderer: retain standard Metal pipelines across handoffs)
-  - `e5702c1ab` (test: keep selected key tabs renderer-visible)
-  - `19555c20f` (macos: keep selected key tab renderer visible)
-  - `9ee855755` (test: recycle Metal command queues on renderer release)
-  - `88fe92c27` (renderer: release hidden Metal command queues)
-  - `532bbb0a5` (test: reclaim deselected tab renderers synchronously)
-  - `7d0009af6` (macos: reclaim deselected tab renderers immediately)
-  - `68ffad656` (test: prevent main-queue renderer teardown deadlock)
-  - `7b24d1c5d` (renderer: avoid main-queue teardown deadlock)
-  - `0f2b10bad` (test: require renderer-owned Metal resource lifetimes)
-  - `232b24bf2` (renderer: release duplicate Metal resource retention)
-- Files:
-  - `macos/Sources/Features/Terminal/BaseTerminalController.swift`
-  - `macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift`
-  - `macos/Tests/Ghostty/RendererTabSelectionTests.swift`
-  - `src/apprt/embedded.zig`
-  - `src/renderer.zig`
-  - `src/renderer/Metal.zig`
-  - `src/renderer/Thread.zig`
-  - `src/renderer/generic.zig`
-  - `src/renderer/message.zig`
-  - `src/renderer/metal/IOSurfaceLayer.zig`
-  - `src/renderer/metal/Frame.zig`
-  - `src/renderer/metal/Target.zig`
-  - `src/renderer/metal/Texture.zig`
-  - `src/renderer/metal/api.zig`
-  - `src/renderer/metal/buffer.zig`
-  - `src/renderer/metal/shaders.zig`
+  - `8bf503f98` (test: cover dead PTY and child cleanup)
+  - `5ef5cba63` (fix: terminate dead PTY readers and reap children)
+- File:
+  - `src/termio/Exec.zig`
 - Summary:
-  - Reclaims a deselected native tab's renderer in the same AppKit visibility
-    pass while retaining its PTY, terminal state, scrollback, and surface.
-  - Publishes renderer realization through an idempotent atomic latest-value
-    slot, preserving the newest request when the renderer mailbox is full.
-  - Drains outstanding frame leases and detaches the compositor layer before
-    releasing teardown-only Metal resources.
-  - Shares immutable standard shader pipelines by Metal device and pixel
-    format, serializes cache misses, and retains the cache through zero-renderer
-    handoffs. Custom shader source remains renderer-owned.
-  - Releases renderer-owned Metal command queues while tabs are hidden and
-    recreates them when their renderers return.
-  - Uses the renderer's exact-slot frame lease instead of Metal's duplicate
-    resource-retention table for ordinary terminal frames. Background images,
-    terminal images, and custom shaders keep Metal retention because their
-    resources can change while an earlier frame remains in flight.
-  - Observes native tab selection directly and treats ambiguous selection as
-    visible, preventing transient AppKit state from reclaiming the active tab.
-  - Clears the compositor asynchronously after frame leases drain when teardown
-    starts off the main thread, avoiding a renderer-to-main synchronous wait
-    while AppKit joins the renderer.
-  - Conflict note: future renderer lifecycle work must preserve lossless
-    realization publication, deselection-before-selection ordering, and
-    conservative tab selection. Do not mark Metal resources purgeable during
-    ordinary resize or replacement, and do not rely only on window occlusion or
-    a bounded mailbox for realization state. Standard pipeline sharing must
-    remain device- and pixel-format-scoped, and off-main teardown must not wait
-    synchronously for the main queue. Unretained command buffers must remain
-    limited to frames whose encoded resources are frame-owned or process-wide.
+  - Treats a zero-byte PTY read as authoritative EOF instead of returning to
+    `poll()`, preventing an `io-gather` thread from spinning when a dead
+    descriptor remains permanently readable without `POLLHUP`.
+  - Handles `POLLHUP`, `POLLERR`, and `POLLNVAL` as terminal conditions while
+    draining any readable tail bytes before the gather pipeline exits.
+  - Gives surface teardown a nonblocking `waitpid` fallback when Darwin no
+    longer exposes an already-exited child through `getpgid`, while accepting
+    `ECHILD` when the normal process watcher won the reaping race.
+  - Conflict note: future PTY read-pipeline changes must keep EOF independent
+    of platform-specific poll flags, and process teardown must leave exactly
+    one owner consuming every direct child's wait status.
 
 ### Bounded renderer mailbox turns and continuation recovery
 
@@ -954,13 +944,56 @@ tend to conflict together during rebases.
   - `46bd03a7` (surface: add absolute screen row text read)
   - `edad0cfec` (surface: format screen row clipboard text)
   - `e81fb65f` (surface: bound screen clipboard text formatting)
+  - `aeed68c44` (Expose native keyboard selection geometry)
+  - `65505e8c3` (Make keyboard copy navigation atomic)
+  - `acefff5de` (Bound copy work and expose runtime cursor style)
+  - `7a5d08b7c` (Preserve rich bounded keyboard copies)
+  - `4a6c443c3` (Preserve plain bounded clipboard copies)
+- PRs:
+  - https://github.com/manaflow-ai/ghostty/pull/154
+  - https://github.com/manaflow-ai/ghostty/pull/156
+  - https://github.com/manaflow-ai/ghostty/pull/157
+  - https://github.com/manaflow-ai/ghostty/pull/159
+  - https://github.com/manaflow-ai/ghostty/pull/160
 - Files:
   - `include/ghostty.h`
   - `src/apprt/embedded.zig`
   - `src/Surface.zig`
+  - `src/termio/Termio.zig`
+  - `src/terminal/Screen.zig`
+  - `src/terminal/Selection.zig`
+  - `src/terminal/render.zig`
 - Summary:
   - Restores `ghostty_surface_select_cursor_cell` and `ghostty_surface_clear_selection`.
   - Keeps cmux keyboard copy mode working against the refreshed Ghostty base after upstream removed those exports.
+  - Exposes exact grid dimensions, asymmetric padding, cursor position, and cursor cell width through `ghostty_surface_grid_metrics`.
+  - Resolves viewport cells to canonical glyph coordinates so wide and wrapped glyphs use their actual leading cell and width.
+  - Adds tracked character and linewise viewport selection APIs. Ghostty owns selection rendering, reflow, scrolling, and clipboard formatting while cmux moves logical endpoints.
+  - Preserves selection mode and direction through snapshots, screen clones, reflow, and renderer caching.
+  - Stores the keyboard copy cursor as a tracked screen pin, preserving logical
+    cell identity across PTY output, reset, reflow, scrolling, and alternate
+    screen transitions.
+  - Applies counted glyph movement and scrolling under one terminal lock, then
+    returns the authoritative viewport cell and glyph width to the host.
+  - Ties keyboard selection ownership to Ghostty's selection activity identity
+    so mouse or other foreign selection replacement cannot be mistaken for
+    copy-mode state.
+  - Bounds clipboard formatting to 2 MiB and preflights selected physical cells
+    before decompression, keeping both input work and output size bounded.
+  - Returns cursor geometry and effective runtime color in one terminal-state
+    snapshot, including OSC overrides, semantic cell colors, inverse video,
+    palette colors, and live manual-IO theme changes.
+  - Publishes bounded keyboard-copy selections as mixed plain text and styled
+    HTML, preserving rich paste targets without returning formatter buffers to
+    the Swift host. If HTML exceeds its formatter byte budget, it publishes the
+    already-bounded plain text instead of failing the copy.
+- Conflict notes:
+  - Reconcile the exported C declarations with `src/apprt/embedded.zig` whenever the embedded surface API changes.
+  - Keep character-cell canonicalization aligned with wide-cell and wrapped-spacer behavior in `src/terminal/Selection.zig`.
+  - Linewise endpoints remain logical row pins. Full-row bounds are derived for rendering and copying, rather than stored in the selection.
+  - Keep tracked cursor cleanup generation-safe when alternate screens are
+    destroyed, and preserve selection activity checks whenever selection
+    ownership changes.
 
 ### 7) macos-background-from-layer config flag
 

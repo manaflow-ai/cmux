@@ -246,8 +246,14 @@ export interface ColorsChangedEvent extends TerminalColors {
 
 export interface BrowserFrame {
   seq: number;
+  /** CSS viewport width used for browser input mapping, or 0 when CDP omits it. */
   width: number;
+  /** CSS viewport height used for browser input mapping, or 0 when CDP omits it. */
   height: number;
+  /** Encoded PNG width. Older servers omit this field. */
+  image_width?: number;
+  /** Encoded PNG height. Older servers omit this field. */
+  image_height?: number;
   data: Base64;
 }
 
@@ -355,14 +361,31 @@ export interface DecodedResizedEvent extends Omit<ResizedEvent, "data" | "replay
 /** A special-color update yielded by `attachSurface()`. */
 export type DecodedColorsChangedEvent = ColorsChangedEvent;
 
+/** Browser frame dimensions after the client fills legacy CSS-size defaults. */
+export interface DecodedBrowserFrame extends BrowserFrame {
+  image_width: number;
+  image_height: number;
+}
+
+/** A browser-state event whose optional frame has normalized image dimensions. */
+export interface DecodedBrowserStateEvent extends Omit<BrowserStateEvent, "frame"> {
+  frame?: DecodedBrowserFrame | null;
+}
+
+/** A frame event with normalized image dimensions. */
+export interface DecodedBrowserFrameEvent extends BrowserFrameEvent {
+  image_width: number;
+  image_height: number;
+}
+
 /** Attach events as yielded by the client after base64 decoding. */
 export type DecodedAttachEvent =
   | DecodedVtStateEvent
   | DecodedOutputEvent
   | DecodedResizedEvent
   | DecodedColorsChangedEvent
-  | BrowserStateEvent
-  | BrowserFrameEvent
+  | DecodedBrowserStateEvent
+  | DecodedBrowserFrameEvent
   | ScrollChangedEvent
   | DetachedEvent
   | OverflowEvent
