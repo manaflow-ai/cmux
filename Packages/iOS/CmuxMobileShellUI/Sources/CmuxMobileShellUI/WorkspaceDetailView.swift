@@ -78,6 +78,9 @@ struct WorkspaceDetailView: View {
     @State var selectedTerminalArtifact: TerminalArtifactSelection?
     @State var terminalArtifactThumbnailCache = ChatArtifactThumbnailCache()
     @State var visibleArtifactCount = 0
+    /// Shared presentation state for the toolbar, title-menu, and hint entry points.
+    @State var isWorkspaceChangesSheetPresented = false
+    @State var workspaceChangesHint: MobileWorkspaceChangesHint?
     @State var artifactGalleryRefreshSignal = TerminalArtifactGalleryRefreshSignal.initial
     /// App lifecycle phase used to re-pull chat sessions on foreground.
     @Environment(\.scenePhase) var scenePhase
@@ -112,6 +115,10 @@ struct WorkspaceDetailView: View {
             .toolbar { workspaceDetailToolbar }
             .task(id: chatRefreshKey) { await refreshChatSessions() }
             .task(id: chatConversationWarmKey) { await runWarmChatConversation() }
+            .onAppear { refreshWorkspaceChangesHint() }
+            .onChange(of: workspaceChangesHintEligibilityKey) { _, _ in
+                refreshWorkspaceChangesHint()
+            }
             .onChange(of: selectedTerminalID) { _, _ in
                 visibleArtifactCount = 0
                 refreshCachedChatToggleAnchor()
@@ -132,6 +139,15 @@ struct WorkspaceDetailView: View {
             }
             .sheet(isPresented: $isTextSheetPresented) {
                 TerminalTextSheetView(surfaceID: textSheetSurfaceID)
+            }
+            .sheet(isPresented: $isWorkspaceChangesSheetPresented) {
+                WorkspaceChangesSheet(
+                    store: store,
+                    workspaceID: workspace.rpcWorkspaceID.rawValue,
+                    workspaceTitle: workspace.name
+                )
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
             }
             .workspaceRenameDialog(
                 isPresented: $isRenamePresented,
@@ -176,6 +192,18 @@ struct WorkspaceDetailView: View {
                 AltScreenNoticeButton {
                     displaySettings.showAltScreenNotice = false
                 }
+            }
+        }
+        if workspaceChangesAreAvailable {
+            ToolbarItem(id: "workspace-changes", placement: .topBarTrailing) {
+                WorkspaceChangesToolbarButton(
+                    chip: workspaceChangesChip,
+                    workspaceID: workspace.rpcWorkspaceID.rawValue,
+                    action: openWorkspaceChanges
+                )
+                // The chrome sits on the terminal theme's background, not the
+                // system scheme; resolve the counts' green/red for that.
+                .environment(\.colorScheme, store.activeTerminalTheme.terminalColorScheme)
             }
         }
         ToolbarItem(id: "workspace-trailing", placement: .topBarTrailing) {

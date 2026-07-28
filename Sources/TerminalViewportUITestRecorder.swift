@@ -93,7 +93,7 @@ final class TerminalViewportUITestRecorder {
             : initialWindowSizeText
 
         if hideSidebar {
-            context.sidebarState.isVisible = false
+            context.sidebarState.setVisible(false)
         }
         if hideRightSidebar {
             context.fileExplorerState?.setVisible(false)

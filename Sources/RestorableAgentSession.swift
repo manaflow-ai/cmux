@@ -503,7 +503,8 @@ enum AgentResumeCommandBuilder {
         customRegistration: CmuxVaultAgentRegistration?,
         observedPermissionMode: String? = nil
     ) -> [String]? {
-        switch AgentResumeArgv().launcherResolution(
+        let resumeArgv = AgentResumeArgv()
+        switch resumeArgv.launcherResolution(
             launcher: launchCommand?.launcher,
             sessionId: sessionId,
             executablePath: launchCommand?.executablePath,
@@ -516,15 +517,14 @@ enum AgentResumeCommandBuilder {
         }
         if case .custom = kind {
             guard let customRegistration else { return nil }
-            if let arguments = campfireBuiltInResumeArguments(customRegistration: customRegistration, sessionId: sessionId, launchCommand: launchCommand) ?? kimiBuiltInResumeArguments(customRegistration: customRegistration, sessionId: sessionId, launchCommand: launchCommand) { return arguments }
-            if customRegistration.id == CmuxVaultAgentRegistration.builtInAntigravity.id {
-                return resumeWithOption(
-                    kind: "antigravity",
-                    launchCommand: launchCommand,
-                    fallbackExecutable: customRegistration.defaultExecutable,
-                    option: "--conversation",
-                    sessionId: sessionId
-                )
+            if let registeredResumeKind = customRegistration.registeredResumeKind,
+               let arguments = resumeArgv.registeredBuiltInKind(
+                kind: registeredResumeKind,
+                sessionId: sessionId,
+                executablePath: launchCommand?.executablePath,
+                arguments: launchCommand?.arguments ?? []
+            ) {
+                return arguments
             }
             let arguments = customResumeArguments(
                 registration: customRegistration,
@@ -535,7 +535,7 @@ enum AgentResumeCommandBuilder {
             return arguments.isEmpty ? nil : arguments
         }
 
-        return AgentResumeArgv().builtInKind(
+        return resumeArgv.builtInKind(
             kind: kind.rawValue,
             sessionId: sessionId,
             executablePath: launchCommand?.executablePath,
@@ -774,38 +774,17 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         fileManager: FileManager = .default,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory,
         allowLauncherScript: Bool = true,
-        allowOversizedInlineInput: Bool = false
+        allowOversizedInlineInput: Bool = false,
+        requireLauncherScript: Bool = false
     ) -> String? {
         startupInput(
             command: resumeCommand,
             fileManager: fileManager,
             temporaryDirectory: temporaryDirectory,
             allowLauncherScript: allowLauncherScript,
-            allowOversizedInlineInput: allowOversizedInlineInput
+            allowOversizedInlineInput: allowOversizedInlineInput,
+            requireLauncherScript: requireLauncherScript
         )
-    }
-
-    func resumeStartupCommand(
-        fileManager: FileManager = .default,
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory
-    ) -> String? {
-        guard let command = resumeCommand,
-              let scriptURL = AgentResumeScriptStore.writeLauncherScript(
-                  command: command,
-                  kind: kind,
-                  sessionId: sessionId,
-                  fileManager: fileManager,
-                  temporaryDirectory: temporaryDirectory,
-                  returnToLoginShell: true,
-                  // Match the resume command's own cd: agents with an `.ignore` cwd policy resume from
-                  // the current directory (no cd), so the post-exit shell must not force the launch dir.
-                  workingDirectory: registration?.cwd == .ignore
-                      ? nil
-                      : (workingDirectory ?? launchCommand?.workingDirectory)
-              ) else {
-            return nil
-        }
-        return "/bin/zsh \(shellSingleQuoted(scriptURL.path))"
     }
 
     func forkStartupInput(
@@ -826,14 +805,15 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         fileManager: FileManager,
         temporaryDirectory: URL,
         allowLauncherScript: Bool = true,
-        allowOversizedInlineInput: Bool = false
+        allowOversizedInlineInput: Bool = false,
+        requireLauncherScript: Bool = false
     ) -> String? {
         guard let command else { return nil }
         let inlineInput = command + "\n"
-        guard inlineInput.utf8.count > Self.maxInlineStartupInputBytes else {
+        guard requireLauncherScript || inlineInput.utf8.count > Self.maxInlineStartupInputBytes else {
             return inlineInput
         }
-        guard !allowOversizedInlineInput else {
+        guard requireLauncherScript || !allowOversizedInlineInput else {
             return inlineInput
         }
         guard allowLauncherScript else { return nil }
@@ -861,9 +841,7 @@ private enum AgentResumeScriptStore {
         kind: RestorableAgentKind,
         sessionId: String,
         fileManager: FileManager,
-        temporaryDirectory: URL,
-        returnToLoginShell: Bool = false,
-        workingDirectory: String? = nil
+        temporaryDirectory: URL
     ) -> URL? {
         let directoryURL = temporaryDirectory.appendingPathComponent(directoryName, isDirectory: true)
         do {
@@ -884,14 +862,7 @@ private enum AgentResumeScriptStore {
                 "#!/bin/zsh",
                 "rm -f -- \"$0\" 2>/dev/null || true"
             ]
-            if returnToLoginShell {
-                lines.append(contentsOf: TerminalStartupReturnShellScript.commandThenReturnLines(
-                    command: command,
-                    workingDirectory: workingDirectory
-                ))
-            } else {
-                lines.append(command)
-            }
+            lines.append(command)
             let contents = lines.joined(separator: "\n") + "\n"
             try contents.write(to: scriptURL, atomically: true, encoding: .utf8)
             try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: scriptURL.path)

@@ -83,10 +83,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private static let terminalRenderGridCapability = "terminal.render_grid.v1"
     static let terminalVerifiedReplayCapability = "terminal.render_grid.verified_replay.v1"
+    static let terminalScreenAnchorCapability = "terminal.render_grid.screen_anchor.v1"
     private static let terminalBytesCapability = "terminal.bytes.v1"
     static let terminalReplayCapability = "terminal.replay.v1"
     static let maxTerminalReplayBarrierDroppedOutputBeforeFailOpen: UInt64 = 256
     static let workspaceActionsCapability = "workspace.actions.v1"
+    static let workspaceChangesCapability = "workspace.changes.v1"
     static let workspaceMetadataCapability = "workspace.metadata.v1"
     static let workspaceReadStateCapability = "workspace.read_state.v1"
     static let workspaceCloseCapability = "workspace.close.v1"
@@ -143,8 +145,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard oldValue != connectionState else { return }
             if connectionState == .connected {
                 restartTerminalLanesForMountedSurfaces()
+                scheduleWorkspaceChangesSummaryRefresh()
             } else {
                 deactivateAllTerminalLanes()
+                resetWorkspaceChangesState()
             }
             // Intentional teardown (sign-out, hide, switch) must not look like
             // a network outage: swallow this edge and reset the throttle so a
@@ -366,7 +370,30 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// The connected Mac's `mobile.host.status` capabilities. Feature gates are
     /// computed from this set so version-skew checks cannot drift from the raw
     /// host payload.
-    public internal(set) var supportedHostCapabilities: Set<String> = []
+    public internal(set) var supportedHostCapabilities: Set<String> = [] {
+        didSet {
+            guard oldValue != supportedHostCapabilities else { return }
+            if workspaceChangesCapable {
+                scheduleWorkspaceChangesSummaryRefresh()
+            } else {
+                resetWorkspaceChangesState()
+            }
+        }
+    }
+    /// Published workspace-list chip snapshots keyed by Mac-local workspace id.
+    ///
+    /// Like ``workspaces``, this is a materialized immutable-value surface on the
+    /// `@Observable` composite; list rows receive copied values, never the store.
+    public private(set) var workspaceChangeChipsByWorkspaceID: [String: MobileWorkspaceChangesChip] = [:]
+    /// Device-local persistence for the one-time workspace-changes hint.
+    @ObservationIgnored var workspaceChangesHintDismissalStore: MobileWorkspaceChangesHintDismissalStore
+
+    func setWorkspaceChangeChipsByWorkspaceID(
+        _ chips: [String: MobileWorkspaceChangesChip]
+    ) {
+        workspaceChangeChipsByWorkspaceID = chips
+    }
+
     @ObservationIgnored var terminalThemeState = MobileTerminalThemeState()
     /// The selected surface's effective theme and iOS chrome source of truth.
     public internal(set) var activeTerminalTheme: TerminalTheme = .monokai
@@ -760,6 +787,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var renderGridLivenessConsecutiveProbeFailures = 0
     var lastTerminalEventAt: Date?
     var lastBackgroundedAt: Date?
+    var foregroundResumeEpoch: UInt64 = 0
     private var terminalSubscriptionRefreshTask: Task<Void, Never>?
     var notificationReconcileTask: Task<Void, Never>?
     var createWorkspaceTask: Task<Result<Void, MobileWorkspaceMutationFailure>, Never>?
@@ -767,6 +795,25 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var createWorkspaceTaskSpec: MobileWorkspaceCreateSpec?
     private var createTerminalTask: Task<Void, Never>?
     private var workspaceListRefreshTask: Task<Void, Never>?
+    @ObservationIgnored var workspaceChangesSummaryDebounceTask: Task<Void, Never>?
+    @ObservationIgnored var workspaceChangesSummaryDebounceTaskID: UUID?
+    @ObservationIgnored var workspaceChangesSummaryFetchTask: Task<Void, Never>?
+    @ObservationIgnored var workspaceChangesSummaryFetchTaskID: UUID?
+    @ObservationIgnored var workspaceChangesSummaryTrailingTask: Task<Void, Never>?
+    @ObservationIgnored var workspaceChangesSummaryTrailingTaskID: UUID?
+    @ObservationIgnored var workspaceChangesSummaryTrailingDeadline: Date?
+    @ObservationIgnored var workspaceChangesSummaryTrailingExpiryByWorkspaceID: [String: Date] = [:]
+    @ObservationIgnored var workspaceChangesSummaryRefreshSchedulePolicy =
+        WorkspaceChangesSummaryRefreshSchedulePolicy()
+    @ObservationIgnored var workspaceChangesSummaryFetchedAtByWorkspaceID: [String: Date] = [:]
+    @ObservationIgnored let workspaceChangesSummaryFetchPolicy = WorkspaceChangesSummaryFetchPolicy()
+    /// Wall time of the last EVENT-driven summary schedule (never trailing
+    /// passes). Trailing refreshes only re-arm while events are recent, so an
+    /// idle phone cannot hold the Mac in a perpetual 15-second git poll loop.
+    @ObservationIgnored var workspaceChangesSummaryLastEventAt: Date?
+    /// Injected clock for the summary debounce and trailing-expiry sleeps so
+    /// tests can drive the 250 ms window and expiry firing deterministically.
+    @ObservationIgnored let workspaceChangesSchedulingClock: any Clock<Duration>
     /// Mobile state sync v2 (docs/mobile-state-sync-v2.md): full-record mirror
     /// of the foreground Mac's workspace/group collections plus its cursor.
     /// Never reset on reconnect; the epoch in every frame invalidates stale
@@ -882,6 +929,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var pendingTerminalByteEndSeqBySurfaceID: [String: UInt64]
     var pendingTerminalInputDroppedRenderGridSurfaceIDs: Set<String>
     var terminalActiveScreenBySurfaceID: [String: MobileTerminalRenderGridFrame.Screen]
+    /// History-row count of the last DELIVERED screen-anchored frame. Deltas
+    /// carry the producer's previous history count as their diff base; a
+    /// mismatch here means a frame was missed and dirty-row patching can no
+    /// longer realign the grid or scrollback, so delivery requests a full
+    /// replay instead.
+    var terminalRenderGridHistoryContinuityBySurfaceID: [String: UInt64]
+    /// Surfaces whose local mirror lost (or never had) its deep scrollback:
+    /// cold attach and post-rebuild resets. Only these replays request the
+    /// full hydration window; steady-state replays (barrier follow-ups, theme
+    /// resets) request none and replay as history-preserving repaints.
+    var terminalMirrorHydrationNeededSurfaceIDs: Set<String>
     var terminalReplaySurfaceIDsInFlight: Set<String>
     var terminalReplayRequestIDsInFlightBySurfaceID: [String: UUID]
     var terminalReplayTasksBySurfaceID: [String: Task<Void, Never>]
@@ -1022,12 +1080,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         feedbackStampProvider: @escaping @MainActor () -> MobileFeedbackStamp = { MobileShellComposite.emptyFeedbackStamp },
         draftStore: (any TerminalDraftStoring)? = nil,
         groupCollapseStore: MobileWorkspaceGroupCollapseStore = MobileWorkspaceGroupCollapseStore(),
+        workspaceChangesHintDismissalStore: MobileWorkspaceChangesHintDismissalStore = MobileWorkspaceChangesHintDismissalStore(),
+        workspaceChangesSchedulingClock: any Clock<Duration> = ContinuousClock(),
         taskTemplateStore: (any MobileTaskTemplateStoring)? = nil,
         storedMacReconnectRestoringDeadlineSeconds: Double = 15
     ) {
         self.runtime = runtime
         self.draftStore = draftStore
         self.groupCollapseStore = groupCollapseStore
+        self.workspaceChangesHintDismissalStore = workspaceChangesHintDismissalStore
+        self.workspaceChangesSchedulingClock = workspaceChangesSchedulingClock
         self.taskTemplateStore = taskTemplateStore
         self.storedMacReconnectRestoringDeadlineSeconds = storedMacReconnectRestoringDeadlineSeconds
         self.pairedMacStore = pairedMacStore
@@ -1115,6 +1177,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.pendingTerminalByteEndSeqBySurfaceID = [:]
         self.pendingTerminalInputDroppedRenderGridSurfaceIDs = []
         self.terminalActiveScreenBySurfaceID = [:]
+        self.terminalRenderGridHistoryContinuityBySurfaceID = [:]
+        self.terminalMirrorHydrationNeededSurfaceIDs = []
         self.terminalReplaySurfaceIDsInFlight = []
         self.terminalReplayRequestIDsInFlightBySurfaceID = [:]
         self.terminalReplayTasksBySurfaceID = [:]
@@ -1166,6 +1230,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         createWorkspaceTask?.cancel()
         createTerminalTask?.cancel()
         workspaceListRefreshTask?.cancel()
+        workspaceChangesSummaryDebounceTask?.cancel()
+        workspaceChangesSummaryFetchTask?.cancel()
+        workspaceChangesSummaryTrailingTask?.cancel()
         pullToRefreshTask?.cancel()
         foregroundWorkspaceMutationRefreshTask?.cancel()
         foregroundWorkspaceMutationRefreshPending = false
@@ -3328,11 +3395,21 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         clearRemoteConnectionContext(preservingOtherMacWorkspaceState: preservingOtherMacWorkspaceState)
     }
 
-    /// Disconnect from and hide the currently paired Mac so the next session
-    /// starts from a fresh QR scan without deleting local or server state.
-    /// Backs the "Rescan QR" action.
+    /// Disconnect from and hide the currently paired Mac on this device without
+    /// deleting local or server pairing state.
+    /// Backs the "Forget This Computer" action.
     public func disconnectAndHideActiveMac() {
         let staleMacID = connectedMacDeviceID ?? activeTicket?.macDeviceID
+        let staleMacInstanceTag = connectedMacInstanceTag
+        let staleRepresentativeID = staleMacID.map {
+            MobilePairedMac.pairingID(
+                macDeviceID: $0,
+                instanceTag: staleMacInstanceTag
+            )
+        }
+        let staleAliasIDs = staleMacID.map {
+            pairedMacAliasIDs(for: $0, instanceTag: staleMacInstanceTag)
+        } ?? []
         disconnectLiveConnection()
         // Bump the reconnect generation so an in-flight reconnect cannot reclaim
         // the foreground while the retained pairing is being hidden. Preserve the
@@ -3340,13 +3417,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         storedMacReconnectGeneration &+= 1
         isReconnectingStoredMac = false
         didFinishStoredMacReconnectAttempt = false
-        if let macID = staleMacID {
+        if let representativeID = staleRepresentativeID {
             hasKnownPairedMac = true
             // The shell action is synchronous for its UI caller; the device-local
             // marker and list pruning continue on the main actor without deleting
             // the retained paired-Mac row.
             Task {
-                await self.hideMac(macDeviceID: macID)
+                await self.hideStoredPairedMacEntries(
+                    representativeID: representativeID,
+                    aliasIDs: staleAliasIDs
+                )
             }
         }
     }
@@ -5861,6 +5941,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspaceListRefreshTask = nil
         pullToRefreshTask?.cancel()
         pullToRefreshTask = nil
+        workspaceChangesSummaryDebounceTask?.cancel()
+        workspaceChangesSummaryDebounceTask = nil
+        workspaceChangesSummaryDebounceTaskID = nil
+        workspaceChangesSummaryFetchTask?.cancel()
+        workspaceChangesSummaryFetchTask = nil
+        workspaceChangesSummaryFetchTaskID = nil
+        workspaceChangesSummaryTrailingTask?.cancel()
+        workspaceChangesSummaryTrailingTask = nil
+        workspaceChangesSummaryTrailingTaskID = nil
+        workspaceChangesSummaryTrailingDeadline = nil
+        workspaceChangesSummaryTrailingExpiryByWorkspaceID = [:]
+        workspaceChangesSummaryRefreshSchedulePolicy.reset()
         foregroundWorkspaceMutationRefreshTask?.cancel()
         foregroundWorkspaceMutationRefreshTask = nil
         foregroundWorkspaceMutationRefreshPending = false
@@ -5887,6 +5979,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pendingTerminalByteEndSeqBySurfaceID = [:]
         pendingTerminalInputDroppedRenderGridSurfaceIDs = []
         terminalActiveScreenBySurfaceID = [:]
+        terminalRenderGridHistoryContinuityBySurfaceID = [:]
+        terminalMirrorHydrationNeededSurfaceIDs = []
         terminalReplaySurfaceIDsInFlight = []
         terminalReplayRequestIDsInFlightBySurfaceID = [:]
         terminalReplayBarrierTokensInFlightBySurfaceID = [:]
@@ -6768,12 +6862,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) async -> TerminalEventSubscriptionAck {
         let requestData: Data
         do {
+            var params: [String: Any] = [
+                "stream_id": terminalEventStreamID,
+                "topics": topics,
+            ]
+            // Negotiate screen-anchored render grids: the Mac then emits frames
+            // anchored to the active area (with exact scrolled-row counts) so
+            // this device owns a deep local scrollback and scrolls it locally.
+            if usesScreenAnchoredRenderGrid, topics.contains("terminal.render_grid") {
+                params["render_grid_anchor"] = MobileTerminalRenderGridFrame.Anchor.screen.rawValue
+            }
             requestData = try MobileCoreRPCClient.requestData(
                 method: "mobile.events.subscribe",
-                params: [
-                    "stream_id": terminalEventStreamID,
-                    "topics": topics,
-                ]
+                params: params
             )
         } catch {
             mobileShellLog.error("subscribe payload encode failed: \(String(describing: error), privacy: .private)")
@@ -7514,6 +7615,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalInputDroppedRenderGridSurfaceIDs.remove(surfaceID)
         terminalActiveScreenBySurfaceID.removeValue(forKey: surfaceID)
+        terminalRenderGridHistoryContinuityBySurfaceID.removeValue(forKey: surfaceID)
+        terminalMirrorHydrationNeededSurfaceIDs.remove(surfaceID)
         // Tell the Mac this device is no longer viewing the surface so it can unpin and clear its border.
         clearTerminalViewport(surfaceID: surfaceID)
     }
@@ -7698,6 +7801,21 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     if let generation = reportedViewport.generation {
                         params["viewport_generation"] = Int(clamping: generation)
                     }
+                }
+                // Screen-anchored replays hydrate this device's deep local
+                // scrollback only when the mirror has none (cold attach, a
+                // rebuilt-blank surface). Steady-state replays request no
+                // scrollback and replay as history-preserving repaints, so
+                // replay-barrier churn during streaming stays cheap and never
+                // destroys locally accumulated history.
+                if let self, self.usesScreenAnchoredRenderGrid {
+                    params["anchor"] = MobileTerminalRenderGridFrame.Anchor.screen.rawValue
+                    let needsHydration =
+                        self.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] == nil
+                        || self.terminalMirrorHydrationNeededSurfaceIDs.contains(surfaceID)
+                    params["max_scrollback_rows"] = needsHydration
+                        ? MobileTerminalScrollbackPreference.resolve()
+                        : 0
                 }
                 let request = try MobileCoreRPCClient.requestData(
                     method: "mobile.terminal.replay",
@@ -8156,6 +8274,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspaceListRefreshTask = Task { @MainActor [weak self] in
             defer { self?.workspaceListRefreshTask = nil }
             await self?.reloadWorkspaceListFromMac()
+            self?.scheduleWorkspaceChangesSummaryRefresh()
         }
     }
 
@@ -8232,7 +8351,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         _ response: MobileSyncWorkspaceListResponse,
         preferActiveTicketTarget: Bool = false,
         mergeExistingWorkspaces: Bool = false,
-        groupsAreAuthoritative: Bool = true
+        groupsAreAuthoritative: Bool = true,
+        changesSummaryRefreshScope: WorkspaceChangesSummaryRefreshScope = .fullSnapshot
     ) {
         let remoteWorkspaces = remoteWorkspacesPreservingSnapshots(from: response)
         // Write the foreground Mac's per-Mac state; `workspaces` / `workspaceGroups`
@@ -8250,6 +8370,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 )
         setForegroundWorkspaceState(
             workspaces: remoteWorkspaces, groups: groups, merge: mergeExistingWorkspaces)
+        reconcileWorkspaceChangesSummaryStateWithForeground()
+        let changesSummaryWorkspaceIDs = changesSummaryRefreshScope.workspaceIDs(
+            fullSnapshotWorkspaceIDs: response.workspaces.map(\.id)
+        )
+        if !changesSummaryWorkspaceIDs.isEmpty {
+            // Repo-dirtiness filesystem invalidation is a known follow-up. Deltas,
+            // TTL, trailing expiry, and force are this PR's bounded approximation.
+            scheduleWorkspaceChangesSummaryRefresh(
+                workspaceIDs: changesSummaryWorkspaceIDs
+            )
+        }
         if preferActiveTicketTarget, selectActiveTicketTargetIfAvailable() {
             return
         }

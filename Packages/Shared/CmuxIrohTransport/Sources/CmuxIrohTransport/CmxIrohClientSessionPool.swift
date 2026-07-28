@@ -64,10 +64,8 @@ actor CmxIrohClientSessionPool {
     private var controlWaiters: [SessionKey: [ControlWaiter]] = [:]
     private var selectedPathContinuations: [UUID: AsyncStream<Void>.Continuation] = [:]
 
-    /// Upper bound on how long a new dial defers to a cancelled predecessor that
-    /// ignores cancellation. Past the bound the new dial proceeds (accepting the
-    /// old overlap behavior) so one wedged iroh dial cannot become a permanent
-    /// connect outage for that Mac.
+    /// Never-hit safety bound for a dial that ignores cancellation, retained so
+    /// one wedged dial can never become a permanent connect outage.
     static var retiredDialSettleWaitLimitSeconds: TimeInterval { 10 }
 
     init(
@@ -445,11 +443,11 @@ actor CmxIrohClientSessionPool {
     }
 
     /// Cancels the pending dial for `key` and tracks it until it fully resolves.
-    /// iroh's connect does not observe Swift cancellation, so a cancelled dial can
-    /// still complete QUIC admission on the host seconds later; the host then
-    /// closes the newer live connection for the same device. Draining retired
-    /// dials before the next dial starts keeps at most one admission in flight
-    /// per peer.
+    /// `pending.task.cancel()` crosses the FFI boundary because
+    /// ``CmxIrohLibEndpoint`` dials through a `ConnectAttempt` whose `cancel()`
+    /// runs on task cancellation, so retired dials settle in milliseconds. The
+    /// drain set still serializes endpoint implementations that ignore
+    /// cancellation and keeps at most one admission in flight per peer.
     private func retirePendingConnection(for key: SessionKey) {
         guard let pending = connectionTasks.removeValue(forKey: key) else { return }
         pending.task.cancel()

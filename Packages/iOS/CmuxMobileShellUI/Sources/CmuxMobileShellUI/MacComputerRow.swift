@@ -150,7 +150,7 @@ struct MacComputerRow: View {
                 .font(.caption2)
                 .foregroundStyle(dotColor)
                 .accessibilityLabel(primaryStatusPhrase)
-                .accessibilityIdentifier("MobileComputerStatus-\(computer.deviceId)-\(statusIdentifierSuffix)")
+                .accessibilityIdentifier("MobileComputerStatus-\(computer.id)-\(statusIdentifierSuffix)")
         }
     }
 

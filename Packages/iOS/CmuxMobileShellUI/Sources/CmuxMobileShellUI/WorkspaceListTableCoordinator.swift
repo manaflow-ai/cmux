@@ -10,13 +10,17 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     UITableViewDragDelegate, UITableViewDropDelegate
 {
     private enum HeightKind: Hashable {
-        case workspaceUniform(hasDescription: Bool)
+        case workspaceUniform(
+            changesChipIdentity: WorkspaceChangesChipHeightKey?,
+            hasDescription: Bool
+        )
         case workspaceWrapped(
             id: MobileWorkspacePreview.ID,
             name: String,
             hasDescription: Bool,
             isSelected: Bool,
-            isIndented: Bool
+            isIndented: Bool,
+            changesChipIdentity: WorkspaceChangesChipHeightKey?
         )
         case groupHeader
         case groupFooter
@@ -39,7 +43,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     private var previousConfiguration: WorkspaceListTable?
     private var dataSource: UITableViewDiffableDataSource<Int, WorkspaceListTableItem>?
     private let sizingCell = UITableViewCell(style: .default, reuseIdentifier: nil)
-    private var heightCache: [HeightCacheKey: CGFloat] = [:]
+    private var heightCache = WorkspaceListRowHeightCache<HeightCacheKey>()
     private var configuredItemsByID: [String: WorkspaceListTableItem]
 
     init(configuration: WorkspaceListTable) {
@@ -121,6 +125,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             }
         }
         if structureChanged {
+            heightCache.retainRowIDs(Set(next.items.map(\.id)))
             configuredItemsByID = Dictionary(
                 next.items.map { ($0.id, $0) },
                 uniquingKeysWith: { first, _ in first }
@@ -255,7 +260,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         if case .groupFooter = item { return 16 }
 
         let key = heightCacheKey(for: item, tableView: tableView)
-        if let cached = heightCache[key] { return cached }
+        if let cached = heightCache.height(for: key) { return cached }
 
         configure(sizingCell, for: item)
         let width = max(tableView.bounds.width, 1)
@@ -270,7 +275,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         ).height
         let scale = tableView.window?.screen.scale ?? UIScreen.main.scale
         let exact = max(1, ceil(measured * scale) / scale)
-        heightCache[key] = exact
+        heightCache.insert(exact, for: key, rowID: item.id)
         return exact
     }
 
@@ -468,17 +473,31 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             }
             let capabilities = workspace.actionCapabilities
             let connectionStatus = workspace.macConnectionStatus ?? configuration.connectionStatus
+            let changesChip = configuration.workspaceChangesCapable
+                ? configuration.workspaceChangeChipsByWorkspaceID[workspace.rpcWorkspaceID.rawValue]
+                : nil
+            let onOpenChanges: (@MainActor () -> Void)?
+            if let openWorkspaceChanges = configuration.openWorkspaceChanges,
+               (changesChip?.filesChanged ?? 0) > 0 {
+                onOpenChanges = { openWorkspaceChanges(workspace) }
+            } else {
+                onOpenChanges = nil
+            }
             return AnyView(
                 WorkspaceRow(
                     workspace: workspace,
                     connectionStatus: connectionStatus,
                     isSelected: configuration.navigationStyle == .sidebar
                         && configuration.selectedWorkspaceID == workspace.id,
+                    changesChip: changesChip,
+                    onOpenChanges: onOpenChanges,
                     wrapWorkspaceTitles: configuration.wrapWorkspaceTitles,
                     previewLineLimit: configuration.previewLineLimit,
                     unreadIndicatorLeftShift: configuration.unreadIndicatorLeftShift
                 )
-                .accessibilityElement(children: .combine)
+                .accessibilityElement(
+                    children: onOpenChanges == nil ? .combine : .contain
+                )
                 .accessibilityAddTraits(.isButton)
                 .accessibilityIdentifier("MobileWorkspaceRow-\(workspace.id.rawValue)")
                 .accessibilityLabel(workspace.name)
@@ -596,6 +615,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         let kind: HeightKind
         switch item {
         case .workspace(let id, _):
+            let changesChipIdentity = workspaceChangesChipHeightIdentity(id: id)
             if configuration.wrapWorkspaceTitles,
                let workspace = configuration.workspacesByID[id] {
                 kind = .workspaceWrapped(
@@ -604,10 +624,12 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                     hasDescription: workspace.displayDescription != nil,
                     isSelected: configuration.navigationStyle == .sidebar
                         && configuration.selectedWorkspaceID == id,
-                    isIndented: item.isIndentedWorkspace
+                    isIndented: item.isIndentedWorkspace,
+                    changesChipIdentity: changesChipIdentity
                 )
             } else {
                 kind = .workspaceUniform(
+                    changesChipIdentity: changesChipIdentity,
                     hasDescription: configuration.workspacesByID[id]?.displayDescription != nil
                 )
             }
@@ -649,6 +671,40 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         )
     }
 
+    /// Separates chip modes and bounded digit-count widths that may wrap.
+    private func workspaceChangesChipHeightIdentity(
+        id: MobileWorkspacePreview.ID
+    ) -> WorkspaceChangesChipHeightKey? {
+        guard configuration.workspaceChangesCapable,
+              let workspace = configuration.workspacesByID[id],
+              let chip = configuration.workspaceChangeChipsByWorkspaceID[
+                  workspace.rpcWorkspaceID.rawValue
+              ],
+              chip.filesChanged > 0 else { return nil }
+        return WorkspaceChangesChipHeightKey(
+            filesChanged: chip.filesChanged,
+            additions: chip.additions,
+            deletions: chip.deletions,
+            isInteractive: configuration.openWorkspaceChanges != nil
+        )
+    }
+
+    /// Whether a workspace row's changes chip differs between configurations,
+    /// so chip arrivals reconfigure exactly the affected cells.
+    private func workspaceChangesChipChanged(
+        id: MobileWorkspacePreview.ID,
+        previous: WorkspaceListTable,
+        next: WorkspaceListTable
+    ) -> Bool {
+        guard let rpcID = next.workspacesByID[id]?.rpcWorkspaceID.rawValue
+            ?? previous.workspacesByID[id]?.rpcWorkspaceID.rawValue else { return false }
+        let previousChip = previous.workspaceChangesCapable
+            ? previous.workspaceChangeChipsByWorkspaceID[rpcID] : nil
+        let nextChip = next.workspaceChangesCapable
+            ? next.workspaceChangeChipsByWorkspaceID[rpcID] : nil
+        return previousChip != nextChip
+    }
+
     private func itemPayloadChanged(
         _ item: WorkspaceListTableItem,
         oldItem: WorkspaceListTableItem,
@@ -666,6 +722,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             let nextConnectionStatus =
                 next.workspacesByID[id]?.macConnectionStatus ?? next.connectionStatus
             return previous.workspacesByID[id] != next.workspacesByID[id]
+                || workspaceChangesChipChanged(id: id, previous: previous, next: next)
                 || oldItem.isIndentedWorkspace != item.isIndentedWorkspace
                 || wasSelected != isSelected
                 || previous.wrapWorkspaceTitles != next.wrapWorkspaceTitles
@@ -719,6 +776,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             || (previous.setUnread != nil) != (next.setUnread != nil)
             || (previous.setPinned != nil) != (next.setPinned != nil)
             || (previous.renameRequest != nil) != (next.renameRequest != nil)
+            || (previous.openWorkspaceChanges != nil) != (next.openWorkspaceChanges != nil)
             || (previous.customizeRequest != nil) != (next.customizeRequest != nil)
     }
 

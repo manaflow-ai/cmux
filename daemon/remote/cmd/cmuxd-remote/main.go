@@ -1043,7 +1043,7 @@ func servePersistentDaemonWithVerifierConfig(
 		atomic.AddInt64(&activeConnections, 1)
 		go func() {
 			defer atomic.AddInt64(&activeConnections, -1)
-			handlePersistentDaemonConn(conn, verifier, hub, requestShutdown)
+			handlePersistentDaemonConn(conn, verifier, hub, stderr, requestShutdown)
 		}()
 	}
 }
@@ -1091,12 +1091,14 @@ func handlePersistentDaemonConn(
 	conn net.Conn,
 	verifier persistentDaemonTokenVerifier,
 	hub *wsPTYHub,
+	stderr io.Writer,
 	requestShutdown func(),
 ) {
 	handlePersistentDaemonConnWithAuthTimeout(
 		conn,
 		verifier,
 		hub,
+		stderr,
 		persistentDaemonAuthTimeout,
 		requestShutdown,
 	)
@@ -1106,6 +1108,7 @@ func handlePersistentDaemonConnWithAuthTimeout(
 	conn net.Conn,
 	verifier persistentDaemonTokenVerifier,
 	hub *wsPTYHub,
+	stderr io.Writer,
 	timeout time.Duration,
 	requestShutdown func(),
 ) {
@@ -1117,7 +1120,10 @@ func handlePersistentDaemonConnWithAuthTimeout(
 	}
 	reader := bufio.NewReaderSize(conn, 64*1024)
 	writer := &stdioFrameWriter{writer: bufio.NewWriter(conn)}
-	if !authenticatePersistentDaemonConn(reader, writer, verifier) {
+	if err := authenticatePersistentDaemonConn(reader, writer, verifier); err != nil {
+		if stderr != nil {
+			_, _ = fmt.Fprintf(stderr, "persistent daemon connection rejected: %v\n", err)
+		}
 		return
 	}
 	if timeout > 0 {
@@ -1128,62 +1134,75 @@ func handlePersistentDaemonConnWithAuthTimeout(
 	_ = runRPCServerWithReader(reader, writer, hub, false, requestShutdown)
 }
 
-func authenticatePersistentDaemonConn(reader *bufio.Reader, writer *stdioFrameWriter, verifier persistentDaemonTokenVerifier) bool {
+func authenticatePersistentDaemonConn(reader *bufio.Reader, writer *stdioFrameWriter, verifier persistentDaemonTokenVerifier) error {
 	line, oversized, err := readRPCFrame(reader, maxRPCFrameBytes)
 	if err != nil || oversized {
-		_ = writer.writeResponse(rpcResponse{
+		rejection := fmt.Errorf("authentication frame read failed: %w", err)
+		if oversized {
+			rejection = errors.New("authentication frame exceeds size limit")
+		}
+		return writePersistentDaemonAuthRejection(writer, rpcResponse{
 			OK: false,
 			Error: &rpcError{
 				Code:    "unauthorized",
 				Message: "persistent daemon authentication required",
 			},
-		})
-		return false
+		}, rejection)
 	}
 	line = bytes.TrimSuffix(line, []byte{'\n'})
 	line = bytes.TrimSuffix(line, []byte{'\r'})
 	var req rpcRequest
 	if err := json.Unmarshal(line, &req); err != nil {
-		_ = writer.writeResponse(rpcResponse{
+		return writePersistentDaemonAuthRejection(writer, rpcResponse{
 			OK: false,
 			Error: &rpcError{
 				Code:    "invalid_request",
 				Message: "invalid JSON request",
 			},
-		})
-		return false
+		}, errors.New("authentication frame is invalid JSON"))
 	}
 	if req.Method != persistentDaemonAuthMethod {
-		_ = writer.writeResponse(rpcResponse{
+		reason := "authentication method is invalid"
+		if req.Method == "" {
+			reason = "authentication method is missing"
+		}
+		return writePersistentDaemonAuthRejection(writer, rpcResponse{
 			ID: req.ID,
 			OK: false,
 			Error: &rpcError{
 				Code:    "unauthorized",
 				Message: "persistent daemon authentication required",
 			},
-		})
-		return false
+		}, errors.New(reason))
 	}
 	provided, _ := getStringParam(req.Params, "token")
 	if !verifier(provided) {
-		_ = writer.writeResponse(rpcResponse{
+		return writePersistentDaemonAuthRejection(writer, rpcResponse{
 			ID: req.ID,
 			OK: false,
 			Error: &rpcError{
 				Code:    "unauthorized",
 				Message: "invalid persistent daemon token",
 			},
-		})
-		return false
+		}, errors.New("authentication token is invalid"))
 	}
-	_ = writer.writeResponse(rpcResponse{
+	if err := writer.writeResponse(rpcResponse{
 		ID: req.ID,
 		OK: true,
 		Result: map[string]any{
 			"authenticated": true,
 		},
-	})
-	return true
+	}); err != nil {
+		return fmt.Errorf("authentication response write failed: %w", err)
+	}
+	return nil
+}
+
+func writePersistentDaemonAuthRejection(writer *stdioFrameWriter, response rpcResponse, rejection error) error {
+	if err := writer.writeResponse(response); err != nil {
+		return fmt.Errorf("authentication response write failed: %w", err)
+	}
+	return rejection
 }
 
 func runRPCServerWithReader(

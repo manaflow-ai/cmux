@@ -6,6 +6,17 @@ import Testing
 
 @MainActor
 @Suite struct MobileShellWorkspaceCapabilityTests {
+    @Test func workspaceChangesCapabilityFollowsHostStatusSet() {
+        let store = MobileShellComposite.preview()
+        #expect(!store.workspaceChangesCapable)
+
+        store.supportedHostCapabilities = ["workspace.changes.v1"]
+        #expect(store.workspaceChangesCapable)
+
+        store.supportedHostCapabilities = ["workspace.actions.v1"]
+        #expect(!store.workspaceChangesCapable)
+    }
+
     @Test func artifactFolderCapabilitiesFailClosedForOlderHosts() {
         let store = MobileShellComposite.preview()
         store.supportedHostCapabilities = [

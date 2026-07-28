@@ -83,6 +83,14 @@ struct CMUXMobileRootView: View {
         #endif
     }
 
+    private var shouldShowChangesPreview: Bool {
+        #if os(iOS) && DEBUG
+        return UITestConfig.changesPreviewMode != nil
+        #else
+        return false
+        #endif
+    }
+
     private var shouldShowStreamingChatPreview: Bool {
         #if os(iOS) && DEBUG
         return UITestConfig.streamingChatPreviewEnabled
@@ -118,6 +126,14 @@ struct CMUXMobileRootView: View {
     @ViewBuilder private var workspaceListLayoutPreview: some View {
         #if os(iOS) && DEBUG
         WorkspaceListLayoutPreviewView()
+        #else
+        EmptyView()
+        #endif
+    }
+
+    @ViewBuilder private var changesPreview: some View {
+        #if os(iOS) && DEBUG
+        ChangesPreviewView()
         #else
         EmptyView()
         #endif
@@ -227,7 +243,9 @@ struct CMUXMobileRootView: View {
 
     @ViewBuilder
     private var rootContent: some View {
-        if shouldShowHideComputersVerifier {
+        if shouldShowChangesPreview {
+            changesPreview
+        } else if shouldShowHideComputersVerifier {
             hideComputersVerifier
         } else if shouldShowAgentChatDemoPreview {
             agentChatDemoPreview

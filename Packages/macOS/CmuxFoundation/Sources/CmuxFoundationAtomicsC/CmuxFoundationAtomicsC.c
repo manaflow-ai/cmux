@@ -37,6 +37,14 @@ uint64_t CmuxAtomicUInt64LoadRelaxed(const CmuxAtomicUInt64Storage *storage) {
     return atomic_load_explicit(&storage->value, memory_order_relaxed);
 }
 
+void CmuxAtomicUInt64StoreRelaxed(CmuxAtomicUInt64Storage *storage, uint64_t value) {
+    atomic_store_explicit(&storage->value, value, memory_order_relaxed);
+}
+
+uint64_t CmuxAtomicUInt64IncrementRelaxed(CmuxAtomicUInt64Storage *storage) {
+    return atomic_fetch_add_explicit(&storage->value, 1, memory_order_relaxed) + 1;
+}
+
 uint64_t CmuxAtomicUInt64AdvanceRelaxed(CmuxAtomicUInt64Storage *storage) {
     uint64_t current = atomic_load_explicit(&storage->value, memory_order_relaxed);
     while (current != UINT64_MAX) {

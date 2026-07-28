@@ -97,6 +97,38 @@ public struct UITestConfig {
         #endif
     }
 
+    /// Changes preview mode selected by `CMUX_UITEST_CHANGES_PREVIEW`.
+    ///
+    /// Supported DEBUG-only values are `1`, `diff`, `empty`, and `states`.
+    /// Unknown or absent values return `nil` so normal root routing continues.
+    public static var changesPreviewMode: String? {
+        changesPreviewMode(
+            from: ProcessInfo.processInfo.environment,
+            arguments: ProcessInfo.processInfo.arguments
+        )
+    }
+
+    /// Resolves a changes preview mode from explicit process inputs.
+    /// - Parameters:
+    ///   - env: Environment dictionary to inspect.
+    ///   - arguments: Launch arguments to inspect after the environment.
+    /// - Returns: A supported preview mode or `nil`.
+    public static func changesPreviewMode(
+        from env: [String: String],
+        arguments: [String] = []
+    ) -> String? {
+        #if DEBUG
+        let value = env["CMUX_UITEST_CHANGES_PREVIEW"]
+            ?? arguments.first(where: {
+                $0.hasPrefix("CMUX_UITEST_CHANGES_PREVIEW=")
+            })?.split(separator: "=", maxSplits: 1).last.map(String.init)
+        guard let value, ["1", "diff", "empty", "states"].contains(value) else { return nil }
+        return value
+        #else
+        return nil
+        #endif
+    }
+
     /// Whether the standalone task-composer accessibility preview is enabled.
     ///
     /// The preview presents the production sheet with deterministic templates

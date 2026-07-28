@@ -222,6 +222,56 @@ struct DockRuntimeParityTests {
         }
     }
 
+    @Test("Explicit socket flashes route as user initiated in both Dock scopes")
+    func explicitSocketFlashesRouteAsUserInitiatedInBothDockScopes() async throws {
+        try await withAppContext { appDelegate, _, workspace, windowID in
+            let workspaceDock = workspace.dockSplit
+            let globalDock = appDelegate.windowDock(forWindowId: windowID)
+            let workspacePanel = DockRuntimeParityPanel(title: "Workspace Dock")
+            let globalPanel = DockRuntimeParityPanel(title: "Global Dock")
+            try workspaceDock.seedRuntimeParityPanel(workspacePanel)
+            try globalDock.seedRuntimeParityPanel(globalPanel)
+
+            let workspaceFlash = TerminalController.shared.controlSurfaceTriggerFlash(
+                routing: ControlRoutingSelectors(
+                    hasWindowIDParam: true,
+                    windowID: windowID,
+                    groupID: nil,
+                    workspaceID: workspace.id,
+                    surfaceID: workspacePanel.id,
+                    paneID: nil
+                ),
+                surfaceID: workspacePanel.id
+            )
+            guard case .flashed(_, let workspaceID, let workspaceSurfaceID) = workspaceFlash else {
+                Issue.record("Workspace Dock flash did not resolve: \(workspaceFlash)")
+                return
+            }
+            #expect(workspaceID == workspace.id)
+            #expect(workspaceSurfaceID == workspacePanel.id)
+
+            let globalFlash = TerminalController.shared.controlSurfaceTriggerFlash(
+                routing: ControlRoutingSelectors(
+                    hasWindowIDParam: true,
+                    windowID: windowID,
+                    groupID: nil,
+                    workspaceID: globalDock.workspaceId,
+                    surfaceID: globalPanel.id,
+                    paneID: nil
+                ),
+                surfaceID: globalPanel.id
+            )
+            guard case .flashed(_, let globalWorkspaceID, let globalSurfaceID) = globalFlash else {
+                Issue.record("Global Dock flash did not resolve: \(globalFlash)")
+                return
+            }
+            #expect(globalWorkspaceID == globalDock.workspaceId)
+            #expect(globalSurfaceID == globalPanel.id)
+            #expect(workspacePanel.flashReasons == [.userInitiated])
+            #expect(globalPanel.flashReasons == [.userInitiated])
+        }
+    }
+
     @Test(
         "Dock surfaces are discoverable and workspace Dock terminals resolve by bare ID",
         .timeLimit(.minutes(1))

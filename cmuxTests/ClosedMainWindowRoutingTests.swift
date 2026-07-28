@@ -17,7 +17,9 @@ extension TabManager {
     /// nontrapping workspace-acquisition boundary.
     @discardableResult
     func addWorkspace(
+        id: UUID? = nil,
         title: String? = nil,
+        titleSource: Workspace.CustomTitleSource = .user,
         workingDirectory: String? = nil,
         initialSurface: NewWorkspaceInitialSurface = .terminal,
         initialTerminalCommand: String? = nil,
@@ -34,10 +36,13 @@ extension TabManager {
         autoWelcomeIfNeeded: Bool = true,
         autoRefreshMetadata: Bool = true,
         normalizeWorkspaceGroupsAfterInsert: Bool = true,
+        workspaceDirectoryCustomizationMode: WorkspaceDirectoryCustomizationCreationMode = .trackDirectory,
         allowTextBoxFocusDefault: Bool = true
     ) -> Workspace {
         guard let workspace = addWorkspaceIfActive(
+            id: id,
             title: title,
+            titleSource: titleSource,
             workingDirectory: workingDirectory,
             initialSurface: initialSurface,
             initialTerminalCommand: initialTerminalCommand,
@@ -54,6 +59,7 @@ extension TabManager {
             autoWelcomeIfNeeded: autoWelcomeIfNeeded,
             autoRefreshMetadata: autoRefreshMetadata,
             normalizeWorkspaceGroupsAfterInsert: normalizeWorkspaceGroupsAfterInsert,
+            workspaceDirectoryCustomizationMode: workspaceDirectoryCustomizationMode,
             allowTextBoxFocusDefault: allowTextBoxFocusDefault
         ) else {
             preconditionFailure("Test fixture cannot create a workspace on a finalized manager")
