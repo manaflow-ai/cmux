@@ -61,4 +61,30 @@ struct AgentProcessArgumentsParserTests {
             ) == nil
         )
     }
+
+    @Test func rejectsUnterminatedCStringEntries() {
+        let parser = AgentProcessArgumentsParser()
+
+        var unterminatedArgument = kernProcArgs(
+            arguments: ["codex"],
+            environmentEntries: []
+        )
+        unterminatedArgument.removeLast()
+        #expect(
+            parser.argumentsAndEnvironment(
+                fromKernProcArgs: unterminatedArgument
+            ) == nil
+        )
+
+        var unterminatedEnvironment = kernProcArgs(
+            arguments: ["codex"],
+            environmentEntries: ["PWD=/tmp/project"]
+        )
+        unterminatedEnvironment.removeLast()
+        #expect(
+            parser.argumentsAndEnvironment(
+                fromKernProcArgs: unterminatedEnvironment
+            ) == nil
+        )
+    }
 }
