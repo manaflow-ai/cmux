@@ -114,10 +114,13 @@ extension TerminalPasteboardService: TerminalClipboardWriting {
 
         guard let pasteboard = pasteboard(for: location) else { return }
         let item = NSPasteboardItem()
+        var writtenTypes = Set<NSPasteboard.PasteboardType>()
         for representation in representations {
+            let type = terminalPasteboardType(forMIMEType: representation.mimeType)
+            guard writtenTypes.insert(type).inserted else { continue }
             _ = item.setString(
                 representation.string,
-                forType: terminalPasteboardType(forMIMEType: representation.mimeType)
+                forType: type
             )
         }
         pasteboard.clearContents()

@@ -901,12 +901,10 @@ class GhosttyApp {
                 }
             }
 
-            if representations.isEmpty, let fallback {
-                representations.append(.init(mimeType: "text/plain", string: fallback))
-            } else if let fallback,
-                      !representations.contains(where: {
-                          $0.mimeType.lowercased().hasPrefix("text/plain")
-                      }) {
+            if let fallback,
+               !representations.contains(where: {
+                   $0.mimeType.lowercased().hasPrefix("text/plain")
+               }) {
                 representations.append(.init(mimeType: "text/plain", string: fallback))
             }
             GhosttyApp.terminalPasteboard.writeRepresentations(representations, to: location)
