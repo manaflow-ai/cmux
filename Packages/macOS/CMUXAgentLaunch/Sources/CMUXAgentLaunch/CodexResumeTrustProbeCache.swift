@@ -6,19 +6,21 @@ import Foundation
 ///
 /// Restoring several panes launches one wrapper process per pane. Equivalent
 /// wrappers use one of 256 stable lock shards so only one process runs the
-/// heavyweight app-server probe. Waiters wake on either their matching atomic
-/// handoff or an explicit shard-release generation, so unrelated keys that
-/// share a shard can retry immediately. A process that acquires the lock without
-/// first observing contention always probes again, so explicit config changes
-/// are visible to the next invocation instead of being hidden by a time-based
-/// cache.
+/// heavyweight app-server probe for an equivalent key. Four process-shared
+/// slots cap probes across different keys. Waiters wake on either their matching
+/// atomic handoff or an explicit release generation, and fail closed at the
+/// full owner bound instead of starting duplicate probes. A process that
+/// acquires its key lock without first observing contention always probes again,
+/// so explicit config changes remain visible to the next invocation.
 public struct CodexResumeTrustProbeCache: Sendable {
     private static let cacheLifetime: TimeInterval = 5
     private static let maximumEntryCount = 64
     private static let maximumRecordBytes = 1_048_576
     private static let maximumDecisionPathCount = 8_192
     private static let lockShardCount = 256
-    private static let lockWait: Duration = .seconds(2)
+    private static let defaultKeyWait: Duration = .seconds(24)
+    private static let defaultProbeSlotWait: Duration = .seconds(12)
+    private static let defaultProbeSlotCount = 4
 
     private let directory: URL
     // SAFETY: FileManager's filesystem methods are thread-safe, and this value
@@ -26,6 +28,9 @@ public struct CodexResumeTrustProbeCache: Sendable {
     // the kernel file lock rather than mutable FileManager state.
     private nonisolated(unsafe) let fileManager: FileManager
     private let contentionObserver: (@Sendable () -> Void)?
+    private let keyWait: Duration
+    private let probeSlotWait: Duration
+    private let probeSlotCount: Int
 
     /// Creates a cache rooted in a cmux-owned state directory.
     ///
@@ -36,16 +41,25 @@ public struct CodexResumeTrustProbeCache: Sendable {
         self.directory = directory
         self.fileManager = fileManager
         self.contentionObserver = nil
+        self.keyWait = Self.defaultKeyWait
+        self.probeSlotWait = Self.defaultProbeSlotWait
+        self.probeSlotCount = Self.defaultProbeSlotCount
     }
 
     init(
         directory: URL,
         fileManager: FileManager,
-        contentionObserver: @escaping @Sendable () -> Void
+        keyWait: Duration = Self.defaultKeyWait,
+        probeSlotWait: Duration = Self.defaultProbeSlotWait,
+        probeSlotCount: Int = Self.defaultProbeSlotCount,
+        contentionObserver: (@Sendable () -> Void)? = nil
     ) {
         self.directory = directory
         self.fileManager = fileManager
         self.contentionObserver = contentionObserver
+        self.keyWait = keyWait
+        self.probeSlotWait = probeSlotWait
+        self.probeSlotCount = min(max(probeSlotCount, 1), 16)
     }
 
     /// Returns coalesced or freshly probed project decision paths.
@@ -57,7 +71,7 @@ public struct CodexResumeTrustProbeCache: Sendable {
         probe: () async -> Set<String>?
     ) async -> Set<String>? {
         guard prepareDirectory() else {
-            return await probe()
+            return nil
         }
 
         let key = cacheKey(components: keyComponents)
@@ -85,22 +99,22 @@ public struct CodexResumeTrustProbeCache: Sendable {
             S_IRUSR | S_IWUSR
         )
         guard lockFD >= 0 else {
-            return await probe()
+            return nil
         }
         defer { Darwin.close(lockFD) }
 
         let clock = ContinuousClock()
-        let lockDeadline = clock.now.advanced(by: Self.lockWait)
+        let lockDeadline = clock.now.advanced(by: keyWait)
         var observedReleaseGeneration = shardReleaseGeneration(at: releaseURL)
         while flock(lockFD, LOCK_EX | LOCK_NB) != 0 {
             let lockError = errno
             guard lockError == EWOULDBLOCK || lockError == EINTR else {
-                return await probe()
+                return nil
             }
             if lockError == EWOULDBLOCK {
                 contentionObserver?()
                 guard clock.now < lockDeadline else {
-                    return await probe()
+                    return nil
                 }
                 let handoff = await waitForConcurrentHandoff(
                     at: cacheURL,
@@ -117,9 +131,10 @@ public struct CodexResumeTrustProbeCache: Sendable {
                     observedReleaseGeneration = handoff.releaseGeneration
                     continue
                 }
-                // The owner may be suspended indefinitely. Run an independent,
-                // already-bounded app-server probe instead of blocking resume.
-                return await probe()
+                // A suspended owner must not turn one restore burst into an
+                // unbounded probe herd. The caller fails closed after the full
+                // owner bound and Codex keeps its own trust picker.
+                return nil
             }
         }
         defer {
@@ -128,6 +143,20 @@ public struct CodexResumeTrustProbeCache: Sendable {
         }
 
         try? fileManager.removeItem(at: cacheURL)
+        let slotDeadline = clock.now.advanced(by: probeSlotWait)
+        guard let probeSlotFD = await acquireProbeSlot(
+            clock: clock,
+            deadline: slotDeadline
+        ) else {
+            prune(now: Date())
+            write(nil, key: key, to: cacheURL)
+            return nil
+        }
+        defer {
+            _ = flock(probeSlotFD, LOCK_UN)
+            Darwin.close(probeSlotFD)
+            publishProbeSlotRelease()
+        }
         let result = await probe()
         prune(now: Date())
         write(result, key: key, to: cacheURL)
@@ -217,6 +246,102 @@ public struct CodexResumeTrustProbeCache: Sendable {
             group.cancelAll()
             return result
         }
+    }
+
+    /// Acquires one process-shared probe slot without blocking an executor
+    /// thread. Slot release writes a generation file, which wakes queued keys
+    /// through the same vnode stream used by key handoffs.
+    private func acquireProbeSlot(
+        clock: ContinuousClock,
+        deadline: ContinuousClock.Instant
+    ) async -> Int32? {
+        let releaseURL = directory.appendingPathComponent(
+            "probe-slot-release",
+            isDirectory: false
+        )
+        var observedReleaseGeneration = shardReleaseGeneration(at: releaseURL)
+
+        while clock.now < deadline {
+            for index in 0..<probeSlotCount {
+                let slotURL = directory.appendingPathComponent(
+                    String(
+                        format: "probe-slot-%02d-of-%02d",
+                        index,
+                        probeSlotCount
+                    ),
+                    isDirectory: false
+                )
+                let fd = Darwin.open(
+                    slotURL.path,
+                    O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW,
+                    S_IRUSR | S_IWUSR
+                )
+                guard fd >= 0 else { continue }
+                if flock(fd, LOCK_EX | LOCK_NB) == 0 {
+                    return fd
+                }
+                Darwin.close(fd)
+            }
+
+            guard let generation = await waitForGenerationChange(
+                at: releaseURL,
+                after: observedReleaseGeneration,
+                clock: clock,
+                deadline: deadline
+            ) else {
+                return nil
+            }
+            observedReleaseGeneration = generation
+        }
+        return nil
+    }
+
+    private func waitForGenerationChange(
+        at url: URL,
+        after observedGeneration: String?,
+        clock: ContinuousClock,
+        deadline: ContinuousClock.Instant
+    ) async -> String? {
+        let initialGeneration = shardReleaseGeneration(at: url)
+        if initialGeneration != observedGeneration {
+            return initialGeneration
+        }
+        guard let changes = directoryChangeEvents() else {
+            return nil
+        }
+
+        return await withTaskGroup(of: String?.self) { group in
+            group.addTask {
+                for await _ in changes {
+                    guard !Task.isCancelled else { return nil }
+                    let generation = shardReleaseGeneration(at: url)
+                    if generation != observedGeneration {
+                        return generation
+                    }
+                }
+                return nil
+            }
+            group.addTask {
+                do {
+                    try await clock.sleep(until: deadline)
+                } catch {
+                    return nil
+                }
+                return nil
+            }
+            let generation = await group.next() ?? nil
+            group.cancelAll()
+            return generation
+        }
+    }
+
+    private func publishProbeSlotRelease() {
+        publishShardRelease(
+            at: directory.appendingPathComponent(
+                "probe-slot-release",
+                isDirectory: false
+            )
+        )
     }
 
     private func shardReleaseGeneration(at url: URL) -> String? {

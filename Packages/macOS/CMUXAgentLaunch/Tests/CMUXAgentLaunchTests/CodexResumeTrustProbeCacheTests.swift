@@ -55,7 +55,7 @@ struct CodexResumeTrustProbeCacheTests {
         #expect(probeCount == 2)
     }
 
-    @Test("A stuck probe owner cannot block a waiter indefinitely")
+    @Test("A stuck probe owner fails closed without a fallback probe")
     func stuckOwnerHasBoundedWait() async throws {
         let directory = temporaryDirectory()
         try FileManager.default.createDirectory(
@@ -87,11 +87,13 @@ struct CodexResumeTrustProbeCacheTests {
             Darwin.close(ownerFD)
         }
 
-        let outcome = try await expectCompletes(within: 5) {
+        let outcome = try await expectCompletes(within: 2) {
             var probeCount = 0
             let result = await CodexResumeTrustProbeCache(
                 directory: directory,
-                fileManager: .default
+                fileManager: .default,
+                keyWait: .milliseconds(200),
+                probeSlotWait: .milliseconds(200)
             ).resolve(
                 keyComponents: keyComponents
             ) {
@@ -101,8 +103,105 @@ struct CodexResumeTrustProbeCacheTests {
             return (result, probeCount)
         }
 
-        #expect(outcome.0 == ["/fallback"])
-        #expect(outcome.1 == 1)
+        #expect(outcome.0 == nil)
+        #expect(outcome.1 == 0)
+    }
+
+    @Test("Timed-out same-key waiters never start independent probes")
+    func sameKeyTimeoutDoesNotCreateProbeHerd() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let activity = ProbeActivity()
+        let ownerStarted = AsyncStream<Void>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        let releaseOwner = AsyncStream<Void>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        let owner = Task {
+            await CodexResumeTrustProbeCache(
+                directory: directory,
+                fileManager: .default,
+                keyWait: .seconds(1),
+                probeSlotWait: .seconds(1)
+            ).resolve(keyComponents: ["same-key"]) {
+                await activity.enter()
+                _ = ownerStarted.continuation.yield()
+                ownerStarted.continuation.finish()
+                var releases = releaseOwner.stream.makeAsyncIterator()
+                _ = await releases.next()
+                await activity.leave()
+                return Set(["/owner"])
+            }
+        }
+        defer { owner.cancel() }
+
+        var starts = ownerStarted.stream.makeAsyncIterator()
+        let didStart: Void? = await starts.next()
+        #expect(didStart != nil)
+
+        let waiters = (0..<8).map { _ in
+            Task {
+                await CodexResumeTrustProbeCache(
+                    directory: directory,
+                    fileManager: .default,
+                    keyWait: .milliseconds(150),
+                    probeSlotWait: .seconds(1)
+                ).resolve(keyComponents: ["same-key"]) {
+                    await activity.enter()
+                    await activity.leave()
+                    return Set(["/duplicate"])
+                }
+            }
+        }
+        let waiterResults = try await expectCompletes(within: 2) {
+            var values: [Set<String>?] = []
+            for waiter in waiters {
+                values.append(await waiter.value)
+            }
+            return values
+        }
+        #expect(waiterResults.allSatisfy { $0 == nil })
+        #expect(await activity.totalStarts == 1)
+
+        _ = releaseOwner.continuation.yield()
+        releaseOwner.continuation.finish()
+        #expect(try await expectCompletes(within: 2) { await owner.value } == ["/owner"])
+    }
+
+    @Test("Different keys share a small process-wide probe cap")
+    func differentKeysRespectProbeConcurrencyCap() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let activity = ProbeActivity()
+
+        let tasks = (0..<8).map { index in
+            Task {
+                await CodexResumeTrustProbeCache(
+                    directory: directory,
+                    fileManager: .default,
+                    keyWait: .seconds(2),
+                    probeSlotWait: .seconds(2),
+                    probeSlotCount: 2
+                ).resolve(keyComponents: ["different-key", String(index)]) {
+                    await activity.enter()
+                    try? await Task.sleep(for: .milliseconds(100))
+                    await activity.leave()
+                    return Set(["/\(index)"])
+                }
+            }
+        }
+        let results = try await expectCompletes(within: 3) {
+            var values: [Set<String>?] = []
+            for task in tasks {
+                values.append(await task.value)
+            }
+            return values
+        }
+
+        #expect(results.compactMap { $0 }.count == 8)
+        #expect(await activity.maximumActive == 2)
+        #expect(await activity.totalStarts == 8)
     }
 
     @Test("Different keys sharing a shard retry immediately after release")
@@ -201,6 +300,22 @@ struct CodexResumeTrustProbeCacheTests {
     }
 
     private struct TimedOutWaiting: Error {}
+
+    private actor ProbeActivity {
+        private(set) var active = 0
+        private(set) var maximumActive = 0
+        private(set) var totalStarts = 0
+
+        func enter() {
+            active += 1
+            totalStarts += 1
+            maximumActive = max(maximumActive, active)
+        }
+
+        func leave() {
+            active -= 1
+        }
+    }
 
     private func temporaryDirectory() -> URL {
         FileManager.default.temporaryDirectory

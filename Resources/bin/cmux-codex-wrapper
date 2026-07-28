@@ -5,9 +5,9 @@
 # makes `codex` carry cmux's hooks for THIS invocation only (nothing is written
 # to ~/.codex), so Codex's own SessionStart/UserPromptSubmit/Stop/PreToolUse/
 # PostToolUse/PermissionRequest fire back into cmux with Codex's real session_id.
-# It also fires a best-effort one-way `cmux hooks codex session-start` BEFORE
-# exec so a session is detected at launch even if Codex's own SessionStart is
-# delayed; the registry dedups by session id so the two are idempotent.
+# For a named resume, it also fires a best-effort one-way
+# `cmux hooks codex session-start` immediately before exec because Codex does
+# not emit SessionStart for resumed sessions.
 #
 # Outside cmux (no CMUX_SURFACE_ID / live socket), or when the user opts out
 # (CMUX_CODEX_HOOKS_DISABLED=1), the wrapper does NOTHING but exec the real
@@ -49,6 +49,9 @@ cmux_codex_wrapper_is_self_or_shim() {
             return 0
             ;;
         */Contents/Resources/bin/codex|*/Resources/bin/codex)
+            return 0
+            ;;
+        */cmux-tree-hook)
             return 0
             ;;
     esac
@@ -99,6 +102,23 @@ cmux_codex_physical_candidate() {
         cd -P "$(dirname "$candidate")" 2>/dev/null && pwd -P
     )" || return 1
     printf '%s/%s' "${physical_directory%/}" "$(basename "$candidate")"
+}
+
+# Print an executable Codex candidate only when neither its entrypoint nor its
+# final symlink target is a cmux wrapper. A home-bin `codex` may point at
+# `cmux-tree-hook`; selecting it from this per-surface wrapper makes the two
+# launchers resolve each other instead of reaching the real Codex install.
+cmux_codex_validated_candidate() {
+    local candidate="$1"
+    local logical_candidate
+    local physical_candidate
+    logical_candidate="$(cmux_codex_logical_candidate "$candidate")" || return 1
+    physical_candidate="$(
+        cmux_codex_physical_candidate "$logical_candidate"
+    )" || return 1
+    cmux_codex_candidate_is_real "$logical_candidate" || return 1
+    cmux_codex_candidate_is_real "$physical_candidate" || return 1
+    printf '%s' "$logical_candidate"
 }
 
 # Print the nearest physical ancestor of a directory that contains a Git
@@ -213,6 +233,7 @@ find_real_codex() {
                     ;;
                 -C?*)
                     directory="${argument#-C}"
+                    directory="${directory#=}"
                     project_root="$(
                         cmux_codex_untrusted_project_root "$directory"
                     )"
@@ -253,8 +274,7 @@ find_real_codex() {
             cmux_codex_validated_session_candidate \
                 "$custom" \
                 "${project_roots[@]}" && return 0
-        elif cmux_codex_candidate_is_real "$custom"; then
-            printf '%s' "$custom"
+        elif cmux_codex_validated_candidate "$custom"; then
             return 0
         fi
     fi
@@ -271,8 +291,7 @@ find_real_codex() {
             cmux_codex_validated_session_candidate \
                 "$candidate" \
                 "${project_roots[@]}" && return 0
-        elif cmux_codex_candidate_is_real "$candidate"; then
-            printf '%s' "$candidate"
+        elif cmux_codex_validated_candidate "$candidate"; then
             return 0
         fi
     done
@@ -309,8 +328,7 @@ find_real_codex() {
             cmux_codex_validated_session_candidate \
                 "$candidate" \
                 "${project_roots[@]}" && return 0
-        elif cmux_codex_candidate_is_real "$candidate"; then
-            printf '%s' "$candidate"
+        elif cmux_codex_validated_candidate "$candidate"; then
             return 0
         fi
     done
@@ -378,6 +396,7 @@ cmux_codex_trusted_cmux_candidate() {
                 ;;
             -C?*)
                 directory="${argument#-C}"
+                directory="${directory#=}"
                 project_root="$(
                     cmux_codex_untrusted_project_root "$directory"
                 )"
@@ -723,16 +742,30 @@ if [[ "$cmux_codex_inject_hooks" != "1" ]]; then
     exec_real_codex_passthrough "$@"
 fi
 
-# Export launch identity so the hook subprocesses and cmux's agent-pid /
-# ended-detection can bind this Codex to its surface and pid. Because we exec
-# codex below, $$ becomes the real codex pid.
+# Export launch identity so hook subprocesses and cmux's agent-pid /
+# ended-detection can bind this Codex to its surface and process generation.
+# Because exec preserves both PID and process start time, the wrapper's identity
+# becomes the real Codex identity. Export a lease only with a native launch-time
+# identity, so a delayed hook cannot authenticate a reused numeric PID.
 export CMUX_CODEX_PID=$$
+export CMUX_CODEX_PROCESS_IDENTITY_REQUIRED=1
 unset CMUX_CODEX_PROCESS_LEASE_ID
+unset CMUX_CODEX_PID_START_SECONDS
+unset CMUX_CODEX_PID_START_MICROSECONDS
+export CMUX_CODEX_HOOK_CMUX_BIN="$(resolve_hook_cmux_bin "$@")"
+cmux_codex_process_identity=""
+if [[ -n "$CMUX_CODEX_HOOK_CMUX_BIN" && -x "$CMUX_CODEX_HOOK_CMUX_BIN" ]]; then
+    cmux_codex_process_identity="$(
+        "$CMUX_CODEX_HOOK_CMUX_BIN" hooks codex process-identity --pid "$$" 2>/dev/null
+    )" || cmux_codex_process_identity=""
+fi
 cmux_codex_process_lease_id="$(/usr/bin/uuidgen 2>/dev/null || true)"
-if [[ -n "$cmux_codex_process_lease_id" ]]; then
+if [[ "$cmux_codex_process_identity" =~ ^([0-9]+):([0-9]+)$ \
+      && -n "$cmux_codex_process_lease_id" ]]; then
+    export CMUX_CODEX_PID_START_SECONDS="${BASH_REMATCH[1]}"
+    export CMUX_CODEX_PID_START_MICROSECONDS="${BASH_REMATCH[2]}"
     export CMUX_CODEX_PROCESS_LEASE_ID="$cmux_codex_process_lease_id"
 fi
-export CMUX_CODEX_HOOK_CMUX_BIN="$(resolve_hook_cmux_bin "$@")"
 export CMUX_AGENT_LAUNCH_KIND="codex"
 export CMUX_AGENT_LAUNCH_EXECUTABLE="$REAL_CODEX"
 export CMUX_AGENT_LAUNCH_CWD="$PWD"
@@ -760,13 +793,19 @@ export CMUX_AGENT_LAUNCH_CWD="$PWD"
 # -> read-only with no input bar, with no way out (you cannot submit a prompt
 # from a GUI that has no composer). The wrapper has the resumed id (from argv) and
 # the new live pid ($$, exported as CMUX_CODEX_PID above), so it fires the
-# session-start ITSELF. The handler binds surface/workspace/cwd from the cmux env
-# and pid from CMUX_CODEX_PID, re-binding the resumed session to its live pid and
-# flipping it back to idle/editable. Fire-and-forget (backgrounded + disowned) so
-# it never blocks the launch; best-effort so a failure can never break `codex`.
+# session-start ITSELF. Delay this until every trust/config helper has finished:
+# the old process remains authoritative while the replacement can still fail
+# before exec. Fire-and-forget (backgrounded + disowned) so it never blocks the
+# launch; best-effort so a failure can never break `codex`.
 cmux_codex_resume_sid="$(cmux_codex_resume_session_id "$@")"
-if [[ -n "$cmux_codex_resume_sid" \
-      && -n "$CMUX_CODEX_HOOK_CMUX_BIN" && -x "$CMUX_CODEX_HOOK_CMUX_BIN" ]]; then
+cmux_codex_resume_rebind_fired=0
+cmux_codex_fire_resume_rebind() {
+    [[ "$cmux_codex_resume_rebind_fired" == "0" ]] || return 0
+    cmux_codex_resume_rebind_fired=1
+    [[ -n "$cmux_codex_resume_sid" \
+       && -n "$CMUX_CODEX_HOOK_CMUX_BIN" \
+       && -x "$CMUX_CODEX_HOOK_CMUX_BIN" ]] || return 0
+    local cmux_codex_resume_payload
     cmux_codex_resume_payload="{\"session_id\":\"$cmux_codex_resume_sid\",\"cwd\":\"$PWD\",\"cmux_resume_rebind\":true}"
     if [[ -n "${CMUX_SOCKET_PATH:-}" ]]; then
         ( printf '%s' "$cmux_codex_resume_payload" \
@@ -776,7 +815,7 @@ if [[ -n "$cmux_codex_resume_sid" \
             | nohup "$CMUX_CODEX_HOOK_CMUX_BIN" hooks codex session-start >/dev/null 2>&1 ) &
     fi
     disown 2>/dev/null || true
-fi
+}
 
 # Build the per-invocation [hooks] injection. The cmux CLI emits the exact
 # prefix arg list (NUL-separated) that enables hooks and injects cmux's
@@ -884,20 +923,24 @@ if cmux_codex_read_inject_args; then
                     "${cmux_codex_user_args[@]}"
             )" || cmux_codex_resume_terminator=-1
             if (( cmux_codex_resume_terminator >= 0 )); then
+                cmux_codex_fire_resume_rebind
                 exec_real_codex \
                     "${cmux_codex_injected_args[@]}" \
                     "${cmux_codex_user_args[@]:0:$cmux_codex_resume_terminator}" \
                     "${cmux_codex_resume_args[@]}" \
                     "${cmux_codex_user_args[@]:$cmux_codex_resume_terminator}"
             fi
+            cmux_codex_fire_resume_rebind
             exec_real_codex \
                 "${cmux_codex_injected_args[@]}" \
                 "$@" \
                 "${cmux_codex_resume_args[@]}"
         fi
     fi
+    cmux_codex_fire_resume_rebind
     exec_real_codex "${cmux_codex_injected_args[@]}" "$@"
 fi
 
 # Emit failed or returned nothing: never break codex, just pass through.
+cmux_codex_fire_resume_rebind
 exec_real_codex_passthrough "$@"

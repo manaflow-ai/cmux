@@ -25,7 +25,11 @@ struct CodexResumeRebindTests {
       [
         "CMUX_CODEX_PID": String(codexPID),
         "CMUX_CODEX_PROCESS_LEASE_ID": processLeaseId,
-      ], uniquingKeysWith: { _, new in new })
+      ], uniquingKeysWith: { _, new in new }
+    ).merging(
+      try H.codexProcessIdentityEnvironment(pid: codexPID),
+      uniquingKeysWith: { _, new in new }
+    )
     H.startMockServer(context: context, connectionLimit: 48)
 
     let start = H.runHook(

@@ -151,6 +151,41 @@ enum CodexResumeTestHarness {
     )
   }
 
+  static func codexProcessIdentityEnvironment(pid: Int) throws
+    -> [String: String]
+  {
+    guard pid > 0, pid <= Int(Int32.max) else {
+      throw NSError(
+        domain: "cmux.tests",
+        code: 2,
+        userInfo: [NSLocalizedDescriptionKey: "invalid Codex test PID \(pid)"]
+      )
+    }
+    var info = proc_bsdinfo()
+    let expectedSize = MemoryLayout<proc_bsdinfo>.stride
+    let size = proc_pidinfo(
+      pid_t(pid),
+      PROC_PIDTBSDINFO,
+      0,
+      &info,
+      Int32(expectedSize)
+    )
+    guard size == expectedSize else {
+      throw NSError(
+        domain: "cmux.tests",
+        code: 3,
+        userInfo: [
+          NSLocalizedDescriptionKey:
+            "could not read Codex test process identity for \(pid)"
+        ]
+      )
+    }
+    return [
+      "CMUX_CODEX_PID_START_SECONDS": String(info.pbi_start_tvsec),
+      "CMUX_CODEX_PID_START_MICROSECONDS": String(info.pbi_start_tvusec),
+    ]
+  }
+
   static func runHook(
     context: Context,
     subcommand: String,

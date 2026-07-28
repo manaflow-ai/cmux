@@ -43,6 +43,8 @@ class CodexWrapperResumeTrustTests(unittest.TestCase):
         codex_interpreter_only_on_user_path: bool = False,
         launch_from_home: bool = False,
         launch_from_root: bool = False,
+        cmux_tree_hook_before_real_codex: bool = False,
+        real_codex_self_spawns: bool = False,
     ) -> tuple[list[str], str, subprocess.CompletedProcess[str]]:
         with tempfile.TemporaryDirectory(prefix="cmux-codex-wrapper-test-") as raw:
             root = Path(raw)
@@ -56,12 +58,16 @@ class CodexWrapperResumeTrustTests(unittest.TestCase):
             effective_project = root / "effective-project"
             wrapper = root / "cmux-codex-wrapper"
             real_codex = (
-                home / ".local" / "bin" / "codex"
-                if trusted_codex_from_home
+                home / ".bun" / "bin" / "codex"
+                if cmux_tree_hook_before_real_codex
                 else (
-                    home / "Library" / "pnpm" / "codex"
-                    if trusted_codex_from_custom_path
-                    else root / "codex-real"
+                    home / ".local" / "bin" / "codex"
+                    if trusted_codex_from_home
+                    else (
+                        home / "Library" / "pnpm" / "codex"
+                        if trusted_codex_from_custom_path
+                        else root / "codex-real"
+                    )
                 )
             )
             fake_cmux = (
@@ -79,6 +85,8 @@ class CodexWrapperResumeTrustTests(unittest.TestCase):
 
             shutil.copy2(SOURCE_WRAPPER, wrapper)
             wrapper.chmod(0o755)
+            if real_codex_self_spawns:
+                (root / "codex").symlink_to(wrapper.name)
             (project / ".git").mkdir(parents=True)
             working_directory.mkdir(exist_ok=True)
             (effective_project / ".git").mkdir(parents=True)
@@ -98,18 +106,39 @@ exec /bin/bash "$@"
 """,
                 )
                 codex_shebang = "#!/usr/bin/env cmux-test-node"
+            self_spawn = (
+                """
+if [[ "${1:-}" != "app-server" ]]; then
+  codex app-server daemon start >/dev/null || exit
+fi
+"""
+                if real_codex_self_spawns
+                else ""
+            )
             make_executable(
                 real_codex_target,
-                f"""{codex_shebang}
+                f"""{codex_shebang}{self_spawn}
 printf '%s\\0' "$@" > "$FAKE_CODEX_ARGS_LOG"
 printf 'codex-path=%s\\n' "$PATH" >> "$FAKE_CMUX_LOG"
 printf 'launch-executable=%s\\n' "${{CMUX_AGENT_LAUNCH_EXECUTABLE:-}}" >> "$FAKE_CMUX_LOG"
 printf 'process-lease=%s\\n' "${{CMUX_CODEX_PROCESS_LEASE_ID:-}}" >> "$FAKE_CMUX_LOG"
+printf 'process-start=%s:%s\\n' "${{CMUX_CODEX_PID_START_SECONDS:-}}" "${{CMUX_CODEX_PID_START_MICROSECONDS:-}}" >> "$FAKE_CMUX_LOG"
 sleep 0.2
 """,
             )
             if custom_codex_is_symlink:
                 real_codex.symlink_to(real_codex_target.name)
+            if cmux_tree_hook_before_real_codex:
+                tree_hook = home / ".local" / "bin" / "cmux-tree-hook"
+                tree_hook.parent.mkdir(parents=True)
+                make_executable(
+                    tree_hook,
+                    """#!/bin/sh
+printf 'cmux-tree-hook-ran\\n' >> "$FAKE_CMUX_LOG"
+exit 98
+""",
+                )
+                (tree_hook.parent / "codex").symlink_to(tree_hook.name)
             fake_cmux.parent.mkdir(parents=True, exist_ok=True)
             make_executable(
                 fake_cmux,
@@ -123,6 +152,10 @@ if [[ "${{1:-}}" == "ping" ]]; then
 fi
 if [[ "${{@: -1}}" == "session-start" ]]; then
   printf 'payload=%s\\n' "$(cat)" >> "$FAKE_CMUX_LOG"
+  exit 0
+fi
+if [[ "${{1:-}}" == "hooks" && "${{2:-}}" == "codex" && "${{3:-}}" == "process-identity" ]]; then
+  printf '123:456'
   exit 0
 fi
 case "${{@: -1}}" in
@@ -241,9 +274,15 @@ printf '%s\\0' "$@" > "$FAKE_CODEX_ARGS_LOG"
                 lookup_path = f"{fake_cmux.parent}:{lookup_path}"
             if codex_interpreter_only_on_user_path:
                 lookup_path = f"{interpreter_bin}:{lookup_path}"
+            if real_codex_self_spawns:
+                lookup_path = f"{root}:{lookup_path}"
             env["PATH"] = lookup_path
             arguments = [
-                str(effective_project) if arg == "{effective-project}" else arg
+                (
+                    str(effective_project)
+                    if arg == "{effective-project}"
+                    else arg.replace("{effective-project}", str(effective_project))
+                )
                 for arg in arguments
             ]
             try:
@@ -285,6 +324,11 @@ printf '%s\\0' "$@" > "$FAKE_CODEX_ARGS_LOG"
         )
         self.assertIn("hooks codex inject-resume-args", logged_cmux_calls)
         self.assertIn('"cmux_resume_rebind":true', logged_cmux_calls)
+        self.assertLess(
+            logged_cmux_calls.index("hooks codex inject-resume-args"),
+            logged_cmux_calls.index("hooks codex session-start"),
+            "The authoritative rebind must wait for the trust probe.",
+        )
 
     def test_cmux_helper_resolves_from_the_original_user_path(self) -> None:
         args, logged_cmux_calls, result = self.run_wrapper(
@@ -559,6 +603,7 @@ printf '%s\\0' "$@" > "$FAKE_CODEX_ARGS_LOG"
             logged_cmux_calls,
             r"(?m)^process-lease=[0-9A-F-]{36}$",
         )
+        self.assertIn("process-start=123:456", logged_cmux_calls)
 
     def test_fork_session_receives_hooks_without_resume_trust(self) -> None:
         args, logged_cmux_calls, result = self.run_wrapper(
@@ -617,6 +662,24 @@ printf '%s\\0' "$@" > "$FAKE_CODEX_ARGS_LOG"
         self.assertEqual(args, ["--enable", "hooks", "--yolo"])
         self.assertNotIn("hostile-codex-ran", logged_cmux_calls)
 
+    def test_cmux_tree_hook_symlink_is_skipped_during_codex_self_spawn(
+        self,
+    ) -> None:
+        args, logged_cmux_calls, result = self.run_wrapper(
+            ["--yolo"],
+            trusted_codex_from_home=True,
+            cmux_tree_hook_before_real_codex=True,
+            real_codex_self_spawns=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(args, ["--enable", "hooks", "--yolo"])
+        self.assertNotIn("cmux-tree-hook-ran", logged_cmux_calls)
+        self.assertRegex(
+            logged_cmux_calls,
+            r"(?m)^launch-executable=.*/home/\.bun/bin/codex$",
+        )
+
     def test_symlink_install_preserves_codex_launch_identity(self) -> None:
         _, logged_cmux_calls, result = self.run_wrapper(
             ["--yolo"],
@@ -640,6 +703,33 @@ printf '%s\\0' "$@" > "$FAKE_CODEX_ARGS_LOG"
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(args[:3], ["--enable", "hooks", "-C"])
         self.assertEqual(args[-1], "--yolo")
+        self.assertNotIn("effective-project-codex-ran", logged_cmux_calls)
+
+    def test_attached_cd_equals_project_is_validated_for_fresh_launch(self) -> None:
+        args, logged_cmux_calls, result = self.run_wrapper(
+            ["-C={effective-project}", "--yolo"],
+            trusted_codex_from_custom_path=True,
+            effective_project_codex_on_path=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(args[0:2], ["--enable", "hooks"])
+        self.assertRegex(args[2], r"^-C=.*/effective-project$")
+        self.assertEqual(args[-1], "--yolo")
+        self.assertNotIn("effective-project-codex-ran", logged_cmux_calls)
+
+    def test_attached_cd_equals_project_is_validated_for_resume(self) -> None:
+        args, logged_cmux_calls, result = self.run_wrapper(
+            ["-C={effective-project}", "resume", SESSION_ID],
+            trusted_codex_from_custom_path=True,
+            effective_project_codex_on_path=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(args[0:2], ["--enable", "hooks"])
+        self.assertRegex(args[2], r"^-C=.*/effective-project$")
+        self.assertEqual(args[3:5], ["resume", SESSION_ID])
+        self.assertEqual(args[-2:], ["-c", TRUST_OVERRIDE])
         self.assertNotIn("effective-project-codex-ran", logged_cmux_calls)
 
     def test_hooks_opt_out_preserves_project_local_codex_passthrough(self) -> None:

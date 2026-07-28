@@ -3,6 +3,23 @@ import CmuxFoundation
 import Foundation
 
 extension CMUXCLI {
+    /// Hidden wrapper helper. Exec preserves this native process identity, so
+    /// every later hook can prove that its launch PID was not recycled.
+    func emitCodexProcessIdentity(arguments: [String]) throws {
+        guard arguments.count == 2,
+              arguments[0] == "--pid",
+              let pid = Int(arguments[1]),
+              let identity = codexProcessStartIdentity(pid: pid) else {
+            throw CLIError(
+                message: "Usage: cmux hooks codex process-identity --pid <pid>"
+            )
+        }
+        print(
+            "\(identity.seconds):\(identity.microseconds)",
+            terminator: ""
+        )
+    }
+
     /// Emit, NUL-separated to stdout, the exact codex arg list the wrapper must
     /// splice ahead of the user's args to enable + inject cmux's fire-and-forget
     /// hooks for one codex invocation. Returns the arg list:

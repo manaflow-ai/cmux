@@ -234,7 +234,11 @@ struct CodexResumeProcessLeaseTests {
       [
         "CMUX_CODEX_PID": String(olderPID),
         "CMUX_CODEX_PROCESS_LEASE_ID": olderLease,
-      ], uniquingKeysWith: { _, new in new })
+      ], uniquingKeysWith: { _, new in new }
+    ).merging(
+      try H.codexProcessIdentityEnvironment(pid: olderPID),
+      uniquingKeysWith: { _, new in new }
+    )
     let initialStart = H.runHook(
       context: context,
       subcommand: "session-start",
@@ -261,7 +265,99 @@ struct CodexResumeProcessLeaseTests {
       "The stale hook must pause after its ownership preflight."
     )
 
-    let newerStart = H.runHook(
+    let newerEnvironment = H.launchEnvironment(
+      context: context,
+      sessionId: sessionId
+    ).merging(
+      [
+        "CMUX_CODEX_PID": String(newerPID),
+        "CMUX_CODEX_PROCESS_LEASE_ID": newerLease,
+      ], uniquingKeysWith: { _, new in new }
+    ).merging(
+      try H.codexProcessIdentityEnvironment(pid: newerPID),
+      uniquingKeysWith: { _, new in new }
+    )
+    let newerStartInvoked = AsyncStream<Void>.makeStream(
+      bufferingPolicy: .bufferingNewest(1)
+    )
+    let newerStartCompleted = DispatchSemaphore(value: 0)
+    let newerStartTask = Task.detached {
+      _ = newerStartInvoked.continuation.yield()
+      newerStartInvoked.continuation.finish()
+      let result = H.runHook(
+        context: context,
+        subcommand: "session-start",
+        standardInput:
+          #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart","cmux_resume_rebind":true}"#,
+        extraEnvironment: newerEnvironment
+      )
+      newerStartCompleted.signal()
+      return result
+    }
+    var newerInvocations = newerStartInvoked.stream.makeAsyncIterator()
+    let didInvokeNewerStart: Void? = await newerInvocations.next()
+    codexExpectTrue(didInvokeNewerStart != nil)
+    codexExpectTrue(
+      newerStartCompleted.wait(timeout: .now() + 0.2) == .timedOut,
+      "The newer resume must wait until the older hook finishes its socket mutations."
+    )
+    releaseStale.signal()
+    let staleResult = await stalePrompt.value
+    codexExpectFalse(staleResult.timedOut, staleResult.stderr)
+    codexExpectEqual(staleResult.status, 0, staleResult.stderr)
+    let newerStart = await newerStartTask.value
+    codexExpectFalse(newerStart.timedOut, newerStart.stderr)
+    codexExpectEqual(newerStart.status, 0, newerStart.stderr)
+
+    let record = try H.readSession(sessionId, context: context)
+    codexExpectEqual(record["pid"] as? Int, newerPID)
+    codexExpectEqual(record["processLeaseId"] as? String, newerLease)
+    codexExpectNil(record["activePromptTurnId"])
+    codexExpectNil(record["activePromptTurnIds"])
+  }
+
+  @Test
+  func testDelayedHookCannotAuthenticateReusedPID() throws {
+    let context = try H.makeContext(name: "codex-reused-pid")
+    defer { context.cleanup() }
+    let sessionId = "reused-pid-session"
+    let currentPID = Int(Darwin.getpid())
+    let currentIdentity = try H.codexProcessIdentityEnvironment(pid: currentPID)
+    let currentStartSeconds = try codexRequire(
+      Int64(currentIdentity["CMUX_CODEX_PID_START_SECONDS"] ?? "")
+    )
+    let currentStartMicroseconds = try codexRequire(
+      Int64(currentIdentity["CMUX_CODEX_PID_START_MICROSECONDS"] ?? "")
+    )
+    let newerLease = UUID().uuidString
+    let staleLease = UUID().uuidString
+    let now = Date().timeIntervalSince1970
+    let stateURL = context.root.appendingPathComponent(
+      "codex-hook-sessions.json"
+    )
+    let store: [String: Any] = [
+      "version": 1,
+      "sessions": [
+        sessionId: [
+          "sessionId": sessionId,
+          "workspaceId": context.workspaceId,
+          "surfaceId": context.surfaceId,
+          "cwd": context.root.path,
+          "pid": Int(Int32.max),
+          "pidStartSeconds": currentStartSeconds - 5,
+          "pidStartMicroseconds": currentStartMicroseconds,
+          "processLeaseId": newerLease,
+          "runtimeStatus": "running",
+          "startedAt": now,
+          "updatedAt": now,
+        ]
+      ],
+    ]
+    try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+      .write(to: stateURL, options: .atomic)
+    H.startMockServer(context: context, connectionLimit: 24)
+
+    let result = H.runHook(
       context: context,
       subcommand: "session-start",
       standardInput:
@@ -271,22 +367,28 @@ struct CodexResumeProcessLeaseTests {
         sessionId: sessionId
       ).merging(
         [
-          "CMUX_CODEX_PID": String(newerPID),
-          "CMUX_CODEX_PROCESS_LEASE_ID": newerLease,
-        ], uniquingKeysWith: { _, new in new })
+          "CMUX_CODEX_PID": String(currentPID),
+          "CMUX_CODEX_PROCESS_LEASE_ID": staleLease,
+          "CMUX_CODEX_PID_START_SECONDS": String(currentStartSeconds - 10),
+          "CMUX_CODEX_PID_START_MICROSECONDS": String(
+            currentStartMicroseconds
+          ),
+        ],
+        uniquingKeysWith: { _, new in new }
+      )
     )
-    codexExpectEqual(newerStart.status, 0, newerStart.stderr)
 
-    releaseStale.signal()
-    let staleResult = await stalePrompt.value
-    codexExpectFalse(staleResult.timedOut, staleResult.stderr)
-    codexExpectEqual(staleResult.status, 0, staleResult.stderr)
-
+    codexExpectFalse(result.timedOut, result.stderr)
+    codexExpectEqual(result.status, 0, result.stderr)
     let record = try H.readSession(sessionId, context: context)
-    codexExpectEqual(record["pid"] as? Int, newerPID)
+    codexExpectEqual(record["pid"] as? Int, Int(Int32.max))
     codexExpectEqual(record["processLeaseId"] as? String, newerLease)
-    codexExpectNil(record["activePromptTurnId"])
-    codexExpectNil(record["activePromptTurnIds"])
+    codexExpectFalse(
+      context.state.commands.contains {
+        H.jsonObject($0)?["method"] as? String == "surface.resume.set"
+      },
+      "A captured launch identity mismatch must reject the recycled PID before publishing."
+    )
   }
 
   @Test

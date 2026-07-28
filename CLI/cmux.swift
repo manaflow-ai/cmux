@@ -65,6 +65,50 @@ enum AgentHookRuntimeStatus: String, Codable {
     case error
 }
 
+struct CodexProcessStartIdentity: Equatable, Sendable {
+    let seconds: Int64
+    let microseconds: Int64
+}
+
+func codexProcessStartIdentity(pid: Int) -> CodexProcessStartIdentity? {
+    guard pid > 0, pid <= Int(Int32.max) else { return nil }
+    var info = proc_bsdinfo()
+    let expectedSize = MemoryLayout<proc_bsdinfo>.stride
+    let size = proc_pidinfo(
+        pid_t(pid),
+        PROC_PIDTBSDINFO,
+        0,
+        &info,
+        Int32(expectedSize)
+    )
+    guard size == expectedSize else { return nil }
+    return CodexProcessStartIdentity(
+        seconds: Int64(info.pbi_start_tvsec),
+        microseconds: Int64(info.pbi_start_tvusec)
+    )
+}
+
+func codexProcessStartIdentity(
+    environment: [String: String]
+) -> CodexProcessStartIdentity? {
+    guard
+        let secondsText = environment["CMUX_CODEX_PID_START_SECONDS"],
+        let microsecondsText = environment[
+            "CMUX_CODEX_PID_START_MICROSECONDS"
+        ],
+        let seconds = Int64(secondsText),
+        let microseconds = Int64(microsecondsText),
+        seconds >= 0,
+        (0..<1_000_000).contains(microseconds)
+    else {
+        return nil
+    }
+    return CodexProcessStartIdentity(
+        seconds: seconds,
+        microseconds: microseconds
+    )
+}
+
 #if DEBUG
 private func agentHookDebugLog(
     _ message: @autoclosure () -> String,
@@ -254,6 +298,25 @@ final class ClaudeHookSessionStore {
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
 
+    final class CodexProcessEventTransaction {
+        private var fileDescriptor: Int32
+
+        fileprivate init(fileDescriptor: Int32) {
+            self.fileDescriptor = fileDescriptor
+        }
+
+        func release() {
+            guard fileDescriptor >= 0 else { return }
+            _ = flock(fileDescriptor, LOCK_UN)
+            Darwin.close(fileDescriptor)
+            fileDescriptor = -1
+        }
+
+        deinit {
+            release()
+        }
+    }
+
     init(
         processEnv: [String: String] = ProcessInfo.processInfo.environment,
         fileManager: FileManager = .default
@@ -271,6 +334,50 @@ final class ClaudeHookSessionStore {
         }
         self.fileManager = fileManager
         self.encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+    }
+
+    /// Serializes one Codex session's ownership transition with every socket
+    /// mutation derived from it. Store-file locking alone protects persisted
+    /// state, but releasing that lock before a resume binding or notification
+    /// lets a newer process claim the session while an older hook is still
+    /// publishing. This separate per-session lease spans the whole hook.
+    func acquireCodexProcessEventTransaction(
+        sessionId: String
+    ) -> CodexProcessEventTransaction? {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return nil }
+        let parent = URL(fileURLWithPath: statePath, isDirectory: false)
+            .deletingLastPathComponent()
+        do {
+            try fileManager.createDirectory(
+                at: parent,
+                withIntermediateDirectories: true
+            )
+        } catch {
+            return nil
+        }
+        let digest = SHA256.hash(data: Data(normalized.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+        let lockPath = parent
+            .appendingPathComponent(
+                ".codex-process-event-\(digest).lock",
+                isDirectory: false
+            )
+            .path
+        let fd = Darwin.open(
+            lockPath,
+            O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW,
+            mode_t(S_IRUSR | S_IWUSR)
+        )
+        guard fd >= 0 else { return nil }
+        while flock(fd, LOCK_EX) != 0 {
+            guard errno == EINTR else {
+                Darwin.close(fd)
+                return nil
+            }
+        }
+        return CodexProcessEventTransaction(fileDescriptor: fd)
     }
 
     func lookup(sessionId: String) throws -> ClaudeHookSessionRecord? {
@@ -439,7 +546,8 @@ final class ClaudeHookSessionStore {
         autoNameMessages: [AutoNamingTranscriptMessage] = [],
         rejectTerminalTurn: Bool = false,
         expectedCodexPID: Int? = nil,
-        expectedCodexProcessLeaseId: String? = nil
+        expectedCodexProcessLeaseId: String? = nil,
+        expectedCodexProcessStartIdentity: CodexProcessStartIdentity? = nil
     ) throws -> (staleProcess: Bool, staleTerminalTurn: Bool, nested: Bool) {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else {
@@ -451,7 +559,9 @@ final class ClaudeHookSessionStore {
                    state: &state,
                    sessionId: normalized,
                    incomingPID: expectedCodexPID,
-                   incomingProcessLeaseId: expectedCodexProcessLeaseId
+                   incomingProcessLeaseId: expectedCodexProcessLeaseId,
+                   incomingProcessStartIdentity:
+                       expectedCodexProcessStartIdentity
                ) {
                 return (staleProcess: true, staleTerminalTurn: false, nested: false)
             }
@@ -487,6 +597,11 @@ final class ClaudeHookSessionStore {
                 updateRuntimeStatus: updateRuntimeStatus,
                 now: now
             )
+            if pid == expectedCodexPID,
+               let identity = expectedCodexProcessStartIdentity {
+                record.pidStartSeconds = identity.seconds
+                record.pidStartMicroseconds = identity.microseconds
+            }
             appendAutoNameMessages(autoNameMessages, to: &record)
             if let normalizedTurnId {
                 markPromptTurnActive(normalizedTurnId, on: &record)
@@ -566,6 +681,7 @@ final class ClaudeHookSessionStore {
         autoNameMessages: [AutoNamingTranscriptMessage] = [],
         expectedCodexPID: Int? = nil,
         expectedCodexProcessLeaseId: String? = nil,
+        expectedCodexProcessStartIdentity: CodexProcessStartIdentity? = nil,
         allowTerminatedRecordedCodexOwner: Bool = false
     ) throws -> (staleProcess: Bool, nested: Bool) {
         let normalized = normalizeSessionId(sessionId)
@@ -577,6 +693,8 @@ final class ClaudeHookSessionStore {
                    sessionId: normalized,
                    incomingPID: expectedCodexPID,
                    incomingProcessLeaseId: expectedCodexProcessLeaseId,
+                   incomingProcessStartIdentity:
+                       expectedCodexProcessStartIdentity,
                    allowTerminatedRecordedOwner: allowTerminatedRecordedCodexOwner
                ) {
                 return (staleProcess: true, nested: false)
@@ -609,6 +727,11 @@ final class ClaudeHookSessionStore {
                 updateRuntimeStatus: updateRuntimeStatus,
                 now: now
             )
+            if pid == expectedCodexPID,
+               let identity = expectedCodexProcessStartIdentity {
+                record.pidStartSeconds = identity.seconds
+                record.pidStartMicroseconds = identity.microseconds
+            }
             appendAutoNameMessages(autoNameMessages, to: &record)
             let normalizedTurnId = normalizeOptional(turnId)
             if let normalizedTurnId {
@@ -729,7 +852,8 @@ final class ClaudeHookSessionStore {
         turnId: String? = nil,
         allowsNewSessionReplacement: Bool = false,
         expectedCodexPID: Int? = nil,
-        expectedCodexProcessLeaseId: String? = nil
+        expectedCodexProcessLeaseId: String? = nil,
+        expectedCodexProcessStartIdentity: CodexProcessStartIdentity? = nil
     ) throws -> Bool {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return false }
@@ -739,7 +863,9 @@ final class ClaudeHookSessionStore {
                    state: &state,
                    sessionId: normalized,
                    incomingPID: expectedCodexPID,
-                   incomingProcessLeaseId: expectedCodexProcessLeaseId
+                   incomingProcessLeaseId: expectedCodexProcessLeaseId,
+                   incomingProcessStartIdentity:
+                       expectedCodexProcessStartIdentity
                ) {
                 return false
             }
@@ -787,6 +913,11 @@ final class ClaudeHookSessionStore {
                 hadPendingBackgroundWorkAtStop: hadPendingBackgroundWorkAtStop,
                 now: now
             )
+            if pid == expectedCodexPID,
+               let identity = expectedCodexProcessStartIdentity {
+                record.pidStartSeconds = identity.seconds
+                record.pidStartMicroseconds = identity.microseconds
+            }
             state.sessions[normalized] = record
             if markActive {
                 let activeRecord = ClaudeHookActiveSessionRecord(
@@ -817,6 +948,7 @@ final class ClaudeHookSessionStore {
         sessionId: String,
         incomingPID: Int,
         incomingProcessLeaseId: String? = nil,
+        incomingProcessStartIdentity: CodexProcessStartIdentity? = nil,
         allowTerminatedRecordedOwner: Bool = false
     ) throws -> Bool {
         let normalized = normalizeSessionId(sessionId)
@@ -827,6 +959,7 @@ final class ClaudeHookSessionStore {
                 sessionId: normalized,
                 incomingPID: incomingPID,
                 incomingProcessLeaseId: incomingProcessLeaseId,
+                incomingProcessStartIdentity: incomingProcessStartIdentity,
                 allowTerminatedRecordedOwner: allowTerminatedRecordedOwner
             )
         }
@@ -837,20 +970,48 @@ final class ClaudeHookSessionStore {
         sessionId: String,
         incomingPID: Int,
         incomingProcessLeaseId: String?,
+        incomingProcessStartIdentity: CodexProcessStartIdentity?,
         allowTerminatedRecordedOwner: Bool = false
     ) -> Bool {
-        guard var record = state.sessions[sessionId] else {
-            return true
-        }
         let incomingLeaseId = normalizeOptional(incomingProcessLeaseId)
+        let liveIdentity = processStartIdentity(pid: incomingPID)
         if allowTerminatedRecordedOwner,
+           let record = state.sessions[sessionId],
            record.pid == incomingPID,
            let incomingLeaseId,
-           incomingLeaseId == normalizeOptional(record.processLeaseId) {
-            return true
+           incomingLeaseId == normalizeOptional(record.processLeaseId),
+           let incomingProcessStartIdentity,
+           incomingProcessStartIdentity == processStartIdentity(from: record) {
+            // A terminal hook may outlive its Codex process. Accept a dead
+            // launch identity already recorded under this lease, but reject a
+            // reused live PID whose identity no longer matches.
+            return liveIdentity == nil
+                || liveIdentity == incomingProcessStartIdentity
+        }
+        let validatedIdentity: CodexProcessStartIdentity?
+        if incomingLeaseId != nil {
+            guard let incomingProcessStartIdentity,
+                  let liveIdentity,
+                  liveIdentity == incomingProcessStartIdentity else {
+                return false
+            }
+            validatedIdentity = incomingProcessStartIdentity
+        } else {
+            validatedIdentity = liveIdentity
+        }
+        guard var record = state.sessions[sessionId] else {
+            // A lease is accepted only after its launch-time identity matches
+            // the current PID. Legacy events without a lease keep their prior
+            // best-effort behavior for stores created by older cmux builds.
+            return incomingLeaseId == nil || validatedIdentity != nil
+        }
+        if normalizeOptional(record.processLeaseId) != nil,
+           incomingLeaseId == nil {
+            return false
         }
         switch resumedProcessGenerationRelation(
             incomingPID: incomingPID,
+            incomingIdentity: validatedIdentity,
             to: record
         ) {
         case .orderedSame?:
@@ -866,7 +1027,7 @@ final class ClaudeHookSessionStore {
             }
             return true
         case .orderedDescending?:
-            guard let identity = processStartIdentity(pid: incomingPID) else {
+            guard let identity = validatedIdentity else {
                 return false
             }
             clearCodexSessionStartTurnState(on: &record)
@@ -895,11 +1056,18 @@ final class ClaudeHookSessionStore {
         runtimeStatus: AgentHookRuntimeStatus? = nil,
         updateRuntimeStatus: Bool = false,
         processLeaseId: String? = nil,
+        processStartIdentity: CodexProcessStartIdentity? = nil,
         allowResumedProcessReplacement: Bool = false
     ) throws -> Bool {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return false }
         return try withLockedState { state in
+            let validatedIdentity = validatedProcessStartIdentity(
+                pid: pid,
+                processLeaseId: processLeaseId,
+                declaredIdentity: processStartIdentity
+            )
+            guard validatedIdentity.valid else { return false }
             let now = Date().timeIntervalSince1970
             let hadExistingRecord = state.sessions[normalized] != nil
             var record = makeSessionRecord(
@@ -914,6 +1082,7 @@ final class ClaudeHookSessionStore {
                 record,
                 incomingPID: pid,
                 incomingProcessLeaseId: processLeaseId,
+                incomingProcessStartIdentity: validatedIdentity.identity,
                 allowResumedProcessReplacement: allowResumedProcessReplacement
             ) {
                 return false
@@ -937,6 +1106,10 @@ final class ClaudeHookSessionStore {
                 updateRuntimeStatus: updateRuntimeStatus,
                 now: now
             )
+            if let identity = validatedIdentity.identity {
+                record.pidStartSeconds = identity.seconds
+                record.pidStartMicroseconds = identity.microseconds
+            }
             if let processLeaseId = normalizeOptional(processLeaseId) {
                 record.processLeaseId = processLeaseId
             } else if let pid, pid != previousPID {
@@ -958,8 +1131,10 @@ final class ClaudeHookSessionStore {
         pid: Int? = nil,
         launchCommand: AgentHookLaunchCommandRecord? = nil,
         processLeaseId: String? = nil,
+        processStartIdentity: CodexProcessStartIdentity? = nil,
         expectedCodexPID: Int? = nil,
-        expectedCodexProcessLeaseId: String? = nil
+        expectedCodexProcessLeaseId: String? = nil,
+        expectedCodexProcessStartIdentity: CodexProcessStartIdentity? = nil
     ) throws -> Bool {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return false }
@@ -969,7 +1144,9 @@ final class ClaudeHookSessionStore {
                    state: &state,
                    sessionId: normalized,
                    incomingPID: expectedCodexPID,
-                   incomingProcessLeaseId: expectedCodexProcessLeaseId
+                   incomingProcessLeaseId: expectedCodexProcessLeaseId,
+                   incomingProcessStartIdentity:
+                       expectedCodexProcessStartIdentity
                ) {
                 return false
             }
@@ -1003,6 +1180,10 @@ final class ClaudeHookSessionStore {
                 updateRuntimeStatus: true,
                 now: now
             )
+            if let processStartIdentity {
+                record.pidStartSeconds = processStartIdentity.seconds
+                record.pidStartMicroseconds = processStartIdentity.microseconds
+            }
             if let processLeaseId = normalizeOptional(processLeaseId) {
                 record.processLeaseId = processLeaseId
             }
@@ -1015,6 +1196,7 @@ final class ClaudeHookSessionStore {
         sessionId: String,
         incomingPID: Int?,
         incomingProcessLeaseId: String? = nil,
+        incomingProcessStartIdentity: CodexProcessStartIdentity? = nil,
         includeTerminalPromptTurnIds: Bool = true,
         allowResumedProcessReplacement: Bool = false
     ) throws -> Bool {
@@ -1022,10 +1204,17 @@ final class ClaudeHookSessionStore {
         guard !normalized.isEmpty else { return false }
         return try withLockedState { state in
             guard let record = state.sessions[normalized] else { return false }
+            let validatedIdentity = validatedProcessStartIdentity(
+                pid: incomingPID,
+                processLeaseId: incomingProcessLeaseId,
+                declaredIdentity: incomingProcessStartIdentity
+            )
+            guard validatedIdentity.valid else { return true }
             return codexSessionStartIsStale(
                 record,
                 incomingPID: incomingPID,
                 incomingProcessLeaseId: incomingProcessLeaseId,
+                incomingProcessStartIdentity: validatedIdentity.identity,
                 includeTerminalPromptTurnIds: includeTerminalPromptTurnIds,
                 allowResumedProcessReplacement: allowResumedProcessReplacement
             )
@@ -1053,7 +1242,8 @@ final class ClaudeHookSessionStore {
         agentLifecycle: AgentHibernationLifecycleState? = nil,
         runtimeStatus: AgentHookRuntimeStatus? = nil,
         expectedCodexPID: Int? = nil,
-        expectedCodexProcessLeaseId: String? = nil
+        expectedCodexProcessLeaseId: String? = nil,
+        expectedCodexProcessStartIdentity: CodexProcessStartIdentity? = nil
     ) throws -> Bool {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return false }
@@ -1063,7 +1253,9 @@ final class ClaudeHookSessionStore {
                    state: &state,
                    sessionId: normalized,
                    incomingPID: expectedCodexPID,
-                   incomingProcessLeaseId: expectedCodexProcessLeaseId
+                   incomingProcessLeaseId: expectedCodexProcessLeaseId,
+                   incomingProcessStartIdentity:
+                       expectedCodexProcessStartIdentity
                ) {
                 return false
             }
@@ -1093,6 +1285,11 @@ final class ClaudeHookSessionStore {
                 updateRuntimeStatus: runtimeStatus != nil,
                 now: now
             )
+            if pid == expectedCodexPID,
+               let identity = expectedCodexProcessStartIdentity {
+                record.pidStartSeconds = identity.seconds
+                record.pidStartMicroseconds = identity.microseconds
+            }
             record.lastSubtitle = nil
             record.lastBody = nil
             record.lastNotificationStatus = nil
@@ -1173,9 +1370,14 @@ final class ClaudeHookSessionStore {
         _ record: ClaudeHookSessionRecord,
         incomingPID: Int?,
         incomingProcessLeaseId: String? = nil,
+        incomingProcessStartIdentity: CodexProcessStartIdentity? = nil,
         includeTerminalPromptTurnIds: Bool = true,
         allowResumedProcessReplacement: Bool = false
     ) -> Bool {
+        if normalizeOptional(record.processLeaseId) != nil,
+           normalizeOptional(incomingProcessLeaseId) == nil {
+            return true
+        }
         let hasActiveTurnState =
             max(
                 record.activePromptDepth ?? 0,
@@ -1197,6 +1399,7 @@ final class ClaudeHookSessionStore {
             guard let incomingPID else { return true }
             switch resumedProcessGenerationRelation(
                 incomingPID: incomingPID,
+                incomingIdentity: incomingProcessStartIdentity,
                 to: record
             ) {
             case .orderedDescending?:
@@ -1234,9 +1437,10 @@ final class ClaudeHookSessionStore {
 
     private func resumedProcessGenerationRelation(
         incomingPID: Int,
+        incomingIdentity: CodexProcessStartIdentity?,
         to record: ClaudeHookSessionRecord
     ) -> ComparisonResult? {
-        guard let incoming = processStartIdentity(pid: incomingPID) else {
+        guard let incoming = incomingIdentity else {
             return nil
         }
         if let existingSeconds = record.pidStartSeconds,
@@ -1265,6 +1469,19 @@ final class ClaudeHookSessionStore {
             return nil
         }
         return .orderedDescending
+    }
+
+    private func processStartIdentity(
+        from record: ClaudeHookSessionRecord
+    ) -> CodexProcessStartIdentity? {
+        guard let seconds = record.pidStartSeconds,
+              let microseconds = record.pidStartMicroseconds else {
+            return nil
+        }
+        return CodexProcessStartIdentity(
+            seconds: seconds,
+            microseconds: microseconds
+        )
     }
 
     private func clearCodexSessionStartTurnState(on record: inout ClaudeHookSessionRecord) {
@@ -1423,23 +1640,36 @@ final class ClaudeHookSessionStore {
         record.updatedAt = now
     }
 
-    private func processStartIdentity(pid: Int) -> (seconds: Int64, microseconds: Int64)? {
-        guard pid > 0, pid <= Int(Int32.max) else { return nil }
-        var info = proc_bsdinfo()
-        let expectedSize = MemoryLayout<proc_bsdinfo>.stride
-        let size = proc_pidinfo(pid_t(pid), PROC_PIDTBSDINFO, 0, &info, Int32(expectedSize))
-        guard size == expectedSize else { return nil }
-        return (
-            seconds: Int64(info.pbi_start_tvsec),
-            microseconds: Int64(info.pbi_start_tvusec)
-        )
+    private func processStartIdentity(pid: Int) -> CodexProcessStartIdentity? {
+        codexProcessStartIdentity(pid: pid)
+    }
+
+    private func validatedProcessStartIdentity(
+        pid: Int?,
+        processLeaseId: String?,
+        declaredIdentity: CodexProcessStartIdentity?
+    ) -> (valid: Bool, identity: CodexProcessStartIdentity?) {
+        let leaseId = normalizeOptional(processLeaseId)
+        guard let pid else {
+            return (leaseId == nil, nil)
+        }
+        let liveIdentity = processStartIdentity(pid: pid)
+        guard leaseId != nil else {
+            return (true, liveIdentity)
+        }
+        guard let declaredIdentity,
+              liveIdentity == declaredIdentity else {
+            return (false, nil)
+        }
+        return (true, declaredIdentity)
     }
 
     @discardableResult
     func clearNotificationEmission(
         sessionId: String,
         expectedCodexPID: Int? = nil,
-        expectedCodexProcessLeaseId: String? = nil
+        expectedCodexProcessLeaseId: String? = nil,
+        expectedCodexProcessStartIdentity: CodexProcessStartIdentity? = nil
     ) throws -> Bool {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return false }
@@ -1449,7 +1679,9 @@ final class ClaudeHookSessionStore {
                    state: &state,
                    sessionId: normalized,
                    incomingPID: expectedCodexPID,
-                   incomingProcessLeaseId: expectedCodexProcessLeaseId
+                   incomingProcessLeaseId: expectedCodexProcessLeaseId,
+                   incomingProcessStartIdentity:
+                       expectedCodexProcessStartIdentity
                ) {
                 return false
             }
@@ -1493,7 +1725,8 @@ final class ClaudeHookSessionStore {
         sessionId: String,
         fingerprint: String,
         expectedCodexPID: Int? = nil,
-        expectedCodexProcessLeaseId: String? = nil
+        expectedCodexProcessLeaseId: String? = nil,
+        expectedCodexProcessStartIdentity: CodexProcessStartIdentity? = nil
     ) throws -> Bool {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return false }
@@ -1505,7 +1738,9 @@ final class ClaudeHookSessionStore {
                    state: &state,
                    sessionId: normalized,
                    incomingPID: expectedCodexPID,
-                   incomingProcessLeaseId: expectedCodexProcessLeaseId
+                   incomingProcessLeaseId: expectedCodexProcessLeaseId,
+                   incomingProcessStartIdentity:
+                       expectedCodexProcessStartIdentity
                ) {
                 return false
             }
@@ -1680,6 +1915,7 @@ final class ClaudeHookSessionStore {
         turnId: String? = nil,
         expectedCodexPID: Int? = nil,
         expectedCodexProcessLeaseId: String? = nil,
+        expectedCodexProcessStartIdentity: CodexProcessStartIdentity? = nil,
         allowTerminatedRecordedCodexOwner: Bool = false
     ) throws -> ClaudeHookSessionRecord? {
         let normalizedSessionId = normalizeOptional(sessionId)
@@ -1693,6 +1929,8 @@ final class ClaudeHookSessionStore {
                           sessionId: normalizedSessionId,
                           incomingPID: expectedCodexPID,
                           incomingProcessLeaseId: expectedCodexProcessLeaseId,
+                          incomingProcessStartIdentity:
+                              expectedCodexProcessStartIdentity,
                           allowTerminatedRecordedOwner: allowTerminatedRecordedCodexOwner
                       ) else {
                     return nil
@@ -30725,6 +30963,9 @@ export default CMUXSessionRestore;
         let expectedCodexProcessLeaseId = def.name == "codex"
             ? env["CMUX_CODEX_PROCESS_LEASE_ID"]
             : nil
+        let expectedCodexProcessStartIdentity = def.name == "codex"
+            ? codexProcessStartIdentity(environment: env)
+            : nil
         let inferredPID = hookEnvironmentPID ?? inferredAgentPID()
         let hookWsFlag = optionValue(hookArgs, name: "--workspace")
         let directWorkspaceArg = hookWsFlag ?? normalizedHookValue(env["CMUX_WORKSPACE_ID"])
@@ -30827,6 +31068,49 @@ export default CMUXSessionRestore;
 #endif
         let pidKey = "\(def.statusKey).\(sessionId.isEmpty ? "default" : sessionId)"
         var didSendFeedTelemetry = false
+        if def.name == "codex",
+           env["CMUX_CODEX_PROCESS_IDENTITY_REQUIRED"] == "1",
+           (
+               expectedCodexPID == nil
+                   || normalizedHookValue(expectedCodexProcessLeaseId) == nil
+                   || expectedCodexProcessStartIdentity == nil
+           ) {
+            telemetry.breadcrumb(
+                "\(def.name)-hook.\(subcommand).missing-process-identity"
+            )
+            didSendFeedTelemetry = true
+            print("{}")
+            return
+        }
+        let codexActionMutatesOwnership: Bool
+        if case .noop = action {
+            codexActionMutatesOwnership = false
+        } else {
+            codexActionMutatesOwnership = true
+        }
+        let codexProcessEventTransaction:
+            ClaudeHookSessionStore.CodexProcessEventTransaction?
+        if def.name == "codex",
+           !sessionId.isEmpty,
+           codexActionMutatesOwnership {
+            guard let transaction =
+                store.acquireCodexProcessEventTransaction(
+                    sessionId: sessionId
+                ) else {
+                telemetry.breadcrumb(
+                    "\(def.name)-hook.\(subcommand).transaction-unavailable"
+                )
+                didSendFeedTelemetry = true
+                print("{}")
+                return
+            }
+            codexProcessEventTransaction = transaction
+        } else {
+            codexProcessEventTransaction = nil
+        }
+        defer {
+            codexProcessEventTransaction?.release()
+        }
         func preparedMappedSession(
             allowTerminatedRecordedOwner: Bool = false
         ) -> (
@@ -30846,6 +31130,8 @@ export default CMUXSessionRestore;
                     sessionId: sessionId,
                     incomingPID: expectedCodexPID,
                     incomingProcessLeaseId: expectedCodexProcessLeaseId,
+                    incomingProcessStartIdentity:
+                        expectedCodexProcessStartIdentity,
                     allowTerminatedRecordedOwner: allowTerminatedRecordedOwner
                 )
             ) == true else {
@@ -30876,6 +31162,8 @@ export default CMUXSessionRestore;
                 surfaceId: nil,
                 expectedCodexPID: expectedCodexPID,
                 expectedCodexProcessLeaseId: expectedCodexProcessLeaseId,
+                expectedCodexProcessStartIdentity:
+                    expectedCodexProcessStartIdentity,
                 allowTerminatedRecordedCodexOwner: true
             ) {
                 clearAgentSurfaceResumeBinding(
@@ -31003,7 +31291,9 @@ export default CMUXSessionRestore;
                 sessionId: sessionId,
                 fingerprint: fingerprint,
                 expectedCodexPID: expectedCodexPID,
-                expectedCodexProcessLeaseId: expectedCodexProcessLeaseId
+                expectedCodexProcessLeaseId: expectedCodexProcessLeaseId,
+                expectedCodexProcessStartIdentity:
+                    expectedCodexProcessStartIdentity
             )
         }
         func resolveAgentHookTarget(mapped: ClaudeHookSessionRecord?) -> (workspaceId: String, surfaceId: String)? {
@@ -31158,6 +31448,8 @@ export default CMUXSessionRestore;
                     sessionId: sessionId,
                     incomingPID: pid,
                     incomingProcessLeaseId: env["CMUX_CODEX_PROCESS_LEASE_ID"],
+                    incomingProcessStartIdentity:
+                        expectedCodexProcessStartIdentity,
                     includeTerminalPromptTurnIds: false,
                     allowResumedProcessReplacement: isCodexResumeRebind
                 )) == true)
@@ -31177,6 +31469,8 @@ export default CMUXSessionRestore;
                         runtimeStatus: suppressVisibleMutations ? nil : .running,
                         updateRuntimeStatus: !suppressVisibleMutations,
                         processLeaseId: env["CMUX_CODEX_PROCESS_LEASE_ID"],
+                        processStartIdentity:
+                            expectedCodexProcessStartIdentity,
                         allowResumedProcessReplacement: isCodexResumeRebind
                     )) ?? false
                 } else {
@@ -31240,7 +31534,10 @@ export default CMUXSessionRestore;
                         try? store.clearNotificationEmission(
                             sessionId: sessionId,
                             expectedCodexPID: expectedCodexPID,
-                            expectedCodexProcessLeaseId: expectedCodexProcessLeaseId
+                            expectedCodexProcessLeaseId:
+                                expectedCodexProcessLeaseId,
+                            expectedCodexProcessStartIdentity:
+                                expectedCodexProcessStartIdentity
                         )
                     }
                     publishAgentSurfaceResumeBinding(
@@ -31445,7 +31742,10 @@ export default CMUXSessionRestore;
                         ),
                         rejectTerminalTurn: def.name == "codex",
                         expectedCodexPID: expectedCodexPID,
-                        expectedCodexProcessLeaseId: expectedCodexProcessLeaseId
+                        expectedCodexProcessLeaseId:
+                            expectedCodexProcessLeaseId,
+                        expectedCodexProcessStartIdentity:
+                            expectedCodexProcessStartIdentity
                     )) ?? (staleProcess: false, staleTerminalTurn: false, nested: false)
                     if recordResult.staleProcess {
                         rejectStaleCodexProcessEvent()
@@ -31500,8 +31800,13 @@ export default CMUXSessionRestore;
                         pid: pid,
                         launchCommand: resumeLaunchCommand,
                         processLeaseId: env["CMUX_CODEX_PROCESS_LEASE_ID"],
+                        processStartIdentity:
+                            expectedCodexProcessStartIdentity,
                         expectedCodexPID: expectedCodexPID,
-                        expectedCodexProcessLeaseId: expectedCodexProcessLeaseId
+                        expectedCodexProcessLeaseId:
+                            expectedCodexProcessLeaseId,
+                        expectedCodexProcessStartIdentity:
+                            expectedCodexProcessStartIdentity
                     )) ?? false
                 } else {
                     try? store.upsert(
@@ -31525,7 +31830,10 @@ export default CMUXSessionRestore;
                 guard (try? store.clearNotificationEmission(
                     sessionId: sessionId,
                     expectedCodexPID: expectedCodexPID,
-                    expectedCodexProcessLeaseId: expectedCodexProcessLeaseId
+                    expectedCodexProcessLeaseId:
+                        expectedCodexProcessLeaseId,
+                    expectedCodexProcessStartIdentity:
+                        expectedCodexProcessStartIdentity
                 )) != false else {
                     rejectStaleCodexProcessEvent()
                     return
@@ -31785,7 +32093,10 @@ export default CMUXSessionRestore;
                         workspaceId: workspaceId
                     ),
                     expectedCodexPID: expectedCodexPID,
-                    expectedCodexProcessLeaseId: expectedCodexProcessLeaseId
+                    expectedCodexProcessLeaseId:
+                        expectedCodexProcessLeaseId,
+                    expectedCodexProcessStartIdentity:
+                        expectedCodexProcessStartIdentity
                 )) ?? (staleProcess: false, nested: false)
                 if recordResult.staleProcess {
                     rejectStaleCodexProcessEvent()
@@ -31821,7 +32132,10 @@ export default CMUXSessionRestore;
                     runtimeStatus: (antigravityHasActiveBackgroundWork && stopNotificationStatus == .idle) ? .running : runtimeStatus(for: stopNotificationStatus),
                     updateRuntimeStatus: true,
                     expectedCodexPID: expectedCodexPID,
-                    expectedCodexProcessLeaseId: expectedCodexProcessLeaseId
+                    expectedCodexProcessLeaseId:
+                        expectedCodexProcessLeaseId,
+                    expectedCodexProcessStartIdentity:
+                        expectedCodexProcessStartIdentity
                 )
                 if acceptedStopUpdate == false {
                     rejectStaleCodexProcessEvent()
@@ -32036,7 +32350,10 @@ export default CMUXSessionRestore;
                     agentLifecycle: .running,
                     runtimeStatus: .running,
                     expectedCodexPID: expectedCodexPID,
-                    expectedCodexProcessLeaseId: expectedCodexProcessLeaseId
+                    expectedCodexProcessLeaseId:
+                        expectedCodexProcessLeaseId,
+                    expectedCodexProcessStartIdentity:
+                        expectedCodexProcessStartIdentity
                 )
                 if acceptedResolution == false {
                     rejectStaleCodexProcessEvent()
@@ -32271,7 +32588,10 @@ export default CMUXSessionRestore;
                         runtimeStatus: storedRuntimeStatus,
                         updateRuntimeStatus: summary.status != nil,
                         expectedCodexPID: expectedCodexPID,
-                        expectedCodexProcessLeaseId: expectedCodexProcessLeaseId
+                        expectedCodexProcessLeaseId:
+                            expectedCodexProcessLeaseId,
+                        expectedCodexProcessStartIdentity:
+                            expectedCodexProcessStartIdentity
                     )
                     if acceptedNotificationUpdate == false {
                         rejectStaleCodexProcessEvent()
@@ -32422,6 +32742,8 @@ export default CMUXSessionRestore;
                         ),
                         expectedCodexPID: expectedCodexPID,
                         expectedCodexProcessLeaseId: expectedCodexProcessLeaseId,
+                        expectedCodexProcessStartIdentity:
+                            expectedCodexProcessStartIdentity,
                         allowTerminatedRecordedCodexOwner: true
                     )
                     if recordResult?.staleProcess == true {
@@ -35351,6 +35673,11 @@ export default CMUXSessionRestore;
                 // wrapper appends after `codex resume` arguments. Codex ignores
                 // this project decision when it is placed before the subcommand.
                 await emitCodexWrapperResumeArgs()
+                return true
+            case "process-identity" where def.name == "codex":
+                // Hidden: capture the wrapper process generation before exec so
+                // delayed hooks cannot authenticate a recycled numeric PID.
+                try emitCodexProcessIdentity(arguments: actionArgs)
                 return true
             case "install":
                 try installHooksForAgent(def, arguments: actionArgs)
