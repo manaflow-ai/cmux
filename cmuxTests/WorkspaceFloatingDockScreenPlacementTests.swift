@@ -113,6 +113,22 @@ struct WorkspaceFloatingDockScreenPlacementTests {
 
         #expect(resolved == CGRect(x: 500, y: 300, width: 400, height: 300))
     }
+
+    @Test
+    func parkedWindowFollowsOwnerToAnotherDisplay() {
+        let originalScreen = CGRect(x: 0, y: 0, width: 1_000, height: 800)
+        let destinationScreen = CGRect(x: 1_000, y: 0, width: 2_000, height: 1_600)
+        let snapshot = WorkspaceFloatingDockParkingSnapshot(
+            restoreFrame: CGRect(x: 500, y: 300, width: 400, height: 300),
+            visibleScreenFrame: originalScreen
+        )
+
+        let migrated = snapshot.migrated(toVisibleScreenFrame: destinationScreen)
+
+        #expect(migrated.restoreFrame == CGRect(x: 2_200, y: 750, width: 400, height: 300))
+        #expect(migrated.visibleScreenFrame == destinationScreen)
+        #expect(destinationScreen.intersection(migrated.parkedFrame).width == 24)
+    }
 }
 
 @Suite
@@ -344,5 +360,59 @@ struct WorkspaceFloatingDockKeyContextTests {
 
         presenter.updateKeyContext(keyWindow: nil, applicationIsActive: false)
         #expect(!floatingWindow.isVisible)
+    }
+
+    @Test
+    func parkedRenameAccessoryUsesTheMainWindowAsItsKeyContextOwner() throws {
+        _ = NSApplication.shared
+        let noteURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-floating-rename-owner-\(UUID().uuidString).md")
+        try "".write(to: noteURL, atomically: true, encoding: .utf8)
+
+        let parent = NSWindow(
+            contentRect: CGRect(x: 100, y: 100, width: 900, height: 700),
+            styleMask: [.titled, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        let dock = WorkspaceFloatingDock(
+            id: UUID(),
+            workspaceId: workspace.id,
+            title: "Release Notes",
+            frame: CGRect(x: 40, y: 40, width: 520, height: 380),
+            noteFilePath: noteURL.path,
+            presentationState: .stashed,
+            stashedAt: 1,
+            baseDirectoryProvider: { nil },
+            remoteBrowserSettingsProvider: { .local }
+        )
+        workspace.floatingDocks.append(dock)
+        let presenter = WorkspaceFloatingDockPresenter(
+            parentWindow: parent,
+            tabManager: manager
+        )
+        defer {
+            presenter.teardown()
+            workspace.floatingDocks.removeAll { $0 === dock }
+            dock.close()
+            parent.close()
+            try? FileManager.default.removeItem(at: noteURL)
+        }
+
+        presenter.updateKeyContext(keyWindow: parent, applicationIsActive: true)
+        presenter.refresh()
+        let floatingWindow = try #require(presenter.window(for: dock))
+        presenter.beginRenaming(dock)
+
+        let accessory = (parent.childWindows ?? []).first { window in
+            window.identifier?.rawValue.hasPrefix(
+                "cmux.workspace.float.parkingAccessory."
+            ) == true
+        }
+        #expect(accessory != nil)
+        #expect(accessory?.parent === parent)
+        #expect(accessory?.parent !== floatingWindow)
     }
 }
