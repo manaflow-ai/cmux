@@ -1630,7 +1630,7 @@ class DeterminismCheckerCLITests(unittest.TestCase):
         self.assertNotIn("Traceback", result.stderr)
 
     def test_python_exhaustive_match_omits_impossible_fallthrough(self) -> None:
-        result = self.run_checker(
+        positive = self.run_checker(
             {
                 "exhaustive-match.py": (
                     "def verify(value):\n"
@@ -1643,13 +1643,90 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "    time.sleep(0.01)\n"
                     "    assert finished\n"
                 ),
+                "capture-match.py": (
+                    "def verify(value):\n"
+                    "    import fake_time as time\n"
+                    "    match value:\n"
+                    "        case 0:\n"
+                    "            import time\n"
+                    "        case captured:\n"
+                    "            import time\n"
+                    "    time.sleep(0.01)\n"
+                    "    assert finished\n"
+                ),
+                "nested-as-match.py": (
+                    "def verify(value):\n"
+                    "    import fake_time as time\n"
+                    "    match value:\n"
+                    "        case 0:\n"
+                    "            import time\n"
+                    "        case (_ as captured):\n"
+                    "            import time\n"
+                    "    time.sleep(0.01)\n"
+                    "    assert finished\n"
+                ),
+                "or-match.py": (
+                    "def verify(value):\n"
+                    "    import fake_time as time\n"
+                    "    match value:\n"
+                    "        case 0 | _:\n"
+                    "            import time\n"
+                    "    time.sleep(0.01)\n"
+                    "    assert finished\n"
+                ),
             }
         )
 
-        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-        self.assertIn(
-            "fixtures/exhaustive-match.py:8: sleep-then-assert:",
-            result.stdout,
+        self.assertEqual(
+            positive.returncode,
+            1,
+            positive.stdout + positive.stderr,
+        )
+        expected_lines = {
+            "exhaustive-match.py": 8,
+            "capture-match.py": 8,
+            "nested-as-match.py": 8,
+            "or-match.py": 6,
+        }
+        findings = [
+            line
+            for line in positive.stdout.splitlines()
+            if "sleep-then-assert:" in line
+        ]
+        self.assertEqual(len(findings), len(expected_lines), positive.stdout)
+        for relative_path, line in expected_lines.items():
+            self.assertIn(
+                f"fixtures/{relative_path}:{line}: sleep-then-assert:",
+                positive.stdout,
+            )
+
+        negative = self.run_checker(
+            {
+                "guarded-match.py": (
+                    "def verify(value, enabled):\n"
+                    "    import fake_time as time\n"
+                    "    match value:\n"
+                    "        case _ if enabled:\n"
+                    "            import time\n"
+                    "    time.sleep(0.01)\n"
+                    "    assert finished\n"
+                ),
+                "refutable-match.py": (
+                    "def verify(value):\n"
+                    "    import fake_time as time\n"
+                    "    match value:\n"
+                    "        case 0:\n"
+                    "            import time\n"
+                    "    time.sleep(0.01)\n"
+                    "    assert finished\n"
+                ),
+            }
+        )
+
+        self.assertEqual(
+            negative.returncode,
+            0,
+            negative.stdout + negative.stderr,
         )
 
     def test_python_local_shadows_do_not_leak_to_later_scopes(self) -> None:
