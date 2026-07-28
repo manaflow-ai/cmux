@@ -1,6 +1,7 @@
 #if os(iOS)
 @testable import CmuxMobileShellUI
 import Foundation
+import SwiftUI
 import Testing
 import UIKit
 
@@ -91,14 +92,22 @@ import UIKit
     @Test @MainActor func everyLocalizedOnboardingScreenshotLoads() async {
         for content in OnboardingScreenshot.Content.allCases {
             for language in OnboardingScreenshotLanguage.allCases {
-                let image = await OnboardingScreenshot.image(
-                    content: content,
-                    language: language
-                )
-                #expect(image.size.width > 0)
-                #expect(image.size.height > 0)
+                for appearance in OnboardingScreenshotAppearance.allCases {
+                    let image = await OnboardingScreenshot.image(
+                        content: content,
+                        language: language,
+                        appearance: appearance
+                    )
+                    #expect(image.size.width > 0)
+                    #expect(image.size.height > 0)
+                }
             }
         }
+    }
+
+    @Test func screenshotAppearanceMatchesTheSystemColorScheme() {
+        #expect(OnboardingScreenshotAppearance.resolve(colorScheme: .light) == .light)
+        #expect(OnboardingScreenshotAppearance.resolve(colorScheme: .dark) == .dark)
     }
 
     @Test @MainActor func onboardingCopyUsesNativeLineBalancing() {

@@ -98,7 +98,9 @@ pub struct RailPalette {
     pub base: Style,
     pub dim: Style,
     pub active: Style,
+    pub header: Style,
     pub border: Style,
+    pub border_symbol: &'static str,
     pub rail: Color,
 }
 
@@ -118,11 +120,18 @@ impl RailPalette {
                 .bg(selected_bg)
                 .fg(chrome.sidebar_selected_fg)
                 .add_modifier(Modifier::BOLD),
-            border: base.fg(if focused {
-                app.config.theme.border_active
+            header: if focused {
+                Style::default()
+                    .bg(chrome.status_active_bg)
+                    .fg(app.config.theme.border_active)
+                    .add_modifier(Modifier::BOLD)
             } else {
-                chrome.sidebar_border
-            }),
+                base.fg(chrome.sidebar_dim_fg)
+            },
+            border: base
+                .fg(if focused { app.config.theme.border_active } else { chrome.sidebar_border })
+                .add_modifier(if focused { Modifier::BOLD } else { Modifier::empty() }),
+            border_symbol: if focused { "┃" } else { "│" },
             rail: app.config.theme.sidebar_rail,
         }
     }
@@ -138,7 +147,7 @@ pub fn prepare(frame: &mut Frame, area: Rect, palette: RailPalette) {
         for x in area.x..border_x {
             buf[(x, y)].set_symbol(" ").set_style(palette.base);
         }
-        buf[(border_x, y)].set_symbol("│").set_style(palette.border);
+        buf[(border_x, y)].set_symbol(palette.border_symbol).set_style(palette.border);
     }
 }
 
@@ -147,7 +156,11 @@ pub fn header(frame: &mut Frame, area: Rect, label: &str, palette: RailPalette) 
     if width == 0 || area.height == 0 {
         return;
     }
-    frame.buffer_mut().set_stringn(area.x, area.y, format!(" {label}"), width, palette.dim);
+    let buf = frame.buffer_mut();
+    for x in area.x..area.x + area.width.saturating_sub(1) {
+        buf[(x, area.y)].set_symbol(" ").set_style(palette.header);
+    }
+    buf.set_stringn(area.x, area.y, format!(" {label}"), width, palette.header);
 }
 
 pub struct Entry<'a> {
@@ -183,11 +196,23 @@ pub fn entry(frame: &mut Frame, area: Rect, y: u16, entry: Entry<'_>, palette: R
             buf[(area.x, y + 1)].set_symbol("▎").set_style(rail_style);
         }
     }
-    if let Some(color) = entry.indicator {
-        buf[(area.x, y)].set_symbol("•").set_style(style.fg(color).add_modifier(Modifier::BOLD));
+    let indicator = entry.indicator.filter(|_| content_w > 3);
+    if let Some(color) = indicator {
+        buf[(area.x + 1, y)]
+            .set_symbol("•")
+            .set_style(style.fg(color).add_modifier(Modifier::BOLD));
+    }
+    let name_offset = if indicator.is_some() { 3 } else { 1 };
+    if content_w > name_offset {
+        buf.set_stringn(
+            area.x + name_offset as u16,
+            y,
+            truncate(entry.name, content_w - name_offset),
+            content_w - name_offset,
+            style,
+        );
     }
     if content_w > 1 {
-        buf.set_stringn(area.x + 1, y, truncate(entry.name, content_w - 1), content_w - 1, style);
         buf.set_stringn(
             area.x + 1,
             y + 1,
@@ -257,6 +282,47 @@ pub fn divider(area: Rect) -> Rect {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+
+    #[test]
+    fn active_entry_keeps_the_shared_rail_when_it_has_a_status_indicator() {
+        let mut terminal = Terminal::new(TestBackend::new(16, 3)).unwrap();
+        let palette = RailPalette {
+            base: Style::default(),
+            dim: Style::default(),
+            active: Style::default().add_modifier(Modifier::BOLD),
+            header: Style::default(),
+            border: Style::default(),
+            border_symbol: "│",
+            rail: Color::Cyan,
+        };
+        terminal
+            .draw(|frame| {
+                entry(
+                    frame,
+                    Rect { x: 0, y: 0, width: 16, height: 3 },
+                    0,
+                    Entry {
+                        name: "machine",
+                        subtitle: "running",
+                        highlighted: true,
+                        active: true,
+                        indicator: Some(Color::Green),
+                        dimmed: false,
+                    },
+                    palette,
+                );
+            })
+            .unwrap();
+
+        let buffer = terminal.backend().buffer();
+        assert_eq!(buffer[(0, 0)].symbol(), "▎");
+        assert_eq!(buffer[(0, 1)].symbol(), "▎");
+        assert_eq!(buffer[(1, 0)].symbol(), "•");
+        assert_eq!(buffer[(3, 0)].symbol(), "m");
+        assert_eq!(buffer[(1, 1)].symbol(), "r");
+    }
 
     #[test]
     fn short_viewport_pins_footer_and_keeps_selected_action_visible() {

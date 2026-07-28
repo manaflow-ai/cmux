@@ -48,6 +48,7 @@ private struct WorkspacePanelContentHostView: View {
     let isFocused: Bool
     let isSelectedInPane: Bool
     let isVisibleInUI: Bool
+    let allowsPointerInput: Bool
     let portalPriority: Int
     let isSplit: Bool
     let appearance: PanelAppearance
@@ -68,6 +69,7 @@ private struct WorkspacePanelContentHostView: View {
             isFocused: isFocused,
             isSelectedInPane: isSelectedInPane,
             isVisibleInUI: isVisibleInUI,
+            allowsPointerInput: allowsPointerInput,
             portalPriority: portalPriority,
             isSplit: isSplit,
             appearance: appearance,
@@ -286,6 +288,9 @@ struct WorkspaceContentView: View {
                         isFocused: isFocused,
                         isSelectedInPane: isSelectedInPane,
                         isVisibleInUI: isVisibleInUI,
+                        allowsPointerInput: isWorkspaceInputActive
+                            && isWorkspaceVisible
+                            && isSelectedInPane,
                         portalPriority: workspacePortalPriority,
                         isSplit: isSplit,
                         appearance: appearance, windowAppearance: windowAppearance, customSidebarTabManager: workspace.owningTabManager,
@@ -296,7 +301,11 @@ struct WorkspaceContentView: View {
                             // indicator and where keyboard input/flash-focus actually lands.
                             guard isWorkspaceInputActive else { return }
                             guard workspace.panels[panel.id] != nil else { return }
-                            workspace.focusPanel(panel.id, trigger: .terminalFirstResponder)
+                            workspace.focusPanel(
+                                panel.id,
+                                trigger: .terminalFirstResponder,
+                                focusTransactionId: workspace.activeFocusTransactionId
+                            )
                         },
                         onRequestPanelFocus: {
                             guard isWorkspaceInputActive else { return }
@@ -753,7 +762,7 @@ extension WorkspaceContentView {
 struct EmptyPanelView: View {
     @ObservedObject var workspace: Workspace
     let paneId: PaneID
-    @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    @State private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
 
     private struct ShortcutHint: View {
         let text: String

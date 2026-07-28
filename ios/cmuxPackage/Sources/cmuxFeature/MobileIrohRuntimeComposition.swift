@@ -121,6 +121,7 @@ public final class MobileIrohRuntimeComposition:
         @MainActor (CmxIrohTransportVerificationMode) -> any CmxIrohEndpointFactory
     private var transportVerificationMode: CmxIrohTransportVerificationMode
     private let automaticRelayCredentialRefreshEnabled: Bool
+    /// The app defaults handle, retained under its existing DEBUG-era name.
     private let debugDefaults: UserDefaults?
     private let brokerFactory: BrokerFactory
     private let brokerBackpressureGate: CmxIrohBrokerBackpressureGate
@@ -186,14 +187,15 @@ public final class MobileIrohRuntimeComposition:
         diagnosticLog: DiagnosticLog? = nil
     ) {
         #if DEBUG
-        let transportVerificationMode = Self.debugTransportVerificationMode(
+        let transportVerificationMode = Self.initialTransportVerificationMode(
             defaults: defaults
         )
         let automaticRelayCredentialRefreshEnabled = ProcessInfo.processInfo.environment[
             "CMUX_IROH_DISABLE_RELAY_CREDENTIAL_REFRESH"
         ] != "1"
         #else
-        let transportVerificationMode = CmxIrohTransportVerificationMode.automatic
+        let transportVerificationMode =
+            CmxIrohPathPreference.stored(in: defaults).transportVerificationMode
         let automaticRelayCredentialRefreshEnabled = true
         #endif
         let installState = CmxIrohUserDefaultsInstallStateStore(defaults: defaults)
@@ -1733,14 +1735,24 @@ public final class MobileIrohRuntimeComposition:
         #endif
     }
 
+    static func initialTransportVerificationMode(
+        defaults: UserDefaults
+    ) -> CmxIrohTransportVerificationMode {
+        #if DEBUG
+        if let rawValue = defaults.string(
+            forKey: CmxIrohTransportVerificationMode.debugDefaultsKey
+        ), let mode = CmxIrohTransportVerificationMode(rawValue: rawValue) {
+            return mode
+        }
+        #endif
+        return CmxIrohPathPreference.stored(in: defaults).transportVerificationMode
+    }
+
     #if DEBUG
     static func debugTransportVerificationMode(
         defaults: UserDefaults
     ) -> CmxIrohTransportVerificationMode {
-        guard let rawValue = defaults.string(
-            forKey: CmxIrohTransportVerificationMode.debugDefaultsKey
-        ) else { return .automatic }
-        return CmxIrohTransportVerificationMode(rawValue: rawValue) ?? .automatic
+        initialTransportVerificationMode(defaults: defaults)
     }
 
     private static func developmentStoreDirectory(
@@ -1914,6 +1926,9 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
             ),
             selectedTransportPath: selectedPath,
             preference: Self.settingsPreference(requested),
+            pathPreference: debugDefaults.map {
+                CmxIrohPathPreference.stored(in: $0)
+            } ?? .automatic,
             managedRelays: managedPolicy?.relays.map { relay in
                 CmxIrohSettingsSnapshot.ManagedRelay(
                     id: relay.id,
@@ -2484,6 +2499,36 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
         infoDictionary: [String: Any]?
     ) -> CmxIrohRelayPolicyTrustRoot? {
         CmxIrohRelayPolicyTrustRoot.appPinned(infoDictionary: infoDictionary)
+    }
+}
+
+extension MobileIrohRuntimeComposition {
+    public func setIrohPathPreference(
+        _ preference: CmxIrohPathPreference
+    ) async throws {
+        guard let defaults = debugDefaults else { throw SettingsError.unavailable }
+        defaults.set(
+            preference.rawValue,
+            forKey: CmxIrohPathPreference.defaultsKey
+        )
+        #if DEBUG
+        defaults.removeObject(
+            forKey: CmxIrohTransportVerificationMode.debugDefaultsKey
+        )
+        #endif
+        let mode = preference.transportVerificationMode
+        guard transportVerificationMode != mode else {
+            publishIrohSettingsUpdate()
+            return
+        }
+        transportVerificationMode = mode
+        publishIrohSettingsUpdate()
+        guard let accountID = observedAccountID ?? activeAccountID else { return }
+        await scheduleReconcile(
+            targetAccountID: accountID,
+            eraseAccountState: false,
+            restartActiveRuntime: true
+        ).value
     }
 }
 

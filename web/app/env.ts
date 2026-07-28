@@ -170,9 +170,11 @@ export const env = createEnv({
   server: {
     RESEND_API_KEY: z.string().min(1),
     CMUX_FEEDBACK_FROM_EMAIL: z.string().email(),
-    CMUX_FEEDBACK_RATE_LIMIT_ID: z.string().min(1),
-    CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: requireVercelNonPreviewValue("CMUX_CLIENT_CONFIG_RATE_LIMIT_ID"),
-    CMUX_ANALYTICS_RATE_LIMIT_ID: requireVercelProductionValue("CMUX_ANALYTICS_RATE_LIMIT_ID"),
+    // Rate-limit rule ids are all optional: an unset id means that route runs
+    // without rate limiting (the operator removed the limits deliberately).
+    CMUX_FEEDBACK_RATE_LIMIT_ID: z.string().min(1).optional(),
+    CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: z.string().min(1).optional(),
+    CMUX_ANALYTICS_RATE_LIMIT_ID: z.string().min(1).optional(),
     STACK_SECRET_SERVER_KEY: z.string().min(1),
     // APNs push (iOS notifications). Optional: the app boots without them; the
     // push route returns a clear "not configured" error until they are set.

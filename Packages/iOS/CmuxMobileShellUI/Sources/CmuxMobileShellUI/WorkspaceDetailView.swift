@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxAgentChat
 import CmuxAgentChatUI
 import CmuxMobileBrowser
@@ -24,6 +25,7 @@ struct WorkspaceDetailView: View {
     let canCreateWorkspace: Bool
     let createTerminal: () -> Void
     let renameWorkspace: ((MobileWorkspacePreview.ID, String) -> Void)?
+    let customizeWorkspace: WorkspaceCustomizationAction?
     let setWorkspaceUnread: ((MobileWorkspacePreview.ID, Bool) -> Void)?
     /// Close this workspace on the Mac. When `nil`, the close affordance is
     /// hidden from the top-bar menu, matching the workspace list's gating.
@@ -49,6 +51,8 @@ struct WorkspaceDetailView: View {
     /// editable text (seeded with the current name when presented).
     @State var isRenamePresented = false
     @State var renameText = ""
+    /// Drives the shared workspace identity editor from the title menu.
+    @State var isCustomizationPresented = false
     /// Live pane width for capping the leading glass title pill.
     @State private var contentWidth: CGFloat = 0
     /// Terminal captured for the current "View as Text" sheet presentation.
@@ -74,6 +78,9 @@ struct WorkspaceDetailView: View {
     @State var selectedTerminalArtifact: TerminalArtifactSelection?
     @State var terminalArtifactThumbnailCache = ChatArtifactThumbnailCache()
     @State var visibleArtifactCount = 0
+    /// Shared presentation state for the toolbar, title-menu, and hint entry points.
+    @State var isWorkspaceChangesSheetPresented = false
+    @State var workspaceChangesHint: MobileWorkspaceChangesHint?
     @State var artifactGalleryRefreshSignal = TerminalArtifactGalleryRefreshSignal.initial
     /// App lifecycle phase used to re-pull chat sessions on foreground.
     @Environment(\.scenePhase) var scenePhase
@@ -108,6 +115,10 @@ struct WorkspaceDetailView: View {
             .toolbar { workspaceDetailToolbar }
             .task(id: chatRefreshKey) { await refreshChatSessions() }
             .task(id: chatConversationWarmKey) { await runWarmChatConversation() }
+            .onAppear { refreshWorkspaceChangesHint() }
+            .onChange(of: workspaceChangesHintEligibilityKey) { _, _ in
+                refreshWorkspaceChangesHint()
+            }
             .onChange(of: selectedTerminalID) { _, _ in
                 visibleArtifactCount = 0
                 refreshCachedChatToggleAnchor()
@@ -129,11 +140,26 @@ struct WorkspaceDetailView: View {
             .sheet(isPresented: $isTextSheetPresented) {
                 TerminalTextSheetView(surfaceID: textSheetSurfaceID)
             }
+            .sheet(isPresented: $isWorkspaceChangesSheetPresented) {
+                WorkspaceChangesSheet(
+                    store: store,
+                    workspaceID: workspace.rpcWorkspaceID.rawValue,
+                    workspaceTitle: workspace.name
+                )
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+            }
             .workspaceRenameDialog(
                 isPresented: $isRenamePresented,
                 text: $renameText,
                 onSave: commitRenameFromDialog
             )
+            .sheet(isPresented: $isCustomizationPresented) {
+                WorkspaceCustomizationSheet(workspace: workspace) { initialDraft, submittedDraft in
+                    await customizeWorkspace?(workspace.id, initialDraft, submittedDraft)
+                        ?? .failure()
+                }
+            }
             .mobileConnectionRecoveryOverlay(store: store, signOut: signOut)
         #else
         content
@@ -168,6 +194,18 @@ struct WorkspaceDetailView: View {
                 }
             }
         }
+        if workspaceChangesAreAvailable {
+            ToolbarItem(id: "workspace-changes", placement: .topBarTrailing) {
+                WorkspaceChangesToolbarButton(
+                    chip: workspaceChangesChip,
+                    workspaceID: workspace.rpcWorkspaceID.rawValue,
+                    action: openWorkspaceChanges
+                )
+                // The chrome sits on the terminal theme's background, not the
+                // system scheme; resolve the counts' green/red for that.
+                .environment(\.colorScheme, store.activeTerminalTheme.terminalColorScheme)
+            }
+        }
         ToolbarItem(id: "workspace-trailing", placement: .topBarTrailing) {
             toolbarTrailingCluster
         }
@@ -182,6 +220,7 @@ struct WorkspaceDetailView: View {
             isEnabled: hasTitleMenuActions,
             workspaceName: workspace.name,
             hasUnread: workspace.hasUnread,
+            canCustomizeWorkspace: customizeWorkspace != nil,
             canRenameWorkspace: renameWorkspace != nil,
             canToggleReadState: setWorkspaceUnread != nil,
             canCloseWorkspace: closeWorkspace != nil,
@@ -194,9 +233,11 @@ struct WorkspaceDetailView: View {
                 WorkspaceTitleMenuContent(
                     workspaceName: value.workspaceName,
                     hasUnread: value.hasUnread,
+                    canCustomizeWorkspace: value.canCustomizeWorkspace,
                     canRenameWorkspace: value.canRenameWorkspace,
                     canToggleReadState: value.canToggleReadState,
                     canCloseWorkspace: value.canCloseWorkspace,
+                    presentCustomization: presentCustomizationFromMenu,
                     presentRename: presentRenameFromMenu,
                     toggleReadState: toggleWorkspaceReadStateFromMenu,
                     requestClose: requestCloseWorkspaceFromMenu
@@ -495,7 +536,7 @@ struct WorkspaceDetailView: View {
         Task { @MainActor in
             let terminalText = await GhosttySurfaceView.visibleTerminalSnapshot()
             let count = await MobileDebugLog.shared.copyToPasteboard(prepending: terminalText)
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            MobileHapticFeedback().notification(.success)
             NSLog("cmux.terminal copied %d debug log lines + visible terminal to pasteboard", count)
         }
     }
@@ -642,10 +683,10 @@ struct WorkspaceDetailView: View {
                         defaultValue: "Feedback sent"
                     )))
                 } else {
-                    UINotificationFeedbackGenerator().notificationOccurred(.success)
+                    MobileHapticFeedback().notification(.success)
                 }
             case .failed:
-                UINotificationFeedbackGenerator().notificationOccurred(.error)
+                MobileHapticFeedback().notification(.error)
                 feedbackErrorMessage = L10n.string(
                     "mobile.feedback.error",
                     defaultValue: "Could not send feedback. Check your connection and try again."
@@ -685,6 +726,11 @@ struct WorkspaceDetailView: View {
         // Seed the dialog field with the current name each time it opens.
         renameText = workspace.name
         isRenamePresented = true
+    }
+
+    private func presentCustomizationFromMenu() {
+        dismissTerminalKeyboardForChrome()
+        isCustomizationPresented = true
     }
 
     /// Commit the rename dialog: forward the trimmed name to the Mac, which echoes
