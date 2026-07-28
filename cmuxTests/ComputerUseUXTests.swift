@@ -1600,6 +1600,14 @@ struct ComputerUseUXTests {
             nil,
             failedAttemptCount: 3
         ))
+        #expect(ComputerUseRuntimeService.applicationSurfaceStopFailureAction(
+            failedAttemptCount: 3,
+            helperRestartAttempted: false
+        ) == .restartHelper)
+        #expect(ComputerUseRuntimeService.applicationSurfaceStopFailureAction(
+            failedAttemptCount: 3,
+            helperRestartAttempted: true
+        ) == .retainUntilHelperExit)
     }
 
     @Test

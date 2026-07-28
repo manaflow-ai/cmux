@@ -134,26 +134,56 @@ struct ApplicationSurfaceTests {
         #expect(ApplicationCaptureView.parseNamedKey("hyper-c") == nil)
     }
 
-    @Test func modifierTransitionsTrackPhysicalKeysIndependently() {
-        var pressed: Set<UInt16> = []
+    @Test func modifierTransitionsUsePhysicalEventState() {
+        let leftShiftDown =
+            NSEvent.ModifierFlags.shift.rawValue
+                | UInt(NX_DEVICELSHIFTKEYMASK)
+        let rightShiftDown =
+            NSEvent.ModifierFlags.shift.rawValue
+                | UInt(NX_DEVICERSHIFTKEYMASK)
 
-        #expect(ApplicationCaptureView.modifierKeyTransition(
+        #expect(ApplicationCaptureView.modifierKeyIsDown(
             keyCode: UInt16(kVK_Shift),
-            pressedKeyCodes: &pressed
-        ))
-        #expect(ApplicationCaptureView.modifierKeyTransition(
-            keyCode: UInt16(kVK_RightShift),
-            pressedKeyCodes: &pressed
-        ))
-        #expect(!ApplicationCaptureView.modifierKeyTransition(
+            modifierFlagsRawValue: leftShiftDown
+        ) == true)
+        #expect(ApplicationCaptureView.modifierKeyIsDown(
             keyCode: UInt16(kVK_Shift),
-            pressedKeyCodes: &pressed
-        ))
-        #expect(!ApplicationCaptureView.modifierKeyTransition(
+            modifierFlagsRawValue: 0
+        ) == false)
+        #expect(ApplicationCaptureView.modifierKeyIsDown(
+            keyCode: UInt16(kVK_Shift),
+            modifierFlagsRawValue: rightShiftDown
+        ) == false)
+        #expect(ApplicationCaptureView.modifierKeyIsDown(
             keyCode: UInt16(kVK_RightShift),
-            pressedKeyCodes: &pressed
-        ))
-        #expect(pressed.isEmpty)
+            modifierFlagsRawValue: rightShiftDown
+        ) == true)
+    }
+
+    @Test func applicationCaptureHonorsInactiveWindowFirstClickSetting() {
+        let key = PaneFirstClickFocusSettings.enabledKey
+        let previousValue = UserDefaults.standard.object(forKey: key)
+        defer {
+            if let previousValue {
+                UserDefaults.standard.set(previousValue, forKey: key)
+            } else {
+                UserDefaults.standard.removeObject(forKey: key)
+            }
+        }
+        let view = ApplicationCaptureView(
+            windowID: 42,
+            processID: 43,
+            targetFrameRate: 60,
+            runtime: FakeApplicationSurfaceRuntime(),
+            leaseProvider: { nil },
+            onStateChanged: { _ in },
+            onMovedToWindow: { _ in }
+        )
+
+        UserDefaults.standard.set(true, forKey: key)
+        #expect(view.acceptsFirstMouse(for: nil))
+        UserDefaults.standard.set(false, forKey: key)
+        #expect(!view.acceptsFirstMouse(for: nil))
     }
 
     @Test func inputPumpRejectsNonMotionEventsBeyondItsBound() async {
