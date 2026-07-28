@@ -83,10 +83,9 @@ public final class CmuxRemoteFrameView: NSView {
         reconcilePresentation()
     }
 
-    public func teardown() {
+    /// Releases the mapped frame transport while keeping this view reusable.
+    public func resetTransport() {
         guard !isTornDown else { return }
-        isTornDown = true
-        NotificationCenter.default.removeObserver(self)
         stopPresentationTimer()
         retireFramePipeline()
         frameLayer?.removeFromSuperlayer()
@@ -94,6 +93,13 @@ public final class CmuxRemoteFrameView: NSView {
         frameTransportDescriptor = nil
         framePixelSize = .zero
         lastFrameSequence = nil
+    }
+
+    public func teardown() {
+        guard !isTornDown else { return }
+        NotificationCenter.default.removeObserver(self)
+        resetTransport()
+        isTornDown = true
         publishHostVisibility(false)
         onFirstFrame = nil
         onFramePresented = nil

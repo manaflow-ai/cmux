@@ -17214,6 +17214,8 @@ private extension NSWindow {
         let firstResponderWebView = self.firstResponder.flatMap {
             Self.cmuxOwningWebView(for: $0, in: self, event: event)
         }
+        let firstResponderApplicationCaptureView =
+            self.firstResponder as? ApplicationCaptureView
         let firstResponderHasMarkedText = shortcutResponderHasMarkedText(self.firstResponder)
         let firstResponderIsCommandPaletteFieldEditor = Self.cmuxCommandPaletteOwnsFieldEditor(
             self.firstResponder as? NSTextView,
@@ -17262,6 +17264,12 @@ private extension NSWindow {
                 preferredWindow: self
             )
             return true
+        }
+        if let firstResponderApplicationCaptureView,
+           shouldRouteApplicationCommandEquivalentThroughContentFirst(event) {
+            return firstResponderApplicationCaptureView.performKeyEquivalent(
+                with: event
+            )
         }
         if AppDelegate.shared?.shouldSuppressStaleCmuxMenuShortcut(event: event) == true {
             if AppDelegate.shared?.handleFocusedFileExplorerOpenSelectionShortcut(event, preferredWindow: self) == true {

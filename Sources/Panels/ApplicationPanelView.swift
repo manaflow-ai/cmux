@@ -103,6 +103,15 @@ struct ApplicationPanelView: View {
                 systemImage: "circle.fill"
             )
             .foregroundStyle(.green)
+        case .suspended:
+            Label(
+                String(
+                    localized: "panel.application.status.suspended",
+                    defaultValue: "Paused"
+                ),
+                systemImage: "pause.circle"
+            )
+            .foregroundStyle(.secondary)
         case .permissionRequired, .windowUnavailable, .failed:
             Label(
                 String(
@@ -133,7 +142,7 @@ struct ApplicationPanelView: View {
     @ViewBuilder
     private var captureStatusOverlay: some View {
         switch panel.captureState {
-        case .streaming:
+        case .streaming, .suspended:
             EmptyView()
         case .starting:
             ProgressView()

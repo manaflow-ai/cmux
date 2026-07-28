@@ -7852,10 +7852,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         bindSurface(newTabId, toPanelId: applicationPanel.id)
-        applicationPanel.setDisplayTitleChangeHandler { [weak self, weak applicationPanel] title in
-            guard let self, let applicationPanel else { return }
-            _ = self.updatePanelTitle(panelId: applicationPanel.id, title: title)
-        }
+        configureApplicationPanel(applicationPanel)
         publishCmuxSurfaceCreated(
             applicationPanel.id,
             paneId: paneId,
@@ -9089,6 +9086,8 @@ final class Workspace: Identifiable, ObservableObject {
             )
             configureBrowserPanel(browserPanel)
             installBrowserPanelSubscription(browserPanel)
+        } else if let applicationPanel = detached.panel as? ApplicationPanel {
+            configureApplicationPanel(applicationPanel)
         } else if let rightSidebarToolPanel = detached.panel as? RightSidebarToolPanel {
             rightSidebarToolPanel.reattach(to: self)
         } else if let customSidebarPanel = detached.panel as? CustomSidebarPanel {
@@ -9190,6 +9189,18 @@ final class Workspace: Identifiable, ObservableObject {
         )
 #endif
         return detached.panelId
+    }
+
+    private func configureApplicationPanel(_ applicationPanel: ApplicationPanel) {
+        applicationPanel.reattach(toWorkspace: id)
+        applicationPanel.setDisplayTitleChangeHandler {
+            [weak self, weak applicationPanel] title in
+            guard let self, let applicationPanel else { return }
+            _ = self.updatePanelTitle(
+                panelId: applicationPanel.id,
+                title: title
+            )
+        }
     }
 
     private func shouldAdoptDetachedWorkspaceRemoteTracking(_ detached: DetachedSurfaceTransfer) -> Bool {

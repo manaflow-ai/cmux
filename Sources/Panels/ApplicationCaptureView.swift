@@ -326,14 +326,18 @@ final class ApplicationCaptureView: NSView {
 
     func stopCapture() {
         captureDesired = false
-        suspendCapture()
+        suspendCapture(reportState: false)
     }
 
-    private func suspendCapture() {
+    private func suspendCapture(reportState: Bool) {
         captureGeneration = UUID()
         captureTask?.cancel()
         stopLivenessWatchdog()
         remoteFrameView.setActive(false)
+        remoteFrameView.resetTransport()
+        if reportState {
+            onStateChanged(.suspended)
+        }
         pendingScrollX = 0
         pendingScrollY = 0
         pressedModifierKeyCodes.removeAll()
@@ -459,6 +463,15 @@ final class ApplicationCaptureView: NSView {
         enqueueKey(event, keyDown: true)
     }
 
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard shouldRouteApplicationCommandEquivalentThroughContentFirst(event)
+        else {
+            return super.performKeyEquivalent(with: event)
+        }
+        keyDown(with: event)
+        return true
+    }
+
     override func keyUp(with event: NSEvent) {
         enqueueKey(event, keyDown: false)
     }
@@ -550,7 +563,7 @@ final class ApplicationCaptureView: NSView {
         if shouldCaptureNow {
             startCapture()
         } else {
-            suspendCapture()
+            suspendCapture(reportState: captureDesired || session != nil)
         }
     }
 

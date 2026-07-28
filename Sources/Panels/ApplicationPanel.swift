@@ -14,6 +14,7 @@ final class ApplicationPanel: Panel {
     enum CaptureState: Equatable {
         case starting
         case streaming
+        case suspended
         case permissionRequired
         case windowUnavailable
         case failed
@@ -22,7 +23,7 @@ final class ApplicationPanel: Panel {
     let id: UUID
     let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .application
-    let workspaceId: UUID
+    private(set) var workspaceId: UUID
     let targetFrameRate: Int
     let runtime: any ApplicationSurfaceRuntime
     @ObservationIgnored
@@ -89,6 +90,7 @@ final class ApplicationPanel: Panel {
         switch captureState {
         case .starting: return "starting"
         case .streaming: return "streaming"
+        case .suspended: return "suspended"
         case .permissionRequired: return "permission_required"
         case .windowUnavailable: return "window_unavailable"
         case .failed: return "failed"
@@ -264,8 +266,12 @@ final class ApplicationPanel: Panel {
         return view
     }
 
-    func setDisplayTitleChangeHandler(_ handler: @escaping (String) -> Void) {
+    func setDisplayTitleChangeHandler(_ handler: ((String) -> Void)?) {
         displayTitleDidChange = handler
+    }
+
+    func reattach(toWorkspace workspaceId: UUID) {
+        self.workspaceId = workspaceId
     }
 
     func attach(_ view: ApplicationCaptureView, token: UUID) {

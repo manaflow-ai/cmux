@@ -36,6 +36,7 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
     private var computerUseEnabled = false
     private var applicationSurfaceLeaseIdentifiers: Set<UUID> = []
     private var applicationSurfaceSessionIDsByLease: [UUID: Set<String>] = [:]
+    private var applicationSurfacePendingStopSessionIDs: Set<String> = []
     private var runningHelperProcesses:
         [ComputerUseDaemonProfile: AgentPIDProcessIdentity] = [:]
     private var missedHelperHealthChecks = 0
@@ -305,14 +306,22 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
 
     func releaseApplicationSurfaceLease(_ identifier: UUID) async {
         guard applicationSurfaceLeaseIdentifiers.contains(identifier) else { return }
+        let sessionIDs = applicationSurfaceSessionIDsByLease[identifier] ?? []
         if let identity = processIdentity(for: .native),
            AgentPIDProcessIdentity(pid: identity.pid) == identity {
-            for sessionID in applicationSurfaceSessionIDsByLease[identifier] ?? [] {
-                await requestApplicationSurfaceStop(
+            for sessionID in sessionIDs {
+                let acknowledged = await requestApplicationSurfaceStop(
                     sessionID: sessionID,
                     expectedPeerIdentity: identity
                 )
+                if acknowledged {
+                    applicationSurfacePendingStopSessionIDs.remove(sessionID)
+                } else {
+                    applicationSurfacePendingStopSessionIDs.insert(sessionID)
+                }
             }
+        } else {
+            applicationSurfacePendingStopSessionIDs.formUnion(sessionIDs)
         }
         applicationSurfaceSessionIDsByLease.removeValue(forKey: identifier)
         applicationSurfaceLeaseIdentifiers.remove(identifier)
@@ -398,10 +407,14 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
             )
         )
         guard applicationSurfaceLeaseIdentifiers.contains(lease.identifier) else {
-            await requestApplicationSurfaceStop(
+            let acknowledged = await requestApplicationSurfaceStop(
                 sessionID: sessionID,
                 expectedPeerIdentity: identity
             )
+            if !acknowledged {
+                applicationSurfacePendingStopSessionIDs.insert(sessionID)
+                await stopHelperAfterLastDemand()
+            }
             throw ApplicationSurfaceRuntimeError.helperUnavailable
         }
         applicationSurfaceSessionIDsByLease[lease.identifier, default: []]
@@ -415,15 +428,25 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
     ) async {
         guard
             !sessionID.isEmpty,
-            let identity = try? validatedApplicationSurfaceIdentity(lease: lease)
+            lease.service === self,
+            applicationSurfaceLeaseIdentifiers.contains(lease.identifier)
         else {
             return
         }
-        await requestApplicationSurfaceStop(
+        guard let identity = try? validatedApplicationSurfaceIdentity(lease: lease) else {
+            applicationSurfacePendingStopSessionIDs.insert(sessionID)
+            return
+        }
+        let acknowledged = await requestApplicationSurfaceStop(
             sessionID: sessionID,
             expectedPeerIdentity: identity
         )
-        applicationSurfaceSessionIDsByLease[lease.identifier]?.remove(sessionID)
+        if acknowledged {
+            applicationSurfacePendingStopSessionIDs.remove(sessionID)
+            applicationSurfaceSessionIDsByLease[lease.identifier]?.remove(sessionID)
+        } else {
+            applicationSurfacePendingStopSessionIDs.insert(sessionID)
+        }
     }
 
     func sendApplicationSurfaceEvent(
@@ -482,8 +505,8 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
     private func requestApplicationSurfaceStop(
         sessionID: String,
         expectedPeerIdentity: AgentPIDProcessIdentity
-    ) async {
-        _ = await Self.sendDaemonRequest(
+    ) async -> Bool {
+        let response = await Self.sendDaemonRequest(
             [
                 "method": "application_surface_stop",
                 "args": ["session": sessionID],
@@ -494,6 +517,39 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
             expectedPeerIdentity: expectedPeerIdentity,
             socketURL: paths.daemonSocketURL
         )
+        return Self.applicationSurfaceStopWasAcknowledged(response)
+    }
+
+    nonisolated static func applicationSurfaceStopWasAcknowledged(
+        _ response: [String: Any]?
+    ) -> Bool {
+        guard
+            response?["ok"] as? Bool == true,
+            let result = response?["result"] as? [String: Any],
+            result["stopped"] as? Bool == true
+        else {
+            return false
+        }
+        return true
+    }
+
+    private func retryPendingApplicationSurfaceStops(
+        expectedPeerIdentity: AgentPIDProcessIdentity
+    ) async {
+        let pendingSessionIDs = applicationSurfacePendingStopSessionIDs
+        guard !pendingSessionIDs.isEmpty else { return }
+        for sessionID in pendingSessionIDs {
+            guard !Task.isCancelled else { return }
+            let acknowledged = await requestApplicationSurfaceStop(
+                sessionID: sessionID,
+                expectedPeerIdentity: expectedPeerIdentity
+            )
+            guard acknowledged else { continue }
+            applicationSurfacePendingStopSessionIDs.remove(sessionID)
+            for leaseIdentifier in Array(applicationSurfaceSessionIDsByLease.keys) {
+                applicationSurfaceSessionIDsByLease[leaseIdentifier]?.remove(sessionID)
+            }
+        }
     }
 
     nonisolated private static func applicationWindowDescriptor(
@@ -761,9 +817,12 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         missedHelperHealthChecks = 0
         recoveryTask?.cancel()
         recoveryTask = nil
-        await serializeHelperLifecycle(cancelledResult: ()) { [weak self] in
-            guard let self, !self.desiredEnabled else { return }
-            _ = await self.stopDaemon()
+        let helperStopped = await serializeHelperLifecycle(cancelledResult: false) { [weak self] in
+            guard let self, !self.desiredEnabled else { return false }
+            return await self.stopDaemon()
+        }
+        if helperStopped {
+            applicationSurfacePendingStopSessionIDs.removeAll()
         }
         guard !desiredEnabled else { return }
         try? FileManager.default.removeItem(at: paths.authenticationTokenFileURL)
@@ -1136,6 +1195,7 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         computerUseEnabled = false
         applicationSurfaceLeaseIdentifiers.removeAll()
         applicationSurfaceSessionIDsByLease.removeAll()
+        applicationSurfacePendingStopSessionIDs.removeAll()
         acceptsNewLaunches = false
         permissionRefreshGeneration &+= 1
         for cancel in helperLifecycleCancellationActions.values {
@@ -1397,6 +1457,12 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         guard !Task.isCancelled else { return }
         if daemonListening {
             missedHelperHealthChecks = 0
+            if let identity = processIdentity(for: .native),
+               AgentPIDProcessIdentity(pid: identity.pid) == identity {
+                await retryPendingApplicationSurfaceStops(
+                    expectedPeerIdentity: identity
+                )
+            }
             return
         }
 
