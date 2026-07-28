@@ -127,6 +127,43 @@ struct FileExplorerGitStatusProviderTests {
     }
 
     @Test
+    func statusQueryHasABoundedProcessDeadline() throws {
+        let repoURL = try Self.makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: repoURL) }
+
+        let fakeGitURL = try Self.writeExecutableScript(
+            #"""
+            #!/bin/sh
+            case "$1 $2" in
+            "rev-parse --show-toplevel")
+                printf '%s\n' "$CMUX_TEST_REPO_ROOT"
+                ;;
+            "status --porcelain=v1")
+                sleep 8
+                ;;
+            *)
+                exit 2
+                ;;
+            esac
+            """#,
+            named: "fake-git",
+            in: repoURL
+        )
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_TEST_REPO_ROOT"] = repoURL.path
+
+        let clock = ContinuousClock()
+        let start = clock.now
+        _ = GitStatusProvider(
+            gitExecutableURL: fakeGitURL,
+            environment: environment
+        ).fetchStatus(directory: repoURL.path)
+        let elapsed = start.duration(to: clock.now)
+
+        #expect(elapsed < .seconds(7))
+    }
+
+    @Test
     func sshStatusQueryUsesInjectedProcessEnvironment() throws {
         let repoURL = try Self.makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: repoURL) }

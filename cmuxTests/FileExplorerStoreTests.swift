@@ -203,6 +203,13 @@ struct FileExplorerStoreTests {
         }
     }
 
+    private static func gitStatusInvocationCount(_ value: String, in file: URL) -> Int {
+        guard let contents = try? String(contentsOf: file, encoding: .utf8) else {
+            return 0
+        }
+        return contents.split(separator: "\n").count { $0 == Substring(value) }
+    }
+
     // MARK: - Basic loading
 
     @Test
@@ -312,6 +319,93 @@ struct FileExplorerStoreTests {
     }
 
     @Test
+    func multipleStructuralNodeChangesStayScoped() async throws {
+        let store = FileExplorerStore()
+        let directories = ["Sources", "Tests"].map {
+            let node = FileExplorerNode(
+                name: $0,
+                path: "/project/\($0)",
+                isDirectory: true
+            )
+            node.children = []
+            return node
+        }
+        store.rootPath = "/project"
+        store.rootNodes = directories
+
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: FileExplorerState(),
+            onOpenFilePreview: { _ in }
+        )
+        let outlineView = CountingFileExplorerOutlineView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 240)
+        )
+        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("files"))
+        outlineView.addTableColumn(column)
+        outlineView.outlineTableColumn = column
+        outlineView.dataSource = coordinator
+        outlineView.delegate = coordinator
+        coordinator.outlineView = outlineView
+        coordinator.reloadIfNeeded()
+        outlineView.resetMetrics()
+
+        for directory in directories {
+            coordinator.enqueueOutlineChange(.nodeChanged(node: directory, reloadChildren: true))
+        }
+
+        try await waitFor("scoped structural refreshes") {
+            outlineView.reloadItemCallCount == directories.count
+                || outlineView.reloadDataCallCount > 0
+        }
+        #expect(outlineView.reloadDataCallCount == 0)
+        #expect(outlineView.reloadItemCallCount == directories.count)
+    }
+
+    @Test
+    func offscreenStructuralNodeChangeDoesNotReloadWholeOutline() async throws {
+        let store = FileExplorerStore()
+        let directories = (0..<1_000).map {
+            let node = FileExplorerNode(
+                name: "Directory\($0)",
+                path: "/project/Directory\($0)",
+                isDirectory: true
+            )
+            node.children = []
+            return node
+        }
+        store.rootPath = "/project"
+        store.rootNodes = directories
+
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: FileExplorerState(),
+            onOpenFilePreview: { _ in }
+        )
+        let outlineView = CountingFileExplorerOutlineView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 240)
+        )
+        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("files"))
+        outlineView.addTableColumn(column)
+        outlineView.outlineTableColumn = column
+        outlineView.dataSource = coordinator
+        outlineView.delegate = coordinator
+        coordinator.outlineView = outlineView
+        coordinator.reloadIfNeeded()
+        outlineView.resetMetrics()
+
+        coordinator.enqueueOutlineChange(
+            .nodeChanged(node: directories.last!, reloadChildren: true)
+        )
+
+        try await waitFor("offscreen structural change inspected") {
+            outlineView.itemAtRowCallCount > 0
+        }
+        #expect(outlineView.reloadDataCallCount == 0)
+        #expect(outlineView.reloadItemCallCount == 0)
+    }
+
+    @Test
     func distinctNodeBurstFallsBackToOneOutlineReload() async throws {
         let store = FileExplorerStore()
         let nodes = (0..<1_000).map {
@@ -350,6 +444,70 @@ struct FileExplorerStoreTests {
         }
         #expect(outlineView.reloadDataCallCount == 1)
         #expect(outlineView.reloadItemCallCount == 0)
+    }
+
+    @Test
+    func gitStatusRefreshCoalescesToOneActiveAndOneTrailingQuery() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-file-explorer-git-coalescing-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let invocationLog = directory.appendingPathComponent("invocations.log")
+        let releaseFile = directory.appendingPathComponent("release")
+        let script = directory.appendingPathComponent("fake-git")
+        try #"""
+        #!/bin/sh
+        case "$1 $2" in
+        "rev-parse --show-toplevel")
+            printf '%s\n' "$CMUX_TEST_REPO_ROOT"
+            ;;
+        "status --porcelain=v1")
+            printf 'status\n' >> "$CMUX_TEST_INVOCATION_LOG"
+            while [ ! -f "$CMUX_TEST_RELEASE_FILE" ]; do sleep 0.01; done
+            printf 'done\n' >> "$CMUX_TEST_INVOCATION_LOG"
+            ;;
+        *)
+            exit 2
+            ;;
+        esac
+        """#.write(to: script, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: script.path
+        )
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_TEST_REPO_ROOT"] = directory.path
+        environment["CMUX_TEST_INVOCATION_LOG"] = invocationLog.path
+        environment["CMUX_TEST_RELEASE_FILE"] = releaseFile.path
+        let store = FileExplorerStore(
+            gitStatusProvider: GitStatusProvider(
+                gitExecutableURL: script,
+                environment: environment
+            )
+        )
+        store.rootPath = directory.path
+        defer {
+            try? Data().write(to: releaseFile)
+        }
+
+        store.refreshGitStatus()
+        try await waitFor("first Git status query started") {
+            Self.gitStatusInvocationCount("status", in: invocationLog) == 1
+        }
+        for _ in 0..<20 {
+            store.refreshGitStatus()
+        }
+        try await Task.sleep(nanoseconds: 200_000_000)
+
+        #expect(Self.gitStatusInvocationCount("status", in: invocationLog) == 1)
+
+        try Data().write(to: releaseFile)
+        try await waitFor("trailing Git status query completed") {
+            Self.gitStatusInvocationCount("done", in: invocationLog) >= 2
+        }
+        #expect(Self.gitStatusInvocationCount("status", in: invocationLog) == 2)
     }
 
     @Test
