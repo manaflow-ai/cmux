@@ -6,6 +6,11 @@ import Foundation
 /// wrapper route and a shell-portable authorization transport for app-generated
 /// startup input. Invalid providers and non-UUID session identifiers cannot create
 /// a restore launch.
+///
+/// ```swift
+/// let launch = AgentRestoreLaunch(kind: "codex", sessionID: restoredSessionID)
+/// let startupInput = launch?.authorizing(leadingShell: "", routedCommand: resumeCommand)
+/// ```
 public struct AgentRestoreLaunch: Sendable {
     private enum Provider: String, Sendable {
         case claude
