@@ -25299,7 +25299,7 @@ struct CMUXCLI {
         return source.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "clear"
     }
 
-    private func socketPanelOption(_ surfaceId: String?) -> String {
+    func socketPanelOption(_ surfaceId: String?) -> String {
         guard let surfaceId = surfaceId?.trimmingCharacters(in: .whitespacesAndNewlines),
               !surfaceId.isEmpty,
               UUID(uuidString: surfaceId) != nil else {
@@ -25677,7 +25677,7 @@ struct CMUXCLI {
         return resolveTerminalBinding(ttyName: ttyName, client: client)
     }
 
-    private func resolveAgentProcessTerminalBinding(pid: Int?, client: SocketClient) -> CallerTerminalBinding? {
+    func resolveAgentProcessTerminalBinding(pid: Int?, client: SocketClient) -> CallerTerminalBinding? {
         guard let pid else { return nil }
         guard let payload = try? client.sendV2(
             method: "system.top",
