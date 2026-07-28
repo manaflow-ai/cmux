@@ -43,6 +43,34 @@ private struct SocketLineProcessingResult: Sendable {
 // AgentNotificationMeta / agentNotificationShouldDeliver) live in AgentNotificationGate.swift.
 
 #if DEBUG
+enum WindowScreenshotCaptureAttempt: Sendable {
+    case captured(Data)
+    case unavailable
+    case busy
+    case timedOut
+}
+
+enum WindowScreenshotCaptureAction: Equatable, Sendable {
+    case useCaptured(Data)
+    case captureWithAppKit
+    case fail(String)
+}
+
+func windowScreenshotCaptureAction(
+    for attempt: WindowScreenshotCaptureAttempt
+) -> WindowScreenshotCaptureAction {
+    switch attempt {
+    case .captured(let data):
+        return .useCaptured(data)
+    case .unavailable:
+        return .captureWithAppKit
+    case .busy:
+        return .fail("screenshot capture already in progress")
+    case .timedOut:
+        return .fail("screenshot capture timed out")
+    }
+}
+
 /// Accumulated worker→main `v2MainSync` hop time for the socket command
 /// currently executing on a worker thread. Confined to one thread: it lives in
 /// that thread's `threadDictionary`, `processSocketLine` installs a fresh
@@ -13214,11 +13242,20 @@ class TerminalController {
         // (pinned by terminal-only UI regression coverage). WKWebView pixels do
         // not, so only windows with visible browser-backed content need the
         // current-process compositor.
-        let pngData = if captureTarget.needsCompositedCapture {
-            captureScreenCaptureKitWindowPNGData(captureTarget.windowID)
-                ?? captureWithAppKit()
+        let pngData: Data?
+        if captureTarget.needsCompositedCapture {
+            switch windowScreenshotCaptureAction(
+                for: captureScreenCaptureKitWindowPNGData(captureTarget.windowID)
+            ) {
+            case .useCaptured(let data):
+                pngData = data
+            case .captureWithAppKit:
+                pngData = captureWithAppKit()
+            case .fail(let message):
+                return "ERROR: \(message)"
+            }
         } else {
-            captureWithAppKit()
+            pngData = captureWithAppKit()
         }
 
         guard let pngData else {
@@ -13237,16 +13274,17 @@ class TerminalController {
 
     private nonisolated func captureScreenCaptureKitWindowPNGData(
         _ windowID: CGWindowID
-    ) -> Data? {
-        guard #available(macOS 14.4, *) else {
-            return nil
-        }
+    ) -> WindowScreenshotCaptureAttempt {
         guard Self.windowScreenshotCaptureAdmission.wait(timeout: .now()) == .success else {
-            return nil
+            return .busy
         }
+        // Keep the admission release in this synchronous waiter rather than
+        // in the async task. If ScreenCaptureKit fails to invoke its imported
+        // continuation, the bounded socket timeout recovers the process
+        // instead of wedging every future screenshot behind a held permit.
+        defer { Self.windowScreenshotCaptureAdmission.signal() }
 
         let captureTask = Task {
-            defer { Self.windowScreenshotCaptureAdmission.signal() }
             return await Self.captureScreenCaptureKitWindowPNGDataAsync(windowID)
         }
         let captured: Data?? = socketAwaitCallback(timeout: 5) { completion in
@@ -13256,17 +13294,32 @@ class TerminalController {
         }
         guard let captured else {
             captureTask.cancel()
-            return nil
+            return .timedOut
         }
-        return captured
+        guard let captured else {
+            return .unavailable
+        }
+        return .captured(captured)
     }
 
-    @available(macOS 14.4, *)
     private nonisolated static func captureScreenCaptureKitWindowPNGDataAsync(
         _ windowID: CGWindowID
     ) async -> Data? {
         do {
-            let shareableContent = try await SCShareableContent.currentProcess
+            let shareableContent: SCShareableContent
+            if #available(macOS 14.4, *) {
+                // This current-process-only query captures cmux's own windows
+                // without requesting Screen Recording permission.
+                shareableContent = try await SCShareableContent.currentProcess
+            } else {
+                // macOS 14.0–14.3 lacks the permission-free current-process
+                // query. Use the older ScreenCaptureKit inventory solely to
+                // locate our exact window ID; denial falls back to AppKit.
+                shareableContent = try await SCShareableContent.excludingDesktopWindows(
+                    false,
+                    onScreenWindowsOnly: false
+                )
+            }
             guard let window = shareableContent.windows.first(where: {
                 $0.windowID == windowID
             }) else {

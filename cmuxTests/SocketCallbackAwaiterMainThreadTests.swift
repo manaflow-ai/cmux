@@ -54,3 +54,26 @@ import Testing
         #expect(result == nil)
     }
 }
+
+@Suite struct WindowScreenshotCaptureRoutingTests {
+    @Test func onlyUnavailableCaptureFallsBackToAppKit() {
+        let data = Data([0x89, 0x50, 0x4E, 0x47])
+
+        #expect(
+            windowScreenshotCaptureAction(for: .captured(data))
+                == .useCaptured(data)
+        )
+        #expect(
+            windowScreenshotCaptureAction(for: .unavailable)
+                == .captureWithAppKit
+        )
+        #expect(
+            windowScreenshotCaptureAction(for: .busy)
+                == .fail("screenshot capture already in progress")
+        )
+        #expect(
+            windowScreenshotCaptureAction(for: .timedOut)
+                == .fail("screenshot capture timed out")
+        )
+    }
+}
