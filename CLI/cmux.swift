@@ -17400,10 +17400,11 @@ struct CMUXCLI {
         let workspaceHandle = try normalizeWorkspaceHandle(env["CMUX_WORKSPACE_ID"], client: client)
         let surfaceHandle = try normalizeSurfaceHandle(env["CMUX_SURFACE_ID"], client: client, workspaceHandle: workspaceHandle)
         if let surfaceHandle {
+            // A surface keeps its identity when its tab moves, while the
+            // shell's injected workspace ID remains the spawn-time value.
+            // Sending both would let the stale workspace outrank the live
+            // surface during server-side routing.
             params["surface_id"] = surfaceHandle
-            if let workspaceHandle {
-                params["workspace_id"] = workspaceHandle
-            }
         } else if let workspaceHandle {
             params["workspace_id"] = workspaceHandle
         }
