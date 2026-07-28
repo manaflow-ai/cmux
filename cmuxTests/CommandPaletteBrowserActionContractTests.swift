@@ -88,7 +88,7 @@ struct CommandPaletteBrowserActionContractTests {
             ),
             targetIsSelected: false
         ))
-        #expect(ContentView.commandPaletteBrowserSplitShouldFocus(
+        #expect(!ContentView.commandPaletteBrowserSplitShouldFocus(
             CmuxActionInvocation(source: .automation),
             targetIsSelected: false
         ))

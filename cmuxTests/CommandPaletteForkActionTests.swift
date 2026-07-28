@@ -25,7 +25,7 @@ struct CommandPaletteForkActionTests {
         #expect(ContentView.commandPaletteForkShouldFocus(
             CmuxActionInvocation(source: .commandPalette)
         ))
-        #expect(ContentView.commandPaletteForkShouldFocus(
+        #expect(!ContentView.commandPaletteForkShouldFocus(
             CmuxActionInvocation(source: .automation)
         ))
         #expect(!ContentView.commandPaletteForkShouldFocus(

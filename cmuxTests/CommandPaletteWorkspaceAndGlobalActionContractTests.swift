@@ -71,7 +71,7 @@ struct CommandPaletteWorkspaceAndGlobalActionContractTests {
         ) == nil)
     }
 
-    @Test("Focus adapters prefer explicit state and default automation to focused")
+    @Test("Focus adapters preserve focus for automation unless explicitly requested")
     func focusAdapterPolicyIsDeterministic() {
         #expect(!ContentView.commandPaletteShouldFocus(
             CmuxActionInvocation(
@@ -87,7 +87,7 @@ struct CommandPaletteWorkspaceAndGlobalActionContractTests {
             ),
             interactiveDefault: false
         ))
-        #expect(ContentView.commandPaletteShouldFocus(
+        #expect(!ContentView.commandPaletteShouldFocus(
             CmuxActionInvocation(source: .automation),
             interactiveDefault: false
         ))
@@ -104,7 +104,7 @@ struct CommandPaletteWorkspaceAndGlobalActionContractTests {
             CmuxActionInvocation(source: .commandPalette),
             targetWasSelected: false
         ))
-        #expect(ContentView.commandPaletteDiffShouldFocus(
+        #expect(!ContentView.commandPaletteDiffShouldFocus(
             CmuxActionInvocation(source: .automation),
             targetWasSelected: false
         ))

@@ -59,7 +59,7 @@ struct CommandPaletteConfigActionMappingTests {
         #expect(ContentView.commandPaletteBuiltInConfigActionID(for: "palette.openSettings") == nil)
     }
 
-    @Test func configuredBuiltInFocusArgumentIsOptionalAndAutomationDefaultsTrue() {
+    @Test func configuredBuiltInFocusArgumentIsOptionalAndAutomationDefaultsFalse() {
         #expect(ContentView.commandPaletteOptionalFocusArguments == [
             CmuxActionArgumentDefinition(
                 name: "focus",
@@ -69,7 +69,7 @@ struct CommandPaletteConfigActionMappingTests {
         ])
         #expect(
             ContentView.commandPaletteResolvedFocus(explicit: nil, source: .automation)
-                == true
+                == false
         )
         #expect(
             ContentView.commandPaletteResolvedFocus(explicit: nil, source: .commandPalette)

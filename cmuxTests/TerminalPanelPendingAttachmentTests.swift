@@ -145,6 +145,28 @@ struct TerminalPanelPendingAttachmentTests {
         #expect(FileManager.default.fileExists(atPath: fileURL.path))
     }
 
+    @Test(.timeLimit(.minutes(1)))
+    func localRequestPreparationPreservesTheCallerOwnedPath() async throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-local-request-file-\(UUID().uuidString).txt"
+            )
+        try Data("user-owned".utf8).write(to: fileURL)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let maybePreparedFile =
+            await TextBoxPreparedFileAttachment.prepareForTextBoxRequest(
+                fileURL: fileURL,
+                uploadTarget: .local
+            )
+        let preparedFile = try #require(maybePreparedFile)
+
+        #expect(preparedFile.fileURL == fileURL.standardizedFileURL)
+        #expect(preparedFile.localFileDisposition == .callerOwned)
+        await preparedFile.disposeOwnedLocalFileIfNeededOffMainActor()
+        #expect(FileManager.default.fileExists(atPath: fileURL.path))
+    }
+
     @Test
     func preparedCmuxTemporaryAttachmentCarriesCleanupAndDurableCopyDisposition() async throws {
         let temporaryURL = FileManager.default.temporaryDirectory

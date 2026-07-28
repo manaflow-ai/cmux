@@ -30,7 +30,7 @@ struct RightSidebarExactTargetBindingTests {
         #expect(paneContributions.allSatisfy { $0.arguments == expectedArguments })
     }
 
-    @Test("Right sidebar focus is explicit and automation defaults to focused")
+    @Test("Right sidebar focus is explicit and automation preserves focus")
     func rightSidebarFocusPolicyIsDeterministic() {
         #expect(ContentView.commandPaletteRightSidebarShouldFocus(
             CmuxActionInvocation(
@@ -46,7 +46,7 @@ struct RightSidebarExactTargetBindingTests {
             ),
             targetIsSelected: false
         ))
-        #expect(ContentView.commandPaletteRightSidebarShouldFocus(
+        #expect(!ContentView.commandPaletteRightSidebarShouldFocus(
             CmuxActionInvocation(source: .automation),
             targetIsSelected: false
         ))
