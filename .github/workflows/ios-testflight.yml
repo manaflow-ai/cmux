@@ -243,9 +243,10 @@ jobs:
       # Internal builds use separate bundle ID and display name (set here so
       # provisioning profile step can use it). The manual demo variant ships the
       # same main head as a separate app so demos are isolated from the internal
-      # firehose (and its per-app upload limit).
-      IOS_BETA_BUNDLE_ID: ${{ github.event.inputs.marketing_version_override != '' && 'dev.cmux.app.beta' || github.event_name == 'workflow_dispatch' && github.event.inputs.variant == 'demo' && 'dev.cmux.app.demo' || 'dev.cmux.app.internal' }}
-      IOS_BETA_DISPLAY_NAME: ${{ github.event.inputs.marketing_version_override != '' && 'cmux BETA' || github.event_name == 'workflow_dispatch' && github.event.inputs.variant == 'demo' && 'cmux DEMO' || 'cmux INTERNAL' }}
+      # firehose (and its per-app upload limit). Manual external overrides select
+      # the beta profile explicitly without changing this automatic-lane identity.
+      IOS_BETA_BUNDLE_ID: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.variant == 'demo' && 'dev.cmux.app.demo' || 'dev.cmux.app.internal' }}
+      IOS_BETA_DISPLAY_NAME: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.variant == 'demo' && 'cmux DEMO' || 'cmux INTERNAL' }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -348,10 +349,17 @@ jobs:
         env:
           IOS_BETA_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_BETA_PROVISIONING_PROFILE_BASE64 }}
           IOS_BETA_PROVISIONING_PROFILE_INTERNAL_BASE64: ${{ secrets.IOS_BETA_PROVISIONING_PROFILE_INTERNAL_BASE64 }}
+          INPUT_MARKETING_VERSION_OVERRIDE: ${{ github.event.inputs.marketing_version_override }}
         run: |
           set -euo pipefail
-          # Determine which profile to use based on bundle ID
-          if [ "${IOS_BETA_BUNDLE_ID:-dev.cmux.app.beta}" = "dev.cmux.app.demo" ]; then
+          # External overrides ship the beta app even though the job-level app
+          # identity remains internal for automatic-lane guards and later steps.
+          if [ -n "${INPUT_MARKETING_VERSION_OVERRIDE:-}" ]; then
+            PROFILE_BASE64="${IOS_BETA_PROVISIONING_PROFILE_BASE64}"
+            EXPECTED_APP_ID="7WLXT3NR37.dev.cmux.app.beta"
+            PROFILE_TYPE="beta"
+            SKIP_APS_ENVIRONMENT_CHECK=false
+          elif [ "${IOS_BETA_BUNDLE_ID:-dev.cmux.app.internal}" = "dev.cmux.app.demo" ]; then
             # The demo profile is fetched from the ASC API by name instead of a
             # repository secret, so regenerating it in the developer portal
             # needs no secret rotation. Same credentials the upload uses.
@@ -359,16 +367,14 @@ jobs:
             EXPECTED_APP_ID="7WLXT3NR37.dev.cmux.app.demo"
             PROFILE_TYPE="demo"
             SKIP_APS_ENVIRONMENT_CHECK=false
-          elif [ "${IOS_BETA_BUNDLE_ID:-dev.cmux.app.beta}" = "dev.cmux.app.internal" ]; then
+          elif [ "${IOS_BETA_BUNDLE_ID:-dev.cmux.app.internal}" = "dev.cmux.app.internal" ]; then
             PROFILE_BASE64="${IOS_BETA_PROVISIONING_PROFILE_INTERNAL_BASE64}"
             EXPECTED_APP_ID="7WLXT3NR37.dev.cmux.app.internal"
             PROFILE_TYPE="internal"
             SKIP_APS_ENVIRONMENT_CHECK=false
           else
-            PROFILE_BASE64="${IOS_BETA_PROVISIONING_PROFILE_BASE64}"
-            EXPECTED_APP_ID="7WLXT3NR37.dev.cmux.app.beta"
-            PROFILE_TYPE="beta"
-            SKIP_APS_ENVIRONMENT_CHECK=false
+            echo "Unsupported TestFlight bundle ID: ${IOS_BETA_BUNDLE_ID:-unset}" >&2
+            exit 1
           fi
 
           if [ -z "${PROFILE_BASE64:-}" ]; then
