@@ -301,7 +301,12 @@ export class RenderGraphicsDecodeScheduler {
         this.creationStopped = false;
         this.queue.unshift(job);
         this.pump();
+        return;
       }
+      // Leave the deferred image uncached so a later owner lifecycle can
+      // retry, but retire this exhausted job and unblock unrelated owners.
+      this.finishJob(job, []);
+      this.pump();
     }, 0);
   }
 
