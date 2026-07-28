@@ -18,7 +18,7 @@ const (
 )
 
 func TestInheritedAgentLaunchContextUsesCallerSurfaceWithoutGlobalFocus(t *testing.T) {
-	socketPath, recordedMethods := startAgentLaunchContextSocket(t, true)
+	socketPath, recordedRequests := startAgentLaunchContextSocket(t, true)
 	t.Setenv("CMUX_WORKSPACE_ID", agentLaunchTestWorkspaceId)
 	t.Setenv("CMUX_SURFACE_ID", agentLaunchTestSurfaceId)
 
@@ -38,9 +38,9 @@ func TestInheritedAgentLaunchContextUsesCallerSurfaceWithoutGlobalFocus(t *testi
 	if context.paneId != agentLaunchTestPaneId {
 		t.Fatalf("paneId = %q", context.paneId)
 	}
-	for _, method := range recordedMethods() {
-		if method == "system.identify" {
-			t.Fatalf("managed launch consulted global focus: %v", recordedMethods())
+	for _, request := range recordedRequests() {
+		if request["method"] == "system.identify" {
+			t.Fatalf("managed launch consulted global focus: %v", recordedRequests())
 		}
 	}
 }
@@ -86,7 +86,7 @@ func TestInheritedAgentLaunchContextRelocatesMovedSurfaceByStableId(t *testing.T
 
 func TestAgentLaunchContextFailsClosedForMissingOrStaleIdentity(t *testing.T) {
 	t.Run("missing pair does not open socket", func(t *testing.T) {
-		socketPath, recordedMethods := startAgentLaunchContextSocket(t, true)
+		socketPath, recordedRequests := startAgentLaunchContextSocket(t, true)
 		t.Setenv("CMUX_WORKSPACE_ID", agentLaunchTestWorkspaceId)
 		t.Setenv("CMUX_SURFACE_ID", "")
 		rc := &rpcContext{socketPath: socketPath}
@@ -97,13 +97,13 @@ func TestAgentLaunchContextFailsClosedForMissingOrStaleIdentity(t *testing.T) {
 		if _, err := agentLaunchContextForInvocation(rc, false); !errors.Is(err, errAgentLaunchContextRequired) {
 			t.Fatalf("launch error = %v, want %v", err, errAgentLaunchContextRequired)
 		}
-		if methods := recordedMethods(); len(methods) != 0 {
-			t.Fatalf("missing inherited pair opened socket: %v", methods)
+		if requests := recordedRequests(); len(requests) != 0 {
+			t.Fatalf("missing inherited pair opened socket: %v", requests)
 		}
 	})
 
 	t.Run("stale surface never falls back to focus", func(t *testing.T) {
-		socketPath, recordedMethods := startAgentLaunchContextSocket(t, false)
+		socketPath, recordedRequests := startAgentLaunchContextSocket(t, false)
 		t.Setenv("CMUX_WORKSPACE_ID", agentLaunchTestWorkspaceId)
 		t.Setenv("CMUX_SURFACE_ID", agentLaunchTestSurfaceId)
 		rc := &rpcContext{socketPath: socketPath}
@@ -111,9 +111,9 @@ func TestAgentLaunchContextFailsClosedForMissingOrStaleIdentity(t *testing.T) {
 		if _, err := agentLaunchContextForInvocation(rc, false); !errors.Is(err, errAgentLaunchContextRequired) {
 			t.Fatalf("launch error = %v, want %v", err, errAgentLaunchContextRequired)
 		}
-		for _, method := range recordedMethods() {
-			if method == "system.identify" {
-				t.Fatalf("stale inherited identity consulted global focus: %v", recordedMethods())
+		for _, request := range recordedRequests() {
+			if request["method"] == "system.identify" {
+				t.Fatalf("stale inherited identity consulted global focus: %v", recordedRequests())
 			}
 		}
 	})
@@ -168,83 +168,100 @@ func TestConfigureAgentEnvironmentClearsRejectedRoutingIdentity(t *testing.T) {
 	}
 }
 
-func startAgentLaunchContextSocket(t *testing.T, surfaceExists bool) (string, func() []string) {
-	t.Helper()
-	socketPath := makeShortUnixSocketPath(t)
-	listener, err := net.Listen("unix", socketPath)
-	if err != nil {
-		t.Fatalf("failed to listen: %v", err)
-	}
-	t.Cleanup(func() { _ = listener.Close() })
-
-	var mutex sync.Mutex
-	methods := []string{}
-	recordedMethods := func() []string {
-		mutex.Lock()
-		defer mutex.Unlock()
-		return append([]string(nil), methods...)
-	}
-
-	go func() {
-		for {
-			connection, err := listener.Accept()
-			if err != nil {
-				return
+func TestAgentLaunchRPCSocketHandlesMultipleRequestsPerConnection(t *testing.T) {
+	socketPath, recordedRequests := startAgentLaunchRPCSocket(
+		t,
+		func(method string, _ map[string]any) (map[string]any, bool) {
+			if method == "surface.list" {
+				return map[string]any{"surfaces": []map[string]any{}}, true
 			}
-			go func(connection net.Conn) {
-				defer connection.Close()
-				line, err := bufio.NewReader(connection).ReadBytes('\n')
-				if err != nil {
-					return
-				}
-				var request map[string]any
-				if err := json.Unmarshal(line, &request); err != nil {
-					return
-				}
-				method, _ := request["method"].(string)
-				mutex.Lock()
-				methods = append(methods, method)
-				mutex.Unlock()
+			return nil, false
+		},
+	)
+	connection, err := net.Dial("unix", socketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	encoder := json.NewEncoder(connection)
+	decoder := json.NewDecoder(connection)
 
-				response := map[string]any{"id": request["id"], "ok": true}
-				switch method {
-				case "surface.list":
-					surfaces := []map[string]any{}
-					if surfaceExists {
-						surfaces = append(surfaces, map[string]any{
-							"id":       agentLaunchTestSurfaceId,
-							"ref":      "surface:1",
-							"pane_id":  agentLaunchTestPaneId,
-							"pane_ref": "pane:1",
-						})
-					}
-					response["result"] = map[string]any{
-						"workspace_id": agentLaunchTestWorkspaceId,
-						"window_id":    "22222222-2222-4222-8222-222222222222",
-						"surfaces":     surfaces,
-					}
-				case "pane.list":
-					response["result"] = map[string]any{"panes": []map[string]any{{
-						"id":    agentLaunchTestPaneId,
-						"ref":   "pane:1",
-						"index": 1,
-					}}}
-				default:
-					response["ok"] = false
-					response["error"] = map[string]any{"code": "unexpected", "message": method}
-				}
-				payload, _ := json.Marshal(response)
-				_, _ = connection.Write(append(payload, '\n'))
-			}(connection)
+	for _, request := range []map[string]any{
+		{"id": "first", "method": "surface.list", "params": map[string]any{}},
+		{"id": "second", "method": "pane.list", "params": map[string]any{}},
+	} {
+		if err := encoder.Encode(request); err != nil {
+			t.Fatal(err)
 		}
-	}()
+		var response map[string]any
+		if err := decoder.Decode(&response); err != nil {
+			t.Fatal(err)
+		}
+		if response["id"] != request["id"] || response["ok"] != true {
+			t.Fatalf("response = %#v for request %#v", response, request)
+		}
+	}
 
-	return socketPath, recordedMethods
+	requests := recordedRequests()
+	if len(requests) != 2 || requests[0]["method"] != "surface.list" || requests[1]["method"] != "pane.list" {
+		t.Fatalf("recorded requests = %#v", requests)
+	}
+}
+
+func startAgentLaunchContextSocket(t *testing.T, surfaceExists bool) (string, func() []map[string]any) {
+	t.Helper()
+	return startAgentLaunchRPCSocket(t, func(method string, _ map[string]any) (map[string]any, bool) {
+		if method != "surface.list" {
+			return nil, false
+		}
+		surfaces := []map[string]any{}
+		if surfaceExists {
+			surfaces = append(surfaces, map[string]any{
+				"id":       agentLaunchTestSurfaceId,
+				"ref":      "surface:1",
+				"pane_id":  agentLaunchTestPaneId,
+				"pane_ref": "pane:1",
+			})
+		}
+		return map[string]any{
+			"workspace_id": agentLaunchTestWorkspaceId,
+			"window_id":    "22222222-2222-4222-8222-222222222222",
+			"surfaces":     surfaces,
+		}, true
+	})
 }
 
 func startMovedAgentLaunchContextSocket(t *testing.T) (string, func() []map[string]any) {
 	t.Helper()
 	const movedWorkspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+	return startAgentLaunchRPCSocket(t, func(method string, params map[string]any) (map[string]any, bool) {
+		if method != "surface.list" {
+			return nil, false
+		}
+		if stringFromAnyGo(params["surface_id"]) == agentLaunchTestSurfaceId {
+			return map[string]any{
+				"workspace_id": movedWorkspaceId,
+				"window_id":    "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+				"surfaces": []map[string]any{{
+					"id":       agentLaunchTestSurfaceId,
+					"ref":      "surface:1",
+					"pane_id":  agentLaunchTestPaneId,
+					"pane_ref": "pane:1",
+				}},
+			}, true
+		}
+		return map[string]any{
+			"workspace_id": agentLaunchTestWorkspaceId,
+			"surfaces":     []map[string]any{},
+		}, true
+	})
+}
+
+func startAgentLaunchRPCSocket(
+	t *testing.T,
+	respond func(method string, params map[string]any) (map[string]any, bool),
+) (string, func() []map[string]any) {
+	t.Helper()
 	socketPath := makeShortUnixSocketPath(t)
 	listener, err := net.Listen("unix", socketPath)
 	if err != nil {
@@ -268,49 +285,38 @@ func startMovedAgentLaunchContextSocket(t *testing.T) (string, func() []map[stri
 			}
 			go func(connection net.Conn) {
 				defer connection.Close()
-				line, err := bufio.NewReader(connection).ReadBytes('\n')
-				if err != nil {
-					return
-				}
-				var request map[string]any
-				if err := json.Unmarshal(line, &request); err != nil {
-					return
-				}
-				mutex.Lock()
-				requests = append(requests, request)
-				mutex.Unlock()
-
-				method, _ := request["method"].(string)
-				params, _ := request["params"].(map[string]any)
-				response := map[string]any{"id": request["id"], "ok": true}
-				switch method {
-				case "surface.list":
-					if stringFromAnyGo(params["surface_id"]) == agentLaunchTestSurfaceId {
-						response["result"] = map[string]any{
-							"workspace_id": movedWorkspaceId,
-							"window_id":    "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-							"surfaces": []map[string]any{{
-								"id":       agentLaunchTestSurfaceId,
-								"pane_id":  agentLaunchTestPaneId,
-								"pane_ref": "pane:1",
-							}},
-						}
-					} else {
-						response["result"] = map[string]any{
-							"workspace_id": agentLaunchTestWorkspaceId,
-							"surfaces":     []map[string]any{},
-						}
+				reader := bufio.NewReader(connection)
+				for {
+					line, err := reader.ReadBytes('\n')
+					if err != nil {
+						return
 					}
-				case "pane.list":
-					response["result"] = map[string]any{"panes": []map[string]any{{
-						"id": agentLaunchTestPaneId, "ref": "pane:1", "index": 1,
-					}}}
-				default:
-					response["ok"] = false
-					response["error"] = map[string]any{"code": "unexpected", "message": method}
+					var request map[string]any
+					if err := json.Unmarshal(line, &request); err != nil {
+						return
+					}
+					mutex.Lock()
+					requests = append(requests, request)
+					mutex.Unlock()
+
+					method, _ := request["method"].(string)
+					params, _ := request["params"].(map[string]any)
+					response := map[string]any{"id": request["id"], "ok": true}
+					if method == "pane.list" {
+						response["result"] = map[string]any{"panes": []map[string]any{{
+							"id": agentLaunchTestPaneId, "ref": "pane:1", "index": 1,
+						}}}
+					} else if result, ok := respond(method, params); ok {
+						response["result"] = result
+					} else {
+						response["ok"] = false
+						response["error"] = map[string]any{"code": "unexpected", "message": method}
+					}
+					payload, _ := json.Marshal(response)
+					if _, err := connection.Write(append(payload, '\n')); err != nil {
+						return
+					}
 				}
-				payload, _ := json.Marshal(response)
-				_, _ = connection.Write(append(payload, '\n'))
 			}(connection)
 		}
 	}()

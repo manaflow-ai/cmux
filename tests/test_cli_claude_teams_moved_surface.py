@@ -8,16 +8,11 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from claude_teams_test_utils import focused_cmux_server, resolve_cmux_cli
-
-
-def stable_tmux_numeric_id(raw: str) -> str:
-    value = 14695981039346656037
-    for byte in raw.encode("utf-8"):
-        value ^= byte
-        value = (value * 1099511628211) & 0xFFFFFFFFFFFFFFFF
-    value &= 0x7FFFFFFFFFFFFFFF
-    return str(value or 1)
+from claude_teams_test_utils import (
+    focused_cmux_server,
+    resolve_cmux_cli,
+    stable_tmux_numeric_id,
+)
 
 
 def parsed_environment(stdout: str) -> dict[str, str]:

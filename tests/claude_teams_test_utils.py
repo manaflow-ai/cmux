@@ -20,6 +20,15 @@ FOCUSED_PANE_ID = "33333333-3333-4333-8333-333333333333"
 FOCUSED_SURFACE_ID = "44444444-4444-4444-8444-444444444444"
 
 
+def stable_tmux_numeric_id(raw: str) -> str:
+    value = 14695981039346656037
+    for byte in raw.encode("utf-8"):
+        value ^= byte
+        value = (value * 1099511628211) & 0xFFFFFFFFFFFFFFFF
+    value &= 0x7FFFFFFFFFFFFFFF
+    return str(value or 1)
+
+
 def resolve_cmux_cli() -> str:
     explicit = os.environ.get("CMUX_CLI_BIN") or os.environ.get("CMUX_CLI")
     if explicit and os.path.exists(explicit) and os.access(explicit, os.X_OK):

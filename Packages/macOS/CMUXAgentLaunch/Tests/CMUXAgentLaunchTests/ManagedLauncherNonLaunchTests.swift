@@ -14,7 +14,10 @@ struct ManagedLauncherNonLaunchTests {
             ["exec", "review", "-h"],
             ["mcp", "list", "-V"],
         ] {
-            #expect(classifier.codexTeamsLaunchIsInformational(args: args))
+            #expect(
+                classifier.codexTeamsLaunchIsInformational(args: args),
+                "Codex Teams input \(args) must stay informational"
+            )
         }
         for args in [
             [],
@@ -23,7 +26,10 @@ struct ManagedLauncherNonLaunchTests {
             ["resume", "--", "--help"],
             ["--model=--help", "resume"],
         ] {
-            #expect(!classifier.codexTeamsLaunchIsInformational(args: args))
+            #expect(
+                !classifier.codexTeamsLaunchIsInformational(args: args),
+                "Codex Teams input \(args) must stay launch-capable"
+            )
         }
     }
 
@@ -33,7 +39,10 @@ struct ManagedLauncherNonLaunchTests {
             "agent", "auth", "completion", "db", "debug", "mcp", "models",
             "export", "import", "plugin", "plug", "providers", "stats", "uninstall", "upgrade",
         ] {
-            #expect(classifier.omoLaunchIsNonLaunch(args: [command]))
+            #expect(
+                classifier.omoLaunchIsNonLaunch(args: [command]),
+                "OMO command \(command) must stay non-launch"
+            )
         }
         #expect(classifier.omoLaunchIsNonLaunch(args: ["session", "list"]))
         #expect(classifier.omoLaunchIsNonLaunch(args: ["session", "delete", "session-id"]))
@@ -72,7 +81,10 @@ struct ManagedLauncherNonLaunchTests {
             ["--", "--version"],
             ["some-project"],
         ] {
-            #expect(!classifier.omoLaunchIsNonLaunch(args: args))
+            #expect(
+                !classifier.omoLaunchIsNonLaunch(args: args),
+                "OMO input \(args) must stay launch-capable"
+            )
         }
     }
 
@@ -84,7 +96,10 @@ struct ManagedLauncherNonLaunchTests {
             "postinstall", "session", "setup", "teleport", "test-prompt",
             "update", "update-reconcile", "version",
         ] {
-            #expect(classifier.omcLaunchIsNonLaunch(args: [command]))
+            #expect(
+                classifier.omcLaunchIsNonLaunch(args: [command]),
+                "OMC command \(command) must stay non-launch"
+            )
         }
         #expect(classifier.omcLaunchIsNonLaunch(args: ["--help"]))
         #expect(classifier.omcLaunchIsNonLaunch(args: ["--version"]))
@@ -110,7 +125,10 @@ struct ManagedLauncherNonLaunchTests {
             ["start a team"],
             ["--", "version"],
         ] {
-            #expect(!classifier.omcLaunchIsNonLaunch(args: args))
+            #expect(
+                !classifier.omcLaunchIsNonLaunch(args: args),
+                "OMC input \(args) must stay launch-capable"
+            )
         }
     }
 
@@ -121,7 +139,10 @@ struct ManagedLauncherNonLaunchTests {
             "doctor", "explore", "help", "hooks", "hud", "list", "reasoning",
             "session", "setup", "sparkshell", "status", "tmux-hook", "uninstall", "update", "version",
         ] {
-            #expect(classifier.omxLaunchIsNonLaunch(args: [command]))
+            #expect(
+                classifier.omxLaunchIsNonLaunch(args: [command]),
+                "OMX command \(command) must stay non-launch"
+            )
         }
         #expect(classifier.omxLaunchIsNonLaunch(args: ["--help"]))
         #expect(classifier.omxLaunchIsNonLaunch(args: ["--version"]))
@@ -145,7 +166,10 @@ struct ManagedLauncherNonLaunchTests {
             ["--", "--version"],
             ["--high"],
         ] {
-            #expect(!classifier.omxLaunchIsNonLaunch(args: args))
+            #expect(
+                !classifier.omxLaunchIsNonLaunch(args: args),
+                "OMX input \(args) must stay launch-capable"
+            )
         }
     }
 }

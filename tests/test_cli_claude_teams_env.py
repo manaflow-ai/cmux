@@ -17,6 +17,7 @@ from claude_teams_test_utils import (
     canonical_managed_claude_shim_root,
     focused_cmux_server,
     resolve_cmux_cli,
+    stable_tmux_numeric_id,
 )
 from node_runtime import ensure_node_on_path
 
@@ -30,15 +31,6 @@ def read_text(path: Path) -> str:
     if not path.exists():
         return ""
     return path.read_text(encoding="utf-8").strip()
-
-
-def stable_tmux_numeric_id(raw: str) -> str:
-    value = 14695981039346656037
-    for byte in raw.encode("utf-8"):
-        value ^= byte
-        value = (value * 1099511628211) & 0xFFFFFFFFFFFFFFFF
-    value &= 0x7FFFFFFFFFFFFFFF
-    return str(value or 1)
 
 
 def run_claude_teams(
