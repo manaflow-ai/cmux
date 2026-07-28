@@ -110,7 +110,17 @@ struct RemoteTmuxMirrorNewPaneKeyFocusTests {
         }
 
         func resolveFocusedSplit(createdPaneID: Int) {
-            #expect(connection.pendingCommandKindsForTesting.count == 1)
+            let pendingSplitIsNext = connection.pendingCommandKindsForTesting.first.map { kind in
+                if case .newPane = kind {
+                    return true
+                }
+                return false
+            } ?? false
+            #expect(
+                pendingSplitIsNext,
+                "The focused split result must remain next in the command FIFO"
+            )
+            guard pendingSplitIsNext else { return }
             connection.handleMessageForTesting(
                 .commandResult(
                     commandNumber: 2,
