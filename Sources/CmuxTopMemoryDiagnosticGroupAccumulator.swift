@@ -46,6 +46,11 @@ struct CmuxTopMemoryDiagnosticGroupAccumulator {
     private var ownerIdentityKeys: Set<String> = []
     private var workspaceIdentityKeys: Set<String> = []
 
+    init(id: String, name: String) {
+        self.id = id
+        self.name = name
+    }
+
     mutating func append(
         process: CmuxTopProcessInfo,
         attribution: CmuxTopProcessAttribution?
