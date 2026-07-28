@@ -48,7 +48,8 @@ extension Workspace: TerminalLinkOpenContainer {
         let canonicalURL = url.standardizedFileURL.resolvingSymlinksInPath()
         if let existing = panels.values.compactMap({ $0 as? BrowserPanel }).first(where: {
             $0.localFileReadAccessPolicy == .fileOnly
-                && $0.currentURL?.standardizedFileURL.resolvingSymlinksInPath() == canonicalURL
+                && $0.effectiveURLForTerminalFileReuse?
+                    .standardizedFileURL.resolvingSymlinksInPath() == canonicalURL
         }) {
             focusPanel(existing.id)
             return true

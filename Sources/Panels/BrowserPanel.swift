@@ -955,11 +955,6 @@ enum BrowserFileSystemAccessBridge {
     """
 }
 
-enum BrowserLocalFileReadAccessPolicy: String, Codable, Equatable, Sendable {
-    case containingDirectory
-    case fileOnly
-}
-
 func browserReadAccessURL(
     forLocalFileURL fileURL: URL,
     fileManager: FileManager = .default,
@@ -6570,7 +6565,8 @@ extension BrowserPanel {
             initialRequest: seed.initialRequest,
             focus: true,
             preferredProfileID: profileID,
-            bypassInsecureHTTPHostOnce: seed.bypassInsecureHTTPHostOnce
+            bypassInsecureHTTPHostOnce: seed.bypassInsecureHTTPHostOnce,
+            localFileReadAccessPolicy: localFileReadAccessPolicy
         ) else {
 #if DEBUG
             cmuxDebugLog("browser.newTab.open.abort panel=\(id.uuidString.prefix(5)) reason=newPanelFailed")
@@ -6588,6 +6584,16 @@ extension BrowserPanel {
     var currentURLForTabDuplication: URL? {
         resolvedCurrentSessionHistoryURL()
             ?? Self.remoteProxyDisplayURL(for: webView.url)
+            ?? currentURL
+    }
+
+    var effectiveURLForTerminalFileReuse: URL? {
+        if isMainFrameProvisionalNavigationActive {
+            return Self.remoteProxyDisplayURL(for: navigationDelegate?.lastAttemptedURL)
+                ?? navigationDelegate?.lastAttemptedURL
+        }
+        return restorableDisplayURLForCurrentErrorPage(liveURL: webView.url)
+            ?? webView.url
             ?? currentURL
     }
 

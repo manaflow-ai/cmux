@@ -47,7 +47,8 @@ extension Workspace {
             initialRequest: seed.initialRequest,
             focus: true,
             preferredProfileID: panel.profileID,
-            bypassInsecureHTTPHostOnce: seed.bypassInsecureHTTPHostOnce
+            bypassInsecureHTTPHostOnce: seed.bypassInsecureHTTPHostOnce,
+            localFileReadAccessPolicy: panel.localFileReadAccessPolicy
         ) != nil
     }
 
@@ -63,7 +64,8 @@ extension Workspace {
                 initialRequest: seed.initialRequest,
                 focus: true,
                 preferredProfileID: panel.profileID,
-                bypassInsecureHTTPHostOnce: seed.bypassInsecureHTTPHostOnce
+                bypassInsecureHTTPHostOnce: seed.bypassInsecureHTTPHostOnce,
+                localFileReadAccessPolicy: panel.localFileReadAccessPolicy
             ) != nil
         }
         guard let manager = app.tabManagerFor(tabId: panel.workspaceId) ?? app.tabManager,
