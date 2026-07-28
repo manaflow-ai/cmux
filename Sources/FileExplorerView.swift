@@ -99,6 +99,8 @@ struct FileExplorerPanelView: NSViewRepresentable {
         ] = [:]
         private var pendingNodeOrder: [ObjectIdentifier] = []
         private var pendingSelectionChange = false
+        private var pendingGitStatusPaths: Set<String> = []
+        private var pendingAllVisibleGitStatusChange = false
         private var pendingRootNodesRevision: Int?
         private var outlineChangeFlushTask: Task<Void, Never>?
         private var observationCancellable: AnyCancellable?
@@ -217,9 +219,19 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 enqueueNodeChange(node, reloadChildren: reloadChildren)
             case .expansionChanged(let node, let isExpanded):
                 enqueueNodeChange(node, reloadChildren: isExpanded && node.children != nil, expansion: isExpanded)
-            case .gitStatusChanged(let nodes):
-                for node in nodes {
-                    enqueueNodeChange(node, reloadChildren: false)
+            case .gitStatusChanged(let paths):
+                if let paths {
+                    if !pendingAllVisibleGitStatusChange {
+                        pendingGitStatusPaths.formUnion(paths)
+                        if pendingGitStatusPaths.count >
+                            FileExplorerOutlineChange.maximumScopedGitStatusPathCount {
+                            pendingGitStatusPaths.removeAll(keepingCapacity: false)
+                            pendingAllVisibleGitStatusChange = true
+                        }
+                    }
+                } else {
+                    pendingGitStatusPaths.removeAll(keepingCapacity: false)
+                    pendingAllVisibleGitStatusChange = true
                 }
             case .selectionChanged:
                 pendingSelectionChange = true
@@ -258,6 +270,8 @@ struct FileExplorerPanelView: NSViewRepresentable {
             pendingNodeChanges.removeAll(keepingCapacity: false)
             pendingNodeOrder.removeAll(keepingCapacity: false)
             pendingSelectionChange = false
+            pendingGitStatusPaths.removeAll(keepingCapacity: false)
+            pendingAllVisibleGitStatusChange = false
             pendingRootNodesRevision = nil
         }
 
@@ -272,15 +286,65 @@ struct FileExplorerPanelView: NSViewRepresentable {
 
             let changes = pendingNodeOrder.compactMap { pendingNodeChanges[$0] }
             let shouldApplySelection = pendingSelectionChange
+            let gitStatusPaths: Set<String>?
+            let hasGitStatusChange: Bool
+            if pendingAllVisibleGitStatusChange {
+                gitStatusPaths = nil
+                hasGitStatusChange = true
+            } else if pendingGitStatusPaths.isEmpty {
+                gitStatusPaths = nil
+                hasGitStatusChange = false
+            } else {
+                gitStatusPaths = pendingGitStatusPaths
+                hasGitStatusChange = true
+            }
             clearPendingOutlineChanges()
 
             for change in changes {
                 applyNodeChange(change)
             }
+            if hasGitStatusChange, let outlineView {
+                applyGitStatusChange(paths: gitStatusPaths, in: outlineView)
+            }
             if shouldApplySelection, let outlineView {
                 withProgrammaticOutlineUpdate {
                     applyStoredSelection(in: outlineView, fallbackToFirstVisible: false, scroll: false)
                 }
+            }
+        }
+
+        private func applyGitStatusChange(
+            paths: Set<String>?,
+            in outlineView: NSOutlineView
+        ) {
+            let visibleRange = outlineView.rows(in: outlineView.visibleRect)
+            guard visibleRange.location != NSNotFound, visibleRange.length > 0 else { return }
+
+            let visibleRows = IndexSet(
+                integersIn: visibleRange.location..<(visibleRange.location + visibleRange.length)
+            )
+            let rowsToReload: IndexSet
+            if let paths {
+                var matchingRows = IndexSet()
+                for row in visibleRows {
+                    guard let node = outlineView.item(atRow: row) as? FileExplorerNode else {
+                        continue
+                    }
+                    if paths.contains(node.path) {
+                        matchingRows.insert(row)
+                    }
+                }
+                rowsToReload = matchingRows
+            } else {
+                rowsToReload = visibleRows
+            }
+            guard !rowsToReload.isEmpty, outlineView.numberOfColumns > 0 else { return }
+
+            withProgrammaticOutlineUpdate {
+                outlineView.reloadData(
+                    forRowIndexes: rowsToReload,
+                    columnIndexes: IndexSet(integersIn: 0..<outlineView.numberOfColumns)
+                )
             }
         }
 

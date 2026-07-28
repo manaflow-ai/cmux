@@ -116,11 +116,22 @@ private final class DeferredListFileExplorerProvider: FileExplorerProvider {
 
 private final class CountingFileExplorerOutlineView: NSOutlineView {
     private(set) var reloadItemCallCount = 0
+    private(set) var reloadRowsCallCount = 0
+    private(set) var lastReloadedRowCount = 0
     private(set) var itemAtRowCallCount = 0
 
     override func reloadItem(_ item: Any?, reloadChildren: Bool) {
         reloadItemCallCount += 1
         super.reloadItem(item, reloadChildren: reloadChildren)
+    }
+
+    override func reloadData(
+        forRowIndexes rowIndexes: IndexSet,
+        columnIndexes: IndexSet
+    ) {
+        reloadRowsCallCount += 1
+        lastReloadedRowCount = rowIndexes.count
+        super.reloadData(forRowIndexes: rowIndexes, columnIndexes: columnIndexes)
     }
 
     override func item(atRow row: Int) -> Any? {
@@ -130,6 +141,8 @@ private final class CountingFileExplorerOutlineView: NSOutlineView {
 
     func resetMetrics() {
         reloadItemCallCount = 0
+        reloadRowsCallCount = 0
+        lastReloadedRowCount = 0
         itemAtRowCallCount = 0
     }
 }
@@ -286,6 +299,64 @@ struct FileExplorerStoreTests {
             outlineView.reloadItemCallCount == 1
         }
         #expect(outlineView.reloadItemCallCount == 1)
+    }
+
+    @Test
+    func largeGitStatusChangeReloadsVisibleRowsInOneBatch() async throws {
+        let store = FileExplorerStore()
+        store.rootPath = "/project"
+        store.rootNodes = (0..<1_000).map {
+            FileExplorerNode(
+                name: "File\($0).swift",
+                path: "/project/File\($0).swift",
+                isDirectory: false
+            )
+        }
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: FileExplorerState(),
+            onOpenFilePreview: { _ in }
+        )
+        let outlineView = CountingFileExplorerOutlineView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 240)
+        )
+        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("files"))
+        outlineView.addTableColumn(column)
+        outlineView.outlineTableColumn = column
+        outlineView.dataSource = coordinator
+        outlineView.delegate = coordinator
+        coordinator.outlineView = outlineView
+        coordinator.reloadIfNeeded()
+        let visibleRowCount = outlineView.rows(in: outlineView.visibleRect).length
+        outlineView.resetMetrics()
+
+        coordinator.enqueueOutlineChange(.gitStatusChanged(paths: nil))
+
+        try await waitFor("batched visible git status refresh") {
+            outlineView.reloadRowsCallCount == 1
+        }
+        #expect(outlineView.reloadRowsCallCount == 1)
+        #expect(outlineView.lastReloadedRowCount == visibleRowCount)
+        #expect(outlineView.reloadItemCallCount == 0)
+        #expect(outlineView.itemAtRowCallCount == 0)
+    }
+
+    @Test
+    func gitStatusInvalidationFallsBackBeforeCollectingUnboundedPaths() throws {
+        let count =
+            FileExplorerOutlineChange.maximumScopedGitStatusPathCount + 1
+        let current = Dictionary(uniqueKeysWithValues: (0..<count).map {
+            ("/project/File\($0).swift", GitFileStatus.modified)
+        })
+
+        let change = try #require(
+            FileExplorerStore.gitStatusChange(previous: [:], current: current)
+        )
+
+        guard case .gitStatusChanged(paths: nil) = change else {
+            Issue.record("Expected a bounded all-visible fallback")
+            return
+        }
     }
 
     @Test

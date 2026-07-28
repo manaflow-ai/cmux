@@ -751,6 +751,7 @@ final class FileExplorerStore: ObservableObject {
     /// Narrow view invalidations. The store is main-thread confined, so observers
     /// are invoked synchronously and never need to rescan the full outline.
     private var outlineChangeObservers: [UUID: (FileExplorerOutlineChange) -> Void] = [:]
+    private var gitStatusRefreshGeneration = 0
 
     /// Prefetch debounce: path -> work item
     private var prefetchWorkItems: [String: DispatchWorkItem] = [:]
@@ -839,11 +840,17 @@ final class FileExplorerStore: ObservableObject {
     }
 
     func refreshGitStatus() {
+        gitStatusRefreshGeneration &+= 1
+        let generation = gitStatusRefreshGeneration
         guard !rootPath.isEmpty else {
-            setGitStatusByPath([:])
+            setGitStatusByPath(
+                [:],
+                change: gitStatusByPath.isEmpty ? nil : .gitStatusChanged(paths: nil)
+            )
             return
         }
         let path = rootPath
+        let previousStatus = gitStatusByPath
         if let sshProvider = provider as? SSHFileExplorerProvider {
             let dest = sshProvider.destination
             let port = sshProvider.port
@@ -855,16 +862,26 @@ final class FileExplorerStore: ObservableObject {
                     directory: path, destination: dest, port: port,
                     identityFile: identity, sshOptions: opts
                 )
+                let change = Self.gitStatusChange(
+                    previous: previousStatus,
+                    current: status
+                )
                 DispatchQueue.main.async { [weak self] in
-                    self?.setGitStatusByPath(status)
+                    guard self?.gitStatusRefreshGeneration == generation else { return }
+                    self?.setGitStatusByPath(status, change: change)
                 }
             }
         } else {
             let gitStatusProvider = self.gitStatusProvider
             DispatchQueue.global(qos: .utility).async {
                 let status = gitStatusProvider.fetchStatus(directory: path)
+                let change = Self.gitStatusChange(
+                    previous: previousStatus,
+                    current: status
+                )
                 DispatchQueue.main.async { [weak self] in
-                    self?.setGitStatusByPath(status)
+                    guard self?.gitStatusRefreshGeneration == generation else { return }
+                    self?.setGitStatusByPath(status, change: change)
                 }
             }
         }
@@ -1113,14 +1130,41 @@ final class FileExplorerStore: ObservableObject {
         }
     }
 
-    private func setGitStatusByPath(_ status: [String: GitFileStatus]) {
-        let previousStatus = gitStatusByPath
-        let changedNodes = nodesByPath.compactMap { path, node in
-            previousStatus[path] != status[path] ? node : nil
+    static func gitStatusChange(
+        previous: [String: GitFileStatus],
+        current: [String: GitFileStatus]
+    ) -> FileExplorerOutlineChange? {
+        var changedPaths: Set<String> = []
+
+        func recordChange(_ path: String) -> Bool {
+            changedPaths.insert(path)
+            return changedPaths.count >
+                FileExplorerOutlineChange.maximumScopedGitStatusPathCount
         }
+
+        for (path, previousStatus) in previous
+        where current[path] != previousStatus {
+            if recordChange(path) {
+                return .gitStatusChanged(paths: nil)
+            }
+        }
+        for (path, currentStatus) in current
+        where previous[path] != currentStatus {
+            if recordChange(path) {
+                return .gitStatusChanged(paths: nil)
+            }
+        }
+
+        return changedPaths.isEmpty ? nil : .gitStatusChanged(paths: changedPaths)
+    }
+
+    private func setGitStatusByPath(
+        _ status: [String: GitFileStatus],
+        change: FileExplorerOutlineChange?
+    ) {
         gitStatusByPath = status
-        guard !changedNodes.isEmpty else { return }
-        publishOutlineChange(.gitStatusChanged(nodes: changedNodes))
+        guard let change else { return }
+        publishOutlineChange(change)
     }
 
     private func setRootNodes(_ nodes: [FileExplorerNode]) {
