@@ -122,6 +122,25 @@ struct DockRuntimeParityTests {
         for await _ in readiness { break }
     }
 
+    private func waitForVisibleNotificationRing(
+        on panel: TerminalPanel,
+        hostingView: NSView,
+        window: NSWindow
+    ) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        repeat {
+            hostingView.layoutSubtreeIfNeeded()
+            window.displayIfNeeded()
+            let ring = panel.hostedView.debugNotificationRingState()
+            if !ring.isHidden, ring.opacity > 0 {
+                return true
+            }
+            await Task.yield()
+        } while clock.now < deadline
+        return false
+    }
+
     private func withAppContext(
         _ body: @MainActor (AppDelegate, TabManager, Workspace, UUID) async throws -> Void
     ) async throws {
@@ -291,16 +310,14 @@ struct DockRuntimeParityTests {
                 window.close()
             }
 
-            for _ in 0..<10 {
-                hostingView.layoutSubtreeIfNeeded()
-                window.displayIfNeeded()
-                if !panel.hostedView.debugNotificationRingState().isHidden {
-                    break
-                }
-                await Task.yield()
-            }
+            let ringBecameVisible = await waitForVisibleNotificationRing(
+                on: panel,
+                hostingView: hostingView,
+                window: window
+            )
 
             let ring = panel.hostedView.debugNotificationRingState()
+            #expect(ringBecameVisible)
             #expect(!ring.isHidden)
             #expect(ring.opacity > 0)
         }

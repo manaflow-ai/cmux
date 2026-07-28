@@ -19,6 +19,7 @@ struct DockPanelView: View {
     /// exclusive (the main pane dims its ring when this is true).
     var rightSidebarOwnsInputFocus: Bool = false
 
+    @EnvironmentObject private var sidebarUnread: SidebarUnreadModel
     @State private var appearanceConfig = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "dock.initial")
     @State private var visibilityHostId = UUID()
 
@@ -69,6 +70,12 @@ struct DockPanelView: View {
 
     @ViewBuilder
     private var content: some View {
+        let unreadPanelIDs = Set(store.panels.keys.filter {
+            sidebarUnread.hasVisibleNotificationIndicator(
+                forWorkspaceId: store.workspaceId,
+                surfaceId: $0
+            )
+        })
         if let trustRequest = store.trustRequest {
             DockTrustView(request: trustRequest) {
                 store.trustAndReload()
@@ -80,7 +87,8 @@ struct DockPanelView: View {
                 store: store,
                 appearance: appearance,
                 windowAppearance: windowAppearance,
-                rightSidebarOwnsInputFocus: rightSidebarOwnsInputFocus
+                rightSidebarOwnsInputFocus: rightSidebarOwnsInputFocus,
+                unreadPanelIDs: unreadPanelIDs
             )
         }
     }
@@ -93,6 +101,7 @@ private struct DockSplitContentView: View {
     let appearance: PanelAppearance
     let windowAppearance: WindowAppearanceSnapshot
     let rightSidebarOwnsInputFocus: Bool
+    let unreadPanelIDs: Set<UUID>
 
     /// Portal z-priority for Dock-hosted terminal/browser surfaces. Kept low so
     /// Dock surfaces never overlay main-area surfaces.
@@ -130,7 +139,7 @@ private struct DockSplitContentView: View {
                 appearance: appearance,
                 windowAppearance: windowAppearance,
                 customSidebarTabManager: nil,
-                hasUnreadNotification: false,
+                hasUnreadNotification: unreadPanelIDs.contains(panel.id),
                 terminalAgentContext: "",
                 paneOwnershipOverride: isVisibleInUI,
                 terminalPaneOwnershipResolver: {
