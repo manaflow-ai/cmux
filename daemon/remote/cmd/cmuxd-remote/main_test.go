@@ -64,6 +64,15 @@ func startPersistentDaemonForTest(t *testing.T, token string) (string, func()) {
 
 func startPersistentDaemonWithVerifierForTest(t *testing.T, verifier persistentDaemonTokenVerifier) (string, func()) {
 	t.Helper()
+	return startPersistentDaemonWithVerifierAndLogForTest(t, verifier, io.Discard)
+}
+
+func startPersistentDaemonWithVerifierAndLogForTest(
+	t *testing.T,
+	verifier persistentDaemonTokenVerifier,
+	stderr io.Writer,
+) (string, func()) {
+	t.Helper()
 	socketDir, err := os.MkdirTemp("/tmp", "cmuxd-remote-test-*")
 	if err != nil {
 		t.Fatalf("create short socket dir: %v", err)
@@ -78,7 +87,7 @@ func startPersistentDaemonWithVerifierForTest(t *testing.T, verifier persistentD
 	}
 	done := make(chan error, 1)
 	go func() {
-		done <- servePersistentDaemonWithVerifier(listener, verifier, io.Discard)
+		done <- servePersistentDaemonWithVerifier(listener, verifier, stderr)
 	}()
 	stop := func() {
 		_ = listener.Close()
@@ -862,7 +871,12 @@ func TestPersistentDaemonTokenConcurrentCreate(t *testing.T) {
 }
 
 func TestPersistentDaemonRejectsBadToken(t *testing.T) {
-	socketPath, stop := startPersistentDaemonForTest(t, "good-token")
+	stderr := newNotifyingBuffer()
+	socketPath, stop := startPersistentDaemonWithVerifierAndLogForTest(
+		t,
+		persistentDaemonFixedTokenVerifier("good-token"),
+		stderr,
+	)
 	defer stop()
 
 	conn, err := net.Dial("unix", socketPath)
@@ -885,6 +899,16 @@ func TestPersistentDaemonRejectsBadToken(t *testing.T) {
 	errObj, _ := frame["error"].(map[string]any)
 	if got := errObj["code"]; got != "unauthorized" {
 		t.Fatalf("bad token error code = %v, want unauthorized; frame=%v", got, frame)
+	}
+	select {
+	case <-stderr.notify:
+	case <-time.After(time.Second):
+		t.Fatalf("persistent daemon did not log authentication rejection")
+	}
+	if log := stderr.String(); !strings.Contains(log, "authentication token is invalid") {
+		t.Fatalf("daemon log = %q, want invalid-token reason", log)
+	} else if strings.Contains(log, "bad-token") {
+		t.Fatalf("daemon log leaked the supplied authentication token: %q", log)
 	}
 }
 
@@ -1035,6 +1059,7 @@ func TestAuthenticatePersistentDaemonServerReadDeadline(t *testing.T) {
 			server,
 			persistentDaemonFixedTokenVerifier("token"),
 			hub,
+			io.Discard,
 			50*time.Millisecond,
 			nil,
 		)

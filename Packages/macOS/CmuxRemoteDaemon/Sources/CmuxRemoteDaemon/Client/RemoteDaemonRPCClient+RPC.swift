@@ -276,20 +276,12 @@ extension RemoteDaemonRPCClient {
 
     func call(method: String, params: [String: Any], timeout: TimeInterval) throws -> [String: Any] {
         let pendingCall = pendingCalls.register()
-        let requestID = pendingCall.id
-
         let payload: Data
         do {
-            payload = try Self.encodeJSON([
-                "id": requestID,
-                "method": method,
-                "params": params,
-            ])
+            payload = try Self.callPayload(id: pendingCall.id, method: method, params: params)
         } catch {
             pendingCalls.remove(pendingCall)
-            throw NSError(domain: "cmux.remote.daemon.rpc", code: 10, userInfo: [
-                NSLocalizedDescriptionKey: "failed to encode daemon RPC request \(method): \(error.localizedDescription)",
-            ])
+            throw error
         }
 
         do {
@@ -301,6 +293,57 @@ extension RemoteDaemonRPCClient {
             throw error
         }
 
+        return try waitForCall(pendingCall, method: method, timeout: timeout)
+    }
+
+    /// Sends an RPC only when the transport has no unanswered application
+    /// calls. Admission happens inside `writeQueue`, so a probe that wins is
+    /// written before any later call, while any earlier call makes the probe
+    /// defer without competing for liveness ownership.
+    func callIfIdle(
+        method: String,
+        params: [String: Any],
+        timeout: TimeInterval,
+        onAdmitted: () -> Void
+    ) throws -> [String: Any]? {
+        var admittedCall: RemoteDaemonPendingCallRegistry.PendingCall?
+
+        try writeQueue.sync {
+            guard let pendingCall = pendingCalls.registerIfIdle() else { return }
+            do {
+                let payload = try Self.callPayload(id: pendingCall.id, method: method, params: params)
+                onAdmitted()
+                try writePayload(payload)
+                admittedCall = pendingCall
+            } catch {
+                pendingCalls.remove(pendingCall)
+                throw error
+            }
+        }
+
+        guard let admittedCall else { return nil }
+        return try waitForCall(admittedCall, method: method, timeout: timeout)
+    }
+
+    private static func callPayload(id: Int, method: String, params: [String: Any]) throws -> Data {
+        do {
+            return try encodeJSON([
+                "id": id,
+                "method": method,
+                "params": params,
+            ])
+        } catch {
+            throw NSError(domain: "cmux.remote.daemon.rpc", code: 10, userInfo: [
+                NSLocalizedDescriptionKey: "failed to encode daemon RPC request \(method): \(error.localizedDescription)",
+            ])
+        }
+    }
+
+    private func waitForCall(
+        _ pendingCall: RemoteDaemonPendingCallRegistry.PendingCall,
+        method: String,
+        timeout: TimeInterval
+    ) throws -> [String: Any] {
         let response: [String: Any]
         switch pendingCalls.wait(for: pendingCall, timeout: timeout) {
         case .timedOut:

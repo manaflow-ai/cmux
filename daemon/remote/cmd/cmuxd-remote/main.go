@@ -1043,7 +1043,7 @@ func servePersistentDaemonWithVerifierConfig(
 		atomic.AddInt64(&activeConnections, 1)
 		go func() {
 			defer atomic.AddInt64(&activeConnections, -1)
-			handlePersistentDaemonConn(conn, verifier, hub, requestShutdown)
+			handlePersistentDaemonConn(conn, verifier, hub, stderr, requestShutdown)
 		}()
 	}
 }
@@ -1091,12 +1091,14 @@ func handlePersistentDaemonConn(
 	conn net.Conn,
 	verifier persistentDaemonTokenVerifier,
 	hub *wsPTYHub,
+	stderr io.Writer,
 	requestShutdown func(),
 ) {
 	handlePersistentDaemonConnWithAuthTimeout(
 		conn,
 		verifier,
 		hub,
+		stderr,
 		persistentDaemonAuthTimeout,
 		requestShutdown,
 	)
@@ -1106,6 +1108,7 @@ func handlePersistentDaemonConnWithAuthTimeout(
 	conn net.Conn,
 	verifier persistentDaemonTokenVerifier,
 	hub *wsPTYHub,
+	stderr io.Writer,
 	timeout time.Duration,
 	requestShutdown func(),
 ) {
@@ -1117,7 +1120,10 @@ func handlePersistentDaemonConnWithAuthTimeout(
 	}
 	reader := bufio.NewReaderSize(conn, 64*1024)
 	writer := &stdioFrameWriter{writer: bufio.NewWriter(conn)}
-	if !authenticatePersistentDaemonConn(reader, writer, verifier) {
+	if err := authenticatePersistentDaemonConn(reader, writer, verifier); err != nil {
+		if stderr != nil {
+			_, _ = fmt.Fprintf(stderr, "persistent daemon connection rejected: %v\n", err)
+		}
 		return
 	}
 	if timeout > 0 {
@@ -1128,7 +1134,7 @@ func handlePersistentDaemonConnWithAuthTimeout(
 	_ = runRPCServerWithReader(reader, writer, hub, false, requestShutdown)
 }
 
-func authenticatePersistentDaemonConn(reader *bufio.Reader, writer *stdioFrameWriter, verifier persistentDaemonTokenVerifier) bool {
+func authenticatePersistentDaemonConn(reader *bufio.Reader, writer *stdioFrameWriter, verifier persistentDaemonTokenVerifier) error {
 	line, oversized, err := readRPCFrame(reader, maxRPCFrameBytes)
 	if err != nil || oversized {
 		_ = writer.writeResponse(rpcResponse{
@@ -1138,7 +1144,10 @@ func authenticatePersistentDaemonConn(reader *bufio.Reader, writer *stdioFrameWr
 				Message: "persistent daemon authentication required",
 			},
 		})
-		return false
+		if oversized {
+			return errors.New("authentication frame exceeds size limit")
+		}
+		return fmt.Errorf("authentication frame read failed: %w", err)
 	}
 	line = bytes.TrimSuffix(line, []byte{'\n'})
 	line = bytes.TrimSuffix(line, []byte{'\r'})
@@ -1151,7 +1160,7 @@ func authenticatePersistentDaemonConn(reader *bufio.Reader, writer *stdioFrameWr
 				Message: "invalid JSON request",
 			},
 		})
-		return false
+		return errors.New("authentication frame is invalid JSON")
 	}
 	if req.Method != persistentDaemonAuthMethod {
 		_ = writer.writeResponse(rpcResponse{
@@ -1162,7 +1171,7 @@ func authenticatePersistentDaemonConn(reader *bufio.Reader, writer *stdioFrameWr
 				Message: "persistent daemon authentication required",
 			},
 		})
-		return false
+		return errors.New("authentication method is missing")
 	}
 	provided, _ := getStringParam(req.Params, "token")
 	if !verifier(provided) {
@@ -1174,16 +1183,18 @@ func authenticatePersistentDaemonConn(reader *bufio.Reader, writer *stdioFrameWr
 				Message: "invalid persistent daemon token",
 			},
 		})
-		return false
+		return errors.New("authentication token is invalid")
 	}
-	_ = writer.writeResponse(rpcResponse{
+	if err := writer.writeResponse(rpcResponse{
 		ID: req.ID,
 		OK: true,
 		Result: map[string]any{
 			"authenticated": true,
 		},
-	})
-	return true
+	}); err != nil {
+		return fmt.Errorf("authentication response write failed: %w", err)
+	}
+	return nil
 }
 
 func runRPCServerWithReader(
