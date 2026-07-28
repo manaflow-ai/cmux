@@ -15,11 +15,10 @@ struct NotificationFeedActions {
 /// Production notification-feed presentation. This view owns only UI projection
 /// state; rows receive immutable item snapshots plus ``NotificationFeedActions``.
 struct NotificationFeedView: View {
-    let items: [MobileNotificationFeedItem]
     let status: MobileNotificationFeedStatus
+    let projection: NotificationFeedProjection
+    let refreshesOnAppear: Bool
     let actions: NotificationFeedActions
-
-    @State private var projection = NotificationFeedProjection()
 
     var body: some View {
         @Bindable var projection = projection
@@ -30,7 +29,10 @@ struct NotificationFeedView: View {
             NotificationFeedList(
                 sections: projection.sections,
                 sourceItemCount: projection.sourceItemCount,
+                isSourceRebuilding: projection.isSourceRebuilding,
+                hasStaleSourceSections: projection.hasStaleSourceSections,
                 filter: projection.filter,
+                hasSearchQuery: !projection.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                 status: status,
                 actions: actions
             )
@@ -54,10 +56,8 @@ struct NotificationFeedView: View {
                 }
             }
         }
-        .onChange(of: items, initial: true) { _, items in
-            projection.update(items: items)
-        }
         .task {
+            guard refreshesOnAppear else { return }
             await actions.refresh()
         }
         .accessibilityIdentifier("MobileNotificationFeed")
@@ -90,7 +90,10 @@ private struct NotificationFeedFilterBar: View {
 private struct NotificationFeedList: View {
     let sections: [NotificationFeedDaySection]
     let sourceItemCount: Int
+    let isSourceRebuilding: Bool
+    let hasStaleSourceSections: Bool
     let filter: MobileNotificationFeedFilter
+    let hasSearchQuery: Bool
     let status: MobileNotificationFeedStatus
     let actions: NotificationFeedActions
 
@@ -111,6 +114,8 @@ private struct NotificationFeedList: View {
                         ForEach(section.items) { item in
                             NotificationFeedRow(item: item, actions: actions)
                                 .equatable()
+                                .disabled(hasStaleSourceSections)
+                                .allowsHitTesting(!hasStaleSourceSections)
                         }
                     } header: {
                         NotificationFeedDayHeader(section: section)
@@ -129,6 +134,8 @@ private struct NotificationFeedList: View {
         NotificationFeedEmptyState.resolve(
             sourceItemCount: sourceItemCount,
             filter: filter,
+            hasSearchQuery: hasSearchQuery,
+            isSourceRebuilding: isSourceRebuilding,
             status: status
         )
     }

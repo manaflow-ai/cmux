@@ -1,8 +1,6 @@
 /// One computer hidden on this iPhone.
 ///
-/// Local entries retain their paired-Mac row and can be restored offline.
-/// Legacy entries have only the marker left by an older cmux version and need
-/// one live same-account discovery to recreate their local row.
+/// Hidden entries retain their paired-Mac row and can be restored offline.
 public struct MobileHiddenComputer: Equatable, Identifiable, Sendable {
     /// Stable pairing identity used by list diffing.
     public let id: String
@@ -16,8 +14,6 @@ public struct MobileHiddenComputer: Equatable, Identifiable, Sendable {
     public let customColor: String?
     /// User-selected icon retained by a local paired-Mac row.
     public let customIcon: String?
-    /// Whether unhide requires live legacy recovery rather than a local marker change.
-    public let requiresLegacyRecovery: Bool
 
     /// Creates an immutable hidden-computer presentation value.
     public init(
@@ -26,8 +22,7 @@ public struct MobileHiddenComputer: Equatable, Identifiable, Sendable {
         instanceTag: String?,
         displayName: String,
         customColor: String?,
-        customIcon: String?,
-        requiresLegacyRecovery: Bool
+        customIcon: String?
     ) {
         self.id = id
         self.macDeviceID = macDeviceID
@@ -35,6 +30,5 @@ public struct MobileHiddenComputer: Equatable, Identifiable, Sendable {
         self.displayName = displayName
         self.customColor = customColor
         self.customIcon = customIcon
-        self.requiresLegacyRecovery = requiresLegacyRecovery
     }
 }

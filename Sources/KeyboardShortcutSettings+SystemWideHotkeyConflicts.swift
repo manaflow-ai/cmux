@@ -2,10 +2,14 @@ import Foundation
 
 /// System-wide shortcut conflict helpers extracted from `KeyboardShortcutSettings.swift`, which sits at its file-length budget.
 extension KeyboardShortcutSettings {
-    static func reservedSystemWideHotkeyShortcuts(excluding currentAction: Action) -> [StoredShortcut] {
+    static func reservedSystemWideHotkeyShortcuts(
+        excluding currentAction: Action,
+        alsoExcluding ignoredActions: Set<Action> = []
+    ) -> [StoredShortcut] {
         var reserved: [StoredShortcut] = []
 
-        for action in Action.allCases where action != currentAction {
+        for action in Action.allCases
+        where action != currentAction && !ignoredActions.contains(action) {
             let shortcut = systemWideConflictShortcut(for: action)
             guard !shortcut.isUnbound else { continue }
             if shortcut.hasChord {
@@ -34,6 +38,30 @@ extension KeyboardShortcutSettings {
         return reserved
     }
 
+    static func systemWideHotkeyConflicts(
+        with shortcut: StoredShortcut,
+        excluding action: Action,
+        alsoExcluding ignoredActions: Set<Action> = []
+    ) -> Bool {
+        guard let registration = shortcut.carbonHotKeyRegistration else {
+            return false
+        }
+        let keyCode = UInt16(registration.keyCode)
+        let modifierFlags = shortcut.modifierFlags
+        let eventCharacter = KeyboardLayout.character(forKeyCode: keyCode)
+
+        return reservedSystemWideHotkeyShortcuts(
+            excluding: action,
+            alsoExcluding: ignoredActions
+        ).contains { reserved in
+            reserved.matches(
+                keyCode: keyCode,
+                modifierFlags: modifierFlags,
+                eventCharacter: eventCharacter
+            )
+        }
+    }
+
     static func systemWideConflictShortcut(for action: Action) -> StoredShortcut {
         switch action {
         case .showHideAllWindows:
@@ -48,9 +76,5 @@ extension KeyboardShortcutSettings {
         StoredShortcut(key: "\t", command: false, shift: true, option: false, control: true),
         StoredShortcut(key: "`", command: true, shift: false, option: false, control: false),
         StoredShortcut(key: "`", command: true, shift: true, option: false, control: false),
-        // Cmd+. is AppKit's standard cancel keystroke for modal alerts and
-        // open/save panels. Refuse to register it as the global hotkey so the
-        // first instinctive "cancel" press never hides the whole app.
-        StoredShortcut(key: ".", command: true, shift: false, option: false, control: false),
     ]
 }
