@@ -17,13 +17,13 @@ struct GhosttySurfaceCallbackTests {
                 let callbackUserdata = UnsafeMutableRawPointer(bitPattern: userdataAddress)
                 let bytes = Array("focus".utf8CString)
                 bytes.withUnsafeBufferPointer { buffer in
-                    cmuxIOSSurfaceIOWriteCallback(
+                    GhosttySurfaceBridge.ioWriteCallback(
                         callbackUserdata,
                         buffer.baseAddress,
                         UInt(max(buffer.count - 1, 0))
                     )
                 }
-                cmuxIOSSurfaceRenderPresentedCallback(callbackUserdata, 42)
+                GhosttySurfaceBridge.renderPresentedCallback(callbackUserdata, 42)
                 continuation.resume(returning: Thread.isMainThread)
             }
         }

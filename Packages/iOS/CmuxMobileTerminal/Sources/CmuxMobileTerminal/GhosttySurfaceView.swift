@@ -11,26 +11,6 @@ import UIKit
 
 private let log = Logger(subsystem: "ai.manaflow.cmux.ios", category: "ghostty.surface")
 
-nonisolated func cmuxIOSSurfaceIOWriteCallback(
-    _ userdata: UnsafeMutableRawPointer?,
-    _ buf: UnsafePointer<CChar>?,
-    _ len: UInt
-) {
-    guard let userdata, let buf, len > 0 else { return }
-    let data = Data(bytes: buf, count: Int(len))
-    let bridge = Unmanaged<GhosttySurfaceBridge>.fromOpaque(userdata).takeUnretainedValue()
-    DispatchQueue.main.async {
-        bridge.surfaceView?.handleOutboundBytes(data)
-    }
-}
-
-nonisolated func cmuxIOSSurfaceRenderPresentedCallback(
-    _ userdata: UnsafeMutableRawPointer?,
-    _ token: UInt64
-) {
-    GhosttySurfaceBridge.fromOpaque(userdata)?.handleRenderPresented(token: token)
-}
-
 public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// The surface whose hidden text input is currently first responder, if any.
     ///
@@ -3668,7 +3648,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         surfaceConfig.font_size = liveFontSize
         surfaceConfig.context = GHOSTTY_SURFACE_CONTEXT_WINDOW
         surfaceConfig.io_mode = GHOSTTY_SURFACE_IO_MANUAL
-        surfaceConfig.io_write_cb = cmuxIOSSurfaceIOWriteCallback
+        surfaceConfig.io_write_cb = GhosttySurfaceBridge.ioWriteCallback
         surfaceConfig.io_write_userdata = bridgePointer
         guard let createdSurface = ghostty_surface_new(app, &surfaceConfig) else {
             retainedBridge.release()
@@ -3676,7 +3656,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
         guard ghostty_surface_set_render_presented_callback(
             createdSurface,
-            cmuxIOSSurfaceRenderPresentedCallback,
+            GhosttySurfaceBridge.renderPresentedCallback,
             bridgePointer
         ) else {
             ghostty_surface_free(createdSurface)
