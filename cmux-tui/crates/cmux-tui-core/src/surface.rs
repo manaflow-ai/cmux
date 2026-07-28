@@ -34,6 +34,8 @@ use crate::browser::{BrowserResizeWaiter, BrowserSurface, PendingBrowserResize};
 use crate::terminal_host_protocol::{FLAG_COLORS_FOLLOW, Frame, MessageKind, PROTOCOL_VERSION};
 use cmux_tui_cdp::BrowserMode;
 
+pub const DEFAULT_SCROLLBACK_LIMIT_BYTES: usize = 50_000_000;
+
 /// How to spawn surface children.
 #[derive(Debug, Clone)]
 pub struct SurfaceOptions {
@@ -45,6 +47,7 @@ pub struct SurfaceOptions {
     pub term: String,
     pub cols: u16,
     pub rows: u16,
+    /// Maximum retained scrollback backing storage in bytes.
     pub scrollback: usize,
     /// Extra environment for children (e.g. CMUX_TUI_SOCKET).
     pub extra_env: Vec<(String, String)>,
@@ -83,7 +86,7 @@ impl Default for SurfaceOptions {
                 .unwrap_or_else(|_| "xterm-256color".into()),
             cols: 80,
             rows: 24,
-            scrollback: 10_000,
+            scrollback: DEFAULT_SCROLLBACK_LIMIT_BYTES,
             extra_env: Vec::new(),
             chrome_binary: None,
             cdp_url: None,
@@ -3143,9 +3146,7 @@ mod tests {
             Terminal::new(options.cols, options.rows, options.scrollback, Callbacks::default())
                 .unwrap();
         for line in 0..20_000 {
-            terminal.vt_write(
-                format!("omp-history-{line:05} {}\r\n", "x".repeat(64)).as_bytes(),
-            );
+            terminal.vt_write(format!("omp-history-{line:05} {}\r\n", "x".repeat(64)).as_bytes());
         }
 
         let scrollback = terminal.plain_text().unwrap();

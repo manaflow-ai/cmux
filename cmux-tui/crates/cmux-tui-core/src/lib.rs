@@ -50,9 +50,9 @@ pub use surface::{
     AttachFrame, AttachFrameReceiver, AttachStream, BrowserAttachState, BrowserFrame,
     BrowserFrameStream, BrowserSource, BrowserStatus, CLEAR_HISTORY_FALLBACK_UNREPRESENTABLE_ERROR,
     CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT_ERROR, CLEAR_HISTORY_PRESERVATION_ERROR,
-    CLEAR_HISTORY_STREAM_TIMEOUT_ERROR, ClearHistoryDelivery, ClearHistoryFailure, DefaultColors,
-    RenderAttachFrame, RenderAttachStream, Surface, SurfaceKind, SurfaceOptions,
-    SurfaceRenderFrame, TerminalColors, TerminalHostConnectionState,
+    CLEAR_HISTORY_STREAM_TIMEOUT_ERROR, ClearHistoryDelivery, ClearHistoryFailure,
+    DEFAULT_SCROLLBACK_LIMIT_BYTES, DefaultColors, RenderAttachFrame, RenderAttachStream, Surface,
+    SurfaceKind, SurfaceOptions, SurfaceRenderFrame, TerminalColors, TerminalHostConnectionState,
 };
 pub use workspace_registry::{
     FrontendProjection, ProjectionCommit, RegistryCommit, RegistryEvent, RegistrySnapshot,
