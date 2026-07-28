@@ -1020,6 +1020,9 @@ jobs:
           python3 tests/test_issue_8953_zsh_prompt_wrap_guard.py
           python3 tests/test_shell_git_branch_stale_cwd.py
           python3 tests/test_shell_git_config_remote_url_parsing.py
+          if ! command -v fish >/dev/null 2>&1; then
+            HOMEBREW_NO_AUTO_UPDATE=1 brew install fish
+          fi
           command -v fish >/dev/null 2>&1 || {
             echo "fish is required for the issue #9075 shell socket regression" >&2
             exit 1
