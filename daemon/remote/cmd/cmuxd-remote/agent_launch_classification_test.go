@@ -43,3 +43,18 @@ func TestAgentLaunchNonLaunchClassification(t *testing.T) {
 		})
 	}
 }
+
+func TestClaudeTeamsVariadicValuesNeverBecomeManagementCommands(t *testing.T) {
+	for _, option := range []string{
+		"--add-dir", "--allowedTools", "--allowed-tools", "--betas",
+		"--dangerously-load-development-channels", "--disallowedTools",
+		"--disallowed-tools", "--file", "--mcp-config", "--tools",
+	} {
+		t.Run(option, func(t *testing.T) {
+			args := []string{option, "/tmp/value", "auth"}
+			if claudeTeamsLaunchIsNonLaunch(args) {
+				t.Fatalf("variadic option values were classified as management: %q", args)
+			}
+		})
+	}
+}

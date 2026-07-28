@@ -12,7 +12,7 @@ func TestClaudeTeamsShellSnapshotKeepsManagedTmuxAheadOfRebuiltPath(t *testing.T
 	if os.Getenv("CMUX_TEST_CLAUDE_TEAMS_RELAY") == "1" {
 		code := runClaudeTeamsRelay(
 			os.Getenv("CMUX_TEST_CLAUDE_TEAMS_SOCKET"),
-			[]string{"--version"},
+			[]string{"start a team"},
 			nil,
 		)
 		os.Exit(code)
@@ -191,6 +191,50 @@ func TestClaudeTeamsShellWrapperRejectsUnknownDialectBeforeReplacingShell(t *tes
 	}
 	if got := os.Getenv("SHELL"); got != unknownShell {
 		t.Fatalf("unsupported SHELL was replaced with %q", got)
+	}
+}
+
+func TestClaudeTeamsNonLaunchRelayLeavesUnknownShellUntouched(t *testing.T) {
+	if os.Getenv("CMUX_TEST_CLAUDE_TEAMS_NON_LAUNCH_RELAY") == "1" {
+		os.Exit(runClaudeTeamsRelay("/tmp/cmux-missing-test.sock", []string{"--version"}, nil))
+	}
+
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	binDir := filepath.Join(root, "bin")
+	for _, directory := range []string{home, binDir} {
+		if err := os.MkdirAll(directory, 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	shellLog := filepath.Join(root, "shell.log")
+	unknownShell := filepath.Join(root, "nu")
+	writeAgentLaunchTestExecutable(t, unknownShell, "#!/bin/sh\nexit 0\n")
+	writeAgentLaunchTestExecutable(t, filepath.Join(binDir, "claude"), `#!/bin/sh
+set -eu
+printf '%s\n' "$SHELL" > "$CMUX_TEST_CLAUDE_SHELL_LOG"
+`)
+
+	command := exec.Command(os.Args[0], "-test.run=^TestClaudeTeamsNonLaunchRelayLeavesUnknownShellUntouched$")
+	command.Env = append(os.Environ(),
+		"CMUX_TEST_CLAUDE_TEAMS_NON_LAUNCH_RELAY=1",
+		"CMUX_TEST_CLAUDE_SHELL_LOG="+shellLog,
+		"CMUX_WORKSPACE_ID=",
+		"CMUX_SURFACE_ID=",
+		"HOME="+home,
+		"PATH="+binDir+":/usr/bin:/bin",
+		"SHELL="+unknownShell,
+	)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("non-launch relay failed: %v\n%s", err, output)
+	}
+	loggedShell, err := os.ReadFile(shellLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(string(loggedShell)); got != unknownShell {
+		t.Fatalf("non-launch relay replaced SHELL with %q", got)
 	}
 }
 

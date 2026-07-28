@@ -102,6 +102,16 @@ func claudeTeamsOptionWidth(args []string, index int) (int, bool) {
 	if index+1 >= len(args) {
 		return 0, false
 	}
+	if claudeTeamsVariadicOptions[name] {
+		end := index + 1
+		for end < len(args) && !strings.HasPrefix(args[end], "-") {
+			end++
+		}
+		if end == index+1 {
+			return 0, false
+		}
+		return end - index, true
+	}
 	return 2, true
 }
 
@@ -222,6 +232,13 @@ var claudeTeamsValueOptions = map[string]bool{
 	"--resume": true, "-r": true, "--session-id": true,
 	"--setting-sources": true, "--settings": true, "--system-prompt": true,
 	"--system-prompt-file": true, "--teammate-mode": true, "--tools": true,
+}
+
+var claudeTeamsVariadicOptions = map[string]bool{
+	"--add-dir": true, "--allowedTools": true, "--allowed-tools": true,
+	"--betas": true, "--dangerously-load-development-channels": true,
+	"--disallowedTools": true, "--disallowed-tools": true, "--file": true,
+	"--mcp-config": true, "--tools": true,
 }
 
 var omoManagementCommands = map[string]bool{
