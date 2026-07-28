@@ -54,12 +54,16 @@ struct DockSplitContentView: View {
                 return store.panelIsSelectedInVisibleDockPane(panel.id)
             },
             onFocus: {
-                store.bonsplitController.focusPane(paneId)
-                store.noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow)
+                store.focusPanelFromDockInteraction(
+                    panel.id,
+                    window: NSApp.keyWindow ?? NSApp.mainWindow
+                )
             },
             onRequestPanelFocus: {
-                store.noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow)
-                store.focusPanel(panel.id)
+                store.focusPanelFromDockInteraction(
+                    panel.id,
+                    window: NSApp.keyWindow ?? NSApp.mainWindow
+                )
             },
             onResumeAgentHibernation: {
                 _ = store.resumeAgentHibernation(panelId: panel.id, focus: true)

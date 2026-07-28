@@ -12,7 +12,7 @@ extension DockSplitStore {
         reason: WorkspaceAttentionFlashReason,
         shouldFocus: Bool = false
     ) -> Bool {
-        guard let dock = liveStores.first(where: { $0.containsPanel(panelID) }),
+        guard let dock = liveStore(containingPanel: panelID),
               let panel = dock.panels[panelID],
               panel.panelType == .terminal else {
             return false
