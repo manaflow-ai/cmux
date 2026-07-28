@@ -1,5 +1,6 @@
 #if DEBUG
 import CmuxAgentChat
+import CmuxMobileRPC
 import CmuxMobileShell
 import Foundation
 import Testing
@@ -44,6 +45,20 @@ struct MobileIrohReleaseGateResponseValidatorTests {
         #expect(MobileIrohReleaseGateResponseValidator.independentEventUnsubscription(
             unsubscribed,
             expectedStreamID: streamID
+        ))
+    }
+
+    @Test
+    func freshWorkspaceEventDoesNotRequireAStreamIdentifier() {
+        let event = MobileEventEnvelope(
+            topic: "workspace.updated",
+            payloadJSON: nil,
+            streamID: nil
+        )
+
+        #expect(MobileIrohReleaseGateResponseValidator.freshWorkspaceEvent(event))
+        #expect(!MobileIrohReleaseGateResponseValidator.freshWorkspaceEvent(
+            MobileEventEnvelope(topic: "terminal.render_grid", payloadJSON: nil, streamID: nil)
         ))
     }
 
