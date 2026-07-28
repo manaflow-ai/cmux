@@ -56,6 +56,20 @@ private final class RotatingCredentialBox: @unchecked Sendable {
 @Suite(.serialized)
 struct CmxIrohBrokerCredentialPairTests {
     @Test
+    func credentialDescriptionsRedactBothTokens() {
+        let credentials = CmxIrohBrokerCredentials(
+            accessToken: "access-secret",
+            refreshToken: "refresh-secret"
+        )
+
+        for rendered in [String(describing: credentials), String(reflecting: credentials)] {
+            #expect(rendered.contains("<redacted>"))
+            #expect(!rendered.contains("access-secret"))
+            #expect(!rendered.contains("refresh-secret"))
+        }
+    }
+
+    @Test
     func revokeSendsOneConsistentCredentialSnapshot() async throws {
         let box = RotatingCredentialBox([
             (access: "access-0", refresh: "refresh-0"),

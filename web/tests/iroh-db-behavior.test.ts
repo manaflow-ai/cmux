@@ -1329,7 +1329,7 @@ describe("Iroh trust broker database behavior", () => {
       ? Option.getOrUndefined(Cause.failureOption(overCap.cause))
       : undefined;
     expect(causeError).toMatchObject({
-      _tag: "IrohQuotaExceededError",
+      _tag: "IrohConflictError",
       code: "active_binding_limit",
     });
     expect(await countActive()).toBe(IROH_ACTIVE_BINDING_SANITY_CAP);
