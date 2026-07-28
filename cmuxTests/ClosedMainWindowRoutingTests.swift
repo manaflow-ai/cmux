@@ -1611,6 +1611,58 @@ struct GhostMainWindowContextLifecycleTests {
         }
     }
 
+    @Test("Retired workspace permanently rejects retained Dock surface creation")
+    func retiredWorkspacePermanentlyRejectsRetainedDockSurfaceCreation() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let dock = workspace.dockSplit
+        let paneId = try #require(
+            dock.bonsplitController.focusedPaneId ?? dock.bonsplitController.allPaneIds.first
+        )
+        defer {
+            dock.closeAllPanels()
+            workspace.teardownAllPanels()
+            workspace.teardownRemoteConnection()
+        }
+
+        manager.finalizeAllWorkspacesForWindowClose()
+        let registryIdsAfterFinalization = Set(
+            GhosttyApp.terminalSurfaceRegistry.allSurfaces().map(\.id)
+        )
+
+        let latePanelId = dock.newSurface(
+            kind: .terminal,
+            inPane: paneId,
+            command: "/usr/bin/true",
+            focus: false
+        )
+
+        #expect(latePanelId == nil)
+        #expect(dock.panels.isEmpty)
+        #expect(Set(GhosttyApp.terminalSurfaceRegistry.allSurfaces().map(\.id)) == registryIdsAfterFinalization)
+    }
+
+    @Test("Retired workspace rejects detached remote tmux mirror panel factory")
+    func retiredWorkspaceRejectsDetachedRemoteTmuxMirrorPanelFactory() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        defer {
+            workspace.teardownAllPanels()
+            workspace.teardownRemoteConnection()
+        }
+
+        manager.finalizeAllWorkspacesForWindowClose()
+        let registryIdsAfterFinalization = Set(
+            GhosttyApp.terminalSurfaceRegistry.allSurfaces().map(\.id)
+        )
+
+        let latePanel: TerminalPanel? = workspace.makeRemoteTmuxPanePanel(onInput: { _ in })
+        defer { latePanel?.close() }
+
+        #expect(latePanel == nil)
+        #expect(Set(GhosttyApp.terminalSurfaceRegistry.allSurfaces().map(\.id)) == registryIdsAfterFinalization)
+    }
+
     @Test("Stale context key exact owner can commit its close")
     func staleContextKeyExactOwnerCanCommitItsClose() throws {
         _ = NSApplication.shared
