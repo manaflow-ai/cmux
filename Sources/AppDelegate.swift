@@ -33,16 +33,6 @@ private enum CmuxThemeNotifications {
     static let reloadConfig = Notification.Name("com.cmuxterm.themes.reload-config")
 }
 
-struct MacSentryStartupPolicy {
-    let telemetryEnabled: Bool
-    let isRunningUnderXCTest: Bool
-    let allowUnderXCTest: Bool
-
-    var shouldStart: Bool {
-        telemetryEnabled && (!isRunningUnderXCTest || allowUnderXCTest)
-    }
-}
-
 private struct WorkspaceGroupNewWorkspaceTarget {
     let groupId: UUID
     let referenceWorkspaceId: UUID
