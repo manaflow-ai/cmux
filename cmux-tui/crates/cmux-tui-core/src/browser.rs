@@ -5278,6 +5278,32 @@ mod tests {
     }
 
     #[test]
+    fn arbitrary_failure_text_cannot_grant_navigation_recovery() {
+        let (runtime, server) = runtime_accepting_mouse_dispatches(vec![]);
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        *browser.session.lock().unwrap() = Some(BrowserSession {
+            runtime: runtime.clone(),
+            target_id: "target-1".to_string(),
+            session_id: "session-1".to_string(),
+        });
+        browser.mark_failed(format!(
+            "{}untrusted transport text{}",
+            super::BROWSER_NEW_PAGE_VERIFICATION_FAILED_PREFIX,
+            super::BROWSER_VERIFICATION_FAILED_SUFFIX
+        ));
+
+        let recovery = browser.require_navigation_session();
+
+        runtime.shutdown();
+        server.join().unwrap();
+        assert!(
+            recovery.is_err(),
+            "display text that resembles a retryable failure must not grant recovery authority"
+        );
+    }
+
+    #[test]
     fn repeated_latest_frame_reads_share_the_encoded_payload() {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
@@ -7889,6 +7915,38 @@ mod tests {
     }
 
     #[test]
+    fn local_pointer_capture_has_a_bounded_worker_lease() {
+        let surface = test_surface();
+        let press = super::ActivePointerPress::new(
+            super::BrowserPointerOwner::Local,
+            u64::MAX,
+            1,
+            1,
+            1,
+            (1.0, 1.0),
+            Some(1),
+        );
+        let expiry = press
+            .compatibility_expires_at
+            .expect("local capture must schedule a balancing-release deadline");
+        let mut failures = super::BrowserWorkerErrorState::default();
+        failures.active_pointer_presses.insert("left".to_string(), press);
+
+        super::release_abandoned_pointer_presses(
+            &surface,
+            &Weak::new(),
+            surface.id,
+            &mut failures,
+            expiry,
+        );
+
+        assert!(
+            failures.active_pointer_presses.is_empty(),
+            "an orphaned local press must not remain held in Chrome indefinitely"
+        );
+    }
+
+    #[test]
     fn expired_pointer_capture_does_not_release_into_a_new_document() {
         let (runtime, server, events_rx, stop_tx) = runtime_recording_mouse_dispatches();
         let surface = test_surface();
@@ -8415,6 +8473,129 @@ mod tests {
             next_navigation.is_ok(),
             "reload must be able to start a fresh navigation after terminal failure: {next_error:?}"
         );
+    }
+
+    #[test]
+    fn document_verification_retries_share_one_worker_budget() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut ws = accept(stream).unwrap();
+            let discover = read_ws_json(&mut ws);
+            assert_eq!(discover["method"], "Target.setDiscoverTargets");
+            write_ws_json(&mut ws, json!({"id": discover["id"], "result": {}}));
+
+            let mut attempts = 0;
+            while attempts < AUTHORITY_CAPTURE_ATTEMPTS {
+                let request = match ws.read() {
+                    Ok(Message::Text(text)) => serde_json::from_str::<Value>(&text).ok(),
+                    Ok(Message::Binary(bytes)) => serde_json::from_slice::<Value>(&bytes).ok(),
+                    Ok(_) => None,
+                    Err(_) => break,
+                };
+                let Some(request) = request else { continue };
+                assert_eq!(request["method"], "Page.stopScreencast");
+                attempts += 1;
+                thread::sleep(Duration::from_millis(100));
+                if ws
+                    .send(Message::Text(
+                        json!({
+                            "id": request["id"],
+                            "error": {"message": "injected restart failure"}
+                        })
+                        .to_string()
+                        .into(),
+                    ))
+                    .is_err()
+                {
+                    break;
+                }
+            }
+            attempts
+        });
+        let runtime = super::BrowserRuntime::connect_to_endpoint(
+            &format!("ws://{addr}/devtools/browser/fake"),
+            None,
+            BrowserSource::External,
+        )
+        .unwrap();
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        *browser.session.lock().unwrap() = Some(BrowserSession {
+            runtime: runtime.clone(),
+            target_id: "target-1".to_string(),
+            session_id: "session-1".to_string(),
+        });
+        browser.store_frame(test_frame(1));
+        let navigation_epoch = browser.frame_epoch.advance_navigation();
+        handle_frame_navigated(
+            browser,
+            json!({
+                "frame": {
+                    "id": "main-frame",
+                    "loaderId": "loader-2",
+                    "url": "https://next.test"
+                }
+            }),
+            navigation_epoch,
+        );
+
+        let started = Instant::now();
+        let result = browser.authorize_document_paint_blocking(
+            "session-1",
+            "main-frame",
+            "loader-2",
+            navigation_epoch,
+        );
+        let elapsed = started.elapsed();
+
+        runtime.shutdown();
+        let attempts = server.join().unwrap();
+        assert!(result.is_err());
+        assert!(
+            elapsed < Duration::from_millis(250),
+            "verification monopolized the input worker for {elapsed:?} across {attempts} retries"
+        );
+    }
+
+    #[test]
+    fn unpainted_document_navigation_expires_to_reloadable_failure() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        let worker_done = browser.take_worker_done_for_test();
+        browser.store_frame(test_frame(1));
+        let navigation_epoch = browser.frame_epoch.advance_navigation();
+        handle_frame_navigated(
+            browser,
+            json!({
+                "frame": {
+                    "id": "main-frame",
+                    "loaderId": "loader-2",
+                    "url": "https://never-paints.test"
+                }
+            }),
+            navigation_epoch,
+        );
+
+        let deadline = Instant::now() + Duration::from_millis(500);
+        while matches!(browser.status(), BrowserStatus::Live) && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(10));
+        }
+        let status = browser.status();
+        let state = browser.state.lock().unwrap();
+        let pending_frame_epoch = state.pending_frame_epoch;
+        let pending_document_epoch = state.pending_document_epoch;
+        drop(state);
+
+        browser.kill();
+        worker_done.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(
+            matches!(status.failure(), Some(super::BrowserFailure::NewPageVerification(_))),
+            "an unpainted committed document must surface a reloadable failure: {status:?}"
+        );
+        assert_eq!(pending_frame_epoch, None);
+        assert_eq!(pending_document_epoch, None);
     }
 
     #[test]
