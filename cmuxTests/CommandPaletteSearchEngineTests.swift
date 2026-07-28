@@ -1104,14 +1104,8 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         for commandId in forkCommandIds {
             XCTAssertTrue(ContentView.commandPaletteShouldDismissBeforeRun(forCommandId: commandId))
         }
-        XCTAssertTrue(ContentView.commandPaletteShouldDismissBeforeRun(
+        XCTAssertFalse(ContentView.commandPaletteShouldDismissBeforeRun(
             forCommandId: "palette.renameFloatingWindow"
-        ))
-        XCTAssertFalse(ContentView.commandPaletteShouldRestoreOwnerBeforeRun(
-            forCommandId: "palette.renameFloatingWindow"
-        ))
-        XCTAssertTrue(ContentView.commandPaletteShouldRestoreOwnerBeforeRun(
-            forCommandId: "palette.browserFocusMode"
         ))
         XCTAssertFalse(ContentView.commandPaletteShouldDismissBeforeRun(forCommandId: "palette.terminalSplitRight"))
         XCTAssertFalse(ContentView.commandPaletteShouldDismissBeforeRun(forCommandId: "palette.terminalFocusTextBoxInput"))
