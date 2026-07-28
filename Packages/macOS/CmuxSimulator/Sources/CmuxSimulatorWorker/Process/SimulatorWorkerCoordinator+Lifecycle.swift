@@ -207,7 +207,8 @@ extension SimulatorWorkerCoordinator {
                     return baselineCapabilities
                 }
                 let accessibilityAvailable = await self.accessibilityExecutor.attach(
-                    device: SimulatorAccessibilityDevice(device)
+                    device: SimulatorAccessibilityDevice(device),
+                    deviceIdentifier: deviceIdentifier
                 )
                 guard !Task.isCancelled,
                       self.capabilityHydrationGeneration == generation,

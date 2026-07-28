@@ -134,6 +134,7 @@ extension SimulatorPaneCoordinator {
             updateLiveStatusWatcher()
         case let .display(display):
             self.display = display
+            ensureAgentCursorPresentation()
         case let .hidCapture(mode):
             hidCaptureMode = mode
         case let .accessibility(_, snapshot):

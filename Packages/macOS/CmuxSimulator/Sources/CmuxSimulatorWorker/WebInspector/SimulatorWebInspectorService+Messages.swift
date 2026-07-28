@@ -187,6 +187,7 @@ extension SimulatorWebInspectorService {
         socketReaderTask = nil
         closingSocket?.close()
         currentDeviceIdentifier = nil
+        hasReportedConnectionIdentifier = false
         cancelRefresh(with: error)
         releaseSessionWithoutMutationGate(emit: true)
         catalog.reset()

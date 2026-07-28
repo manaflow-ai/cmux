@@ -1,4 +1,5 @@
 import CmuxSimulator
+import Foundation
 
 extension SimulatorPaneCoordinator {
     /// Starts a pane-owned cursor presentation for one programmatic pointer action.
@@ -8,11 +9,16 @@ extension SimulatorPaneCoordinator {
     func beginAgentCursorPresentation(_ plan: SimulatorAgentCursorPlan) -> UInt64 {
         agentCursorGeneration &+= 1
         let generation = agentCursorGeneration
+        let origin = agentCursorPresentation?.destination ?? plan.origin
         agentCursorPresentation = SimulatorAgentCursorPresentation(
             generation: generation,
-            origin: plan.origin,
+            origin: origin,
             destination: plan.destination,
-            durationMilliseconds: plan.durationMilliseconds,
+            durationMilliseconds: simulatorAgentCursorDuration(
+                from: origin,
+                to: plan.destination,
+                actionDurationMilliseconds: plan.durationMilliseconds
+            ),
             phase: plan.beginsTouch ? .pressed : .clicked
         )
         return generation
@@ -24,15 +30,15 @@ extension SimulatorPaneCoordinator {
         token: UInt64
     ) {
         guard agentCursorPresentation?.generation == token,
-              let completionPhase = plan.completionPhase else {
+              let completionPhase = plan.completionPhase,
+              let presentation = agentCursorPresentation else {
             return
         }
-        agentCursorGeneration &+= 1
         agentCursorPresentation = SimulatorAgentCursorPresentation(
-            generation: agentCursorGeneration,
-            origin: plan.destination,
-            destination: plan.destination,
-            durationMilliseconds: 0,
+            generation: presentation.generation,
+            origin: presentation.origin,
+            destination: presentation.destination,
+            durationMilliseconds: presentation.durationMilliseconds,
             phase: completionPhase
         )
     }
@@ -42,20 +48,39 @@ extension SimulatorPaneCoordinator {
         _ plan: SimulatorAgentCursorPlan,
         token: UInt64
     ) {
-        guard agentCursorPresentation?.generation == token else { return }
-        agentCursorGeneration &+= 1
+        guard agentCursorPresentation?.generation == token,
+              let presentation = agentCursorPresentation else { return }
         agentCursorPresentation = SimulatorAgentCursorPresentation(
-            generation: agentCursorGeneration,
-            origin: plan.destination,
-            destination: plan.destination,
-            durationMilliseconds: 0,
+            generation: presentation.generation,
+            origin: presentation.origin,
+            destination: presentation.destination,
+            durationMilliseconds: presentation.durationMilliseconds,
             phase: .cancelled
         )
     }
 
-    /// Clears cursor state during device or pane lifecycle teardown.
-    func resetAgentCursorPresentation() {
+    /// Creates the workspace cursor once its first live display arrives.
+    func ensureAgentCursorPresentation() {
+        guard agentCursorPresentation == nil else { return }
         agentCursorGeneration &+= 1
-        agentCursorPresentation = nil
+        let center = SimulatorPoint(x: 0.5, y: 0.5)
+        agentCursorPresentation = SimulatorAgentCursorPresentation(
+            generation: agentCursorGeneration,
+            origin: center,
+            destination: center,
+            durationMilliseconds: 0,
+            phase: .resting
+        )
     }
+}
+
+private func simulatorAgentCursorDuration(
+    from origin: SimulatorPoint,
+    to destination: SimulatorPoint,
+    actionDurationMilliseconds: Int
+) -> Int {
+    let distance = hypot(destination.x - origin.x, destination.y - origin.y)
+    guard distance > 0.002 else { return actionDurationMilliseconds }
+    let travelMilliseconds = Int(140 + min(distance, 1) * 260)
+    return max(actionDurationMilliseconds, travelMilliseconds)
 }

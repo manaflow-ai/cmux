@@ -44,14 +44,18 @@ struct SimulatorAgentCursorOverlay: View {
         .task(id: presentation.generation) {
             position = presentation.origin
             pulseScale = 0.4
-            pulseOpacity = presentation.phase == .clicked ? 0.9 : 0
+            pulseOpacity = 0
             await Task.yield()
-            withAnimation(.linear(
+            withAnimation(.easeInOut(
                 duration: Double(presentation.durationMilliseconds) / 1_000
             )) {
                 position = presentation.destination
             }
-            if presentation.phase == .clicked {
+        }
+        .onChange(of: presentation.phase, initial: true) { _, phase in
+            pulseScale = 0.4
+            pulseOpacity = phase == .clicked ? 0.9 : 0
+            if phase == .clicked {
                 withAnimation(.easeOut(duration: 0.45)) {
                     pulseScale = 1.7
                     pulseOpacity = 0

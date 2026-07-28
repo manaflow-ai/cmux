@@ -135,6 +135,22 @@ struct SimulatorWebInspectorTargetCatalog {
         targetsByID[id]
     }
 
+    func target(selector: String) -> SimulatorWebInspectorTarget? {
+        if let exact = target(id: selector) { return exact }
+        guard let pageIdentifier = UInt64(selector) else { return nil }
+        let matches = targets.filter { $0.pageIdentifier == pageIdentifier }
+        return matches.count == 1 ? matches[0] : nil
+    }
+
+    func target(rematching previous: SimulatorWebInspectorTarget) -> SimulatorWebInspectorTarget? {
+        if let exact = target(id: previous.id) { return exact }
+        let matches = targets.filter {
+            $0.pageIdentifier == previous.pageIdentifier
+                && $0.bundleIdentifier == previous.bundleIdentifier
+        }
+        return matches.count == 1 ? matches[0] : nil
+    }
+
     @discardableResult
     private mutating func removeListing(for identifier: String) -> Bool {
         guard listings.removeValue(forKey: identifier) != nil else { return false }

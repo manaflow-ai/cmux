@@ -19,6 +19,7 @@ final class SimulatorWebInspectorService {
     var socketReaderTask: Task<Void, Never>?
     var currentDeviceIdentifier: String?
     var connectionIdentifier = UUID().uuidString
+    var hasReportedConnectionIdentifier = false
     var catalog = SimulatorWebInspectorTargetCatalog()
     var targetPublicationTask: Task<Void, Never>?
     var targetPublicationGeneration: UInt64 = 0
@@ -81,7 +82,7 @@ final class SimulatorWebInspectorService {
                     self.finishRefresh(authoritative: false)
                 }
                 do {
-                    try sendRPC(selector: "_rpc_reportIdentifier:")
+                    try reportConnectionIdentifierIfNeeded()
                     try sendRPC(selector: "_rpc_getConnectedApplications:")
                 } catch {
                     cancelRefresh(with: error)
@@ -97,7 +98,7 @@ final class SimulatorWebInspectorService {
     func attach(targetIdentifier: String) async throws -> SimulatorWebInspectorSessionStatus {
         guard socket != nil,
               let deviceIdentifier = currentDeviceIdentifier,
-              let target = catalog.target(id: targetIdentifier) else {
+              let target = catalog.target(selector: targetIdentifier) else {
             throw SimulatorWebInspectorError.targetNotFound
         }
         if session != nil { try await releaseSession(emit: false) }
@@ -114,7 +115,8 @@ final class SimulatorWebInspectorService {
             lease.release()
             throw SimulatorWebInspectorError.timedOut("target occupancy refresh")
         }
-        guard let currentTarget = refreshedTargets.first(where: { $0.id == targetIdentifier }) else {
+        guard let currentTarget = catalog.target(rematching: target),
+              refreshedTargets.contains(currentTarget) else {
             lease.release()
             throw SimulatorWebInspectorError.targetNotFound
         }
@@ -270,6 +272,7 @@ final class SimulatorWebInspectorService {
         socket?.close()
         socket = nil
         currentDeviceIdentifier = nil
+        hasReportedConnectionIdentifier = false
         targetPublicationGeneration &+= 1
         targetPublicationTask?.cancel()
         targetPublicationTask = nil
@@ -288,6 +291,7 @@ final class SimulatorWebInspectorService {
         self.socket = socket
         currentDeviceIdentifier = deviceIdentifier
         connectionIdentifier = UUID().uuidString
+        hasReportedConnectionIdentifier = false
         let messages = socket.messages
         socketReaderTask = Task { @MainActor [weak self, weak socket] in
             for await data in messages {
@@ -314,6 +318,12 @@ final class SimulatorWebInspectorService {
             transportEnded(error: error)
             throw error
         }
+    }
+
+    private func reportConnectionIdentifierIfNeeded() throws {
+        guard !hasReportedConnectionIdentifier else { return }
+        try sendRPC(selector: "_rpc_reportIdentifier:")
+        hasReportedConnectionIdentifier = true
     }
 
     func finishRefresh(authoritative: Bool) {
@@ -348,7 +358,7 @@ final class SimulatorWebInspectorService {
         }
         return .webInspector(
             deviceIdentifier: deviceIdentifier,
-            name: "\(bundleIdentifier)|\(target.id)"
+            name: "\(bundleIdentifier)|\(target.pageIdentifier)"
         )
     }
 }

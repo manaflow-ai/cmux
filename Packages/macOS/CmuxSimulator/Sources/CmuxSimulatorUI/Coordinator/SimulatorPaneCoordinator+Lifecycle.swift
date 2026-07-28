@@ -688,7 +688,6 @@ extension SimulatorPaneCoordinator {
         accessibilitySnapshot = nil
         accessibilityRows = []
         resetUIAutomationSession()
-        resetAgentCursorPresentation()
         highlightedAccessibilityNodeID = nil
         accessibilityOverlaySelectedNodeID = nil
         clearWebInspectorState()

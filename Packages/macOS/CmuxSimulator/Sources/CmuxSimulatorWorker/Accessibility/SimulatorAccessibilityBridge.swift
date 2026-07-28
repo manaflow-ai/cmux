@@ -48,21 +48,62 @@ final class SimulatorAccessibilityBridge: NSObject, @unchecked Sendable {
     }
 
     func attach(device: NSObject) -> Bool {
+        detach()
         attachedDevice = device
         do {
             try loadTranslator()
-            return device.responds(
+            let isAvailable = device.responds(
                 to: NSSelectorFromString(
                     "sendAccessibilityRequestAsync:completionQueue:completionHandler:"
                 )
             )
+            if !isAvailable { detach() }
+            return isAvailable
         } catch {
+            detach()
             return false
         }
     }
 
     func detach() {
+        resetAccessibilityConnection()
         attachedDevice = nil
+    }
+
+    /// Drops CoreSimulator's lazily-created AX transport.
+    ///
+    /// A `SimDevice` retains this connection after a translation completes.
+    /// Leaving several pane workers attached to the same UDID poisons later
+    /// translation requests, including requests from AXe. Every bounded
+    /// operation now creates the connection while holding a per-device lease
+    /// and releases it before another process can use the device.
+    func resetAccessibilityConnection() {
+        guard let attachedDevice else { return }
+        let selector = NSSelectorFromString("setAccessibilityConnection:")
+        guard attachedDevice.responds(to: selector),
+              let implementation = class_getMethodImplementation(
+                  type(of: attachedDevice),
+                  selector
+              )
+        else { return }
+        typealias Function = @convention(c) (
+            AnyObject,
+            Selector,
+            AnyObject?
+        ) -> Void
+        unsafeBitCast(implementation, to: Function.self)(
+            attachedDevice,
+            selector,
+            nil
+        )
+    }
+
+    /// Verifies that private translation reaches a platform accessibility root.
+    func probeAccessibility() throws {
+        let (translation, token) = try frontmostTranslation()
+        stampToken(on: translation, token: token)
+        let root = try platformElement(from: translation)
+        stampNestedTranslation(on: root, token: token)
     }
 
     func accessibilitySnapshot(
@@ -70,30 +111,7 @@ final class SimulatorAccessibilityBridge: NSObject, @unchecked Sendable {
     ) throws -> SimulatorAccessibilitySnapshot {
         let (translation, token) = try frontmostTranslation()
         stampToken(on: translation, token: token)
-
-        let translator = try requireTranslator()
-        let selector = NSSelectorFromString("macPlatformElementFromTranslation:")
-        guard translator.responds(to: selector),
-              let implementation = class_getMethodImplementation(type(of: translator), selector)
-        else {
-            throw SimulatorWorkerFailure.accessibilityUnavailable(
-                "The accessibility translator cannot create a macOS platform element."
-            )
-        }
-        typealias Function = @convention(c) (
-            AnyObject,
-            Selector,
-            AnyObject
-        ) -> AnyObject?
-        guard let root = unsafeBitCast(implementation, to: Function.self)(
-            translator,
-            selector,
-            translation
-        ) as? NSObject else {
-            throw SimulatorWorkerFailure.accessibilityUnavailable(
-                "The Simulator did not return a frontmost accessibility element."
-            )
-        }
+        let root = try platformElement(from: translation)
 
         stampNestedTranslation(on: root, token: token)
         let rootFrame = (root as? NSAccessibilityElement)?.accessibilityFrame() ?? .zero
@@ -125,6 +143,33 @@ final class SimulatorAccessibilityBridge: NSObject, @unchecked Sendable {
             nodeCount: Self.maximumNodeCount - remaining,
             isTruncated: traversalTruncated
         )
+    }
+
+    private func platformElement(from translation: NSObject) throws -> NSObject {
+        let translator = try requireTranslator()
+        let selector = NSSelectorFromString("macPlatformElementFromTranslation:")
+        guard translator.responds(to: selector),
+              let implementation = class_getMethodImplementation(type(of: translator), selector)
+        else {
+            throw SimulatorWorkerFailure.accessibilityUnavailable(
+                "The accessibility translator cannot create a macOS platform element."
+            )
+        }
+        typealias Function = @convention(c) (
+            AnyObject,
+            Selector,
+            AnyObject
+        ) -> AnyObject?
+        guard let root = unsafeBitCast(implementation, to: Function.self)(
+            translator,
+            selector,
+            translation
+        ) as? NSObject else {
+            throw SimulatorWorkerFailure.accessibilityUnavailable(
+                "The Simulator did not return a frontmost accessibility element."
+            )
+        }
+        return root
     }
 
     private func loadTranslator() throws {
