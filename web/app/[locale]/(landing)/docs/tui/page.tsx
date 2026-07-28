@@ -65,6 +65,9 @@ export default async function TuiDocsPage() {
         tabListLabel={t("installTabs.label")}
         unixNote={t("installTabs.unixNote")}
         windowsNote={t("installTabs.windowsNote")}
+        viewScriptLabel={t("installTabs.viewScript")}
+        copyLabel={t("installTabs.copy")}
+        copiedLabel={t("installTabs.copied")}
       />
       <p>{t("installNpx")}</p>
       <CodeBlock lang="bash">{`npx cmux`}</CodeBlock>

@@ -4798,7 +4798,10 @@
         "unix": "macOS & Linux",
         "windows": "Windows",
         "unixNote": "Installs to ~/.cmux/bin and updates your shell PATH.",
-        "windowsNote": "Installs the x64 build to %USERPROFILE%\\.cmux\\bin and updates your user PATH. Windows on Arm uses x64 emulation."
+        "windowsNote": "Installs the x64 build to %USERPROFILE%\\.cmux\\bin and updates your user PATH. Windows on Arm uses x64 emulation.",
+        "viewScript": "View install script",
+        "copy": "Copy install command",
+        "copied": "Copied"
       },
       "installNpx": "Already have Node.js? You can also run",
       "fullDocs": "Installation, keys, remote sessions, and automation",
@@ -4818,7 +4821,10 @@
         "unix": "macOS & Linux",
         "windows": "Windows",
         "unixNote": "Installs to ~/.cmux/bin and updates your shell PATH.",
-        "windowsNote": "Installs the x64 build to %USERPROFILE%\\.cmux\\bin and updates your user PATH. Windows on Arm uses x64 emulation."
+        "windowsNote": "Installs the x64 build to %USERPROFILE%\\.cmux\\bin and updates your user PATH. Windows on Arm uses x64 emulation.",
+        "viewScript": "View install script",
+        "copy": "Copy install command",
+        "copied": "Copied"
       },
       "installNpx": "If Node.js is already installed, you can run cmux without installing it permanently:",
       "platforms": "Packaged builds support Apple Silicon and Intel Macs, x64 and Arm64 Linux, and x64 Windows. Windows on Arm runs the x64 build through emulation. Building from source requires Rust, Zig 0.15.2, and the repository's Ghostty submodule.",

@@ -51,25 +51,17 @@ export default async function TuiPage() {
           </h1>
           <p className="mt-4 text-lg leading-relaxed">{t("workflowTitle")}</p>
           <p className="mt-2 text-base leading-relaxed text-muted">{t("intro")}</p>
-          <div className="mt-5 flex flex-wrap items-center gap-3">
-            <a
-              href="#install"
-              className="rounded-full bg-foreground px-5 py-2.5 text-[15px] font-medium text-background transition-opacity hover:opacity-80"
-            >
-              {t("runButton")}
-            </a>
-            <Link
-              href="/docs/tui"
-              className="rounded-full border border-border px-5 py-2.5 text-[15px] font-medium transition-colors hover:bg-code-bg"
-            >
-              {t("docsButton")}
-            </Link>
-            <a
-              href="https://github.com/manaflow-ai/cmux/tree/main/cmux-tui"
-              className="px-1 py-2 text-[15px] text-muted underline decoration-link-underline underline-offset-4 transition-colors hover:text-foreground"
-            >
-              {t("sourceButton")} <span aria-hidden>↗</span>
-            </a>
+          <div id="install" className="scroll-mt-20">
+            <TuiInstallTabs
+              unixLabel={t("installTabs.unix")}
+              windowsLabel={t("installTabs.windows")}
+              tabListLabel={t("installTabs.label")}
+              unixNote={t("installTabs.unixNote")}
+              windowsNote={t("installTabs.windowsNote")}
+              viewScriptLabel={t("installTabs.viewScript")}
+              copyLabel={t("installTabs.copy")}
+              copiedLabel={t("installTabs.copied")}
+            />
           </div>
         </section>
 
@@ -111,27 +103,6 @@ export default async function TuiPage() {
             {t("screenshotCaption")}
           </figcaption>
         </figure>
-
-        <section id="install" className="mb-10 scroll-mt-20">
-          <h2 className="mb-3 text-xs font-medium tracking-tight text-muted">
-            {t("installEyebrow")}
-          </h2>
-          <p className="mb-1 font-medium">{t("installTitle")}</p>
-          <p className="text-[15px] leading-relaxed text-muted">
-            {t("installBody")}
-          </p>
-          <TuiInstallTabs
-            unixLabel={t("installTabs.unix")}
-            windowsLabel={t("installTabs.windows")}
-            tabListLabel={t("installTabs.label")}
-            unixNote={t("installTabs.unixNote")}
-            windowsNote={t("installTabs.windowsNote")}
-          />
-          <p className="mt-4 text-[13px] text-muted">
-            {t("installNpx")}{" "}
-            <code className="font-mono text-foreground">npx cmux</code>
-          </p>
-        </section>
 
         <section className="mb-10">
           <h2 className="mb-3 text-xs font-medium tracking-tight text-muted">
