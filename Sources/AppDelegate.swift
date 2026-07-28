@@ -15149,6 +15149,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         handleCustomShortcut(event: event)
     }
 
+    /// Routes a synthetic shortcut through the same production handler while
+    /// supplying the window already resolved by the socket command. Headless
+    /// automation cannot rely on AppKit establishing `keyWindow`.
+    func debugHandleCustomShortcut(event: NSEvent, preferredWindow: NSWindow?) -> Bool {
+        let previousWindow = debugShortcutRoutingFocusedWindowOverrideForTesting.window
+        debugSetShortcutRoutingFocusedWindowForTesting(preferredWindow)
+        defer { debugSetShortcutRoutingFocusedWindowForTesting(previousWindow) }
+        return handleCustomShortcut(event: event)
+    }
+
     // Debug/test hook: mirrors local monitor routing (keyDown + keyUp lifecycle).
     func debugHandleShortcutMonitorEvent(event: NSEvent) -> Bool {
         if event.type == .systemDefined {

@@ -11197,7 +11197,8 @@ class TerminalController {
             // Socket-driven shortcut simulation should reuse the exact same matching logic as the
             // app-level shortcut monitor (so tests are hermetic), while still falling back to the
             // normal responder chain for plain typing.
-            if let delegate = AppDelegate.shared, delegate.debugHandleCustomShortcut(event: keyDownEvent) {
+            if let delegate = AppDelegate.shared,
+               delegate.debugHandleCustomShortcut(event: keyDownEvent, preferredWindow: targetWindow) {
                 result = "OK"
                 return
             }
