@@ -853,7 +853,8 @@ final class ClaudeHookSessionStore {
         allowsNewSessionReplacement: Bool = false,
         expectedCodexPID: Int? = nil,
         expectedCodexProcessLeaseId: String? = nil,
-        expectedCodexProcessStartIdentity: CodexProcessStartIdentity? = nil
+        expectedCodexProcessStartIdentity: CodexProcessStartIdentity? = nil,
+        allowTerminatedRecordedCodexOwner: Bool = false
     ) throws -> Bool {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return false }
@@ -865,7 +866,9 @@ final class ClaudeHookSessionStore {
                    incomingPID: expectedCodexPID,
                    incomingProcessLeaseId: expectedCodexProcessLeaseId,
                    incomingProcessStartIdentity:
-                       expectedCodexProcessStartIdentity
+                       expectedCodexProcessStartIdentity,
+                   allowTerminatedRecordedOwner:
+                       allowTerminatedRecordedCodexOwner
                ) {
                 return false
             }
@@ -1726,7 +1729,8 @@ final class ClaudeHookSessionStore {
         fingerprint: String,
         expectedCodexPID: Int? = nil,
         expectedCodexProcessLeaseId: String? = nil,
-        expectedCodexProcessStartIdentity: CodexProcessStartIdentity? = nil
+        expectedCodexProcessStartIdentity: CodexProcessStartIdentity? = nil,
+        allowTerminatedRecordedCodexOwner: Bool = false
     ) throws -> Bool {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return false }
@@ -1740,7 +1744,9 @@ final class ClaudeHookSessionStore {
                    incomingPID: expectedCodexPID,
                    incomingProcessLeaseId: expectedCodexProcessLeaseId,
                    incomingProcessStartIdentity:
-                       expectedCodexProcessStartIdentity
+                       expectedCodexProcessStartIdentity,
+                   allowTerminatedRecordedOwner:
+                       allowTerminatedRecordedCodexOwner
                ) {
                 return false
             }
@@ -31285,7 +31291,10 @@ export default CMUXSessionRestore;
             guard let fingerprint else { return true }
             return (try? store.recentlyEmittedNotification(sessionId: sessionId, fingerprint: fingerprint)) != true
         }
-        func markNotificationSent(fingerprint: String?) {
+        func markNotificationSent(
+            fingerprint: String?,
+            allowTerminatedRecordedCodexOwner: Bool = false
+        ) {
             guard let fingerprint else { return }
             try? store.markNotificationEmitted(
                 sessionId: sessionId,
@@ -31293,7 +31302,9 @@ export default CMUXSessionRestore;
                 expectedCodexPID: expectedCodexPID,
                 expectedCodexProcessLeaseId: expectedCodexProcessLeaseId,
                 expectedCodexProcessStartIdentity:
-                    expectedCodexProcessStartIdentity
+                    expectedCodexProcessStartIdentity,
+                allowTerminatedRecordedCodexOwner:
+                    allowTerminatedRecordedCodexOwner
             )
         }
         func resolveAgentHookTarget(mapped: ClaudeHookSessionRecord?) -> (workspaceId: String, surfaceId: String)? {
@@ -31938,7 +31949,9 @@ export default CMUXSessionRestore;
             }
 
         case .stop:
-            let preparedSession = preparedMappedSession()
+            let preparedSession = preparedMappedSession(
+                allowTerminatedRecordedOwner: true
+            )
             guard preparedSession.accepted else {
                 rejectStaleCodexProcessEvent()
                 return
@@ -32096,7 +32109,8 @@ export default CMUXSessionRestore;
                     expectedCodexProcessLeaseId:
                         expectedCodexProcessLeaseId,
                     expectedCodexProcessStartIdentity:
-                        expectedCodexProcessStartIdentity
+                        expectedCodexProcessStartIdentity,
+                    allowTerminatedRecordedCodexOwner: true
                 )) ?? (staleProcess: false, nested: false)
                 if recordResult.staleProcess {
                     rejectStaleCodexProcessEvent()
@@ -32135,7 +32149,8 @@ export default CMUXSessionRestore;
                     expectedCodexProcessLeaseId:
                         expectedCodexProcessLeaseId,
                     expectedCodexProcessStartIdentity:
-                        expectedCodexProcessStartIdentity
+                        expectedCodexProcessStartIdentity,
+                    allowTerminatedRecordedCodexOwner: true
                 )
                 if acceptedStopUpdate == false {
                     rejectStaleCodexProcessEvent()
@@ -32214,7 +32229,10 @@ export default CMUXSessionRestore;
                         env: env
                     )
 #endif
-                    markNotificationSent(fingerprint: notificationFingerprint)
+                    markNotificationSent(
+                        fingerprint: notificationFingerprint,
+                        allowTerminatedRecordedCodexOwner: true
+                    )
                 } catch {
 #if DEBUG
                     agentHookDebugLog(

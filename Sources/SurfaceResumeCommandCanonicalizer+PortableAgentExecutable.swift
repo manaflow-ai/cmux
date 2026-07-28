@@ -120,7 +120,13 @@ extension SurfaceResumeCommandCanonicalizer {
                     fallingBackTo: executable
                 ),
                 preserveCapturedExecutable: true,
-                renderPortable: { AgentResumeArgv.renderedPortableCodexResumeShellCommand(parts: $0, quote: $1) },
+                renderPortable: {
+                    AgentResumeArgv.renderedPortableCodexResumeShellCommand(
+                        parts: $0,
+                        generatedSystemEnvPrefix: true,
+                        quote: $1
+                    )
+                },
                 wrapInPortableShell: { AgentResumeArgv.portableCodexResumeShellCommand(posixCommand: $0) }
             )
         }
