@@ -70,6 +70,8 @@ enum SSHPTYAttachStartupCommandBuilder {
     private static func retryingAttachLines(command: String, reauthenticates: Bool) -> [String] {
         // Retryable 254|255 is owned by SSHPTYAttachExitCode in the CLI target; keep in sync with CMUXCLI.sshPTYAttachRetryLoopLines.
         let reauthenticate = reauthenticates ? "cmux_ssh_attach_reauth_required=1" : ":"
+        // Initial foreground auth is a reconnect phase, so boot-time network failures share this loop.
+        let initialReauthentication = reauthenticates ? 1 : 0
         return [
             "cmux_ssh_attach_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-}\"",
             "case \"$cmux_ssh_attach_reconnect_limit\" in '') cmux_ssh_attach_reconnect_limit='∞'; cmux_ssh_attach_reconnect_unbounded=1 ;; *[!0-9]*) cmux_ssh_attach_reconnect_limit=20; cmux_ssh_attach_reconnect_unbounded=0 ;; *) cmux_ssh_attach_reconnect_unbounded=0 ;; esac",
@@ -80,7 +82,7 @@ enum SSHPTYAttachStartupCommandBuilder {
             "if [ \"$cmux_ssh_attach_reconnect_delay\" -gt \"$cmux_ssh_attach_reconnect_max_delay\" ]; then cmux_ssh_attach_reconnect_delay=\"$cmux_ssh_attach_reconnect_max_delay\"; fi",
             "cmux_ssh_attach_reconnect_initial_delay=\"$cmux_ssh_attach_reconnect_delay\"",
             "cmux_ssh_attach_retry=0",
-            "cmux_ssh_attach_reauth_required=0",
+            "cmux_ssh_attach_reauth_required=\(initialReauthentication)",
             "while :; do",
             "  if [ \"$cmux_ssh_attach_reauth_required\" -eq 1 ]; then",
             "    cmux_ssh_attach_foreground_auth",
@@ -115,9 +117,6 @@ enum SSHPTYAttachStartupCommandBuilder {
             "\"$cmux_ssh_attach_cli\" --socket \"$CMUX_SOCKET_PATH\" rpc workspace.remote.foreground_auth_ready \"$cmux_ssh_auth_payload\" >/dev/null 2>&1 || true",
             "unset cmux_ssh_auth_payload cmux_ssh_auth_status cmux_ssh_auth_token",
             "}",
-            "cmux_ssh_attach_foreground_auth",
-            "cmux_ssh_auth_status=$?",
-            "if [ \"$cmux_ssh_auth_status\" -ne 0 ]; then exit \"$cmux_ssh_auth_status\"; fi",
         ]
     }
 

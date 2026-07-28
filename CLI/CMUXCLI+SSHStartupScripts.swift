@@ -330,9 +330,7 @@ extension CMUXCLI {
             scriptLines.append(trimmedControlPathPreflight)
         }
         if let trimmedOneTimeCommand, !trimmedOneTimeCommand.isEmpty {
-            scriptLines.append("trap 'cmux_ssh_cleanup_password' EXIT")
             scriptLines += ["cmux_ssh_foreground_auth() {", trimmedOneTimeCommand, "}"]
-            scriptLines += ["( cmux_ssh_foreground_auth )", "cmux_ssh_auth_status=$?", "if [ \"$cmux_ssh_auth_status\" -ne 0 ]; then exit \"$cmux_ssh_auth_status\"; fi", "trap - EXIT"]
         }
         let reconnectConfiguration = retryPTYAttachStatus ? [
             "cmux_ssh_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-}\"",
@@ -357,7 +355,8 @@ extension CMUXCLI {
             "export CMUX_SSH_STARTUP_PID",
         ] + reconnectConfiguration + [
             "cmux_ssh_retry=0",
-            "cmux_ssh_reauth_required=0",
+            // Initial foreground auth is a reconnect phase, so boot-time network failures share this loop.
+            "cmux_ssh_reauth_required=\(hasOneTimeCommand ? 1 : 0)",
             "CMUX_SSH_CHILD_PID=",
             "CMUX_SSH_PENDING_SIGNAL=",
             "cmux_ssh_note() { if [ -t 2 ]; then printf \"$@\" >&2 || true; fi; }",
