@@ -152,6 +152,24 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 "try await clock.sleep(until: deadline)\n"
                 "#expect(finished)\n"
             ),
+            "continuous-clock-parameter.swift": (
+                "func verify(clock: ContinuousClock) async throws {\n"
+                "    try await clock.sleep(until: deadline)\n"
+                "    #expect(finished)\n"
+                "}\n"
+            ),
+            "qualified-suspending-clock-parameter.swift": (
+                "func verify(_ clock: Swift.SuspendingClock) async throws {\n"
+                "    try await clock.sleep(until: deadline)\n"
+                "    #expect(finished)\n"
+                "}\n"
+            ),
+            "continuous-clock-closure-parameter.swift": (
+                "run { (clock: ContinuousClock) in\n"
+                "    try await clock.sleep(until: deadline)\n"
+                "    #expect(finished)\n"
+                "}\n"
+            ),
             "posix.swift": "sleep(1)\n#expect(finished)\n",
             "darwin.swift": "Darwin.sleep(1)\n#expect(finished)\n",
             "glibc.swift": "Glibc.sleep(1)\n#expect(finished)\n",
@@ -183,6 +201,15 @@ class DeterminismCheckerCLITests(unittest.TestCase):
             ),
             "node-timer-alias.ts": (
                 'import { setTimeout as sleep } from "node:timers/promises"\n'
+                "await sleep(1)\n"
+                "expect(finished).toBe(true)\n"
+            ),
+            "timer-alias-after-for-shadow.ts": (
+                'import { setTimeout as sleep } from "timers/promises"\n'
+                "for (const sleep of fakeSleeps) {\n"
+                "    await sleep(1)\n"
+                "    expect(fakeFinished).toBe(true)\n"
+                "}\n"
                 "await sleep(1)\n"
                 "expect(finished).toBe(true)\n"
             ),
@@ -525,7 +552,11 @@ class DeterminismCheckerCLITests(unittest.TestCase):
         for relative_path in fixtures:
             line = (
                 6
-                if relative_path == "deferred-nonlocal-write.py"
+                if relative_path
+                in (
+                    "deferred-nonlocal-write.py",
+                    "timer-alias-after-for-shadow.ts",
+                )
                 else
                 4
                 if relative_path
@@ -562,6 +593,9 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "qualified-typed-continuous-clock.swift",
                     "typed-mutable-continuous-clock.swift",
                     "inferred-mutable-suspending-clock.swift",
+                    "continuous-clock-parameter.swift",
+                    "qualified-suspending-clock-parameter.swift",
+                    "continuous-clock-closure-parameter.swift",
                     "node-timer-alias.ts",
                     "timer-delay-alias.ts",
                     "node-timer-namespace.ts",
@@ -701,6 +735,13 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "        await delay(1)\n"
                     "        expect(completed).toBe(true)\n"
                     "    },\n"
+                    "}\n"
+                ),
+                "timer-alias-for-shadow.ts": (
+                    'import { setTimeout as sleep } from "timers/promises"\n'
+                    "for (const sleep of fakeSleeps) {\n"
+                    "    await sleep(1)\n"
+                    "    expect(completed).toBe(true)\n"
                     "}\n"
                 ),
                 "spaced-members.ts": (
