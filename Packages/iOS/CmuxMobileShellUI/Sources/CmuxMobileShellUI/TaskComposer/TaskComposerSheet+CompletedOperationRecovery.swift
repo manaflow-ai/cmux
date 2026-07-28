@@ -29,6 +29,7 @@ extension TaskComposerSheet {
         }
         let result = await submitTaskComposer(
             snapshot.macDeviceID,
+            selectedMachine?.instanceTag,
             workspaceCreateSpec(for: snapshot)
         ) {
             submissionPhase = .committed

@@ -3,35 +3,31 @@ import CmuxMobileShell
 import CmuxMobileSupport
 import SwiftUI
 
-/// Immutable hidden-computer row with offline unhide and legacy recovery actions.
+/// Immutable hidden-computer row with an offline unhide action.
 struct HiddenComputerRow: View {
     let computer: MobileHiddenComputer
-    let isRecoveringLegacyComputer: Bool
     let unhide: @MainActor () async -> Void
-    let recoverLegacyComputer: @MainActor () async -> MobileHiddenComputerRecoveryResult
 
     @State private var actionTask: Task<Void, Never>?
-    @State private var alertMessage: String?
 
     var body: some View {
         HStack(spacing: 12) {
             avatar
-            VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
                 Text(computer.displayName)
                     .font(.headline)
                     .lineLimit(1)
-                if computer.requiresLegacyRecovery {
-                    Text(L10n.string(
-                        "mobile.computers.hidden.legacyStatus",
-                        defaultValue: "Needs this Mac online once"
-                    ))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                if computer.instanceTag != nil,
+                   let buildLabel = MacBuildChannel().label(
+                       bundleID: nil,
+                       tag: computer.instanceTag
+                   ) {
+                    ComputerBuildBadge(label: buildLabel)
                 }
             }
             Spacer(minLength: 8)
             Button(action: performUnhide) {
-                if isBusy {
+                if actionTask != nil {
                     ProgressView().controlSize(.small)
                 } else {
                     Text(L10n.string(
@@ -40,24 +36,11 @@ struct HiddenComputerRow: View {
                     ))
                 }
             }
-            .disabled(isBusy)
+            .disabled(actionTask != nil)
             .buttonStyle(.borderless)
             .accessibilityIdentifier("MobileComputerUnhide-\(computer.id)")
         }
         .padding(.vertical, 4)
-        .alert(
-            L10n.string(
-                "mobile.computers.unhideFailedTitle",
-                defaultValue: "Couldn't unhide computer"
-            ),
-            isPresented: alertPresented
-        ) {
-            Button(L10n.string("mobile.common.ok", defaultValue: "OK"), role: .cancel) {
-                alertMessage = nil
-            }
-        } message: {
-            Text(alertMessage ?? "")
-        }
         .onDisappear {
             actionTask?.cancel()
             actionTask = nil
@@ -89,34 +72,11 @@ struct HiddenComputerRow: View {
         .accessibilityHidden(true)
     }
 
-    private var isBusy: Bool {
-        actionTask != nil
-            || (computer.requiresLegacyRecovery && isRecoveringLegacyComputer)
-    }
-
-    private var alertPresented: Binding<Bool> {
-        Binding(
-            get: { alertMessage != nil },
-            set: { if !$0 { alertMessage = nil } }
-        )
-    }
-
     private func performUnhide() {
-        guard !isBusy else { return }
+        guard actionTask == nil else { return }
         actionTask = Task { @MainActor in
             defer { actionTask = nil }
-            if computer.requiresLegacyRecovery {
-                let result = await recoverLegacyComputer()
-                guard !Task.isCancelled else { return }
-                if result == .notFound {
-                    alertMessage = L10n.string(
-                        "mobile.computers.unhideFailedMessage",
-                        defaultValue: "This computer was removed with an older version of cmux. Open cmux on the Mac, make sure it is online and signed in to this account, then try again."
-                    )
-                }
-            } else {
-                await unhide()
-            }
+            await unhide()
         }
     }
 }
@@ -132,7 +92,7 @@ enum HiddenComputersCopy {
     static var footer: String {
         L10n.string(
             "mobile.computers.hidden.footer",
-            defaultValue: "Hidden computers stay signed in to your account and are only hidden on this iPhone. A computer removed with an older version of cmux needs its Mac online and signed in once to restore."
+            defaultValue: "Hidden computers stay signed in to your account and are only hidden on this iPhone."
         )
     }
 }
@@ -141,17 +101,13 @@ enum HiddenComputersCopy {
 /// snapshots plus closures only; the store stays at the caller's boundary.
 struct HiddenComputersRows: View {
     let computers: [MobileHiddenComputer]
-    let isRecoveringLegacyComputer: Bool
     let unhide: @MainActor (MobileHiddenComputer) async -> Void
-    let recoverLegacyComputer: @MainActor (MobileHiddenComputer) async -> MobileHiddenComputerRecoveryResult
 
     var body: some View {
         ForEach(computers) { computer in
             HiddenComputerRow(
                 computer: computer,
-                isRecoveringLegacyComputer: isRecoveringLegacyComputer,
-                unhide: { await unhide(computer) },
-                recoverLegacyComputer: { await recoverLegacyComputer(computer) }
+                unhide: { await unhide(computer) }
             )
         }
     }
@@ -161,17 +117,13 @@ struct HiddenComputersRows: View {
 /// the disconnected shell.
 struct HiddenComputersSection: View {
     let computers: [MobileHiddenComputer]
-    let isRecoveringLegacyComputer: Bool
     let unhide: @MainActor (MobileHiddenComputer) async -> Void
-    let recoverLegacyComputer: @MainActor (MobileHiddenComputer) async -> MobileHiddenComputerRecoveryResult
 
     var body: some View {
         Section {
             HiddenComputersRows(
                 computers: computers,
-                isRecoveringLegacyComputer: isRecoveringLegacyComputer,
-                unhide: unhide,
-                recoverLegacyComputer: recoverLegacyComputer
+                unhide: unhide
             )
         } header: {
             Text(HiddenComputersCopy.title)

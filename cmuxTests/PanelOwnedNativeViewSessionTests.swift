@@ -67,12 +67,14 @@ final class PanelOwnedNativeViewSessionTests: XCTestCase {
 
         let firstView = session.view(
             panel: panel,
+            revision: panel.previewRevision,
             isVisibleInUI: true,
             backgroundColor: .clear,
             drawsBackground: false
         )
         let remountedView = session.view(
             panel: panel,
+            revision: panel.previewRevision,
             isVisibleInUI: true,
             backgroundColor: .clear,
             drawsBackground: false
@@ -109,6 +111,7 @@ final class PanelOwnedNativeViewSessionTests: XCTestCase {
         let session = FilePreviewQuickLookSession()
         let container = try XCTUnwrap(session.view(
             panel: firstPanel,
+            revision: firstPanel.previewRevision,
             isVisibleInUI: true,
             backgroundColor: .clear,
             drawsBackground: false
@@ -133,6 +136,7 @@ final class PanelOwnedNativeViewSessionTests: XCTestCase {
         session.update(
             container,
             panel: secondPanel,
+            revision: secondPanel.previewRevision,
             isVisibleInUI: true,
             backgroundColor: .clear,
             drawsBackground: false

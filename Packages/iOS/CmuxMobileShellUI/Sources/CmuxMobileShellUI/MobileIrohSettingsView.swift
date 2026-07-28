@@ -54,6 +54,22 @@ struct MobileIrohSettingsView: View {
             }
 
             Section {
+                Toggle(isOn: Binding(
+                    get: { model.snapshot.pathPreference == .relayOnly },
+                    set: { model.setPathPreference($0 ? .relayOnly : .automatic) }
+                )) {
+                    Text(L10n.string("mobile.iroh.relayOnly", defaultValue: "Relay Only"))
+                }
+                .disabled(model.isMutating)
+                .accessibilityIdentifier("MobileIrohRelayOnly")
+            } footer: {
+                Text(L10n.string(
+                    "mobile.iroh.relayOnly.footer",
+                    defaultValue: "Keeps this device's Iroh connections on cmux relays instead of direct or local-network paths. Applies on the next reconnect."
+                ))
+            }
+
+            Section {
                 ForEach(model.snapshot.customRelays) { relay in
                     HStack {
                         VStack(alignment: .leading) {
@@ -393,6 +409,11 @@ private extension MobileIrohSettingsView {
             L10n.string(
                 "mobile.iroh.diagnostics.failure.connectionClosed",
                 defaultValue: "Connection Closed"
+            )
+        case .some(.sendQueueOverflow):
+            L10n.string(
+                "mobile.iroh.diagnostics.failure.sendQueueOverflow",
+                defaultValue: "Send Queue Overflow"
             )
         case .some(.superseded):
             L10n.string(
