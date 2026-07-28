@@ -2464,8 +2464,8 @@ struct MainWindowKeyObservationOwnershipTests {
 }
 
 @MainActor
-@Suite("Workspace shared agent observer retirement", .serialized)
-struct WorkspaceSharedAgentObserverRetirementTests {
+@Suite("Workspace process-wide observer retirement", .serialized)
+struct WorkspaceProcessWideObserverRetirementTests {
     @Test("Retirement rejects queued and future shared agent index publications")
     func retirementRejectsQueuedAndFutureSharedAgentIndexPublications() async throws {
         let manager = TabManager()
@@ -2514,6 +2514,61 @@ struct WorkspaceSharedAgentObserverRetirementTests {
         }
         await drainMainActorQueue()
         #expect(publicationCount == countAfterRetirement)
+    }
+
+    @Test("Retirement rejects queued and future feature flag publications")
+    func retirementRejectsQueuedAndFutureFeatureFlagPublications() async throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        defer {
+            if !manager.isFinalizedForWindowClose {
+                manager.finalizeAllWorkspacesForWindowClose()
+            }
+            workspace.teardownAllPanels()
+            workspace.teardownRemoteConnection()
+        }
+
+        workspace.applySurfaceTabBarButtons(
+            [.newTerminal],
+            sourcePath: nil,
+            globalConfigPath: "/tmp/cmux-test-global-config.json",
+            terminalCommandSourcePaths: [:],
+            workspaceCommands: [:]
+        )
+        #expect(!workspace.bonsplitController.configuration.appearance.splitButtons.isEmpty)
+
+        var configuration = workspace.bonsplitController.configuration
+        configuration.appearance.splitButtons = []
+        workspace.bonsplitController.configuration = configuration
+        NotificationCenter.default.post(
+            name: .cmuxFeatureFlagsDidChange,
+            object: CmuxFeatureFlags.shared
+        )
+        await drainMainActorQueue()
+        #expect(!workspace.bonsplitController.configuration.appearance.splitButtons.isEmpty)
+
+        configuration = workspace.bonsplitController.configuration
+        configuration.appearance.splitButtons = []
+        workspace.bonsplitController.configuration = configuration
+
+        // Queue one final refresh, then retire before its MainActor task can
+        // mutate a workspace whose window has already closed.
+        NotificationCenter.default.post(
+            name: .cmuxFeatureFlagsDidChange,
+            object: CmuxFeatureFlags.shared
+        )
+        workspace.retireFromOwningTabManager()
+        await drainMainActorQueue()
+        #expect(workspace.bonsplitController.configuration.appearance.splitButtons.isEmpty)
+
+        for _ in 0..<3 {
+            NotificationCenter.default.post(
+                name: .cmuxFeatureFlagsDidChange,
+                object: CmuxFeatureFlags.shared
+            )
+        }
+        await drainMainActorQueue()
+        #expect(workspace.bonsplitController.configuration.appearance.splitButtons.isEmpty)
     }
 
     private func drainMainActorQueue() async {
