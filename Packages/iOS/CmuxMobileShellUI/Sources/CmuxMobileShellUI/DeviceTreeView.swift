@@ -158,7 +158,10 @@ struct DeviceTreeView: View {
 
     private func hideComputer(_ computer: MacComputerSnapshot) {
         Task {
-            await store.hideMac(macDeviceID: computer.deviceId)
+            await store.hideStoredPairedMacEntries(
+                representativeID: computer.id,
+                aliasIDs: computer.aliasIDs
+            )
             await reload()
         }
     }

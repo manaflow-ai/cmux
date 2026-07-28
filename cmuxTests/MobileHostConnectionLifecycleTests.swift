@@ -364,6 +364,42 @@ extension MobileHostAuthorizationTests {
             "notification.feed.v1",
         ]))
     }
+    @Test func testWorkspaceChangesCapabilityFollowsFeatureFlag() {
+        let enabled = MobileHostService.mobileHostCapabilities(includingWorkspaceChanges: true)
+        let disabled = MobileHostService.mobileHostCapabilities(includingWorkspaceChanges: false)
+
+        #expect(enabled.contains(MobileHostService.workspaceChangesCapability))
+        #expect(!disabled.contains(MobileHostService.workspaceChangesCapability))
+        // The flag removes exactly the one capability and nothing else.
+        #expect(
+            enabled.filter { $0 != MobileHostService.workspaceChangesCapability } == disabled
+        )
+    }
+
+    @Test @MainActor func testMobileWorkspaceChangesFlagDefaultsAndRemoteValue() {
+        let suiteName = "cmux-tests-mobile-changes-flag-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        var remoteValue: Any?
+        let flags = CmuxFeatureFlags(
+            defaults: defaults,
+            remoteFlagValueProvider: { _ in remoteValue }
+        )
+
+        // Without a remote value the per-build default applies (DEBUG on for
+        // dogfood, Release off); tests compile DEBUG.
+        #expect(flags.isMobileWorkspaceChangesEnabled)
+
+        remoteValue = false
+        flags.applyLoadedFlags()
+        #expect(!flags.isMobileWorkspaceChangesEnabled)
+
+        remoteValue = true
+        flags.applyLoadedFlags()
+        #expect(flags.isMobileWorkspaceChangesEnabled)
+    }
+
     // MARK: - Mobile workspace.action sub-action gate
     @Test func testMobileWorkspaceActionGateAllowsIdentityAndReadStateActions() {
         for action in [

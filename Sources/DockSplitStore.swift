@@ -314,6 +314,7 @@ final class DockSplitStore: BonsplitDelegate {
         environment: [String: String] = [:],
         tmuxStartCommand: String? = nil,
         initialDividerPosition: CGFloat? = nil,
+        preferredProfileID: UUID? = nil,
         focus: Bool = true
     ) -> UUID? {
         ensureLoaded()
@@ -328,7 +329,8 @@ final class DockSplitStore: BonsplitDelegate {
                 requestedWorkingDirectory: workingDirectory,
                 sourcePanelId: source
             ),
-            tmuxStartCommand: tmuxStartCommand
+            tmuxStartCommand: tmuxStartCommand,
+            preferredProfileID: preferredProfileID
         ) else { return nil }
 
         guard let source, let sourcePaneId = paneId(forPanelId: source) else {
@@ -636,11 +638,9 @@ final class DockSplitStore: BonsplitDelegate {
         let inheritedDirectory = settings.value(for: settingsCatalog.app.workspaceInheritWorkingDirectory)
             ? sourcePanelId.flatMap { inheritedLocalTerminalWorkingDirectory(for: $0) }
             : nil
-        return TerminalWorkingDirectoryResolver.firstAvailable([
-            requestedWorkingDirectory,
-            inheritedDirectory,
-            baseDirectory,
-        ]) ?? baseDirectory
+        if let requestedDirectory = TerminalWorkingDirectoryResolver.normalized(requestedWorkingDirectory) { return requestedDirectory }
+        if let inheritedDirectory, !inheritedDirectory.isEmpty { return inheritedDirectory }
+        return baseDirectory
     }
 
     // MARK: - Config loading
