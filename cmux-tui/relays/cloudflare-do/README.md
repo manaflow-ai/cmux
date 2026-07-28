@@ -98,39 +98,45 @@ target/debug/cmux-tui daemon --session dev \
   --relay-ticket-file "$RELAY_STATE/register.ticket"
 ```
 
-For first enrollment, create an invitation that carries a short-lived Connect ticket:
+For first enrollment, create an owner-only invitation file that carries a short-lived Connect ticket:
 
 ```sh
 RELAY_STATE="${XDG_RUNTIME_DIR:-$HOME/.cache}/cmux-relay-dev"
+install -m 600 /dev/null "$RELAY_STATE/invitation.txt"
 target/debug/cmux-tui enroll create --session dev \
   --relay-route "$(cat "$RELAY_STATE/route")" \
   --relay-slot "$(cat "$RELAY_STATE/slot")" \
-  --relay-ticket-file "$RELAY_STATE/connect.ticket"
+  --relay-ticket-file "$RELAY_STATE/connect.ticket" \
+  > "$RELAY_STATE/invitation.txt"
 ```
 
-On the client, connect with the returned URI. In another owner terminal, inspect and approve the pending device:
+Deliver `invitation.txt` to an owner-only file on the client. Connect with that file, then inspect and approve the pending device in another owner terminal:
 
 ```sh
-cmux-tui connect 'cmux://enroll/...' --device-name macbook
+chmod 600 invitation.txt
+cmux-tui connect --invite-file invitation.txt --device-name macbook
 cmux-tui enroll pending --session dev
 cmux-tui enroll approve <invitation-id> --session dev
 ```
 
-In the provisioning shell, mint a fresh scoped Connect ticket and deliver only that ticket to the enrolled client through a secure channel:
+In the provisioning shell, mint a fresh scoped Connect ticket into an owner-only file and deliver only that file to the enrolled client through a secure channel:
 
 ```sh
 RELAY_STATE="${XDG_RUNTIME_DIR:-$HOME/.cache}/cmux-relay-dev"
 SLOT="$(cat "$RELAY_STATE/slot")"
-CONNECT_TICKET="$(CMUX_RELAY_HMAC_SECRET="$RELAY_KEY" \
-  target/debug/cmux-relay ticket --permission connect --slot "$SLOT")"
+CONNECT_TICKET_FILE="$RELAY_STATE/fresh-connect.ticket"
+install -m 600 /dev/null "$CONNECT_TICKET_FILE"
+CMUX_RELAY_HMAC_SECRET="$RELAY_KEY" \
+  target/debug/cmux-relay ticket --permission connect --slot "$SLOT" \
+  > "$CONNECT_TICKET_FILE"
 ```
 
-On the client, use the public route, slot, and delivered ticket:
+On the client, use the public route, slot, and delivered owner-only ticket file:
 
 ```sh
 cmux-tui connect 'relay+do://cmux-remote-relay.<account>.workers.dev' \
   --relay-slot '<slot>' \
-  --relay-ticket '<fresh-connect-ticket>'
+  --relay-ticket-file fresh-connect.ticket
 ```
 
 The ticket command defaults to a five-minute lifetime. Production daemons and clients should use `--relay-ticket-file` or `--relay-ticket-command` so a control plane can refresh credentials before provider reconnection. Protect `RELAY_KEY`, unset it after ticket provisioning, and never copy it to a client. Clients receive scoped Connect tickets only.
