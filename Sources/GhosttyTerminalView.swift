@@ -1542,6 +1542,7 @@ class GhosttyApp {
 
     enum AppearanceSynchronizationPlan {
         case unchanged
+        case deferred(colorScheme: GhosttyConfig.ColorSchemePreference)
         case reload(
             colorScheme: GhosttyConfig.ColorSchemePreference,
             runtimeColorScheme: ghostty_color_scheme_e
@@ -1549,11 +1550,16 @@ class GhosttyApp {
 
         var shouldReloadConfiguration: Bool {
             switch self {
-            case .unchanged:
+            case .unchanged, .deferred:
                 return false
             case .reload:
                 return true
             }
+        }
+
+        var shouldSynchronizeRuntimeColorScheme: Bool {
+            if case .reload = self { return true }
+            return false
         }
     }
 
@@ -1575,7 +1581,8 @@ class GhosttyApp {
 
     static func appearanceSynchronizationPlan(
         previousColorScheme: GhosttyConfig.ColorSchemePreference?,
-        currentColorScheme: GhosttyConfig.ColorSchemePreference
+        currentColorScheme: GhosttyConfig.ColorSchemePreference,
+        isConfigurationReloadInProgress _: Bool = false
     ) -> AppearanceSynchronizationPlan {
         guard shouldReloadConfigurationForAppearanceChange(
             previousColorScheme: previousColorScheme,
