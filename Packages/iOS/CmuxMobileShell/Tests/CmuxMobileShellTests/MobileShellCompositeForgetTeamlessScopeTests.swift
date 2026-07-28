@@ -38,17 +38,17 @@ private final class TeamlessScopeFlippingForget: MobileIrohMacForgetting {
     }
 }
 
-/// Regression coverage for the forget path's team-scope capture. The forget flow
-/// snapshots its owner scope BEFORE an async network revoke, then deletes the
-/// stored row. A team-less (nil-team) pairing must delete the team-less row it
-/// was captured against, even if the user switches into a team while the revoke
-/// is in flight.
+/// Regression coverage for the forget path's team-scope capture. Forgetting one
+/// pairing must delete exactly that pairing's row (its OWN captured scope) and
+/// leave a same-device sibling pairing in a different team untouched, even if the
+/// user switches into that other team while the revoke is in flight.
 ///
-/// The bug: local cleanup went through the team-scoping decorator's plain
-/// `remove`, which substitutes a nil `teamID` with the CURRENTLY-selected team.
-/// After a mid-revoke team switch that resolved the captured nil scope to the
-/// freshly selected team, deleting that team's row instead and leaving the
-/// forgotten team-less computer behind (it reappeared on returning to no-team).
+/// The bug: the forget flow deleted against the LIVE display scope rather than
+/// the row's own scope. Deleting a team-less pairing while a team was (or became)
+/// selected either missed the team-less row (leaving it to resurface) or, when
+/// the display scope pointed at the sibling team, deleted the WRONG team's row.
+/// The row's own captured `(stackUserID, teamID)` is the only correct delete key,
+/// and it is immune to a mid-revoke team flip because it is snapshotted up front.
 @MainActor
 @Suite struct MobileShellCompositeForgetTeamlessScopeTests {
     @Test func forgetDeletesTeamlessRowNotFlippedTeamRowWhenScopeFlipsMidRevoke() async throws {
@@ -60,8 +60,13 @@ private final class TeamlessScopeFlippingForget: MobileIrohMacForgetting {
             databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
         )
 
-        // Same device paired both team-less and inside "team-b". The forget targets
-        // the team-less pairing; the team-b row must survive untouched.
+        // Same device paired both inside "team-b" and team-less, as two independent
+        // rows. Seed the team row FIRST: `upsert(teamID:)` claims a pre-existing
+        // team-less row into the selected team (team-less -> team migration), so
+        // seeding team-less first would collapse both into one team-b row. A later
+        // team-less `upsert(teamID: nil)` never claims a team row, so this order
+        // leaves two rows: `user-1/team-b` and `user-1/<team-less>`. The forget
+        // targets the team-less pairing; the team-b row must survive untouched.
         try await base.upsert(
             macDeviceID: "mac-a",
             displayName: "Desk Mac",
@@ -69,7 +74,7 @@ private final class TeamlessScopeFlippingForget: MobileIrohMacForgetting {
             instanceTag: nil,
             markActive: false,
             stackUserID: "user-1",
-            teamID: nil,
+            teamID: "team-b",
             now: Date(timeIntervalSince1970: 1)
         )
         try await base.upsert(
@@ -79,7 +84,7 @@ private final class TeamlessScopeFlippingForget: MobileIrohMacForgetting {
             instanceTag: nil,
             markActive: false,
             stackUserID: "user-1",
-            teamID: "team-b",
+            teamID: nil,
             now: Date(timeIntervalSince1970: 2)
         )
 

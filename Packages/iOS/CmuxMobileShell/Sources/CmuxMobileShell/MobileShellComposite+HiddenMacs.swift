@@ -174,17 +174,22 @@ extension MobileShellComposite {
             )
             return false
         }
-        // Always clear the captured scope's durable row and hidden marker, even if
-        // the scope changed while the revoke was in flight: `removeStoredPairedMacRow`
-        // removes against the CAPTURED scope (not the current one), so it cannot
-        // touch another account's data, and it internally gates only the on-screen
-        // refresh on the scope still being current. Skipping it here would report
+        // Always clear the durable row and hidden marker, even if the scope changed
+        // while the revoke was in flight. The row is deleted against ITS OWN stored
+        // scope (`computer.stackUserID`/`computer.teamID`), not the live display
+        // scope: a team-less row is visible under any selected team (legacy
+        // visibility), so deleting with the display team would miss the team-less
+        // row and it would resurface once the marker cleared. The hidden marker and
+        // on-screen refresh still gate on the captured display `scope` (that is how
+        // the marker was keyed when the row was hidden). Skipping this would report
         // success while leaving the row behind, so returning to the old scope would
         // show the supposedly forgotten computer.
         return await removeStoredPairedMacRow(
             macDeviceID: computer.macDeviceID,
             instanceTag: computer.instanceTag,
-            scope: scope
+            rowStackUserID: computer.stackUserID ?? scope.userID,
+            rowTeamID: computer.teamID,
+            displayScope: scope
         )
     }
 
@@ -199,20 +204,24 @@ extension MobileShellComposite {
     private func removeStoredPairedMacRow(
         macDeviceID: String,
         instanceTag: String?,
-        scope: MobileShellScopeSnapshot
+        rowStackUserID: String,
+        rowTeamID: String?,
+        displayScope: MobileShellScopeSnapshot
     ) async -> Bool {
         if let pairedMacStore {
             do {
-                // Use the EXACT captured scope, not `remove` (which re-resolves a
-                // nil/team-less `teamID` to the currently-selected team). The scope
-                // was snapshotted before the async revoke; if the user switched
-                // teams meanwhile, a plain `remove` would delete the wrong team's
-                // row and leave the captured team-less pairing behind.
+                // Delete the EXACT row scope, not `remove` (which re-resolves a
+                // nil/team-less `teamID` to the currently-selected team) and not the
+                // live display scope. `rowTeamID` is the row's OWN team (nil for a
+                // team-less pairing); passing it verbatim deletes exactly the row the
+                // user forgot. Using the display team here would miss a team-less row
+                // shown under a selected team, or delete the wrong team's row after a
+                // mid-revoke team switch.
                 try await pairedMacStore.removeExactScope(
                     macDeviceID: macDeviceID,
                     instanceTag: instanceTag,
-                    stackUserID: scope.userID,
-                    teamID: scope.teamID
+                    stackUserID: rowStackUserID,
+                    teamID: rowTeamID
                 )
             } catch {
                 hiddenMacsLog.error(
@@ -221,12 +230,14 @@ extension MobileShellComposite {
                 return false
             }
         }
+        // The hidden marker was keyed by the display scope when the row was hidden,
+        // so clear it (and gate the on-screen refresh) against that scope.
         await clearHiddenMacDeviceID(
             macDeviceID,
             instanceTag: instanceTag,
-            scope: scope
+            scope: displayScope
         )
-        guard await isScopeCurrent(scope) else { return true }
+        guard await isScopeCurrent(displayScope) else { return true }
         await loadPairedMacs()
         await loadRegistryDevices()
         // Mirror the hide path: once the last stored Mac is gone, drop the saved
@@ -392,7 +403,9 @@ extension MobileShellComposite {
                 instanceTag: mac.instanceTag,
                 displayName: mac.resolvedName,
                 customColor: mac.customColor,
-                customIcon: mac.customIcon
+                customIcon: mac.customIcon,
+                stackUserID: mac.stackUserID,
+                teamID: mac.teamID
             )
         }
         hiddenComputers = entries.sorted {

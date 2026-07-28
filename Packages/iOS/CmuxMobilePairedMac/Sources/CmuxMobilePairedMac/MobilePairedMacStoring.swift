@@ -219,11 +219,13 @@ extension MobilePairedMacStoring {
         )
     }
 
-    /// Default: stores that never re-resolve a nil `teamID` (the base store and
-    /// the build-scope decorator, which scope the given `teamID` verbatim)
-    /// already honor the captured scope, so the exact-scope removal is the
-    /// tagged remove unchanged. Team-substituting decorators
-    /// (``TeamScopedPairedMacStore``, ``BackingUpPairedMacStore``) override this.
+    /// Default: the base SQLite store never re-resolves a nil `teamID`, so its
+    /// exact-scope removal is the tagged remove unchanged. Decorators whose
+    /// general `remove` widens the delete override this: team-substituting
+    /// decorators (``TeamScopedPairedMacStore``, ``BackingUpPairedMacStore``)
+    /// re-resolve a nil team to the live one, and the build-scope decorator
+    /// additionally drops its team-less fallback row. Each overrides
+    /// `removeExactScope` to delete exactly the captured scope and nothing else.
     public func removeExactScope(
         macDeviceID: String,
         instanceTag: String?,
