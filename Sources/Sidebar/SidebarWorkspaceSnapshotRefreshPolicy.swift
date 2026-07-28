@@ -6,6 +6,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
         let customDescription: String?
         let isPinned: Bool
         let customColorHex: String?
+        let remoteTmuxHostIdentity: RemoteTmuxHost.VisualIdentity?
         let finderDirectoryPath: String?
         let mediaActivity: BrowserMediaActivity
         let taskStatus: WorkspaceTaskStatus?
@@ -24,6 +25,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             customDescription: customDescription,
             isPinned: isPinned,
             customColorHex: customColorHex,
+            remoteTmuxHostIdentity: remoteTmuxHostIdentity,
             finderDirectoryPath: finderDirectoryPath,
             mediaActivity: mediaActivity,
             taskStatus: taskStatus,
@@ -46,6 +48,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             isPinned: snapshot.isPinned,
             customColorHex: snapshot.customColorHex,
             remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
+            remoteTmuxHostIdentity: snapshot.remoteTmuxHostIdentity,
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: remoteStateHelpText,
             showsRemoteReconnectAffordance: showsRemoteReconnectAffordance,

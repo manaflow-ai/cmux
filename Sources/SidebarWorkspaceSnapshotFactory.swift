@@ -82,6 +82,7 @@ struct SidebarWorkspaceSnapshotFactory {
             isPinned: workspace.isPinned,
             customColorHex: workspace.customColor,
             remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
+            remoteTmuxHostIdentity: workspace.remoteTmuxHostIdentity,
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: remoteStateHelpText,
             showsRemoteReconnectAffordance: !workspace.isManagedCloudVMWorkspace

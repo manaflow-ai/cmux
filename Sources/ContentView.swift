@@ -15168,6 +15168,20 @@ struct TabItemView: View, Equatable {
                         .safeHelp(protectedWorkspaceTooltip)
                 }
 
+                if let identity = workspaceSnapshot.remoteTmuxHostIdentity {
+                    CmuxSystemSymbolImage(
+                        magnified: identity.symbolName,
+                        pointSize: scaledFontSize(10),
+                        weight: .semibold
+                    )
+                    .foregroundColor(
+                        NSColor(hex: identity.tintHex).map(Color.init(nsColor:))
+                            ?? activeSecondaryColor(0.8)
+                    )
+                    .safeHelp(identity.hostSlug)
+                    .accessibilityLabel(Text(identity.hostSlug))
+                }
+
                 // Chrome-style media-activity glyphs: a noisy or capturing
                 // background browser pane is surfaced on its workspace row,
                 // styled like the pin indicator. Audio is the must-have signal;

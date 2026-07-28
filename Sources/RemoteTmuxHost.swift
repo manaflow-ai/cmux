@@ -52,6 +52,125 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable, Codable {
         self.identityFile = identityFile
     }
 
+    /// User-configurable chrome for a remote host pattern.
+    struct IdentityOverride: Codable, Sendable, Equatable {
+        let symbol: String
+        let tint: String
+
+        init(symbol: String, tint: String) {
+            self.symbol = symbol
+            self.tint = tint
+        }
+    }
+
+    /// Resolved, render-ready identity stored on a remote mirror workspace.
+    struct VisualIdentity: Sendable, Equatable {
+        let symbolName: String
+        let tintHex: String
+        let hostSlug: String
+        /// Present only for the deterministic fallback; useful for diagnostics and tests.
+        let fallbackHueIndex: Int?
+    }
+
+    /// Twelve evenly spaced hues keep unrelated hosts visually distinct while
+    /// remaining stable because selection is derived from ``connectionHash``.
+    static let fallbackTintHexTable = [
+        "#D14F4F", "#D1904F", "#D1D14F", "#90D14F",
+        "#4FD14F", "#4FD190", "#4FD1D1", "#4F90D1",
+        "#4F4FD1", "#904FD1", "#D14FD1", "#D14F90",
+    ]
+
+    /// Resolves explicit `remoteHosts` overrides first, then a stable fallback.
+    func visualIdentity(overrides: [String: IdentityOverride] = [:]) -> VisualIdentity {
+        if let override = Self.bestIdentityOverride(for: self, overrides: overrides) {
+            return VisualIdentity(
+                symbolName: override.symbol,
+                tintHex: override.tint,
+                hostSlug: slug,
+                fallbackHueIndex: nil
+            )
+        }
+        let hash = UInt64(connectionHash, radix: 16) ?? 0
+        let hueIndex = Int(hash % UInt64(Self.fallbackTintHexTable.count))
+        return VisualIdentity(
+            symbolName: "server.rack",
+            tintHex: Self.fallbackTintHexTable[hueIndex],
+            hostSlug: slug,
+            fallbackHueIndex: hueIndex
+        )
+    }
+
+    private static func bestIdentityOverride(
+        for host: RemoteTmuxHost,
+        overrides: [String: IdentityOverride]
+    ) -> IdentityOverride? {
+        let destination = host.destination.lowercased()
+        let hostComponent = destination
+            .split(separator: "@", maxSplits: 1, omittingEmptySubsequences: false)
+            .last
+            .map(String.init) ?? destination
+        let candidates = [destination, hostComponent, host.slug]
+        var best: (override: IdentityOverride, exact: Bool, specificity: Int, pattern: String)?
+
+        for (rawPattern, rawOverride) in overrides {
+            let pattern = rawPattern.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let symbol = rawOverride.symbol.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !pattern.isEmpty, !symbol.isEmpty,
+                  let tint = normalizedIdentityTint(rawOverride.tint),
+                  candidates.contains(where: { wildcardPattern(pattern, matches: $0) }) else {
+                continue
+            }
+            let exact = candidates.contains(pattern)
+            let specificity = pattern.reduce(into: 0) { count, character in
+                if character != "*" && character != "?" { count += 1 }
+            }
+            let resolved = IdentityOverride(symbol: symbol, tint: tint)
+            guard let current = best else {
+                best = (resolved, exact, specificity, pattern)
+                continue
+            }
+            if exact != current.exact ? exact
+                : specificity != current.specificity ? specificity > current.specificity
+                : pattern < current.pattern {
+                best = (resolved, exact, specificity, pattern)
+            }
+        }
+        return best?.override
+    }
+
+    private static func normalizedIdentityTint(_ raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let digits = trimmed.hasPrefix("#") ? String(trimmed.dropFirst()) : trimmed
+        guard digits.count == 6 || digits.count == 8,
+              digits.allSatisfy(\.isHexDigit) else {
+            return nil
+        }
+        return "#\(digits.uppercased())"
+    }
+
+    private static func wildcardPattern(_ pattern: String, matches value: String) -> Bool {
+        let patternCharacters = Array(pattern)
+        let valueCharacters = Array(value)
+        var previous = Array(repeating: false, count: valueCharacters.count + 1)
+        previous[0] = true
+        for patternCharacter in patternCharacters {
+            var current = Array(repeating: false, count: valueCharacters.count + 1)
+            if patternCharacter == "*" {
+                current[0] = previous[0]
+                for index in valueCharacters.indices {
+                    current[index + 1] = previous[index + 1] || current[index]
+                }
+            } else {
+                for index in valueCharacters.indices {
+                    current[index + 1] = previous[index]
+                        && (patternCharacter == "?" || patternCharacter == valueCharacters[index])
+                }
+            }
+            previous = current
+        }
+        return previous[valueCharacters.count]
+    }
+
     /// A human-readable (but lossy) slug for the destination, used only for
     /// debuggability in the control socket filename. It lowercases and maps
     /// every non-alphanumeric character to `-`, so distinct destinations can

@@ -139,6 +139,7 @@ import Testing
             isPinned: isPinned,
             customColorHex: customColorHex,
             remoteWorkspaceSidebarText: nil,
+            remoteTmuxHostIdentity: nil,
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: "",
             showsRemoteReconnectAffordance: false,

@@ -192,6 +192,42 @@ import Testing
         )
     }
 
+    @Test func hostVisualIdentityIsStableAcrossResolution() {
+        let host = RemoteTmuxHost(destination: "nixbox", port: 2222, identityFile: "/keys/work")
+        let first = host.visualIdentity()
+        let second = RemoteTmuxHost(
+            destination: "nixbox",
+            port: 2222,
+            identityFile: "/keys/work"
+        ).visualIdentity()
+
+        #expect(first == second)
+        #expect(first.fallbackHueIndex != nil)
+        #expect(first.symbolName == "server.rack")
+    }
+
+    @Test func fallbackHostVisualIdentitiesSpreadAcrossHueTable() {
+        let identities = ["nixbox", "h11", "mac", "alpha", "bravo", "charlie", "delta", "echo"]
+            .map { RemoteTmuxHost(destination: $0).visualIdentity() }
+        let hueIndices = Set(identities.compactMap(\.fallbackHueIndex))
+
+        #expect(hueIndices.count >= 5)
+        #expect(identities.allSatisfy { RemoteTmuxHost.fallbackTintHexTable.contains($0.tintHex) })
+    }
+
+    @Test func explicitHostVisualIdentityOverrideWins() {
+        let host = RemoteTmuxHost(destination: "deploy@nixbox")
+        let identity = host.visualIdentity(overrides: [
+            "*": .init(symbol: "network", tint: "#000000"),
+            "nixbox": .init(symbol: "server.rack", tint: " 5a9bd5 "),
+        ])
+
+        #expect(identity.symbolName == "server.rack")
+        #expect(identity.tintHex == "#5A9BD5")
+        #expect(identity.hostSlug == "deploy-nixbox")
+        #expect(identity.fallbackHueIndex == nil)
+    }
+
     @Test func controlSocketPathVariesByPortAndIdentity() {
         // Distinct endpoints (same destination, different port/identity) must NOT
         // share a ControlMaster socket — otherwise a destructive command could

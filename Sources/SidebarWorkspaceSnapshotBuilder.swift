@@ -38,6 +38,7 @@ struct SidebarWorkspaceSnapshotBuilder {
         let isPinned: Bool
         let customColorHex: String?
         let remoteWorkspaceSidebarText: String?
+        let remoteTmuxHostIdentity: RemoteTmuxHost.VisualIdentity?
         let remoteConnectionStatusText: String
         let remoteStateHelpText: String
         let showsRemoteReconnectAffordance: Bool
