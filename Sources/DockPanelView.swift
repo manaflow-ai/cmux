@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import Combine
 import CmuxAppKitSupportUI
 import CmuxTerminal
 import SwiftUI
@@ -18,10 +19,30 @@ struct DockPanelView: View {
     /// dims its focus ring when false so Dock and main-pane focus are mutually
     /// exclusive (the main pane dims its ring when this is true).
     var rightSidebarOwnsInputFocus: Bool = false
+    private let unreadSource: SidebarUnreadModel
 
-    @EnvironmentObject private var sidebarUnread: SidebarUnreadModel
     @State private var appearanceConfig = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "dock.initial")
+    @State private var unreadPanelIDs: Set<UUID> = []
     @State private var visibilityHostId = UUID()
+
+    @MainActor
+    init(
+        store: DockSplitStore,
+        isSidebarVisible: Bool,
+        mode: RightSidebarMode,
+        rootDirectory: String?,
+        windowAppearance: WindowAppearanceSnapshot,
+        rightSidebarOwnsInputFocus: Bool = false,
+        unreadSource: SidebarUnreadModel
+    ) {
+        self.store = store
+        self.isSidebarVisible = isSidebarVisible
+        self.mode = mode
+        self.rootDirectory = rootDirectory
+        self.windowAppearance = windowAppearance
+        self.rightSidebarOwnsInputFocus = rightSidebarOwnsInputFocus
+        self.unreadSource = unreadSource
+    }
 
     private var appearance: PanelAppearance {
         PanelAppearance.fromConfig(appearanceConfig)
@@ -33,6 +54,16 @@ struct DockPanelView: View {
         .background(
             DockKeyboardFocusBridge(store: store)
                 .frame(width: 1, height: 1)
+        )
+        .background(
+            DockUnreadProjectionBridge(
+                sidebarUnread: unreadSource,
+                workspaceID: store.workspaceId,
+                panelIDs: Set(store.panels.keys),
+                isActive: isSidebarVisible && mode == .dock,
+                unreadPanelIDs: $unreadPanelIDs
+            )
+            .frame(width: 0, height: 0)
         )
         .accessibilityIdentifier("DockPanel")
         .onAppear {
@@ -70,12 +101,6 @@ struct DockPanelView: View {
 
     @ViewBuilder
     private var content: some View {
-        let unreadPanelIDs = Set(store.panels.keys.filter {
-            sidebarUnread.hasVisibleNotificationIndicator(
-                forWorkspaceId: store.workspaceId,
-                surfaceId: $0
-            )
-        })
         if let trustRequest = store.trustRequest {
             DockTrustView(request: trustRequest) {
                 store.trustAndReload()
@@ -91,6 +116,59 @@ struct DockPanelView: View {
                 unreadPanelIDs: unreadPanelIDs
             )
         }
+    }
+}
+
+/// Narrows the app-wide unread model to this Dock before updating its Bonsplit
+/// subtree. Hidden Docks clear once, then ignore unrelated notification churn.
+private struct DockUnreadProjectionBridge: View {
+    let sidebarUnread: SidebarUnreadModel
+    let workspaceID: UUID
+    let panelIDs: Set<UUID>
+    let isActive: Bool
+    @Binding var unreadPanelIDs: Set<UUID>
+
+    var body: some View {
+        Color.clear
+            .onAppear { refresh() }
+            .onChange(of: panelIDs) { _, _ in refresh() }
+            .onChange(of: isActive) { _, _ in refresh() }
+            .onReceive(
+                sidebarUnread.$unreadSurfaceKeys.combineLatest(
+                    sidebarUnread.$focusedReadIndicatorByWorkspaceId
+                )
+            ) { unreadSurfaceKeys, focusedReadIndicatorByWorkspaceID in
+                update(
+                    unreadSurfaceKeys: unreadSurfaceKeys,
+                    focusedReadIndicatorByWorkspaceID: focusedReadIndicatorByWorkspaceID
+                )
+            }
+    }
+
+    private func refresh() {
+        update(
+            unreadSurfaceKeys: sidebarUnread.unreadSurfaceKeys,
+            focusedReadIndicatorByWorkspaceID: sidebarUnread.focusedReadIndicatorByWorkspaceId
+        )
+    }
+
+    private func update(
+        unreadSurfaceKeys: Set<SidebarSurfaceUnreadKey>,
+        focusedReadIndicatorByWorkspaceID: [UUID: UUID]
+    ) {
+        let nextUnreadPanelIDs: Set<UUID>
+        if isActive {
+            let focusedReadPanelID = focusedReadIndicatorByWorkspaceID[workspaceID]
+            nextUnreadPanelIDs = Set(panelIDs.filter { panelID in
+                unreadSurfaceKeys.contains(
+                    SidebarSurfaceUnreadKey(workspaceId: workspaceID, surfaceId: panelID)
+                ) || focusedReadPanelID == panelID
+            })
+        } else {
+            nextUnreadPanelIDs = []
+        }
+        guard unreadPanelIDs != nextUnreadPanelIDs else { return }
+        unreadPanelIDs = nextUnreadPanelIDs
     }
 }
 

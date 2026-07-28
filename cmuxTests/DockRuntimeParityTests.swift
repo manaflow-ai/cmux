@@ -437,9 +437,9 @@ struct DockNotificationAttentionTests {
                 isSidebarVisible: true,
                 mode: .dock,
                 rootDirectory: nil,
-                windowAppearance: .rightSidebarPanelViewTestDefault
+                windowAppearance: .rightSidebarPanelViewTestDefault,
+                unreadSource: unread
             )
-            .environmentObject(unread)
             .defaultAppStorage(defaults)
         )
         let window = NSWindow(
