@@ -490,6 +490,37 @@ struct ApplicationSurfaceTests {
         #expect(panel.runtime === runtime)
         panel.close()
     }
+
+    @Test func applicationPointerDownSynchronizesWorkspaceFocus() throws {
+        let runtime = FakeApplicationSurfaceRuntime()
+        let workspace = Workspace(applicationSurfaceRuntime: runtime)
+        let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+        let previousPanelID = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.newApplicationSurface(
+            inPane: pane,
+            windowID: 42,
+            processID: 43,
+            title: "Preview",
+            focus: false
+        ))
+        let view = panel.captureView(windowID: 42, processID: 43)
+        let event = try #require(NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            eventNumber: 1,
+            clickCount: 1,
+            pressure: 1
+        ))
+
+        #expect(workspace.focusedPanelId == previousPanelID)
+        view.mouseDown(with: event)
+        #expect(workspace.focusedPanelId == panel.id)
+        panel.close()
+    }
 }
 
 @MainActor

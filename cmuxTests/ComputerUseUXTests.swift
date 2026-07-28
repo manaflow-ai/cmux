@@ -1585,13 +1585,34 @@ struct ComputerUseUXTests {
             "ok": false,
             "result": ["stopped": true],
         ]))
-        #expect(!ComputerUseRuntimeService.applicationSurfaceStopWasAcknowledged([
+        #expect(ComputerUseRuntimeService.applicationSurfaceStopWasAcknowledged([
             "ok": true,
             "result": ["stopped": false],
         ]))
         #expect(!ComputerUseRuntimeService.applicationSurfaceStopWasAcknowledged([
             "ok": true,
         ]))
+        #expect(ComputerUseRuntimeService.applicationSurfaceStopShouldRetry(
+            nil,
+            failedAttemptCount: 1
+        ))
+        #expect(!ComputerUseRuntimeService.applicationSurfaceStopShouldRetry(
+            nil,
+            failedAttemptCount: 3
+        ))
+    }
+
+    @Test
+    func malformedApplicationSurfaceStartRetainsSessionForCleanup() {
+        let parsed = ComputerUseRuntimeService.parseApplicationSurfaceStartResult([
+            "sessionId": "orphaned-session",
+            "frameTransport": [
+                "sharedMemoryName": "/cmux-incomplete",
+            ],
+        ])
+
+        #expect(parsed.sessionID == "orphaned-session")
+        #expect(parsed.descriptor == nil)
     }
 
     @Test(.timeLimit(.minutes(1))) @MainActor
