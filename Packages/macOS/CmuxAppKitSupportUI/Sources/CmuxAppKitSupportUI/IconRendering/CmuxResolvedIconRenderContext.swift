@@ -43,7 +43,7 @@ public final class CmuxResolvedIconRenderContext {
     ) -> NSImage? {
         guard let entry = entries[key],
               entry.appearance === renderKey.appearance,
-              bundlesMatch(entry.assetBundle, renderKey.assetBundle) else {
+              Self.bundlesMatch(entry.assetBundle, renderKey.assetBundle) else {
             return nil
         }
         return entry.image
@@ -66,15 +66,15 @@ public final class CmuxResolvedIconRenderContext {
         )
         insertionOrder.append(key)
     }
-}
 
-private func bundlesMatch(_ lhs: Bundle?, _ rhs: Bundle?) -> Bool {
-    switch (lhs, rhs) {
-    case (.none, .none):
-        return true
-    case let (lhs?, rhs?):
-        return lhs === rhs
-    default:
-        return false
+    private static func bundlesMatch(_ lhs: Bundle?, _ rhs: Bundle?) -> Bool {
+        switch (lhs, rhs) {
+        case (.none, .none):
+            return true
+        case let (lhs?, rhs?):
+            return lhs === rhs
+        default:
+            return false
+        }
     }
 }

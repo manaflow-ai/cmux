@@ -41,7 +41,7 @@ struct CmuxResolvedIconRenderKey {
             symbolWeight == other.symbolWeight &&
             appearanceName == other.appearanceName &&
             appearanceIdentity == other.appearanceIdentity &&
-            colorsMatch(tint, other.tint)
+            Self.colorsMatch(tint, other.tint)
     }
 
     func shouldSkipBlankRetry(for other: CmuxResolvedIconRenderKey) -> Bool {
@@ -60,15 +60,15 @@ struct CmuxResolvedIconRenderKey {
             appearanceIdentity: appearanceIdentity
         )
     }
-}
 
-private func colorsMatch(_ lhs: NSColor?, _ rhs: NSColor?) -> Bool {
-    switch (lhs, rhs) {
-    case (.none, .none):
-        return true
-    case let (lhs?, rhs?):
-        return lhs.isEqual(rhs)
-    default:
-        return false
+    private static func colorsMatch(_ lhs: NSColor?, _ rhs: NSColor?) -> Bool {
+        switch (lhs, rhs) {
+        case (.none, .none):
+            return true
+        case let (lhs?, rhs?):
+            return lhs.isEqual(rhs)
+        default:
+            return false
+        }
     }
 }

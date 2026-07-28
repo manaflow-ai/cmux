@@ -742,8 +742,14 @@ final class FileExplorerStore: ObservableObject {
     /// Paths currently being loaded
     private(set) var loadingPaths: Set<String> = []
 
-    /// In-flight load tasks keyed by path
-    private var loadTasks: [String: Task<Void, Never>] = [:]
+    private struct LoadOperation {
+        let identifier: UUID
+        let task: Task<Void, Never>
+    }
+
+    /// In-flight load tasks keyed by path. The identifier prevents an older
+    /// cancelled operation from clearing a replacement registered for the same path.
+    private var loadTasks: [String: LoadOperation] = [:]
 
     /// Cache of path -> node for quick lookup
     private var nodesByPath: [String: FileExplorerNode] = [:]
@@ -956,12 +962,7 @@ final class FileExplorerStore: ObservableObject {
         nodesByPath = [:]
         guard !rootPath.isEmpty, provider != nil else { return }
         isRootLoading = true
-        let path = rootPath
-        let task = Task { [weak self] in
-            guard let self else { return }
-            await self.loadChildren(for: nil, at: path)
-        }
-        loadTasks[rootPath] = task
+        startLoad(for: nil, at: rootPath)
     }
 
     func expand(node: FileExplorerNode) {
@@ -971,12 +972,7 @@ final class FileExplorerStore: ObservableObject {
             node.isLoading = true
             node.error = nil
             publishOutlineChange(.nodeChanged(node: node, reloadChildren: false))
-            let nodePath = node.path
-            let task = Task { [weak self] in
-                guard let self else { return }
-                await self.loadChildren(for: node, at: nodePath)
-            }
-            loadTasks[node.path] = task
+            startLoad(for: node, at: node.path)
         }
     }
 
@@ -1028,9 +1024,14 @@ final class FileExplorerStore: ObservableObject {
         prefetchWorkItems[path]?.cancel()
         let workItem = DispatchWorkItem { [weak self] in
             Task { @MainActor [weak self] in
-                guard let self, node.children == nil, !self.loadingPaths.contains(path) else { return }
+                guard let self,
+                      node.children == nil,
+                      self.loadTasks[path] == nil,
+                      !self.loadingPaths.contains(path) else {
+                    return
+                }
                 // Silent prefetch: don't show loading indicator
-                await self.loadChildren(for: node, at: path, silent: true)
+                self.startLoad(for: node, at: path, silent: true)
             }
         }
         prefetchWorkItems[path] = workItem
@@ -1054,9 +1055,38 @@ final class FileExplorerStore: ObservableObject {
 
     // MARK: - Private
 
+    private func startLoad(for parentNode: FileExplorerNode?, at path: String, silent: Bool = false) {
+        guard loadTasks[path] == nil else { return }
+        let identifier = UUID()
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.loadChildren(
+                for: parentNode,
+                at: path,
+                silent: silent,
+                identifier: identifier
+            )
+        }
+        loadTasks[path] = LoadOperation(identifier: identifier, task: task)
+    }
+
     @MainActor
-    private func loadChildren(for parentNode: FileExplorerNode?, at path: String, silent: Bool = false) async {
-        guard !Task.isCancelled, let provider else { return }
+    private func loadChildren(
+        for parentNode: FileExplorerNode?,
+        at path: String,
+        silent: Bool,
+        identifier: UUID
+    ) async {
+        guard ownsLoad(at: path, identifier: identifier) else { return }
+        guard !Task.isCancelled, let provider else {
+            retireLoad(
+                at: path,
+                identifier: identifier,
+                parentNode: parentNode,
+                resetLoadingState: true
+            )
+            return
+        }
 
         if !silent {
             loadingPaths.insert(path)
@@ -1069,6 +1099,7 @@ final class FileExplorerStore: ObservableObject {
         do {
             let entries = try await provider.listDirectory(path: path, showHidden: showHiddenFiles)
             try Task.checkCancellation()
+            guard ownsLoad(at: path, identifier: identifier) else { return }
             let children = entries.map { entry in
                 let node = FileExplorerNode(name: entry.name, path: entry.path, isDirectory: entry.isDirectory)
                 nodesByPath[entry.path] = node
@@ -1099,34 +1130,67 @@ final class FileExplorerStore: ObservableObject {
                     selectedPaths = selectedPath.map { Set([$0]) } ?? []
                 }
             }
-            loadingPaths.remove(path)
-            loadTasks.removeValue(forKey: path)
+            retireLoad(
+                at: path,
+                identifier: identifier,
+                parentNode: parentNode,
+                resetLoadingState: false
+            )
 
             // Auto-expand children that were previously expanded
             for child in children where child.isDirectory && expandedPaths.contains(child.path) {
                 child.isLoading = true
                 publishOutlineChange(.nodeChanged(node: child, reloadChildren: false))
                 publishOutlineChange(.expansionChanged(node: child, isExpanded: true))
-                let childPath = child.path
-                let childTask = Task { [weak self] in
-                    guard let self else { return }
-                    await self.loadChildren(for: child, at: childPath)
-                }
-                loadTasks[child.path] = childTask
+                startLoad(for: child, at: child.path)
             }
         } catch {
-            if !Task.isCancelled {
-                if let parentNode {
-                    parentNode.isLoading = false
-                    parentNode.error = error.localizedDescription
-                    publishOutlineChange(.nodeChanged(node: parentNode, reloadChildren: false))
-                } else {
-                    isRootLoading = false
-                    setRootStatusMessage(error.localizedDescription)
-                }
-                loadingPaths.remove(path)
-                loadTasks.removeValue(forKey: path)
+            guard ownsLoad(at: path, identifier: identifier) else { return }
+            if Task.isCancelled {
+                retireLoad(
+                    at: path,
+                    identifier: identifier,
+                    parentNode: parentNode,
+                    resetLoadingState: true
+                )
+                return
             }
+            if let parentNode {
+                parentNode.isLoading = false
+                parentNode.error = error.localizedDescription
+                publishOutlineChange(.nodeChanged(node: parentNode, reloadChildren: false))
+            } else {
+                isRootLoading = false
+                setRootStatusMessage(error.localizedDescription)
+            }
+            retireLoad(
+                at: path,
+                identifier: identifier,
+                parentNode: parentNode,
+                resetLoadingState: false
+            )
+        }
+    }
+
+    private func ownsLoad(at path: String, identifier: UUID) -> Bool {
+        loadTasks[path]?.identifier == identifier
+    }
+
+    private func retireLoad(
+        at path: String,
+        identifier: UUID,
+        parentNode: FileExplorerNode?,
+        resetLoadingState: Bool
+    ) {
+        guard ownsLoad(at: path, identifier: identifier) else { return }
+        loadTasks.removeValue(forKey: path)
+        loadingPaths.remove(path)
+        guard resetLoadingState else { return }
+        if let parentNode {
+            parentNode.isLoading = false
+            publishOutlineChange(.nodeChanged(node: parentNode, reloadChildren: false))
+        } else {
+            isRootLoading = false
         }
     }
 
@@ -1179,8 +1243,8 @@ final class FileExplorerStore: ObservableObject {
     }
 
     private func cancelAllLoads() {
-        for (_, task) in loadTasks {
-            task.cancel()
+        for (_, operation) in loadTasks {
+            operation.task.cancel()
         }
         loadTasks.removeAll()
         loadingPaths.removeAll()
