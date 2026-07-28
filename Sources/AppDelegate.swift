@@ -812,6 +812,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 TerminalController.shouldSuppressSocketCommandActivation()
                     && !TerminalController.socketCommandAllowsInAppFocusMutations()
             },
+            windowAvailability: { [weak self] window in
+                guard let self else {
+                    return .init(
+                        isAvailable: false,
+                        windowId: nil,
+                        workspaceId: nil,
+                        owner: "app-deallocated"
+                    )
+                }
+
+                if let context = self.mainWindowContexts[ObjectIdentifier(window)]
+                    ?? self.mainWindowContexts.values.first(where: { $0.window === window }) {
+                    return .init(
+                        isAvailable: true,
+                        windowId: context.windowId,
+                        workspaceId: context.tabManager.selectedTabId,
+                        owner: "registered-context"
+                    )
+                }
+
+                let windowId = self.mainWindowId(from: window)
+                if let route = self.focusableRecoverableMainWindowRoute(for: window),
+                   let windowId,
+                   let manager = route.tabManager {
+                    return .init(
+                        isAvailable: true,
+                        windowId: windowId,
+                        workspaceId: manager.selectedTabId,
+                        owner: "recoverable-route"
+                    )
+                }
+
+                return .init(
+                    isAvailable: false,
+                    windowId: windowId,
+                    workspaceId: nil,
+                    owner: "missing"
+                )
+            },
             setActiveMainWindow: { [weak self] window in
                 self?.setActiveMainWindow(window)
             }
