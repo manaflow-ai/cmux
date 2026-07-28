@@ -1,4 +1,5 @@
 import AppKit
+import CmuxControlSocket
 import CmuxRemoteSession
 import Foundation
 import Testing
@@ -323,6 +324,31 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
         )
         #expect(scriptTab.terminals.map(\.stableID) == expectedExternalPanelIDs.map(\.uuidString))
         #expect(scriptTab.focusedTerminal?.stableID == expectedInputPanel.id.uuidString)
+        mirror.updatePaneCwd(paneId: 5, path: "/srv/project")
+        #expect(harness.workspace.panelTitle(panelId: expectedInputPanel.id) == mirror.title(forPane: 5))
+        #expect(harness.workspace.effectivePanelDirectory(panelId: expectedInputPanel.id) == "/srv/project")
+        let notificationRouting = ControlRoutingSelectors(
+            hasWindowIDParam: false,
+            windowID: nil,
+            groupID: nil,
+            workspaceID: harness.workspace.id,
+            surfaceID: expectedInputPanel.id,
+            paneID: nil
+        )
+        let notificationResult = TerminalController.shared.controlNotificationCreateForTarget(
+            routing: notificationRouting,
+            workspaceID: harness.workspace.id,
+            surfaceID: expectedInputPanel.id,
+            title: "Projected tmux pane",
+            subtitle: "",
+            body: "Body"
+        )
+        #expect(notificationResult == .delivered(
+            workspaceID: harness.workspace.id,
+            surfaceID: expectedInputPanel.id,
+            windowID: harness.windowId
+        ))
+        TerminalNotificationStore.shared.clearNotifications(forTabId: harness.workspace.id, surfaceId: expectedInputPanel.id)
         let tabManager = try #require(AppDelegate.shared?.tabManagerFor(windowId: harness.windowId))
         #expect(TerminalController.shared.resolveTerminalPanel(
             from: containerPanelId.uuidString,
