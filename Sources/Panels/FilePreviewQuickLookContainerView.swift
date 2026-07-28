@@ -13,7 +13,7 @@ import Quartz
 /// be swapped for a fresh one whenever the previous instance has been
 /// deactivated, without SwiftUI ever re-mounting the representable.
 final class FilePreviewQuickLookContainerView: QLPreviewView {
-    private var previewView: TrackedQLPreviewView?
+    var previewView: TrackedQLPreviewView?
 
     /// Classifies whether an existing inner preview is safe to reuse.
     static func staleReason(
@@ -121,20 +121,4 @@ final class FilePreviewQuickLookContainerView: QLPreviewView {
         previewItem = nil
     }
 
-    #if DEBUG
-    /// Reproduces the AppKit state where the stable host stays mounted while
-    /// QuickLook loses its inner preview without recording a window detach.
-    func replaceLivePreviewWithUnattachedPreviewForTesting() -> QLPreviewView? {
-        let item = previewView?.previewItem
-        previewView?.previewItem = nil
-        previewView?.removeFromSuperview()
-
-        guard let unattached = TrackedQLPreviewView(frame: bounds, style: .normal) else {
-            return nil
-        }
-        unattached.previewItem = item
-        previewView = unattached
-        return unattached
-    }
-    #endif
 }

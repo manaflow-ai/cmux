@@ -7,6 +7,23 @@ import Testing
 @testable import cmux
 #endif
 
+private extension FilePreviewQuickLookContainerView {
+    /// Reproduces the AppKit state where the stable host stays mounted while
+    /// QuickLook loses its inner preview without recording a window detach.
+    func replaceLivePreviewWithUnattachedPreview() -> QLPreviewView? {
+        let item = previewView?.previewItem
+        previewView?.previewItem = nil
+        previewView?.removeFromSuperview()
+
+        guard let unattached = TrackedQLPreviewView(frame: bounds, style: .normal) else {
+            return nil
+        }
+        unattached.previewItem = item
+        previewView = unattached
+        return unattached
+    }
+}
+
 @MainActor
 @Suite("Panel-owned native view sessions")
 struct PanelOwnedNativeViewSessionTests {
@@ -135,7 +152,7 @@ struct PanelOwnedNativeViewSessionTests {
         window.contentView = container
         _ = try #require(container.livePreviewView())
         let stalePreviewView = try #require(
-            container.replaceLivePreviewWithUnattachedPreviewForTesting()
+            container.replaceLivePreviewWithUnattachedPreview()
         )
         #expect(container.window != nil)
         #expect(stalePreviewView.window == nil)
