@@ -11416,7 +11416,7 @@ class TerminalController {
                 return
             }
 
-            let terminalPanel = workspace.focusedTerminalPanel
+            let terminalPanel = workspace.focusedTerminalInputTarget()?.panel
                 ?? orderedPanels(in: workspace).compactMap { $0 as? TerminalPanel }.first
             guard let terminalPanel else {
                 result = "ERROR: No terminal panel available"
@@ -13467,7 +13467,7 @@ class TerminalController {
             guard let tabManager = self.tabManager else { return .tabManagerUnavailable }
             guard let selectedId = tabManager.selectedTabId,
                   let tab = tabManager.tabs.first(where: { $0.id == selectedId }),
-                  let terminalPanel = tab.focusedTerminalPanel else {
+                  let terminalPanel = tab.focusedTerminalInputTarget()?.panel else {
                 return .noFocusedTerminal
             }
             return Self.v1TextSendOutcome(
@@ -13633,7 +13633,7 @@ class TerminalController {
             guard let tabManager = self.tabManager else { return .tabManagerUnavailable }
             guard let selectedId = tabManager.selectedTabId,
                   let tab = tabManager.tabs.first(where: { $0.id == selectedId }),
-                  let terminalPanel = tab.focusedTerminalPanel else {
+                  let terminalPanel = tab.focusedTerminalInputTarget()?.panel else {
                 return .noFocusedTerminal
             }
             return Self.v1KeySendOutcome(

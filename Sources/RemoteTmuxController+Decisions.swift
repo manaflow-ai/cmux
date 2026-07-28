@@ -275,7 +275,7 @@ extension RemoteTmuxController {
     }
 
     /// Builds ``MirrorTabActivity`` from per-pane foreground states. Pure;
-    /// `activePaneId` is checked first so a multi-pane window names the pane
+    /// `activePaneId` is checked first so a window names the pane
     /// the user is looking at, then `paneOrder` (the window's layout order).
     nonisolated static func mirrorTabActivity(
         states: [Int: RemoteTmuxControlConnection.PaneForegroundState],

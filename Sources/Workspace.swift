@@ -2250,10 +2250,15 @@ final class Workspace: Identifiable, ObservableObject {
         surfaceList.orderedPanelIds
     }
 
-    /// The terminal that currently owns input for the focused workspace panel.
-    /// Remote tmux containers project to their authoritative active inner pane.
+    /// The workspace-owned terminal panel selected in the focused pane.
+    /// Input routing that can target mirror-owned panes uses
+    /// ``focusedTerminalInputTarget()`` instead.
     var focusedTerminalPanel: TerminalPanel? {
-        focusedTerminalInputTarget()?.panel
+        guard let panelId = focusedPanelId,
+              let panel = panels[panelId] as? TerminalPanel else {
+            return nil
+        }
+        return panel
     }
 
     /// Forwards to
@@ -6987,7 +6992,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         // Capture the source terminal's hosted view before bonsplit mutates focusedPaneId,
         // so we can hand it to focusPanel as the "move focus FROM" view.
-        let previousHostedView = focusedTerminalPanel?.hostedView
+        let previousHostedView = focusedTerminalInputTarget()?.panel.hostedView
 
         // Create the split with the new tab already present in the new pane.
         isProgrammaticSplit = true
@@ -7189,7 +7194,7 @@ final class Workspace: Identifiable, ObservableObject {
     ) -> TerminalPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
-        let previousHostedView = focusedTerminalPanel?.hostedView
+        let previousHostedView = focusedTerminalInputTarget()?.panel.hostedView
 
         var inheritedConfig = terminalFontSizeCreationPolicy.applying(
             to: inheritedTerminalConfig(inPane: paneId)
@@ -7775,7 +7780,7 @@ final class Workspace: Identifiable, ObservableObject {
         publishCmuxSplitCreated(newPaneId, sourcePaneId: paneId, orientation: orientation, surfaceId: browserPanel.id, kind: "browser", origin: "browser_split", focused: focus)
 
         // See newTerminalSplit: suppress old view's becomeFirstResponder during reparenting.
-        let previousHostedView = focusedTerminalPanel?.hostedView
+        let previousHostedView = focusedTerminalInputTarget()?.panel.hostedView
         if focus {
             suppressReparentFocusUntilLayoutFollowUp(
                 previousHostedView,
@@ -7831,7 +7836,7 @@ final class Workspace: Identifiable, ObservableObject {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let sourcePanelId = effectiveSelectedPanelId(inPane: paneId)
         let previousFocusedPanelId = focusedPanelId
-        let previousHostedView = focusedTerminalPanel?.hostedView
+        let previousHostedView = focusedTerminalInputTarget()?.panel.hostedView
 
         let browserPanel = BrowserPanel(
             workspaceId: id,
@@ -8034,7 +8039,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
         publishCmuxSplitCreated(newPaneId, sourcePaneId: paneId, orientation: orientation, surfaceId: markdownPanel.id, kind: "markdown", origin: "markdown_split", focused: focus)
 
-        let previousHostedView = focusedTerminalPanel?.hostedView
+        let previousHostedView = focusedTerminalInputTarget()?.panel.hostedView
         if focus {
             suppressReparentFocusUntilLayoutFollowUp(
                 previousHostedView,
@@ -8062,7 +8067,7 @@ final class Workspace: Identifiable, ObservableObject {
     ) -> MarkdownPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
-        let previousHostedView = focusedTerminalPanel?.hostedView
+        let previousHostedView = focusedTerminalInputTarget()?.panel.hostedView
 
         let markdownPanel = MarkdownPanel(workspaceId: id, filePath: filePath)
         panels[markdownPanel.id] = markdownPanel
@@ -8114,7 +8119,7 @@ final class Workspace: Identifiable, ObservableObject {
         let url = URL(fileURLWithPath: (projectPath as NSString).expandingTildeInPath).standardizedFileURL
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
-        let previousHostedView = focusedTerminalPanel?.hostedView
+        let previousHostedView = focusedTerminalInputTarget()?.panel.hostedView
 
         let projectPanel = ProjectPanel(projectURL: url)
         panels[projectPanel.id] = projectPanel
@@ -8272,7 +8277,7 @@ final class Workspace: Identifiable, ObservableObject {
     ) -> FilePreviewPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
-        let previousHostedView = focusedTerminalPanel?.hostedView
+        let previousHostedView = focusedTerminalInputTarget()?.panel.hostedView
 
         let filePreviewPanel = FilePreviewPanel(workspaceId: id, filePath: filePath)
         panels[filePreviewPanel.id] = filePreviewPanel
@@ -8344,7 +8349,7 @@ final class Workspace: Identifiable, ObservableObject {
         guard mode.canOpenAsPane else { return nil }
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
-        let previousHostedView = focusedTerminalPanel?.hostedView
+        let previousHostedView = focusedTerminalInputTarget()?.panel.hostedView
 
         let toolPanel = RightSidebarToolPanel(workspace: self, mode: mode)
         panels[toolPanel.id] = toolPanel
@@ -8394,7 +8399,7 @@ final class Workspace: Identifiable, ObservableObject {
     ) -> AgentSessionPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
-        let previousHostedView = focusedTerminalPanel?.hostedView
+        let previousHostedView = focusedTerminalInputTarget()?.panel.hostedView
         let directory: String? = {
             if let workingDirectory { return workingDirectory }
             return usesRemoteDirectoryProvenance ? presentedCurrentDirectory : currentDirectory
@@ -9246,7 +9251,8 @@ final class Workspace: Identifiable, ObservableObject {
         // another pane" after heavy split/tab mutations).
         // When a caller passes an explicit previousHostedView (e.g. during split creation where
         // bonsplit has already mutated focusedPaneId), prefer it over the derived value.
-        let previousTerminalHostedView = previousHostedView ?? focusedTerminalPanel?.hostedView
+        let previousTerminalHostedView = previousHostedView
+            ?? focusedTerminalInputTarget()?.panel.hostedView
 
         // `selectTab` does not necessarily move bonsplit's focused pane. For programmatic focus
         // (socket API, notification click, etc.), ensure the target tab's pane becomes focused

@@ -95,7 +95,7 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
             )
             return try #require(
                 workspace.remoteTmuxWindowMirror(forPanelId: panelId),
-                "Expected a multi-pane window mirror"
+                "Expected a window mirror"
             )
         }
 
@@ -242,6 +242,10 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
         ])
         try harness.drainThroughPaneRects([2: ["%4 0 0 80 24 1 off :0 \"host\""]])
 
+        let initialMirror = try harness.mirror()
+        let originalPanePanel = try #require(initialMirror.panel(forPane: 4))
+        let originalPaneSurface = originalPanePanel.surface
+
         // tmux splits window @2: pane %5 is created and becomes the active pane.
         harness.connection.handleMessageForTesting(.layoutChange(
             windowId: 2,
@@ -257,6 +261,15 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
         harness.connection.handleMessageForTesting(.windowPaneChanged(windowId: 2, paneId: 5))
 
         let mirror = try harness.mirror()
+        #expect(
+            mirror === initialMirror,
+            "A later split must reconcile the mirror created for the initial one-pane layout"
+        )
+        #expect(
+            mirror.panel(forPane: 4) === originalPanePanel,
+            "The original pane panel and its local scrollback must survive the split"
+        )
+        #expect(mirror.panel(forPane: 4)?.surface === originalPaneSurface)
         try expectSelectTargetMatchesInputTarget(mirror)
         try expectDistinctSurfacesPerPane(mirror)
 
@@ -283,7 +296,8 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
             "The newly split pane must be the active input target without a click; got \(String(describing: mirror.activePaneId))"
         )
         let expectedInputPanel = try #require(mirror.panel(forPane: 5))
-        #expect(harness.workspace.focusedTerminalPanel === expectedInputPanel)
+        #expect(harness.workspace.focusedTerminalPanel === containerPanel)
+        #expect(harness.workspace.focusedTerminalInputTarget()?.panel === expectedInputPanel)
         #expect(
             AppDelegate.resolveTerminalPanelForTextSend(
                 in: harness.workspace,
@@ -292,7 +306,7 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
         )
 
 #if DEBUG
-        // Reproduce the first keystroke after promotion while AppKit has no
+        // Reproduce the first keystroke after the split while AppKit has no
         // viable terminal responder. The real per-key repair path must target
         // the active inner pane, never the now-hidden workspace container.
         let appDelegate = try #require(AppDelegate.shared)
@@ -321,6 +335,8 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
         defer { appDelegate.debugFocusedTerminalKeyRepairObserverForTesting = previousRepairObserver }
 
         #expect(harness.workspace.focusedTerminalInputTarget()?.surfaceID == expectedInputPanel.id)
+        _ = window.makeFirstResponder(nil)
+        #expect(!expectedInputPanel.hostedView.isSurfaceViewFirstResponder())
 
         appDelegate.repairFocusedTerminalKeyboardRoutingIfNeeded(
             window: window,
@@ -330,9 +346,13 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
 
         #expect(
             didRunRepair,
-            "The first key after a 1→2 tmux promotion must run terminal focus repair"
+            "The first key after a 1→2 tmux split must run terminal focus repair"
         )
         #expect(harness.workspace.focusedTerminalInputTarget()?.surfaceID == expectedInputPanel.id)
+        #expect(
+            expectedInputPanel.hostedView.isSurfaceViewFirstResponder(),
+            "Key repair must make the tmux-active inner pane the actual AppKit responder"
+        )
 #else
         Issue.record("DEBUG key-repair target instrumentation is required for this regression")
 #endif
@@ -345,7 +365,7 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
         )
 
         // Selecting the outer tab is part of every nested pane focus callback.
-        // After promotion that tab's TerminalPanel is only a container: allowing
+        // The outer tab's TerminalPanel is only a container: allowing
         // it to become active again makes its old surface steal first responder,
         // so the focus ring moves while keystrokes still reach the original pane.
         let containerPaneId = try #require(harness.workspace.paneId(forPanelId: containerPanelId))
@@ -358,7 +378,7 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
 
         #expect(
             !containerPanel.hostedView.debugPortalActive,
-            "A promoted window container must never compete with its inner panes for input focus"
+            "A window container must never compete with its inner panes for input focus"
         )
         #expect(
             activePanePanel.hostedView.debugPortalActive,

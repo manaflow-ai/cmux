@@ -45,6 +45,6 @@ extension AppDelegate {
             return workspace.panelIdFromSurfaceId(TabID(uuid: surfaceId))
                 .flatMap { workspace.terminalInputTarget(forPanelID: $0)?.panel }
         }
-        return workspace.focusedTerminalPanel
+        return workspace.focusedTerminalInputTarget()?.panel
     }
 }

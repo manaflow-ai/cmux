@@ -3,10 +3,11 @@ import CmuxRemoteSession
 
 @MainActor
 extension RemoteTmuxSessionMirror {
-    /// Creates or reconciles the in-tab multi-pane renderer. The workspace's
-    /// display panel remains the stable outer container; every tmux pane gets a
-    /// distinct mirror-owned panel so portal and focus ownership never span both
-    /// hierarchy levels.
+    /// Creates or reconciles the in-tab renderer. The workspace's display panel
+    /// remains the stable outer container from the first one-pane layout, while
+    /// every tmux pane gets a distinct mirror-owned panel. A later split therefore
+    /// extends the existing mirror without replacing the original pane or its
+    /// scrollback.
     func reconcileWindowMirror(
         windowId: Int,
         panelId: UUID,
@@ -20,7 +21,6 @@ extension RemoteTmuxSessionMirror {
             }
             return
         }
-        guard window.paneIDsInOrder.count > 1 else { return }
         let mirror = RemoteTmuxWindowMirror(
             windowId: windowId,
             panelId: panelId,
@@ -54,9 +54,6 @@ extension RemoteTmuxSessionMirror {
         mirror.apply(window: window)
         windowMirrorByWindowId[windowId] = mirror
         workspace.setRemoteTmuxWindowMirror(mirror, forPanelId: panelId)
-        for paneId in window.paneIDsInOrder where panelIdByPane[paneId] == panelId {
-            panelIdByPane[paneId] = nil
-        }
         if let panel = workspace.panels[panelId] as? TerminalPanel {
             panel.surface.onManualSizeApplied = nil
             panel.surface.onRuntimeReady = nil

@@ -10,8 +10,8 @@ import Observation
 /// split layout side by side — with the native cmux pane chrome (each pane is a
 /// real ``TerminalPanel`` rendered via ``TerminalPanelView``).
 ///
-/// Created lazily by ``RemoteTmuxSessionMirror`` the first time a window has more
-/// than one pane; once created it owns every pane's panel for that window. The
+/// Created by ``RemoteTmuxSessionMirror`` from a window's first published layout;
+/// it owns every pane's panel as that window later splits or rejoins. The
 /// remote tmux control stream is the source of truth: pane output is fed into
 /// the matching surface, typed input is forwarded to that pane via `send-keys`,
 /// and a user split is propagated to `split-window`.

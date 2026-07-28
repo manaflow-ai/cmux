@@ -264,9 +264,8 @@ struct WorkspaceContentView: View {
                     isWorkspaceManualUnreadRepresentative: workspaceManualUnreadPanelId == panel.id
                 )
                 if let windowMirror = workspace.remoteTmuxWindowMirror(forPanelId: panel.id) {
-                    // Multi-pane tmux window: render its pane layout as splits
-                    // inside this single tab. Single-pane windows keep the
-                    // standard PanelContentView path below.
+                    // Every tmux window renders through one stable container,
+                    // including its initial one-pane layout.
                     RemoteTmuxWindowMirrorSplitView(
                         mirror: windowMirror,
                         appearance: appearance,
@@ -680,7 +679,7 @@ struct WorkspaceContentView: View {
             workspace.applyGhosttyChrome(from: next, reason: chromeReason)
         }
         if shouldRefreshWindowBackground {
-            if let terminalPanel = workspace.focusedTerminalPanel {
+            if let terminalPanel = workspace.focusedTerminalInputTarget()?.panel {
                 terminalPanel.applyWindowBackgroundIfActive()
                 logTheme(
                     "theme refresh terminal-applied workspace=\(workspace.id.uuidString) reason=\(reason) event=\(eventLabel) panel=\(workspace.focusedPanelId?.uuidString ?? "nil")"

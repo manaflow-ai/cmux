@@ -564,7 +564,7 @@ final class MainWindowFocusController {
               let workspace = tabManager.selectedWorkspace else {
             return false
         }
-        guard let terminalPanel = workspace.focusedTerminalPanel else { return false }
+        guard let terminalPanel = workspace.focusedTerminalInputTarget()?.panel else { return false }
         rightSidebarFocusState = .inactive
         intent = .mainPanel(workspaceId: workspace.id, panelId: terminalPanel.id)
         publishFeedFocusSnapshot()
@@ -751,7 +751,7 @@ final class MainWindowFocusController {
               let workspace = tabManager.selectedWorkspace else {
             return
         }
-        workspace.focusedTerminalPanel?.hostedView
+        workspace.focusedTerminalInputTarget()?.panel.hostedView
             .yieldTerminalSurfaceFocusForForeignResponder(reason: reason)
     }
 

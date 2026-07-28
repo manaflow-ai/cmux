@@ -779,12 +779,12 @@ class TabManager: ObservableObject {
 
     /// Returns the focused terminal surface for the selected workspace
     var selectedSurface: TerminalSurface? {
-        selectedWorkspace?.focusedTerminalPanel?.surface
+        selectedWorkspace?.focusedTerminalInputTarget()?.panel.surface
     }
 
     /// Returns the focused panel's terminal panel (if it is a terminal)
     var selectedTerminalPanel: TerminalPanel? {
-        selectedWorkspace?.focusedTerminalPanel
+        selectedWorkspace?.focusedTerminalInputTarget()?.panel
     }
 
     private var selectedWorkspaceTerminalPanels: [TerminalPanel] {
@@ -3106,7 +3106,7 @@ class TabManager: ObservableObject {
     func applyWindowBackgroundForSelectedTab() {
         guard let selectedTabId,
               let tab = tabs.first(where: { $0.id == selectedTabId }),
-              let terminalPanel = tab.focusedTerminalPanel else { return }
+              let terminalPanel = tab.focusedTerminalInputTarget()?.panel else { return }
         terminalPanel.applyWindowBackgroundIfActive()
     }
 

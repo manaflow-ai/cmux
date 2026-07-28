@@ -155,12 +155,10 @@ extension Workspace {
     /// pane surface — which is not a Bonsplit tab, so the ordinary focus path
     /// cannot resolve it — routes through the pane's sole mutation owner
     /// (select-pane on the remote) before focusing the mirror's container
-    /// panel, mirroring `focusRemoteTmuxControlPane`. A single-pane session
-    /// window projects its display panel as both container and surface; that
-    /// identity stays on the ordinary focus path, both to terminate the
-    /// container recursion and because the container is a real Bonsplit tab
-    /// the ordinary path already handles. Returns true when the request was
-    /// consumed.
+    /// panel, mirroring `focusRemoteTmuxControlPane`. Every tmux pane surface is
+    /// mirror-owned, including a one-pane window; only the workspace-owned
+    /// container identity stays on the ordinary focus path, which terminates
+    /// container recursion. Returns true when the request was consumed.
     func remoteTmuxMirrorInterceptsFocusPanel(
         _ panelId: UUID,
         previousHostedView: GhosttySurfaceScrollView?,

@@ -83,7 +83,7 @@ struct RemoteTmuxMirrorNewPaneKeyFocusTests {
         #expect(harness.mirror.activePaneId == 5)
         #expect(inputTarget.surfaceID == paneFive.id)
         #expect(inputTarget.panel === paneFive)
-        #expect(harness.workspace.focusedTerminalPanel === paneFive)
+        #expect(harness.workspace.focusedTerminalPanel?.id == harness.containerPanelId)
         #expect(
             harness.workspace.terminalInputTarget(
                 forPanelID: harness.containerPanelId
@@ -110,12 +110,12 @@ struct RemoteTmuxMirrorNewPaneKeyFocusTests {
         harness.mirror.noteRemoteActivePane(4)
         #expect(harness.workspace.focusedPanelId == harness.containerPanelId)
         #expect(harness.workspace.focusedTerminalInputTarget()?.surfaceID == paneFour.id)
-        #expect(harness.workspace.focusedTerminalPanel === paneFour)
+        #expect(harness.workspace.focusedTerminalPanel?.id == harness.containerPanelId)
 
         harness.mirror.noteRemoteActivePane(5)
         #expect(harness.workspace.focusedPanelId == harness.containerPanelId)
         #expect(harness.workspace.focusedTerminalInputTarget()?.surfaceID == paneFive.id)
-        #expect(harness.workspace.focusedTerminalPanel === paneFive)
+        #expect(harness.workspace.focusedTerminalPanel?.id == harness.containerPanelId)
     }
 
     @Test
@@ -134,6 +134,6 @@ struct RemoteTmuxMirrorNewPaneKeyFocusTests {
             ) == nil
         )
         #expect(harness.workspace.focusedTerminalInputTarget() == nil)
-        #expect(harness.workspace.focusedTerminalPanel == nil)
+        #expect(harness.workspace.focusedTerminalPanel?.id == harness.containerPanelId)
     }
 }

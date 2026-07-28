@@ -1710,8 +1710,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         let terminalPanel: TerminalPanel? = {
-            if let focusedTerminalPanel = workspace.focusedTerminalPanel {
-                return focusedTerminalPanel
+            if let inputPanel = workspace.focusedTerminalInputTarget()?.panel {
+                return inputPanel
             }
             return workspace.panels.values.compactMap { $0 as? TerminalPanel }.first
         }()
@@ -2607,8 +2607,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         func cmdClickUITestTerminalPanel(in workspace: Workspace?) -> TerminalPanel? {
             guard let workspace else { return nil }
-            if let focusedTerminalPanel = workspace.focusedTerminalPanel {
-                return focusedTerminalPanel
+            if let inputPanel = workspace.focusedTerminalInputTarget()?.panel {
+                return inputPanel
             }
             return workspace.panels.values
                 .compactMap { $0 as? TerminalPanel }
@@ -8235,7 +8235,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // pane. Do NOT fall back to creating a new surface there: that would
         // route to a remote `new-window` (a surprising side effect) yet still
         // have no local pane to deliver the text to.
-        let terminalPanel = workspace.focusedTerminalPanel
+        let terminalPanel = workspace.focusedTerminalInputTarget()?.panel
             ?? (workspace.isRemoteTmuxMirror ? nil : workspace.newTerminalSurfaceInFocusedPane(focus: shouldBringToFront))
         guard let terminalPanel else { return false }
 
@@ -9595,7 +9595,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if let preferredPanelId {
             return tab.terminalInputTarget(forPanelID: preferredPanelId)?.panel
         }
-        return tab.focusedTerminalPanel
+        return tab.focusedTerminalInputTarget()?.panel
     }
 
     private func sendTextWhenReady(
@@ -10946,7 +10946,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if let focusedPanelId = workspace.focusedPanelId {
             updates["focusedPanelId"] = focusedPanelId.uuidString
-            if let terminal = workspace.focusedTerminalPanel {
+            if let terminal = workspace.focusedTerminalInputTarget()?.panel {
                 updates["focusedPanelKind"] = "terminal"
                 updates["focusedTerminalFindNeedle"] = terminal.searchState?.needle ?? ""
                 updates["focusedBrowserFindNeedle"] = ""
@@ -14318,7 +14318,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let targetTabManager = preferredTabManager ?? tabManager
         guard let targetTabManager,
               let workspace = targetTabManager.selectedWorkspace,
-              let terminalPanel = workspace.focusedTerminalPanel else {
+              let terminalPanel = workspace.focusedTerminalInputTarget()?.panel else {
             return false
         }
 
