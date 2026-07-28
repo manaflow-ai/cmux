@@ -1,3 +1,4 @@
+import Bonsplit
 import Foundation
 import Testing
 
@@ -34,7 +35,7 @@ import Testing
             CmuxSurfaceDefinition(
                 type: .browser,
                 name: names[0],
-                url: "https://example.com",
+                url: nil,
                 focus: focusedIndex == 0
             ),
             CmuxSurfaceDefinition(type: .terminal, name: names[1], focus: focusedIndex == 1),
@@ -52,9 +53,10 @@ import Testing
         #expect(snapshot.selectedTitle == names[focusedIndex])
     }
 
-    @Test
-    func layoutApplicationRestoresInteractiveNewTabPlacement() throws {
+    @Test(arguments: [NewTabPosition.current, .end])
+    func layoutApplicationRestoresInteractiveNewTabPlacement(initialPlacement: NewTabPosition) throws {
         let workspace = Workspace()
+        workspace.bonsplitController.configuration.newTabPosition = initialPlacement
         workspace.applyCustomLayout(
             .pane(CmuxPaneDefinition(surfaces: [
                 CmuxSurfaceDefinition(type: .terminal, name: "AAA"),
@@ -68,15 +70,24 @@ import Testing
         let layoutTabIds = workspace.bonsplitController.tabs(inPane: paneId).map(\.id)
         try #require(layoutTabIds.count == 3)
 
+        switch (initialPlacement, workspace.bonsplitController.configuration.newTabPosition) {
+        case (.current, .current), (.end, .end):
+            break
+        default:
+            Issue.record("Layout application did not restore the initial new-tab placement")
+        }
+
         let newPanel = try #require(workspace.newTerminalSurface(inPane: paneId, focus: false))
         let newTabId = try #require(workspace.surfaceIdFromPanelId(newPanel.id))
+        let expectedTabIds: [TabID]
+        switch initialPlacement {
+        case .current:
+            expectedTabIds = [layoutTabIds[0], layoutTabIds[1], newTabId, layoutTabIds[2]]
+        case .end:
+            expectedTabIds = [layoutTabIds[0], layoutTabIds[1], layoutTabIds[2], newTabId]
+        }
 
-        #expect(workspace.bonsplitController.tabs(inPane: paneId).map(\.id) == [
-            layoutTabIds[0],
-            layoutTabIds[1],
-            newTabId,
-            layoutTabIds[2],
-        ])
+        #expect(workspace.bonsplitController.tabs(inPane: paneId).map(\.id) == expectedTabIds)
         #expect(workspace.bonsplitController.selectedTab(inPane: paneId)?.id == layoutTabIds[1])
     }
 
