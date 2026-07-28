@@ -39,6 +39,26 @@ private func tinyPNGData() throws -> Data {
     return try #require(bitmap.representation(using: .png, properties: [:]))
 }
 
+private func openFileDescriptorCount(for directoryURL: URL) -> Int {
+    var directoryMetadata = stat()
+    let didReadDirectory = directoryURL.withUnsafeFileSystemRepresentation {
+        path in
+        guard let path else { return false }
+        return Darwin.lstat(path, &directoryMetadata) == 0
+    }
+    guard didReadDirectory else { return 0 }
+
+    return (0..<Darwin.getdtablesize()).reduce(into: 0) { count, descriptor in
+        var descriptorMetadata = stat()
+        if Darwin.fstat(descriptor, &descriptorMetadata) == 0,
+           descriptorMetadata.st_dev == directoryMetadata.st_dev,
+           descriptorMetadata.st_ino == directoryMetadata.st_ino,
+           descriptorMetadata.st_mode & mode_t(S_IFMT) == mode_t(S_IFDIR) {
+            count += 1
+        }
+    }
+}
+
 @Suite("Terminal shell escaping")
 struct TerminalShellEscapingTests {
     @Test func escapesShellSpecialCharacters() {
@@ -178,7 +198,7 @@ struct ClipboardWriteCaptureTests {
     }
 }
 
-@Suite("Image materialization and temp-file ownership")
+@Suite("Image materialization and temp-file ownership", .serialized)
 struct ImageMaterializationTests {
     @Test func materializesPNGIntoOwnedTemporaryFile() throws {
         let scratchDir = try makeScratchDirectory()
@@ -347,6 +367,96 @@ struct ImageMaterializationTests {
         #expect(plainPath.hasPrefix(scratchDir.path))
         #expect(service.isOwnedTemporaryImageFile(URL(fileURLWithPath: plainPath)))
         service.cleanupAllOwnedTemporaryImageFiles()
+    }
+
+    @Test func ownedImagesReuseTheTemporaryDirectoryDescriptor() throws {
+        let scratchDir = try makeScratchDirectory()
+        defer { try? FileManager.default.removeItem(at: scratchDir) }
+        let service = TerminalPasteboardService(temporaryDirectory: scratchDir)
+        let descriptorCount = openFileDescriptorCount(for: scratchDir)
+
+        for _ in 0..<32 {
+            #expect(
+                service.saveImageData(try tinyPNGData(), fileExtension: "png")
+                    != nil
+            )
+        }
+
+        #expect(
+            openFileDescriptorCount(for: scratchDir) == descriptorCount
+        )
+        service.cleanupAllOwnedTemporaryImageFiles()
+    }
+
+    @Test func saveImageDataRemovesFileWhenOwnershipRegistrationFails() throws {
+        let scratchRoot = try makeScratchDirectory()
+        defer { try? FileManager.default.removeItem(at: scratchRoot) }
+        let targetDirectory = scratchRoot.appendingPathComponent(
+            "target",
+            isDirectory: true
+        )
+        let linkedDirectory = scratchRoot.appendingPathComponent(
+            "linked",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: targetDirectory,
+            withIntermediateDirectories: false
+        )
+        try FileManager.default.createSymbolicLink(
+            at: linkedDirectory,
+            withDestinationURL: targetDirectory
+        )
+        let service = TerminalPasteboardService(
+            temporaryDirectory: linkedDirectory
+        )
+
+        #expect(
+            service.saveImageData(try tinyPNGData(), fileExtension: "png")
+                == nil
+        )
+        #expect(
+            try FileManager.default.contentsOfDirectory(
+                atPath: targetDirectory.path
+            ).isEmpty
+        )
+    }
+
+    @Test func materializationRemovesFileWhenOwnershipRegistrationFails() throws {
+        let scratchRoot = try makeScratchDirectory()
+        defer { try? FileManager.default.removeItem(at: scratchRoot) }
+        let targetDirectory = scratchRoot.appendingPathComponent(
+            "target",
+            isDirectory: true
+        )
+        let linkedDirectory = scratchRoot.appendingPathComponent(
+            "linked",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: targetDirectory,
+            withIntermediateDirectories: false
+        )
+        try FileManager.default.createSymbolicLink(
+            at: linkedDirectory,
+            withDestinationURL: targetDirectory
+        )
+        let scratch = ScratchPasteboard()
+        scratch.pasteboard.declareTypes([.png], owner: nil)
+        scratch.pasteboard.setData(try tinyPNGData(), forType: .png)
+        let service = TerminalPasteboardService(
+            temporaryDirectory: linkedDirectory
+        )
+
+        #expect(
+            service.materializeImageFileURLIfNeeded(from: scratch.pasteboard)
+                == .rejectedImagePayload
+        )
+        #expect(
+            try FileManager.default.contentsOfDirectory(
+                atPath: targetDirectory.path
+            ).isEmpty
+        )
     }
 
     @Test func cleanupIgnoresFilesItDoesNotOwn() throws {
