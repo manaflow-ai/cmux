@@ -319,7 +319,7 @@ OPTIONS:
   --remote-admin-socket <path> Override the owner-only admin socket.
   --remote-resume-lease-seconds <seconds>
                     Retain crashed-client replay state for 1-86400 seconds.
-  --relay <url> --relay-slot <slot> --relay-ticket <ticket>
+  --relay <url> --relay-slot <slot>
                     Register with a relay; repeat up to four groups.
   --relay-ticket-file <path>  Refresh the relay ticket from a file.
   --relay-ticket-command <program> [--relay-ticket-command-arg <arg>]
@@ -437,7 +437,6 @@ struct Args {
 
 #[derive(Clone, PartialEq, Eq)]
 enum RelayCredentialArg {
-    Ticket(String),
     File(PathBuf),
     Command { program: String, args: Vec<String> },
 }
@@ -445,7 +444,6 @@ enum RelayCredentialArg {
 impl std::fmt::Debug for RelayCredentialArg {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Ticket(_) => formatter.debug_tuple("Ticket").field(&"<redacted>").finish(),
             Self::File(path) => formatter.debug_tuple("File").field(path).finish(),
             Self::Command { program, args } => formatter
                 .debug_struct("Command")
@@ -655,10 +653,10 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
                 out.remote = true;
             }
             "--relay-ticket" => {
-                out.relay_credentials.push(RelayCredentialArg::Ticket(
-                    args.next().unwrap_or_else(|| usage_exit("--relay-ticket needs a value")),
-                ));
-                out.remote = true;
+                return Err(
+                    "inline relay tickets are not accepted; use --relay-ticket-file or --relay-ticket-command"
+                        .to_string(),
+                );
             }
             "--relay-ticket-file" => {
                 out.relay_credentials.push(RelayCredentialArg::File(
@@ -1065,9 +1063,6 @@ fn relay_daemon_options(
         .zip(credentials)
         .map(|((endpoint, slot), credentials)| {
             let credentials = match credentials {
-                RelayCredentialArg::Ticket(ticket) => {
-                    cmux_remote::provider::RelayCredentialSource::static_ticket(ticket)?
-                }
                 RelayCredentialArg::File(path) => {
                     cmux_remote::provider::RelayCredentialSource::file(path)
                 }
@@ -1684,8 +1679,8 @@ mod remote_args_tests {
                 "relay+wss://relay.example",
                 "--relay-slot",
                 "native-slot",
-                "--relay-ticket",
-                "native-ticket",
+                "--relay-ticket-command",
+                "native-ticket-command",
                 "--relay",
                 "relay+do://worker.example",
                 "--relay-slot",
@@ -1736,7 +1731,7 @@ mod remote_args_tests {
         let error = relay_daemon_options(
             vec!["relay+wss://dont-leak-me@[".into()],
             vec!["slot".into()],
-            vec![RelayCredentialArg::Ticket("ticket".into())],
+            vec![RelayCredentialArg::File("/tmp/relay-ticket".into())],
         )
         .expect_err("malformed relay endpoint should fail");
 

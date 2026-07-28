@@ -14,6 +14,7 @@ mod mux_input;
 mod mux_lanes;
 pub mod observability;
 pub mod provider;
+pub mod secret_file;
 pub mod service;
 pub mod services;
 pub mod session;

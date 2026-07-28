@@ -200,12 +200,13 @@ impl fmt::Debug for RelayCredential {
 }
 
 async fn read_credential_file(path: &Path) -> Result<Zeroizing<String>, ProviderError> {
-    let file = tokio::fs::File::open(path)
-        .await
-        .map_err(|_| credential_source_error("file could not be read"))?;
-    read_limited_credential(file)
-        .await
-        .map_err(|_| credential_source_error("file could not be read"))
+    let path = path.to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        crate::secret_file::read_owner_only_string(&path, MAX_RELAY_CREDENTIAL_BYTES)
+    })
+    .await
+    .map_err(|_| credential_source_error("file could not be read"))?
+    .map_err(|_| credential_source_error("file could not be read"))
 }
 
 async fn read_credential_command(

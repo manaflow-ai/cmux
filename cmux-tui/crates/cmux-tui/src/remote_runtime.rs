@@ -201,7 +201,6 @@ impl fmt::Debug for RelayClientOptions {
 
 #[derive(Clone)]
 struct RoutedRelayProvider {
-    fallback: Option<RelayClientOptions>,
     routes: BTreeMap<String, RelayClientOptions>,
 }
 
@@ -212,11 +211,7 @@ impl fmt::Debug for RoutedRelayProvider {
             .iter()
             .map(|(route, options)| (sanitized_route_text(route), options))
             .collect::<Vec<_>>();
-        formatter
-            .debug_struct("RoutedRelayProvider")
-            .field("fallback", &self.fallback)
-            .field("routes", &routes)
-            .finish()
+        formatter.debug_struct("RoutedRelayProvider").field("routes", &routes).finish()
     }
 }
 
@@ -235,14 +230,11 @@ impl TransportProvider for RoutedRelayProvider {
     }
 
     async fn connect(&self, request: ConnectRequest) -> Result<Arc<dyn LinkGroup>, ProviderError> {
-        let relay =
-            self.routes.get(request.endpoint.as_str()).or(self.fallback.as_ref()).ok_or_else(
-                || {
-                    ProviderError::Configuration(
-                        "relay routes require relay slot and credentials".into(),
-                    )
-                },
-            )?;
+        let relay = self.routes.get(request.endpoint.as_str()).ok_or_else(|| {
+            ProviderError::Configuration(
+                "relay route requires credentials bound to its exact endpoint".into(),
+            )
+        })?;
         RelayProvider::with_credentials(
             RelayClientConfig {
                 slot: relay.slot.clone(),
@@ -259,7 +251,6 @@ impl TransportProvider for RoutedRelayProvider {
 
 pub fn client_provider_registry(
     ssh: SshProviderConfig,
-    relay: Option<RelayClientOptions>,
     relay_routes: BTreeMap<String, RelayClientOptions>,
     iroh_path: IrohPathMode,
 ) -> Result<cmux_remote::provider::ProviderRegistry, ProviderError> {
@@ -268,7 +259,7 @@ pub fn client_provider_registry(
     #[cfg(unix)]
     providers.register(Arc::new(UnixProvider::new(MAX_CARRIER_FRAME_BYTES)))?;
     providers.register(Arc::new(SshProvider::new(ssh)?))?;
-    providers.register(Arc::new(RoutedRelayProvider { fallback: relay, routes: relay_routes }))?;
+    providers.register(Arc::new(RoutedRelayProvider { routes: relay_routes }))?;
     providers.register(Arc::new(IrohProvider::new(
         IrohProviderConfig::default().with_path_mode(iroh_path),
     )?))?;
@@ -300,6 +291,11 @@ impl ResolvedRouteCandidate {
         routing: BTreeMap<String, String>,
         providers: &cmux_remote::provider::ProviderRegistry,
     ) -> Result<Self, ProviderError> {
+        if endpoint.scheme() == "ssh" {
+            ssh_bootstrap_destination(&endpoint).map_err(|_| {
+                ProviderError::Configuration("SSH route is not a safe OpenSSH destination".into())
+            })?;
+        }
         let supported_client_auth = providers.supported_client_auth(endpoint.scheme())?;
         Ok(Self { endpoint, routing, supported_client_auth })
     }
@@ -887,6 +883,9 @@ fn ssh_bootstrap_destination(endpoint: &Url) -> anyhow::Result<(String, Option<u
     };
     let username = endpoint.username();
     let destination = if username.is_empty() { host } else { format!("{username}@{host}") };
+    if destination.starts_with('-') {
+        return Err(anyhow!("SSH destination cannot begin with an option prefix"));
+    }
     Ok((destination, endpoint.port()))
 }
 
@@ -1549,8 +1548,10 @@ mod tests {
             }
         });
         let provider = RoutedRelayProvider {
-            fallback: Some(RelayClientOptions { slot: "slot".into(), credentials }),
-            routes: BTreeMap::new(),
+            routes: BTreeMap::from([(
+                Url::parse("relay+ws://configured.example").unwrap().to_string(),
+                RelayClientOptions { slot: "slot".into(), credentials },
+            )]),
         };
 
         let result = tokio::time::timeout(
@@ -1570,7 +1571,7 @@ mod tests {
     }
 
     fn test_providers(ssh: SshProviderConfig) -> Arc<cmux_remote::provider::ProviderRegistry> {
-        Arc::new(client_provider_registry(ssh, None, BTreeMap::new(), IrohPathMode::Auto).unwrap())
+        Arc::new(client_provider_registry(ssh, BTreeMap::new(), IrohPathMode::Auto).unwrap())
     }
 
     #[derive(Debug, PartialEq, Eq)]
@@ -1895,11 +1896,6 @@ mod tests {
             credentials: RelayCredentialSource::static_ticket("daemon-ticket-marker").unwrap(),
         };
         let routed_provider = RoutedRelayProvider {
-            fallback: Some(RelayClientOptions {
-                slot: "fallback-slot-marker".into(),
-                credentials: RelayCredentialSource::static_ticket("fallback-ticket-marker")
-                    .unwrap(),
-            }),
             routes: BTreeMap::from([(
                 "relay+wss://map-user-marker:map-password-marker@map.example/\
                  map-path-marker?ticket=map-query-marker#map-fragment-marker"
@@ -1970,8 +1966,6 @@ mod tests {
             "daemon-fragment-marker",
             "daemon-slot-marker",
             "daemon-ticket-marker",
-            "fallback-slot-marker",
-            "fallback-ticket-marker",
             "map-user-marker",
             "map-password-marker",
             "map-path-marker",
@@ -2250,8 +2244,7 @@ mod tests {
             ..SshProviderConfig::default()
         };
         let providers = Arc::new(
-            client_provider_registry(ssh.clone(), None, BTreeMap::new(), IrohPathMode::Auto)
-                .unwrap(),
+            client_provider_registry(ssh.clone(), BTreeMap::new(), IrohPathMode::Auto).unwrap(),
         );
         let mut unix_route = Url::parse("unix:///").unwrap();
         unix_route.set_path(proxy_link.to_str().unwrap());

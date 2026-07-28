@@ -100,7 +100,6 @@ fn run_inner(args: &[String], usage: &str) -> anyhow::Result<()> {
 
 fn remote_help_requested(args: &[String]) -> bool {
     const VALUE_OPTIONS: &[&str] = &[
-        "--invite",
         "--invite-file",
         "--daemon",
         "--lanes",
@@ -117,7 +116,6 @@ fn remote_help_requested(args: &[String]) -> bool {
         "--local-socket",
         "--relay-route",
         "--relay-slot",
-        "--relay-ticket",
         "--relay-ticket-file",
         "--relay-ticket-command",
         "--relay-ticket-command-arg",
@@ -144,27 +142,32 @@ fn remote_help_requested(args: &[String]) -> bool {
     ];
 
     let mut index = 0;
+    let mut requested = false;
     while index < args.len() {
         match args[index].as_str() {
-            "-h" | "--help" => return true,
+            "-h" | "--help" => {
+                requested = true;
+                index += 1;
+            }
+            "--invite" | "--relay-ticket" => return false,
             option if VALUE_OPTIONS.contains(&option) => index += 2,
             _ => index += 1,
         }
     }
-    false
+    requested
 }
 
 fn remote_help(command: Option<&str>) -> &'static str {
     match command {
         Some("connect") => {
-            r#"USAGE: cmux-tui connect [ROUTE|INVITATION] [OPTIONS]
+            r#"USAGE: cmux-tui connect [ROUTE] [OPTIONS]
 
 ROUTES:
   unix:///ABSOLUTE/PATH | ssh://[USER@]HOST[:PORT] | ws:// | wss:// | iroh://
   relay+ws:// | relay+wss:// | relay+https:// | relay+do://
 
 IDENTITY AND SESSION:
-  --invite URI  --invite-file PATH|-  --daemon FINGERPRINT
+  --invite-file PATH|-  --daemon FINGERPRINT
   --device-name NAME  --session NAME
   --state-dir PATH  --local-socket PATH  --headless [--json]
 
@@ -173,8 +176,8 @@ IDENTITY AND SESSION:
 
 TRANSPORT:
   --lanes auto|single|isolated  --connect-timeout-seconds N
-  For one relay, --relay-slot SLOT with one of --relay-ticket TICKET,
-    --relay-ticket-file PATH, or --relay-ticket-command PROGRAM.
+  For one explicit relay route, --relay-slot SLOT with either
+    --relay-ticket-file PATH or --relay-ticket-command PROGRAM.
   For fallbacks, repeat up to four --relay-route ROUTE, --relay-slot SLOT,
     and credential-source groups in occurrence order.
   --relay-ticket-command-arg ARG  --iroh-relay URL  --iroh-address ADDR
@@ -213,7 +216,7 @@ OPTIONS:
 "#
         }
         Some("forward") => {
-            r#"USAGE: cmux-tui forward [ROUTE|INVITATION] --workspace-root PATH --port PORT [OPTIONS]
+            r#"USAGE: cmux-tui forward [ROUTE] --workspace-root PATH --port PORT [OPTIONS]
 
 OPTIONS:
   --host HOST  --listen ADDR  --scheme http|https
@@ -222,7 +225,7 @@ OPTIONS:
 "#
         }
         Some("rpc") => {
-            r#"USAGE: cmux-tui rpc [ROUTE|INVITATION] [OPTIONS]
+            r#"USAGE: cmux-tui rpc [ROUTE] [OPTIONS]
 
 Reads one WorkspaceRequest JSON object per stdin line and writes one response
 per line. --request JSON sends one request and exits.
@@ -238,13 +241,13 @@ OPTIONS:
 
 ACTIONS:
   status | create | pending | approve ID | deny ID | devices | connections
-  revoke DEVICE_ID | disconnect DEVICE_ID SESSION_ID | connect INVITATION
+  revoke DEVICE_ID | disconnect DEVICE_ID SESSION_ID | connect ROUTE
 
 OPTIONS:
   --session NAME  --state-dir PATH  --admin-socket PATH  --json
   create: --ttl SECONDS  --advertise ROUTE
-  create relay access: repeat --relay-route ROUTE --relay-slot SLOT with one
-    --relay-ticket TICKET or --relay-ticket-file PATH, in occurrence order,
+  create relay access: repeat --relay-route ROUTE --relay-slot SLOT with
+    --relay-ticket-file PATH, in occurrence order,
     for up to two relay fallbacks
   connect accepts every option documented by `cmux-tui connect`.
 "#
@@ -304,12 +307,10 @@ struct ConnectFlags {
 }
 
 enum InvitationArg {
-    Inline(String),
     File(PathBuf),
 }
 
 enum ClientRelayCredentialArg {
-    Ticket(String),
     File(PathBuf),
     Command { program: String, args: Vec<String> },
 }
@@ -334,10 +335,11 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
             Ok(value)
         };
         match argument.as_str() {
-            "--invite" => set_invitation_arg(
-                &mut flags.invitation,
-                InvitationArg::Inline(value("--invite")?),
-            )?,
+            "--invite" => {
+                return Err(anyhow!(
+                    "inline invitations are not accepted; use --invite-file or stdin"
+                ));
+            }
             "--invite-file" => set_invitation_arg(
                 &mut flags.invitation,
                 InvitationArg::File(value("--invite-file")?.into()),
@@ -422,9 +424,9 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
             "--relay-route" => flags.relay_routes.push(value("--relay-route")?),
             "--relay-slot" => flags.relay_slots.push(value("--relay-slot")?),
             "--relay-ticket" => {
-                flags
-                    .relay_credentials
-                    .push(ClientRelayCredentialArg::Ticket(value("--relay-ticket")?));
+                return Err(anyhow!(
+                    "inline relay tickets are not accepted; use --relay-ticket-file or --relay-ticket-command"
+                ));
             }
             "--relay-ticket-file" => {
                 flags
@@ -490,15 +492,15 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
             "--scheme" => flags.forward_scheme = value("--scheme")?,
             "--request" => flags.rpc_request = Some(value("--request")?),
             "-h" | "--help" => {
-                println!(
-                    "cmux-tui connect <route|invitation> [--invite URI|--invite-file PATH|-] \
-                     [--daemon FINGERPRINT] [--lanes auto|single|isolated] \
-                     [--relay-slot SLOT --relay-ticket TICKET]"
-                );
-                return Ok(flags);
+                return Err(anyhow!("help cannot be combined with invalid connect options"));
             }
             option if option.starts_with('-') => return Err(anyhow!("unknown option {option:?}")),
             route => {
+                if route.starts_with("cmux://enroll/") {
+                    return Err(anyhow!(
+                        "positional invitations are not accepted; use --invite-file or stdin"
+                    ));
+                }
                 if flags.route.replace(route.to_string()).is_some() {
                     return Err(anyhow!("connect accepts one route"));
                 }
@@ -529,9 +531,7 @@ fn set_invitation_arg(
     invitation: InvitationArg,
 ) -> anyhow::Result<()> {
     if destination.replace(invitation).is_some() {
-        return Err(anyhow!(
-            "supply exactly one of --invite or --invite-file, and do not repeat it"
-        ));
+        return Err(anyhow!("--invite-file may be supplied only once"));
     }
     Ok(())
 }
@@ -597,27 +597,14 @@ struct ConnectedRuntime {
 
 fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> {
     let startup_started = Instant::now();
-    let invitation = {
-        let positional_invitation =
-            flags.route.as_deref().is_some_and(|route| route.starts_with("cmux://enroll/"));
-        if positional_invitation && flags.invitation.is_some() {
-            return Err(anyhow!(
-                "an invitation was supplied both positionally and with an invitation option"
-            ));
-        }
-        let encoded = match flags.invitation.take() {
-            Some(InvitationArg::Inline(encoded)) => Some(Zeroizing::new(encoded)),
-            Some(InvitationArg::File(path)) => Some(read_invitation_uri(&path)?),
-            None if positional_invitation => {
-                Some(Zeroizing::new(flags.route.take().expect("route was checked")))
-            }
-            None => None,
-        };
-        encoded
-            .as_ref()
-            .map(|encoded| EnrollmentInvitation::from_uri(encoded.as_str()))
-            .transpose()?
-    };
+    let invitation = flags
+        .invitation
+        .take()
+        .map(|InvitationArg::File(path)| read_invitation_uri(&path))
+        .transpose()?
+        .as_ref()
+        .map(|encoded| EnrollmentInvitation::from_uri(encoded.as_str()))
+        .transpose()?;
     let total_startup_timeout = flags
         .startup_timeout
         .unwrap_or_else(|| invitation.as_ref().map_or(DEFAULT_STARTUP_TIMEOUT, invitation_timeout));
@@ -629,7 +616,8 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
         .join("client");
     let store = ClientIdentityStore::load_or_create(&client_root)?;
     let async_runtime = tokio_runtime()?;
-    let (relay, mut relay_routes) = client_relay_options(
+    let mut relay_routes = client_relay_options(
+        flags.route.as_deref(),
         std::mem::take(&mut flags.relay_routes),
         std::mem::take(&mut flags.relay_slots),
         std::mem::take(&mut flags.relay_credentials),
@@ -654,7 +642,7 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
             relay_routes.entry(route).or_insert(options);
         }
     }
-    if relay_routes.len() + usize::from(relay.is_some()) > 4 {
+    if relay_routes.len() > 4 {
         return Err(anyhow!(
             "a client supports at most four relay credential routes including invitation bootstrap routes"
         ));
@@ -668,8 +656,7 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
         maximum_frame_bytes: crate::remote_runtime::MAX_CARRIER_FRAME_BYTES,
     };
     let relay_route_names = relay_routes.keys().cloned().collect::<Vec<_>>();
-    let providers =
-        Arc::new(client_provider_registry(ssh.clone(), relay, relay_routes, flags.iroh_path)?);
+    let providers = Arc::new(client_provider_registry(ssh.clone(), relay_routes, flags.iroh_path)?);
     let explicit_route = flags.route.take();
     let explicit_route_for_refresh = explicit_route.clone();
     let (route_strings, auth, expected_daemon, known, carrier_auth) = if let Some(invitation) =
@@ -863,10 +850,11 @@ fn push_unique(values: &mut Vec<String>, value: String) {
 }
 
 fn client_relay_options(
+    explicit_route: Option<&str>,
     routes: Vec<String>,
     slots: Vec<String>,
     credentials: Vec<ClientRelayCredentialArg>,
-) -> anyhow::Result<(Option<RelayClientOptions>, BTreeMap<String, RelayClientOptions>)> {
+) -> anyhow::Result<BTreeMap<String, RelayClientOptions>> {
     const MAX_CLIENT_RELAYS: usize = 4;
     if slots.len() != credentials.len() {
         return Err(anyhow!(
@@ -875,14 +863,31 @@ fn client_relay_options(
     }
     if routes.is_empty() {
         return match slots.len() {
-            0 => Ok((None, BTreeMap::new())),
-            1 => Ok((
-                Some(RelayClientOptions {
-                    slot: slots.into_iter().next().unwrap(),
-                    credentials: client_relay_credential(credentials.into_iter().next().unwrap())?,
-                }),
-                BTreeMap::new(),
-            )),
+            0 => Ok(BTreeMap::new()),
+            1 => {
+                let endpoint = explicit_route
+                    .ok_or_else(|| {
+                        anyhow!(
+                            "relay credentials without --relay-route require one explicit relay connection route"
+                        )
+                    })
+                    .and_then(|route| parse_route(route, "relay connection route"))?;
+                let display = sanitized_route(&endpoint);
+                if !is_relay_route(&endpoint) {
+                    return Err(anyhow!(
+                        "relay credential shorthand requires an explicit relay route, got {display}"
+                    ));
+                }
+                Ok(BTreeMap::from([(
+                    endpoint.to_string(),
+                    RelayClientOptions {
+                        slot: slots.into_iter().next().unwrap(),
+                        credentials: client_relay_credential(
+                            credentials.into_iter().next().unwrap(),
+                        )?,
+                    },
+                )]))
+            }
             _ => Err(anyhow!(
                 "multiple relay credentials require one --relay-route per credential group"
             )),
@@ -900,7 +905,7 @@ fn client_relay_options(
     for ((route, slot), credential) in routes.into_iter().zip(slots).zip(credentials) {
         let endpoint = parse_route(&route, "relay credential route")?;
         let display = sanitized_route(&endpoint);
-        if !matches!(endpoint.scheme(), "relay+ws" | "relay+wss" | "relay+https" | "relay+do") {
+        if !is_relay_route(&endpoint) {
             return Err(anyhow!("relay credential route {display} is not a relay route"));
         }
         let route = endpoint.to_string();
@@ -910,16 +915,17 @@ fn client_relay_options(
             return Err(anyhow!("relay credential route {display} is repeated"));
         }
     }
-    Ok((None, by_route))
+    Ok(by_route)
+}
+
+fn is_relay_route(endpoint: &Url) -> bool {
+    matches!(endpoint.scheme(), "relay+ws" | "relay+wss" | "relay+https" | "relay+do")
 }
 
 fn client_relay_credential(
     credential: ClientRelayCredentialArg,
 ) -> anyhow::Result<RelayCredentialSource> {
     match credential {
-        ClientRelayCredentialArg::Ticket(ticket) => {
-            Ok(RelayCredentialSource::static_ticket(ticket)?)
-        }
         ClientRelayCredentialArg::File(path) => Ok(RelayCredentialSource::file(path)),
         ClientRelayCredentialArg::Command { program, args } => {
             Ok(RelayCredentialSource::command(program, args))
@@ -1168,7 +1174,6 @@ impl EnrollAdminAction {
 }
 
 enum InvitationTicketArg {
-    Inline(String),
     File(PathBuf),
 }
 
@@ -1263,12 +1268,9 @@ fn parse_enroll_admin_args(args: &[String]) -> anyhow::Result<EnrollAdminArgs> {
                 parsed.relay_slots.push(strict_option_value(args, &mut index, "--relay-slot")?);
             }
             "--relay-ticket" => {
-                require_create_action(action, "--relay-ticket")?;
-                parsed.relay_tickets.push(InvitationTicketArg::Inline(strict_option_value(
-                    args,
-                    &mut index,
-                    "--relay-ticket",
-                )?));
+                return Err(anyhow!(
+                    "inline relay tickets are not accepted; use --relay-ticket-file"
+                ));
             }
             "--relay-ticket-file" => {
                 require_create_action(action, "--relay-ticket-file")?;
@@ -1481,7 +1483,7 @@ fn invitation_relay_access(args: &EnrollAdminArgs) -> anyhow::Result<Vec<Enrollm
         || args.relay_routes.len() != args.relay_tickets.len()
     {
         return Err(anyhow!(
-            "each invitation relay needs one --relay-route, one --relay-slot, and one --relay-ticket or --relay-ticket-file"
+            "each invitation relay needs one --relay-route, one --relay-slot, and one --relay-ticket-file"
         ));
     }
     if args.relay_routes.len() > 2 {
@@ -1493,22 +1495,15 @@ fn invitation_relay_access(args: &EnrollAdminArgs) -> anyhow::Result<Vec<Enrollm
         .zip(&args.relay_slots)
         .zip(&args.relay_tickets)
         .map(|((route, slot), source)| {
-            let ticket = match source {
-                InvitationTicketArg::Inline(ticket) => ticket.clone(),
-                InvitationTicketArg::File(path) => read_invitation_ticket_file(path)?,
-            };
+            let InvitationTicketArg::File(path) = source;
+            let ticket = read_invitation_ticket_file(path)?;
             Ok(EnrollmentRelayAccess { route: route.clone(), slot: slot.clone(), ticket })
         })
         .collect()
 }
 
 fn read_invitation_ticket_file(path: &Path) -> anyhow::Result<String> {
-    let metadata = fs::metadata(path)
-        .with_context(|| format!("could not read relay ticket file {}", path.display()))?;
-    if metadata.len() > 4 * 1024 {
-        return Err(anyhow!("relay ticket file exceeds 4096 bytes"));
-    }
-    Ok(fs::read_to_string(path)
+    Ok(cmux_remote::secret_file::read_owner_only_string(path, 4 * 1024)
         .with_context(|| format!("could not read relay ticket file {}", path.display()))?
         .trim()
         .to_string())
@@ -1519,30 +1514,11 @@ fn read_invitation_uri(path: &Path) -> anyhow::Result<Zeroizing<String>> {
         return read_invitation_uri_line(&mut io::stdin().lock());
     }
 
-    use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
-
-    let mut file = OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-        .open(path)
-        .with_context(|| format!("could not open invitation file {}", path.display()))?;
-    let metadata = file
-        .metadata()
-        .with_context(|| format!("could not inspect invitation file {}", path.display()))?;
-    if !metadata.file_type().is_file() {
-        return Err(anyhow!("invitation path must be a regular file or - for stdin"));
-    }
-    if metadata.len() > (MAX_INVITATION_URI_BYTES + 2) as u64 {
-        return Err(anyhow!("invitation file exceeds {MAX_INVITATION_URI_BYTES} bytes"));
-    }
-    if metadata.uid() != unsafe { libc::geteuid() } || metadata.permissions().mode() & 0o077 != 0 {
-        return Err(anyhow!(
-            "invitation file must be owned by the current user with no group or other permissions"
-        ));
-    }
-
-    read_invitation_uri_to_end(&mut file)
-        .with_context(|| format!("could not read invitation file {}", path.display()))
+    let bytes = cmux_remote::secret_file::read_owner_only(path, MAX_INVITATION_URI_BYTES + 2)
+        .map_err(|_| {
+            anyhow!("invitation path must be an owner-only regular file or - for stdin")
+        })?;
+    normalize_invitation_uri(bytes)
 }
 
 fn read_invitation_uri_to_end(reader: &mut impl Read) -> anyhow::Result<Zeroizing<String>> {
@@ -1641,23 +1617,124 @@ fn run_probe(args: &[String]) -> anyhow::Result<()> {
     Ok(())
 }
 
+struct PendingInstall {
+    parent_fd: std::os::fd::RawFd,
+    name: std::ffi::CString,
+    armed: bool,
+}
+
+impl Drop for PendingInstall {
+    fn drop(&mut self) {
+        if self.armed {
+            unsafe {
+                libc::unlinkat(self.parent_fd, self.name.as_ptr(), 0);
+            }
+        }
+    }
+}
+
+fn install_path_component(
+    component: &std::ffi::OsStr,
+    description: &str,
+) -> anyhow::Result<std::ffi::CString> {
+    use std::os::unix::ffi::OsStrExt as _;
+
+    std::ffi::CString::new(component.as_bytes())
+        .with_context(|| format!("{description} contains a NUL byte"))
+}
+
+fn open_install_parent(path: &Path) -> anyhow::Result<std::os::fd::OwnedFd> {
+    use std::os::fd::FromRawFd as _;
+    use std::os::unix::ffi::OsStrExt as _;
+
+    let encoded = std::ffi::CString::new(path.as_os_str().as_bytes())
+        .context("install parent contains a NUL byte")?;
+    let descriptor = unsafe {
+        libc::open(
+            encoded.as_ptr(),
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+        )
+    };
+    if descriptor < 0 {
+        return Err(io::Error::last_os_error()).context("could not open install parent");
+    }
+    // SAFETY: `open` returned a new owned descriptor.
+    let descriptor = unsafe { std::os::fd::OwnedFd::from_raw_fd(descriptor) };
+    let mut status = std::mem::MaybeUninit::<libc::stat>::uninit();
+    if unsafe { libc::fstat(descriptor.as_raw_fd(), status.as_mut_ptr()) } != 0 {
+        return Err(io::Error::last_os_error()).context("could not inspect install parent");
+    }
+    // SAFETY: `fstat` initialized the structure on success.
+    let status = unsafe { status.assume_init() };
+    if status.st_uid != unsafe { libc::geteuid() } || status.st_mode & 0o022 != 0 {
+        return Err(anyhow!(
+            "install parent must be owned by the current user and not group or world writable"
+        ));
+    }
+    Ok(descriptor)
+}
+
 fn run_install_self(args: &[String]) -> anyhow::Result<()> {
+    use std::os::fd::FromRawFd as _;
+
     let destination = flag_value(args, "--destination")
         .map(expand_home)
         .transpose()?
         .ok_or_else(|| anyhow!("install-self needs --destination"))?;
     let source = std::env::current_exe()?;
     let parent = destination.parent().ok_or_else(|| anyhow!("destination has no parent"))?;
-    fs::create_dir_all(parent)?;
-    let temporary = parent.join(format!(".cmux-tui-install-{}", std::process::id()));
-    fs::copy(&source, &temporary)
-        .with_context(|| format!("could not copy {}", source.display()))?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&temporary, fs::Permissions::from_mode(0o755))?;
+    let parent = if parent.as_os_str().is_empty() { Path::new(".") } else { parent };
+    let destination_name =
+        destination.file_name().ok_or_else(|| anyhow!("destination has no file name"))?;
+    if destination_name == "." || destination_name == ".." {
+        return Err(anyhow!("destination has an invalid file name"));
     }
-    fs::rename(&temporary, &destination)?;
+    let destination_name = install_path_component(destination_name, "destination file name")?;
+    fs::create_dir_all(parent)?;
+    let parent = open_install_parent(parent)?;
+    let temporary_name =
+        std::ffi::CString::new(format!(".cmux-tui-install-{}", uuid::Uuid::new_v4()))
+            .expect("UUID staging name has no NUL bytes");
+    let temporary_descriptor = unsafe {
+        libc::openat(
+            parent.as_raw_fd(),
+            temporary_name.as_ptr(),
+            libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+            0o600,
+        )
+    };
+    if temporary_descriptor < 0 {
+        return Err(io::Error::last_os_error()).context("could not create staged install");
+    }
+    // SAFETY: `openat` returned a new owned descriptor.
+    let mut temporary = unsafe { fs::File::from_raw_fd(temporary_descriptor) };
+    let mut pending =
+        PendingInstall { parent_fd: parent.as_raw_fd(), name: temporary_name, armed: true };
+    let mut source_file =
+        fs::File::open(&source).with_context(|| format!("could not open {}", source.display()))?;
+    io::copy(&mut source_file, &mut temporary)
+        .with_context(|| format!("could not copy {}", source.display()))?;
+    temporary.flush().context("could not flush staged install")?;
+    temporary.sync_all().context("could not sync staged install")?;
+    if unsafe { libc::fchmod(temporary.as_raw_fd(), 0o755) } != 0 {
+        return Err(io::Error::last_os_error()).context("could not set staged install permissions");
+    }
+    temporary.sync_all().context("could not sync staged install permissions")?;
+    if unsafe {
+        libc::renameat(
+            parent.as_raw_fd(),
+            pending.name.as_ptr(),
+            parent.as_raw_fd(),
+            destination_name.as_ptr(),
+        )
+    } != 0
+    {
+        return Err(io::Error::last_os_error()).context("could not install remote binary");
+    }
+    pending.armed = false;
+    if unsafe { libc::fsync(parent.as_raw_fd()) } != 0 {
+        return Err(io::Error::last_os_error()).context("could not sync install parent");
+    }
     println!("{}", destination.display());
     Ok(())
 }
@@ -2195,7 +2272,6 @@ mod tests {
         Arc::new(
             client_provider_registry(
                 SshProviderConfig::default(),
-                None,
                 BTreeMap::new(),
                 IrohPathMode::Auto,
             )
@@ -2343,15 +2419,25 @@ mod tests {
     }
 
     #[test]
+    fn generic_route_resolution_rejects_option_like_ssh_destinations() {
+        let routes = ["ssh://-Fvalidation@localhost".to_string()];
+
+        let error = resolve_route_candidates(&routes, &BTreeMap::new(), &test_provider_registry())
+            .expect_err("option-like SSH destination should fail");
+
+        assert!(error.to_string().contains("safe OpenSSH destination"));
+    }
+
+    #[test]
     fn parse_lane_policy_and_relay_flags() {
         let args = [
-            "wss://host/v1/link",
+            "relay+wss://host",
             "--lanes",
             "isolated",
             "--relay-slot",
             "slot",
-            "--relay-ticket",
-            "ticket",
+            "--relay-ticket-command",
+            "ticket-command",
         ]
         .map(str::to_string);
         let parsed = parse_connect_flags(&args).unwrap();
@@ -2375,28 +2461,18 @@ mod tests {
         ));
         assert!(!remote_help_requested(&["--invite-file".into(), "-h".into()]));
 
-        for args in [
-            vec!["--invite", "first", "--invite", "second"],
-            vec!["--invite-file", "first", "--invite-file", "second"],
-            vec!["--invite", "inline", "--invite-file", "file"],
-            vec!["--invite-file", "file", "--invite", "inline"],
-        ] {
+        for args in [vec!["--invite-file", "first", "--invite-file", "second"]] {
             let args = args.into_iter().map(str::to_string).collect::<Vec<_>>();
             assert!(parse_connect_flags(&args).is_err(), "unexpectedly accepted {args:?}");
         }
     }
 
     #[test]
-    fn positional_and_option_invitations_are_rejected_before_loading_or_connecting() {
-        let flags = ConnectFlags {
-            route: Some("cmux://enroll/positional-secret".into()),
-            invitation: Some(InvitationArg::File("missing-option-secret".into())),
-            ..ConnectFlags::default()
-        };
-        let error = start_connected(flags).err().expect("duplicate invitation should fail");
-        assert!(error.to_string().contains("both positionally"));
+    fn positional_invitations_are_rejected_before_loading_or_connecting() {
+        let error = parse_connect_flags(&["cmux://enroll/positional-secret".into()])
+            .err()
+            .expect("positional invitation should fail");
         assert!(!error.to_string().contains("positional-secret"));
-        assert!(!error.to_string().contains("option-secret"));
     }
 
     #[test]
@@ -2559,6 +2635,25 @@ mod tests {
         assert!(!remote_help_requested(&["host".into(), "--ssh-arg".into(), "-h".into()]));
         assert!(!remote_help_requested(&["--invite-file".into(), "-h".into()]));
         assert!(remote_help_requested(&["host".into(), "--help".into()]));
+        assert!(!remote_help_requested(&[
+            "--invite".into(),
+            "inline-secret".into(),
+            "--help".into(),
+        ]));
+        assert!(!remote_help_requested(&[
+            "--relay-ticket".into(),
+            "inline-secret".into(),
+            "--help".into(),
+        ]));
+        assert!(!remote_help_requested(&[
+            "--help".into(),
+            "--invite".into(),
+            "inline-secret".into(),
+        ]));
+        assert!(
+            parse_connect_flags(&["--help".into(), "--invite".into(), "inline-secret".into(),])
+                .is_err()
+        );
     }
 
     #[test]
@@ -2705,17 +2800,19 @@ mod tests {
     }
 
     #[test]
-    fn relay_credentials_support_global_and_route_scoped_forms() {
-        let (global, routes) = client_relay_options(
+    fn relay_credentials_support_exact_route_scoped_forms() {
+        let routes = client_relay_options(
+            Some("relay+wss://native.example"),
             vec![],
             vec!["slot".into()],
-            vec![ClientRelayCredentialArg::Ticket("ticket".into())],
+            vec![ClientRelayCredentialArg::File("ticket".into())],
         )
         .unwrap();
-        assert_eq!(global.unwrap().slot, "slot");
-        assert!(routes.is_empty());
+        let native_route = Url::parse("relay+wss://native.example").unwrap().to_string();
+        assert_eq!(routes[&native_route].slot, "slot");
 
-        let (global, routes) = client_relay_options(
+        let routes = client_relay_options(
+            None,
             vec!["relay+wss://native.example".into(), "relay+do://worker.example".into()],
             vec!["native-slot".into(), "do-slot".into()],
             vec![
@@ -2724,18 +2821,37 @@ mod tests {
             ],
         )
         .unwrap();
-        assert!(global.is_none());
-        assert_eq!(routes["relay+wss://native.example"].slot, "native-slot");
-        assert_eq!(routes["relay+do://worker.example"].slot, "do-slot");
+        let durable_object_route = Url::parse("relay+do://worker.example").unwrap().to_string();
+        assert_eq!(routes[&native_route].slot, "native-slot");
+        assert_eq!(routes[&durable_object_route].slot, "do-slot");
 
         assert!(
             client_relay_options(
-                vec!["relay+wss://native.example".into()],
+                Some("relay+wss://native.example"),
+                vec![],
                 vec!["slot".into(), "extra".into()],
                 vec![
-                    ClientRelayCredentialArg::Ticket("ticket".into()),
-                    ClientRelayCredentialArg::Ticket("extra".into()),
+                    ClientRelayCredentialArg::File("ticket".into()),
+                    ClientRelayCredentialArg::File("extra".into()),
                 ],
+            )
+            .is_err()
+        );
+        assert!(
+            client_relay_options(
+                None,
+                vec![],
+                vec!["slot".into()],
+                vec![ClientRelayCredentialArg::File("ticket".into())],
+            )
+            .is_err()
+        );
+        assert!(
+            client_relay_options(
+                Some("wss://not-a-relay.example/v1/link"),
+                vec![],
+                vec!["slot".into()],
+                vec![ClientRelayCredentialArg::File("ticket".into())],
             )
             .is_err()
         );
@@ -2957,6 +3073,24 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn install_self_atomically_replaces_destination_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempfile::tempdir().unwrap();
+        let sentinel = directory.path().join("sentinel");
+        let destination = directory.path().join("cmux-tui");
+        fs::write(&sentinel, b"keep").unwrap();
+        symlink(&sentinel, &destination).unwrap();
+
+        run_install_self(&["--destination".into(), destination.to_string_lossy().into_owned()])
+            .unwrap();
+
+        assert_eq!(fs::read(&sentinel).unwrap(), b"keep");
+        assert!(fs::symlink_metadata(&destination).unwrap().file_type().is_file());
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn install_self_rejects_group_or_world_writable_parent() {
         use std::os::unix::fs::PermissionsExt as _;
 
@@ -2977,22 +3111,32 @@ mod tests {
 
     #[test]
     fn relay_invitation_access_supports_native_and_durable_object_fallbacks() {
-        let args = [
-            "create",
-            "--relay-route",
-            "relay+wss://relay.example",
-            "--relay-slot",
-            "native-slot",
-            "--relay-ticket",
-            "native-ticket",
-            "--relay-route",
-            "relay+do://worker.example",
-            "--relay-slot",
-            "do-slot",
-            "--relay-ticket",
-            "do-ticket",
-        ]
-        .map(str::to_string);
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let directory = tempfile::tempdir().unwrap();
+        let native_ticket = directory.path().join("native-ticket");
+        let durable_object_ticket = directory.path().join("do-ticket");
+        for (path, contents) in
+            [(&native_ticket, "native-ticket\n"), (&durable_object_ticket, "do-ticket\n")]
+        {
+            fs::write(path, contents).unwrap();
+            fs::set_permissions(path, fs::Permissions::from_mode(0o600)).unwrap();
+        }
+        let args = vec![
+            "create".into(),
+            "--relay-route".into(),
+            "relay+wss://relay.example".into(),
+            "--relay-slot".into(),
+            "native-slot".into(),
+            "--relay-ticket-file".into(),
+            native_ticket.to_string_lossy().into_owned(),
+            "--relay-route".into(),
+            "relay+do://worker.example".into(),
+            "--relay-slot".into(),
+            "do-slot".into(),
+            "--relay-ticket-file".into(),
+            durable_object_ticket.to_string_lossy().into_owned(),
+        ];
 
         let parsed = parse_enroll_admin_args(&args).unwrap();
         let access = invitation_relay_access(&parsed).unwrap();
