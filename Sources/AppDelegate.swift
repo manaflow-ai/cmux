@@ -515,29 +515,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     let remoteTmuxController = RemoteTmuxController()
     private let systemAppearanceObserver = SystemAppearanceObserver()
     private static let reloadConfigurationMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.cmux.reloadConfiguration")
-    private static let cachedIsRunningUnderXCTest = detectRunningUnderXCTest(ProcessInfo.processInfo.environment)
+    private static let cachedIsRunningUnderXCTest = MacSentryStartupPolicy.isRunningUnderXCTest(
+        environment: ProcessInfo.processInfo.environment
+    )
     private var isRunningUnderXCTestCached: Bool {
         Self.cachedIsRunningUnderXCTest
     }
     private var cmuxThemePreviewReloadGeneration = 0
     private var cmuxThemePreviewReloadWorkItem: DispatchWorkItem?
 
-    private static func detectRunningUnderXCTest(_ env: [String: String]) -> Bool {
-        if env["XCTestConfigurationFilePath"] != nil { return true }
-        if env["XCTestBundlePath"] != nil { return true }
-        if env["XCTestSessionIdentifier"] != nil { return true }
-        if env["XCInjectBundle"] != nil { return true }
-        if env["XCInjectBundleInto"] != nil { return true }
-        if env["DYLD_INSERT_LIBRARIES"]?.contains("libXCTest") == true { return true }
-        if env.keys.contains(where: { $0.hasPrefix("CMUX_UI_TEST_") }) { return true }
-        return false
-    }
-
     private func isRunningUnderXCTest(_ env: [String: String]) -> Bool {
         // On some macOS/Xcode setups, the app-under-test process doesn't get
         // `XCTestConfigurationFilePath`. Use a broader set of signals so UI tests
         // can reliably skip heavyweight startup work and bring up a window.
-        Self.detectRunningUnderXCTest(env)
+        MacSentryStartupPolicy.isRunningUnderXCTest(environment: env)
     }
 
     @MainActor
@@ -1259,8 +1250,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let env = ProcessInfo.processInfo.environment
-        let isRunningUnderXCTest = isRunningUnderXCTest(env)
         let telemetryEnabled = TelemetrySettings.enabledForCurrentLaunch
+        let sentryStartupPolicy = MacSentryStartupPolicy(
+            environment: env,
+            telemetryEnabled: telemetryEnabled
+        )
+        let isRunningUnderXCTest = sentryStartupPolicy.isRunningUnderXCTest
         StartupBreadcrumbLog.append(
             "appDelegate.didFinish.begin",
             fields: [
@@ -1353,7 +1348,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 #endif
 
-        if telemetryEnabled {
+        if sentryStartupPolicy.shouldStart {
             // Pre-warm locale before Sentry to avoid a startup data race.
             // Locale initialization (os.locale.ensureLocale / NSLocale._preferredLanguages)
             // on the main thread can race with Sentry's background init thread
@@ -10665,6 +10660,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @objc func triggerSentryTestCrash(_ sender: Any?) {
+        guard SentrySDK.isEnabled else { return }
         SentrySDK.crash()
     }
 #endif
