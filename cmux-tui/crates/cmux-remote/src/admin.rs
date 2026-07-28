@@ -438,7 +438,7 @@ impl From<UnixPeerAuthError> for AdminError {
 #[cfg(test)]
 mod tests {
     use tempfile::tempdir;
-    use tokio::io::AsyncReadExt;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::UnixListener;
     use tokio::time::{Duration as TokioDuration, timeout};
 
@@ -512,6 +512,32 @@ mod tests {
                 });
             assert!(response.ok);
         }
+
+        server.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn oversized_unterminated_request_is_rejected_without_waiting_for_eof() {
+        let directory = tempdir().unwrap();
+        let auth =
+            AuthDatabase::load_or_create(directory.path().join("state"), "bounded-test", true)
+                .unwrap();
+        let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+        let socket = directory.path().join("admin.sock");
+        let server = serve_admin(daemon, &socket, Vec::new()).await.unwrap();
+        let mut stream = UnixStream::connect(&socket).await.unwrap();
+        verify_unix_peer_owner(&stream).unwrap();
+        stream.write_all(&vec![b'x'; MAX_ADMIN_MESSAGE_BYTES + 1]).await.unwrap();
+
+        let mut reader = BufReader::new(stream);
+        let mut encoded = Vec::new();
+        timeout(TokioDuration::from_secs(1), reader.read_until(b'\n', &mut encoded))
+            .await
+            .expect("oversized request remained buffered until EOF")
+            .unwrap();
+        let response: AdminResponse = serde_json::from_slice(&encoded).unwrap();
+        assert!(!response.ok);
+        assert_eq!(response.error.as_deref(), Some("admin request is too large"));
 
         server.shutdown().await;
     }
