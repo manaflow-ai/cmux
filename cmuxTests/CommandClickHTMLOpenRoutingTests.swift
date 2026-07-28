@@ -57,6 +57,92 @@ struct CommandClickHTMLOpenRoutingTests {
     }
 
     @Test
+    func repeatedHTMLPathOpenFocusesOneBrowser() throws {
+        _ = NSApplication.shared
+
+        let defaults = UserDefaults.standard
+        let supportedFilesKey = AppCatalogSection().openSupportedFilesInCmux.userDefaultsKey
+        let previousSupportedFiles = defaults.object(forKey: supportedFilesKey)
+        let previousBrowserDisabled = defaults.object(forKey: BrowserAvailabilitySettings.disabledKey)
+        defer {
+            restore(previousSupportedFiles, forKey: supportedFilesKey, in: defaults)
+            restore(previousBrowserDisabled, forKey: BrowserAvailabilitySettings.disabledKey, in: defaults)
+        }
+        defaults.set(true, forKey: supportedFilesKey)
+        defaults.set(false, forKey: BrowserAvailabilitySettings.disabledKey)
+
+        let fixtureDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let htmlURL = fixtureDirectory.appendingPathComponent("index.html")
+        try FileManager.default.createDirectory(at: fixtureDirectory, withIntermediateDirectories: true)
+        try "<!doctype html><title>single browser</title>".write(
+            to: htmlURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        defer { try? FileManager.default.removeItem(at: fixtureDirectory) }
+
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let sourcePanelId = try #require(workspace.focusedPanelId)
+
+        for _ in 0..<2 {
+            #expect(CommandClickFileOpenRouter.openInCmux(
+                workspace: workspace,
+                sourcePanelId: sourcePanelId,
+                filePath: htmlURL.path
+            ))
+        }
+
+        let browsers = workspace.panels.values.compactMap { $0 as? BrowserPanel }
+        #expect(browsers.count == 1)
+        #expect(workspace.focusedPanelId == browsers.first?.id)
+    }
+
+    @Test
+    func commandClickedHTMLUsesFileOnlyReadAccess() throws {
+        _ = NSApplication.shared
+
+        let defaults = UserDefaults.standard
+        let supportedFilesKey = AppCatalogSection().openSupportedFilesInCmux.userDefaultsKey
+        let previousSupportedFiles = defaults.object(forKey: supportedFilesKey)
+        let previousBrowserDisabled = defaults.object(forKey: BrowserAvailabilitySettings.disabledKey)
+        defer {
+            restore(previousSupportedFiles, forKey: supportedFilesKey, in: defaults)
+            restore(previousBrowserDisabled, forKey: BrowserAvailabilitySettings.disabledKey, in: defaults)
+        }
+        defaults.set(true, forKey: supportedFilesKey)
+        defaults.set(false, forKey: BrowserAvailabilitySettings.disabledKey)
+
+        let fixtureDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let htmlURL = fixtureDirectory.appendingPathComponent("index.html")
+        try FileManager.default.createDirectory(at: fixtureDirectory, withIntermediateDirectories: true)
+        try "<!doctype html><title>restricted read access</title>".write(
+            to: htmlURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        defer { try? FileManager.default.removeItem(at: fixtureDirectory) }
+
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let sourcePanelId = try #require(workspace.focusedPanelId)
+
+        #expect(CommandClickFileOpenRouter.openInCmux(
+            workspace: workspace,
+            sourcePanelId: sourcePanelId,
+            filePath: htmlURL.path
+        ))
+
+        let browser = try #require(workspace.panels.values.compactMap { $0 as? BrowserPanel }.first)
+        let readAccessPolicy = Mirror(reflecting: browser).children
+            .first(where: { $0.label == "localFileReadAccessPolicy" })
+            .map { String(describing: $0.value) }
+        #expect(readAccessPolicy == "fileOnly")
+    }
+
+    @Test
     func htmlSymlinkOpensResolvedTargetInBrowser() throws {
         _ = NSApplication.shared
 

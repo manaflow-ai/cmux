@@ -10,6 +10,35 @@ import struct CmuxSettings.AppCatalogSection
 
 @Suite("Terminal link open coordinator", .serialized)
 struct TerminalLinkOpenCoordinatorTests {
+    @MainActor
+    private final class MutableTerminalLinkContainer: TerminalLinkOpenContainer {
+        var isRemote = false
+        var browserURLs: [URL] = []
+
+        var terminalLinkContainerDebugName: String { "test" }
+
+        func terminalLinkWorkingDirectory(for sourcePanelId: UUID) -> String? {
+            nil
+        }
+
+        func terminalLinkIsRemoteTerminal(_ sourcePanelId: UUID) -> Bool {
+            isRemote
+        }
+
+        func deferTerminalFileLinkOpen(
+            sourcePanelId: UUID,
+            filePath: String,
+            fallback: @escaping @MainActor @Sendable () -> Void
+        ) -> Bool {
+            false
+        }
+
+        func openTerminalBrowserLink(url: URL, sourcePanelId: UUID) -> Bool {
+            browserURLs.append(url)
+            return true
+        }
+    }
+
     private func makeDefaults() -> UserDefaults {
         let suiteName = "terminal-link-open-coordinator-tests-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -169,5 +198,117 @@ struct TerminalLinkOpenCoordinatorTests {
         #expect(browserPanels.count == 1)
         #expect(browserPanels.first?.currentURL?.standardizedFileURL == htmlURL.standardizedFileURL)
         #expect(externallyOpened.isEmpty)
+    }
+
+    @Test("Deferred HTML routing revalidates remote state")
+    @MainActor
+    func deferredHTMLRouteRejectsRemoteTerminal() throws {
+        let defaults = makeDefaults()
+        let standardDefaults = UserDefaults.standard
+        let supportedFilesKey = AppCatalogSection().openSupportedFilesInCmux.userDefaultsKey
+        let previousSupportedFiles = standardDefaults.object(forKey: supportedFilesKey)
+        defer {
+            if let previousSupportedFiles {
+                standardDefaults.set(previousSupportedFiles, forKey: supportedFilesKey)
+            } else {
+                standardDefaults.removeObject(forKey: supportedFilesKey)
+            }
+        }
+        standardDefaults.set(true, forKey: supportedFilesKey)
+
+        let fixtureDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let htmlURL = fixtureDirectory.appendingPathComponent("index.html")
+        try FileManager.default.createDirectory(at: fixtureDirectory, withIntermediateDirectories: true)
+        try "<!doctype html><title>remote transition</title>".write(
+            to: htmlURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        defer { try? FileManager.default.removeItem(at: fixtureDirectory) }
+
+        let sourcePanelId = UUID()
+        let container = MutableTerminalLinkContainer()
+        var externallyOpened: [URL] = []
+        var deferredOperation: (@MainActor @Sendable () -> Void)?
+        let coordinator = TerminalLinkOpenCoordinator(
+            defaults: defaults,
+            containerResolver: { _, panelId in
+                panelId == sourcePanelId ? container : nil
+            },
+            externalOpen: { url in
+                externallyOpened.append(url)
+                return true
+            },
+            deferOperation: { operation in deferredOperation = operation }
+        )
+
+        #expect(coordinator.open(TerminalLinkOpenRequest(
+            rawValue: htmlURL.path,
+            sourceWorkspaceId: nil,
+            sourcePanelId: sourcePanelId,
+            workingDirectory: nil
+        )))
+        container.isRemote = true
+        deferredOperation?()
+
+        #expect(container.browserURLs.isEmpty)
+        #expect(externallyOpened == [htmlURL])
+    }
+
+    @Test("Deferred HTML routing revalidates file eligibility")
+    @MainActor
+    func deferredHTMLRouteRejectsDeletedFile() throws {
+        let defaults = makeDefaults()
+        let standardDefaults = UserDefaults.standard
+        let supportedFilesKey = AppCatalogSection().openSupportedFilesInCmux.userDefaultsKey
+        let previousSupportedFiles = standardDefaults.object(forKey: supportedFilesKey)
+        defer {
+            if let previousSupportedFiles {
+                standardDefaults.set(previousSupportedFiles, forKey: supportedFilesKey)
+            } else {
+                standardDefaults.removeObject(forKey: supportedFilesKey)
+            }
+        }
+        standardDefaults.set(true, forKey: supportedFilesKey)
+
+        let fixtureDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let htmlURL = fixtureDirectory.appendingPathComponent("index.html")
+        try FileManager.default.createDirectory(at: fixtureDirectory, withIntermediateDirectories: true)
+        try "<!doctype html><title>deleted target</title>".write(
+            to: htmlURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        defer { try? FileManager.default.removeItem(at: fixtureDirectory) }
+
+        let sourcePanelId = UUID()
+        let container = MutableTerminalLinkContainer()
+        var externallyOpened: [URL] = []
+        var deferredOperation: (@MainActor @Sendable () -> Void)?
+        let coordinator = TerminalLinkOpenCoordinator(
+            defaults: defaults,
+            containerResolver: { _, panelId in
+                panelId == sourcePanelId ? container : nil
+            },
+            externalOpen: { url in
+                externallyOpened.append(url)
+                return true
+            },
+            deferOperation: { operation in deferredOperation = operation }
+        )
+
+        #expect(coordinator.open(TerminalLinkOpenRequest(
+            rawValue: htmlURL.path,
+            sourceWorkspaceId: nil,
+            sourcePanelId: sourcePanelId,
+            workingDirectory: nil
+        )))
+        try FileManager.default.removeItem(at: htmlURL)
+        deferredOperation?()
+
+        #expect(container.browserURLs.isEmpty)
+        #expect(externallyOpened == [htmlURL])
     }
 }
