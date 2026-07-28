@@ -368,7 +368,7 @@ nonisolated struct TextBoxPreparedFileAttachment: Sendable {
         let preparedDisposition: TextBoxPreparedLocalFileDisposition
         let preparedCleanupIdentity: TextBoxPreparedLocalFileIdentity?
         switch uploadTarget {
-        case .local, .unknown:
+        case .local:
             preparedFileURL = standardizedFileURL
             if sourceDisposition.cleanupLocalURLWhenDisposed,
                !openedFile.pathEntryIdentity.stillNamesEntry(
@@ -422,6 +422,8 @@ nonisolated struct TextBoxPreparedFileAttachment: Sendable {
                 disposition: sourceDisposition,
                 identity: openedFile.pathEntryIdentity
             )
+        case .unknown:
+            return nil
         }
         return TextBoxPreparedFileAttachment(
             fileURL: preparedFileURL,

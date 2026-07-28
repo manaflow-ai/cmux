@@ -110,6 +110,16 @@ extension RemoteSessionCoordinator {
         return "/tmp/cmux-drop-\(uuid.uuidString.lowercased())\(lowercasedSuffix)"
     }
 
+    /// Removes uploaded drop files whose caller could not commit their paths
+    /// into terminal input. Cleanup stays on the coordinator's serial queue so
+    /// it cannot race the session's other SSH operations.
+    public func cleanupAbandonedUploadedFiles(_ remotePaths: [String]) {
+        guard !remotePaths.isEmpty else { return }
+        queue.async { [weak self] in
+            self?.cleanupUploadedRemotePaths(remotePaths)
+        }
+    }
+
     func cleanupUploadedRemotePaths(_ remotePaths: [String]) {
         guard !remotePaths.isEmpty else { return }
         let cleanupScript = "rm -f -- " + remotePaths.map(\.shellSingleQuoted).joined(separator: " ")

@@ -484,6 +484,11 @@ enum TextBoxDraftAttachmentStorage {
         TextBoxDraftAttachmentStorageQuotaLimits.maximumAggregateBytes
 
     final class DurableStorageQuota: @unchecked Sendable {
+        private static let accessWaitTimeout: DispatchTimeInterval =
+            .milliseconds(250)
+        private static let accessWaitPollNanoseconds: UInt64 = 10_000_000
+        private static let fileLockRetryDelayMicroseconds: useconds_t = 5_000
+
         struct Reservation: Sendable {
             let id: UUID
             let lockDescriptor: Int32
@@ -498,7 +503,8 @@ enum TextBoxDraftAttachmentStorage {
             byteCount: off_t,
             storageDirectory: URL,
             destinationURL: URL,
-            waitsForAccess: Bool
+            waitsForAccess: Bool,
+            accessDeadline: DispatchTime? = nil
         ) -> Reservation? {
             guard byteCount >= 0,
                   byteCount <= maximumDurableFileBytes else {
@@ -512,14 +518,12 @@ enum TextBoxDraftAttachmentStorage {
                 return nil
             }
 
-            let didEnterLocally: Bool
-            if waitsForAccess {
-                localAdmission.wait()
-                didEnterLocally = true
-            } else {
-                didEnterLocally =
-                    localAdmission.wait(timeout: .now()) == .success
-            }
+            let effectiveAccessDeadline = waitsForAccess
+                ? (accessDeadline ?? Self.defaultAccessDeadline())
+                : nil
+            let didEnterLocally = waitForLocalAdmission(
+                until: effectiveAccessDeadline
+            )
             guard didEnterLocally else { return nil }
             var shouldReleaseLocalAdmission = true
             defer {
@@ -555,8 +559,9 @@ enum TextBoxDraftAttachmentStorage {
                     == mode_t(S_IFREG),
                   acquireFileLock(
                     descriptor: lockDescriptor,
-                    waitsForAccess: waitsForAccess
+                    accessDeadline: effectiveAccessDeadline
                   ),
+                  !Task.isCancelled,
                   let retainedBytes = retainedLogicalByteCount(
                     in: storageDirectory
                   ),
@@ -585,7 +590,7 @@ enum TextBoxDraftAttachmentStorage {
             _ = setFileLock(
                 descriptor: reservation.lockDescriptor,
                 type: Int16(F_UNLCK),
-                waitsForAccess: false
+                accessDeadline: nil
             )
             Darwin.close(reservation.lockDescriptor)
             localAdmission.signal()
@@ -593,19 +598,19 @@ enum TextBoxDraftAttachmentStorage {
 
         private func acquireFileLock(
             descriptor: Int32,
-            waitsForAccess: Bool
+            accessDeadline: DispatchTime?
         ) -> Bool {
             setFileLock(
                 descriptor: descriptor,
                 type: Int16(F_WRLCK),
-                waitsForAccess: waitsForAccess
+                accessDeadline: accessDeadline
             )
         }
 
         private func setFileLock(
             descriptor: Int32,
             type: Int16,
-            waitsForAccess: Bool
+            accessDeadline: DispatchTime?
         ) -> Bool {
             var lock = flock(
                 l_start: 0,
@@ -614,13 +619,53 @@ enum TextBoxDraftAttachmentStorage {
                 l_type: type,
                 l_whence: Int16(SEEK_SET)
             )
-            let operation = waitsForAccess ? F_SETLKW : F_SETLK
             while true {
-                if Darwin.fcntl(descriptor, operation, &lock) == 0 {
+                if type != Int16(F_UNLCK), Task.isCancelled {
+                    return false
+                }
+                if Darwin.fcntl(descriptor, F_SETLK, &lock) == 0 {
                     return true
                 }
-                guard errno == EINTR else { return false }
+                let lockError = errno
+                guard type != Int16(F_UNLCK),
+                      lockError == EACCES
+                        || lockError == EAGAIN
+                        || lockError == EINTR,
+                      let accessDeadline,
+                      DispatchTime.now().uptimeNanoseconds
+                        < accessDeadline.uptimeNanoseconds else {
+                    return false
+                }
+                Darwin.usleep(Self.fileLockRetryDelayMicroseconds)
             }
+        }
+
+        private func waitForLocalAdmission(
+            until accessDeadline: DispatchTime?
+        ) -> Bool {
+            guard let accessDeadline else {
+                return localAdmission.wait(timeout: .now()) == .success
+            }
+            while true {
+                guard !Task.isCancelled else { return false }
+                let now = DispatchTime.now().uptimeNanoseconds
+                guard now < accessDeadline.uptimeNanoseconds else {
+                    return false
+                }
+                let pollDeadline = DispatchTime(
+                    uptimeNanoseconds: min(
+                        accessDeadline.uptimeNanoseconds,
+                        now &+ Self.accessWaitPollNanoseconds
+                    )
+                )
+                if localAdmission.wait(timeout: pollDeadline) == .success {
+                    return true
+                }
+            }
+        }
+
+        static func defaultAccessDeadline() -> DispatchTime {
+            .now() + accessWaitTimeout
         }
 
         /// Counts logical lengths, not allocated blocks, so sparse files consume
@@ -646,6 +691,7 @@ enum TextBoxDraftAttachmentStorage {
             var total: off_t = 0
             var retainedEntryCount = 0
             while let entryURL = enumerator.nextObject() as? URL {
+                guard !Task.isCancelled else { return nil }
                 retainedEntryCount += 1
                 guard retainedEntryCount <= maximumRetainedEntryCount else {
                     return nil
@@ -1017,10 +1063,14 @@ enum TextBoxDraftAttachmentStorage {
         let pendingOriginalPaths = draftCopyState.withLock { state in
             Array(state.pendingOriginalPaths)
         }
+        let accessDeadline = DurableStorageQuota.defaultAccessDeadline()
         for originalPath in pendingOriginalPaths {
             let originalURL = URL(fileURLWithPath: originalPath).standardizedFileURL
             let durableURL = linkToDurableStorageIfPossible(originalURL)
-                ?? copyToDurableStorage(originalURL)
+                ?? copyToDurableStorage(
+                    originalURL,
+                    accessDeadline: accessDeadline
+                )
             let copiedPathToRemove = draftCopyState.withLock { state -> String? in
                 guard state.pendingOriginalPaths.remove(originalPath) != nil else {
                     return nil
@@ -1052,7 +1102,10 @@ enum TextBoxDraftAttachmentStorage {
         return (TextBoxAttachment.submissionText(forLocalFileURL: durableURL), durableURL.path)
     }
 
-    private static func copyToDurableStorage(_ sourceURL: URL) -> URL? {
+    private static func copyToDurableStorage(
+        _ sourceURL: URL,
+        accessDeadline: DispatchTime? = nil
+    ) -> URL? {
         let sourceURL = sourceURL.standardizedFileURL
         guard let destinationURL = durableStorageURL(for: sourceURL),
               let sourceByteCount = logicalRegularFileByteCount(
@@ -1063,7 +1116,8 @@ enum TextBoxDraftAttachmentStorage {
                 byteCount: sourceByteCount,
                 storageDirectory: storageDirectory,
                 destinationURL: destinationURL,
-                waitsForAccess: true
+                waitsForAccess: true,
+                accessDeadline: accessDeadline
               ) else {
             return nil
         }
@@ -3485,9 +3539,18 @@ struct TextBoxInputContainer: View {
             .map(\.standardizedFileURL)
         guard !standardizedURLs.isEmpty else { return false }
 
+        let target = surface.resolvedImageTransferTarget()
+        guard target != .unknown else {
+            TerminalImageTransferGuidance.presentUnverifiedRemoteSession(
+                in: textView.window
+            )
+            GhosttyApp.terminalPasteboard
+                .cleanupTransferredTemporaryImageFiles(standardizedURLs)
+            return false
+        }
         let plan = TerminalImageTransferPlanner.plan(
             fileURLs: standardizedURLs,
-            target: surface.resolvedImageTransferTarget(),
+            target: target,
             mode: .paste
         )
 
@@ -3509,6 +3572,8 @@ struct TextBoxInputContainer: View {
             uploadFileAttachments(uploadURLs, remoteTarget: remoteTarget, focusing: textView)
             return true
         case .reject:
+            GhosttyApp.terminalPasteboard
+                .cleanupTransferredTemporaryImageFiles(standardizedURLs)
             return false
         }
     }
@@ -3526,6 +3591,19 @@ struct TextBoxInputContainer: View {
             for: operation,
             onCancel: { _ = operation.cancel() }
         )
+        let cleanupRemotePaths: @Sendable ([String]) -> Void
+        switch remoteTarget {
+        case .workspaceRemote:
+            let controller = surface.owningWorkspace()?
+                .remotePTYSessionControllerForSocketCommand()
+            cleanupRemotePaths = { remotePaths in
+                controller?.cleanupAbandonedUploadedFiles(remotePaths)
+            }
+        case .detectedSSH(let session):
+            cleanupRemotePaths = { remotePaths in
+                session.cleanupUploadedRemotePathsAsync(remotePaths)
+            }
+        }
 
         let finish: (Result<[String], Error>) -> Void = { [weak surface] result in
             DispatchQueue.main.async {
@@ -3540,6 +3618,9 @@ struct TextBoxInputContainer: View {
 
                 surface?.hostedView.endImageTransferIndicator(for: operation)
                 guard operation.finish() else {
+                    if case .success(let remotePaths) = result {
+                        cleanupRemotePaths(remotePaths)
+                    }
                     removePendingPlaceholder()
                     GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
                     return
@@ -3547,7 +3628,9 @@ struct TextBoxInputContainer: View {
 
                 switch result {
                 case .success(let remotePaths):
-                    guard !remotePaths.isEmpty else {
+                    guard remotePaths.count == fileURLs.count,
+                          !remotePaths.contains(where: \.isEmpty) else {
+                        cleanupRemotePaths(remotePaths)
                         removePendingPlaceholder()
                         GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
                         NSSound.beep()
@@ -3563,6 +3646,7 @@ struct TextBoxInputContainer: View {
                         )
                     }
                     guard !newAttachments.isEmpty else {
+                        cleanupRemotePaths(remotePaths)
                         removePendingPlaceholder()
                         GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
                         NSSound.beep()
@@ -3570,6 +3654,7 @@ struct TextBoxInputContainer: View {
                     }
                     guard textViewReference.textView === textView,
                           textView.canAcceptPendingAttachmentUpload(validationToken: uploadValidationToken) else {
+                        cleanupRemotePaths(remotePaths)
                         removePendingPlaceholder()
                         GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
                         return
@@ -3578,6 +3663,7 @@ struct TextBoxInputContainer: View {
                         id: placeholderID,
                         with: newAttachments
                     ) else {
+                        cleanupRemotePaths(remotePaths)
                         removePendingPlaceholder()
                         GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
                         return

@@ -564,7 +564,21 @@ class GhosttyApp {
                 }
 
                 let target = MainActor.assumeIsolated {
-                    callbackContext.terminalSurface?.resolvedImageTransferTarget() ?? .local
+                    callbackContext.terminalSurface?.resolvedImageTransferTarget() ?? .unknown
+                }
+                guard target != .unknown else {
+                    MainActor.assumeIsolated {
+                        callbackContext.terminalSurface?.hostedView
+                            .endImageTransferIndicator(for: operation)
+                        TerminalImageTransferGuidance
+                            .presentUnverifiedRemoteSession(
+                                in: callbackContext.terminalSurface?.hostedView.window
+                            )
+                    }
+                    GhosttyApp.terminalPasteboard
+                        .cleanupTransferredTemporaryImageFiles(fileURLs)
+                    completeClipboardRequest(with: "")
+                    return
                 }
                 let plan = TerminalImageTransferPlanner.plan(
                     fileURLs: fileURLs,
@@ -7239,7 +7253,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     private func resolvedImageTransferTarget() -> TerminalImageTransferTarget {
         MainActor.assumeIsolated {
-            terminalSurface?.resolvedImageTransferTarget() ?? .local
+            terminalSurface?.resolvedImageTransferTarget() ?? .unknown
         }
     }
 
@@ -7273,9 +7287,18 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             terminalSurface?.sendText(text)
             return true
         case .fileURLs(let fileURLs):
+            let target = resolvedImageTransferTarget()
+            guard target != .unknown else {
+                TerminalImageTransferGuidance.presentUnverifiedRemoteSession(
+                    in: window
+                )
+                GhosttyApp.terminalPasteboard
+                    .cleanupTransferredTemporaryImageFiles(fileURLs)
+                return true
+            }
             let plan = TerminalImageTransferPlanner.plan(
                 fileURLs: fileURLs,
-                target: resolvedImageTransferTarget(),
+                target: target,
                 mode: .drop
             )
             return executeImageTransferPlan(plan, onCancel: onCancel)

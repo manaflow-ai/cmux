@@ -265,7 +265,7 @@ struct ImageMaterializationTests {
 
         service.debugCleanupTransferredTemporaryImageFiles(
             [url],
-            afterIdentityCheck: {
+            afterQuarantineValidation: {
                 let renameResult = Darwin.rename(replacementURL.path, url.path)
                 precondition(renameResult == 0)
             }

@@ -66,6 +66,9 @@ public final class TerminalPasteboardService: Sendable {
     // completions, app termination cleanup).
     nonisolated(unsafe) private var ownedTemporaryImageFiles:
         [String: TerminalPasteboardTemporaryImageFileIdentity] = [:]
+    // SAFETY: guarded by `temporaryImageOwnershipLock` with the ownership map.
+    nonisolated(unsafe) private var temporaryImageCleanupQuarantine:
+        TerminalPasteboardTemporaryImageCleanupQuarantine?
 
     private let standardClipboardWriteCaptureLock = NSLock()
     // SAFETY: guarded by `standardClipboardWriteCaptureLock`; armed on the
@@ -218,23 +221,25 @@ extension TerminalPasteboardService {
     public func cleanupTransferredTemporaryImageFiles(_ fileURLs: [URL]) {
         cleanupTransferredTemporaryImageFiles(
             fileURLs,
-            afterIdentityCheck: {}
+            afterQuarantineValidation: {}
         )
     }
 
     private func cleanupTransferredTemporaryImageFiles(
         _ fileURLs: [URL],
-        afterIdentityCheck: () -> Void
+        afterQuarantineValidation: () -> Void
     ) {
+        guard let quarantine = cleanupQuarantine() else { return }
         for fileURL in fileURLs {
             let normalizedURL = fileURL.standardizedFileURL
             guard normalizedURL.isFileURL,
                   let ownedIdentity = consumeOwnedTemporaryImageFile(normalizedURL) else {
                 continue
             }
-            ownedIdentity.unlinkIfStillNamesEntry(
+            ownedIdentity.quarantineAndUnlinkIfStillOwned(
                 at: normalizedURL,
-                afterIdentityCheck: afterIdentityCheck
+                quarantine: quarantine,
+                afterQuarantineValidation: afterQuarantineValidation
             )
         }
     }
@@ -249,6 +254,7 @@ extension TerminalPasteboardService {
 
     /// Deletes every temporary image file this service still owns.
     public func cleanupAllOwnedTemporaryImageFiles() {
+        guard let quarantine = cleanupQuarantine() else { return }
         temporaryImageOwnershipLock.lock()
         let ownedFiles = ownedTemporaryImageFiles
         ownedTemporaryImageFiles.removeAll()
@@ -256,7 +262,10 @@ extension TerminalPasteboardService {
 
         for (path, ownedIdentity) in ownedFiles {
             let fileURL = URL(fileURLWithPath: path)
-            ownedIdentity.unlinkIfStillNamesEntry(at: fileURL)
+            ownedIdentity.quarantineAndUnlinkIfStillOwned(
+                at: fileURL,
+                quarantine: quarantine
+            )
         }
     }
 
@@ -285,6 +294,22 @@ extension TerminalPasteboardService {
         return ownedIdentity
     }
 
+    private func cleanupQuarantine()
+        -> TerminalPasteboardTemporaryImageCleanupQuarantine?
+    {
+        temporaryImageOwnershipLock.lock()
+        defer { temporaryImageOwnershipLock.unlock() }
+        if let temporaryImageCleanupQuarantine {
+            return temporaryImageCleanupQuarantine
+        }
+        let quarantine =
+            TerminalPasteboardTemporaryImageCleanupQuarantine(
+                inside: temporaryDirectory
+            )
+        temporaryImageCleanupQuarantine = quarantine
+        return quarantine
+    }
+
 #if DEBUG
     /// Test bridge: registers an arbitrary file as owned so cleanup paths can
     /// be exercised deterministically.
@@ -293,14 +318,15 @@ extension TerminalPasteboardService {
     }
 
     /// Test bridge for replacing the original pathname in the former
-    /// identity-check-to-unlink race window.
+    /// identity-check-to-unlink race window. The hook now runs only after the
+    /// owned entry has moved into the private quarantine.
     public func debugCleanupTransferredTemporaryImageFiles(
         _ fileURLs: [URL],
-        afterIdentityCheck: () -> Void
+        afterQuarantineValidation: () -> Void
     ) {
         cleanupTransferredTemporaryImageFiles(
             fileURLs,
-            afterIdentityCheck: afterIdentityCheck
+            afterQuarantineValidation: afterQuarantineValidation
         )
     }
 #endif

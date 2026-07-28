@@ -237,7 +237,7 @@ nonisolated struct DetectedSSHSession: Equatable, Sendable {
         )
     }
 
-    private func cleanupUploadedRemotePathsAsync(_ remotePaths: [String]) {
+    func cleanupUploadedRemotePathsAsync(_ remotePaths: [String]) {
         guard !remotePaths.isEmpty else { return }
         let session = self
         DispatchQueue.global(qos: .utility).async {
@@ -412,6 +412,26 @@ nonisolated enum TerminalSSHSessionDetector {
             processes: processes,
             argumentsByPID: argumentsByPID
         )
+    }
+
+    static func hasForegroundRemoteShell(forTTY ttyName: String) -> Bool {
+        let normalizedTTY = normalizeTTYName(ttyName)
+        guard !normalizedTTY.isEmpty else { return false }
+        return hasForegroundRemoteShellForTesting(
+            ttyName: normalizedTTY,
+            processes: processSnapshots(forTTY: normalizedTTY)
+        )
+    }
+
+    static func hasForegroundRemoteShellForTesting(
+        ttyName: String,
+        processes: [ProcessSnapshot]
+    ) -> Bool {
+        let normalizedTTY = normalizeTTYName(ttyName)
+        guard !normalizedTTY.isEmpty else { return false }
+        return processes.contains {
+            isForegroundRemoteShellProcess($0, ttyName: normalizedTTY)
+        }
     }
 
     static func detectForTesting(

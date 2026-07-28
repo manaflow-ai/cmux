@@ -235353,6 +235353,40 @@
         }
       }
     },
+    "terminal.fileTransfer.error.unverifiedRemoteSession": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux can't determine where this terminal is running. Exit the manually started remote shell, or open the host through a cmux-managed SSH workspace, then try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux はこのターミナルがどこで実行されているか確認できません。手動で開始したリモートシェルを終了するか、cmux が管理する SSH ワークスペースでホストを開いてから、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "terminal.fileTransfer.error.unverifiedRemoteSession.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File transfer target unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイル転送先を利用できません"
+          }
+        }
+      }
+    },
     "terminal.notification.action.show": {
       "extractionState": "manual",
       "localizations": {

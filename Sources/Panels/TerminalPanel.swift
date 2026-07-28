@@ -550,8 +550,34 @@ final class TerminalPanel: Panel, ObservableObject {
             // not an immutable upload route. Do not fall back to a live
             // workspace lookup after preparation.
             resolvedTarget = nil
+        case .unknown:
+            resolvedTarget = nil
+            TerminalImageTransferGuidance.presentUnverifiedRemoteSession(
+                in: surface.hostedView.window
+            )
         default:
             resolvedTarget = capturedTarget
+        }
+        let capturedRemoteCleanup: TextBoxAttachmentRemoteCleanup?
+        if remoteUploader != nil {
+            capturedRemoteCleanup = remoteCleanup
+        } else if let remoteCleanup {
+            capturedRemoteCleanup = remoteCleanup
+        } else {
+            switch resolvedTarget {
+            case .remote(.workspaceRemote):
+                capturedRemoteCleanup = workspaceRemoteController.map { controller in
+                    { remotePaths in
+                        controller.cleanupAbandonedUploadedFiles(remotePaths)
+                    }
+                }
+            case .remote(.detectedSSH(let session)):
+                capturedRemoteCleanup = { remotePaths in
+                    session.cleanupUploadedRemotePathsAsync(remotePaths)
+                }
+            case .local, .unknown, .none:
+                capturedRemoteCleanup = nil
+            }
         }
         if let resolvedTarget,
            let duplicateID = preparedTextBoxAttachmentRequestOrder.first(where: {
@@ -580,7 +606,8 @@ final class TerminalPanel: Panel, ObservableObject {
             fileURL: standardizedURL,
             workspaceRemoteController: workspaceRemoteController,
             remoteUploader: remoteUploader,
-            remoteCleanup: remoteCleanup,
+            remoteCleanup: capturedRemoteCleanup,
+            uploadedRemotePaths: [],
             budget: budget,
             resolvedTarget: resolvedTarget,
             phase: resolvedTarget == nil ? .failed(nil) : .preparing,
@@ -847,7 +874,7 @@ final class TerminalPanel: Panel, ObservableObject {
                     return
                 }
                 switch target {
-                case .local, .unknown:
+                case .local:
                     guard commitPreparedTextBoxAttachment(
                         requestID: requestID,
                         preparedFile: preparedFile,
@@ -862,6 +889,12 @@ final class TerminalPanel: Panel, ObservableObject {
                         remoteTarget: remoteTarget
                     )
                     return
+                case .unknown:
+                    finishPreparedTextBoxAttachmentRequest(
+                        requestID: requestID,
+                        didAttach: false,
+                        removePlaceholder: true
+                    )
                 }
             case .uploaded(let preparedFile, let remotePath):
                 guard let textBoxInputView,
@@ -924,6 +957,7 @@ final class TerminalPanel: Panel, ObservableObject {
             return
         }
         let operation = TerminalImageTransferOperation()
+        let remoteCleanup = request.remoteCleanup
         request.phase = .uploading(preparedFile, operation)
         preparedTextBoxAttachmentRequests[requestID] = request
         surface.hostedView.beginImageTransferIndicator(
@@ -939,6 +973,9 @@ final class TerminalPanel: Panel, ObservableObject {
         let finish: @Sendable (Result<[String], Error>) -> Void = { [weak self] result in
             Task { @MainActor in
                 guard let self else {
+                    if case .success(let remotePaths) = result {
+                        remoteCleanup?(remotePaths.filter { !$0.isEmpty })
+                    }
                     await preparedFile.disposeOwnedLocalFileIfNeededOffMainActor()
                     return
                 }
@@ -946,6 +983,7 @@ final class TerminalPanel: Panel, ObservableObject {
                     requestID: requestID,
                     preparedFile: preparedFile,
                     operation: operation,
+                    remoteCleanup: remoteCleanup,
                     result: result
                 )
             }
@@ -984,10 +1022,17 @@ final class TerminalPanel: Panel, ObservableObject {
         requestID: UUID,
         preparedFile: TextBoxPreparedFileAttachment,
         operation: TerminalImageTransferOperation,
+        remoteCleanup: TextBoxAttachmentRemoteCleanup?,
         result: Result<[String], Error>
     ) {
         surface.hostedView.endImageTransferIndicator(for: operation)
         guard operation.finish() else {
+            if case .success(let remotePaths) = result {
+                requestRemoteCleanup(
+                    remoteCleanup,
+                    remotePaths: remotePaths
+                )
+            }
             if preparedTextBoxAttachmentRequests[requestID] == nil {
                 schedulePreparedTextBoxAttachmentMaintenance(
                     preparedFileToDispose: preparedFile
@@ -998,6 +1043,12 @@ final class TerminalPanel: Panel, ObservableObject {
         guard var request = preparedTextBoxAttachmentRequests[requestID],
               case .uploading(_, let currentOperation) = request.phase,
               currentOperation === operation else {
+            if case .success(let remotePaths) = result {
+                requestRemoteCleanup(
+                    remoteCleanup,
+                    remotePaths: remotePaths
+                )
+            }
             schedulePreparedTextBoxAttachmentMaintenance(
                 preparedFileToDispose: preparedFile
             )
@@ -1006,8 +1057,10 @@ final class TerminalPanel: Panel, ObservableObject {
 
         switch result {
         case .success(let remotePaths):
-            if let remotePath = remotePaths.first,
-               !remotePath.isEmpty {
+            let retainedRemotePaths = remotePaths.filter { !$0.isEmpty }
+            request.uploadedRemotePaths = retainedRemotePaths
+            if retainedRemotePaths.count == 1,
+               let remotePath = retainedRemotePaths.first {
                 request.phase = .uploaded(preparedFile, remotePath: remotePath)
             } else {
                 request.phase = .failed(preparedFile)
@@ -1043,6 +1096,10 @@ final class TerminalPanel: Panel, ObservableObject {
             permitToRelease = request.preparationPermit
         }
         if !didAttach {
+            requestRemoteCleanup(
+                request.remoteCleanup,
+                remotePaths: request.uploadedRemotePaths
+            )
             switch request.phase {
             case .preparing:
                 break
@@ -1070,6 +1127,15 @@ final class TerminalPanel: Panel, ObservableObject {
         for completion in request.completions {
             completion(didAttach)
         }
+    }
+
+    private func requestRemoteCleanup(
+        _ cleanup: TextBoxAttachmentRemoteCleanup?,
+        remotePaths: [String]
+    ) {
+        let remotePaths = remotePaths.filter { !$0.isEmpty }
+        guard !remotePaths.isEmpty else { return }
+        cleanup?(remotePaths)
     }
 
     private func schedulePreparedTextBoxAttachmentMaintenance(
