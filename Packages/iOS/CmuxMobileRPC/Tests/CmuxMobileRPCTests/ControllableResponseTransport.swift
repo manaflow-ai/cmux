@@ -44,6 +44,10 @@ actor ControllableResponseTransport: CmxByteTransport {
         await withCheckedContinuation { sendCountWaiters.append((count, $0)) }
     }
 
+    func sentIDs() -> [String] {
+        sentRequestIDs
+    }
+
     func deliverResponse(id: String, status: String) throws {
         let response: [String: Any] = [
             "id": id,
