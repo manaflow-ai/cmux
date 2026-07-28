@@ -252,6 +252,61 @@ struct ControlCommandCoordinatorSurfaceTests {
         #expect(context.lastCreateInputs == nil)
     }
 
+    @Test func applicationSurfaceCreateRejectsCoercedIdentifiersAndFrameRate() {
+        let cases: [(
+            params: [String: JSONValue],
+            message: String,
+            field: String
+        )] = [
+            (
+                [
+                    "type": .string("application"),
+                    "window_id_native": .bool(true),
+                    "process_id": .int(43),
+                ],
+                "invalid native window ID",
+                "window_id_native"
+            ),
+            (
+                [
+                    "type": .string("application"),
+                    "window_id_native": .int(42),
+                    "process_id": .double(43.9),
+                ],
+                "invalid application process ID",
+                "process_id"
+            ),
+            (
+                [
+                    "type": .string("application"),
+                    "window_id_native": .int(42),
+                    "process_id": .int(43),
+                    "frame_rate": .bool(true),
+                ],
+                "invalid application frame rate",
+                "frame_rate"
+            ),
+        ]
+
+        for testCase in cases {
+            let (coordinator, context) = coordinator(
+                createResolution: .createFailed
+            )
+            let result = coordinator.handle(ControlRequest(
+                id: .int(1),
+                method: "surface.create",
+                params: testCase.params
+            ))
+
+            #expect(result == .err(
+                code: "invalid_params",
+                message: testCase.message,
+                data: .object(["field": .string(testCase.field)])
+            ))
+            #expect(context.lastCreateInputs == nil)
+        }
+    }
+
     @Test func surfaceSplitRejectsApplicationType() {
         let (coordinator, context) = makeCoordinator()
         let result = coordinator.handle(ControlRequest(

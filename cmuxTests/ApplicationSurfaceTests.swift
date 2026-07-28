@@ -123,6 +123,30 @@ struct ApplicationSurfaceTests {
         ) == CGPoint(x: 1_050, y: 550))
     }
 
+    @Test func mouseReleaseOutsideLetterboxUsesLastForwardedPoint() {
+        let lastLeftPoint = CGPoint(x: 0.25, y: 0.75)
+        let lastRightPoint = CGPoint(x: 0.8, y: 0.2)
+
+        #expect(ApplicationCaptureView.resolvedMousePoint(
+            kind: .leftMouseUp,
+            normalizedPoint: nil,
+            lastLeftPoint: lastLeftPoint,
+            lastRightPoint: lastRightPoint
+        ) == lastLeftPoint)
+        #expect(ApplicationCaptureView.resolvedMousePoint(
+            kind: .rightMouseUp,
+            normalizedPoint: nil,
+            lastLeftPoint: lastLeftPoint,
+            lastRightPoint: lastRightPoint
+        ) == lastRightPoint)
+        #expect(ApplicationCaptureView.resolvedMousePoint(
+            kind: .leftMouseDown,
+            normalizedPoint: nil,
+            lastLeftPoint: lastLeftPoint,
+            lastRightPoint: lastRightPoint
+        ) == nil)
+    }
+
     @Test func applicationNamedKeysAcceptTerminalSeparators() {
         let plus = ApplicationCaptureView.parseNamedKey("ctrl+c")
         let dash = ApplicationCaptureView.parseNamedKey("ctrl-c")
