@@ -104,6 +104,34 @@ struct AgentSessionRetryCoordinatorTests {
         })
     }
 
+    @MainActor
+    @Test("a replayed running state does not invalidate the command awaiting classification")
+    func duplicateRunningStateRetainsEndedSession() throws {
+        let suiteName = "AgentSessionRetryCoordinatorTests.duplicateRunning"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: AgentSessionAutoRetrySettings.autoRetryAgentSessionsKey)
+
+        let workspace = Workspace(
+            agentSessionAutoRetrySettings: AgentSessionAutoRetrySettings(defaults: defaults)
+        )
+        let panelId = try #require(workspace.focusedPanelId)
+        let binding = managedBinding(sessionId: "ended-before-running-replay")
+        #expect(workspace.setSurfaceResumeBinding(binding, panelId: panelId))
+        workspace.setAgentLifecycle(key: "claude_code", panelId: panelId, lifecycle: .running)
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
+
+        #expect(workspace.clearSurfaceResumeBinding(panelId: panelId, agentSessionEnded: true))
+        workspace.setAgentLifecycle(key: "claude_code", panelId: panelId, lifecycle: .idle)
+        #expect(workspace.clearAgentLifecycle(key: "claude_code", panelId: panelId))
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
+        workspace.agentSessionRetryCoordinator.commandFinished(panelId: panelId, exitCode: 1)
+
+        let retryStatusKey = "agent.auto_retry.\(panelId.uuidString.lowercased())"
+        #expect(workspace.statusEntries[retryStatusKey]?.icon == "arrow.clockwise")
+        workspace.agentSessionRetryCoordinator.cancelAll()
+    }
+
     private func managedBinding(sessionId: String) -> SurfaceResumeBindingSnapshot {
         SurfaceResumeBindingSnapshot(
             name: "Claude",

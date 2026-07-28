@@ -1412,7 +1412,24 @@
         }
       }
     },
-    "agent.autoRetry.notification.exhausted.body": {
+    "agent.autoRetry.notification.exhausted.body.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The agent could not be resumed after 1 automatic retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 回の自動再試行後もエージェントを再開できませんでした。"
+          }
+        }
+      }
+    },
+    "agent.autoRetry.notification.exhausted.body.other": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -192482,7 +192499,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "作業中に失敗した対象の管理対象エージェントセッションのみを、回数制限付きバックオフで自動的に再開します。正常終了や意図的な終了は再試行しません。"
+            "value": "作業中に失敗した再試行対象となる管理エージェントセッションのみを、回数制限付きバックオフで自動的に再開します。正常終了や意図的な終了は再試行しません。"
           }
         }
       }
@@ -225380,6 +225397,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "リモート tmux ペインを対象にできるのはターミナルサーフェスだけです。ターミナルは対象ペインのウインドウの後に新しい tmux ウインドウとして作成されます。"
+          }
+        }
+      }
+    },
+    "socket.surface.resume.agentSessionEndedMustBeBoolean": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent_session_ended must be a boolean"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent_session_ended はブール値である必要があります"
           }
         }
       }

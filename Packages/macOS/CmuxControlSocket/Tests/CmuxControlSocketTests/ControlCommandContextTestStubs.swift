@@ -444,6 +444,10 @@ extension ControlSurfaceContext {
         ControlSurfaceInputStrings(inputQueueFull: "", surfaceUnavailable: "", processExited: "")
     }
 
+    func controlSurfaceResumeStrings() -> ControlSurfaceResumeStrings {
+        ControlSurfaceResumeStrings(agentSessionEndedMustBeBoolean: "")
+    }
+
     func controlSurfaceSendText(
         routing: ControlRoutingSelectors,
         surfaceID: UUID?,

@@ -228,6 +228,12 @@ public protocol ControlSurfaceContext: AnyObject {
 
     // MARK: - resume.set / get / clear
 
+    /// The app-bundle-resolved localized validation strings for
+    /// `surface.resume.*` commands.
+    ///
+    /// - Returns: The surface-resume strings.
+    func controlSurfaceResumeStrings() -> ControlSurfaceResumeStrings
+
     /// Sets a resume binding for `surface.resume.set`. The app resolves the
     /// target, runs the (possibly blocking, app-bundle-localized) approval flow,
     /// and stores the binding.

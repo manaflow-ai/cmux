@@ -122,7 +122,7 @@ extension ControlCommandCoordinator {
         case .some:
             return .err(
                 code: "invalid_params",
-                message: "agent_session_ended must be a boolean",
+                message: surfaceResumeStrings().agentSessionEndedMustBeBoolean,
                 data: nil
             )
         }
@@ -136,6 +136,13 @@ extension ControlCommandCoordinator {
             agentSessionEnded: agentSessionEnded
         ) ?? .surfaceNotFound
         return surfaceResumeResult(resolution)
+    }
+
+    /// The localized surface-resume strings supplied by the app bundle.
+    private func surfaceResumeStrings() -> ControlSurfaceResumeStrings {
+        context?.controlSurfaceResumeStrings() ?? ControlSurfaceResumeStrings(
+            agentSessionEndedMustBeBoolean: ""
+        )
     }
 
     /// Shapes the shared `surface.resume.*` result.

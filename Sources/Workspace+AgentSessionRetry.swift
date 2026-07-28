@@ -109,13 +109,23 @@ extension Workspace {
         )
         postAgentRetryNotification(
             panelId: panelId,
-            body: String.localizedStringWithFormat(
-                String(
-                    localized: "agent.autoRetry.notification.exhausted.body",
-                    defaultValue: "The agent could not be resumed after %lld automatic retries."
-                ),
-                Int64(maximumAttempts)
+            body: agentRetryExhaustedNotificationBody(maximumAttempts: maximumAttempts)
+        )
+    }
+
+    private func agentRetryExhaustedNotificationBody(maximumAttempts: Int) -> String {
+        if maximumAttempts == 1 {
+            return String(
+                localized: "agent.autoRetry.notification.exhausted.body.one",
+                defaultValue: "The agent could not be resumed after 1 automatic retry."
             )
+        }
+        return String.localizedStringWithFormat(
+            String(
+                localized: "agent.autoRetry.notification.exhausted.body.other",
+                defaultValue: "The agent could not be resumed after %lld automatic retries."
+            ),
+            Int64(maximumAttempts)
         )
     }
 

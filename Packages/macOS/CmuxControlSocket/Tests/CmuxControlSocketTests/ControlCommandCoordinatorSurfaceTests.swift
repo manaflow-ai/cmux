@@ -236,6 +236,9 @@ struct ControlCommandCoordinatorSurfaceTests {
     )
     func surfaceResumeClearRejectsMalformedSessionEndProvenance(value: JSONValue) {
         let context = FakeSurfaceControlCommandContext()
+        context.resumeStrings = ControlSurfaceResumeStrings(
+            agentSessionEndedMustBeBoolean: "localized boolean validation"
+        )
         let coordinator = ControlCommandCoordinator(context: context)
 
         let result = coordinator.handle(ControlRequest(
@@ -246,7 +249,7 @@ struct ControlCommandCoordinatorSurfaceTests {
 
         #expect(result == .err(
             code: "invalid_params",
-            message: "agent_session_ended must be a boolean",
+            message: "localized boolean validation",
             data: nil
         ))
         #expect(context.resumeClearAgentSessionEnded == nil)
