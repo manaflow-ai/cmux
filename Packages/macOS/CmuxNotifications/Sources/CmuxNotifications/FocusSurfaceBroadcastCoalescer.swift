@@ -8,6 +8,7 @@
 public final class FocusSurfaceBroadcastCoalescer<Payload: Sendable> {
     private let deliver: @MainActor @Sendable (Payload) -> Void
     private let schedule: @MainActor @Sendable (@escaping @MainActor @Sendable () -> Void) -> Void
+    private let scheduleAfterCircuitBreaker: @MainActor @Sendable (@escaping @MainActor @Sendable () -> Void) -> Void
     private let maxCoalescedDeliveries: Int
     private let maxConsecutiveBoundedFlushes: Int
     private let onDrainBoundExceeded: @MainActor @Sendable (Payload) -> Void
@@ -15,6 +16,7 @@ public final class FocusSurfaceBroadcastCoalescer<Payload: Sendable> {
 
     private var pending: Payload?
     private var flushScheduled = false
+    private var circuitBreakerFlushScheduled = false
     private var isDelivering = false
     private var consecutiveBoundedFlushes = 0
 
@@ -24,19 +26,21 @@ public final class FocusSurfaceBroadcastCoalescer<Payload: Sendable> {
     ///   - maxCoalescedDeliveries: Upper bound on deliveries performed by a single
     ///     flush. Values below one are clamped to one.
     ///   - maxConsecutiveBoundedFlushes: Upper bound on consecutive flushes that
-    ///     hit ``maxCoalescedDeliveries`` before the last pending payload gets one
-    ///     final reconciliation delivery and the re-entrant continuation is
-    ///     dropped. Values below one are clamped to one.
+    ///     hit ``maxCoalescedDeliveries`` before the still-pending payload is moved
+    ///     to the circuit-breaker scheduler. Values below one are clamped to one.
     ///   - schedule: Schedules deferred main-actor flush work.
+    ///   - scheduleAfterCircuitBreaker: Schedules continuation work after the
+    ///     circuit breaker trips. Defaults to ``schedule``.
     ///   - onDrainBoundExceeded: Called with the still-pending payload when a
     ///     flush hits ``maxCoalescedDeliveries`` and defers to another turn.
-    ///   - onCircuitBreakerTripped: Called with the final reconciled payload when
+    ///   - onCircuitBreakerTripped: Called with the retained pending payload when
     ///     a non-converging cycle reaches ``maxConsecutiveBoundedFlushes``.
     ///   - deliver: Delivers one pending payload.
     public init(
         maxCoalescedDeliveries: Int = 8,
         maxConsecutiveBoundedFlushes: Int = 4,
         schedule: @escaping @MainActor @Sendable (@escaping @MainActor @Sendable () -> Void) -> Void,
+        scheduleAfterCircuitBreaker: (@MainActor @Sendable (@escaping @MainActor @Sendable () -> Void) -> Void)? = nil,
         onDrainBoundExceeded: @escaping @MainActor @Sendable (Payload) -> Void = { _ in },
         onCircuitBreakerTripped: @escaping @MainActor @Sendable (Payload) -> Void = { _ in },
         deliver: @escaping @MainActor @Sendable (Payload) -> Void
@@ -44,6 +48,7 @@ public final class FocusSurfaceBroadcastCoalescer<Payload: Sendable> {
         self.maxCoalescedDeliveries = max(1, maxCoalescedDeliveries)
         self.maxConsecutiveBoundedFlushes = max(1, maxConsecutiveBoundedFlushes)
         self.schedule = schedule
+        self.scheduleAfterCircuitBreaker = scheduleAfterCircuitBreaker ?? schedule
         self.onDrainBoundExceeded = onDrainBoundExceeded
         self.onCircuitBreakerTripped = onCircuitBreakerTripped
         self.deliver = deliver
@@ -57,11 +62,7 @@ public final class FocusSurfaceBroadcastCoalescer<Payload: Sendable> {
     public func emit(_ payload: Payload) {
         pending = payload
         if isDelivering { return }
-        if flushScheduled { return }
-        flushScheduled = true
-        schedule { @Sendable [weak self] in
-            self?.flush()
-        }
+        scheduleImmediateFlush()
     }
 
     /// Delivers pending payloads in a bounded drain.
@@ -75,6 +76,7 @@ public final class FocusSurfaceBroadcastCoalescer<Payload: Sendable> {
 
         var iterations = 0
         var hitDeliveryBound = false
+        var hitCircuitBreaker = false
         while let next = pending {
             pending = nil
             iterations += 1
@@ -83,12 +85,9 @@ public final class FocusSurfaceBroadcastCoalescer<Payload: Sendable> {
                 consecutiveBoundedFlushes += 1
                 onDrainBoundExceeded(next)
                 if consecutiveBoundedFlushes >= maxConsecutiveBoundedFlushes {
-                    pending = nil
+                    pending = next
+                    hitCircuitBreaker = true
                     consecutiveBoundedFlushes = 0
-                    deliver(next)
-                    // Preserve the latest focus once before tripping, then drop
-                    // only the continuation emitted by a non-converging observer.
-                    pending = nil
                     onCircuitBreakerTripped(next)
                 } else {
                     pending = next
@@ -102,11 +101,30 @@ public final class FocusSurfaceBroadcastCoalescer<Payload: Sendable> {
         if !hitDeliveryBound {
             consecutiveBoundedFlushes = 0
         }
-        if pending != nil, !flushScheduled {
-            flushScheduled = true
-            schedule { @Sendable [weak self] in
-                self?.flush()
+        if pending != nil {
+            if hitCircuitBreaker {
+                scheduleCircuitBreakerFlush()
+            } else {
+                scheduleImmediateFlush()
             }
+        }
+    }
+
+    private func scheduleImmediateFlush() {
+        guard !flushScheduled else { return }
+        flushScheduled = true
+        schedule { @Sendable [weak self] in
+            self?.flush()
+        }
+    }
+
+    private func scheduleCircuitBreakerFlush() {
+        guard !circuitBreakerFlushScheduled else { return }
+        circuitBreakerFlushScheduled = true
+        scheduleAfterCircuitBreaker { @Sendable [weak self] in
+            guard let self else { return }
+            self.circuitBreakerFlushScheduled = false
+            self.flush()
         }
     }
 }

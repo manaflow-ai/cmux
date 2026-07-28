@@ -7,16 +7,28 @@ struct FocusSurfaceBroadcastCoalescerTests {
     @MainActor
     private final class ManualScheduler {
         private(set) var pending: [@MainActor @Sendable () -> Void] = []
+        private(set) var circuitBreakerPending: [@MainActor @Sendable () -> Void] = []
 
         func append(_ work: @escaping @MainActor @Sendable () -> Void) {
             pending.append(work)
         }
 
+        func appendCircuitBreaker(_ work: @escaping @MainActor @Sendable () -> Void) {
+            circuitBreakerPending.append(work)
+        }
+
         var count: Int { pending.count }
+        var circuitBreakerCount: Int { circuitBreakerPending.count }
 
         func runAll() {
             let work = pending
             pending.removeAll()
+            for unit in work { unit() }
+        }
+
+        func runAllCircuitBreaker() {
+            let work = circuitBreakerPending
+            circuitBreakerPending.removeAll()
             for unit in work { unit() }
         }
     }
@@ -92,6 +104,7 @@ struct FocusSurfaceBroadcastCoalescerTests {
             maxCoalescedDeliveries: 2,
             maxConsecutiveBoundedFlushes: 4,
             schedule: { scheduler.append($0) },
+            scheduleAfterCircuitBreaker: { scheduler.appendCircuitBreaker($0) },
             onDrainBoundExceeded: { boundExceeded.append($0) },
             onCircuitBreakerTripped: { tripped.append($0) },
             deliver: { payload in
@@ -113,13 +126,64 @@ struct FocusSurfaceBroadcastCoalescerTests {
         }
 
         #expect(scheduler.count == 0)
+        #expect(scheduler.circuitBreakerCount == 1)
         #expect(turns == 4)
-        // The breaker preserves the latest requested focus once before dropping
-        // the re-entrant continuation that would otherwise keep rescheduling.
-        #expect(delivered.count == 9)
+        #expect(delivered.count == 8)
         #expect(delivered.last == 8843)
         #expect(boundExceeded == [8843, 8843, 8843, 8843])
         #expect(tripped == [8843])
         #expect(reentryBudget > 0)
+    }
+
+    @Test("the circuit breaker retains pending focus for a throttled continuation")
+    func circuitBreakerRetainsPendingPayloadForThrottledContinuation() {
+        let scheduler = ManualScheduler()
+        var delivered: [Int] = []
+        var boundExceeded: [Int] = []
+        var tripped: [Int] = []
+        let relay = CoalescerRelay<Int>()
+
+        let coalescer = FocusSurfaceBroadcastCoalescer<Int>(
+            maxCoalescedDeliveries: 1,
+            maxConsecutiveBoundedFlushes: 1,
+            schedule: { scheduler.append($0) },
+            scheduleAfterCircuitBreaker: { scheduler.appendCircuitBreaker($0) },
+            onDrainBoundExceeded: { boundExceeded.append($0) },
+            onCircuitBreakerTripped: { tripped.append($0) },
+            deliver: { payload in
+                delivered.append(payload)
+                if payload == 1 {
+                    relay.emit(2)
+                } else if payload == 2 {
+                    relay.emit(3)
+                }
+            }
+        )
+        relay.coalescer = coalescer
+
+        coalescer.emit(1)
+        scheduler.runAll()
+
+        #expect(delivered == [1])
+        #expect(boundExceeded == [2])
+        #expect(tripped == [2])
+        #expect(scheduler.count == 0)
+        #expect(scheduler.circuitBreakerCount == 1)
+
+        scheduler.runAllCircuitBreaker()
+
+        #expect(delivered == [1, 2])
+        #expect(boundExceeded == [2, 3])
+        #expect(tripped == [2, 3])
+        #expect(scheduler.count == 0)
+        #expect(scheduler.circuitBreakerCount == 1)
+
+        scheduler.runAllCircuitBreaker()
+
+        #expect(delivered == [1, 2, 3])
+        #expect(boundExceeded == [2, 3])
+        #expect(tripped == [2, 3])
+        #expect(scheduler.count == 0)
+        #expect(scheduler.circuitBreakerCount == 0)
     }
 }

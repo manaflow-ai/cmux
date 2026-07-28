@@ -35,8 +35,9 @@ nonisolated private let focusSurfaceBroadcasterLogger = Logger(
 ///   loop (at most ``maxCoalescedDeliveries`` deliveries per turn). If the cycle has
 ///   not settled within that bound, the still-pending payload is carried to a fresh
 ///   scheduled flush. Consecutive bounded turns are capped by
-///   ``maxConsecutiveBoundedFlushes`` so a non-converging observer cycle cannot keep
-///   a SwiftUI/AppKit layout storm alive indefinitely.
+///   ``maxConsecutiveBoundedFlushes``; after that the pending payload is retained
+///   but moved to a delayed continuation so a non-converging observer cycle cannot
+///   monopolize SwiftUI/AppKit layout work.
 ///
 /// The type is fully testable without AppKit: inject ``deliver`` to capture
 /// broadcasts, and inject ``schedule`` to drive flushes deterministically.
@@ -63,9 +64,15 @@ final class FocusSurfaceBroadcaster {
     ///
     /// Posts the real `.ghosttyDidFocusSurface` notification and logs (DEBUG builds)
     /// whenever the bounded drain trips, and logs when the cross-turn circuit
-    /// breaker trips after reconciling the latest pending payload once, so a future
-    /// re-entrancy regression is observable instead of a silent hours-long hang.
+    /// breaker trips and moves the pending payload onto a delayed continuation, so
+    /// a future re-entrancy regression is observable instead of a silent hours-long
+    /// hang.
     static let shared = FocusSurfaceBroadcaster(
+        scheduleAfterCircuitBreaker: { work in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                MainActor.assumeIsolated { work() }
+            }
+        },
         onDrainBoundExceeded: { payload in
 #if DEBUG
             cmuxDebugLog(
@@ -97,11 +104,14 @@ final class FocusSurfaceBroadcaster {
     ///     circuit breaker for a non-converging focus observer loop.
     ///   - schedule: Schedules deferred flush work on the main queue. Defaults to
     ///     `DispatchQueue.main.async`. Injected by tests to flush deterministically.
+    ///   - scheduleAfterCircuitBreaker: Schedules continuation work after the
+    ///     cross-turn circuit breaker trips. The shared runtime broadcaster uses a
+    ///     delayed continuation to stop tight loops from monopolizing the main actor.
     ///   - onDrainBoundExceeded: Invoked with the still-pending payload when a flush
     ///     hits ``maxCoalescedDeliveries`` and defers the remainder to a follow-up
     ///     flush. Used for structured logging of a non-converging focus cycle.
-    ///   - onCircuitBreakerTripped: Invoked with the final reconciled payload when
-    ///     the cross-turn circuit breaker stops a non-converging cycle.
+    ///   - onCircuitBreakerTripped: Invoked with the retained pending payload when
+    ///     the cross-turn circuit breaker rate-limits a non-converging cycle.
     ///   - deliver: Performs the actual broadcast. Defaults to posting
     ///     `.ghosttyDidFocusSurface`. Injected by tests to capture deliveries.
     init(
@@ -112,6 +122,7 @@ final class FocusSurfaceBroadcaster {
                 MainActor.assumeIsolated { work() }
             }
         },
+        scheduleAfterCircuitBreaker: (@MainActor @Sendable (@escaping @MainActor @Sendable () -> Void) -> Void)? = nil,
         onDrainBoundExceeded: @escaping @MainActor @Sendable (FocusSurfacePayload) -> Void = { _ in },
         onCircuitBreakerTripped: @escaping @MainActor @Sendable (FocusSurfacePayload) -> Void = { _ in },
         deliver: @escaping @MainActor @Sendable (FocusSurfacePayload) -> Void = { payload in
@@ -130,6 +141,7 @@ final class FocusSurfaceBroadcaster {
             maxCoalescedDeliveries: maxCoalescedDeliveries,
             maxConsecutiveBoundedFlushes: maxConsecutiveBoundedFlushes,
             schedule: schedule,
+            scheduleAfterCircuitBreaker: scheduleAfterCircuitBreaker,
             onDrainBoundExceeded: onDrainBoundExceeded,
             onCircuitBreakerTripped: onCircuitBreakerTripped,
             deliver: deliver

@@ -41,18 +41,30 @@ struct FocusSurfaceBroadcasterTests {
     @MainActor
     private final class ManualScheduler {
         private(set) var pending: [@MainActor @Sendable () -> Void] = []
+        private(set) var circuitBreakerPending: [@MainActor @Sendable () -> Void] = []
 
         func append(_ work: @escaping @MainActor @Sendable () -> Void) {
             pending.append(work)
         }
 
+        func appendCircuitBreaker(_ work: @escaping @MainActor @Sendable () -> Void) {
+            circuitBreakerPending.append(work)
+        }
+
         var count: Int { pending.count }
+        var circuitBreakerCount: Int { circuitBreakerPending.count }
 
         /// Runs every currently-queued flush. Clears the queue first so re-entrant
         /// scheduling during a run is observable via ``count``.
         func runAll() {
             let work = pending
             pending.removeAll()
+            for unit in work { unit() }
+        }
+
+        func runAllCircuitBreaker() {
+            let work = circuitBreakerPending
+            circuitBreakerPending.removeAll()
             for unit in work { unit() }
         }
     }
@@ -212,6 +224,7 @@ struct FocusSurfaceBroadcasterTests {
         let broadcaster = FocusSurfaceBroadcaster(
             maxCoalescedDeliveries: 2,
             schedule: { scheduler.append($0) },
+            scheduleAfterCircuitBreaker: { scheduler.appendCircuitBreaker($0) },
             onDrainBoundExceeded: { boundExceeded.append($0) },
             onCircuitBreakerTripped: { tripped.append($0) },
             deliver: { payload in
@@ -234,19 +247,23 @@ struct FocusSurfaceBroadcasterTests {
 
         #expect(
             scheduler.count == 0,
-            "A self-sustaining focus cycle must not be able to enqueue another flush forever."
+            "A self-sustaining focus cycle must not be able to enqueue immediate flushes forever."
+        )
+        #expect(
+            scheduler.circuitBreakerCount == 1,
+            "The still-pending focus payload should be retained on the circuit-breaker scheduler."
         )
         #expect(
             turns == 4,
             "The circuit breaker should trip after four consecutive bounded turns, got \(turns)."
         )
         #expect(
-            delivered.count == 9,
-            "The cycle should reconcile the latest pending focus once before tripping; got \(delivered.count)."
+            delivered.count == 8,
+            "The cycle delivered \(delivered.count) immediate focus broadcasts before tripping."
         )
         #expect(
             delivered.last == reentryTarget,
-            "The circuit breaker must not drop the latest requested focus payload."
+            "The immediate drain should still settle on the latest requested focus payload."
         )
         #expect(
             boundExceeded.count == 4,
