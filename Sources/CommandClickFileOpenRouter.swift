@@ -25,18 +25,6 @@ enum CommandClickFileOpenRouter {
             return false
         }
 
-        let pathExtension = (filePath as NSString).pathExtension.lowercased()
-        if (pathExtension == "html" || pathExtension == "htm"),
-           BrowserAvailabilitySettings.isEnabled(),
-           workspace.openTerminalBrowserLink(
-               url: URL(fileURLWithPath: filePath)
-                   .standardizedFileURL
-                   .resolvingSymlinksInPath(),
-               sourcePanelId: sourcePanelId
-           ) {
-            return true
-        }
-
         return workspace.openOrFocusFilePreviewSplit(from: sourcePanelId, filePath: filePath) != nil
     }
 
