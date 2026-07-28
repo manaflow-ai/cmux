@@ -55,4 +55,42 @@ struct RegisteredAgentResumeKindTests {
             ]
         )
     }
+
+    @Test("Each registered built-in kind uses its distinct resume selector")
+    func remainingRegisteredKindsUseExpectedSelectors() {
+        let resumeArgv = AgentResumeArgv()
+
+        #expect(
+            resumeArgv.registeredBuiltInKind(
+                kind: .campfire,
+                sessionId: "session-id",
+                executablePath: nil,
+                arguments: ["campfire"]
+            ) == ["campfire", "--session", "session-id"]
+        )
+        #expect(
+            resumeArgv.registeredBuiltInKind(
+                kind: .antigravity,
+                sessionId: "session-id",
+                executablePath: nil,
+                arguments: ["agy"]
+            ) == ["agy", "--conversation", "session-id"]
+        )
+        #expect(
+            resumeArgv.registeredBuiltInKind(
+                kind: .grok,
+                sessionId: "session-id",
+                executablePath: nil,
+                arguments: ["grok"]
+            ) == ["grok", "-r", "session-id"]
+        )
+        #expect(
+            resumeArgv.registeredBuiltInKind(
+                kind: .kimi,
+                sessionId: "session-id",
+                executablePath: nil,
+                arguments: ["kimi"]
+            ) == ["kimi", "--resume", "session-id"]
+        )
+    }
 }
