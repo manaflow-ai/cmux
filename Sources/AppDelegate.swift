@@ -5558,10 +5558,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let (panelId, terminalPanel) = inputTarget
         if normalizedFlags.contains(.command) {
             let responderHasViableOwner = firstResponder.map { responderHasViableKeyRoutingOwner($0, in: window) } ?? false
+            let responderMatchesInputTarget = firstResponder.map {
+                terminalPanel.hostedView.responderMatchesPreferredKeyboardFocus($0)
+            } ?? false
             let commandEquivalentNeedsRepair = shouldRepairFocusedTerminalCommandEquivalentInputs(
                 flags: normalizedFlags,
                 responderIsWindow: firstResponder is NSWindow,
-                responderHasViableKeyRoutingOwner: responderHasViableOwner
+                responderHasViableKeyRoutingOwner: responderHasViableOwner,
+                responderMatchesPreferredKeyboardFocus: responderMatchesInputTarget
             )
             guard commandEquivalentNeedsRepair else { return }
         } else {

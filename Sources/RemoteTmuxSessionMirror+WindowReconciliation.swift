@@ -15,10 +15,17 @@ extension RemoteTmuxSessionMirror {
         in workspace: Workspace
     ) {
         if let mirror = windowMirrorByWindowId[windowId] {
+            let wasEmptyBeforeReconcile = mirror.panelsByPaneId.isEmpty
             mirror.apply(window: window)
             for paneId in window.paneIDsInOrder {
                 if let cwd = cwdByPane[paneId] { mirror.updatePaneCwd(paneId: paneId, path: cwd) }
             }
+            retireContainerPanelIfNeeded(
+                panelId: panelId,
+                mirror: mirror,
+                wasEmptyBeforeReconcile: wasEmptyBeforeReconcile,
+                in: workspace
+            )
             return
         }
         let mirror = RemoteTmuxWindowMirror(
@@ -54,13 +61,31 @@ extension RemoteTmuxSessionMirror {
         mirror.apply(window: window)
         windowMirrorByWindowId[windowId] = mirror
         workspace.setRemoteTmuxWindowMirror(mirror, forPanelId: panelId)
-        if let panel = workspace.panels[panelId] as? TerminalPanel {
-            panel.surface.onManualSizeApplied = nil
-            panel.surface.onRuntimeReady = nil
-            // The panel remains the stable window container, but its terminal
-            // is no longer rendered or routed once the inner mirror exists.
-            GhosttyApp.terminalSurfaceRegistry.unregister(panel.surface)
-            panel.close()
-        }
+        retireContainerPanelIfNeeded(
+            panelId: panelId,
+            mirror: mirror,
+            wasEmptyBeforeReconcile: true,
+            in: workspace
+        )
+    }
+
+    /// Retires the wrapper only on the transition from no pane content to live
+    /// pane content. If panel creation fails, the wrapper remains visible and a
+    /// later topology reconciliation can retry without leaving a blank tab.
+    private func retireContainerPanelIfNeeded(
+        panelId: UUID,
+        mirror: RemoteTmuxWindowMirror,
+        wasEmptyBeforeReconcile: Bool,
+        in workspace: Workspace
+    ) {
+        guard wasEmptyBeforeReconcile,
+              !mirror.panelsByPaneId.isEmpty,
+              let panel = workspace.panels[panelId] as? TerminalPanel else { return }
+        panel.surface.onManualSizeApplied = nil
+        panel.surface.onRuntimeReady = nil
+        // The panel remains the stable window container, but its terminal
+        // is no longer rendered or routed once the inner mirror exists.
+        GhosttyApp.terminalSurfaceRegistry.unregister(panel.surface)
+        panel.close()
     }
 }

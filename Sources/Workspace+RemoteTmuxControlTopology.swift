@@ -208,6 +208,16 @@ extension Workspace {
         controlTerminalTarget(for: surfaceID)?.panel
     }
 
+    /// Expands one workspace-owned panel into the live terminals it represents.
+    /// Ordinary terminals return themselves; a remote-tmux container returns its
+    /// mirror-owned panes in layout order and never exposes its closed wrapper.
+    func terminalPanels(projectedFromPanelID panelID: UUID) -> [TerminalPanel] {
+        if isRemoteTmuxControlContainer(panelID) {
+            return remoteTmuxControlPanes(containerPanelID: panelID).map(\.pane.panel)
+        }
+        return (panels[panelID] as? TerminalPanel).map { [$0] } ?? []
+    }
+
     /// Resolves a user input destination from either a workspace-owned panel
     /// or an explicit projected pane surface. Unlike stable control handles, a
     /// workspace container intentionally follows its authoritative active pane.
