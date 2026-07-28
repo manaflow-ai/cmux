@@ -145,7 +145,7 @@ struct PiFeedDockOwnershipTests {
     func acknowledgedFeedRehomesStaleWorkspaceClaimToWorkspaceDockOwner() async throws {
         try await withAppContext { _, manager, workspace, _ in
             let staleWorkspace = manager.addWorkspace(select: false)
-            let panel = try workspace.dockSplit.seedPiFeedPanel()
+            let panel = try workspace.requiredDockSplitForTesting.seedPiFeedPanel()
             var insertedEvent: WorkstreamEvent?
             let store = WorkstreamStore(ringCapacity: 10) {
                 insertedEvent = $0

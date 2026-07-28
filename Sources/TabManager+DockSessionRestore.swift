@@ -14,7 +14,7 @@ extension TabManager {
         }
         for pair in pairs {
             guard let dockSnapshot = pair.snapshot.dock else { continue }
-            pair.workspace.dockSplit.restoreSessionSnapshot(
+            pair.workspace.dockSplit?.restoreSessionSnapshot(
                 dockSnapshot,
                 excludingStableIdentities: excludingStableIdentities,
                 sourceWorkspaceResolver: { workspacesByOriginalId[$0] }

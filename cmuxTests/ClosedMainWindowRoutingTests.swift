@@ -68,6 +68,18 @@ extension TabManager {
     }
 }
 
+extension Workspace {
+    /// Test-fixture convenience for active workspaces whose Dock is expected to
+    /// be available. Lifecycle tests that exercise retirement use `dockSplit`
+    /// directly so they can assert its optional boundary.
+    var requiredDockSplitForTesting: DockSplitStore {
+        guard let dockSplit else {
+            preconditionFailure("Test fixture cannot create a Dock for a retired workspace")
+        }
+        return dockSplit
+    }
+}
+
 private final class NonDestructiveCloseWindow: NSWindow {
     private(set) var closeCallCount = 0
 
@@ -1615,7 +1627,7 @@ struct GhostMainWindowContextLifecycleTests {
     func retiredWorkspacePermanentlyRejectsRetainedDockSurfaceCreation() throws {
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
-        let dock = workspace.dockSplit
+        let dock = workspace.requiredDockSplitForTesting
         let paneId = try #require(
             dock.bonsplitController.focusedPaneId ?? dock.bonsplitController.allPaneIds.first
         )
@@ -1637,6 +1649,7 @@ struct GhostMainWindowContextLifecycleTests {
             focus: false
         )
 
+        #expect(dock.isRetired)
         #expect(latePanelId == nil)
         #expect(dock.panels.isEmpty)
         #expect(Set(GhosttyApp.terminalSurfaceRegistry.allSurfaces().map(\.id)) == registryIdsAfterFinalization)

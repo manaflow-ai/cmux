@@ -49,6 +49,7 @@ extension DockSplitStore {
         targetPane paneId: PaneID,
         zone: DropZone
     ) -> Bool {
+        guard !isRetired else { return false }
         let sourcePane = PaneID(id: sourcePaneId)
 
         guard containsPane(sourcePane.id) else {

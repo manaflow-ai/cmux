@@ -29,6 +29,7 @@ extension DockSplitStore {
     /// command here, keeping every Dock entrypoint on the same ownership path.
     @discardableResult
     func performShortcutCommand(_ command: DockShortcutCommand) -> Bool {
+        guard !isRetired else { return false }
         switch command {
         case .selectNextSurface:
             bonsplitController.selectNextTab()

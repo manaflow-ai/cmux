@@ -313,7 +313,7 @@ struct DockControlDefinitionDecodingTests {
         let workspace = Workspace()
         defer { workspace.teardownAllPanels() }
 
-        let store = workspace.dockSplit
+        let store = workspace.requiredDockSplitForTesting
         let rootPane = try #require(store.bonsplitController.allPaneIds.first)
         let panelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
         let terminalPanel = try terminalPanel(in: store, panelId: panelId)
@@ -341,7 +341,7 @@ struct DockControlDefinitionDecodingTests {
         }
 
         let workspace = try #require(manager.tabs.first)
-        let store = workspace.dockSplit
+        let store = workspace.requiredDockSplitForTesting
         let rootPane = try #require(store.bonsplitController.allPaneIds.first)
         let firstPanelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
         let secondPanelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: false))
@@ -372,7 +372,7 @@ struct DockControlDefinitionDecodingTests {
         let workspace = try #require(manager.tabs.first)
         defer { workspace.teardownAllPanels() }
 
-        let store = workspace.dockSplit
+        let store = workspace.requiredDockSplitForTesting
         let rootPane = try #require(store.bonsplitController.allPaneIds.first)
         let dirtyPanelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
         let cleanPanelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: false))

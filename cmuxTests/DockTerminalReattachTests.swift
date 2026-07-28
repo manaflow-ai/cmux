@@ -172,7 +172,7 @@ extension DockSocketLifecycleTests {
         let manager = TabManager(autoWelcomeIfNeeded: false)
         defer { manager.tabs.forEach { $0.teardownAllPanels() } }
         let workspace = try #require(manager.tabs.first)
-        let store = workspace.dockSplit
+        let store = workspace.requiredDockSplitForTesting
         let rootPane = try #require(store.bonsplitController.allPaneIds.first)
         let panelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
         let tabId = try #require(store.surfaceId(forPanelId: panelId))
@@ -200,7 +200,7 @@ extension DockSocketLifecycleTests {
         let manager = TabManager(autoWelcomeIfNeeded: false)
         defer { manager.tabs.forEach { $0.teardownAllPanels() } }
         let workspace = try #require(manager.tabs.first)
-        let store = workspace.dockSplit
+        let store = workspace.requiredDockSplitForTesting
         let rootPane = try #require(store.bonsplitController.allPaneIds.first)
         let panelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
         let tabId = try #require(store.surfaceId(forPanelId: panelId))
@@ -474,7 +474,7 @@ extension DockSocketLifecycleTests {
         let manager = TabManager(autoWelcomeIfNeeded: false)
         defer { manager.tabs.forEach { $0.teardownAllPanels() } }
         let workspace = try #require(manager.tabs.first)
-        let store = workspace.dockSplit
+        let store = workspace.requiredDockSplitForTesting
         let rootPane = try #require(store.bonsplitController.allPaneIds.first)
         let panelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
         let tabId = try #require(store.surfaceId(forPanelId: panelId))

@@ -2104,7 +2104,8 @@ final class Workspace: Identifiable, ObservableObject {
     /// The right-sidebar Dock for this workspace: its own Bonsplit tree of
     /// terminal/browser panels, separate from the main-area `bonsplitController`.
     /// Created on first access so workspaces that never open the Dock pay nothing.
-    var dockSplit: DockSplitStore {
+    var dockSplit: DockSplitStore? {
+        guard !isRetiredFromOwningTabManager else { return nil }
         if let existing = _dockSplit { return existing }
         let store = DockSplitStore(
             workspaceId: id,
@@ -7324,7 +7325,8 @@ final class Workspace: Identifiable, ObservableObject {
     /// ``RemoteTmuxWindowMirror`` owns it and renders it via ``TerminalPanelView``
     /// inside a single tab, so the pane gets the full native cmux pane chrome —
     /// background, focus overlay, dividers).
-    func makeRemoteTmuxPanePanel(onInput: @escaping @Sendable (Data) -> Void) -> TerminalPanel {
+    func makeRemoteTmuxPanePanel(onInput: @escaping @Sendable (Data) -> Void) -> TerminalPanel? {
+        guard !isRetiredFromOwningTabManager else { return nil }
         let surface = TerminalSurface(
             tabId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
@@ -8540,6 +8542,9 @@ final class Workspace: Identifiable, ObservableObject {
         clearLayoutFollowUp()
         hideAllTerminalPortalViews()
         hideAllBrowserPortalViews()
+        // Retire the right-sidebar Dock before closing any main-area panel so
+        // callbacks triggered by teardown cannot reuse a retained Dock store.
+        _dockSplit?.retire()
         let panelEntries = Array(panels)
         for (panelId, panel) in panelEntries {
             discardClosedPanelLifecycleState(
@@ -8568,9 +8573,6 @@ final class Workspace: Identifiable, ObservableObject {
         pendingTerminalInputObserversByPanelId.removeAll(keepingCapacity: false)
         lastTerminalConfigInheritancePanelId = nil
         lastTerminalConfigInheritanceFontSizeLineage = nil
-        // Tear down the right-sidebar Dock's own panels (terminals/browsers) too,
-        // but only if the Dock was ever opened for this workspace.
-        _dockSplit?.closeAllPanels()
     }
 
     /// Close a panel.
