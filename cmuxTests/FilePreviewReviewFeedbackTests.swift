@@ -190,6 +190,7 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
 
         let view = panel.nativeViewSessions.quickLook.view(
             panel: panel,
+            revision: panel.previewRevision,
             isVisibleInUI: true,
             backgroundColor: .textBackgroundColor,
             drawsBackground: true
@@ -204,6 +205,7 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         panel.nativeViewSessions.quickLook.update(
             view,
             panel: panel,
+            revision: panel.previewRevision,
             isVisibleInUI: true,
             backgroundColor: .textBackgroundColor,
             drawsBackground: true
@@ -219,6 +221,7 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         defer { panel.close() }
         let retiredView = panel.nativeViewSessions.quickLook.view(
             panel: panel,
+            revision: panel.previewRevision,
             isVisibleInUI: true,
             backgroundColor: .textBackgroundColor,
             drawsBackground: true
@@ -231,6 +234,7 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
 
         let activeView = panel.nativeViewSessions.quickLook.view(
             panel: panel,
+            revision: panel.previewRevision,
             isVisibleInUI: true,
             backgroundColor: .textBackgroundColor,
             drawsBackground: true
@@ -244,6 +248,7 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         panel.nativeViewSessions.quickLook.update(
             activeView,
             panel: panel,
+            revision: panel.previewRevision,
             isVisibleInUI: true,
             backgroundColor: .textBackgroundColor,
             drawsBackground: true
