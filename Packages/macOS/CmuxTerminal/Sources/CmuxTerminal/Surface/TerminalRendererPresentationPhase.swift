@@ -1,6 +1,6 @@
-/// The presentation lifecycle of a Ghostty renderer owned by a terminal surface.
+/// The presentation lifecycle of a native renderer owned by a terminal surface.
 enum TerminalRendererPresentationPhase: Equatable, Sendable {
-    /// Ghostty created a live renderer, but it has not been presented in a real window.
+    /// The backend created a live renderer, but it has not been presented in a real window.
     case awaitingFirstPresentation
 
     /// The renderer is realized and has completed cmux's presentation transition.

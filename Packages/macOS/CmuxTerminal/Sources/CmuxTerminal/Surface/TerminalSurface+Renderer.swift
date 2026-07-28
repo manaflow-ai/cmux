@@ -63,7 +63,7 @@ extension TerminalSurface {
     /// release. Requires a live runtime surface because the presentation phase
     /// is also initialized before the native surface is created.
     public var isRendererRealized: Bool {
-        if isAlacrittyBacked { return alacrittyRuntime != nil }
+        if isAlacrittyBacked { return alacrittyRuntime?.isRendererRealized ?? false }
         return surface != nil && rendererPresentationPhase.isNativeRendererRealized
     }
 
@@ -150,17 +150,26 @@ extension TerminalSurface {
     func rendererRuntimeSurfaceDidCreate(attachmentReady: Bool) {
         rendererPresentationPhase = .awaitingFirstPresentation
         surfaceCallbackContext?.takeUnretainedValue().cancelRendererPresentationRepair()
-        guard surface != nil else { return }
+        guard hasNativeRuntime else { return }
+        if !isRendererRealized {
+            rendererPresentationPhase = .released
+        }
         if rendererPortalVisible, attachmentReady {
-            rendererPresentationPhase = .presented
-            setOcclusion(true)
+            if isAlacrittyBacked {
+                ensureRendererPresented(attachmentReady: true)
+            } else {
+                rendererPresentationPhase = .presented
+                setOcclusion(true)
+            }
         } else {
             // The portal may have become hidden before the native pointer
             // existed, or become visible before AppKit attached it to a real
             // window. Replay occlusion now so Ghostty stops drawing before the
             // ordered renderer-release message makes its swap chain defunct.
             setOcclusion(false)
-            _ = releaseRenderer()
+            if isRendererRealized {
+                _ = releaseRenderer()
+            }
         }
     }
 
@@ -173,7 +182,7 @@ extension TerminalSurface {
         ensureRendererPresented(attachmentReady: true)
     }
 
-    /// Release the runtime surface's GPU renderer (Metal swap chain / IOSurface)
+    /// Release the runtime surface's GPU renderer (Metal/OpenGL drawable state)
     /// while keeping its PTY/io thread and terminal state alive. Driven by
     /// `RendererRealizationController` for offscreen, idle surfaces. Idempotent:
     /// no-ops if there is no runtime surface, it is already released, or the
@@ -185,12 +194,22 @@ extension TerminalSurface {
     @MainActor
     public func releaseRenderer() -> Bool {
 #if os(macOS)
-        if isAlacrittyBacked { return false }
         guard rendererPresentationPhase != .released else { return false }
         // A visible portal is protected once it is actually attached. Before
         // that point (including the hidden bootstrap window), release is the
         // normalization step that makes first presentation safe and retryable.
         guard !rendererPortalVisible || !isRendererPresentationAttachmentReady else { return false }
+        if isAlacrittyBacked {
+            guard let alacrittyRuntime, alacrittyRuntime.isRendererRealized else {
+                rendererPresentationPhase = .released
+                return false
+            }
+            if alacrittyRuntime.setRendererRealized(false) {
+                rendererPresentationPhase = .released
+                return true
+            }
+            return false
+        }
         // The reclamation controller is default-on and scans every registered
         // wrapper, so validate the native pointer (registry ownership +
         // liveness) before the C call instead of trusting `surface != nil`.
@@ -230,7 +249,15 @@ extension TerminalSurface {
     func ensureRendererPresented(attachmentReady: Bool) {
 #if os(macOS)
         if isAlacrittyBacked {
-            guard attachmentReady, alacrittyRuntime != nil else { return }
+            guard attachmentReady, let alacrittyRuntime else { return }
+            guard rendererPresentationPhase != .presented
+                    || !alacrittyRuntime.isRendererRealized else {
+                return
+            }
+            guard alacrittyRuntime.isRendererRealized
+                    || alacrittyRuntime.setRendererRealized(true) else {
+                return
+            }
             rendererPresentationPhase = .presented
             scheduleAlacrittyDraw()
             return

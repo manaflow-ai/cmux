@@ -20,8 +20,8 @@ struct RendererRealizationMemoryPressureReclaimResult: Equatable, Sendable {
     }
 }
 
-/// Periodically releases the GPU renderer (Metal swap chain / IOSurface, ~40MB
-/// each) of terminal surfaces that have been offscreen and idle, while keeping
+/// Periodically releases the GPU renderer (Metal/OpenGL drawable state) of
+/// terminal surfaces that have been offscreen and idle, while keeping
 /// their PTY and terminal state alive. The renderer is rebuilt on re-show via
 /// `TerminalSurface.ensureRendererPresented()` driven from `setVisibleInUI(true)`.
 ///

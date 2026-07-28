@@ -61,14 +61,13 @@ extension TerminalSurface {
             lastUncappedPixelHeight = lastPixelHeight
             lastXScale = scaleFactor
             lastYScale = scaleFactor
-            rendererPresentationPhase = .presented
+            rendererRuntimeSurfaceDidCreate()
             if let initialInput = launchConfiguration.initialInput,
                let data = initialInput.data(using: .utf8),
                !data.isEmpty {
                 _ = runtime.write(data)
             }
             flushPendingAlacrittyInputIfNeeded()
-            _ = runtime.draw()
             NotificationCenter.default.post(
                 name: .terminalSurfaceDidBecomeReady,
                 object: self,
@@ -112,7 +111,10 @@ extension TerminalSurface {
             )
         }
         guard alacrittyRuntime.updateAppearance(appearance) else { return false }
-        return alacrittyRuntime.draw()
+        if rendererPresentationPhase == .presented {
+            scheduleAlacrittyDraw()
+        }
+        return true
     }
 
     @MainActor
@@ -126,7 +128,12 @@ extension TerminalSurface {
 
     @MainActor
     func scheduleAlacrittyDraw() {
-        guard alacrittyRuntime != nil, !alacrittyDrawScheduled else { return }
+        guard rendererPortalVisible,
+              rendererPresentationPhase == .presented,
+              alacrittyRuntime?.isRendererRealized == true,
+              !alacrittyDrawScheduled else {
+            return
+        }
         alacrittyDrawScheduled = true
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -162,7 +169,9 @@ extension TerminalSurface {
             lastUncappedPixelHeight = heightPixels
             lastXScale = scaleFactor
             lastYScale = scaleFactor
-            _ = alacrittyRuntime.draw()
+            if rendererPresentationPhase == .presented {
+                scheduleAlacrittyDraw()
+            }
         }
         return resized
     }

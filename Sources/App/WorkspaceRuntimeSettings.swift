@@ -365,8 +365,8 @@ enum AgentHibernationSettings {
 
 /// Settings for non-destructive offscreen renderer reclamation. Unlike
 /// `AgentHibernationSettings` (which kills a resumable agent's PTY and is opt-in),
-/// this only releases an offscreen terminal's GPU renderer (Metal swap chain /
-/// IOSurface) while keeping its PTY and terminal state alive, rebuilding it on
+/// this only releases an offscreen terminal's GPU renderer (Metal/OpenGL
+/// drawable state) while keeping its PTY and terminal state alive, rebuilding it on
 /// re-show. It is therefore safe to default ON. The cap keeps recently-used tabs
 /// warm so switching stays instant; the idle window avoids reclaiming a tab the
 /// user just left.

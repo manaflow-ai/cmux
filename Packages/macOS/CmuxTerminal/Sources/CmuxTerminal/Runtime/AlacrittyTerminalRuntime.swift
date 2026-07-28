@@ -107,6 +107,8 @@ protocol AlacrittyTerminalRuntimeProtocol: AnyObject {
         cellWidthPixels: Int,
         cellHeightPixels: Int
     )?
+    var isRendererRealized: Bool { get }
+    func setRendererRealized(_ realized: Bool) -> Bool
 }
 
 /// One Alacritty core, PTY loop, and OpenGL renderer instance.
@@ -224,6 +226,16 @@ final class AlacrittyTerminalRuntime: AlacrittyTerminalRuntimeProtocol {
     func draw() -> Bool {
         guard let handle else { return false }
         return library.drawSurface(handle)
+    }
+
+    var isRendererRealized: Bool {
+        guard let handle else { return false }
+        return library.rendererRealized(handle)
+    }
+
+    func setRendererRealized(_ realized: Bool) -> Bool {
+        guard let handle else { return false }
+        return library.setRendererRealized(handle, realized)
     }
 
     func resize(
@@ -410,6 +422,13 @@ private final class AlacrittyTerminalLibrary: @unchecked Sendable {
         UnsafeMutableRawPointer?,
         UnsafePointer<CChar>?
     ) -> Bool
+    fileprivate typealias SetRendererRealized = @convention(c) (
+        UnsafeMutableRawPointer?,
+        Bool
+    ) -> Bool
+    fileprivate typealias RendererRealized = @convention(c) (
+        UnsafeMutableRawPointer?
+    ) -> Bool
     fileprivate typealias WriteSurface = @convention(c) (
         UnsafeMutableRawPointer?,
         UnsafePointer<UInt8>?,
@@ -454,6 +473,8 @@ private final class AlacrittyTerminalLibrary: @unchecked Sendable {
     fileprivate let drawSurface: DrawSurface
     fileprivate let resizeSurface: ResizeSurface
     fileprivate let updateAppearance: UpdateAppearance
+    fileprivate let setRendererRealized: SetRendererRealized
+    fileprivate let rendererRealized: RendererRealized
     fileprivate let writeSurface: WriteSurface
     fileprivate let sendKey: SendKey
     fileprivate let scrollSurface: ScrollSurface
@@ -473,6 +494,8 @@ private final class AlacrittyTerminalLibrary: @unchecked Sendable {
         drawSurface: DrawSurface,
         resizeSurface: ResizeSurface,
         updateAppearance: UpdateAppearance,
+        setRendererRealized: SetRendererRealized,
+        rendererRealized: RendererRealized,
         writeSurface: WriteSurface,
         sendKey: SendKey,
         scrollSurface: ScrollSurface,
@@ -491,6 +514,8 @@ private final class AlacrittyTerminalLibrary: @unchecked Sendable {
         self.drawSurface = drawSurface
         self.resizeSurface = resizeSurface
         self.updateAppearance = updateAppearance
+        self.setRendererRealized = setRendererRealized
+        self.rendererRealized = rendererRealized
         self.writeSurface = writeSurface
         self.sendKey = sendKey
         self.scrollSurface = scrollSurface
@@ -548,6 +573,16 @@ private final class AlacrittyTerminalLibrary: @unchecked Sendable {
                 "cmux_alacritty_surface_update_appearance",
                 from: handle,
                 as: UpdateAppearance.self
+            ),
+            let setRendererRealized = symbol(
+                "cmux_alacritty_surface_set_renderer_realized",
+                from: handle,
+                as: SetRendererRealized.self
+            ),
+            let rendererRealized = symbol(
+                "cmux_alacritty_surface_renderer_realized",
+                from: handle,
+                as: RendererRealized.self
             ),
             let writeSurface = symbol(
                 "cmux_alacritty_surface_write",
@@ -616,6 +651,8 @@ private final class AlacrittyTerminalLibrary: @unchecked Sendable {
             drawSurface: drawSurface,
             resizeSurface: resizeSurface,
             updateAppearance: updateAppearance,
+            setRendererRealized: setRendererRealized,
+            rendererRealized: rendererRealized,
             writeSurface: writeSurface,
             sendKey: sendKey,
             scrollSurface: scrollSurface,

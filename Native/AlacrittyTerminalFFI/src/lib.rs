@@ -206,6 +206,94 @@ struct DisplayState {
     appearance: Arc<RwLock<TerminalAppearance>>,
 }
 
+struct DisplayTarget {
+    ns_view: NonNull<c_void>,
+    width: u32,
+    height: u32,
+    scale_factor: f32,
+    size_info: SizeInfo,
+    appearance: Arc<RwLock<TerminalAppearance>>,
+}
+
+impl DisplayTarget {
+    fn new(
+        ns_view: NonNull<c_void>,
+        width: u32,
+        height: u32,
+        scale_factor: f32,
+        appearance: Arc<RwLock<TerminalAppearance>>,
+    ) -> Result<Self, String> {
+        let scale_factor = scale_factor.max(1.0);
+        let size_info = {
+            let appearance = appearance
+                .read()
+                .map_err(|_| String::from("read terminal appearance"))?;
+            measure_size_info(&appearance, width, height, scale_factor)?
+        };
+        Ok(Self {
+            ns_view,
+            width,
+            height,
+            scale_factor,
+            size_info,
+            appearance,
+        })
+    }
+
+    fn update_from_display(&mut self, display: &DisplayState) {
+        self.size_info = display.size_info;
+        self.scale_factor = display.scale_factor;
+        self.width = display.size_info.width().max(1.0) as u32;
+        self.height = display.size_info.height().max(1.0) as u32;
+    }
+
+    fn resize_without_display(&mut self, width: u32, height: u32, scale_factor: f32) {
+        let scale_factor = scale_factor.max(1.0);
+        self.size_info = resized_size_info_without_display(
+            self.size_info,
+            width,
+            height,
+            self.scale_factor,
+            scale_factor,
+        );
+        self.width = width.max(1);
+        self.height = height.max(1);
+        self.scale_factor = scale_factor;
+    }
+
+    fn update_appearance_without_display(
+        &mut self,
+        appearance: TerminalAppearance,
+    ) -> Result<bool, String> {
+        let font_changed = {
+            let current = self
+                .appearance
+                .read()
+                .map_err(|_| String::from("read terminal appearance"))?;
+            current.font_family() != appearance.font_family()
+                || (current.font_size_points() - appearance.font_size_points()).abs() > f32::EPSILON
+        };
+        let size_info = if font_changed {
+            Some(measure_size_info(
+                &appearance,
+                self.width,
+                self.height,
+                self.scale_factor,
+            )?)
+        } else {
+            None
+        };
+        *self
+            .appearance
+            .write()
+            .map_err(|_| String::from("write terminal appearance"))? = appearance;
+        if let Some(size_info) = size_info {
+            self.size_info = size_info;
+        }
+        Ok(font_changed)
+    }
+}
+
 impl DisplayState {
     fn new(
         ns_view: NonNull<c_void>,
@@ -239,20 +327,12 @@ impl DisplayState {
         let _ = gl_surface.set_swap_interval(&gl_context, SwapInterval::DontWait);
 
         let scale_factor = scale_factor.max(1.0);
-        let (font_family, font_size_points) = {
+        let mut glyph_cache = {
             let appearance = appearance
                 .read()
                 .map_err(|_| String::from("read terminal appearance"))?;
-            (
-                String::from(appearance.font_family()),
-                appearance.font_size_points(),
-            )
+            new_glyph_cache(&appearance, scale_factor)?
         };
-        let font = Font::new(font_family, Size::new(font_size_points * scale_factor));
-        let rasterizer =
-            Rasterizer::new().map_err(|error| format!("create font rasterizer: {error}"))?;
-        let mut glyph_cache =
-            GlyphCache::new(rasterizer, &font).map_err(|error| format!("load font: {error}"))?;
         let metrics = glyph_cache.font_metrics();
         let cell_width = metrics.average_advance.floor().max(1.0) as f32;
         let cell_height = metrics.line_height.floor().max(1.0) as f32;
@@ -412,6 +492,57 @@ impl DisplayState {
     }
 }
 
+fn new_glyph_cache(
+    appearance: &TerminalAppearance,
+    scale_factor: f32,
+) -> Result<GlyphCache, String> {
+    let font = Font::new(
+        String::from(appearance.font_family()),
+        Size::new(appearance.font_size_points() * scale_factor.max(1.0)),
+    );
+    let rasterizer =
+        Rasterizer::new().map_err(|error| format!("create font rasterizer: {error}"))?;
+    GlyphCache::new(rasterizer, &font).map_err(|error| format!("load font: {error}"))
+}
+
+fn measure_size_info(
+    appearance: &TerminalAppearance,
+    width: u32,
+    height: u32,
+    scale_factor: f32,
+) -> Result<SizeInfo, String> {
+    let glyph_cache = new_glyph_cache(appearance, scale_factor)?;
+    let metrics = glyph_cache.font_metrics();
+    let padding = PADDING_POINTS * scale_factor.max(1.0);
+    Ok(SizeInfo::new(
+        width.max(1) as f32,
+        height.max(1) as f32,
+        metrics.average_advance.floor().max(1.0) as f32,
+        metrics.line_height.floor().max(1.0) as f32,
+        padding,
+        padding,
+    ))
+}
+
+fn resized_size_info_without_display(
+    current: SizeInfo,
+    width: u32,
+    height: u32,
+    old_scale_factor: f32,
+    new_scale_factor: f32,
+) -> SizeInfo {
+    let new_scale_factor = new_scale_factor.max(1.0);
+    let scale_ratio = new_scale_factor / old_scale_factor.max(1.0);
+    SizeInfo::new(
+        width.max(1) as f32,
+        height.max(1) as f32,
+        current.cell_width() * scale_ratio,
+        current.cell_height() * scale_ratio,
+        PADDING_POINTS * new_scale_factor,
+        PADDING_POINTS * new_scale_factor,
+    )
+}
+
 impl Drop for DisplayState {
     fn drop(&mut self) {
         // Alacritty's renderer releases context-local shader, buffer, and
@@ -430,7 +561,8 @@ pub struct CmuxAlacrittySurface {
     terminal: Arc<FairMutex<Term<CmuxEventProxy>>>,
     sender: EventLoopSender,
     io_thread: Option<JoinHandle<(EventLoop<tty::Pty, CmuxEventProxy>, State)>>,
-    display: DisplayState,
+    display_target: DisplayTarget,
+    display: Option<DisplayState>,
     callbacks: Arc<CallbackState>,
     child_pid: u32,
     master_fd: i32,
@@ -438,13 +570,14 @@ pub struct CmuxAlacrittySurface {
 
 impl CmuxAlacrittySurface {
     fn synchronize_terminal_size(&mut self) {
+        let size_info = self.display_target.size_info;
         let window_size = WindowSize {
-            num_lines: self.display.size_info.screen_lines() as u16,
-            num_cols: self.display.size_info.columns() as u16,
-            cell_width: self.display.size_info.cell_width() as u16,
-            cell_height: self.display.size_info.cell_height() as u16,
+            num_lines: size_info.screen_lines() as u16,
+            num_cols: size_info.columns() as u16,
+            cell_width: size_info.cell_width() as u16,
+            cell_height: size_info.cell_height() as u16,
         };
-        self.terminal.lock().resize(self.display.size_info);
+        self.terminal.lock().resize(size_info);
         self.callbacks
             .columns
             .store(window_size.num_cols.into(), Ordering::Relaxed);
@@ -458,6 +591,29 @@ impl CmuxAlacrittySurface {
             .cell_height
             .store(window_size.cell_height.into(), Ordering::Relaxed);
         let _ = self.sender.send(Msg::Resize(window_size));
+    }
+
+    fn set_renderer_realized(&mut self, realized: bool) -> Result<(), String> {
+        if realized {
+            if self.display.is_some() {
+                return Ok(());
+            }
+            let display = DisplayState::new(
+                self.display_target.ns_view,
+                self.display_target.width,
+                self.display_target.height,
+                self.display_target.scale_factor,
+                Arc::clone(&self.display_target.appearance),
+            )?;
+            self.display_target.update_from_display(&display);
+            self.display = Some(display);
+            self.synchronize_terminal_size();
+            self.callbacks.wake();
+        } else if let Some(display) = self.display.take() {
+            self.display_target.update_from_display(&display);
+            drop(display);
+        }
+        Ok(())
     }
 }
 
@@ -508,13 +664,14 @@ unsafe fn create_surface(
     let command = unsafe { optional_string(config.command) }.filter(|value| !value.is_empty());
     let environment = unsafe { optional_string(config.environment) }.unwrap_or_default();
 
-    let display = DisplayState::new(
+    let display_target = DisplayTarget::new(
         ns_view,
         width,
         height,
         scale_factor,
         Arc::clone(&appearance),
     )?;
+    let size_info = display_target.size_info;
     let callback_state = Arc::new(CallbackState {
         user_data: config.callbacks.user_data as usize,
         wake: config.callbacks.wake,
@@ -523,16 +680,16 @@ unsafe fn create_surface(
         sender: Mutex::new(None),
         exited: AtomicBool::new(false),
         exit_code: AtomicI32::new(0),
-        columns: AtomicI32::new(display.size_info.columns() as i32),
-        lines: AtomicI32::new(display.size_info.screen_lines() as i32),
-        cell_width: AtomicI32::new(display.size_info.cell_width() as i32),
-        cell_height: AtomicI32::new(display.size_info.cell_height() as i32),
+        columns: AtomicI32::new(size_info.columns() as i32),
+        lines: AtomicI32::new(size_info.screen_lines() as i32),
+        cell_width: AtomicI32::new(size_info.cell_width() as i32),
+        cell_height: AtomicI32::new(size_info.cell_height() as i32),
         appearance,
     });
     let event_proxy = CmuxEventProxy {
         state: Arc::clone(&callback_state),
     };
-    let terminal = Term::new(Default::default(), &display.size_info, event_proxy.clone());
+    let terminal = Term::new(Default::default(), &size_info, event_proxy.clone());
     let terminal = Arc::new(FairMutex::new(terminal));
 
     let shell = match command {
@@ -556,10 +713,10 @@ unsafe fn create_surface(
         env: environment_map,
     };
     let window_size = WindowSize {
-        num_lines: display.size_info.screen_lines() as u16,
-        num_cols: display.size_info.columns() as u16,
-        cell_width: display.size_info.cell_width() as u16,
-        cell_height: display.size_info.cell_height() as u16,
+        num_lines: size_info.screen_lines() as u16,
+        num_cols: size_info.columns() as u16,
+        cell_width: size_info.cell_width() as u16,
+        cell_height: size_info.cell_height() as u16,
     };
     let pty = tty::new(&pty_options, window_size, config.callbacks.user_data as u64)
         .map_err(|error| format!("spawn PTY: {error}"))?;
@@ -583,7 +740,8 @@ unsafe fn create_surface(
         terminal,
         sender,
         io_thread: Some(io_thread),
-        display,
+        display_target,
+        display: None,
         callbacks: callback_state,
         child_pid,
         master_fd,
@@ -602,8 +760,11 @@ pub unsafe extern "C" fn cmux_alacritty_surface_draw(surface: *mut CmuxAlacritty
     let Some(surface) = (unsafe { surface.as_mut() }) else {
         return false;
     };
+    let Some(display) = surface.display.as_mut() else {
+        return true;
+    };
     let terminal = surface.terminal.lock();
-    match surface.display.draw(&terminal) {
+    match display.draw(&terminal) {
         Ok(()) => true,
         Err(error) => {
             set_last_error(error);
@@ -622,12 +783,18 @@ pub unsafe extern "C" fn cmux_alacritty_surface_resize(
     let Some(surface) = (unsafe { surface.as_mut() }) else {
         return false;
     };
-    if let Err(error) = surface
-        .display
-        .resize(width_px.max(1), height_px.max(1), scale_factor)
-    {
-        set_last_error(error);
-        return false;
+    let width = width_px.max(1);
+    let height = height_px.max(1);
+    if let Some(display) = surface.display.as_mut() {
+        if let Err(error) = display.resize(width, height, scale_factor) {
+            set_last_error(error);
+            return false;
+        }
+        surface.display_target.update_from_display(display);
+    } else {
+        surface
+            .display_target
+            .resize_without_display(width, height, scale_factor);
     }
 
     surface.synchronize_terminal_size();
@@ -655,18 +822,58 @@ pub unsafe extern "C" fn cmux_alacritty_surface_update_appearance(
             return false;
         }
     };
-    let font_changed = match surface.display.update_appearance(appearance) {
-        Ok(font_changed) => font_changed,
-        Err(error) => {
-            set_last_error(error);
-            return false;
-        }
+    let font_changed = match surface.display.as_mut() {
+        Some(display) => match display.update_appearance(appearance) {
+            Ok(font_changed) => {
+                surface.display_target.update_from_display(display);
+                font_changed
+            }
+            Err(error) => {
+                set_last_error(error);
+                return false;
+            }
+        },
+        None => match surface
+            .display_target
+            .update_appearance_without_display(appearance)
+        {
+            Ok(font_changed) => font_changed,
+            Err(error) => {
+                set_last_error(error);
+                return false;
+            }
+        },
     };
     if font_changed {
         surface.synchronize_terminal_size();
     }
     surface.callbacks.wake();
     true
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_alacritty_surface_set_renderer_realized(
+    surface: *mut CmuxAlacrittySurface,
+    realized: bool,
+) -> bool {
+    clear_last_error();
+    let Some(surface) = (unsafe { surface.as_mut() }) else {
+        return false;
+    };
+    match surface.set_renderer_realized(realized) {
+        Ok(()) => true,
+        Err(error) => {
+            set_last_error(error);
+            false
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_alacritty_surface_renderer_realized(
+    surface: *const CmuxAlacrittySurface,
+) -> bool {
+    unsafe { surface.as_ref() }.is_some_and(|surface| surface.display.is_some())
 }
 
 #[unsafe(no_mangle)]
@@ -815,17 +1022,18 @@ pub unsafe extern "C" fn cmux_alacritty_surface_grid_size(
     let Some(surface) = (unsafe { surface.as_ref() }) else {
         return false;
     };
+    let size_info = surface.display_target.size_info;
     if let Some(columns) = unsafe { columns.as_mut() } {
-        *columns = surface.display.size_info.columns() as u32;
+        *columns = size_info.columns() as u32;
     }
     if let Some(rows) = unsafe { rows.as_mut() } {
-        *rows = surface.display.size_info.screen_lines() as u32;
+        *rows = size_info.screen_lines() as u32;
     }
     if let Some(cell_width) = unsafe { cell_width.as_mut() } {
-        *cell_width = surface.display.size_info.cell_width() as u32;
+        *cell_width = size_info.cell_width() as u32;
     }
     if let Some(cell_height) = unsafe { cell_height.as_mut() } {
-        *cell_height = surface.display.size_info.cell_height() as u32;
+        *cell_height = size_info.cell_height() as u32;
     }
     true
 }
@@ -1077,5 +1285,29 @@ fn set_last_error(error: String) {
     let sanitized = error.replace('\0', "\u{fffd}");
     if let Ok(mut last_error) = last_error().lock() {
         *last_error = CString::new(sanitized).ok();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn released_renderer_resize_preserves_grid_metrics_without_gpu_state() {
+        let initial = SizeInfo::new(800.0, 600.0, 8.0, 16.0, 6.0, 6.0);
+
+        let resized = resized_size_info_without_display(initial, 1_000, 700, 1.0, 1.0);
+        assert_eq!(resized.width(), 1_000.0);
+        assert_eq!(resized.height(), 700.0);
+        assert_eq!(resized.cell_width(), 8.0);
+        assert_eq!(resized.cell_height(), 16.0);
+        assert_eq!(resized.columns(), 123);
+        assert_eq!(resized.screen_lines(), 43);
+
+        let scaled = resized_size_info_without_display(resized, 2_000, 1_400, 1.0, 2.0);
+        assert_eq!(scaled.cell_width(), 16.0);
+        assert_eq!(scaled.cell_height(), 32.0);
+        assert_eq!(scaled.columns(), 123);
+        assert_eq!(scaled.screen_lines(), 43);
     }
 }
