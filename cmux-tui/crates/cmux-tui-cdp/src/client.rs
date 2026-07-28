@@ -2255,6 +2255,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn resolver_reaper_backs_off_retryable_wait_errors() {
         let _guard = RESOLVE_TEST_LOCK.lock().unwrap();

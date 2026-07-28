@@ -22,7 +22,7 @@ static FORCE_REAPER_PENDING: AtomicBool = AtomicBool::new(false);
 static FORCE_REAPER_WAIT_ERROR: AtomicBool = AtomicBool::new(false);
 #[cfg(test)]
 static REAPER_POLL_ATTEMPTS: AtomicUsize = AtomicUsize::new(0);
-#[cfg(test)]
+#[cfg(all(test, unix))]
 static REAPER_TEST_LOCK: Mutex<()> = Mutex::new(());
 
 #[cfg(test)]
@@ -499,6 +499,7 @@ mod tests {
         assert_eq!(args.last().map(String::as_str), Some("about:blank"));
     }
 
+    #[cfg(unix)]
     #[test]
     fn kill_until_confirms_the_owned_process_within_its_deadline() {
         let child = Command::new("sleep")
