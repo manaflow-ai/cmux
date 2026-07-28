@@ -68,6 +68,52 @@ struct ClosedMainWindowRoutingTests {
         #expect(!window.isKeyWindow)
     }
 
+    @Test("Main window cannot be refocused after close commits")
+    func mainWindowCannotBeRefocusedAfterCloseCommits() {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let app = AppDelegate()
+        let manager = TabManager()
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        window.isReleasedWhenClosed = false
+
+        AppDelegate.shared = app
+        app.tabManager = manager
+        TerminalController.shared.setActiveTabManager(manager)
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        window.makeKeyAndOrderFront(nil)
+
+        var focusResultDuringWillClose: Bool?
+        let focusObserver = FocusMainWindowOnWillClose(window: window) {
+            focusResultDuringWillClose = app.focusMainWindow(windowId: windowId)
+        }
+
+        withExtendedLifetime(focusObserver) {
+            window.close()
+        }
+
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            manager.tabs.forEach { $0.teardownAllPanels() }
+            window.orderOut(nil)
+            TerminalController.shared.setActiveTabManager(previousManager)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        #expect(focusResultDuringWillClose == false)
+        #expect(!window.isVisible)
+        #expect(!window.isKeyWindow)
+    }
+
     @Test("Closed main window is not listed or focusable while its objects linger")
     func closedMainWindowIsNotListedOrFocusableWhileItsObjectsLinger() throws {
         _ = NSApplication.shared
@@ -205,6 +251,31 @@ struct ClosedMainWindowRoutingTests {
         #expect(windowC.isVisible)
         #expect(app.listMainWindowSummaries().contains { $0.windowId == windowCId })
         #expect(app.focusMainWindow(windowId: windowCId))
+    }
+}
+
+@MainActor
+private final class FocusMainWindowOnWillClose: NSObject {
+    private let focus: @MainActor () -> Void
+
+    init(window: NSWindow, focus: @escaping @MainActor () -> Void) {
+        self.focus = focus
+        super.init()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(windowWillClose(_:)),
+            name: NSWindow.willCloseNotification,
+            object: window
+        )
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    @objc
+    private func windowWillClose(_ notification: Notification) {
+        focus()
     }
 }
 
