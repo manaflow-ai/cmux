@@ -70,6 +70,22 @@ struct RemoteSessionProcessRunnerTests {
         #expect(result.stdout == "hello-stdin")
     }
 
+    @Test("A child closing stdin before a large write does not abort the runner")
+    func childClosingStdinDoesNotAbortRunner() throws {
+        let runner = RemoteSessionProcessRunner()
+        let result = try runner.run(
+            RemoteProcessRequest(
+                executable: "/usr/bin/true",
+                arguments: [],
+                stdin: Data(repeating: 0x41, count: 1_048_576),
+                timeout: 5
+            ),
+            operation: nil
+        )
+
+        #expect(result.status == 0)
+    }
+
     @Test("Streams a local file through stdin")
     func streamsFileStdin() throws {
         let fileManager = FileManager.default
