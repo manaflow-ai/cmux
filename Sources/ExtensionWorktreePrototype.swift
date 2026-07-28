@@ -71,7 +71,8 @@ extension CmuxExtensionWorktreeCreationResult {
             )
             let topLevel = String(decoding: topLevelData, as: UTF8.self)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            guard URL(fileURLWithPath: topLevel, isDirectory: true).standardizedFileURL.path == worktreeURL.path else {
+            let reportedTopLevelURL = URL(fileURLWithPath: topLevel, isDirectory: true).standardizedFileURL
+            guard try refersToSameFileSystemItem(worktreeURL, reportedTopLevelURL) else {
                 throw rollbackRefused("Worktree path no longer identifies the created checkout.")
             }
 
@@ -219,6 +220,19 @@ extension CmuxExtensionWorktreeCreationResult {
 
             try FileManager.default.removeItem(at: artifactBackupURL)
         }.value
+    }
+
+    private func refersToSameFileSystemItem(_ lhs: URL, _ rhs: URL) throws -> Bool {
+        let fileManager = FileManager.default
+        let lhsAttributes = try fileManager.attributesOfItem(atPath: lhs.path)
+        let rhsAttributes = try fileManager.attributesOfItem(atPath: rhs.path)
+        guard let lhsSystemNumber = (lhsAttributes[.systemNumber] as? NSNumber)?.uint64Value,
+              let lhsFileNumber = (lhsAttributes[.systemFileNumber] as? NSNumber)?.uint64Value,
+              let rhsSystemNumber = (rhsAttributes[.systemNumber] as? NSNumber)?.uint64Value,
+              let rhsFileNumber = (rhsAttributes[.systemFileNumber] as? NSNumber)?.uint64Value else {
+            return false
+        }
+        return lhsSystemNumber == rhsSystemNumber && lhsFileNumber == rhsFileNumber
     }
 
     private func validateGeneratedArtifact(at artifactURL: URL) throws {
