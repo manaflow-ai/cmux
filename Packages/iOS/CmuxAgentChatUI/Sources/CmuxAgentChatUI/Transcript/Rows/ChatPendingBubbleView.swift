@@ -11,6 +11,7 @@ public struct ChatPendingBubbleView: View {
     private let actions: ChatRowActions
 
     @Environment(\.chatTheme) private var theme
+    @Environment(\.chatBubbleMaxWidth) private var bubbleMaxWidth
 
     /// Creates a pending bubble.
     ///
@@ -27,6 +28,7 @@ public struct ChatPendingBubbleView: View {
             Spacer(minLength: 64)
             VStack(alignment: .trailing, spacing: 3) {
                 bubble
+                    .frame(maxWidth: bubbleMaxWidth, alignment: .trailing)
                     .opacity(bubbleOpacity)
                 deliveryLine
             }
@@ -112,7 +114,6 @@ public struct ChatPendingBubbleView: View {
         Text(pending.text)
             .font(.body)
             .foregroundStyle(.white)
-            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var bubbleOpacity: Double {

@@ -12,9 +12,10 @@ import Testing
 /// token store, a stale shell that fails at connect time.
 @MainActor
 @Suite struct AuthCoordinatorStaleRevalidationTests {
-    @Test func staleRevalidationCannotResurrectSignedOutSession() async throws {
+    @Test func staleValidationRewritingSignedOutRefreshTokenIsCleared() async throws {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
-        let client = GateableValidationAuthClient(user: user)
+        let client = ParkedValidationTokenRefreshAuthClient(user: user)
+        await client.setStaleValidationWrite(access: "old-access", refresh: "old-refresh")
         let store = FakeKeyValueStore()
         let coordinator = AuthCoordinator(
             client: client,
@@ -24,6 +25,40 @@ import Testing
             anchor: FakeAnchor(),
             config: .test,
             launch: .plain()
+        )
+        coordinator.latestSignInRefreshToken = "old-refresh"
+        coordinator.isAuthenticated = true
+        coordinator.currentUser = user
+
+        let validation = Task { await coordinator.revalidateSession() }
+        await client.validationDidPark()
+
+        await coordinator.signOut()
+        #expect(await client.refreshToken() == nil)
+
+        await client.releaseValidationWithStaleTokenWrite()
+        await validation.value
+
+        #expect(coordinator.isAuthenticated == false)
+        #expect(await client.accessToken() == nil)
+        #expect(await client.refreshToken() == nil)
+    }
+
+    @Test func staleRevalidationCannotResurrectSignedOutSession() async throws {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = GateableValidationAuthClient(user: user)
+        let store = FakeKeyValueStore()
+        let clock = ManualTestClock()
+        let coordinator = AuthCoordinator(
+            client: client,
+            sessionCache: CMUXAuthSessionCache(keyValueStore: store, key: "has_tokens"),
+            userCache: CMUXAuthIdentityStore(keyValueStore: store, key: "cached_user"),
+            teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: store, key: "selected_team"),
+            anchor: FakeAnchor(),
+            config: .test,
+            launch: .plain(),
+            timeouts: AuthTimeouts(interactiveFlow: .seconds(5), network: .seconds(2)),
+            clock: clock
         )
         try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
         #expect(coordinator.isAuthenticated)
@@ -134,6 +169,66 @@ import Testing
         #expect(await client.refreshToken() == nil)
     }
 
+    @Test func lateCancelledExchangeWaitsForSignOutCredentialCaptureBeforeCompareClear() async throws {
+        // Some SDK paths may ignore task cancellation until after they have
+        // written the exchange tokens. If that late exchange resumes while
+        // sign-out is suspended inside its raw credential capture, its
+        // cancellation cleanup must not compare-clear the freshly written
+        // tokens before sign-out reads them for server-side teardown.
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = GateableValidationAuthClient(user: user)
+        let store = FakeKeyValueStore()
+        let coordinator = AuthCoordinator(
+            client: client,
+            sessionCache: CMUXAuthSessionCache(keyValueStore: store, key: "has_tokens"),
+            userCache: CMUXAuthIdentityStore(keyValueStore: store, key: "cached_user"),
+            teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: store, key: "selected_team"),
+            anchor: FakeAnchor(),
+            config: .test,
+            launch: .plain()
+        )
+        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
+        #expect(await client.refreshToken() == "refresh-1")
+
+        await client.setCredentialExchangeIgnoresCancellation(true)
+        await client.armCredentialGate()
+        let staleSignIn = Task { try await coordinator.signInWithPassword(email: "a@b.com", password: "pw") }
+        await client.credentialDidPark()
+
+        await client.armStoredAccessGate()
+        let capturedAccess = TokenProbe()
+        let capturedRefresh = TokenProbe()
+        let signOut = Task {
+            await coordinator.signOut(onSignedOut: { accessToken, refreshToken in
+                await capturedAccess.set(accessToken)
+                await capturedRefresh.set(refreshToken)
+            })
+        }
+        await client.storedAccessDidPark()
+
+        await client.releaseParkedCredential()
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while true {
+            let refresh = await client.refreshToken()
+            if refresh == "refresh-2" || refresh == nil { break }
+            if clock.now >= deadline {
+                preconditionFailure("Timed out waiting for late exchange cleanup to reach the token store")
+            }
+            await Task.yield()
+        }
+
+        await client.releaseParkedStoredAccess()
+        await signOut.value
+        await #expect(throws: AuthError.cancelled) { try await staleSignIn.value }
+
+        #expect(await capturedAccess.value == "access-2")
+        #expect(await capturedRefresh.value == "refresh-2")
+        #expect(coordinator.isAuthenticated == false)
+        #expect(await client.accessToken() == nil)
+        #expect(await client.refreshToken() == nil)
+    }
+
     @Test func staleSignInRollbackDoesNotWipeANewerSession() async throws {
         // Worst-case interleave of the rollback above: sign-in A parks in its
         // exchange, the user signs out, then completes a SECOND sign-in (B)
@@ -162,14 +257,14 @@ import Testing
         await coordinator.signOut()
         #expect(coordinator.isAuthenticated == false)
 
-        // The user signs in again before the stale task resumes.
-        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
-        #expect(coordinator.isAuthenticated)
-
         await client.releaseParkedCredential()
         await #expect(throws: AuthError.cancelled) { try await staleSignIn.value }
 
-        // The newer session survives the stale completion intact.
+        // The user signs in again after the stale exchange has unwound.
+        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
+        #expect(coordinator.isAuthenticated)
+
+        // The newer session is published with matching stored tokens.
         #expect(coordinator.isAuthenticated)
         #expect(coordinator.currentUser == user)
         #expect(store.bool(forKey: "has_tokens"))
@@ -204,15 +299,15 @@ import Testing
         await coordinator.signOut()
         #expect(coordinator.isAuthenticated == false)
 
-        // B starts after sign-out, stores fresh tokens, and parks inside its
-        // user fetch (not yet published).
+        await client.releaseParkedCredential()
+        await #expect(throws: AuthError.cancelled) { try await staleSignIn.value }
+
+        // B starts after A has unwound, stores fresh tokens, and parks inside
+        // its user fetch (not yet published).
         await client.armValidationGate()
         let newSignIn = Task { try await coordinator.signInWithPassword(email: "a@b.com", password: "pw") }
         await client.validationDidPark()
 
-        // A resumes first and rolls back; then B's fetch completes.
-        await client.releaseParkedCredential()
-        await #expect(throws: AuthError.cancelled) { try await staleSignIn.value }
         await client.releaseParkedValidation()
         try await newSignIn.value
 
@@ -237,6 +332,7 @@ import Testing
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
         let client = GateableValidationAuthClient(user: user)
         let store = FakeKeyValueStore()
+        let testClock = ManualTestClock()
         let coordinator = AuthCoordinator(
             client: client,
             sessionCache: CMUXAuthSessionCache(keyValueStore: store, key: "has_tokens"),
@@ -244,7 +340,9 @@ import Testing
             teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: store, key: "selected_team"),
             anchor: FakeAnchor(),
             config: .test,
-            launch: .plain()
+            launch: .plain(),
+            timeouts: AuthTimeouts(interactiveFlow: .seconds(5), network: .seconds(2)),
+            clock: testClock
         )
 
         await client.armCredentialGate()
@@ -253,17 +351,24 @@ import Testing
 
         await coordinator.signOut()
         #expect(coordinator.isAuthenticated == false)
+        #expect(coordinator.activeSignInExchanges.count == 1)
+
+        let blockedSignIn = Task { try await coordinator.signInWithPassword(email: "a@b.com", password: "pw") }
+        await testClock.waitUntilSleepers(count: 2)
+        testClock.advance(by: .seconds(2))
+        await #expect(throws: AuthError.timedOut) { try await blockedSignIn.value }
+        #expect(await client.credentialStartCount == 1)
+
+        // A's exchange resumes after sign-out. Cancelled by sign-out, it must
+        // surface cancellation without storing and then unblock future sign-in.
+        await client.releaseParkedCredential()
+        await #expect(throws: AuthError.timedOut) { try await staleSignIn.value }
 
         // B's exchange completes (the store's first write: "access-1") and
         // parks inside its user fetch, not yet published.
         await client.armValidationGate()
         let newSignIn = Task { try await coordinator.signInWithPassword(email: "a@b.com", password: "pw") }
         await client.validationDidPark()
-
-        // A's exchange resumes LAST, after B's write. Cancelled by the
-        // sign-out, it must surface the cancellation without storing.
-        await client.releaseParkedCredential()
-        await #expect(throws: AuthError.cancelled) { try await staleSignIn.value }
 
         await client.releaseParkedValidation()
         try await newSignIn.value
@@ -306,14 +411,14 @@ import Testing
         await coordinator.signOut()
         #expect(coordinator.isAuthenticated == false)
 
-        // B fails its connectivity probe after registering as an attempt.
+        await client.releaseParkedCredential()
+        await #expect(throws: AuthError.cancelled) { try await staleSignIn.value }
+
+        // B fails its connectivity probe after A's cancelled exchange unwinds.
         await online.set(false)
         await #expect(throws: AuthError.offline) {
             try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
         }
-
-        await client.releaseParkedCredential()
-        await #expect(throws: AuthError.cancelled) { try await staleSignIn.value }
 
         #expect(coordinator.isAuthenticated == false)
         #expect(store.bool(forKey: "has_tokens") == false)

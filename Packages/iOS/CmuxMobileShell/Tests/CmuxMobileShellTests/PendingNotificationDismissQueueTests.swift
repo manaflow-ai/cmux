@@ -14,6 +14,16 @@ import Testing
         queue.enqueue(["  n-1  ", "", "   ", "n-2"])
 
         #expect(queue.pendingIDs == ["n-1", "n-2"])
+        #expect(queue.pendingDismisses.map(\.macDeviceID) == [nil, nil])
+    }
+
+    @Test func enqueueCarriesOwningMacID() {
+        let queue = PendingNotificationDismissQueue(defaults: makeDefaults())
+
+        queue.enqueue(["  n-1  ", "n-2"], macDeviceID: " mac-a ")
+
+        #expect(queue.pendingIDs == ["n-1", "n-2"])
+        #expect(queue.pendingDismisses.map(\.macDeviceID) == ["mac-a", "mac-a"])
     }
 
     @Test func enqueueKeepsDuplicatesOnceAndPreservesOrder() {
@@ -66,5 +76,14 @@ import Testing
 
         compositeSide.remove(["n-1"])
         #expect(coordinatorSide.pendingIDs.isEmpty)
+    }
+
+    @Test func readsLegacyBareIDArrayAsForegroundDismisses() {
+        let defaults = makeDefaults()
+        defaults.set(["legacy-1"], forKey: "cmux.notifications.pendingMacDismissIds")
+        let queue = PendingNotificationDismissQueue(defaults: defaults)
+
+        #expect(queue.pendingIDs == ["legacy-1"])
+        #expect(queue.pendingDismisses.map(\.macDeviceID) == [nil])
     }
 }

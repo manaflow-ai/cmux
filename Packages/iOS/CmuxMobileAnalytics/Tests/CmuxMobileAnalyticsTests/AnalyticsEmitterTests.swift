@@ -26,13 +26,29 @@ private final class MutableConsent: AnalyticsConsentProviding, @unchecked Sendab
 }
 
 @Suite struct AnalyticsEmitterTests {
+    @Test func userDefaultsConsentDefaultsOffUntilEnabled() {
+        let suiteName = "cmux.analytics-consent.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let consent = UserDefaultsAnalyticsConsentProvider(defaults: defaults)
+        #expect(!consent.isTelemetryEnabled)
+
+        defaults.set(true, forKey: UserDefaultsAnalyticsConsentProvider.telemetryKey)
+        #expect(consent.isTelemetryEnabled)
+
+        defaults.set(false, forKey: UserDefaultsAnalyticsConsentProvider.telemetryKey)
+        #expect(!consent.isTelemetryEnabled)
+    }
+
     private func makeEmitter(
-        uploader: RecordingAnalyticsUploader,
+        uploader: any AnalyticsUploading,
         consent: (any AnalyticsConsentProviding)? = nil,
         consentEnabled: Bool = true,
         anonymousID: String = "anon-1",
         flushBatchSize: Int = 50,
-        maxPendingEvents: Int = 1000
+        maxPendingEvents: Int = 1000,
+        notificationCenter: NotificationCenter = .default
     ) -> AnalyticsEmitter {
         AnalyticsEmitter(
             uploader: uploader,
@@ -40,7 +56,8 @@ private final class MutableConsent: AnalyticsConsentProviding, @unchecked Sendab
             anonymousID: anonymousID,
             now: { Date(timeIntervalSince1970: 1_000_000) },
             flushBatchSize: flushBatchSize,
-            maxPendingEvents: maxPendingEvents
+            maxPendingEvents: maxPendingEvents,
+            notificationCenter: notificationCenter
         )
     }
 
@@ -88,6 +105,24 @@ private final class MutableConsent: AnalyticsConsentProviding, @unchecked Sendab
         #expect(event?.properties["launch_type"] == .string("cold"))
     }
 
+    @Test func superPropertiesConfiguredBeforeOptInApplyAfterConsentIsEnabled() async {
+        let uploader = RecordingAnalyticsUploader()
+        let consent = MutableConsent(enabled: false)
+        let emitter = makeEmitter(uploader: uploader, consent: consent)
+
+        emitter.setSuperProperties([
+            "app_version": .string("1.2.3"),
+            "device_model": .string("iPhone"),
+        ])
+        consent.set(true)
+        emitter.capture("ios_app_launched", [:])
+        await emitter.flush()
+
+        let event = await uploader.uploadedEvents.first
+        #expect(event?.properties["app_version"] == .string("1.2.3"))
+        #expect(event?.properties["device_model"] == .string("iPhone"))
+    }
+
     @Test func identifyForwardsUserAndAnonymousIDs() async {
         let uploader = RecordingAnalyticsUploader()
         let emitter = makeEmitter(uploader: uploader, anonymousID: "anon-42")
@@ -98,6 +133,60 @@ private final class MutableConsent: AnalyticsConsentProviding, @unchecked Sendab
         #expect(calls.count == 1)
         #expect(calls.first?.userID == "user-7")
         #expect(calls.first?.anonymousID == "anon-42")
+    }
+
+    @Test func optedOutSignOutUpdatesLocalIdentityWithoutUploadingIdentify() async {
+        let uploader = RecordingAnalyticsUploader()
+        let consent = MutableConsent(enabled: true)
+        let center = NotificationCenter()
+        let emitter = makeEmitter(
+            uploader: uploader,
+            consent: consent,
+            anonymousID: "anon-42",
+            notificationCenter: center
+        )
+
+        emitter.identify(userId: "user-7", alias: nil, properties: [:])
+        await emitter.flush()
+        consent.set(false)
+        center.post(name: UserDefaults.didChangeNotification, object: nil)
+        emitter.identify(userId: nil, alias: nil, properties: [:])
+        await emitter.flush()
+        consent.set(true)
+        center.post(name: UserDefaults.didChangeNotification, object: nil)
+        emitter.capture("ios_app_foregrounded", [:])
+        await emitter.flush()
+
+        let event = await uploader.uploadedEvents.last
+        #expect(event?.distinctID == "anon-42")
+        #expect(event?.properties["user_id"] == nil)
+        #expect(await uploader.identifyCalls.count == 1)
+    }
+
+    @Test func firstCaptureAfterOptInEnablesUploaderBeforeSubmission() async {
+        let consent = MutableConsent(enabled: false)
+        let uploader = ConsentAwareRecordingUploader()
+        let emitter = makeEmitter(uploader: uploader, consent: consent)
+
+        // Model capture racing ahead of UserDefaults notification delivery: the
+        // source of truth is already enabled, but the observer has not fired.
+        consent.set(true)
+        emitter.capture("ios_app_foregrounded", [:])
+        await emitter.flush()
+
+        #expect(uploader.uploadedEvents.map(\.name) == ["ios_app_foregrounded"])
+    }
+
+    @Test func consentGenerationRejectsSubmissionFromBeforeRevokeAndReenable() {
+        let gate = AnalyticsConsentGenerationGate(isEnabled: true)
+        let original = gate.snapshot()
+        let revoked = gate.synchronize(observedEnabled: false, basedOn: original) { _ in }
+        let reenabled = gate.synchronize(observedEnabled: true, basedOn: revoked) { _ in }
+
+        #expect(!gate.allows(original))
+        #expect(!gate.allows(revoked))
+        #expect(gate.allows(reenabled))
+        #expect(reenabled.generation == original.generation + 2)
     }
 
     @Test func anonymousEventsCarryAnonymousIDAndNoUserDistinctID() async {
@@ -157,6 +246,45 @@ private final class MutableConsent: AnalyticsConsentProviding, @unchecked Sendab
         consent.set(true)
         await emitter.flush()
         #expect(await uploader.uploadedBatches.count == batchesBeforeWithdrawal)
+    }
+
+    @Test func withdrawnConsentDropsIdentifyQueuedBehindAnUpload() async {
+        let consent = MutableConsent(enabled: true)
+        let uploader = BlockingAnalyticsUploader()
+        let emitter = makeEmitter(
+            uploader: uploader,
+            consent: consent,
+            flushBatchSize: 1
+        )
+
+        emitter.capture("ios_app_launched", [:])
+        await uploader.uploadStarted.wait()
+        emitter.identify(userId: "user-7", alias: nil, properties: [:])
+        consent.set(false)
+        await uploader.allowUploadToFinish.open()
+        await emitter.flush()
+
+        #expect(await uploader.identifyCalls == 0)
+    }
+
+    @Test func quickReenableDoesNotResurrectPreRevocationEvents() async {
+        let consent = MutableConsent(enabled: true)
+        let uploader = RecordingAnalyticsUploader()
+        let center = NotificationCenter()
+        let emitter = makeEmitter(
+            uploader: uploader,
+            consent: consent,
+            notificationCenter: center
+        )
+
+        emitter.capture("ios_app_launched", [:])
+        consent.set(false)
+        center.post(name: UserDefaults.didChangeNotification, object: nil)
+        consent.set(true)
+        center.post(name: UserDefaults.didChangeNotification, object: nil)
+        await emitter.flush()
+
+        #expect(await uploader.uploadedEvents.isEmpty)
     }
 
     @Test func sustainedRetryBoundsBacklogByDroppingOldest() async {

@@ -23,36 +23,38 @@ extension RemotePTYBridgeServer {
         private static let maxPendingInputWrites = 256
         private static let maxPendingInputBytes = 4 * 1024 * 1024
 
-        private let connection: NWConnection
-        private let rpcClient: any RemotePTYBridgeRPCClient
-        private let sessionID: String
+        let connection: NWConnection
+        let rpcClient: any RemotePTYBridgeRPCClient
+        let sessionID: String
         private let attachmentID: String
         private let command: String?
         private let requireExisting: Bool
         private let token: String
-        private let queue: DispatchQueue
-        private let rpcQueue = DispatchQueue(label: "com.cmux.remote-ssh.pty-bridge.rpc.\(UUID().uuidString)", qos: .userInitiated)
-        private let strings: any RemotePTYBridgeStrings
+        private let onAuthenticated: () -> Void
+        let queue: DispatchQueue
+        let rpcQueue = DispatchQueue(label: "com.cmux.remote-ssh.pty-bridge.rpc.\(UUID().uuidString)", qos: .userInitiated)
+        let strings: any RemotePTYBridgeStrings
         private let clock: any RemoteProxyRetryClock
-        private let onClose: () -> Void
+        let onClose: () -> Void
+        let inputFlow: RemotePTYBridgeInputFlow
+        private let inputSeqAckEnabled: Bool
 
-        private var isClosed = false
-        private var isAttaching = false
+        var isClosed = false
+        var isAttaching = false
         private var isAttached = false
         private var handshakeBuffer = Data()
         private var pendingInputBeforeAttach = Data()
-        private var pendingInputWrites = 0
-        private var pendingInputBytes = 0
         private var pendingOutputSends = 0
         private var pendingOutputBytes = 0
-        private var clientInputDidComplete = false
+        var clientInputDidComplete = false
         private var pendingPTYEventsBeforeReady: [RemotePTYBridgeEvent] = []
         private var pendingPTYEventBytesBeforeReady = 0
         private var closeWhenOutputFlushes: (detach: Bool, gracefulOutputClose: Bool)?
         private var handshakeTimeoutTask: Task<Void, Never>?
-        private var remoteAttachment: RemotePTYBridgeAttachment?
+        var remoteAttachment: RemotePTYBridgeAttachment?
         private var clientPID: pid_t?
         private var clientProcessExitSource: (any DispatchSourceProcess)?
+        var didNotifyClose = false
 
         init(
             connection: NWConnection,
@@ -65,6 +67,7 @@ extension RemotePTYBridgeServer {
             queue: DispatchQueue,
             strings: any RemotePTYBridgeStrings,
             clock: any RemoteProxyRetryClock,
+            onAuthenticated: @escaping () -> Void,
             onClose: @escaping () -> Void
         ) {
             self.connection = connection
@@ -77,7 +80,18 @@ extension RemotePTYBridgeServer {
             self.queue = queue
             self.strings = strings
             self.clock = clock
+            self.onAuthenticated = onAuthenticated
             self.onClose = onClose
+            // One-time seq-ack decision: the attach opt-in and the input
+            // window accounting must read the same value, or the daemon and
+            // sender disagree about who drains the window.
+            let seqAckEnabled = rpcClient.supportsInputSeqAck
+            inputSeqAckEnabled = seqAckEnabled
+            inputFlow = RemotePTYBridgeInputFlow(
+                maxPendingWrites: Self.maxPendingInputWrites,
+                maxPendingBytes: Self.maxPendingInputBytes,
+                seqAckEnabled: seqAckEnabled
+            )
         }
 
         func start() {
@@ -96,10 +110,14 @@ extension RemotePTYBridgeServer {
         }
 
         func stop() {
-            close(detach: true)
+            if isClosed {
+                forceClosePendingShutdown()
+            } else {
+                close(detach: true)
+            }
         }
 
-        private func receiveNext() {
+        func receiveNext() {
             guard !isClosed else { return }
             connection.receive(minimumIncompleteLength: 1, maximumLength: 32768) { [weak self] data, _, isComplete, error in
                 guard let self, !self.isClosed else { return }
@@ -130,7 +148,9 @@ extension RemotePTYBridgeServer {
                     self.close(detach: true)
                     return
                 }
-                self.receiveNext()
+                if !self.inputFlow.isPaused {
+                    self.receiveNext()
+                }
             }
         }
 
@@ -157,6 +177,7 @@ extension RemotePTYBridgeServer {
                 close(detach: false)
                 return
             }
+            onAuthenticated()
             let cols = Self.strictInt(payload["cols"]) ?? 80
             let rows = Self.strictInt(payload["rows"]) ?? 24
             clientPID = Self.strictPositivePID(payload["client_pid"])
@@ -178,6 +199,7 @@ extension RemotePTYBridgeServer {
                         rows: rows,
                         command: self.command,
                         requireExisting: self.requireExisting,
+                        inputSeqAck: self.inputSeqAckEnabled,
                         queue: self.queue
                     ) { [weak self] event in
                         self?.handlePTYEvent(event)
@@ -193,13 +215,14 @@ extension RemotePTYBridgeServer {
         }
 
         private func finishAttach(_ result: Result<RemotePTYBridgeAttachment, any Error>) {
+            isAttaching = false
             guard !isClosed else {
                 if case .success(let remoteAttachment) = result {
                     detachRemoteAttachment(remoteAttachment)
                 }
+                notifyCloseOnce()
                 return
             }
-            isAttaching = false
             do {
                 let remoteAttachment = try result.get()
                 self.remoteAttachment = remoteAttachment
@@ -224,7 +247,7 @@ extension RemotePTYBridgeServer {
                     close(detach: true)
                 }
             } catch {
-                closeWithBridgeError(userFacingBridgeErrorMessage(error))
+                closeWithBridgeError(userFacingBridgeErrorMessage(error), code: Self.bridgeErrorCode(for: error))
             }
         }
 
@@ -249,51 +272,6 @@ extension RemotePTYBridgeServer {
                 return
             }
             pendingInputBeforeAttach.append(data)
-        }
-
-        private func forwardInput(_ data: Data) {
-            guard !data.isEmpty else { return }
-            guard let remoteAttachment else {
-                close(detach: true)
-                return
-            }
-            guard pendingInputWrites < Self.maxPendingInputWrites,
-                  pendingInputBytes <= Self.maxPendingInputBytes - data.count else {
-                close(detach: true)
-                return
-            }
-            pendingInputWrites += 1
-            pendingInputBytes += data.count
-            let currentSessionID = sessionID
-            rpcQueue.async { [weak self, data, remoteAttachment] in
-                guard let self else { return }
-                let shouldWrite = self.queue.sync { !self.isClosed }
-                guard shouldWrite else {
-                    self.queue.async {
-                        self.handleInputWriteFinished(bytes: data.count, error: nil)
-                    }
-                    return
-                }
-                self.rpcClient.writePTY(
-                    sessionID: currentSessionID,
-                    attachmentID: remoteAttachment.attachmentID,
-                    attachmentToken: remoteAttachment.token,
-                    data: data
-                ) { [weak self] writeError in
-                    guard let self else { return }
-                    self.queue.async {
-                        self.handleInputWriteFinished(bytes: data.count, error: writeError)
-                    }
-                }
-            }
-        }
-
-        private func handleInputWriteFinished(bytes: Int, error: (any Error)?) {
-            pendingInputWrites = max(0, pendingInputWrites - 1)
-            pendingInputBytes = max(0, pendingInputBytes - bytes)
-            if error != nil {
-                close(detach: true)
-            }
         }
 
         private func detachRemoteAttachment(_ attachment: RemotePTYBridgeAttachment) {
@@ -328,6 +306,8 @@ extension RemotePTYBridgeServer {
                 }
                 pendingPTYEventBytesBeforeReady += data.count
                 pendingPTYEventsBeforeReady.append(event)
+            case .inputAck:
+                return
             case .exit, .error:
                 guard pendingPTYEventsBeforeReady.count < Self.maxPendingOutputSends else {
                     close(detach: true)
@@ -345,6 +325,8 @@ extension RemotePTYBridgeServer {
             case .data(let data):
                 guard !data.isEmpty else { return }
                 sendBufferedOutput(data, detachOnOverflow: true)
+            case .inputAck(let seq):
+                handleInputAck(seq: seq)
             case .exit, .error:
                 closeAfterOutputFlush(detach: false, gracefulOutputClose: true)
             }
@@ -403,11 +385,12 @@ extension RemotePTYBridgeServer {
             sendBufferedOutput(line, detachOnOverflow: false)
         }
 
-        private func closeWithBridgeError(_ message: String) {
+        private func closeWithBridgeError(_ message: String, code: String?) {
             guard !isClosed else { return }
             let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
             let detail = trimmed.isEmpty ? "remote PTY attach failed" : trimmed
-            let payload: [String: Any] = ["type": "error", "message": detail]
+            var payload: [String: Any] = ["type": "error", "message": detail]
+            if let code { payload["code"] = code }
             guard let data = try? JSONSerialization.data(withJSONObject: payload, options: []) else {
                 close(detach: false)
                 return
@@ -419,18 +402,18 @@ extension RemotePTYBridgeServer {
                 guard let self else { return }
                 self.queue.async {
                     self.connection.cancel()
-                    self.onClose()
+                    self.notifyCloseOnce()
                 }
             })
         }
 
-        private func close(detach: Bool, gracefulOutputClose: Bool = false) {
+        func close(detach: Bool, gracefulOutputClose: Bool = false) {
             guard !isClosed else { return }
             isClosed = true
             handshakeTimeoutTask?.cancel()
             handshakeTimeoutTask = nil
-            isAttaching = false
             pendingInputBeforeAttach.removeAll(keepingCapacity: false)
+            inputFlow.reset()
             pendingPTYEventsBeforeReady.removeAll(keepingCapacity: false)
             pendingPTYEventBytesBeforeReady = 0
             clientProcessExitSource?.cancel()
@@ -447,14 +430,17 @@ extension RemotePTYBridgeServer {
                         guard let self else { return }
                         self.queue.async {
                             self.connection.cancel()
-                            self.onClose()
+                            self.notifyCloseOnce()
                         }
                     }
                 )
                 return
             }
             connection.cancel()
-            onClose()
+            if isAttaching {
+                return
+            }
+            notifyCloseOnce()
         }
 
         private static func strictInt(_ value: Any?) -> Int? {
@@ -500,39 +486,6 @@ extension RemotePTYBridgeServer {
             guard pid > 0 else { return false }
             if Darwin.kill(pid, 0) == 0 { return true }
             return errno == EPERM
-        }
-
-        /// Maps a daemon attach failure onto the app-resolved user-facing
-        /// string; the matching rules (substring markers, in this order) are
-        /// wire-pinned legacy behavior.
-        func userFacingBridgeErrorMessage(_ error: any Error) -> String {
-            let message = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
-            let lowered = message.lowercased()
-            if lowered.contains("missing required capability") ||
-                lowered.contains("pty.session") ||
-                lowered.contains(RemoteDaemonRPCClient.requiredPTYWriteNotificationCapability) || lowered.contains(RemoteDaemonRPCClient.requiredPTYResizeNotificationCapability) {
-                return strings.missingPersistentPTYCapability
-            }
-            if lowered.contains("pty_session_not_found") ||
-                (lowered.contains("persistent ssh pty session") && lowered.contains("not running")) ||
-                (lowered.contains("persistent pty session") && lowered.contains("not running")) {
-                return strings.sessionEnded
-            }
-            if lowered.contains("pty_input_queue_full") || lowered.contains("pty input queue is full") {
-                return strings.inputBackedUp
-            }
-            if lowered.contains("timed out") || lowered.contains("timeout") {
-                return strings.daemonTimeout
-            }
-            // Surface the daemon's PTY-allocation diagnostic (it names the failing
-            // device and the devpts/ptmxmode cause) instead of collapsing it into a
-            // generic message. Key off the daemon's stable marker only, so an
-            // unrelated error that merely mentions a device path is not leaked.
-            // See https://github.com/manaflow-ai/cmux/issues/5185.
-            if lowered.contains("could not allocate a remote pty") {
-                return strings.allocationDiagnostic(message)
-            }
-            return strings.attachFailed
         }
     }
 }

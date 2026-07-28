@@ -24,9 +24,8 @@ public enum MobilePairingFailureCategory: Equatable, Sendable {
     /// cellular). Caught by the reachability preflight before any connect, so it
     /// fails fast instead of waiting out the per-route timeouts.
     case offline
-    /// Could not route to the Mac's address. The dominant real cause is the
-    /// phone not being on the same Tailscale tailnet as the address the QR
-    /// embedded, so the tailnet IP is simply unroutable.
+    /// Could not route to a selected legacy host address. Iroh routes carry no
+    /// host here because their EndpointID is resolved by the transport layer.
     case hostUnreachable(host: String?, port: Int?)
     /// The address was reachable but nothing accepted the connection: cmux is not
     /// running on the Mac, or mobile pairing is off (it is off by default in
@@ -34,8 +33,7 @@ public enum MobilePairingFailureCategory: Equatable, Sendable {
     case listenerNotRunning(host: String?, port: Int?)
     /// iOS blocked the connection on Local Network privacy grounds.
     case localNetworkBlocked
-    /// DNS could not resolve the host (a `.ts.net` MagicDNS name with Tailscale
-    /// down on one side).
+    /// DNS could not resolve a saved private-network host.
     case dnsFailed(host: String?, port: Int?)
     /// The TCP connection came up but the host handshake did not respond in time.
     case handshakeTimedOut(host: String?, port: Int?)
@@ -48,6 +46,26 @@ public enum MobilePairingFailureCategory: Equatable, Sendable {
     /// The owner's account could not be verified with the Mac (stale/invalid
     /// token, or a release-vs-development build mismatch).
     case authFailed
+    /// The QR's account binding (`ub`) cannot match because the two auth
+    /// channels are DECLARED to differ: the scanned URL's scheme names the
+    /// Mac's channel (release Macs emit `cmux-ios`, dev Macs `cmux-ios-dev`,
+    /// #6038) and it is the opposite of this build's resolved auth
+    /// environment. Stack user ids are per-project, so a development-project
+    /// id never equals a production-project id — even for the same email.
+    /// Telling the user to "sign in with the same email" would be wrong; the
+    /// copy names the actual channel conflict per direction
+    /// (https://github.com/manaflow-ai/cmux/issues/7145). Same-channel
+    /// (dev↔dev, prod↔prod) user-id mismatches are genuine different-account
+    /// failures and stay ``authFailed``.
+    ///
+    /// `macChannelIsRelease` is the direction: `true` = development-auth
+    /// phone scanning a release Mac's QR, `false` = production-auth phone
+    /// scanning a dev Mac's QR. The remedy follows build compatibility:
+    /// official iOS with Stable/Nightly, or exact-tag DEV with DEV.
+    case authEnvironmentMismatch(macChannelIsRelease: Bool)
+    /// The authenticated Mac app instance is outside this iOS build's
+    /// compatibility policy.
+    case buildIncompatible
     /// The pairing link/QR expired; a fresh one is needed.
     case ticketExpired
     /// The scanned/typed input was not a pairing QR cmux recognizes (malformed,
@@ -60,6 +78,10 @@ public enum MobilePairingFailureCategory: Equatable, Sendable {
     /// The scanned/pasted code only points back at the Mac itself (loopback),
     /// which the phone can never dial.
     case loopbackRejected
+    /// A saved legacy route is still valid, but the Mac must publish an Iroh
+    /// route before this iOS version can reconnect securely. This is version
+    /// skew, not an account failure, so the saved pairing stays intact.
+    case macUpdateRequired
     /// The pairing code carried only an untrusted manual route that cannot carry
     /// the account credential.
     case unsupportedRoute
@@ -88,10 +110,13 @@ extension MobilePairingFailureCategory {
         case .accountMismatch: return "account_mismatch"
         case .emailMismatch: return "email_mismatch"
         case .authFailed: return "auth"
+        case .authEnvironmentMismatch: return "auth_environment_mismatch"
+        case .buildIncompatible: return "build_incompatible"
         case .ticketExpired: return "ticket_expired"
         case .invalidCode: return "invalid_code"
         case .unrecognizedVersion: return "unrecognized_version"
         case .loopbackRejected: return "loopback_rejected"
+        case .macUpdateRequired: return "mac_update_required"
         case .unsupportedRoute: return "unsupported_route"
         case .noSupportedRoute: return "no_supported_route"
         case .cancelled: return "cancelled"
@@ -101,6 +126,9 @@ extension MobilePairingFailureCategory {
 
     /// Whether a definitive auth failure that should drive the re-auth prompt
     /// (Sign Out) instead of a "could not connect / Retry" banner.
+    /// ``authEnvironmentMismatch`` is deliberately NOT one: re-authenticating
+    /// cannot move the account to another Stack project. The remedy is choosing
+    /// compatible app builds, not signing out.
     public var isAuthorizationFailure: Bool {
         switch self {
         case .accountMismatch, .emailMismatch, .authFailed, .ticketExpired:
@@ -121,7 +149,7 @@ extension MobilePairingFailureCategory {
         case let .hostUnreachable(host, port):
             return Self.hostPortMessage(
                 key: "mobile.pairing.hostUnreachableFormat",
-                defaultValue: "Can't reach %@:%d. Make sure your Mac is awake and on the same Tailscale network as this device.",
+                defaultValue: "Can't reach %@:%d. Make sure your Mac is awake and the private network or LAN for this saved route is active.",
                 fallbackKey: "mobile.pairing.runtimeUnavailable",
                 fallbackDefaultValue: "Could not connect to your computer.",
                 host: host,
@@ -143,7 +171,7 @@ extension MobilePairingFailureCategory {
                 return String(
                     format: L10n.string(
                         "mobile.pairing.dnsFailedFormat",
-                        defaultValue: "Couldn't resolve %@. Check that Tailscale is connected on both devices."
+                        defaultValue: "Couldn't resolve %@. Check the DNS or private network that provides this saved route."
                     ),
                     host
                 )
@@ -155,7 +183,7 @@ extension MobilePairingFailureCategory {
         case let .handshakeTimedOut(host, port):
             return Self.hostPortMessage(
                 key: "mobile.pairing.connectTimedOutFormat",
-                defaultValue: "No response from %@:%d. Your Mac may be asleep or off Tailscale. Make sure it's awake and on the same Tailscale network.",
+                defaultValue: "No response from %@:%d. Make sure the Mac is awake, cmux is running, and the private route is active.",
                 fallbackKey: "mobile.pairing.requestTimedOut",
                 fallbackDefaultValue: "The computer did not respond. Check the host and port, then try again.",
                 host: host,
@@ -196,6 +224,22 @@ extension MobilePairingFailureCategory {
                 "mobile.pairing.authorizationFailed",
                 defaultValue: "Couldn't verify your account with this Mac. Make sure both devices are signed in with the same email, then try again."
             )
+        case let .authEnvironmentMismatch(macChannelIsRelease):
+            if macChannelIsRelease {
+                return L10n.string(
+                    "mobile.pairing.authEnvironmentMismatch",
+                    defaultValue: "This dev build is signed in to cmux's development auth environment, so its account can never match a Mac running the release app — even with the same email."
+                )
+            }
+            return L10n.string(
+                "mobile.pairing.authEnvironmentMismatch.devMac",
+                defaultValue: "This iPhone uses cmux's production sign-in, but this Mac runs a dev build on the development auth environment, so their accounts can never match — even with the same email."
+            )
+        case .buildIncompatible:
+            return L10n.string(
+                "mobile.pairing.buildIncompatible",
+                defaultValue: "This iPhone build cannot connect to that cmux build."
+            )
         case .ticketExpired:
             return L10n.string(
                 "mobile.pairing.attachTicketExpired",
@@ -214,7 +258,12 @@ extension MobilePairingFailureCategory {
         case .loopbackRejected:
             return L10n.string(
                 "mobile.pairing.loopbackRejected",
-                defaultValue: "This code points at the Mac itself (localhost), so your iPhone can't use it. Set up Tailscale on the Mac, then scan a fresh code."
+                defaultValue: "This code points at the Mac itself (localhost), so your iPhone can't use it. Update cmux on the Mac and scan its Iroh code."
+            )
+        case .macUpdateRequired:
+            return L10n.string(
+                "mobile.pairing.macUpdateRequired",
+                defaultValue: "Update cmux on this Mac to connect securely."
             )
         case .unsupportedRoute:
             return L10n.string(
@@ -231,7 +280,7 @@ extension MobilePairingFailureCategory {
         case let .unknown(host, port):
             return Self.hostPortMessage(
                 key: "mobile.pairing.connectionFailedFormat",
-                defaultValue: "Could not reach %@:%d. Check that the host is reachable over Tailscale or LAN and that the port is correct.",
+                defaultValue: "Could not reach %@:%d. Check that the saved private network or LAN route is active and that the port is correct.",
                 fallbackKey: "mobile.pairing.runtimeUnavailable",
                 fallbackDefaultValue: "Could not connect to your computer.",
                 host: host,
@@ -250,7 +299,7 @@ extension MobilePairingFailureCategory {
         case .hostUnreachable, .dnsFailed, .handshakeTimedOut:
             return L10n.string(
                 "mobile.pairing.guidance.reachability",
-                defaultValue: "Check that this phone and your Mac are on the same Wi-Fi or both running Tailscale, that the Mac is awake, and that cmux is open on it."
+                defaultValue: "Iroh reconnects automatically. For a saved private-network fallback, connect both devices to that network, wake the Mac, and open cmux."
             )
         case .listenerNotRunning, .connectionDropped:
             return L10n.string(
@@ -267,6 +316,24 @@ extension MobilePairingFailureCategory {
                 "mobile.pairing.guidance.sameAccount",
                 defaultValue: "Both devices must be signed in to the same cmux account."
             )
+        case let .authEnvironmentMismatch(macChannelIsRelease):
+            if macChannelIsRelease {
+                return L10n.string(
+                    "mobile.pairing.guidance.authEnvironment",
+                    defaultValue: "Use BETA, INTERNAL, or the App Store app with Stable or Nightly. Use this DEV app with a Mac that has the same DEV tag."
+                )
+            }
+            // Reaches production users (TestFlight/App Store scanning a dev
+            // Mac's QR), so product terms only — no script paths or flags.
+            return L10n.string(
+                "mobile.pairing.guidance.authEnvironment.devMac",
+                defaultValue: "Pair with a Mac running the release cmux app, or use a development-channel iPhone build for dev Macs."
+            )
+        case .buildIncompatible:
+            return L10n.string(
+                "mobile.pairing.guidance.buildIncompatible",
+                defaultValue: "DEV builds must use the same DEV tag. BETA, INTERNAL, and App Store builds connect only to Stable or Nightly."
+            )
         case .ticketExpired, .unsupportedRoute, .noSupportedRoute:
             return L10n.string(
                 "mobile.pairing.guidance.rescanFresh",
@@ -276,6 +343,11 @@ extension MobilePairingFailureCategory {
             return L10n.string(
                 "mobile.pairing.guidance.updateApp",
                 defaultValue: "Update cmux from the App Store (or TestFlight), then scan again."
+            )
+        case .macUpdateRequired:
+            return L10n.string(
+                "mobile.pairing.guidance.macUpdateRequired",
+                defaultValue: "Your saved computer will reconnect automatically after you update cmux on the Mac. You do not need to sign out or pair again."
             )
         case .invalidCode, .loopbackRejected, .cancelled, .unknown:
             return nil
@@ -314,6 +386,10 @@ extension MobilePairingFailureCategory {
                 return .unknown(host: host, port: port)
             case .receiveFailed, .sendFailed:
                 return .connectionDropped(host: host, port: port)
+            case .tailscaleAuthorizationUnavailable:
+                return .hostUnreachable(host: host, port: port)
+            case .authorizationIntentRequired, .unsupportedAuthorizationMode:
+                return .unsupportedRoute
             case .emptyHost, .invalidPort, .invalidMaximumReceiveLength,
                  .unsupportedRouteKind, .unsupportedEndpoint,
                  .receiveAlreadyInProgress, .sendAlreadyInProgress:
@@ -333,7 +409,7 @@ extension MobilePairingFailureCategory {
                 return .authFailed
             case .accountMismatch:
                 return .accountMismatch
-            case .connectionClosed:
+            case .connectionClosed, .transportWriteTimedOut:
                 return .connectionDropped(host: host, port: port)
             case .invalidResponse:
                 return .unknown(host: host, port: port)
@@ -360,6 +436,9 @@ extension MobilePairingFailureCategory {
     ) -> MobilePairingFailureCategory {
         let normalizedCode = code?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if let normalizedCode {
+            if normalizedCode == "build_incompatible" {
+                return .buildIncompatible
+            }
             if normalizedCode == "account_mismatch" {
                 return .accountMismatch
             }

@@ -105,8 +105,26 @@ public final class NotificationDismissalModel: NotificationDismissing {
         guard host.selectedWorkspaceId == workspaceId else { return false }
         if context.requiresActiveApp {
             guard host.isAppActive else { return false }
+            // Opt-in (`notifications.suppressOnlyFocusedSurface`): narrow the
+            // implicit, workspace-visibility-driven auto-withdraw to the exact
+            // focused surface. Without this, a banner delivered for a
+            // non-focused surface in the now-visible workspace could be swept
+            // along; the delivery gate (`shouldSuppressExternalDelivery`)
+            // already keys on the focused surface, and this makes the withdraw
+            // side match it. Nesting under `requiresActiveApp` keeps it off the
+            // explicit per-surface paths (direct click, terminal typing) — so
+            // the setting is never read on the per-keystroke dismiss — and a
+            // `nil` `surfaceId` (workspace-level dismissal) stays broad. See
+            // issue #6601.
+            if host.suppressOnlyFocusedSurface,
+               let surfaceId,
+               host.focusedSurfaceId(in: workspaceId) != surfaceId {
+                return false
+            }
         }
         guard host.hasNotificationStore else { return false }
+        guard host.storeHasDismissibleState(workspaceId: workspaceId) ||
+            host.workspaceHasDismissiblePanelState(workspaceId: workspaceId) else { return false }
         let targetPanelId = surfaceId.flatMap {
             host.panelId(forSurfaceOrPanelId: $0, in: workspaceId)
         }
@@ -131,20 +149,27 @@ public final class NotificationDismissalModel: NotificationDismissing {
             (hasRestoredPanelUnread || hasRestoredWorkspaceUnread)
         let canDismissUnreadIndicator = canDismissManualUnreadIndicator || canDismissRestoredUnreadIndicator
         let hasUnreadNotification: Bool
+        let hasPendingNotification: Bool
         let hasFocusedIndicator: Bool
         if notificationSurfaceIds.isEmpty {
             hasUnreadNotification = host.storeHasUnreadNotification(workspaceId: workspaceId, surfaceId: nil)
+            hasPendingNotification = host.storeHasPendingNotification(workspaceId: workspaceId, surfaceId: nil)
             hasFocusedIndicator = host.storeHasVisibleNotificationIndicator(workspaceId: workspaceId, surfaceId: nil)
         } else {
             hasUnreadNotification = notificationSurfaceIds.contains {
                 host.storeHasUnreadNotification(workspaceId: workspaceId, surfaceId: $0)
             }
+            hasPendingNotification = notificationSurfaceIds.contains {
+                host.storeHasPendingNotification(workspaceId: workspaceId, surfaceId: $0)
+            }
             hasFocusedIndicator = notificationSurfaceIds.contains {
                 host.storeHasVisibleNotificationIndicator(workspaceId: workspaceId, surfaceId: $0)
             }
         }
-        guard hasUnreadNotification || hasFocusedIndicator || canDismissUnreadIndicator else { return false }
-        if hasUnreadNotification {
+        guard hasUnreadNotification || hasPendingNotification || hasFocusedIndicator || canDismissUnreadIndicator else {
+            return false
+        }
+        if hasUnreadNotification || hasPendingNotification {
             if notificationSurfaceIds.isEmpty {
                 host.storeMarkRead(workspaceId: workspaceId, surfaceId: nil)
             } else {

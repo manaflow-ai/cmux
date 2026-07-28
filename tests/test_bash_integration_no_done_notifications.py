@@ -54,8 +54,17 @@ class InteractiveBash:
                 pass
         if self.pid is not None:
             try:
-                os.kill(self.pid, signal.SIGKILL)
+                os.killpg(os.getpgid(self.pid), signal.SIGKILL)
             except ProcessLookupError:
+                pass
+            except OSError:
+                try:
+                    os.kill(self.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            try:
+                os.waitpid(self.pid, 0)
+            except ChildProcessError:
                 pass
 
     def run(self, command: str, timeout: float = 5) -> None:

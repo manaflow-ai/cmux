@@ -56,7 +56,10 @@ public final class MobilePushCoordinator {
     private struct PendingDeeplink {
         let workspaceId: String?
         let surfaceId: String?
+        let macDeviceId: String?
+        let retargetsToLiveSurfaceOwner: Bool
         let createdAt: Date
+        let lastNavigatedWorkspaceId: MobileWorkspacePreview.ID?
     }
 
     @ObservationIgnored private var pendingDeeplink: PendingDeeplink?
@@ -191,8 +194,14 @@ public final class MobilePushCoordinator {
     /// Whether to show a banner while the app is foreground. Suppressed when the
     /// user is already viewing the terminal the notification is about.
     public func shouldPresentInForeground(workspaceId: String?, surfaceId: String?) -> Bool {
+        shouldPresentInForeground(workspaceId: workspaceId, surfaceId: surfaceId, macDeviceId: nil)
+    }
+
+    /// Whether to show a banner while the app is foreground, scoped to the Mac
+    /// that sent the notification when the payload includes it.
+    public func shouldPresentInForeground(workspaceId: String?, surfaceId: String?, macDeviceId: String?) -> Bool {
         guard let store, let workspaceId,
-              store.selectedWorkspaceID?.rawValue == workspaceId else {
+              store.selectedWorkspaceMatches(remoteWorkspaceID: workspaceId, macDeviceID: macDeviceId) else {
             return true
         }
         if let surfaceId {
@@ -209,10 +218,36 @@ public final class MobilePushCoordinator {
     /// immediately in those states is what stranded users on the workspaces
     /// home screen.
     public func handleTap(workspaceId: String?, surfaceId: String?) {
+        handleTap(
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            macDeviceId: nil,
+            retargetsToLiveSurfaceOwner: true
+        )
+    }
+
+    /// Deep-link to the workspace/terminal a tapped notification refers to,
+    /// using the sending Mac id to disambiguate duplicate Mac-local ids.
+    /// - Parameters:
+    ///   - workspaceId: The Mac-local workspace claim carried by the push.
+    ///   - surfaceId: The exact terminal claim carried by the push.
+    ///   - macDeviceId: The Mac that owns the claimed ids.
+    ///   - retargetsToLiveSurfaceOwner: Whether a moved terminal may resolve in
+    ///     a workspace other than the explicit claim. Defaults to `true` for
+    ///     pushes from older Mac clients that predate confinement provenance.
+    public func handleTap(
+        workspaceId: String?,
+        surfaceId: String?,
+        macDeviceId: String?,
+        retargetsToLiveSurfaceOwner: Bool = true
+    ) {
         pendingDeeplink = PendingDeeplink(
             workspaceId: workspaceId,
             surfaceId: surfaceId,
-            createdAt: now()
+            macDeviceId: macDeviceId,
+            retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
+            createdAt: now(),
+            lastNavigatedWorkspaceId: nil
         )
         applyPendingDeeplinkIfReady()
     }
@@ -228,39 +263,81 @@ public final class MobilePushCoordinator {
             return
         }
         guard let store else { return }
+        guard pending.retargetsToLiveSurfaceOwner || pending.workspaceId != nil else {
+            pendingDeeplink = nil
+            return
+        }
 
         // Resolve the workspace to navigate to: the explicit target, or for a
         // surface-only tap the workspace that owns the terminal. Unresolvable
         // means "not loaded yet": stay parked for the next topology change so
         // the tap is never spent on a selection that cannot navigate.
-        let workspaceTarget: MobileWorkspacePreview.ID
+        var workspaceTarget: MobileWorkspacePreview.ID
         if let workspaceId = pending.workspaceId {
-            workspaceTarget = MobileWorkspacePreview.ID(rawValue: workspaceId)
-            guard store.workspaces.contains(where: { $0.id == workspaceTarget }) else { return }
+            guard let resolved = store.workspaceID(
+                matchingRemoteWorkspaceID: workspaceId,
+                macDeviceID: pending.macDeviceId
+            ) else { return }
+            workspaceTarget = resolved
         } else if let surfaceId = pending.surfaceId {
-            guard let owner = store.workspaceID(containingSurfaceID: surfaceId) else { return }
+            guard let owner = store.workspaceID(
+                containingSurfaceID: surfaceId,
+                macDeviceID: pending.macDeviceId
+            ) else { return }
             workspaceTarget = owner
         } else {
             pendingDeeplink = nil
             return
         }
+        if pending.retargetsToLiveSurfaceOwner,
+           let surfaceId = pending.surfaceId,
+           let liveOwner = store.workspaceID(
+               containingSurfaceID: surfaceId,
+               macDeviceID: pending.macDeviceId
+           ) {
+            workspaceTarget = liveOwner
+        }
 
         if let surfaceId = pending.surfaceId,
            !store.workspace(workspaceTarget, containsSurfaceID: surfaceId) {
             // The workspace is here but its terminal snapshot is not (still
-            // loading, or the terminal was closed). Land the user in the right
-            // workspace now and keep only the surface part parked so it can
-            // resolve if the terminal arrives, bounded by the same expiry.
-            store.navigateToWorkspaceForDeeplink(workspaceTarget)
+            // loading, closed, or moved). Land the user in the right workspace.
+            if pending.lastNavigatedWorkspaceId != workspaceTarget {
+                store.navigateToWorkspaceForDeeplink(workspaceTarget)
+            }
+            if !pending.retargetsToLiveSurfaceOwner,
+               let liveOwner = store.workspaceID(
+                   containingSurfaceID: surfaceId,
+                   macDeviceID: pending.macDeviceId
+               ),
+               liveOwner != workspaceTarget {
+                // The loaded topology proves the terminal moved elsewhere. A
+                // confined tap cannot follow it, and retaining the request
+                // would replay navigation to the authorized workspace on every
+                // topology update.
+                pendingDeeplink = nil
+                analytics.capture("ios_push_deeplink_resolved", [
+                    "resolved_workspace": .bool(true),
+                    "resolved_surface": .bool(false),
+                ])
+                return
+            }
+            // No live owner is loaded yet. Keep the surface parked so a pending
+            // snapshot can still arrive, bounded by the original expiry.
             pendingDeeplink = PendingDeeplink(
-                workspaceId: nil,
+                workspaceId: pending.retargetsToLiveSurfaceOwner ? nil : pending.workspaceId,
                 surfaceId: surfaceId,
-                createdAt: pending.createdAt
+                macDeviceId: pending.macDeviceId,
+                retargetsToLiveSurfaceOwner: pending.retargetsToLiveSurfaceOwner,
+                createdAt: pending.createdAt,
+                lastNavigatedWorkspaceId: workspaceTarget
             )
             return
         }
 
-        store.navigateToWorkspaceForDeeplink(workspaceTarget)
+        if pending.lastNavigatedWorkspaceId != workspaceTarget {
+            store.navigateToWorkspaceForDeeplink(workspaceTarget)
+        }
         if let surfaceId = pending.surfaceId {
             store.selectTerminal(MobileTerminalPreview.ID(rawValue: surfaceId))
         }
@@ -280,18 +357,22 @@ public final class MobilePushCoordinator {
     /// is parked in ``PendingNotificationDismissQueue`` and the store flushes it
     /// on its next successful (re)subscribe. With a store, the store's own
     /// enqueue-first send provides the same guarantee for a down channel.
-    /// - Parameter notificationId: The stable id of the dismissed notification.
-    ///   For a remote push this is `request.identifier` (the `apns-collapse-id`),
-    ///   with `cmux.notificationId` as a fallback.
-    public func handleDismiss(notificationId: String?) async {
+    /// - Parameters:
+    ///   - notificationId: The stable id of the dismissed notification. For a
+    ///     remote push this is `request.identifier` (the `apns-collapse-id`),
+    ///     with `cmux.notificationId` as a fallback.
+    ///   - macDeviceId: The Mac that owns the notification, from the `cmux`
+    ///     payload. Missing older payloads route through the foreground Mac.
+    public func handleDismiss(notificationId: String?, macDeviceId: String?) async {
         guard let notificationId else { return }
         let trimmed = notificationId.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
+        let mac = macDeviceId?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let store else {
-            pendingDismissQueue.enqueue([trimmed])
+            pendingDismissQueue.enqueue([trimmed], macDeviceID: mac?.isEmpty == false ? mac : nil)
             return
         }
-        await store.dismissNotification(ids: [trimmed])
+        await store.dismissNotification(ids: [trimmed], macDeviceID: mac?.isEmpty == false ? mac : nil)
     }
 
     /// Handle a silent Mac→iOS dismiss push (the cold lane, fanned out to every

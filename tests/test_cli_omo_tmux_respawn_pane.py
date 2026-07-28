@@ -33,6 +33,15 @@ ATTACH_COMMAND = (
 )
 
 
+def shell_wrapped(command: str) -> str:
+    """Mirror CMUXCLI.tmuxShellInvokedStartCommand: respawn shell-commands are run
+    through a POSIX shell (`/bin/sh -c`) so Ghostty's macOS `exec -l <command>`
+    execs a shell rather than the raw expression (issue #6447). Quoting mirrors
+    tmuxShellQuote (single-quote, with embedded single quotes escaped)."""
+    quoted = "'" + command.replace("'", "'\"'\"'") + "'"
+    return "/bin/sh -c " + quoted
+
+
 class FakeCmuxState:
     def __init__(self) -> None:
         self.split_created = False
@@ -336,8 +345,8 @@ def assert_omo_split_is_listed_and_respawned(
     empty_respawn_params = state.respawn_params[0]
     if empty_respawn_params.get("surface_id") != SUBAGENT_SURFACE_ID:
         raise AssertionError(f"empty respawn targeted wrong surface: {empty_respawn_params!r}")
-    if empty_respawn_params.get("command") != PLACEHOLDER_COMMAND:
-        raise AssertionError(f"empty respawn did not reuse stored command: {empty_respawn_params!r}")
+    if empty_respawn_params.get("command") != shell_wrapped(PLACEHOLDER_COMMAND):
+        raise AssertionError(f"empty respawn did not reuse stored command (login-shell-wrapped): {empty_respawn_params!r}")
     if empty_respawn_params.get("tmux_start_command") != PLACEHOLDER_COMMAND:
         raise AssertionError(f"empty respawn did not preserve tmux start metadata: {empty_respawn_params!r}")
     if state.sent_text:
@@ -366,8 +375,8 @@ def assert_omo_split_is_listed_and_respawned(
         raise AssertionError(f"respawn targeted wrong workspace: {respawn_params!r}")
     if respawn_params.get("surface_id") != SUBAGENT_SURFACE_ID:
         raise AssertionError(f"respawn targeted wrong surface: {respawn_params!r}")
-    if respawn_params.get("command") != ATTACH_COMMAND:
-        raise AssertionError(f"respawn carried wrong command: {respawn_params!r}")
+    if respawn_params.get("command") != shell_wrapped(ATTACH_COMMAND):
+        raise AssertionError(f"respawn carried wrong command (login-shell-wrapped): {respawn_params!r}")
     if respawn_params.get("tmux_start_command") != ATTACH_COMMAND:
         raise AssertionError(f"respawn did not update tmux start metadata: {respawn_params!r}")
     if state.sent_text:
@@ -434,8 +443,11 @@ def assert_public_respawn_uses_same_surface_lifecycle(
     respawn_params = state.respawn_params[0]
     if respawn_params.get("surface_id") != SUBAGENT_SURFACE_ID:
         raise AssertionError(f"public respawn targeted wrong surface: {respawn_params!r}")
-    if respawn_params.get("command") != "echo TEST_PUBLIC":
-        raise AssertionError(f"public respawn carried wrong command: {respawn_params!r}")
+    # The public `respawn-pane` CLI reaches the same surface.respawn / Ghostty
+    # `exec -l` path, so it shell-wraps its command just like the
+    # `__tmux-compat respawn-pane` path.
+    if respawn_params.get("command") != shell_wrapped("echo TEST_PUBLIC"):
+        raise AssertionError(f"public respawn carried wrong command (login-shell-wrapped): {respawn_params!r}")
     if state.sent_text:
         raise AssertionError(f"public respawn must not send text: {state.sent_text!r}")
 

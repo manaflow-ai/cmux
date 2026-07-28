@@ -12,6 +12,8 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
     public let hookEventName: HookEventName
     public let source: String
     public let workspaceId: String?
+    public let surfaceId: String?
+    public let transcriptPath: String?
     public let cwd: String?
     public let toolName: String?
     public let toolInputJSON: String?
@@ -26,6 +28,8 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
         hookEventName: HookEventName,
         source: String,
         workspaceId: String? = nil,
+        surfaceId: String? = nil,
+        transcriptPath: String? = nil,
         cwd: String? = nil,
         toolName: String? = nil,
         toolInputJSON: String? = nil,
@@ -39,6 +43,8 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
         self.hookEventName = hookEventName
         self.source = source
         self.workspaceId = workspaceId
+        self.surfaceId = surfaceId
+        self.transcriptPath = transcriptPath
         self.cwd = cwd
         self.toolName = toolName
         self.toolInputJSON = toolInputJSON
@@ -58,11 +64,17 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
         case userPromptSubmit = "UserPromptSubmit"
         case preToolUse = "PreToolUse"
         case postToolUse = "PostToolUse"
+        /// Codex compaction is about to start.
+        case preCompact = "PreCompact"
+        /// Codex compaction completed.
+        case postCompact = "PostCompact"
         case permissionRequest = "PermissionRequest"
         case askUserQuestion = "AskUserQuestion"
         case exitPlanMode = "ExitPlanMode"
         case todoWrite = "TodoWrite"
         case stop = "Stop"
+        /// Codex started a subagent run.
+        case subagentStart = "SubagentStart"
         case subagentStop = "SubagentStop"
         case notification = "Notification"
     }
@@ -72,6 +84,8 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
         case hookEventName = "hook_event_name"
         case source = "_source"
         case workspaceId = "workspace_id"
+        case surfaceId = "surface_id"
+        case transcriptPath = "transcript_path"
         case cwd
         case toolName = "tool_name"
         case toolInputJSON = "tool_input"
@@ -87,6 +101,8 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
         self.hookEventName = try c.decode(HookEventName.self, forKey: .hookEventName)
         self.source = try c.decode(String.self, forKey: .source)
         self.workspaceId = try c.decodeIfPresent(String.self, forKey: .workspaceId)
+        self.surfaceId = try c.decodeIfPresent(String.self, forKey: .surfaceId)
+        self.transcriptPath = try c.decodeIfPresent(String.self, forKey: .transcriptPath)
         self.cwd = try c.decodeIfPresent(String.self, forKey: .cwd)
         self.toolName = try c.decodeIfPresent(String.self, forKey: .toolName)
         self.context = try c.decodeIfPresent(WorkstreamContext.self, forKey: .context)
@@ -117,6 +133,8 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
         try c.encode(hookEventName, forKey: .hookEventName)
         try c.encode(source, forKey: .source)
         try c.encodeIfPresent(workspaceId, forKey: .workspaceId)
+        try c.encodeIfPresent(surfaceId, forKey: .surfaceId)
+        try c.encodeIfPresent(transcriptPath, forKey: .transcriptPath)
         try c.encodeIfPresent(cwd, forKey: .cwd)
         try c.encodeIfPresent(toolName, forKey: .toolName)
         try c.encodeIfPresent(context, forKey: .context)

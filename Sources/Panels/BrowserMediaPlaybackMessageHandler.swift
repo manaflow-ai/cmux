@@ -1,7 +1,7 @@
 import Foundation
 import WebKit
 
-/// Receives `{ frameID, playing }` from the injected media-playback hook and
+/// Receives `{ frameID, playing, audible }` from the injected media-playback hook and
 /// forwards it to the owning ``BrowserPanel`` on the main actor.
 ///
 /// Mirrors ``ReactGrabMessageHandler``: a thin `NSObject` adapter so the panel
@@ -20,7 +20,8 @@ final class BrowserMediaPlaybackMessageHandler: NSObject, WKScriptMessageHandler
         guard let body = message.body as? [String: Any],
               let frameID = body["frameID"] as? String,
               let playing = body["playing"] as? Bool else { return }
-        let report = BrowserMediaPlaybackReport(frameID: frameID, isPlaying: playing)
+        let audible = body["audible"] as? Bool ?? false
+        let report = BrowserMediaPlaybackReport(frameID: frameID, isPlaying: playing, isAudible: audible)
         // WebKit delivers script messages on the main thread. Apply the report
         // synchronously instead of hopping through a `Task` so it lands in
         // WebKit's delivery order relative to navigation callbacks: a report

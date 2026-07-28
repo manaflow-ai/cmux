@@ -15,8 +15,9 @@ enum KeyboardShortcutBareStartCache {
 
         let resolvedKeys = Set(
             KeyboardShortcutSettings.Action.allCases.compactMap { action -> String? in
-                guard action != .showHideAllWindows else { return nil }
+                guard !action.isSystemWideHotkey else { return nil }
                 guard !action.isBrowserContentShortcut else { return nil }
+                guard action.participatesInAppWideBareStartRouting else { return nil }
                 return KeyboardShortcutSettings.shortcut(for: action).bareShortcutStartKey
             }
         )
@@ -32,6 +33,17 @@ enum KeyboardShortcutBareStartCache {
             queue: .main
         ) { _ in
             configuredKeys = nil
+        }
+    }
+}
+
+private extension KeyboardShortcutSettings.Action {
+    var participatesInAppWideBareStartRouting: Bool {
+        switch self {
+        case .fileExplorerOpenSelection, .fileExplorerOpenSelectionFinderAlias:
+            return false
+        default:
+            return true
         }
     }
 }
@@ -57,6 +69,43 @@ func bareShortcutFastPathKey(for event: NSEvent) -> String? {
 }
 
 extension AppDelegate {
+#if DEBUG
+    /// Process environment is fixed at launch; snapshot this DEBUG-only trace
+    /// opt-in instead of rebuilding the environment on every keystroke.
+    static let shortcutMonitorTraceEnvironmentEnabled =
+        ProcessInfo.processInfo.environment["CMUX_SHORTCUT_MONITOR_TRACE"] == "1"
+#endif
+
+    /// Returns the already-resolved tab manager when plain terminal text can
+    /// bypass browser, palette, and workspace shortcut-context resolution.
+    func terminalTextShortcutBypassTabManagerBeforeContextResolution(
+        event: NSEvent,
+        normalizedFlags: NSEvent.ModifierFlags
+    ) -> TabManager? {
+        guard normalizedFlags.isEmpty,
+              activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
+              event.cmuxIsPrintableTextInput,
+              let window = event.window ?? shortcutRoutingKeyWindow,
+              window.firstResponder is GhosttyNSView,
+              NSApp.modalWindow == nil,
+              window.attachedSheet == nil,
+              let windowId = mainWindowId(from: window),
+              let tabManager = tabManagerFor(windowId: windowId),
+              !commandPaletteWindowStore.isVisible(windowId),
+              !commandPaletteWindowStore.isPendingOpenRaw(windowId),
+              !NotificationsPopoverVisibilityState.shared.isShown(in: window.windowNumber) else {
+            return nil
+        }
+
+        guard shouldBypassPlainKeyShortcutRouting(
+            event: event,
+            normalizedFlags: normalizedFlags
+        ) else {
+            return nil
+        }
+        return tabManager
+    }
+
     func shouldBypassPlainKeyShortcutRouting(
         event: NSEvent,
         normalizedFlags: NSEvent.ModifierFlags
@@ -77,6 +126,44 @@ extension AppDelegate {
         let configuredCmuxShortcutContext = preferredMainWindowContextForShortcutRouting(event: event)
         return !configuredCmuxShortcutActions(for: configuredCmuxShortcutContext).contains {
             $0.shortcut?.bareShortcutStartKey == bareShortcutKey
+        }
+    }
+
+    func matchGlobalSearchShortcut(
+        event: NSEvent,
+        normalizedFlags: NSEvent.ModifierFlags? = nil
+    ) -> Bool {
+        let shortcut = globalSearchShortcutForRouting()
+        guard let stroke = activeGlobalSearchStroke(for: shortcut),
+              stroke.modifierFlags
+                  == (normalizedFlags ?? ShortcutStroke.normalizedModifierFlags(from: event.modifierFlags)),
+              matchShortcutStroke(event: event, stroke: stroke) else {
+            return false
+        }
+        return globalSearchShortcutWhenClauseAllows(event: event)
+    }
+
+    /// Returns the foreground Search binding from the observer's authoritative snapshot.
+    func globalSearchShortcutForRouting() -> StoredShortcut {
+        KeyboardShortcutSettingsObserver.shared.globalSearchShortcut
+    }
+
+    private func activeGlobalSearchStroke(for shortcut: StoredShortcut) -> ShortcutStroke? {
+        guard !shortcut.isUnbound else { return nil }
+        if let activePrefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
+            guard shortcut.firstStroke == activePrefix else { return nil }
+            return shortcut.secondStroke
+        }
+        return shortcut.hasChord ? nil : shortcut.firstStroke
+    }
+}
+
+private extension NSEvent {
+    var cmuxIsPrintableTextInput: Bool {
+        guard let characters, !characters.isEmpty else { return false }
+        return characters.unicodeScalars.allSatisfy { scalar in
+            !CharacterSet.controlCharacters.contains(scalar)
+                && (scalar.value < 0xF700 || scalar.value > 0xF8FF)
         }
     }
 }

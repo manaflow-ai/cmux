@@ -93,6 +93,33 @@ struct WorkstreamEventTests {
         #expect(event.ppid == nil)
     }
 
+    @Test("Codex CLI lifecycle feed events decode at the app boundary")
+    func codexLifecycleFeedEventsDecode() throws {
+        let cases: [(String, WorkstreamEvent.HookEventName)] = [
+            ("PostToolUse", .postToolUse),
+            ("PreCompact", .preCompact),
+            ("PostCompact", .postCompact),
+            ("SubagentStart", .subagentStart),
+            ("SubagentStop", .subagentStop),
+        ]
+
+        for (wireName, expected) in cases {
+            let json = """
+            {
+              "session_id": "codex-session",
+              "hook_event_name": "\(wireName)",
+              "_source": "codex",
+              "cwd": "/tmp/project"
+            }
+            """.data(using: .utf8)!
+
+            let event = try JSONDecoder().decode(WorkstreamEvent.self, from: json)
+            #expect(event.hookEventName == expected)
+            #expect(event.source == "codex")
+            #expect(event.sessionId == "codex-session")
+        }
+    }
+
     @Test("Unknown event fields round-trip for forward compatibility")
     func unknownFieldsRoundTrip() throws {
         let json = """

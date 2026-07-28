@@ -87,3 +87,27 @@ test("resolveDiffNavigationURL strips query and fragment for custom scheme rewri
     "cmux-diff-viewer://local/target",
   );
 });
+
+test("resolveDiffNavigationURL passes a root-relative URL through unchanged under the custom scheme", () => {
+  // The branch picker rebases its regenerate URL to a root-relative path; under
+  // the restored custom-scheme page the browser resolves it natively against the
+  // token host, so it must not enter the http->scheme segment-drop rewrite (which
+  // would drop the query carrying token/repo/group).
+  const dom = new JSDOM("<!doctype html><html><body></body></html>", {
+    url: "cmux-diff-viewer://tok/diff-g-branch.html",
+  });
+  (globalThis as any).window = dom.window;
+
+  const relative = "/__cmux_diff_viewer_branch?group=g&repo=%2Ftmp%2Fr&token=abc&base=develop";
+  expect(resolveDiffNavigationURL(relative)).toBe(relative);
+});
+
+test("resolveDiffNavigationURL passes a root-relative URL through unchanged under HTTP", () => {
+  const dom = new JSDOM("<!doctype html><html><body></body></html>", {
+    url: "http://127.0.0.1:51234/tok/diff-g-branch.html",
+  });
+  (globalThis as any).window = dom.window;
+
+  const relative = "/__cmux_diff_viewer_branch?group=g&repo=%2Ftmp%2Fr&token=abc&base=develop";
+  expect(resolveDiffNavigationURL(relative)).toBe(relative);
+});

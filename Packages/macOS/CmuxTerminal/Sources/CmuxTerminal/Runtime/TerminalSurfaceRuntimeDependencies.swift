@@ -21,7 +21,7 @@ public struct TerminalSurfaceRuntimeDependencies {
     /// Live settings reads folded into spawn environments.
     public let spawnPolicy: any TerminalSurfaceSpawnPolicyProviding
 
-    /// The mobile PTY byte-tee installer.
+    /// The shared PTY output-tee installer.
     public let byteTee: any TerminalByteTeeBinding
 
     /// The renderer-reclamation pass scheduler.
@@ -51,6 +51,9 @@ public struct TerminalSurfaceRuntimeDependencies {
     /// surface strips it after the first runtime spawn.
     public let scrollbackReplayEnvironmentKey: String
 
+    /// Provides the app's current global font magnification percent.
+    public let globalFontMagnificationPercent: @Sendable () -> Int
+
     /// Creates the dependency bundle.
     public init(
         registry: any TerminalSurfaceRegistering,
@@ -65,7 +68,8 @@ public struct TerminalSurfaceRuntimeDependencies {
         runtimeFilesystem: TerminalSurfaceRuntimeFilesystem,
         sessionPortBase: Int,
         sessionPortRangeSize: Int,
-        scrollbackReplayEnvironmentKey: String
+        scrollbackReplayEnvironmentKey: String,
+        globalFontMagnificationPercent: @escaping @Sendable () -> Int = { 100 }
     ) {
         self.registry = registry
         self.engine = engine
@@ -80,5 +84,6 @@ public struct TerminalSurfaceRuntimeDependencies {
         self.sessionPortBase = sessionPortBase
         self.sessionPortRangeSize = sessionPortRangeSize
         self.scrollbackReplayEnvironmentKey = scrollbackReplayEnvironmentKey
+        self.globalFontMagnificationPercent = globalFontMagnificationPercent
     }
 }

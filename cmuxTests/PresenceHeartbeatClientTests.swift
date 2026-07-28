@@ -27,6 +27,7 @@ import Testing
         let body = PresenceHeartbeatClient.heartbeatBody(
             deviceID: "11111111-2222-4333-8444-555555555555",
             tag: "default",
+            bundleID: "com.cmuxterm.app.nightly",
             displayName: "Studio",
             routes: routes,
             stopping: false
@@ -41,6 +42,8 @@ import Testing
         #expect(body["platform"] as? String == "mac")
         #expect(body["tag"] as? String == "default")
         #expect(body["displayName"] as? String == "Studio")
+        // The bundle id is carried so the phone can label the build channel.
+        #expect(body["bundleId"] as? String == "com.cmuxterm.app.nightly")
         #expect(body["stopping"] == nil)
     }
 
@@ -50,6 +53,7 @@ import Testing
         let body = PresenceHeartbeatClient.heartbeatBody(
             deviceID: "11111111-2222-4333-8444-555555555555",
             tag: "default",
+            bundleID: "com.cmuxterm.app.nightly",
             displayName: nil,
             routes: [],
             stopping: false
@@ -59,10 +63,52 @@ import Testing
         #expect(body["displayName"] == nil)
     }
 
+    @Test func irohHeartbeatCarriesRelayBootstrapButNoDirectAddress() throws {
+        let directAddress = "8.8.8.8:49152"
+        let route = try CmxAttachRoute(
+            id: "iroh",
+            kind: .iroh,
+            endpoint: .peer(
+                identity: CmxIrohPeerIdentity(
+                    endpointID: String(repeating: "a", count: 64)
+                ),
+                pathHints: [
+                    try CmxIrohPathHint(
+                        kind: .directAddress,
+                        value: directAddress,
+                        source: .native,
+                        privacyScope: .publicInternet
+                    ),
+                    try CmxIrohPathHint(
+                        kind: .relayURL,
+                        value: "https://relay.example.test/",
+                        source: .native,
+                        privacyScope: .publicInternet
+                    ),
+                ]
+            )
+        )
+
+        let body = PresenceHeartbeatClient.heartbeatBody(
+            deviceID: "11111111-2222-4333-8444-555555555555",
+            tag: "default",
+            bundleID: "com.cmuxterm.app",
+            displayName: "Studio",
+            routes: [route],
+            stopping: false
+        )
+        let json = try JSONSerialization.data(withJSONObject: body)
+        let text = try #require(String(data: json, encoding: .utf8))
+
+        #expect(!text.contains(directAddress))
+        #expect(text.contains("relay.example.test"))
+    }
+
     @Test func goodbyeCarriesStoppingAndRoutes() throws {
         let body = PresenceHeartbeatClient.heartbeatBody(
             deviceID: "11111111-2222-4333-8444-555555555555",
             tag: "presvc",
+            bundleID: "com.cmuxterm.app.nightly",
             displayName: nil,
             routes: [try route(host: "192.168.1.4", port: 50123)],
             stopping: true
@@ -75,6 +121,7 @@ import Testing
         let body = PresenceHeartbeatClient.heartbeatBody(
             deviceID: "11111111-2222-4333-8444-555555555555",
             tag: "default",
+            bundleID: "com.cmuxterm.app.nightly",
             displayName: "Studio",
             routes: [try route(host: "100.0.0.1", port: 51000)],
             stopping: true

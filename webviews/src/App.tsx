@@ -3,9 +3,11 @@ import { getFiletypeFromFileName, parsePatchFiles, preloadHighlighter, processFi
 import type { SelectedLineRange } from "@pierre/diffs";
 import { FileTree, useFileTree } from "@pierre/trees/react";
 import { preparePresortedFileTreeInput } from "@pierre/trees";
-import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import "../../Resources/markdown-viewer/viewer-navigation.js";
 import { copyGitApplyCommand, resolveDiffNavigationURL } from "./actions";
 import { resolveDiffViewerAppearance } from "./appearance";
+import { BranchBasePicker, branchPickerStateKey, type BranchPickerPayload } from "./BranchBasePicker";
 import { lineTextFor, type CommentFileDiff } from "./comments/anchor";
 import {
   applyCommentAnnotations,
@@ -32,6 +34,7 @@ import type {
 import { useCommentsBootstrap } from "./comments/useCommentsBootstrap";
 import { resolveDiffFileLanguage, resolveDiffPreloadLanguages } from "./diff-language";
 import { fileName, type DiffItem, type FileTreeSource, type StreamMetrics, streamPatch } from "./diff-stream";
+import { DiffHeaderMetadata } from "./diff-metadata";
 import { applyPierreFileTreeGitStatus, planPierreFileTreeRefresh, selectPierreFileTreePath } from "./file-tree-refresh";
 import { Icon, type IconName } from "./icons";
 import { createDiffViewerLabelResolver, shouldAssertMissingLabels } from "./labels";
@@ -43,15 +46,27 @@ import {
   type DiffViewerOptions,
 } from "./pierre-options";
 import { applyDiffViewerStatusToDocument, createDiffViewerStatus } from "./status";
+import { resolveToolbarOverflow } from "./toolbar-overflow";
+import { useToolbarWidth } from "./useToolbarWidth";
 import type { DiffViewerLabelResolver } from "./labels";
 import type { DiffViewerStatus } from "./status";
 import type { DiffViewerConfig } from "./types";
+import { createDiffTransport, DiffTransportError, type DiffTransport } from "./diff/transport";
+import type { DiffSource, DiffTransportConfig } from "./diff/generated/protocol";
 import { createDiffWorkerPoolOptions } from "./worker-pool";
 
 type ConfigProps = {
   config: DiffViewerConfig;
   initialStatus: DiffViewerStatus;
 };
+
+type ActiveDiffSession = {
+  capabilityToken: string;
+  sessionId: string;
+};
+
+const registeredCustomThemeNames = new Set<string>();
+const pendingSessionID = "00000000-0000-0000-0000-000000000000";
 
 type AppState = {
   activeItemId: string;
@@ -60,6 +75,7 @@ type AppState = {
   copyFeedback: string;
   draft: CommentDraft | null;
   fileSearchOpen: boolean;
+  fileSearchRequest: number;
   filesWidth: number;
   filesVisible: boolean;
   items: DiffItem[];
@@ -73,13 +89,15 @@ type AppState = {
 
 type AppAction =
   | { type: "append-items"; items: DiffItem[] }
+  | { type: "reset-diff"; status: DiffViewerStatus }
   | { type: "remove-comment"; id: string }
   | { type: "rename-item"; oldId: string; newId: string }
   | { type: "set-active-item"; itemId: string; treePath?: string }
-  | { type: "set-comments"; comments: DiffCommentRecord[] }
+  | { type: "replace-comments"; comments: DiffCommentRecord[] }
   | { type: "set-copy-feedback"; message: string }
   | { type: "set-draft"; draft: CommentDraft | null }
   | { type: "set-file-search-open"; open: boolean }
+  | { type: "request-file-search" }
   | { type: "set-files-width"; width: number }
   | { type: "set-files-visible"; visible: boolean }
   | { type: "set-metrics"; metrics: StreamMetrics }
@@ -104,6 +122,7 @@ function initialAppState(config: DiffViewerConfig, initialStatus: DiffViewerStat
     copyFeedback: "",
     draft: null,
     fileSearchOpen: false,
+    fileSearchRequest: 0,
     filesWidth: 252,
     filesVisible: true,
     items: [],
@@ -142,6 +161,18 @@ function reducer(state: AppState, action: AppAction): AppState {
       status: state.status.loading ? createDiffViewerStatus("", { loading: false }) : state.status,
     };
   }
+  case "reset-diff":
+    return {
+      ...state,
+      activeItemId: "",
+      activeTreePath: "",
+      draft: null,
+      items: [],
+      languages: ["text"],
+      metrics: null,
+      status: action.status,
+      treeSource: null,
+    };
   case "remove-comment": {
     const comments = state.comments.filter((comment) => comment.id !== action.id);
     return {
@@ -169,11 +200,12 @@ function reducer(state: AppState, action: AppAction): AppState {
       activeItemId: action.itemId,
       activeTreePath: action.treePath ?? state.activeTreePath,
     };
-  case "set-comments":
+  case "replace-comments":
     return {
       ...state,
       comments: action.comments,
-      items: applyCommentAnnotations(state.items, action.comments, state.draft),
+      draft: null,
+      items: applyCommentAnnotations(state.items, action.comments, null),
     };
   case "set-copy-feedback":
     return { ...state, copyFeedback: action.message };
@@ -185,6 +217,8 @@ function reducer(state: AppState, action: AppAction): AppState {
     };
   case "set-file-search-open":
     return { ...state, fileSearchOpen: action.open, filesVisible: action.open ? true : state.filesVisible };
+  case "request-file-search":
+    return { ...state, fileSearchOpen: true, fileSearchRequest: state.fileSearchRequest + 1, filesVisible: true };
   case "set-files-width":
     return { ...state, filesWidth: action.width };
   case "set-files-visible":
@@ -233,36 +267,95 @@ function reducer(state: AppState, action: AppAction): AppState {
 
 export function App({ config, initialStatus }: ConfigProps) {
   const payload = config.payload ?? {};
-  const label = createDiffViewerLabelResolver(payload.labels, {
-    assertMissing: shouldAssertMissingLabels(),
-  });
+  const label = useMemo(
+    () => createDiffViewerLabelResolver(payload.labels, {
+      assertMissing: shouldAssertMissingLabels(),
+    }),
+    [payload.labels],
+  );
   const appearance = resolveDiffViewerAppearance(payload.appearance);
+  const transport = useDiffTransport(payload.transport);
+  const [activeSessionSource, setActiveSessionSource] = useState<DiffSource | null>(
+    validDiffSource(payload.sessionSource) ? payload.sessionSource : null,
+  );
+  const [resolvedSessionSource, setResolvedSessionSource] = useState<DiffSource | null>(activeSessionSource);
+  const branchSourceByRepoRef = useRef(new Map<string, Extract<DiffSource, { kind: "branch" }>>());
+  if (activeSessionSource?.kind === "branch" && !branchSourceByRepoRef.current.has(activeSessionSource.repoRoot)) {
+    branchSourceByRepoRef.current.set(activeSessionSource.repoRoot, activeSessionSource);
+  }
+  const [activePatchURL, setActivePatchURL] = useState<string | undefined>(payload.patchURL);
   const [state, dispatch] = useReducer(reducer, initialAppState(config, initialStatus));
   const latestState = useSyncedRef(state);
   const codeViewRef = useRef<CodeViewHandle<any> | null>(null);
+  const codeViewScrollTopRef = useRef(0);
   const copyFallbackRef = useRef<HTMLTextAreaElement | null>(null);
+  const activeSessionRef = useRef<ActiveDiffSession | null>(null);
   const viewerContainerRef = useRef<HTMLDivElement | null>(null);
   const workerModuleURL = resolveDiffViewerAssetURL(config.assets?.workerModuleURL);
   const workerPoolOptions = createDiffWorkerPoolOptions(workerModuleURL);
   const highlighterOptions = workerHighlighterOptions(state.options, appearance, state.languages);
-  const repoRoot = typeof payload.repoRoot === "string" && payload.repoRoot !== "" ? payload.repoRoot : null;
-  const bridgeAvailable = diffCommentsBridgeAvailable() && repoRoot != null;
+  const payloadRepoRoot = typeof payload.repoRoot === "string" && payload.repoRoot !== "" ? payload.repoRoot : null;
+  const commentRepoRoot = diffSourceRepoRoot(resolvedSessionSource ?? activeSessionSource) ?? payloadRepoRoot;
+  const bridgeAvailable = diffCommentsBridgeAvailable() && commentRepoRoot != null;
   const commentLabels = resolveCommentLabels(payload);
   const comments = useDiffComments({
     bridgeAvailable,
     dispatch,
     latestState,
-    repoRoot,
+    repoRoot: commentRepoRoot,
   });
   const renderedCodeViewOptions = codeViewOptions(state.options, appearance);
   renderedCodeViewOptions.onGutterUtilityClick = comments.onGutterUtilityClick as any;
+  const closeActiveSession = useCallback(() => {
+    const activeSession = activeSessionRef.current;
+    if (!transport) {
+      return Promise.resolve();
+    }
+    if (!activeSession) {
+      if (typeof payload.capabilityToken !== "string") {
+        return Promise.resolve();
+      }
+      return closeDiffSession(transport, {
+        sessionId: pendingSessionID,
+        capabilityToken: payload.capabilityToken,
+      });
+    }
+    activeSessionRef.current = null;
+    return transport.request({
+        method: "sessionClose",
+        params: activeSession,
+      })
+      .then(() => {})
+      .catch(() => {
+        if (!activeSessionRef.current) {
+          activeSessionRef.current = activeSession;
+        }
+      });
+  }, [payload.capabilityToken, transport]);
+  const rememberResolvedSessionSource = useCallback((source: DiffSource) => {
+    if (source.kind === "branch") {
+      branchSourceByRepoRef.current.set(source.repoRoot, source);
+    }
+    setResolvedSessionSource(source);
+  }, []);
 
   usePageDataAttributes(state);
-  usePendingReplacement(payload, label, dispatch);
-  useRenderDiff(config, label, dispatch, latestState);
-  useCommentsBootstrap(bridgeAvailable ? repoRoot : null, comments.onLoaded);
-  useKeyboardShortcuts(payload.shortcuts ?? {}, viewerContainerRef, dispatch);
+  usePendingReplacement(payload, label, dispatch, transport);
+  useRenderDiff(
+    config,
+    transport,
+    label,
+    dispatch,
+    latestState,
+    setActivePatchURL,
+    activeSessionRef,
+    closeActiveSession,
+    activeSessionSource,
+    rememberResolvedSessionSource,
+  );
+  useCommentsBootstrap(bridgeAvailable ? commentRepoRoot : null, comments.onLoaded);
   useOptionsDismiss(state.optionsOpen, dispatch);
+  useFileSearchDismiss(state.fileSearchOpen, dispatch);
 
   const renderCommentAnnotation = (annotation: CommentAnnotation, item: DiffItem) => {
     const metadata = annotation.metadata;
@@ -311,8 +404,9 @@ export function App({ config, initialStatus }: ConfigProps) {
   };
 
   const selectedTreePath = state.treeSource?.treePathByItemId.get(state.activeItemId) ?? state.activeTreePath;
-  const scrollToItem = (itemId: string) => {
-    const target = scrollTargetForItem(itemId, state.items);
+  const scrollToItem = useCallback((itemId: string) => {
+    const current = latestState.current;
+    const target = scrollTargetForItem(itemId, current.items);
     if (!target) {
       return;
     }
@@ -320,9 +414,25 @@ export function App({ config, initialStatus }: ConfigProps) {
     dispatch({
       type: "set-active-item",
       itemId: target,
-      treePath: state.treeSource?.treePathByItemId.get(target),
+      treePath: current.treeSource?.treePathByItemId.get(target),
     });
-  };
+  }, [latestState]);
+  const jumpAdjacentFile = useCallback((direction: -1 | 1) => {
+    const current = latestState.current;
+    const visibleItem = visibleItemId(
+      current.items,
+      codeViewScrollTopRef.current,
+      (itemId) => codeViewRef.current?.getInstance()?.getTopForItem(itemId),
+    );
+    const target = adjacentItemId(visibleItem || current.activeItemId, current.items, direction);
+    if (target) {
+      scrollToItem(target);
+    }
+  }, [latestState, scrollToItem]);
+  const handleCodeViewScroll = useCallback((scrollTop: number) => {
+    codeViewScrollTopRef.current = scrollTop;
+  }, []);
+  useNativeViewerNavigation(viewerContainerRef, dispatch, jumpAdjacentFile);
   const setStatus = (status: DiffViewerStatus) => {
     applyDiffViewerStatusToDocument(status);
     dispatch({ type: "set-status", status });
@@ -333,13 +443,14 @@ export function App({ config, initialStatus }: ConfigProps) {
   };
 
   return (
-    <div id="app">
+    <div id="app" data-file-search-open={state.fileSearchOpen}>
       <Toolbar
         config={config}
+        transport={transport}
         label={label}
         onCopyGitApply={async () => {
           try {
-            const message = await copyGitApplyCommand(payload.patchURL, label, copyFallbackRef.current);
+            const message = await copyGitApplyCommand(activePatchURL, label, copyFallbackRef.current);
             dispatch({ type: "set-copy-feedback", message });
           } catch {
             dispatch({ type: "set-copy-feedback", message: label("copyFailedGitApplyCommand") });
@@ -348,14 +459,44 @@ export function App({ config, initialStatus }: ConfigProps) {
         onJump={scrollToItem}
         onNavigate={(url) => {
           setStatus(createDiffViewerStatus(label("loadingDiff"), { pending: true }));
+          // Session cleanup is best-effort and can wait on WebKit's reply path.
+          // Do not make source/repository/base selection wait for it: navigation
+          // starts a new typed session and must stay responsive.
+          void closeActiveSession();
           window.location.href = resolveDiffNavigationURL(url);
         }}
-        onReload={() => window.location.reload()}
+        activeSessionSource={resolvedSessionSource ?? activeSessionSource}
+        onSelectSessionSource={(source) => {
+          const currentSource = resolvedSessionSource ?? activeSessionSource;
+          const selectedSource = source.kind === "branch"
+            && (currentSource?.kind !== "branch" || source.baseRef == null)
+            ? branchSourceByRepoRef.current.get(source.repoRoot) ?? source
+            : source;
+          if (selectedSource.kind === "branch") {
+            branchSourceByRepoRef.current.set(selectedSource.repoRoot, selectedSource);
+          }
+          const status = createDiffViewerStatus(label("loadingDiff"), { pending: true });
+          applyDiffViewerStatusToDocument(status);
+          dispatch({ type: "reset-diff", status });
+          setActivePatchURL(undefined);
+          void closeActiveSession();
+          setResolvedSessionSource(selectedSource);
+          setActiveSessionSource(selectedSource);
+        }}
+        onReload={async () => {
+          await closeActiveSession();
+          window.location.reload();
+        }}
         onSetLayout={setLayout}
         dispatch={dispatch}
         state={state}
       />
       <section id="content" style={{ "--cmux-diff-files-width": `${state.filesWidth}px` } as React.CSSProperties}>
+        <FilesSidebarBackdrop
+          label={label}
+          onClose={() => closeFileSearch(dispatch)}
+          open={state.fileSearchOpen}
+        />
         <FilesSidebar
           commentEntries={commentEntries}
           commentLabels={commentLabels}
@@ -379,7 +520,11 @@ export function App({ config, initialStatus }: ConfigProps) {
                 className="code-view-root"
                 containerRef={viewerContainerRef}
                 items={state.items}
+                onScroll={handleCodeViewScroll}
                 options={renderedCodeViewOptions}
+                renderHeaderMetadata={(item) => (
+                  <DiffHeaderMetadata fileDiff={(item as DiffItem).fileDiff} label={label} />
+                )}
                 renderAnnotation={(annotation, item) =>
                   renderCommentAnnotation(annotation as CommentAnnotation, item as DiffItem)}
               />
@@ -396,6 +541,30 @@ export function App({ config, initialStatus }: ConfigProps) {
         className="copy-fallback-textarea"
       />
     </div>
+  );
+}
+
+export function FilesSidebarBackdrop({
+  label,
+  onClose,
+  open,
+}: {
+  label: DiffViewerLabelResolver;
+  onClose: () => void;
+  open: boolean;
+}) {
+  if (!open) {
+    return null;
+  }
+  return (
+    <button
+      id="files-sidebar-backdrop"
+      type="button"
+      aria-controls="files-sidebar"
+      aria-label={label("hideFileSearch")}
+      title={label("hideFileSearch")}
+      onClick={onClose}
+    />
   );
 }
 
@@ -420,8 +589,9 @@ function useDiffComments({
   latestState: React.MutableRefObject<AppState>;
   repoRoot: string | null;
 }) {
+  const activeRepoRoot = useSyncedRef(repoRoot);
   const onLoaded = useCallback(
-    (comments: DiffCommentRecord[]) => dispatch({ type: "set-comments", comments }),
+    (comments: DiffCommentRecord[]) => dispatch({ type: "replace-comments", comments }),
     [dispatch],
   );
 
@@ -457,6 +627,9 @@ function useDiffComments({
       : Promise.resolve(localCommentRecord(record));
     save
       .then((saved) => {
+        if (activeRepoRoot.current !== repoRoot) {
+          return;
+        }
         dispatch({ type: "upsert-comment", comment: saved });
         dispatch({ type: "set-draft", draft: null });
       })
@@ -477,16 +650,23 @@ function useDiffComments({
       ? bridgeSaveComment(repoRoot, updated)
       : Promise.resolve(updated);
     save
-      .then((saved) => dispatch({ type: "upsert-comment", comment: saved }))
+      .then((saved) => {
+        if (activeRepoRoot.current === repoRoot) {
+          dispatch({ type: "upsert-comment", comment: saved });
+        }
+      })
       .catch((error) => console.warn("cmux diff comment edit failed", error));
   };
 
   const remove = (comment: DiffCommentRecord) => {
+    const targetRepoRoot = repoRoot;
     if (bridgeAvailable && repoRoot != null) {
       bridgeDeleteComment(repoRoot, comment.id)
         .catch((error) => console.warn("cmux diff comment delete failed", error));
     }
-    dispatch({ type: "remove-comment", id: comment.id });
+    if (activeRepoRoot.current === targetRepoRoot) {
+      dispatch({ type: "remove-comment", id: comment.id });
+    }
   };
 
   return { editMessage, onGutterUtilityClick, onLoaded, remove, saveDraft };
@@ -539,39 +719,97 @@ function WorkerRenderOptionsSync({
 }
 
 function Toolbar({
+  activeSessionSource,
   config,
   dispatch,
   label,
   onCopyGitApply,
   onJump,
   onNavigate,
+  onSelectSessionSource,
   onReload,
   onSetLayout,
   state,
+  transport,
 }: {
+  activeSessionSource: DiffSource | null;
   config: DiffViewerConfig;
   dispatch: React.Dispatch<AppAction>;
   label: DiffViewerLabelResolver;
   onCopyGitApply: () => void;
   onJump: (itemId: string) => void;
   onNavigate: (url: string) => void;
+  onSelectSessionSource: (source: DiffSource) => void;
   onReload: () => void;
   onSetLayout: (layout: DiffViewerLayout) => void;
   state: AppState;
+  transport: DiffTransport | null;
 }) {
   const payload = config.payload ?? {};
+  const externalURL =
+    typeof payload.externalURL === "string" && payload.externalURL.length > 0 ? payload.externalURL : null;
+  const toolbarRef = useRef<HTMLElement>(null);
+  const toolbarWidth = useToolbarWidth(toolbarRef);
+  // Optional ACCESSORY controls, HIGH priority first (last = first to overflow).
+  // Drop order at narrowing: external link -> layout toggle -> files toggle. Each
+  // has a canonical copy in the "..." menu, so overflowing one only hides its
+  // duplicate bar icon and it stays reachable from the menu. The source select,
+  // repo select, and Base picker are NOT in this list: they are always rendered
+  // in the bar (a native <select> has no menu equivalent, so the repo select must
+  // never be dropped — it shrinks/ellipsizes in place instead). Estimated widths
+  // include each control's ~4px inter-item gap.
+  const overflowItems = [
+    { id: "files-toggle" as const, width: TOOLBAR_ICON_SLOT },
+    { id: "layout-toggle" as const, width: TOOLBAR_ICON_SLOT },
+    ...(externalURL ? [{ id: "external-link" as const, width: TOOLBAR_ICON_SLOT }] : []),
+  ];
+  const overflow =
+    toolbarWidth == null
+      ? new Set<string>()
+      : new Set(
+          resolveToolbarOverflow({
+            available: toolbarWidth,
+            // Always-present zone: source select + repo select + Base picker +
+            // "..." button + horizontal padding. Generous so we shed before, not
+            // after, overlap; the CSS clip covers any residual under-estimate. The
+            // repo select is always in the bar now, so reserve its slot too (it
+            // shrinks in place rather than overflowing).
+            reserved: TOOLBAR_ALWAYS_PRESENT_WIDTH + (hasRepoSelect(payload) ? TOOLBAR_REPO_SELECT_MIN : 0),
+            items: overflowItems,
+          }).overflow,
+        );
+  const showFilesToggle = !overflow.has("files-toggle");
+  const showLayoutToggle = !overflow.has("layout-toggle");
+  const showExternalLink = externalURL != null && !overflow.has("external-link");
   return (
-    <header id="toolbar">
-      <SourceControls label={label} onNavigate={onNavigate} payload={payload} />
+    <header id="toolbar" ref={toolbarRef}>
+      <SourceControls
+        activeSessionSource={activeSessionSource}
+        label={label}
+        onNavigate={onNavigate}
+        onSelectSessionSource={onSelectSessionSource}
+        payload={payload}
+        transport={transport}
+      />
+      {/* Small diffs use a native jump select. Large diffs route this control to
+          the virtualized file-tree search so the toolbar never creates one DOM
+          option per file. */}
       <div className="toolbar-middle flex min-w-0 flex-1 items-center justify-center gap-1.5">
-        <JumpSelect items={state.items} label={label} onJump={onJump} selectedItemId={state.activeItemId} />
+        <JumpSelect
+          items={state.items}
+          label={label}
+          onJump={onJump}
+          onOpenSearch={() => dispatch({ type: "set-file-search-open", open: true })}
+          searchOpen={state.fileSearchOpen}
+          selectedItemId={state.activeItemId}
+        />
       </div>
-      <div className="toolbar-actions flex shrink-0 items-center gap-1.5">
-        {typeof payload.externalURL === "string" && payload.externalURL.length > 0 ? (
+      <div className="toolbar-actions flex items-center gap-1.5">
+        {showExternalLink ? (
           <a
             id="external-link"
             className="toolbar-icon"
-            href={payload.externalURL}
+            href={externalURL ?? undefined}
             target="_blank"
             rel="noreferrer"
             title={label("openSourceURL")}
@@ -580,16 +818,18 @@ function Toolbar({
             <Icon name="external" />
           </a>
         ) : null}
-        <button
-          id="layout-toggle"
-          className="toolbar-icon"
-          type="button"
-          title={state.options.layout === "split" ? label("switchToUnifiedDiff") : label("switchToSplitDiff")}
-          aria-label={state.options.layout === "split" ? label("switchToUnifiedDiff") : label("switchToSplitDiff")}
-          onClick={() => onSetLayout(state.options.layout === "split" ? "unified" : "split")}
-        >
-          <Icon name={state.options.layout} />
-        </button>
+        {showLayoutToggle ? (
+          <button
+            id="layout-toggle"
+            className="toolbar-icon"
+            type="button"
+            title={state.options.layout === "split" ? label("switchToUnifiedDiff") : label("switchToSplitDiff")}
+            aria-label={state.options.layout === "split" ? label("switchToUnifiedDiff") : label("switchToSplitDiff")}
+            onClick={() => onSetLayout(state.options.layout === "split" ? "unified" : "split")}
+          >
+            <Icon name={state.options.layout} />
+          </button>
+        ) : null}
         <button
           id="options-button"
           className="toolbar-icon"
@@ -602,17 +842,19 @@ function Toolbar({
         >
           <Icon name="dots" />
         </button>
-        <button
-          id="files-toggle"
-          className="toolbar-icon"
-          type="button"
-          title={state.filesVisible ? label("hideFiles") : label("showFiles")}
-          aria-label={state.filesVisible ? label("hideFiles") : label("showFiles")}
-          aria-pressed={state.filesVisible}
-          onClick={() => dispatch({ type: "set-files-visible", visible: !state.filesVisible })}
-        >
-          <Icon name="files" />
-        </button>
+        {showFilesToggle ? (
+          <button
+            id="files-toggle"
+            className="toolbar-icon"
+            type="button"
+            title={state.filesVisible ? label("hideFiles") : label("showFiles")}
+            aria-label={state.filesVisible ? label("hideFiles") : label("showFiles")}
+            aria-pressed={state.filesVisible}
+            onClick={() => dispatch({ type: "set-files-visible", visible: !state.filesVisible })}
+          >
+            <Icon name="files" />
+          </button>
+        ) : null}
         <span id="copy-feedback" className="visually-hidden" aria-live="polite">
           {state.copyFeedback}
         </span>
@@ -620,9 +862,11 @@ function Toolbar({
       {state.optionsOpen ? (
         <OptionsMenu
           dispatch={dispatch}
+          externalURL={externalURL}
           label={label}
           onCopyGitApply={onCopyGitApply}
           onReload={onReload}
+          onSetLayout={onSetLayout}
           state={state}
         />
       ) : null}
@@ -630,14 +874,38 @@ function Toolbar({
   );
 }
 
+// Pixel slot for one toolbar-actions icon button: 20px control + ~8px gap. The
+// resolver only uses these as relative estimates; the CSS `overflow: clip` on
+// the toolbar cells is the hard no-overlap guarantee, so exactness is not load
+// bearing.
+const TOOLBAR_ICON_SLOT = 28;
+// Width reserved for the always-present zone (source select + Base picker + the
+// "..." button + horizontal padding/gaps). Deliberately generous: the optional
+// controls shed early rather than allowing the always-present zone to overflow.
+const TOOLBAR_ALWAYS_PRESENT_WIDTH = 248;
+// Min width the always-present repo select can shrink to (its CSS `min-width`
+// floor of 56px + ~4px gap). It ellipsizes in place down to this floor rather
+// than overflowing, so reserve only the floor, not its full natural width.
+const TOOLBAR_REPO_SELECT_MIN = 60;
+
+function hasRepoSelect(payload: any): boolean {
+  return Array.isArray(payload?.repoOptions) && payload.repoOptions.length >= 2;
+}
+
 function SourceControls({
+  activeSessionSource,
   label,
   onNavigate,
+  onSelectSessionSource,
   payload,
+  transport,
 }: {
+  activeSessionSource: DiffSource | null;
   label: DiffViewerLabelResolver;
   onNavigate: (url: string) => void;
+  onSelectSessionSource: (source: DiffSource) => void;
   payload: any;
+  transport: DiffTransport | null;
 }) {
   return (
     <div className="toolbar-left flex min-w-0 items-center gap-1.5">
@@ -647,23 +915,178 @@ function SourceControls({
         id="source-select"
         options={payload.sourceOptions}
         onNavigate={onNavigate}
+        onSelectSessionSource={(source) => onSelectSessionSource(
+          sourceSelectionWithActiveRepo(source, activeSessionSource),
+        )}
+        selectedValue={diffSourceKind(activeSessionSource)}
       />
-      <NavigationSelect
-        ariaLabel={label("repoPath")}
-        fallbackValue={payload.repoRoot ?? ""}
-        id="repo-select"
-        options={payload.repoOptions}
+      {/* The repo select is ALWAYS rendered (a native <select> has no "..." menu
+          equivalent, so dropping it would strand multi-repo users). It shrinks
+          and ellipsizes in place via field-sizing + the .toolbar-left clip. */}
+      {activeSessionSource?.kind !== "patch" ? (
+        <NavigationSelect
+          ariaLabel={label("repoPath")}
+          fallbackValue={payload.repoRoot ?? ""}
+          id="repo-select"
+          options={payload.repoOptions}
+          onNavigate={onNavigate}
+          onSelectSessionSource={(source) => onSelectSessionSource(
+            repoSelectionWithActiveSource(source, activeSessionSource),
+          )}
+          selectedValue={diffSourceRepoRoot(activeSessionSource)}
+        />
+      ) : null}
+      <BaseControl
+        activeSessionSource={activeSessionSource}
+        label={label}
         onNavigate={onNavigate}
-      />
-      <NavigationSelect
-        ariaLabel={label("branchBase")}
-        fallbackValue={payload.branchBaseRef ?? ""}
-        id="base-select"
-        options={payload.baseOptions}
-        onNavigate={onNavigate}
+        onSelectSessionSource={onSelectSessionSource}
+        payload={payload}
+        transport={transport}
       />
     </div>
   );
+}
+
+/**
+ * Renders the searchable Base button+popover when the backend supplies
+ * `payload.branchPicker` (FROZEN CONTRACT). Falls back to the legacy capped
+ * `<select>` for older backends that only send `payload.baseOptions`.
+ */
+function BaseControl({
+  activeSessionSource,
+  label,
+  onNavigate,
+  onSelectSessionSource,
+  payload,
+  transport,
+}: {
+  activeSessionSource: DiffSource | null;
+  label: DiffViewerLabelResolver;
+  onNavigate: (url: string) => void;
+  onSelectSessionSource: (source: DiffSource) => void;
+  payload: any;
+  transport: DiffTransport | null;
+}) {
+  if (activeSessionSource?.kind === "branch" && transport) {
+    const typedPicker: BranchPickerPayload = {
+      repoRoot: activeSessionSource.repoRoot,
+      capabilityToken: payload.capabilityToken,
+      headRef: "HEAD",
+      currentRef: activeSessionSource.baseRef ?? "",
+      currentReason: "",
+      confidence: "high",
+      aheadBehind: null,
+      refsURL: "typed://branch-list",
+      regenerateURLTemplate: "typed://branch-change/{ref}",
+    };
+    return (
+      <BranchBasePicker
+        key={branchPickerStateKey(typedPicker)}
+        label={label}
+        onNavigate={onNavigate}
+        onSelectBranchBase={(baseRef) => onSelectSessionSource({
+          kind: "branch",
+          repoRoot: activeSessionSource.repoRoot,
+          baseRef,
+        })}
+        picker={typedPicker}
+        transport={transport}
+      />
+    );
+  }
+  const picker = resolveBranchPicker(payload);
+  if (picker) {
+    return (
+      <BranchBasePicker
+        key={branchPickerStateKey(picker)}
+        label={label}
+        onNavigate={onNavigate}
+        picker={picker}
+        transport={transport}
+      />
+    );
+  }
+  return (
+    <NavigationSelect
+      ariaLabel={label("branchBase")}
+      fallbackValue={payload.branchBaseRef ?? ""}
+      id="base-select"
+      options={payload.baseOptions}
+      onNavigate={onNavigate}
+    />
+  );
+}
+
+// Reads the FROZEN CONTRACT `branchPicker` object. In dev, a `?cmuxBranchPickerMock=1`
+// query flag injects a local sample so the popover can be exercised without a
+// wired backend. Production behavior is unchanged when the flag is absent.
+function resolveBranchPicker(payload: any): BranchPickerPayload | null {
+  const value = payload?.branchPicker;
+  // Opt into the new picker only when the full FROZEN CONTRACT shape is present:
+  // refsURL and regenerateURLTemplate must be non-empty strings (selection does
+  // `regenerateURLTemplate.replace(...)`, which throws if it is missing), and
+  // currentRef/headRef must be strings (rendered in the button label). Anything
+  // missing falls back to the legacy <select>.
+  if (isValidBranchPickerPayload(value)) {
+    return value;
+  }
+  if (import.meta.env?.DEV && devBranchPickerMockEnabled()) {
+    return devBranchPickerMock();
+  }
+  return null;
+}
+
+function isValidBranchPickerPayload(value: any): value is BranchPickerPayload {
+  return Boolean(
+    value &&
+    typeof value === "object" &&
+    typeof value.refsURL === "string" && value.refsURL !== "" &&
+    typeof value.regenerateURLTemplate === "string" && value.regenerateURLTemplate !== "" &&
+    typeof value.currentRef === "string" &&
+    typeof value.headRef === "string",
+  );
+}
+
+function devBranchPickerMockEnabled(): boolean {
+  try {
+    return new URLSearchParams(window.location.search).get("cmuxBranchPickerMock") === "1";
+  } catch {
+    return false;
+  }
+}
+
+function devBranchPickerMock(): BranchPickerPayload {
+  return {
+    repoRoot: "/tmp/mock-repo",
+    headRef: "feat-x",
+    currentRef: "main",
+    currentReason: "fork point",
+    confidence: "low",
+    aheadBehind: { ahead: 12, behind: 3 },
+    refsURL: "data:application/json," + encodeURIComponent(JSON.stringify({
+      groups: [
+        { id: "suggested", label: "Suggested", rows: [
+          { ref: "main", label: "main", reason: "fork point", confidence: "low", current: true },
+          { ref: "origin/main", label: "origin/main", reason: "PR base" },
+        ] },
+        { id: "worktrees", label: "Worktrees", rows: [
+          { ref: "feat-x", label: "feat-x", worktreeDir: "../worktrees/feat-x" },
+        ] },
+        { id: "branches", label: "Branches", rows: [
+          { ref: "develop", label: "develop", secondary: "2 days ago" },
+          { ref: "release/1.0", label: "release/1.0", secondary: "1 week ago" },
+        ] },
+        // Large remotes group so the render cap (top N + "... more") is
+        // exercisable in DEV without a wired backend.
+        { id: "remotes", label: "Remotes", rows: Array.from({ length: 2304 }, (_value, index) => ({
+          ref: `origin/feature-${index}`,
+          label: `origin/feature-${index}`,
+        })) },
+      ],
+    })),
+    regenerateURLTemplate: "about:blank#base={ref}",
+  };
 }
 
 function NavigationSelect({
@@ -671,26 +1094,36 @@ function NavigationSelect({
   fallbackValue,
   id,
   onNavigate,
+  onSelectSessionSource,
   options,
+  selectedValue,
 }: {
   ariaLabel: string;
   fallbackValue: string;
   id: string;
   onNavigate: (url: string) => void;
+  onSelectSessionSource?: (source: DiffSource) => void;
   options: any[] | undefined;
+  selectedValue?: string | null;
 }) {
   if (!Array.isArray(options) || options.length < 2) {
     return null;
   }
-  const selected = options.find((option) => option.selected) ?? options.find((option) => !option.disabled);
+  const selected = options.find((option) => option.value === selectedValue)
+    ?? options.find((option) => option.selected)
+    ?? options.find((option) => !option.disabled);
   return (
     <select
       id={id}
       aria-label={ariaLabel}
-      defaultValue={selected?.value ?? fallbackValue}
+      value={selected?.value ?? fallbackValue}
       title={ariaLabel}
       onChange={(event) => {
         const next = options.find((option) => option.value === event.currentTarget.value);
+        if (validDiffSource(next?.sessionSource) && onSelectSessionSource) {
+          onSelectSessionSource(next.sessionSource);
+          return;
+        }
         if (!next?.url) {
           event.currentTarget.value = selected?.value ?? fallbackValue;
           return;
@@ -702,7 +1135,7 @@ function NavigationSelect({
         <option
           key={option.value}
           value={option.value}
-          disabled={option.disabled || !option.url}
+          disabled={option.disabled || (!option.url && !validDiffSource(option.sessionSource))}
           title={option.message}
         >
           {option.label}
@@ -712,19 +1145,38 @@ function NavigationSelect({
   );
 }
 
-function JumpSelect({
+export function JumpSelect({
   items,
   label,
   onJump,
+  onOpenSearch,
+  searchOpen,
   selectedItemId,
 }: {
   items: DiffItem[];
   label: DiffViewerLabelResolver;
   onJump: (itemId: string) => void;
+  onOpenSearch: () => void;
+  searchOpen: boolean;
   selectedItemId: string;
 }) {
   if (items.length === 0) {
     return null;
+  }
+  if (items.length > 500) {
+    return (
+      <button
+        id="jump-search-button"
+        type="button"
+        aria-controls="files-sidebar"
+        aria-expanded={searchOpen}
+        aria-label={label("jumpToFile")}
+        title={label("jumpToFile")}
+        onClick={onOpenSearch}
+      >
+        {label("jumpToFile")}
+      </button>
+    );
   }
   return (
     <select
@@ -745,15 +1197,19 @@ function JumpSelect({
 
 function OptionsMenu({
   dispatch,
+  externalURL,
   label,
   onCopyGitApply,
   onReload,
+  onSetLayout,
   state,
 }: {
   dispatch: React.Dispatch<AppAction>;
+  externalURL: string | null;
   label: DiffViewerLabelResolver;
   onCopyGitApply: () => void;
   onReload: () => void;
+  onSetLayout: (layout: DiffViewerLayout) => void;
   state: AppState;
 }) {
   const toggle = (key: keyof DiffViewerOptions) => dispatch({ type: "set-option", key, value: !state.options[key] });
@@ -763,6 +1219,14 @@ function OptionsMenu({
       <MenuButton checked={state.options.wordWrap} icon="wrap" label={state.options.wordWrap ? label("disableWordWrap") : label("enableWordWrap")} onClick={() => toggle("wordWrap")} />
       <MenuButton checked={state.options.collapsed} icon={state.options.collapsed ? "expand" : "collapse"} label={state.options.collapsed ? label("expandAllDiffs") : label("collapseAllDiffs")} onClick={() => toggle("collapsed")} />
       <div className="menu-separator" />
+      {/* Secondary actions that can overflow from the bar at narrow widths are
+          always listed here so they stay reachable regardless of what the bar
+          decided to drop. The bar hides its duplicate icon button when it
+          overflows; the menu copy is the canonical fallback. */}
+      <MenuButton icon={state.options.layout} label={state.options.layout === "split" ? label("switchToUnifiedDiff") : label("switchToSplitDiff")} onClick={() => onSetLayout(state.options.layout === "split" ? "unified" : "split")} />
+      {externalURL ? (
+        <MenuButton icon="external" label={label("openSourceURL")} onClick={() => window.open(externalURL, "_blank", "noreferrer")} />
+      ) : null}
       <MenuButton checked={state.filesVisible} icon="files" label={state.filesVisible ? label("hideFiles") : label("showFiles")} onClick={() => dispatch({ type: "set-files-visible", visible: !state.filesVisible })} />
       <MenuButton checked={state.options.expandUnchanged} icon="document" label={state.options.expandUnchanged ? label("collapseUnchangedContext") : label("expandUnchangedContext")} onClick={() => toggle("expandUnchanged")} />
       <MenuButton checked={state.options.showBackgrounds} icon="background" label={state.options.showBackgrounds ? label("hideBackgrounds") : label("showBackgrounds")} onClick={() => toggle("showBackgrounds")} />
@@ -896,7 +1360,9 @@ function FilesSidebar({
             aria-label={state.fileSearchOpen ? label("hideFileSearch") : label("showFileSearch")}
             aria-pressed={state.fileSearchOpen}
             disabled={!state.treeSource}
-            onClick={() => dispatch({ type: "set-file-search-open", open: !state.fileSearchOpen })}
+            onClick={() => state.fileSearchOpen
+              ? closeFileSearch(dispatch)
+              : dispatch({ type: "set-file-search-open", open: true })}
           >
             <Icon name="search" />
           </button>
@@ -906,6 +1372,7 @@ function FilesSidebar({
         {state.treeSource ? (
           <PierreFileTree
             fileSearchOpen={state.fileSearchOpen}
+            fileSearchRequest={state.fileSearchRequest}
             label={label}
             onSelectItem={onSelectItem}
             selectedPath={selectedPath}
@@ -929,12 +1396,14 @@ function FilesSidebar({
 
 function PierreFileTree({
   fileSearchOpen,
+  fileSearchRequest,
   label,
   onSelectItem,
   selectedPath,
   source,
 }: {
   fileSearchOpen: boolean;
+  fileSearchRequest: number;
   label: DiffViewerLabelResolver;
   onSelectItem: (itemId: string) => void;
   selectedPath: string;
@@ -967,7 +1436,7 @@ function PierreFileTree({
   });
 
   usePierreFileTreeSource(model, source);
-  usePierreFileTreeSearch(model, fileSearchOpen);
+  usePierreFileTreeSearch(model, fileSearchOpen, fileSearchRequest);
   usePierreFileTreeSelection(model, selectedPath);
 
   return <FileTree model={model} style={{ height: "100%" }} />;
@@ -1122,14 +1591,24 @@ function usePierreFileTreeSource(
   }, [model, source]);
 }
 
-function usePierreFileTreeSearch(model: ReturnType<typeof useFileTree>["model"], fileSearchOpen: boolean): void {
+function usePierreFileTreeSearch(
+  model: ReturnType<typeof useFileTree>["model"],
+  fileSearchOpen: boolean,
+  fileSearchRequest: number,
+): void {
   useEffect(() => {
     if (fileSearchOpen) {
-      model.openSearch("");
+      const wasOpen = model.isSearchOpen();
+      model.openSearch(wasOpen ? model.getSearchValue() : "");
+      if (wasOpen) {
+        const container = model.getFileTreeContainer();
+        const root = container?.shadowRoot ?? container?.getRootNode();
+        (root as ParentNode | undefined)?.querySelector<HTMLInputElement>("[data-file-tree-search-input]")?.focus();
+      }
     } else {
       model.closeSearch();
     }
-  }, [fileSearchOpen, model]);
+  }, [fileSearchOpen, fileSearchRequest, model]);
 }
 
 function usePierreFileTreeSelection(model: ReturnType<typeof useFileTree>["model"], selectedPath: string): void {
@@ -1140,60 +1619,198 @@ function usePierreFileTreeSelection(model: ReturnType<typeof useFileTree>["model
 
 function useRenderDiff(
   config: DiffViewerConfig,
+  transport: DiffTransport | null,
   label: DiffViewerLabelResolver,
   dispatch: React.Dispatch<AppAction>,
   latestState: React.MutableRefObject<AppState>,
+  onPatchURL: (url: string) => void,
+  activeSessionRef: React.MutableRefObject<ActiveDiffSession | null>,
+  closeActiveSession: () => Promise<void>,
+  sessionSource: DiffSource | null,
+  onResolvedSessionSource: (source: DiffSource) => void,
 ) {
-  const started = useRef(false);
   useEffect(() => {
-    if (started.current || isStatusOnlyPayload(config.payload)) {
+    if (isStatusOnlyPayload(config.payload, transport, sessionSource)) {
       return;
     }
-    started.current = true;
     const payload = config.payload ?? {};
     const appearance = resolveDiffViewerAppearance(payload.appearance);
-    if (appearance.themes.light.name) {
-      registerCustomTheme(appearance.themes.light.name, () => Promise.resolve(shikiThemeFromGhostty(appearance.themes.light, appearance)));
+    for (const theme of [appearance.themes.light, appearance.themes.dark]) {
+      if (theme.name && !registeredCustomThemeNames.has(theme.name)) {
+        registerCustomTheme(theme.name, () => Promise.resolve(shikiThemeFromGhostty(theme, appearance)));
+        registeredCustomThemeNames.add(theme.name);
+      }
     }
-    if (appearance.themes.dark.name) {
-      registerCustomTheme(appearance.themes.dark.name, () => Promise.resolve(shikiThemeFromGhostty(appearance.themes.dark, appearance)));
-    }
-    const streamedItems: DiffItem[] = [];
-    dispatch({ type: "set-status", status: createDiffViewerStatus(label("parsingDiff"), { loading: true }) });
-    streamPatch({
-      getCollapsed: () => latestState.current.options.collapsed,
-      initialFileTreeRowCount: getInitialFileTreeRowCount(),
-      label,
-      onBatch: (items) => {
-        streamedItems.push(...items);
-        dispatch({ type: "append-items", items });
-      },
-      onComplete: (metrics) => {
-        dispatch({ type: "set-metrics", metrics });
-        const items = streamedItems;
-        if (items.length === 0) {
-          dispatch({ type: "set-status", status: createDiffViewerStatus(label("noFileDiffs"), { error: true, loading: false, statusOnly: true }) });
+    let cancelled = false;
+    const streamAbortController = new AbortController();
+    const handlePageHide = () => {
+      void closeActiveSession();
+    };
+    window.addEventListener("pagehide", handlePageHide);
+    void (async () => {
+      try {
+        let patchURL = payload.patchURL as string | undefined;
+        const session = diffSessionRequest(payload, transport, sessionSource);
+        if (session) {
+          const result = await transport!.request({ method: "sessionOpen", params: session });
+          if (result.type !== "sessionOpened") {
+            throw new DiffTransportError("invalidResponse", "Diff transport did not open a session");
+          }
+          const openedSession = {
+            sessionId: result.value.sessionId,
+            capabilityToken: String(payload.capabilityToken ?? ""),
+          };
+          if (cancelled) {
+            await closeDiffSession(transport!, openedSession);
+            return;
+          }
+          activeSessionRef.current = openedSession;
+          onResolvedSessionSource(result.value.source);
+          patchURL = result.value.patch.id;
+        }
+        if (cancelled || !patchURL) {
           return;
         }
-        const themes = Array.from(new Set([appearance.theme?.light, appearance.theme?.dark].filter(Boolean)));
-        const langs = Array.from(new Set(items.flatMap((item) => {
-          const diff = item.fileDiff ?? {};
-          return resolveDiffPreloadLanguages(fileName(diff, ""), diff.lang, diff, getFiletypeFromFileName);
-        })));
-        preloadHighlighter({ themes, langs: langs.length > 0 ? langs : ["text"] })
-          .catch((error) => console.warn("cmux diff highlighter preload failed", error));
-      },
-      onMetrics: (metrics) => dispatch({ type: "set-metrics", metrics }),
-      onRename: (rename) => dispatch({ type: "rename-item", oldId: rename.oldId, newId: rename.newId }),
-      onTreeSource: (source) => dispatch({ type: "set-tree-source", source }),
-      parsePatchFiles,
-      patchURL: payload.patchURL,
-      processFile,
-    }).catch((error) => {
-      console.error("cmux diff viewer render failed", error);
-      dispatch({ type: "set-status", status: createDiffViewerStatus(label("renderFailed"), { error: true, loading: false, statusOnly: true }) });
-    });
-  }, [config, dispatch, label, latestState]);
+        onPatchURL(patchURL);
+        const streamedItems: DiffItem[] = [];
+        dispatch({ type: "set-status", status: createDiffViewerStatus(label("parsingDiff"), { loading: true }) });
+        await streamPatch({
+          getCollapsed: () => latestState.current.options.collapsed,
+          initialFileTreeRowCount: getInitialFileTreeRowCount(),
+          label,
+          signal: streamAbortController.signal,
+          onBatch: (items) => {
+            if (cancelled) return;
+            streamedItems.push(...items);
+            dispatch({ type: "append-items", items });
+          },
+          onComplete: (metrics) => {
+            if (cancelled) return;
+            dispatch({ type: "set-metrics", metrics });
+            const items = streamedItems;
+            if (items.length === 0) {
+              const emptyMessage = typeof payload.emptyMessage === "string" ? payload.emptyMessage : label("noFileDiffs");
+              dispatch({ type: "set-status", status: createDiffViewerStatus(emptyMessage, { error: false, loading: false, statusOnly: true }) });
+              return;
+            }
+            const themes = Array.from(new Set([appearance.theme?.light, appearance.theme?.dark].filter(Boolean)));
+            const langs = Array.from(new Set(items.flatMap((item) => {
+              const diff = item.fileDiff ?? {};
+              return resolveDiffPreloadLanguages(fileName(diff, ""), diff.lang, diff, getFiletypeFromFileName);
+            })));
+            preloadHighlighter({ themes, langs: langs.length > 0 ? langs : ["text"] })
+              .catch((error) => console.warn("cmux diff highlighter preload failed", error));
+          },
+          onMetrics: (metrics) => {
+            if (!cancelled) dispatch({ type: "set-metrics", metrics });
+          },
+          onRename: (rename) => {
+            if (!cancelled) dispatch({ type: "rename-item", oldId: rename.oldId, newId: rename.newId });
+          },
+          onTreeSource: (source) => {
+            if (!cancelled) dispatch({ type: "set-tree-source", source });
+          },
+          parsePatchFiles,
+          patchURL,
+          processFile,
+        });
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+        const empty = error instanceof DiffTransportError && error.code === "emptyDiff";
+        if (!empty) {
+          console.error("cmux diff viewer render failed", error);
+        }
+        const emptyMessage = typeof payload.emptyMessage === "string" ? payload.emptyMessage : label("noFileDiffs");
+        dispatch({
+          type: "set-status",
+          status: createDiffViewerStatus(empty ? emptyMessage : label("renderFailed"), {
+            error: !empty,
+            loading: false,
+            statusOnly: true,
+          }),
+        });
+      }
+    })();
+    return () => {
+      cancelled = true;
+      streamAbortController.abort();
+      window.removeEventListener("pagehide", handlePageHide);
+      void closeActiveSession();
+    };
+  }, [activeSessionRef, closeActiveSession, config, dispatch, label, latestState, onPatchURL, onResolvedSessionSource, sessionSource, transport]);
+}
+
+function closeDiffSession(transport: DiffTransport, session: ActiveDiffSession): Promise<void> {
+  return transport.request({ method: "sessionClose", params: session }).then(() => {}, () => {});
+}
+
+function diffSessionRequest(payload: any, transport: DiffTransport | null, overrideSource?: DiffSource | null): {
+  source: DiffSource;
+  capabilityToken: string;
+} | null {
+  if (!transport || typeof payload?.capabilityToken !== "string") {
+    return null;
+  }
+  const source = overrideSource ?? payload.sessionSource;
+  if (!validDiffSource(source)) {
+    return null;
+  }
+  return { source, capabilityToken: payload.capabilityToken };
+}
+
+function validDiffSource(value: unknown): value is DiffSource {
+  if (!value || typeof value !== "object" || typeof (value as { kind?: unknown }).kind !== "string") {
+    return false;
+  }
+  const source = value as { kind: string; repoRoot?: unknown; path?: unknown; baseRef?: unknown };
+  if (source.kind === "patch") {
+    return typeof source.path === "string";
+  }
+  if (source.kind === "unstaged" || source.kind === "staged") {
+    return typeof source.repoRoot === "string";
+  }
+  return source.kind === "branch"
+    && typeof source.repoRoot === "string"
+    && (source.baseRef == null || typeof source.baseRef === "string");
+}
+
+function diffSourceKind(source: DiffSource | null): string | null {
+  return source?.kind ?? null;
+}
+
+function diffSourceRepoRoot(source: DiffSource | null): string | null {
+  return source && "repoRoot" in source ? source.repoRoot : null;
+}
+
+function sourceSelectionWithActiveRepo(source: DiffSource, active: DiffSource | null): DiffSource {
+  if (source.kind === "patch") {
+    return source;
+  }
+  const activeRepo = diffSourceRepoRoot(active);
+  if (!activeRepo) {
+    return source;
+  }
+  if (source.kind === "branch") {
+    return source.repoRoot === activeRepo
+      ? { ...source, repoRoot: activeRepo }
+      : { kind: "branch", repoRoot: activeRepo };
+  }
+  return { ...source, repoRoot: activeRepo };
+}
+
+function repoSelectionWithActiveSource(source: DiffSource, active: DiffSource | null): DiffSource {
+  const repoRoot = diffSourceRepoRoot(source);
+  if (!repoRoot || !active || active.kind === "patch") {
+    return source;
+  }
+  if (active.kind === "branch") {
+    return active.repoRoot === repoRoot
+      ? { ...active, repoRoot }
+      : { kind: "branch", repoRoot };
+  }
+  return { ...active, repoRoot };
 }
 
 function resolveDiffItemLanguage(item: DiffItem): void {
@@ -1223,12 +1840,23 @@ function mergeLanguages(current: string[], next: string[]): string[] {
   return Array.from(languages);
 }
 
-function isStatusOnlyPayload(payload: any): boolean {
-  return payload?.pendingReplacement === true ||
-    (typeof payload?.statusMessage === "string" && payload.statusMessage.length > 0);
+function isStatusOnlyPayload(
+  payload: any,
+  transport: DiffTransport | null = null,
+  sessionSource: DiffSource | null = null,
+): boolean {
+  if (payload?.pendingReplacement === true) {
+    return diffSessionRequest(payload, transport, sessionSource) == null;
+  }
+  return typeof payload?.statusMessage === "string" && payload.statusMessage.length > 0;
 }
 
-function usePendingReplacement(payload: any, label: DiffViewerLabelResolver, dispatch: React.Dispatch<AppAction>) {
+function usePendingReplacement(
+  payload: any,
+  label: DiffViewerLabelResolver,
+  dispatch: React.Dispatch<AppAction>,
+  transport: DiffTransport | null,
+) {
   const started = useRef(false);
   useEffect(() => {
     if (started.current) {
@@ -1240,7 +1868,16 @@ function usePendingReplacement(payload: any, label: DiffViewerLabelResolver, dis
         type: "set-status",
         status: createDiffViewerStatus(payload.statusMessage ?? label("loadingDiff"), { loading: true, pending: true }),
       });
-      fetch("/__cmux_diff_viewer_wait" + location.pathname, { cache: "no-store" })
+      if (diffSessionRequest(payload, transport)) {
+        return;
+      }
+      // The native host replaces the file and navigates this surface when Git
+      // generation completes. Custom-scheme resources never use an HTTP wait
+      // endpoint, so keep the loading state until that navigation arrives.
+      if (window.location.protocol === "cmux-diff-viewer:") {
+        return;
+      }
+      fetch("/__cmux_diff_viewer_wait" + window.location.pathname, { cache: "no-store" })
         .then(async (response) => {
           if (!response.ok) {
             throw new Error("replacement failed");
@@ -1267,7 +1904,7 @@ function usePendingReplacement(payload: any, label: DiffViewerLabelResolver, dis
         }),
       });
     }
-  }, [dispatch, label, payload]);
+  }, [dispatch, label, payload, transport]);
 }
 
 function usePageDataAttributes(state: AppState) {
@@ -1291,74 +1928,45 @@ function usePageDataAttributes(state: AppState) {
   }, [state]);
 }
 
-function useKeyboardShortcuts(
-  shortcuts: any,
+function useNativeViewerNavigation(
   viewerRef: React.MutableRefObject<HTMLDivElement | null>,
   dispatch: React.Dispatch<AppAction>,
+  onJumpAdjacentFile: (direction: -1 | 1) => void,
 ) {
   useEffect(() => {
-    const scrollDownShortcut = normalizeShortcut(shortcuts.diffViewerScrollDown);
-    const scrollUpShortcut = normalizeShortcut(shortcuts.diffViewerScrollUp);
-    const scrollBottomShortcut = normalizeShortcut(shortcuts.diffViewerScrollToBottom);
-    const scrollTopShortcut = normalizeShortcut(shortcuts.diffViewerScrollToTop);
-    const fileSearchShortcut = normalizeShortcut(shortcuts.diffViewerOpenFileSearch);
-    let pendingChord: PendingChord | null = null;
-    let chordTimeout = 0;
-    const clearPendingChord = () => {
-      pendingChord = null;
-      if (chordTimeout !== 0) {
-        window.clearTimeout(chordTimeout);
-        chordTimeout = 0;
+    window.__cmuxPerformDiffViewerNavigationAction = (action: string) => {
+      const viewer = viewerRef.current;
+      if (viewer && CmuxViewerNavigation.performAction(action, viewer)) {
+        return true;
       }
+      switch (action) {
+        case "diffViewerOpenFileSearch":
+          dispatch({ type: "request-file-search" });
+          return true;
+        case "diffViewerNextFile":
+          if (viewer) CmuxViewerNavigation.resetSmoothTarget(viewer);
+          onJumpAdjacentFile(1);
+          return true;
+        case "diffViewerPreviousFile":
+          if (viewer) CmuxViewerNavigation.resetSmoothTarget(viewer);
+          onJumpAdjacentFile(-1);
+          return true;
+      }
+      return false;
     };
-    const listener = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || isTypingShortcutTarget(event.target)) {
-        return;
-      }
-      if (pendingChord && !shortcutStrokeMatchesEvent(pendingChord.shortcut.second, event)) {
-        clearPendingChord();
-      }
-      if (pendingChord && shortcutStrokeMatchesEvent(pendingChord.shortcut.second, event)) {
-        event.preventDefault();
-        pendingChord.action();
-        clearPendingChord();
-        return;
-      }
-      if (shortcutMatchesEvent(scrollDownShortcut, event)) {
-        event.preventDefault();
-        scrollViewerBy(viewerRef.current, 1);
-        return;
-      }
-      if (shortcutMatchesEvent(scrollUpShortcut, event)) {
-        event.preventDefault();
-        scrollViewerBy(viewerRef.current, -1);
-        return;
-      }
-      if (shortcutMatchesEvent(scrollBottomShortcut, event)) {
-        event.preventDefault();
-        viewerRef.current?.scrollTo({ top: viewerRef.current.scrollHeight, behavior: "auto" });
-        return;
-      }
-      if (shortcutMatchesEvent(fileSearchShortcut, event)) {
-        event.preventDefault();
-        dispatch({ type: "set-file-search-open", open: true });
-        return;
-      }
-      if (scrollTopShortcut && shortcutStartsChord(scrollTopShortcut, event)) {
-        event.preventDefault();
-        pendingChord = {
-          shortcut: scrollTopShortcut,
-          action: () => viewerRef.current?.scrollTo({ top: 0, behavior: "auto" }),
-        };
-        chordTimeout = window.setTimeout(clearPendingChord, 700);
-      }
-    };
-    document.addEventListener("keydown", listener);
+    document.documentElement.dataset.cmuxViewerNavigationReady = "true";
+    document.dispatchEvent(new window.Event("cmux-diff-viewer-navigation-readiness-change"));
+    const disposeManualInputReset = CmuxViewerNavigation.installManualInputReset({
+      target: document,
+      getScroller: () => viewerRef.current!,
+    });
     return () => {
-      clearPendingChord();
-      document.removeEventListener("keydown", listener);
+      delete window.__cmuxPerformDiffViewerNavigationAction;
+      delete document.documentElement.dataset.cmuxViewerNavigationReady;
+      document.dispatchEvent(new window.Event("cmux-diff-viewer-navigation-readiness-change"));
+      disposeManualInputReset();
     };
-  }, [dispatch, shortcuts, viewerRef]);
+  }, [dispatch, onJumpAdjacentFile, viewerRef]);
 }
 
 function useOptionsDismiss(optionsOpen: boolean, dispatch: React.Dispatch<AppAction>) {
@@ -1386,83 +1994,42 @@ function useOptionsDismiss(optionsOpen: boolean, dispatch: React.Dispatch<AppAct
   }, [dispatch, optionsOpen]);
 }
 
-type ShortcutStroke = {
-  command: boolean;
-  control: boolean;
-  key: string;
-  option: boolean;
-  shift: boolean;
-};
+export function closeFileSearch(dispatch: React.Dispatch<AppAction>, targetDocument: Document = document) {
+  dispatch({ type: "set-file-search-open", open: false });
+  const trigger = targetDocument.getElementById("jump-search-button") ?? targetDocument.getElementById("jump-select");
+  trigger?.focus();
+}
 
-type ShortcutBinding = {
-  first: ShortcutStroke;
-  second: ShortcutStroke | null;
-};
+export function shouldDismissFileSearch(key: string, narrowViewport: boolean): boolean {
+  return key === "Escape" && narrowViewport;
+}
 
-type PendingChord = {
-  action: () => void;
-  shortcut: ShortcutBinding;
-};
+function useFileSearchDismiss(fileSearchOpen: boolean, dispatch: React.Dispatch<AppAction>) {
+  useEffect(() => {
+    if (!fileSearchOpen) {
+      return;
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (shouldDismissFileSearch(event.key, window.matchMedia("(max-width: 520px)").matches)) {
+        event.preventDefault();
+        closeFileSearch(dispatch);
+      }
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [dispatch, fileSearchOpen]);
+}
 
-function normalizeShortcut(rawShortcut: any): ShortcutBinding | null {
-  if (!rawShortcut || rawShortcut.unbound === true || !rawShortcut.first) {
-    return null;
+function useDiffTransport(config: DiffTransportConfig | undefined): DiffTransport | null {
+  const transportRef = useRef<DiffTransport | null | undefined>(undefined);
+  if (transportRef.current === undefined) {
+    transportRef.current = createDiffTransport(config);
   }
-  return {
-    first: normalizeShortcutStroke(rawShortcut.first),
-    second: rawShortcut.second ? normalizeShortcutStroke(rawShortcut.second) : null,
-  };
-}
-
-function normalizeShortcutStroke(rawStroke: any): ShortcutStroke {
-  return {
-    key: String(rawStroke?.key ?? "").toLowerCase(),
-    command: rawStroke?.command === true,
-    shift: rawStroke?.shift === true,
-    option: rawStroke?.option === true,
-    control: rawStroke?.control === true,
-  };
-}
-
-function shortcutMatchesEvent(shortcut: ShortcutBinding | null, event: KeyboardEvent): boolean {
-  return Boolean(shortcut && !shortcut.second && shortcutStrokeMatchesEvent(shortcut.first, event));
-}
-
-function shortcutStartsChord(shortcut: ShortcutBinding, event: KeyboardEvent): boolean {
-  return Boolean(shortcut.second && shortcutStrokeMatchesEvent(shortcut.first, event));
-}
-
-function shortcutStrokeMatchesEvent(stroke: ShortcutStroke | null, event: KeyboardEvent): boolean {
-  if (!stroke || event.metaKey !== stroke.command || event.ctrlKey !== stroke.control || event.altKey !== stroke.option) {
-    return false;
-  }
-  if (event.shiftKey !== stroke.shift) {
-    return false;
-  }
-  return normalizedShortcutEventKey(event) === stroke.key;
-}
-
-function normalizedShortcutEventKey(event: KeyboardEvent): string {
-  if (event.code === "Space") {
-    return "space";
-  }
-  if (typeof event.key !== "string" || event.key.length === 0) {
-    return "";
-  }
-  return event.key.length === 1 ? event.key.toLowerCase() : event.key.toLowerCase();
-}
-
-function isTypingShortcutTarget(target: EventTarget | null): boolean {
-  const element = target instanceof Element ? target : null;
-  return Boolean(element?.closest("input, textarea, select, [contenteditable='true']"));
-}
-
-function scrollViewerBy(viewer: HTMLDivElement | null, direction: number): void {
-  if (!viewer) {
-    return;
-  }
-  const amount = Math.max(80, Math.floor(viewer.clientHeight * 0.38));
-  viewer.scrollBy({ top: direction * amount, behavior: "auto" });
+  useEffect(() => {
+    const transport = transportRef.current;
+    return () => transport?.close();
+  }, []);
+  return transportRef.current;
 }
 
 function scrollTargetForItem(itemId: string, items: DiffItem[]): string {
@@ -1470,6 +2037,39 @@ function scrollTargetForItem(itemId: string, items: DiffItem[]): string {
     return itemId;
   }
   return items[0]?.id ?? "";
+}
+
+export function adjacentItemId(activeItemId: string, items: DiffItem[], direction: -1 | 1): string {
+  if (items.length === 0) {
+    return "";
+  }
+  const currentIndex = items.findIndex((item) => item.id === activeItemId);
+  if (currentIndex < 0) {
+    return direction > 0 ? items[0].id : items[items.length - 1].id;
+  }
+  const targetIndex = currentIndex + direction;
+  return targetIndex >= 0 && targetIndex < items.length ? items[targetIndex].id : "";
+}
+
+export function visibleItemId(
+  items: DiffItem[],
+  scrollTop: number,
+  getTopForItem: (itemId: string) => number | undefined,
+): string {
+  let low = 0;
+  let high = items.length - 1;
+  let visibleIndex = items.length > 0 ? 0 : -1;
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2);
+    const top = getTopForItem(items[middle].id);
+    if (top != null && top <= scrollTop + 1) {
+      visibleIndex = middle;
+      low = middle + 1;
+    } else {
+      high = middle - 1;
+    }
+  }
+  return visibleIndex >= 0 ? items[visibleIndex].id : "";
 }
 
 function getInitialFileTreeRowCount(): number {

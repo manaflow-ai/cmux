@@ -106,21 +106,49 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
     /// Reorders one workspace to the clamped target index; drag operations
     /// additionally run neighbor-based group-membership inference.
     @discardableResult
-    public func reorderWorkspace(tabId: UUID, toIndex targetIndex: Int, isDragOperation: Bool = false) -> Bool {
-        guard let plan = workspaceReorderPlan(tabId: tabId, toIndex: targetIndex) else { return false }
+    public func reorderWorkspace(
+        tabId: UUID,
+        toIndex targetIndex: Int,
+        isDragOperation: Bool = false,
+        explicitGroupId: UUID? = nil
+    ) -> Bool {
+        if let explicitGroupId,
+           !model.workspaceGroups.contains(where: { $0.id == explicitGroupId }) {
+            return false
+        }
+        let plan: WorkspaceReorderPlanItem?
+        if isDragOperation, explicitGroupId != nil {
+            plan = explicitGroupWorkspaceReorderPlan(tabId: tabId, toIndex: targetIndex)
+        } else {
+            plan = workspaceReorderPlan(tabId: tabId, toIndex: targetIndex)
+        }
+        guard let plan else { return false }
         // No-op reorders (single workspace, clamped to current index, etc.)
         // must not run group inference. Otherwise socket calls like
         // `workspace.action move_down` on the last ungrouped row would
         // silently absorb it into the group above just because the request
         // resolved to "stay put."
-        if model.tabs.count <= 1 || plan.fromIndex == plan.toIndex {
+        if model.tabs.count <= 1 {
+            return true
+        }
+        if plan.fromIndex == plan.toIndex {
+            guard isDragOperation, explicitGroupId != nil else {
+                return true
+            }
+            let previousOrder = model.tabs.map(\.id)
+            let previousGroupId = model.tabs[plan.fromIndex].groupId
+            applyDragInferredGroupMembership(workspaceId: tabId, explicitGroupId: explicitGroupId)
+            let currentGroupId = model.tabs.first(where: { $0.id == tabId })?.groupId
+            if currentGroupId != previousGroupId || model.tabs.map(\.id) != previousOrder {
+                host?.workspaceOrderDidChange(movedWorkspaceIds: [tabId])
+            }
             return true
         }
 
         let workspace = model.tabs.remove(at: plan.fromIndex)
         model.tabs.insert(workspace, at: plan.toIndex)
         if isDragOperation {
-            applyDragInferredGroupMembership(workspaceId: tabId)
+            applyDragInferredGroupMembership(workspaceId: tabId, explicitGroupId: explicitGroupId)
         } else if !model.workspaceGroups.isEmpty {
             if model.workspaceGroups.contains(where: { $0.anchorWorkspaceId == tabId }) {
                 model.syncWorkspaceGroupsOrderToAnchorOrder()
@@ -138,13 +166,22 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
         return reorderWorkspace(tabId: tabId, toIndex: plan.toIndex, isDragOperation: isDragOperation)
     }
 
+    /// Preserve explicit group-drop row space from the sidebar.
+    private func explicitGroupWorkspaceReorderPlan(tabId: UUID, toIndex targetIndex: Int) -> WorkspaceReorderPlanItem? {
+        guard let currentIndex = model.tabs.firstIndex(where: { $0.id == tabId }) else { return nil }
+        if model.tabs.count <= 1 {
+            return WorkspaceReorderPlanItem(workspaceId: tabId, fromIndex: currentIndex, toIndex: currentIndex)
+        }
+        let clamped = max(0, min(targetIndex, model.tabs.count - 1))
+        return WorkspaceReorderPlanItem(workspaceId: tabId, fromIndex: currentIndex, toIndex: clamped)
+    }
+
     /// The clamped single-workspace reorder plan, or `nil` when unknown.
     public func workspaceReorderPlan(tabId: UUID, toIndex targetIndex: Int) -> WorkspaceReorderPlanItem? {
         guard let currentIndex = model.tabs.firstIndex(where: { $0.id == tabId }) else { return nil }
         if model.tabs.count <= 1 {
             return WorkspaceReorderPlanItem(workspaceId: tabId, fromIndex: currentIndex, toIndex: currentIndex)
         }
-
         let workspace = model.tabs[currentIndex]
         let clamped = model.clampedReorderIndex(for: workspace, targetIndex: targetIndex)
         return WorkspaceReorderPlanItem(workspaceId: tabId, fromIndex: currentIndex, toIndex: clamped)
@@ -152,14 +189,16 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
 
     /// The before/after-relative reorder plan, or `nil` when unknown.
     public func workspaceReorderPlan(tabId: UUID, before beforeId: UUID? = nil, after afterId: UUID? = nil) -> WorkspaceReorderPlanItem? {
-        guard model.tabs.contains(where: { $0.id == tabId }) else { return nil }
+        guard let currentIndex = model.tabs.firstIndex(where: { $0.id == tabId }) else { return nil }
         if let beforeId {
             guard let idx = model.tabs.firstIndex(where: { $0.id == beforeId }) else { return nil }
-            return workspaceReorderPlan(tabId: tabId, toIndex: idx)
+            let targetIndex = currentIndex < idx ? idx - 1 : idx
+            return workspaceReorderPlan(tabId: tabId, toIndex: targetIndex)
         }
         if let afterId {
             guard let idx = model.tabs.firstIndex(where: { $0.id == afterId }) else { return nil }
-            return workspaceReorderPlan(tabId: tabId, toIndex: idx + 1)
+            let targetIndex = currentIndex < idx ? idx : idx + 1
+            return workspaceReorderPlan(tabId: tabId, toIndex: targetIndex)
         }
         return nil
     }
@@ -194,7 +233,7 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
         ) else {
             return Set(model.tabs.filter { $0.groupId == nil && $0.isPinned }.map(\.id))
         }
-        return model.sidebarTopLevelPinnedWorkspaceIds()
+        return model.sidebarTopLevelPinnedWorkspaceIds(promotingWorkspaceId: draggedWorkspaceId)
     }
 
     /// The legal insertion range for an in-group member drag, or `nil` when
@@ -202,16 +241,17 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
     public func sidebarReorderLegalInsertionRange(
         forDraggedWorkspaceId draggedWorkspaceId: UUID?,
         targetWorkspaceId: UUID? = nil,
-        usesTopLevelRows: Bool = false
+        usesTopLevelRows: Bool = false,
+        explicitGroupId: UUID? = nil
     ) -> ClosedRange<Int>? {
         guard !usesTopLevelRows,
-              !sidebarReorderUsesTopLevelRows(
+              (explicitGroupId != nil || !sidebarReorderUsesTopLevelRows(
                   forDraggedWorkspaceId: draggedWorkspaceId,
                   targetWorkspaceId: targetWorkspaceId
-              ),
+              )),
               let draggedWorkspaceId,
               let draggedWorkspace = model.tabs.first(where: { $0.id == draggedWorkspaceId }),
-              let groupId = draggedWorkspace.groupId,
+              let groupId = explicitGroupId ?? draggedWorkspace.groupId,
               let group = model.workspaceGroups.first(where: { $0.id == groupId }),
               draggedWorkspace.id != group.anchorWorkspaceId else {
             return nil
@@ -244,7 +284,8 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
         tabId: UUID,
         toIndex targetIndex: Int,
         isDragOperation: Bool = false,
-        usesTopLevelRows: Bool = false
+        usesTopLevelRows: Bool = false,
+        explicitGroupId: UUID? = nil
     ) -> Bool {
         if usesTopLevelRows || model.isWorkspaceGroupAnchor(tabId) {
             return reorderTopLevelWorkspaceItem(
@@ -253,7 +294,12 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
                 promotesGroupedWorkspace: usesTopLevelRows
             )
         }
-        return reorderWorkspace(tabId: tabId, toIndex: targetIndex, isDragOperation: isDragOperation)
+        return reorderWorkspace(
+            tabId: tabId,
+            toIndex: targetIndex,
+            isDragOperation: isDragOperation,
+            explicitGroupId: explicitGroupId
+        )
     }
 
     @discardableResult
@@ -269,17 +315,26 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
         let clampedTarget = model.clampedTopLevelReorderIndex(
             forWorkspaceId: tabId,
             targetIndex: targetIndex,
-            topLevelIds: topLevelIds
+            topLevelIds: topLevelIds,
+            promotingWorkspaceId: promotesGroupedWorkspace ? tabId : nil
         )
-        guard fromIndex != clampedTarget else { return false }
+        let shouldPromoteGroupedWorkspace: Bool = {
+            guard promotesGroupedWorkspace,
+                  let tab = model.tabs.first(where: { $0.id == tabId }),
+                  tab.groupId != nil,
+                  !model.isWorkspaceGroupAnchor(tabId) else {
+                return false
+            }
+            return true
+        }()
+        guard fromIndex != clampedTarget || shouldPromoteGroupedWorkspace else { return false }
 
         var desiredTopLevelIds = topLevelIds
-        let movedId = desiredTopLevelIds.remove(at: fromIndex)
-        desiredTopLevelIds.insert(movedId, at: clampedTarget)
-        if promotesGroupedWorkspace,
-           let tab = model.tabs.first(where: { $0.id == tabId }),
-           tab.groupId != nil,
-           !model.isWorkspaceGroupAnchor(tabId) {
+        if fromIndex != clampedTarget {
+            let movedId = desiredTopLevelIds.remove(at: fromIndex)
+            desiredTopLevelIds.insert(movedId, at: clampedTarget)
+        }
+        if shouldPromoteGroupedWorkspace {
             model.assignGroup(workspaceId: tabId, groupId: nil)
         }
         model.normalizeWorkspaceGroupRunsPreservingOrder(desiredTopLevelIds)
@@ -343,7 +398,7 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
     /// Pinned workspaces may join a group when the same neighbor-based rules
     /// place them inside that group's section.
     /// Anchors keep their group: their lifecycle is gated by group existence.
-    private func applyDragInferredGroupMembership(workspaceId: UUID) {
+    private func applyDragInferredGroupMembership(workspaceId: UUID, explicitGroupId: UUID? = nil) {
         guard let index = model.tabs.firstIndex(where: { $0.id == workspaceId }) else { return }
         let tab = model.tabs[index]
         let isAnchor = model.workspaceGroups.contains(where: { $0.anchorWorkspaceId == workspaceId })
@@ -354,6 +409,12 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
             // order to the new anchor positions in tabs[] before normalize
             // rebuilds the section list.
             model.syncWorkspaceGroupsOrderToAnchorOrder()
+            model.normalizeWorkspaceGroupContiguity()
+            return
+        }
+        if let explicitGroupId {
+            guard model.workspaceGroups.contains(where: { $0.id == explicitGroupId }) else { return }
+            model.assignGroup(workspaceId: workspaceId, groupId: explicitGroupId)
             model.normalizeWorkspaceGroupContiguity()
             return
         }
@@ -384,7 +445,7 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
             inferred = currentGroup
         }
         if tab.groupId != inferred {
-            tab.groupId = inferred
+            model.assignGroup(workspaceId: workspaceId, groupId: inferred)
             // Renormalize after group change to keep tiers contiguous.
             model.normalizeWorkspaceGroupContiguity()
         } else if inferred != nil {

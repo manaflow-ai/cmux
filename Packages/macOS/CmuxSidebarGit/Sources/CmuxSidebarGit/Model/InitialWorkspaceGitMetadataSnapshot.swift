@@ -28,8 +28,15 @@ struct InitialWorkspaceGitMetadataSnapshot: Equatable, Sendable {
 
     /// Probes `directory` through `reader` and folds the result into a
     /// snapshot (branch normalized; PR deferred only when a branch exists).
-    init(probing directory: String, reader: any WorkspaceGitMetadataReading) async {
-        let metadata = await reader.workspaceMetadata(for: directory)
+    init(
+        probing directory: String,
+        reader: any WorkspaceGitMetadataReading,
+        trackedPathEventGeneration: GitTrackedPathEventGeneration? = nil
+    ) async {
+        let metadata = await reader.workspaceMetadata(
+            for: directory,
+            trackedPathEventGeneration: trackedPathEventGeneration
+        )
         guard metadata.isRepository else {
             self.init(
                 isRepository: false,

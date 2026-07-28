@@ -1,3 +1,4 @@
+public import CMUXMobileCore
 public import Foundation
 
 /// The phone's live presence state: every known app instance keyed by
@@ -11,10 +12,16 @@ public struct PresenceMap: Equatable, Sendable {
     public struct DeviceSummary: Equatable, Sendable {
         public var online: Bool
         public var lastSeenAt: Date
+        /// The host's build-channel label (`"DEV · tag"`, `"Nightly"`, `"Stable"`,
+        /// …), derived from its reported bundle id + tag. `nil` when not
+        /// identifiable (older host). See ``MacBuildChannel``.
+        public var buildLabel: String?
 
-        public init(online: Bool, lastSeenAt: Date) {
+        /// Create one device-level presence rollup.
+        public init(online: Bool, lastSeenAt: Date, buildLabel: String? = nil) {
             self.online = online
             self.lastSeenAt = lastSeenAt
+            self.buildLabel = buildLabel
         }
     }
 
@@ -58,6 +65,48 @@ public struct PresenceMap: Equatable, Sendable {
         instancesByDevice[deviceId]?[tag]
     }
 
+    /// Stable instance ordering for reconnect evidence comparisons.
+    func allInstancesForReconnectEvidence() -> [PresenceInstance] {
+        instancesByDevice.values
+            .flatMap(\.values)
+            .sorted {
+                ($0.deviceId, $0.tag) < ($1.deviceId, $1.tag)
+            }
+    }
+
+    /// Summary for one exact app instance. Tagged iOS builds use this instead
+    /// of the device rollup so another running Mac tag cannot lend this build
+    /// its online state or build label.
+    public func instanceSummary(deviceId: String, tag: String) -> DeviceSummary? {
+        guard let instance = instance(deviceId: deviceId, tag: tag) else { return nil }
+        return DeviceSummary(
+            online: instance.online,
+            lastSeenAt: Date(timeIntervalSince1970: instance.lastSeenAt / 1000),
+            buildLabel: MacBuildChannel().label(bundleID: instance.bundleId, tag: instance.tag)
+        )
+    }
+
+    /// The instance allowed to replace persisted reconnect routes.
+    ///
+    /// Scoped clients accept routes only from the exact Mac app instance
+    /// resolved at composition. Stable and unscoped builds retain the
+    /// conservative legacy rule: exactly one online instance on the device may
+    /// advertise routes.
+    public func reconnectRouteAuthority(
+        deviceId: String,
+        pairedMacInstanceTag: String?
+    ) -> PresenceInstance? {
+        if let pairedMacInstanceTag {
+            guard let instance = instance(deviceId: deviceId, tag: pairedMacInstanceTag),
+                  instance.online,
+                  !(instance.routes ?? []).isEmpty else {
+                return nil
+            }
+            return instance
+        }
+        return soleRouteAdvertisingInstance(deviceId: deviceId)
+    }
+
     /// The device's single online route-advertising instance, or `nil` when
     /// zero or 2+ online instances advertise routes. The paired-Mac store is
     /// device-level (no tag), so persisted reconnect routes may only be
@@ -77,13 +126,24 @@ public struct PresenceMap: Equatable, Sendable {
         guard let instances = instancesByDevice[deviceId], !instances.isEmpty else { return nil }
         var online = false
         var lastSeenMs = -Double.infinity
+        // Pick the instance to label the build from: prefer an online one (the
+        // build actually running), then the freshest. A device usually has one.
+        var labelInstance: PresenceInstance?
         for instance in instances.values {
             online = online || instance.online
             lastSeenMs = max(lastSeenMs, instance.lastSeenAt)
+            if let current = labelInstance {
+                let better = (instance.online && !current.online)
+                    || (instance.online == current.online && instance.lastSeenAt > current.lastSeenAt)
+                if better { labelInstance = instance }
+            } else {
+                labelInstance = instance
+            }
         }
         return DeviceSummary(
             online: online,
-            lastSeenAt: Date(timeIntervalSince1970: lastSeenMs / 1000)
+            lastSeenAt: Date(timeIntervalSince1970: lastSeenMs / 1000),
+            buildLabel: MacBuildChannel().label(bundleID: labelInstance?.bundleId, tag: labelInstance?.tag)
         )
     }
 }

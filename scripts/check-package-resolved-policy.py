@@ -20,6 +20,15 @@ XCODE_PACKAGE_RESOLVED = (
     "cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
 )
 XCODE_PROJECT_FILE = "cmux.xcodeproj/project.pbxproj"
+IOS_WORKSPACE_PACKAGE_RESOLVED = (
+    "ios/cmux.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+)
+IOS_WORKSPACE_FILE = "ios/cmux.xcworkspace/contents.xcworkspacedata"
+IOS_XCODE_PROJECT_FILE = "ios/cmux-ios.xcodeproj/project.pbxproj"
+EXPECTED_XCODE_LOCKFILES = {
+    XCODE_PACKAGE_RESOLVED,
+    IOS_WORKSPACE_PACKAGE_RESOLVED,
+}
 XCODE_PACKAGE_REFERENCE_TOKENS = (
     "XCRemoteSwiftPackageReference",
     "repositoryURL",
@@ -32,6 +41,7 @@ XCODE_PACKAGE_REFERENCE_TOKENS = (
 PACKAGE_DEPENDENCY_RE = re.compile(r"\.package\(([^)]*)\)", re.DOTALL)
 PACKAGE_PATH_ARGUMENT_RE = re.compile(r'\bpath\s*:\s*"([^"]+)"')
 PACKAGE_URL_ARGUMENT_RE = re.compile(r'\burl\s*:\s*"[^"]+"')
+WORKSPACE_GROUP_LOCATION_RE = re.compile(r'\blocation\s*=\s*"group:([^"]+)"')
 
 SKIPPED_DIRS = {
     ".build",
@@ -77,14 +87,42 @@ def tracked_package_manifests(*, include_allowed_vendor: bool) -> dict[str, Path
     return manifests
 
 
-def package_graph(manifests: dict[str, Path]) -> dict[str, tuple[bool, list[str]]]:
+def tracked_package_manifests_at_ref(
+    ref: str,
+    *,
+    include_allowed_vendor: bool,
+) -> dict[str, Path]:
+    manifests: dict[str, Path] = {}
+    for manifest in git_stdout("ls-tree", "-r", "--name-only", ref).splitlines():
+        if Path(manifest).name != "Package.swift":
+            continue
+        if has_skipped_part(manifest):
+            continue
+        if not include_allowed_vendor and is_allowed_vendor_path(manifest):
+            continue
+        path = Path(manifest)
+        manifests[path.parent.as_posix()] = path
+    return manifests
+
+
+def package_graph(
+    manifests: dict[str, Path],
+    *,
+    ref: str | None = None,
+) -> dict[str, tuple[bool, list[str]]]:
     root_by_resolved_path = {
         manifest.parent.resolve(): root for root, manifest in manifests.items()
     }
     graph: dict[str, tuple[bool, list[str]]] = {}
 
     for root, manifest in manifests.items():
-        text = manifest.read_text(encoding="utf-8")
+        text = (
+            file_text_at(ref, manifest.as_posix())
+            if ref is not None
+            else manifest.read_text(encoding="utf-8")
+        )
+        if not text:
+            continue
         path_dependencies: list[str] = []
         has_url_dependency = False
         for dependency in PACKAGE_DEPENDENCY_RE.findall(text):
@@ -148,6 +186,29 @@ def package_dependency_closure(
     return closure
 
 
+def workspace_package_roots(
+    workspace_file: str,
+    manifests: dict[str, Path],
+    *,
+    ref: str | None = None,
+) -> set[str]:
+    text = (
+        file_text_at(ref, workspace_file)
+        if ref is not None
+        else Path(workspace_file).read_text(encoding="utf-8")
+    )
+    workspace_parent = Path(workspace_file).parent.parent.resolve()
+    root_by_resolved_path = {
+        Path(root).resolve(): root for root in manifests
+    }
+    roots: set[str] = set()
+    for location in WORKSPACE_GROUP_LOCATION_RE.findall(text):
+        resolved = (workspace_parent / location).resolve()
+        if root := root_by_resolved_path.get(resolved):
+            roots.add(root)
+    return roots
+
+
 def package_roots_requiring_lockfiles(
     cmux_manifests: dict[str, Path] | None = None,
     graph: dict[str, tuple[bool, list[str]]] | None = None,
@@ -203,17 +264,18 @@ def file_text_at(ref: str, path: str) -> str:
 
 
 def xcode_package_reference_changed(
+    project_file: str,
     merge_base: str | None,
     changed_files: set[str],
 ) -> bool:
-    if merge_base is None or XCODE_PROJECT_FILE not in changed_files:
+    if merge_base is None or project_file not in changed_files:
         return False
     diff = git_stdout(
         "diff",
         "--unified=0",
         f"{merge_base}..HEAD",
         "--",
-        XCODE_PROJECT_FILE,
+        project_file,
     )
     for line in diff.splitlines():
         if not line.startswith(("+", "-")) or line.startswith(("+++", "---")):
@@ -224,7 +286,7 @@ def xcode_package_reference_changed(
 
 
 def is_expected_lockfile_path(lockfile: str, roots: set[str]) -> bool:
-    if lockfile == XCODE_PACKAGE_RESOLVED:
+    if lockfile in EXPECTED_XCODE_LOCKFILES:
         return True
     if has_skipped_part(lockfile):
         return False
@@ -264,9 +326,17 @@ def main() -> int:
     merge_base = merge_base_with_base_ref()
     changed_files = changed_files_since(merge_base)
     changed_dependency_roots: set[str] = set()
+    previous_manifests: dict[str, Path] = {}
+    previous_graph: dict[str, tuple[bool, list[str]]] = {}
 
     if merge_base is not None:
-        remote_memo: dict[str, bool] = {}
+        current_remote_memo: dict[str, bool] = {}
+        previous_manifests = tracked_package_manifests_at_ref(
+            merge_base,
+            include_allowed_vendor=True,
+        )
+        previous_graph = package_graph(previous_manifests, ref=merge_base)
+        previous_remote_memo: dict[str, bool] = {}
         for root, manifest in all_manifests.items():
             if manifest.as_posix() not in changed_files:
                 continue
@@ -278,20 +348,97 @@ def main() -> int:
             )
             if current_calls == previous_calls:
                 continue
+            # Local path-only dependency edits do not always change the resolved
+            # external pins. Require a matching Package.resolved diff only when
+            # the edited manifest's graph currently has, previously had, or
+            # directly changes a remote dependency.
             if (
-                root in cmux_manifests
-                or dependency_calls_include_url(current_calls + previous_calls)
-                or has_remote_dependency(root, graph, remote_memo, set())
+                dependency_calls_include_url(current_calls + previous_calls)
+                or has_remote_dependency(root, graph, current_remote_memo, set())
+                or has_remote_dependency(
+                    root,
+                    previous_graph,
+                    previous_remote_memo,
+                    set(),
+                )
             ):
                 changed_dependency_roots.add(root)
 
     if (
-        xcode_package_reference_changed(merge_base, changed_files)
+        xcode_package_reference_changed(
+            XCODE_PROJECT_FILE,
+            merge_base,
+            changed_files,
+        )
         and XCODE_PACKAGE_RESOLVED not in changed_files
     ):
         errors.append(
             f"{XCODE_PROJECT_FILE} changed SwiftPM package references without "
             f"matching Xcode Package.resolved diff: {XCODE_PACKAGE_RESOLVED}"
+        )
+
+    current_ios_workspace_roots = workspace_package_roots(
+        IOS_WORKSPACE_FILE,
+        all_manifests,
+    )
+    previous_ios_workspace_roots = (
+        workspace_package_roots(
+            IOS_WORKSPACE_FILE,
+            previous_manifests,
+            ref=merge_base,
+        )
+        if merge_base is not None
+        else set()
+    )
+    current_ios_workspace_dependency_roots: set[str] = set()
+    for root in current_ios_workspace_roots:
+        current_ios_workspace_dependency_roots.update(
+            package_dependency_closure(root, graph)
+        )
+    previous_ios_workspace_dependency_roots: set[str] = set()
+    for root in previous_ios_workspace_roots:
+        previous_ios_workspace_dependency_roots.update(
+            package_dependency_closure(root, previous_graph)
+        )
+    ios_workspace_dependencies_changed = bool(
+        (
+            current_ios_workspace_dependency_roots
+            | previous_ios_workspace_dependency_roots
+        )
+        & changed_dependency_roots
+    )
+    changed_ios_workspace_members = (
+        current_ios_workspace_roots ^ previous_ios_workspace_roots
+    )
+    current_ios_remote_memo: dict[str, bool] = {}
+    previous_ios_remote_memo: dict[str, bool] = {}
+    ios_workspace_resolution_membership_changed = any(
+        has_remote_dependency(
+            root,
+            graph,
+            current_ios_remote_memo,
+            set(),
+        )
+        or has_remote_dependency(
+            root,
+            previous_graph,
+            previous_ios_remote_memo,
+            set(),
+        )
+        for root in changed_ios_workspace_members
+    )
+    if (
+        ios_workspace_dependencies_changed
+        or ios_workspace_resolution_membership_changed
+        or xcode_package_reference_changed(
+            IOS_XCODE_PROJECT_FILE,
+            merge_base,
+            changed_files,
+        )
+    ) and IOS_WORKSPACE_PACKAGE_RESOLVED not in changed_files:
+        errors.append(
+            "iOS workspace SwiftPM dependencies changed without matching "
+            f"Package.resolved diff: {IOS_WORKSPACE_PACKAGE_RESOLVED}"
         )
 
     for gitignore in sorted(Path(".").rglob(".gitignore")):

@@ -6,8 +6,20 @@ extension CmuxWebView {
     private static let scriptedDownloadMessageHandlerName = "cmuxScriptedDownload"
     private static var scriptedDownloadHandlerInstalledKey: UInt8 = 0
     private static var scriptedDownloadTokenKey: UInt8 = 0
+    private static var subframeDownloadIntentHandlerKey: UInt8 = 0
     private static let maxScriptedDownloadPayloadBytes = 100 * 1024 * 1024
     private static let maxScriptedDownloadDataURLCharacters = 140 * 1024 * 1024
+
+    var onSubframeDownloadIntent: ((URL) -> Void)? {
+        get { objc_getAssociatedObject(self, &Self.subframeDownloadIntentHandlerKey) as? ((URL) -> Void) }
+        set { objc_setAssociatedObject(self, &Self.subframeDownloadIntentHandlerKey, newValue, .OBJC_ASSOCIATION_COPY_NONATOMIC) }
+    }
+
+    func clearBrowserDownloadCallbacks() {
+        onContextMenuDownloadStateChanged = nil
+        onSessionDownloadEvent = nil
+        onSubframeDownloadIntent = nil
+    }
 
     private static func scriptedDownloadInterceptionBootstrapScriptSource(token: String) -> String {
         """
@@ -19,9 +31,17 @@ extension CmuxWebView {
         const maxPayloadBytes = \(maxScriptedDownloadPayloadBytes);
         const maxDataURLCharacters = \(maxScriptedDownloadDataURLCharacters);
         const trustedActivationWindowMs = 2000;
+        let isMainFrame = false;
         let blobDownloadInFlight = false;
         let lastTrustedActivationMs = 0;
         let lastDownloadPostMs = 0;
+        const handledAnchors = typeof WeakSet === "function" ? new WeakSet() : null;
+
+        try {
+          isMainFrame = window.top === window;
+        } catch (_) {
+          isMainFrame = false;
+        }
 
         const handler = (() => {
           try {
@@ -40,15 +60,25 @@ extension CmuxWebView {
 
         const noteTrustedActivation = (event) => {
           try {
-            if (event && event.isTrusted) lastTrustedActivationMs = Date.now();
+            if (event && event.isTrusted) {
+              lastTrustedActivationMs = Date.now();
+            }
           } catch (_) {}
+        };
+
+        const hasRecentTrustedActivation = () => {
+          try {
+            return Date.now() - lastTrustedActivationMs <= trustedActivationWindowMs;
+          } catch (_) {
+            return false;
+          }
         };
 
         const hasUserActivation = (event) => {
           try {
             if (event && event.isTrusted) return true;
             if (navigator.userActivation && navigator.userActivation.isActive) return true;
-            return Date.now() - lastTrustedActivationMs <= trustedActivationWindowMs;
+            return hasRecentTrustedActivation();
           } catch (_) {
             return false;
           }
@@ -83,12 +113,14 @@ extension CmuxWebView {
             });
           } catch (_) {}
         };
-
-        const readBlobForDownload = (blob, suggestedFilename) => {
+        const readBlobForDownload = (blob, suggestedFilename, fallbackURL) => {
           try {
             if (!blob) return false;
             if (blobDownloadInFlight) return false;
-            if (typeof blob.size === "number" && blob.size > maxPayloadBytes) return false;
+            if (typeof blob.size === "number" && blob.size > maxPayloadBytes) {
+              postURLDownload(fallbackURL, suggestedFilename);
+              return true;
+            }
             blobDownloadInFlight = true;
             const filename = String(suggestedFilename || blob.name || "");
             const reader = new FileReader();
@@ -97,12 +129,22 @@ extension CmuxWebView {
             };
             reader.onload = () => {
               if (typeof reader.result === "string" && reader.result.length > 0) {
-                postDataURLDownload(reader.result, filename);
+                if (reader.result.length > maxDataURLCharacters) {
+                  postURLDownload(fallbackURL, filename);
+                } else {
+                  postDataURLDownload(reader.result, filename);
+                }
               }
               finish();
             };
-            reader.onerror = finish;
-            reader.onabort = finish;
+            reader.onerror = () => {
+              postURLDownload(fallbackURL, filename);
+              finish();
+            };
+            reader.onabort = () => {
+              postURLDownload(fallbackURL, filename);
+              finish();
+            };
             reader.readAsDataURL(blob);
             return true;
           } catch (_) {
@@ -115,13 +157,12 @@ extension CmuxWebView {
           try {
             const storedBlob = objectURLs.get(String(url));
             if (storedBlob) {
-              if (typeof storedBlob.size === "number" && storedBlob.size > maxPayloadBytes) return false;
-              return readBlobForDownload(storedBlob, suggestedFilename);
+              return readBlobForDownload(storedBlob, suggestedFilename, url);
             }
             fetch(url)
               .then((response) => response.blob())
-              .then((blob) => readBlobForDownload(blob, suggestedFilename))
-              .catch(() => {});
+              .then((blob) => readBlobForDownload(blob, suggestedFilename, url))
+              .catch(() => postURLDownload(url, suggestedFilename));
             return true;
           } catch (_) {}
           return false;
@@ -174,10 +215,6 @@ extension CmuxWebView {
           return "";
         };
 
-        ["pointerdown", "mousedown", "keydown", "click"].forEach((eventName) => {
-          document.addEventListener(eventName, noteTrustedActivation, true);
-        });
-
         const interceptAnchorDownload = (anchor, event) => {
           try {
             if (!hasUserActivation(event)) return false;
@@ -187,6 +224,7 @@ extension CmuxWebView {
             const scheme = href.split(":", 1)[0].toLowerCase();
             const suggestedFilename = suggestedFilenameForAnchor(anchor);
 
+            if (!isMainFrame && (scheme === "blob" || scheme === "data")) return false;
             if (scheme === "blob") {
               if (!reserveDownloadPost()) return false;
               return postBlobURLDownload(href, suggestedFilename);
@@ -203,14 +241,23 @@ extension CmuxWebView {
 
         document.addEventListener("click", (event) => {
           const anchor = anchorForEvent(event);
+          if (anchor && handledAnchors?.has(anchor)) {
+            event.preventDefault();
+            event.stopPropagation();
+            return;
+          }
           if (!interceptAnchorDownload(anchor, event)) return;
           event.preventDefault();
           event.stopPropagation();
         }, true);
 
+        ["pointerdown", "mousedown", "keydown", "click"].forEach((eventName) => {
+          document.addEventListener(eventName, noteTrustedActivation, true);
+        });
+
         const anchorPrototype = window.HTMLAnchorElement?.prototype ?? null;
         const originalAnchorClick = anchorPrototype?.click ?? null;
-        if (typeof originalAnchorClick === "function") {
+        if (isMainFrame && typeof originalAnchorClick === "function") {
           anchorPrototype.click = function() {
             if (interceptAnchorDownload(this, null)) return;
             return originalAnchorClick.apply(this, arguments);
@@ -243,6 +290,9 @@ extension CmuxWebView {
                 forMainFrameOnly: true
             )
         )
+        userContentController.addUserScript(
+            Self.subframeDownloadIntentScript(token: token, handlerName: Self.scriptedDownloadMessageHandlerName)
+        )
         userContentController.add(
             Self.sharedScriptedDownloadMessageHandler,
             name: Self.scriptedDownloadMessageHandlerName
@@ -255,7 +305,7 @@ extension CmuxWebView {
         )
     }
 
-    fileprivate func handleScriptedDownloadMessage(_ body: [String: Any]) {
+    fileprivate func handleScriptedDownloadMessage(_ body: [String: Any], isMainFrame: Bool) {
         let expectedToken = objc_getAssociatedObject(
             configuration.userContentController,
             &Self.scriptedDownloadTokenKey
@@ -268,10 +318,15 @@ extension CmuxWebView {
 #endif
             return
         }
-        guard let kind = body["kind"] as? String else { return }
+        guard let kind = body["kind"] as? String, isMainFrame || kind == "subframeDownloadIntent" else { return }
         let suggestedFilename = body["suggestedFilename"] as? String
         let urlString: String?
         switch kind {
+        case "subframeDownloadIntent":
+            guard let rawURL = body["url"] as? String,
+                  let url = URL(string: rawURL.trimmingCharacters(in: .whitespacesAndNewlines)) else { return }
+            onSubframeDownloadIntent?(url)
+            return
         case "url":
             urlString = body["url"] as? String
         case "dataURL":
@@ -318,6 +373,10 @@ extension CmuxWebView {
         }
         let traceID = Self.makeContextDownloadTraceID(prefix: "scriptdl")
         debugContextDownload("browser.scriptdl.start trace=\(traceID) scheme=\(url.scheme ?? "nil")")
+        if url.scheme?.caseInsensitiveCompare("blob") == .orderedSame {
+            startScriptedWebKitDownload(url, suggestedFilename: suggestedFilename, traceID: traceID)
+            return
+        }
         downloadURLViaSession(
             url,
             suggestedFilename: suggestedFilename,
@@ -330,7 +389,35 @@ extension CmuxWebView {
 
     private static func isScriptedDownloadSupportedURL(_ url: URL) -> Bool {
         let scheme = url.scheme?.lowercased() ?? ""
-        return scheme == "data"
+        return scheme == "data" || scheme == "blob"
+    }
+
+    private func startScriptedWebKitDownload(
+        _ url: URL,
+        suggestedFilename: String?,
+        traceID: String
+    ) {
+        guard let downloadDelegate = cmuxDownloadDelegate else {
+#if DEBUG
+            debugContextDownload("browser.scriptdl.webkit trace=\(traceID) stage=rejectMissingDelegate")
+#endif
+            return
+        }
+        if #available(macOS 11.3, *) {
+            startDownload(using: URLRequest(url: url)) { download in
+#if DEBUG
+                self.debugContextDownload("browser.scriptdl.webkit trace=\(traceID) stage=didStart")
+#endif
+                if let browserDownloadDelegate = downloadDelegate as? BrowserDownloadDelegate {
+                    browserDownloadDelegate.setSuggestedFilenameOverride(suggestedFilename, for: download)
+                }
+                download.delegate = downloadDelegate
+            }
+        } else {
+#if DEBUG
+            debugContextDownload("browser.scriptdl.webkit trace=\(traceID) stage=rejectUnavailable")
+#endif
+        }
     }
 
     static func cookiesForDownloadRequest(_ cookies: [HTTPCookie], url: URL) -> [HTTPCookie] {
@@ -376,7 +463,7 @@ private final class ScriptedDownloadMessageHandler: NSObject, WKScriptMessageHan
             return
         }
         MainActor.assumeIsolated {
-            webView.handleScriptedDownloadMessage(body)
+            webView.handleScriptedDownloadMessage(body, isMainFrame: message.frameInfo.isMainFrame)
         }
     }
 }

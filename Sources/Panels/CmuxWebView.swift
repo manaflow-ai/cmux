@@ -1,141 +1,18 @@
 import AppKit
 import Bonsplit
+import CmuxBrowser
 import ObjectiveC
 import UniformTypeIdentifiers
 import WebKit
 
-extension WKWebView {
-    nonisolated private static var cmuxSetPageMutedSelector: Selector {
-        NSSelectorFromString("_setPageMuted:")
-    }
-
-    nonisolated private static var cmuxMediaMutedStateAudio: Int {
-        1 << 0
-    }
-
-    @discardableResult
-    func cmuxSetPageAudioMuted(_ muted: Bool) -> Bool {
-        let selector = Self.cmuxSetPageMutedSelector
-        guard responds(to: selector),
-              let implementation = method(for: selector) else {
-            return false
-        }
-
-        typealias SetPageMutedFunction = @convention(c) (AnyObject, Selector, Int) -> Void
-        let function = unsafeBitCast(implementation, to: SetPageMutedFunction.self)
-        function(self, selector, muted ? Self.cmuxMediaMutedStateAudio : 0)
-        return true
-    }
-
-    var cmuxIsElementFullscreenActiveOrTransitioning: Bool {
-        switch fullscreenState {
-        case .notInFullscreen:
-            return false
-        case .enteringFullscreen, .inFullscreen, .exitingFullscreen:
-            return true
-        @unknown default:
-            return true
-        }
-    }
-
-    func cmuxIsManagedByExternalFullscreenWindow(relativeTo expectedWindow: NSWindow?) -> Bool {
-        guard cmuxIsElementFullscreenActiveOrTransitioning else { return false }
-        guard let expectedWindow else { return true }
-        return window !== expectedWindow
-    }
-}
-
-struct BrowserImageCopyPasteboardPayload {
-    let imageData: Data
-    let mimeType: String?
-    let sourceURL: URL?
-}
-
-enum BrowserFocusModeKeyDecision: Equatable {
-    case inactive
-    case forwardToWebView
-    case consume
-}
-
-enum BrowserImageCopyPasteboardBuilder {
-    private static let pngPasteboardType = NSPasteboard.PasteboardType(UTType.png.identifier)
-    private static let tiffPasteboardType = NSPasteboard.PasteboardType(UTType.tiff.identifier)
-    private static let urlPasteboardType = NSPasteboard.PasteboardType(UTType.url.identifier)
-
-    static func makePasteboardItems(from payload: BrowserImageCopyPasteboardPayload) -> [NSPasteboardItem] {
-        guard let imageItem = imagePasteboardItem(from: payload) else { return [] }
-
-        var items = [imageItem]
-        if let sourceURL = payload.sourceURL {
-            // Keep the URL as a secondary item so image-aware paste targets can
-            // prefer the binary image payload without losing the textual fallback.
-            items.append(urlPasteboardItem(for: sourceURL))
-        }
-        return items
-    }
-
-    private static func imagePasteboardItem(from payload: BrowserImageCopyPasteboardPayload) -> NSPasteboardItem? {
-        let item = NSPasteboardItem()
-        var wroteImageType = false
-
-        if let image = NSImage(data: payload.imageData) {
-            if let tiffData = image.tiffRepresentation, !tiffData.isEmpty {
-                item.setData(tiffData, forType: tiffPasteboardType)
-                wroteImageType = true
-            }
-            if let pngData = pngData(for: image), !pngData.isEmpty {
-                item.setData(pngData, forType: pngPasteboardType)
-                wroteImageType = true
-            }
-        }
-
-        if let sourceType = sourceImageType(mimeType: payload.mimeType, sourceURL: payload.sourceURL) {
-            item.setData(payload.imageData, forType: NSPasteboard.PasteboardType(sourceType.identifier))
-            wroteImageType = true
-        }
-
-        return wroteImageType ? item : nil
-    }
-
-    private static func urlPasteboardItem(for url: URL) -> NSPasteboardItem {
-        let item = NSPasteboardItem()
-        item.setString(url.absoluteString, forType: .string)
-        item.setString(url.absoluteString, forType: urlPasteboardType)
-        return item
-    }
-
-    private static func sourceImageType(mimeType: String?, sourceURL: URL?) -> UTType? {
-        if let mimeType,
-           let type = UTType(mimeType: mimeType),
-           type.conforms(to: .image) {
-            return type
-        }
-
-        if let pathExtension = sourceURL?.pathExtension,
-           !pathExtension.isEmpty,
-           let type = UTType(filenameExtension: pathExtension),
-           type.conforms(to: .image) {
-            return type
-        }
-
-        return nil
-    }
-
-    private static func pngData(for image: NSImage) -> Data? {
-        guard let tiffData = image.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: tiffData) else {
-            return nil
-        }
-        return bitmap.representation(using: .png, properties: [:])
-    }
-}
-
-/// WKWebView tends to consume some app command equivalents,
-/// preventing the app menu/SwiftUI Commands from receiving them. Route app/menu
-/// shortcuts first by default, but allow browser content to try browser-local
-/// Find-family shortcuts. The configured Find shortcut stays app-owned so cmux can
-/// choose browser find or right-sidebar file search from the current focus owner.
+/// WKWebView can consume app command equivalents before app menu/SwiftUI Commands.
+/// Route app/menu shortcuts first, but allow browser content to try browser-local
+/// Find shortcuts. The configured shortcut stays app-owned so cmux can choose browser
+/// find or right-sidebar file search from the current focus owner.
 final class CmuxWebView: WKWebView {
+    var browserViewportModel: BrowserViewportModel?
+    var onBrowserViewportHierarchyChanged: (() -> Void)?
+
     // Some sites/WebKit paths report middle-click link activations as
     // WKNavigationAction.buttonNumber=4 instead of 2. Track a recent local
     // middle-click so navigation delegates can recover intent reliably.
@@ -143,13 +20,14 @@ final class CmuxWebView: WKWebView {
         let webViewID: ObjectIdentifier
         let uptime: TimeInterval
     }
-
     private static var lastMiddleClickIntent: MiddleClickIntent?
     private static let middleClickIntentMaxAge: TimeInterval = 0.8
     private static let pasteAsPlainTextFocusMessageHandlerName = "cmuxPasteAsPlainTextFocus"
     private static let browserFocusModeContextMenuItemIdentifier =
         NSUserInterfaceItemIdentifier("cmux.browserFocusMode.toggle")
     private static var pasteAsPlainTextFocusHandlerInstalledKey: UInt8 = 0
+    private static var diffViewerEditableFocusHandlerInstalledKey: UInt8 = 0
+
     private static let pasteAsPlainTextSharedHelpersScriptSource = """
     const __cmuxPasteAsPlainTextHelpers = (() => {
       const existing = window.__cmuxPasteAsPlainTextHelpers;
@@ -366,6 +244,11 @@ final class CmuxWebView: WKWebView {
         )
     }
 
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        onBrowserViewportHierarchyChanged?()
+    }
+
     private final class ContextMenuFallbackBox: NSObject {
         weak var target: AnyObject?
         let action: Selector?
@@ -377,8 +260,19 @@ final class CmuxWebView: WKWebView {
     }
 
     private static var contextMenuFallbackKey: UInt8 = 0
+    private static var cmuxDownloadDelegateKey: UInt8 = 0
     private static let pasteAsPlainTextKeyCode: UInt16 = 9 // V key (hardware position, layout-independent)
     var onContextMenuDownloadStateChanged: ((Bool) -> Void)?
+    var onSessionDownloadEvent: (([String: Any]) -> Void)?
+    private lazy var sessionDownloadSaver = BrowserSessionDownloadSaver(
+        parentWindow: { [weak self] in self?.window },
+        notifyDownloadState: { [weak self] in self?.notifyContextMenuDownloadState($0) },
+        notifyEvent: { [weak self] in self?.notifySessionDownloadEvent($0) },
+        debugLog: { [weak self] in self?.debugContextDownload($0) },
+        runFallback: { [weak self] action, target, sender, traceID, reason in
+            self?.runContextMenuFallback(action: action, target: target, sender: sender, traceID: traceID, reason: reason)
+        }
+    )
     /// Called when "Open Link in New Tab" context menu is selected.
     /// Bypasses createWebViewWith so the link opens as a tab, not a popup.
     var onContextMenuOpenLinkInNewTab: ((URL) -> Void)?
@@ -389,12 +283,33 @@ final class CmuxWebView: WKWebView {
     var contextMenuLinkURLProvider: ((CmuxWebView, NSPoint, @escaping (URL?) -> Void) -> Void)?
     var contextMenuDefaultBrowserOpener: ((URL) -> Bool)?
     var contextMenuCanMoveTabToNewWorkspace: (() -> Bool)?; var contextMenuMoveTabToNewWorkspace: (() -> Bool)?
+    var cmuxDownloadDelegate: WKDownloadDelegate? {
+        get {
+            objc_getAssociatedObject(self, &Self.cmuxDownloadDelegateKey) as? WKDownloadDelegate
+        }
+        set {
+            objc_setAssociatedObject(
+                self,
+                &Self.cmuxDownloadDelegateKey,
+                newValue,
+                .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+            )
+        }
+    }
     /// Guard against background panes stealing first responder (e.g. page autofocus).
     /// BrowserPanelView updates this as pane focus state changes.
     var allowsFirstResponderAcquisition: Bool = true
     private var pointerFocusAllowanceDepth: Int = 0
     private var pasteAsPlainTextTargetAvailable = false
     private var lastPasteAsPlainTextPerformKeyEventTimestamp: TimeInterval?
+    private let diffViewerDocumentState = DiffViewerNavigationDocumentState()
+    private let diffViewerNavigationKeyRouter = ViewerNavigationKeyRouter(actions: [
+        .diffViewerScrollDown, .diffViewerScrollUp,
+        .diffViewerScrollHalfPageDown, .diffViewerScrollHalfPageUp,
+        .diffViewerScrollDownEmacs, .diffViewerScrollUpEmacs,
+        .diffViewerScrollToBottom, .diffViewerScrollToTop,
+        .diffViewerOpenFileSearch, .diffViewerNextFile, .diffViewerPreviousFile,
+    ])
     var allowsFirstResponderAcquisitionEffective: Bool {
         allowsFirstResponderAcquisition || pointerFocusAllowanceDepth > 0
     }
@@ -405,12 +320,113 @@ final class CmuxWebView: WKWebView {
         installPasteAsPlainTextFocusTracking()
         installScriptedDownloadInterception()
         installContextMenuLinkCapture()
+        installDiffViewerEditableFocusTracking()
     }
     required init?(coder: NSCoder) {
         super.init(coder: coder)
         installPasteAsPlainTextFocusTracking()
         installScriptedDownloadInterception()
         installContextMenuLinkCapture()
+        installDiffViewerEditableFocusTracking()
+    }
+
+    private func installDiffViewerEditableFocusTracking() {
+        let controller = configuration.userContentController
+        guard objc_getAssociatedObject(
+            controller,
+            &Self.diffViewerEditableFocusHandlerInstalledKey
+        ) == nil else { return }
+        controller.add(
+            DiffViewerEditableFocusMessageHandler.shared,
+            contentWorld: DiffViewerEditableFocusMessageHandler.contentWorld,
+            name: DiffViewerEditableFocusMessageHandler.name
+        )
+        let name = DiffViewerEditableFocusMessageHandler.name
+        controller.addUserScript(WKUserScript(
+            source: """
+            (() => {
+              const handler = window.webkit?.messageHandlers?.['\(name)'];
+              if (!handler) return;
+              const deepestActiveElement = () => {
+                let element = document.activeElement;
+                while (element?.shadowRoot?.activeElement) {
+                  element = element.shadowRoot.activeElement;
+                }
+                return element;
+              };
+              const publish = () => {
+                const viewer = !!document.getElementById('cmux-diff-viewer-config');
+                const element = deepestActiveElement();
+                const editable = viewer && !!element?.closest?.(
+                  "input, textarea, select, [contenteditable]:not([contenteditable='false'])"
+                );
+                const rendererReady = viewer &&
+                  document.documentElement.dataset.cmuxViewerNavigationReady === 'true';
+                handler.postMessage({ viewer, editable, rendererReady });
+              };
+              document.addEventListener('DOMContentLoaded', publish, { once: true });
+              document.addEventListener('focusin', publish, true);
+              document.addEventListener('focusout', () => queueMicrotask(publish), true);
+              document.addEventListener('pointerdown', () => requestAnimationFrame(publish), true);
+              document.addEventListener('cmux-diff-viewer-navigation-readiness-change', publish, true);
+              publish();
+            })();
+            """,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true,
+            in: DiffViewerEditableFocusMessageHandler.contentWorld
+        ))
+        objc_setAssociatedObject(
+            controller,
+            &Self.diffViewerEditableFocusHandlerInstalledKey,
+            NSNumber(value: true),
+            .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+        )
+    }
+
+    func diffViewerFocusStateDidChange(viewer: Bool, editable: Bool, rendererReady: Bool) {
+        diffViewerDocumentState.update(viewer: viewer, editable: editable, rendererReady: rendererReady)
+        if !viewer || editable {
+            diffViewerNavigationKeyRouter.reset()
+        }
+    }
+
+    func diffViewerNavigationDidStart(_ navigation: WKNavigation?) {
+        diffViewerDocumentState.navigationDidStart(id: navigation.map(ObjectIdentifier.init))
+        diffViewerNavigationKeyRouter.reset()
+    }
+
+    func diffViewerNavigationDidCommit(_ navigation: WKNavigation?) {
+        diffViewerDocumentState.navigationDidCommit(id: navigation.map(ObjectIdentifier.init))
+    }
+
+    func diffViewerNavigationDidCancel(_ navigation: WKNavigation?) {
+        diffViewerDocumentState.navigationDidCancel(id: navigation.map(ObjectIdentifier.init))
+    }
+
+    private func handleDiffViewerNavigationKey(_ event: NSEvent) -> Bool {
+        guard cmuxOwnsKeyEvent(event),
+              diffViewerDocumentState.canHandleNavigation else {
+            diffViewerNavigationKeyRouter.reset()
+            return false
+        }
+        return diffViewerNavigationKeyRouter.handle(event, isAllowed: { action, event in
+            AppDelegate.shared?.shortcutWhenClauseAllows(action: action, event: event) ?? true
+        }, perform: { [weak self] action in
+            guard let self else { return }
+            let rawAction = action.rawValue.replacingOccurrences(of: "'", with: "\\'")
+            let script = "window.__cmuxPerformDiffViewerNavigationAction?.('\(rawAction)') === true"
+            if action == .diffViewerOpenFileSearch {
+                diffViewerDocumentState.beginEditableFocusTransition()
+            }
+            evaluateJavaScript(script) { [weak self] result, error in
+                guard error != nil || result as? Bool != true else { return }
+                if action == .diffViewerOpenFileSearch {
+                    self?.diffViewerDocumentState.editableFocusTransitionDidFail()
+                }
+                self?.diffViewerDocumentState.rendererDidBecomeUnavailable()
+            }
+        })
     }
 
     private func installPasteAsPlainTextFocusTracking() {
@@ -639,6 +655,9 @@ final class CmuxWebView: WKWebView {
 #else
         func finish(_ result: Bool) -> Bool { result }
 #endif
+        if handleDiffViewerNavigationKey(event) {
+            return finish(true)
+        }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let normalizedFlags = flags.subtracting([.numericPad, .function, .capsLock])
         if let decision = AppDelegate.shared?.handleBrowserFocusModeKeyEvent(
@@ -717,11 +736,10 @@ final class CmuxWebView: WKWebView {
             _ = super.performKeyEquivalent(with: event)
             return finish(true)
         }
-
-        if !shouldRouteCommandEquivalentDirectlyToMainMenu(event) {
+        let inspectorOwnsUndoRedo = event.cmuxIsUndoRedoCommandEquivalent && cmuxIsLikelyWebInspectorResponder(window?.firstResponder)
+        if !inspectorOwnsUndoRedo && (event.cmuxIsUndoRedoCommandEquivalent || !shouldRouteCommandEquivalentDirectlyToMainMenu(event)) {
             return finish(super.performKeyEquivalent(with: event))
         }
-
         if AppDelegate.shared?.handleBrowserSurfaceKeyEquivalentBeforeMainMenu(event) == true {
             return finish(true)
         }
@@ -754,6 +772,15 @@ final class CmuxWebView: WKWebView {
             )
         }
 #endif
+        if event.keyCode == 48, diffViewerDocumentState.documentConfirmed {
+            diffViewerDocumentState.invalidateFocusConfirmation()
+        }
+        if handleDiffViewerNavigationKey(event) {
+#if DEBUG
+            route = "diffViewerNavigation"
+#endif
+            return
+        }
         if let decision = AppDelegate.shared?.handleBrowserFocusModeKeyEvent(
             event,
             webView: self,
@@ -823,6 +850,9 @@ final class CmuxWebView: WKWebView {
     // NSView (WKWebView), not to sibling SwiftUI overlays. Notify the panel system so
     // bonsplit focus tracks which pane the user clicked in.
     override func mouseDown(with event: NSEvent) {
+        if diffViewerDocumentState.documentConfirmed {
+            diffViewerDocumentState.invalidateFocusConfirmation()
+        }
 #if DEBUG
         let windowNumber = window?.windowNumber ?? -1
         let firstResponderType = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
@@ -1599,10 +1629,44 @@ final class CmuxWebView: WKWebView {
         if Thread.isMainThread {
             onContextMenuDownloadStateChanged?(downloading)
         } else {
-            DispatchQueue.main.async { [weak self] in
+            Task { @MainActor [weak self] in
                 self?.onContextMenuDownloadStateChanged?(downloading)
             }
         }
+    }
+
+    private func notifySessionDownloadEvent(_ event: [String: Any]) {
+        if Thread.isMainThread {
+            onSessionDownloadEvent?(event)
+        } else {
+            Task { @MainActor [weak self] in
+                self?.onSessionDownloadEvent?(event)
+            }
+        }
+    }
+
+    private func finishSessionDownload(
+        data: Data,
+        saveName: String,
+        sourceURL: URL?,
+        traceID: String,
+        logCategory: String,
+        sender: Any?,
+        fallbackAction: Selector?,
+        fallbackTarget: AnyObject?,
+        failureFallbackReason: String?
+    ) {
+        sessionDownloadSaver.finish(
+            data: data,
+            saveName: saveName,
+            sourceURL: sourceURL,
+            traceID: traceID,
+            logCategory: logCategory,
+            sender: sender,
+            fallbackAction: fallbackAction,
+            fallbackTarget: fallbackTarget,
+            failureFallbackReason: failureFallbackReason
+        )
     }
 
     func downloadURLViaSession(
@@ -1658,39 +1722,17 @@ final class CmuxWebView: WKWebView {
                     "browser.ctxdl.data trace=\(traceID) stage=parseSuccess mime=\(parsed.mimeType ?? "nil") bytes=\(parsed.data.count)"
                 )
 
-                let savePanel = NSSavePanel()
-                savePanel.nameFieldStringValue = saveName
-                savePanel.canCreateDirectories = true
-                savePanel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
-                self.notifyContextMenuDownloadState(false)
-                self.debugContextDownload(
-                    "browser.ctxdl.data trace=\(traceID) stage=savePrompt shown=1 defaultName=\(saveName)"
+                self.finishSessionDownload(
+                    data: parsed.data,
+                    saveName: saveName,
+                    sourceURL: url,
+                    traceID: traceID,
+                    logCategory: "data",
+                    sender: sender,
+                    fallbackAction: fallbackAction,
+                    fallbackTarget: fallbackTarget,
+                    failureFallbackReason: "data_save_write_error"
                 )
-                savePanel.begin { result in
-                    guard result == .OK, let destURL = savePanel.url else {
-                        self.debugContextDownload(
-                            "browser.ctxdl.data trace=\(traceID) stage=savePrompt result=cancel"
-                        )
-                        return
-                    }
-                    do {
-                        try parsed.data.write(to: destURL, options: .atomic)
-                        self.debugContextDownload(
-                            "browser.ctxdl.data trace=\(traceID) stage=saveSuccess path=\(destURL.path)"
-                        )
-                    } catch {
-                        self.debugContextDownload(
-                            "browser.ctxdl.data trace=\(traceID) stage=saveFailure error=\(error.localizedDescription)"
-                        )
-                        self.runContextMenuFallback(
-                            action: fallbackAction,
-                            target: fallbackTarget,
-                            sender: sender,
-                            traceID: traceID,
-                            reason: "data_save_write_error"
-                        )
-                    }
-                }
             }
             return
         }
@@ -1700,37 +1742,21 @@ final class CmuxWebView: WKWebView {
                 do {
                     let data = try Data(contentsOf: url)
                     self.debugContextDownload(
-                        "browser.ctxdl.file trace=\(traceID) stage=readSuccess bytes=\(data.count) path=\(url.path)"
+                        "browser.ctxdl.file trace=\(traceID) stage=readSuccess bytes=\(data.count) path=<redacted>"
                     )
                     let filename = suggestedFilename?.trimmingCharacters(in: .whitespacesAndNewlines)
                     let saveName = (filename?.isEmpty == false ? filename! : url.lastPathComponent.isEmpty ? "download" : url.lastPathComponent)
-                    let savePanel = NSSavePanel()
-                    savePanel.nameFieldStringValue = saveName
-                    savePanel.canCreateDirectories = true
-                    savePanel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
-                    // Download is already complete; we're now waiting for user save choice.
-                    self.notifyContextMenuDownloadState(false)
-                    self.debugContextDownload(
-                        "browser.ctxdl.file trace=\(traceID) stage=savePrompt shown=1 defaultName=\(saveName)"
+                    self.finishSessionDownload(
+                        data: data,
+                        saveName: saveName,
+                        sourceURL: url,
+                        traceID: traceID,
+                        logCategory: "file",
+                        sender: sender,
+                        fallbackAction: fallbackAction,
+                        fallbackTarget: fallbackTarget,
+                        failureFallbackReason: nil
                     )
-                    savePanel.begin { result in
-                        guard result == .OK, let destURL = savePanel.url else {
-                            self.debugContextDownload(
-                                "browser.ctxdl.file trace=\(traceID) stage=savePrompt result=cancel"
-                            )
-                            return
-                        }
-                        do {
-                            try data.write(to: destURL, options: .atomic)
-                            self.debugContextDownload(
-                                "browser.ctxdl.file trace=\(traceID) stage=saveSuccess path=\(destURL.path)"
-                            )
-                        } catch {
-                            self.debugContextDownload(
-                                "browser.ctxdl.file trace=\(traceID) stage=saveFailure error=\(error.localizedDescription)"
-                            )
-                        }
-                    }
                 } catch {
                     self.notifyContextMenuDownloadState(false)
                     self.debugContextDownload(
@@ -1797,39 +1823,17 @@ final class CmuxWebView: WKWebView {
                     }
                     let saveName = filenameResolver.suggestedFilename(suggestedFilename: suggestedFilename, response: response, sourceURL: url, imageData: data)
 
-                    let savePanel = NSSavePanel()
-                    savePanel.nameFieldStringValue = saveName
-                    savePanel.canCreateDirectories = true
-                    savePanel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
-                    self.notifyContextMenuDownloadState(false)
-                    self.debugContextDownload(
-                        "browser.ctxdl.response trace=\(traceID) stage=savePrompt shown=1 defaultName=\(saveName)"
+                    self.finishSessionDownload(
+                        data: data,
+                        saveName: saveName,
+                        sourceURL: url,
+                        traceID: traceID,
+                        logCategory: "response",
+                        sender: sender,
+                        fallbackAction: fallbackAction,
+                        fallbackTarget: fallbackTarget,
+                        failureFallbackReason: "save_write_error"
                     )
-                    savePanel.begin { result in
-                        guard result == .OK, let destURL = savePanel.url else {
-                            self.debugContextDownload(
-                                "browser.ctxdl.response trace=\(traceID) stage=savePrompt result=cancel"
-                            )
-                            return
-                        }
-                        do {
-                            try data.write(to: destURL, options: .atomic)
-                            self.debugContextDownload(
-                                "browser.ctxdl.response trace=\(traceID) stage=saveSuccess path=\(destURL.path)"
-                            )
-                        } catch {
-                            self.debugContextDownload(
-                                "browser.ctxdl.response trace=\(traceID) stage=saveFailure error=\(error.localizedDescription)"
-                            )
-                            self.runContextMenuFallback(
-                                action: fallbackAction,
-                                target: fallbackTarget,
-                                sender: sender,
-                                traceID: traceID,
-                                reason: "save_write_error"
-                            )
-                        }
-                    }
                 }
             }.resume()
         }

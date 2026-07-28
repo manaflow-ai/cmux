@@ -237,8 +237,46 @@ public struct CommandPaletteSearchEngine<Payload: Sendable>: Sendable {
                 preparedQuery: preparedQuery,
                 preparedCandidate: preparedTitle
             ) {
-            return max(fuzzyScore, titleScore + titleMatchBonus)
+            return max(
+                fuzzyScore,
+                titleScore + titleMatchBonus,
+                commandPaletteTitleWordScore(
+                    preparedQuery: preparedQuery,
+                    titleNormalizedText: preparedTitle.normalizedText,
+                    titleSearchWordText: entry.normalizedTitleSearchWordText
+                ) ?? Int.min
+            )
         }
         return fuzzyScore
     }
+}
+
+private func commandPaletteTitleWordScore(
+    preparedQuery: CommandPaletteFuzzyMatcher.PreparedQuery,
+    titleNormalizedText: String,
+    titleSearchWordText: String
+) -> Int? {
+    guard !preparedQuery.isEmpty, titleSearchWordText != titleNormalizedText else {
+        return nil
+    }
+
+    if titleSearchWordText == preparedQuery.normalizedTokenText {
+        let exactTokenScore = preparedQuery.tokens.reduce(0) { score, token in
+            score + token.scoreUpperBound
+        }
+        return exactTokenScore + commandPaletteScaledTitleMatchBonus(tokenCount: preparedQuery.tokens.count)
+    }
+
+    guard titleSearchWordText.hasPrefix(preparedQuery.normalizedTokenText) else {
+        return nil
+    }
+
+    let prefixTokenScore = preparedQuery.tokens.reduce(0) { score, token in
+        score + token.scoreUpperBoundWithoutExactMatch
+    }
+    return prefixTokenScore + commandPaletteScaledTitleMatchBonus(tokenCount: preparedQuery.tokens.count)
+}
+
+private func commandPaletteScaledTitleMatchBonus(tokenCount: Int) -> Int {
+    2000 * max(1, tokenCount)
 }

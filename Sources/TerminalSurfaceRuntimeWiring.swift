@@ -43,7 +43,9 @@ final class TerminalSurfaceSpawnPolicyBridge: TerminalSurfaceSpawnPolicyProvidin
     func currentSpawnPolicy() -> TerminalSurfaceSpawnPolicy {
         let integrations = AgentIntegrationSettingsStore(defaults: .standard)
         return TerminalSurfaceSpawnPolicy(
+            socketAuthenticationEnvironment: TerminalController.shared.socketClientCapabilityEnvironment(),
             claudeHooksEnabled: integrations.claudeCodeHooksEnabled,
+            codexHooksEnabled: integrations.codexHooksEnabled,
             customClaudePath: integrations.customClaudePath,
             subagentNotificationEnvironmentKey: AgentIntegrationSettingsStore.subagentSuppressionEnvironmentKey,
             suppressSubagentNotifications: integrations.suppressesSubagentNotifications,
@@ -65,21 +67,21 @@ final class TerminalSurfaceSpawnPolicyBridge: TerminalSurfaceSpawnPolicyProvidin
     }
 }
 
-// MARK: Mobile byte tee
+// MARK: Terminal output tee
 
 /// Installs the libghostty PTY tee for `MobileTerminalByteTee` and keys
 /// drop/replay state by surface id (the legacy inline
 /// `ghostty_surface_set_pty_tee_cb` + `MobileTerminalByteTee.shared` calls).
-final class TerminalMobileByteTeeBridge: TerminalByteTeeBinding {
+final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
     /// Wraps the retained tee userdata; `release()` runs exactly where the
     /// surface released the legacy `Unmanaged` context.
     /// @unchecked Sendable: the Unmanaged box is exclusively owned by this
     /// lease from install until release, mirroring the teardown-request
     /// transport.
     final class Lease: TerminalByteTeeLease, @unchecked Sendable {
-        private let context: Unmanaged<MobileTerminalByteTeeUserdata>
+        private let context: Unmanaged<TerminalOutputTeeContext>
 
-        init(context: Unmanaged<MobileTerminalByteTeeUserdata>) {
+        init(context: Unmanaged<TerminalOutputTeeContext>) {
             self.context = context
         }
 
@@ -89,11 +91,19 @@ final class TerminalMobileByteTeeBridge: TerminalByteTeeBinding {
     }
 
     @MainActor
-    func installTee(on surface: ghostty_surface_t, surfaceID: UUID) -> any TerminalByteTeeLease {
-        let teeContext = Unmanaged.passRetained(MobileTerminalByteTeeUserdata(surfaceID: surfaceID))
+    func installTee(
+        on surface: ghostty_surface_t,
+        workspaceID: UUID,
+        surfaceID: UUID
+    ) -> any TerminalByteTeeLease {
+        let teeContext = Unmanaged.passRetained(TerminalOutputTeeContext(
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            agentDefinitions: CmuxTaskManagerCodingAgentDefinition.builtIns
+        ))
         ghostty_surface_set_pty_tee_cb(
             surface,
-            cmuxMobileTerminalByteTeeCallback,
+            cmuxTerminalOutputTeeCallback,
             teeContext.toOpaque()
         )
         return Lease(context: teeContext)
@@ -169,7 +179,8 @@ extension TerminalSurface {
         focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
         manualIO: Bool = false,
         manualInputHandler: (@Sendable (Data) -> Void)? = nil,
-        runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate
+        runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate,
+        preparePaneHost: @Sendable @MainActor (any TerminalSurfacePaneHosting) -> Void = { _ in }
     ) {
         self.init(
             id: id,
@@ -187,6 +198,7 @@ extension TerminalSurface {
             manualIO: manualIO,
             manualInputHandler: manualInputHandler,
             runtimeSpawnPolicy: runtimeSpawnPolicy,
+            preparePaneHost: preparePaneHost,
             dependencies: GhosttyApp.terminalSurfaceRuntimeDependencies
         )
     }

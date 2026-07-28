@@ -33,16 +33,29 @@ public struct MobileBrowserView: UIViewRepresentable {
     /// - Parameter context: The representable context carrying the coordinator.
     /// - Returns: The configured web view.
     public func makeUIView(context: Context) -> WKWebView {
+        let webView = Self.makeConfiguredWebView()
+        webView.navigationDelegate = context.coordinator
+        webView.uiDelegate = context.coordinator
+        context.coordinator.attach(webView: webView)
+        return webView
+    }
+
+    /// Builds the hosted web view with the surface's fixed configuration,
+    /// independent of the SwiftUI `Context` so the gesture policy can be
+    /// unit-tested.
+    static func makeConfiguredWebView() -> WKWebView {
         let configuration = WKWebViewConfiguration()
         // Default persistent data store: cookies/localStorage persist on the
         // phone across launches. Cross-device sync with the Mac is P2.
         configuration.websiteDataStore = .default()
         configuration.allowsInlineMediaPlayback = true
         let webView = WKWebView(frame: .zero, configuration: configuration)
-        webView.allowsBackForwardNavigationGestures = true
-        webView.navigationDelegate = context.coordinator
-        webView.uiDelegate = context.coordinator
-        context.coordinator.attach(webView: webView)
+        // Off, by design: the browser pane is pushed onto the workspace
+        // `NavigationStack`, and the web view's own left-edge back-swipe would
+        // otherwise eat the standard iOS edge swipe that returns to the workspace
+        // list (issue #6634). Web history stays reachable through the chrome
+        // bar's back/forward buttons.
+        webView.allowsBackForwardNavigationGestures = false
         return webView
     }
 

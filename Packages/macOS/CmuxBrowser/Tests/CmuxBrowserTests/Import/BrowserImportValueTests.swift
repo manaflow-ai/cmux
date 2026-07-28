@@ -28,6 +28,26 @@ struct BrowserImportValueTests {
         #expect(a.id == b.id)
     }
 
+    @Test("browser candidate lookup accepts explicit aliases")
+    func browserCandidateLookupAcceptsAliases() throws {
+        let descriptor = try #require(BrowserImportBrowserDescriptor.allBrowserDescriptors.first { $0.id == "google-chrome" })
+        let candidate = InstalledBrowserCandidate(
+            descriptor: descriptor,
+            resolvedFamily: .chromium,
+            homeDirectoryURL: URL(fileURLWithPath: "/"),
+            appURL: nil,
+            dataRootURL: nil,
+            profiles: [],
+            detectionSignals: [],
+            detectionScore: 1
+        )
+
+        #expect(candidate.matchesLookupQuery("chrome"))
+        #expect(candidate.matchesLookupQuery("Google Chrome"))
+        #expect(candidate.matchesLookupQuery("Google Chrome.app"))
+        #expect(!candidate.matchesLookupQuery("chromium"))
+    }
+
     @Test("step-3 presentation reflects plan shape")
     func step3Presentation() {
         let single = BrowserImportStep3Presentation(

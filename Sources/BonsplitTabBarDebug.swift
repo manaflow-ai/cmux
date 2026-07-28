@@ -1,3 +1,4 @@
+import CmuxFoundation
 import AppKit
 import Bonsplit
 import Foundation
@@ -229,7 +230,7 @@ private struct BonsplitTabBarDebugView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(String(localized: "debug.bonsplitTabBarDebug.heading", defaultValue: "Bonsplit Tab Bar"))
-                .font(.headline)
+                .cmuxFont(.headline)
 
             GroupBox(String(localized: "debug.bonsplitTabBarDebug.actionLaneGeometry", defaultValue: "Action Lane Geometry")) {
                 VStack(alignment: .leading, spacing: 10) {
@@ -280,7 +281,7 @@ private struct BonsplitTabBarDebugView: View {
             }
 
             Text(verbatim: BonsplitTabBarDebugSettings.currentTuningDescription())
-                .font(.system(.caption, design: .monospaced))
+                .cmuxFont(.caption, design: .monospaced)
                 .textSelection(.enabled)
                 .lineLimit(3)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -356,7 +357,7 @@ private struct BonsplitTabBarDebugSliderRow: View {
                     step: setting.step
                 )
                 Text(pixelValueText)
-                    .font(.caption)
+                    .cmuxFont(.caption)
                     .monospacedDigit()
                     .frame(width: 76, alignment: .trailing)
             }

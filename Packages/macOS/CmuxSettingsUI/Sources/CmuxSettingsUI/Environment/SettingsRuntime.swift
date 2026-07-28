@@ -12,14 +12,35 @@ import SwiftUI
 /// `Sendable`. Construct one at app startup and pass it via
 /// ``View/settingsRuntime(_:)``.
 public struct SettingsRuntime: @unchecked Sendable {
+    /// Immutable setting declarations used by stores and section views.
     public let catalog: SettingCatalog
+    /// Search index shared by every settings window root for this runtime.
+    public let searchIndex: SettingsSearchIndex
+    /// UserDefaults-backed settings store.
     public let userDefaultsStore: UserDefaultsSettingsStore
+    /// cmux.json-backed settings store.
     public let jsonStore: JSONConfigStore
+    /// Secret-file-backed settings store.
     public let secretStore: SecretFileStore
+    /// Rolling settings error log displayed as alerts.
     public let errorLog: SettingsErrorLog
+    /// Optional host-owned account flow actions.
     public let accountFlow: AccountFlow?
+    /// Host callbacks for actions the package cannot perform itself.
     public let hostActions: SettingsHostActions
 
+    /// Creates the settings runtime bundle injected into the settings UI.
+    ///
+    /// - Parameters:
+    ///   - catalog: Immutable setting declarations used by stores and section views.
+    ///   - userDefaultsStore: UserDefaults-backed settings store.
+    ///   - jsonStore: cmux.json-backed settings store.
+    ///   - secretStore: Secret-file-backed settings store.
+    ///   - errorLog: Rolling settings error log displayed as alerts.
+    ///   - accountFlow: Optional host-owned account flow actions.
+    ///   - hostActions: Host callbacks for actions the package cannot perform itself.
+    ///   - searchIndex: Prebuilt search index to share across settings roots. When `nil`,
+    ///     the runtime builds one index from `catalog` and keeps it for its own lifetime.
     @MainActor
     public init(
         catalog: SettingCatalog,
@@ -28,9 +49,11 @@ public struct SettingsRuntime: @unchecked Sendable {
         secretStore: SecretFileStore,
         errorLog: SettingsErrorLog,
         accountFlow: AccountFlow? = nil,
-        hostActions: SettingsHostActions = NoopSettingsHostActions()
+        hostActions: SettingsHostActions = NoopSettingsHostActions(),
+        searchIndex: SettingsSearchIndex? = nil
     ) {
         self.catalog = catalog
+        self.searchIndex = searchIndex ?? SettingsSearchIndex(catalog: catalog)
         self.userDefaultsStore = userDefaultsStore
         self.jsonStore = jsonStore
         self.secretStore = secretStore

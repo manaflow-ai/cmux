@@ -9,6 +9,9 @@ export type VmImageManifestEntry = {
   readonly imageId: string;
   readonly envVar: string;
   readonly defaultForLocalDev?: boolean;
+  readonly features?: {
+    readonly bakedFreestyleSignedAdmin?: boolean;
+  };
   readonly cmuxdRemoteCommit: string;
   readonly builtAt: string;
   readonly builderScriptVersion: string;
@@ -35,6 +38,8 @@ export function providerImageEnvKey(provider: ProviderId): string {
       return "E2B_CMUXD_WS_TEMPLATE";
     case "freestyle":
       return "FREESTYLE_SANDBOX_SNAPSHOT";
+    case "daytona":
+      return "DAYTONA_SANDBOX_SNAPSHOT";
     default:
       return assertNever(provider);
   }
@@ -42,6 +47,13 @@ export function providerImageEnvKey(provider: ProviderId): string {
 
 export function listVmImageManifestEntries(): readonly VmImageManifestEntry[] {
   return typedManifest.images;
+}
+
+export function imageUsesBakedFreestyleSignedAdmin(provider: ProviderId, imageId: string): boolean {
+  const entry = typedManifest.images.find((candidate) =>
+    candidate.provider === provider && candidate.imageId === imageId
+  );
+  return entry?.features?.bakedFreestyleSignedAdmin === true;
 }
 
 export function resolveVmImage(

@@ -1,0 +1,28 @@
+# cmux Python Client
+
+Synchronous Python client for the cmux-tui Unix-socket JSON-lines protocol.
+
+## Install
+
+```bash
+pip install cmux
+```
+
+## Usage
+
+```python
+from cmux import CmuxClient
+
+with CmuxClient() as client:
+    info = client.identify()
+    surface = client.new_workspace(name="sdk-demo", cols=80, rows=24)
+    client.send(surface.surface, text="echo hello\r")
+    print(client.read_screen(surface.surface).text)
+```
+
+`CmuxClient()` uses `CMUX_TUI_SOCKET` when set, then legacy `CMUX_MUX_SOCKET`,
+then the default session socket path.
+
+`clear_history(surface, fallback_key=TerminalKeyInput(...))` preserves a shortcut
+for alternate-screen applications and requires `clear-history-key-v1`. It
+rejects fallback `utf8` fields above the 4 KiB protocol limit before sending.

@@ -1,3 +1,4 @@
+import CmuxFoundation
 #if DEBUG
 import AppKit
 import CMUXAgentLaunch
@@ -48,7 +49,7 @@ private struct FeedPreviewRootView: View {
     private var toolbar: some View {
         HStack(spacing: 12) {
             Text("Feed Preview · all kinds + states")
-                .font(.system(size: 12, weight: .semibold))
+                .cmuxFont(size: 12, weight: .semibold)
                 .foregroundColor(.secondary)
             Spacer()
             Button("Inject all into Feed") {
@@ -63,7 +64,7 @@ private struct FeedPreviewRootView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 Text(kind.label.uppercased())
-                    .font(.system(size: 11, weight: .heavy))
+                    .cmuxFont(size: 11, weight: .heavy)
                     .tracking(0.8)
                     .foregroundColor(.primary.opacity(0.9))
                 Rectangle()
@@ -90,7 +91,7 @@ private struct FeedPreviewRootView: View {
             }
         }()
         Text(label.uppercased())
-            .font(.system(size: 9, weight: .bold))
+            .cmuxFont(size: 9, weight: .bold)
             .tracking(0.6)
             .foregroundColor(color)
     }

@@ -24,6 +24,17 @@ The heartbeat response returns `heartbeatIntervalMs` (15s) and
 hardcoding it. An instance that misses heartbeats for the timeout window is
 flipped offline by the Durable Object alarm with `reason: "timeout"`.
 
+Every server boundary reduces Iroh routes to the EndpointID plus an exact
+managed relay URL. Direct addresses and private-network hints remain on the
+device or move endpoint-to-endpoint after admission. Existing LAN, Tailscale,
+and custom-network route bodies pass through unchanged for compatibility.
+
+Presence still sends the full sanitized route body in `online`, `routes`, and
+snapshot frames. Current iOS clients write that body into their paired-Mac store
+and reconnect without a registry round trip. Replacing it with a routes-changed
+signal requires a new client protocol plus an authenticated fetch or local
+rendezvous path, so that protocol change is intentionally separate.
+
 Devices are owner-bound, mirroring the registry route: the first authenticated
 user to announce a `deviceId` owns it, and a heartbeat for that device from a
 different team member is rejected with `403 device_owner_mismatch`, so a
@@ -74,8 +85,61 @@ Stack project's Worker secrets:
 https://cmux-presence-dev.debussy.workers.dev
 ```
 
-Redeploy it manually with `bunx wrangler deploy --name cmux-presence-dev`
+Redeploy it manually with `bunx wrangler deploy --config wrangler.dev.toml`
 (its `STACK_*` Worker secrets are already provisioned and survive deploys).
+
+> [!IMPORTANT]
+> Use `--config wrangler.dev.toml`, NOT `--name cmux-presence-dev`. The default
+> `wrangler.toml` carries the **production** `presence.cmux.dev` custom domain;
+> `--name` only overrides the worker name, so it inherits that route and STEALS
+> the production domain (detaching it from `cmux-presence`, which breaks prod
+> auth since the dev worker uses the dev Stack project). `wrangler.dev.toml` has
+> `workers_dev = true` and no custom domain, so the dev instance stays on its
+> own `*.workers.dev` URL.
 Point a dev Mac build at it with the `CMUX_PRESENCE_BASE_URL` env override or
 the `presenceServiceURL` defaults key, plus `presenceHeartbeatEnabled` (see
 `Sources/Cloud/PresenceSettings.swift`).
+
+### Working on the worker with several people at once
+
+`cmux-presence-dev` is a **single shared instance** — last deploy wins, and an
+unmerged feature (e.g. the paired-Mac backup, which only exists on its branch)
+lives ONLY on whoever deployed last. So don't push your branch onto the shared
+worker: get your own **isolated** one instead.
+
+```
+./scripts/deploy-dev.sh           # deploys cmux-presence-dev-<your-id>
+```
+
+Each `cmux-presence-dev-<slug>` is a separate worker with its **own Durable
+Object namespace**, so presence + paired-Mac-backup state is fully isolated per
+developer — multiple people dogfood worker changes simultaneously without
+clobbering each other or the shared baseline. Because Cloudflare secrets are
+scoped to each Worker, the script also provisions the new Worker with the dev
+Stack Auth values from your shell environment or `.dev.vars`
+(`STACK_PROJECT_ID`, `STACK_PUBLISHABLE_CLIENT_KEY`, optional `STACK_API_URL`);
+it refuses to deploy if those values are missing. The script prints the worker
+URL and the env var to export:
+
+```
+export CMUX_PRESENCE_BASE_URL=https://cmux-presence-dev-<slug>.<subdomain>.workers.dev
+```
+
+Point **every** build in your dogfood loop at it (the Mac that heartbeats AND the
+iPhone that subscribes/backs up must share one worker):
+
+- **Mac:** `CMUX_PRESENCE_BASE_URL` env, or `defaults write <tagged-bundle>
+  presenceServiceURL <url>`. Resolved by `PresenceSettings`.
+- **iOS:** a tapped device app sees no shell env, so the override is read from the
+  app's **Info.plist key `CMUXPresenceBaseURL`** (and from `presenceServiceURL`
+  UserDefaults / the `CMUX_PRESENCE_BASE_URL` launch env). Resolution precedence:
+  env → UserDefaults → Info.plist → Debug default. `ios/scripts/reload.sh` bakes
+  `$CMUX_PRESENCE_BASE_URL` into that Info.plist key (next to `CMUXDevTag`, via the
+  `CMUX_PRESENCE_BASE_URL` build setting in `ios/Config/Shared.xcconfig` +
+  `Info.plist`), so once it is exported a normally-tapped dev device build talks to
+  your worker. Empty by default, so release/TestFlight builds are unaffected.
+
+Leave `CMUX_PRESENCE_BASE_URL` unset to use the shared `cmux-presence-dev`
+baseline. The durable fix for any feature is to **merge it** — then it ships on
+prod via CI and anyone deploying dev from `main` carries it, no coordination
+needed.

@@ -39,7 +39,7 @@ concurrency:
 
 jobs:
   smoke:
-    runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     environment: cloud-vm-${{ inputs.target }}
     defaults:
       run:

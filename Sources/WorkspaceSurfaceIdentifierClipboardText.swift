@@ -18,6 +18,21 @@ enum WorkspaceSurfaceIdentifierClipboardText {
         copy(makeWorkspaceLinks(ids))
     }
 
+    /// Copies durable workspace links, mapping runtime workspace ids to stable ids.
+    @MainActor
+    static func copyWorkspaceLinks(_ ids: [UUID], resolvingStableIdsFrom workspaces: [Workspace]) {
+        let stableIdByRuntimeId = Dictionary(
+            workspaces.map { ($0.id, $0.stableId) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let stableIds = ids.compactMap { stableIdByRuntimeId[$0] }
+        guard !stableIds.isEmpty, stableIds.count == ids.count else {
+            NSSound.beep()
+            return
+        }
+        copyWorkspaceLinks(stableIds)
+    }
+
     @MainActor
     static func makeWorkspaceIds(_ ids: [UUID], includeRefs: Bool) -> String {
         let refs = includeRefs ? TerminalController.shared.v2WorkspaceRefs(for: ids) : [:]
@@ -56,6 +71,13 @@ enum WorkspaceSurfaceIdentifierClipboardText {
 
     static func makeSurfaceLink(workspaceId: UUID, surfaceId: UUID) -> String {
         CmuxNavigationURLRequest.surfaceLink(workspaceId: workspaceId, surfaceId: surfaceId)
+    }
+
+    @MainActor
+    static func makeSurfaceLink(workspace: Workspace, panelId: UUID) -> String? {
+        guard let panel = workspace.panels[panelId],
+              workspace.surfaceIdFromPanelId(panelId) != nil else { return nil }
+        return makeSurfaceLink(workspaceId: workspace.stableId, surfaceId: panel.stableSurfaceId)
     }
 
     @MainActor

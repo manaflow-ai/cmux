@@ -115,13 +115,17 @@ final class PresenceHeartbeatClient {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             ?? defaults.string(forKey: PresenceSettings.serviceURLKey)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        #if DEBUG
         if raw == nil || raw?.isEmpty == true {
+            #if DEBUG
             // Debug builds authenticate against the dev Stack project, which is
             // what the dev/staging worker verifies — see PresenceSettings.
             raw = PresenceSettings.debugDefaultServiceURL
+            #else
+            // Release builds talk to the production presence worker, so stable
+            // cmux announces presence once mobile is enabled (gated by isEnabled).
+            raw = PresenceSettings.productionServiceURL
+            #endif
         }
-        #endif
         guard let raw, !raw.isEmpty else { return nil }
         return URL(string: raw)
     }
@@ -180,8 +184,9 @@ final class PresenceHeartbeatClient {
 
         let bodyDict = Self.heartbeatBody(
             deviceID: MobileHostIdentity.deviceID(),
-            tag: Self.buildTag(),
-            displayName: MobileHostIdentity.displayName(),
+            tag: MobileHostIdentity.instanceTag(),
+            bundleID: Bundle.main.bundleIdentifier,
+            displayName: MobileHostIdentity.instanceDisplayName(),
             routes: currentRoutes,
             stopping: stopping
         )
@@ -221,16 +226,24 @@ final class PresenceHeartbeatClient {
     nonisolated static func heartbeatBody(
         deviceID: String,
         tag: String,
+        bundleID: String?,
         displayName: String?,
         routes: [CmxAttachRoute],
-        stopping: Bool
+        stopping: Bool,
+        now: Date = Date()
     ) -> [String: Any] {
         var bodyDict: [String: Any] = [
             "deviceId": deviceID,
             "platform": "mac",
             "tag": tag,
-            "routes": routes.map(\.mobileHostJSONObject),
+            "routes": routes.mobileHostJSONObjects(for: .cloudRendezvous, at: now),
         ]
+        // The app's bundle id lets the phone label the build channel on the
+        // Computers screen (com.cmuxterm.app = Stable, .nightly/.rc/.staging
+        // suffixes, dev.cmux.* = a DEV build — paired with `tag` for the dev tag).
+        if let bundleID, !bundleID.isEmpty {
+            bodyDict["bundleId"] = bundleID
+        }
         if let displayName, !displayName.isEmpty {
             bodyDict["displayName"] = displayName
         }
@@ -240,11 +253,4 @@ final class PresenceHeartbeatClient {
         return bodyDict
     }
 
-    /// The build tag for this cmux instance, matching the registry's instance
-    /// key so presence rows line up with `device_app_instances.tag`.
-    private static func buildTag() -> String {
-        let tag = ProcessInfo.processInfo.environment["CMUX_TAG"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return (tag?.isEmpty == false) ? tag! : "default"
-    }
 }

@@ -8,6 +8,7 @@ import sys
 import textwrap
 import os
 import tempfile
+import time
 from pathlib import Path
 
 
@@ -86,6 +87,100 @@ def main() -> int:
         print(timeout_result.stdout, end="")
         print(timeout_result.stderr, end="", file=sys.stderr)
         print("FAIL: helper did not report idle timeout")
+        return 1
+
+    post_test_env = {
+        **os.environ,
+        "CMUX_XCODEBUILD_NONINTERACTIVE_POST_TEST_TIMEOUT_SECONDS": "0.2",
+    }
+    passing_post_test_child = textwrap.dedent(
+        """
+        import time
+
+        print("Test Suite 'Selected tests' passed at now", flush=True)
+        print("\\t Executed 1 test, with 0 failures (0 unexpected) in 0.001 seconds", flush=True)
+        time.sleep(10)
+        """
+    )
+    passing_post_test_result = subprocess.run(
+        [sys.executable, str(HELPER), sys.executable, "-c", passing_post_test_child],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=5,
+        env=post_test_env,
+    )
+    if passing_post_test_result.returncode != 0:
+        print(passing_post_test_result.stdout, end="")
+        print(passing_post_test_result.stderr, end="", file=sys.stderr)
+        print(
+            "FAIL: expected post-test timeout after passing Selected tests summary to exit 0, "
+            f"got {passing_post_test_result.returncode}"
+        )
+        return 1
+
+    noisy_post_test_child = textwrap.dedent(
+        """
+        import time
+
+        print("Test Suite 'Selected tests' passed at now", flush=True)
+        print("\\t Executed 1 test, with 0 failures (0 unexpected) in 0.001 seconds", flush=True)
+        for _ in range(20):
+            print("post-summary-noise", flush=True)
+            time.sleep(0.1)
+        """
+    )
+    noisy_started = time.monotonic()
+    noisy_post_test_result = subprocess.run(
+        [sys.executable, str(HELPER), sys.executable, "-c", noisy_post_test_child],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=5,
+        env=post_test_env,
+    )
+    noisy_elapsed = time.monotonic() - noisy_started
+    if noisy_post_test_result.returncode != 0:
+        print(noisy_post_test_result.stdout, end="")
+        print(noisy_post_test_result.stderr, end="", file=sys.stderr)
+        print(
+            "FAIL: expected noisy post-test timeout after passing Selected tests summary "
+            f"to exit 0, got {noisy_post_test_result.returncode}"
+        )
+        return 1
+    if noisy_elapsed > 1.5:
+        print(noisy_post_test_result.stdout, end="")
+        print(noisy_post_test_result.stderr, end="", file=sys.stderr)
+        print(f"FAIL: noisy post-test timeout was rearmed; elapsed {noisy_elapsed:.2f}s")
+        return 1
+
+    failing_post_test_child = textwrap.dedent(
+        """
+        import time
+
+        print("Test Suite 'Selected tests' failed at now", flush=True)
+        print("\\t Executed 1 test, with 1 failure (1 unexpected) in 0.001 seconds", flush=True)
+        time.sleep(10)
+        """
+    )
+    failing_post_test_result = subprocess.run(
+        [sys.executable, str(HELPER), sys.executable, "-c", failing_post_test_child],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=5,
+        env=post_test_env,
+    )
+    if failing_post_test_result.returncode != 125:
+        print(failing_post_test_result.stdout, end="")
+        print(failing_post_test_result.stderr, end="", file=sys.stderr)
+        print(
+            "FAIL: expected post-test timeout after failed Selected tests summary to exit 125, "
+            f"got {failing_post_test_result.returncode}"
+        )
         return 1
 
     direct_output_child = "import sys; sys.stdout.write('x' * 262144); sys.stdout.flush()"

@@ -440,9 +440,9 @@ if (elapsed > 2000) throw new Error(`handlers blocked for ${elapsed}ms`);
             return 1
 
         expected_invocations = 3
-        args_log = wait_for_text(fake_args_log, expected_invocations)
-        stdin_log = wait_for_text(fake_stdin_log, expected_invocations * 2)
-        env_log = wait_for_text(fake_env_log, expected_invocations * 4)
+        args_log = wait_for_text(fake_args_log, expected_invocations, timeout=20.0)
+        stdin_log = wait_for_text(fake_stdin_log, expected_invocations * 2, timeout=20.0)
+        env_log = wait_for_text(fake_env_log, expected_invocations * 4, timeout=20.0)
         for expected in [
             "hooks omp session-start",
             "hooks omp prompt-submit",

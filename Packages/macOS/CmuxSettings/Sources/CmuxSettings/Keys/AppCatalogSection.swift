@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 
 /// Settings under the dotted-id prefix `app.*` — user-facing app behavior.
@@ -69,6 +70,14 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "paneFirstClickFocus.enabled"
     )
 
+    /// Whether focus history includes pane and tab changes within a workspace.
+    /// Defaults to workspace-only navigation.
+    public let focusHistoryIncludesPanesAndTabs = DefaultsKey<Bool>(
+        id: "app.focusHistoryIncludesPanesAndTabs",
+        defaultValue: false,
+        userDefaultsKey: "focusHistoryIncludesPanesAndTabs"
+    )
+
     public let preferredEditor = DefaultsKey<String>(
         id: "app.preferredEditor",
         defaultValue: "",
@@ -89,6 +98,13 @@ public struct AppCatalogSection: SettingCatalogSection {
         id: "app.openMarkdownInCmuxViewer",
         defaultValue: true,
         userDefaultsKey: "openMarkdownInCmuxViewer"
+    )
+
+    /// App-wide magnification percent for cmux-owned fonts and chrome.
+    public let globalFontMagnification = DefaultsKey<Int>(
+        id: "app.globalFontMagnification",
+        defaultValue: GlobalFontMagnification.defaultPercent,
+        userDefaultsKey: GlobalFontMagnification.percentKey
     )
 
     public let iMessageMode = DefaultsKey<Bool>(

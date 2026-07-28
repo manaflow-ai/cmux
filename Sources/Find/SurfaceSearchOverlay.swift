@@ -1,3 +1,4 @@
+import CmuxFoundation
 import AppKit
 import Bonsplit
 import SwiftUI
@@ -22,6 +23,7 @@ struct SurfaceSearchOverlay: View {
     @ObservedObject var searchState: TerminalSurface.SearchState
     let canApplyFocusRequest: () -> Bool
     let onNavigateSearch: (_ action: String) -> Void
+    let onSearchTextChanged: () -> Void
     let onFieldDidFocus: () -> Void
     let onClose: () -> Void
     @State private var corner: Corner = .topRight
@@ -40,6 +42,7 @@ struct SurfaceSearchOverlay: View {
                     surfaceId: surfaceId,
                     selectionOwner: searchState,
                     canApplyFocusRequest: canApplyFocusRequest,
+                    onTextChanged: onSearchTextChanged,
                     onFieldDidFocus: onFieldDidFocus,
                     onEscape: {
                         #if DEBUG
@@ -65,13 +68,13 @@ struct SurfaceSearchOverlay: View {
                     if let selected = searchState.selected {
                         let totalText = searchState.total.map { String($0) } ?? "?"
                         Text("\(selected + 1)/\(totalText)")
-                            .font(.caption)
+                            .cmuxFont(.caption)
                             .foregroundColor(.secondary)
                             .monospacedDigit()
                             .padding(.trailing, 8)
                     } else if let total = searchState.total {
                         Text("-/\(total)")
-                            .font(.caption)
+                            .cmuxFont(.caption)
                             .foregroundColor(.secondary)
                             .monospacedDigit()
                             .padding(.trailing, 8)
@@ -229,9 +232,11 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
     let surfaceId: UUID
     let selectionOwner: AnyObject
     let canApplyFocusRequest: () -> Bool
+    let onTextChanged: () -> Void
     let onFieldDidFocus: () -> Void
     let onEscape: () -> Void
     let onReturn: (_ isShift: Bool) -> Void
+    @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
 
     final class Coordinator: NSObject, NSTextFieldDelegate {
         var parent: SearchTextFieldRepresentable
@@ -266,6 +271,7 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
         func controlTextDidChange(_ obj: Notification) {
             guard !isProgrammaticMutation else { return }
             guard let field = obj.object as? NSTextField else { return }
+            parent.onTextChanged()
             parent.text = field.stringValue
             rememberSelection(from: field)
         }
@@ -350,7 +356,7 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
 
     func makeNSView(context: Context) -> SearchNativeTextField {
         let field = SearchNativeTextField(frame: .zero)
-        field.font = .systemFont(ofSize: NSFont.systemFontSize)
+        field.font = GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize)
         field.placeholderString = String(localized: "search.placeholder", defaultValue: "Search")
         field.setAccessibilityIdentifier("TerminalFindSearchTextField")
         field.delegate = context.coordinator
@@ -401,6 +407,7 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
         nsView.delegate = context.coordinator
         nsView.cmuxSelectionOwner = selectionOwner
         nsView.cmuxOnEscape = { [weak coordinator = context.coordinator] textView in coordinator?.handleEscape(from: textView) ?? false }
+        nsView.font = GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize)
 
         // Sync text from binding to field (skip during active IME composition)
         if let editor = nsView.currentEditor() as? NSTextView {

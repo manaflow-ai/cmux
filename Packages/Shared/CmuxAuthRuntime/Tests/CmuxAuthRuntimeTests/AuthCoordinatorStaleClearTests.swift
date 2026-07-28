@@ -36,14 +36,14 @@ import Testing
         let revalidation = Task { await coordinator.revalidateSession() }
         await client.validationDidPark()
 
-        // A fresh sign-in completes while the old validation is in flight.
-        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
-        #expect(coordinator.isAuthenticated)
-
         // The old validation resumes with a definitive rejection.
         await client.setGatedValidationError(AuthError.unauthorized)
         await client.releaseParkedValidation()
         await revalidation.value
+
+        // Fresh sign-in preflight now waits for stale validation work to
+        // quiesce before it writes a newer session.
+        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
 
         #expect(coordinator.isAuthenticated)
         #expect(coordinator.currentUser == user)
@@ -84,14 +84,11 @@ import Testing
         await client.releaseParkedValidation()
         await client.clearDidPark()
 
-        // A fresh sign-in completes while that clear is suspended.
-        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
-        #expect(coordinator.isAuthenticated)
-
         await client.releaseParkedClear()
         await revalidation.value
 
-        // The stale flow must not unpublish the fresh session.
+        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
+
         #expect(coordinator.isAuthenticated)
         #expect(coordinator.currentUser == user)
         #expect(store.bool(forKey: "has_tokens"))
@@ -134,13 +131,10 @@ import Testing
         await client.releaseParkedValidation()
         await client.clearDidPark()
 
-        // A fresh sign-in writes new tokens and publishes while that stale
-        // clear is suspended.
-        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
-        #expect(coordinator.isAuthenticated)
-
         await client.releaseParkedClear()
         await revalidation.value
+
+        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
 
         // The fresh session keeps BOTH its published state and its tokens.
         #expect(coordinator.isAuthenticated)
@@ -229,24 +223,19 @@ import Testing
         await client.validationDidPark()
         await client.setGatedValidationError(AuthError.unauthorized)
 
-        // The fresh sign-in writes its tokens, then parks in its own fetch.
-        await client.armValidationGate()
-        let newSignIn = Task { try await coordinator.signInWithPassword(email: "a@b.com", password: "pw") }
-        await client.validationDidPark(count: 2)
-
-        // The old validation resumes first (FIFO) and runs its cleanup while
-        // the fresh sign-in is still in flight.
+        // Fresh sign-in preflight now waits for the old validation to finish
+        // before starting its exchange.
         await client.releaseParkedValidation()
         await revalidation.value
 
-        await client.releaseParkedValidation()
-        try await newSignIn.value
+        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
 
         #expect(coordinator.isAuthenticated)
         #expect(coordinator.currentUser == user)
         #expect(store.bool(forKey: "has_tokens"))
         #expect(await client.accessToken() != nil)
         #expect(await client.refreshToken() != nil)
+        #expect(coordinator.activeSignInFlows.isEmpty)
     }
 
     @Test func staleAutoLoginCancellationDoesNotWipeANewerSession() async throws {
@@ -284,15 +273,16 @@ import Testing
         let restore = Task { await coordinator.revalidateSession() }
         await client.credentialDidPark()
 
-        // The user signs out (cancelling the parked exchange) and completes a
-        // fresh manual sign-in before the stale auto-login resumes.
+        // The user signs out, cancelling the parked exchange. Fresh manual
+        // sign-in preflight waits for the stale auto-login to quiesce before
+        // writing newer tokens.
         await coordinator.signOut()
-        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
-        #expect(coordinator.isAuthenticated)
 
         // The stale auto-login resumes and fails with the cancellation.
         await client.releaseParkedCredential()
         await restore.value
+
+        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
 
         // The fresh session survives intact.
         #expect(coordinator.isAuthenticated)
@@ -300,5 +290,133 @@ import Testing
         #expect(store.bool(forKey: "has_tokens"))
         #expect(await client.accessToken() != nil)
         #expect(await client.refreshToken() != nil)
+    }
+
+    @Test func tokenReadDuringAutoLoginDoesNotCancelTheSessionTransition() async throws {
+        // The app can ask for a bearer token while launch auto-login still owns
+        // the initially empty token store (analytics flush is one real caller).
+        // Empty storage is transient in that window, not proof that the session
+        // is dead. A token read must fail retryably without clearing coordinator
+        // state, so the in-flight auto-login remains the sole session writer.
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = GateableValidationAuthClient(user: user)
+        let store = FakeKeyValueStore()
+        let coordinator = AuthCoordinator(
+            client: client,
+            sessionCache: CMUXAuthSessionCache(keyValueStore: store, key: "has_tokens"),
+            userCache: CMUXAuthIdentityStore(keyValueStore: store, key: "cached_user"),
+            teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: store, key: "selected_team"),
+            anchor: FakeAnchor(),
+            config: .test,
+            launch: AuthLaunchOptions(
+                clearAuthRequested: false,
+                mockDataEnabled: false,
+                environment: [
+                    "CMUX_UITEST_STACK_EMAIL": "auto@b.com",
+                    "CMUX_UITEST_STACK_PASSWORD": "pw",
+                ],
+                includesDevAuth: false
+            )
+        )
+
+        await client.armCredentialGate()
+        coordinator.start()
+        await client.credentialDidPark()
+
+        await #expect(throws: AuthError.networkError) {
+            _ = try await coordinator.accessToken()
+        }
+
+        await client.releaseParkedCredential()
+        await coordinator.awaitBootstrapped()
+
+        #expect(coordinator.isAuthenticated)
+        #expect(coordinator.currentUser == user)
+        #expect(store.bool(forKey: "has_tokens"))
+        #expect(await client.accessToken() != nil)
+        #expect(await client.refreshToken() != nil)
+        #expect(coordinator.activeSignInFlows.isEmpty)
+    }
+
+    @Test func tokenReadsDuringManualSignInDoNotCancelTheSessionTransition() async throws {
+        // Interactive sign-in owns the same store boundary as launch auto-login.
+        // Both normal and forced access-token readers must stay retryable until
+        // that owner either publishes the session or fails it.
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = GateableValidationAuthClient(user: user)
+        let store = FakeKeyValueStore()
+        let coordinator = AuthCoordinator(
+            client: client,
+            sessionCache: CMUXAuthSessionCache(keyValueStore: store, key: "has_tokens"),
+            userCache: CMUXAuthIdentityStore(keyValueStore: store, key: "cached_user"),
+            teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: store, key: "selected_team"),
+            anchor: FakeAnchor(),
+            config: .test,
+            launch: .plain()
+        )
+
+        await client.armCredentialGate()
+        let signIn = Task {
+            try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
+        }
+        await client.credentialDidPark()
+
+        await #expect(throws: AuthError.networkError) {
+            _ = try await coordinator.accessToken()
+        }
+        await #expect(throws: AuthError.networkError) {
+            _ = try await coordinator.forceRefreshAccessToken()
+        }
+
+        await client.releaseParkedCredential()
+        try await signIn.value
+
+        #expect(coordinator.isAuthenticated)
+        #expect(coordinator.currentUser == user)
+        #expect(store.bool(forKey: "has_tokens"))
+        #expect(await client.accessToken() != nil)
+        #expect(await client.refreshToken() != nil)
+        #expect(coordinator.activeSignInFlows.isEmpty)
+    }
+
+    @Test func signOutInvalidatesParkedSignInOwnershipForTokenReads() async throws {
+        // A parked sign-in stops owning the store as soon as sign-out advances
+        // the generation and sign-out epoch. Token reads after local-first clear
+        // must report the definitive signed-out state, not stay retryable until
+        // the stale exchange happens to quiesce.
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = GateableValidationAuthClient(user: user)
+        let store = FakeKeyValueStore()
+        let coordinator = AuthCoordinator(
+            client: client,
+            sessionCache: CMUXAuthSessionCache(keyValueStore: store, key: "has_tokens"),
+            userCache: CMUXAuthIdentityStore(keyValueStore: store, key: "cached_user"),
+            teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: store, key: "selected_team"),
+            anchor: FakeAnchor(),
+            config: .test,
+            launch: .plain()
+        )
+
+        await client.armCredentialGate()
+        let signIn = Task {
+            try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
+        }
+        await client.credentialDidPark()
+
+        await coordinator.signOut()
+
+        await #expect(throws: AuthError.unauthorized) {
+            _ = try await coordinator.accessToken()
+        }
+
+        await client.releaseParkedCredential()
+        await #expect(throws: AuthError.cancelled) {
+            try await signIn.value
+        }
+
+        #expect(!coordinator.isAuthenticated)
+        #expect(coordinator.currentUser == nil)
+        #expect(!store.bool(forKey: "has_tokens"))
+        #expect(coordinator.activeSignInFlows.isEmpty)
     }
 }

@@ -1,3 +1,4 @@
+import CmuxFoundation
 import CmuxSettings
 import SwiftUI
 
@@ -10,10 +11,16 @@ public struct TerminalSection: View {
     private let jsonStore: JSONConfigStore
     private let catalog: SettingCatalog
     private let hostActions: SettingsHostActions
+    private let sessionContentWidthSettings = SessionContentWidthSettings()
 
     @State private var surfaceTabBarFont: SettingsFontSize
     @State private var fontSaveFailed = false
     @State private var fontSaveTask: Task<Void, Never>?
+    @State private var scrollSpeed: DefaultsValueModel<Double>
+    @State private var activeScrollSpeedDragValue: Double?
+    @State private var sessionContentMaxWidth: DefaultsValueModel<Double>
+    @State private var rememberedSessionContentMaxWidth: DefaultsValueModel<Double>
+    @State private var sessionContentAlignment: DefaultsValueModel<SessionContentAlignment>
     @State private var scrollBar: DefaultsValueModel<Bool>
     @State private var copyOnSelect: DefaultsValueModel<Bool>
     @State private var autoResume: DefaultsValueModel<Bool>
@@ -36,6 +43,10 @@ public struct TerminalSection: View {
         self.catalog = catalog
         self.hostActions = hostActions
         _surfaceTabBarFont = State(initialValue: hostActions.surfaceTabBarFontSize())
+        _scrollSpeed = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.scrollSpeed))
+        _sessionContentMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.sessionContentMaxWidth))
+        _rememberedSessionContentMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.rememberedSessionContentMaxWidth))
+        _sessionContentAlignment = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.sessionContentAlignment))
         _scrollBar = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showScrollBar))
         _copyOnSelect = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.copyOnSelect))
         _autoResume = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.autoResumeAgentSessions))
@@ -60,6 +71,10 @@ public struct TerminalSection: View {
 
     private func startObservingSettings() {
         let models: [any SettingObservationStarting] = [
+            scrollSpeed,
+            sessionContentMaxWidth,
+            rememberedSessionContentMaxWidth,
+            sessionContentAlignment,
             scrollBar,
             copyOnSelect,
             autoResume,
@@ -86,6 +101,84 @@ public struct TerminalSection: View {
         }
     }
 
+    private var displayedScrollSpeed: Double {
+        activeScrollSpeedDragValue ?? scrollSpeed.current
+    }
+
+    private func commitScrollSpeedDrag() {
+        scrollSpeed.set(displayedScrollSpeed)
+        activeScrollSpeedDragValue = nil
+    }
+
+    private var sessionContentWidthEnabled: Bool {
+        sessionContentWidthSettings.configuredMaximumWidth(from: sessionContentMaxWidth.current) != nil
+    }
+
+    private var sessionContentWidthToggleBinding: Binding<Bool> {
+        Binding(
+            get: { sessionContentWidthEnabled },
+            set: { enabled in
+                if enabled {
+                    let width = sessionContentWidthSettings.editorMaximumWidth(
+                        activeStoredValue: sessionContentMaxWidth.current,
+                        rememberedStoredValue: rememberedSessionContentMaxWidth.current
+                    )
+                    rememberedSessionContentMaxWidth.set(width)
+                    sessionContentMaxWidth.set(width)
+                } else {
+                    if let activeWidth = sessionContentWidthSettings.configuredMaximumWidth(
+                        from: sessionContentMaxWidth.current
+                    ) {
+                        rememberedSessionContentMaxWidth.set(activeWidth)
+                    }
+                    sessionContentMaxWidth.set(SessionContentWidthSettings.noMaximumWidth)
+                }
+            }
+        )
+    }
+
+    private var sessionContentWidthEditorBinding: Binding<Double> {
+        Binding(
+            get: {
+                sessionContentWidthSettings.editorMaximumWidth(
+                    activeStoredValue: sessionContentMaxWidth.current,
+                    rememberedStoredValue: rememberedSessionContentMaxWidth.current
+                )
+            },
+            set: { requestedWidth in
+                let width = sessionContentWidthSettings.clampedMaximumWidth(requestedWidth)
+                rememberedSessionContentMaxWidth.set(width)
+                if sessionContentWidthEnabled {
+                    sessionContentMaxWidth.set(width)
+                }
+            }
+        )
+    }
+
+    private var sessionContentWidthSubtitle: String {
+        if sessionContentWidthEnabled {
+            return String(
+                localized: "settings.terminal.sessionContentWidth.subtitleOn",
+                defaultValue: "Terminal and agent chat content wraps within this width. Narrow panes still use all available space."
+            )
+        }
+        return String(
+            localized: "settings.terminal.sessionContentWidth.subtitleOff",
+            defaultValue: "Terminal and agent chat content uses the full pane width."
+        )
+    }
+
+    private func sessionContentAlignmentTitle(_ alignment: SessionContentAlignment) -> String {
+        switch alignment {
+        case .left:
+            return String(localized: "settings.terminal.sessionContentAlignment.left", defaultValue: "Left")
+        case .center:
+            return String(localized: "settings.terminal.sessionContentAlignment.center", defaultValue: "Center")
+        case .right:
+            return String(localized: "settings.terminal.sessionContentAlignment.right", defaultValue: "Right")
+        }
+    }
+
     @ViewBuilder
     private var resumeCommandsCard: some View {
         SettingsCard {
@@ -100,7 +193,7 @@ public struct TerminalSection: View {
             ) {
                 HStack(spacing: 8) {
                     Text(verbatim: "0")
-                        .font(.caption.monospacedDigit())
+                        .cmuxFont(.caption, monospacedDigit: true)
                         .foregroundColor(.secondary)
                     Button(String(localized: "settings.settingsJSON.openButton", defaultValue: "Open")) {
                         hostActions.openConfigInExternalEditor()
@@ -134,7 +227,7 @@ public struct TerminalSection: View {
                         .accessibilityIdentifier("SettingsTabBarFontSizeSlider")
 
                         Text(String.localizedStringWithFormat(String(localized: "settings.fontSize.valuePoints", defaultValue: "%@ pt"), hostActions.formattedFontSize(surfaceTabBarFont.points)))
-                            .font(.system(size: 12, weight: .medium, design: .rounded))
+                            .cmuxFont(size: 12, weight: .medium, design: .rounded)
                             .monospacedDigit()
                             .frame(width: 44, alignment: .trailing)
 
@@ -149,11 +242,103 @@ public struct TerminalSection: View {
 
                     if fontSaveFailed {
                         Text(String(localized: "settings.terminal.tabBarFontSize.saveFailed", defaultValue: "Couldn't save tab bar font size. Please try again."))
-                            .font(.caption)
+                            .cmuxFont(.caption)
                             .foregroundStyle(.red)
                             .multilineTextAlignment(.trailing)
                             .fixedSize(horizontal: false, vertical: true)
                     }
+                }
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.sessionContentMaxWidth"),
+                String(localized: "settings.terminal.sessionContentWidth", defaultValue: "Session Content Width"),
+                subtitle: sessionContentWidthSubtitle,
+                controlWidth: 250
+            ) {
+                HStack(spacing: 8) {
+                    Toggle("", isOn: sessionContentWidthToggleBinding)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                        .accessibilityIdentifier("SettingsSessionContentWidthToggle")
+                        .accessibilityLabel(
+                            String(
+                                localized: "settings.terminal.sessionContentWidth.toggle",
+                                defaultValue: "Limit session content width"
+                            )
+                        )
+
+                    TextField("", value: sessionContentWidthEditorBinding, format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 72)
+                        .disabled(!sessionContentWidthEnabled)
+                        .accessibilityIdentifier("SettingsSessionContentWidthField")
+                        .accessibilityLabel(
+                            String(localized: "settings.terminal.sessionContentWidth", defaultValue: "Session Content Width")
+                        )
+
+                    Text(String(localized: "settings.terminal.sessionContentWidth.unit", defaultValue: "pt"))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.sessionContentAlignment"),
+                String(localized: "settings.terminal.sessionContentAlignment", defaultValue: "Session Content Alignment"),
+                subtitle: String(
+                    localized: "settings.terminal.sessionContentAlignment.subtitle",
+                    defaultValue: "Places width-capped content within the pane."
+                ),
+                controlWidth: 250
+            ) {
+                Picker(
+                    "",
+                    selection: Binding(
+                        get: { sessionContentAlignment.current },
+                        set: { sessionContentAlignment.set($0) }
+                    )
+                ) {
+                    ForEach(SessionContentAlignment.allCases, id: \.self) { alignment in
+                        Text(sessionContentAlignmentTitle(alignment)).tag(alignment)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                .frame(width: 210)
+                .disabled(!sessionContentWidthEnabled)
+                .accessibilityIdentifier("SettingsSessionContentAlignmentPicker")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.scrollSpeed"),
+                String(localized: "settings.terminal.scrollSpeed", defaultValue: "Scroll Speed"),
+                subtitle: String(localized: "settings.terminal.scrollSpeed.subtitle", defaultValue: "Multiplier applied to terminal scroll wheel and trackpad deltas. Higher scrolls faster."),
+                controlWidth: 250
+            ) {
+                HStack(spacing: 8) {
+                    Slider(
+                        value: Binding(get: { displayedScrollSpeed }, set: { activeScrollSpeedDragValue = $0 }),
+                        in: TerminalCatalogSection.scrollSpeedMinimum...TerminalCatalogSection.scrollSpeedMaximum,
+                        step: 0.05
+                    ) { editing in
+                        if !editing { commitScrollSpeedDrag() }
+                    }
+                    .frame(width: 130)
+                    .accessibilityIdentifier("SettingsTerminalScrollSpeedSlider")
+
+                    Text(String.localizedStringWithFormat(String(localized: "settings.terminal.scrollSpeed.value", defaultValue: "%.2f×"), displayedScrollSpeed))
+                        .cmuxFont(size: 12, weight: .medium, design: .rounded)
+                        .monospacedDigit()
+                        .frame(width: 44, alignment: .trailing)
+
+                    Button(String(localized: "settings.terminal.scrollSpeed.reset", defaultValue: "Reset")) {
+                        activeScrollSpeedDragValue = nil
+                        scrollSpeed.set(TerminalCatalogSection.scrollSpeedDefault)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(abs(displayedScrollSpeed - TerminalCatalogSection.scrollSpeedDefault) < 0.001)
                 }
             }
             SettingsCardDivider()
@@ -174,8 +359,8 @@ public struct TerminalSection: View {
                 configurationReview: .json("terminal.copyOnSelect"),
                 String(localized: "settings.terminal.copyOnSelect", defaultValue: "Copy on Selection"),
                 subtitle: copyOnSelect.current
-                    ? String(localized: "settings.terminal.copyOnSelect.subtitleOn", defaultValue: "Selected terminal text is copied to the system clipboard when the selection is committed.")
-                    : String(localized: "settings.terminal.copyOnSelect.subtitleOff", defaultValue: "Terminal selections do not replace the system clipboard. Use Cmd+C to copy manually.")
+                    ? String(localized: "settings.terminal.copyOnSelect.subtitleOn", defaultValue: "Selected terminal text is also copied to the system clipboard when the selection is committed.")
+                    : String(localized: "settings.terminal.copyOnSelect.subtitleOff", defaultValue: "cmux does not add system-clipboard copy on selection. Ghostty config still controls Paste Selection.")
             ) {
                 Toggle("", isOn: Binding(get: { copyOnSelect.current }, set: { copyOnSelect.set($0) }))
                     .labelsHidden()

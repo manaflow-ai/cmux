@@ -1,0 +1,490 @@
+import AppKit
+import CmuxControlSocket
+import Foundation
+
+extension TerminalController {
+    func validateDockSurfaceCreateRouting(
+        routing: ControlRoutingSelectors,
+        tabManager: TabManager,
+        panelType: PanelType
+    ) -> ControlSurfaceCreateResolution? {
+        validateDockCreateRouting(
+            routing: routing,
+            tabManager: tabManager,
+            panelType: panelType,
+            unsupportedType: { .dockUnsupportedType(typeRawValue: $0, message: $1) },
+            dockUnavailable: { .dockUnavailable(message: $0) },
+            workspaceNotFound: .workspaceNotFound,
+            conflictingSelectors: { .dockConflictingRoutingSelectors(message: $0) }
+        )
+    }
+
+    func validateDockPaneCreateRouting(
+        routing: ControlRoutingSelectors,
+        tabManager: TabManager,
+        panelType: PanelType
+    ) -> ControlPaneCreateResolution? {
+        validateDockCreateRouting(
+            routing: routing,
+            tabManager: tabManager,
+            panelType: panelType,
+            unsupportedType: { .dockUnsupportedType(typeRawValue: $0, message: $1) },
+            dockUnavailable: { .dockUnavailable(message: $0) },
+            workspaceNotFound: .workspaceNotFound,
+            conflictingSelectors: { .dockConflictingRoutingSelectors(message: $0) }
+        )
+    }
+
+    func validateDockCreateRouting<Resolution>(
+        routing: ControlRoutingSelectors,
+        tabManager: TabManager,
+        panelType: PanelType,
+        unsupportedType: (String, String) -> Resolution,
+        dockUnavailable: (String) -> Resolution,
+        workspaceNotFound: Resolution,
+        conflictingSelectors: (String) -> Resolution
+    ) -> Resolution? {
+        guard panelType == .terminal || panelType == .browser else {
+            return unsupportedType(panelType.rawValue, dockUnsupportedSurfaceTypeMessage())
+        }
+        guard RightSidebarMode.dock.isAvailable() else {
+            return dockUnavailable(dockUnavailableMessage())
+        }
+        guard let dockOwnerId = windowDockOwnerIdForCreateRouting(routing, tabManager: tabManager) else {
+            return workspaceNotFound
+        }
+        guard !windowDockCreateRoutingConflicts(routing, dockOwnerId: dockOwnerId, aliasTabManager: tabManager) else {
+            return conflictingSelectors(dockConflictingRoutingSelectorsMessage())
+        }
+        return nil
+    }
+
+    @discardableResult
+    func revealDockForFocus(tabManager: TabManager) -> Bool {
+        let preferredWindow = v2ResolveWindowId(tabManager: tabManager)
+            .flatMap { AppDelegate.shared?.mainWindow(for: $0) }
+        return AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
+            mode: .dock,
+            focusFirstItem: false,
+            preferredWindow: preferredWindow
+        ) ?? false
+    }
+
+    func dockUnsupportedSurfaceTypeMessage() -> String {
+        String(localized: "dock.error.unsupportedSurfaceType", defaultValue: "Dock placement supports only terminal and browser surfaces")
+    }
+
+    func dockUnavailableMessage() -> String {
+        String(localized: "dock.error.unavailable", defaultValue: "Dock placement is disabled")
+    }
+
+    func dockConflictingRoutingSelectorsMessage() -> String {
+        String(localized: "dock.error.conflictingRoutingSelectors", defaultValue: "Conflicting Dock routing selectors")
+    }
+
+    /// Creates a surface (tab) in the routed window's right-sidebar Dock. The
+    /// Dock hosts terminal and browser surfaces only; agent-session is unsupported.
+    func dockSurfaceCreate(
+        routing: ControlRoutingSelectors,
+        tabManager: TabManager,
+        panelType: PanelType,
+        url: URL?,
+        inputs: ControlSurfaceCreateInputs
+    ) -> ControlSurfaceCreateResolution {
+        if let invalid = validateDockSurfaceCreateRouting(routing: routing, tabManager: tabManager, panelType: panelType) {
+            return invalid
+        }
+        guard let dockOwnerId = windowDockOwnerIdForCreateRouting(routing, tabManager: tabManager) else {
+            return .workspaceNotFound
+        }
+        guard let dock = AppDelegate.shared?.windowDockForRegisteredOwner(dockOwnerId) else {
+            return .workspaceNotFound
+        }
+        guard let paneId = dock.resolvePane(requestedPaneID: inputs.requestedPaneID) else {
+            return .paneNotFound
+        }
+        let focus = v2FocusAllowed(requested: inputs.requestedFocus)
+        let kind: DockSurfaceKind = (panelType == .browser) ? .browser : .terminal
+        if focus {
+            focusAndRevealWindowDock(for: dock, fallback: tabManager)
+        }
+        let newPanelId = dock.newSurface(
+            kind: kind,
+            inPane: paneId,
+            url: kind == .browser ? url : nil,
+            command: kind == .terminal ? inputs.initialCommand : nil,
+            workingDirectory: kind == .terminal ? inputs.workingDirectory : nil,
+            environment: inputs.startupEnvironment,
+            tmuxStartCommand: kind == .terminal ? inputs.tmuxStartCommand : nil,
+            focus: focus
+        )
+        guard let newPanelId else {
+            return .createFailed
+        }
+        return .createdDock(
+            windowID: dock.workspaceId,
+            workspaceID: dock.workspaceId,
+            dockPaneID: paneId.id,
+            dockSurfaceID: newPanelId,
+            typeRawValue: panelType.rawValue
+        )
+    }
+
+    func resolveSurfaceCreateWorkspace(
+        routing: ControlRoutingSelectors,
+        tabManager: TabManager
+    ) -> Workspace? {
+        return resolveSurfaceWorkspace(routing: routing, tabManager: tabManager)
+    }
+
+    func dockReferenceWindowId(app: AppDelegate, tabManager: TabManager) -> UUID? {
+        app.windowId(for: tabManager) ?? v2ResolveWindowId(tabManager: tabManager)
+    }
+
+    func windowDockContainingPanel(_ surfaceId: UUID) -> DockSplitStore? {
+        AppDelegate.shared?.windowDockContainingPanel(surfaceId)
+    }
+
+    func windowDockContainingPane(_ paneId: UUID) -> DockSplitStore? {
+        AppDelegate.shared?.windowDockContainingPane(paneId)
+    }
+
+    /// Routes commands to a window Dock by alias, owner id, surface id, or pane id.
+    /// Explicit window/owner/surface/pane selectors must agree. A registered
+    /// owner whose Dock has not been created fails closed instead of falling
+    /// through to another Dock's surface/pane; non-Dock workspace ids remain
+    /// compatible with CLI-injected caller context.
+    func windowDockForRouting(_ routing: ControlRoutingSelectors, tabManager: TabManager) -> DockSplitStore? {
+        guard let app = AppDelegate.shared else { return nil }
+        func matches(_ dock: DockSplitStore) -> Bool {
+            !windowDockMismatchesExplicitWindow(routing, dock: dock) &&
+                !windowDockMismatchesExplicitDockSurfaceOrPane(routing, dock: dock)
+        }
+        if let workspaceID = routing.workspaceID {
+            if workspaceID == AppDelegate.windowDockAliasWorkspaceId {
+                guard let dock = app.windowDock(for: tabManager) else { return nil }
+                return matches(dock) ? dock : nil
+            }
+            if app.tabManagerForWindowDockOwner(workspaceID) != nil {
+                guard let dock = app.existingWindowDock(forWindowId: workspaceID) else { return nil }
+                return matches(dock) ? dock : nil
+            }
+        }
+        if let surfaceID = routing.surfaceID,
+           let dock = windowDockContainingPanel(surfaceID) {
+            return matches(dock) ? dock : nil
+        }
+        if let paneID = routing.paneID,
+           let dock = windowDockContainingPane(paneID) {
+            return matches(dock) ? dock : nil
+        }
+        return nil
+    }
+
+    /// The window Dock owner targeted by a Dock create request. Explicit Dock-owner
+    /// selectors (including the legacy alias pinned to the caller window) still
+    /// choose the owner first, but a non-Dock `workspace_id` can be an injected
+    /// caller context; in that case an explicit Dock surface/pane selector is
+    /// more specific and chooses its containing window Dock before fallback.
+    ///
+    /// This intentionally returns an id, not a store: invalid contradictory
+    /// create requests must be rejected without lazily materializing a Dock.
+    func windowDockOwnerIdForCreateRouting(_ routing: ControlRoutingSelectors, tabManager: TabManager) -> UUID? {
+        guard let app = AppDelegate.shared else { return nil }
+        if let workspaceID = routing.workspaceID {
+            if workspaceID == AppDelegate.windowDockAliasWorkspaceId {
+                return app.windowId(for: tabManager)
+            }
+            if app.tabManagerForWindowDockOwner(workspaceID) != nil {
+                return workspaceID
+            }
+        }
+        if let surfaceID = routing.surfaceID,
+           let dock = windowDockContainingPanel(surfaceID) {
+            return dock.workspaceId
+        }
+        if let paneID = routing.paneID,
+           let dock = windowDockContainingPane(paneID) {
+            return dock.workspaceId
+        }
+        return app.windowId(for: tabManager)
+    }
+
+    /// Whether an explicit `window_id` contradicts `dock`'s owning window (a
+    /// window Dock's owner id IS its window id). Contradictions fail closed.
+    func windowDockMismatchesExplicitWindow(_ routing: ControlRoutingSelectors, dock: DockSplitStore) -> Bool {
+        guard routing.hasWindowIDParam, let requestedWindowID = routing.windowID else { return false }
+        return dock.workspaceId != requestedWindowID
+    }
+
+    /// Whether a routed surface or pane explicitly belongs to another window
+    /// Dock. Non-Dock surface/pane ids are not conflicts here: the CLI can
+    /// inject a main-workspace `workspace_id` beside a globally unique Dock
+    /// surface id, and the surface/pane id remains the more specific selector.
+    func windowDockMismatchesExplicitDockSurfaceOrPane(_ routing: ControlRoutingSelectors, dock: DockSplitStore) -> Bool {
+        if let surfaceID = routing.surfaceID,
+           let containingDock = windowDockContainingPanel(surfaceID),
+           containingDock !== dock {
+            return true
+        }
+        if let paneID = routing.paneID,
+           let containingDock = windowDockContainingPane(paneID),
+           containingDock !== dock {
+            return true
+        }
+        return false
+    }
+
+    /// Whether the routing explicitly names a DIFFERENT window Dock than
+    /// `dock` — via `window_id` or a Dock-owner `workspace_id`. Used by the
+    /// surface-containment paths that bypass `windowDockForRouting`; a
+    /// non-Dock `workspace_id` never conflicts (see `windowDockForRouting`).
+    func windowDockMismatchesExplicitSelectors(
+        _ routing: ControlRoutingSelectors,
+        dock: DockSplitStore,
+        aliasTabManager: TabManager? = nil
+    ) -> Bool {
+        windowDockRoutingConflicts(routing, dockOwnerId: dock.workspaceId, aliasTabManager: aliasTabManager)
+    }
+
+    /// Whether a Dock create request carries explicit selectors that name a
+    /// different window Dock than the one the create path resolved. Create has
+    /// no post-mutation containment guard, so reject these before adding panels.
+    func windowDockCreateRoutingConflicts(
+        _ routing: ControlRoutingSelectors,
+        dockOwnerId: UUID,
+        aliasTabManager: TabManager
+    ) -> Bool {
+        windowDockRoutingConflicts(routing, dockOwnerId: dockOwnerId, aliasTabManager: aliasTabManager)
+    }
+
+    /// The single selector-conflict check behind both forms above: whether the
+    /// routing explicitly names a window Dock other than `dockOwnerId`'s — via
+    /// `window_id`, a Dock surface/pane in another window's Dock, the legacy
+    /// alias resolving to another window, or a different Dock-owner
+    /// `workspace_id`. Window Docks are 1:1 with windows and an owner id IS its
+    /// window id, so comparing ids is equivalent to comparing stores. Works on
+    /// the id, not the store, so contradictory requests can be rejected without
+    /// lazily materializing a Dock.
+    func windowDockRoutingConflicts(
+        _ routing: ControlRoutingSelectors,
+        dockOwnerId: UUID,
+        aliasTabManager: TabManager?
+    ) -> Bool {
+        if routing.hasWindowIDParam,
+           let requestedWindowID = routing.windowID,
+           requestedWindowID != dockOwnerId {
+            return true
+        }
+        if let surfaceID = routing.surfaceID,
+           let containingDock = windowDockContainingPanel(surfaceID),
+           containingDock.workspaceId != dockOwnerId {
+            return true
+        }
+        if let paneID = routing.paneID,
+           let containingDock = windowDockContainingPane(paneID),
+           containingDock.workspaceId != dockOwnerId {
+            return true
+        }
+        guard let workspaceID = routing.workspaceID else { return false }
+        if workspaceID == AppDelegate.windowDockAliasWorkspaceId {
+            guard let aliasTabManager,
+                  let aliasWindowId = AppDelegate.shared?.windowId(for: aliasTabManager) else { return false }
+            return aliasWindowId != dockOwnerId
+        }
+        guard AppDelegate.shared?.tabManagerForWindowDockOwner(workspaceID) != nil else { return false }
+        return workspaceID != dockOwnerId
+    }
+
+    /// Focuses the Dock's owning window, makes it the active manager, and
+    /// reveals the Dock there, returning the owning manager. A Dock surface or
+    /// pane renders only in its owning window (the registry is the source of
+    /// truth), so Dock focus operations anchor there even when the caller's
+    /// routed context resolved another window.
+    @discardableResult
+    func focusAndRevealWindowDock(for dock: DockSplitStore, fallback tabManager: TabManager) -> TabManager {
+        let owningTabManager = dockOwnerTabManager(for: dock, fallback: tabManager)
+        _ = AppDelegate.shared?.focusMainWindow(windowId: dock.workspaceId)
+        setActiveTabManager(owningTabManager)
+        revealDockForFocus(tabManager: owningTabManager)
+        return owningTabManager
+    }
+
+    /// The window-Dock branch of `controlSurfaceClose`: closes the routed
+    /// Dock's resolved surface and reports the Dock's owning window. Returns
+    /// `nil` when the routing does not target a window Dock (the caller falls
+    /// through to the workspace close path).
+    func controlWindowDockSurfaceClose(
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID?,
+        tabManager: TabManager
+    ) -> ControlSurfaceCloseResolution? {
+        guard let windowDock = windowDockForRouting(routing, tabManager: tabManager) else { return nil }
+        let resolved = resolvedWindowDockSurfaceId(
+            explicitSurfaceID: surfaceID,
+            hasSurfaceIDParam: false,
+            routing: routing,
+            dock: windowDock
+        )
+        guard let surfaceId = resolved.surfaceID else {
+            return .noFocusedSurface
+        }
+        guard windowDock.containsPanel(surfaceId) else {
+            return .closeFailed(surfaceId)
+        }
+        guard windowDock.closePanel(surfaceId, force: true) else {
+            return .closeFailed(surfaceId)
+        }
+        AppDelegate.shared?.notificationStore?.clearNotifications(
+            forTabId: windowDock.workspaceId,
+            surfaceId: surfaceId
+        )
+        return .closed(
+            windowID: dockResultWindowId(for: windowDock, tabManager: tabManager),
+            workspaceID: windowDock.workspaceId,
+            surfaceID: surfaceId
+        )
+    }
+
+    /// The window id Dock-scoped results report and Dock-scoped focus targets.
+    /// A window Dock's owner id IS its window id, and the registry is the single
+    /// source of truth for which window renders a Dock surface — the routed
+    /// `tabManager` can be a different window when the caller's context
+    /// (injected workspace/window selectors) disagrees with the surface's home.
+    func dockResultWindowId(for dock: DockSplitStore, tabManager: TabManager) -> UUID? {
+        dock.scope == .global ? dock.workspaceId : v2ResolveWindowId(tabManager: tabManager)
+    }
+
+    /// The `TabManager` Dock-scoped focus/reveal should act on: the Dock's
+    /// owning window. Falls back to the routed manager only for workspace Docks
+    /// (whose reveal semantics are unchanged) — see `dockResultWindowId`.
+    func dockOwnerTabManager(for dock: DockSplitStore, fallback: TabManager) -> TabManager {
+        guard dock.scope == .global else { return fallback }
+        return AppDelegate.shared?.tabManagerFor(windowId: dock.workspaceId) ?? fallback
+    }
+
+    func orderedPanels(in dock: DockSplitStore) -> [any Panel] {
+        var seenPanelIds: Set<UUID> = []
+        var ordered: [any Panel] = []
+        for tabId in dock.bonsplitController.allTabIds {
+            guard let panel = dock.panel(for: tabId),
+                  seenPanelIds.insert(panel.id).inserted else { continue }
+            ordered.append(panel)
+        }
+        return ordered
+    }
+
+    func dockPanelTitle(_ panel: any Panel, in dock: DockSplitStore) -> String {
+        guard let tabId = dock.surfaceId(forPanelId: panel.id),
+              let paneId = dock.paneId(forPanelId: panel.id),
+              let tab = dock.bonsplitController.tabs(inPane: paneId).first(where: { $0.id == tabId }) else {
+            return panel.displayTitle
+        }
+        return tab.title
+    }
+
+    func resolvedSurfaceIdForClose(
+        explicitSurfaceID: UUID?,
+        routing: ControlRoutingSelectors,
+        fallbackWorkspace: Workspace
+    ) -> UUID? {
+        if let explicitSurfaceID {
+            return explicitSurfaceID
+        }
+        if let routedSurfaceID = routing.surfaceID {
+            return routedSurfaceID
+        }
+        // A dock-routing workspace_id never reaches here: controlSurfaceClose
+        // handles it through windowDockForRouting before resolving a workspace.
+        return fallbackWorkspace.focusedPanelId
+    }
+
+    func resolvedWindowDockSurfaceId(
+        explicitSurfaceID: UUID?,
+        hasSurfaceIDParam: Bool,
+        routing: ControlRoutingSelectors,
+        dock: DockSplitStore
+    ) -> (surfaceID: UUID?, invalidSurfaceID: Bool) {
+        if hasSurfaceIDParam && explicitSurfaceID == nil {
+            return (nil, true)
+        }
+        if let explicitSurfaceID {
+            return (explicitSurfaceID, false)
+        }
+        if let routedSurfaceID = routing.surfaceID {
+            return (routedSurfaceID, false)
+        }
+        return (dock.focusedPanelId, false)
+    }
+
+    func terminalPanel(
+        in dock: DockSplitStore,
+        explicitSurfaceID: UUID?,
+        hasSurfaceIDParam: Bool,
+        routing: ControlRoutingSelectors
+    ) -> (surfaceID: UUID?, terminalPanel: TerminalPanel?, invalidSurfaceID: Bool) {
+        let resolved = resolvedWindowDockSurfaceId(
+            explicitSurfaceID: explicitSurfaceID,
+            hasSurfaceIDParam: hasSurfaceIDParam,
+            routing: routing,
+            dock: dock
+        )
+        guard let surfaceID = resolved.surfaceID else {
+            return (nil, nil, resolved.invalidSurfaceID)
+        }
+        return (surfaceID, dock.panels[surfaceID] as? TerminalPanel, false)
+    }
+
+    func locateDockSurface(_ surfaceId: UUID) -> (windowId: UUID, workspaceId: UUID, tabManager: TabManager)? {
+        guard let app = AppDelegate.shared else { return nil }
+        // Indexed path: only workspaces/windows that actually have a Dock
+        // register a live store, so this asks each store's authoritative
+        // `containsPanel` instead of walking every window × workspace tab.
+        // Falls through to the scan if a store can't be located.
+        for store in DockSplitStore.liveStores where store.containsPanel(surfaceId) {
+            if let location = dockStoreLocation(store, app: app) {
+                return (location.windowId, location.workspaceId, location.tabManager)
+            }
+        }
+        for summary in app.listMainWindowSummaries() {
+            guard let manager = app.tabManagerFor(windowId: summary.windowId),
+                  let workspace = manager.tabs.first(where: { $0.containsDockPanel(surfaceId) }) else { continue }
+            return (summary.windowId, workspace.id, manager)
+        }
+        return nil
+    }
+
+    func locateDockPane(_ paneId: UUID) -> (windowId: UUID, workspaceId: UUID, tabManager: TabManager, workspace: Workspace)? {
+        guard let app = AppDelegate.shared else { return nil }
+        for store in DockSplitStore.liveStores where store.containsPane(paneId) {
+            if let location = dockStoreLocation(store, app: app), let workspace = location.workspace {
+                return (location.windowId, location.workspaceId, location.tabManager, workspace)
+            }
+        }
+        for summary in app.listMainWindowSummaries() {
+            guard let manager = app.tabManagerFor(windowId: summary.windowId),
+                  let workspace = manager.tabs.first(where: { $0.containsDockPane(paneId) }) else { continue }
+            return (summary.windowId, workspace.id, manager, workspace)
+        }
+        return nil
+    }
+
+    /// Resolves the owning window, workspace id, tab manager, and (for
+    /// per-workspace Docks) the `Workspace` for a live Dock `store`. Used by the
+    /// indexed `locateDockSurface` / `locateDockPane` paths.
+    private func dockStoreLocation(
+        _ store: DockSplitStore,
+        app: AppDelegate
+    ) -> (windowId: UUID, workspaceId: UUID, tabManager: TabManager, workspace: Workspace?)? {
+        if store.scope == .global {
+            // Window Dock: its owner id IS the owning window's id.
+            let windowId = store.workspaceId
+            guard let tabManager = app.tabManagerFor(windowId: windowId) else { return nil }
+            return (windowId, store.workspaceId, tabManager, tabManager.selectedWorkspace ?? tabManager.tabs.first)
+        }
+        guard let tabManager = app.tabManagerFor(tabId: store.workspaceId),
+              let workspace = tabManager.tabs.first(where: { $0.id == store.workspaceId }),
+              let windowId = dockReferenceWindowId(app: app, tabManager: tabManager) else { return nil }
+        return (windowId, store.workspaceId, tabManager, workspace)
+    }
+}

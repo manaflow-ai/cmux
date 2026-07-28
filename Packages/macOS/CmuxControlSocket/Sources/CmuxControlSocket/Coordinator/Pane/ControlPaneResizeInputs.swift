@@ -10,36 +10,57 @@ public struct ControlPaneResizeInputs: Sendable, Equatable {
     /// The explicit `pane_id` target, if any; the seam falls back to the focused
     /// pane when absent.
     public let paneID: UUID?
-    /// The lowercased `absolute_axis` (`horizontal`/`vertical`), if the request
-    /// took the absolute-resize path.
-    public let absoluteAxis: String?
-    /// The `target_pixels` for the absolute-resize path, if present.
-    public let targetPixels: Double?
-    /// The lowercased `direction` (`left|right|up|down`), if the request took the
-    /// relative-resize path.
-    public let direction: String?
-    /// The relative-resize `amount` (defaulting to 1, as the legacy body did).
-    public let amount: Int
+    /// The validated operation and its coordinate system.
+    public let intent: ControlPaneResizeIntent
+
+    /// Legacy projection used only by the unchanged local Bonsplit mutation path.
+    public var absoluteAxis: String? {
+        switch intent {
+        case .outerAbsolute(let axis, _),
+             .tmuxAbsoluteCells(let axis, _, _),
+             .tmuxAbsolutePercentage(let axis, _, _): return axis
+        case .borderRelative, .tmuxRelative: return nil
+        }
+    }
+
+    /// Legacy outer-point projection used only by the local Bonsplit path.
+    public var targetPixels: Double? {
+        switch intent {
+        case .outerAbsolute(_, let points): return points
+        case .tmuxAbsoluteCells(_, _, let points),
+             .tmuxAbsolutePercentage(_, _, let points): return points
+        case .borderRelative, .tmuxRelative: return nil
+        }
+    }
+
+    /// Legacy direction projection used only by the local Bonsplit path.
+    public var direction: String? {
+        switch intent {
+        case .borderRelative(let direction, _), .tmuxRelative(let direction, _, _): return direction
+        case .outerAbsolute, .tmuxAbsoluteCells, .tmuxAbsolutePercentage: return nil
+        }
+    }
+
+    /// Legacy point delta used only by the local Bonsplit path, or `nil` when
+    /// an exact tmux request had no trustworthy local-metrics projection.
+    public var amount: Int? {
+        switch intent {
+        case .borderRelative(_, let points): return points
+        case .tmuxRelative(_, _, let points): return points
+        case .outerAbsolute, .tmuxAbsoluteCells, .tmuxAbsolutePercentage: return nil
+        }
+    }
 
     /// Creates the pane-resize inputs.
     ///
     /// - Parameters:
     ///   - paneID: The explicit `pane_id` target, if any.
-    ///   - absoluteAxis: The lowercased absolute axis, if present.
-    ///   - targetPixels: The absolute target pixels, if present.
-    ///   - direction: The lowercased relative direction, if present.
-    ///   - amount: The relative amount.
+    ///   - intent: The validated resize operation and coordinate system.
     public init(
         paneID: UUID?,
-        absoluteAxis: String?,
-        targetPixels: Double?,
-        direction: String?,
-        amount: Int
+        intent: ControlPaneResizeIntent
     ) {
         self.paneID = paneID
-        self.absoluteAxis = absoluteAxis
-        self.targetPixels = targetPixels
-        self.direction = direction
-        self.amount = amount
+        self.intent = intent
     }
 }

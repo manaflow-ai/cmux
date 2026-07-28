@@ -83,14 +83,134 @@ public struct UITestConfig {
     ///
     /// When `CMUX_UITEST_WORKSPACE_LIST_PREVIEW=1`, the root view renders a
     /// static workspace list with an unread row so layout screenshots can verify
-    /// the avatar column and unread indicator without sign-in or Mac pairing.
+    /// the leading workspace-row indicators without sign-in or Mac pairing.
     /// DEBUG-only.
     public static var workspaceListLayoutPreviewEnabled: Bool {
         #if DEBUG
         return ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW"] == "1"
+            || workspaceDetailDelayedTerminalPreviewEnabled
+            || workspaceDetailCreateDelayedTerminalPreviewEnabled
+            || Self.workspaceDetailRefreshingTerminalMenuPreviewEnabled
+            || ProcessInfo.processInfo.arguments.contains("CMUX_UITEST_WORKSPACE_LIST_PREVIEW=1")
         #else
         return false
         #endif
+    }
+
+    /// Changes preview mode selected by `CMUX_UITEST_CHANGES_PREVIEW`.
+    ///
+    /// Supported DEBUG-only values are `1`, `diff`, `empty`, and `states`.
+    /// Unknown or absent values return `nil` so normal root routing continues.
+    public static var changesPreviewMode: String? {
+        changesPreviewMode(
+            from: ProcessInfo.processInfo.environment,
+            arguments: ProcessInfo.processInfo.arguments
+        )
+    }
+
+    /// Resolves a changes preview mode from explicit process inputs.
+    /// - Parameters:
+    ///   - env: Environment dictionary to inspect.
+    ///   - arguments: Launch arguments to inspect after the environment.
+    /// - Returns: A supported preview mode or `nil`.
+    public static func changesPreviewMode(
+        from env: [String: String],
+        arguments: [String] = []
+    ) -> String? {
+        #if DEBUG
+        let value = env["CMUX_UITEST_CHANGES_PREVIEW"]
+            ?? arguments.first(where: {
+                $0.hasPrefix("CMUX_UITEST_CHANGES_PREVIEW=")
+            })?.split(separator: "=", maxSplits: 1).last.map(String.init)
+        guard let value, ["1", "diff", "empty", "states"].contains(value) else { return nil }
+        return value
+        #else
+        return nil
+        #endif
+    }
+
+    /// Whether the standalone task-composer accessibility preview is enabled.
+    ///
+    /// The preview presents the production sheet with deterministic templates
+    /// and a paired Mac, so UI tests can inspect its native accessibility tree
+    /// without depending on authentication or network pairing. DEBUG-only.
+    public static var taskComposerPreviewEnabled: Bool {
+        taskComposerPreviewEnabled(from: ProcessInfo.processInfo.environment)
+    }
+
+    /// Returns whether an explicit environment enables the standalone task
+    /// composer accessibility preview.
+    ///
+    /// - Parameter env: The environment dictionary to inspect.
+    /// - Returns: `true` only for a DEBUG build whose preview value is `"1"`.
+    public static func taskComposerPreviewEnabled(from env: [String: String]) -> Bool {
+        #if DEBUG
+        return env["CMUX_UITEST_TASK_COMPOSER_PREVIEW"] == "1"
+        #else
+        return false
+        #endif
+    }
+
+    /// Whether the workspace detail delayed-terminal lifecycle preview is enabled.
+    ///
+    /// When `CMUX_UITEST_WORKSPACE_DETAIL_DELAYED_TERMINAL=1`, the root view renders
+    /// a connected workspace shell already opened to a fresh workspace with no
+    /// terminal, then updates that same workspace with a terminal. DEBUG-only.
+    public static var workspaceDetailDelayedTerminalPreviewEnabled: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_DETAIL_DELAYED_TERMINAL"] == "1"
+        #else
+        return false
+        #endif
+    }
+
+    /// Whether the workspace detail create-workspace delayed-terminal lifecycle
+    /// preview is enabled.
+    ///
+    /// When `CMUX_UITEST_WORKSPACE_DETAIL_CREATE_DELAYED_TERMINAL=1`, the root
+    /// view renders a connected workspace shell opened to an existing workspace.
+    /// The actual new-workspace toolbar button creates a fresh workspace without
+    /// a terminal, then the preview injects that terminal after a delay. DEBUG-only.
+    public static var workspaceDetailCreateDelayedTerminalPreviewEnabled: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_DETAIL_CREATE_DELAYED_TERMINAL"] == "1"
+        #else
+        return false
+        #endif
+    }
+
+    /// Whether the standalone streaming-chat preview is enabled.
+    ///
+    /// When `CMUX_UITEST_STREAMING_CHAT_PREVIEW=1`, the root view renders a
+    /// self-playing agent chat that drives the real conversation store with live
+    /// `streamingProse` events, so the incremental streaming preview can be
+    /// recorded on the simulator without sign-in or Mac pairing. DEBUG-only.
+    public static var streamingChatPreviewEnabled: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["CMUX_UITEST_STREAMING_CHAT_PREVIEW"] == "1"
+        #else
+        return false
+        #endif
+    }
+
+    /// Whether the standalone agent-chat preview is enabled.
+    ///
+    /// When `CMUX_UITEST_AGENT_CHAT_PREVIEW=1`, the root view renders the
+    /// debug chat fixture directly so XCUITest can exercise chat layout without
+    /// sign-in, pairing, or workspace-shell timing. DEBUG-only.
+    public static var agentChatPreviewEnabled: Bool {
+        UITestEnvironmentConfig(environment: ProcessInfo.processInfo.environment)
+            .agentChatPreviewEnabled
+    }
+
+    /// Whether the inline workspace-shaped agent-chat preview is enabled.
+    ///
+    /// When `CMUX_UITEST_AGENT_CHAT_INLINE_PREVIEW=1`, the root view renders the
+    /// debug chat fixture with the same outer navigation/padding shape as the
+    /// in-place workspace chat pane, without sign-in or Mac pairing. DEBUG-only.
+    public static var agentChatInlinePreviewEnabled: Bool {
+        UITestEnvironmentConfig(environment: ProcessInfo.processInfo.environment)
+            .agentChatInlinePreviewEnabled
     }
 
     /// Whether mock data is enabled for an explicit environment.

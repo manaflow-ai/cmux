@@ -186,6 +186,13 @@ extension AppDelegate {
         if let snapshot = liveRegisteredMainWindowRouteSnapshots().first(where: { $0.windowId == windowId }) {
             return snapshot.tabManager
         }
+        // A registered context remains the windowId→manager authority even
+        // when its NSWindow is gone (mid-teardown) or absent (windowless test
+        // contexts); otherwise window-scoped routing silently falls back to
+        // another window's manager.
+        if let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }) {
+            return context.tabManager
+        }
         return recoverableMainWindowRouteSnapshot(windowId: windowId)?.tabManager
     }
 
@@ -351,6 +358,30 @@ extension AppDelegate {
             }
         }
         return nil
+    }
+
+    /// One-pass `tabId -> workspace title` index across every window context.
+    /// Callers can limit the projection to the workspace ids they render, keeping
+    /// notification lists O(tabs + groups) rather than O(notifications × tabs).
+    /// Window contexts win, then the active `tabManager` fills any missing ids.
+    /// See https://github.com/manaflow-ai/cmux/issues/5794.
+    func tabTitlesByTabId(for requestedTabIds: Set<UUID>? = nil) -> [UUID: String] {
+        var titles: [UUID: String] = [:]
+
+        func appendTitles(from manager: TabManager) {
+            let candidateIds = requestedTabIds ?? Set(manager.tabs.map(\.id))
+            let unresolvedIds = candidateIds.subtracting(titles.keys)
+            titles.merge(manager.resolvedWorkspaceDisplayTitles(for: unresolvedIds)) { current, _ in current }
+        }
+
+        for context in mainWindowContexts.values {
+            appendTitles(from: context.tabManager)
+            if let requestedTabIds, titles.count == requestedTabIds.count { return titles }
+        }
+        if let remainingTitleSource = tabManager {
+            appendTitles(from: remainingTitleSource)
+        }
+        return titles
     }
 
     /// Returns the `TabManager` that owns `tabId`, if any.

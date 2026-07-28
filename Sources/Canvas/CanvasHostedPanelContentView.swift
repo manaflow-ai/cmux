@@ -1,5 +1,6 @@
 import SwiftUI
 import Bonsplit
+import CmuxAppKitSupportUI
 
 /// SwiftUI fallback content for canvas panes whose panel kind is not yet
 /// direct-hosted (browser, markdown, file preview, agent session, ...).
@@ -8,13 +9,15 @@ import Bonsplit
 /// known v1 caveat is that window-portal content inside these views clips by
 /// resizing at the viewport edge instead of cropping.
 struct CanvasHostedPanelContentView: View {
+    @Bindable var presentation: CanvasHostedPanelPresentation
     let panel: any Panel
     let workspaceId: UUID
     let paneId: PaneID
-    let isFocused: Bool
     let isVisibleInUI: Bool
     let portalPriority: Int
     let appearance: PanelAppearance
+    let windowAppearance: WindowAppearanceSnapshot
+    let customSidebarTabManager: TabManager?
     let onRequestPanelFocus: () -> Void
 
     var body: some View {
@@ -22,12 +25,16 @@ struct CanvasHostedPanelContentView: View {
             panel: panel,
             workspaceId: workspaceId,
             paneId: paneId,
-            isFocused: isFocused,
+            isFocused: presentation.isFocused,
             isSelectedInPane: true,
             isVisibleInUI: isVisibleInUI,
+            allowsPointerInput: presentation.allowsPointerInput,
+            pointerEntryEventFilter: presentation.acceptsPointerEntryEvent,
             portalPriority: portalPriority,
             isSplit: false,
             appearance: appearance,
+            windowAppearance: windowAppearance,
+            customSidebarTabManager: customSidebarTabManager,
             hasUnreadNotification: false,
             terminalAgentContext: "",
             onFocus: onRequestPanelFocus,

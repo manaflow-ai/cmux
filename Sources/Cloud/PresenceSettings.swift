@@ -21,18 +21,21 @@ enum PresenceSettings {
     /// See workers/presence/README.md.
     static let debugDefaultServiceURL = "https://cmux-presence-dev.debussy.workers.dev"
 
-    /// Whether the heartbeat gate is on. An explicitly written value always
-    /// wins; with no stored value, Debug builds default to enabled (dev Stack
-    /// identity + dev service URL make this safe and dogfood-ready) and
-    /// Release builds to disabled.
+    /// The production presence worker (prod Stack project), the Release-build
+    /// default so stable cmux can announce presence once the user enables mobile.
+    /// See workers/presence/README.md.
+    static let productionServiceURL = "https://presence.cmux.dev"
+
+    /// Whether the heartbeat gate is on. An explicitly written value always wins.
+    /// With no stored value, presence FOLLOWS the mobile feature: announcing the
+    /// Mac's presence only makes sense once the user has enabled iOS pairing/host
+    /// (``MobileHostService/isListeningEnabled``), and a user who turns mobile on
+    /// expects their phone to see the Mac online. Default (mobile off) => off, for
+    /// privacy — the Mac announces nothing until the user opts into mobile.
     static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
         if defaults.object(forKey: enabledKey) != nil {
             return defaults.bool(forKey: enabledKey)
         }
-        #if DEBUG
-        return true
-        #else
-        return false
-        #endif
+        return MobileHostService.isListeningEnabled(defaults: defaults)
     }
 }

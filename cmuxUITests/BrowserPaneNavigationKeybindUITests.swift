@@ -1316,7 +1316,6 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             "Expected command palette to dismiss after creating a workspace"
         )
     }
-
     private func focusLeftPaneForFindScenario(_ app: XCUIApplication, route: FindFocusRoute) {
         switch route {
         case .cmdOptionArrows:
@@ -1370,6 +1369,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = diagnosticsPath
         app.launchEnvironment["CMUX_TAG"] = launchTag
+        app.launchEnvironment["CMUX_UI_TEST_TARGET_DISPLAY_ID"] = ProcessInfo.processInfo.environment["CMUX_UI_TEST_TARGET_DISPLAY_ID"]
     }
 
     private func socketReadinessFailureMessage() -> String {
@@ -1561,11 +1561,14 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
     }
 
     private func waitForCondition(timeout: TimeInterval, predicate: @escaping () -> Bool) -> Bool {
-        let expectation = XCTNSPredicateExpectation(
-            predicate: NSPredicate { _, _ in predicate() },
-            object: nil
-        )
-        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if predicate() {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        } while Date() < deadline
+        return predicate()
     }
 
     private final class ControlSocketClient {

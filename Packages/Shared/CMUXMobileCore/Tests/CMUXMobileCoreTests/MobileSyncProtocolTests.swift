@@ -199,6 +199,39 @@ import Testing
     }
 }
 
+@Test func frameCodecRejectsAZeroLengthFrameFloodAtTheCallerLimit() throws {
+    let emptyFrame = try MobileSyncFrameCodec.encodeFrame(Data())
+    var buffer = Data()
+    for _ in 0..<10_000 {
+        buffer.append(emptyFrame)
+    }
+
+    do {
+        _ = try MobileSyncFrameCodec.decodeFrames(
+            from: &buffer,
+            maximumDecodedFrameCount: 16
+        )
+        Issue.record("Expected the decoded frame count limit to fail closed")
+    } catch let error as MobileSyncFrameCodecError {
+        #expect(error == .tooManyFrames(16))
+        #expect(buffer.count == (10_000 - 16) * emptyFrame.count)
+    }
+}
+
+@Test func frameCodecDefaultFrameCountLimitIsFinite() throws {
+    let emptyFrame = try MobileSyncFrameCodec.encodeFrame(Data())
+    var buffer = Data()
+    for _ in 0...MobileSyncFrameCodec.defaultMaximumDecodedFrameCount {
+        buffer.append(emptyFrame)
+    }
+
+    #expect(throws: MobileSyncFrameCodecError.tooManyFrames(
+        MobileSyncFrameCodec.defaultMaximumDecodedFrameCount
+    )) {
+        _ = try MobileSyncFrameCodec.decodeFrames(from: &buffer)
+    }
+}
+
 private func base64URLEncode(_ data: Data) -> String {
     data.base64EncodedString()
         .replacingOccurrences(of: "+", with: "-")

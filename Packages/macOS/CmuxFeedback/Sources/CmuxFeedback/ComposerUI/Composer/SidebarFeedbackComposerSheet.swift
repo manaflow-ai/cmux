@@ -1,3 +1,4 @@
+import CmuxFoundation
 public import SwiftUI
 import AppKit
 
@@ -39,7 +40,7 @@ public struct SidebarFeedbackComposerSheet: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text(String(localized: "sidebar.help.feedback.title", defaultValue: "Send Feedback", bundle: .module))
-                .font(.title3.weight(.semibold))
+                .cmuxFont(.title3, weight: .semibold)
 
             if didSend {
                 successView
@@ -60,7 +61,7 @@ public struct SidebarFeedbackComposerSheet: View {
     private var successView: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(String(localized: "sidebar.help.feedback.successTitle", defaultValue: "Thanks for the feedback.", bundle: .module))
-                .font(.headline)
+                .cmuxFont(.headline)
             Text(
                 String(
                     localized: "sidebar.help.feedback.successBody",
@@ -68,7 +69,7 @@ public struct SidebarFeedbackComposerSheet: View {
                     bundle: .module
                 )
             )
-            .font(.system(size: 12))
+            .cmuxFont(size: 12)
             .foregroundStyle(.secondary)
             .textSelection(.enabled)
 
@@ -91,12 +92,12 @@ public struct SidebarFeedbackComposerSheet: View {
                     bundle: .module
                 )
             )
-            .font(.system(size: 12))
+            .cmuxFont(size: 12)
             .foregroundStyle(.secondary)
 
             VStack(alignment: .leading, spacing: 6) {
                 Text(String(localized: "sidebar.help.feedback.email", defaultValue: "Your Email", bundle: .module))
-                    .font(.system(size: 12, weight: .medium))
+                    .cmuxFont(size: 12, weight: .medium)
                 TextField(
                     String(localized: "sidebar.help.feedback.emailPlaceholder", defaultValue: "you@example.com", bundle: .module),
                     text: $email
@@ -109,10 +110,10 @@ public struct SidebarFeedbackComposerSheet: View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .firstTextBaseline) {
                     Text(String(localized: "sidebar.help.feedback.message", defaultValue: "Message", bundle: .module))
-                        .font(.system(size: 12, weight: .medium))
+                        .cmuxFont(size: 12, weight: .medium)
                     Spacer(minLength: 0)
                     Text("\(message.count)/\(Self.settings.maxMessageLength)")
-                        .font(.system(size: 11))
+                        .cmuxFont(size: 11)
                         .foregroundStyle(
                             message.count > Self.settings.maxMessageLength
                                 ? Color.red
@@ -152,7 +153,7 @@ public struct SidebarFeedbackComposerSheet: View {
                             bundle: .module
                         )
                     )
-                    .font(.system(size: 11))
+                    .cmuxFont(size: 11)
                     .foregroundStyle(.secondary)
                 }
 
@@ -163,12 +164,12 @@ public struct SidebarFeedbackComposerSheet: View {
                                 Image(systemName: "photo")
                                     .foregroundStyle(.secondary)
                                 Text(attachment.fileName)
-                                    .font(.system(size: 12))
+                                    .cmuxFont(size: 12)
                                     .lineLimit(1)
                                     .truncationMode(.middle)
                                 Spacer(minLength: 0)
                                 Text(attachment.displaySize)
-                                    .font(.system(size: 11))
+                                    .cmuxFont(size: 11)
                                     .foregroundStyle(.secondary)
                                 Button(
                                     String(localized: "sidebar.help.feedback.removeAttachment", defaultValue: "Remove", bundle: .module)
@@ -189,7 +190,7 @@ public struct SidebarFeedbackComposerSheet: View {
 
             if let submissionErrorMessage, submissionErrorMessage.isEmpty == false {
                 Text(submissionErrorMessage)
-                    .font(.system(size: 12))
+                    .cmuxFont(size: 12)
                     .foregroundStyle(.red)
             }
 

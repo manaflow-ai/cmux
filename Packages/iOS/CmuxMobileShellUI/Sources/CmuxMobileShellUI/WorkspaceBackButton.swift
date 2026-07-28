@@ -4,34 +4,31 @@ import SwiftUI
 /// Custom back control for the workspace detail that folds the unread-workspace
 /// count INTO the back button itself (one button), instead of a separate pill.
 /// When other workspaces are unread it reads as "‹ 3"; otherwise it is just the
-/// chevron. Tinted with the primary label color (white on the dark terminal bar,
-/// black on a light bar) rather than the accent blue, so the count reads as plain
-/// text with no colored background. The button widens to fit the count.
+/// chevron.
 struct WorkspaceBackButton: View {
     let unreadCount: Int
+    var badgeContrast: WorkspaceBackButtonBadgeContrast = .lightBackground
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             HStack(spacing: 5) {
                 Image(systemName: "chevron.backward")
-                    .fontWeight(.semibold)
+                    .font(.system(size: 17, weight: .semibold))
+                    .imageScale(.medium)
                     .foregroundStyle(.primary)
+                    .frame(width: 17, height: 22)
                 if unreadCount > 0 {
                     Text(countText)
                         // Smaller than the chevron, on a small mono circle.
                         .font(.caption2.weight(.semibold))
                         .monospacedDigit()
-                        // Number contrasts the circle: dark on the white circle
-                        // (dark bar) / light on the black circle (light bar).
-                        .foregroundStyle(Color(.systemBackground))
+                        .foregroundStyle(badgeTextColor)
                         .padding(2)
                         .frame(minWidth: 18, minHeight: 18)
-                        // White/black circle (adapts), not the accent blue.
-                        .background(.primary, in: .circle)
+                        .background(badgeFillColor, in: .circle)
                 }
             }
-            .contentShape(.rect)
         }
         .accessibilityLabel(accessibilityLabel)
         .accessibilityIdentifier("MobileWorkspaceBackButton")
@@ -41,6 +38,24 @@ struct WorkspaceBackButton: View {
     /// still hears the exact count via the label.
     private var countText: String {
         unreadCount > 99 ? "99+" : "\(unreadCount)"
+    }
+
+    private var badgeFillColor: Color {
+        switch badgeContrast {
+        case .darkBackground:
+            .white
+        case .lightBackground:
+            .black
+        }
+    }
+
+    private var badgeTextColor: Color {
+        switch badgeContrast {
+        case .darkBackground:
+            .black
+        case .lightBackground:
+            .white
+        }
     }
 
     private var accessibilityLabel: String {

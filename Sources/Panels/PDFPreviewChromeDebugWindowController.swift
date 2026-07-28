@@ -1,3 +1,4 @@
+import CmuxFoundation
 import AppKit
 import SwiftUI
 
@@ -8,6 +9,7 @@ private enum PDFPreviewChromeDebugAction {
     case zoomToFit
     case rotateLeft
     case rotateRight
+    case refresh
 
     var title: String {
         switch self {
@@ -23,6 +25,8 @@ private enum PDFPreviewChromeDebugAction {
             String(localized: "filePreview.pdf.rotateLeft", defaultValue: "Rotate Left")
         case .rotateRight:
             String(localized: "filePreview.pdf.rotateRight", defaultValue: "Rotate Right")
+        case .refresh:
+            String(localized: "filePreview.refresh", defaultValue: "Refresh")
         }
     }
 
@@ -40,6 +44,8 @@ private enum PDFPreviewChromeDebugAction {
             "rotate.left"
         case .rotateRight:
             "rotate.right"
+        case .refresh:
+            "arrow.clockwise"
         }
     }
 }
@@ -68,7 +74,7 @@ private struct PDFPreviewChromeDebugView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 Text(String(localized: "debug.pdfPreviewChrome.heading", defaultValue: "PDF Preview Chrome"))
-                    .font(.headline)
+                    .cmuxFont(.headline)
 
                 Text(
                     String(
@@ -76,7 +82,7 @@ private struct PDFPreviewChromeDebugView: View {
                         defaultValue: "Choose the floating control style used by PDF previews."
                     )
                 )
-                .font(.subheadline)
+                .cmuxFont(.subheadline)
                 .foregroundStyle(.secondary)
 
                 GroupBox(String(localized: "debug.pdfPreviewChrome.toolbarReference", defaultValue: "Native Window Toolbar")) {
@@ -87,7 +93,7 @@ private struct PDFPreviewChromeDebugView: View {
                                 defaultValue: "Use the buttons in this debug window's titlebar toolbar to test real NSToolbar hover and press feedback."
                             )
                         )
-                        .font(.system(size: 12))
+                        .cmuxFont(size: 12)
                         .foregroundStyle(.secondary)
 
                         actionStatus
@@ -112,7 +118,7 @@ private struct PDFPreviewChromeDebugView: View {
                             currentVariant.title
                         )
                     )
-                    .font(.system(size: 11, weight: .medium))
+                    .cmuxFont(size: 11, weight: .medium)
                     .foregroundStyle(.secondary)
 
                     Spacer()
@@ -135,7 +141,7 @@ private struct PDFPreviewChromeDebugView: View {
     private var actionStatus: some View {
         if model.actionCount == 0 {
             Text(String(localized: "debug.pdfPreviewChrome.noActions", defaultValue: "No sample actions yet."))
-                .font(.system(size: 11, design: .monospaced))
+                .cmuxFont(size: 11, design: .monospaced)
                 .foregroundStyle(.secondary)
         } else {
             Text(
@@ -148,7 +154,7 @@ private struct PDFPreviewChromeDebugView: View {
                     model.actionCount
                 )
             )
-            .font(.system(size: 11, design: .monospaced))
+            .cmuxFont(size: 11, design: .monospaced)
             .foregroundStyle(.secondary)
         }
     }
@@ -163,7 +169,7 @@ private struct PDFPreviewChromeDebugView: View {
                     .frame(width: 16)
 
                 Text(variant.title)
-                    .font(.system(size: 13, weight: .medium))
+                    .cmuxFont(size: 13, weight: .medium)
 
                 Spacer()
 
@@ -180,7 +186,7 @@ private struct PDFPreviewChromeDebugView: View {
 
             HStack(spacing: 8) {
                 Text(String(localized: "debug.pdfPreviewChrome.sampleLabel", defaultValue: "Sample"))
-                    .font(.system(size: 11))
+                    .cmuxFont(size: 11)
                     .foregroundStyle(.secondary)
                     .frame(width: 48, alignment: .leading)
 
@@ -224,7 +230,8 @@ private struct PDFPreviewChromeDebugSample: View {
             zoomIn: { model.record(.zoomIn) },
             zoomToFit: { model.record(.zoomToFit) },
             rotateLeft: { model.record(.rotateLeft) },
-            rotateRight: { model.record(.rotateRight) }
+            rotateRight: { model.record(.rotateRight) },
+            refresh: { model.record(.refresh) }
         )
     }
 }

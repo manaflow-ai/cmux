@@ -1,3 +1,4 @@
+import CmuxFoundation
 import AppKit
 import SwiftUI
 
@@ -28,7 +29,7 @@ enum TitlebarLayoutDebugSettingsSnapshot {
     static func copyPayload(defaults: UserDefaults = .standard) -> String {
         let snapshot = MinimalModeTitlebarDebugSettings.snapshot(defaults: defaults)
         return """
-        titlebarControlsStyle=\(defaults.integer(forKey: "titlebarControlsStyle"))
+        titlebarControlsStyle=\(TitlebarControlsStyle.stored(in: defaults).rawValue)
         leftControlsLeadingInset=\(String(format: "%.1f", snapshot.leftControlsLeadingInset))
         leftControlsTopInset=\(String(format: "%.1f", snapshot.leftControlsTopInset))
         trafficLightTabBarLeadingInset=\(String(format: "%.1f", snapshot.trafficLightTabBarLeadingInset))
@@ -91,7 +92,7 @@ final class TitlebarLayoutDebugWindowController: ReleasingWindowController {
 }
 
 private struct TitlebarLayoutDebugView: View {
-    @AppStorage("titlebarControlsStyle") private var titlebarControlsStyleRawValue = TitlebarControlsStyle.classic.rawValue
+    @AppStorage(TitlebarControlsStyle.storageKey) private var titlebarControlsStyleRawValue = TitlebarControlsStyle.defaultRawValue
     @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey) private var leftControlsLeadingInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset
     @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey) private var leftControlsTopInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset
     @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightTabBarInsetKey) private var trafficLightTabBarInset = MinimalModeTitlebarDebugSettings.defaultTrafficLightTabBarInset
@@ -102,7 +103,7 @@ private struct TitlebarLayoutDebugView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 Text(String(localized: "debug.titlebarLayoutDebug.title", defaultValue: "Titlebar Layout Debug"))
-                    .font(.headline)
+                    .cmuxFont(.headline)
 
                 GroupBox(String(localized: "debug.titlebarLayoutDebug.titlebarControls", defaultValue: "Titlebar Controls")) {
                     VStack(alignment: .leading, spacing: 10) {
@@ -193,7 +194,7 @@ private struct TitlebarLayoutDebugView: View {
                 .frame(width: 112, alignment: .leading)
             Slider(value: clamped, in: range, step: step)
             Text(String(format: "%.1f", clamped.wrappedValue))
-                .font(.system(.caption, design: .monospaced))
+                .cmuxFont(.caption, design: .monospaced)
                 .frame(width: 44, alignment: .trailing)
         }
     }

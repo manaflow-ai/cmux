@@ -4,6 +4,7 @@
 // presence layer.
 
 import type { HeartbeatInput, PresenceRoute } from "./core";
+import { sanitizePublishedRoutes } from "./routePrivacy";
 
 export const MAX_REQUEST_BYTES = 16 * 1024;
 export const MAX_TAG_LENGTH = 64;
@@ -59,6 +60,13 @@ export function parseHeartbeat(body: Record<string, unknown>): HeartbeatParse {
     return { ok: false, error: "invalid_display_name" };
   }
 
+  // The app's bundle id, so the phone can label the build channel (Stable /
+  // Nightly / RC / DEV) on the Computers screen. Opaque, bounded like a name.
+  const bundleId = trimmedString(body.bundleId);
+  if (bundleId.length > MAX_DISPLAY_NAME_LENGTH) {
+    return { ok: false, error: "invalid_bundle_id" };
+  }
+
   let capabilities: string[] | undefined;
   if (body.capabilities !== undefined) {
     if (!Array.isArray(body.capabilities)) return { ok: false, error: "invalid_capabilities" };
@@ -82,9 +90,9 @@ export function parseHeartbeat(body: Record<string, unknown>): HeartbeatParse {
   // rejected rather than coerced like the registry route does, because under
   // presence semantics a silent coercion would either wipe pushed routes
   // (treat-as-empty) or mask a client bug (treat-as-absent). Entry filtering
-  // mirrors the registry: keep only plain objects, bounded by MAX_ROUTES;
-  // semantic `CmxAttachRoute` validation stays client-owned so new route kinds
-  // flow through without a worker ship.
+  // mirrors the registry: keep only plain objects, bounded by MAX_ROUTES.
+  // Legacy route semantics stay client-owned. Iroh routes are then reduced to
+  // EndpointID plus an approved managed relay URL.
   let routes: PresenceRoute[] | undefined;
   if (body.routes !== undefined) {
     if (!Array.isArray(body.routes)) return { ok: false, error: "invalid_routes" };
@@ -102,6 +110,7 @@ export function parseHeartbeat(body: Record<string, unknown>): HeartbeatParse {
       if (routeBytes > MAX_ROUTES_TOTAL_BYTES) break;
       routes.push(entry as PresenceRoute);
     }
+    routes = sanitizePublishedRoutes(routes);
   }
 
   return {
@@ -111,6 +120,7 @@ export function parseHeartbeat(body: Record<string, unknown>): HeartbeatParse {
       tag,
       platform,
       displayName: displayName || undefined,
+      bundleId: bundleId || undefined,
       capabilities,
       stopping: stopping || undefined,
       routes,
@@ -124,9 +134,10 @@ export function parseHeartbeat(body: Record<string, unknown>): HeartbeatParse {
  * worker buffer more than MAX_REQUEST_BYTES. */
 export async function readBoundedJson(
   request: Request,
+  maxBytes: number = MAX_REQUEST_BYTES,
 ): Promise<{ ok: true; value: Record<string, unknown> } | { ok: false; status: number }> {
   const lengthHeader = request.headers.get("content-length");
-  if (lengthHeader && Number(lengthHeader) > MAX_REQUEST_BYTES) {
+  if (lengthHeader && Number(lengthHeader) > maxBytes) {
     return { ok: false, status: 413 };
   }
   if (!request.body) return { ok: false, status: 400 };
@@ -139,7 +150,7 @@ export async function readBoundedJson(
       const { done, value } = await reader.read();
       if (done) break;
       received += value.byteLength;
-      if (received > MAX_REQUEST_BYTES) {
+      if (received > maxBytes) {
         await reader.cancel();
         return { ok: false, status: 413 };
       }

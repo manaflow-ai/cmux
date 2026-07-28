@@ -146,13 +146,17 @@ def main() -> int:
 
         # Keep original workspace selected for better isolation across per-file runs.
         c.select_workspace(ws0)
-        _wait(
+        if not _wait(
             lambda: any(
                 wid == ws0 and selected
                 for _idx, wid, _title, selected in c.list_workspaces()
             ),
             timeout=2.0,
-        )
+        ):
+            current = c.list_workspaces()
+            raise cmuxError(
+                f"Expected workspace {ws0} to be selected after cleanup; workspaces={current}"
+            )
 
     print("PASS: surface.move/surface.reorder/workspace.reorder keep stable IDs and expected ordering")
     return 0

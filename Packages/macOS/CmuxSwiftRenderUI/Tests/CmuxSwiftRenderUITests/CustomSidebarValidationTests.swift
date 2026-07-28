@@ -119,13 +119,13 @@ struct CustomSidebarValidationTests {
     }
 
     private func examplesDirectory() -> URL {
-        URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Examples/CustomSidebars", isDirectory: true)
+        var directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        for _ in 0..<8 {
+            let candidate = directory.appendingPathComponent("Examples/CustomSidebars", isDirectory: true)
+            if FileManager.default.fileExists(atPath: candidate.path) { return candidate }
+            directory.deleteLastPathComponent()
+        }
+        return directory.appendingPathComponent("Examples/CustomSidebars", isDirectory: true)
     }
 
     private static let richSidebarContext: [String: SwiftValue] = [

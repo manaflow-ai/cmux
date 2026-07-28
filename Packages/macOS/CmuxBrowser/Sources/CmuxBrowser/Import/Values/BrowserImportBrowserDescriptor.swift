@@ -9,6 +9,8 @@ public struct BrowserImportBrowserDescriptor: Hashable, Sendable {
     public let id: String
     /// Human-readable browser name.
     public let displayName: String
+    /// Extra user-facing lookup names accepted by CLI and automation.
+    public let aliases: [String]
     /// The engine family used to decode the browser's data.
     public let family: BrowserImportEngineFamily
     /// Detection-priority tier; lower tiers are preferred when scores tie.
@@ -29,6 +31,7 @@ public struct BrowserImportBrowserDescriptor: Hashable, Sendable {
     /// - Parameters:
     ///   - id: Stable slug identifier.
     ///   - displayName: Human-readable browser name.
+    ///   - aliases: Extra user-facing lookup names accepted by CLI and automation.
     ///   - family: The engine family used to decode the browser's data.
     ///   - tier: Detection-priority tier; lower tiers are preferred on ties.
     ///   - bundleIdentifiers: Known bundle identifiers for the application.
@@ -39,6 +42,7 @@ public struct BrowserImportBrowserDescriptor: Hashable, Sendable {
     public init(
         id: String,
         displayName: String,
+        aliases: [String] = [],
         family: BrowserImportEngineFamily,
         tier: Int,
         bundleIdentifiers: [String],
@@ -49,6 +53,7 @@ public struct BrowserImportBrowserDescriptor: Hashable, Sendable {
     ) {
         self.id = id
         self.displayName = displayName
+        self.aliases = aliases
         self.family = family
         self.tier = tier
         self.bundleIdentifiers = bundleIdentifiers
@@ -78,6 +83,7 @@ public struct BrowserImportBrowserDescriptor: Hashable, Sendable {
         BrowserImportBrowserDescriptor(
             id: "google-chrome",
             displayName: "Google Chrome",
+            aliases: ["chrome"],
             family: .chromium,
             tier: 1,
             bundleIdentifiers: ["com.google.Chrome"],
@@ -104,7 +110,10 @@ public struct BrowserImportBrowserDescriptor: Hashable, Sendable {
             tier: 1,
             bundleIdentifiers: ["company.thebrowser.Browser", "company.thebrowser.arc"],
             appNames: ["Arc.app"],
-            dataRootRelativePaths: ["Library/Application Support/Arc"],
+            dataRootRelativePaths: [
+                "Library/Application Support/Arc/User Data",
+                "Library/Application Support/Arc",
+            ],
             dataArtifactRelativePaths: [],
             supportsDataOnlyDetection: true
         ),
@@ -198,7 +207,7 @@ public struct BrowserImportBrowserDescriptor: Hashable, Sendable {
             tier: 2,
             bundleIdentifiers: ["company.thebrowser.Dia", "company.thebrowser.dia"],
             appNames: ["Dia.app"],
-            dataRootRelativePaths: ["Library/Application Support/Dia"],
+            dataRootRelativePaths: ["Library/Application Support/Dia/User Data"],
             dataArtifactRelativePaths: [],
             supportsDataOnlyDetection: true
         ),

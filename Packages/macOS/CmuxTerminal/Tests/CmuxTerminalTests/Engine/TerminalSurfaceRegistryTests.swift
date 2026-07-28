@@ -64,6 +64,22 @@ struct TerminalSurfaceRegistryTests {
         #expect(!registry.isRightSidebarDockSurface(id: surface.id))
     }
 
+    @Test func topologyGenerationChangesOnlyForSurfaceTopologyMutations() {
+        let registry = TerminalSurfaceRegistry()
+        let surface = FakeSurface()
+        let initial = registry.topologyGeneration
+
+        registry.register(surface)
+        let registered = registry.topologyGeneration
+        #expect(registered > initial)
+
+        registry.updateFocusPlacement(id: surface.id, .rightSidebarDock)
+        #expect(registry.topologyGeneration == registered)
+
+        registry.unregister(surface)
+        #expect(registry.topologyGeneration > registered)
+    }
+
     @Test func placementSurvivesWhileAnotherSurfaceSharesTheId() {
         let registry = TerminalSurfaceRegistry()
         let sharedId = UUID()
@@ -156,6 +172,32 @@ struct TerminalSurfaceRegistryTests {
         registry.register(surface)
         registry.unregister(surface)
         #expect(registry.surface(id: surface.id) == nil)
+    }
+
+    @Test func updateFocusPlacementFlipsRecordedPlacement() {
+        let registry = TerminalSurfaceRegistry()
+        let surface = FakeSurface(focusPlacement: .workspace)
+        registry.register(surface)
+        #expect(!registry.isRightSidebarDockSurface(id: surface.id))
+
+        // Moving a live surface into the dock re-records its placement so the
+        // dock-surface predicate (portal layering, focus cycling) sees the move
+        // without recreating the surface.
+        registry.updateFocusPlacement(id: surface.id, .rightSidebarDock)
+        #expect(registry.isRightSidebarDockSurface(id: surface.id))
+
+        registry.updateFocusPlacement(id: surface.id, .workspace)
+        #expect(!registry.isRightSidebarDockSurface(id: surface.id))
+    }
+
+    @Test func updateFocusPlacementIgnoresUnregisteredId() {
+        let registry = TerminalSurfaceRegistry()
+        // A move record for an id with no live surface must not resurrect a
+        // dropped placement entry.
+        registry.updateFocusPlacement(id: UUID(), .rightSidebarDock)
+        let strayId = UUID()
+        registry.updateFocusPlacement(id: strayId, .rightSidebarDock)
+        #expect(!registry.isRightSidebarDockSurface(id: strayId))
     }
 
     @Test func diagnosticSnapshotDropsUnregisteredSurfacesAndRuntimePointers() throws {

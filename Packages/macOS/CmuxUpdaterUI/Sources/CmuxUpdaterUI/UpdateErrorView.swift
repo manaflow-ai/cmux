@@ -1,3 +1,4 @@
+import CmuxFoundation
 public import SwiftUI
 public import CmuxUpdater
 import AppKit
@@ -12,8 +13,11 @@ struct UpdateErrorView: View {
     var body: some View {
         let title = UpdateStateModel.userFacingErrorTitle(for: error.error)
         let message = UpdateStateModel.userFacingErrorMessage(for: error.error)
-        let downloadURL = UpdateStateModel.manualDownloadURL(for: error.error)
-        let details = UpdateStateModel.errorDetails(
+        let downloadURL = UpdateManualDownloadRecovery().url(
+            for: error.error,
+            feedURLString: error.feedURLString
+        )
+        let details = UpdateErrorDetailsFormatter().details(
             for: error.error,
             technicalDetails: error.technicalDetails,
             feedURLString: error.feedURLString,
@@ -25,13 +29,13 @@ struct UpdateErrorView: View {
                 HStack(spacing: 8) {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundColor(.orange)
-                        .font(.system(size: 13))
+                        .cmuxFont(size: 13)
                     Text(title)
-                        .font(.system(size: 13, weight: .semibold))
+                        .cmuxFont(size: 13, weight: .semibold)
                 }
 
                 Text(message)
-                    .font(.system(size: 11))
+                    .cmuxFont(size: 11)
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -52,10 +56,10 @@ struct UpdateErrorView: View {
 
             VStack(alignment: .leading, spacing: 6) {
                 Text(String(localized: "update.popover.details", defaultValue: "Details"))
-                    .font(.system(size: 11, weight: .semibold))
+                    .cmuxFont(size: 11, weight: .semibold)
                 ScrollView(.vertical) {
                     Text(details)
-                        .font(.system(size: 10, design: .monospaced))
+                        .cmuxFont(size: 10, design: .monospaced)
                         .foregroundColor(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
