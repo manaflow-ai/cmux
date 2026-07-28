@@ -4,9 +4,9 @@ import { PlatformDownloadPage } from "../platform-download-page";
 import { isPlatformDownloadAvailable } from "@/app/lib/download";
 import { browserDownloadSeoCopy } from "@/i18n/audited-seo";
 import {
+  browserOpenGraphDefaults,
+  browserTwitterSummary,
   buildAlternates,
-  openGraphDefaults,
-  twitterSummary,
 } from "@/i18n/seo";
 
 /** Builds localized metadata for the gated Linux download page. */
@@ -18,21 +18,32 @@ export async function generateMetadata({
   if (!isPlatformDownloadAvailable("linux")) notFound();
 
   const { locale } = await params;
-  const t = await getTranslations({ locale, namespace: "browserDownloads.linux" });
+  const browser = await getTranslations({
+    locale,
+    namespace: "browserDownloads",
+  });
+  const t = await getTranslations({
+    locale,
+    namespace: "browserDownloads.linux",
+  });
   const alternates = buildAlternates(locale, "/linux");
-  const { title, description } = browserDownloadSeoCopy(locale, t);
+  const { title, description } = browserDownloadSeoCopy(
+    locale,
+    t,
+    browser("eyebrow"),
+  );
 
   return {
     title,
     description,
     alternates,
     openGraph: {
-      ...openGraphDefaults(locale, "website"),
+      ...browserOpenGraphDefaults(title),
       title,
       description,
       url: alternates.canonical,
     },
-    twitter: twitterSummary(locale, title, description),
+    twitter: browserTwitterSummary(title, description),
   };
 }
 

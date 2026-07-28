@@ -323,6 +323,7 @@ export function landingPageSeoCopy(
 export function browserDownloadSeoCopy(
   locale: string,
   t: SeoMessageLookup,
+  browserLabel: string,
 ) {
   const metaTitle = t("metaTitle");
   const name = t("name");
@@ -334,8 +335,8 @@ export function browserDownloadSeoCopy(
     title: seoTitle(locale, metaTitle, {
       minLength: conciseTitleLocales.has(locale) ? 0 : undefined,
       fallbackCandidates: [
-        `${metaTitle} — cmux Browser`,
-        `${name} — cmux Browser`,
+        `${metaTitle} — ${browserLabel}`,
+        `${name} — ${browserLabel}`,
       ],
       appendLocalizedContext: false,
     }),
