@@ -321,6 +321,32 @@ struct SimulatorPaneCoordinatorTests {
         #expect(await client.activations().last?.id == "pad")
     }
 
+    @Test("Explicit selection joins an in-flight activation for the same device")
+    func explicitSelectionJoinsMatchingActivation() async throws {
+        let phone = Self.device(id: "phone", family: .iPhone, state: .booted)
+        let client = SimulatorPaneClientSpy(
+            devices: [phone],
+            delaysActivation: true
+        )
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        await coordinator.start()
+        await eventually { await client.hasDelayedActivation() }
+
+        let selection = Task {
+            try await coordinator.selectDeviceAndWait(id: phone.id)
+        }
+        for _ in 0..<1_000 {
+            if await client.activations().count > 1 { break }
+            await Task.yield()
+        }
+        await client.resumeActivation()
+        try await selection.value
+
+        #expect(await client.activations().map(\.id) == [phone.id])
+        #expect(await client.activationCancellationCount() == 0)
+        #expect(coordinator.status == .streaming)
+    }
+
     @Test("Explicit startup never activates the persisted or default device first")
     func explicitStartupActivatesOnlyRequestedDevice() async throws {
         let client = SimulatorPaneClientSpy(devices: [
