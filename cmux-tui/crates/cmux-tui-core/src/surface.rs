@@ -2448,12 +2448,7 @@ impl Surface {
         mux: Weak<Mux>,
         identity: crate::terminal_host_runtime::TerminalHostIdentity,
     ) -> anyhow::Result<Arc<Surface>> {
-        let kitty_reservation =
-            mux.upgrade().map(|mux| mux.reserve_kitty_image_surface(id)).transpose()?;
-        let initial_kitty_limits = kitty_reservation
-            .as_ref()
-            .map(crate::mux::KittyImageBudgetReservation::initial_limits)
-            .unwrap_or_default();
+        let initial_kitty_limits = KittyGraphicsLimits::disabled();
         let title_changed = Arc::new(AtomicBool::new(false));
         let callbacks = hosted_terminal_callbacks(id, mux.clone(), title_changed);
         let (cols, rows) = (opts.cols.max(1), opts.rows.max(1));
@@ -2522,9 +2517,6 @@ impl Surface {
             render_generation: AtomicU64::new(1),
             frame_requests,
         }));
-        if let Some(reservation) = kitty_reservation {
-            reservation.commit(&surface, initial_kitty_limits)?;
-        }
         spawn_frame_producer(&surface, frame_rx)?;
         Ok(surface)
     }

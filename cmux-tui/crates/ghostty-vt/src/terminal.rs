@@ -2918,6 +2918,7 @@ impl Terminal {
         )?;
         let graphics_budget = remaining.saturating_sub(text.bytes.len());
         let graphics = catalog.plan(text.range, graphics_budget, false);
+        let reset_before_images = text.range.is_none();
         let interleaved = text.interleave(&graphics.placements).ok_or(Error::OutOfSpace)?;
 
         let total = graphics
@@ -2930,8 +2931,13 @@ impl Terminal {
             return Err(Error::OutOfSpace);
         }
         let mut bytes = Vec::with_capacity(total);
-        bytes.extend_from_slice(&graphics.image_bytes);
-        bytes.extend_from_slice(&interleaved);
+        if reset_before_images {
+            bytes.extend_from_slice(&interleaved);
+            bytes.extend_from_slice(&graphics.image_bytes);
+        } else {
+            bytes.extend_from_slice(&graphics.image_bytes);
+            bytes.extend_from_slice(&interleaved);
+        }
         let replay_cursor_offset = u32::try_from(bytes.len()).map_err(|_| Error::OutOfSpace)?;
         bytes.extend_from_slice(&inflight);
         Ok(VtReplay {
