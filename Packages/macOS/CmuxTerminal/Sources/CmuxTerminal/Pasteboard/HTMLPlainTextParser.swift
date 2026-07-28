@@ -89,8 +89,9 @@ struct HTMLPlainTextParser: Sendable {
         let normalizedData = HTMLFoundationCompatibilityNormalizer(
             hiddenTemplateAttributeName: hiddenTemplateAttributeName
         ).normalize(data)
+        let normalizedHTML = String(decoding: normalizedData, as: UTF8.self)
         guard let document = try? XMLDocument(
-            data: normalizedData,
+            xmlString: normalizedHTML,
             options: [
                 .documentTidyHTML,
                 .nodeLoadExternalEntitiesNever,
