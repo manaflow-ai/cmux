@@ -1,5 +1,6 @@
 enum ApplicationNamedKeySendResult: Equatable {
-    case sent
+    case queued
     case unknownKey
+    case inputQueueFull
     case surfaceUnavailable
 }

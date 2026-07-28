@@ -394,10 +394,12 @@ extension TerminalController {
                 return .applicationInputUnavailable(target.surfaceID, message: unavailableMessage)
             }
             switch applicationPanel.sendNamedKey(key) {
-            case .sent:
+            case .queued:
                 break
             case .unknownKey:
                 return .unknownKey
+            case .inputQueueFull:
+                return .inputQueueFull(target.surfaceID)
             case .surfaceUnavailable:
                 return .applicationInputUnavailable(target.surfaceID, message: unavailableMessage)
             }
@@ -405,7 +407,7 @@ extension TerminalController {
                 windowID: v2ResolveWindowId(tabManager: tabManager),
                 workspaceID: ws.id,
                 surfaceID: target.surfaceID,
-                queued: false
+                queued: true
             )
         }
         guard let target = ws.controlTerminalTarget(for: requestedSurfaceID) else {

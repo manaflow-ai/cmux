@@ -56,7 +56,7 @@ final class ApplicationCaptureView: NSView {
             let lease = self.lease,
             let sessionID = self.session?.sessionID
         else {
-            return
+            return false
         }
         do {
             try await self.runtime.sendApplicationSurfaceEvent(
@@ -64,8 +64,9 @@ final class ApplicationCaptureView: NSView {
                 sessionID: sessionID,
                 event: event
             )
+            return true
         } catch ApplicationSurfaceRuntimeError.pointOutsideContent {
-            return
+            return false
         } catch ApplicationSurfaceRuntimeError.windowUnavailable {
             self.handleRuntimeFailure(.windowUnavailable)
         } catch ApplicationSurfaceRuntimeError.permissionRequired {
@@ -73,11 +74,13 @@ final class ApplicationCaptureView: NSView {
         } catch {
             self.handleRuntimeFailure(.failed)
         }
+        return false
     }
 
     private var lease: ApplicationSurfaceRuntimeLease?
     private var session: ApplicationSurfaceSessionDescriptor?
     private var captureTask: Task<Void, Never>?
+    private var stopTask: Task<Void, Never>?
     private var captureGeneration = UUID()
     private var captureDesired = false
     private var targetUnavailable = false
@@ -167,7 +170,13 @@ final class ApplicationCaptureView: NSView {
     }
 
     func startCapture() {
-        guard captureDesired, !targetUnavailable, captureTask == nil, session == nil else {
+        guard
+            captureDesired,
+            !targetUnavailable,
+            captureTask == nil,
+            stopTask == nil,
+            session == nil
+        else {
             return
         }
         let generation = UUID()
@@ -238,20 +247,35 @@ final class ApplicationCaptureView: NSView {
         captureTask?.cancel()
         captureTask = nil
         remoteFrameView.setActive(false)
-        inputPump.cancelPending()
         pendingScrollX = 0
         pendingScrollY = 0
         pressedModifierKeyCodes.removeAll()
-        guard let session, let lease else {
-            self.session = nil
-            return
-        }
+        guard stopTask == nil else { return }
+        let session = session
+        let lease = lease
         self.session = nil
-        Task { @MainActor [runtime] in
-            await runtime.stopApplicationSurface(
-                lease: lease,
-                sessionID: session.sessionID
-            )
+        let runtime = runtime
+        let inputPump = inputPump
+        stopTask = Task { @MainActor [weak self] in
+            let releases = await inputPump.discardPendingAndTakeReleaseEvents()
+            if let session, let lease {
+                for event in releases {
+                    try? await runtime.sendApplicationSurfaceEvent(
+                        lease: lease,
+                        sessionID: session.sessionID,
+                        event: event
+                    )
+                }
+                await runtime.stopApplicationSurface(
+                    lease: lease,
+                    sessionID: session.sessionID
+                )
+            }
+            guard let self else { return }
+            self.stopTask = nil
+            if self.captureDesired {
+                self.startCapture()
+            }
         }
     }
 
@@ -264,21 +288,28 @@ final class ApplicationCaptureView: NSView {
     func sendNamedKey(
         keyCode: CGKeyCode,
         flags: CGEventFlags
-    ) -> Bool {
-        guard captureDesired, session != nil, lease != nil else { return false }
-        inputPump.enqueue(ApplicationSurfaceInputEvent(
+    ) -> ApplicationNamedKeySendResult {
+        guard captureDesired, session != nil, lease != nil else {
+            return .surfaceUnavailable
+        }
+        let keyDown = ApplicationSurfaceInputEvent(
             kind: .key,
             keyCode: keyCode,
             keyDown: true,
             modifiers: flags.rawValue
-        ))
-        inputPump.enqueue(ApplicationSurfaceInputEvent(
+        )
+        let keyUp = ApplicationSurfaceInputEvent(
             kind: .key,
             keyCode: keyCode,
             keyDown: false,
             modifiers: flags.rawValue
-        ))
-        return true
+        )
+        switch inputPump.enqueue([keyDown, keyUp]) {
+        case .accepted:
+            return .queued
+        case .full:
+            return .inputQueueFull
+        }
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -319,14 +350,17 @@ final class ApplicationCaptureView: NSView {
         pendingScrollX -= scrollX
         pendingScrollY -= scrollY
         guard scrollX != 0 || scrollY != 0 else { return }
-        inputPump.enqueue(ApplicationSurfaceInputEvent(
+        guard inputPump.enqueue(ApplicationSurfaceInputEvent(
             kind: .scroll,
             x: point.x,
             y: point.y,
             modifiers: UInt64(event.modifierFlags.rawValue),
             deltaX: scrollX,
             deltaY: scrollY
-        ))
+        )) == .accepted else {
+            handleInputQueueFull()
+            return
+        }
     }
 
     override func keyDown(with event: NSEvent) {
@@ -357,23 +391,29 @@ final class ApplicationCaptureView: NSView {
 
     private func enqueueMouse(_ event: NSEvent, kind: ApplicationSurfaceInputEvent.Kind) {
         guard let point = normalizedPoint(for: event) else { return }
-        inputPump.enqueue(ApplicationSurfaceInputEvent(
+        guard inputPump.enqueue(ApplicationSurfaceInputEvent(
             kind: kind,
             x: point.x,
             y: point.y,
             modifiers: UInt64(event.modifierFlags.rawValue),
             clickCount: event.clickCount
-        ))
+        )) == .accepted else {
+            handleInputQueueFull()
+            return
+        }
     }
 
     private func enqueueKey(_ event: NSEvent, keyDown: Bool) {
         guard captureDesired, session != nil, lease != nil else { return }
-        inputPump.enqueue(ApplicationSurfaceInputEvent(
+        guard inputPump.enqueue(ApplicationSurfaceInputEvent(
             kind: .key,
             keyCode: event.keyCode,
             keyDown: keyDown,
             modifiers: UInt64(event.modifierFlags.rawValue)
-        ))
+        )) == .accepted else {
+            handleInputQueueFull()
+            return
+        }
     }
 
     private func normalizedPoint(for event: NSEvent) -> CGPoint? {
@@ -404,6 +444,14 @@ final class ApplicationCaptureView: NSView {
         }
         onStateChanged(state)
         stopCapture()
+    }
+
+    private func handleInputQueueFull() {
+        cmuxDebugLog(
+            "applicationSurface.input.queueFull"
+                + " window=\(sourceWindowID)"
+        )
+        handleRuntimeFailure(.failed)
     }
 
     static func parseNamedKey(_ name: String) -> (keyCode: CGKeyCode, flags: CGEventFlags)? {
@@ -476,57 +524,4 @@ final class ApplicationCaptureView: NSView {
         )
     }
 
-}
-
-@MainActor
-private final class ApplicationSurfaceInputPump {
-    typealias Sender = @MainActor (ApplicationSurfaceInputEvent) async -> Void
-
-    private let sender: Sender
-    private var queue: [ApplicationSurfaceInputEvent] = []
-    private var drainTask: Task<Void, Never>?
-    private var generation = UUID()
-
-    init(sender: @escaping Sender) {
-        self.sender = sender
-    }
-
-    func enqueue(_ event: ApplicationSurfaceInputEvent) {
-        if event.kind.isCoalescibleMotion,
-           let lastIndex = queue.indices.last,
-           queue[lastIndex].kind.isCoalescibleMotion {
-            queue[lastIndex] = event
-        } else {
-            queue.append(event)
-        }
-        if queue.count > 64 {
-            queue.removeAll(where: { $0.kind.isCoalescibleMotion })
-        }
-        startDrainIfNeeded()
-    }
-
-    func cancelPending() {
-        generation = UUID()
-        drainTask?.cancel()
-        drainTask = nil
-        queue.removeAll()
-    }
-
-    private func startDrainIfNeeded() {
-        guard drainTask == nil else { return }
-        let generation = generation
-        drainTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            while !Task.isCancelled, self.generation == generation, !self.queue.isEmpty {
-                let event = self.queue.removeFirst()
-                await self.sender(event)
-            }
-            if self.generation == generation {
-                self.drainTask = nil
-                if !self.queue.isEmpty {
-                    self.startDrainIfNeeded()
-                }
-            }
-        }
-    }
 }

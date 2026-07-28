@@ -35,7 +35,7 @@ final class ApplicationPanel: Panel {
 
     private var targetTitle: String?
     @ObservationIgnored
-    private weak var hostedView: ApplicationCaptureView?
+    private var hostedView: ApplicationCaptureView?
     @ObservationIgnored
     private var activeCaptureToken: UUID?
     @ObservationIgnored
@@ -237,6 +237,33 @@ final class ApplicationPanel: Panel {
         return token
     }
 
+    func captureView(
+        windowID: CGWindowID,
+        processID: pid_t
+    ) -> ApplicationCaptureView {
+        if let hostedView {
+            return hostedView
+        }
+        let captureToken = beginCaptureSession()
+        let view = ApplicationCaptureView(
+            windowID: windowID,
+            processID: processID,
+            targetFrameRate: targetFrameRate,
+            runtime: runtime,
+            leaseProvider: { [weak self] in
+                await self?.applicationSurfaceLease()
+            },
+            onStateChanged: { [weak self] state in
+                self?.updateCaptureState(state, token: captureToken)
+            },
+            onMovedToWindow: { [weak self] view in
+                self?.captureViewDidMoveToWindow(view, token: captureToken)
+            }
+        )
+        attach(view, token: captureToken)
+        return view
+    }
+
     func setDisplayTitleChangeHandler(_ handler: @escaping (String) -> Void) {
         displayTitleDidChange = handler
     }
@@ -272,8 +299,11 @@ final class ApplicationPanel: Panel {
         captureState = state
     }
 
-    func setCaptureVisibleInUI(_ visible: Bool, token: UUID) {
-        guard activeCaptureToken == token else { return }
+    func setCaptureVisibleInUI(
+        _ visible: Bool,
+        view: ApplicationCaptureView
+    ) {
+        guard hostedView === view else { return }
         captureVisibleInUI = visible
         applyCaptureVisibility()
     }
@@ -291,7 +321,6 @@ final class ApplicationPanel: Panel {
         pickerRequestID = UUID()
         pendingFocus = false
         stopHostedCapture()
-        runtimeLease?.release()
         runtimeLease = nil
         displayTitleDidChange = nil
     }
@@ -313,13 +342,13 @@ final class ApplicationPanel: Panel {
         guard let parsed = ApplicationCaptureView.parseNamedKey(name) else {
             return .unknownKey
         }
-        guard hostedView?.sendNamedKey(
-            keyCode: parsed.keyCode,
-            flags: parsed.flags
-        ) == true else {
+        guard let hostedView else {
             return .surfaceUnavailable
         }
-        return .sent
+        return hostedView.sendNamedKey(
+            keyCode: parsed.keyCode,
+            flags: parsed.flags
+        )
     }
 
     func applicationSurfaceLease() async -> ApplicationSurfaceRuntimeLease? {

@@ -8,7 +8,7 @@ import Testing
 #endif
 
 @MainActor
-@Suite("Application surfaces")
+@Suite("Application surfaces", .serialized)
 struct ApplicationSurfaceTests {
     @Test func focusIntentWaitsForCaptureViewWindow() {
         let runtime = FakeApplicationSurfaceRuntime()
@@ -42,7 +42,10 @@ struct ApplicationSurfaceTests {
             backing: .buffered,
             defer: false
         )
-        defer { window.close() }
+        defer {
+            window.contentView = nil
+            window.orderOut(nil)
+        }
         window.contentView = view
 
         #expect(window.firstResponder === view)
@@ -260,7 +263,7 @@ struct ApplicationSurfaceTests {
         #expect(titleChanges == ["Calculator", "Application"])
     }
 
-    @Test func applicationPanelRetainsCaptureViewUntilPanelClose() {
+    @Test func applicationPanelRetainsCaptureViewAcrossRepresentableLifetime() {
         let runtime = FakeApplicationSurfaceRuntime()
         let panel = ApplicationPanel(
             workspaceId: UUID(),
@@ -287,7 +290,24 @@ struct ApplicationSurfaceTests {
 
         #expect(retainedView != nil)
         panel.close()
-        #expect(retainedView == nil)
+    }
+
+    @Test func applicationPanelReusesCaptureViewAcrossRepresentableRemounts() {
+        let runtime = FakeApplicationSurfaceRuntime()
+        let panel = ApplicationPanel(
+            workspaceId: UUID(),
+            windowID: 42,
+            processID: 43,
+            title: "Preview",
+            targetFrameRate: 60,
+            runtime: runtime
+        )!
+
+        let firstView = panel.captureView(windowID: 42, processID: 43)
+        let secondView = panel.captureView(windowID: 42, processID: 43)
+
+        #expect(firstView === secondView)
+        panel.close()
     }
 }
 

@@ -208,6 +208,7 @@
 		B9C454C9A61C652B239187F5 /* ApplicationPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB02C91CE0E90EF1C486B9EB /* ApplicationPanel.swift */; };
 		86EA36CE72323E5D628A65A2 /* ApplicationPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B78BEC351B28EBD42C1DCA8 /* ApplicationPanelView.swift */; };
 		A88300000000000000000006 /* ApplicationSurfaceCommandPaletteIntegration.swift in Sources */ = {isa = PBXBuildFile; fileRef = A88300000000000000000005 /* ApplicationSurfaceCommandPaletteIntegration.swift */; };
+		A88400000000000000000002 /* ApplicationSurfaceInputPump.swift in Sources */ = {isa = PBXBuildFile; fileRef = A88400000000000000000001 /* ApplicationSurfaceInputPump.swift */; };
 		A88300000000000000000004 /* ApplicationSurfacePickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A88300000000000000000003 /* ApplicationSurfacePickerView.swift */; };
 		A88300000000000000000002 /* ApplicationSurfaceRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = A88300000000000000000001 /* ApplicationSurfaceRuntime.swift */; };
 		A88200000000000000000002 /* ApplicationSurfaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A88200000000000000000001 /* ApplicationSurfaceTests.swift */; };
@@ -2636,6 +2637,7 @@
 		FB02C91CE0E90EF1C486B9EB /* ApplicationPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ApplicationPanel.swift; sourceTree = "<group>"; };
 		1B78BEC351B28EBD42C1DCA8 /* ApplicationPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ApplicationPanelView.swift; sourceTree = "<group>"; };
 		A88300000000000000000005 /* ApplicationSurfaceCommandPaletteIntegration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationSurfaceCommandPaletteIntegration.swift; sourceTree = "<group>"; };
+		A88400000000000000000001 /* ApplicationSurfaceInputPump.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ApplicationSurfaceInputPump.swift; sourceTree = "<group>"; };
 		A88300000000000000000003 /* ApplicationSurfacePickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ApplicationSurfacePickerView.swift; sourceTree = "<group>"; };
 		A88300000000000000000001 /* ApplicationSurfaceRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ApplicationSurfaceRuntime.swift; sourceTree = "<group>"; };
 		A88200000000000000000001 /* ApplicationSurfaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationSurfaceTests.swift; sourceTree = "<group>"; };
@@ -6154,6 +6156,7 @@
 				A88100000000000000000001 /* ApplicationCaptureRepresentable.swift */,
 				A88300000000000000000003 /* ApplicationSurfacePickerView.swift */,
 				3C9E9ACA5B0AD0E936281E89 /* ApplicationCaptureView.swift */,
+				A88400000000000000000001 /* ApplicationSurfaceInputPump.swift */,
 				A88100000000000000000007 /* ApplicationNamedKeySendResult.swift */,
 				C51A710000000000000000A2 /* SimulatorPanel.swift */,
 				C51A710000000000000000C4 /* SimulatorFeatureDisabledView.swift */,
@@ -7811,6 +7814,7 @@
 				B9C454C9A61C652B239187F5 /* ApplicationPanel.swift in Sources */,
 				86EA36CE72323E5D628A65A2 /* ApplicationPanelView.swift in Sources */,
 				A88300000000000000000006 /* ApplicationSurfaceCommandPaletteIntegration.swift in Sources */,
+				A88400000000000000000002 /* ApplicationSurfaceInputPump.swift in Sources */,
 				A88300000000000000000004 /* ApplicationSurfacePickerView.swift in Sources */,
 				A88300000000000000000002 /* ApplicationSurfaceRuntime.swift in Sources */,
 				A5001A02A1B2C3D4E5F60718 /* AppWindowBackdropControllerDependencies.swift in Sources */,

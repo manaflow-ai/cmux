@@ -1,9 +1,10 @@
 import AppKit
-import Combine
+import Observation
 import SwiftUI
 
 @MainActor
-final class ApplicationSurfacePickerModel: ObservableObject {
+@Observable
+final class ApplicationSurfacePickerModel {
     enum Phase: Equatable {
         case idle
         case loading
@@ -13,10 +14,10 @@ final class ApplicationSurfacePickerModel: ObservableObject {
         case failed(String)
     }
 
-    @Published var windows: [ApplicationWindowDescriptor] = []
-    @Published var query = ""
-    @Published var selectedWindowID: UInt32?
-    @Published var phase: Phase = .idle
+    var windows: [ApplicationWindowDescriptor] = []
+    var query = ""
+    var selectedWindowID: UInt32?
+    var phase: Phase = .idle
 
     var filteredWindows: [ApplicationWindowDescriptor] {
         let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -36,7 +37,7 @@ final class ApplicationSurfacePickerModel: ObservableObject {
 }
 
 struct ApplicationSurfacePickerView: View {
-    @ObservedObject var model: ApplicationSurfacePickerModel
+    @Bindable var model: ApplicationSurfacePickerModel
     let onRefresh: () -> Void
     let onSetUpPermissions: () -> Void
     let onSelect: (ApplicationWindowDescriptor) -> Void
