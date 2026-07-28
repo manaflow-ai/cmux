@@ -1623,7 +1623,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
-    func testClosedWindowHistorySettlesAcceptedMultiTurnFontChange() throws {
+    func testClosedWindowHistoryProjectsAcceptedMultiTurnFontChangeWithoutDraining() throws {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
         AppDelegate.shared = appDelegate
@@ -1696,6 +1696,21 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         appDelegate.recordClosedWindowHistoryForTesting(
             windowId: windowId
         )
+#if DEBUG
+        XCTAssertEqual(
+            terminalPanels.count {
+                $0.surface.fontSizeLineageSnapshot()?.basePoints == 19
+            },
+            adjustedBeforeSnapshot,
+            "Snapshotting must not synchronously rebuild the remaining terminals"
+        )
+        XCTAssertGreaterThan(
+            context.workspaceTerminalFontSizeCoordinator
+                .debugOutstandingRequestCount,
+            0,
+            "The bounded mutation queue must keep draining normally after snapshotting"
+        )
+#endif
         let historyItem = try XCTUnwrap(
             ClosedItemHistoryStore.shared.menuSnapshot().items.first
         )
@@ -1724,6 +1739,499 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             },
             "Window close must settle every accepted font change before recording its restorable snapshot"
         )
+    }
+
+    func testWorkspaceSnapshotProjectsAcceptedMultiTurnFontChangeWithoutDraining() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        for _ in 0..<20 {
+            let panel = TerminalPanel(
+                workspaceId: workspace.id,
+                runtimeSpawnPolicy: .pacedSessionRestore
+            )
+            workspace.panels[panel.id] = panel
+        }
+        let terminalPanels =
+            workspace.panels.values.compactMap {
+                $0 as? TerminalPanel
+            }
+        for panel in terminalPanels {
+            panel.surface.recordCurrentFontSizeLineage(
+                TerminalFontSizeLineage(
+                    basePoints: 20,
+                    isExplicitOverride: true
+                )
+            )
+        }
+
+        let coordinator =
+            WorkspaceTerminalFontSizeCoordinator(
+                tabManager: manager,
+                schedule:
+                    ManualWorkspaceFontSizeDrainScheduler()
+                        .schedule(delay:action:)
+            )
+        defer { coordinator.cancelAll() }
+        XCTAssertTrue(
+            coordinator.enqueue(
+                .relative([-1]),
+                workspaceId: workspace.id,
+                deferFlush: true
+            )
+        )
+#if DEBUG
+        coordinator.debugFlushOneDrain()
+#else
+        XCTFail("Workspace font-size coalescer hooks require DEBUG")
+        return
+#endif
+        let adjustedBeforeSnapshot = terminalPanels.count {
+            $0.surface.fontSizeLineageSnapshot()?.basePoints == 19
+        }
+        XCTAssertGreaterThan(adjustedBeforeSnapshot, 0)
+        XCTAssertLessThan(
+            adjustedBeforeSnapshot,
+            terminalPanels.count
+        )
+
+        let snapshot = workspace.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: .empty
+        )
+        let persistedFontSizes =
+            snapshot.panels.compactMap(\.terminal?.fontSize)
+        XCTAssertEqual(
+            persistedFontSizes.count,
+            terminalPanels.count
+        )
+        XCTAssertTrue(
+            persistedFontSizes.allSatisfy {
+                abs($0 - 19) < 0.000_1
+            },
+            "Every restorable workspace snapshot must project accepted font-size intent"
+        )
+        XCTAssertEqual(
+            terminalPanels.count {
+                $0.surface.fontSizeLineageSnapshot()?.basePoints == 19
+            },
+            adjustedBeforeSnapshot,
+            "Workspace snapshotting must not bypass the per-turn native mutation budget"
+        )
+#if DEBUG
+        XCTAssertGreaterThan(
+            coordinator.debugOutstandingRequestCount,
+            0
+        )
+#endif
+    }
+
+    func testWorkspaceSnapshotProjectsPendingResetOrdering() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let terminalPanels =
+            workspace.panels.values.compactMap {
+                $0 as? TerminalPanel
+            }
+        XCTAssertFalse(terminalPanels.isEmpty)
+        for panel in terminalPanels {
+            panel.surface.recordCurrentFontSizeLineage(
+                TerminalFontSizeLineage(
+                    basePoints: 20,
+                    isExplicitOverride: true
+                )
+            )
+        }
+
+        let coordinator =
+            WorkspaceTerminalFontSizeCoordinator(
+                tabManager: manager,
+                schedule:
+                    ManualWorkspaceFontSizeDrainScheduler()
+                        .schedule(delay:action:),
+                configurationSnapshot: {
+                    WorkspaceTerminalFontConfigurationSnapshot(
+                        configuredRuntimePoints: 12,
+                        magnificationPercent: 100
+                    )
+                }
+            )
+        defer { coordinator.cancelAll() }
+        XCTAssertTrue(
+            coordinator.enqueue(
+                .relative([-1]),
+                workspaceId: workspace.id,
+                deferFlush: true
+            )
+        )
+        XCTAssertTrue(
+            coordinator.enqueue(
+                .resetThen([]),
+                workspaceId: workspace.id,
+                deferFlush: true
+            )
+        )
+        XCTAssertTrue(
+            coordinator.enqueue(
+                .relative([1]),
+                workspaceId: workspace.id,
+                deferFlush: true
+            )
+        )
+
+        let snapshot = workspace.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: .empty
+        )
+        XCTAssertTrue(
+            snapshot.panels.compactMap(\.terminal).allSatisfy {
+                $0.fontSize == 13
+            },
+            "Snapshot projection must preserve relative, reset, then relative ordering"
+        )
+        XCTAssertTrue(
+            terminalPanels.allSatisfy {
+                $0.surface.fontSizeLineageSnapshot()?
+                    .basePoints == 20
+            },
+            "Snapshot projection must not apply pending native mutations"
+        )
+    }
+
+    func testWorkspaceSnapshotProjectsJoinDeferredBehindConfigurationBarrier() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let terminalPanels =
+            workspace.panels.values.compactMap {
+                $0 as? TerminalPanel
+            }
+        XCTAssertFalse(terminalPanels.isEmpty)
+        for panel in terminalPanels {
+            panel.surface.recordCurrentFontSizeLineage(
+                TerminalFontSizeLineage(
+                    basePoints: 20,
+                    isExplicitOverride: true
+                )
+            )
+        }
+
+        let arbiter = WorkspaceTerminalFontSizeArbiter()
+        let coordinator =
+            WorkspaceTerminalFontSizeCoordinator(
+                tabManager: manager,
+                arbiter: arbiter,
+                schedule:
+                    ManualWorkspaceFontSizeDrainScheduler()
+                        .schedule(delay:action:)
+            )
+        defer { coordinator.cancelAll() }
+        var finishConfigurationBarrier:
+            (@MainActor () -> Void)?
+        arbiter.performWhenFontSizeWorkIsIdle {
+            finishConfigurationBarrier =
+                arbiter.extendCurrentFontSizeWorkIdleBarrier()
+        }
+        defer { finishConfigurationBarrier?() }
+
+        XCTAssertTrue(
+            coordinator.enqueue(
+                .relative([-1]),
+                workspaceId: workspace.id,
+                deferFlush: true
+            )
+        )
+        let snapshot = workspace.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: .empty
+        )
+        XCTAssertTrue(
+            snapshot.panels.compactMap(\.terminal).allSatisfy {
+                $0.fontSize == 19
+            },
+            "Snapshot projection must include accepted joins that cannot promote yet"
+        )
+        XCTAssertTrue(
+            terminalPanels.allSatisfy {
+                $0.surface.fontSizeLineageSnapshot()?
+                    .basePoints == 20
+            }
+        )
+    }
+
+    func testClosedPanelHistoryProjectsPendingFontChange() throws {
+        ClosedItemHistoryStore.shared.removeAll()
+        defer { ClosedItemHistoryStore.shared.removeAll() }
+
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let pane = try XCTUnwrap(
+            workspace.bonsplitController.focusedPaneId
+        )
+        for _ in 0..<12 {
+            _ = workspace.newTerminalSurface(
+                inPane: pane,
+                focus: false
+            )
+        }
+        let terminalPanels =
+            workspace.panels.values.compactMap {
+                $0 as? TerminalPanel
+            }
+        for panel in terminalPanels {
+            panel.surface.recordCurrentFontSizeLineage(
+                TerminalFontSizeLineage(
+                    basePoints: 20,
+                    isExplicitOverride: true
+                )
+            )
+        }
+
+        let coordinator =
+            WorkspaceTerminalFontSizeCoordinator(
+                tabManager: manager,
+                schedule:
+                    ManualWorkspaceFontSizeDrainScheduler()
+                        .schedule(delay:action:)
+            )
+        defer { coordinator.cancelAll() }
+        XCTAssertTrue(
+            coordinator.enqueue(
+                .relative([-1]),
+                workspaceId: workspace.id,
+                deferFlush: true
+            )
+        )
+#if DEBUG
+        coordinator.debugFlushOneDrain()
+#else
+        XCTFail("Workspace font-size coalescer hooks require DEBUG")
+        return
+#endif
+        let pendingPanel = try XCTUnwrap(
+            terminalPanels.first {
+                $0.surface.fontSizeLineageSnapshot()?
+                    .basePoints == 20
+            }
+        )
+
+        workspace.markCloseHistoryEligible(
+            panelId: pendingPanel.id
+        )
+        XCTAssertTrue(
+            workspace.closePanel(
+                pendingPanel.id,
+                force: true
+            )
+        )
+        let historyItem = try XCTUnwrap(
+            ClosedItemHistoryStore.shared
+                .menuSnapshot().items.first
+        )
+        let historyRecord = try XCTUnwrap(
+            ClosedItemHistoryStore.shared.removeRecord(
+                id: historyItem.id
+            )?.record
+        )
+        guard case .panel(let closedPanel) =
+                historyRecord.entry else {
+            XCTFail("Expected closed-panel history")
+            return
+        }
+        XCTAssertEqual(
+            closedPanel.snapshot.terminal?.fontSize,
+            19,
+            "Closed-panel history must project the accepted workspace mutation"
+        )
+    }
+
+    func testDestinationSnapshotProjectsTransferredPendingFontChange() throws {
+        let sourceManager = TabManager()
+        let destinationManager = TabManager()
+        let sourceWorkspace =
+            try XCTUnwrap(sourceManager.selectedWorkspace)
+        let sourcePane = try XCTUnwrap(
+            sourceWorkspace.bonsplitController.focusedPaneId
+        )
+        let destinationWorkspace =
+            try XCTUnwrap(destinationManager.selectedWorkspace)
+        let destinationPane = try XCTUnwrap(
+            destinationWorkspace.bonsplitController
+                .focusedPaneId
+        )
+
+        let panel = TerminalPanel(
+            workspaceId: sourceWorkspace.id,
+            runtimeSpawnPolicy: .pacedSessionRestore
+        )
+        panel.surface.recordCurrentFontSizeLineage(
+            TerminalFontSizeLineage(
+                basePoints: 20,
+                isExplicitOverride: true
+            )
+        )
+        XCTAssertNotNil(
+            sourceWorkspace.attachDetachedSurface(
+                makeDormantTerminalTransfer(
+                    panel: panel,
+                    sourceWorkspaceId: sourceWorkspace.id
+                ),
+                inPane: sourcePane,
+                focus: false
+            )
+        )
+
+        let coordinator =
+            WorkspaceTerminalFontSizeCoordinator(
+                tabManager: sourceManager,
+                schedule:
+                    ManualWorkspaceFontSizeDrainScheduler()
+                        .schedule(delay:action:),
+                applyChange: { _, _, _, _ in .failed }
+            )
+        defer { coordinator.cancelAll() }
+        XCTAssertTrue(
+            coordinator.enqueue(
+                .relative([-1]),
+                workspaceId: sourceWorkspace.id,
+                deferFlush: true
+            )
+        )
+        let detached = try XCTUnwrap(
+            sourceWorkspace.detachSurface(panelId: panel.id)
+        )
+        XCTAssertNotNil(
+            destinationWorkspace.attachDetachedSurface(
+                detached,
+                inPane: destinationPane,
+                focus: false
+            )
+        )
+        XCTAssertEqual(
+            panel.surface.fontSizeLineageSnapshot()?.basePoints,
+            20
+        )
+
+        let snapshot = destinationWorkspace.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: .empty
+        )
+        let transferredSnapshot = try XCTUnwrap(
+            snapshot.panels.first {
+                $0.id == panel.id
+            }
+        )
+        XCTAssertEqual(
+            transferredSnapshot.terminal?.fontSize,
+            19,
+            "A destination snapshot must include a foreign coordinator's staged transfer"
+        )
+        XCTAssertEqual(
+            panel.surface.fontSizeLineageSnapshot()?.basePoints,
+            20,
+            "Transfer projection must not retry the failed native mutation"
+        )
+    }
+
+    func testClosedWindowSnapshotDoesNotDrainAnotherWindowFontChange() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        ClosedItemHistoryStore.shared.removeAll()
+
+        let closingManager = TabManager()
+        let activeManager = TabManager()
+        let closingWindowId =
+            appDelegate.registerMainWindowContextForTesting(
+                tabManager: closingManager
+            )
+        let activeWindowId =
+            appDelegate.registerMainWindowContextForTesting(
+                tabManager: activeManager
+            )
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(
+                windowId: activeWindowId
+            )
+            appDelegate.unregisterMainWindowContextForTesting(
+                windowId: closingWindowId
+            )
+            ClosedItemHistoryStore.shared.removeAll()
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let activeWorkspace =
+            try XCTUnwrap(activeManager.selectedWorkspace)
+        for _ in 0..<20 {
+            let panel = TerminalPanel(
+                workspaceId: activeWorkspace.id,
+                runtimeSpawnPolicy: .pacedSessionRestore
+            )
+            activeWorkspace.panels[panel.id] = panel
+        }
+        let activePanels =
+            activeWorkspace.panels.values.compactMap {
+                $0 as? TerminalPanel
+            }
+        for panel in activePanels {
+            panel.surface.recordCurrentFontSizeLineage(
+                TerminalFontSizeLineage(
+                    basePoints: 20,
+                    isExplicitOverride: true
+                )
+            )
+        }
+        let activeContext = try XCTUnwrap(
+            appDelegate.mainWindowContexts.values.first {
+                $0.windowId == activeWindowId
+            }
+        )
+        XCTAssertTrue(
+            activeContext.workspaceTerminalFontSizeCoordinator
+                .enqueue(
+                    .relative([-1]),
+                    workspaceId: activeWorkspace.id,
+                    deferFlush: true
+                )
+        )
+#if DEBUG
+        activeContext.workspaceTerminalFontSizeCoordinator
+            .debugFlushOneDrain()
+#else
+        XCTFail("Workspace font-size coalescer hooks require DEBUG")
+        return
+#endif
+        let adjustedBeforeClosingOtherWindow =
+            activePanels.count {
+                $0.surface.fontSizeLineageSnapshot()?.basePoints
+                    == 19
+            }
+        XCTAssertGreaterThan(
+            adjustedBeforeClosingOtherWindow,
+            0
+        )
+        XCTAssertLessThan(
+            adjustedBeforeClosingOtherWindow,
+            activePanels.count
+        )
+
+        appDelegate.recordClosedWindowHistoryForTesting(
+            windowId: closingWindowId
+        )
+
+        XCTAssertEqual(
+            activePanels.count {
+                $0.surface.fontSizeLineageSnapshot()?.basePoints
+                    == 19
+            },
+            adjustedBeforeClosingOtherWindow,
+            "Snapshotting one window must not run native font mutations in another"
+        )
+#if DEBUG
+        XCTAssertGreaterThan(
+            activeContext.workspaceTerminalFontSizeCoordinator
+                .debugOutstandingRequestCount,
+            0
+        )
+#endif
     }
 
     func testForwardedWorkspaceFontSizeShortcutUsesDestinationWindowDock() {
@@ -5530,6 +6038,8 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
     }
 
     func testClosingWindowCancelsPendingWorkspaceTerminalFontSizeChange() {
+        ClosedItemHistoryStore.shared.removeAll()
+        defer { ClosedItemHistoryStore.shared.removeAll() }
         withTemporaryShortcut(action: .decreaseWorkspaceTerminalFontSize) {
             guard let appDelegate = AppDelegate.shared else {
                 XCTFail("Expected AppDelegate.shared")
@@ -5595,11 +6105,38 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             let lineagesAfterClose = dockPanels.map {
                 $0.surface.fontSizeLineageSnapshot()
             }
-            XCTAssertTrue(
-                lineagesAfterClose.allSatisfy {
+            XCTAssertEqual(
+                lineagesAfterClose.count {
                     $0?.basePoints == 19
                 },
-                "Window close must settle the accepted change before recording history and teardown"
+                adjustedBeforeClose,
+                "Window close must not bypass the bounded native mutation queue"
+            )
+            guard let historyItem =
+                    ClosedItemHistoryStore.shared
+                        .menuSnapshot().items.first,
+                  let historyRecord =
+                    ClosedItemHistoryStore.shared.removeRecord(
+                        id: historyItem.id
+                    )?.record,
+                  case .window(let closedWindow) =
+                    historyRecord.entry else {
+                XCTFail("Expected closed-window history")
+                return
+            }
+            let persistedDockFontSizes =
+                closedWindow.snapshot.dock?.panels
+                    .compactMap(\.terminal?.fontSize)
+                ?? []
+            XCTAssertEqual(
+                persistedDockFontSizes.count,
+                dockPanels.count
+            )
+            XCTAssertTrue(
+                persistedDockFontSizes.allSatisfy {
+                    abs($0 - 19) < 0.000_1
+                },
+                "Closed-window history must project every accepted Dock mutation"
             )
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.1))
             XCTAssertEqual(
