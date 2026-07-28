@@ -1264,15 +1264,20 @@ mod tests {
             unsafe { libc::fcntl(write_fd.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK) },
             0
         );
-        let fill = [0_u8; 4_096];
+        let fill = [0_u8; MAX_LOCKED_GRAPHICS_WRITE_BYTES];
+        let mut fill_len = fill.len();
         loop {
             let written =
-                unsafe { libc::write(write_fd.as_raw_fd(), fill.as_ptr().cast(), fill.len()) };
-            if written >= 0 {
+                unsafe { libc::write(write_fd.as_raw_fd(), fill.as_ptr().cast(), fill_len) };
+            if written > 0 {
                 continue;
             }
+            assert_ne!(written, 0, "pipe accepted a zero-length fill write");
             assert_eq!(io::Error::last_os_error().raw_os_error(), Some(libc::EAGAIN));
-            break;
+            if fill_len == 1 {
+                break;
+            }
+            fill_len = (fill_len / 2).max(1);
         }
 
         let control = Arc::new(WriterControl::default());
@@ -1282,11 +1287,14 @@ mod tests {
         control.observe_write_attempts(attempt_tx);
         let (done_tx, done_rx) = sync_channel(1);
         let worker_control = control.clone();
+        let mut segment = b"\x1b_Gq=2;".to_vec();
+        segment.resize(MAX_LOCKED_GRAPHICS_WRITE_BYTES - 2, b'A');
+        segment.extend_from_slice(b"\x1b\\");
         let worker = std::thread::spawn(move || {
             let mut output = InterruptibleStdout { fd: write_fd };
             let mut emitted = 0;
             let result = output.write_segment(
-                b"\x1b_Gq=2;payload\x1b\\",
+                &segment,
                 &WritePermit { slot: &slot, control: &worker_control, revision: 1 },
                 &mut emitted,
             );
