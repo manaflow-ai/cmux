@@ -26,9 +26,9 @@ export async function generateMetadata({
       url: alternates.canonical,
       images: [
         {
-          url: "/tui/cmux-tui-overview.jpeg",
-          width: 1225,
-          height: 768,
+          url: "/tui/cmux-tui-overview.png",
+          width: 4608,
+          height: 2538,
           alt: t("screenshotAlt"),
         },
       ],
@@ -44,74 +44,39 @@ export default async function TuiPage() {
     <>
       <SiteHeader section={t("sectionLabel")} />
       <main className="mx-auto w-full max-w-2xl overflow-visible px-6 py-16 sm:py-24">
-        <section>
-          <p className="mb-3 text-xs font-medium text-muted">{t("eyebrow")}</p>
+        <section className="mb-3">
           <h1 className="text-2xl font-semibold tracking-tight">
             {t("title")}
           </h1>
-          <p className="mt-4 text-base leading-relaxed text-muted">
-            {t("intro")}
-          </p>
-          <div className="mt-6 flex flex-wrap items-center gap-3">
+          <p className="mt-4 text-lg leading-relaxed">{t("workflowTitle")}</p>
+          <p className="mt-2 text-base leading-relaxed text-muted">{t("intro")}</p>
+          <div className="mt-5 flex flex-wrap items-center gap-3">
             <a
               href="#install"
-              className="rounded-md bg-foreground px-3.5 py-2 text-sm font-medium text-background transition-opacity hover:opacity-80"
+              className="rounded-full bg-foreground px-5 py-2.5 text-[15px] font-medium text-background transition-opacity hover:opacity-80"
             >
               {t("runButton")}
             </a>
             <Link
               href="/docs/tui"
-              className="rounded-md border border-border px-3.5 py-2 text-sm font-medium transition-colors hover:bg-code-bg"
+              className="rounded-full border border-border px-5 py-2.5 text-[15px] font-medium transition-colors hover:bg-code-bg"
             >
               {t("docsButton")}
             </Link>
             <a
               href="https://github.com/manaflow-ai/cmux/tree/main/cmux-tui"
-              className="px-1 py-2 text-sm text-muted underline decoration-link-underline underline-offset-4 transition-colors hover:text-foreground"
+              className="px-1 py-2 text-[15px] text-muted underline decoration-link-underline underline-offset-4 transition-colors hover:text-foreground"
             >
               {t("sourceButton")} <span aria-hidden>↗</span>
             </a>
           </div>
-
-          <figure className="mt-12 w-full sm:relative sm:left-1/2 sm:w-[min(76rem,calc(100vw-3rem))] sm:-translate-x-1/2">
-            <div className="overflow-hidden rounded-lg border border-border bg-code-bg">
-              <Image
-                src="/tui/cmux-tui-overview.jpeg"
-                width={1225}
-                height={768}
-                priority
-                alt={t("screenshotAlt")}
-                className="h-auto w-full"
-              />
-            </div>
-            <figcaption className="mt-3 text-center text-xs text-muted">
-              {t("screenshotCaption")}
-            </figcaption>
-          </figure>
         </section>
 
-        <section className="mt-16 grid grid-cols-3 divide-x divide-border border-y border-border">
-          {(["platforms", "engine", "license"] as const).map((key) => (
-            <div key={key} className="px-3 py-5 first:pl-0 last:pr-0 sm:px-6">
-              <p className="text-xs text-muted">{t(`facts.${key}.label`)}</p>
-              <p className="mt-1 text-sm font-medium">
-                {t(`facts.${key}.value`)}
-              </p>
-            </div>
-          ))}
-        </section>
-
-        <section className="pt-16">
-          <p className="text-xs font-medium text-muted">
+        <section className="py-3">
+          <h2 className="mb-3 text-xs font-medium tracking-tight text-muted">
             {t("workflowEyebrow")}
-          </p>
-          <h2 className="mt-3 text-xl font-semibold tracking-tight">
-            {t("workflowTitle")}
           </h2>
-          <p className="mt-3 text-[15px] leading-relaxed text-muted">
-            {t("workflowBody")}
-          </p>
-          <ul className="mt-7 space-y-4 text-[15px]">
+          <ul className="space-y-3 text-[15px] leading-[1.275]">
             {(["tree", "agents", "browser", "remote"] as const).map(
               (feature) => (
                 <li key={feature} className="flex gap-3">
@@ -130,65 +95,76 @@ export default async function TuiPage() {
           </ul>
         </section>
 
-        <section className="pt-16">
-          <p className="text-xs font-medium text-muted">
-            {t("keyboardEyebrow")}
-          </p>
-          <h2 className="mt-3 text-xl font-semibold tracking-tight">
-            {t("keyboardTitle")}
+        <figure className="relative left-1/2 mb-12 mt-12 w-[min(90rem,100vw_-_3rem)] -translate-x-1/2">
+          <Image
+            src="/tui/cmux-tui-overview.png"
+            width={4608}
+            height={2538}
+            priority
+            quality={85}
+            sizes="(min-width: 1440px) 1440px, calc(100vw - 3rem)"
+            alt={t("screenshotAlt")}
+            className="h-auto w-full [filter:drop-shadow(0_24px_44px_rgba(0,0,0,0.45))]"
+          />
+          <figcaption className="mt-3 text-center text-xs text-muted">
+            {t("screenshotCaption")}
+          </figcaption>
+        </figure>
+
+        <section id="install" className="mb-10 scroll-mt-20">
+          <h2 className="mb-3 text-xs font-medium tracking-tight text-muted">
+            {t("installEyebrow")}
           </h2>
-          <p className="mt-3 text-[15px] leading-relaxed text-muted">
+          <p className="mb-1 font-medium">{t("installTitle")}</p>
+          <p className="text-[15px] leading-relaxed text-muted">
+            {t("installBody")}
+          </p>
+          <pre className="mt-4 overflow-x-auto rounded-lg bg-code-bg px-4 py-3 font-mono text-[13px] leading-7">
+            <code>{`$ npx cmux
+
+${t("installOr")}
+$ npm install --global cmux
+$ cmux`}</code>
+          </pre>
+        </section>
+
+        <section className="mb-10">
+          <h2 className="mb-3 text-xs font-medium tracking-tight text-muted">
+            {t("keyboardEyebrow")}
+          </h2>
+          <p className="mb-1 font-medium">{t("keyboardTitle")}</p>
+          <p className="text-[15px] leading-relaxed text-muted">
             {t("keyboardBody")}
           </p>
-          <div className="mt-6 divide-y divide-border border-y border-border">
+          <ul className="mt-4 space-y-3 text-[15px]">
             {[
               ["Ctrl-b %", t("keys.split")],
               ["Ctrl-b t", t("keys.tab")],
               ["Ctrl-b W", t("keys.workspace")],
               ["Ctrl-b g", t("keys.viewport")],
             ].map(([keys, label]) => (
-              <div
-                key={keys}
-                className="flex items-center justify-between gap-6 py-3"
-              >
-                <code className="font-mono text-sm">{keys}</code>
-                <span className="text-right text-sm text-muted">{label}</span>
-              </div>
+              <li key={keys} className="flex gap-3">
+                <code className="w-24 shrink-0 font-mono text-sm">{keys}</code>
+                <span className="text-muted">{label}</span>
+              </li>
             ))}
-          </div>
+          </ul>
         </section>
 
-        <section id="install" className="scroll-mt-20 pt-16">
-          <p className="text-xs font-medium text-muted">
-            {t("installEyebrow")}
-          </p>
-          <h2 className="mt-3 text-xl font-semibold tracking-tight">
-            {t("installTitle")}
-          </h2>
-          <p className="mt-3 text-[15px] leading-relaxed text-muted">
-            {t("installBody")}
-          </p>
-          <div className="mt-6 rounded-lg border border-border bg-code-bg p-4 font-mono text-[13px] leading-7">
-            <div>$ npx cmux</div>
-            <div className="my-1 text-xs text-muted">{t("installOr")}</div>
-            <div>$ npm install --global cmux</div>
-            <div>$ cmux</div>
-          </div>
-          <div className="mt-8 flex flex-wrap items-center gap-4 border-t border-border pt-6 text-sm">
-            <Link
-              href="/docs/tui"
-              className="font-medium underline decoration-link-underline underline-offset-4"
-            >
-              {t("fullDocs")} <span aria-hidden>→</span>
-            </Link>
-            <a
-              href="https://github.com/manaflow-ai/cmux/tree/main/cmux-tui"
-              className="text-muted underline decoration-link-underline underline-offset-4"
-            >
-              {t("browseSource")} <span aria-hidden>↗</span>
-            </a>
-          </div>
-        </section>
+        <div className="flex flex-wrap items-center gap-4 text-[15px]">
+          <Link
+            href="/docs/tui"
+            className="underline decoration-link-underline underline-offset-4"
+          >
+            {t("fullDocs")} <span aria-hidden>→</span>
+          </Link>
+          <a
+            href="https://github.com/manaflow-ai/cmux/tree/main/cmux-tui"
+            className="text-muted underline decoration-link-underline underline-offset-4"
+          >
+            {t("browseSource")} <span aria-hidden>↗</span>
+          </a>
+        </div>
       </main>
     </>
   );

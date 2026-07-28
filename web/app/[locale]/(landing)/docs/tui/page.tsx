@@ -42,9 +42,9 @@ export default async function TuiDocsPage() {
       <p>{t("intro")}</p>
       <figure className="not-prose my-6">
         <Image
-          src="/tui/cmux-tui-overview.jpeg"
-          width={1225}
-          height={768}
+          src="/tui/cmux-tui-overview.png"
+          width={4608}
+          height={2538}
           alt={t("screenshotAlt")}
           className="h-auto w-full rounded-lg border border-border"
         />
