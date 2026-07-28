@@ -91,6 +91,21 @@ struct CommandPaletteWorkspaceTodoActionOutcomeTests {
         #expect(contribution.when(panelInPane))
     }
 
+    @Test func checklistTextArgumentIsOptional() throws {
+        let contribution = try #require(
+            WorkspaceTodoPaletteCommands.contributions(workspaceSubtitle: { _ in "" }).first {
+                $0.arguments.map(\.name) == ["text"]
+            }
+        )
+
+        #expect(contribution.arguments == [
+            CmuxActionArgumentDefinition(
+                name: "text",
+                required: false
+            )
+        ])
+    }
+
     @Test func checklistInsertionReportsRejectedAndSuccessfulOutcomes() throws {
         let defaults = UserDefaults.standard
         let key = BetaFeaturesCatalogSection().workspaceTodoControls.userDefaultsKey

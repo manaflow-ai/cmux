@@ -118,6 +118,93 @@ struct CLICallerWorkspaceDefaultTests {
         }
     }
 
+    /// Workspace-scoped commands need the caller workspace even when they also
+    /// preserve the caller surface as the routing anchor.
+    @Test func workspaceCommandsCarryCallerWorkspaceAlongsideCallerSurface() throws {
+        let cases: [(arguments: [String], method: String)] = [
+            (["list-workspaces", "--json"], "workspace.list"),
+            (["new-workspace", "--json"], "workspace.create"),
+            (["workspace-group", "list", "--json"], "workspace.group.list"),
+        ]
+
+        for testCase in cases {
+            let (requests, result) = try runWorkspaceContextCommand(
+                arguments: testCase.arguments,
+                expectedMethod: testCase.method
+            )
+            #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
+            let request = try #require(
+                requests.first { $0["method"] as? String == testCase.method }
+            )
+            let params = try #require(request["params"] as? [String: Any])
+            #expect(params["workspace_id"] as? String == Self.callerWorkspaceId)
+            #expect(params["surface_id"] as? String == Self.callerSurfaceId)
+        }
+    }
+
+    private func runWorkspaceContextCommand(
+        arguments: [String],
+        expectedMethod: String
+    ) throws -> ([[String: Any]], ProcessRunResult) {
+        let socketPath = Self.makeSocketPath("ws-context")
+        let listenerFD = try Self.bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let state = ServerState()
+        let handled = Self.startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return Self.malformedRequestResponse(raw: line)
+            }
+            guard method == expectedMethod else {
+                return Self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": method]
+                )
+            }
+            let result: [String: Any]
+            switch method {
+            case "workspace.list":
+                result = ["workspaces": []]
+            case "workspace.create":
+                result = [
+                    "workspace_id": Self.otherWorkspaceId,
+                    "workspace_ref": "workspace:3",
+                ]
+            case "workspace.group.list":
+                result = ["groups": []]
+            default:
+                result = [:]
+            }
+            return Self.v2Response(id: id, ok: true, result: result)
+        }
+
+        var environment = cliEnvironment(
+            socketPath: socketPath,
+            callerWorkspaceId: Self.callerWorkspaceId
+        )
+        environment["CMUX_SURFACE_ID"] = Self.callerSurfaceId
+        let result = Self.runProcess(
+            executablePath: try Self.bundledCLIPath(),
+            arguments: arguments,
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        #expect(
+            state.errorsSnapshot().isEmpty,
+            Comment(rawValue: state.errorsSnapshot().joined(separator: "\n"))
+        )
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        return (try state.requestObjects(), result)
+    }
+
     private func runIdentify(
         arguments: [String],
         callerWorkspaceId: String?

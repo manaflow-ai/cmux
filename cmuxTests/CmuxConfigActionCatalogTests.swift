@@ -329,6 +329,68 @@ struct CmuxConfigActionCatalogTests {
     }
 
     @Test
+    func forcedKillHandoffDoesNotUseAThirdDelay() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let pidURL = root.appendingPathComponent("forced-kill-handoff.pid")
+        let quarantine = CmuxConfigActionCatalogProcessQuarantine(
+            generalCapacity: 1,
+            globalCapacity: 1
+        )
+        let sleeps = CmuxConfigActionCatalogTimingRecorder()
+        let timeout: TimeInterval = 10
+        let terminationGrace: TimeInterval = 20
+        let postKillHandoffDelay: TimeInterval = 30
+        let reader = CmuxConfigActionCatalogProcessReader(
+            timeout: timeout,
+            terminationGrace: terminationGrace,
+            postKillHandoffDelay: postKillHandoffDelay,
+            timing: .init { duration in
+                sleeps.record(duration)
+            },
+            processOperations: .init { pid, signal, group in
+                if signal == SIGCONT {
+                    _ = Darwin.kill(group ? -pid : pid, signal)
+                }
+            },
+            quarantine: quarantine
+        ) { _ in
+            .init(
+                executablePath: "/bin/sh",
+                arguments: [
+                    "/bin/sh",
+                    "-c",
+                    "trap '' TERM; printf '%s' \"$$\" > \"$1\"; while :; do :; done",
+                    "cmux-forced-kill-handoff",
+                    pidURL.path,
+                ],
+                environment: ["PATH": "/usr/bin:/bin"]
+            )
+        }
+
+        let task = Task {
+            await reader.read(request: .init(
+                directory: nil,
+                globalConfigPath: root.appendingPathComponent("global.json").path,
+                maximumConfigBytes: 1024
+            ))
+        }
+        let childPID = try #require(await waitForPID(at: pidURL))
+        defer { _ = Darwin.kill(-childPID, SIGKILL) }
+
+        #expect(await task.value == nil)
+        #expect(sleeps.values == [
+            .seconds(timeout),
+            .seconds(terminationGrace),
+        ])
+
+        _ = Darwin.kill(-childPID, SIGKILL)
+        #expect(await waitUntil {
+            await quarantine.state().quarantinedCount == 0
+        })
+    }
+
+    @Test
     func timeoutsReleaseGeneralSlotsAndPreserveGlobalLane() async throws {
         let fixture = try ProcessReaderFixture(codec: codec)
         defer { fixture.remove() }
@@ -1079,5 +1141,20 @@ private final class CmuxConfigActionCatalogWaitRecorder: @unchecked Sendable {
             status: status,
             errorNumber: result == -1 ? errno : 0
         )
+    }
+}
+
+private final class CmuxConfigActionCatalogTimingRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recordedValues: [Duration] = []
+
+    var values: [Duration] {
+        lock.withLock { recordedValues }
+    }
+
+    func record(_ value: Duration) {
+        lock.withLock {
+            recordedValues.append(value)
+        }
     }
 }
