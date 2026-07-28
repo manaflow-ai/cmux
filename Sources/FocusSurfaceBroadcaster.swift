@@ -26,9 +26,9 @@ import Foundation
 ///   pending payload instead of recursing; the active flush drains it in a bounded
 ///   loop (at most ``maxCoalescedDeliveries`` deliveries per turn). If the cycle has
 ///   not settled within that bound, the still-pending payload is carried to a fresh
-///   scheduled flush rather than delivered synchronously or dropped — so work stays
-///   bounded per runloop turn (the app keeps responding) while the final selection is
-///   never lost. A notification-driven focus cycle can therefore no longer hang.
+///   scheduled flush. Consecutive bounded turns are capped by
+///   ``maxConsecutiveBoundedFlushes`` so a non-converging observer cycle cannot keep
+///   a SwiftUI/AppKit layout storm alive indefinitely.
 ///
 /// The type is fully testable without AppKit: inject ``deliver`` to capture
 /// broadcasts, and inject ``schedule`` to drive flushes deterministically.
@@ -54,8 +54,9 @@ final class FocusSurfaceBroadcaster {
     /// The app-wide broadcaster used by ``Workspace`` to emit focus broadcasts.
     ///
     /// Posts the real `.ghosttyDidFocusSurface` notification and logs (DEBUG builds)
-    /// whenever the bounded drain trips, so a future re-entrancy regression is
-    /// observable instead of a silent hang.
+    /// whenever the bounded drain trips, and logs/drops the pending payload when the
+    /// cross-turn circuit breaker trips, so a future re-entrancy regression is
+    /// observable instead of a silent hours-long hang.
     static let shared = FocusSurfaceBroadcaster(
         onDrainBoundExceeded: { payload in
 #if DEBUG
@@ -64,17 +65,28 @@ final class FocusSurfaceBroadcaster {
                 "panel=\(payload.panelId.uuidString.prefix(5)) explicit=\(payload.explicitFocusIntent ? 1 : 0)"
             )
 #endif
+        },
+        onCircuitBreakerTripped: { payload in
+            let message = "focus.broadcast.circuitBreaker.tripped workspace=\(payload.workspaceId.uuidString.prefix(5)) " +
+                "panel=\(payload.panelId.uuidString.prefix(5)) explicit=\(payload.explicitFocusIntent ? 1 : 0)"
+#if DEBUG
+            cmuxDebugLog(message)
+#endif
+            NSLog("%@", message)
         }
     )
 
     private let deliver: @MainActor (FocusSurfacePayload) -> Void
     private let schedule: @MainActor (@escaping @MainActor @Sendable () -> Void) -> Void
     private let maxCoalescedDeliveries: Int
+    private let maxConsecutiveBoundedFlushes: Int
     private let onDrainBoundExceeded: @MainActor (FocusSurfacePayload) -> Void
+    private let onCircuitBreakerTripped: @MainActor (FocusSurfacePayload) -> Void
 
     private var pending: FocusSurfacePayload?
     private var flushScheduled = false
     private var isDelivering = false
+    private var consecutiveBoundedFlushes = 0
 
     /// Creates a broadcaster.
     ///
@@ -82,21 +94,28 @@ final class FocusSurfaceBroadcaster {
     ///   - maxCoalescedDeliveries: Upper bound on deliveries performed by a single
     ///     flush. Caps a re-entrant focus cycle so it can never hang. Defaults to 8,
     ///     matching `Workspace.applyTabSelection`'s existing per-instance drain bound.
+    ///   - maxConsecutiveBoundedFlushes: Upper bound on consecutive scheduled flushes
+    ///     that are allowed to hit ``maxCoalescedDeliveries``. This is the runtime
+    ///     circuit breaker for a non-converging focus observer loop.
     ///   - schedule: Schedules deferred flush work on the main queue. Defaults to
     ///     `DispatchQueue.main.async`. Injected by tests to flush deterministically.
     ///   - onDrainBoundExceeded: Invoked with the still-pending payload when a flush
     ///     hits ``maxCoalescedDeliveries`` and defers the remainder to a follow-up
     ///     flush. Used for structured logging of a non-converging focus cycle.
+    ///   - onCircuitBreakerTripped: Invoked with the last pending payload when the
+    ///     cross-turn circuit breaker drops it to stop a non-converging cycle.
     ///   - deliver: Performs the actual broadcast. Defaults to posting
     ///     `.ghosttyDidFocusSurface`. Injected by tests to capture deliveries.
     init(
         maxCoalescedDeliveries: Int = 8,
+        maxConsecutiveBoundedFlushes: Int = 4,
         schedule: @escaping @MainActor (@escaping @MainActor @Sendable () -> Void) -> Void = { work in
             DispatchQueue.main.async {
                 MainActor.assumeIsolated { work() }
             }
         },
         onDrainBoundExceeded: @escaping @MainActor (FocusSurfacePayload) -> Void = { _ in },
+        onCircuitBreakerTripped: @escaping @MainActor (FocusSurfacePayload) -> Void = { _ in },
         deliver: @escaping @MainActor (FocusSurfacePayload) -> Void = { payload in
             NotificationCenter.default.post(
                 name: .ghosttyDidFocusSurface,
@@ -110,8 +129,10 @@ final class FocusSurfaceBroadcaster {
         }
     ) {
         self.maxCoalescedDeliveries = max(1, maxCoalescedDeliveries)
+        self.maxConsecutiveBoundedFlushes = max(1, maxConsecutiveBoundedFlushes)
         self.schedule = schedule
         self.onDrainBoundExceeded = onDrainBoundExceeded
+        self.onCircuitBreakerTripped = onCircuitBreakerTripped
         self.deliver = deliver
     }
 
@@ -146,28 +167,38 @@ final class FocusSurfaceBroadcaster {
         isDelivering = true
 
         var iterations = 0
+        var hitDeliveryBound = false
         while let next = pending {
             pending = nil
             iterations += 1
             if iterations > maxCoalescedDeliveries {
-                // Re-entrancy did not converge within this turn. Don't hang
-                // (delivering synchronously forever) and don't drop the focus
-                // update: keep the latest payload and let the post-loop reschedule
-                // continue it on a fresh runloop turn. Work stays bounded *per turn*
-                // (so the app keeps responding) while still settling on the final
-                // selection.
+                // Re-entrancy did not converge within this turn. Keep the latest
+                // payload for now and let the post-loop reschedule continue it on
+                // a fresh runloop turn. If this keeps happening across turns, the
+                // circuit breaker below drops the payload rather than letting a
+                // SwiftUI/AppKit layout storm run indefinitely.
                 pending = next
+                hitDeliveryBound = true
+                consecutiveBoundedFlushes += 1
                 onDrainBoundExceeded(next)
+                if consecutiveBoundedFlushes >= maxConsecutiveBoundedFlushes {
+                    pending = nil
+                    consecutiveBoundedFlushes = 0
+                    onCircuitBreakerTripped(next)
+                }
                 break
             }
             deliver(next)
         }
 
         isDelivering = false
+        if !hitDeliveryBound {
+            consecutiveBoundedFlushes = 0
+        }
         // A delivery (or `onDrainBoundExceeded`) may have left a payload pending —
         // either because the per-turn bound tripped, or because a re-entrant emit
         // raced the `isDelivering` window and returned without scheduling. Schedule
-        // one more flush so the final focus selection is never stranded.
+        // one more flush for finite cycles; non-converging cycles are cleared above.
         if pending != nil, !flushScheduled {
             flushScheduled = true
             schedule { @Sendable [weak self] in

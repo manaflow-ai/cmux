@@ -115,6 +115,7 @@ struct FocusSurfaceBroadcasterTests {
 
         broadcaster = FocusSurfaceBroadcaster(
             maxCoalescedDeliveries: 8,
+            maxConsecutiveBoundedFlushes: 1_000,
             schedule: { scheduler.append($0) },
             onDrainBoundExceeded: { boundExceeded.append($0) },
             deliver: { payload in
