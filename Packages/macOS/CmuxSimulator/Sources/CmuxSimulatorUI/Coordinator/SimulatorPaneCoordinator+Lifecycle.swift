@@ -271,10 +271,6 @@ extension SimulatorPaneCoordinator {
 
     private func selectDeviceForCurrentRequest(id: String) {
         guard !closed, devices.contains(where: { $0.id == id }) else { return }
-        if selectedDeviceID == id,
-           status == .streaming || (status == .connecting && activationTask != nil) {
-            return
-        }
         requiresExplicitDeviceSelection = false
         let previousActivation = activationTask
         previousActivation?.cancel()
@@ -384,7 +380,9 @@ extension SimulatorPaneCoordinator {
         let joinsExistingActivation = selectedDeviceID == id
             && status == .connecting
             && activationTask != nil
-        selectDeviceForCurrentRequest(id: id)
+        if !joinsExistingActivation {
+            selectDeviceForCurrentRequest(id: id)
+        }
         let selectionTask = activationTask
         let generation = selectionGeneration
         if let selectionTask {
