@@ -16393,6 +16393,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             case .newSimulator:
                 return performConfiguredNewSimulatorAction(
                     context: context,
+                    modelTarget: target,
+                    focus: focus ?? true,
                     onExecuted: onExecuted
                 ) ? .completed : .failed
             case .newTerminal:

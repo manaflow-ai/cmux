@@ -6789,13 +6789,8 @@ struct ContentView: View {
         return true
     }
 
-    static let commandPaletteOptionalFocusArguments = [
-        CmuxActionArgumentDefinition(
-            name: "focus",
-            valueType: .boolean,
-            required: false
-        )
-    ]
+    static let commandPaletteOptionalFocusArguments =
+        CmuxSurfaceTabBarBuiltInAction.newTerminal.commandPaletteArguments
 
     static let commandPaletteOptionalEnabledArguments = [
         CmuxActionArgumentDefinition(
@@ -7452,7 +7447,7 @@ struct ContentView: View {
         "ios", "ipados", "iphone", "ipad", "phone", "tablet", "qr",
     ]
 
-    private func commandPaletteBuiltInCommandContributions() -> [CommandPaletteCommandContribution] {
+    func commandPaletteBuiltInCommandContributions() -> [CommandPaletteCommandContribution] {
         func constant(_ value: String) -> (CommandPaletteContextSnapshot) -> String {
             { _ in value }
         }
@@ -8728,12 +8723,7 @@ struct ContentView: View {
         _ action: CmuxResolvedConfigAction
     ) -> [CmuxActionArgumentDefinition] {
         guard case .builtIn(let builtIn) = action.action else { return [] }
-        switch builtIn {
-        case .newTerminal, .newBrowser, .splitRight, .splitDown:
-            return Self.commandPaletteOptionalFocusArguments
-        case .newWorkspace, .newAgentChat, .cloudVM, .mobileConnect:
-            return []
-        }
+        return builtIn.commandPaletteArguments
     }
 
     private func commandPaletteCustomActionAvailability(

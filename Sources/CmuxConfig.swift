@@ -1309,12 +1309,7 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
         case .workspaceCommand, .workspace:
             return .workspace
         case .builtIn(let builtIn):
-            switch builtIn {
-            case .newWorkspace, .newAgentChat, .cloudVM, .mobileConnect:
-                return .window
-            case .newTerminal, .newBrowser, .splitRight, .splitDown:
-                return .panelInPane
-            }
+            return builtIn.commandPaletteTargetRequirement
         case .actionReference:
             return .unavailable
         }

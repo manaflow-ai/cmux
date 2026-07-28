@@ -14,7 +14,9 @@ extension CommandPaletteCommandContribution {
             subtitle: { _ in
                 String(localized: "command.newSimulatorPane.subtitle", defaultValue: "iPhone and iPad")
             },
-            keywords: ["new", "simulator", "iphone", "ipad", "ios", "pane"]
+            keywords: ["new", "simulator", "iphone", "ipad", "ios", "pane"],
+            arguments: CmuxSurfaceTabBarBuiltInAction.newSimulator.commandPaletteArguments,
+            when: ContentView.commandPalettePanelInPaneIsAvailable
         )
     }
 }
