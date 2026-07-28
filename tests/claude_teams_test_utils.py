@@ -63,11 +63,19 @@ class _FocusedCmuxHandler(socketserver.StreamRequestHandler):
                     }
                 }
             elif method == "surface.list":
-                result = {
-                    "workspace_id": workspace_id,
-                    "window_id": window_id,
-                    "surfaces": [{"id": surface_id, "pane_id": pane_id}],
-                }
+                params = request.get("params") or {}
+                stale_workspace_id = self.server.stale_workspace_id  # type: ignore[attr-defined]
+                if stale_workspace_id and params.get("workspace_id") == stale_workspace_id:
+                    result = {
+                        "workspace_id": stale_workspace_id,
+                        "surfaces": [],
+                    }
+                else:
+                    result = {
+                        "workspace_id": workspace_id,
+                        "window_id": window_id,
+                        "surfaces": [{"id": surface_id, "pane_id": pane_id}],
+                    }
             else:
                 result = {}
             response = {"ok": True, "result": result, "id": request.get("id")}
@@ -89,6 +97,7 @@ class _FocusedCmuxServer(socketserver.ThreadingUnixStreamServer):
         identified_window_id: str,
         identified_pane_id: str,
         identified_surface_id: str,
+        stale_workspace_id: str | None,
     ) -> None:
         self.requests: list[str] = []
         self.workspace_id = workspace_id
@@ -99,6 +108,7 @@ class _FocusedCmuxServer(socketserver.ThreadingUnixStreamServer):
         self.identified_window_id = identified_window_id
         self.identified_pane_id = identified_pane_id
         self.identified_surface_id = identified_surface_id
+        self.stale_workspace_id = stale_workspace_id
         super().__init__(socket_path, _FocusedCmuxHandler)
 
 
@@ -114,6 +124,7 @@ def focused_cmux_server(
     identified_window_id: str | None = None,
     identified_pane_id: str | None = None,
     identified_surface_id: str | None = None,
+    stale_workspace_id: str | None = None,
 ) -> Iterator[tuple[str, list[str]]]:
     """Serve a live focused surface to prove contextless launchers do not borrow it."""
     server = _FocusedCmuxServer(
@@ -126,6 +137,7 @@ def focused_cmux_server(
         identified_window_id or window_id,
         identified_pane_id or pane_id,
         identified_surface_id or surface_id,
+        stale_workspace_id,
     )
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
