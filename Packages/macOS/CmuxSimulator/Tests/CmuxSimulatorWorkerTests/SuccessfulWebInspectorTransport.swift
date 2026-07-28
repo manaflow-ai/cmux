@@ -10,7 +10,9 @@ final class SuccessfulWebInspectorTransport: SimulatorWebInspectorTransport {
     let applicationIdentifier: String
     let pageIdentifier: UInt64
     let dropsFirstSessionSetup: Bool
+    let returnsEmptyFirstListing: Bool
     private var didDropSessionSetup = false
+    private var didReturnEmptyListing = false
     private(set) var sentSelectors: [String] = []
 
     init(
@@ -19,7 +21,8 @@ final class SuccessfulWebInspectorTransport: SimulatorWebInspectorTransport {
         respondsToListings: Bool = true,
         applicationIdentifier: String = "APP",
         pageIdentifier: UInt64 = 7,
-        dropsFirstSessionSetup: Bool = false
+        dropsFirstSessionSetup: Bool = false,
+        returnsEmptyFirstListing: Bool = false
     ) {
         self.service = service
         self.respondsToCensus = respondsToCensus
@@ -27,6 +30,7 @@ final class SuccessfulWebInspectorTransport: SimulatorWebInspectorTransport {
         self.applicationIdentifier = applicationIdentifier
         self.pageIdentifier = pageIdentifier
         self.dropsFirstSessionSetup = dropsFirstSessionSetup
+        self.returnsEmptyFirstListing = returnsEmptyFirstListing
     }
 
     func send(propertyList: [String: Any]) throws {
@@ -56,18 +60,25 @@ final class SuccessfulWebInspectorTransport: SimulatorWebInspectorTransport {
         }
         if selector == "_rpc_forwardGetListing:" {
             guard respondsToListings else { return }
+            let listing: [String: Any]
+            if returnsEmptyFirstListing, !didReturnEmptyListing {
+                didReturnEmptyListing = true
+                listing = [:]
+            } else {
+                listing = [
+                    "\(pageIdentifier)": [
+                        "WIRPageIdentifierKey": pageIdentifier,
+                        "WIRTitleKey": "Fixture",
+                        "WIRURLKey": "https://example.test",
+                        "WIRTypeKey": "WIRTypeWebPage",
+                    ],
+                ]
+            }
             deliver([
                 "__selector": "_rpc_applicationSentListing:",
                 "__argument": [
                     "WIRApplicationIdentifierKey": applicationIdentifier,
-                    "WIRListingKey": [
-                        "\(pageIdentifier)": [
-                            "WIRPageIdentifierKey": pageIdentifier,
-                            "WIRTitleKey": "Fixture",
-                            "WIRURLKey": "https://example.test",
-                            "WIRTypeKey": "WIRTypeWebPage",
-                        ],
-                    ],
+                    "WIRListingKey": listing,
                 ],
             ])
             return

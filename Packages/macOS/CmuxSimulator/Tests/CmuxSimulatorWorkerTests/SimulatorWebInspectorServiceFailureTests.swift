@@ -259,6 +259,30 @@ struct SimulatorWebInspectorServiceFailureTests {
         service.shutdown()
     }
 
+    @Test("Attach preserves a selected page through WebKit's provisional empty listing")
+    func attachPreservesTargetThroughEmptyListing() async throws {
+        let service = Self.service()
+        let transport = SuccessfulWebInspectorTransport(
+            service: service,
+            returnsEmptyFirstListing: true
+        )
+        service.socket = transport
+        service.currentDeviceIdentifier = "DEVICE"
+        Self.seedTarget(into: service)
+
+        let status = try await service.attach(targetIdentifier: "APP|7")
+
+        guard case let .attached(_, targetID) = status else {
+            Issue.record("Expected the selected page to remain attachable")
+            return
+        }
+        #expect(targetID == "APP|7")
+        #expect(transport.sentSelectors.filter {
+            $0 == "_rpc_forwardSocketSetup:"
+        }.count == 1)
+        service.shutdown()
+    }
+
     @Test("A unique page identifier can select a Web Inspector target")
     func attachByUniquePageIdentifier() async throws {
         let service = Self.service()
