@@ -2,6 +2,8 @@ use std::fs;
 #[cfg(unix)]
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Write};
+#[cfg(target_os = "linux")]
+use std::os::fd::AsRawFd;
 #[cfg(unix)]
 use std::os::fd::FromRawFd;
 #[cfg(unix)]
@@ -1068,6 +1070,58 @@ fn plain_launch_attaches_to_existing_local_session() {
     }
 
     panic!("plain launch never attached as a TUI client");
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn plain_launch_preserves_the_existing_session_connect_deadline() {
+    let dir = unique_temp_dir("saturated-existing-session");
+    fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("mux.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    // SAFETY: listener owns a valid listening Unix socket. Reapplying listen
+    // only narrows its pending connection queue for this isolated fixture.
+    assert_eq!(unsafe { libc::listen(listener.as_raw_fd(), 0) }, 0);
+
+    let mut queued = Vec::new();
+    for _ in 0..32 {
+        match transport::connect_until(&socket, Instant::now() + Duration::from_millis(75)) {
+            Ok(stream) => queued.push(stream),
+            Err(error) => {
+                assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
+                break;
+            }
+        }
+    }
+    assert!(queued.len() < 32, "could not saturate the existing session listener");
+
+    let mut launch = Command::new(bin())
+        .args(["--ephemeral", "--socket"])
+        .arg(&socket)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(3);
+    let status = loop {
+        if let Some(status) = launch.try_wait().unwrap() {
+            break status;
+        }
+        if Instant::now() >= deadline {
+            let _ = launch.kill();
+            let _ = launch.wait();
+            panic!("plain launch exceeded the existing-session connection deadline");
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    };
+
+    assert!(!status.success(), "plain launch replaced a live saturated session");
+    assert!(socket.exists(), "plain launch unlinked the live saturated session socket");
+    drop(queued);
+    drop(listener);
+    fs::remove_file(socket).unwrap();
+    fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
