@@ -94,6 +94,16 @@ struct HTMLPlainTextParserTests {
         )
     }
 
+    @Test("decodes non-ASCII entities from data input")
+    func decodesNonASCIIEntitiesFromData() {
+        let parser = HTMLPlainTextParser()
+        let html = Data(
+            "<p>Caf&eacute; &#8364; &ldquo;quoted&rdquo;</p>".utf8
+        )
+
+        #expect(parser.plainText(from: html) == "Café € “quoted”")
+    }
+
     @Test("preserves block and line-break boundaries")
     func preservesBlockAndLineBreakBoundaries() {
         let parser = HTMLPlainTextParser()
