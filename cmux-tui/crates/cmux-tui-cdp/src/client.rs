@@ -1747,7 +1747,13 @@ mod tests {
             ])
             .env(
                 "CMUX_TUI_TEST_HOST_RESOLVER_MODE",
-                if host.starts_with("cmux-blocked-") { "blocked" } else { "success" },
+                if host.starts_with("cmux-blocked-") {
+                    "blocked"
+                } else if host.starts_with("cmux-oversized-") {
+                    "oversized"
+                } else {
+                    "success"
+                },
             )
             .env("CMUX_TUI_TEST_HOST_RESOLVER_PORT", port.to_string());
         command
@@ -1758,6 +1764,11 @@ mod tests {
     fn host_resolver_process_fixture() {
         if std::env::var("CMUX_TUI_TEST_HOST_RESOLVER_MODE").as_deref() == Ok("blocked") {
             thread::sleep(Duration::from_secs(30));
+            return;
+        }
+        if std::env::var("CMUX_TUI_TEST_HOST_RESOLVER_MODE").as_deref() == Ok("oversized") {
+            let output = vec![b'x'; usize::try_from(CDP_RESOLVER_OUTPUT_LIMIT).unwrap() + 1];
+            std::io::stdout().write_all(&output).unwrap();
             return;
         }
         let port = std::env::var("CMUX_TUI_TEST_HOST_RESOLVER_PORT").unwrap();
@@ -2178,6 +2189,39 @@ mod tests {
 
         assert_eq!(result.unwrap(), SocketAddr::from(([127, 0, 0, 1], 9222)));
         assert!(called.load(Ordering::Acquire), "host resolver was bypassed");
+    }
+
+    #[test]
+    fn resolver_drains_output_before_waiting_for_helper_exit() {
+        let _guard = RESOLVE_TEST_LOCK.lock().unwrap();
+        resolver_child_reaper().unwrap();
+        let active = {
+            let slot = CDP_RESOLVER_CHILD_REAPER.get().unwrap().lock().unwrap();
+            slot.as_ref().unwrap().active.clone()
+        };
+        let baseline = active.load(Ordering::Acquire);
+        *TEST_HOST_RESOLVER_COMMAND.lock().unwrap() = Some(Arc::new(resolver_fixture_command));
+
+        let started = Instant::now();
+        let result = resolve_host_addresses_until(
+            "cmux-oversized-output.invalid",
+            9222,
+            started + Duration::from_secs(1),
+        );
+        let elapsed = started.elapsed();
+
+        *TEST_HOST_RESOLVER_COMMAND.lock().unwrap() = None;
+        let cleanup_deadline = Instant::now() + Duration::from_secs(1);
+        while active.load(Ordering::Acquire) != baseline && Instant::now() < cleanup_deadline {
+            thread::sleep(Duration::from_millis(5));
+        }
+
+        assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::InvalidData);
+        assert!(
+            elapsed < Duration::from_millis(500),
+            "resolver helper blocked on its undrained output pipe: {elapsed:?}"
+        );
+        assert_eq!(active.load(Ordering::Acquire), baseline);
     }
 
     #[cfg(target_os = "macos")]
