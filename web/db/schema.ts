@@ -747,8 +747,16 @@ export const irohEndpointBindings = pgTable(
     uniqueIndex("iroh_endpoint_bindings_active_endpoint_unique")
       .on(table.endpointId)
       .where(sql`${table.revokedAt} is null`),
-    uniqueIndex("iroh_endpoint_bindings_active_app_instance_unique")
-      .on(table.appInstanceId)
+    // One active binding per (user, device, tag) slot. A reinstall, sign-out/in,
+    // or key rotation overwrites that slot in place instead of stacking a new row.
+    // Contract: deviceUuid MUST be stable across app reinstalls, or a reinstall
+    // mints a fresh slot and orphans the old row (it stays active, wasting a
+    // sanity-cap slot and lingering in discovery until it is revoked or expires).
+    // The DB cannot enforce this; the client owns it. iOS derives deviceUuid from
+    // a Keychain-backed identity (kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly)
+    // that survives reinstall, NOT a UserDefaults value that a reinstall clears.
+    uniqueIndex("iroh_endpoint_bindings_active_slot_unique")
+      .on(table.userId, table.deviceUuid, table.tag)
       .where(sql`${table.revokedAt} is null`),
     index("iroh_endpoint_bindings_user_active_idx")
       .on(table.userId, table.updatedAt)
