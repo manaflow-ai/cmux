@@ -1271,6 +1271,22 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "sleep 1\n"
                     'assert "$actual" "$expected"\n'
                 ),
+                "conditional-shell-function-after-if-argument.sh": (
+                    "if use_fake; then\n"
+                    "    echo if\n"
+                    '    sleep() { advance_clock "$@"; }\n'
+                    "fi\n"
+                    "sleep 1\n"
+                    'assert "$actual" "$expected"\n'
+                ),
+                "conditional-real-wrapper-after-fake.sh": (
+                    'sleep() { advance_clock "$@"; }\n'
+                    "if use_real; then\n"
+                    '    sleep() { /bin/sleep "$@"; }\n'
+                    "fi\n"
+                    "sleep 1\n"
+                    'assert "$actual" "$expected"\n'
+                ),
             }
         )
 
@@ -1284,17 +1300,36 @@ class DeterminismCheckerCLITests(unittest.TestCase):
             for line in positive.stdout.splitlines()
             if "sleep-then-assert:" in line
         ]
-        self.assertEqual(len(findings), 1, positive.stdout)
+        self.assertEqual(len(findings), 3, positive.stdout)
         self.assertIn(
             "fixtures/conditional-shell-function.sh:4: "
             "sleep-then-assert:",
-            findings[0],
+            positive.stdout,
+        )
+        self.assertIn(
+            "fixtures/conditional-shell-function-after-if-argument.sh:5: "
+            "sleep-then-assert:",
+            positive.stdout,
+        )
+        self.assertIn(
+            "fixtures/conditional-real-wrapper-after-fake.sh:5: "
+            "sleep-then-assert:",
+            positive.stdout,
         )
 
         negative = self.run_checker(
             {
                 "unconditional-shell-function.sh": (
                     'sleep() { advance_clock "$@"; }\n'
+                    "sleep 1\n"
+                    'assert "$actual" "$expected"\n'
+                ),
+                "exhaustive-fake-shell-functions.sh": (
+                    "if use_first_fake; then\n"
+                    '    sleep() { advance_clock "$@"; }\n'
+                    "else\n"
+                    '    sleep() { advance_other_clock "$@"; }\n'
+                    "fi\n"
                     "sleep 1\n"
                     'assert "$actual" "$expected"\n'
                 ),
