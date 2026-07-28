@@ -6,6 +6,10 @@ extension Workspace {
         requestAttentionFlash(panelId: panelId, reason: .navigation)
     }
 
+    func triggerUserInitiatedFocusFlash(panelId: UUID) {
+        requestAttentionFlash(panelId: panelId, reason: .userInitiated)
+    }
+
     func triggerNotificationFocusFlash(
         panelId: UUID,
         requiresSplit: Bool = false,
