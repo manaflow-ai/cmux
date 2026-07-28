@@ -392,7 +392,8 @@ struct DockNotificationAttentionTests {
         let panel = DockRuntimeParityPanel(title: "Dock")
         try dock.seedRuntimeParityPanel(panel)
 
-        let routed = AppDelegate().routeNotificationAttentionFlash(
+        let appDelegate = try #require(AppDelegate.shared, "Expected app-host AppDelegate")
+        let routed = appDelegate.routeNotificationAttentionFlash(
             workspaceID: dock.workspaceId,
             panelID: panel.id,
             reason: .notificationArrival,
