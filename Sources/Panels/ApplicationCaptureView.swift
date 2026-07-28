@@ -96,11 +96,39 @@ final class ApplicationCaptureView: NSView {
     private var pendingScrollX = 0.0
     private var pendingScrollY = 0.0
     private var pressedModifierKeyCodes: Set<UInt16> = []
+    private var currentModifierKeyCodes: Set<UInt16> = []
     private var mouseTrackingArea: NSTrackingArea?
 
     override var acceptsFirstResponder: Bool { true }
     override var isFlipped: Bool { true }
     var isReleasingForwardedInput: Bool { inputReleaseTask != nil }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        PaneFirstClickFocusSettings.isEnabled()
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        let accepted = super.becomeFirstResponder()
+        guard accepted else { return false }
+        if let currentEvent = NSApp.currentEvent,
+           currentEvent.window === window {
+            currentModifierKeyCodes = Self.modifierKeyCodes(
+                modifierFlagsRawValue: currentEvent.modifierFlags.rawValue
+            )
+        } else {
+            currentModifierKeyCodes.removeAll()
+        }
+        synchronizeForwardedModifierKeys()
+        return true
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let resigned = super.resignFirstResponder()
+        guard resigned else { return false }
+        currentModifierKeyCodes.removeAll()
+        releaseForwardedInputs()
+        return true
+    }
 
     init(
         windowID: UInt32,
@@ -268,6 +296,9 @@ final class ApplicationCaptureView: NSView {
                 self.session = session
                 self.beginLivenessWatchdog(generation: generation)
                 self.remoteFrameView.adopt(session.frameTransport)
+                if self.window?.firstResponder === self {
+                    self.synchronizeForwardedModifierKeys()
+                }
                 guard
                     self.shouldCaptureNow,
                     self.captureGeneration == generation,
@@ -315,6 +346,7 @@ final class ApplicationCaptureView: NSView {
         pendingScrollX = 0
         pendingScrollY = 0
         pressedModifierKeyCodes.removeAll()
+        currentModifierKeyCodes.removeAll()
         guard stopTask == nil else { return }
         let session = session
         let lease = lease
@@ -454,21 +486,23 @@ final class ApplicationCaptureView: NSView {
     }
 
     override func flagsChanged(with event: NSEvent) {
-        switch Int(event.keyCode) {
-        case kVK_Command, kVK_RightCommand,
-             kVK_Shift, kVK_RightShift,
-             kVK_Option, kVK_RightOption,
-             kVK_Control, kVK_RightControl,
-             kVK_CapsLock, kVK_Function:
-            break
-        default:
+        guard let keyDown = Self.modifierKeyIsDown(
+            keyCode: event.keyCode,
+            modifierFlagsRawValue: event.modifierFlags.rawValue
+        ) else {
             return
         }
-        let keyDown = Self.modifierKeyTransition(
-            keyCode: event.keyCode,
-            pressedKeyCodes: &pressedModifierKeyCodes
-        )
-        enqueueKey(event, keyDown: keyDown)
+        if keyDown {
+            currentModifierKeyCodes.insert(event.keyCode)
+        } else {
+            currentModifierKeyCodes.remove(event.keyCode)
+        }
+        guard enqueueKey(event, keyDown: keyDown) else { return }
+        if keyDown {
+            pressedModifierKeyCodes.insert(event.keyCode)
+        } else {
+            pressedModifierKeyCodes.remove(event.keyCode)
+        }
     }
 
     private func enqueueMouse(_ event: NSEvent, kind: ApplicationSurfaceInputEventKind) {
@@ -485,8 +519,9 @@ final class ApplicationCaptureView: NSView {
         }
     }
 
-    private func enqueueKey(_ event: NSEvent, keyDown: Bool) {
-        guard canForwardInput else { return }
+    @discardableResult
+    private func enqueueKey(_ event: NSEvent, keyDown: Bool) -> Bool {
+        guard canForwardInput else { return false }
         guard inputPump.enqueue(ApplicationSurfaceInputEvent(
             kind: .key,
             keyCode: event.keyCode,
@@ -494,8 +529,9 @@ final class ApplicationCaptureView: NSView {
             modifiers: UInt64(event.modifierFlags.rawValue)
         )) == .accepted else {
             handleInputQueueFull()
-            return
+            return false
         }
+        return true
     }
 
     private func normalizedPoint(for event: NSEvent) -> CGPoint? {
@@ -552,6 +588,7 @@ final class ApplicationCaptureView: NSView {
         pendingScrollX = 0
         pendingScrollY = 0
         pressedModifierKeyCodes.removeAll()
+        currentModifierKeyCodes.removeAll()
         if let inputReleaseTask {
             return inputReleaseTask
         }
@@ -579,6 +616,9 @@ final class ApplicationCaptureView: NSView {
                 return
             }
             self.inputReleaseTask = nil
+            if self.window?.firstResponder === self {
+                self.synchronizeForwardedModifierKeys()
+            }
             if self.shouldCaptureNow {
                 self.startCapture()
             }
@@ -690,15 +730,100 @@ final class ApplicationCaptureView: NSView {
         return (keyCode, flags)
     }
 
-    static func modifierKeyTransition(
+    static func modifierKeyIsDown(
         keyCode: UInt16,
-        pressedKeyCodes: inout Set<UInt16>
-    ) -> Bool {
-        if pressedKeyCodes.remove(keyCode) != nil {
-            return false
+        modifierFlagsRawValue: UInt
+    ) -> Bool? {
+        let flags = NSEvent.ModifierFlags(rawValue: modifierFlagsRawValue)
+        switch Int(keyCode) {
+        case kVK_CapsLock:
+            return flags.contains(.capsLock)
+        case kVK_Shift:
+            return flags.contains(.shift)
+                && modifierFlagsRawValue
+                    & UInt(NX_DEVICELSHIFTKEYMASK) != 0
+        case kVK_RightShift:
+            return flags.contains(.shift)
+                && modifierFlagsRawValue
+                    & UInt(NX_DEVICERSHIFTKEYMASK) != 0
+        case kVK_Control:
+            return flags.contains(.control)
+                && modifierFlagsRawValue
+                    & UInt(NX_DEVICELCTLKEYMASK) != 0
+        case kVK_RightControl:
+            return flags.contains(.control)
+                && modifierFlagsRawValue
+                    & UInt(NX_DEVICERCTLKEYMASK) != 0
+        case kVK_Option:
+            return flags.contains(.option)
+                && modifierFlagsRawValue
+                    & UInt(NX_DEVICELALTKEYMASK) != 0
+        case kVK_RightOption:
+            return flags.contains(.option)
+                && modifierFlagsRawValue
+                    & UInt(NX_DEVICERALTKEYMASK) != 0
+        case kVK_Command:
+            return flags.contains(.command)
+                && modifierFlagsRawValue
+                    & UInt(NX_DEVICELCMDKEYMASK) != 0
+        case kVK_RightCommand:
+            return flags.contains(.command)
+                && modifierFlagsRawValue
+                    & UInt(NX_DEVICERCMDKEYMASK) != 0
+        case kVK_Function:
+            return flags.contains(.function)
+        default:
+            return nil
         }
-        pressedKeyCodes.insert(keyCode)
-        return true
+    }
+
+    private static func modifierKeyCodes(
+        modifierFlagsRawValue: UInt
+    ) -> Set<UInt16> {
+        let keyCodes = [
+            kVK_Command, kVK_RightCommand,
+            kVK_Shift, kVK_RightShift,
+            kVK_Option, kVK_RightOption,
+            kVK_Control, kVK_RightControl,
+            kVK_CapsLock, kVK_Function,
+        ]
+        return Set(keyCodes.compactMap { keyCode in
+            modifierKeyIsDown(
+                keyCode: UInt16(keyCode),
+                modifierFlagsRawValue: modifierFlagsRawValue
+            ) == true ? UInt16(keyCode) : nil
+        })
+    }
+
+    private func synchronizeForwardedModifierKeys() {
+        guard canForwardInput else { return }
+        let releases = pressedModifierKeyCodes
+            .subtracting(currentModifierKeyCodes)
+            .sorted()
+            .map {
+                ApplicationSurfaceInputEvent(
+                    kind: .key,
+                    keyCode: $0,
+                    keyDown: false
+                )
+            }
+        let presses = currentModifierKeyCodes
+            .subtracting(pressedModifierKeyCodes)
+            .sorted()
+            .map {
+                ApplicationSurfaceInputEvent(
+                    kind: .key,
+                    keyCode: $0,
+                    keyDown: true
+                )
+            }
+        let transitions = releases + presses
+        guard !transitions.isEmpty else { return }
+        guard inputPump.enqueue(transitions) == .accepted else {
+            handleInputQueueFull()
+            return
+        }
+        pressedModifierKeyCodes = currentModifierKeyCodes
     }
 
     static func sourcePoint(

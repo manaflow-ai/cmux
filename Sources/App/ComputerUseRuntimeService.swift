@@ -540,7 +540,25 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         failedAttemptCount: Int
     ) -> Bool {
         !applicationSurfaceStopWasAcknowledged(response)
-            && failedAttemptCount < ApplicationSurfacePendingStop.maximumFailedAttemptCount
+            && applicationSurfaceStopFailureAction(
+                failedAttemptCount: failedAttemptCount,
+                helperRestartAttempted: false
+            ) == .retry
+    }
+
+    nonisolated static func applicationSurfaceStopFailureAction(
+        failedAttemptCount: Int,
+        helperRestartAttempted: Bool
+    ) -> ApplicationSurfaceStopFailureAction {
+        guard
+            failedAttemptCount
+                >= ApplicationSurfacePendingStop.maximumFailedAttemptCount
+        else {
+            return .retry
+        }
+        return helperRestartAttempted
+            ? .retainUntilHelperExit
+            : .restartHelper
     }
 
     nonisolated static func parseApplicationSurfaceStartResult(
@@ -596,29 +614,23 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         helperIdentity: AgentPIDProcessIdentity
     ) {
         let failedAttemptCount: Int
+        let helperRestartAttempted: Bool
         if let pending = applicationSurfacePendingStops[sessionID],
            pending.helperIdentity == helperIdentity {
-            failedAttemptCount = pending.failedAttemptCount + 1
+            failedAttemptCount = min(
+                pending.failedAttemptCount + 1,
+                ApplicationSurfacePendingStop.maximumFailedAttemptCount
+            )
+            helperRestartAttempted = pending.helperRestartAttempted
         } else {
             failedAttemptCount = 1
-        }
-        guard Self.applicationSurfaceStopShouldRetry(
-            nil,
-            failedAttemptCount: failedAttemptCount
-        ) else {
-            applicationSurfacePendingStops.removeValue(forKey: sessionID)
-            removeTrackedApplicationSurfaceSession(sessionID)
-            cmuxDebugLog(
-                "applicationSurface.stop.abandoned"
-                    + " session=\(sessionID)"
-                    + " attempts=\(failedAttemptCount)"
-            )
-            return
+            helperRestartAttempted = false
         }
         applicationSurfacePendingStops[sessionID] = ApplicationSurfacePendingStop(
             sessionID: sessionID,
             helperIdentity: helperIdentity,
-            failedAttemptCount: failedAttemptCount
+            failedAttemptCount: failedAttemptCount,
+            helperRestartAttempted: helperRestartAttempted
         )
     }
 
@@ -630,10 +642,28 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         for pending in pendingStops {
             guard !Task.isCancelled else { return }
             guard pending.helperIdentity == expectedPeerIdentity else {
-                applicationSurfacePendingStops.removeValue(
-                    forKey: pending.sessionID
+                clearPendingApplicationSurfaceStops(
+                    for: pending.helperIdentity
                 )
-                removeTrackedApplicationSurfaceSession(pending.sessionID)
+                continue
+            }
+            switch Self.applicationSurfaceStopFailureAction(
+                failedAttemptCount: pending.failedAttemptCount,
+                helperRestartAttempted: pending.helperRestartAttempted
+            ) {
+            case .retry:
+                break
+            case .restartHelper:
+                guard scheduleHelperRestartAfterApplicationSurfaceStopFailure(
+                    expectedPeerIdentity: expectedPeerIdentity
+                ) else {
+                    continue
+                }
+                var retained = pending
+                retained.helperRestartAttempted = true
+                applicationSurfacePendingStops[pending.sessionID] = retained
+                continue
+            case .retainUntilHelperExit:
                 continue
             }
             let response = await requestApplicationSurfaceStop(
@@ -651,6 +681,74 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
                     helperIdentity: expectedPeerIdentity
                 )
             }
+        }
+    }
+
+    @discardableResult
+    private func scheduleHelperRestartAfterApplicationSurfaceStopFailure(
+        expectedPeerIdentity: AgentPIDProcessIdentity
+    ) -> Bool {
+        guard
+            recoveryTask == nil,
+            desiredEnabled,
+            acceptsNewLaunches,
+            processIdentity(for: .native) == expectedPeerIdentity
+        else {
+            return false
+        }
+        recoveryTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.serializeHelperLifecycle(cancelledResult: ()) {
+                guard self.processIdentity(for: .native)
+                    == expectedPeerIdentity
+                else {
+                    self.clearPendingApplicationSurfaceStops(
+                        for: expectedPeerIdentity
+                    )
+                    return
+                }
+                guard
+                    !Task.isCancelled,
+                    self.acceptsNewLaunches
+                else {
+                    return
+                }
+                cmuxDebugLog(
+                    "applicationSurface.stop.restartHelper"
+                        + " pid=\(expectedPeerIdentity.pid)"
+                )
+                guard await self.stopDaemon() else { return }
+                self.clearApplicationSurfaceSessionsAfterHelperExit()
+                guard
+                    !Task.isCancelled,
+                    self.desiredEnabled,
+                    self.acceptsNewLaunches
+                else {
+                    return
+                }
+                await self.startIfNeededWithinLifecycle()
+            }
+            self.recoveryTask = nil
+        }
+        return true
+    }
+
+    private func clearPendingApplicationSurfaceStops(
+        for helperIdentity: AgentPIDProcessIdentity
+    ) {
+        let sessionIDs = applicationSurfacePendingStops.values.compactMap {
+            $0.helperIdentity == helperIdentity ? $0.sessionID : nil
+        }
+        for sessionID in sessionIDs {
+            applicationSurfacePendingStops.removeValue(forKey: sessionID)
+            removeTrackedApplicationSurfaceSession(sessionID)
+        }
+    }
+
+    private func clearApplicationSurfaceSessionsAfterHelperExit() {
+        applicationSurfacePendingStops.removeAll()
+        for leaseIdentifier in Array(applicationSurfaceSessionIDsByLease.keys) {
+            applicationSurfaceSessionIDsByLease[leaseIdentifier]?.removeAll()
         }
     }
 

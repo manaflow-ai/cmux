@@ -4,4 +4,5 @@ struct ApplicationSurfacePendingStop: Equatable {
     let sessionID: String
     let helperIdentity: AgentPIDProcessIdentity
     let failedAttemptCount: Int
+    var helperRestartAttempted: Bool = false
 }
