@@ -778,7 +778,11 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         requireLauncherScript: Bool = false
     ) -> String? {
         let restoreCommand = resumeCommand.map {
-            "/usr/bin/env CMUX_AGENT_RESTORE_LAUNCH=1 /bin/sh -c \(shellSingleQuoted($0))"
+            SurfaceResumeCommandCanonicalizer.insertingAppOwnedAgentRestoreLaunch(
+                in: $0,
+                kind: kind.rawValue,
+                sessionId: sessionId
+            )
         }
         return startupInput(
             command: restoreCommand,

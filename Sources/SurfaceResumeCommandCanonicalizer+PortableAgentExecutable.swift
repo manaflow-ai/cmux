@@ -78,20 +78,49 @@ extension SurfaceResumeBindingSnapshot {
             in: startupCommand,
             kind: kind
         )
-        guard repairPortableAgentExecutable else {
-            return suppressed
+        let repaired: String
+        if repairPortableAgentExecutable {
+            // Suppression insertion runs before executable repair: repair can wrap a
+            // stale-executable command in `/bin/sh -c '…'`, whose single-word body no
+            // longer parses as a codex resume argv.
+            repaired = SurfaceResumeCommandCanonicalizer.replacingPortableAgentExecutable(
+                in: suppressed,
+                kind: kind
+            )
+        } else {
+            repaired = suppressed
         }
-        // Suppression insertion runs before executable repair: repair can wrap a
-        // stale-executable command in `/bin/sh -c '…'`, whose single-word body no
-        // longer parses as a codex resume argv.
-        return SurfaceResumeCommandCanonicalizer.replacingPortableAgentExecutable(
-            in: suppressed,
-            kind: kind
+        return SurfaceResumeCommandCanonicalizer.insertingAppOwnedAgentRestoreLaunch(
+            in: repaired,
+            kind: kind,
+            sessionId: checkpointId
         )
     }
 }
 
 extension SurfaceResumeCommandCanonicalizer {
+    static func insertingAppOwnedAgentRestoreLaunch(
+        in command: String,
+        kind: String?,
+        sessionId: String?
+    ) -> String {
+        guard let provider = kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              provider == "codex" || provider == "claude",
+              let sessionId = sessionId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              UUID(uuidString: sessionId) != nil else {
+            return command
+        }
+        let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(command)
+        guard let executableIndex = commandExecutableWordIndex(in: words, command: command) else {
+            return command
+        }
+        let executableStart = words[executableIndex].range.lowerBound
+        let token = TerminalStartupShellQuoting.singleQuoted("\(provider):\(sessionId)")
+        return String(command[..<executableStart])
+            + "CMUX_AGENT_RESTORE_LAUNCH=\(token) "
+            + String(command[executableStart...])
+    }
+
     static func replacingPortableAgentExecutable(in command: String, kind: String?) -> String {
         let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(command)
         guard let executableIndex = commandExecutableWordIndex(in: words, command: command) else { return command }

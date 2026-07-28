@@ -237,9 +237,9 @@ if [[ -n "${CMUX_SURFACE_ID:-}" ]]; then
     IN_CMUX=1
 fi
 
-# CMUX_AGENT_RESTORE_LAUNCH is a one-shot ownership token attached only to
-# app-generated restore input. Consume it before every eventual exec so it can
-# authorize this wrapper's startup decision without leaking to Codex or hooks.
+# CMUX_AGENT_RESTORE_LAUNCH is a provider/session-bound one-shot token attached
+# only to app-generated restore input. Consume it before every eventual exec so
+# it can authorize this launch without leaking to Codex or hooks.
 cmux_codex_app_restore_launch="${CMUX_AGENT_RESTORE_LAUNCH:-}"
 unset CMUX_AGENT_RESTORE_LAUNCH
 
@@ -275,7 +275,8 @@ fi
 # unmarked resume from a detached shell/tmux keeps the bounded ownership probe
 # and preserves native behavior when its inherited cmux environment is stale.
 cmux_codex_resume_sid="$(cmux_codex_resume_session_id "$@")"
-if [[ "$cmux_codex_app_restore_launch" != "1" || -z "$cmux_codex_resume_sid" ]] \
+if [[ -z "$cmux_codex_resume_sid" \
+      || "$cmux_codex_app_restore_launch" != "codex:$cmux_codex_resume_sid" ]] \
       && ! cmux_socket_available; then
     exec_real_codex_passthrough "$@"
 fi
