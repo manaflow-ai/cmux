@@ -7,9 +7,11 @@ final class ComputerUseOnboardingPresentationState: ObservableObject {
     @Published private(set) var returnToOverviewGeneration = 0
     @Published private(set) var permissionCompanionVisible = false
     @Published private(set) var permissionCompanionLayoutReady = false
+    @Published private(set) var onboardingComplete = false
 
     func showPermissionCompanion() {
         guard !permissionCompanionVisible else { return }
+        onboardingComplete = false
         permissionCompanionLayoutReady = false
         permissionCompanionVisible = true
     }
@@ -23,7 +25,12 @@ final class ComputerUseOnboardingPresentationState: ObservableObject {
         return true
     }
 
+    func showCompletionInPlace() {
+        onboardingComplete = true
+    }
+
     func requestExpandedPresentation(resetToOverview: Bool = true) {
+        onboardingComplete = false
         permissionCompanionVisible = false
         permissionCompanionLayoutReady = false
         if resetToOverview {
@@ -219,6 +226,12 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         let requestID = UUID()
         pendingPlacementRequestID = requestID
         systemSettingsActivatedForPendingRequest = false
+        if NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+            == Self.systemSettingsBundleIdentifier
+        {
+            systemSettingsActivatedForPendingRequest = true
+            beginSystemSettingsPlacementRetry(requestID: requestID)
+        }
     }
 
     private func systemSettingsDidActivate() {
@@ -488,22 +501,28 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
     private func onboardingCompleted() {
         completionDismissTask?.cancel()
         completionDismissTask = nil
-        showExpandedOnboarding(resetStep: false) { [weak self] in
-            guard let self else { return }
-            self.completionDismissTask = Task { @MainActor [weak self] in
-                do {
-                    try await ContinuousClock().sleep(for: Self.completionDismissDelay)
-                } catch {
-                    return
-                }
-                guard let self, !Task.isCancelled else { return }
-                self.completionDismissTask = nil
-                let completionHandler = self.completionHandler
-                self.completionHandler = nil
-                self.dismissalHandler = nil
-                self.dismiss()
-                completionHandler?()
+        systemSettingsPlacementRetryTask?.cancel()
+        systemSettingsPlacementRetryTask = nil
+        systemSettingsTrackingTask?.cancel()
+        systemSettingsTrackingTask = nil
+        pendingPlacementRequestID = nil
+        systemSettingsActivatedForPendingRequest = false
+        pendingPermissionCompanionFrame = nil
+        presentationState?.showCompletionInPlace()
+        window?.orderFrontRegardless()
+        completionDismissTask = Task { @MainActor [weak self] in
+            do {
+                try await ContinuousClock().sleep(for: Self.completionDismissDelay)
+            } catch {
+                return
             }
+            guard let self, !Task.isCancelled else { return }
+            self.completionDismissTask = nil
+            let completionHandler = self.completionHandler
+            self.completionHandler = nil
+            self.dismissalHandler = nil
+            self.dismiss()
+            completionHandler?()
         }
     }
 

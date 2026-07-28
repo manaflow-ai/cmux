@@ -65,12 +65,13 @@ the main cmux app:
 Onboarding appears on the first real Computer Use tool invocation, not on cmux
 or agent startup. Settings → Computer Use always shows the two authoritative
 permission states; choosing **Grant…** for an ungranted permission opens that
-same permission step and its draggable helper-app recovery path. Each first-run
-**Allow** action opens the matching permanent System Settings pane in one step;
-a repeat visit is labeled **Open System Settings**. If macOS has not listed the
-helper yet, drag or add the **cmux Computer Use** app tile to the list, then turn
-it on. cmux reads status from the helper over its Unix socket, advances to the
-next missing permission, and shows a completion screen once both are granted.
+same permission step and its draggable helper-app recovery path. Each **Allow**
+action opens the matching permanent System Settings pane in one step and stays
+labeled **Allow** until the helper reports the grant; pressing it again simply
+reopens the same pane. If macOS has not listed the helper yet, drag or add the
+**cmux Computer Use** app tile to the list, then turn it on. cmux reads status
+from the helper over its Unix socket, advances beside System Settings to the
+next missing permission, and shows completion in place once both are granted.
 Do not invoke `check_permissions {prompt:true}` or any standalone driver while
 this flow is active: that creates the stray native permission dialogs this
 onboarding deliberately avoids. The main cmux process never calls a TCC API or
