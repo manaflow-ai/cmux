@@ -12,8 +12,8 @@ import tempfile
 from pathlib import Path
 
 from claude_teams_test_utils import (
-    FOCUSED_SURFACE_ID,
     FOCUSED_WORKSPACE_ID,
+    canonical_managed_claude_shim_root,
     focused_cmux_server,
     resolve_cmux_cli,
 )
@@ -31,14 +31,15 @@ def main() -> int:
         print(f"FAIL: {exc}")
         return 1
 
-    with tempfile.TemporaryDirectory(prefix="cmux-claude-teams-shim-") as td:
+    with (
+        tempfile.TemporaryDirectory(prefix="cmux-claude-teams-shim-") as td,
+        canonical_managed_claude_shim_root() as (surface_id, cmux_shim_bin),
+    ):
         tmp = Path(td)
         home = tmp / "home"
-        cmux_shim_bin = tmp / "cmux-cli-shims" / FOCUSED_SURFACE_ID
         second_cmux_shim_bin = tmp / "cmux-cli-shims" / "99999999-9999-4999-8999-999999999999"
         real_bin = tmp / "real-bin"
         home.mkdir(parents=True, exist_ok=True)
-        cmux_shim_bin.mkdir(parents=True, exist_ok=True)
         second_cmux_shim_bin.mkdir(parents=True, exist_ok=True)
         real_bin.mkdir(parents=True, exist_ok=True)
 
@@ -83,11 +84,11 @@ printf 'shim=%s\\n' "$(command -v tmux)"
         env["CMUX_CLAUDE_WRAPPER_SHIM"] = str(cmux_shim_bin / "claude")
         env["CMUX_CLAUDE_WRAPPER_SHIM_ROOT"] = str(cmux_shim_bin)
         env["CMUX_WORKSPACE_ID"] = FOCUSED_WORKSPACE_ID
-        env["CMUX_SURFACE_ID"] = FOCUSED_SURFACE_ID
+        env["CMUX_SURFACE_ID"] = surface_id
         socket_path = tmp / "cmux.sock"
         env["CMUX_SOCKET_PATH"] = str(socket_path)
 
-        with focused_cmux_server(socket_path):
+        with focused_cmux_server(socket_path, surface_id=surface_id):
             proc = subprocess.run(
                 [cli_path, "claude-teams", "--version"],
                 capture_output=True,

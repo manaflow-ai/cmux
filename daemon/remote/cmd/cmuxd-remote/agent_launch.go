@@ -31,6 +31,10 @@ func runClaudeTeamsRelay(socketPath string, args []string, refreshAddr func() st
 		fmt.Fprintf(os.Stderr, "cmux claude-teams: failed to create shim directory: %v\n", err)
 		return 1
 	}
+	if err := configureClaudeTeamsShellWrapper(shimDir); err != nil {
+		fmt.Fprintf(os.Stderr, "cmux claude-teams: failed to configure shell wrapper: %v\n", err)
+		return 1
+	}
 
 	// Resolve the agent executable BEFORE modifying PATH (so the shim
 	// directory doesn't shadow anything). Matches the Swift CLI behavior.

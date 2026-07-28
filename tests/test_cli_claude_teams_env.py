@@ -11,8 +11,8 @@ import tempfile
 from pathlib import Path
 
 from claude_teams_test_utils import (
-    FOCUSED_SURFACE_ID,
     FOCUSED_WORKSPACE_ID,
+    canonical_managed_claude_shim_root,
     focused_cmux_server,
     resolve_cmux_cli,
 )
@@ -36,7 +36,10 @@ def run_claude_teams(
     node_options: str,
     tmpdir: str | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], str, str, str]:
-    with tempfile.TemporaryDirectory(prefix="cmux-claude-teams-env-") as td:
+    with (
+        tempfile.TemporaryDirectory(prefix="cmux-claude-teams-env-") as td,
+        canonical_managed_claude_shim_root() as (surface_id, wrapper_shim_bin),
+    ):
         tmp = Path(td)
         real_bin = tmp / "real-bin"
         real_bin.mkdir(parents=True, exist_ok=True)
@@ -58,9 +61,7 @@ def run_claude_teams(
         runtime_node_options_log = tmp / "runtime-node-options.log"
         child_node_options_log = tmp / "child-node-options.log"
         fake_home = tmp / "home"
-        wrapper_shim_bin = tmp / "cmux-cli-shims" / FOCUSED_SURFACE_ID
         fake_home.mkdir(parents=True, exist_ok=True)
-        wrapper_shim_bin.mkdir(parents=True, exist_ok=True)
 
         make_executable(
             wrapper_shim_bin / "claude",
@@ -156,7 +157,7 @@ fs.writeFileSync(
         env["CMUX_CLAUDE_WRAPPER_SHIM"] = str(wrapper_shim_bin / "claude")
         env["CMUX_CLAUDE_WRAPPER_SHIM_ROOT"] = str(wrapper_shim_bin)
         env["CMUX_WORKSPACE_ID"] = FOCUSED_WORKSPACE_ID
-        env["CMUX_SURFACE_ID"] = FOCUSED_SURFACE_ID
+        env["CMUX_SURFACE_ID"] = surface_id
         env["TMUX"] = "__HOST_TMUX__"
         env["TMUX_PANE"] = "%999"
         env["TERM"] = "xterm-256color"
@@ -167,7 +168,7 @@ fs.writeFileSync(
         explicit_socket_path = str(tmp / "explicit-cmux.sock")
         explicit_socket_password = "topsecret"
 
-        with focused_cmux_server(Path(explicit_socket_path)):
+        with focused_cmux_server(Path(explicit_socket_path), surface_id=surface_id):
             proc = subprocess.run(
                 [
                     cli_path,

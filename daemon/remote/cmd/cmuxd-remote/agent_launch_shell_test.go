@@ -84,6 +84,53 @@ command -v tmux > "$CMUX_TEST_RESOLVED_TMUX_LOG"
 	}
 }
 
+func TestClaudeTeamsShellWrapperUsesFishSyntaxWithoutChangingShellIdentity(t *testing.T) {
+	fishPath, err := exec.LookPath("fish")
+	if err != nil {
+		t.Skip("fish is not installed")
+	}
+
+	root := t.TempDir()
+	shimDir := filepath.Join(root, "claude-teams-bin")
+	profileBin := filepath.Join(root, "profile-bin")
+	configDir := filepath.Join(root, "config", "fish")
+	for _, directory := range []string{shimDir, profileBin, configDir} {
+		if err := os.MkdirAll(directory, 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeAgentLaunchTestExecutable(t, filepath.Join(shimDir, "tmux"), "#!/bin/sh\nexit 0\n")
+	if err := os.WriteFile(
+		filepath.Join(configDir, "config.fish"),
+		[]byte(`set -gx PATH "$CMUX_TEST_PROFILE_BIN" /usr/bin /bin`+"\n"),
+		0644,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("SHELL", fishPath)
+	t.Setenv("CMUX_CLAUDE_TEAMS_ORIGINAL_SHELL", "")
+	t.Setenv("CMUX_CLAUDE_TEAMS_SHIM_DIR", "")
+	t.Setenv("CMUX_TEST_PROFILE_BIN", profileBin)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
+	if err := configureClaudeTeamsShellWrapper(shimDir); err != nil {
+		t.Fatal(err)
+	}
+	wrapperPath := os.Getenv("SHELL")
+	if filepath.Base(wrapperPath) != filepath.Base(fishPath) {
+		t.Fatalf("wrapper shell name = %q, want %q", filepath.Base(wrapperPath), filepath.Base(fishPath))
+	}
+
+	command := exec.Command(wrapperPath, "-lc", "command -v tmux")
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("fish shell wrapper failed: %v\n%s", err, output)
+	}
+	if resolved := strings.TrimSpace(string(output)); resolved != filepath.Join(shimDir, "tmux") {
+		t.Fatalf("fish shell wrapper resolved tmux = %q", resolved)
+	}
+}
+
 func writeAgentLaunchTestExecutable(t *testing.T, path string, content string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(content), 0755); err != nil {

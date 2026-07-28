@@ -10,6 +10,10 @@ var agentInformationalOptions = map[string]bool{
 	"-V":        true,
 }
 
+var claudeTeamsInformationalOptions = map[string]bool{
+	"--help": true, "-h": true, "--version": true, "-v": true,
+}
+
 func claudeTeamsLaunchIsNonLaunch(args []string) bool {
 	return claudeTeamsInformationalInvocation(args) || claudeTeamsManagementInvocation(args)
 }
@@ -25,7 +29,7 @@ func claudeTeamsInformationalInvocation(args []string) bool {
 			continue
 		}
 		name := agentOptionName(argument)
-		if agentInformationalOptions[name] {
+		if claudeTeamsInformationalOptions[name] {
 			return true
 		}
 		width, recognized := claudeTeamsOptionWidth(args, index)
@@ -56,7 +60,7 @@ func claudeTeamsManagementInvocation(args []string) bool {
 			return false
 		}
 		width, recognized := claudeTeamsOptionWidth(args, index)
-		if !recognized || agentInformationalOptions[name] {
+		if !recognized || claudeTeamsInformationalOptions[name] {
 			return false
 		}
 		index += width
@@ -67,7 +71,7 @@ func claudeTeamsManagementInvocation(args []string) bool {
 func claudeTeamsOptionWidth(args []string, index int) (int, bool) {
 	argument := args[index]
 	name := agentOptionName(argument)
-	if agentInformationalOptions[name] || claudeTeamsBooleanOptions[name] {
+	if claudeTeamsInformationalOptions[name] || claudeTeamsBooleanOptions[name] {
 		return 1, true
 	}
 	if name == "--tmux" {

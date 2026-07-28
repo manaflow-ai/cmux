@@ -11,8 +11,8 @@ import tempfile
 from pathlib import Path
 
 from claude_teams_test_utils import (
-    FOCUSED_SURFACE_ID,
     FOCUSED_WORKSPACE_ID,
+    canonical_managed_claude_shim_root,
     focused_cmux_server,
     resolve_cmux_cli,
 )
@@ -30,15 +30,16 @@ def main() -> int:
         print(f"FAIL: {exc}")
         return 1
 
-    with tempfile.TemporaryDirectory(prefix="cmux-claude-teams-fallback-path-") as td:
+    with (
+        tempfile.TemporaryDirectory(prefix="cmux-claude-teams-fallback-path-") as td,
+        canonical_managed_claude_shim_root() as (live_surface_id, live_managed_bin),
+    ):
         tmp = Path(td)
         home = tmp / "home"
         fallback_bin = home / ".bun" / "bin"
         managed_bin = tmp / "cmux-cli-shims" / "99999999-9999-4999-8999-999999999999"
-        live_managed_bin = tmp / "cmux-cli-shims" / FOCUSED_SURFACE_ID
         fallback_bin.mkdir(parents=True, exist_ok=True)
         managed_bin.mkdir(parents=True, exist_ok=True)
-        live_managed_bin.mkdir(parents=True, exist_ok=True)
 
         make_executable(
             managed_bin / "claude",
@@ -241,11 +242,14 @@ exit 86
 
         overridden_tmp = tmp / "unrelated-tmpdir"
         overridden_tmp.mkdir()
-        with focused_cmux_server(tmp / "live-cmux.sock") as (socket_path, _):
+        with focused_cmux_server(
+            tmp / "live-cmux.sock",
+            surface_id=live_surface_id,
+        ) as (socket_path, _):
             live_env = env.copy()
             live_env["CMUX_SOCKET_PATH"] = socket_path
             live_env["CMUX_WORKSPACE_ID"] = FOCUSED_WORKSPACE_ID
-            live_env["CMUX_SURFACE_ID"] = FOCUSED_SURFACE_ID
+            live_env["CMUX_SURFACE_ID"] = live_surface_id
             live_env["CMUX_CLAUDE_WRAPPER_SHIM"] = str(live_managed_bin / "claude")
             live_env["CMUX_CLAUDE_WRAPPER_SHIM_ROOT"] = str(live_managed_bin)
             live_env["TMPDIR"] = str(overridden_tmp)
@@ -288,14 +292,17 @@ exit 86
             redirected_target / "claude",
             "#!/usr/bin/env bash\necho managed-claude-shim-must-not-run >&2\nexit 42\n",
         )
-        redirected_root = redirected_root_parent / FOCUSED_SURFACE_ID
+        redirected_root = redirected_root_parent / live_surface_id
         redirected_root.symlink_to(redirected_target, target_is_directory=True)
         redirected_tmux = redirected_target / "tmux"
         redirected_env = live_env.copy()
         redirected_env["CMUX_CLAUDE_WRAPPER_SHIM"] = str(redirected_root / "claude")
         redirected_env["CMUX_CLAUDE_WRAPPER_SHIM_ROOT"] = str(redirected_root)
         claude_log.unlink(missing_ok=True)
-        with focused_cmux_server(tmp / "redirected-cmux.sock") as (socket_path, _):
+        with focused_cmux_server(
+            tmp / "redirected-cmux.sock",
+            surface_id=live_surface_id,
+        ) as (socket_path, _):
             redirected_env["CMUX_SOCKET_PATH"] = socket_path
             redirected = subprocess.run(
                 [cli_path, "claude-teams", "start a team"],

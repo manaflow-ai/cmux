@@ -9,7 +9,9 @@ import os
 import shutil
 import socketserver
 import subprocess
+import tempfile
 import threading
+import uuid
 from pathlib import Path
 
 FOCUSED_WORKSPACE_ID = "11111111-1111-4111-8111-111111111111"
@@ -47,10 +49,10 @@ class _FocusedCmuxHandler(socketserver.StreamRequestHandler):
             request = json.loads(decoded_line)
             method = str(request["method"])
             self.server.requests.append(method)  # type: ignore[attr-defined]
-            workspace_id = FOCUSED_WORKSPACE_ID
-            window_id = FOCUSED_WINDOW_ID
-            pane_id = FOCUSED_PANE_ID
-            surface_id = FOCUSED_SURFACE_ID
+            workspace_id = self.server.workspace_id  # type: ignore[attr-defined]
+            window_id = self.server.window_id  # type: ignore[attr-defined]
+            pane_id = self.server.pane_id  # type: ignore[attr-defined]
+            surface_id = self.server.surface_id  # type: ignore[attr-defined]
             if method == "system.identify":
                 result = {
                     "focused": {
@@ -76,15 +78,39 @@ class _FocusedCmuxHandler(socketserver.StreamRequestHandler):
 class _FocusedCmuxServer(socketserver.ThreadingUnixStreamServer):
     allow_reuse_address = True
 
-    def __init__(self, socket_path: str) -> None:
+    def __init__(
+        self,
+        socket_path: str,
+        workspace_id: str,
+        window_id: str,
+        pane_id: str,
+        surface_id: str,
+    ) -> None:
         self.requests: list[str] = []
+        self.workspace_id = workspace_id
+        self.window_id = window_id
+        self.pane_id = pane_id
+        self.surface_id = surface_id
         super().__init__(socket_path, _FocusedCmuxHandler)
 
 
 @contextmanager
-def focused_cmux_server(socket_path: Path) -> Iterator[tuple[str, list[str]]]:
+def focused_cmux_server(
+    socket_path: Path,
+    *,
+    workspace_id: str = FOCUSED_WORKSPACE_ID,
+    window_id: str = FOCUSED_WINDOW_ID,
+    pane_id: str = FOCUSED_PANE_ID,
+    surface_id: str = FOCUSED_SURFACE_ID,
+) -> Iterator[tuple[str, list[str]]]:
     """Serve a live focused surface to prove contextless launchers do not borrow it."""
-    server = _FocusedCmuxServer(str(socket_path))
+    server = _FocusedCmuxServer(
+        str(socket_path),
+        workspace_id,
+        window_id,
+        pane_id,
+        surface_id,
+    )
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -93,6 +119,23 @@ def focused_cmux_server(socket_path: Path) -> Iterator[tuple[str, list[str]]]:
         server.shutdown()
         server.server_close()
         thread.join(timeout=2)
+
+
+@contextmanager
+def canonical_managed_claude_shim_root() -> Iterator[tuple[str, Path]]:
+    """Create an isolated per-surface shim at the app-owned temporary root."""
+    surface_id = str(uuid.uuid4())
+    parent = Path(tempfile.gettempdir()) / "cmux-cli-shims"
+    root = parent / surface_id
+    root.mkdir(parents=True)
+    try:
+        yield surface_id, root
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+        try:
+            parent.rmdir()
+        except OSError:
+            pass
 
 
 def install_pi_extension(config_dir: Path, cli_path: str | None = None) -> Path:
