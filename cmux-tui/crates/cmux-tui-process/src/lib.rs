@@ -71,6 +71,15 @@ pub fn spawn(command: &mut Command) -> io::Result<Child> {
     command.spawn()
 }
 
+/// Spawn a child only while the process barrier deadline remains valid.
+pub fn spawn_until(command: &mut Command, deadline: std::time::Instant) -> io::Result<Child> {
+    let _guard = ProcessCreationGuard::acquire_until(deadline)?;
+    if std::time::Instant::now() >= deadline {
+        return Err(io::Error::new(io::ErrorKind::TimedOut, "process spawn deadline expired"));
+    }
+    command.spawn()
+}
+
 /// Unix socket operations whose descriptor creation is coordinated with
 /// process launch on macOS.
 #[cfg(unix)]

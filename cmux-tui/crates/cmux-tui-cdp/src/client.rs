@@ -25,6 +25,8 @@ const CDP_RESOLVER_QUEUE_CAPACITY: usize = 64;
 const CDP_RESOLVER_WORKERS: usize = 4;
 const CDP_RESOLVER_CHILD_CAPACITY: usize = CDP_RESOLVER_QUEUE_CAPACITY + CDP_RESOLVER_WORKERS;
 const CDP_RESOLVER_POLL_INTERVAL: Duration = Duration::from_millis(5);
+const CDP_RESOLVER_REAP_MAX_BACKOFF: Duration = Duration::from_millis(250);
+const CDP_RESOLVER_REAP_RETRY_WINDOW: Duration = Duration::from_secs(2);
 const CDP_RESOLVER_OUTPUT_LIMIT: u64 = 64 * 1024;
 const CDP_DISCOVERY_TIMEOUT: Duration = Duration::from_secs(2);
 /// Maximum estimated retained bytes in each bounded CDP event queue.
@@ -77,6 +79,7 @@ struct ResolveRequest {
 struct ResolverChildReaper {
     sender: Sender<ResolverChildReapRequest>,
     active: Arc<AtomicUsize>,
+    degraded: Arc<AtomicBool>,
     _worker: std::thread::JoinHandle<()>,
 }
 
@@ -94,6 +97,9 @@ impl Drop for ResolverChildReaperLease {
 struct ResolverChildReapRequest {
     child: Child,
     _lease: ResolverChildReaperLease,
+    next_attempt: Instant,
+    retry_delay: Duration,
+    retry_deadline: Instant,
 }
 
 impl CdpResolver {
@@ -212,7 +218,7 @@ fn resolve_host_addresses_until(
     let reaper = reserve_resolver_child_reaper()?;
     let mut command = host_resolver_command(host, port)?;
     command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
-    let mut child = cmux_tui_process::spawn(&mut command)?;
+    let mut child = cmux_tui_process::spawn_until(&mut command, deadline)?;
     loop {
         match child.try_wait() {
             Ok(Some(status)) => {
@@ -278,10 +284,12 @@ fn resolver_child_reaper() -> std::io::Result<()> {
     if slot.is_none() {
         let (sender, receiver) = channel();
         let active = Arc::new(AtomicUsize::new(0));
+        let degraded = Arc::new(AtomicBool::new(false));
+        let worker_degraded = degraded.clone();
         let worker = std::thread::Builder::new()
             .name("cmux-tui-cdp-resolver-reaper".into())
-            .spawn(move || run_resolver_child_reaper(receiver))?;
-        *slot = Some(ResolverChildReaper { sender, active, _worker: worker });
+            .spawn(move || run_resolver_child_reaper(receiver, worker_degraded))?;
+        *slot = Some(ResolverChildReaper { sender, active, degraded, _worker: worker });
     }
     Ok(())
 }
@@ -290,6 +298,11 @@ fn reserve_resolver_child_reaper() -> std::io::Result<ResolverChildReaperLease> 
     resolver_child_reaper()?;
     let slot = CDP_RESOLVER_CHILD_REAPER.get().unwrap().lock().unwrap();
     let reaper = slot.as_ref().expect("resolver child reaper initialized");
+    if reaper.degraded.load(Ordering::Acquire) {
+        return Err(std::io::Error::other(
+            "host resolver child cleanup is temporarily unavailable",
+        ));
+    }
     reaper
         .active
         .fetch_update(Ordering::AcqRel, Ordering::Acquire, |active| {
@@ -301,13 +314,26 @@ fn reserve_resolver_child_reaper() -> std::io::Result<ResolverChildReaperLease> 
                 "host resolver child capacity exhausted",
             )
         })?;
+    if reaper.degraded.load(Ordering::Acquire) {
+        reaper.active.fetch_sub(1, Ordering::AcqRel);
+        return Err(std::io::Error::other(
+            "host resolver child cleanup is temporarily unavailable",
+        ));
+    }
     Ok(ResolverChildReaperLease { sender: reaper.sender.clone(), active: reaper.active.clone() })
 }
 
 fn handoff_resolver_child(mut child: Child, lease: ResolverChildReaperLease) {
     let _ = child.kill();
     let sender = lease.sender.clone();
-    let request = ResolverChildReapRequest { child, _lease: lease };
+    let now = Instant::now();
+    let request = ResolverChildReapRequest {
+        child,
+        _lease: lease,
+        next_attempt: now,
+        retry_delay: CDP_RESOLVER_POLL_INTERVAL,
+        retry_deadline: now + CDP_RESOLVER_REAP_RETRY_WINDOW,
+    };
     if let Err(error) = sender.send(request) {
         let mut request = error.0;
         let _ = request.child.kill();
@@ -315,22 +341,66 @@ fn handoff_resolver_child(mut child: Child, lease: ResolverChildReaperLease) {
     }
 }
 
-fn run_resolver_child_reaper(receiver: Receiver<ResolverChildReapRequest>) {
+fn run_resolver_child_reaper(
+    receiver: Receiver<ResolverChildReapRequest>,
+    degraded: Arc<AtomicBool>,
+) {
     let mut pending = Vec::new();
+    let mut disconnected = false;
     loop {
-        match receiver.recv_timeout(CDP_RESOLVER_POLL_INTERVAL) {
-            Ok(request) => pending.push(request),
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) if pending.is_empty() => return,
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {}
+        if pending.is_empty() {
+            if disconnected {
+                return;
+            }
+            match receiver.recv() {
+                Ok(request) => pending.push(request),
+                Err(_) => return,
+            }
+        } else {
+            let now = Instant::now();
+            let wait = pending
+                .iter()
+                .map(|request| request.next_attempt.saturating_duration_since(now))
+                .min()
+                .unwrap_or_default();
+            if disconnected {
+                std::thread::sleep(wait);
+            } else {
+                match receiver.recv_timeout(wait) {
+                    Ok(request) => pending.push(request),
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                        disconnected = true;
+                    }
+                }
+            }
         }
         while let Ok(request) = receiver.try_recv() {
             pending.push(request);
         }
+        let now = Instant::now();
         pending.retain_mut(|request| {
+            if request.next_attempt > now {
+                return true;
+            }
             let _ = request.child.kill();
-            !matches!(resolver_child_try_wait(request), Ok(Some(_)))
+            match resolver_child_try_wait(request) {
+                Ok(Some(_)) => false,
+                Err(error) if error.kind() != std::io::ErrorKind::Interrupted => false,
+                Ok(None) | Err(_) => {
+                    if now >= request.retry_deadline {
+                        degraded.store(true, Ordering::Release);
+                    }
+                    request.next_attempt = now + request.retry_delay;
+                    request.retry_delay =
+                        request.retry_delay.saturating_mul(2).min(CDP_RESOLVER_REAP_MAX_BACKOFF);
+                    true
+                }
+            }
         });
+        if pending.is_empty() {
+            degraded.store(false, Ordering::Release);
+        }
     }
 }
 
