@@ -241,6 +241,38 @@ struct TextBoxPendingPasteReservationTests {
         #expect(!textView.hasPendingAttachmentUploadPlaceholder())
     }
 
+    @Test("markerless rollback publishes cleared pending state")
+    func markerlessRollbackPublishesClearedPendingState() {
+        let (window, textView) = makeTextView()
+        defer { close(window) }
+        setInsertionPoint(in: textView)
+        var boundText = textView.string
+        var boundAttachments: [TextBoxAttachment] = []
+        var hasPendingAttachmentUpload = false
+        let inputView = makeInputView(
+            text: Binding(get: { boundText }, set: { boundText = $0 }),
+            attachments: Binding(
+                get: { boundAttachments },
+                set: { boundAttachments = $0 }
+            ),
+            hasPendingAttachmentUpload: Binding(
+                get: { hasPendingAttachmentUpload },
+                set: { hasPendingAttachmentUpload = $0 }
+            )
+        )
+        let coordinator = TextBoxInputView.Coordinator(parent: inputView)
+        textView.delegate = coordinator
+        let pasteID = UUID()
+        textView.insertPendingAttachmentUploadPlaceholder(id: pasteID)
+        coordinator.textDidChange(
+            Notification(name: NSText.didChangeNotification, object: textView)
+        )
+        #expect(hasPendingAttachmentUpload)
+
+        #expect(textView.removePendingAttachmentUploadPlaceholder(id: pasteID))
+        #expect(!hasPendingAttachmentUpload)
+    }
+
     @Test("backspace over a pending paste restores selected content")
     func backspaceOverPendingPasteRestoresSelectedContent() {
         let (window, textView) = makeTextView()
