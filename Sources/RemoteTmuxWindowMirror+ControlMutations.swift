@@ -27,9 +27,13 @@ extension RemoteTmuxWindowMirror {
             return true
         }
         cancelPendingControlPaneFocus()
+        let command = "select-pane -t @\(windowId).%\(tmuxPaneID)"
         if activePaneId == tmuxPaneID {
-            completion(true)
-            return true
+            let accepted = sendTracked(command, completion)
+            if !accepted {
+                completion(false)
+            }
+            return accepted
         }
 
         let requestID = UUID()
@@ -41,7 +45,6 @@ extension RemoteTmuxWindowMirror {
         )
         projectActivePane(tmuxPaneID)
 
-        let command = "select-pane -t @\(windowId).%\(tmuxPaneID)"
         let accepted = sendTracked(command) { [weak self] succeeded in
             guard !succeeded else { return }
             self?.rejectPendingControlPaneFocus(requestID: requestID)

@@ -102,6 +102,58 @@ import Testing
         )
     }
 
+    @Test func focusingAlreadyActivePaneStillSelectsItRemotely() throws {
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
+        workspace.isRemoteTmuxMirror = true
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "user@host"),
+            sessionName: "work"
+        )
+        let layout = Self.twoPaneLayout(left: 4, right: 5)
+        connection.windowsByID[1] = RemoteTmuxWindow(
+            id: 1,
+            name: "main",
+            width: layout.width,
+            height: layout.height,
+            layout: layout
+        )
+        connection.windowOrder = [1]
+        connection.activePaneByWindow[1] = 4
+        let sessionMirror = RemoteTmuxSessionMirror(
+            host: connection.host,
+            sessionName: "work",
+            connection: connection,
+            tabManager: manager,
+            workspace: workspace
+        )
+        defer { sessionMirror.detachObserver() }
+        let mirror = try #require(
+            workspace.panels.keys.lazy.compactMap {
+                workspace.remoteTmuxWindowMirror(forPanelId: $0)
+            }.first
+        )
+        var sentCommand: String?
+        var trackedCompletion: ((Bool) -> Void)?
+        var focusResult: Bool?
+
+        #expect(mirror.requestControlFocus(
+            pane: 4,
+            sendTracked: { command, completion in
+                sentCommand = command
+                trackedCompletion = completion
+                return true
+            },
+            completion: { focusResult = $0 }
+        ))
+
+        #expect(sentCommand == "select-pane -t @1.%4")
+        #expect(focusResult == nil)
+        trackedCompletion?(true)
+        #expect(focusResult == true)
+        #expect(mirror.activePaneId == 4)
+    }
+
     @Test func liveWindowPaneChangedUpdatesMirrorBeforeAnotherReconcile() throws {
         let manager = TabManager()
         let workspace = manager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
