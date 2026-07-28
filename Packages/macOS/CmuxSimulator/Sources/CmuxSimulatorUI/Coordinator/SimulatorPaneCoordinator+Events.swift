@@ -200,14 +200,16 @@ extension SimulatorPaneCoordinator {
                 actionLog.removeLast(actionLog.count - Self.maximumActionLogCount)
             }
         case let .failure(failure):
+            if failure.code.hasPrefix("web_inspector") {
+                failPendingWebInspectorResponses(code: failure.code, message: failure.message)
+                controlFailure = failure
+                break
+            }
             if failure.code == "worker_send_failed" || failure.code == "worker_crash_fuse" {
                 failPendingTextInputCompletions()
                 beginLocationRouteTeardown()
             }
             self.failure = failure
-            if failure.code.hasPrefix("web_inspector") {
-                failPendingWebInspectorResponses(code: failure.code, message: failure.message)
-            }
             if failure.isRecoverable, frameTransport != nil {
                 controlFailure = failure
             } else {
