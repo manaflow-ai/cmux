@@ -12591,6 +12591,36 @@ mod tests {
     }
 
     #[test]
+    fn layout_undo_retires_removed_surface_owner_before_reusing_capacity() {
+        let mux = test_mux();
+        mux.set_shutdown_owner_capacity_for_test(2);
+        let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let added = mux.new_pane(first_pane, Some((80, 10))).unwrap();
+        let added_pane = mux.with_state(|state| state.pane_of(added.id).unwrap());
+
+        let LayoutUndoResult::ConfirmationRequired { revision, .. } =
+            mux.undo_layout(added_pane, None, false).unwrap()
+        else {
+            panic!("new pane undo must require confirmation");
+        };
+        assert!(matches!(
+            mux.undo_layout(added_pane, Some(revision), true).unwrap(),
+            LayoutUndoResult::Undone { .. }
+        ));
+
+        assert!(mux.surface(added.id).is_none());
+        assert!(
+            mux.shutdown_owners.is_empty(),
+            "layout undo retained the removed surface owner after confirmed shutdown"
+        );
+        let replacement = mux
+            .new_pane(first_pane, Some((80, 10)))
+            .expect("confirmed undo cleanup must release capacity for a replacement pane");
+        assert!(mux.surface(replacement.id).is_some());
+    }
+
+    #[test]
     fn layout_undo_confirmation_fences_exact_created_pane_tab_membership() {
         let mux = test_mux();
         let first = mux.new_workspace(None, Some((80, 22))).unwrap();
