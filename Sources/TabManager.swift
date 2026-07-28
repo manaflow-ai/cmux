@@ -1111,7 +1111,7 @@ class TabManager: ObservableObject {
         autoWelcomeIfNeeded: Bool = true,
         autoRefreshMetadata: Bool = true,
         normalizeWorkspaceGroupsAfterInsert: Bool = true,
-        shouldApplyWorkspaceDirectoryCustomization: Bool = true,
+        workspaceDirectoryCustomizationMode: WorkspaceDirectoryCustomizationCreationMode = .trackDirectory,
         allowTextBoxFocusDefault: Bool = true
     ) -> Workspace {
         let sourceWorkspace = selectedWorkspace
@@ -1194,8 +1194,8 @@ class TabManager: ObservableObject {
                 from: sourceWorkspace ?? capturedTabs.first
             )
             newWorkspace.owningTabManager = self
-            if shouldApplyWorkspaceDirectoryCustomization {
-                applyWorkspaceDirectoryCustomization(
+            if workspaceDirectoryCustomizationMode == .trackDirectory {
+                trackWorkspaceDirectoryCustomization(
                     to: newWorkspace,
                     rootDirectory: workingDirectory,
                     explicitTitle: title,
@@ -1850,7 +1850,8 @@ class TabManager: ObservableObject {
         title: String? = nil,
         initialBrowserURL: URL? = nil,
         initialBrowserOmnibarVisible: Bool = true,
-        initialBrowserTransparentBackground: Bool = false, shouldApplyWorkspaceDirectoryCustomization: Bool = true
+        initialBrowserTransparentBackground: Bool = false,
+        workspaceDirectoryCustomizationMode: WorkspaceDirectoryCustomizationCreationMode = .trackDirectory
     ) -> Workspace? {
         workspaceGrouping.createWorkspaceInGroup(
             groupId: groupId,
@@ -1861,7 +1862,8 @@ class TabManager: ObservableObject {
             title: title,
             initialBrowserURL: initialBrowserURL,
             initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
-            initialBrowserTransparentBackground: initialBrowserTransparentBackground, shouldApplyWorkspaceDirectoryCustomization: shouldApplyWorkspaceDirectoryCustomization
+            initialBrowserTransparentBackground: initialBrowserTransparentBackground,
+            workspaceDirectoryCustomizationMode: workspaceDirectoryCustomizationMode
         )
     }
 
@@ -1962,7 +1964,8 @@ class TabManager: ObservableObject {
         initialBrowserOmnibarVisible: Bool,
         initialBrowserTransparentBackground: Bool,
         inheritWorkingDirectory: Bool,
-        select: Bool, shouldApplyWorkspaceDirectoryCustomization: Bool
+        select: Bool,
+        workspaceDirectoryCustomizationMode: WorkspaceDirectoryCustomizationCreationMode
     ) -> Workspace {
         addWorkspace(
             title: title,
@@ -1973,7 +1976,8 @@ class TabManager: ObservableObject {
             initialBrowserTransparentBackground: initialBrowserTransparentBackground,
             inheritWorkingDirectory: inheritWorkingDirectory,
             select: select,
-            autoWelcomeIfNeeded: false, shouldApplyWorkspaceDirectoryCustomization: shouldApplyWorkspaceDirectoryCustomization
+            autoWelcomeIfNeeded: false,
+            workspaceDirectoryCustomizationMode: workspaceDirectoryCustomizationMode
         )
     }
 
@@ -4185,7 +4189,7 @@ class TabManager: ObservableObject {
             workingDirectory: entry.snapshot.currentDirectory,
             select: false,
             autoWelcomeIfNeeded: false,
-            shouldApplyWorkspaceDirectoryCustomization: false
+            workspaceDirectoryCustomizationMode: .disabled
         )
         let restoredPanelIds = workspace.restoreSessionSnapshot(entry.snapshot, excludingStableIdentities: excludedStableIdentities)
         guard !entry.snapshot.hasRestorablePanels || !restoredPanelIds.isEmpty else {
@@ -6060,7 +6064,7 @@ extension TabManager {
                 nativeSSHConnectionBroker: nativeSSHConnectionBroker
             )
             fallback.owningTabManager = self
-            applyWorkspaceDirectoryCustomization(to: fallback, rootDirectory: nil, explicitTitle: nil, explicitTitleSource: .auto)
+            trackWorkspaceDirectoryCustomization(to: fallback, rootDirectory: nil, explicitTitle: nil, explicitTitleSource: .auto)
             wireClosedBrowserTracking(for: fallback)
             newTabs.append(fallback)
         }
