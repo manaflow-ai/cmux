@@ -9606,10 +9606,10 @@ struct ContentView: View {
              "palette.browserFocusMode":
             return true
         case "palette.renameFloatingWindow":
-            // Make the accessory key before hiding the palette. If the key
-            // palette closes first, AppKit briefly promotes the main window
-            // and its key-regain path schedules terminal focus restoration.
-            return false
+            // The accessory is a direct child of the main window. Finish the
+            // palette's child-window removal first, then let the command make
+            // the rename accessory key without a later teardown replacing it.
+            return true
         default:
             return false
         }
