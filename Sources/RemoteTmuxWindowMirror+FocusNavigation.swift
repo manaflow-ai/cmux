@@ -88,6 +88,16 @@ extension RemoteTmuxWindowMirror {
         completePendingCreatedPaneFocusIfMounted()
     }
 
+    func cancelPendingCreatedPaneFocus() {
+        pendingCreatedPaneFocusRequests.removeAll()
+    }
+
+    func cancelPendingCreatedPaneFocus(competingPaneID: Int) {
+        pendingCreatedPaneFocusRequests.removeAll {
+            $0.candidatePaneID != competingPaneID
+        }
+    }
+
     func noteAuthoritativeCreatedPaneCandidate(paneID: Int) {
         guard !pendingCreatedPaneFocusRequests.contains(where: {
             $0.candidatePaneID == paneID
@@ -107,6 +117,9 @@ extension RemoteTmuxWindowMirror {
 
     func reconcilePendingCreatedPaneFocus(authoritativePaneID: Int?) {
         if let authoritativePaneID {
+            pendingCreatedPaneFocusRequests.removeAll {
+                $0.candidatePaneID.map { $0 != authoritativePaneID } ?? false
+            }
             noteAuthoritativeCreatedPaneCandidate(paneID: authoritativePaneID)
         } else {
             completePendingCreatedPaneFocusIfMounted()
@@ -124,16 +137,22 @@ extension RemoteTmuxWindowMirror {
                   let panel = panel(forPane: paneID),
                   panel.hostedView.isVisibleInUI,
                   panel.hostedView.superview != nil,
-                  panel.hostedView.window != nil else {
+                  let window = panel.hostedView.window else {
                 return
             }
-            if activePaneId != paneID {
-                setActivePane(paneID, fromTmux: true)
+            guard activePaneId == paneID,
+                  window.isKeyWindow else {
+                pendingCreatedPaneFocusRequests.removeFirst()
+                continue
             }
             focusBonsplitPane(forTmuxPane: paneID)
+            guard bonsplitController.focusedPaneId.flatMap({ paneIdByBonsplitPane[$0] }) == paneID else {
+                pendingCreatedPaneFocusRequests.removeFirst()
+                continue
+            }
             panel.hostedView.moveFocus()
             guard panel.hostedView.isSurfaceViewFirstResponder() else { return }
-            pendingCreatedPaneFocusRequests.removeFirst()
+            pendingCreatedPaneFocusRequests.removeAll { $0.requestID == request.requestID }
         }
     }
 }

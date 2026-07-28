@@ -474,11 +474,14 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     func noteRemoteActivePane(_ paneId: Int) {
         if activePaneId != paneId { activePaneId = paneId }
         focusBonsplitPane(forTmuxPane: paneId)
-        noteAuthoritativeCreatedPaneCandidate(paneID: paneId)
+        reconcilePendingCreatedPaneFocus(authoritativePaneID: paneId)
     }
 
     func setActivePane(_ paneId: Int, fromTmux: Bool) {
         guard layout.paneIDsInOrder.contains(paneId) else { return }
+        if !fromTmux {
+            cancelPendingCreatedPaneFocus(competingPaneID: paneId)
+        }
         if activePaneId != paneId { activePaneId = paneId }
         focusBonsplitPane(forTmuxPane: paneId)
         if !fromTmux {

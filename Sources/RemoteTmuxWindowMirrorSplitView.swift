@@ -41,6 +41,9 @@ struct RemoteTmuxWindowMirrorSplitView: View {
             }
             .onAppear {
                 mirror.isVisibleForSizing = isVisibleInUI
+                if !isVisibleInUI {
+                    mirror.cancelPendingCreatedPaneFocus()
+                }
                 // The workspace keeps every tab's content alive and hides
                 // deselected tabs at SwiftUI opacity 0, which never reaches
                 // the AppKit split tree this mirror renders: the hidden
@@ -54,6 +57,9 @@ struct RemoteTmuxWindowMirrorSplitView: View {
             }
             .onChange(of: isVisibleInUI) { _, visible in
                 mirror.isVisibleForSizing = visible
+                if !visible {
+                    mirror.cancelPendingCreatedPaneFocus()
+                }
                 mirror.bonsplitController.isInteractive = visible
                 if visible { becameVisible() }
             }
