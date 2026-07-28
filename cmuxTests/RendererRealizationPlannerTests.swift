@@ -33,6 +33,31 @@ struct RendererRealizationPlannerTests {
         .init(enabled: enabled, idleSeconds: idle, maxWarmRenderers: warm)
     }
 
+    @Test func defaultWarmCapKeepsVisibleAndPreviousSurfaceOnly() {
+        let now: TimeInterval = 1000
+        let visible = UUID()
+        let previous = UUID()
+        let older = (0..<4).map { _ in UUID() }
+        let selected = RendererRealizationPlanner.selectedSurfaceIds(
+            inputs: [
+                input(visible, visible: true, lastVisibleAt: now),
+                input(previous, lastVisibleAt: now - 100),
+            ] + older.enumerated().map { index, id in
+                input(id, lastVisibleAt: now - TimeInterval(200 + index))
+            },
+            settings: settings(
+                idle: 5,
+                warm: RendererRealizationSettings.defaultMaxWarmRenderers
+            ),
+            now: now
+        )
+
+        #expect(RendererRealizationSettings.defaultMaxWarmRenderers == 2)
+        #expect(!selected.contains(visible))
+        #expect(!selected.contains(previous))
+        #expect(selected == Set(older))
+    }
+
     @Test func disabledSelectsNothing() {
         let now: TimeInterval = 1000
         let inputs = [input(UUID(), lastVisibleAt: 0)]
