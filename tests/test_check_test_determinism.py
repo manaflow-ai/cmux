@@ -1623,6 +1623,15 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "        raise RuntimeError\n"
                     "# sleep keeps this fixture on the Python scan path\n"
                 ),
+                "terminal-match.py": (
+                    "def verify(value):\n"
+                    "    match value:\n"
+                    "        case 0:\n"
+                    "            return\n"
+                    "        case _:\n"
+                    "            raise RuntimeError\n"
+                    "# sleep keeps this fixture on the Python scan path\n"
+                ),
             }
         )
 
@@ -1727,6 +1736,28 @@ class DeterminismCheckerCLITests(unittest.TestCase):
             negative.returncode,
             0,
             negative.stdout + negative.stderr,
+        )
+
+    def test_python_try_merge_omits_terminal_handler_state(self) -> None:
+        result = self.run_checker(
+            {
+                "terminal-handler.py": (
+                    "def verify():\n"
+                    "    import fake_time as time\n"
+                    "    try:\n"
+                    "        import time\n"
+                    "    except ImportError:\n"
+                    "        return\n"
+                    "    time.sleep(0.01)\n"
+                    "    assert finished\n"
+                ),
+            }
+        )
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn(
+            "fixtures/terminal-handler.py:7: sleep-then-assert:",
+            result.stdout,
         )
 
     def test_python_local_shadows_do_not_leak_to_later_scopes(self) -> None:
