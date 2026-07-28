@@ -117,6 +117,7 @@ omx-node-helper "$@"
             ["resume"],
             ["team", "status", "demo"],
             ["unknown-command"],
+            ["--scope", "project", "setup"],
             ["--scope", "--version"],
             ["--", "--version"],
             ["--high"],

@@ -61,8 +61,8 @@ extension AgentLaunchSanitizer {
             managementSubcommands: [
                 "session": ["delete", "list"],
             ],
-            booleanOptions: ["--print-logs", "--pure"],
-            valueOptions: ["--log-level"]
+            booleanOptions: ["--mdns", "--print-logs", "--pure"],
+            valueOptions: ["--cors", "--hostname", "--log-level", "--mdns-domain", "--port"]
         )
     }
 
@@ -97,44 +97,9 @@ extension AgentLaunchSanitizer {
 
     /// Whether OMX arguments select help, version, or a documented management command.
     public static func omxLaunchIsNonLaunch(args: [String]) -> Bool {
-        conservativeNonLaunchInvocation(
-            args: args,
-            managementCommands: [
-                "agents",
-                "agents-init",
-                "auth",
-                "cancel",
-                "capabilities",
-                "deepinit",
-                "doctor",
-                "help",
-                "list",
-                "session",
-                "setup",
-                "status",
-                "uninstall",
-                "update",
-                "version",
-            ],
-            booleanOptions: [
-                "--clear-merge-agents-policy",
-                "--disable-team",
-                "--dry-run",
-                "--enable-team",
-                "--force",
-                "--keep-config",
-                "--legacy",
-                "--merge-agents",
-                "--no-mcp",
-                "--no-merge-agents",
-                "--plugin",
-                "--purge",
-                "--team",
-                "--verbose",
-                "--with-mcp",
-            ],
-            valueOptions: ["--install-mode", "--mcp", "--scope", "--team-mode"]
-        )
+        guard let first = args.first else { return false }
+        if informationalOptions.contains(first) { return true }
+        return omxManagementCommands.contains(first)
     }
 
     private static func conservativeNonLaunchInvocation(
@@ -144,7 +109,6 @@ extension AgentLaunchSanitizer {
         booleanOptions: Set<String>,
         valueOptions: Set<String>
     ) -> Bool {
-        let informationalOptions: Set<String> = ["--help", "-h", "--version", "-v", "-V"]
         var index = 0
         while index < args.count {
             let argument = args[index]
@@ -206,6 +170,26 @@ extension AgentLaunchSanitizer {
         "ultrareview",
         "update",
         "upgrade",
+    ]
+
+    private static let informationalOptions: Set<String> = ["--help", "-h", "--version", "-v", "-V"]
+
+    private static let omxManagementCommands: Set<String> = [
+        "agents",
+        "agents-init",
+        "auth",
+        "cancel",
+        "capabilities",
+        "deepinit",
+        "doctor",
+        "help",
+        "list",
+        "session",
+        "setup",
+        "status",
+        "uninstall",
+        "update",
+        "version",
     ]
 
     private static let claudeTeamsManagementDisqualifyingOptions: Set<String> = [

@@ -105,6 +105,11 @@ exec opencode-node-helper "$@"
             ("stats",),
             ("uninstall",),
             ("upgrade",),
+            ("--mdns", "models"),
+            ("--port", "19777", "models"),
+            ("--hostname=127.0.0.1", "models"),
+            ("--mdns-domain", "local", "models"),
+            ("--cors", "https://example.com", "models"),
         ):
             provider_log.unlink(missing_ok=True)
             management = subprocess.run(
@@ -126,6 +131,11 @@ exec opencode-node-helper "$@"
             ["unknown-command"],
             ["--session", "session-id"],
             ["--model", "--version"],
+            ["--port", "models"],
+            ["--hostname", "--version"],
+            ["--mdns-domain"],
+            ["--cors"],
+            ["--mdns", "run", "hello"],
             ["--", "--version"],
             ["some-project"],
         )

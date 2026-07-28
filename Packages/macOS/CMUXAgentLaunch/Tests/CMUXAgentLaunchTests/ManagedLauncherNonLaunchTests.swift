@@ -14,6 +14,11 @@ struct ManagedLauncherNonLaunchTests {
         #expect(AgentLaunchSanitizer.omoLaunchIsNonLaunch(args: ["session", "list"]))
         #expect(AgentLaunchSanitizer.omoLaunchIsNonLaunch(args: ["session", "delete", "session-id"]))
         #expect(AgentLaunchSanitizer.omoLaunchIsNonLaunch(args: ["--log-level", "WARN", "models"]))
+        #expect(AgentLaunchSanitizer.omoLaunchIsNonLaunch(args: ["--mdns", "models"]))
+        #expect(AgentLaunchSanitizer.omoLaunchIsNonLaunch(args: ["--port", "4096", "models"]))
+        #expect(AgentLaunchSanitizer.omoLaunchIsNonLaunch(args: ["--hostname=127.0.0.1", "models"]))
+        #expect(AgentLaunchSanitizer.omoLaunchIsNonLaunch(args: ["--mdns-domain", "local", "models"]))
+        #expect(AgentLaunchSanitizer.omoLaunchIsNonLaunch(args: ["--cors", "https://example.com", "models"]))
         #expect(AgentLaunchSanitizer.omoLaunchIsNonLaunch(args: ["--help"]))
         #expect(AgentLaunchSanitizer.omoLaunchIsNonLaunch(args: ["-v"]))
     }
@@ -27,6 +32,11 @@ struct ManagedLauncherNonLaunchTests {
             ["unknown-command"],
             ["--session", "session-id"],
             ["--model", "--version"],
+            ["--port", "models"],
+            ["--hostname", "--version"],
+            ["--mdns-domain"],
+            ["--cors"],
+            ["--mdns", "run", "hello"],
             ["--", "--version"],
             ["some-project"],
         ] {
@@ -74,7 +84,6 @@ struct ManagedLauncherNonLaunchTests {
         ] {
             #expect(AgentLaunchSanitizer.omxLaunchIsNonLaunch(args: [command]))
         }
-        #expect(AgentLaunchSanitizer.omxLaunchIsNonLaunch(args: ["--scope", "project", "setup"]))
         #expect(AgentLaunchSanitizer.omxLaunchIsNonLaunch(args: ["--help"]))
         #expect(AgentLaunchSanitizer.omxLaunchIsNonLaunch(args: ["--version"]))
     }
@@ -85,6 +94,7 @@ struct ManagedLauncherNonLaunchTests {
             ["resume"],
             ["team", "status", "demo"],
             ["unknown-command"],
+            ["--scope", "project", "setup"],
             ["--scope", "--version"],
             ["--", "--version"],
             ["--high"],
