@@ -60,6 +60,9 @@ export const PLATFORM_DOWNLOADS = {
 } as const;
 
 export type DownloadPlatform = keyof typeof PLATFORM_DOWNLOADS;
+export type PlatformDownloadAvailability = Readonly<
+  Record<DownloadPlatform, boolean>
+>;
 
 /**
  * Release availability is deliberately separate from the stable URL contract.
@@ -70,16 +73,10 @@ export type DownloadPlatform = keyof typeof PLATFORM_DOWNLOADS;
 export const PLATFORM_DOWNLOAD_AVAILABILITY = {
   windows: false,
   linux: false,
-} as const satisfies Record<DownloadPlatform, boolean>;
+} as const satisfies PlatformDownloadAvailability;
 
 const DOWNLOAD_PLATFORM_ORDER = ["windows", "linux"] as const;
-
-/**
- * Published platforms shown as direct page links in the Download menu.
- */
-export const DOWNLOAD_PLATFORMS = DOWNLOAD_PLATFORM_ORDER.filter(
-  (platform) => PLATFORM_DOWNLOAD_AVAILABILITY[platform],
-);
+const WAITLIST_PLATFORM_ORDER = ["linux", "android", "windows"] as const;
 
 /** Returns whether every public artifact required by a platform is released. */
 export function isPlatformDownloadAvailable(
@@ -88,20 +85,34 @@ export function isPlatformDownloadAvailable(
   return PLATFORM_DOWNLOAD_AVAILABILITY[platform];
 }
 
-const WAITLIST_PLATFORM_ORDER = ["linux", "android", "windows"] as const;
-
 export type WaitlistPlatform = (typeof WAITLIST_PLATFORM_ORDER)[number];
 
 /**
- * Unreleased platforms shown in the Download button's waitlist section. This
- * derives from the same release gate as direct links so enabling Windows or
- * Linux cannot leave it in both menu sections.
+ * Derives the Download menu's direct links and waitlist entries from one
+ * release state, including mixed Windows-only or Linux-only releases.
  */
-export const WAITLIST_PLATFORMS = WAITLIST_PLATFORM_ORDER.filter(
-  (platform) =>
-    platform === "android" ||
-    !PLATFORM_DOWNLOAD_AVAILABILITY[platform],
+export function platformMenuSectionsForAvailability(
+  availability: PlatformDownloadAvailability,
+) {
+  return {
+    downloads: DOWNLOAD_PLATFORM_ORDER.filter(
+      (platform) => availability[platform],
+    ),
+    waitlist: WAITLIST_PLATFORM_ORDER.filter(
+      (platform) => platform === "android" || !availability[platform],
+    ),
+  };
+}
+
+const platformMenuSections = platformMenuSectionsForAvailability(
+  PLATFORM_DOWNLOAD_AVAILABILITY,
 );
+
+/** Published platforms shown as direct page links in the Download menu. */
+export const DOWNLOAD_PLATFORMS = platformMenuSections.downloads;
+
+/** Unreleased platforms shown in the Download button's waitlist section. */
+export const WAITLIST_PLATFORMS = platformMenuSections.waitlist;
 
 /**
  * What a waitlist signup is for: a specific platform (from the platform menu)

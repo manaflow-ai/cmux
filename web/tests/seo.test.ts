@@ -25,6 +25,7 @@ import {
   bestTerminalSeoCopy,
   blogIndexSeoCopy,
   blogPostSeoCopy,
+  browserDownloadSeoCopy,
   cmuxHistorySeoCopy,
   communitySeoCopy,
   compareIndexSeoCopy,
@@ -517,18 +518,12 @@ describe("SEO metadata helpers", () => {
       );
       for (const platform of ["windows", "linux"] as const) {
         const page = messages.browserDownloads[platform];
+        const copy = browserDownloadSeoCopy(locale, messageLookup(page));
+        expect(`${copy.title}${copy.description}`).not.toContain("macOS");
         rows.push(
           auditedRow(
             `/${platform}`,
-            landingPageSeoCopy(
-              locale,
-              messageLookup(page),
-              siteMeta,
-              {
-                complete: ["subtitle", "installBody"],
-                context: ["name"],
-              },
-            ),
+            copy,
             [
               page.metaDescription,
               page.subtitle,

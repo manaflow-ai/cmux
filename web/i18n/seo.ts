@@ -214,6 +214,7 @@ export function seoDescription(
   options: {
     minLength?: number;
     fallbackCandidates?: readonly string[];
+    appendLocalizedContext?: boolean;
   } = {},
 ) {
   const minLength = options.minLength ?? DEFAULT_MIN_DESCRIPTION_LENGTH;
@@ -221,6 +222,7 @@ export function seoDescription(
   const candidates = [...(options.fallbackCandidates ?? [])];
 
   if (
+    options.appendLocalizedContext !== false &&
     isSafeMetadataText(trimmed) &&
     metadataSearchLength(trimmed) < minLength
   ) {

@@ -6,6 +6,7 @@ import {
   DOWNLOAD_PLATFORMS,
   PLATFORM_DOWNLOADS,
   WAITLIST_PLATFORMS,
+  platformMenuSectionsForAvailability,
 } from "../app/lib/download";
 import sitemap from "../app/sitemap";
 import { locales } from "../i18n/routing";
@@ -34,6 +35,45 @@ describe("Windows and Linux downloads", () => {
     );
   });
 
+  test("keeps direct links and waitlists coherent for every release state", () => {
+    expect(
+      platformMenuSectionsForAvailability({
+        windows: false,
+        linux: false,
+      }),
+    ).toEqual({
+      downloads: [],
+      waitlist: ["linux", "android", "windows"],
+    });
+    expect(
+      platformMenuSectionsForAvailability({
+        windows: true,
+        linux: false,
+      }),
+    ).toEqual({
+      downloads: ["windows"],
+      waitlist: ["linux", "android"],
+    });
+    expect(
+      platformMenuSectionsForAvailability({
+        windows: false,
+        linux: true,
+      }),
+    ).toEqual({
+      downloads: ["linux"],
+      waitlist: ["android", "windows"],
+    });
+    expect(
+      platformMenuSectionsForAvailability({
+        windows: true,
+        linux: true,
+      }),
+    ).toEqual({
+      downloads: ["windows", "linux"],
+      waitlist: ["android"],
+    });
+  });
+
   test("keeps every locale's download copy complete and token-compatible", async () => {
     const englishLeaves = leafStrings(en.browserDownloads);
 
@@ -51,6 +91,17 @@ describe("Windows and Linux downloads", () => {
         const localized = localizedLeaves[key];
         expect(localized.length).toBeGreaterThan(0);
         expect(messageTokens(localized)).toEqual(messageTokens(english));
+      }
+
+      expect(messageTokens(catalog.home.faqPlatformA)).toEqual(
+        messageTokens(en.home.faqPlatformA),
+      );
+      for (const availabilityNeutralMessage of [
+        catalog.home.faqPlatformA,
+        catalog.waitlist.descriptionAny,
+        catalog.waitlist.calloutText,
+      ]) {
+        expect(availabilityNeutralMessage).not.toMatch(/\b(?:Linux|Windows)\b/u);
       }
     }
   });
