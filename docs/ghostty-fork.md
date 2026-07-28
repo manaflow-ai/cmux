@@ -16,6 +16,9 @@ The submodule pinned by this branch is `7b0a78a8b`, the current
 `manaflow-ai/ghostty` `main` merge head. It adds nullable CoreText display-name
 handling through https://github.com/manaflow-ai/ghostty/pull/133 on top of the
 `0b1734f1e` link and presentation runtime.
+The corresponding universal ReleaseFast GhosttyKit archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-7b0a78a8b2acaaff229e0276b9cb7427bbd42a73-crashsubdir-cmux-crash-v1
+and pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### Nullable CoreText display names
 
