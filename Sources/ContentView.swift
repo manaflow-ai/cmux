@@ -9396,20 +9396,17 @@ struct ContentView: View {
         recordCommandPaletteUsage(command.id)
         if command.dismissOnRun,
            Self.commandPaletteShouldDismissBeforeRun(forCommandId: command.id) {
-            let restoreOwnerAsKey = Self.commandPaletteShouldRestoreOwnerBeforeRun(
-                forCommandId: command.id
-            )
             if let postRunFocusTarget {
                 dismissCommandPalette(
                     restoreFocus: true,
                     preferredFocusTarget: postRunFocusTarget,
-                    restoreOwnerAsKey: restoreOwnerAsKey
+                    restoreOwnerAsKey: true
                 )
             } else {
                 dismissCommandPalette(
                     restoreFocus: false,
                     preferredFocusTarget: nil,
-                    restoreOwnerAsKey: restoreOwnerAsKey
+                    restoreOwnerAsKey: true
                 )
             }
             command.action()
@@ -9606,22 +9603,16 @@ struct ContentView: View {
              // Entering browser focus mode focuses the web view synchronously;
              // dismiss the palette first so its makeFirstResponder(nil) doesn't
              // clear that focus and leave focus mode active without key routing.
-             "palette.browserFocusMode",
-             // The rename accessory becomes key and focuses its text field.
-             // Dismiss first so palette teardown cannot steal that responder.
-             "palette.renameFloatingWindow":
+             "palette.browserFocusMode":
             return true
+        case "palette.renameFloatingWindow":
+            // Make the accessory key before hiding the palette. If the key
+            // palette closes first, AppKit briefly promotes the main window
+            // and its key-regain path schedules terminal focus restoration.
+            return false
         default:
             return false
         }
-    }
-
-    static func commandPaletteShouldRestoreOwnerBeforeRun(forCommandId commandId: String) -> Bool {
-        // Floating-window rename transfers key ownership directly from the
-        // palette to its accessory. Making the main window key in between
-        // schedules terminal focus restoration, which then steals focus from
-        // the rename field after the accessory appears.
-        commandId != "palette.renameFloatingWindow"
     }
 
     static func commandPalettePostRunRestoreFocusIntent(forCommandId commandId: String) -> PanelFocusIntent? {
