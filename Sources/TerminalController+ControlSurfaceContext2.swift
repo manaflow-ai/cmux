@@ -349,11 +349,11 @@ extension TerminalController {
                 tabManager: tabManager
             ))
         }
-        if panelType == .application, socketServer.accessMode == .allowAll {
-            return .applicationControlUnavailable(message: String(
-                localized: "socket.application.allowAllUnavailable",
-                defaultValue: "Application control is unavailable in allowAll socket mode. Use cmuxOnly, automation, or password mode."
-            ))
+        if panelType == .application,
+           !Self.applicationSurfaceSocketControlIsAllowed(accessMode: socketServer.accessMode) {
+            return .applicationControlUnavailable(
+                message: Self.applicationSurfaceSocketControlUnavailableMessage
+            )
         }
 
         if case .dock = placement {

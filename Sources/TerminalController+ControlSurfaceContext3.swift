@@ -386,13 +386,18 @@ extension TerminalController {
         }
         if let target = ws.controlSurfaceTarget(for: requestedSurfaceID),
            let applicationPanel = target.panel as? ApplicationPanel {
+            guard Self.applicationSurfaceSocketControlIsAllowed(
+                accessMode: socketServer.accessMode
+            ) else {
+                return .applicationInputUnavailable(
+                    target.surfaceID,
+                    message: Self.applicationSurfaceSocketControlUnavailableMessage
+                )
+            }
             let unavailableMessage = String(
                 localized: "socket.application.inputUnavailable",
                 defaultValue: "Application input is unavailable. Set up Accessibility for cmux Computer Use, then retry."
             )
-            guard socketServer.accessMode != .allowAll else {
-                return .applicationInputUnavailable(target.surfaceID, message: unavailableMessage)
-            }
             switch applicationPanel.sendNamedKey(key) {
             case .queued:
                 break

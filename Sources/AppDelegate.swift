@@ -13486,6 +13486,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
             return false
         }
+        // Application panes own standard document commands. Preserve configured
+        // chord prefixes before yielding the command to the capture view, then let
+        // the window's content-first key-equivalent path forward it to the helper.
+        if shouldRouteApplicationCommandEquivalentThroughContentFirst(event),
+           shortcutEventFirstResponderOwnsApplicationCaptureView(event),
+           activeConfiguredShortcutChordPrefixForCurrentEvent == nil {
+            let shortcutContext = shortcutEventFocusContext(event).shortcutContext
+            let availableChordActions = currentConfiguredShortcutChordActions().filter { action in
+                KeyboardShortcutSettings.effectiveWhenClause(for: action).evaluate(shortcutContext)
+            }
+            if armConfiguredShortcutChordIfNeeded(event: event, actions: availableChordActions) {
+                return true
+            }
+            let configuredCmuxShortcutContext = preferredMainWindowContextForShortcutRouting(event: event)
+            let configuredCmuxShortcutActions = configuredCmuxShortcutActions(
+                for: configuredCmuxShortcutContext
+            )
+            if armConfiguredShortcutChordIfNeeded(
+                event: event,
+                actions: [],
+                shortcuts: configuredCmuxShortcutActions.compactMap(\.shortcut)
+            ) {
+                return true
+            }
+            if globalSearchShortcut.hasChord,
+               globalSearchShortcutWhenClauseAllows(event: event),
+               armConfiguredShortcutChordIfNeeded(
+                   event: event,
+                   actions: [],
+                   shortcuts: [globalSearchShortcut]
+               ) {
+                return true
+            }
+            return false
+        }
         if handleFocusedFileExplorerOpenSelectionShortcut(
             event,
             preferredWindow: mainWindowForShortcutEvent(event) ?? resolvedShortcutEventWindow(event) ?? shortcutRoutingActiveWindow

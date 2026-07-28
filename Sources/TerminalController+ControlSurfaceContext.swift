@@ -10,6 +10,24 @@ extension TerminalController {
     nonisolated static var terminalSurfaceUnavailableSocketError: String {
         "ERROR: \(terminalSurfaceUnavailableMessage)"
     }
+
+    nonisolated static func applicationSurfaceSocketControlIsAllowed(
+        accessMode: SocketControlMode
+    ) -> Bool {
+        switch accessMode {
+        case .cmuxOnly, .password:
+            return true
+        case .off, .automation, .allowAll:
+            return false
+        }
+    }
+
+    nonisolated static var applicationSurfaceSocketControlUnavailableMessage: String {
+        String(
+            localized: "socket.application.allowAllUnavailable",
+            defaultValue: "Application control is unavailable with the current socket security settings. Choose a more restrictive access option in Settings."
+        )
+    }
 }
 
 /// The surface-domain witnesses are the byte-faithful bodies of the former

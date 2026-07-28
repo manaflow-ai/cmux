@@ -18,9 +18,10 @@ before capture and while forwarding input. Input fails closed when ownership
 changes or Accessibility permission is unavailable. Hidden application surfaces
 stop capturing until they become visible again.
 
-Application control is disabled when the automation socket uses `allowAll`
-mode. Use `cmuxOnly`, `automation`, or password mode so arbitrary local clients
-cannot turn CMUX's Accessibility permission into native application input.
+Application control is available only in `cmuxOnly` and password socket modes.
+The `automation` and `allowAll` modes are not tied to a cmux descendant,
+capability, or password, so they cannot use CMUX's Accessibility permission for
+native application input.
 
 ## CLI
 

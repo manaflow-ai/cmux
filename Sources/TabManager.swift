@@ -6070,7 +6070,8 @@ extension TabManager {
                 portOrdinal: ordinal,
                 settings: settings,
                 closeTabWarningDefaults: closeTabWarningDefaults,
-                nativeSSHConnectionBroker: nativeSSHConnectionBroker
+                nativeSSHConnectionBroker: nativeSSHConnectionBroker,
+                applicationSurfaceRuntime: applicationSurfaceRuntime
             )
             workspace.owningTabManager = self
             let restoredPanelIds = workspace.restoreSessionSnapshot(workspaceSnapshot, excludingStableIdentities: excludingStableIdentities)
@@ -6094,7 +6095,8 @@ extension TabManager {
                 portOrdinal: ordinal,
                 settings: settings,
                 closeTabWarningDefaults: closeTabWarningDefaults,
-                nativeSSHConnectionBroker: nativeSSHConnectionBroker
+                nativeSSHConnectionBroker: nativeSSHConnectionBroker,
+                applicationSurfaceRuntime: applicationSurfaceRuntime
             )
             fallback.owningTabManager = self
             trackWorkspaceDirectoryCustomization(to: fallback, rootDirectory: nil, explicitTitle: nil, explicitTitleSource: .auto)
