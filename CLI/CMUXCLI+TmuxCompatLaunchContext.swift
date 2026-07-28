@@ -1,9 +1,5 @@
 import Foundation
 
-private enum TmuxCompatLaunchContextError: Error {
-    case launchSurfaceHasNoPane
-}
-
 extension CMUXCLI {
     struct TmuxCompatLaunchContext {
         let socketPath: String

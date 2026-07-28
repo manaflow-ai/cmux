@@ -3,24 +3,26 @@ import Testing
 
 @Suite("Managed launcher non-launch classification")
 struct ManagedLauncherNonLaunchTests {
+    private let classifier = AgentLaunchInvocationClassifier()
+
     @Test("OMO preserves documented management commands")
     func omoManagementCommands() {
         for command in [
             "agent", "auth", "completion", "db", "debug", "mcp", "models",
             "export", "import", "plugin", "plug", "providers", "stats", "uninstall", "upgrade",
         ] {
-            #expect(AgentLaunchSanitizer.omoLaunchIsNonLaunch(args: [command]))
+            #expect(classifier.omoLaunchIsNonLaunch(args: [command]))
         }
-        #expect(AgentLaunchSanitizer.omoLaunchIsNonLaunch(args: ["session", "list"]))
-        #expect(AgentLaunchSanitizer.omoLaunchIsNonLaunch(args: ["session", "delete", "session-id"]))
-        #expect(AgentLaunchSanitizer.omoLaunchIsNonLaunch(args: ["--log-level", "WARN", "models"]))
-        #expect(AgentLaunchSanitizer.omoLaunchIsNonLaunch(args: ["--mdns", "models"]))
-        #expect(AgentLaunchSanitizer.omoLaunchIsNonLaunch(args: ["--port", "4096", "models"]))
-        #expect(AgentLaunchSanitizer.omoLaunchIsNonLaunch(args: ["--hostname=127.0.0.1", "models"]))
-        #expect(AgentLaunchSanitizer.omoLaunchIsNonLaunch(args: ["--mdns-domain", "local", "models"]))
-        #expect(AgentLaunchSanitizer.omoLaunchIsNonLaunch(args: ["--cors", "https://example.com", "models"]))
-        #expect(AgentLaunchSanitizer.omoLaunchIsNonLaunch(args: ["--help"]))
-        #expect(AgentLaunchSanitizer.omoLaunchIsNonLaunch(args: ["-v"]))
+        #expect(classifier.omoLaunchIsNonLaunch(args: ["session", "list"]))
+        #expect(classifier.omoLaunchIsNonLaunch(args: ["session", "delete", "session-id"]))
+        #expect(classifier.omoLaunchIsNonLaunch(args: ["--log-level", "WARN", "models"]))
+        #expect(classifier.omoLaunchIsNonLaunch(args: ["--mdns", "models"]))
+        #expect(classifier.omoLaunchIsNonLaunch(args: ["--port", "4096", "models"]))
+        #expect(classifier.omoLaunchIsNonLaunch(args: ["--hostname=127.0.0.1", "models"]))
+        #expect(classifier.omoLaunchIsNonLaunch(args: ["--mdns-domain", "local", "models"]))
+        #expect(classifier.omoLaunchIsNonLaunch(args: ["--cors", "https://example.com", "models"]))
+        #expect(classifier.omoLaunchIsNonLaunch(args: ["--help"]))
+        #expect(classifier.omoLaunchIsNonLaunch(args: ["-v"]))
     }
 
     @Test("OMO rejects sessions, unknown commands, and command-shaped values")
@@ -43,7 +45,7 @@ struct ManagedLauncherNonLaunchTests {
             ["--", "--version"],
             ["some-project"],
         ] {
-            #expect(!AgentLaunchSanitizer.omoLaunchIsNonLaunch(args: args))
+            #expect(!classifier.omoLaunchIsNonLaunch(args: args))
         }
     }
 
@@ -55,13 +57,13 @@ struct ManagedLauncherNonLaunchTests {
             "postinstall", "session", "setup", "teleport", "test-prompt",
             "update", "update-reconcile", "version",
         ] {
-            #expect(AgentLaunchSanitizer.omcLaunchIsNonLaunch(args: [command]))
+            #expect(classifier.omcLaunchIsNonLaunch(args: [command]))
         }
-        #expect(AgentLaunchSanitizer.omcLaunchIsNonLaunch(args: ["--help"]))
-        #expect(AgentLaunchSanitizer.omcLaunchIsNonLaunch(args: ["--version"]))
-        #expect(AgentLaunchSanitizer.omcLaunchIsNonLaunch(args: ["team", "api", "claim-task"]))
-        #expect(AgentLaunchSanitizer.omcLaunchIsNonLaunch(args: ["team", "status", "demo"]))
-        #expect(AgentLaunchSanitizer.omcLaunchIsNonLaunch(args: ["team", "shutdown", "demo"]))
+        #expect(classifier.omcLaunchIsNonLaunch(args: ["--help"]))
+        #expect(classifier.omcLaunchIsNonLaunch(args: ["--version"]))
+        #expect(classifier.omcLaunchIsNonLaunch(args: ["team", "api", "claim-task"]))
+        #expect(classifier.omcLaunchIsNonLaunch(args: ["team", "status", "demo"]))
+        #expect(classifier.omcLaunchIsNonLaunch(args: ["team", "shutdown", "demo"]))
     }
 
     @Test("OMC rejects agent and team launch commands")
@@ -78,7 +80,7 @@ struct ManagedLauncherNonLaunchTests {
             ["start a team"],
             ["--", "version"],
         ] {
-            #expect(!AgentLaunchSanitizer.omcLaunchIsNonLaunch(args: args))
+            #expect(!classifier.omcLaunchIsNonLaunch(args: args))
         }
     }
 
@@ -89,10 +91,10 @@ struct ManagedLauncherNonLaunchTests {
             "doctor", "help", "list", "session", "setup", "status", "uninstall",
             "update", "version",
         ] {
-            #expect(AgentLaunchSanitizer.omxLaunchIsNonLaunch(args: [command]))
+            #expect(classifier.omxLaunchIsNonLaunch(args: [command]))
         }
-        #expect(AgentLaunchSanitizer.omxLaunchIsNonLaunch(args: ["--help"]))
-        #expect(AgentLaunchSanitizer.omxLaunchIsNonLaunch(args: ["--version"]))
+        #expect(classifier.omxLaunchIsNonLaunch(args: ["--help"]))
+        #expect(classifier.omxLaunchIsNonLaunch(args: ["--version"]))
     }
 
     @Test("OMX rejects sessions, unknown commands, and command-shaped values")
@@ -106,7 +108,7 @@ struct ManagedLauncherNonLaunchTests {
             ["--", "--version"],
             ["--high"],
         ] {
-            #expect(!AgentLaunchSanitizer.omxLaunchIsNonLaunch(args: args))
+            #expect(!classifier.omxLaunchIsNonLaunch(args: args))
         }
     }
 }

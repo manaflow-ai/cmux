@@ -22730,7 +22730,7 @@ struct CMUXCLI {
             processEnvironment: launcherEnvironment,
             explicitPassword: explicitPassword
         )
-        if !AgentLaunchSanitizer.omcLaunchIsNonLaunch(args: commandArgs),
+        if !AgentLaunchInvocationClassifier().omcLaunchIsNonLaunch(args: commandArgs),
            normalizedTmuxTarget(launchContext?.surfaceId) == nil {
             throw CLIError(message: managedTerminalRequiredMessage(displayName: "cmux omc"))
         }

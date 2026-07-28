@@ -11,6 +11,8 @@ import tempfile
 from pathlib import Path
 
 from claude_teams_test_utils import (
+    FOCUSED_PANE_ID,
+    FOCUSED_WINDOW_ID,
     FOCUSED_WORKSPACE_ID,
     canonical_managed_claude_shim_root,
     focused_cmux_server,
@@ -28,6 +30,15 @@ def read_text(path: Path) -> str:
     if not path.exists():
         return ""
     return path.read_text(encoding="utf-8").strip()
+
+
+def stable_tmux_numeric_id(raw: str) -> str:
+    value = 14695981039346656037
+    for byte in raw.encode("utf-8"):
+        value ^= byte
+        value = (value * 1099511628211) & 0xFFFFFFFFFFFFFFFF
+    value &= 0x7FFFFFFFFFFFFFFF
+    return str(value or 1)
 
 
 def run_claude_teams(
@@ -168,7 +179,14 @@ fs.writeFileSync(
         explicit_socket_path = str(tmp / "explicit-cmux.sock")
         explicit_socket_password = "topsecret"
 
-        with focused_cmux_server(Path(explicit_socket_path), surface_id=surface_id):
+        with focused_cmux_server(
+            Path(explicit_socket_path),
+            surface_id=surface_id,
+            identified_workspace_id="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            identified_window_id="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+            identified_pane_id="cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+            identified_surface_id="dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+        ) as (_, socket_requests):
             proc = subprocess.run(
                 [
                     cli_path,
@@ -192,6 +210,13 @@ fs.writeFileSync(
 
         if proc.returncode != 0:
             return proc, "", "", ""
+
+        if socket_requests != ["surface.list"]:
+            print(
+                "FAIL: managed launch identity must resolve directly without consulting "
+                f"mutable global focus, got requests {socket_requests!r}"
+            )
+            raise SystemExit(1)
 
         agent_teams_value = read_text(env_log)
         if agent_teams_value != "1":
@@ -276,13 +301,19 @@ fs.writeFileSync(
             raise SystemExit(1)
 
         tmux_env_value = read_text(tmux_env_log)
-        if tmux_env_value in {"", "__UNSET__"}:
-            print("FAIL: expected a fake TMUX env value")
+        expected_pane_token = stable_tmux_numeric_id(FOCUSED_PANE_ID)
+        expected_tmux = (
+            f"/tmp/cmux-claude-teams/{FOCUSED_WORKSPACE_ID},"
+            f"{FOCUSED_WINDOW_ID},{expected_pane_token}"
+        )
+        if tmux_env_value != expected_tmux:
+            print(f"FAIL: expected launch-surface TMUX={expected_tmux!r}, got {tmux_env_value!r}")
             raise SystemExit(1)
 
         tmux_pane_value = read_text(tmux_pane_log)
-        if tmux_pane_value in {"", "__UNSET__"} or not tmux_pane_value.startswith("%"):
-            print(f"FAIL: expected a fake TMUX_PANE value, got {tmux_pane_value!r}")
+        expected_tmux_pane = f"%{expected_pane_token}"
+        if tmux_pane_value != expected_tmux_pane:
+            print(f"FAIL: expected launch-surface TMUX_PANE={expected_tmux_pane!r}, got {tmux_pane_value!r}")
             raise SystemExit(1)
 
         term_value = read_text(term_log)

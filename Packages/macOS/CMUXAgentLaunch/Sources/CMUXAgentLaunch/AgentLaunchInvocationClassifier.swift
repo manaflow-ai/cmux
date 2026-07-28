@@ -1,4 +1,68 @@
-extension AgentLaunchSanitizer {
+/// Classifies managed-launcher arguments without starting a provider session.
+///
+/// The classifier is an instance value so the launch/non-launch policy has one
+/// explicit owner instead of accumulating namespace helpers on
+/// ``AgentLaunchSanitizer``.
+public struct AgentLaunchInvocationClassifier {
+    private let claudeTeamsManagementCommands: Set<String>
+    private let informationalOptions: Set<String>
+    private let omxManagementCommands: Set<String>
+    private let claudeTeamsManagementDisqualifyingOptions: Set<String>
+
+    /// Creates a classifier with the supported providers' documented command policies.
+    public init() {
+        claudeTeamsManagementCommands = [
+            "auth",
+            "auto-mode",
+            "doctor",
+            "gateway",
+            "install",
+            "mcp",
+            "plugin",
+            "plugins",
+            "project",
+            "setup-token",
+            "ultrareview",
+            "update",
+            "upgrade",
+        ]
+        informationalOptions = ["--help", "-h", "--version", "-v", "-V"]
+        omxManagementCommands = [
+            "agents",
+            "agents-init",
+            "auth",
+            "cancel",
+            "capabilities",
+            "deepinit",
+            "doctor",
+            "help",
+            "list",
+            "session",
+            "setup",
+            "status",
+            "uninstall",
+            "update",
+            "version",
+        ]
+        claudeTeamsManagementDisqualifyingOptions = [
+            "--background",
+            "--bg",
+            "--continue",
+            "-c",
+            "--fork-session",
+            "--from-pr",
+            "--no-session-persistence",
+            "--print",
+            "-p",
+            "--remote-control",
+            "--resume",
+            "-r",
+            "--session-id",
+            "--worktree",
+            "-w",
+        ]
+    }
+
     /// Whether `args` select one of Claude's administrative commands instead of
     /// launching or resuming an agent session.
     ///
@@ -6,8 +70,8 @@ extension AgentLaunchSanitizer {
     /// session-routing options, option values, `--tmux` prompt payloads, `--`, and
     /// ordinary prompts all fail closed so command-shaped user text cannot bypass
     /// managed-surface validation.
-    public static func claudeTeamsLaunchIsManagementCommand(args: [String]) -> Bool {
-        let policy = claudeTeamsPolicy
+    public func claudeTeamsLaunchIsManagementCommand(args: [String]) -> Bool {
+        let policy = AgentLaunchSanitizer.claudeTeamsPolicy
         var index = 0
         var sink: [String] = []
         while index < args.count {
@@ -26,8 +90,8 @@ extension AgentLaunchSanitizer {
                 // so an unattached value makes the command boundary ambiguous.
                 return false
             }
-            let width = optionWidth(args, index: index, policy: policy)
-            guard let consumedBoundary = consumePromptBoundaryOption(
+            let width = AgentLaunchSanitizer.optionWidth(args, index: index, policy: policy)
+            guard let consumedBoundary = AgentLaunchSanitizer.consumePromptBoundaryOption(
                 argument,
                 args: args,
                 index: &index,
@@ -44,7 +108,7 @@ extension AgentLaunchSanitizer {
     }
 
     /// Whether OpenCode arguments select help, version, or a command that cannot host sessions.
-    public static func omoLaunchIsNonLaunch(args: [String]) -> Bool {
+    public func omoLaunchIsNonLaunch(args: [String]) -> Bool {
         conservativeNonLaunchInvocation(
             args: args,
             managementCommands: [
@@ -74,7 +138,7 @@ extension AgentLaunchSanitizer {
 
     /// Whether OMC arguments select configuration, diagnostics, or another
     /// command that does not start an agent or team session.
-    public static func omcLaunchIsNonLaunch(args: [String]) -> Bool {
+    public func omcLaunchIsNonLaunch(args: [String]) -> Bool {
         conservativeNonLaunchInvocation(
             args: args,
             managementCommands: [
@@ -105,13 +169,13 @@ extension AgentLaunchSanitizer {
     }
 
     /// Whether OMX arguments select help, version, or a documented management command.
-    public static func omxLaunchIsNonLaunch(args: [String]) -> Bool {
+    public func omxLaunchIsNonLaunch(args: [String]) -> Bool {
         guard let first = args.first else { return false }
         if informationalOptions.contains(first) { return true }
         return omxManagementCommands.contains(first)
     }
 
-    private static func conservativeNonLaunchInvocation(
+    private func conservativeNonLaunchInvocation(
         args: [String],
         managementCommands: Set<String>,
         managementSubcommands: [String: Set<String>] = [:],
@@ -146,7 +210,10 @@ extension AgentLaunchSanitizer {
         return false
     }
 
-    private static func claudeTeamsPolicyRecognizesOption(_ argument: String, policy: Policy) -> Bool {
+    private func claudeTeamsPolicyRecognizesOption(
+        _ argument: String,
+        policy: AgentLaunchSanitizer.Policy
+    ) -> Bool {
         let name = optionName(argument)
         return policy.valueOptions.contains(name)
             || policy.optionalValueOptions.contains(name)
@@ -156,65 +223,11 @@ extension AgentLaunchSanitizer {
             || policy.rejectOptions.contains(name)
             || policy.promptBoundaryOptions.contains(name)
             || policy.droppedOptionPrefixes.contains(where: { argument.hasPrefix($0) })
-            || runtimeOnlyOptionWidth(argument) != nil
+            || AgentLaunchSanitizer.runtimeOnlyOptionWidth(argument) != nil
     }
 
-    private static func optionName(_ argument: String) -> String {
+    private func optionName(_ argument: String) -> String {
         guard let equals = argument.firstIndex(of: "=") else { return argument }
         return String(argument[..<equals])
     }
-
-    private static let claudeTeamsManagementCommands: Set<String> = [
-        "auth",
-        "auto-mode",
-        "doctor",
-        "gateway",
-        "install",
-        "mcp",
-        "plugin",
-        "plugins",
-        "project",
-        "setup-token",
-        "ultrareview",
-        "update",
-        "upgrade",
-    ]
-
-    private static let informationalOptions: Set<String> = ["--help", "-h", "--version", "-v", "-V"]
-
-    private static let omxManagementCommands: Set<String> = [
-        "agents",
-        "agents-init",
-        "auth",
-        "cancel",
-        "capabilities",
-        "deepinit",
-        "doctor",
-        "help",
-        "list",
-        "session",
-        "setup",
-        "status",
-        "uninstall",
-        "update",
-        "version",
-    ]
-
-    private static let claudeTeamsManagementDisqualifyingOptions: Set<String> = [
-        "--background",
-        "--bg",
-        "--continue",
-        "-c",
-        "--fork-session",
-        "--from-pr",
-        "--no-session-persistence",
-        "--print",
-        "-p",
-        "--remote-control",
-        "--resume",
-        "-r",
-        "--session-id",
-        "--worktree",
-        "-w",
-    ]
 }

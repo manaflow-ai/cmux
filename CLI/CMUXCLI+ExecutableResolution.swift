@@ -167,7 +167,7 @@ extension CMUXCLI {
 
     func claudeTeamsIsNonLaunchInvocation(commandArgs: [String]) -> Bool {
         tmuxCompatIsInformationalInvocation(commandArgs: commandArgs)
-            || AgentLaunchSanitizer.claudeTeamsLaunchIsManagementCommand(args: commandArgs)
+            || AgentLaunchInvocationClassifier().claudeTeamsLaunchIsManagementCommand(args: commandArgs)
     }
 
     func codexTeamsIsInformationalInvocation(commandArgs: [String]) -> Bool {
@@ -176,11 +176,11 @@ extension CMUXCLI {
     }
 
     func omoIsNonLaunchInvocation(commandArgs: [String]) -> Bool {
-        AgentLaunchSanitizer.omoLaunchIsNonLaunch(args: commandArgs)
+        AgentLaunchInvocationClassifier().omoLaunchIsNonLaunch(args: commandArgs)
     }
 
     func omxIsNonLaunchInvocation(commandArgs: [String]) -> Bool {
-        AgentLaunchSanitizer.omxLaunchIsNonLaunch(args: commandArgs)
+        AgentLaunchInvocationClassifier().omxLaunchIsNonLaunch(args: commandArgs)
     }
 
     /// Environment the lead `claude` is launched with. CLAUDE_CODE_SANDBOXED skips

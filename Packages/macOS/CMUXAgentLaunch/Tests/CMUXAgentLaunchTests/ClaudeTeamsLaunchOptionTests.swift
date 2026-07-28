@@ -59,20 +59,22 @@ struct ClaudeTeamsLaunchOptionTests {
 
     @Test("Recognizes canonical Claude management commands after safe options")
     func recognizesManagementCommands() {
+        let classifier = AgentLaunchInvocationClassifier()
         for command in [
             "auth", "auto-mode", "doctor", "gateway", "install", "mcp",
             "plugin", "plugins", "project", "setup-token", "ultrareview", "update", "upgrade",
         ] {
-            #expect(AgentLaunchSanitizer.claudeTeamsLaunchIsManagementCommand(args: [command]))
-            #expect(AgentLaunchSanitizer.claudeTeamsLaunchIsManagementCommand(args: ["--verbose", command]))
+            #expect(classifier.claudeTeamsLaunchIsManagementCommand(args: [command]))
+            #expect(classifier.claudeTeamsLaunchIsManagementCommand(args: ["--verbose", command]))
         }
-        #expect(AgentLaunchSanitizer.claudeTeamsLaunchIsManagementCommand(
+        #expect(classifier.claudeTeamsLaunchIsManagementCommand(
             args: ["--tmux", "classic", "auth"]
         ))
     }
 
     @Test("Does not promote command-shaped values or prompt payloads")
     func rejectsManagementCommandMasqueraders() {
+        let classifier = AgentLaunchInvocationClassifier()
         let launches = [
             ["agents"],
             ["--verbose", "agents"],
@@ -94,7 +96,7 @@ struct ClaudeTeamsLaunchOptionTests {
             ["remote-control"],
         ]
         for args in launches {
-            #expect(!AgentLaunchSanitizer.claudeTeamsLaunchIsManagementCommand(args: args))
+            #expect(!classifier.claudeTeamsLaunchIsManagementCommand(args: args))
         }
     }
 }

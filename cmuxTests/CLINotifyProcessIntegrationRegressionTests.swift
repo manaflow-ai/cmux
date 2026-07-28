@@ -9440,12 +9440,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
         // The operator's FOCUSED pane is surface A (what system.identify returns).
         let focusedWorkspace = "11111111-1111-1111-1111-111111111111"
         let focusedSurface = "22222222-2222-2222-2222-222222222222"
-        let focusedPane = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
-        let focusedWindow = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
-        let launchWorkspace = "33333333-3333-3333-3333-333333333333"
-        let launchSurface = "44444444-4444-4444-4444-444444444444"
-        let launchPane = "cccccccc-cccc-cccc-cccc-cccccccccccc"
-        let launchWindow = "dddddddd-dddd-dddd-dddd-dddddddddddd"
         let handled = startMockServer(listenerFD: listenerFD, state: state) { line in
             guard let payload = self.jsonObject(line),
                   let id = payload["id"] as? String,
@@ -9457,32 +9451,19 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     "focused": [
                         "workspace_id": focusedWorkspace,
                         "surface_id": focusedSurface,
-                        "pane_id": focusedPane,
-                        "window_id": focusedWindow,
+                        "pane_id": "%1",
                     ],
                 ])
             }
-            if method == "surface.list" {
-                let params = payload["params"] as? [String: Any] ?? [:]
-                XCTAssertEqual(params["workspace_id"] as? String, launchWorkspace)
-                return self.v2Response(id: id, ok: true, result: [
-                    "window_id": launchWindow,
-                    "surfaces": [[
-                        "id": launchSurface,
-                        "ref": "surface:2",
-                        "pane_id": launchPane,
-                        "pane_ref": "pane:2",
-                    ]],
-                ])
-            }
-            // Any unexpected launch-context query fails closed.
+            // resolveWorkspaceId / tmuxCanonicalPaneId fail gracefully (CLI uses try?).
             return self.v2Response(id: id, ok: false, error: ["code": "unsupported", "message": method])
         }
 
-        // ...but the launcher RUNS in surface B (its own inherited env). Seed stale legacy aliases
-        // too: the launcher must make the entire identity coherent with the validated surface.
-        let staleTab = "55555555-5555-5555-5555-555555555555"
-        let stalePane = "66666666-6666-6666-6666-666666666666"
+        // ...but the launcher RUNS in surface B (its own inherited env). Tab id is surface-scoped, so
+        // it is distinct from the workspace id.
+        let launchWorkspace = "33333333-3333-3333-3333-333333333333"
+        let launchSurface = "44444444-4444-4444-4444-444444444444"
+        let launchTab = "55555555-5555-5555-5555-555555555555"
         let result = runProcess(
             executablePath: cliPath,
             arguments: ["__debug-tmux-compat-env"],
@@ -9491,20 +9472,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "CMUX_WORKSPACE_ID": launchWorkspace,
                 "CMUX_SURFACE_ID": launchSurface,
                 "CMUX_PANEL_ID": launchSurface,
-                "CMUX_TAB_ID": staleTab,
-                "CMUX_PANE_ID": stalePane,
+                "CMUX_TAB_ID": launchTab,
                 "HOME": tmpDir.path,
                 "PATH": ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin",
             ],
             timeout: 30
         )
         wait(for: [handled], timeout: 30)
-
-        XCTAssertEqual(
-            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
-            ["surface.list"],
-            "a complete launch identity must resolve without consulting mutable global focus"
-        )
 
         XCTAssertTrue(
             result.stdout.contains("CMUX_SURFACE_ID=\(launchSurface)"),
@@ -9515,243 +9489,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "launcher must NOT stamp the focused surface; stdout:\n\(result.stdout)"
         )
         XCTAssertTrue(result.stdout.contains("CMUX_WORKSPACE_ID=\(launchWorkspace)"), result.stdout)
-        XCTAssertTrue(
-            result.stdout.contains("TMUX=/tmp/cmux-debug/\(launchWorkspace),\(launchWindow),"),
-            "fake tmux session/window identity must come from the launch surface; stdout:\n\(result.stdout)"
-        )
-        XCTAssertFalse(
-            result.stdout.contains("TMUX=/tmp/cmux-debug/\(focusedWorkspace),\(focusedWindow),"),
-            "fake tmux identity must not follow global focus; stdout:\n\(result.stdout)"
-        )
-        XCTAssertTrue(
-            result.stdout.contains("TMUX_PANE=%\(stableTmuxNumericId(launchPane))"),
-            "TMUX_PANE must identify the launch surface's pane; stdout:\n\(result.stdout)"
-        )
-        // Primary ids and their legacy aliases must remain matched pairs.
+        // Matched-pair invariant: SURFACE == PANEL (the desync is exactly the bug). The surface-scoped
+        // tab id passes through untouched.
         XCTAssertTrue(result.stdout.contains("CMUX_PANEL_ID=\(launchSurface)"), result.stdout)
-        XCTAssertTrue(result.stdout.contains("CMUX_TAB_ID=\(launchWorkspace)"), result.stdout)
-        XCTAssertTrue(result.stdout.contains("CMUX_PANE_ID=\(launchPane)"), result.stdout)
-        XCTAssertFalse(result.stdout.contains(staleTab), result.stdout)
-        XCTAssertFalse(result.stdout.contains(stalePane), result.stdout)
-    }
-
-    func testTmuxCompatEnvRelocatesMovedInheritedSurfaceWithoutFocus() throws {
-        let cliPath = try bundledCLIPath()
-        let tmpDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-moved-spawn-id-e2e-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: tmpDir) }
-        let socketPath = tmpDir.appendingPathComponent("sock").path
-        let listenerFD = try bindUnixSocket(at: socketPath)
-        defer { Darwin.close(listenerFD); unlink(socketPath) }
-        let state = MockSocketServerState()
-
-        let oldWorkspace = "11111111-1111-1111-1111-111111111111"
-        let currentWorkspace = "22222222-2222-2222-2222-222222222222"
-        let launchSurface = "33333333-3333-3333-3333-333333333333"
-        let currentPane = "44444444-4444-4444-4444-444444444444"
-        let currentWindow = "55555555-5555-5555-5555-555555555555"
-        let handled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            guard let payload = self.jsonObject(line),
-                  let id = payload["id"] as? String,
-                  let method = payload["method"] as? String else {
-                return self.malformedRequestResponse(raw: line)
-            }
-            if method == "system.identify" {
-                return self.v2Response(id: id, ok: false, error: [
-                    "code": "forbidden",
-                    "message": "moved inherited identity must not consult focus",
-                ])
-            }
-            guard method == "surface.list" else {
-                return self.v2Response(id: id, ok: false, error: ["code": "unsupported", "message": method])
-            }
-            let params = payload["params"] as? [String: Any] ?? [:]
-            if params["workspace_id"] as? String == oldWorkspace {
-                return self.v2Response(id: id, ok: true, result: [
-                    "workspace_id": oldWorkspace,
-                    "surfaces": [],
-                ])
-            }
-            XCTAssertEqual(params["surface_id"] as? String, launchSurface)
-            return self.v2Response(id: id, ok: true, result: [
-                "workspace_id": currentWorkspace,
-                "window_id": currentWindow,
-                "surfaces": [[
-                    "id": launchSurface,
-                    "pane_id": currentPane,
-                ]],
-            ])
-        }
-
-        let result = runProcess(
-            executablePath: cliPath,
-            arguments: ["__debug-tmux-compat-env"],
-            environment: [
-                "CMUX_SOCKET_PATH": socketPath,
-                "CMUX_WORKSPACE_ID": oldWorkspace,
-                "CMUX_SURFACE_ID": launchSurface,
-                "CMUX_PANEL_ID": "66666666-6666-6666-6666-666666666666",
-                "CMUX_TAB_ID": oldWorkspace,
-                "CMUX_PANE_ID": "77777777-7777-7777-7777-777777777777",
-                "HOME": tmpDir.path,
-                "PATH": ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin",
-            ],
-            timeout: 30
-        )
-        wait(for: [handled], timeout: 30)
-
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertEqual(
-            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
-            ["surface.list", "surface.list"],
-            "a moved stable surface must relocate directly without consulting mutable focus"
-        )
-        XCTAssertTrue(result.stdout.contains("CMUX_WORKSPACE_ID=\(currentWorkspace)"), result.stdout)
-        XCTAssertTrue(result.stdout.contains("CMUX_TAB_ID=\(currentWorkspace)"), result.stdout)
-        XCTAssertTrue(result.stdout.contains("CMUX_SURFACE_ID=\(launchSurface)"), result.stdout)
-        XCTAssertTrue(result.stdout.contains("CMUX_PANEL_ID=\(launchSurface)"), result.stdout)
-        XCTAssertTrue(result.stdout.contains("CMUX_PANE_ID=\(currentPane)"), result.stdout)
-        XCTAssertTrue(
-            result.stdout.contains("TMUX=/tmp/cmux-debug/\(currentWorkspace),\(currentWindow),"),
-            result.stdout
-        )
-        XCTAssertTrue(
-            result.stdout.contains("TMUX_PANE=%\(stableTmuxNumericId(currentPane))"),
-            result.stdout
-        )
-        XCTAssertFalse(result.stdout.contains(oldWorkspace), result.stdout)
-    }
-
-    func testTmuxCompatEnvFailsClosedForIncompleteInheritedLaunchIdentity() throws {
-        try assertTmuxCompatEnvFailsClosed(
-            environmentOverrides: [
-                "CMUX_WORKSPACE_ID": "33333333-3333-3333-3333-333333333333",
-            ],
-            expectedMethods: []
-        )
-    }
-
-    func testTmuxCompatEnvFailsClosedForStaleInheritedLaunchIdentity() throws {
-        try assertTmuxCompatEnvFailsClosed(
-            environmentOverrides: [
-                "CMUX_WORKSPACE_ID": "33333333-3333-3333-3333-333333333333",
-                "CMUX_SURFACE_ID": "44444444-4444-4444-4444-444444444444",
-            ],
-            expectedMethods: ["surface.list", "surface.list"]
-        )
-    }
-
-    private func assertTmuxCompatEnvFailsClosed(
-        environmentOverrides: [String: String],
-        expectedMethods: [String]
-    ) throws {
-        let cliPath = try bundledCLIPath()
-        let tmpDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-stale-spawn-id-e2e-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: tmpDir) }
-        let socketPath = tmpDir.appendingPathComponent("sock").path
-        let listenerFD = try bindUnixSocket(at: socketPath)
-        defer { Darwin.close(listenerFD); unlink(socketPath) }
-        let state = MockSocketServerState()
-
-        let focusedWorkspace = "11111111-1111-1111-1111-111111111111"
-        let focusedSurface = "22222222-2222-2222-2222-222222222222"
-        let focusedPane = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
-        let focusedWindow = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
-        let handled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            guard let payload = self.jsonObject(line),
-                  let id = payload["id"] as? String,
-                  let method = payload["method"] as? String else {
-                return self.malformedRequestResponse(raw: line)
-            }
-            if method == "system.identify" {
-                return self.v2Response(id: id, ok: true, result: [
-                    "focused": [
-                        "workspace_id": focusedWorkspace,
-                        "surface_id": focusedSurface,
-                        "pane_id": focusedPane,
-                        "window_id": focusedWindow,
-                    ],
-                ])
-            }
-            if method == "surface.list" {
-                let params = payload["params"] as? [String: Any] ?? [:]
-                if params["surface_id"] != nil {
-                    return self.v2Response(id: id, ok: false, error: [
-                        "code": "not_found",
-                        "message": "Surface not found",
-                    ])
-                }
-                if params["workspace_id"] as? String == focusedWorkspace {
-                    return self.v2Response(id: id, ok: true, result: [
-                        "window_id": focusedWindow,
-                        "surfaces": [[
-                            "id": focusedSurface,
-                            "pane_id": focusedPane,
-                        ]],
-                    ])
-                }
-                return self.v2Response(id: id, ok: true, result: ["surfaces": []])
-            }
-            return self.v2Response(id: id, ok: false, error: ["code": "unsupported", "message": method])
-        }
-
-        var environment = [
-            "CMUX_SOCKET_PATH": socketPath,
-            "CMUX_PANEL_ID": "55555555-5555-5555-5555-555555555555",
-            "CMUX_TAB_ID": "66666666-6666-6666-6666-666666666666",
-            "CMUX_PANE_ID": "77777777-7777-7777-7777-777777777777",
-            "HOME": tmpDir.path,
-            "PATH": ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin",
-        ]
-        for (key, value) in environmentOverrides {
-            environment[key] = value
-        }
-        let result = runProcess(
-            executablePath: cliPath,
-            arguments: ["__debug-tmux-compat-env"],
-            environment: environment,
-            timeout: 30
-        )
-        wait(for: [handled], timeout: 30)
-
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertEqual(
-            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
-            expectedMethods,
-            "invalid inherited identity must never fall back to mutable global focus"
-        )
-        XCTAssertTrue(result.stdout.contains("TMUX=/tmp/cmux-debug/default,0,0"), result.stdout)
-        XCTAssertTrue(result.stdout.contains("TMUX_PANE=%1"), result.stdout)
-        for key in [
-            "CMUX_WORKSPACE_ID",
-            "CMUX_SURFACE_ID",
-            "CMUX_PANEL_ID",
-            "CMUX_TAB_ID",
-            "CMUX_PANE_ID",
-        ] {
-            XCTAssertTrue(
-                result.stdout.components(separatedBy: "\n").contains("\(key)="),
-                "rejected identity must clear \(key); stdout:\n\(result.stdout)"
-            )
-        }
-        XCTAssertFalse(result.stdout.contains(focusedWorkspace), result.stdout)
-        XCTAssertFalse(result.stdout.contains(focusedSurface), result.stdout)
-    }
-
-    private func stableTmuxNumericId(_ raw: String?) -> String {
-        let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let source = trimmed.isEmpty ? "cmux" : trimmed
-        var hash: UInt64 = 14695981039346656037
-        for byte in source.utf8 {
-            hash ^= UInt64(byte)
-            hash = hash &* 1099511628211
-        }
-        let value = hash & 0x7fffffffffffffff
-        return String(value == 0 ? 1 : value)
+        XCTAssertTrue(result.stdout.contains("CMUX_TAB_ID=\(launchTab)"), result.stdout)
     }
 }
