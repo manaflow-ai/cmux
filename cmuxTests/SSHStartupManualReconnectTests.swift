@@ -65,6 +65,7 @@ struct SSHStartupManualReconnectTests {
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
 
         let startupCommand = try Self.generatedVMSSHInitialStartupCommand()
+        #expect(startupCommand.contains("workspace.remote.terminal_session_connected"))
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
         environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path

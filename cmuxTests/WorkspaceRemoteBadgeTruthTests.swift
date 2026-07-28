@@ -24,7 +24,7 @@ final class WorkspaceRemoteBadgeTruthTests: XCTestCase {
     }
 
     @MainActor
-    func testLegacySSHProxyOnlyErrorStillPreservesConnectedState() {
+    func testUnconfirmedLegacySSHProxyOnlyErrorDoesNotClaimConnectedState() {
         let workspace = Workspace()
         let config = remoteConfiguration(preserveAfterTerminalExit: false)
         workspace.configureRemoteConnection(config, autoConnect: false)
@@ -34,9 +34,9 @@ final class WorkspaceRemoteBadgeTruthTests: XCTestCase {
         let proxyError = "Remote proxy to host unavailable: Remote daemon transport failed: daemon transport keepalive timed out"
         workspace.applyRemoteConnectionStateUpdate(.error, detail: proxyError, target: "host")
 
-        XCTAssertEqual(workspace.remoteConnectionState, .connected)
+        XCTAssertEqual(workspace.remoteConnectionState, .error)
         XCTAssertEqual(workspace.remoteConnectionDetail, proxyError)
-        XCTAssertEqual(workspace.remoteStatusPayload()["connected"] as? Bool, true)
+        XCTAssertEqual(workspace.remoteStatusPayload()["connected"] as? Bool, false)
     }
 
     @MainActor

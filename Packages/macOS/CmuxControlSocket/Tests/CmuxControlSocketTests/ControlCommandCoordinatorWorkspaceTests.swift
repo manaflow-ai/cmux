@@ -217,6 +217,30 @@ struct ControlCommandCoordinatorWorkspaceTests {
         #expect(context.terminalSessionEndCall?.lifecycleOnly == true)
     }
 
+    @Test func terminalSessionConnectedForwardsAuthoritativeTerminalLiveness() throws {
+        let (coordinator, context) = coordinator()
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        context.terminalSessionEndResolution = .resolved(
+            windowID: nil,
+            workspaceID: workspaceID,
+            remoteStatus: .object(["connected": .bool(true)])
+        )
+
+        guard case .ok = coordinator.handle(request("workspace.remote.terminal_session_connected", [
+            "workspace_id": .string(workspaceID.uuidString),
+            "surface_id": .string(surfaceID.uuidString),
+            "relay_port": .int(64007),
+        ])) else {
+            Issue.record("unexpected terminal_session_connected result")
+            return
+        }
+
+        #expect(context.terminalSessionConnectedCall?.workspaceID == workspaceID)
+        #expect(context.terminalSessionConnectedCall?.surfaceID == surfaceID)
+        #expect(context.terminalSessionConnectedCall?.relayPort == 64007)
+    }
+
     @Test func lifecycleOnlySessionEndRejectsMissingGeneration() throws {
         let (coordinator, context) = coordinator()
         guard case .err(let code, _, _) = coordinator.handle(request(

@@ -3896,6 +3896,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 XCTAssertEqual(params["attachment_token"] as? String, "attach-token")
                 XCTAssertEqual(params["surface_id"] as? String, surfaceId)
                 return self.v2Response(id: id, ok: true, result: ["resized": true])
+            case "workspace.remote.terminal_session_connected":
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                XCTAssertEqual(params["surface_id"] as? String, surfaceId)
+                return self.v2Response(id: id, ok: true, result: ["connected": true])
             case "workspace.remote.pty_sessions":
                 return self.v2Response(
                     id: id,
@@ -3961,7 +3965,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             result.stderr
         )
         let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
-        XCTAssertEqual(methods, ["workspace.remote.pty_bridge", "workspace.remote.pty_resize", "workspace.remote.pty_sessions", "workspace.remote.pty_detach"])
+        XCTAssertEqual(methods, ["workspace.remote.pty_bridge", "workspace.remote.terminal_session_connected", "workspace.remote.pty_resize", "workspace.remote.pty_sessions", "workspace.remote.pty_detach"])
     }
 
     func testSSHPTYAttachBridgeEOFWhenSessionGoneClearsLocalState() throws {
