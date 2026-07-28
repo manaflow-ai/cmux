@@ -232,6 +232,7 @@ dependencies = [
  "anyhow",
  "base64",
  "cmux-tui-process",
+ "libc",
  "serde_json",
  "tungstenite",
 ]

@@ -44,6 +44,10 @@ static NEXT_RESOLVER_INIT_DELAY_MS: AtomicU64 = AtomicU64::new(0);
 type TestHostResolverCommand = Arc<dyn Fn(&str, u16) -> Command + Send + Sync>;
 #[cfg(test)]
 static TEST_HOST_RESOLVER_COMMAND: Mutex<Option<TestHostResolverCommand>> = Mutex::new(None);
+#[cfg(test)]
+static TEST_RESOLVER_REAPER_WAIT_ERROR: Mutex<Option<std::io::ErrorKind>> = Mutex::new(None);
+#[cfg(test)]
+static TEST_RESOLVER_REAPER_WAIT_CALLS: AtomicUsize = AtomicUsize::new(0);
 
 static CDP_RESOLVER: std::sync::OnceLock<Mutex<Option<Arc<CdpResolver>>>> =
     std::sync::OnceLock::new();
@@ -325,9 +329,22 @@ fn run_resolver_child_reaper(receiver: Receiver<ResolverChildReapRequest>) {
         }
         pending.retain_mut(|request| {
             let _ = request.child.kill();
-            !matches!(request.child.try_wait(), Ok(Some(_)))
+            !matches!(resolver_child_try_wait(request), Ok(Some(_)))
         });
     }
+}
+
+fn resolver_child_try_wait(
+    request: &mut ResolverChildReapRequest,
+) -> std::io::Result<Option<std::process::ExitStatus>> {
+    #[cfg(test)]
+    {
+        TEST_RESOLVER_REAPER_WAIT_CALLS.fetch_add(1, Ordering::AcqRel);
+        if let Some(kind) = *TEST_RESOLVER_REAPER_WAIT_ERROR.lock().unwrap() {
+            return Err(std::io::Error::from(kind));
+        }
+    }
+    request.child.try_wait()
 }
 
 #[doc(hidden)]
@@ -2039,6 +2056,115 @@ mod tests {
 
         assert_eq!(result.unwrap(), SocketAddr::from(([127, 0, 0, 1], 9222)));
         assert!(called.load(Ordering::Acquire), "host resolver was bypassed");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn resolver_spawn_obeys_the_absolute_deadline() {
+        let _guard = RESOLVE_TEST_LOCK.lock().unwrap();
+        *TEST_HOST_RESOLVER_COMMAND.lock().unwrap() = Some(Arc::new(resolver_fixture_command));
+        let process_barrier = cmux_tui_process::ProcessCreationGuard::acquire();
+        let (result_sender, result_receiver) = sync_channel(1);
+        let resolver = thread::spawn(move || {
+            let started = Instant::now();
+            let result = resolve_host_addresses_until(
+                "cmux-success.invalid",
+                9222,
+                started + Duration::from_millis(40),
+            );
+            result_sender.send((started.elapsed(), result)).unwrap();
+        });
+
+        let before_release = result_receiver.recv_timeout(Duration::from_millis(150));
+        drop(process_barrier);
+        let completed_before_release = before_release.is_ok();
+        let (elapsed, result) = before_release.unwrap_or_else(|_| {
+            result_receiver
+                .recv_timeout(Duration::from_secs(2))
+                .expect("resolver did not finish after the process barrier was released")
+        });
+        resolver.join().unwrap();
+        *TEST_HOST_RESOLVER_COMMAND.lock().unwrap() = None;
+
+        assert!(
+            completed_before_release,
+            "resolver helper spawn waited past its absolute deadline"
+        );
+        assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::TimedOut);
+        assert!(
+            elapsed < Duration::from_millis(150),
+            "resolver helper spawn exceeded its wall-clock bound: {elapsed:?}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolver_reaper_releases_capacity_after_child_ownership_is_lost() {
+        let _guard = RESOLVE_TEST_LOCK.lock().unwrap();
+        resolver_child_reaper().unwrap();
+        let active = {
+            let slot = CDP_RESOLVER_CHILD_REAPER.get().unwrap().lock().unwrap();
+            slot.as_ref().unwrap().active.clone()
+        };
+        let baseline = active.load(Ordering::Acquire);
+        let lease = reserve_resolver_child_reaper().unwrap();
+        assert_eq!(active.load(Ordering::Acquire), baseline + 1);
+
+        let mut command = Command::new("/bin/sh");
+        command.args(["-c", "exit 0"]);
+        let mut child = cmux_tui_process::spawn(&mut command).unwrap();
+        let pid = libc::pid_t::try_from(child.id()).unwrap();
+        let mut status = 0;
+        // SAFETY: pid identifies this live test child, status points to valid
+        // writable storage, and this call intentionally consumes wait ownership.
+        assert_eq!(unsafe { libc::waitpid(pid, &raw mut status, 0) }, pid);
+        assert_eq!(child.try_wait().unwrap_err().raw_os_error(), Some(libc::ECHILD));
+
+        handoff_resolver_child(child, lease);
+        let deadline = Instant::now() + Duration::from_millis(250);
+        while active.load(Ordering::Acquire) != baseline && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(5));
+        }
+
+        assert_eq!(
+            active.load(Ordering::Acquire),
+            baseline,
+            "terminal wait errors permanently retained resolver capacity"
+        );
+    }
+
+    #[test]
+    fn resolver_reaper_backs_off_retryable_wait_errors() {
+        let _guard = RESOLVE_TEST_LOCK.lock().unwrap();
+        resolver_child_reaper().unwrap();
+        let active = {
+            let slot = CDP_RESOLVER_CHILD_REAPER.get().unwrap().lock().unwrap();
+            slot.as_ref().unwrap().active.clone()
+        };
+        let baseline = active.load(Ordering::Acquire);
+        let lease = reserve_resolver_child_reaper().unwrap();
+        let mut command = Command::new("/bin/sh");
+        command.args(["-c", "sleep 30"]);
+        let child = cmux_tui_process::spawn(&mut command).unwrap();
+
+        TEST_RESOLVER_REAPER_WAIT_CALLS.store(0, Ordering::Release);
+        *TEST_RESOLVER_REAPER_WAIT_ERROR.lock().unwrap() = Some(std::io::ErrorKind::Interrupted);
+        handoff_resolver_child(child, lease);
+        let observation_deadline = Instant::now() + Duration::from_millis(250);
+        while TEST_RESOLVER_REAPER_WAIT_CALLS.load(Ordering::Acquire) < 12
+            && Instant::now() < observation_deadline
+        {
+            thread::sleep(Duration::from_millis(2));
+        }
+        let wait_calls = TEST_RESOLVER_REAPER_WAIT_CALLS.load(Ordering::Acquire);
+        *TEST_RESOLVER_REAPER_WAIT_ERROR.lock().unwrap() = None;
+
+        let cleanup_deadline = Instant::now() + Duration::from_secs(1);
+        while active.load(Ordering::Acquire) != baseline && Instant::now() < cleanup_deadline {
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(active.load(Ordering::Acquire), baseline);
+        assert!(wait_calls < 12, "retryable child wait errors were hot-polled {wait_calls} times");
     }
 
     #[test]
