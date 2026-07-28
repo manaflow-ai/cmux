@@ -163,7 +163,7 @@ struct OnboardingFlowView: View {
     }
 
     private func finishBeforeAuthentication() {
-        analytics.capture("ios_onboarding_completed", eventProperties)
+        analytics.capture("ios_onboarding_tour_completed", eventProperties)
         onComplete()
     }
 
