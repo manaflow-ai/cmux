@@ -281,6 +281,230 @@ private final class CLIProcessOutputBuffer: @unchecked Sendable {
     }
 }
 
+private typealias CLIJSONLinesReadEvent = (
+    standardOutput: Data?,
+    standardError: Data?,
+    matchedResponse: Bool,
+    limitExceeded: Bool,
+    error: String?,
+    timedOut: Bool
+)
+
+private final class CLIJSONLinesChunkReader: @unchecked Sendable {
+    enum Stream {
+        case standardOutput(
+            responseID: Int,
+            followupStdinHandle: FileHandle,
+            followupStdinText: String?,
+            followupAfterResponseID: Int?
+        )
+        case standardError
+    }
+
+    private let handle: FileHandle
+    private let stream: Stream
+    private let maxOutputBytes: Int
+    private let lock = NSLock()
+    private var data = Data()
+    private var lineStart = 0
+    private var scanStart = 0
+    private var wroteFollowup = false
+    private var isConsuming = false
+    private var completion: CLIJSONLinesReadEvent?
+    private var continuation:
+        CheckedContinuation<CLIJSONLinesReadEvent, Never>?
+
+    init(
+        handle: FileHandle,
+        stream: Stream,
+        maxOutputBytes: Int
+    ) {
+        self.handle = handle
+        self.stream = stream
+        self.maxOutputBytes = maxOutputBytes
+    }
+
+    func read() async -> CLIJSONLinesReadEvent {
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                lock.lock()
+                if let completion {
+                    lock.unlock()
+                    continuation.resume(returning: completion)
+                    return
+                }
+                self.continuation = continuation
+                handle.readabilityHandler = { [weak self] _ in
+                    self?.consumeAvailableData()
+                }
+                lock.unlock()
+            }
+        } onCancel: {
+            finish((nil, nil, false, false, nil, false))
+        }
+    }
+
+    private func consumeAvailableData() {
+        lock.lock()
+        guard completion == nil, !isConsuming else {
+            lock.unlock()
+            return
+        }
+        isConsuming = true
+        lock.unlock()
+
+        while true {
+            lock.lock()
+            guard completion == nil else {
+                isConsuming = false
+                lock.unlock()
+                return
+            }
+            let remaining = max(0, maxOutputBytes - data.count)
+            lock.unlock()
+
+            let readLength = min(
+                FileHandle.processPipeReadChunkSize,
+                remaining + 1
+            )
+            switch handle.readAvailableData(maxLength: readLength) {
+            case .success(.data(let chunk)):
+                lock.lock()
+                guard completion == nil else {
+                    isConsuming = false
+                    lock.unlock()
+                    return
+                }
+                let acceptedCount = min(remaining, chunk.count)
+                if acceptedCount > 0 {
+                    data.append(contentsOf: chunk.prefix(acceptedCount))
+                }
+                let event = processAcceptedData()
+                    ?? (chunk.count > acceptedCount ? limitEvent() : nil)
+                if event != nil {
+                    isConsuming = false
+                }
+                lock.unlock()
+                if let event {
+                    finish(event)
+                    return
+                }
+            case .success(.wouldBlock):
+                lock.lock()
+                isConsuming = false
+                lock.unlock()
+                return
+            case .success(.endOfFile):
+                lock.lock()
+                isConsuming = false
+                let event = endEvent(error: nil)
+                lock.unlock()
+                finish(event)
+                return
+            case .failure(let error):
+                lock.lock()
+                isConsuming = false
+                let event = endEvent(error: error.localizedDescription)
+                lock.unlock()
+                finish(event)
+                return
+            }
+        }
+    }
+
+    /// Must be called while `lock` is held.
+    private func processAcceptedData() -> CLIJSONLinesReadEvent? {
+        guard case .standardOutput(
+            let responseID,
+            let followupStdinHandle,
+            let followupStdinText,
+            let followupAfterResponseID
+        ) = stream else {
+            return nil
+        }
+
+        while scanStart < data.endIndex {
+            guard let newline = data[scanStart...].firstIndex(of: 0x0a) else {
+                scanStart = data.endIndex
+                return nil
+            }
+            let line = data[lineStart..<newline]
+            lineStart = data.index(after: newline)
+            scanStart = lineStart
+            guard let object = try? JSONSerialization.jsonObject(
+                with: Data(line)
+            ) as? [String: Any],
+                let emittedResponseID =
+                    (object["id"] as? NSNumber)?.intValue
+            else {
+                continue
+            }
+            if !wroteFollowup,
+               let followupAfterResponseID,
+               emittedResponseID == followupAfterResponseID,
+               let followupStdinText {
+                guard cliWrite(
+                    followupStdinText,
+                    to: followupStdinHandle,
+                    onBrokenPipe: .ignore
+                ) else {
+                    return (
+                        data,
+                        nil,
+                        false,
+                        false,
+                        "process closed stdin before staged JSON input",
+                        false
+                    )
+                }
+                wroteFollowup = true
+            }
+            if emittedResponseID == responseID {
+                return (data, nil, true, false, nil, false)
+            }
+        }
+        return nil
+    }
+
+    /// Must be called while `lock` is held.
+    private func limitEvent() -> CLIJSONLinesReadEvent {
+        switch stream {
+        case .standardOutput:
+            return (data, nil, false, true, nil, false)
+        case .standardError:
+            return (nil, data, false, true, nil, false)
+        }
+    }
+
+    /// Must be called while `lock` is held.
+    private func endEvent(error: String?) -> CLIJSONLinesReadEvent {
+        switch stream {
+        case .standardOutput:
+            return (data, nil, false, false, error, false)
+        case .standardError:
+            return (nil, data, false, false, error, false)
+        }
+    }
+
+    private func finish(_ event: CLIJSONLinesReadEvent) {
+        let continuation: CheckedContinuation<
+            CLIJSONLinesReadEvent,
+            Never
+        >?
+        lock.lock()
+        guard completion == nil else {
+            lock.unlock()
+            return
+        }
+        completion = event
+        continuation = self.continuation
+        self.continuation = nil
+        handle.readabilityHandler = nil
+        lock.unlock()
+        continuation?.resume(returning: event)
+    }
+}
+
 enum CLIProcessRunner {
     static func runProcess(
         executablePath: String,
@@ -595,20 +819,25 @@ enum CLIProcessRunner {
 
         await withTaskGroup(of: CLIJSONLinesReadEvent.self) { group in
             group.addTask {
-                await readJSONLinesStandardOutput(
-                    stdoutHandle,
-                    responseID: responseID,
-                    followupStdinHandle: stdinPipe.fileHandleForWriting,
-                    followupStdinText: followupStdinText,
-                    followupAfterResponseID: followupAfterResponseID,
+                await CLIJSONLinesChunkReader(
+                    handle: stdoutHandle,
+                    stream: .standardOutput(
+                        responseID: responseID,
+                        followupStdinHandle:
+                            stdinPipe.fileHandleForWriting,
+                        followupStdinText: followupStdinText,
+                        followupAfterResponseID:
+                            followupAfterResponseID
+                    ),
                     maxOutputBytes: boundedMaxOutputBytes
-                )
+                ).read()
             }
             group.addTask {
-                await readJSONLinesStandardError(
-                    stderrHandle,
+                await CLIJSONLinesChunkReader(
+                    handle: stderrHandle,
+                    stream: .standardError,
                     maxOutputBytes: boundedMaxOutputBytes
-                )
+                ).read()
             }
             group.addTask {
                 do {
@@ -701,15 +930,6 @@ enum CLIProcessRunner {
         )
     }
 
-    private typealias CLIJSONLinesReadEvent = (
-        standardOutput: Data?,
-        standardError: Data?,
-        matchedResponse: Bool,
-        limitExceeded: Bool,
-        error: String?,
-        timedOut: Bool
-    )
-
     private typealias CLIProcessTerminationWaitEvent = (
         status: Int32?,
         terminateGraceElapsed: Bool,
@@ -768,107 +988,6 @@ enum CLIProcessRunner {
                 }
             }
             return process.isRunning ? nil : process.terminationStatus
-        }
-    }
-
-    private static func readJSONLinesStandardOutput(
-        _ handle: FileHandle,
-        responseID: Int,
-        followupStdinHandle: FileHandle,
-        followupStdinText: String?,
-        followupAfterResponseID: Int?,
-        maxOutputBytes: Int
-    ) async -> CLIJSONLinesReadEvent {
-        var data = Data()
-        var lineStart = data.startIndex
-        var wroteFollowup = false
-        do {
-            for try await byte in handle.bytes {
-                guard !Task.isCancelled else {
-                    return (nil, nil, false, false, nil, false)
-                }
-                guard data.count < maxOutputBytes else {
-                    return (data, nil, false, true, nil, false)
-                }
-                data.append(byte)
-                guard byte == 0x0a else { continue }
-
-                let newline = data.index(before: data.endIndex)
-                let line = data[lineStart..<newline]
-                lineStart = data.endIndex
-                guard let object = try? JSONSerialization.jsonObject(
-                    with: Data(line)
-                ) as? [String: Any],
-                    let emittedResponseID = (object["id"] as? NSNumber)?.intValue
-                else {
-                    continue
-                }
-                if !wroteFollowup,
-                   emittedResponseID == followupAfterResponseID,
-                   let followupStdinText {
-                    guard cliWrite(
-                        followupStdinText,
-                        to: followupStdinHandle,
-                        onBrokenPipe: .ignore
-                    ) else {
-                        return (
-                            data,
-                            nil,
-                            false,
-                            false,
-                            "process closed stdin before staged JSON input",
-                            false
-                        )
-                    }
-                    wroteFollowup = true
-                }
-                guard emittedResponseID == responseID else { continue }
-                return (data, nil, true, false, nil, false)
-            }
-            return (data, nil, false, false, nil, false)
-        } catch {
-            guard !Task.isCancelled else {
-                return (nil, nil, false, false, nil, false)
-            }
-            return (
-                data,
-                nil,
-                false,
-                false,
-                error.localizedDescription,
-                false
-            )
-        }
-    }
-
-    private static func readJSONLinesStandardError(
-        _ handle: FileHandle,
-        maxOutputBytes: Int
-    ) async -> CLIJSONLinesReadEvent {
-        var data = Data()
-        do {
-            for try await byte in handle.bytes {
-                guard !Task.isCancelled else {
-                    return (nil, nil, false, false, nil, false)
-                }
-                guard data.count < maxOutputBytes else {
-                    return (nil, data, false, true, nil, false)
-                }
-                data.append(byte)
-            }
-            return (nil, data, false, false, nil, false)
-        } catch {
-            guard !Task.isCancelled else {
-                return (nil, nil, false, false, nil, false)
-            }
-            return (
-                nil,
-                data,
-                false,
-                false,
-                error.localizedDescription,
-                false
-            )
         }
     }
 
