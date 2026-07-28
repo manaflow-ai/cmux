@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import WebKit
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -39,5 +40,16 @@ struct BrowserUserAgentPolicyTests {
     @Test func localDocumentsKeepEmbeddedWebKitIdentity() {
         #expect(policy.customUserAgent(for: URL(string: "about:blank")!) == nil)
         #expect(policy.customUserAgent(for: URL(fileURLWithPath: "/tmp/example.html")) == nil)
+    }
+
+    @MainActor
+    @Test func applyingPolicySwitchesIdentityAcrossDestinations() {
+        let webView = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
+
+        policy.apply(to: webView, for: URL(string: "https://workspace.google.com/")!)
+        #expect(webView.customUserAgent == policy.safariCompatibleUserAgent)
+
+        policy.apply(to: webView, for: URL(string: "https://docs.google.com/spreadsheets/d/example/edit")!)
+        #expect(webView.customUserAgent == nil)
     }
 }

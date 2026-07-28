@@ -66,7 +66,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
             webView.isInspectable = true
         }
         webView.underPageBackgroundColor = GhosttyBackgroundTheme.currentColor()
-        BrowserUserAgentSettings.applyEmbeddedWebKitIdentity(to: webView)
+        webView.applyBrowserUserAgentPolicy(for: nil)
         BrowserThemeSettings.apply(openerPanel?.currentBrowserThemeMode ?? BrowserThemeSettings.mode(), to: webView)
         self.webView = webView
         self.webAuthnCoordinator = BrowserWebAuthnCoordinator()
@@ -446,10 +446,12 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
         )
 
         if isScriptedPopup {
-            return controller?.createNestedPopup(
+            let popupWebView = controller?.createNestedPopup(
                 configuration: configuration,
                 windowFeatures: windowFeatures
             )
+            popupWebView?.applyBrowserUserAgentPolicy(for: navigationAction.request.url)
+            return popupWebView
         }
 
         if navigationAction.request.url != nil {
@@ -684,7 +686,12 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
             #if DEBUG
             cmuxDebugLog("popup.nav.insecureHTTP url=\(url.absoluteString)")
             #endif
-            controller?.presentInsecureHTTPAlert(for: url, in: webView, decisionHandler: decisionHandler)
+            controller?.presentInsecureHTTPAlert(for: url, in: webView) { policy in
+                if policy == .allow {
+                    webView.applyBrowserUserAgentPolicy(for: url)
+                }
+                decisionHandler(policy)
+            }
             return
         }
 
@@ -704,6 +711,7 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
         } else {
             clearAttemptedRequest()
         }
+        webView.applyBrowserUserAgentPolicy(for: url)
         decisionHandler(.allow)
     }
 

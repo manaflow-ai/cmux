@@ -322,7 +322,11 @@ import WebKit
                 "url=\(browserNavigationDebugURL(url))"
             )
 #endif
-            if opened { reportTerminalCancellation() }
+            if opened {
+                reportTerminalCancellation()
+            } else {
+                webView.applyBrowserUserAgentPolicy(for: url)
+            }
             decisionHandler(opened ? .cancel : .allow)
             return
         }
@@ -441,6 +445,9 @@ import WebKit
             } else {
                 clearAttemptedRequest()
             }
+        }
+        if navigationAction.targetFrame?.isMainFrame == true {
+            webView.applyBrowserUserAgentPolicy(for: navigationAction.request.url)
         }
         decisionHandler(.allow)
     }
