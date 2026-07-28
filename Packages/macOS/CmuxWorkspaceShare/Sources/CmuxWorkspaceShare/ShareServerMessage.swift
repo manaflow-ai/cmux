@@ -6,6 +6,9 @@ public enum ShareServerMessage: Equatable, Sendable {
     /// A participant waiting for host approval.
     case accessRequest(user: String, email: String)
 
+    /// The final pending socket for a participant disconnected before approval.
+    case accessRequestCancelled(user: String)
+
     /// Current participant presence and roles.
     case presence(participants: [ShareParticipant])
 
@@ -69,6 +72,10 @@ extension ShareServerMessage: Decodable {
             self = .accessRequest(
                 user: try container.decode(String.self, forKey: .user),
                 email: try container.decode(String.self, forKey: .email)
+            )
+        case "access-request-cancelled":
+            self = .accessRequestCancelled(
+                user: try container.decode(String.self, forKey: .user)
             )
         case "presence":
             self = .presence(

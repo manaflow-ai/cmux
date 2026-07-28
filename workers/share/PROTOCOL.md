@@ -154,7 +154,8 @@ numbers strictly between zero and one. Pane ids are unique within a layout.
 - `session-state`: full shared workspace, layout, participants, bounded chat,
   and the receiver's role
 - `presence`: current approved participants and focus
-- `access-pending`, `access-denied`, and `access-request`
+- `access-pending`, `access-denied`, `access-request`, and
+  `access-request-cancelled`
 - `layout` and `shared`
 - `cursor` and `chat`
 - `role-changed` and `kicked`

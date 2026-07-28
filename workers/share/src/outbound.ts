@@ -307,7 +307,13 @@ export async function dispatchEffects<TSocket extends OutboundSocket>(
       case "sendBinary": {
         const socket = runtime.sockets.get(effect.to);
         const attachment = runtime.attachments.get(effect.to);
-        if (!socket || !attachment) break;
+        if (!socket || !attachment) {
+          runtime.logInvariant("delivery_target_missing", {
+            hasSocket: socket ? 1 : 0,
+            hasAttachment: attachment ? 1 : 0,
+          });
+          break;
+        }
 
         const encoded = encodeEffectPayload(effect);
         if (!encoded.payload) {

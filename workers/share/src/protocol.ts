@@ -187,6 +187,7 @@ export type ServerMessage =
   | { t: "access-pending" }
   | { t: "access-denied" }
   | { t: "access-request"; user: string; email: string }
+  | { t: "access-request-cancelled"; user: string }
   | { t: "presence"; participants: Participant[] }
   | { t: "layout"; layout: WorkspaceLayout }
   | { t: "shared"; shared: SharedWorkspace[] }

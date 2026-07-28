@@ -129,9 +129,24 @@ export class ShareSession extends DurableObject<ShareWorkerEnv> {
     }
     this.sockets.set(attachment.connId, server);
     this.attachments.set(attachment.connId, attachment);
-    await this.apply(
-      core.connect(attachment.connId, { user, email, hostToken: isHost }, Date.now()),
+    const connectEffects = core.connect(
+      attachment.connId,
+      { user, email, hostToken: isHost },
+      Date.now(),
     );
+    this.logLifecycle("socket_connect", {
+      host: isHost ? 1 : 0,
+      socketCount: this.sockets.size,
+      attachmentCount: this.attachments.size,
+      outboundPayloadCount: connectEffects.filter(
+        (effect) => effect.kind === "send" || effect.kind === "sendBinary",
+      ).length,
+      hostPayloadCount: connectEffects.filter((effect) => {
+        if (effect.kind !== "send" && effect.kind !== "sendBinary") return false;
+        return this.attachments.get(effect.to)?.host === true;
+      }).length,
+    });
+    await this.apply(connectEffects);
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -295,6 +310,11 @@ export class ShareSession extends DurableObject<ShareWorkerEnv> {
     this.sockets.delete(attachment.connId);
     this.attachments.delete(attachment.connId);
     this.ingress.remove(attachment.connId);
+    this.logLifecycle("socket_disconnect", {
+      host: attachment.host ? 1 : 0,
+      socketCount: this.sockets.size,
+      attachmentCount: this.attachments.size,
+    });
     await this.apply(core.disconnect(attachment.connId, Date.now()));
   }
 

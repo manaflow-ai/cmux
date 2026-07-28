@@ -165,6 +165,7 @@ const MAX_BEARER_TOKEN_BYTES = 8 * 1024;
 const TERMINAL_INPUT_QUEUE_MAX_BYTES = 2 * 1024 * 1024;
 const TERMINAL_INPUT_WINDOW_MS = 1_000;
 const TERMINAL_INPUT_FRAMES_PER_WINDOW = 24;
+const TERMINAL_INPUT_COALESCE_MS = 8;
 const TERMINAL_PROTOCOL_CLOSE_CODES = new Set([1002, 1008, 1009, 4400]);
 const TERMINAL_INVARIANT_CLOSE_REASONS = new Set([
   "delivery_failed",
@@ -1310,15 +1311,45 @@ export class ShareClient {
         offset + MAX_TERMINAL_INPUT_BYTES,
       );
       const chunk = data.slice(offset, end);
-      this.terminalInputQueue.push({ ws, pane, data: chunk });
+      const previous = this.terminalInputQueue.at(-1);
+      if (
+        previous &&
+        previous.ws === ws &&
+        previous.pane === pane &&
+        previous.data.byteLength + chunk.byteLength <=
+          MAX_TERMINAL_INPUT_BYTES
+      ) {
+        const combined = new Uint8Array(
+          previous.data.byteLength + chunk.byteLength,
+        );
+        combined.set(previous.data);
+        combined.set(chunk, previous.data.byteLength);
+        this.terminalInputQueue[this.terminalInputQueue.length - 1] = {
+          ws,
+          pane,
+          data: combined,
+        };
+      } else {
+        this.terminalInputQueue.push({ ws, pane, data: chunk });
+      }
       this.terminalInputQueuedBytes += chunk.byteLength;
     }
-    return this.drainTerminalInputQueue();
+    if (data.byteLength >= MAX_TERMINAL_INPUT_BYTES) {
+      return this.drainTerminalInputQueue();
+    }
+    if (this.terminalInputTimer === null) {
+      this.terminalInputTimer = setTimeout(() => {
+        this.terminalInputTimer = null;
+        this.drainTerminalInputQueue();
+      }, TERMINAL_INPUT_COALESCE_MS);
+    }
+    return true;
   }
 
   /**
-   * Preserve large xterm pastes without exceeding the relay's one-second
-   * ingress budget. Frame boundaries do not alter the opaque PTY byte stream.
+   * Coalesce adjacent xterm callbacks, then preserve large pastes without
+   * exceeding the relay's one-second ingress budget. Frame boundaries do not
+   * alter the opaque PTY byte stream.
    */
   private drainTerminalInputQueue(): boolean {
     if (this.terminalInputTimer !== null) {

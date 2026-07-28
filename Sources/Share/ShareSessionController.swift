@@ -306,12 +306,10 @@ final class ShareSessionController {
             endpoint: ShareSocket.Endpoint(wsUrl: created.wsUrl, token: created.token),
             refresh: {
                 let refreshed = try await api.hostToken(code: code)
-                guard refreshed.deploymentId == created.deploymentId else {
-                    throw ShareSessionAPIError.malformedResponse(
-                        "share deployment changed during the session"
-                    )
-                }
-                return ShareSocket.Endpoint(wsUrl: refreshed.wsUrl, token: refreshed.token)
+                return try Self.reconnectEndpoint(
+                    created: created,
+                    refreshed: refreshed
+                )
             }
         )
         self.socket = socket
@@ -366,6 +364,23 @@ final class ShareSessionController {
             self.teardownSession()
         }
         showChatWindow()
+    }
+
+    nonisolated static func reconnectEndpoint(
+        created: ShareSessionCreateResult,
+        refreshed: ShareTokenResult
+    ) throws -> ShareSocket.Endpoint {
+        guard refreshed.protocolVersion == created.protocolVersion,
+              refreshed.terminalTransportVersion
+                == created.terminalTransportVersion else {
+            throw ShareSessionAPIError.malformedResponse(
+                "share protocol changed during the session"
+            )
+        }
+        return ShareSocket.Endpoint(
+            wsUrl: refreshed.wsUrl,
+            token: refreshed.token
+        )
     }
 
     private func teardownSession(
@@ -882,6 +897,9 @@ final class ShareSessionController {
             return true
         case .accessRequest(let user, let email):
             return appendAccessRequest(user: user, email: email)
+        case .accessRequestCancelled(let user):
+            removePendingAccessRequest(user: user)
+            return true
         case .presence(let updated):
             participants = updated
             pruneCursors()
@@ -955,19 +973,9 @@ final class ShareSessionController {
     }
 
     private func rebuildFeed(chat: [ShareChatMessage]) {
-        var items = chat.map(feedItem(for:))
-        // Keep unresolved access requests visible across a session-state
-        // snapshot (the DO does not persist them into chat history).
-        let pendingRequests = feed.filter { item in
-            if case .accessRequest(_, _, .none) = item.kind { return true }
-            return false
-        }
-        items.append(
-            contentsOf: pendingRequests.prefix(
-                ShareProtocolConstants.maximumPendingAccessRequests
-            )
-        )
-        feed = Array(items.suffix(Self.maximumFeedItems))
+        // A session snapshot is authoritative. On host reconnect the relay
+        // sends each still-live request immediately after the snapshot.
+        feed = Array(chat.map(feedItem(for:)).suffix(Self.maximumFeedItems))
         retainedChatIDs = Set(chat.map(\.id))
         retainedChatCount = chat.count
     }
@@ -1040,6 +1048,15 @@ final class ShareSessionController {
         return true
     }
 
+    private func removePendingAccessRequest(user: String) {
+        feed.removeAll { item in
+            if case .accessRequest(let requestUser, _, .none) = item.kind {
+                return requestUser == user
+            }
+            return false
+        }
+    }
+
     private func makeFeedRoom() -> Bool {
         guard feed.count >= Self.maximumFeedItems else { return true }
         guard let disposableIndex = feed.firstIndex(where: {
@@ -1058,11 +1075,13 @@ final class ShareSessionController {
         retainedChatCount = max(0, retainedChatCount - 1)
     }
 
-    /// Applies guest terminal input. The host is the only input authority:
-    /// the workspace must be in the shared set and the sender's locally-known
-    /// role must be `editor`, regardless of what the DO forwarded.
+    /// Applies relay-authenticated guest input to a current host terminal.
+    ///
+    /// Participant identity and role are authoritative in the Durable Object.
+    /// The host validates only state it uniquely owns: the live workspace,
+    /// current terminal pane, and PTY input availability.
     private func applyGuestInput(
-        user: String,
+        user _: String,
         ws: String,
         pane: String,
         data: Data
@@ -1073,18 +1092,13 @@ final class ShareSessionController {
               let workspace = sharedWorkspace(in: tabManager),
               workspace.id == wsUUID,
               let paneUUID = UUID(uuidString: pane),
-              let terminalPanel = workspace.terminalPanel(for: paneUUID),
-              let participant = participant(user),
-              participant.connected,
-              !participant.isHost else {
+              let terminalPanel = workspace.terminalPanel(for: paneUUID) else {
             return false
         }
-        let role = participant.role
         let currentTerminalPaneIDs = workspace.panels.values.compactMap {
             ($0 as? TerminalPanel)?.surface.id
         }
-        guard inputAuthorizer.allowsTerminalInput(
-            from: role,
+        guard inputAuthorizer.allowsForwardedTerminalInput(
             workspaceID: wsUUID,
             paneID: paneUUID,
             sharedWorkspaceIDs: sharedWorkspaceIDs,

@@ -738,6 +738,26 @@ export class ShareSessionCore {
     if (!conn) return [];
     this.conns.delete(id);
     this.dirtyCursors.delete(id);
+    const pendingCancellation: Effect[] = [];
+    if (
+      !conn.isHost &&
+      !conn.active &&
+      ![...this.conns.values()].some(
+        (candidate) =>
+          !candidate.isHost &&
+          !candidate.active &&
+          candidate.user === conn.user,
+      )
+    ) {
+      const host = this.hostConn();
+      if (host) {
+        pendingCancellation.push({
+          kind: "send",
+          to: host.id,
+          msg: { t: "access-request-cancelled", user: conn.user },
+        });
+      }
+    }
     if (conn.isHost && !this.hostConn()) {
       this.s.hostDisconnectedAt = now;
       return [
@@ -752,10 +772,11 @@ export class ShareSessionCore {
         // state goes stale and the next subscriber never gets a full frame.
         ...this.subCountUpdatesFor(conn),
         ...this.broadcastPresence(null),
+        ...pendingCancellation,
         ...this.reconcileAlarm(),
       ];
     }
-    return this.reconcileAlarm();
+    return [...pendingCancellation, ...this.reconcileAlarm()];
   }
 
   /** Post-removal `guest-sub` updates for every pane `conn` was watching. */

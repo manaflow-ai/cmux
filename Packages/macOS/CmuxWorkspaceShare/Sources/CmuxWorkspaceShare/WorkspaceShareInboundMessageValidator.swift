@@ -19,6 +19,8 @@ public struct WorkspaceShareInboundMessageValidator: Sendable {
             return accepts(snapshot)
         case .accessRequest(let user, let email):
             return isID(user) && isEmail(email)
+        case .accessRequestCancelled(let user):
+            return isID(user)
         case .presence(let participants):
             return accepts(participants)
         case .cursor(let user, let pos):

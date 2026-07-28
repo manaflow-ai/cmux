@@ -1,23 +1,24 @@
 public import Foundation
 
-/// Revalidates terminal input against current host-owned session state.
+/// Revalidates relay-authorized terminal input against current host layout.
 public struct WorkspaceShareInputAuthorizer: Sendable {
     /// Creates a stateless input authorizer.
     public init() {}
 
-    /// Returns whether a participant may write to the current terminal pane.
+    /// Returns whether relay-forwarded input targets the current terminal pane.
     ///
-    /// Every call must use fresh host state. Relay authorization is not trusted.
+    /// The relay owns participant identity and role authorization before it
+    /// creates a forwarded-input frame. Rechecking a lagging participant
+    /// snapshot here would drop leading keystrokes immediately after approval.
+    /// The host remains authoritative for its current workspace and pane layout.
     ///
     /// - Parameters:
-    ///   - role: The participant's current host-known role.
     ///   - workspaceID: Workspace requested by the participant.
     ///   - paneID: Terminal pane requested by the participant.
     ///   - sharedWorkspaceIDs: Workspaces in the current share session.
     ///   - currentTerminalPaneIDs: Terminal panes currently present in the shared workspace.
-    /// - Returns: `true` only for an editor targeting a current terminal pane in a shared workspace.
-    public func allowsTerminalInput<WorkspaceIDs, PaneIDs>(
-        from role: ShareRole,
+    /// - Returns: `true` only for a current terminal pane in a shared workspace.
+    public func allowsForwardedTerminalInput<WorkspaceIDs, PaneIDs>(
         workspaceID: UUID,
         paneID: UUID,
         sharedWorkspaceIDs: WorkspaceIDs,
@@ -25,8 +26,7 @@ public struct WorkspaceShareInputAuthorizer: Sendable {
     ) -> Bool
     where WorkspaceIDs: Collection, WorkspaceIDs.Element == UUID,
           PaneIDs: Collection, PaneIDs.Element == UUID {
-        role == .editor
-            && sharedWorkspaceIDs.contains(workspaceID)
+        sharedWorkspaceIDs.contains(workspaceID)
             && currentTerminalPaneIDs.contains(paneID)
     }
 }
