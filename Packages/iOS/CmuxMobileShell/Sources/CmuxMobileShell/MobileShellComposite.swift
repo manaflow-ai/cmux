@@ -5416,6 +5416,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         instanceTagExpectation: MobileMacInstanceTagExpectation = .adopt,
         ifStillCurrent: (() -> Bool)? = nil
     ) async throws -> MobilePairingFailureCategory? {
+        // A bounded reconnect can outlive its owning task when an FFI dial
+        // ignores cancellation. Its authority closure must be checked before
+        // claiming the foreground generation or clearing the established
+        // client, otherwise the abandoned attempt briefly disconnects the
+        // newer session even though every later adoption guard rejects it.
+        guard ifStillCurrent?() ?? true else { return nil }
         let generation = UUID()
         func isConnectCurrent() -> Bool {
             isCurrentConnectionAttempt(generation) && (ifStillCurrent?() ?? true)
