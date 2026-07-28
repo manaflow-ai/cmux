@@ -15,7 +15,7 @@ final class ShortcutListModel {
     var legacyBindings: [String: StoredShortcut]
     private(set) var whenOverrideClauses: [String: ShortcutWhenClause] = [:]
     private(set) var whenOverrideRawStrings: [String: String] = [:]
-    private(set) var chordModeActions: Set<String> = []
+    private(set) var chordModeOverrides: [String: Bool] = [:]
     private(set) var restoreShortcuts: [String: StoredShortcut] = [:]
     private(set) var bareKeyRejections: Set<String> = []
     private(set) var primaryModifierRejections: Set<String> = []
@@ -92,6 +92,10 @@ final class ShortcutListModel {
     }
 
     var latestBindings: [String: StoredShortcut] { pendingBindings ?? bindings }
+
+    func setChordModeOverride(_ enabled: Bool?, for action: ShortcutAction) {
+        chordModeOverrides[action.rawValue] = enabled
+    }
 
     private func ingestBindings(_ snapshot: ShortcutBindingsSnapshot) {
         let dictionary = snapshot.bindings
@@ -320,10 +324,12 @@ final class ShortcutListModel {
             clearRejections(for: action)
             conflictRejections[action.rawValue] = conflict
             rejectedConflictShortcuts[action.rawValue] = proposed
+            chordModeOverrides.removeValue(forKey: action.rawValue)
             return
         }
         var updated = latestBindings
         updated[action.rawValue] = proposed
+        chordModeOverrides.removeValue(forKey: action.rawValue)
         restoreShortcuts.removeValue(forKey: action.rawValue)
         clearRejections(for: action)
         await write(updated, clearingLegacyFor: action)
@@ -335,35 +341,35 @@ final class ShortcutListModel {
     func assignChord(_ chord: StoredShortcut, to action: ShortcutAction) async {
         let chord = chord.canonicalized()
         guard action.allowsChordShortcut else {
-            chordModeActions.remove(action.rawValue)
+            chordModeOverrides.removeValue(forKey: action.rawValue)
             return
         }
         guard action.allowsBareFirstStroke || chord.first.hasAnyModifier else {
             markBareKeyRejected(action)
-            chordModeActions.remove(action.rawValue)
+            chordModeOverrides.removeValue(forKey: action.rawValue)
             return
         }
         guard let proposed = normalizedNumberedShortcutIfNeeded(chord, for: action) else {
             clearRejections(for: action)
             numberedDigitRejections.insert(action.rawValue)
-            chordModeActions.remove(action.rawValue)
+            chordModeOverrides.removeValue(forKey: action.rawValue)
             return
         }
         if action.rejectsSystemDefinedMediaKey(proposed) {
             markSystemReservedRejected(action)
-            chordModeActions.remove(action.rawValue)
+            chordModeOverrides.removeValue(forKey: action.rawValue)
             return
         }
         if let conflict = detectConflict(for: action, stroke: proposed) {
             clearRejections(for: action)
             conflictRejections[action.rawValue] = conflict
             rejectedConflictShortcuts[action.rawValue] = proposed
-            chordModeActions.remove(action.rawValue)
+            chordModeOverrides.removeValue(forKey: action.rawValue)
             return
         }
         var updated = latestBindings
         updated[action.rawValue] = proposed
-        chordModeActions.remove(action.rawValue)
+        chordModeOverrides.removeValue(forKey: action.rawValue)
         restoreShortcuts.removeValue(forKey: action.rawValue)
         clearRejections(for: action)
         await write(updated, clearingLegacyFor: action)
@@ -373,6 +379,7 @@ final class ShortcutListModel {
     func clearBinding(for action: ShortcutAction) async {
         var updated = latestBindings
         updated[action.rawValue] = StoredShortcut.unbound
+        chordModeOverrides.removeValue(forKey: action.rawValue)
         await write(updated, clearingLegacyFor: action)
     }
 
@@ -392,6 +399,7 @@ final class ShortcutListModel {
     /// Clears every override and all in-memory rejection/restore state — the
     /// "Reset Defaults" action.
     func resetAll() async {
+        chordModeOverrides.removeAll()
         restoreShortcuts.removeAll()
         bareKeyRejections.removeAll()
         primaryModifierRejections.removeAll()

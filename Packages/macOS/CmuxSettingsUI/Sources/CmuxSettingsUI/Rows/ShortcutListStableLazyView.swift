@@ -22,7 +22,8 @@ struct ShortcutListStableLazyView: View {
                     title: action.displayName,
                     subtitle: model.scopeCaption(for: action),
                     placeholder: model.formatPlaceholder(effective: effective, numbered: action.usesNumberedDigitMatching),
-                    chordsEnabled: model.chordModeActions.contains(action.rawValue),
+                    showsChordModeButton: action.allowsChordShortcut,
+                    chordsEnabled: model.chordsEnabled(for: action),
                     hasPendingRejection: model.hasPendingRejection(for: action),
                     firstStrokeRequiresModifier: !action.allowsBareFirstStroke,
                     isUnbound: effective?.isUnbound ?? true,
@@ -36,6 +37,7 @@ struct ShortcutListStableLazyView: View {
                         onStroke: { stroke in Task { await model.assign(stroke: stroke, to: action) } },
                         onChord: { chord in Task { await model.assignChord(chord, to: action) } },
                         onBareKeyRejected: { model.markBareKeyRejected(action) },
+                        onToggleChordMode: { model.toggleChordMode(for: action) },
                         onClearOrRestore: { Task { await model.clearOrRestore(for: action) } },
                         onClearRejections: { model.clearRejections(for: action) }
                     )

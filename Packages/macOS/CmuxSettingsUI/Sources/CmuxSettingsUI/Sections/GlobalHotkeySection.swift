@@ -90,6 +90,7 @@ public struct GlobalHotkeySection: View {
                 title: String(localized: "settings.globalHotkey.shortcut", defaultValue: "Show/Hide All Windows"),
                 subtitle: nil,
                 placeholder: shortcutModel.formatPlaceholder(effective: effective, numbered: false),
+                showsChordModeButton: false,
                 chordsEnabled: false,
                 hasPendingRejection: shortcutModel.hasPendingRejection(for: hotkeyAction),
                 firstStrokeRequiresModifier: true,
@@ -102,6 +103,7 @@ public struct GlobalHotkeySection: View {
                 onStroke: { stroke in Task { await shortcutModel.assign(stroke: stroke, to: hotkeyAction) } },
                 onChord: { _ in },
                 onBareKeyRejected: { shortcutModel.markBareKeyRejected(hotkeyAction) },
+                onToggleChordMode: {},
                 onClearOrRestore: { Task { await shortcutModel.clearOrRestore(for: hotkeyAction) } },
                 onClearRejections: { shortcutModel.clearRejections(for: hotkeyAction) }
             )

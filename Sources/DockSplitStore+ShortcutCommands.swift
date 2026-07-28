@@ -1,4 +1,5 @@
 import Bonsplit
+import CmuxPanes
 import CmuxWorkspaces
 import Foundation
 
@@ -8,6 +9,7 @@ enum DockShortcutCommand {
     case selectSurface(number: Int)
     case moveSurface(offset: Int)
     case focusPane(NavigationDirection)
+    case resizeSplit(ResizeDirection, amount: UInt16)
     case togglePaneZoom
     case focusHistoryBack
     case focusHistoryForward
@@ -46,6 +48,21 @@ extension DockSplitStore {
             bonsplitController.navigateFocus(direction: direction)
             applyFocusedShortcutSelection()
             return true
+        case .resizeSplit(let direction, let amount):
+            guard amount > 0,
+                  let focusedPanelId,
+                  let paneId = paneId(forPanelId: focusedPanelId) else { return false }
+            let didResize = PaneLayoutService().resizeSplit(
+                in: bonsplitController.treeSnapshot(),
+                targetPaneId: paneId.id.uuidString,
+                direction: direction,
+                amountPixels: amount,
+                controller: bonsplitController
+            )
+            if didResize {
+                scheduleDockPortalReconcile(reason: "dock.shortcut.resize")
+            }
+            return didResize
         case .togglePaneZoom:
             guard let pane = bonsplitController.focusedPaneId else { return false }
             return toggleDockPaneZoom(inPane: pane)

@@ -106,6 +106,10 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case focusRight
     case focusUp
     case focusDown
+    case resizeSplitLeft
+    case resizeSplitRight
+    case resizeSplitUp
+    case resizeSplitDown
     case splitRight
     case splitDown
     case toggleSplitZoom

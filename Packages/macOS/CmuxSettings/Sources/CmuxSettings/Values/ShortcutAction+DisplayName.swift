@@ -92,6 +92,14 @@ extension ShortcutAction {
         case .focusRight: return "Focus Pane Right"
         case .focusUp: return "Focus Pane Up"
         case .focusDown: return "Focus Pane Down"
+        case .resizeSplitLeft:
+            return String(localized: "shortcut.resizeSplitLeft.label", defaultValue: "Resize Split Left")
+        case .resizeSplitRight:
+            return String(localized: "shortcut.resizeSplitRight.label", defaultValue: "Resize Split Right")
+        case .resizeSplitUp:
+            return String(localized: "shortcut.resizeSplitUp.label", defaultValue: "Resize Split Up")
+        case .resizeSplitDown:
+            return String(localized: "shortcut.resizeSplitDown.label", defaultValue: "Resize Split Down")
         case .splitRight: return "Split Right"
         case .splitDown: return "Split Down"
         case .toggleSplitZoom: return "Toggle Pane Zoom"

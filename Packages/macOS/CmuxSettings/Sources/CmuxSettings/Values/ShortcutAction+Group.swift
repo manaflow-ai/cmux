@@ -28,7 +28,9 @@ extension ShortcutAction {
              .cycleTextBoxSubmitAction, .attachTextBoxFile, .sendCtrlFToTerminal,
              .clearScreenKeepScrollback:
             return .navigation
-        case .focusLeft, .focusRight, .focusUp, .focusDown, .splitRight, .splitDown,
+        case .focusLeft, .focusRight, .focusUp, .focusDown,
+             .resizeSplitLeft, .resizeSplitRight, .resizeSplitUp, .resizeSplitDown,
+             .splitRight, .splitDown,
              .toggleSplitZoom, .equalizeSplits, .splitBrowserRight, .splitBrowserDown,
              .toggleRightSidebar, .fileExplorerOpenSelection, .fileExplorerOpenSelectionFinderAlias,
              .toggleCanvasLayout, .canvasRevealFocusedPane, .canvasOverview,

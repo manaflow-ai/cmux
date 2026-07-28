@@ -1914,6 +1914,7 @@
     "keyboardShortcuts": {
       "title": "Keyboard Shortcuts",
       "description": "Default cmux keyboard shortcuts. Every cmux-owned shortcut can be changed in Settings or ~/.config/cmux/cmux.json, including two-step chords.",
+      "sequenceSeparator": "then",
       "metaTitle": "Keyboard Shortcuts",
       "metaDescription": "Default cmux keyboard shortcuts for workspaces, surfaces, split panes, browser, notifications, find, and app controls on macOS. All cmux-owned shortcuts are configurable in Settings or cmux.json.",
       "chordsTitle": "Shortcut chords",
