@@ -21,24 +21,6 @@ extension CommandPaletteCommandContribution {
     }
 }
 
-extension CommandPaletteHandlerRegistry {
-    @MainActor
-    mutating func registerNewSimulatorPane(tabManager: TabManager, windowId: UUID) {
-        register(commandId: "palette.newSimulatorPane") {
-            guard CmuxFeatureFlags.shared.isSimulatorEnabled,
-                  let appDelegate = AppDelegate.shared,
-                  appDelegate.executeConfiguredCmuxAction(
-                    id: CmuxSurfaceTabBarBuiltInAction.newSimulator.configID,
-                    tabManager: tabManager,
-                    preferredWindow: appDelegate.mainWindow(for: windowId)
-                  ) else {
-                NSSound.beep()
-                return
-            }
-        }
-    }
-}
-
 extension KeyboardShortcutSettings.Action {
     static let simulatorActions: [Self] = [
         .simulatorHome,
