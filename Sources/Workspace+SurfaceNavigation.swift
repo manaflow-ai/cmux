@@ -20,9 +20,13 @@ extension Workspace {
             return
         }
         if let focusedPanelId,
-           let mirror = remoteTmuxWindowMirror(forPanelId: focusedPanelId),
-           mirror.navigateFocus(direction: direction) {
-            return
+           let mirror = remoteTmuxWindowMirror(forPanelId: focusedPanelId) {
+            switch mirror.navigateFocus(direction: direction) {
+            case .moved, .invalid:
+                return
+            case .edge:
+                break
+            }
         }
 
         let previousFocusedPanelId = focusedPanelId

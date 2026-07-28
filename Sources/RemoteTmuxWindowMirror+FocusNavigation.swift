@@ -2,24 +2,40 @@ import Bonsplit
 
 @MainActor
 extension RemoteTmuxWindowMirror {
+    /// Whether nested focus moved, reached a valid boundary, or could not
+    /// resolve authoritative pane ownership.
+    enum FocusNavigationResult {
+        /// Focus moved to a mapped pane inside the mirror.
+        case moved
+        /// The mapped focused pane has no neighbor in the requested direction.
+        case edge
+        /// Current or destination pane ownership could not be resolved.
+        case invalid
+    }
+
     /// Moves user focus inside this window's nested pane tree and establishes
     /// first responder on the destination surface. Remote active-pane events use
     /// ``focusBonsplitPane(forTmuxPane:)`` instead and therefore never steal key
     /// focus from the user.
     @discardableResult
-    func navigateFocus(direction: NavigationDirection) -> Bool {
-        let previousPane = bonsplitController.focusedPaneId
-        bonsplitController.navigateFocus(direction: direction)
+    func navigateFocus(direction: NavigationDirection) -> FocusNavigationResult {
         guard let focusedPane = bonsplitController.focusedPaneId,
-              focusedPane != previousPane,
-              let tmuxPaneId = paneIdByBonsplitPane[focusedPane],
-              let panel = panel(forPane: tmuxPaneId) else { return false }
+              let focusedTmuxPaneId = paneIdByBonsplitPane[focusedPane],
+              panel(forPane: focusedTmuxPaneId) != nil else { return .invalid }
+        guard let destinationPane = bonsplitController.adjacentPane(
+            to: focusedPane,
+            direction: direction
+        ) else { return .edge }
+        guard let tmuxPaneId = paneIdByBonsplitPane[destinationPane],
+              let panel = panel(forPane: tmuxPaneId) else { return .invalid }
 
+        bonsplitController.focusPane(destinationPane)
+        guard bonsplitController.focusedPaneId == destinationPane else { return .invalid }
         if activePaneId != tmuxPaneId {
             setActivePane(tmuxPaneId, fromTmux: false)
         }
         panel.hostedView.moveFocus()
-        return true
+        return .moved
     }
 
     func seedActivePaneIfNeeded() {

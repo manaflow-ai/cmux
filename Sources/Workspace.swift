@@ -11229,7 +11229,7 @@ extension Workspace: BonsplitDelegate {
         if let focusWindow = activationWindow(for: activationPanel) {
             yieldForeignOwnedFocusIfNeeded(
                 in: focusWindow,
-                targetPanelId: panelId,
+                targetPanelId: activationPanel.id,
                 targetIntent: activationIntent
             )
         }
