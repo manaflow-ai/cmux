@@ -92,6 +92,7 @@ public struct BrowserAppSessionHandoff: Sendable {
             "application/x-www-form-urlencoded",
             forHTTPHeaderField: "Content-Type"
         )
+        request.setValue("1", forHTTPHeaderField: "X-Cmux-App-Session-Handoff")
         request.setValue("no-referrer", forHTTPHeaderField: "Referrer-Policy")
         request.httpBody = body.data(using: .utf8)
         return request

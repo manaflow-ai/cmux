@@ -1,3 +1,4 @@
+import { checkRateLimit } from "@vercel/firewall";
 import { NextRequest, NextResponse } from "next/server";
 import { env } from "../../env";
 import { stackServerApp } from "../../lib/stack";
@@ -10,6 +11,7 @@ const MAX_BODY_BYTES = 32 * 1024;
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX_REQUESTS = 60;
 const RATE_LIMIT_MAX_ENTRIES = 2_048;
+const APP_HANDOFF_HEADER = "x-cmux-app-session-handoff";
 
 type StackAuthSessionLike = {
   getTokens: () => Promise<{
@@ -35,6 +37,9 @@ type AppSessionHandoffDependencies = {
   projectId: string | undefined;
   stackServerApp: StackServerAppLike;
   now?: () => number;
+  checkRateLimit?: typeof checkRateLimit;
+  isVercel?: () => boolean;
+  rateLimitId?: string;
 };
 
 type RateLimitEntry = {
@@ -69,8 +74,7 @@ function signInRedirect(request: NextRequest, afterPath: string): NextResponse {
 
 function requestRateLimitKey(request: NextRequest): string {
   const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-  const address = forwarded || request.headers.get("x-real-ip") || "unknown";
-  return `${address}:${request.headers.get("user-agent") ?? ""}`;
+  return forwarded || request.headers.get("x-real-ip") || "unknown";
 }
 
 function pruneRateLimits(now: number): void {
@@ -98,6 +102,49 @@ function isRateLimited(request: NextRequest, now = Date.now()): boolean {
   }
   entry.count += 1;
   return entry.count > RATE_LIMIT_MAX_REQUESTS;
+}
+
+function isNativeAppHandoff(request: NextRequest): boolean {
+  // A cross-origin browser form cannot set this non-safelisted header, and this
+  // route never grants CORS access for a scripted cross-origin request.
+  if (request.headers.get(APP_HANDOFF_HEADER) !== "1") return false;
+  if (request.headers.get("sec-fetch-site")?.toLowerCase() === "cross-site") {
+    return false;
+  }
+  const origin = request.headers.get("origin");
+  if (origin && origin !== "null") {
+    try {
+      if (new URL(origin).origin !== request.nextUrl.origin) return false;
+    } catch {
+      return false;
+    }
+  }
+  return true;
+}
+
+async function isDurablyRateLimited(
+  request: NextRequest,
+  dependencies: AppSessionHandoffDependencies,
+): Promise<boolean> {
+  const isVercel = dependencies.isVercel?.() ?? process.env.VERCEL === "1";
+  if (!isVercel) return false;
+
+  const rateLimitId = dependencies.rateLimitId
+    ?? env.CMUX_APP_SESSION_HANDOFF_RATE_LIMIT_ID
+    ?? env.CMUX_FEEDBACK_RATE_LIMIT_ID;
+  // Token exchange is security-sensitive, so a deployed route fails closed if
+  // its durable limiter is missing, deleted, blocked, or unavailable.
+  if (!rateLimitId) return true;
+
+  try {
+    const result = await (dependencies.checkRateLimit ?? checkRateLimit)(
+      rateLimitId,
+      { request },
+    );
+    return result.rateLimited || Boolean(result.error);
+  } catch {
+    return true;
+  }
 }
 
 function secureCookiesFor(request: NextRequest): boolean {
@@ -166,6 +213,10 @@ export function makeAppSessionHandoffHandler(
   dependencies: AppSessionHandoffDependencies,
 ) {
   return async function POST(request: NextRequest) {
+    if (!isNativeAppHandoff(request)) {
+      return NextResponse.redirect(new URL("/", request.url), 303);
+    }
+
     let form: URLSearchParams | null;
     try {
       form = await parseHandoffBody(request);
@@ -179,7 +230,12 @@ export function makeAppSessionHandoffHandler(
 
     const app = dependencies.stackServerApp;
     const projectId = dependencies.projectId;
-    if (!app || !projectId || isRateLimited(request)) {
+    if (
+      !app
+      || !projectId
+      || isRateLimited(request)
+      || await isDurablyRateLimited(request, dependencies)
+    ) {
       return signInRedirect(request, afterPath);
     }
 

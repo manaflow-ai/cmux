@@ -3,13 +3,21 @@ import CmuxBrowser
 import Foundation
 import WebKit
 
+private final class WeakWebsiteDataStore {
+    weak var value: WKWebsiteDataStore?
+
+    init(_ value: WKWebsiteDataStore) {
+        self.value = value
+    }
+}
+
 @MainActor
 final class BrowserAppSessionController {
     private let coordinator: AuthCoordinator
     private let handoff: BrowserAppSessionHandoff
     private let projectID: String
     private var generation: UInt64 = 0
-    private var handoffStores: [ObjectIdentifier: WKWebsiteDataStore] = [:]
+    private var handoffStores: [ObjectIdentifier: WeakWebsiteDataStore] = [:]
 
     init(
         coordinator: AuthCoordinator,
@@ -27,7 +35,8 @@ final class BrowserAppSessionController {
     ) async -> URLRequest? {
         let requestGeneration = generation
         let store = BrowserProfileStore.shared.websiteDataStore(for: profileID)
-        handoffStores[ObjectIdentifier(store)] = store
+        handoffStores = handoffStores.filter { $0.value.value != nil }
+        handoffStores[ObjectIdentifier(store)] = WeakWebsiteDataStore(store)
 
         let tokens: BrowserAppSessionTokens?
         if let current = try? await coordinator.currentTokens() {
@@ -59,7 +68,11 @@ final class BrowserAppSessionController {
     }
 
     private func trackedWebsiteDataStores() -> [WKWebsiteDataStore] {
-        var stores = handoffStores
+        var stores = Dictionary(
+            uniqueKeysWithValues: handoffStores.values.compactMap { reference in
+                reference.value.map { (ObjectIdentifier($0), $0) }
+            }
+        )
         let profileStore = BrowserProfileStore.shared
         stores[ObjectIdentifier(WKWebsiteDataStore.default())] = WKWebsiteDataStore.default()
         stores[ObjectIdentifier(

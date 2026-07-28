@@ -25,6 +25,18 @@ import Darwin
 import Network
 import CoreText
 
+private func externalBrowserFallbackURL(
+    url: URL?,
+    initialRequest: URLRequest?
+) -> URL? {
+    if let url { return url }
+    guard let initialRequest,
+          (initialRequest.httpMethod ?? "GET").uppercased() == "GET" else {
+        return nil
+    }
+    return initialRequest.url
+}
+
 #if DEBUG
 func debugWorkspaceDescriptionPreview(_ text: String?, limit: Int = 120) -> String {
     guard let text else { return "nil" }
@@ -7763,7 +7775,10 @@ final class Workspace: Identifiable, ObservableObject {
         if isRemoteTmuxMirror { return nil }
         let browserEnabled = BrowserAvailabilitySettings.isEnabled()
         guard browserEnabled || creationPolicy.permitsCreationWhenBrowserDisabled else {
-            if let externalURL = url ?? initialRequest?.url {
+            if let externalURL = externalBrowserFallbackURL(
+                url: url,
+                initialRequest: initialRequest
+            ) {
                 _ = NSWorkspace.shared.open(externalURL)
             }
             return nil
@@ -7880,7 +7895,10 @@ final class Workspace: Identifiable, ObservableObject {
         if isRemoteTmuxMirror { return nil }
         let browserEnabled = BrowserAvailabilitySettings.isEnabled()
         guard browserEnabled || creationPolicy.permitsCreationWhenBrowserDisabled else {
-            if let externalURL = url ?? initialRequest?.url {
+            if let externalURL = externalBrowserFallbackURL(
+                url: url,
+                initialRequest: initialRequest
+            ) {
                 _ = NSWorkspace.shared.open(externalURL)
             }
             return nil

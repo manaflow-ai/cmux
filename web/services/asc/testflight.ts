@@ -4,8 +4,6 @@ import {
 } from "./client";
 import { env } from "../../app/env";
 
-export const TESTFLIGHT_APP_ID =
-  env.CMUX_TESTFLIGHT_APP_ID || "6757092429";
 export const PRO_TESTFLIGHT_GROUP_ID =
   env.CMUX_PRO_TESTFLIGHT_GROUP_ID ||
   "34fbede5-3880-4560-b1bb-a45787249780";
@@ -66,6 +64,8 @@ export async function enrollTester(
   firstName?: string,
   lastName?: string,
 ): Promise<void> {
+  // TestFlight automatically emails testers added to a build or beta group.
+  // betaTesterInvitations is the explicit resend path and must not run here.
   const normalizedEmail = normalizeEmail(email);
   try {
     const response = await ascFetch<JsonApiDocument>("/v1/betaTesters", {
@@ -86,11 +86,9 @@ export async function enrollTester(
         },
       }),
     });
-    const testerId = response.data?.id;
-    if (!testerId) {
+    if (!response.data?.id) {
       throw new AscApiError("Created beta tester response did not include an id", 502);
     }
-    await sendTesterInvitation(testerId);
     return;
   } catch (error) {
     if (!isAlreadyExistsError(error)) throw error;
@@ -101,7 +99,6 @@ export async function enrollTester(
   if (!(await testerIsInProGroup(tester.id))) {
     await addTesterToGroup(tester.id);
   }
-  await sendTesterInvitation(tester.id);
 }
 
 export async function removeTester(email: string): Promise<void> {
@@ -129,33 +126,6 @@ async function addTesterToGroup(testerId: string): Promise<void> {
       }),
     });
   } catch (error) {
-    if (isAlreadyExistsError(error)) return;
-    throw error;
-  }
-}
-
-async function sendTesterInvitation(testerId: string): Promise<void> {
-  try {
-    await ascFetch("/v1/betaTesterInvitations", {
-      method: "POST",
-      body: JSON.stringify({
-        data: {
-          type: "betaTesterInvitations",
-          relationships: {
-            app: {
-              data: { type: "apps", id: TESTFLIGHT_APP_ID },
-            },
-            betaTester: {
-              data: { type: "betaTesters", id: testerId },
-            },
-          },
-        },
-      }),
-    });
-  } catch (error) {
-    // A concurrent request or Stripe retry may have sent this exact invite.
-    // Group membership is the durable access boundary, so an existing invite
-    // is idempotent success.
     if (isAlreadyExistsError(error)) return;
     throw error;
   }

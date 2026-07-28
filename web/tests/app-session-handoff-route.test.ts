@@ -14,8 +14,9 @@ const getTokens = mock(async () => ({
 }));
 const createSession = mock(async () => ({ getTokens }));
 const getUser = mock(async () => ({ createSession }));
+let durableRateLimited = false;
 const checkRateLimit = mock(async () => ({
-  rateLimited: false,
+  rateLimited: durableRateLimited,
   error: null as string | null,
 }));
 
@@ -55,11 +56,11 @@ describe("app session handoff", () => {
     getTokens.mockClear();
     checkRateLimit.mockClear();
     getUser.mockResolvedValue({ createSession });
+    durableRateLimited = false;
     getTokens.mockResolvedValue({
       refreshToken: "fresh-refresh",
       accessToken: "fresh-access",
     });
-    checkRateLimit.mockResolvedValue({ rateLimited: false, error: null });
   });
 
   test("validates native tokens, sets Stack cookies, and redirects to the app path", async () => {
@@ -184,21 +185,23 @@ describe("app session handoff", () => {
   });
 
   test("fails closed when the durable handoff limiter blocks", async () => {
-    checkRateLimit.mockResolvedValueOnce({ rateLimited: true, error: null });
+    durableRateLimited = true;
 
-    const response = await POST(handoffRequest({
+    const request = handoffRequest({
       refresh_token: "native-refresh",
       after: "/dashboard/testflight",
     }, {
       "x-forwarded-for": "203.0.113.20",
-    }));
+    });
+    const response = await POST(request);
 
     const location = new URL(response.headers.get("location")!);
     expect(location.pathname).toBe("/handler/sign-in");
-    expect(checkRateLimit).toHaveBeenCalledWith(
-      "app-session-handoff",
-      { request: expect.any(NextRequest) },
-    );
+    const calls = (checkRateLimit as unknown as {
+      mock: { calls: Array<[string, { request: Request }]> };
+    }).mock.calls;
+    expect(calls[0]?.[0]).toBe("app-session-handoff");
+    expect(calls[0]?.[1].request).toBe(request);
     expect(getUser).not.toHaveBeenCalled();
   });
 
