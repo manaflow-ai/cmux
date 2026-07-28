@@ -68,6 +68,19 @@ find_real_codex() {
     return 1
 }
 
+# Return 0 only when CMUX_SOCKET_PATH points to a live cmux socket.
+cmux_socket_available() {
+    local socket="${CMUX_SOCKET_PATH:-}"
+    [[ -n "$socket" && -S "$socket" ]] || return 1
+
+    local cmux_bin
+    cmux_bin="$(resolve_hook_cmux_bin)"
+    [[ -n "$cmux_bin" ]] || return 1
+
+    CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.75 \
+        "$cmux_bin" --socket "$socket" ping >/dev/null 2>&1
+}
+
 resolve_hook_cmux_bin() {
     local self_dir bundled_cli
     bundled_cli="${CMUX_BUNDLED_CLI_PATH:-}"
@@ -239,11 +252,6 @@ exec_real_codex_passthrough() {
     exec "$REAL_CODEX" "$@"
 }
 
-# Hook ownership is a launch invariant, not a point-in-time socket-health
-# decision. During app restore the socket can briefly miss a ping while this
-# wrapper is starting; dropping injection then would remove every later Stop
-# notification for the lifetime of the resumed session. Each hook remains
-# best-effort and independently reconnects when its event fires.
 if [[ "${CMUX_CODEX_HOOKS_DISABLED:-}" == "1" ]]; then
     exec_real_codex_passthrough "$@"
 fi
@@ -253,6 +261,15 @@ fi
 
 # Not a session entrypoint (review/login/doctor/--help/...): pass through.
 if ! should_inject_codex_hooks "$@"; then
+    exec_real_codex_passthrough "$@"
+fi
+
+# An explicit resume id is the stable signal that this launch must retain its
+# hooks even when app restore has not made the socket responsive yet. Ordinary
+# launches keep the stale inherited-environment fallback so cmux does not
+# suppress the agent's native notifications when no live app owns the surface.
+cmux_codex_resume_sid="$(cmux_codex_resume_session_id "$@")"
+if [[ -z "$cmux_codex_resume_sid" ]] && ! cmux_socket_available; then
     exec_real_codex_passthrough "$@"
 fi
 
@@ -293,7 +310,6 @@ export CMUX_AGENT_LAUNCH_CWD="$PWD"
 # flipping it back to idle/editable. Fire-and-forget (backgrounded + disowned) so
 # it never blocks the launch; best-effort so a failure can never break `codex`.
 unset CMUX_AGENT_RESUME_LAUNCH
-cmux_codex_resume_sid="$(cmux_codex_resume_session_id "$@")"
 if [[ -n "$cmux_codex_resume_sid" \
       && -n "$CMUX_CODEX_HOOK_CMUX_BIN" && -x "$CMUX_CODEX_HOOK_CMUX_BIN" ]]; then
     export CMUX_AGENT_RESUME_LAUNCH=1

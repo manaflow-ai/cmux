@@ -187,6 +187,21 @@ def test_explicit_disable_still_bypasses_hooks(failures: list[str]) -> None:
     expect(cmux_log == [], f"disabled: expected no cmux calls, got {cmux_log}", failures)
 
 
+def test_stale_socket_fresh_launch_preserves_native_behavior(failures: list[str]) -> None:
+    code, real_argv, cmux_log, observed_env, stderr = run_wrapper(
+        socket_state="stale",
+        argv=["hello"],
+    )
+    expect(code == 0, f"fresh/stale: wrapper exited {code}: {stderr}", failures)
+    expect(real_argv == ["hello"], f"fresh/stale: expected passthrough, got {real_argv}", failures)
+    expect(any("ping" in line for line in cmux_log),
+           f"fresh/stale: expected bounded ownership probe, got {cmux_log}", failures)
+    expect(observed_env.get("CMUX_CODEX_HOOK_CMUX_BIN") == "__UNSET__",
+           f"fresh/stale: cmux hooks should remain disabled: {observed_env}", failures)
+    expect(observed_env.get("CMUX_AGENT_RESUME_LAUNCH") == "__UNSET__",
+           f"fresh/stale: resume marker leaked into ordinary launch: {observed_env}", failures)
+
+
 def test_non_session_command_still_bypasses_hooks(failures: list[str]) -> None:
     code, real_argv, cmux_log, _, stderr = run_wrapper(
         socket_state="stale",
@@ -201,6 +216,7 @@ def main() -> int:
     failures: list[str] = []
     test_resume_hook_injection_survives_transient_startup_outages(failures)
     test_explicit_disable_still_bypasses_hooks(failures)
+    test_stale_socket_fresh_launch_preserves_native_behavior(failures)
     test_non_session_command_still_bypasses_hooks(failures)
     if failures:
         print("FAIL: Codex resume wrapper reliability checks failed")

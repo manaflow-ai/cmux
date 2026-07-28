@@ -209,6 +209,23 @@ find_real_claude() {
     return 1
 }
 
+# Return 0 only when CMUX_SOCKET_PATH points to a live cmux socket.
+cmux_socket_available() {
+    local socket="${CMUX_SOCKET_PATH:-}"
+    [[ -n "$socket" && -S "$socket" ]] || return 1
+
+    local self_dir cmux_bin
+    self_dir="$(cd "$(dirname "$0")" && pwd)"
+    cmux_bin="$self_dir/cmux"
+    [[ -x "$cmux_bin" ]] || cmux_bin="$(command -v cmux || true)"
+    [[ -n "$cmux_bin" ]] || return 1
+
+    # Keep stale/hung socket checks bounded so claude startup does not block
+    # behind the CLI default timeout (15s).
+    CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.75 \
+        "$cmux_bin" --socket "$socket" ping >/dev/null 2>&1
+}
+
 resolve_hook_cmux_bin() {
     local self_dir bundled_cli
     bundled_cli="${CMUX_BUNDLED_CLI_PATH:-}"
@@ -591,10 +608,19 @@ if [[ "$CMUX_CLAUDE_HOOKS_DISABLED" == "1" ]]; then
     cmux_claude_wrapper_exec_resolved_claude "$REAL_CLAUDE" "$@"
 fi
 
-# Hook ownership is a launch invariant, not a point-in-time socket-health
-# decision. A restore-time ping can fail transiently; hooks injected now will
-# independently reconnect when their lifecycle event fires later.
 if [[ "$IN_CMUX" == "0" ]]; then
+    clear_inherited_claude_auth_selection_env
+    REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
+    exec_real_claude_passthrough "$@"
+fi
+
+# An explicit resume id is the stable signal that this launch must retain its
+# hooks even when app restore has not made the socket responsive yet. Ordinary
+# launches keep the stale inherited-environment fallback so cmux does not
+# disable Claude's native notifications when no live app owns the surface.
+cmux_claude_resume_sid="$(extract_claude_resume_session_id "$@")"
+if [[ -z "$cmux_claude_resume_sid" ]] && ! cmux_socket_available; then
+    clear_inherited_claude_session_identity_env
     clear_inherited_claude_auth_selection_env
     REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
     exec_real_claude_passthrough "$@"
@@ -846,7 +872,6 @@ fi
 # For an explicit `--resume <id>`, point CLAUDE_CONFIG_DIR at the config root that
 # actually holds the transcript so an inherited/foreign config dir cannot turn the
 # resume into "No conversation found". https://github.com/manaflow-ai/cmux/issues/6194
-cmux_claude_resume_sid="$(extract_claude_resume_session_id "$@")"
 reconcile_claude_config_dir_for_resume "$cmux_claude_resume_sid"
 if [[ -n "$cmux_claude_resume_sid" ]]; then
     export CMUX_AGENT_RESUME_LAUNCH=1
