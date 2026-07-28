@@ -93,6 +93,29 @@ private final class ControlledTextBoxAttachmentRemoteUpload: @unchecked Sendable
 @MainActor
 struct TerminalPanelPendingAttachmentTests {
     @Test
+    func preparedImageAttachmentProvidesInlineThumbnailSource() {
+        let fileURL = URL(fileURLWithPath: "/tmp/cmux-prepared-thumbnail.png")
+        let preparedFile = TextBoxPreparedFileAttachment(
+            fileURL: fileURL,
+            thumbnailPixelData: Data([0xff, 0x00, 0x00, 0xff]),
+            thumbnailPixelWidth: 1,
+            thumbnailPixelHeight: 1,
+            thumbnailBytesPerRow: 4,
+            localFileDisposition: .callerOwned
+        )
+
+        let attachment = TextBoxAttachment(
+            preparedFile: preparedFile,
+            submissionText: TextBoxAttachment.submissionText(
+                forLocalFileURL: fileURL
+            )
+        )
+
+        #expect(attachment.thumbnail != nil)
+        #expect(attachment.inlineThumbnailSource != nil)
+    }
+
+    @Test
     func preparedCallerOwnedAttachmentPreservesTheUserFile() async throws {
         let fileURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-prepared-user-file-\(UUID().uuidString).txt")
