@@ -41042,6 +41042,23 @@
         }
       }
     },
+    "cli.hooks.pi.error.feedIngestionNotAcknowledged": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux did not receive acknowledgment for Pi feed ingestion"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux が Pi フィードの取り込み確認を受信できませんでした"
+          }
+        }
+      }
+    },
     "cli.hooks.pi.error.notCmuxExtension": {
       "extractionState": "manual",
       "localizations": {
@@ -49039,6 +49056,142 @@
           "stringUnit": {
             "state": "translated",
             "value": "ソケットを選択できません。CMUX_SOCKET_PATH と CMUX_SOCKET が異なります。CMUX_SOCKET_PATH を使うか、CMUX_SOCKET を解除してください。"
+          }
+        }
+      }
+    },
+    "cli.socket.error.commandTimedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command timed out"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンドがタイムアウトしました"
+          }
+        }
+      }
+    },
+    "cli.socket.error.failedToWrite": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to write to socket"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ソケットへの書き込みに失敗しました"
+          }
+        }
+      }
+    },
+    "cli.socket.error.invalidUTF8Response": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid UTF-8 response"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UTF-8 形式ではない応答です"
+          }
+        }
+      }
+    },
+    "cli.socket.error.notConnected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not connected"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続されていません"
+          }
+        }
+      }
+    },
+    "cli.socket.error.responseExceededBatchLimit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Socket response exceeded batch limit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ソケット応答がバッチ上限を超えました"
+          }
+        }
+      }
+    },
+    "cli.socket.error.socketClosedBeforeCompleteReply": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Socket closed before complete reply"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完全な応答を受信する前にソケットが閉じられました"
+          }
+        }
+      }
+    },
+    "cli.socket.error.socketRead": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Socket read error"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ソケット読み取りエラー"
+          }
+        }
+      }
+    },
+    "cli.socket.error.unexpectedExtraBatchResponse": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unexpected extra batched socket response"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "予期しない余分なバッチソケット応答を受信しました"
           }
         }
       }
@@ -110977,6 +111130,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "%2$@からの%1$@リクエスト"
+          }
+        }
+      }
+    },
+    "feed.push.error.decodeFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "feed.push event failed to decode"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "feed.push イベントをデコードできませんでした"
+          }
+        }
+      }
+    },
+    "feed.push.error.exclusiveEventShape": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "feed.push accepts either `event` or `events`, not both"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "feed.push には `event` または `events` のいずれか一方のみを指定できます。"
+          }
+        }
+      }
+    },
+    "feed.push.error.requiresEvent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "feed.push requires an `event` object"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "feed.push には `event` オブジェクトが必要です。"
           }
         }
       }
