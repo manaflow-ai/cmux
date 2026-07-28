@@ -338,6 +338,71 @@ struct RecoverableWindowlessMainWindowRoutingTests {
         #expect(!app.hasCommittedMainWindowClose(window))
     }
 
+    @Test("Committed window rejects and finalizes a fresh unowned manager")
+    func committedWindowRejectsAndFinalizesFreshUnownedManager() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        AppDelegate.shared = app
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let windowId = UUID()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
+        let originalManager = TabManager()
+        let freshManager = TabManager()
+        let freshWorkspace = try #require(freshManager.selectedWorkspace)
+        let freshPanel = try #require(freshWorkspace.focusedTerminalPanel)
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            app.forgetRecoverableMainWindowRoute(windowId: windowId)
+            if !originalManager.isFinalizedForWindowClose {
+                originalManager.finalizeAllWorkspacesForWindowClose()
+            }
+            if !freshManager.isFinalizedForWindowClose {
+                freshManager.finalizeAllWorkspacesForWindowClose()
+            }
+            window.orderOut(nil)
+        }
+
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: originalManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        #expect(app.commitMainWindowClose(window))
+        #expect(app.hasCommittedMainWindowClose(window))
+        #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: freshPanel.id) === freshPanel.surface)
+
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: freshManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+
+        #expect(freshManager.isFinalizedForWindowClose)
+        #expect(freshManager.tabs.isEmpty)
+        #expect(freshWorkspace.isRetiredFromOwningTabManager)
+        #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: freshPanel.id) == nil)
+        #expect(!app.mainWindowContexts.values.contains { $0.windowId == windowId })
+        #expect(app.recoverableMainWindowRoute(windowId: windowId) == nil)
+    }
+
     @Test("Transient windowless routing preserves the recoverable workspace")
     func transientWindowlessRoutingPreservesRecoverableWorkspace() throws {
         _ = NSApplication.shared
