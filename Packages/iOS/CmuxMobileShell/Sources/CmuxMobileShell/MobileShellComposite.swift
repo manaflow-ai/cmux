@@ -1974,7 +1974,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             "storedMacReconnect deadline expired generation=\(generation)"
         )
         finishStoredMacReconnectAttempt(generation: generation)
-        if abandonedReconnectDialCount <= Self.maximumAbandonedReconnectDials,
+        if Self.shouldRecordReconnectBackoff(
+            abandonedDialCount: abandonedReconnectDialCount
+        ),
            let accountID = stackUserID ?? identityProvider?.currentUserID {
             recordTransientAutomaticReconnectBackoff(accountID: accountID)
         }

@@ -1,24 +1,32 @@
 /// Retains only the classified terminal cause shared by connection observers.
 actor CmxIrohConnectionCloseAttributionStore {
-    private var attribution: CmxIrohConnectionCloseAttribution?
+    private var tentativeAttribution: CmxIrohConnectionCloseAttribution?
+    private var authoritativeAttribution: CmxIrohConnectionCloseAttribution?
 
-    func record(
+    func recordAuthoritative(
         cause: String
     ) -> CmxIrohConnectionCloseAttribution {
-        record(CmxIrohConnectionCloseAttribution.classify(cause))
+        recordAuthoritative(CmxIrohConnectionCloseAttribution.classify(cause))
     }
 
-    func record(
+    func recordAuthoritative(
         _ classified: CmxIrohConnectionCloseAttribution
     ) -> CmxIrohConnectionCloseAttribution {
-        if let attribution {
-            return attribution
+        if let authoritativeAttribution {
+            return authoritativeAttribution
         }
-        attribution = classified
+        authoritativeAttribution = classified
         return classified
     }
 
+    func recordTentative(
+        _ classified: CmxIrohConnectionCloseAttribution
+    ) {
+        guard authoritativeAttribution == nil else { return }
+        tentativeAttribution = classified
+    }
+
     func current() -> CmxIrohConnectionCloseAttribution? {
-        attribution
+        authoritativeAttribution ?? tentativeAttribution
     }
 }

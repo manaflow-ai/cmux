@@ -49,6 +49,33 @@ struct CmxIrohConnectionDiagnosticRecorderTests {
     }
 
     @Test
+    func callbackRecordsLagWhenItsBoundedBufferEvicts() async {
+        let (stream, continuation) = AsyncStream<CmxIrohConnectionPathEvent>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        let callback = CmxIrohLibPathEventCallback(continuation: continuation)
+        await callback.onEvent(event: .opened(
+            id: "first",
+            remoteAddr: "192.168.1.10:443",
+            localAddr: "192.168.1.2:5000"
+        ))
+        await callback.onEvent(event: .selected(
+            id: "second",
+            remoteAddr: "https://relay.example",
+            localAddr: "https://relay.example"
+        ))
+        continuation.finish()
+
+        var events: [CmxIrohConnectionPathEvent] = []
+        for await event in stream {
+            events.append(event)
+        }
+        #expect(events == [
+            CmxIrohConnectionPathEvent(kind: .lagged, pathKind: .unknown),
+        ])
+    }
+
+    @Test
     func mapsPathEventsAndClampsApplicationErrorCode() async {
         let log = DiagnosticLog(capacity: 8)
         let recorder = CmxIrohConnectionDiagnosticRecorder(

@@ -263,10 +263,7 @@ struct CmxIrohClientSessionPoolTests {
         #expect(await endpoint.observedDialedAddresses().count == 2)
         #expect(await secondConnection.observedCloseCallCount() == 0)
 
-        for _ in 0 ..< 1_000 {
-            if await diagnosticLog.processedCount() >= 5 { break }
-            await Task.yield()
-        }
+        #expect(await waitForDiagnosticProcessedCount(diagnosticLog, atLeast: 5))
         let events = await diagnosticLog.snapshot().events
         #expect(events.map(\.code) == [
             .transportSessionLifecycle,
@@ -313,17 +310,10 @@ struct CmxIrohClientSessionPoolTests {
             kind: .selected,
             pathKind: .privateNetwork
         ))
-        for _ in 0 ..< 10_000 {
-            if await diagnosticLog.processedCount() >= 2 { break }
-            await Task.yield()
-        }
-        #expect(await diagnosticLog.processedCount() >= 2)
+        #expect(await waitForDiagnosticProcessedCount(diagnosticLog, atLeast: 2))
         await connection.close(errorCode: 71, reason: "peer_closed")
 
-        for _ in 0 ..< 10_000 {
-            if await diagnosticLog.processedCount() >= 5 { break }
-            await Task.yield()
-        }
+        #expect(await waitForDiagnosticProcessedCount(diagnosticLog, atLeast: 5))
         let events = await diagnosticLog.snapshot().events
         #expect(events.map(\.code) == [
             .transportSessionLifecycle,
@@ -829,10 +819,7 @@ struct CmxIrohClientSessionPoolTests {
             .privateNetwork,
         ])
 
-        for _ in 0 ..< 1_000 {
-            if await diagnosticLog.processedCount() >= 5 { break }
-            await Task.yield()
-        }
+        #expect(await waitForDiagnosticProcessedCount(diagnosticLog, atLeast: 5))
         let events = await diagnosticLog.snapshot().events
         #expect(events.map(\.code) == [
             .transportSessionLifecycle,
@@ -930,6 +917,20 @@ private func waitForSelectedPathChangeCount(
         await Task.yield()
     }
     return false
+}
+
+private func waitForDiagnosticProcessedCount(
+    _ log: DiagnosticLog,
+    atLeast expectedCount: Int,
+    timeout: Duration = .seconds(2)
+) async -> Bool {
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: timeout)
+    while clock.now < deadline {
+        if await log.processedCount() >= expectedCount { return true }
+        try? await clock.sleep(for: .milliseconds(1))
+    }
+    return await log.processedCount() >= expectedCount
 }
 
 private struct PoolFixture {

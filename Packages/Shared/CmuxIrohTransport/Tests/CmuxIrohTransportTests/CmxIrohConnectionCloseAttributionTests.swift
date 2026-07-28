@@ -45,6 +45,50 @@ struct CmxIrohConnectionCloseAttributionTests {
     }
 
     @Test
+    func applicationCloseReasonCannotSpoofLocalInitiator() {
+        #expect(
+            CmxIrohConnectionCloseAttribution.classify(
+                "ConnectionLost(ApplicationClosed(ApplicationClose { error_code: 7, reason: \"local_service_unavailable\" }))"
+            ) == CmxIrohConnectionCloseAttribution(
+                initiator: .remote,
+                applicationErrorCode: 7,
+                failureKind: .connectionClosed
+            )
+        )
+    }
+
+    @Test
+    func transportCryptoCodeIsNotAnApplicationErrorCode() {
+        #expect(
+            CmxIrohConnectionCloseAttribution.classify(
+                "ConnectionLost(TransportError(Code::crypto(0x100)))"
+            ) == CmxIrohConnectionCloseAttribution(
+                initiator: .unknown,
+                applicationErrorCode: nil,
+                failureKind: .secureChannelFailed
+            )
+        )
+    }
+
+    @Test
+    func authoritativeDriverCauseSupersedesTentativeLocalClose() async {
+        let store = CmxIrohConnectionCloseAttributionStore()
+        await store.recordTentative(CmxIrohConnectionCloseAttribution(
+            initiator: .local,
+            applicationErrorCode: 9,
+            failureKind: .cancelled
+        ))
+
+        let authoritative = await store.recordAuthoritative(
+            cause: "ConnectionLost(ApplicationClosed(ApplicationClose { error_code: 42 }))"
+        )
+
+        #expect(authoritative.initiator == .remote)
+        #expect(authoritative.applicationErrorCode == 42)
+        #expect(await store.current() == authoritative)
+    }
+
+    @Test
     func leavesUnrecognizedCauseBoundedAndUnknown() {
         #expect(
             CmxIrohConnectionCloseAttribution.classify(

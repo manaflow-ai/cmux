@@ -39,6 +39,15 @@ extension ReconnectRouteSelectionTests {
         #expect(outcome.abandoned == nil)
     }
 
+    @Test func abandonedDialCeilingDoesNotScheduleOneExtraRetry() {
+        #expect(MobileShellComposite.shouldRecordReconnectBackoff(
+            abandonedDialCount: MobileShellComposite.maximumAbandonedReconnectDials - 1
+        ))
+        #expect(!MobileShellComposite.shouldRecordReconnectBackoff(
+            abandonedDialCount: MobileShellComposite.maximumAbandonedReconnectDials
+        ))
+    }
+
     @Test func userRetrySupersedesAttemptWhoseRestoringDeadlineElapsed() async throws {
         let router = LivenessHostRouter()
         let box = TransportBox()

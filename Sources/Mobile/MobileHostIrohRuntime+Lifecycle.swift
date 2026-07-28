@@ -273,13 +273,10 @@ extension MobileHostIrohRuntime {
                       !self.signOutIntentActive,
                       self.runtime === activeRuntime,
                       revision == self.lifecycleRevision else { return }
-                // A fresh external signal rebuilds a failed runtime now and
-                // restarts the recovery backoff ladder.
+                // A fresh external signal resets the backoff ladder, then uses
+                // the single guarded recovery entrypoint.
                 self.cancelFailureRecovery(resetBackoff: true)
-                self.scheduleReconcile(
-                    eraseAccountState: false,
-                    restartActiveRuntime: true
-                )
+                await self.recoverFailedRuntimeIfNeeded()
                 return
             }
             guard self.runtime === activeRuntime,
@@ -347,6 +344,29 @@ extension MobileHostIrohRuntime {
               desiredActive,
               !signOutIntentActive else { return }
         scheduleReconcile(eraseAccountState: false, restartActiveRuntime: true)
+    }
+
+    /// Clears shared host state only while this deactivation still owns the
+    /// composition-root lifecycle revision. Re-check after the suspending LAN
+    /// stop so a replacement activation cannot be torn down by an older
+    /// runtime's late callback.
+    func handleActiveRuntimeDeactivation(
+        revision: UInt64,
+        stopLANPublication: @MainActor @Sendable () async -> Void,
+        clearHostRuntime: @MainActor @Sendable () -> Void
+    ) async {
+        guard ownsDeactivationCleanup(revision: revision) else { return }
+        await stopLANPublication()
+        guard ownsDeactivationCleanup(revision: revision) else { return }
+        clearHostRuntime()
+        guard ownsDeactivationCleanup(revision: revision) else { return }
+        await noteActiveRuntimeDeactivated(revision: revision)
+    }
+
+    private func ownsDeactivationCleanup(revision: UInt64) -> Bool {
+        revision == lifecycleRevision
+            && desiredActive
+            && !signOutIntentActive
     }
 
     /// Invoked from the active runtime's deactivation handler. Deliberate

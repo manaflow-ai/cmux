@@ -46,12 +46,12 @@ struct CmxIrohLibConnection:
     }
 
     func observedPathEvents() async -> AsyncStream<CmxIrohConnectionPathEvent> {
-        AsyncStream { continuation in
+        AsyncStream(bufferingPolicy: .bufferingNewest(64)) { continuation in
             let callback = CmxIrohLibPathEventCallback(continuation: continuation)
             let handle = driver.watchPathEvents(callback: callback)
             let closeTask = Task {
                 let cause = await driver.closed()
-                _ = await closeAttributionStore.record(cause: cause)
+                _ = await closeAttributionStore.recordAuthoritative(cause: cause)
                 continuation.finish()
             }
             continuation.onTermination = { @Sendable _ in
@@ -95,32 +95,32 @@ struct CmxIrohLibConnection:
 
     func waitUntilClosed() async {
         let cause = await driver.closed()
-        _ = await closeAttributionStore.record(cause: cause)
+        _ = await closeAttributionStore.recordAuthoritative(cause: cause)
     }
 
     func closeAttribution() async -> CmxIrohConnectionCloseAttribution {
+        if let cause = driver.closeReason() {
+            return await closeAttributionStore.recordAuthoritative(cause: cause)
+        }
         if let attribution = await closeAttributionStore.current() {
             return attribution
         }
-        guard let cause = driver.closeReason() else {
-            return CmxIrohConnectionCloseAttribution(
-                initiator: .unknown,
-                applicationErrorCode: nil,
-                failureKind: .unknown
-            )
-        }
-        return await closeAttributionStore.record(cause: cause)
+        return CmxIrohConnectionCloseAttribution(
+            initiator: .unknown,
+            applicationErrorCode: nil,
+            failureKind: .unknown
+        )
     }
 
     func isClosed() async -> Bool {
         guard let cause = driver.closeReason() else { return false }
-        _ = await closeAttributionStore.record(cause: cause)
+        _ = await closeAttributionStore.recordAuthoritative(cause: cause)
         return true
     }
 
     func close(errorCode: UInt64, reason: String) async {
         let code = Int64(exactly: errorCode) ?? Int64.max
-        _ = await closeAttributionStore.record(CmxIrohConnectionCloseAttribution(
+        await closeAttributionStore.recordTentative(CmxIrohConnectionCloseAttribution(
             initiator: .local,
             applicationErrorCode: code,
             failureKind: .cancelled

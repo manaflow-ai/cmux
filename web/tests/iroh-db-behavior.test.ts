@@ -1324,7 +1324,7 @@ describe("Iroh trust broker database behavior", () => {
     });
     expect(overCap._tag).toBe("Failure");
     const causeError = overCap._tag === "Failure"
-      ? (overCap.cause as unknown as { error?: unknown }).error
+      ? (overCap.cause as unknown as { failure?: unknown }).failure
       : undefined;
     expect(causeError).toMatchObject({
       _tag: "IrohQuotaExceededError",

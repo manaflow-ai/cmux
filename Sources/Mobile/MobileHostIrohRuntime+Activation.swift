@@ -345,16 +345,20 @@ extension MobileHostIrohRuntime {
                 )
             },
             handleDeactivation: { [weak self] _ in
-                await lanPublisher.stop()
-                await MainActor.run {
-                    // The runtime owns the local Mac binding, while admitted
-                    // sessions carry remote iOS binding IDs. Endpoint teardown
-                    // therefore closes every Iroh-authorized connection and
-                    // leaves Tailscale/other private-network sessions intact.
-                    MobileHostService.shared.closeAllIrohConnections()
-                    MobileHostService.shared.updateIrohBinding(nil)
-                }
-                await self?.noteActiveRuntimeDeactivated(revision: revision)
+                await self?.handleActiveRuntimeDeactivation(
+                    revision: revision,
+                    stopLANPublication: {
+                        await lanPublisher.stop()
+                    },
+                    clearHostRuntime: {
+                        // The runtime owns the local Mac binding, while admitted
+                        // sessions carry remote iOS binding IDs. Endpoint teardown
+                        // therefore closes every Iroh-authorized connection and
+                        // leaves Tailscale/other private-network sessions intact.
+                        MobileHostService.shared.closeAllIrohConnections()
+                        MobileHostService.shared.updateIrohBinding(nil)
+                    }
+                )
             },
             handleRelayCredential: { [weak self] response, binding in
                 guard await self?.allowsPersistence(

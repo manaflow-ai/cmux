@@ -11,6 +11,15 @@ final class CmxIrohLibPathEventCallback: PathEventCallback, Sendable {
     }
 
     func onEvent(event: PathEvent) async {
-        continuation.yield(CmxIrohConnectionPathEvent(event))
+        let event = CmxIrohConnectionPathEvent(event)
+        guard case .dropped = continuation.yield(event),
+              event.kind != .lagged else { return }
+        // The bounded stream protects the app if Iroh outpaces diagnostics.
+        // Keep a redacted lag marker in the newest window whenever an older
+        // event is evicted, matching Iroh's own `PathEvent.lagged` semantics.
+        _ = continuation.yield(CmxIrohConnectionPathEvent(
+            kind: .lagged,
+            pathKind: .unknown
+        ))
     }
 }

@@ -49,12 +49,20 @@ public struct CmxIrohConnectionCloseAttribution: Sendable, Equatable {
     private static func initiator(
         in cause: String
     ) -> CmxIrohConnectionCloseInitiator {
+        if cause.contains("ConnectionLost(LocallyClosed)") {
+            return .local
+        }
+        if cause.contains("ConnectionLost(TimedOut)") {
+            return .timedOut
+        }
+        if cause.contains("ConnectionLost(ApplicationClosed(")
+            || cause.contains("ConnectionLost(ConnectionClosed(")
+            || cause.contains("ConnectionLost(Reset)") {
+            return .remote
+        }
         let normalized = cause.lowercased()
         if normalized.contains("peer") || normalized.contains("remote") {
             return .remote
-        }
-        if normalized.contains("local") {
-            return .local
         }
         if normalized.contains("timed out")
             || normalized.contains("timeout")
@@ -65,7 +73,13 @@ public struct CmxIrohConnectionCloseAttribution: Sendable, Equatable {
     }
 
     private static func applicationErrorCode(in cause: String) -> Int64? {
-        for label in ["application error code", "application_error_code", "error code", "error_code", "code"] {
+        guard cause.contains("ApplicationClosed(") else { return nil }
+        for label in [
+            "application error code",
+            "application_error_code",
+            "error code",
+            "error_code",
+        ] {
             guard let range = cause.range(
                 of: label,
                 options: [.caseInsensitive]
@@ -76,7 +90,7 @@ public struct CmxIrohConnectionCloseAttribution: Sendable, Equatable {
                 return value
             }
         }
-        return lastInteger(in: cause[...])
+        return nil
     }
 
     private static func firstInteger(
@@ -95,27 +109,6 @@ public struct CmxIrohConnectionCloseAttribution: Sendable, Equatable {
         }
         guard token != "-" else { return nil }
         return Int64(token)
-    }
-
-    private static func lastInteger(
-        in text: Substring
-    ) -> Int64? {
-        var last: Int64?
-        var token = ""
-        for character in text {
-            if character.isNumber || (character == "-" && token.isEmpty) {
-                token.append(character)
-            } else if !token.isEmpty {
-                if token != "-", let value = Int64(token) {
-                    last = value
-                }
-                token.removeAll(keepingCapacity: true)
-            }
-        }
-        if token != "-", let value = Int64(token) {
-            last = value
-        }
-        return last
     }
 
     private static func failureKind(in cause: String) -> DiagnosticFailureKind {

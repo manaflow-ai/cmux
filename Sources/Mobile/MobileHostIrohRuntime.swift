@@ -119,8 +119,8 @@ final class MobileHostIrohRuntime {
     var nextDiagnosticSessionID = 0
     var failureRecoveryTask: Task<Void, Never>?
     var failureRecoveryFailureCount = 0
-    let failureRecoveryClock: any CmxIrohRelayClock = CmxIrohSystemRelayClock()
-    let failureRecoverySchedule = CmxIrohRetrySchedule()
+    var failureRecoveryClock: any CmxIrohRelayClock = CmxIrohSystemRelayClock()
+    var failureRecoverySchedule = CmxIrohRetrySchedule()
 
     private init() {
         let installState = CmxIrohUserDefaultsInstallStateStore()

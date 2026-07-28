@@ -896,6 +896,12 @@ extension MobileShellComposite {
     /// re-arms the automatic retry when still disconnected.
     static var maximumAbandonedReconnectDials: Int { 3 }
 
+    static func shouldRecordReconnectBackoff(
+        abandonedDialCount: Int
+    ) -> Bool {
+        abandonedDialCount < maximumAbandonedReconnectDials
+    }
+
     /// Tracks an abandoned dial until it resolves, so a persistently wedged
     /// transport cannot accumulate an unbounded set of retained reconnect
     /// tasks across automatic retries. On resolution, if the shell is still

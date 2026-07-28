@@ -19,7 +19,9 @@ WITH ranked AS (
   WHERE revoked_at IS NULL
 ),
 losers AS (
-  SELECT id FROM ranked WHERE rn > 1
+  SELECT id
+  FROM ranked
+  WHERE rn > 1
 ),
 revoked AS (
   UPDATE iroh_endpoint_bindings b
@@ -53,6 +55,6 @@ ON CONFLICT (user_id) DO UPDATE
 --> statement-breakpoint
 DROP INDEX IF EXISTS "iroh_endpoint_bindings_active_app_instance_unique";
 --> statement-breakpoint
-CREATE UNIQUE INDEX IF NOT EXISTS "iroh_endpoint_bindings_active_slot_unique"
+CREATE UNIQUE INDEX "iroh_endpoint_bindings_active_slot_unique"
   ON "iroh_endpoint_bindings" ("user_id", "device_uuid", "tag")
   WHERE "revoked_at" IS NULL;
