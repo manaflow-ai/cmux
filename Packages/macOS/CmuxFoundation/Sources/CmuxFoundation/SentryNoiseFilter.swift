@@ -10,12 +10,14 @@ public struct SentryNoiseFilter: Sendable {
     public func isExpectedCLISocketTransportFailure(
         stage: String,
         message: String,
-        dataKeys: Set<String> = []
+        dataKeys: Set<String> = [],
+        allowSandboxPolicyDenial: Bool = false
     ) -> Bool {
         guard isCLISocketTransportContext(stage: stage, dataKeys: dataKeys) else {
             return false
         }
-        return isExpectedCLISocketTransportMessage(message)
+        return isExpectedCLISocketTransportMessage(message) ||
+            (allowSandboxPolicyDenial && isSocketConnectPolicyDenial(message))
     }
 
     /// Returns `true` for expected CLI socket connect/write error messages that
@@ -48,9 +50,16 @@ public struct SentryNoiseFilter: Sendable {
             t.contains("no such file or directory") ||
             containsErrno(2, in: t) ||           // ENOENT
             t.contains("connection refused") ||
-            containsErrno(61, in: t) ||           // ECONNREFUSED
-            t.contains("operation not permitted") ||
-            containsErrno(1, in: t)              // EPERM from caller sandbox policy
+            containsErrno(61, in: t)              // ECONNREFUSED
+    }
+
+    private func isSocketConnectPolicyDenial(_ text: String) -> Bool {
+        let t = text.lowercased()
+        let isSocketConnectFailure =
+            t.contains("failed to connect to socket") ||
+            t.contains("socket not found at")
+        return isSocketConnectFailure &&
+            (t.contains("operation not permitted") || containsErrno(1, in: t))
     }
 
     private func isCLISocketTransportContext(stage: String, dataKeys: Set<String>) -> Bool {

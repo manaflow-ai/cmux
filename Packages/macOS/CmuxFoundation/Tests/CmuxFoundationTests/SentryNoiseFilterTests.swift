@@ -21,10 +21,6 @@ import Testing
             stage: "socket_connect",
             message: "Socket not found at /tmp/cmux.sock"
         ))
-        #expect(filter.isExpectedCLISocketTransportFailure(
-            stage: "socket_connect",
-            message: "Failed to connect to socket at /tmp/cmux.sock (Operation not permitted, errno 1)"
-        ))
     }
 
     @Test func keepsActionableSocketFailures() {
@@ -35,6 +31,27 @@ import Testing
         #expect(!filter.isExpectedCLISocketTransportFailure(
             stage: "socket_connect",
             message: "Failed to connect to socket at /tmp/cmux.sock (Permission denied, errno 13)"
+        ))
+        #expect(!filter.isExpectedCLISocketTransportFailure(
+            stage: "socket_connect",
+            message: "Failed to connect to socket at /tmp/cmux.sock (Operation not permitted, errno 1)"
+        ))
+        #expect(!filter.isExpectedCLISocketTransportFailure(
+            stage: "codex-monitor-start",
+            message: "Failed to connect to socket at /tmp/cmux.sock (Operation not permitted, errno 1)",
+            allowSandboxPolicyDenial: true
+        ))
+    }
+
+    @Test func dropsSocketPolicyDenialOnlyWithSandboxProvenance() {
+        #expect(filter.isExpectedCLISocketTransportFailure(
+            stage: "socket_connect",
+            message: "Failed to connect to socket at /tmp/cmux.sock (Operation not permitted, errno 1)",
+            allowSandboxPolicyDenial: true
+        ))
+        #expect(!filter.isExpectedCLISocketTransportFailure(
+            stage: "socket_connect",
+            message: "Failed to connect to socket at /tmp/cmux.sock (Operation not permitted, errno 1)"
         ))
     }
 

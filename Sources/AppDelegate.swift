@@ -10443,7 +10443,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @objc func triggerSentryTestCrash(_ sender: Any?) {
-        guard MacSentryStartupPolicy.current.shouldStart else { return }
+        guard SentrySDK.isEnabled else { return }
         SentrySDK.crash()
     }
 #endif

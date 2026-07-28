@@ -1,5 +1,3 @@
-import Foundation
-
 struct MacSentryStartupPolicy: Sendable {
     let telemetryEnabled: Bool
     let isRunningUnderXCTest: Bool
@@ -25,11 +23,6 @@ struct MacSentryStartupPolicy: Sendable {
             allowUnderXCTest: environment["CMUX_TEST_SENTRY_ENABLED"] == "1"
         )
     }
-
-    static let current = MacSentryStartupPolicy(
-        environment: ProcessInfo.processInfo.environment,
-        telemetryEnabled: TelemetrySettings.enabledForCurrentLaunch
-    )
 
     var shouldStart: Bool {
         telemetryEnabled && (!isRunningUnderXCTest || allowUnderXCTest)
