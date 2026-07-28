@@ -20,6 +20,7 @@ import CmuxAgentChat
 import Foundation
 import os
 import Bonsplit
+import ScreenCaptureKit
 import WebKit
 import CmuxSidebar
 import CmuxWorkspaces
@@ -1178,6 +1179,12 @@ class TerminalController {
                 // debug.sidebar.simulate_drag precedent).
                 return (true, "ERROR: Unknown command 'send_workspace'. Use 'help' for available commands.")
 #endif
+            case "screenshot":
+#if DEBUG
+                return (true, captureScreenshot(args))
+#else
+                return (true, "ERROR: Unknown command 'screenshot'. Use 'help' for available commands.")
+#endif
             default:
                 // The sidebar telemetry family: nonisolated coordinator bodies
                 // (parse/format on this worker thread, deferred mutations on
@@ -1391,6 +1398,31 @@ class TerminalController {
 #if DEBUG
         case "debug.sidebar.simulate_drag":
             return v2Result(id: request.id, v2DebugSidebarSimulateDrag(params: request.params))
+        case "debug.window.screenshot":
+            let label = (request.params["label"] as? String) ?? ""
+            let response = captureScreenshot(label)
+            guard response.hasPrefix("OK ") else {
+                return v2Error(
+                    id: request.id,
+                    code: "internal_error",
+                    message: response
+                )
+            }
+            let payload = String(response.dropFirst(3))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let parts = payload.split(separator: " ", maxSplits: 1).map(String.init)
+            guard parts.count == 2 else {
+                return v2Error(
+                    id: request.id,
+                    code: "internal_error",
+                    message: "screenshot parse failed",
+                    data: ["payload": payload]
+                )
+            }
+            return v2Ok(id: request.id, result: [
+                "screenshot_id": parts[0],
+                "path": parts[1],
+            ])
 #endif
         case let method where method.hasPrefix("vm."):
             return socketWorkerCloudVMResponse(method: method, id: request.id, params: request.params)
@@ -1404,7 +1436,8 @@ class TerminalController {
             // its worker case above is compiled out; the Release main lane
             // answers method_not_found for debug verbs, so mirror that reply
             // instead of the internal-error backstop below.
-            if request.method == "debug.sidebar.simulate_drag" {
+            if request.method == "debug.sidebar.simulate_drag"
+                || request.method == "debug.window.screenshot" {
                 return v2Error(id: request.id, code: "method_not_found", message: "Unknown method")
             }
 #endif
@@ -13115,7 +13148,11 @@ class TerminalController {
         return "OK"
     }
 
-    func captureScreenshot(_ args: String) -> String {
+    nonisolated func captureScreenshot(_ args: String) -> String {
+        guard !Thread.isMainThread else {
+            return "ERROR: screenshot must run off the main thread"
+        }
+
         // Parse optional label from args
         let label = args.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -13134,9 +13171,7 @@ class TerminalController {
         let filename = label.isEmpty ? "\(screenshotId).png" : "\(label)_\(screenshotId).png"
         let outputPath = outputDir.appendingPathComponent(filename)
 
-        // Capture the main window on main thread
-        var captureError: String?
-        v2MainSync {
+        let captureTarget: (windowID: CGWindowID, needsCompositedCapture: Bool)? = v2MainSync {
             let candidateWindows = NSApp.windows.filter { window in
                 window.isVisible &&
                 !window.isMiniaturized &&
@@ -13150,29 +13185,96 @@ class TerminalController {
                 (lhs.frame.width * lhs.frame.height) < (rhs.frame.width * rhs.frame.height)
             } ?? NSApp.mainWindow ?? NSApp.windows.first
 
-            guard let window else {
-                captureError = "No window available"
-                return
-            }
-
-            guard let pngData = self.captureAppKitWindowPNGData(window) else {
-                captureError = "Failed to create PNG data"
-                return
-            }
-
-            do {
-                try pngData.write(to: outputPath)
-            } catch {
-                captureError = "Failed to write file: \(error.localizedDescription)"
+            return window.map {
+                (
+                    windowID: CGWindowID($0.windowNumber),
+                    needsCompositedCapture: $0.contentView.map(self.viewHierarchyContainsWebView) ?? false
+                )
             }
         }
 
-        if let error = captureError {
-            return "ERROR: \(error)"
+        guard let captureTarget else {
+            return "ERROR: No window available"
+        }
+
+        let captureWithAppKit = {
+            self.v2MainSync {
+                guard let window = NSApp.windows.first(where: {
+                    CGWindowID($0.windowNumber) == captureTarget.windowID
+                }) else {
+                    return nil
+                }
+                return self.captureAppKitWindowPNGData(window)
+            }
+        }
+        let pngData = if captureTarget.needsCompositedCapture {
+            captureScreenCaptureKitWindowPNGData(captureTarget.windowID)
+                ?? captureWithAppKit()
+        } else {
+            captureWithAppKit()
+        }
+
+        guard let pngData else {
+            return "ERROR: Failed to create PNG data"
+        }
+
+        do {
+            try pngData.write(to: outputPath)
+        } catch {
+            return "ERROR: Failed to write file: \(error.localizedDescription)"
         }
 
         // Return OK with screenshot ID and path for easy reference
         return "OK \(screenshotId) \(outputPath.path)"
+    }
+
+    private nonisolated func captureScreenCaptureKitWindowPNGData(
+        _ windowID: CGWindowID
+    ) -> Data? {
+        guard #available(macOS 14.4, *) else {
+            return nil
+        }
+
+        return socketAwaitCallback(timeout: 5) { completion in
+            Task {
+                completion(await Self.captureScreenCaptureKitWindowPNGDataAsync(windowID))
+            }
+        } ?? nil
+    }
+
+    @available(macOS 14.4, *)
+    private nonisolated static func captureScreenCaptureKitWindowPNGDataAsync(
+        _ windowID: CGWindowID
+    ) async -> Data? {
+        do {
+            let shareableContent = try await SCShareableContent.currentProcess
+            guard let window = shareableContent.windows.first(where: {
+                $0.windowID == windowID
+            }) else {
+                return nil
+            }
+
+            let filter = SCContentFilter(desktopIndependentWindow: window)
+            let contentInfo = SCShareableContent.info(for: filter)
+            let scale = CGFloat(contentInfo.pointPixelScale)
+            let configuration = SCStreamConfiguration()
+            configuration.width = max(1, Int(ceil(contentInfo.contentRect.width * scale)))
+            configuration.height = max(1, Int(ceil(contentInfo.contentRect.height * scale)))
+            configuration.showsCursor = false
+            configuration.ignoreShadowsSingleWindow = true
+            configuration.captureResolution = .best
+
+            let image = try await SCScreenshotManager.captureImage(
+                contentFilter: filter,
+                configuration: configuration
+            )
+            return NSBitmapImageRep(cgImage: image).representation(
+                using: .png,
+                properties: [:]
+            )
+        } catch {
+            return nil
+        }
     }
 
     private func captureAppKitWindowPNGData(_ window: NSWindow) -> Data? {
@@ -13191,6 +13293,10 @@ class TerminalController {
         contentView.cacheDisplay(in: bounds, to: bitmap)
 
         return bitmap.representation(using: .png, properties: [:])
+    }
+
+    private func viewHierarchyContainsWebView(_ view: NSView) -> Bool {
+        view is WKWebView || view.subviews.contains(where: viewHierarchyContainsWebView)
     }
 #endif
 

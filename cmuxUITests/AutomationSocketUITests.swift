@@ -227,7 +227,7 @@ final class AutomationSocketUITests: XCTestCase {
         XCTAssertEqual(typedTitles.first, "$iterate-pr")
     }
 
-    func testWindowScreenshotCommandWritesNonBlankPNGWithTerminalContent() throws {
+    func testWindowScreenshotCommandWritesNonBlankPNGWithTerminalAndBrowserContent() throws {
         let app = configuredApp(mode: "allowAll")
         app.launchArguments += [
             "-AppleLanguages", "(en)",
@@ -281,9 +281,61 @@ final class AutomationSocketUITests: XCTestCase {
             workspace["surface_id"] as? String,
             "Expected workspace.create to return a surface id"
         )
+        let workspaceID = try XCTUnwrap(
+            workspace["workspace_id"] as? String,
+            "Expected workspace.create to return a workspace id"
+        )
         XCTAssertTrue(
             waitForTerminalText(marker, surfaceID: surfaceID, timeout: 12.0),
             "Expected marker text to render before taking the screenshot"
+        )
+
+        let browserHTML = """
+        <!doctype html>
+        <html>
+          <body style="margin:0;min-height:100vh;background:rgb(20,220,240)">
+            <h1>CMUX_BROWSER_SCREENSHOT_MARKER_9065</h1>
+          </body>
+        </html>
+        """
+        let browserURL = "data:text/html;base64,\(Data(browserHTML.utf8).base64EncodedString())"
+        let browser = try XCTUnwrap(
+            socketResult(
+                method: "browser.open_split",
+                params: [
+                    "workspace_id": workspaceID,
+                    "surface_id": surfaceID,
+                ],
+                responseTimeout: 10.0
+            ),
+            "Expected browser.open_split to create a browser panel"
+        )
+        let browserSurfaceID = try XCTUnwrap(
+            browser["surface_id"] as? String,
+            "Expected browser.open_split to return a surface id"
+        )
+        XCTAssertNotNil(
+            socketResult(
+                method: "browser.navigate",
+                params: [
+                    "surface_id": browserSurfaceID,
+                    "url": browserURL,
+                ],
+                responseTimeout: 12.0
+            ),
+            "Expected the browser marker page to navigate"
+        )
+        XCTAssertNotNil(
+            socketResult(
+                method: "browser.wait",
+                params: [
+                    "surface_id": browserSurfaceID,
+                    "load_state": "complete",
+                    "timeout_ms": 10_000,
+                ],
+                responseTimeout: 12.0
+            ),
+            "Expected the browser marker page to finish loading"
         )
 
         XCTAssertTrue(
@@ -295,9 +347,10 @@ final class AutomationSocketUITests: XCTestCase {
             waitForWindowScreenshotContainingMarker(
                 label: "issue-9065-window",
                 minimumMarkerPixels: 100,
+                minimumBrowserPixels: 1_000,
                 timeout: 12.0
             ),
-            "Expected debug.window.screenshot to capture the rendered terminal marker"
+            "Expected debug.window.screenshot to capture terminal and browser content"
         )
         let pngData = captured.pngData
         XCTAssertGreaterThan(pngData.count, 1_024, "Expected a non-empty PNG file")
@@ -319,6 +372,11 @@ final class AutomationSocketUITests: XCTestCase {
             100,
             "Expected the screenshot to include the terminal's magenta marker content"
         )
+        XCTAssertGreaterThan(
+            stats.browserPixels,
+            1_000,
+            "Expected the screenshot to include the browser's cyan marker content"
+        )
     }
 
     private struct WindowScreenshotPixelStats {
@@ -326,6 +384,7 @@ final class AutomationSocketUITests: XCTestCase {
         let height: Int
         let uniqueQuantizedColors: Int
         let markerPixels: Int
+        let browserPixels: Int
     }
 
     private struct CapturedWindowScreenshot {
@@ -358,6 +417,7 @@ final class AutomationSocketUITests: XCTestCase {
     private func waitForWindowScreenshotContainingMarker(
         label: String,
         minimumMarkerPixels: Int,
+        minimumBrowserPixels: Int,
         timeout: TimeInterval
     ) -> CapturedWindowScreenshot? {
         var captured: CapturedWindowScreenshot?
@@ -365,7 +425,8 @@ final class AutomationSocketUITests: XCTestCase {
             predicate: NSPredicate { _, _ in
                 guard let screenshot = self.socketResult(
                     method: "debug.window.screenshot",
-                    params: ["label": label]
+                    params: ["label": label],
+                    responseTimeout: 12.0
                 ),
                     let path = screenshot["path"] as? String else {
                     return false
@@ -375,7 +436,8 @@ final class AutomationSocketUITests: XCTestCase {
                 defer { try? FileManager.default.removeItem(at: screenshotURL) }
                 guard let pngData = try? Data(contentsOf: screenshotURL),
                       let stats = self.windowScreenshotPixelStats(pngData),
-                      stats.markerPixels > minimumMarkerPixels else {
+                      stats.markerPixels > minimumMarkerPixels,
+                      stats.browserPixels > minimumBrowserPixels else {
                     return false
                 }
 
@@ -424,6 +486,7 @@ final class AutomationSocketUITests: XCTestCase {
 
         var uniqueQuantizedColors = Set<UInt16>()
         var markerPixels = 0
+        var browserPixels = 0
         let sampleStep = 2
         for y in stride(from: 0, to: height, by: sampleStep) {
             let row = y * bytesPerRow
@@ -443,6 +506,9 @@ final class AutomationSocketUITests: XCTestCase {
                 if red > 200, green < 110, blue > 150, alpha > 200 {
                     markerPixels += 1
                 }
+                if red < 80, green > 180, blue > 180, alpha > 200 {
+                    browserPixels += 1
+                }
             }
         }
 
@@ -450,7 +516,8 @@ final class AutomationSocketUITests: XCTestCase {
             width: width,
             height: height,
             uniqueQuantizedColors: uniqueQuantizedColors.count,
-            markerPixels: markerPixels
+            markerPixels: markerPixels,
+            browserPixels: browserPixels
         )
     }
 
@@ -592,18 +659,30 @@ final class AutomationSocketUITests: XCTestCase {
             controlSocketCommandViaNetcat(command, socketPath: socketPath)
     }
 
-    private func socketJSON(method: String, params: [String: Any]) -> [String: Any]? {
+    private func socketJSON(
+        method: String,
+        params: [String: Any],
+        responseTimeout: TimeInterval = 2.0
+    ) -> [String: Any]? {
         let request: [String: Any] = [
             "id": UUID().uuidString,
             "method": method,
             "params": params,
         ]
-        return ControlSocketClient(path: socketPath, responseTimeout: 2.0).sendJSON(request) ??
+        return ControlSocketClient(path: socketPath, responseTimeout: responseTimeout).sendJSON(request) ??
             controlSocketJSONViaNetcat(request, socketPath: socketPath)
     }
 
-    private func socketResult(method: String, params: [String: Any]) -> [String: Any]? {
-        guard let envelope = socketJSON(method: method, params: params),
+    private func socketResult(
+        method: String,
+        params: [String: Any],
+        responseTimeout: TimeInterval = 2.0
+    ) -> [String: Any]? {
+        guard let envelope = socketJSON(
+            method: method,
+            params: params,
+            responseTimeout: responseTimeout
+        ),
               envelope["ok"] as? Bool == true else {
             return nil
         }
