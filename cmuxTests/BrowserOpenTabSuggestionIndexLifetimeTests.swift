@@ -8,14 +8,25 @@ import Testing
 
 @MainActor
 @Suite struct BrowserOpenTabSuggestionIndexLifetimeTests {
-    @Test func suggestionIndexDeallocatesWithTabManager() {
-        var manager: TabManager? = TabManager(autoWelcomeIfNeeded: false)
-        weak var suggestionIndex: BrowserOpenTabSuggestionIndex?
-        suggestionIndex = manager?.browserOpenTabSuggestionIndex
+    @Test func suggestionIndexesArePerManagerAndDeallocateIndependently() {
+        var firstManager: TabManager? = TabManager(autoWelcomeIfNeeded: false)
+        var secondManager: TabManager? = TabManager(autoWelcomeIfNeeded: false)
+        weak var firstSuggestionIndex: BrowserOpenTabSuggestionIndex?
+        weak var secondSuggestionIndex: BrowserOpenTabSuggestionIndex?
+        firstSuggestionIndex = firstManager?.browserOpenTabSuggestionIndex
+        secondSuggestionIndex = secondManager?.browserOpenTabSuggestionIndex
 
-        #expect(suggestionIndex != nil)
-        manager = nil
+        #expect(firstSuggestionIndex != nil)
+        #expect(secondSuggestionIndex != nil)
+        #expect(firstSuggestionIndex !== secondSuggestionIndex)
 
-        #expect(suggestionIndex == nil)
+        firstManager = nil
+
+        #expect(firstSuggestionIndex == nil)
+        #expect(secondSuggestionIndex != nil)
+
+        secondManager = nil
+
+        #expect(secondSuggestionIndex == nil)
     }
 }
