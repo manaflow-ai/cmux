@@ -188,7 +188,9 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
         defer { operation?.clearCancellationHandler() }
 
         if let stdin, let pipe = process.standardInput as? Pipe {
-            pipe.fileHandleForWriting.write(stdin)
+            // Child exit can close the read end before this best-effort write.
+            // The POSIX helper reports that race instead of delivering SIGPIPE.
+            try? pipe.fileHandleForWriting.writeProcessPipeInput(stdin)
             try? pipe.fileHandleForWriting.close()
         }
 
