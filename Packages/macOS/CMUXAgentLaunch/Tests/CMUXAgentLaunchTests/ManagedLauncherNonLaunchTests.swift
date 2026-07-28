@@ -7,10 +7,12 @@ struct ManagedLauncherNonLaunchTests {
     func omoManagementCommands() {
         for command in [
             "agent", "auth", "completion", "db", "debug", "mcp", "models",
-            "plugin", "providers", "stats", "uninstall", "upgrade",
+            "export", "import", "plugin", "providers", "stats", "uninstall", "upgrade",
         ] {
             #expect(AgentLaunchSanitizer.omoLaunchIsNonLaunch(args: [command]))
         }
+        #expect(AgentLaunchSanitizer.omoLaunchIsNonLaunch(args: ["session", "list"]))
+        #expect(AgentLaunchSanitizer.omoLaunchIsNonLaunch(args: ["session", "delete", "session-id"]))
         #expect(AgentLaunchSanitizer.omoLaunchIsNonLaunch(args: ["--log-level", "WARN", "models"]))
         #expect(AgentLaunchSanitizer.omoLaunchIsNonLaunch(args: ["--help"]))
         #expect(AgentLaunchSanitizer.omoLaunchIsNonLaunch(args: ["-v"]))
@@ -20,6 +22,7 @@ struct ManagedLauncherNonLaunchTests {
     func omoLaunches() {
         for args in [
             ["session"],
+            ["session", "run"],
             ["run", "hello"],
             ["unknown-command"],
             ["--session", "session-id"],
@@ -28,6 +31,37 @@ struct ManagedLauncherNonLaunchTests {
             ["some-project"],
         ] {
             #expect(!AgentLaunchSanitizer.omoLaunchIsNonLaunch(args: args))
+        }
+    }
+
+    @Test("OMC preserves commands that do not start an agent or team")
+    func omcManagementCommands() {
+        for command in [
+            "ask", "capabilities", "config", "config-notify-profile",
+            "config-stop-callback", "doctor", "help", "info", "install",
+            "postinstall", "session", "setup", "teleport", "test-prompt",
+            "update", "update-reconcile", "version",
+        ] {
+            #expect(AgentLaunchSanitizer.omcLaunchIsNonLaunch(args: [command]))
+        }
+        #expect(AgentLaunchSanitizer.omcLaunchIsNonLaunch(args: ["--help"]))
+        #expect(AgentLaunchSanitizer.omcLaunchIsNonLaunch(args: ["--version"]))
+    }
+
+    @Test("OMC rejects agent and team launch commands")
+    func omcLaunches() {
+        for args in [
+            [],
+            ["launch"],
+            ["interop"],
+            ["team"],
+            ["autoresearch"],
+            ["ralphthon"],
+            ["ultragoal"],
+            ["start a team"],
+            ["--", "version"],
+        ] {
+            #expect(!AgentLaunchSanitizer.omcLaunchIsNonLaunch(args: args))
         }
     }
 

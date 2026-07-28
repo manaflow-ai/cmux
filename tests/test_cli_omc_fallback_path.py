@@ -83,10 +83,28 @@ omc-node-helper "$@"
             print(f"FAIL: expected fallback helper to remain on PATH, got {lines!r}")
             return 1
 
-        for command in ("version", "config", "setup", "install", "update"):
+        for invocation in (
+            ("ask", "review", "this"),
+            ("capabilities", "check"),
+            ("config",),
+            ("config-notify-profile", "work", "--show"),
+            ("config-stop-callback", "telegram", "--show"),
+            ("doctor", "conflicts"),
+            ("help",),
+            ("info",),
+            ("install",),
+            ("postinstall",),
+            ("session", "search", "provider-routing"),
+            ("setup",),
+            ("teleport", "list"),
+            ("test-prompt", "ultrawork fix bugs"),
+            ("update",),
+            ("update-reconcile",),
+            ("version",),
+        ):
             omc_log.unlink(missing_ok=True)
             informational = subprocess.run(
-                [cli_path, "omc", command],
+                [cli_path, "omc", *invocation],
                 capture_output=True,
                 text=True,
                 check=False,
@@ -94,11 +112,12 @@ omc-node-helper "$@"
                 timeout=30,
             )
             if informational.returncode != 0 or not omc_log.exists():
-                print(f"FAIL: positional non-launch command {command!r} required a live surface")
+                print(f"FAIL: positional non-launch command {invocation!r} required a live surface")
                 print(f"stderr={informational.stderr.strip()}")
                 return 1
-            if informational.stdout.strip().splitlines()[-1] != f"args:{command}":
-                print(f"FAIL: positional command {command!r} was not passed through")
+            expected_args = " ".join(invocation)
+            if informational.stdout.strip().splitlines()[-1] != f"args:{expected_args}":
+                print(f"FAIL: positional command {invocation!r} was not passed through")
                 return 1
 
         omc_log.unlink(missing_ok=True)

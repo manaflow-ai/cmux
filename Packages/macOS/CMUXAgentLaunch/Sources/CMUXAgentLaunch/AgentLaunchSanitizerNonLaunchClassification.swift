@@ -47,6 +47,8 @@ extension AgentLaunchSanitizer {
                 "completion",
                 "db",
                 "debug",
+                "export",
+                "import",
                 "mcp",
                 "models",
                 "plugin",
@@ -55,8 +57,40 @@ extension AgentLaunchSanitizer {
                 "uninstall",
                 "upgrade",
             ],
+            managementSubcommands: [
+                "session": ["delete", "list"],
+            ],
             booleanOptions: ["--print-logs", "--pure"],
             valueOptions: ["--log-level"]
+        )
+    }
+
+    /// Whether OMC arguments select configuration, diagnostics, or another
+    /// command that does not start an agent or team session.
+    public static func omcLaunchIsNonLaunch(args: [String]) -> Bool {
+        conservativeNonLaunchInvocation(
+            args: args,
+            managementCommands: [
+                "ask",
+                "capabilities",
+                "config",
+                "config-notify-profile",
+                "config-stop-callback",
+                "doctor",
+                "help",
+                "info",
+                "install",
+                "postinstall",
+                "session",
+                "setup",
+                "teleport",
+                "test-prompt",
+                "update",
+                "update-reconcile",
+                "version",
+            ],
+            booleanOptions: [],
+            valueOptions: []
         )
     }
 
@@ -102,6 +136,7 @@ extension AgentLaunchSanitizer {
     private static func conservativeNonLaunchInvocation(
         args: [String],
         managementCommands: Set<String>,
+        managementSubcommands: [String: Set<String>] = [:],
         booleanOptions: Set<String>,
         valueOptions: Set<String>
     ) -> Bool {
@@ -111,6 +146,10 @@ extension AgentLaunchSanitizer {
             let argument = args[index]
             if argument == "--" { return false }
             if !argument.hasPrefix("-") || argument == "-" {
+                if let allowedSubcommands = managementSubcommands[argument] {
+                    guard index + 1 < args.count else { return false }
+                    return allowedSubcommands.contains(args[index + 1])
+                }
                 return managementCommands.contains(argument)
             }
             let option = argument.split(separator: "=", maxSplits: 1).first.map(String.init) ?? argument

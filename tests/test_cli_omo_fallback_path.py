@@ -87,23 +87,27 @@ exec opencode-node-helper "$@"
             print(f"FAIL: expected fallback helper to remain on PATH, got {lines!r}")
             return 1
 
-        for command in (
-            "agent",
-            "auth",
-            "completion",
-            "db",
-            "debug",
-            "mcp",
-            "models",
-            "plugin",
-            "providers",
-            "stats",
-            "uninstall",
-            "upgrade",
+        for invocation in (
+            ("agent",),
+            ("auth",),
+            ("completion",),
+            ("db",),
+            ("debug",),
+            ("export",),
+            ("import", "session.json"),
+            ("mcp",),
+            ("models",),
+            ("plugin",),
+            ("providers",),
+            ("session", "delete", "session-id"),
+            ("session", "list"),
+            ("stats",),
+            ("uninstall",),
+            ("upgrade",),
         ):
             provider_log.unlink(missing_ok=True)
             management = subprocess.run(
-                [cli_path, "omo", command],
+                [cli_path, "omo", *invocation],
                 capture_output=True,
                 text=True,
                 check=False,
@@ -111,11 +115,12 @@ exec opencode-node-helper "$@"
                 timeout=30,
             )
             if management.returncode != 0 or not provider_log.exists():
-                print(f"FAIL: OMO management command {command!r} required a live surface")
+                print(f"FAIL: OMO management command {invocation!r} required a live surface")
                 return 1
 
         blocked_invocations = (
             ["session"],
+            ["session", "run"],
             ["run", "hello"],
             ["unknown-command"],
             ["--session", "session-id"],
