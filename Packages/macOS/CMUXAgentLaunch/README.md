@@ -8,3 +8,21 @@ Use `AgentProcessArgumentsParser` with captured `KERN_PROCARGS2` bytes in tests:
 let parser = AgentProcessArgumentsParser()
 let arguments = parser.argumentsAndEnvironment(fromKernProcArgs: bytes)
 ```
+
+Build a process scan from app-owned projections:
+
+```swift
+let selector = AgentProcessCandidateSelector(
+    processes: candidates,
+    policy: policy
+)
+var scan = AgentProcessArgumentScan(
+    processes: candidates,
+    selector: selector,
+    injectedArgumentsProvider: nil,
+    processArgumentBytesProvider: readProcessBytes,
+    processArgumentsDecoder: decodeProcessArguments,
+    additionalMetadataRequiresFullDecode: { _ in false }
+)
+let arguments = scan.arguments(for: processID)
+```

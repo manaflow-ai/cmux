@@ -144,16 +144,12 @@ struct CachedAgentProcessIdentityValidator: Sendable {
         executableCandidates: [String],
         environment: [String: String]
     ) -> Bool {
-        guard let liveKind = normalizedProcessValue(environment["CMUX_AGENT_LAUNCH_KIND"]),
-              (liveKind.compare(kind.rawValue, options: [.caseInsensitive, .literal]) == .orderedSame
-                  || AgentLaunchCaptureTrust.launcherDescribesKind(liveKind, kind: kind.rawValue)),
-              let launchExecutable = normalizedProcessValue(environment["CMUX_AGENT_LAUNCH_EXECUTABLE"]) else {
-            return false
-        }
-        let launchBasename = executableBasename(launchExecutable)
-        return executableCandidates.contains { candidate in
-            executableBasename(candidate).compare(launchBasename, options: [.caseInsensitive, .literal]) == .orderedSame
-        }
+        AgentLaunchCaptureTrust.launchExecutableMatches(
+            kind: kind.rawValue,
+            executableCandidates: executableCandidates,
+            recordedKind: environment["CMUX_AGENT_LAUNCH_KIND"],
+            recordedExecutable: environment["CMUX_AGENT_LAUNCH_EXECUTABLE"]
+        )
     }
 
     private func registrationDetectRule(

@@ -49,19 +49,19 @@ extension RestorableAgentSessionIndex {
         processSnapshot: CmuxTopProcessSnapshot,
         capturedAt: TimeInterval,
         processArgumentsProvider: ((Int) -> CmuxTopProcessArguments?)? = nil,
-        processArgumentBytesProvider: (Int) -> [UInt8]? = {
+        processArgumentBytesProvider: @escaping (Int) -> [UInt8]? = {
             CmuxTopProcessSnapshot.kernProcArgsBytes(for: $0)
         },
-        processArgumentsDecoder: ([UInt8]) -> CmuxTopProcessArguments? = {
+        processArgumentsDecoder: @escaping ([UInt8]) -> CmuxTopProcessArguments? = {
             CmuxTopProcessSnapshot.processArgumentsAndEnvironment(fromKernProcArgs: $0)
         }
     ) -> [PanelKey: ProcessDetectedSnapshotEntry] {
         let scopedProcesses = processSnapshot.cmuxScopedProcesses()
-        let initialArgumentCandidates = VaultAgentProcessCandidateSelector(
-            processes: scopedProcesses,
-            registry: registry
+        let processCandidates = scopedProcesses.map(AgentProcessCandidate.init(cmux:))
+        let candidateSelector = AgentProcessCandidateSelector(
+            processes: processCandidates,
+            policy: AgentProcessCandidatePolicy(cmux: registry)
         )
-        var argumentCandidateProcessIDs = initialArgumentCandidates.processIDs
         var registriesByWorkingDirectory: [String: CmuxVaultAgentRegistry] = [:]
 
         func registryForWorkingDirectory(_ workingDirectory: String?) -> CmuxVaultAgentRegistry {
@@ -78,60 +78,22 @@ extension RestorableAgentSessionIndex {
             return resolved
         }
 
-        // Tests and specialized callers that inject decoded arguments retain
-        // exhaustive semantics. Production scans each raw buffer once, finds
-        // project-local rules without building full argv/environment objects,
-        // and retains only candidate buffers for decoding.
-        let usesInjectedProcessArguments = processArgumentsProvider != nil
-        if usesInjectedProcessArguments {
-            argumentCandidateProcessIDs = Set(scopedProcesses.map(\.pid))
-        }
-        var rawProcessArgumentsByPID: [Int: [UInt8]] = [:]
-        let selectorIsExhaustive = argumentCandidateProcessIDs.count == scopedProcesses.count
-        if !usesInjectedProcessArguments, !selectorIsExhaustive {
-            for process in scopedProcesses {
-                guard let bytes = processArgumentBytesProvider(process.pid) else { continue }
-                let rawMetadata = initialArgumentCandidates.rawMetadata(
-                    fromKernProcArgs: bytes
-                )
-                if !registry.registrations.isEmpty {
-                    let workingDirectory = normalized(rawMetadata?.projectWorkingDirectory)
-                    let processRegistry = registryForWorkingDirectory(workingDirectory)
-                    if processRegistry.registrations != registry.registrations {
-                        argumentCandidateProcessIDs.insert(process.pid)
-                    }
-                }
-                if !argumentCandidateProcessIDs.contains(process.pid),
-                   let rawMetadata,
-                   initialArgumentCandidates.rawMetadataMayRequireFullDecode(
-                       rawMetadata,
-                       process: process
-                   ) {
-                    argumentCandidateProcessIDs.insert(process.pid)
-                }
-                if argumentCandidateProcessIDs.contains(process.pid) {
-                    rawProcessArgumentsByPID[process.pid] = bytes
-                }
+        var argumentScan = AgentProcessArgumentScan(
+            processes: processCandidates,
+            selector: candidateSelector,
+            injectedArgumentsProvider: processArgumentsProvider,
+            processArgumentBytesProvider: processArgumentBytesProvider,
+            processArgumentsDecoder: processArgumentsDecoder,
+            additionalMetadataRequiresFullDecode: { metadata in
+                guard !registry.registrations.isEmpty else { return false }
+                let workingDirectory = normalized(metadata?.projectWorkingDirectory)
+                let processRegistry = registryForWorkingDirectory(workingDirectory)
+                return processRegistry.registrations != registry.registrations
             }
-        }
+        )
 
-        var processArgumentsByPID: [Int: CmuxTopProcessArguments?] = [:]
         func cachedProcessArguments(_ processID: Int) -> CmuxTopProcessArguments? {
-            guard argumentCandidateProcessIDs.contains(processID) else { return nil }
-            if let cached = processArgumentsByPID[processID] { return cached }
-            let resolved: CmuxTopProcessArguments?
-            if let processArgumentsProvider {
-                resolved = processArgumentsProvider(processID)
-            } else if let bytes = rawProcessArgumentsByPID.removeValue(forKey: processID) {
-                resolved = processArgumentsDecoder(bytes)
-            } else if selectorIsExhaustive,
-                      let bytes = processArgumentBytesProvider(processID) {
-                resolved = processArgumentsDecoder(bytes)
-            } else {
-                resolved = nil
-            }
-            processArgumentsByPID.updateValue(resolved, forKey: processID)
-            return resolved
+            argumentScan.arguments(for: processID)
         }
 
         let scopedProcessIDsByPanelKey = processSnapshot.cmuxScopedProcessIDsByPanelKey()
