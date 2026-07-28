@@ -103,7 +103,7 @@ nonisolated struct AgentConversationReaderRegistry: Sendable {
         }
         if let lastError {
             agentConversationExportLogger.error(
-                "Conversation reader failed kind=\(source.kind.rawValue, privacy: .public): \(lastError.localizedDescription, privacy: .public)"
+                "Conversation reader failed kind=\(source.kind.rawValue, privacy: .public): \(lastError.localizedDescription, privacy: .private)"
             )
         }
         throw AgentConversationExportError.sourceUnavailable(source.kind.rawValue)
