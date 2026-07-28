@@ -867,8 +867,6 @@
       "concepts": "Konzepte",
       "anchorTitle": "Anker-Workspace",
       "anchorDesc": "Jede Gruppe gehört genau einem Workspace, dem sogenannten Anker. Die Gruppenkopfzeile in der Seitenleiste ist die Repräsentation des Ankers – es gibt keine separate Zeile dafür. Ein Klick auf den Namensbereich der Kopfzeile fokussiert die Bereiche des Ankers; ein Klick auf das Chevron schaltet das Zusammenklappen um.",
-      "anchorNew": "Anker sind beim Erstellen einer Gruppe immer brandneu. Sie werden nie aus einem bestehenden Workspace heraufgestuft. Das Arbeitsverzeichnis des Ankers wird beim Gruppieren einer Auswahl vom ersten ausgewählten Workspace übernommen oder beim Erstellen über das CLI ohne --cwd vom aktiven Workspace.",
-      "anchorClose": "Das Schließen des Anker-Workspace löst die Gruppe auf: Jedes andere Mitglied wird zu einem nicht gruppierten Workspace und bleibt in der Tab-Liste. Außer dem Anker selbst wird nichts geschlossen. Die App zeigt zuvor einen Bestätigungsdialog mit einem Umschalter \"Nicht erneut fragen\" an.",
       "identityTitle": "Gruppenidentität",
       "identityDesc": "Eine Gruppe hat einen Namen, ein Symbol (ein SF Symbol, standardmäßig folder.fill) und eine optionale benutzerdefinierte Farbe. Diese sind unabhängig von den eigenen Anpassungen des Anker-Workspace. Die Farbe und das Symbol des Ankers werden bei der Erstellung von der Gruppe übernommen, können danach aber abweichen.",
       "pinningTitle": "Anheften",

@@ -54,6 +54,21 @@ pub struct BrowserResizeFailure {
     pub error: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BrowserKey {
+    Character(char),
+    Named(&'static str),
+}
+
+impl BrowserKey {
+    fn as_str(self, character_buffer: &mut [u8; 4]) -> &str {
+        match self {
+            Self::Character(character) => character.encode_utf8(character_buffer),
+            Self::Named(name) => name,
+        }
+    }
+}
+
 pub enum BrowserInputKind {
     Mouse {
         event_type: &'static str,
@@ -69,7 +84,7 @@ pub enum BrowserInputKind {
     },
     Key {
         event_type: &'static str,
-        key: &'static str,
+        key: BrowserKey,
         code: &'static str,
         windows_virtual_key_code: u32,
         modifiers: u32,
@@ -184,13 +199,13 @@ pub struct BrowserInputDispatcher {
 
 #[cfg(test)]
 pub(crate) struct BlockedBrowserInput {
-    _rx: Receiver<SequencedBrowserInputEvent>,
+    rx: Receiver<SequencedBrowserInputEvent>,
 }
 
 #[cfg(test)]
 impl BlockedBrowserInput {
     pub(crate) fn recv_timeout(&self, timeout: Duration) -> Option<BrowserInputEvent> {
-        self._rx.recv_timeout(timeout).ok().map(|event| event.event)
+        self.rx.recv_timeout(timeout).ok().map(|event| event.event)
     }
 }
 
@@ -244,7 +259,7 @@ impl BrowserInputDispatcher {
                 failed_resizes: Arc::new(Mutex::new(HashMap::new())),
                 surface_lifetimes: Arc::new(Mutex::new(HashMap::new())),
             },
-            BlockedBrowserInput { _rx: rx },
+            BlockedBrowserInput { rx },
         )
     }
 
@@ -519,9 +534,19 @@ fn dispatch(event: &BrowserInputEvent) -> anyhow::Result<bool> {
             windows_virtual_key_code,
             modifiers,
             text,
-        } => surface
-            .browser_key_event(event_type, key, code, *windows_virtual_key_code, *modifiers, *text)
-            .map(|()| true),
+        } => {
+            let mut character_buffer = [0; 4];
+            surface
+                .browser_key_event(
+                    event_type,
+                    (*key).as_str(&mut character_buffer),
+                    code,
+                    *windows_virtual_key_code,
+                    *modifiers,
+                    *text,
+                )
+                .map(|()| true)
+        }
         BrowserInputKind::InsertText(text) => surface.browser_insert_text(text).map(|()| true),
         BrowserInputKind::Resize { cols, rows, reassert, .. } => {
             if *reassert {
@@ -663,9 +688,9 @@ mod tests {
             "a full disposable-input queue must retain the matching mouse release"
         );
 
-        let mut batch = vec![blocked._rx.recv().unwrap()];
+        let mut batch = vec![blocked.rx.recv().unwrap()];
         finish_ordered_batch(
-            &blocked._rx,
+            &blocked.rx,
             &dispatcher.order,
             &dispatcher.latest_resizes,
             &dispatcher.reliable_mouse_release,
@@ -684,7 +709,7 @@ mod tests {
             "a new press may queue once the fallback release is owned by the earlier ordered batch"
         );
         assert!(matches!(
-            blocked._rx.recv().unwrap().event.kind,
+            blocked.rx.recv().unwrap().event.kind,
             BrowserInputKind::Mouse { event_type: "mousePressed", .. }
         ));
         drop(batch);
@@ -700,11 +725,11 @@ mod tests {
             "a release in the FIFO must not reject a following press while capacity remains"
         );
         assert!(matches!(
-            blocked._rx.recv().unwrap().event.kind,
+            blocked.rx.recv().unwrap().event.kind,
             BrowserInputKind::Mouse { event_type: "mouseReleased", .. }
         ));
         assert!(matches!(
-            blocked._rx.recv().unwrap().event.kind,
+            blocked.rx.recv().unwrap().event.kind,
             BrowserInputKind::Mouse { event_type: "mousePressed", .. }
         ));
     }

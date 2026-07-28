@@ -867,8 +867,6 @@
       "concepts": "Concetti",
       "anchorTitle": "Workspace di ancoraggio",
       "anchorDesc": "Ogni gruppo è di proprietà di esattamente un workspace chiamato ancoraggio. L'intestazione del gruppo nella barra laterale è la rappresentazione dell'ancoraggio — non c'è una riga separata per esso. Cliccando sull'area del nome dell'intestazione si mettono a fuoco i pannelli dell'ancoraggio; cliccando sul chevron si alterna la compressione.",
-      "anchorNew": "Gli ancoraggi sono sempre completamente nuovi quando viene creato un gruppo. Non vengono mai promossi da un workspace esistente. La directory di lavoro dell'ancoraggio viene ereditata dal primo workspace selezionato quando si raggruppa una selezione, oppure dal workspace attivo quando si crea tramite il CLI senza --cwd.",
-      "anchorClose": "Chiudere il workspace di ancoraggio dissolve il gruppo: ogni altro membro diventa un workspace non raggruppato e rimane nell'elenco dei tab. Non viene chiuso nulla oltre all'ancoraggio stesso. L'app mostra una finestra di conferma con un interruttore \"Non chiedere più\" prima che ciò avvenga.",
       "identityTitle": "Identità del gruppo",
       "identityDesc": "Un gruppo ha un nome, un'icona (un SF Symbol, predefinito folder.fill) e un colore personalizzato opzionale. Questi sono indipendenti dalle personalizzazioni proprie del workspace di ancoraggio. Il colore e l'icona dell'ancoraggio vengono inizializzati dal gruppo alla creazione, ma possono divergere in seguito.",
       "pinningTitle": "Fissaggio",

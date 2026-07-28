@@ -382,3 +382,116 @@ struct DockRuntimeParityTests {
         }
     }
 }
+
+@MainActor
+@Suite("Dock notification attention", .serialized)
+struct DockNotificationAttentionTests {
+    @Test("Single-pane Dock attention bypasses workspace split gating")
+    func singlePaneDockAttentionBypassesWorkspaceSplitGating() throws {
+        let dock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
+        let panel = DockRuntimeParityPanel(title: "Dock")
+        try dock.seedRuntimeParityPanel(panel)
+
+        let appDelegate = try #require(AppDelegate.shared, "Expected app-host AppDelegate")
+        let routed = appDelegate.routeNotificationAttentionFlash(
+            workspaceID: dock.workspaceId,
+            panelID: panel.id,
+            reason: .notificationArrival,
+            requiresSplit: true
+        )
+
+        #expect(routed)
+        #expect(panel.flashReasons == [.notificationArrival])
+    }
+
+    @Test("Dock unread projection is scoped to active Dock panels")
+    func dockUnreadProjectionIsScopedToActiveDockPanels() {
+        let workspaceID = UUID()
+        let firstPanelID = UUID()
+        let secondPanelID = UUID()
+        let foreignPanelID = UUID()
+        let unread = SidebarUnreadModel()
+        let projection = DockUnreadPanelProjection(
+            source: unread,
+            workspaceID: workspaceID,
+            panelIDs: [firstPanelID, secondPanelID],
+            isActive: true
+        )
+
+        unread.apply(
+            totalUnreadCount: 2,
+            summaries: [:],
+            unreadSurfaceKeys: [
+                SidebarSurfaceUnreadKey(workspaceId: workspaceID, surfaceId: firstPanelID),
+                SidebarSurfaceUnreadKey(workspaceId: UUID(), surfaceId: foreignPanelID),
+            ],
+            focusedReadIndicatorByWorkspaceId: [:],
+            manualUnreadWorkspaceIds: []
+        )
+        #expect(projection.unreadPanelIDs == [firstPanelID])
+
+        unread.apply(
+            totalUnreadCount: 1,
+            summaries: [:],
+            unreadSurfaceKeys: [],
+            focusedReadIndicatorByWorkspaceId: [workspaceID: secondPanelID],
+            manualUnreadWorkspaceIds: []
+        )
+        #expect(projection.unreadPanelIDs == [secondPanelID])
+
+        projection.updateContext(
+            panelIDs: [firstPanelID, secondPanelID],
+            isActive: false
+        )
+        #expect(projection.unreadPanelIDs.isEmpty)
+
+        unread.apply(
+            totalUnreadCount: 1,
+            summaries: [:],
+            unreadSurfaceKeys: [
+                SidebarSurfaceUnreadKey(workspaceId: workspaceID, surfaceId: firstPanelID),
+            ],
+            focusedReadIndicatorByWorkspaceId: [:],
+            manualUnreadWorkspaceIds: []
+        )
+        #expect(projection.unreadPanelIDs.isEmpty)
+
+        projection.updateContext(
+            panelIDs: [firstPanelID, secondPanelID],
+            isActive: true
+        )
+        #expect(projection.unreadPanelIDs == [firstPanelID])
+    }
+
+    @Test("Dock panel content receives projected unread state")
+    func dockPanelContentReceivesProjectedUnreadState() throws {
+        let dock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
+        let panel = DockRuntimeParityPanel(title: "Dock")
+        let paneID = try dock.seedRuntimeParityPanel(panel)
+        let tabID = try #require(dock.surfaceId(forPanelId: panel.id))
+        let content = DockSplitContentView(
+            store: dock,
+            appearance: .fromConfig(WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "test.dock.unread")),
+            appearanceRevision: 0,
+            windowAppearance: .rightSidebarPanelViewTestDefault,
+            rightSidebarOwnsInputFocus: false,
+            unreadPanelIDs: [panel.id]
+        )
+
+        let unreadPanelView = content.panelView(panel: panel, tabID: tabID, paneID: paneID)
+        let readContent = DockSplitContentView(
+            store: dock,
+            appearance: content.appearance,
+            appearanceRevision: 0,
+            windowAppearance: content.windowAppearance,
+            rightSidebarOwnsInputFocus: false,
+            unreadPanelIDs: []
+        )
+        let readPanelView = readContent.panelView(panel: panel, tabID: tabID, paneID: paneID)
+
+        #expect(unreadPanelView.panelContentView().hasUnreadNotification)
+        #expect(unreadPanelView != readPanelView)
+        let otherUnreadContent = DockSplitContentView(store: dock, appearance: content.appearance, appearanceRevision: 0, windowAppearance: content.windowAppearance, rightSidebarOwnsInputFocus: false, unreadPanelIDs: [UUID()])
+        #expect(readPanelView == otherUnreadContent.panelView(panel: panel, tabID: tabID, paneID: paneID))
+    }
+}

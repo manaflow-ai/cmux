@@ -1269,7 +1269,13 @@ class TerminalController {
         case "feedback.submit":
             return v2Result(id: request.id, v2FeedbackSubmit(params: request.params))
         case "feed.push":
-            return v2Result(id: request.id, v2FeedPush(params: request.params))
+            return v2Result(
+                id: request.id,
+                v2FeedPush(
+                    params: request.params,
+                    requiresIngestionAcknowledgment: request.id != nil
+                )
+            )
         case "feed.permission.reply":
             return v2Result(id: request.id, v2FeedPermissionReply(params: request.params))
         case "feed.question.reply":
@@ -4454,7 +4460,10 @@ class TerminalController {
             @MainActor
             func closeWorkspaces(_ workspaces: [Workspace]) -> Int {
                 var closed = 0
-                for candidate in workspaces where candidate.id != workspace.id {
+                // Drain non-anchor members before group anchors so a range close
+                // that targets a group promotes at most once per group instead of
+                // re-promoting and rescanning per member (see anchorLastCloseOrder).
+                for candidate in tabManager.anchorLastCloseOrder(workspaces) where candidate.id != workspace.id {
                     let existedBefore = tabManager.tabs.contains(where: { $0.id == candidate.id })
                     guard existedBefore else { continue }
                     tabManager.closeWorkspace(candidate)
@@ -5616,7 +5625,10 @@ class TerminalController {
 
     // MARK: - V2 Feed (workstream) handlers
 
-    private nonisolated func v2FeedPush(params: [String: Any]) -> V2CallResult {
+    private nonisolated func v2FeedPush(
+        params: [String: Any],
+        requiresIngestionAcknowledgment: Bool
+    ) -> V2CallResult {
         let waitTimeout: TimeInterval
         if let rawTimeout = params["wait_timeout_seconds"] {
             let seconds: Double?
@@ -5647,50 +5659,73 @@ class TerminalController {
         } else {
             waitTimeout = 0
         }
-        let eventDict: [String: Any]
+        guard params["event"] == nil || params["events"] == nil else {
+            return .err(
+                code: "invalid_params",
+                message: v2FeedPushExclusiveEventShapeMessage(),
+                data: nil
+            )
+        }
+        let isBatch = params["events"] != nil
+        let eventDicts: [[String: Any]]
         if let nested = params["event"] as? [String: Any] {
-            eventDict = nested
+            eventDicts = [nested]
+        } else if let nested = params["events"] as? [[String: Any]],
+                  !nested.isEmpty,
+                  nested.count <= 64 {
+            eventDicts = nested
         } else if params["session_id"] != nil,
                   params["hook_event_name"] != nil,
                   params["_source"] != nil {
-            eventDict = params
+            eventDicts = [params]
         } else {
             return .err(
                 code: "invalid_params",
-                message: "feed.push requires an `event` object",
+                message: v2FeedPushRequiresEventMessage(),
                 data: nil
             )
         }
 
-        let event: WorkstreamEvent
+        let events: [WorkstreamEvent]
         do {
-            let data = try JSONSerialization.data(withJSONObject: eventDict)
-            event = try JSONDecoder().decode(WorkstreamEvent.self, from: data)
+            events = try eventDicts.map {
+                let data = try JSONSerialization.data(withJSONObject: $0)
+                return try JSONDecoder().decode(WorkstreamEvent.self, from: data)
+            }
         } catch {
             return .err(
                 code: "invalid_params",
-                message: "feed.push event failed to decode: \(error)",
+                message: v2FeedPushDecodeFailedMessage(error),
+                data: nil
+            )
+        }
+        guard !isBatch || events.allSatisfy({
+            $0.source == "pi"
+                && $0.hookEventName == .postToolUse
+                && $0.requestId != nil
+                && $0.surfaceId != nil
+        }) else {
+            return .err(
+                code: "invalid_params",
+                message: v2FeedPushRequiresEventMessage(),
+                data: nil
+            )
+        }
+        if requiresIngestionAcknowledgment && waitTimeout == 0 {
+            return v2IngestAcknowledgedFeedEvents(events)
+        }
+        guard let event = events.first, events.count == 1 else {
+            return .err(
+                code: "invalid_params",
+                message: v2FeedPushRequiresEventMessage(),
                 data: nil
             )
         }
 
-        CmuxEventBus.shared.publishWorkstreamEvent(event, phase: "received")
-        v2ApplyIMessageModeSideEffects(for: event)
-        Task { @MainActor in self.agentChatTranscriptService?.noteHookEvent(event) }
-
-        let result = FeedCoordinator.shared.ingestBlocking(
-            event: event,
-            waitTimeout: waitTimeout
-        )
-        CmuxEventBus.shared.publishWorkstreamEvent(
-            event,
-            phase: "completed",
-            result: FeedSocketEncoding.payload(for: result)
-        )
-        return .ok(FeedSocketEncoding.payload(for: result))
+        return v2IngestFeedEvent(event, waitTimeout: waitTimeout)
     }
 
-    private nonisolated func v2ApplyIMessageModeSideEffects(for event: WorkstreamEvent) {
+    nonisolated func v2ApplyIMessageModeSideEffects(for event: WorkstreamEvent) {
         guard event.hookEventName == .userPromptSubmit || event.hookEventName == .stop,
               let rawWorkspaceId = event.workspaceId?.trimmingCharacters(in: .whitespacesAndNewlines),
               !rawWorkspaceId.isEmpty
@@ -14113,16 +14148,12 @@ class TerminalController {
             result = await v2MobileAttachTicketCreate(params: request.params)
         case "mobile.workspace.list", "workspace.list":
             result = v2MobileWorkspaceList(params: request.params)
-        case "mobile.workspace.changes.summary":
-            result = await v2MobileWorkspaceChangesSummary(params: request.params)
-        case "mobile.workspace.changes.files":
-            result = await v2MobileWorkspaceChangesFiles(params: request.params)
-        case "mobile.workspace.changes.file_diff":
-            result = await v2MobileWorkspaceChangesFileDiff(params: request.params)
-        case "mobile.workspace.changes.file_stat":
-            result = await v2MobileWorkspaceChangesFileStat(params: request.params)
-        case "mobile.workspace.changes.file_fetch":
-            result = await v2MobileWorkspaceChangesFileFetch(params: request.params)
+        case "mobile.workspace.changes.summary",
+             "mobile.workspace.changes.files",
+             "mobile.workspace.changes.file_diff",
+             "mobile.workspace.changes.file_stat",
+             "mobile.workspace.changes.file_fetch":
+            result = await v2MobileWorkspaceChanges(method: request.method, params: request.params)
         case "mobile.directory.search":
             result = await v2MobileDirectorySearch(
                 params: request.params,

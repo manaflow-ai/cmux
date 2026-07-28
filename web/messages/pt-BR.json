@@ -867,8 +867,6 @@
       "concepts": "Conceitos",
       "anchorTitle": "Workspace âncora",
       "anchorDesc": "Todo grupo pertence a exatamente um workspace chamado âncora. O cabeçalho do grupo na barra lateral é a representação da âncora — não há uma linha separada para ela. Clicar na área do nome do cabeçalho foca os painéis da âncora; clicar no chevron alterna o recolhimento.",
-      "anchorNew": "As âncoras são sempre totalmente novas quando um grupo é criado. Elas nunca são promovidas a partir de um workspace existente. O diretório de trabalho da âncora é herdado do primeiro workspace selecionado ao agrupar uma seleção, ou do workspace ativo ao criar via CLI sem --cwd.",
-      "anchorClose": "Fechar o workspace âncora dissolve o grupo: todos os outros membros tornam-se workspaces desagrupados e permanecem na lista de abas. Nada é fechado além da própria âncora. O aplicativo exibe uma caixa de diálogo de confirmação com uma opção \"Não perguntar novamente\" antes que isso aconteça.",
       "identityTitle": "Identidade do grupo",
       "identityDesc": "Um grupo tem um nome, um ícone (um SF Symbol, por padrão folder.fill) e uma cor personalizada opcional. Esses elementos são independentes das próprias personalizações do workspace âncora. A cor e o ícone da âncora são inicializados a partir do grupo na criação, mas podem divergir depois.",
       "pinningTitle": "Fixação",

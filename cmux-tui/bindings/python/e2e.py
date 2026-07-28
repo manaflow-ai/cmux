@@ -27,6 +27,14 @@ def main() -> int:
         assert marker in client.read_screen(created.surface).text
         workspace = find_workspace_for_surface(client.list_workspaces(), created.surface)
         assert workspace is not None
+        pane = find_pane_for_surface(client.list_workspaces(), created.surface)
+        assert pane is not None
+        client.new_pane_right(pane, width=0.5)
+        viewport_screen = find_screen_for_surface(client.list_workspaces(), created.surface)
+        assert viewport_screen is not None
+        assert viewport_screen.viewport_base_width == 1.0
+        assert len(viewport_screen.viewport_splits) == 1
+        assert abs(viewport_screen.viewport_splits[0].width - 0.5) < 0.0001
         client.rename_surface(created.surface, f"{marker}-renamed")
         events = client.subscribe()
         try:
@@ -139,6 +147,24 @@ def find_workspace_for_surface(tree, surface: int) -> int | None:
             for pane in screen.panes:
                 if any(tab.surface == surface for tab in pane.tabs):
                     return workspace.id
+    return None
+
+
+def find_pane_for_surface(tree, surface: int) -> int | None:
+    for workspace in tree.workspaces:
+        for screen in workspace.screens:
+            for pane in screen.panes:
+                if any(tab.surface == surface for tab in pane.tabs):
+                    return pane.id
+    return None
+
+
+def find_screen_for_surface(tree, surface: int):
+    for workspace in tree.workspaces:
+        for screen in workspace.screens:
+            for pane in screen.panes:
+                if any(tab.surface == surface for tab in pane.tabs):
+                    return screen
     return None
 
 
