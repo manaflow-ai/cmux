@@ -86,6 +86,169 @@ struct AgentSessionRetryInteractionTests {
     }
 
     @MainActor
+    @Test("a retry command start owns its generation before fresh hooks arrive")
+    func retryStartBeforeHooksRetainsOwnership() throws {
+        let fixture = try scheduledRetry(
+            suiteName: "AgentSessionRetryInteractionTests.startBeforeHooks"
+        )
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+
+        fixture.workspace.agentSessionRetryCoordinator.retryTimerFired(
+            panelId: fixture.panelId
+        )
+
+        fixture.workspace.updatePanelShellActivityState(
+            panelId: fixture.panelId,
+            state: .commandRunning
+        )
+        #expect(fixture.workspace.statusEntries[fixture.statusKey] == nil)
+
+        fixture.workspace.updatePanelShellActivityState(
+            panelId: fixture.panelId,
+            state: .promptIdle
+        )
+        fixture.workspace.agentSessionRetryCoordinator.commandFinished(
+            panelId: fixture.panelId,
+            exitCode: 1
+        )
+
+        let expectedStatus = String.localizedStringWithFormat(
+            String(
+                localized: "agent.autoRetry.status.retrying",
+                defaultValue: "Retrying agent (attempt %lld/%lld)…"
+            ),
+            Int64(2),
+            Int64(3)
+        )
+        #expect(fixture.workspace.statusEntries[fixture.statusKey]?.value == expectedStatus)
+        fixture.workspace.agentSessionRetryCoordinator.cancelAll()
+    }
+
+    @MainActor
+    @Test("a retry failure before start hooks advances the bounded retry budget")
+    func retryFailureBeforeStartHooksAdvancesBudget() throws {
+        let fixture = try scheduledRetry(
+            suiteName: "AgentSessionRetryInteractionTests.failureBeforeStartHooks"
+        )
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+
+        fixture.workspace.agentSessionRetryCoordinator.retryTimerFired(
+            panelId: fixture.panelId
+        )
+        fixture.workspace.setAgentLifecycle(
+            key: "claude_code",
+            panelId: fixture.panelId,
+            lifecycle: .idle
+        )
+
+        fixture.workspace.agentSessionRetryCoordinator.commandFinished(
+            panelId: fixture.panelId,
+            exitCode: 1
+        )
+
+        let expectedStatus = String.localizedStringWithFormat(
+            String(
+                localized: "agent.autoRetry.status.retrying",
+                defaultValue: "Retrying agent (attempt %lld/%lld)…"
+            ),
+            Int64(2),
+            Int64(3)
+        )
+        #expect(fixture.workspace.statusEntries[fixture.statusKey]?.value == expectedStatus)
+        fixture.workspace.agentSessionRetryCoordinator.cancelAll()
+    }
+
+    @MainActor
+    @Test("explicit input cancels an accepted retry before launch acknowledgement")
+    func explicitInputCancelsAwaitingLaunch() throws {
+        let fixture = try scheduledRetry(
+            suiteName: "AgentSessionRetryInteractionTests.awaitingInput"
+        )
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        let panel = try #require(fixture.workspace.panels[fixture.panelId] as? TerminalPanel)
+        fixture.workspace.agentSessionRetryCoordinator.retryTimerFired(panelId: fixture.panelId)
+
+        panel.surface.didReceiveExplicitInput()
+
+        #expect(fixture.workspace.agentSessionRetryCoordinator.statesByPanelId[fixture.panelId] == nil)
+        #expect(fixture.workspace.statusEntries[fixture.statusKey] == nil)
+    }
+
+    @MainActor
+    @Test("same-session hooks acknowledge a retry and clear its retrying status")
+    func sameSessionHooksAcknowledgeLaunch() throws {
+        let fixture = try scheduledRetry(
+            suiteName: "AgentSessionRetryInteractionTests.hookAck"
+        )
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        let binding = managedBinding(sessionId: "input-cancelled-retry")
+        fixture.workspace.agentSessionRetryCoordinator.retryTimerFired(panelId: fixture.panelId)
+
+        #expect(fixture.workspace.setSurfaceResumeBinding(binding, panelId: fixture.panelId))
+        fixture.workspace.setAgentLifecycle(
+            key: "claude_code",
+            panelId: fixture.panelId,
+            lifecycle: .unknown
+        )
+
+        #expect(fixture.workspace.statusEntries[fixture.statusKey] == nil)
+
+        fixture.workspace.updatePanelShellActivityState(
+            panelId: fixture.panelId,
+            state: .commandRunning
+        )
+        #expect(fixture.workspace.clearSurfaceResumeBinding(
+            panelId: fixture.panelId,
+            agentSessionEnded: true
+        ))
+        fixture.workspace.updatePanelShellActivityState(
+            panelId: fixture.panelId,
+            state: .promptIdle
+        )
+        fixture.workspace.setAgentLifecycle(
+            key: "claude_code",
+            panelId: fixture.panelId,
+            lifecycle: .idle
+        )
+        #expect(fixture.workspace.clearAgentLifecycle(
+            key: "claude_code",
+            panelId: fixture.panelId
+        ))
+        fixture.workspace.agentSessionRetryCoordinator.commandFinished(
+            panelId: fixture.panelId,
+            exitCode: 0
+        )
+
+        #expect(fixture.workspace.agentSessionRetryCoordinator.statesByPanelId[fixture.panelId] == nil)
+        #expect(fixture.workspace.statusEntries[fixture.statusKey] == nil)
+    }
+
+    @MainActor
+    @Test("prompt-idle binding cleanup preserves the ended command for classification")
+    func bindingOnlyCleanupPreservesEndedCandidate() throws {
+        let suiteName = "AgentSessionRetryInteractionTests.bindingCleanup"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: AgentSessionAutoRetrySettings.autoRetryAgentSessionsKey)
+        let workspace = Workspace(
+            agentSessionAutoRetrySettings: AgentSessionAutoRetrySettings(defaults: defaults)
+        )
+        let panelId = try #require(workspace.focusedPanelId)
+        let binding = managedBinding(sessionId: "binding-only-cleanup")
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
+        #expect(workspace.setSurfaceResumeBinding(binding, panelId: panelId))
+        workspace.setAgentLifecycle(key: "claude_code", panelId: panelId, lifecycle: .running)
+        workspace.restoredAgentResumeStatesByPanelId[panelId] = .observedAgentCommandRunning
+
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
+        #expect(workspace.surfaceResumeBinding(panelId: panelId) == nil)
+        workspace.agentSessionRetryCoordinator.commandFinished(panelId: panelId, exitCode: 1)
+
+        #expect(workspace.statusEntries[retryStatusKey(panelId: panelId)]?.icon == "arrow.clockwise")
+        workspace.agentSessionRetryCoordinator.cancelAll()
+    }
+
+    @MainActor
     private func scheduledRetry(
         suiteName: String
     ) throws -> (
