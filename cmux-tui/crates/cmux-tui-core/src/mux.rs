@@ -53,6 +53,9 @@ const PROVIDER_WORKSPACE_AUTHORITY_MIN_BYTES: usize = 32;
 const PROVIDER_WORKSPACE_AUTHORITY_MAX_BYTES: usize = 512;
 const CELL_PIXEL_FANOUT_MAX_WORKERS: usize = 32;
 const DEADLINE_FANOUT_QUEUE_CAPACITY: usize = CELL_PIXEL_FANOUT_MAX_WORKERS * 8;
+const CELL_PIXEL_RETRY_INITIAL: Duration = Duration::from_millis(25);
+const CELL_PIXEL_RETRY_MAX: Duration = Duration::from_millis(250);
+const CELL_PIXEL_RETRY_MAX_ATTEMPTS: u8 = 4;
 const KITTY_IMAGE_BUDGET_RETRY_INITIAL: Duration = Duration::from_millis(25);
 const KITTY_IMAGE_BUDGET_RETRY_MAX: Duration = Duration::from_secs(1);
 pub(crate) const RENDER_ATTACHMENT_LIMIT: usize = 64;
@@ -73,6 +76,11 @@ const KITTY_IMAGE_BUDGET_OWNER_LIMIT: usize = {
     let placement_limit = KITTY_PLACEMENT_PROCESS_BUDGET_COUNT / KITTY_OBJECT_OWNERS_PER_SURFACE;
     if image_limit < placement_limit { image_limit as usize } else { placement_limit as usize }
 };
+
+fn cell_pixel_retry_delay(attempts: u8) -> Duration {
+    let multiplier = 1_u32.checked_shl(u32::from(attempts.saturating_sub(1))).unwrap_or(u32::MAX);
+    CELL_PIXEL_RETRY_INITIAL.saturating_mul(multiplier).min(CELL_PIXEL_RETRY_MAX)
+}
 
 fn kitty_image_budget_capacity(surface_count: usize, current: usize) -> usize {
     if surface_count == 0 {
@@ -1219,6 +1227,7 @@ struct PendingCellPixelOperation {
 struct CellPixelRetryTask {
     surfaces: Vec<Weak<Surface>>,
     pending: Vec<PendingCellPixelOperation>,
+    attempts: u8,
     generation: u64,
     target: (u16, u16),
     completion: Arc<CellPixelCompletionTracker>,
@@ -5063,8 +5072,15 @@ impl Mux {
                     }
                 }
             };
-            if let Some(task) = Self::run_cell_pixel_retry_task(&mux, task) {
-                std::thread::sleep(Duration::from_millis(25));
+            if let Some(mut task) = Self::run_cell_pixel_retry_task(&mux, task) {
+                task.attempts = task.attempts.saturating_add(1);
+                if task.attempts >= CELL_PIXEL_RETRY_MAX_ATTEMPTS {
+                    if let Some(mux) = mux.upgrade() {
+                        mux.finish_cell_pixel_retries(&task);
+                    }
+                    continue;
+                }
+                std::thread::sleep(cell_pixel_retry_delay(task.attempts));
                 let Some(mux) = mux.upgrade() else { return };
                 let mut retries = mux.cell_pixel_retries.lock().unwrap();
                 if retries.pending.is_none() {
@@ -5072,6 +5088,25 @@ impl Mux {
                 }
             }
         }
+    }
+
+    fn finish_cell_pixel_retries(&self, task: &CellPixelRetryTask) {
+        let remaining = {
+            let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
+            let mut pending = self.pending_cell_pixels.lock().unwrap();
+            let Some(pending) = pending.as_mut().filter(|pending| {
+                pending.generation == task.generation && pending.target == task.target
+            }) else {
+                return;
+            };
+            pending.use_for_creation = false;
+            pending.failures.len()
+        };
+        self.emit(MuxEvent::Status(format!(
+            "cell pixel update stopped after {} retry attempts with {remaining} unconverged \
+             surface(s) at {}x{}; a later host acknowledgement can still recover",
+            task.attempts, task.target.0, task.target.1
+        )));
     }
 
     fn run_cell_pixel_retry_task(
@@ -5216,6 +5251,7 @@ impl Mux {
         (!remaining.is_empty() || !pending_operations.is_empty()).then_some(CellPixelRetryTask {
             surfaces: remaining,
             pending: pending_operations,
+            attempts: task.attempts,
             generation: task.generation,
             target: task.target,
             completion: task.completion,
@@ -5389,6 +5425,7 @@ impl Mux {
             self.enqueue_cell_pixel_retries(CellPixelRetryTask {
                 surfaces: retry_surfaces,
                 pending: pending_operations,
+                attempts: 0,
                 generation,
                 target: next,
                 completion,
@@ -11215,7 +11252,7 @@ mod tests {
     #[test]
     fn cell_pixel_deadline_retries_stop_and_report_terminal_failure() {
         let mux = test_mux();
-        mux.new_workspace(None, Some((80, 24))).unwrap();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
         let attempts = Arc::new(AtomicUsize::new(0));
         *mux.cell_pixel_fanout_timeout.lock().unwrap() = Some(Duration::from_millis(10));
         *mux.cell_pixel_operation.lock().unwrap() = Some(Arc::new({
@@ -11240,12 +11277,20 @@ mod tests {
             "deadline retries did not stop after {} attempts",
             attempts.load(Ordering::Acquire)
         );
-        assert!(attempts.load(Ordering::Acquire) <= 8);
+        assert_eq!(
+            attempts.load(Ordering::Acquire),
+            usize::from(CELL_PIXEL_RETRY_MAX_ATTEMPTS) + 1
+        );
         assert_eq!(mux.cell_pixel_creation_size(), (8, 16));
         assert!(events.try_iter().any(|event| {
             matches!(event, MuxEvent::Status(message)
                 if message.contains("cell pixel update stopped after"))
         }));
+
+        assert!(surface.set_cell_pixel_size(9, 18).unwrap());
+        mux.reconcile_deferred_cell_pixel_ack(surface.id, (9, 18));
+        assert_eq!(mux.cell_pixel_size(), (9, 18));
+        assert!(mux.pending_cell_pixels.lock().unwrap().is_none());
     }
 
     #[test]

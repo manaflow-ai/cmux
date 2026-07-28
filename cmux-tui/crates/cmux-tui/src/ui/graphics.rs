@@ -727,8 +727,10 @@ impl GraphicsState {
             .copied()
             .filter(|key| *key == inserted_key || self.image_ids.contains_key(key))
             .collect::<Vec<_>>();
-        let insertion_index =
-            assigned.binary_search(&inserted_key).expect("inserted image is in relabel set");
+        let insertion_index = assigned
+            .iter()
+            .position(|key| *key == inserted_key)
+            .expect("inserted image is in relabel set");
         let mut radius = 8_usize;
         let (window_start, window_end, lower, upper) = loop {
             let start = insertion_index.saturating_sub(radius);
