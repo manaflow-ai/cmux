@@ -43,6 +43,15 @@ extension CMUXCLI {
         processEnvironment: [String: String],
         explicitPassword: String?
     ) throws -> TmuxCompatLaunchContext? {
+        // A managed launcher is anchored to the immutable identity injected into its
+        // terminal. Without either inherited key there is no caller to validate, so fail
+        // closed before opening the socket. In particular, never borrow system-wide focus
+        // from `system.identify`: a command started in Terminal.app must not target an
+        // unrelated cmux surface merely because that surface happens to be focused.
+        let ownWorkspace = normalizedTmuxTarget(processEnvironment["CMUX_WORKSPACE_ID"])
+        let ownSurface = normalizedTmuxTarget(processEnvironment["CMUX_SURFACE_ID"])
+        guard ownWorkspace != nil || ownSurface != nil else { return nil }
+
         let socketPath = try tmuxCompatResolvedSocketPath(processEnvironment: processEnvironment)
         let client = SocketClient(path: socketPath)
 
@@ -117,100 +126,41 @@ extension CMUXCLI {
             }
 
             // A launcher running inside a cmux terminal inherits that surface's immutable
-            // workspace/surface pair. Resolve and validate it before consulting global focus, so
+            // workspace/surface pair. Resolve and validate it without consulting global focus, so
             // switching or closing the operator's focused pane cannot retarget a running team.
             // Once either component is present, the inherited pair is authoritative: an incomplete
             // or stale pair fails closed instead of silently changing identity to the focused pane.
-            let ownWorkspace = normalizedTmuxTarget(processEnvironment["CMUX_WORKSPACE_ID"])
-            let ownSurface = normalizedTmuxTarget(processEnvironment["CMUX_SURFACE_ID"])
-            if ownWorkspace != nil || ownSurface != nil {
-                if let ownWorkspace, let ownSurface {
-                    if let context = try? contextFromSurface(
-                        workspaceHandle: ownWorkspace,
-                        surfaceHandle: ownSurface,
-                        windowHandle: nil
-                    ) {
-                        return context
-                    }
-                }
-
-                // A surface's stable UUID survives moves between workspaces. The inherited
-                // workspace can therefore be stale while the launch surface is still live.
-                // Relocate that UUID from structured socket state without consulting global
-                // focus; an inherited identity must never silently retarget to another surface.
-                guard let ownSurface else { return nil }
-                let surfaceId = tmuxTrimIdSigil(ownSurface)
-                guard isUUID(surfaceId) else { return nil }
-                let payload = try client.sendV2(
-                    method: "surface.list",
-                    params: ["surface_id": surfaceId]
-                )
-                guard let currentWorkspaceId = payload["workspace_id"] as? String,
-                      isUUID(currentWorkspaceId) else {
-                    return nil
-                }
-                return try? contextFromSurfacePayload(
-                    payload,
-                    workspaceId: currentWorkspaceId,
-                    surfaceId: surfaceId,
-                    surfaceHandle: surfaceId,
+            if let ownWorkspace, let ownSurface {
+                if let context = try? contextFromSurface(
+                    workspaceHandle: ownWorkspace,
+                    surfaceHandle: ownSurface,
                     windowHandle: nil
-                )
+                ) {
+                    return context
+                }
             }
 
-            let payload = try client.sendV2(method: "system.identify")
-            let focused = payload["focused"] as? [String: Any] ?? [:]
-            let workspaceId = (focused["workspace_id"] as? String)
-                ?? (focused["workspace_ref"] as? String)
-            let paneId = (focused["pane_id"] as? String)
-                ?? (focused["pane_ref"] as? String)
-            guard let workspaceId, let paneId else { return nil }
-
-            let paneHandle = paneId.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !paneHandle.isEmpty else { return nil }
-
-            let windowId = (focused["window_id"] as? String)
-                ?? (focused["window_ref"] as? String)
-            let surfaceId = (focused["surface_id"] as? String)
-                ?? (focused["surface_ref"] as? String)
-            if let surfaceId,
-               let focusedContext = try? contextFromSurface(
-                   workspaceHandle: workspaceId,
-                   surfaceHandle: surfaceId,
-                   windowHandle: windowId
-               ) {
-                return focusedContext
+            // A surface's stable UUID survives moves between workspaces. The inherited
+            // workspace can therefore be stale while the launch surface is still live.
+            // Relocate that UUID from structured socket state without consulting global
+            // focus; an inherited identity must never silently retarget to another surface.
+            guard let ownSurface else { return nil }
+            let surfaceId = tmuxTrimIdSigil(ownSurface)
+            guard isUUID(surfaceId) else { return nil }
+            let payload = try client.sendV2(
+                method: "surface.list",
+                params: ["surface_id": surfaceId]
+            )
+            guard let currentWorkspaceId = payload["workspace_id"] as? String,
+                  isUUID(currentWorkspaceId) else {
+                return nil
             }
-
-            let canonicalPaneId: String? = {
-                guard let canonicalWorkspaceId = try? resolveWorkspaceId(workspaceId, client: client) else {
-                    return nil
-                }
-                if let paneUUID = normalizedTmuxTarget(focused["pane_uuid"] as? String) {
-                    return paneUUID
-                }
-                if let paneId = normalizedTmuxTarget(focused["pane_id"] as? String),
-                   let canonical = try? tmuxCanonicalPaneId(
-                       paneId,
-                       workspaceId: canonicalWorkspaceId,
-                       client: client
-                   ) {
-                    return canonical
-                }
-                return try? tmuxCanonicalPaneId(
-                    paneHandle,
-                    workspaceId: canonicalWorkspaceId,
-                    client: client
-                )
-            }()
-
-            return TmuxCompatLaunchContext(
-                socketPath: socketPath,
-                workspaceId: workspaceId,
-                windowId: windowId,
-                paneHandle: paneHandle,
-                paneId: canonicalPaneId,
-                surfaceId: surfaceId
+            return try? contextFromSurfacePayload(
+                payload,
+                workspaceId: currentWorkspaceId,
+                surfaceId: surfaceId,
+                surfaceHandle: surfaceId,
+                windowHandle: nil
             )
         } catch {
             client.close()

@@ -285,6 +285,8 @@ tmux list-panes -t "$window_target" -F '#{pane_id}' > "$FAKE_PANE_LIST_LOG"
         env["HOME"] = str(home)
         env["PATH"] = f"{real_bin}:/usr/bin:/bin"
         env["CMUX_SOCKET_PATH"] = str(socket_path)
+        env["CMUX_WORKSPACE_ID"] = INITIAL_WORKSPACE_ID
+        env["CMUX_SURFACE_ID"] = INITIAL_SURFACE_ID
         env["FAKE_TMUX_PANE_LOG"] = str(tmux_pane_log)
         env["FAKE_SOCKET_LOG"] = str(tmux_socket_log)
         env["FAKE_WINDOW_TARGET_LOG"] = str(window_target_log)

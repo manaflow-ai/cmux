@@ -10,7 +10,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from claude_teams_test_utils import resolve_cmux_cli
+from claude_teams_test_utils import focused_cmux_server, resolve_cmux_cli
 
 
 def make_executable(path: Path, content: str) -> None:
@@ -83,7 +83,25 @@ omc-node-helper "$@"
             print(f"FAIL: expected fallback helper to remain on PATH, got {lines!r}")
             return 1
 
-        omc_log.unlink()
+        for command in ("version", "config", "setup", "install", "update"):
+            omc_log.unlink(missing_ok=True)
+            informational = subprocess.run(
+                [cli_path, "omc", command],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=env,
+                timeout=30,
+            )
+            if informational.returncode != 0 or not omc_log.exists():
+                print(f"FAIL: positional non-launch command {command!r} required a live surface")
+                print(f"stderr={informational.stderr.strip()}")
+                return 1
+            if informational.stdout.strip().splitlines()[-1] != f"args:{command}":
+                print(f"FAIL: positional command {command!r} was not passed through")
+                return 1
+
+        omc_log.unlink(missing_ok=True)
         real_launch = subprocess.run(
             [cli_path, "omc", "start a team"],
             capture_output=True,
@@ -94,6 +112,31 @@ omc-node-helper "$@"
         )
         if real_launch.returncode == 0 or omc_log.exists():
             print("FAIL: real OMC launch continued without a live cmux surface context")
+            return 1
+        with focused_cmux_server(root / "focused-cmux.sock") as (socket_path, requests):
+            focused_env = env.copy()
+            focused_env["CMUX_SOCKET_PATH"] = socket_path
+            for key in (
+                "CMUX_WORKSPACE_ID",
+                "CMUX_SURFACE_ID",
+                "CMUX_PANEL_ID",
+                "CMUX_TAB_ID",
+                "CMUX_PANE_ID",
+            ):
+                focused_env.pop(key, None)
+            focused = subprocess.run(
+                [cli_path, "omc", "start a team"],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=focused_env,
+                timeout=30,
+            )
+        if focused.returncode == 0 or omc_log.exists():
+            print("FAIL: contextless OMC launch borrowed the globally focused cmux surface")
+            return 1
+        if "system.identify" in requests:
+            print(f"FAIL: contextless OMC launch consulted mutable focus: {requests!r}")
             return 1
 
     print("PASS: OMC preserves informational fallback and fails closed for real launches")

@@ -22699,7 +22699,7 @@ struct CMUXCLI {
             processEnvironment: launcherEnvironment,
             explicitPassword: explicitPassword
         )
-        if !tmuxCompatIsInformationalInvocation(commandArgs: commandArgs),
+        if !omcIsNonLaunchInvocation(commandArgs: commandArgs),
            normalizedTmuxTarget(launchContext?.surfaceId) == nil {
             throw CLIError(message: managedTerminalRequiredMessage(displayName: "cmux omc"))
         }
@@ -22731,6 +22731,17 @@ struct CMUXCLI {
             execv(launchPath, &argv)
         }
         throw CLIError(message: "Failed to launch omc: \(String(cString: strerror(code)))\n\nIs oh-my-claude-sisyphus installed? Install with:\n  npm install -g oh-my-claude-sisyphus")
+    }
+
+    /// OMC commands that only inspect or manage OMC itself and do not start an agent.
+    /// Help/version flags use the shared parser so prompt payloads cannot masquerade as
+    /// flags; OMC's documented management commands are top-level positional subcommands.
+    private func omcIsNonLaunchInvocation(commandArgs: [String]) -> Bool {
+        if tmuxCompatIsInformationalInvocation(commandArgs: commandArgs) {
+            return true
+        }
+        guard let command = commandArgs.first else { return false }
+        return ["version", "config", "setup", "install", "update"].contains(command)
     }
 
     private func runClaudeTeamsTmuxCompat(

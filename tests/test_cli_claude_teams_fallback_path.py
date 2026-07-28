@@ -10,7 +10,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from claude_teams_test_utils import resolve_cmux_cli
+from claude_teams_test_utils import focused_cmux_server, resolve_cmux_cli
 
 
 def make_executable(path: Path, content: str) -> None:
@@ -39,6 +39,7 @@ def main() -> int:
         )
 
         claude_log = tmp / "claude.log"
+        codex_log = tmp / "codex.log"
 
         make_executable(
             fallback_bin / "claude-node-helper",
@@ -56,6 +57,14 @@ command -v claude-node-helper
 claude-node-helper
 """,
         )
+        make_executable(
+            fallback_bin / "codex",
+            """#!/usr/bin/env bash
+set -euo pipefail
+printf 'ran\n' > "$FAKE_CODEX_LOG"
+exit 86
+""",
+        )
 
         env = os.environ.copy()
         env["HOME"] = str(home)
@@ -64,6 +73,7 @@ claude-node-helper
         env["CMUX_CLAUDE_WRAPPER_SHIM"] = str(managed_bin / "claude")
         env["CMUX_CLAUDE_WRAPPER_SHIM_ROOT"] = str(managed_bin)
         env["FAKE_CLAUDE_LOG"] = str(claude_log)
+        env["FAKE_CODEX_LOG"] = str(codex_log)
         env.pop("CMUX_CUSTOM_CLAUDE_PATH", None)
 
         proc = subprocess.run(
@@ -135,6 +145,43 @@ claude-node-helper
         )
         if contextless.returncode == 0 or claude_log.exists():
             print("FAIL: real Teams launch accepted a managed root without a live surface context")
+            return 1
+
+        with focused_cmux_server(tmp / "focused-cmux.sock") as (socket_path, requests):
+            focused_env = env.copy()
+            focused_env["CMUX_SOCKET_PATH"] = socket_path
+            for key in (
+                "CMUX_WORKSPACE_ID",
+                "CMUX_SURFACE_ID",
+                "CMUX_PANEL_ID",
+                "CMUX_TAB_ID",
+                "CMUX_PANE_ID",
+            ):
+                focused_env.pop(key, None)
+            focused = subprocess.run(
+                [cli_path, "claude-teams", "start a team"],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=focused_env,
+                timeout=30,
+            )
+            focused_codex = subprocess.run(
+                [cli_path, "codex-teams", "start a team"],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=focused_env,
+                timeout=30,
+            )
+        if focused.returncode == 0 or claude_log.exists():
+            print("FAIL: contextless Teams launch borrowed the globally focused cmux surface")
+            return 1
+        if focused_codex.returncode == 0 or codex_log.exists():
+            print("FAIL: contextless Codex Teams launch borrowed the globally focused cmux surface")
+            return 1
+        if "system.identify" in requests:
+            print(f"FAIL: contextless Teams launch consulted mutable focus: {requests!r}")
             return 1
 
         managed_tmux = managed_bin / "tmux"

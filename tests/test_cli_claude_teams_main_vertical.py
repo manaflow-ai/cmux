@@ -325,6 +325,8 @@ printf '%s\\n%s\\n%s\\n' "$t1" "$t2" "$t3" > "$RESULT_LOG"
         env["HOME"] = str(home)
         env["PATH"] = f"{real_bin}:/usr/bin:/bin"
         env["CMUX_SOCKET_PATH"] = str(socket_path)
+        env["CMUX_WORKSPACE_ID"] = INITIAL_WORKSPACE_ID
+        env["CMUX_SURFACE_ID"] = INITIAL_SURFACE_ID
         env["RESULT_LOG"] = str(result_log)
 
         try:
