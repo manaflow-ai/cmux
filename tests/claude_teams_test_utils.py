@@ -6,7 +6,9 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 import json
 import os
+import shutil
 import socketserver
+import subprocess
 import threading
 from pathlib import Path
 
@@ -91,3 +93,28 @@ def focused_cmux_server(socket_path: Path) -> Iterator[tuple[str, list[str]]]:
         server.shutdown()
         server.server_close()
         thread.join(timeout=2)
+
+
+def install_pi_extension(config_dir: Path, cli_path: str | None = None) -> Path:
+    env = os.environ.copy()
+    env["PI_CODING_AGENT_DIR"] = str(config_dir)
+    install = subprocess.run(
+        [cli_path or resolve_cmux_cli(), "hooks", "pi", "install", "--yes"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        timeout=20,
+    )
+    if install.returncode != 0:
+        raise RuntimeError(
+            f"exit={install.returncode} stdout={install.stdout!r} stderr={install.stderr!r}"
+        )
+
+    extension_path = config_dir / "extensions" / "cmux-session.ts"
+    if not extension_path.exists():
+        raise RuntimeError(f"expected extension at {extension_path}")
+    override = os.environ.get("CMUX_TEST_PI_EXTENSION_OVERRIDE")
+    if override:
+        shutil.copyfile(override, extension_path)
+    return extension_path
