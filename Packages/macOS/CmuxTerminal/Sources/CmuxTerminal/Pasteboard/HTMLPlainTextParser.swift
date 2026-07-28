@@ -67,24 +67,30 @@ struct HTMLPlainTextParser: Sendable {
         guard html.utf8.count <= Self.maximumInputByteCount else {
             return nil
         }
-        guard let document = try? XMLDocument(
-            xmlString: html,
-            options: [
-                .documentTidyHTML,
-                .nodeLoadExternalEntitiesNever,
-            ]
-        ) else {
-            return nil
-        }
-        return plainText(from: document, sourceLength: html.count)
+        return plainText(
+            fromBoundedData: Data(html.utf8),
+            sourceLength: html.count
+        )
     }
 
     func plainText(from data: Data) -> String? {
         guard data.count <= Self.maximumInputByteCount else {
             return nil
         }
+        return plainText(fromBoundedData: data, sourceLength: data.count)
+    }
+
+    private func plainText(
+        fromBoundedData data: Data,
+        sourceLength: Int
+    ) -> String? {
+        let hiddenTemplateAttributeName =
+            "data-cmux-hidden-template-\(UUID().uuidString.lowercased())"
+        let normalizedData = HTMLFoundationCompatibilityNormalizer(
+            hiddenTemplateAttributeName: hiddenTemplateAttributeName
+        ).normalize(data)
         guard let document = try? XMLDocument(
-            data: data,
+            data: normalizedData,
             options: [
                 .documentTidyHTML,
                 .nodeLoadExternalEntitiesNever,
@@ -92,12 +98,17 @@ struct HTMLPlainTextParser: Sendable {
         ) else {
             return nil
         }
-        return plainText(from: document, sourceLength: data.count)
+        return plainText(
+            from: document,
+            sourceLength: sourceLength,
+            hiddenTemplateAttributeName: hiddenTemplateAttributeName
+        )
     }
 
     private func plainText(
         from document: XMLDocument,
-        sourceLength: Int
+        sourceLength: Int,
+        hiddenTemplateAttributeName: String
     ) -> String? {
         guard let root = document.rootElement() else { return nil }
         var output = ""
@@ -107,7 +118,8 @@ struct HTMLPlainTextParser: Sendable {
             from: root,
             preservingWhitespace: false,
             to: &output,
-            outputCharacterCount: &outputCharacterCount
+            outputCharacterCount: &outputCharacterCount,
+            hiddenTemplateAttributeName: hiddenTemplateAttributeName
         ) else {
             return nil
         }
@@ -123,7 +135,8 @@ struct HTMLPlainTextParser: Sendable {
         from node: XMLNode,
         preservingWhitespace: Bool,
         to output: inout String,
-        outputCharacterCount: inout Int
+        outputCharacterCount: inout Int,
+        hiddenTemplateAttributeName: String
     ) -> Bool {
         switch node.kind {
         case .text:
@@ -136,7 +149,14 @@ struct HTMLPlainTextParser: Sendable {
             )
         case .element:
             let name = node.name?.lowercased() ?? ""
-            guard !Self.hiddenBlockTags.contains(name) else { return true }
+            let isNormalizedTemplate = name == "div"
+                && (node as? XMLElement)?.attribute(
+                    forName: hiddenTemplateAttributeName
+                ) != nil
+            guard !Self.hiddenBlockTags.contains(name),
+                  !isNormalizedTemplate else {
+                return true
+            }
 
             if name == "br" {
                 return appendBlockBoundary(
@@ -161,7 +181,8 @@ struct HTMLPlainTextParser: Sendable {
                     from: child,
                     preservingWhitespace: childPreservesWhitespace,
                     to: &output,
-                    outputCharacterCount: &outputCharacterCount
+                    outputCharacterCount: &outputCharacterCount,
+                    hiddenTemplateAttributeName: hiddenTemplateAttributeName
                 ) else {
                     return false
                 }

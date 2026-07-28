@@ -30,6 +30,19 @@ struct HTMLPlainTextParserTests {
         #expect(parser.plainText(from: html) == "Visible")
     }
 
+    @Test("omits nested template descendants from data input")
+    func omitsNestedTemplatesFromData() {
+        let parser = HTMLPlainTextParser()
+        let html = Data(
+            """
+            <template>outer <template>inner</template> tail</template>
+            <div>Visible</div>
+            """.utf8
+        )
+
+        #expect(parser.plainText(from: html) == "Visible")
+    }
+
     @Test("does not mistake an attribute URL slash for a self-closing script")
     func omitsScriptWithTrailingSlashInUnquotedAttribute() {
         let parser = HTMLPlainTextParser()
