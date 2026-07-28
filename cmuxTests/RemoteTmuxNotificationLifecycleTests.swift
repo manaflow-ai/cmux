@@ -55,10 +55,39 @@ struct RemoteTmuxNotificationLifecycleTests {
                 lines: ["@2 beef,80x24,0,0,4 beef,80x24,0,0,4 [] editor"],
                 isError: false
             ))
+            drainPendingCommands(paneRectLines: ["%4 0 0 80 24 1 off :0 \"host\""])
+        }
+
+        func splitMakingPaneFiveActive() {
+            connection.handleMessageForTesting(.layoutChange(
+                windowId: 2,
+                layout: "beef,120x40,0,0{60x40,0,0,4,59x40,61,0,5}",
+                visibleLayout: nil,
+                zoomed: false
+            ))
+            drainPendingCommands(paneRectLines: [
+                "%4 0 0 60 40 0 off :0 \"host\"",
+                "%5 61 0 59 40 1 off :1 \"host\"",
+            ])
+            connection.handleMessageForTesting(.windowPaneChanged(windowId: 2, paneId: 5))
+        }
+
+        func removePaneFive() {
+            connection.handleMessageForTesting(.layoutChange(
+                windowId: 2,
+                layout: "beef,80x24,0,0,4",
+                visibleLayout: nil,
+                zoomed: false
+            ))
+            drainPendingCommands(paneRectLines: ["%4 0 0 80 24 1 off :0 \"host\""])
+            connection.handleMessageForTesting(.windowPaneChanged(windowId: 2, paneId: 4))
+        }
+
+        private func drainPendingCommands(paneRectLines: [String]) {
             while let kind = connection.pendingCommandKindsForTesting.first {
                 let lines: [String]
                 if case .paneRects = kind {
-                    lines = ["%4 0 0 80 24 1 off :0 \"host\""]
+                    lines = paneRectLines
                 } else {
                     lines = []
                 }
@@ -95,6 +124,59 @@ struct RemoteTmuxNotificationLifecycleTests {
             harness.workspace.remoteTmuxWindowMirror(forPanelId: containerPanelID)
         )
         let panePanel = try #require(mirror.panel(forPane: 4))
+        let containerPanel = try #require(harness.workspace.panels[containerPanelID])
+        let appDelegate = try #require(AppDelegate.shared)
+        #expect(appDelegate.locateSurface(surfaceId: panePanel.id)?.workspaceId == harness.workspace.id)
+        #expect(
+            appDelegate.workspaceContainingPanel(
+                panelId: panePanel.id,
+                preferredWorkspaceId: harness.workspace.id
+            )?.workspace === harness.workspace
+        )
+        #expect(
+            WorkspaceSurfaceIdentifierClipboardText.makeSurfaceLink(
+                workspace: harness.workspace,
+                panelId: panePanel.id
+            ) == WorkspaceSurfaceIdentifierClipboardText.makeSurfaceLink(
+                workspaceId: harness.workspace.stableId,
+                surfaceId: containerPanel.stableSurfaceId
+            )
+        )
+
+        let defaultsName = "remote-tmux-projected-link-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defaults.removePersistentDomain(forName: defaultsName)
+        defaults.set(false, forKey: BrowserAvailabilitySettings.disabledKey)
+        defaults.set(true, forKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey)
+        var resolvedProjectedContainer = false
+        var externallyOpenedURLs: [URL] = []
+        let linkCoordinator = TerminalLinkOpenCoordinator(
+            defaults: defaults,
+            containerResolver: { preferredWorkspaceID, sourcePanelID in
+                guard let sourcePanelID else { return nil }
+                let owner = AppDelegate.shared?.workspaceContainingPanel(
+                    panelId: sourcePanelID,
+                    preferredWorkspaceId: preferredWorkspaceID
+                )
+                resolvedProjectedContainer = owner?.workspace === harness.workspace
+                return owner?.workspace
+            },
+            externalOpen: {
+                externallyOpenedURLs.append($0)
+                return true
+            },
+            deferOperation: { $0() }
+        )
+        let projectedURL = try #require(URL(string: "https://example.com/projected-pane"))
+        #expect(linkCoordinator.open(TerminalLinkOpenRequest(
+            rawValue: projectedURL.absoluteString,
+            sourceWorkspaceId: harness.workspace.id,
+            sourcePanelId: panePanel.id,
+            workingDirectory: nil
+        )))
+        #expect(resolvedProjectedContainer)
+        #expect(externallyOpenedURLs == [projectedURL])
+
         #expect(harness.manager.focusedSurfaceId(for: harness.workspace.id) == panePanel.id)
         #expect(AppDelegate.shared?.agentNotificationDeliveryTarget(
             claimedTabId: harness.workspace.id,
@@ -128,9 +210,14 @@ struct RemoteTmuxNotificationLifecycleTests {
             }),
             "A delivered projected-pane notification must actually enter the store"
         )
+        #expect(notification.panelId == containerPanelID)
         #expect(TerminalNotificationStore.shared.hasVisibleNotificationIndicator(
             forTabId: harness.workspace.id,
             surfaceId: panePanel.id
+        ))
+        #expect(TerminalNotificationStore.shared.hasVisibleNotificationIndicator(
+            forTabId: harness.workspace.id,
+            surfaceId: containerPanelID
         ))
         #expect(
             harness.manager.panelId(forSurfaceOrPanelId: panePanel.id, in: harness.workspace)
@@ -148,7 +235,6 @@ struct RemoteTmuxNotificationLifecycleTests {
         #expect(TerminalNotificationStore.shared.notifications
             .first(where: { $0.id == notification.id })?.isRead == true)
 
-        let appDelegate = try #require(AppDelegate.shared)
         appDelegate.unregisterMainWindowContextForTesting(windowId: harness.windowID)
         #expect(
             appDelegate.recoverableMainWindowRoute(windowId: harness.windowID)?.tabManager
@@ -161,5 +247,44 @@ struct RemoteTmuxNotificationLifecycleTests {
             appDelegate.recoverableMainWindowRoute(windowId: harness.windowID)?.tabManager
                 === harness.manager
         )
+    }
+
+    @Test
+    func removingProjectedPaneClearsItsNotifications() throws {
+        let store = TerminalNotificationStore.shared
+        store.clearAll()
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        try harness.publishSinglePane()
+        harness.splitMakingPaneFiveActive()
+
+        let sessionMirror = try #require(harness.workspace.remoteTmuxSessionMirror)
+        let containerPanelID = try #require(sessionMirror.panelIdByWindow[2])
+        let mirror = try #require(
+            harness.workspace.remoteTmuxWindowMirror(forPanelId: containerPanelID)
+        )
+        let removedPanel = try #require(mirror.panel(forPane: 5))
+        store.addNotification(
+            tabId: harness.workspace.id,
+            surfaceId: removedPanel.id,
+            title: "Removed pane",
+            subtitle: "",
+            body: "Body",
+            resolvedHooks: []
+        )
+        #expect(store.notifications.contains {
+            $0.tabId == harness.workspace.id && $0.surfaceId == removedPanel.id
+        })
+
+        harness.removePaneFive()
+
+        #expect(mirror.panel(forPane: 5) == nil)
+        #expect(!store.notifications.contains {
+            $0.tabId == harness.workspace.id && $0.surfaceId == removedPanel.id
+        })
+        #expect(!store.hasVisibleNotificationIndicator(
+            forTabId: harness.workspace.id,
+            surfaceId: removedPanel.id
+        ))
     }
 }
