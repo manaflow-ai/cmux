@@ -3648,14 +3648,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         surfaceConfig.font_size = liveFontSize
         surfaceConfig.context = GHOSTTY_SURFACE_CONTEXT_WINDOW
         surfaceConfig.io_mode = GHOSTTY_SURFACE_IO_MANUAL
-        surfaceConfig.io_write_cb = { userdata, buf, len in
-            guard let userdata, let buf, len > 0 else { return }
-            let data = Data(bytes: buf, count: Int(len))
-            let bridge = Unmanaged<GhosttySurfaceBridge>.fromOpaque(userdata).takeUnretainedValue()
-            DispatchQueue.main.async {
-                bridge.surfaceView?.handleOutboundBytes(data)
-            }
-        }
+        surfaceConfig.io_write_cb = GhosttySurfaceBridge.ioWriteCallback
         surfaceConfig.io_write_userdata = bridgePointer
         guard let createdSurface = ghostty_surface_new(app, &surfaceConfig) else {
             retainedBridge.release()
@@ -3663,9 +3656,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
         guard ghostty_surface_set_render_presented_callback(
             createdSurface,
-            { userdata, token in
-                GhosttySurfaceBridge.fromOpaque(userdata)?.handleRenderPresented(token: token)
-            },
+            GhosttySurfaceBridge.renderPresentedCallback,
             bridgePointer
         ) else {
             ghostty_surface_free(createdSurface)
