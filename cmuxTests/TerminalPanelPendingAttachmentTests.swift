@@ -1531,6 +1531,61 @@ struct TerminalPanelPendingAttachmentTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
+    func unexpectedExtraRemoteUploadPathsAreRejectedAndCleaned() async throws {
+        let panel = TerminalPanel(workspaceId: UUID())
+        let uploader = ControlledTextBoxAttachmentRemoteUpload()
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-extra-upload-paths-\(UUID().uuidString).txt"
+            )
+        let preparedFile = TextBoxPreparedFileAttachment(
+            fileURL: fileURL,
+            thumbnailPixelData: nil,
+            thumbnailPixelWidth: 0,
+            thumbnailPixelHeight: 0,
+            thumbnailBytesPerRow: 0,
+            localFileDisposition: .callerOwned
+        )
+        let view = TextBoxInputTextView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 120)
+        )
+        panel.registerTextBoxInputView(view)
+        let window = NSWindow(
+            contentRect: view.bounds,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = view
+        panel.textBoxInputViewDidMoveToWindow(view)
+        defer {
+            window.close()
+            panel.close()
+        }
+
+        var completionValues: [Bool] = []
+        #expect(panel.prepareAndAttachFileToTextBoxInputForTesting(
+            fileURL,
+            using: { _, _ in preparedFile },
+            target: .remote(.workspaceRemote),
+            remoteUploader: { _, _, completion in
+                uploader.install(completion)
+            },
+            remoteCleanup: { uploader.cleanup(paths: $0) },
+            completion: { completionValues.append($0) }
+        ) == .queued)
+        #expect(await waitUntil { uploader.hasPendingCompletion })
+
+        let paths = ["/tmp/cmux-drop-first", "/tmp/cmux-drop-extra"]
+        uploader.succeed(paths: paths)
+
+        #expect(await waitUntil {
+            uploader.cleanedPaths == [paths] && completionValues == [false]
+        })
+        #expect(view.inlineAttachments().isEmpty)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func typedTextBesidePreparedMarkerSurvivesReplacementUndoAndRedo() async throws {
         let manager = TabManager(autoWelcomeIfNeeded: false)
         let workspace = try #require(manager.tabs.first)
