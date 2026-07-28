@@ -109,11 +109,11 @@ struct TerminalLinkOpenCoordinator {
             return openExternally(fileURL, reason: unavailableReason)
         }
 
-        let pathExtension = fileURL.pathExtension.lowercased()
-        if (pathExtension == "html" || pathExtension == "htm"),
-           BrowserAvailabilitySettings.isEnabled(defaults: defaults) {
+        if let browserURL = TerminalHTMLFileBrowserAction(defaults: defaults)
+            .browserURL(for: fileURL) {
             return openHTMLFileInBrowser(
                 fileURL,
+                browserURL: browserURL,
                 request: request,
                 sourcePanelId: sourcePanelId,
                 container: container
@@ -132,11 +132,11 @@ struct TerminalLinkOpenCoordinator {
 
     private func openHTMLFileInBrowser(
         _ fileURL: URL,
+        browserURL: URL,
         request: TerminalLinkOpenRequest,
         sourcePanelId: UUID,
         container: any TerminalLinkOpenContainer
     ) -> Bool {
-        let browserURL = fileURL.standardizedFileURL.resolvingSymlinksInPath()
         log(
             "link.openURL target=localHTML url=\(browserURL) " +
             "container=\(container.terminalLinkContainerDebugName) surfaceId=\(sourcePanelId)"
@@ -147,11 +147,13 @@ struct TerminalLinkOpenCoordinator {
                 request.sourceWorkspaceId,
                 sourcePanelId
             )
-            let openedInBrowser = BrowserAvailabilitySettings.isEnabled(defaults: self.defaults)
-                && currentContainer?.openTerminalBrowserLink(
-                    url: browserURL,
-                    sourcePanelId: sourcePanelId
-                ) == true
+            let openedInBrowser = currentContainer.map {
+                TerminalHTMLFileBrowserAction(defaults: self.defaults).open(
+                    fileURL: fileURL,
+                    sourcePanelId: sourcePanelId,
+                    container: $0
+                )
+            } == true
             if openedInBrowser { return }
 
             self.log(
