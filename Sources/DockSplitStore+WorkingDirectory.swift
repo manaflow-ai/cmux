@@ -9,10 +9,10 @@ extension DockSplitStore {
 
     /// Returns the best current directory owned by a Dock terminal.
     ///
-    /// Local terminals prefer the foreground process because the Dock does not
-    /// receive main-workspace cwd reports. Remote terminals must keep their
-    /// transferred remote directory because their local foreground process is
-    /// only the relay.
+    /// Local terminals prefer the shell integration report owned by their
+    /// surface, then fall back to foreground-process inspection. Remote terminals
+    /// must keep their transferred remote directory because their local process
+    /// is only the relay.
     func terminalWorkingDirectory(for sourcePanelId: UUID) -> String? {
         guard let terminal = panels[sourcePanelId] as? TerminalPanel else { return nil }
         let transfer = detachedSurfaceTransfersByPanelId[sourcePanelId]
@@ -24,6 +24,7 @@ extension DockSplitStore {
             ])
         }
         return TerminalWorkingDirectoryResolver.firstAvailable([
+            terminal.surface.reportedWorkingDirectory,
             terminalWorkingDirectoryResolver.liveForegroundProcessWorkingDirectory(for: terminal),
             terminal.directory,
             transfer?.directory,

@@ -12,9 +12,7 @@ internal import CMUXDebugLog
 /// reclamation state.
 ///
 /// Lifted verbatim from `Sources/GhosttyTerminalView.swift`; the legacy
-/// reach-ups into `GhosttyApp.shared` / `TerminalController.shared` /
-/// `MobileTerminalByteTee.shared` / `RendererRealizationController.shared` /
-/// `AgentHibernationController.shared` are inverted through the seams in
+/// reach-ups into app-owned singletons are inverted through the seams in
 /// ``TerminalSurfaceRuntimeDependencies``.
 ///
 /// Isolation: the model keeps the legacy main-thread-only contract. Members
@@ -167,6 +165,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// The working directory requested at construction, if any.
     public var requestedWorkingDirectory: String? { workingDirectory }
 
+    /// The latest non-empty working directory reported by Ghostty shell integration.
+    @Published public internal(set) var reportedWorkingDirectory: String?
     /// Where the surface participates in focus routing. Mutable so a live
     /// surface can move between the workspace area and the right-sidebar dock
     /// without being recreated (preserving its process). Always mutate through
