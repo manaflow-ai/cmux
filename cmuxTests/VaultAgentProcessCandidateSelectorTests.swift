@@ -305,6 +305,51 @@ struct VaultAgentProcessCandidateSelectorTests {
     }
 
     @Test
+    func productionFilterPreservesBuiltInClaudeIdentityFromArgvZero() throws {
+        let workspaceID = UUID()
+        let panelID = UUID()
+        let parentSessionID = "ffffffff-6666-4666-8666-ffffffffffff"
+        let process = processInfo(
+            pid: 45_006,
+            workspaceID: workspaceID,
+            panelID: panelID,
+            name: "agent-shim",
+            path: "/opt/tools/agent-shim"
+        )
+        let bytes = kernProcArgs(
+            arguments: [
+                "/opt/tools/claude",
+                "--resume",
+                parentSessionID,
+                "--fork-session",
+            ],
+            environmentEntries: ["PWD=/tmp/project"]
+        )
+        var fullDecodeCount = 0
+
+        let detected = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            fileManager: .default,
+            processSnapshot: processSnapshot([process]),
+            capturedAt: 42,
+            processArgumentBytesProvider: { _ in bytes },
+            processArgumentsDecoder: { bytes in
+                fullDecodeCount += 1
+                return CmuxTopProcessSnapshot.processArgumentsAndEnvironment(fromKernProcArgs: bytes)
+            }
+        )
+
+        let key = RestorableAgentSessionIndex.PanelKey(
+            workspaceId: workspaceID,
+            panelId: panelID
+        )
+        let entry = try #require(detected[key])
+        #expect(entry.snapshot.kind == .claude)
+        #expect(entry.snapshot.sessionId == parentSessionID)
+        #expect(fullDecodeCount == 1)
+    }
+
+    @Test
     func productionFilterPreservesCustomCodexForkFallback() throws {
         let workspaceID = UUID()
         let panelID = UUID()
