@@ -127,23 +127,22 @@ struct TerminalClipboardInputSequencerTests {
         #expect(delivered == ["paste-2", "paste-2-complete", "suffix"])
     }
 
-    @Test("cancelling a stale request discards its deferred input")
-    func cancellingStaleRequestDiscardsDeferredInput() {
+    @Test("cancelling stale input preserves replacement-surface input")
+    func cancellingStaleRequestPreservesReplacementInput() {
         let sequencer = TerminalClipboardInputSequencer<String, Int>(
             maximumBufferedEvents: 8
         )
         var delivered: [String] = []
-        sequencer.beginRequest(id: 1)
-        #expect(sequencer.shouldDefer("stale-suffix"))
+        sequencer.beginRequest(id: 1, epoch: 7)
+        #expect(sequencer.shouldDefer("stale-suffix", epoch: 7))
 
-        sequencer.cancelRequest(id: 1)
-        sequencer.beginRequest(id: 2)
-        #expect(sequencer.shouldDefer("current-suffix"))
-        sequencer.completeRequest(id: 2, confirmed: false) {
+        #expect(!sequencer.shouldDefer("replacement-input", epoch: 9))
+        delivered.append("replacement-input")
+        sequencer.cancelRequest(id: 1, currentEpoch: 9) {
             delivered.append($0)
         }
 
-        #expect(delivered == ["current-suffix"])
+        #expect(delivered == ["replacement-input"])
     }
 
     @Test("confirmation keeps input queued until confirmed completion")
@@ -271,6 +270,38 @@ struct TerminalClipboardInputSequencerTests {
         }
 
         #expect(delivered == ["pointer-2", "return"])
+    }
+
+    @Test("non-lossy overflow cancels paste before routing current input")
+    func nonLossyOverflowCancelsPasteFirst() {
+        let sequencer = TerminalClipboardInputSequencer<String, Int>(
+            maximumBufferedEvents: 2
+        )
+        var delivered: [String] = []
+        sequencer.beginRequest(
+            id: 1,
+            epoch: 7,
+            onOverflow: {
+                delivered.append("paste-cancelled")
+                sequencer.completeRequest(id: 1, confirmed: false) {
+                    delivered.append($0)
+                }
+            }
+        )
+        #expect(sequencer.shouldDefer("first", epoch: 7))
+        #expect(sequencer.shouldDefer("second", epoch: 7))
+
+        #expect(!sequencer.shouldDefer("current", epoch: 7))
+        delivered.append("current")
+
+        #expect(
+            delivered == [
+                "paste-cancelled",
+                "first",
+                "second",
+                "current",
+            ]
+        )
     }
 
     private func makeReadRequest(

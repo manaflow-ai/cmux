@@ -49,4 +49,32 @@ struct PasteboardRejectedHTMLFallbackTests {
                 == "plain fallback"
         )
     }
+
+    @Test("image with rejected HTML falls through to valid RTF")
+    func imageWithRejectedHTMLFallsThroughToRTF() throws {
+        let pasteboard = NSPasteboard(
+            name: .init("cmux-tests-rejected-html-rtf-\(UUID().uuidString)")
+        )
+        defer {
+            pasteboard.clearContents()
+            pasteboard.releaseGlobally()
+        }
+        let rejectedHTML = String(
+            repeating: "<div>",
+            count: 1_024
+        ) + "rich" + String(repeating: "</div>", count: 1_024)
+        let rtf = try NSAttributedString(string: "RTF fallback").data(
+            from: NSRange(location: 0, length: 12),
+            documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf]
+        )
+        pasteboard.declareTypes([.png, .html, .rtf], owner: nil)
+        pasteboard.setData(Data([0x89, 0x50, 0x4E, 0x47]), forType: .png)
+        pasteboard.setString(rejectedHTML, forType: .html)
+        pasteboard.setData(rtf, forType: .rtf)
+
+        #expect(
+            TerminalPasteboardService().stringContents(from: pasteboard)
+                == "RTF fallback"
+        )
+    }
 }
