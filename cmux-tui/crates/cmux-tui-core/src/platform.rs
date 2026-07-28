@@ -79,7 +79,7 @@ pub mod transport {
         }
 
         #[cfg(target_os = "linux")]
-        fn create_close_on_exec_socket() -> io::Result<OwnedFd> {
+        fn create_close_on_exec_socket(_deadline: Instant) -> io::Result<OwnedFd> {
             // SAFETY: socket has no pointer arguments and returns a new owned
             // descriptor on success. SOCK_CLOEXEC sets the inheritance flag
             // atomically with descriptor creation.
@@ -109,8 +109,9 @@ pub mod transport {
         }
 
         #[cfg(target_os = "macos")]
-        fn create_close_on_exec_socket() -> io::Result<OwnedFd> {
-            let _process_creation = cmux_tui_process::ProcessCreationGuard::acquire();
+        fn create_close_on_exec_socket(deadline: Instant) -> io::Result<OwnedFd> {
+            let _process_creation =
+                cmux_tui_process::ProcessCreationGuard::acquire_until(deadline)?;
             // macOS has no SOCK_CLOEXEC socket flag. Every cmux-tui process
             // launch shares this barrier, so no child can start until fcntl
             // marks the fresh descriptor close-on-exec.
@@ -150,7 +151,7 @@ pub mod transport {
         }
 
         #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-        fn create_close_on_exec_socket() -> io::Result<OwnedFd> {
+        fn create_close_on_exec_socket(_deadline: Instant) -> io::Result<OwnedFd> {
             Err(io::Error::new(
                 io::ErrorKind::Unsupported,
                 "deadline sockets require atomic close-on-exec setup",
@@ -172,7 +173,7 @@ pub mod transport {
         pub(super) fn connect_unix_until(path: &Path, deadline: Instant) -> io::Result<UnixStream> {
             ensure_connect_time_remaining(deadline)?;
             let (address, address_len) = unix_socket_address(path)?;
-            let descriptor = create_close_on_exec_socket()?;
+            let descriptor = create_close_on_exec_socket(deadline)?;
             let stream = UnixStream::from(descriptor);
             stream.set_nonblocking(true)?;
             loop {

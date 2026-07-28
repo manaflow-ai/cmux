@@ -32,6 +32,37 @@ impl ProcessCreationGuard {
             Self {}
         }
     }
+
+    /// Acquire the process barrier without exceeding an operation deadline.
+    pub fn acquire_until(deadline: std::time::Instant) -> io::Result<Self> {
+        #[cfg(target_os = "macos")]
+        {
+            loop {
+                match PROCESS_CREATION_BARRIER.try_lock() {
+                    Ok(guard) => return Ok(Self { _guard: guard }),
+                    Err(std::sync::TryLockError::Poisoned(error)) => {
+                        return Ok(Self { _guard: error.into_inner() });
+                    }
+                    Err(std::sync::TryLockError::WouldBlock) => {}
+                }
+                let remaining = deadline
+                    .checked_duration_since(std::time::Instant::now())
+                    .filter(|remaining| !remaining.is_zero())
+                    .ok_or_else(|| {
+                        io::Error::new(
+                            io::ErrorKind::TimedOut,
+                            "process creation barrier acquisition timed out",
+                        )
+                    })?;
+                std::thread::sleep(remaining.min(std::time::Duration::from_millis(1)));
+            }
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = deadline;
+            Ok(Self {})
+        }
+    }
 }
 
 /// Spawn a child while excluding non-atomic close-on-exec descriptor setup.
@@ -175,7 +206,7 @@ pub mod unix {
 pub mod tcp {
     use std::io;
     use std::net::{SocketAddr, TcpListener, TcpStream};
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     use super::ProcessCreationGuard;
 
@@ -209,8 +240,15 @@ pub mod tcp {
     ) -> io::Result<TcpStream> {
         #[cfg(target_os = "macos")]
         {
-            let socket = new_stream_socket(*address)?;
-            socket.connect_timeout(&(*address).into(), timeout)?;
+            let deadline = Instant::now() + timeout;
+            let socket = new_stream_socket_until(*address, deadline)?;
+            let remaining = deadline
+                .checked_duration_since(Instant::now())
+                .filter(|remaining| !remaining.is_zero())
+                .ok_or_else(|| {
+                    io::Error::new(io::ErrorKind::TimedOut, "TCP connection timed out")
+                })?;
+            socket.connect_timeout(&(*address).into(), remaining)?;
             Ok(socket.into())
         }
         #[cfg(not(target_os = "macos"))]
@@ -251,6 +289,19 @@ pub mod tcp {
     #[cfg(target_os = "macos")]
     fn new_stream_socket(address: SocketAddr) -> io::Result<socket2::Socket> {
         let _guard = ProcessCreationGuard::acquire();
+        socket2::Socket::new(
+            socket2::Domain::for_address(address),
+            socket2::Type::STREAM,
+            Some(socket2::Protocol::TCP),
+        )
+    }
+
+    #[cfg(target_os = "macos")]
+    fn new_stream_socket_until(
+        address: SocketAddr,
+        deadline: Instant,
+    ) -> io::Result<socket2::Socket> {
+        let _guard = ProcessCreationGuard::acquire_until(deadline)?;
         socket2::Socket::new(
             socket2::Domain::for_address(address),
             socket2::Type::STREAM,

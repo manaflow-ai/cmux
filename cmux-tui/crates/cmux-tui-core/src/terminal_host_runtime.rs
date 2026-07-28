@@ -4212,6 +4212,24 @@ mod unix {
             (record_path, record, lease)
         }
 
+        fn accept_test_client_until(
+            listener: &UnixListener,
+            timeout: Duration,
+        ) -> Option<UnixStream> {
+            listener.set_nonblocking(true).unwrap();
+            let deadline = Instant::now() + timeout;
+            loop {
+                match listener.accept() {
+                    Ok((stream, _)) => return Some(stream),
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        let remaining = deadline.checked_duration_since(Instant::now())?;
+                        thread::sleep(remaining.min(Duration::from_millis(1)));
+                    }
+                    Err(error) => panic!("test listener failed: {error}"),
+                }
+            }
+        }
+
         #[test]
         fn launch_round_trip_preserves_ghostty_defaults() {
             let mut default_colors = DefaultColors {
@@ -4755,8 +4773,11 @@ mod unix {
             let _ = fs::remove_file(&endpoint);
             let listener = UnixListener::bind(&endpoint).unwrap();
             let stalled = thread::spawn(move || {
-                let (_stream, _) = listener.accept().unwrap();
-                thread::sleep(Duration::from_millis(200));
+                if let Some(_stream) =
+                    accept_test_client_until(&listener, Duration::from_millis(500))
+                {
+                    thread::sleep(Duration::from_millis(200));
+                }
             });
 
             let started = Instant::now();
@@ -4784,12 +4805,15 @@ mod unix {
             let _ = fs::remove_file(&endpoint);
             let listener = UnixListener::bind(&endpoint).unwrap();
             let stalled = thread::spawn(move || {
-                let (mut stream, _) = listener.accept().unwrap();
-                for _ in 0..crate::terminal_host_protocol::HEADER_LEN {
-                    if stream.write_all(&[0]).is_err() {
-                        break;
+                if let Some(mut stream) =
+                    accept_test_client_until(&listener, Duration::from_millis(500))
+                {
+                    for _ in 0..crate::terminal_host_protocol::HEADER_LEN {
+                        if stream.write_all(&[0]).is_err() {
+                            break;
+                        }
+                        thread::sleep(Duration::from_millis(20));
                     }
-                    thread::sleep(Duration::from_millis(20));
                 }
             });
 
