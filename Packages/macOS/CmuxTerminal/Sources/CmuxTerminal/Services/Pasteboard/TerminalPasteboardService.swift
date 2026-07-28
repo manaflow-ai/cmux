@@ -216,13 +216,26 @@ extension TerminalPasteboardService {
     /// Deletes the given files if (and only if) this service still owns them,
     /// consuming ownership.
     public func cleanupTransferredTemporaryImageFiles(_ fileURLs: [URL]) {
+        cleanupTransferredTemporaryImageFiles(
+            fileURLs,
+            afterIdentityCheck: {}
+        )
+    }
+
+    private func cleanupTransferredTemporaryImageFiles(
+        _ fileURLs: [URL],
+        afterIdentityCheck: () -> Void
+    ) {
         for fileURL in fileURLs {
             let normalizedURL = fileURL.standardizedFileURL
             guard normalizedURL.isFileURL,
                   let ownedIdentity = consumeOwnedTemporaryImageFile(normalizedURL) else {
                 continue
             }
-            ownedIdentity.unlinkIfStillNamesEntry(at: normalizedURL)
+            ownedIdentity.unlinkIfStillNamesEntry(
+                at: normalizedURL,
+                afterIdentityCheck: afterIdentityCheck
+            )
         }
     }
 
@@ -277,6 +290,18 @@ extension TerminalPasteboardService {
     /// be exercised deterministically.
     public func debugRegisterOwnedTemporaryImageFile(_ fileURL: URL) {
         registerOwnedTemporaryImageFile(fileURL)
+    }
+
+    /// Test bridge for replacing the original pathname in the former
+    /// identity-check-to-unlink race window.
+    public func debugCleanupTransferredTemporaryImageFiles(
+        _ fileURLs: [URL],
+        afterIdentityCheck: () -> Void
+    ) {
+        cleanupTransferredTemporaryImageFiles(
+            fileURLs,
+            afterIdentityCheck: afterIdentityCheck
+        )
     }
 #endif
 }

@@ -51,6 +51,8 @@ final class TerminalPanel: Panel, ObservableObject {
         TerminalImageTransferOperation,
         @escaping @Sendable (Result<[String], Error>) -> Void
     ) -> Void
+    typealias TextBoxAttachmentRemoteCleanup =
+        @Sendable ([String]) -> Void
 
     nonisolated static let defaultTextBoxAttachmentDeadlineWaiter: TextBoxAttachmentDeadlineWaiter = {
         try await ContinuousClock().sleep(for: .seconds(60))
@@ -501,6 +503,7 @@ final class TerminalPanel: Panel, ObservableObject {
         using preparer: @escaping TextBoxAttachmentPreparer,
         target targetOverride: TerminalImageTransferTarget? = nil,
         remoteUploader: TextBoxAttachmentRemoteUploader? = nil,
+        remoteCleanup: TextBoxAttachmentRemoteCleanup? = nil,
         budget: TextBoxAttachmentPreparationBudget = .shared,
         deadlineWaiter: @escaping TextBoxAttachmentDeadlineWaiter =
             TerminalPanel.defaultTextBoxAttachmentDeadlineWaiter,
@@ -511,6 +514,7 @@ final class TerminalPanel: Panel, ObservableObject {
             using: preparer,
             target: targetOverride,
             remoteUploader: remoteUploader,
+            remoteCleanup: remoteCleanup,
             budget: budget,
             deadlineWaiter: deadlineWaiter,
             completion: completion
@@ -523,6 +527,7 @@ final class TerminalPanel: Panel, ObservableObject {
         using preparer: @escaping TextBoxAttachmentPreparer,
         target targetOverride: TerminalImageTransferTarget? = nil,
         remoteUploader: TextBoxAttachmentRemoteUploader? = nil,
+        remoteCleanup: TextBoxAttachmentRemoteCleanup? = nil,
         budget: TextBoxAttachmentPreparationBudget,
         deadlineWaiter: @escaping TextBoxAttachmentDeadlineWaiter,
         completion: @escaping @MainActor (Bool) -> Void
@@ -575,6 +580,7 @@ final class TerminalPanel: Panel, ObservableObject {
             fileURL: standardizedURL,
             workspaceRemoteController: workspaceRemoteController,
             remoteUploader: remoteUploader,
+            remoteCleanup: remoteCleanup,
             budget: budget,
             resolvedTarget: resolvedTarget,
             phase: resolvedTarget == nil ? .failed(nil) : .preparing,
@@ -841,7 +847,7 @@ final class TerminalPanel: Panel, ObservableObject {
                     return
                 }
                 switch target {
-                case .local:
+                case .local, .unknown:
                     guard commitPreparedTextBoxAttachment(
                         requestID: requestID,
                         preparedFile: preparedFile,

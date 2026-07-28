@@ -470,7 +470,7 @@ nonisolated enum TextBoxDraftAttachmentStorageQuotaLimits {
     static let maximumAggregateBytes: off_t = 1024 * 1024 * 1024
 }
 
-private enum TextBoxDraftAttachmentStorage {
+enum TextBoxDraftAttachmentStorage {
     private static let directoryName = "textbox-draft-attachments"
     private static let remoteUploadSnapshotDirectoryPrefix = "remote-upload-"
     private static let remoteUploadSnapshotCopyBufferSize = 64 * 1024
@@ -483,7 +483,7 @@ private enum TextBoxDraftAttachmentStorage {
     private static let maximumAggregateDurableBytes: off_t =
         TextBoxDraftAttachmentStorageQuotaLimits.maximumAggregateBytes
 
-    private final class DurableStorageQuota: @unchecked Sendable {
+    final class DurableStorageQuota: @unchecked Sendable {
         struct Reservation: Sendable {
             let id: UUID
             let lockDescriptor: Int32

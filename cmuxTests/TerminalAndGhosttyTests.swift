@@ -669,6 +669,25 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         XCTAssertEqual(urls, [fileURL])
     }
 
+    func testUnknownTerminalTargetRejectsFilePathInsertion() throws {
+        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "unknown-terminal-target-\(UUID().uuidString).txt"
+        )
+        try Data("private-local-path".utf8).write(to: fileURL)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let plan = TerminalImageTransferPlanner.plan(
+            fileURLs: [fileURL],
+            target: .unknown
+        )
+
+        XCTAssertEqual(
+            plan,
+            .reject,
+            "An unmanaged remote shell must not receive a macOS-local path."
+        )
+    }
+
     func testRemoteDirectoryPastePlanFallsBackToEscapedPathInsertion() throws {
         let directoryURL = FileManager.default.temporaryDirectory.appendingPathComponent(
             "clipboard-folder-\(UUID().uuidString)",

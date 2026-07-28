@@ -23,8 +23,12 @@ struct TerminalPasteboardTemporaryImageFileIdentity: Equatable, Sendable {
     }
 
     @discardableResult
-    func unlinkIfStillNamesEntry(at fileURL: URL) -> Bool {
+    func unlinkIfStillNamesEntry(
+        at fileURL: URL,
+        afterIdentityCheck: () -> Void = {}
+    ) -> Bool {
         guard stillNamesEntry(at: fileURL) else { return false }
+        afterIdentityCheck()
         return Darwin.unlink(fileURL.path) == 0
     }
 }

@@ -246,6 +246,35 @@ struct ImageMaterializationTests {
         #expect(!service.isOwnedTemporaryImageFile(url))
     }
 
+    @Test func cleanupPreservesReplacementInstalledAfterOwnershipValidation() throws {
+        let scratchDir = try makeScratchDirectory()
+        defer { try? FileManager.default.removeItem(at: scratchDir) }
+        let scratch = ScratchPasteboard()
+        let service = TerminalPasteboardService(temporaryDirectory: scratchDir)
+        scratch.pasteboard.declareTypes([.png], owner: nil)
+        scratch.pasteboard.setData(try tinyPNGData(), forType: .png)
+        let result = service.materializeImageFileURLIfNeeded(from: scratch.pasteboard)
+        guard case .saved(let url) = result else {
+            Issue.record("expected .saved, got \(result)")
+            return
+        }
+
+        let replacementData = Data("replacement after validation".utf8)
+        let replacementURL = scratchDir.appendingPathComponent("replacement-after-validation.png")
+        try replacementData.write(to: replacementURL)
+
+        service.debugCleanupTransferredTemporaryImageFiles(
+            [url],
+            afterIdentityCheck: {
+                let renameResult = Darwin.rename(replacementURL.path, url.path)
+                precondition(renameResult == 0)
+            }
+        )
+
+        #expect(try Data(contentsOf: url) == replacementData)
+        #expect(!service.isOwnedTemporaryImageFile(url))
+    }
+
     @Test func rejectsOversizedImagePayload() throws {
         let scratchDir = try makeScratchDirectory()
         defer { try? FileManager.default.removeItem(at: scratchDir) }

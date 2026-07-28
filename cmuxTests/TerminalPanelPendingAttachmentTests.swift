@@ -51,6 +51,44 @@ private actor TextBoxAttachmentTargetRecorder {
     }
 }
 
+private final class ControlledTextBoxAttachmentRemoteUpload: @unchecked Sendable {
+    private let lock = NSLock()
+    private var completion:
+        (@Sendable (Result<[String], Error>) -> Void)?
+    private var cleanedPathsStorage: [[String]] = []
+
+    var hasPendingCompletion: Bool {
+        lock.withLock { completion != nil }
+    }
+
+    var cleanedPaths: [[String]] {
+        lock.withLock { cleanedPathsStorage }
+    }
+
+    func install(
+        _ completion: @escaping @Sendable (Result<[String], Error>) -> Void
+    ) {
+        lock.withLock {
+            self.completion = completion
+        }
+    }
+
+    func succeed(paths: [String]) {
+        let completion = lock.withLock {
+            let completion = self.completion
+            self.completion = nil
+            return completion
+        }
+        completion?(.success(paths))
+    }
+
+    func cleanup(paths: [String]) {
+        lock.withLock {
+            cleanedPathsStorage.append(paths)
+        }
+    }
+}
+
 @Suite("Terminal panel pending attachments", .serialized)
 @MainActor
 struct TerminalPanelPendingAttachmentTests {
@@ -300,6 +338,52 @@ struct TerminalPanelPendingAttachmentTests {
             uploadTarget: .remote(.workspaceRemote)
         )
         #expect(preparedFile == nil)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func durableStorageQuotaWaitHasABoundedDeadline() async throws {
+        let storageDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-durable-quota-deadline-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(
+            at: storageDirectory,
+            withIntermediateDirectories: false
+        )
+        defer { try? FileManager.default.removeItem(at: storageDirectory) }
+
+        let quota = TextBoxDraftAttachmentStorage.DurableStorageQuota()
+        let firstDestination = storageDirectory.appendingPathComponent("first")
+        let secondDestination = storageDirectory.appendingPathComponent("second")
+        let firstReservation = try #require(quota.reserve(
+            byteCount: 1,
+            storageDirectory: storageDirectory,
+            destinationURL: firstDestination,
+            waitsForAccess: false
+        ))
+
+        let waiter = Task.detached {
+            let clock = ContinuousClock()
+            let startedAt = clock.now
+            let reservation = quota.reserve(
+                byteCount: 1,
+                storageDirectory: storageDirectory,
+                destinationURL: secondDestination,
+                waitsForAccess: true
+            )
+            return (reservation, startedAt.duration(to: clock.now))
+        }
+
+        try await Task.sleep(for: .milliseconds(700))
+        quota.release(firstReservation)
+        let (secondReservation, elapsed) = await waiter.value
+        if let secondReservation {
+            quota.release(secondReservation)
+        }
+
+        #expect(secondReservation == nil)
+        #expect(elapsed < .milliseconds(500))
     }
 
     @Test
@@ -1331,6 +1415,122 @@ struct TerminalPanelPendingAttachmentTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
+    func abandonedSuccessfulRemoteUploadIsCleanedAfterDeadline() async throws {
+        let panel = TerminalPanel(workspaceId: UUID())
+        let uploader = ControlledTextBoxAttachmentRemoteUpload()
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-abandoned-upload-deadline-\(UUID().uuidString).txt"
+            )
+        let preparedFile = TextBoxPreparedFileAttachment(
+            fileURL: fileURL,
+            thumbnailPixelData: nil,
+            thumbnailPixelWidth: 0,
+            thumbnailPixelHeight: 0,
+            thumbnailBytesPerRow: 0,
+            localFileDisposition: .callerOwned
+        )
+        let view = TextBoxInputTextView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 120)
+        )
+        panel.registerTextBoxInputView(view)
+        let window = NSWindow(
+            contentRect: view.bounds,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = view
+        panel.textBoxInputViewDidMoveToWindow(view)
+        let (deadlineStream, deadlineContinuation) =
+            AsyncStream<Void>.makeStream()
+        defer {
+            deadlineContinuation.finish()
+            window.close()
+            panel.close()
+        }
+
+        #expect(panel.prepareAndAttachFileToTextBoxInputForTesting(
+            fileURL,
+            using: { _, _ in preparedFile },
+            target: .remote(.workspaceRemote),
+            remoteUploader: { _, _, completion in
+                uploader.install(completion)
+            },
+            remoteCleanup: { uploader.cleanup(paths: $0) },
+            deadlineWaiter: {
+                for await _ in deadlineStream {
+                    return
+                }
+                throw CancellationError()
+            },
+            completion: { _ in }
+        ) == .queued)
+        #expect(await waitUntil { uploader.hasPendingCompletion })
+
+        window.contentView = NSView(frame: view.bounds)
+        uploader.succeed(paths: ["/tmp/cmux-drop-abandoned"])
+        for _ in 0..<100 {
+            await Task.yield()
+        }
+        deadlineContinuation.yield()
+
+        #expect(await waitUntil {
+            uploader.cleanedPaths == [["/tmp/cmux-drop-abandoned"]]
+        })
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func successfulRemoteUploadCompletingAfterPanelCloseIsCleaned() async throws {
+        let panel = TerminalPanel(workspaceId: UUID())
+        let uploader = ControlledTextBoxAttachmentRemoteUpload()
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-abandoned-upload-close-\(UUID().uuidString).txt"
+            )
+        let preparedFile = TextBoxPreparedFileAttachment(
+            fileURL: fileURL,
+            thumbnailPixelData: nil,
+            thumbnailPixelWidth: 0,
+            thumbnailPixelHeight: 0,
+            thumbnailBytesPerRow: 0,
+            localFileDisposition: .callerOwned
+        )
+        let view = TextBoxInputTextView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 120)
+        )
+        panel.registerTextBoxInputView(view)
+        let window = NSWindow(
+            contentRect: view.bounds,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = view
+        panel.textBoxInputViewDidMoveToWindow(view)
+        defer { window.close() }
+
+        #expect(panel.prepareAndAttachFileToTextBoxInputForTesting(
+            fileURL,
+            using: { _, _ in preparedFile },
+            target: .remote(.workspaceRemote),
+            remoteUploader: { _, _, completion in
+                uploader.install(completion)
+            },
+            remoteCleanup: { uploader.cleanup(paths: $0) },
+            completion: { _ in }
+        ) == .queued)
+        #expect(await waitUntil { uploader.hasPendingCompletion })
+
+        panel.close()
+        uploader.succeed(paths: ["/tmp/cmux-drop-late"])
+
+        #expect(await waitUntil {
+            uploader.cleanedPaths == [["/tmp/cmux-drop-late"]]
+        })
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func typedTextBesidePreparedMarkerSurvivesReplacementUndoAndRedo() async throws {
         let manager = TabManager(autoWelcomeIfNeeded: false)
         let workspace = try #require(manager.tabs.first)
@@ -1602,5 +1802,17 @@ struct TerminalPanelPendingAttachmentTests {
             snapshot = await budget.snapshot()
         }
         return snapshot
+    }
+
+    private func waitUntil(
+        _ condition: @escaping @MainActor () -> Bool
+    ) async -> Bool {
+        for _ in 0..<20_000 {
+            if condition() {
+                return true
+            }
+            await Task.yield()
+        }
+        return condition()
     }
 }

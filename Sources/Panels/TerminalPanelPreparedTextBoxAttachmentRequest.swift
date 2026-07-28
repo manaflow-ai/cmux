@@ -6,6 +6,7 @@ struct TerminalPanelPreparedTextBoxAttachmentRequest {
     let fileURL: URL
     let workspaceRemoteController: RemoteSessionCoordinator?
     let remoteUploader: TerminalPanel.TextBoxAttachmentRemoteUploader?
+    let remoteCleanup: TerminalPanel.TextBoxAttachmentRemoteCleanup?
     let budget: TextBoxAttachmentPreparationBudget
     /// Structured route resolved once while the request is admitted.
     let resolvedTarget: TerminalImageTransferTarget?

@@ -17,6 +17,9 @@ nonisolated enum TerminalRemoteUploadTarget: Equatable, Sendable {
 nonisolated enum TerminalImageTransferTarget: Equatable, Sendable {
     case local
     case remote(TerminalRemoteUploadTarget)
+    /// The terminal may be running an unmanaged remote shell, but cmux has no
+    /// structured upload route for it.
+    case unknown
 }
 
 enum TerminalImageTransferPlan: Equatable {
@@ -245,6 +248,10 @@ enum TerminalImageTransferPlanner {
                 return .insertText(insertedText(forFileURLs: fileURLs))
             }
             return .uploadFiles(fileURLs, remoteTarget)
+        case .unknown:
+            // Test scaffold: the implementation commit changes this fallback
+            // to an explicit rejection.
+            return .insertText(insertedText(forFileURLs: fileURLs))
         }
     }
 
