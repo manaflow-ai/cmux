@@ -52,6 +52,61 @@ struct AgentSessionRetryCoordinatorTests {
     }
 
     @MainActor
+    @Test("classified failure remains scheduled across late lifecycle teardown")
+    func classifiedFailureSurvivesLateLifecycleTeardown() throws {
+        let suiteName = "AgentSessionRetryCoordinatorTests.lateTeardown"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: AgentSessionAutoRetrySettings.autoRetryAgentSessionsKey)
+
+        let workspace = Workspace(
+            agentSessionAutoRetrySettings: AgentSessionAutoRetrySettings(defaults: defaults)
+        )
+        let panelId = try #require(workspace.focusedPanelId)
+        let binding = managedBinding(sessionId: "retry-before-late-teardown")
+        #expect(workspace.setSurfaceResumeBinding(binding, panelId: panelId))
+        workspace.setAgentLifecycle(key: "claude_code", panelId: panelId, lifecycle: .running)
+
+        #expect(workspace.clearSurfaceResumeBinding(panelId: panelId, agentSessionEnded: true))
+        workspace.agentSessionRetryCoordinator.commandFinished(panelId: panelId, exitCode: 1)
+        let retryStatusKey = "agent.auto_retry.\(panelId.uuidString.lowercased())"
+        #expect(workspace.statusEntries[retryStatusKey]?.icon == "arrow.clockwise")
+
+        workspace.setAgentLifecycle(key: "claude_code", panelId: panelId, lifecycle: .idle)
+        #expect(workspace.clearAgentLifecycle(key: "claude_code", panelId: panelId))
+
+        #expect(workspace.statusEntries[retryStatusKey]?.icon == "arrow.clockwise")
+        workspace.agentSessionRetryCoordinator.cancelAll()
+    }
+
+    @MainActor
+    @Test("a new shell command cancels a scheduled retry")
+    func newShellCommandCancelsScheduledRetry() throws {
+        let suiteName = "AgentSessionRetryCoordinatorTests.newCommandAfterFailure"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: AgentSessionAutoRetrySettings.autoRetryAgentSessionsKey)
+
+        let workspace = Workspace(
+            agentSessionAutoRetrySettings: AgentSessionAutoRetrySettings(defaults: defaults)
+        )
+        let panelId = try #require(workspace.focusedPanelId)
+        let binding = managedBinding(sessionId: "retry-cancelled-by-new-command")
+        #expect(workspace.setSurfaceResumeBinding(binding, panelId: panelId))
+        workspace.setAgentLifecycle(key: "claude_code", panelId: panelId, lifecycle: .running)
+
+        #expect(workspace.clearSurfaceResumeBinding(panelId: panelId, agentSessionEnded: true))
+        workspace.agentSessionRetryCoordinator.commandFinished(panelId: panelId, exitCode: 1)
+        let retryStatusKey = "agent.auto_retry.\(panelId.uuidString.lowercased())"
+        #expect(workspace.statusEntries[retryStatusKey]?.icon == "arrow.clockwise")
+
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
+
+        #expect(workspace.statusEntries[retryStatusKey] == nil)
+    }
+
+    @MainActor
     @Test("ordinary resume binding clears fail closed")
     func ordinaryBindingClearCancelsCandidate() throws {
         let defaults = try #require(UserDefaults(suiteName: "AgentSessionRetryCoordinatorTests.cleared"))

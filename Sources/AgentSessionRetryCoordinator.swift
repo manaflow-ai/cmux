@@ -71,7 +71,8 @@ final class AgentSessionRetryCoordinator {
                 retryCandidatesByPanelId[panelId] = binding
             }
         case .idle:
-            if !awaitingCommandCompletionPanelIds.contains(panelId) {
+            if statesByPanelId[panelId] == nil,
+               !awaitingCommandCompletionPanelIds.contains(panelId) {
                 reset(panelId: panelId)
             }
         case .unknown:
@@ -127,6 +128,7 @@ final class AgentSessionRetryCoordinator {
 
     func agentLifecycleDidClear(panelId: UUID) {
         guard workspace?.hasActiveAgentLifecycleForRetry(panelId: panelId) != true,
+              statesByPanelId[panelId] == nil,
               !awaitingCommandCompletionPanelIds.contains(panelId) else {
             return
         }
@@ -134,15 +136,18 @@ final class AgentSessionRetryCoordinator {
     }
 
     func shellActivityDidChange(panelId: UUID, state: PanelShellActivityState) {
-        guard state == .commandRunning,
-              awaitingCommandCompletionPanelIds.contains(panelId) else {
-            return
+        guard state == .commandRunning else { return }
+        if awaitingCommandCompletionPanelIds.contains(panelId) {
+            // The ended managed command must produce the next command-finished
+            // event before another shell command starts. If that event was lost or
+            // delayed, a new command makes the pending exit ambiguous; fail closed
+            // instead of letting its eventual exit resurrect the old agent.
+            reset(panelId: panelId)
+        } else if case .waiting = statesByPanelId[panelId]?.phase {
+            reset(panelId: panelId)
+        } else if case .exhausted = statesByPanelId[panelId]?.phase {
+            reset(panelId: panelId)
         }
-        // The ended managed command must produce the next command-finished
-        // event before another shell command starts. If that event was lost or
-        // delayed, a new command makes the pending exit ambiguous; fail closed
-        // instead of letting its eventual exit resurrect the old agent.
-        reset(panelId: panelId)
     }
 
     func commandFinished(panelId: UUID, exitCode: Int?) {
