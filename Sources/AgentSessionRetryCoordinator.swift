@@ -452,7 +452,7 @@ final class AgentSessionRetryCoordinator {
         shellIsRunning: Bool? = nil
     ) {
         guard let workspace,
-              shellIsRunning ?? workspace.panelShellActivityStates[panelId] == .commandRunning,
+              shellIsRunning ?? (workspace.panelShellActivityStates[panelId] == .commandRunning),
               workspace.hasActiveAgentLifecycleForRetry(panelId: panelId),
               let binding = workspace.managedAgentRetryBinding(panelId: panelId),
               let commandGeneration = commandGenerationsByPanelId[panelId] else {
