@@ -129,7 +129,6 @@ exit 86
         claude_log.unlink()
 
         for command in (
-            "agents",
             "auth",
             "auto-mode",
             "doctor",
@@ -158,6 +157,7 @@ exit 86
             claude_log.unlink()
 
         for real_args in (
+            ["agents"],
             ["start a team"],
             ["--tmux", "explain --version"],
             ["--model", "config"],

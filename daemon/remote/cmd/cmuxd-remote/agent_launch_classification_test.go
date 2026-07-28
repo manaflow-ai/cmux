@@ -10,6 +10,7 @@ func TestAgentLaunchNonLaunchClassification(t *testing.T) {
 		want       bool
 	}{
 		{"claude management", claudeTeamsLaunchIsNonLaunch, []string{"--verbose", "auth"}, true},
+		{"claude Agent View", claudeTeamsLaunchIsNonLaunch, []string{"agents"}, false},
 		{"claude tmux management", claudeTeamsLaunchIsNonLaunch, []string{"--tmux", "classic", "doctor"}, true},
 		{"claude informational after prompt", claudeTeamsLaunchIsNonLaunch, []string{"prompt", "--version"}, true},
 		{"claude uppercase V is a launch", claudeTeamsLaunchIsNonLaunch, []string{"-V"}, false},
@@ -18,9 +19,9 @@ func TestAgentLaunchNonLaunchClassification(t *testing.T) {
 		{"claude session routing", claudeTeamsLaunchIsNonLaunch, []string{"--resume", "doctor"}, false},
 		{"claude tmux prompt", claudeTeamsLaunchIsNonLaunch, []string{"--tmux", "doctor"}, false},
 		{"omo management with mdns", omoLaunchIsNonLaunch, []string{"--mdns", "models"}, true},
-		{"omo ACP service", omoLaunchIsNonLaunch, []string{"acp"}, true},
-		{"omo headless service", omoLaunchIsNonLaunch, []string{"serve"}, true},
-		{"omo web service", omoLaunchIsNonLaunch, []string{"web"}, true},
+		{"omo ACP service", omoLaunchIsNonLaunch, []string{"acp"}, false},
+		{"omo headless service", omoLaunchIsNonLaunch, []string{"serve"}, false},
+		{"omo web service", omoLaunchIsNonLaunch, []string{"web"}, false},
 		{"omo management with port", omoLaunchIsNonLaunch, []string{"--port", "4096", "models"}, true},
 		{"omo management with hostname", omoLaunchIsNonLaunch, []string{"--hostname=127.0.0.1", "models"}, true},
 		{"omo management with mdns domain", omoLaunchIsNonLaunch, []string{"--mdns-domain", "local", "models"}, true},

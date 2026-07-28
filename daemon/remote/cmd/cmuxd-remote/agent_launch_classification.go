@@ -188,7 +188,7 @@ func agentOptionName(argument string) string {
 }
 
 var claudeTeamsManagementCommands = map[string]bool{
-	"agents": true, "auth": true, "auto-mode": true, "doctor": true,
+	"auth": true, "auto-mode": true, "doctor": true,
 	"gateway": true, "install": true, "mcp": true, "plugin": true,
 	"plugins": true, "project": true, "setup-token": true,
 	"ultrareview": true, "update": true, "upgrade": true,
@@ -242,10 +242,9 @@ var claudeTeamsVariadicOptions = map[string]bool{
 }
 
 var omoManagementCommands = map[string]bool{
-	"acp": true, "agent": true, "auth": true, "completion": true, "db": true, "debug": true,
+	"agent": true, "auth": true, "completion": true, "db": true, "debug": true,
 	"export": true, "import": true, "mcp": true, "models": true, "plugin": true,
-	"plug": true, "providers": true, "serve": true, "stats": true, "uninstall": true,
-	"upgrade": true, "web": true,
+	"plug": true, "providers": true, "stats": true, "uninstall": true, "upgrade": true,
 }
 
 var omcManagementCommands = map[string]bool{

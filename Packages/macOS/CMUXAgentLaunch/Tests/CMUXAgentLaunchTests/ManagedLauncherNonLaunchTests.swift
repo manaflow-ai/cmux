@@ -6,8 +6,8 @@ struct ManagedLauncherNonLaunchTests {
     @Test("OMO preserves documented management commands")
     func omoManagementCommands() {
         for command in [
-            "acp", "agent", "auth", "completion", "db", "debug", "mcp", "models",
-            "export", "import", "plugin", "plug", "providers", "serve", "stats", "uninstall", "upgrade", "web",
+            "agent", "auth", "completion", "db", "debug", "mcp", "models",
+            "export", "import", "plugin", "plug", "providers", "stats", "uninstall", "upgrade",
         ] {
             #expect(AgentLaunchSanitizer.omoLaunchIsNonLaunch(args: [command]))
         }
@@ -26,6 +26,9 @@ struct ManagedLauncherNonLaunchTests {
     @Test("OMO rejects sessions, unknown commands, and command-shaped values")
     func omoLaunches() {
         for args in [
+            ["acp"],
+            ["serve"],
+            ["web"],
             ["session"],
             ["session", "run"],
             ["run", "hello"],

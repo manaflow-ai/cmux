@@ -43,12 +43,11 @@ extension AgentLaunchSanitizer {
         return false
     }
 
-    /// Whether OpenCode arguments select help, version, or a documented management command.
+    /// Whether OpenCode arguments select help, version, or a command that cannot host sessions.
     public static func omoLaunchIsNonLaunch(args: [String]) -> Bool {
         conservativeNonLaunchInvocation(
             args: args,
             managementCommands: [
-                "acp",
                 "agent",
                 "auth",
                 "completion",
@@ -61,11 +60,9 @@ extension AgentLaunchSanitizer {
                 "plugin",
                 "plug",
                 "providers",
-                "serve",
                 "stats",
                 "uninstall",
                 "upgrade",
-                "web",
             ],
             managementSubcommands: [
                 "session": ["delete", "list"],
@@ -165,7 +162,6 @@ extension AgentLaunchSanitizer {
     }
 
     private static let claudeTeamsManagementCommands: Set<String> = [
-        "agents",
         "auth",
         "auto-mode",
         "doctor",

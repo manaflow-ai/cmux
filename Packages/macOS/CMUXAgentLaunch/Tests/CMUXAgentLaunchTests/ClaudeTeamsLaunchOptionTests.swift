@@ -60,7 +60,7 @@ struct ClaudeTeamsLaunchOptionTests {
     @Test("Recognizes canonical Claude management commands after safe options")
     func recognizesManagementCommands() {
         for command in [
-            "agents", "auth", "auto-mode", "doctor", "gateway", "install", "mcp",
+            "auth", "auto-mode", "doctor", "gateway", "install", "mcp",
             "plugin", "plugins", "project", "setup-token", "ultrareview", "update", "upgrade",
         ] {
             #expect(AgentLaunchSanitizer.claudeTeamsLaunchIsManagementCommand(args: [command]))
@@ -74,6 +74,8 @@ struct ClaudeTeamsLaunchOptionTests {
     @Test("Does not promote command-shaped values or prompt payloads")
     func rejectsManagementCommandMasqueraders() {
         let launches = [
+            ["agents"],
+            ["--verbose", "agents"],
             ["--model", "config"],
             ["--append-system-prompt", "doctor"],
             ["--tmux", "config"],
