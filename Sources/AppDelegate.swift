@@ -579,64 +579,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private final class MainWindowController: ReleasingWindowController {
-        var onClose: (() -> Void)?
-        var shouldClose: (() -> Bool)?
-
-        #if DEBUG
-        private func logWindowEvent(_ event: String, notification: Notification) {
-            guard let window = notification.object as? NSWindow else { return }
-            let id = window.identifier?.rawValue ?? "<nil>"
-            cmuxDebugLog(
-                "mainWindow.delegate.\(event) window=\(id) visible=\(window.isVisible ? 1 : 0) mini=\(window.isMiniaturized ? 1 : 0) key=\(window.isKeyWindow ? 1 : 0) main=\(window.isMainWindow ? 1 : 0)"
-            )
-        }
-        #endif
-
-        override func managedWindowWillClose(_ window: NSWindow) {
-            onClose?()
-        }
-
-        #if DEBUG
-        func windowDidDeminiaturize(_ notification: Notification) {
-            logWindowEvent("didDeminiaturize", notification: notification)
-        }
-
-        func windowDidMiniaturize(_ notification: Notification) {
-            logWindowEvent("didMiniaturize", notification: notification)
-        }
-
-        func windowDidBecomeKey(_ notification: Notification) {
-            logWindowEvent("didBecomeKey", notification: notification)
-        }
-
-        func windowDidResignKey(_ notification: Notification) {
-            logWindowEvent("didResignKey", notification: notification)
-        }
-
-        func windowDidBecomeMain(_ notification: Notification) {
-            logWindowEvent("didBecomeMain", notification: notification)
-        }
-
-        func windowDidResignMain(_ notification: Notification) {
-            logWindowEvent("didResignMain", notification: notification)
-        }
-        #endif
-
-        func windowShouldClose(_ sender: NSWindow) -> Bool {
-            let shouldClose = shouldClose?() ?? true
-            if shouldClose {
-                WebViewInspectorTeardown.closeAllInspectors(in: sender)
-            }
-            return shouldClose
-        }
-
-        func windowWillUseStandardFrame(_ window: NSWindow, defaultFrame newFrame: NSRect) -> NSRect {
-            guard window is CmuxMainWindow else { return newFrame }
-            return CmuxMainWindow.standardFrame(forDefaultFrame: newFrame)
-        }
-    }
-
     struct ScriptableMainWindowState {
         let windowId: UUID
         let tabManager: TabManager
@@ -815,11 +757,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var splitButtonTooltipRefreshScheduled = false
     private var didScheduleGhosttyCrashBreadcrumbCheck = false
     private var ghosttyCrashBreadcrumbTask: Task<Void, Never>?
-    private struct PendingConfiguredShortcutChord {
+    struct PendingConfiguredShortcutChord {
         let firstStroke: ShortcutStroke
         let windowNumber: Int?
     }
-    private var pendingConfiguredShortcutChord: PendingConfiguredShortcutChord?
+    var pendingConfiguredShortcutChord: PendingConfiguredShortcutChord?
     var activeConfiguredShortcutChordPrefixForCurrentEvent: ShortcutStroke?
     var shortcutEventFocusContextCache: ShortcutEventFocusContextCache?
     private var ghosttyConfigObserver: NSObjectProtocol?
@@ -8933,6 +8875,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Keep a strong reference so the window isn't deallocated.
         let controller = MainWindowController(window: window)
+        controller.onFrameRestorationCheckpoint = { [weak self] restoredWindow in
+            self?.fitRestoredMainWindowFramesIfNeeded(windows: [restoredWindow])
+        }
         controller.onClose = { [weak self, weak controller] in
             guard let self, let controller else { return }
             let manager = self.tabManagerFor(windowId: windowId)
@@ -9206,7 +9151,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-    func toggleGlobalSearchPaletteFromGlobalHotkey() {
+    func toggleGlobalSearchPalette() {
         if menuBarExtraController == nil,
            MenuBarExtraSettings.shouldInstallMenuBarExtra() {
             setupMenuBarExtra()
@@ -12716,13 +12661,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func currentConfiguredShortcutChordActions() -> [KeyboardShortcutSettings.Action] {
         KeyboardShortcutSettings.Action.allCases.filter { action in
-            // System-wide hotkeys are dispatched via Carbon RegisterEventHotKey
-            // and never routed through AppKit's local key handler. If a managed
-            // cmux.json entry somehow stores one as a chord, arming the prefix
-            // here would swallow the first stroke and leave the second one
-            // orphaned, breaking that keystroke for the focused terminal/browser
-            // input.
-            guard action != .showHideAllWindows && action != .globalSearch && action.allowsChordShortcut else { return false }
+            // Carbon owns the opt-in hotkey, while Global Search has a cached
+            // foreground route before generic chord handling.
+            guard !action.isSystemWideHotkey,
+                  action != .globalSearch,
+                  action.allowsChordShortcut else {
+                return false
+            }
             guard !action.isBrowserContentShortcut else { return false }
             return KeyboardShortcutSettings.shortcut(for: action).hasChord
         }
@@ -12997,7 +12942,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if shortcutRoutingShouldBypassForPrintableOptionText(event: event) {
             let shortcutWindow = resolvedShortcutEventWindow(event) ?? shortcutRoutingActiveWindow
-            if browserResponderHasMarkedText(shortcutWindow?.firstResponder) {
+            if shortcutResponderHasMarkedText(shortcutWindow?.firstResponder) {
                 clearConfiguredShortcutChordState()
                 return false
             }
@@ -13342,14 +13287,57 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
-        if shouldConsumeShortcutWhileCommandPaletteVisible(
+        // Active marked text owns every non-Command event, regardless of which
+        // NSTextInputClient has focus. Command shortcuts remain available while
+        // composing because Command is not part of IME input sequences.
+        let shortcutWindowForMarkedText = resolvedShortcutEventWindow(event)
+            ?? event.window
+            ?? shortcutRoutingActiveWindow
+            ?? shortcutRoutingKeyWindow
+        let shortcutResponderForMarkedText = shortcutWindowForMarkedText?.firstResponder
+        if !normalizedFlags.contains(.command) {
+            if let ghosttyView = shortcutResponderForMarkedText.cmuxStrictOwningGhosttyView(),
+               ghosttyView.hasMarkedText() {
+                return false
+            }
+            if shortcutResponderHasMarkedText(shortcutResponderForMarkedText) {
+                return false
+            }
+        }
+
+        let globalSearchShortcut = globalSearchShortcutForRouting()
+        let matchesGlobalSearchShortcut = matchGlobalSearchShortcut(
+            event: event,
+            normalizedFlags: normalizedFlags
+        )
+        let commandPaletteConsumesShortcut = shouldConsumeShortcutWhileCommandPaletteVisible(
             isCommandPaletteVisible: commandPaletteEffectiveInTargetWindow,
-            normalizedFlags: normalizedFlags,
-            chars: chars,
-            keyCode: event.keyCode
-        ) {
+            normalizedFlags: normalizedFlags, chars: chars, keyCode: event.keyCode
+        )
+        let commandPaletteCanRouteUnarmedGlobalSearch = commandPaletteEffectiveInTargetWindow && commandPaletteConsumesShortcut
+        let globalSearchUnarmedChordPrefixMatches = matchesUnarmedGlobalSearchChordPrefix(event, normalizedFlags: normalizedFlags)
+        switch routeVisibleGlobalSearchShortcut(event, normalizedFlags: normalizedFlags) {
+        case .handled:
+            return true
+        case .queryOwnsEvent:
+            return false
+        case .notApplicable:
+            break
+        }
+        if matchesGlobalSearchShortcut,
+           activeConfiguredShortcutChordPrefixForCurrentEvent != nil
+            || commandPaletteCanRouteUnarmedGlobalSearch {
+            toggleGlobalSearchPalette()
             return true
         }
+        if globalSearchUnarmedChordPrefixMatches,
+           commandPaletteCanRouteUnarmedGlobalSearch {
+            if globalSearchShortcutWhenClauseAllows(event: event),
+               armConfiguredShortcutChordIfNeeded(event: event, actions: [], shortcuts: [globalSearchShortcut]) { return true }
+        }
+        if commandPaletteConsumesShortcut { return true }
+        if commandPaletteEffectiveInTargetWindow,
+           activeConfiguredShortcutChordPrefixForCurrentEvent == nil { return false }
 
         if isPlainEscape {
             let escapeWindow = resolvedShortcutEventWindow(event) ?? shortcutRoutingActiveWindow
@@ -13365,25 +13353,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if escapeWindow?.firstResponder is TextBoxInputTextView {
                 return false
             }
-        }
-
-        // When the terminal has active IME composition (e.g. Korean, Japanese, Chinese
-        // input), don't intercept non-Cmd key events — let them flow through to the
-        // input method. Cmd-based shortcuts (Cmd+T, Cmd+Shift+L, etc.) should still
-        // work during composition since Cmd is never part of IME input sequences.
-        if !normalizedFlags.contains(.command),
-           let ghosttyView = (shortcutRoutingKeyWindow?.firstResponder).cmuxStrictOwningGhosttyView(),
-           ghosttyView.hasMarkedText() {
-            return false
-        }
-
-        let shortcutWindowForMarkedText = resolvedShortcutEventWindow(event) ?? event.window ?? shortcutRoutingActiveWindow
-        if browserOmnibarShouldBypassShortcutRoutingForMarkedText(
-            hasFocusedAddressBar: hasFocusedAddressBarInShortcutContext,
-            firstResponderHasMarkedText: browserResponderHasMarkedText(shortcutWindowForMarkedText?.firstResponder),
-            flags: event.modifierFlags
-        ) {
-            return false
         }
 
         // When the notifications popover is open, Escape should dismiss it immediately.
@@ -13539,6 +13508,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                pageURL: shortcutEventBrowserPanel(event)?.webView.url
            ) {
             return false
+        }
+
+        if activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
+           globalSearchShortcut.hasChord,
+           globalSearchShortcutWhenClauseAllows(event: event),
+           armConfiguredShortcutChordIfNeeded(event: event, actions: [], shortcuts: [globalSearchShortcut]) {
+            return true
+        }
+
+        if matchesGlobalSearchShortcut {
+            toggleGlobalSearchPalette()
+            return true
         }
 
         if matchConfiguredShortcut(event: event, action: .commandPalette) {
@@ -15278,6 +15259,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return matchConfiguredShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: action))
     }
 
+    /// `shortcuts.when` gates opening Search; visible Search owns its toggle so
+    /// the auxiliary popover's transient focus context cannot prevent dismissal.
+    func globalSearchShortcutWhenClauseAllows(event: NSEvent) -> Bool {
+        GlobalSearchCoordinator.shared.isPaletteVisible()
+            || shortcutWhenClauseAllows(action: .globalSearch, event: event)
+    }
+
     /// Whether `action`'s effective `when` clause (its `shortcuts.when` override,
     /// or its built-in context default) is satisfied by the event's focus state.
     /// Gates every focus-scoped shortcut, including the numbered workspace/surface
@@ -15292,7 +15280,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func rightSidebarModeShortcut(for event: NSEvent) -> RightSidebarMode? {
         let shortcutWindow = resolvedShortcutEventWindow(event) ?? event.window ?? shortcutRoutingActiveWindow
         if shortcutRoutingShouldBypassForPrintableOptionText(event: event),
-           browserResponderHasMarkedText(shortcutWindow?.firstResponder) {
+           shortcutResponderHasMarkedText(shortcutWindow?.firstResponder) {
             return nil
         }
         return KeyboardShortcutSettingsObserver.shared.rightSidebarModeShortcutMatcher.modeShortcut(for: event) { [self] action in
@@ -15369,7 +15357,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-    private func configuredShortcutChordWindowNumber(for event: NSEvent) -> Int? {
+    func configuredShortcutChordWindowNumber(for event: NSEvent) -> Int? {
         if let window = mainWindowForShortcutEvent(event) {
             return window.windowNumber
         }
@@ -17134,7 +17122,7 @@ private extension NSWindow {
         let firstResponderWebView = self.firstResponder.flatMap {
             Self.cmuxOwningWebView(for: $0, in: self, event: event)
         }
-        let firstResponderHasMarkedText = browserResponderHasMarkedText(self.firstResponder)
+        let firstResponderHasMarkedText = shortcutResponderHasMarkedText(self.firstResponder)
         let firstResponderIsCommandPaletteFieldEditor = Self.cmuxCommandPaletteOwnsFieldEditor(
             self.firstResponder as? NSTextView,
             in: self
@@ -17416,7 +17404,7 @@ private extension NSWindow {
                 if cmuxForceDispatchKeyDownOnce(
                     event,
                     to: omnibarResponder,
-                    reason: browserResponderHasMarkedText(omnibarResponder)
+                    reason: shortcutResponderHasMarkedText(omnibarResponder)
                         ? "browser arrow restored focused omnibar with marked text"
                         : "browser arrow restored focused omnibar"
                 ) {

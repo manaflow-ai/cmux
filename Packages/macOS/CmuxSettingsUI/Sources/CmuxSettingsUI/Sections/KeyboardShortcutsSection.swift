@@ -33,6 +33,9 @@ public struct KeyboardShortcutsSection: View {
             userDefaultsStore: userDefaultsStore,
             catalog: catalog,
             errorLog: errorLog,
+            canRegisterSystemWideHotkey: {
+                hostActions.canRegisterSystemWideHotkey($0)
+            },
             onShortcutsChanged: { hostActions.notifyShortcutSettingsDidChange() }
         ))
     }

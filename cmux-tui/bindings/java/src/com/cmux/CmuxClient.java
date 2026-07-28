@@ -21,6 +21,8 @@ import java.util.Map;
 import java.util.Set;
 
 public final class CmuxClient implements AutoCloseable {
+    public static final int TERMINAL_KEY_TEXT_MAX_BYTES = 4 * 1024;
+
     private final String socketPath;
     private final Duration timeout;
     private final boolean allowProtocolV6Attach;
@@ -162,6 +164,24 @@ public final class CmuxClient implements AutoCloseable {
             params.put("bytes", base64Bytes);
         }
         request("send", params);
+    }
+
+    public void clearHistory(long surface) throws CmuxException {
+        requireCapability("clear-history-v1", "clear-history");
+        request("clear-history", surfaceParams(surface));
+    }
+
+    public void clearHistory(long surface, TerminalKeyInput fallbackKey) throws CmuxException {
+        requireCapability("clear-history-v1", "clear-history");
+        requireCapability("clear-history-key-v1", "clear-history key fallback");
+        if (fallbackKey.utf8().getBytes(StandardCharsets.UTF_8).length > TERMINAL_KEY_TEXT_MAX_BYTES) {
+            throw new IllegalArgumentException(
+                "terminal key text exceeds the 4 KiB protocol limit"
+            );
+        }
+        Map<String, Object> params = surfaceParams(surface);
+        params.put("fallback_key", fallbackKey.toMap());
+        request("clear-history", params);
     }
 
     public ReadScreenResult readScreen(long surface) throws CmuxException {
@@ -475,7 +495,11 @@ public final class CmuxClient implements AutoCloseable {
             }
             return new LinkedHashMap<>();
         }
-        throw new CmuxCommandException(asString(response.getOrDefault("error", "unknown error")), response.get("id"));
+        throw new CmuxCommandException(
+            asString(response.getOrDefault("error", "unknown error")),
+            response.get("id"),
+            CmuxErrorDelivery.fromWire(response.get("error_delivery"))
+        );
     }
 
     private List<?> requestList(String cmd, Map<String, Object> params) throws CmuxException {
@@ -492,7 +516,8 @@ public final class CmuxClient implements AutoCloseable {
         }
         throw new CmuxCommandException(
             asString(response.getOrDefault("error", "unknown error")),
-            response.get("id")
+            response.get("id"),
+            CmuxErrorDelivery.fromWire(response.get("error_delivery"))
         );
     }
 
@@ -709,7 +734,11 @@ public final class CmuxClient implements AutoCloseable {
                     return new CmuxStream(connection, buffered);
                 }
                 if (Boolean.FALSE.equals(response.get("ok"))) {
-                    throw new CmuxCommandException(asString(response.get("error")), response.get("id"));
+                    throw new CmuxCommandException(
+                        asString(response.get("error")),
+                        response.get("id"),
+                        CmuxErrorDelivery.fromWire(response.get("error_delivery"))
+                    );
                 }
             }
         }

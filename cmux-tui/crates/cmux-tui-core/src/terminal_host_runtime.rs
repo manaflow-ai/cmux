@@ -7,15 +7,24 @@
 
 use std::path::{Path, PathBuf};
 
-use ghostty_vt::{Rgb, TerminalColorOverrides};
+use ghostty_vt::{KeyInput, Rgb, TerminalColorOverrides};
 use serde::{Deserialize, Serialize};
 
-use crate::surface::{DefaultColors, SurfaceOptions, replace_ghostty_cursor_defaults};
+use crate::surface::{
+    CLEAR_HISTORY_FALLBACK_UNREPRESENTABLE_ERROR, CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT_ERROR,
+    CLEAR_HISTORY_PRESERVATION_ERROR, CLEAR_HISTORY_STREAM_TIMEOUT_ERROR,
+    CLEAR_HISTORY_STREAM_WAIT_TIMEOUT, ClearHistoryDelivery, ClearHistoryFailure,
+    ClearHistoryTransition, DefaultColors, SurfaceOptions, TerminalStreamProgress,
+    apply_clear_history_transition, replace_ghostty_cursor_defaults, write_clear_history_fallback,
+};
 use crate::terminal_host::{
     CapabilityRights, CapabilityStore, CapabilityToken, ClientHello, ClientRole, HostBootstrap,
     HostHello, HostIncarnation, HostReady, TerminalId,
 };
 use crate::terminal_host_protocol::{
+    CLEAR_HISTORY_ACK_AMBIGUOUS, CLEAR_HISTORY_ACK_FALLBACK_UNREPRESENTABLE,
+    CLEAR_HISTORY_ACK_FALLBACK_WRITE_TIMEOUT, CLEAR_HISTORY_ACK_KNOWN_NOT_DELIVERED,
+    CLEAR_HISTORY_ACK_OK, CLEAR_HISTORY_ACK_PRESERVATION_FAILED, CLEAR_HISTORY_ACK_STREAM_TIMEOUT,
     FLAG_COLORS_FOLLOW, FLAG_VIEWER_SIZE_ACKS, Frame, MAX_FRAME_PAYLOAD, MessageKind,
     PROTOCOL_VERSION, RESIZE_ACK_CANONICAL_CHANGED, read_frame, write_frame,
 };
@@ -27,7 +36,7 @@ const MAX_BLOB: usize = 8 * 1024 * 1024;
 const MAX_ARGV: usize = 256;
 const MAX_ENV: usize = 1024;
 const MAX_RENDERER_CAPABILITY_TTL: std::time::Duration = std::time::Duration::from_secs(60);
-const CAPABILITY_RESPONSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+const CONTROL_RESPONSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 const HOST_HANDSHAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 const MAX_HOST_CLIENT_QUEUED_BYTES: usize = 8 * 1024 * 1024;
 const HOST_START_NONCE_LEN: usize = 32;
@@ -74,6 +83,10 @@ pub struct TerminalHostRecord {
     /// hosts and must never receive the unknown SetDefaults message.
     #[serde(default)]
     pub supports_set_defaults: bool,
+    /// Additive control capability. Missing/false records belong to legacy
+    /// hosts and must never receive the unknown ClearHistory message.
+    #[serde(default)]
+    pub supports_clear_history: bool,
 }
 
 impl std::fmt::Debug for TerminalHostRecord {
@@ -88,6 +101,7 @@ impl std::fmt::Debug for TerminalHostRecord {
             .field("host_start_nonce", &self.host_start_nonce)
             .field("workspace_key", &self.workspace_key)
             .field("supports_set_defaults", &self.supports_set_defaults)
+            .field("supports_clear_history", &self.supports_clear_history)
             .finish()
     }
 }
@@ -529,15 +543,30 @@ mod unix {
         Ok(colors)
     }
 
-    pub(crate) struct CapabilityResponses {
-        waiters: Mutex<HashMap<u64, SyncSender<Vec<u8>>>>,
+    struct ControlResponseWaiter {
+        kind: MessageKind,
+        sender: SyncSender<Vec<u8>>,
     }
 
-    impl CapabilityResponses {
-        pub(crate) fn resolve(&self, frame: &Frame) {
-            if let Some(waiter) = self.waiters.lock().unwrap().remove(&frame.request_id) {
-                let _ = waiter.try_send(frame.payload.clone());
+    pub(crate) struct ControlResponses {
+        waiters: Mutex<HashMap<u64, ControlResponseWaiter>>,
+    }
+
+    impl ControlResponses {
+        pub(crate) fn resolve(&self, frame: &Frame) -> bool {
+            let mut waiters = self.waiters.lock().unwrap();
+            let Some(waiter) = waiters.remove(&frame.request_id) else {
+                return false;
+            };
+            if waiter.kind != frame.kind {
+                return false;
             }
+            let _ = waiter.sender.try_send(frame.payload.clone());
+            true
+        }
+
+        pub(crate) fn cancel_all(&self) {
+            self.waiters.lock().unwrap().clear();
         }
     }
 
@@ -547,7 +576,7 @@ mod unix {
         pub snapshot: HostSnapshot,
         reader: Option<UnixStream>,
         writer: Arc<Mutex<UnixStream>>,
-        capability_responses: Arc<CapabilityResponses>,
+        control_responses: Arc<ControlResponses>,
         next_request: AtomicU64,
         viewer_size: Mutex<Option<(u16, u16)>>,
         /// Exact process ownership retained only between a successful launch
@@ -564,6 +593,61 @@ mod unix {
                 .field("endpoint", &self.record.endpoint)
                 .finish_non_exhaustive()
         }
+    }
+
+    fn clear_history_ack_status(result: Result<(), ClearHistoryFailure>) -> u8 {
+        match result {
+            Ok(()) => CLEAR_HISTORY_ACK_OK,
+            Err(failure) if failure.delivery() == ClearHistoryDelivery::Ambiguous => {
+                CLEAR_HISTORY_ACK_AMBIGUOUS
+            }
+            Err(failure) => match failure.error().to_string().as_str() {
+                CLEAR_HISTORY_PRESERVATION_ERROR => CLEAR_HISTORY_ACK_PRESERVATION_FAILED,
+                CLEAR_HISTORY_STREAM_TIMEOUT_ERROR => CLEAR_HISTORY_ACK_STREAM_TIMEOUT,
+                CLEAR_HISTORY_FALLBACK_UNREPRESENTABLE_ERROR => {
+                    CLEAR_HISTORY_ACK_FALLBACK_UNREPRESENTABLE
+                }
+                CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT_ERROR => {
+                    CLEAR_HISTORY_ACK_FALLBACK_WRITE_TIMEOUT
+                }
+                _ => CLEAR_HISTORY_ACK_KNOWN_NOT_DELIVERED,
+            },
+        }
+    }
+
+    fn clear_history_ack_failure(status: u8) -> Option<ClearHistoryFailure> {
+        let (delivery, message) = match status {
+            CLEAR_HISTORY_ACK_PRESERVATION_FAILED => {
+                (ClearHistoryDelivery::KnownNotDelivered, CLEAR_HISTORY_PRESERVATION_ERROR)
+            }
+            CLEAR_HISTORY_ACK_STREAM_TIMEOUT => {
+                (ClearHistoryDelivery::KnownNotDelivered, CLEAR_HISTORY_STREAM_TIMEOUT_ERROR)
+            }
+            CLEAR_HISTORY_ACK_FALLBACK_UNREPRESENTABLE => (
+                ClearHistoryDelivery::KnownNotDelivered,
+                CLEAR_HISTORY_FALLBACK_UNREPRESENTABLE_ERROR,
+            ),
+            CLEAR_HISTORY_ACK_FALLBACK_WRITE_TIMEOUT => (
+                ClearHistoryDelivery::KnownNotDelivered,
+                CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT_ERROR,
+            ),
+            CLEAR_HISTORY_ACK_KNOWN_NOT_DELIVERED => (
+                ClearHistoryDelivery::KnownNotDelivered,
+                "terminal host rejected clear-history before execution",
+            ),
+            CLEAR_HISTORY_ACK_AMBIGUOUS => (
+                ClearHistoryDelivery::Ambiguous,
+                "terminal host may have partially applied clear-history",
+            ),
+            _ => return None,
+        };
+        let error = anyhow::anyhow!(message);
+        Some(match delivery {
+            ClearHistoryDelivery::KnownNotDelivered => {
+                ClearHistoryFailure::known_not_delivered(error)
+            }
+            ClearHistoryDelivery::Ambiguous => ClearHistoryFailure::ambiguous(error),
+        })
     }
 
     impl HostAttachment {
@@ -593,6 +677,45 @@ mod unix {
             }
             self.send(MessageKind::SetDefaults, &encode_default_colors_payload(colors))?;
             Ok(true)
+        }
+
+        pub fn send_clear_history(
+            &self,
+            fallback_key: Option<&KeyInput>,
+        ) -> Result<bool, ClearHistoryFailure> {
+            if !self.record.supports_clear_history {
+                return Ok(false);
+            }
+            let payload = crate::server::encode_terminal_host_clear_history(fallback_key)
+                .map_err(ClearHistoryFailure::known_not_delivered)?;
+            let response = self.send_control_request(
+                MessageKind::ClearHistory,
+                MessageKind::ClearHistoryAck,
+                payload,
+            )?;
+            match response.as_slice() {
+                [CLEAR_HISTORY_ACK_OK] => {}
+                [status] => {
+                    let Some(failure) = clear_history_ack_failure(*status) else {
+                        self.disconnect();
+                        return Err(ClearHistoryFailure::ambiguous(anyhow::anyhow!(
+                            "terminal host returned an unknown clear-history status"
+                        )));
+                    };
+                    return Err(failure);
+                }
+                _ => {
+                    self.disconnect();
+                    return Err(ClearHistoryFailure::ambiguous(anyhow::anyhow!(
+                        "terminal host returned a malformed clear-history response"
+                    )));
+                }
+            }
+            Ok(true)
+        }
+
+        pub fn supports_clear_history(&self) -> bool {
+            self.record.supports_clear_history
         }
 
         pub fn send_viewer_size(&self, cols: u16, rows: u16) -> std::io::Result<()> {
@@ -665,8 +788,56 @@ mod unix {
             (self.record.clone(), self.record_path.clone())
         }
 
-        pub(crate) fn capability_responses(&self) -> Arc<CapabilityResponses> {
-            self.capability_responses.clone()
+        pub(crate) fn control_responses(&self) -> Arc<ControlResponses> {
+            self.control_responses.clone()
+        }
+
+        fn send_control_request(
+            &self,
+            request_kind: MessageKind,
+            response_kind: MessageKind,
+            payload: Vec<u8>,
+        ) -> Result<Vec<u8>, ClearHistoryFailure> {
+            let request_id = self.next_request.fetch_add(1, Ordering::Relaxed);
+            if request_id == 0 {
+                return Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
+                    "terminal host control request id exhausted"
+                )));
+            }
+            let (sender, receiver) = sync_channel(1);
+            {
+                let mut waiters = self.control_responses.waiters.lock().unwrap();
+                if waiters.contains_key(&request_id) {
+                    return Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
+                        "terminal host control request id collision"
+                    )));
+                }
+                waiters.insert(request_id, ControlResponseWaiter { kind: response_kind, sender });
+            }
+            let mut frame = Frame::new(request_kind, payload);
+            frame.request_id = request_id;
+            let write_result = {
+                let mut writer = self.writer.lock().unwrap();
+                let result = write_frame(&mut *writer, &frame).map_err(protocol_io_error);
+                if result.is_err() {
+                    let _ = writer.shutdown(std::net::Shutdown::Both);
+                }
+                result
+            };
+            if let Err(error) = write_result {
+                self.control_responses.waiters.lock().unwrap().remove(&request_id);
+                return Err(ClearHistoryFailure::ambiguous(error.into()));
+            }
+            match receiver.recv_timeout(CONTROL_RESPONSE_TIMEOUT) {
+                Ok(payload) => Ok(payload),
+                Err(error) => {
+                    self.control_responses.waiters.lock().unwrap().remove(&request_id);
+                    self.disconnect();
+                    Err(ClearHistoryFailure::ambiguous(anyhow::anyhow!(
+                        "terminal host did not acknowledge {request_kind:?}: {error}"
+                    )))
+                }
+            }
         }
 
         pub fn mint_renderer_grant(&self, ttl: Duration) -> anyhow::Result<RendererGrant> {
@@ -675,33 +846,15 @@ mod unix {
             }
             let ttl_ms = u32::try_from(ttl.as_millis())
                 .map_err(|_| anyhow::anyhow!("renderer capability TTL is too large"))?;
-            let request_id = self.next_request.fetch_add(1, Ordering::Relaxed);
-            let (sender, receiver) = sync_channel(1);
-            self.capability_responses.waiters.lock().unwrap().insert(request_id, sender);
             let mut payload = Vec::with_capacity(8);
             payload.extend_from_slice(&CapabilityRights::RENDERER.bits().to_le_bytes());
             payload.extend_from_slice(&ttl_ms.to_le_bytes());
-            let mut frame = Frame::new(MessageKind::MintCapability, payload);
-            frame.request_id = request_id;
-            let write_result = {
-                let mut writer = self.writer.lock().unwrap();
-                write_frame(&mut *writer, &frame).map_err(protocol_io_error)
-            };
-            if let Err(error) = write_result {
-                let _ = self.writer.lock().unwrap().shutdown(std::net::Shutdown::Both);
-                self.capability_responses.waiters.lock().unwrap().remove(&request_id);
-                return Err(error.into());
-            }
-            let payload = match receiver.recv_timeout(CAPABILITY_RESPONSE_TIMEOUT) {
-                Ok(payload) => payload,
-                Err(error) => {
-                    self.capability_responses.waiters.lock().unwrap().remove(&request_id);
-                    return Err(anyhow::anyhow!(
-                        "terminal host did not mint renderer grant: {error}"
-                    ));
-                }
-            };
+            let payload = self
+                .send_control_request(MessageKind::MintCapability, MessageKind::Capability, payload)
+                .map_err(ClearHistoryFailure::into_error)
+                .context("terminal host did not mint renderer grant")?;
             if payload.len() != crate::terminal_host::CAPABILITY_TOKEN_LEN {
+                self.disconnect();
                 anyhow::bail!("terminal host returned a malformed renderer capability");
             }
             Ok(RendererGrant {
@@ -956,6 +1109,7 @@ mod unix {
             if record.host_pid != 0
                 || !record.host_start_nonce.is_empty()
                 || record.supports_set_defaults
+                || record.supports_clear_history
             {
                 anyhow::bail!("legacy terminal-host record has unexpected liveness fields");
             }
@@ -1216,9 +1370,7 @@ mod unix {
             snapshot,
             reader: Some(reader),
             writer: Arc::new(Mutex::new(stream)),
-            capability_responses: Arc::new(CapabilityResponses {
-                waiters: Mutex::new(HashMap::new()),
-            }),
+            control_responses: Arc::new(ControlResponses { waiters: Mutex::new(HashMap::new()) }),
             next_request: AtomicU64::new(2),
             // New hosts do not register Admin as a viewer. Initialize this as
             // if they did so the unconditional release below also upgrades
@@ -1408,6 +1560,7 @@ mod unix {
         owner_token: CapabilityToken,
         capabilities: CapabilityStore,
         term: Mutex<Terminal>,
+        stream_progress: TerminalStreamProgress,
         writer: Mutex<Box<dyn Write + Send>>,
         master: Mutex<Box<dyn MasterPty + Send>>,
         killer: Mutex<Box<dyn ChildKiller + Send>>,
@@ -1530,6 +1683,57 @@ mod unix {
                 Vec::new(),
                 encode_terminal_color_overrides(&resolved),
             );
+        }
+
+        fn clear_history_or_encode_key(
+            &self,
+            fallback_key: Option<&KeyInput>,
+        ) -> Result<(), ClearHistoryFailure> {
+            let mut observed_progress = self.stream_progress.revision();
+            let mut stream_wait = None;
+            loop {
+                let mut term = self.term.lock().unwrap();
+                match apply_clear_history_transition(&mut term, fallback_key)
+                    .map_err(ClearHistoryFailure::known_not_delivered)?
+                {
+                    ClearHistoryTransition::Cleared(clear) => {
+                        // Keep the authoritative parser lock through sequence
+                        // publication so child output cannot overtake the
+                        // emulator-only erase on any attached mirror.
+                        self.broadcast(MessageKind::Output, clear);
+                        return Ok(());
+                    }
+                    ClearHistoryTransition::Blocked => {
+                        drop(term);
+                        let deadline = stream_wait
+                            .get_or_insert_with(|| {
+                                self.stream_progress
+                                    .begin_clear_history_wait(CLEAR_HISTORY_STREAM_WAIT_TIMEOUT)
+                            })
+                            .deadline();
+                        let Some(progress) =
+                            self.stream_progress.wait_for_change(observed_progress, deadline)
+                        else {
+                            stream_wait.as_mut().unwrap().mark_timed_out();
+                            return Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
+                                CLEAR_HISTORY_STREAM_TIMEOUT_ERROR
+                            )));
+                        };
+                        observed_progress = progress;
+                    }
+                    ClearHistoryTransition::EncodedFallback(encoded) => {
+                        drop(term);
+                        let mut writer = self.writer.lock().unwrap();
+                        let master = self.master.lock().unwrap();
+                        return write_clear_history_fallback(
+                            master.as_ref(),
+                            writer.as_mut(),
+                            &encoded,
+                        );
+                    }
+                    ClearHistoryTransition::Noop => return Ok(()),
+                }
+            }
         }
 
         fn remove_client(&self, client: u64) {
@@ -2009,6 +2213,7 @@ mod unix {
             host_start_nonce: encode_hex(start_nonce.as_bytes()),
             workspace_key: String::new(),
             supports_set_defaults: true,
+            supports_clear_history: true,
         };
         let lease =
             HostLivenessLease::acquire(liveness_path(Path::new(&launch.record_path), &record))?;
@@ -2138,6 +2343,7 @@ mod unix {
             owner_token: bootstrapped.owner_token(),
             capabilities: CapabilityStore::new(64),
             term: Mutex::new(term),
+            stream_progress: TerminalStreamProgress::default(),
             writer: Mutex::new(pty_writer),
             master: Mutex::new(pty.master),
             killer: Mutex::new(killer),
@@ -2179,6 +2385,14 @@ mod unix {
                 let count = match pty_reader.read(&mut buffer) {
                     Ok(0) => break,
                     Ok(count) => count,
+                    Err(error)
+                        if matches!(
+                            error.kind(),
+                            std::io::ErrorKind::Interrupted | std::io::ErrorKind::WouldBlock
+                        ) =>
+                    {
+                        continue;
+                    }
                     Err(_) => break,
                 };
                 let bytes = &buffer[..count];
@@ -2211,6 +2425,7 @@ mod unix {
                     reader_host.broadcast_frames(output_transition_frames(bytes, colors, pwd));
                     title
                 };
+                reader_host.stream_progress.notify();
                 if let Some(title) = title {
                     reader_host.broadcast(MessageKind::Title, title.into_bytes());
                 }
@@ -2453,8 +2668,31 @@ mod unix {
                         };
                         command_host.set_default_colors(colors);
                     }
+                    MessageKind::ClearHistory => {
+                        if !granted_rights.contains(CapabilityRights::INPUT)
+                            || frame.request_id == 0
+                        {
+                            break;
+                        }
+                        let Ok(fallback_key) =
+                            crate::server::decode_terminal_host_clear_history(&frame.payload)
+                        else {
+                            break;
+                        };
+                        let status = clear_history_ack_status(
+                            command_host.clear_history_or_encode_key(fallback_key.as_ref()),
+                        );
+                        let mut response = Frame::new(MessageKind::ClearHistoryAck, vec![status]);
+                        response.request_id = frame.request_id;
+                        let _broadcast = command_host.broadcast_lock.lock().unwrap();
+                        if !command_sender.try_send(response) {
+                            break;
+                        }
+                    }
                     MessageKind::MintCapability => {
-                        if !granted_rights.contains(CapabilityRights::MINT_CAPABILITY) {
+                        if !granted_rights.contains(CapabilityRights::MINT_CAPABILITY)
+                            || frame.request_id == 0
+                        {
                             break;
                         }
                         let Ok(token) = mint_renderer_capability(&command_host, &frame.payload)
@@ -2816,6 +3054,7 @@ mod unix {
                 host_start_nonce: encode_hex(nonce.as_bytes()),
                 workspace_key: String::new(),
                 supports_set_defaults: true,
+                supports_clear_history: true,
             };
             let record_path = record.record_path(&root);
             let lease = HostLivenessLease::acquire(liveness_path(&record_path, &record)).unwrap();
@@ -2880,6 +3119,137 @@ mod unix {
         }
 
         #[test]
+        fn clear_history_ack_preserves_known_not_delivered_failure() {
+            let (record_path, record, lease) = record_fixture("clear-history-ack");
+            let root = record_path.parent().unwrap().to_path_buf();
+            let (client, mut host) = UnixStream::pair().unwrap();
+            let control_responses =
+                Arc::new(ControlResponses { waiters: Mutex::new(HashMap::new()) });
+            let attachment = HostAttachment {
+                record,
+                record_path,
+                snapshot: HostSnapshot {
+                    cols: 80,
+                    rows: 24,
+                    replay: Vec::new(),
+                    sequence_boundary: 0,
+                    colors: TerminalColorOverrides::default(),
+                    pid: None,
+                    command: Vec::new(),
+                    cwd: None,
+                },
+                reader: None,
+                writer: Arc::new(Mutex::new(client)),
+                control_responses: control_responses.clone(),
+                next_request: AtomicU64::new(2),
+                viewer_size: Mutex::new(None),
+                launch_process: None,
+            };
+            let responder = thread::spawn(move || {
+                let request = read_frame(&mut host, MAX_FRAME_PAYLOAD).unwrap().unwrap();
+                assert_eq!(request.kind, MessageKind::ClearHistory);
+                let mut response = Frame::new(
+                    MessageKind::ClearHistoryAck,
+                    vec![crate::terminal_host_protocol::CLEAR_HISTORY_ACK_FAILED],
+                );
+                response.request_id = request.request_id;
+                assert!(control_responses.resolve(&response));
+            });
+
+            let failure = attachment.send_clear_history(None).unwrap_err();
+            responder.join().unwrap();
+
+            assert_eq!(failure.delivery(), ClearHistoryDelivery::KnownNotDelivered);
+            assert_eq!(failure.into_error().to_string(), CLEAR_HISTORY_PRESERVATION_ERROR);
+            drop(attachment);
+            drop(lease);
+            let _ = fs::remove_dir_all(root);
+        }
+
+        #[test]
+        fn clear_history_control_write_failure_after_header_is_ambiguous() {
+            let (record_path, record, lease) =
+                record_fixture("clear-history-partial-control-write");
+            let root = record_path.parent().unwrap().to_path_buf();
+            let (client, mut host) = UnixStream::pair().unwrap();
+            let attachment = HostAttachment {
+                record,
+                record_path,
+                snapshot: HostSnapshot {
+                    cols: 80,
+                    rows: 24,
+                    replay: Vec::new(),
+                    sequence_boundary: 0,
+                    colors: TerminalColorOverrides::default(),
+                    pid: None,
+                    command: Vec::new(),
+                    cwd: None,
+                },
+                reader: None,
+                writer: Arc::new(Mutex::new(client)),
+                control_responses: Arc::new(ControlResponses {
+                    waiters: Mutex::new(HashMap::new()),
+                }),
+                next_request: AtomicU64::new(2),
+                viewer_size: Mutex::new(None),
+                launch_process: None,
+            };
+            let peer = thread::spawn(move || {
+                let mut header = [0; crate::terminal_host_protocol::HEADER_LEN];
+                Read::read_exact(&mut host, &mut header).unwrap();
+                host.shutdown(std::net::Shutdown::Both).unwrap();
+            });
+
+            let failure = attachment
+                .send_control_request(
+                    MessageKind::ClearHistory,
+                    MessageKind::ClearHistoryAck,
+                    vec![b'x'; MAX_FRAME_PAYLOAD],
+                )
+                .unwrap_err();
+            peer.join().unwrap();
+
+            assert_eq!(
+                failure.delivery(),
+                ClearHistoryDelivery::Ambiguous,
+                "a delivered frame header means the host may have received the complete request"
+            );
+            drop(attachment);
+            drop(lease);
+            let _ = fs::remove_dir_all(root);
+        }
+
+        #[test]
+        fn clear_history_ack_status_preserves_reason_and_delivery() {
+            for (message, expected) in [
+                (CLEAR_HISTORY_PRESERVATION_ERROR, CLEAR_HISTORY_ACK_PRESERVATION_FAILED),
+                (CLEAR_HISTORY_STREAM_TIMEOUT_ERROR, CLEAR_HISTORY_ACK_STREAM_TIMEOUT),
+                (
+                    CLEAR_HISTORY_FALLBACK_UNREPRESENTABLE_ERROR,
+                    CLEAR_HISTORY_ACK_FALLBACK_UNREPRESENTABLE,
+                ),
+                (
+                    CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT_ERROR,
+                    CLEAR_HISTORY_ACK_FALLBACK_WRITE_TIMEOUT,
+                ),
+                ("other pre-execution failure", CLEAR_HISTORY_ACK_KNOWN_NOT_DELIVERED),
+            ] {
+                assert_eq!(
+                    clear_history_ack_status(Err(ClearHistoryFailure::known_not_delivered(
+                        anyhow::anyhow!(message)
+                    ))),
+                    expected
+                );
+            }
+            assert_eq!(
+                clear_history_ack_status(Err(ClearHistoryFailure::ambiguous(anyhow::anyhow!(
+                    "partial PTY write"
+                )))),
+                CLEAR_HISTORY_ACK_AMBIGUOUS
+            );
+        }
+
+        #[test]
         fn process_nonce_proves_stale_record_even_if_pid_is_live_and_reused() {
             let (record_path, record, lease) = record_fixture("liveness");
             assert_eq!(
@@ -2934,6 +3304,7 @@ mod unix {
             legacy.host_pid = 0;
             legacy.host_start_nonce.clear();
             legacy.supports_set_defaults = false;
+            legacy.supports_clear_history = false;
             let legacy_path = legacy.record_path(root);
             write_record(&legacy_path, &legacy).unwrap();
 

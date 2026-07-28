@@ -22001,6 +22001,57 @@
         }
       }
     },
+    "browser.designMode.handoff.contextJSON": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Details: %1$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "詳細: %1$@"
+          }
+        }
+      }
+    },
+    "browser.designMode.handoff.contextOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Design-mode context for the selected page elements."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択したページ要素のデザインモードコンテキストです。"
+          }
+        }
+      }
+    },
+    "browser.designMode.handoff.pageURL": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Page: %1$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ページ: %1$@"
+          }
+        }
+      }
+    },
     "browser.designMode.mode.draw": {
       "extractionState": "manual",
       "localizations": {
@@ -63799,6 +63850,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "おやすみモード"
+          }
+        }
+      }
+    },
+    "command.surfaceNavigation.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface Navigation"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスナビゲーション"
           }
         }
       }
@@ -107603,6 +107671,40 @@
         }
       }
     },
+    "featureFlags.mobileWorkspaceChanges.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Serves workspace diffs to paired phones: the iOS changes chip, toolbar button, and Changes sheet."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリング済みのスマートフォンにワークスペースの差分を提供します（iOSの変更チップ、ツールバーボタン、変更シート）。"
+          }
+        }
+      }
+    },
+    "featureFlags.mobileWorkspaceChanges.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mobile diff viewer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モバイル差分ビューア"
+          }
+        }
+      }
+    },
     "featureFlags.override.none": {
       "extractionState": "manual",
       "localizations": {
@@ -131493,6 +131595,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "ワークスペースの識別子が指定されていないか無効です"
+          }
+        }
+      }
+    },
+    "mobile.workspaceChanges.error.capabilityDisabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace changes are not enabled on this Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacではワークスペースの変更機能が有効になっていません"
           }
         }
       }
@@ -155423,13 +155542,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "New workspaces leave their working directory unset so Ghostty's working-directory setting can apply."
+            "value": "New workspaces use Ghostty's working-directory setting instead."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "新規ワークスペースの作業ディレクトリを未設定にして、Ghostty の working-directory 設定を適用します。"
+            "value": "新規ワークスペースでは、代わりに Ghostty の working-directory 設定を使用します。"
           }
         }
       }
@@ -202796,13 +202915,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Move Surface Left"
+            "value": "Reorder Surface Left"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サーフェスを左へ移動"
+            "value": "サーフェスを左へ並べ替え"
           }
         }
       }
@@ -202813,13 +202932,115 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Move Surface Right"
+            "value": "Reorder Surface Right"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サーフェスを右へ移動"
+            "value": "サーフェスを右へ並べ替え"
+          }
+        }
+      }
+    },
+    "shortcut.moveSurfaceToNextPane.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move Surface to Next Pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスを次のペインへ移動"
+          }
+        }
+      }
+    },
+    "shortcut.moveSurfaceToPaneDown.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move Surface to Pane Below"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスを下のペインへ移動"
+          }
+        }
+      }
+    },
+    "shortcut.moveSurfaceToPaneLeft.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move Surface to Pane on Left"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスを左のペインへ移動"
+          }
+        }
+      }
+    },
+    "shortcut.moveSurfaceToPaneRight.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move Surface to Pane on Right"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスを右のペインへ移動"
+          }
+        }
+      }
+    },
+    "shortcut.moveSurfaceToPaneUp.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move Surface to Pane Above"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスを上のペインへ移動"
+          }
+        }
+      }
+    },
+    "shortcut.moveSurfaceToPreviousPane.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move Surface to Previous Pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスを前のペインへ移動"
           }
         }
       }
@@ -256375,6 +256596,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "到達可能"
+          }
+        }
+      }
+    },
+    "cli.workspaceGroup.help.overview": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manage collapsible workspace groups in the sidebar. Each group is owned by an \"anchor\" workspace; the group header IS the anchor's sidebar representation. Closing the anchor closes only that workspace and promotes the group's next member to be the new anchor, so the group and its other members stay intact. When the anchor is the group's only workspace, the group is removed."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーで折りたたみ可能なワークスペースグループを管理します。各グループは「アンカー」ワークスペースが所有し、サイドバーのグループヘッダーがそのアンカーを表します。アンカーを閉じると、閉じられるのはそのワークスペースだけで、グループの次のメンバーが新しいアンカーに昇格するため、グループと他のメンバーはそのまま維持されます。アンカーがグループ唯一のワークスペースだった場合は、グループが削除されます。"
           }
         }
       }
