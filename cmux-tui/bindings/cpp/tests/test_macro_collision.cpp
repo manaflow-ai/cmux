@@ -1,9 +1,17 @@
+#ifndef unix
 #define unix 0x434d5558
+#endif
+
+constexpr auto kUnixMacroBeforeCmuxInclude = unix;
 
 #include "cmux/client.hpp"
 #include "test.hpp"
 
-static_assert(unix == 0x434d5558);
+#ifndef unix
+#error "cmux headers must preserve the caller's unix macro"
+#endif
+
+static_assert(unix == kUnixMacroBeforeCmuxInclude);
 
 TEST("generated enum values survive caller macros and preserve wire values") {
     auto wire = cmux::Json::parse(R"("unix")");
@@ -16,5 +24,5 @@ TEST("generated enum values survive caller macros and preserve wire values") {
     auto encoded = cmux::encode_value(decoded.value());
     CHECK(encoded);
     CHECK_EQ(encoded.value().as_string().value(), std::string_view("unix"));
-    CHECK_EQ(unix, 0x434d5558);
+    CHECK_EQ(unix, kUnixMacroBeforeCmuxInclude);
 }

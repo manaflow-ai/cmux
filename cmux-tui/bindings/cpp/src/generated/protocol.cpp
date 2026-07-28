@@ -585,7 +585,7 @@ Result<ClientSize> Codec<ClientSize>::decode(const Json& value) {
 Result<Json> Codec<ClientTransport>::encode(const ClientTransport& value) {
     switch (value) {
         case ClientTransport::local: return Json(std::string("local"));
-        case ClientTransport::unix: return Json(std::string("unix"));
+        case ClientTransport::unix_: return Json(std::string("unix"));
         case ClientTransport::ws: return Json(std::string("ws"));
     }
     return make_error(ErrorCode::invalid_argument, "invalid enum value");
@@ -593,7 +593,7 @@ Result<Json> Codec<ClientTransport>::encode(const ClientTransport& value) {
 
 Result<ClientTransport> Codec<ClientTransport>::decode(const Json& value) {
     if (value == Json(std::string("local"))) return ClientTransport::local;
-    if (value == Json(std::string("unix"))) return ClientTransport::unix;
+    if (value == Json(std::string("unix"))) return ClientTransport::unix_;
     if (value == Json(std::string("ws"))) return ClientTransport::ws;
     return make_error(ErrorCode::decode, "unknown ClientTransport value");
 }
@@ -12626,14 +12626,14 @@ Result<BrowserStateEventStatus> Codec<BrowserStateEventStatus>::decode(const Jso
 
 Result<Json> Codec<ClientAttachedEventTransport>::encode(const ClientAttachedEventTransport& value) {
     switch (value) {
-        case ClientAttachedEventTransport::unix: return Json(std::string("unix"));
+        case ClientAttachedEventTransport::unix_: return Json(std::string("unix"));
         case ClientAttachedEventTransport::ws: return Json(std::string("ws"));
     }
     return make_error(ErrorCode::invalid_argument, "invalid enum value");
 }
 
 Result<ClientAttachedEventTransport> Codec<ClientAttachedEventTransport>::decode(const Json& value) {
-    if (value == Json(std::string("unix"))) return ClientAttachedEventTransport::unix;
+    if (value == Json(std::string("unix"))) return ClientAttachedEventTransport::unix_;
     if (value == Json(std::string("ws"))) return ClientAttachedEventTransport::ws;
     return make_error(ErrorCode::decode, "unknown ClientAttachedEventTransport value");
 }

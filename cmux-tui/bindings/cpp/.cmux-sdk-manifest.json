@@ -12,13 +12,13 @@
     },
     {
       "path": "include/cmux/generated/models.hpp",
-      "sha256": "9dfa1058da35acfa1d7b4a673682fba025ddd5e0691bcbf9da1cc26d1b2e953c",
-      "size": 92531
+      "sha256": "9951359e384bd7b172863bd75a8301a40ba1e57ddc06848b448c7a45e9f3b19a",
+      "size": 92533
     },
     {
       "path": "src/generated/protocol.cpp",
-      "sha256": "1be618ec39643bded7f9b07b58fb4b5aa4e6f64d86f9e9a61bcf19bbdf362909",
-      "size": 600223
+      "sha256": "42bc0580b76ee379bf6b4b250413c0fcdc39125bcb58c4936992d34f75c267ad",
+      "size": 600227
     }
   ],
   "format": 1,

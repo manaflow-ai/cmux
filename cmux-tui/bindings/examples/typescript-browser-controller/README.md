@@ -14,10 +14,10 @@ npm install
 npm test
 ```
 
-`npm test` compiles the controller, runs five deterministic fake-server tests,
-packs the local `cmux` SDK as an npm tarball, installs that tarball into a clean
-temporary consumer, and compiles the consumer through the published package
-exports.
+`npm test` installs and builds the linked SDK from clean source, compiles the
+controller, runs five deterministic fake-server tests, packs the local `cmux`
+SDK as an npm tarball, installs that tarball into a clean temporary consumer,
+and compiles the consumer through the published package exports.
 
 ## Run against cmux-tui
 

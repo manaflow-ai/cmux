@@ -15,7 +15,8 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "npm run verify:clean-link && npm run build && node --test dist/test/*.test.js && npm run verify:package",
+    "build:linked-sdk": "node scripts/build-linked-sdk.mjs",
+    "test": "npm run build:linked-sdk && npm run verify:clean-link && npm run build && node --test dist/test/*.test.js && npm run verify:package",
     "verify:clean-link": "node scripts/verify-clean-linked-sdk.mjs",
     "verify:package": "node scripts/verify-packaged-consumer.mjs",
     "demo": "node dist/src/node-demo.js"

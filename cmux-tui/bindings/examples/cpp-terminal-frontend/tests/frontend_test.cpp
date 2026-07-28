@@ -117,7 +117,7 @@ cmux::ClientInfo control_client(std::uint64_t id) {
     cmux::ClientInfo client;
     client.client = id;
     client.self = true;
-    client.transport = cmux::ClientTransport::unix;
+    client.transport = cmux::ClientTransport::unix_;
     return client;
 }
 
@@ -130,7 +130,7 @@ cmux::ClientInfo render_client(
     client.attached.push_back(surface);
     client.client = id;
     client.self = false;
-    client.transport = cmux::ClientTransport::unix;
+    client.transport = cmux::ClientTransport::unix_;
     client.sizes.push_back(cmux::ClientSize{
         .cols = columns,
         .rows = rows,

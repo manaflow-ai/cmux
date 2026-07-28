@@ -466,7 +466,7 @@ struct ClearWindowTitleRequest {
 };
 
 enum class ClientAttachedEventTransport {
-    unix,
+    unix_,
     ws,
 };
 
@@ -500,7 +500,7 @@ struct ClientSize {
 
 enum class ClientTransport {
     local,
-    unix,
+    unix_,
     ws,
 };
 

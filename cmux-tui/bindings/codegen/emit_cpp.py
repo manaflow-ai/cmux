@@ -26,12 +26,18 @@ CPP_RESERVED = frozenset(
     """.split()
 )
 
+CPP_PREDEFINED_MACROS = frozenset(
+    """
+    linux unix
+    """.split()
+)
+
 
 def _cpp_field(value: str) -> str:
     result = snake_case(value) or "_"
     if result[0].isdigit():
         result = f"_{result}"
-    if result in CPP_RESERVED:
+    if result in CPP_RESERVED or result in CPP_PREDEFINED_MACROS:
         result += "_"
     return result
 

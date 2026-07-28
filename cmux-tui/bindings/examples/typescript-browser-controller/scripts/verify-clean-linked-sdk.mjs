@@ -36,6 +36,14 @@ try {
   assert.equal(existsSync(join(scratchProject, "node_modules")), false);
 
   execFileSync("npm", ["ci", "--no-audit", "--no-fund"], {
+    cwd: scratchSdk,
+    stdio: "pipe",
+  });
+  execFileSync("npm", ["run", "build"], {
+    cwd: scratchSdk,
+    stdio: "pipe",
+  });
+  execFileSync("npm", ["ci", "--no-audit", "--no-fund"], {
     cwd: scratchProject,
     stdio: "pipe",
   });
