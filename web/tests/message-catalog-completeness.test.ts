@@ -54,6 +54,12 @@ describe("message catalog completeness", () => {
           mismatches.push(`${locale}:${path} technical rich text`);
         }
 
+        const sourceRichTextTags = richTextTags(source);
+        const targetRichTextTags = richTextTags(target);
+        if (!arraysEqual(sourceRichTextTags, targetRichTextTags)) {
+          mismatches.push(`${locale}:${path} rich text tags`);
+        }
+
         const sourceProtectedTokens = protectedTokens(source);
         const missingProtectedTokens = sourceProtectedTokens.filter(
           (token) =>
@@ -72,6 +78,12 @@ describe("message catalog completeness", () => {
     }
 
     expect(mismatches).toEqual([]);
+  });
+
+  test("does not count protected tokens inside longer identifiers", () => {
+    expect(
+      countProtectedTokenOccurrences("AGPL-3.0", "GPL-3.0", "en"),
+    ).toBe(0);
   });
 
   test("provides translated legal documents in every supported locale", async () => {
@@ -229,6 +241,12 @@ function technicalRichTextValues(message: string): string[] {
   )].map((match) => `${match[1]}:${match[2]}`).sort();
 }
 
+function richTextTags(message: string): string[] {
+  return [...message.matchAll(/<([A-Za-z][A-Za-z0-9]*)>/gu)]
+    .map((match) => match[1]!)
+    .sort();
+}
+
 const protectedTokenPatterns = [
   /AGPL-3\.0/gu,
   /GPL-3\.0/gu,
@@ -254,6 +272,10 @@ const protectedTokenPatterns = [
   /ssh -L/gu,
   /worktrees\/\[task\]\s*\/\s*\[repo\]/gu,
   /AGENTS\.md/gu,
+  /cmux-hq/gu,
+  /cd ~\/fun\/cmux-hq/gu,
+  /codex --yolo/gu,
+  /Permission denied/gu,
   /manaflow-ai\/[a-z0-9-]+/gu,
   /\$cmux-customization/gu,
   /oh-my-(?:opencode|openagent|codex|pi|claudecode)/gu,

@@ -284,7 +284,7 @@ function PolicyBody({
 const markdownLinkPattern =
   /\[([^\]]+)]\(((?:https?:\/\/|mailto:|\/)[^)]+)\)/g;
 
-function linkedText(text: string, locale: string): ReactNode[] {
+export function linkedText(text: string, locale: string): ReactNode[] {
   const nodes: ReactNode[] = [];
   let cursor = 0;
   for (const match of text.matchAll(markdownLinkPattern)) {
