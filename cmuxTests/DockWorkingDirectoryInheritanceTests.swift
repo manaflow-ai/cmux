@@ -156,7 +156,7 @@ struct DockWorkingDirectoryInheritanceTests {
         }
     }
 
-    @Test("Ghostty PWD reports preserve path whitespace")
+    @Test("Ghostty PWD reports preserve path whitespace and reset on empty")
     @MainActor
     func reportedDirectoryPreservesPathWhitespace() async throws {
         try await withDock(inheritanceEnabled: true) { store, rootPane, root, _ in
@@ -173,8 +173,71 @@ struct DockWorkingDirectoryInheritanceTests {
             sourcePanel.surface.recordReportedWorkingDirectory(reportedDirectory.path)
 
             #expect(sourcePanel.surface.reportedWorkingDirectory == reportedDirectory.path)
-            let newPanelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
+            let newPanelId = try #require(store.newSurface(
+                kind: .terminal,
+                inPane: rootPane,
+                sourcePanelId: sourcePanelId,
+                focus: true
+            ))
             #expect(try terminalPanel(in: store, panelId: newPanelId).requestedWorkingDirectory == reportedDirectory.path)
+
+            sourcePanel.surface.recordReportedWorkingDirectory("")
+
+            #expect(sourcePanel.surface.reportedWorkingDirectory == nil)
+            let fallbackPanelId = try #require(store.newSurface(
+                kind: .terminal,
+                inPane: rootPane,
+                sourcePanelId: sourcePanelId,
+                focus: true
+            ))
+            #expect(try terminalPanel(in: store, panelId: fallbackPanelId).requestedWorkingDirectory == root.path)
+        }
+    }
+
+    @Test("Workspace-owned PWD report does not poison later Dock inheritance")
+    @MainActor
+    func workspaceReportDoesNotPoisonDockInheritance() async throws {
+        let resolver = TerminalWorkingDirectoryResolver(liveDirectoryProvider: { _ in nil })
+        try await withDock(
+            inheritanceEnabled: true,
+            terminalWorkingDirectoryResolver: resolver
+        ) { store, rootPane, root, sourceDirectory in
+            let sourcePanelId = try #require(store.newSurface(
+                kind: .terminal,
+                inPane: rootPane,
+                workingDirectory: sourceDirectory.path,
+                focus: true
+            ))
+            let sourcePanel = try terminalPanel(in: store, panelId: sourcePanelId)
+            sourcePanel.surface.setFocusPlacement(.workspace)
+            defer { sourcePanel.surface.setFocusPlacement(.rightSidebarDock) }
+
+            await confirmation("workspace PWD report delivered") { delivered in
+                var wasDelivered = false
+                let dispatcher = GhosttyCurrentDirectoryActionDispatcher { _ in
+                    wasDelivered = true
+                    delivered()
+                }
+                dispatcher.enqueue(
+                    directory: root.path,
+                    authoritativeGeometry: nil,
+                    surfaceView: sourcePanel.hostedView.surfaceView,
+                    terminalSurface: sourcePanel.surface
+                )
+                for _ in 0..<10 where !wasDelivered {
+                    await Task.yield()
+                }
+            }
+
+            #expect(sourcePanel.surface.reportedWorkingDirectory == nil)
+            sourcePanel.surface.setFocusPlacement(.rightSidebarDock)
+            let newPanelId = try #require(store.newSurface(
+                kind: .terminal,
+                inPane: rootPane,
+                sourcePanelId: sourcePanelId,
+                focus: true
+            ))
+            #expect(try terminalPanel(in: store, panelId: newPanelId).requestedWorkingDirectory == sourceDirectory.path)
         }
     }
 

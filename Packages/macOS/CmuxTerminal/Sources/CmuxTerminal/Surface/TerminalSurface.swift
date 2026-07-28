@@ -165,7 +165,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// The working directory requested at construction, if any.
     public var requestedWorkingDirectory: String? { workingDirectory }
 
-    /// The latest non-empty working directory reported by Ghostty shell integration.
+    /// The working directory reported by Ghostty shell integration, or nil after a reset.
     @Published public internal(set) var reportedWorkingDirectory: String?
     /// Where the surface participates in focus routing. Mutable so a live
     /// surface can move between the workspace area and the right-sidebar dock

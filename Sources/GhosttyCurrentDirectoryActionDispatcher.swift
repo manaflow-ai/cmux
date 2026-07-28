@@ -109,8 +109,10 @@ final class GhosttyCurrentDirectoryActionDispatcher {
 
     @MainActor
     private static func recordReportedWorkingDirectory(_ action: GhosttyCurrentDirectoryAction) {
-        guard action.replayBoundaryGeneration == nil else { return }
-        action.terminalSurface?.recordReportedWorkingDirectory(action.directory)
+        guard action.replayBoundaryGeneration == nil,
+              let terminalSurface = action.terminalSurface,
+              terminalSurface.focusPlacement == .rightSidebarDock else { return }
+        terminalSurface.recordReportedWorkingDirectory(action.directory)
     }
 
     private static func stableHash(_ value: String) -> UInt64 {
