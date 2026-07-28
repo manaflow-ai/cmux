@@ -1225,6 +1225,15 @@ struct CommandPaletteTypedViewAndIdentifierOutcomeTests {
             context: fixture.context,
             configCatalog: emptyCatalog
         )
+        let builtInContributionIDs = fixture.contentView
+            .commandPaletteBuiltInCommandContributions()
+            .map(\.commandId)
+        #expect(
+            Set(builtInContributionIDs).count == builtInContributionIDs.count
+        )
+        #expect(
+            Set(builtInContributionIDs).isSubset(of: registry.commandIDs)
+        )
 
         let agentChatID = "palette.newAgentChat"
         let hostedExtensionID = ContentView.commandPaletteExtensionSidebarCommandID(
