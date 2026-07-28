@@ -120,9 +120,30 @@ omx-node-helper "$@"
                 print(f"FAIL: OMX management command {command!r} required a live surface")
                 return 1
 
+        for invocation in (
+            ("team", "api", "claim-task"),
+            ("team", "status", "demo"),
+            ("team", "shutdown", "demo"),
+            ("team", "--help"),
+            ("team", "-h"),
+        ):
+            provider_log.unlink(missing_ok=True)
+            management = subprocess.run(
+                [cli_path, "omx", *invocation],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=env,
+                timeout=30,
+            )
+            if management.returncode != 0 or not provider_log.exists():
+                print(f"FAIL: OMX team command {invocation!r} required a live surface")
+                return 1
+
         blocked_invocations = (
             ["resume"],
-            ["team", "status", "demo"],
+            ["team"],
+            ["team", "resume"],
             ["unknown-command"],
             ["--scope", "project", "setup"],
             ["--scope", "project", "ask"],

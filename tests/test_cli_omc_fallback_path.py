@@ -101,6 +101,8 @@ omc-node-helper "$@"
             ("team", "api", "claim-task", "--input", "{}", "--json"),
             ("team", "shutdown", "demo"),
             ("team", "status", "demo"),
+            ("team", "--help"),
+            ("team", "-h"),
             ("update",),
             ("update-reconcile",),
             ("version",),
@@ -124,7 +126,12 @@ omc-node-helper "$@"
                 return 1
 
         omc_log.unlink(missing_ok=True)
-        for invocation in (("start a team",), ("team", "1:codex", "review this")):
+        for invocation in (
+            ("start a team",),
+            ("team",),
+            ("team", "resume"),
+            ("team", "1:codex", "review this"),
+        ):
             omc_log.unlink(missing_ok=True)
             real_launch = subprocess.run(
                 [cli_path, "omc", *invocation],

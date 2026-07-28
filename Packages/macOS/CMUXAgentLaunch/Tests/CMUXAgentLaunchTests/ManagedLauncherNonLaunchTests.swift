@@ -15,6 +15,7 @@ struct ManagedLauncherNonLaunchTests {
         }
         #expect(classifier.omoLaunchIsNonLaunch(args: ["session", "list"]))
         #expect(classifier.omoLaunchIsNonLaunch(args: ["session", "delete", "session-id"]))
+        #expect(classifier.omoLaunchIsNonLaunch(args: ["github", "install"]))
         #expect(classifier.omoLaunchIsNonLaunch(args: ["session", "--help"]))
         #expect(classifier.omoLaunchIsNonLaunch(args: ["session", "run", "--help"]))
         #expect(classifier.omoLaunchIsNonLaunch(args: ["--log-level", "WARN", "models"]))
@@ -36,6 +37,7 @@ struct ManagedLauncherNonLaunchTests {
             ["session"],
             ["session", "run"],
             ["session", "--", "--help"],
+            ["github", "run"],
             ["run", "hello"],
             ["unknown-command"],
             ["--session", "session-id"],
@@ -67,6 +69,8 @@ struct ManagedLauncherNonLaunchTests {
         #expect(classifier.omcLaunchIsNonLaunch(args: ["team", "api", "claim-task"]))
         #expect(classifier.omcLaunchIsNonLaunch(args: ["team", "status", "demo"]))
         #expect(classifier.omcLaunchIsNonLaunch(args: ["team", "shutdown", "demo"]))
+        #expect(classifier.omcLaunchIsNonLaunch(args: ["team", "--help"]))
+        #expect(classifier.omcLaunchIsNonLaunch(args: ["team", "-h"]))
     }
 
     @Test("OMC rejects agent and team launch commands")
@@ -76,6 +80,7 @@ struct ManagedLauncherNonLaunchTests {
             ["launch"],
             ["interop"],
             ["team"],
+            ["team", "resume"],
             ["team", "1:codex", "review this"],
             ["autoresearch"],
             ["ralphthon"],
@@ -98,13 +103,19 @@ struct ManagedLauncherNonLaunchTests {
         }
         #expect(classifier.omxLaunchIsNonLaunch(args: ["--help"]))
         #expect(classifier.omxLaunchIsNonLaunch(args: ["--version"]))
+        #expect(classifier.omxLaunchIsNonLaunch(args: ["team", "api", "claim-task"]))
+        #expect(classifier.omxLaunchIsNonLaunch(args: ["team", "status", "demo"]))
+        #expect(classifier.omxLaunchIsNonLaunch(args: ["team", "shutdown", "demo"]))
+        #expect(classifier.omxLaunchIsNonLaunch(args: ["team", "--help"]))
+        #expect(classifier.omxLaunchIsNonLaunch(args: ["team", "-h"]))
     }
 
     @Test("OMX rejects sessions, unknown commands, and command-shaped values")
     func omxLaunches() {
         for args in [
             ["resume"],
-            ["team", "status", "demo"],
+            ["team"],
+            ["team", "resume"],
             ["unknown-command"],
             ["--scope", "project", "setup"],
             ["--scope", "project", "ask"],
