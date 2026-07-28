@@ -4051,6 +4051,78 @@ mod unix {
     mod tests {
         use super::*;
 
+        #[cfg(target_os = "macos")]
+        #[test]
+        fn host_pty_creation_waits_for_process_barrier() {
+            const CHILD_ENV: &str = "CMUX_TUI_TEST_HOST_PTY_CREATION_BARRIER";
+            const TEST_NAME: &str =
+                "terminal_host_runtime::unix::tests::host_pty_creation_waits_for_process_barrier";
+            if std::env::var_os(CHILD_ENV).is_none() {
+                let status = Command::new(std::env::current_exe().unwrap())
+                    .args(["--exact", TEST_NAME])
+                    .env(CHILD_ENV, "1")
+                    .status()
+                    .unwrap();
+                assert!(status.success(), "host PTY barrier subprocess failed: {status}");
+                return;
+            }
+
+            fn descriptor_count() -> usize {
+                fs::read_dir("/dev/fd").unwrap().count()
+            }
+
+            drop(crate::process_session::reserve_child_reaper().unwrap());
+            let bootstrap = HostBootstrap {
+                min_version: PROTOCOL_VERSION,
+                max_version: PROTOCOL_VERSION,
+                terminal_id: TerminalId::random().unwrap(),
+                owner_token: CapabilityToken::random().unwrap(),
+            };
+            let mut bootstrap_bytes = Vec::new();
+            write_frame(&mut bootstrap_bytes, &bootstrap.into_frame(1)).unwrap();
+            let bootstrapped = crate::terminal_host::bootstrap_stdio_once(
+                &mut bootstrap_bytes.as_slice(),
+                &mut Vec::new(),
+            )
+            .unwrap();
+            let launch = HostLaunch {
+                endpoint: "/tmp/cmux-host-pty-barrier.sock".into(),
+                record_path: "/tmp/cmux-host-pty-barrier.json".into(),
+                term: "xterm-256color".into(),
+                cols: 80,
+                rows: 24,
+                scrollback: 100,
+                cwd: Some("/tmp".into()),
+                command: vec!["/usr/bin/true".into()],
+                extra_env: Vec::new(),
+                default_colors: DefaultColors::default(),
+            };
+            let baseline = descriptor_count();
+            let process_barrier = cmux_tui_process::ProcessCreationGuard::acquire();
+            let (started_sender, started_receiver) = sync_channel(1);
+            let worker = thread::spawn(move || {
+                started_sender.send(()).unwrap();
+                spawn_host_runtime(&launch, &bootstrapped)
+            });
+            started_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+            let deadline = Instant::now() + Duration::from_millis(250);
+            let mut observed = baseline;
+            while observed == baseline && Instant::now() < deadline {
+                thread::sleep(Duration::from_millis(5));
+                observed = descriptor_count();
+            }
+
+            drop(process_barrier);
+            let host = worker.join().unwrap().unwrap();
+            host.request_termination();
+            let _ = host.wait_for_child_exit(Duration::from_secs(1));
+
+            assert_eq!(
+                observed, baseline,
+                "host PTY descriptors were created outside the process barrier"
+            );
+        }
+
         #[cfg(target_os = "linux")]
         #[test]
         fn saturated_listener_never_returns_an_unconnected_host_stream() {

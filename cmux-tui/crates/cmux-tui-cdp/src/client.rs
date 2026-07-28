@@ -39,6 +39,10 @@ static NEXT_RESOLVER_INIT_DELAY_MS: AtomicU64 = AtomicU64::new(0);
 type TestHostResolver = Arc<dyn Fn(&str, u16) -> std::io::Result<Vec<SocketAddr>> + Send + Sync>;
 #[cfg(test)]
 static TEST_HOST_RESOLVER: Mutex<Option<TestHostResolver>> = Mutex::new(None);
+#[cfg(test)]
+type TestHostResolverCommand = Arc<dyn Fn(&str, u16) -> std::process::Command + Send + Sync>;
+#[cfg(test)]
+static TEST_HOST_RESOLVER_COMMAND: Mutex<Option<TestHostResolverCommand>> = Mutex::new(None);
 
 static CDP_RESOLVER: std::sync::OnceLock<Mutex<Option<Arc<CdpResolver>>>> =
     std::sync::OnceLock::new();
@@ -164,7 +168,9 @@ fn host_resolver_worker(receiver: Arc<Mutex<Receiver<ResolveRequest>>>) {
 
 fn resolve_host_addresses(host: &str, port: u16) -> std::io::Result<Vec<SocketAddr>> {
     #[cfg(test)]
-    if let Some(resolver) = TEST_HOST_RESOLVER.lock().unwrap().clone() {
+    let test_resolver = TEST_HOST_RESOLVER.lock().unwrap().clone();
+    #[cfg(test)]
+    if let Some(resolver) = test_resolver {
         return resolver(host, port);
     }
     (host, port).to_socket_addrs().map(Iterator::collect)
@@ -1439,6 +1445,34 @@ mod tests {
             .expect("initialize test resolver");
     }
 
+    fn resolver_fixture_command(host: &str, port: u16) -> std::process::Command {
+        let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+        command
+            .args([
+                "--exact",
+                "client::tests::host_resolver_process_fixture",
+                "--ignored",
+                "--nocapture",
+            ])
+            .env(
+                "CMUX_TUI_TEST_HOST_RESOLVER_MODE",
+                if host.starts_with("cmux-blocked-") { "blocked" } else { "success" },
+            )
+            .env("CMUX_TUI_TEST_HOST_RESOLVER_PORT", port.to_string());
+        command
+    }
+
+    #[test]
+    #[ignore]
+    fn host_resolver_process_fixture() {
+        if std::env::var("CMUX_TUI_TEST_HOST_RESOLVER_MODE").as_deref() == Ok("blocked") {
+            thread::sleep(Duration::from_secs(30));
+            return;
+        }
+        let port = std::env::var("CMUX_TUI_TEST_HOST_RESOLVER_PORT").unwrap();
+        println!("127.0.0.1:{port}");
+    }
+
     #[test]
     fn key_event_params_omit_unavailable_physical_identity() {
         let params = key_event_params(CdpKeyEvent {
@@ -1776,6 +1810,12 @@ mod tests {
             assert_eq!(host, "cmux-host-resolver.invalid");
             Ok(vec![SocketAddr::from(([127, 0, 0, 1], port))])
         }));
+        let called_from_command = called.clone();
+        *TEST_HOST_RESOLVER_COMMAND.lock().unwrap() = Some(Arc::new(move |host, port| {
+            called_from_command.store(true, Ordering::Release);
+            assert_eq!(host, "cmux-host-resolver.invalid");
+            resolver_fixture_command(host, port)
+        }));
 
         let result = resolve_socket_addr_until(
             "cmux-host-resolver.invalid",
@@ -1783,9 +1823,64 @@ mod tests {
             Instant::now() + Duration::from_secs(2),
         );
         *TEST_HOST_RESOLVER.lock().unwrap() = None;
+        *TEST_HOST_RESOLVER_COMMAND.lock().unwrap() = None;
 
         assert_eq!(result.unwrap(), SocketAddr::from(([127, 0, 0, 1], 9222)));
         assert!(called.load(Ordering::Acquire), "host resolver was bypassed");
+    }
+
+    #[test]
+    fn timed_out_host_lookups_do_not_strand_resolver_capacity() {
+        let _guard = RESOLVE_TEST_LOCK.lock().unwrap();
+        warm_resolver();
+        let started = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let release = Arc::new(AtomicBool::new(false));
+        let resolver_started = started.clone();
+        let resolver_release = release.clone();
+        *TEST_HOST_RESOLVER.lock().unwrap() = Some(Arc::new(move |_host, port| {
+            resolver_started.fetch_add(1, Ordering::AcqRel);
+            while !resolver_release.load(Ordering::Acquire) {
+                thread::sleep(Duration::from_millis(5));
+            }
+            Ok(vec![SocketAddr::from(([127, 0, 0, 1], port))])
+        }));
+        *TEST_HOST_RESOLVER_COMMAND.lock().unwrap() = Some(Arc::new(resolver_fixture_command));
+
+        let callers_ready = Arc::new(Barrier::new(CDP_RESOLVER_WORKERS + 1));
+        let mut callers = Vec::new();
+        for index in 0..CDP_RESOLVER_WORKERS {
+            let callers_ready = callers_ready.clone();
+            callers.push(thread::spawn(move || {
+                callers_ready.wait();
+                resolve_socket_addr_until(
+                    &format!("cmux-blocked-{index}.invalid"),
+                    9222,
+                    Instant::now() + Duration::from_millis(500),
+                )
+            }));
+        }
+        callers_ready.wait();
+        for caller in callers {
+            assert!(caller.join().unwrap().is_err());
+        }
+        let blocked_workers = started.load(Ordering::Acquire);
+
+        let next = resolve_socket_addr_until(
+            "cmux-success.invalid",
+            9333,
+            Instant::now() + Duration::from_secs(1),
+        );
+
+        *TEST_HOST_RESOLVER.lock().unwrap() = None;
+        *TEST_HOST_RESOLVER_COMMAND.lock().unwrap() = None;
+        release.store(true, Ordering::Release);
+        thread::sleep(Duration::from_millis(100));
+
+        assert!(
+            blocked_workers == 0 || blocked_workers == CDP_RESOLVER_WORKERS,
+            "resolver saturation setup reached only {blocked_workers} workers"
+        );
+        assert_eq!(next.unwrap(), SocketAddr::from(([127, 0, 0, 1], 9333)));
     }
 
     #[test]

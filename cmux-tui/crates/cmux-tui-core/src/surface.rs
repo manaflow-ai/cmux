@@ -4007,6 +4007,53 @@ fn terminal_scroll_position(term: &Terminal) -> (u64, bool) {
 mod tests {
     use super::*;
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn local_pty_creation_waits_for_process_barrier() {
+        const CHILD_ENV: &str = "CMUX_TUI_TEST_LOCAL_PTY_CREATION_BARRIER";
+        const TEST_NAME: &str = "surface::tests::local_pty_creation_waits_for_process_barrier";
+        if std::env::var_os(CHILD_ENV).is_none() {
+            let status = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", TEST_NAME])
+                .env(CHILD_ENV, "1")
+                .status()
+                .unwrap();
+            assert!(status.success(), "PTY barrier subprocess failed: {status}");
+            return;
+        }
+
+        fn descriptor_count() -> usize {
+            std::fs::read_dir("/dev/fd").unwrap().count()
+        }
+
+        drop(reserve_local_child_reaper().unwrap());
+        let mux = Mux::new_for_test("local-pty-barrier", SurfaceOptions::default());
+        let options = SurfaceOptions {
+            command: Some(vec!["/usr/bin/true".into()]),
+            ..SurfaceOptions::default()
+        };
+        let baseline = descriptor_count();
+        let process_barrier = cmux_tui_process::ProcessCreationGuard::acquire();
+        let (started_sender, started_receiver) = sync_channel(1);
+        let worker = std::thread::spawn(move || {
+            started_sender.send(()).unwrap();
+            Surface::spawn(1, options, Arc::downgrade(&mux))
+        });
+        started_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+        let deadline = Instant::now() + Duration::from_millis(250);
+        let mut observed = baseline;
+        while observed == baseline && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+            observed = descriptor_count();
+        }
+
+        drop(process_barrier);
+        let surface = worker.join().unwrap().unwrap();
+        let _ = surface.terminate_for_server_shutdown(Instant::now() + Duration::from_secs(1));
+
+        assert_eq!(observed, baseline, "PTY descriptors were created outside the process barrier");
+    }
+
     #[derive(Clone, Default)]
     struct CapturingWriter(Arc<Mutex<Vec<u8>>>);
 
