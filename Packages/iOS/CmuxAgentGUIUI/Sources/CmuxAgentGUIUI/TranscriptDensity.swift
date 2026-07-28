@@ -1,8 +1,8 @@
 /// The vertical and metadata-type density used by transcript rows.
 public enum TranscriptDensity: String, CaseIterable, Sendable {
-    /// The default register, optimized for relaxed reading rhythm.
+    /// A relaxed reading rhythm available when extra vertical space is preferred.
     case comfortable
-    /// A tighter register that compresses transcript chrome without shrinking prose.
+    /// The default register, compressing transcript chrome without shrinking prose.
     case compact
 }
 

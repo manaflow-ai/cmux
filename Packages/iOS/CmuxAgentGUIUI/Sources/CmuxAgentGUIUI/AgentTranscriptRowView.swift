@@ -43,7 +43,8 @@ struct AgentTranscriptRowView: View {
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
                 .padding(.horizontal, 20)
-                .frame(height: 44)
+                .padding(.vertical, 8)
+                .frame(minHeight: 44)
         case .pendingTicket(let ticket):
             AgentPendingTicketRow(
                 ticket: ticket,
@@ -105,7 +106,8 @@ struct AgentPendingTicketRow: View {
         }
         .foregroundStyle(Color(theme.foreground))
         .padding(.horizontal, 14)
-        .frame(height: 52)
+        .padding(.vertical, 10)
+        .frame(minHeight: 52)
         .background(Color(theme.raisedBackground), in: RoundedRectangle(cornerRadius: 14))
         .padding(.horizontal, 18)
     }
@@ -128,7 +130,7 @@ struct AgentAskSummaryRow: View {
                         .font(.caption.weight(.semibold))
                     Text(ask.promptSummary)
                         .font(.subheadline)
-                        .lineLimit(1)
+                        .lineLimit(2)
                         .truncationMode(.tail)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -138,7 +140,8 @@ struct AgentAskSummaryRow: View {
             }
             .foregroundStyle(Color(theme.foreground))
             .padding(.horizontal, 14)
-            .frame(height: 60)
+            .padding(.vertical, 10)
+            .frame(minHeight: 60)
             .background(Color(theme.hoverBackground).opacity(0.55), in: RoundedRectangle(cornerRadius: 14))
             .padding(.horizontal, 18)
         }
@@ -167,13 +170,15 @@ struct AgentActivitySummaryRow: View {
                     .font(density.metadataFont)
                     .lineLimit(1)
                     .truncationMode(.tail)
+                    .layoutPriority(1)
                 Spacer(minLength: 8)
                 Image(systemName: "chevron.right")
                     .font(.caption2.weight(.semibold))
             }
             .foregroundStyle(Color(theme.faintForeground))
             .padding(.horizontal, 24)
-            .frame(height: 44)
+            .padding(.vertical, 8)
+            .frame(minHeight: 44)
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("AgentActivitySummary")
