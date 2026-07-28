@@ -193,7 +193,8 @@ struct BrowserWebContentProcessTests {
 
     @Test
     func webAuthnAssertionReplyOmitsAbsentUserHandle() throws {
-        let credential = BrowserWebAuthnCredentialReply.assertion(
+        let coordinator = BrowserWebAuthnCoordinator()
+        let credential = coordinator.assertionReply(
             credentialID: Data([1, 2, 3]),
             clientDataJSON: Data([4, 5]),
             authenticatorData: Data([6, 7]),

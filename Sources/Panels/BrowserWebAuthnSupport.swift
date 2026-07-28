@@ -653,38 +653,6 @@ func browserWebAuthnAdvertisedPlatformPasskeyAvailability(
     return deviceConfiguredForPasskeys
 }
 
-enum BrowserWebAuthnCredentialReply {
-    static func assertion(
-        credentialID: Data,
-        clientDataJSON: Data,
-        authenticatorData: Data,
-        signature: Data,
-        userHandle: Data?,
-        attachment: String,
-        clientExtensionResults: [String: Any]
-    ) -> [String: Any] {
-        var response: [String: Any] = [
-            "clientDataJSON": clientDataJSON.base64URLEncodedString(),
-            "authenticatorData": authenticatorData.base64URLEncodedString(),
-            "signature": signature.base64URLEncodedString(),
-        ]
-
-        if let userHandle, !userHandle.isEmpty {
-            response["userHandle"] = userHandle.base64URLEncodedString()
-        }
-
-        return [
-            "type": "public-key",
-            "id": credentialID.base64URLEncodedString(),
-            "rawId": credentialID.base64URLEncodedString(),
-            "authenticatorAttachment": attachment,
-            "responseKind": "assertion",
-            "response": response,
-            "clientExtensionResults": clientExtensionResults,
-        ]
-    }
-}
-
 @MainActor
 private struct BrowserWebAuthnClientDataContext {
     let callerOrigin: BrowserWebAuthnSecurityOrigin
@@ -1211,6 +1179,39 @@ extension BrowserWebAuthnCoordinator: ASAuthorizationControllerDelegate, ASAutho
 }
 
 @MainActor
+extension BrowserWebAuthnCoordinator {
+    func assertionReply(
+        credentialID: Data,
+        clientDataJSON: Data,
+        authenticatorData: Data,
+        signature: Data,
+        userHandle: Data?,
+        attachment: String,
+        clientExtensionResults: [String: Any]
+    ) -> [String: Any] {
+        var response: [String: Any] = [
+            "clientDataJSON": clientDataJSON.base64URLEncodedString(),
+            "authenticatorData": authenticatorData.base64URLEncodedString(),
+            "signature": signature.base64URLEncodedString(),
+        ]
+
+        if let userHandle, !userHandle.isEmpty {
+            response["userHandle"] = userHandle.base64URLEncodedString()
+        }
+
+        return [
+            "type": "public-key",
+            "id": credentialID.base64URLEncodedString(),
+            "rawId": credentialID.base64URLEncodedString(),
+            "authenticatorAttachment": attachment,
+            "responseKind": "assertion",
+            "response": response,
+            "clientExtensionResults": clientExtensionResults,
+        ]
+    }
+}
+
+@MainActor
 private extension BrowserWebAuthnCoordinator {
     enum BrowserWebAuthnAuthorizationErrorCode {
         // Keep these raw values in sync with AuthenticationServices/ASAuthorizationError.h
@@ -1664,7 +1665,7 @@ private extension BrowserWebAuthnCoordinator {
         if let assertion = credential as? ASAuthorizationPlatformPublicKeyCredentialAssertion {
             return [
                 "ok": true,
-                "credential": BrowserWebAuthnCredentialReply.assertion(
+                "credential": assertionReply(
                     credentialID: assertion.credentialID,
                     clientDataJSON: assertion.rawClientDataJSON,
                     authenticatorData: assertion.rawAuthenticatorData,
@@ -1679,7 +1680,7 @@ private extension BrowserWebAuthnCoordinator {
         if let assertion = credential as? ASAuthorizationSecurityKeyPublicKeyCredentialAssertion {
             return [
                 "ok": true,
-                "credential": BrowserWebAuthnCredentialReply.assertion(
+                "credential": assertionReply(
                     credentialID: assertion.credentialID,
                     clientDataJSON: assertion.rawClientDataJSON,
                     authenticatorData: assertion.rawAuthenticatorData,
