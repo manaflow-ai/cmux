@@ -5163,6 +5163,9 @@ final class Workspace: Identifiable, ObservableObject {
     var isRemoteTmuxMirror: Bool = false
     weak var remoteTmuxSessionMirror: RemoteTmuxSessionMirror?
     @Published var remoteTmuxHostIdentity: RemoteTmuxHost.VisualIdentity?
+    /// Provenance retained when a mirror is kept open locally, allowing a later
+    /// attach of the same host/session to replace it in place.
+    var remoteTmuxWorkspaceIdentity: RemoteTmuxWorkspaceIdentity?
     /// Bound action for this mirror's outbound window-order mutation boundary.
     var remoteTmuxWindowOrderSync: (([UUID], ((Bool) -> Void)?) -> Bool)?
 

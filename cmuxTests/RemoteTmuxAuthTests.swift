@@ -511,3 +511,112 @@ import Testing
         )
     }
 }
+
+@Suite struct RemoteTmuxWorkspaceRoutingTests {
+    private let hostHash = "host-hash"
+    private let sessionName = "agents-main"
+
+    @Test func adoptsEmptyExactTitleInPlace() {
+        let workspaceId = UUID()
+
+        let route = RemoteTmuxWorkspaceRoutingPolicy.route(
+            connectionHash: hostHash,
+            sessionName: sessionName,
+            candidates: [
+                candidate(id: workspaceId, title: sessionName, isEmpty: true),
+                candidate(title: "other", isEmpty: true),
+            ]
+        )
+
+        #expect(route == .adopt(workspaceId: workspaceId))
+    }
+
+    @Test func adoptsPriorMirrorOfSameHostAndSessionEvenWhenOccupied() {
+        let workspaceId = UUID()
+
+        let route = RemoteTmuxWorkspaceRoutingPolicy.route(
+            connectionHash: hostHash,
+            sessionName: sessionName,
+            candidates: [
+                candidate(
+                    id: workspaceId,
+                    title: sessionName,
+                    priorMirrorIdentity: RemoteTmuxWorkspaceIdentity(
+                        connectionHash: hostHash,
+                        sessionName: sessionName
+                    )
+                ),
+            ]
+        )
+
+        #expect(route == .adopt(workspaceId: workspaceId))
+    }
+
+    @Test func doesNotAdoptOccupiedLocalOrDifferentHostWorkspace() {
+        let occupiedLocalId = UUID()
+        let differentHostId = UUID()
+
+        let route = RemoteTmuxWorkspaceRoutingPolicy.route(
+            connectionHash: hostHash,
+            sessionName: sessionName,
+            candidates: [
+                candidate(id: occupiedLocalId, title: sessionName),
+                candidate(
+                    id: differentHostId,
+                    title: sessionName,
+                    priorMirrorIdentity: RemoteTmuxWorkspaceIdentity(
+                        connectionHash: "other-host",
+                        sessionName: sessionName
+                    )
+                ),
+            ]
+        )
+
+        #expect(route == .insert(afterWorkspaceId: differentHostId))
+    }
+
+    @Test func insertsAfterLastBestMatchingTitlePrefix() {
+        let shortPrefixId = UUID()
+        let firstBestId = UUID()
+        let lastBestId = UUID()
+
+        let route = RemoteTmuxWorkspaceRoutingPolicy.route(
+            connectionHash: hostHash,
+            sessionName: sessionName,
+            candidates: [
+                candidate(id: shortPrefixId, title: "agents"),
+                candidate(id: firstBestId, title: "agents-main-api"),
+                candidate(id: lastBestId, title: "agents-main-worker"),
+            ]
+        )
+
+        #expect(route == .insert(afterWorkspaceId: lastBestId))
+    }
+
+    @Test func appendsWhenNoTitlePrefixMatches() {
+        let route = RemoteTmuxWorkspaceRoutingPolicy.route(
+            connectionHash: hostHash,
+            sessionName: sessionName,
+            candidates: [
+                candidate(title: "frontend", isEmpty: true),
+                candidate(title: "database"),
+            ]
+        )
+
+        #expect(route == .append)
+    }
+
+    private func candidate(
+        id: UUID = UUID(),
+        title: String,
+        isEmpty: Bool = false,
+        priorMirrorIdentity: RemoteTmuxWorkspaceIdentity? = nil
+    ) -> RemoteTmuxWorkspaceRoutingPolicy.Candidate {
+        RemoteTmuxWorkspaceRoutingPolicy.Candidate(
+            workspaceId: id,
+            title: title,
+            isEmpty: isEmpty,
+            priorMirrorIdentity: priorMirrorIdentity
+        )
+    }
+}

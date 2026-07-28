@@ -2,6 +2,60 @@ import Foundation
 import CmuxSettings
 import OSLog
 
+struct RemoteTmuxWorkspaceIdentity: Equatable, Sendable {
+    let connectionHash: String
+    let sessionName: String
+}
+
+enum RemoteTmuxWorkspaceRoute: Equatable, Sendable {
+    case adopt(workspaceId: UUID)
+    case insert(afterWorkspaceId: UUID)
+    case append
+}
+
+struct RemoteTmuxWorkspaceRoutingPolicy {
+    struct Candidate: Equatable, Sendable {
+        let workspaceId: UUID
+        let title: String
+        let isEmpty: Bool
+        let priorMirrorIdentity: RemoteTmuxWorkspaceIdentity?
+    }
+
+    static func route(
+        connectionHash: String,
+        sessionName: String,
+        candidates: [Candidate]
+    ) -> RemoteTmuxWorkspaceRoute {
+        let identity = RemoteTmuxWorkspaceIdentity(
+            connectionHash: connectionHash,
+            sessionName: sessionName
+        )
+        if let adopted = candidates.first(where: {
+            $0.title == sessionName && ($0.isEmpty || $0.priorMirrorIdentity == identity)
+        }) {
+            return .adopt(workspaceId: adopted.workspaceId)
+        }
+
+        var bestPrefix: (workspaceId: UUID, length: Int)?
+        for candidate in candidates {
+            let length: Int?
+            if candidate.title.hasPrefix(sessionName) {
+                length = sessionName.count
+            } else if sessionName.hasPrefix(candidate.title), !candidate.title.isEmpty {
+                length = candidate.title.count
+            } else {
+                length = nil
+            }
+            guard let length, length >= (bestPrefix?.length ?? 0) else { continue }
+            bestPrefix = (candidate.workspaceId, length)
+        }
+        if let bestPrefix {
+            return .insert(afterWorkspaceId: bestPrefix.workspaceId)
+        }
+        return .append
+    }
+}
+
 /// Coordinates cmux's mirroring of remote tmux servers.
 ///
 /// Owns one ``RemoteTmuxSSHTransport`` per endpoint (keyed by
@@ -377,13 +431,44 @@ final class RemoteTmuxController {
         }
         guard sessionMirrors[key] == nil else { return nil }
 
-        let workspace = tabManager.addWorkspace(
-            title: canonicalSessionName, titleSource: .auto,
-            select: false,
-            autoWelcomeIfNeeded: false,
-            workspaceDirectoryCustomizationMode: .disabled
+        let route = RemoteTmuxWorkspaceRoutingPolicy.route(
+            connectionHash: host.connectionHash,
+            sessionName: canonicalSessionName,
+            candidates: tabManager.tabs.map {
+                RemoteTmuxWorkspaceRoutingPolicy.Candidate(
+                    workspaceId: $0.id,
+                    title: $0.title,
+                    isEmpty: $0.panels.isEmpty,
+                    priorMirrorIdentity: $0.remoteTmuxWorkspaceIdentity
+                )
+            }
         )
+        let workspace: Workspace
+        switch route {
+        case .adopt(let workspaceId):
+            guard let adopted = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
+                return nil
+            }
+            workspace = adopted
+        case .insert(let afterWorkspaceId):
+            workspace = tabManager.addWorkspace(
+                title: canonicalSessionName, titleSource: .auto,
+                select: false, placementOverride: .end,
+                autoWelcomeIfNeeded: false, shouldApplyWorkspaceDirectoryCustomization: false
+            )
+            _ = tabManager.reorderWorkspace(tabId: workspace.id, after: afterWorkspaceId)
+        case .append:
+            workspace = tabManager.addWorkspace(
+                title: canonicalSessionName, titleSource: .auto,
+                select: false, placementOverride: .end,
+                autoWelcomeIfNeeded: false, shouldApplyWorkspaceDirectoryCustomization: false
+            )
+        }
         workspace.isRemoteTmuxMirror = true
+        workspace.remoteTmuxWorkspaceIdentity = RemoteTmuxWorkspaceIdentity(
+            connectionHash: host.connectionHash,
+            sessionName: canonicalSessionName
+        )
         workspace.remoteTmuxHostIdentity = AppDelegate.shared?
             .mainWindowContext(for: tabManager)?
             .cmuxConfigStore?
