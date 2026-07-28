@@ -769,7 +769,7 @@ pub(crate) fn kill_until_only_leader(
     session: libc::pid_t,
     leader: libc::pid_t,
     deadline: Instant,
-    leader_exited: impl Fn() -> bool,
+    leader_exited: impl FnMut() -> io::Result<bool>,
 ) -> io::Result<bool> {
     validate_session_target(session)?;
     let snapshot = SessionProcessSnapshot::capture([session], deadline)?;
@@ -781,7 +781,7 @@ pub(crate) fn kill_until_only_leader_from_snapshot(
     session: libc::pid_t,
     leader: libc::pid_t,
     deadline: Instant,
-    leader_exited: impl Fn() -> bool,
+    leader_exited: impl FnMut() -> io::Result<bool>,
 ) -> io::Result<bool> {
     kill_until_only_reserved_from_snapshot(snapshot, session, leader, deadline, leader_exited, None)
 }
@@ -804,7 +804,7 @@ pub fn kill_until_only_reserved(
         session,
         reserved,
         deadline,
-        || true,
+        || Ok(true),
         Some(reserved),
     )
 }
@@ -814,7 +814,7 @@ fn kill_until_only_reserved_from_snapshot(
     session: libc::pid_t,
     reserved: libc::pid_t,
     deadline: Instant,
-    can_reconcile: impl Fn() -> bool,
+    mut can_reconcile: impl FnMut() -> io::Result<bool>,
     signal_exclusion: Option<libc::pid_t>,
 ) -> io::Result<bool> {
     validate_session_target(session)?;
@@ -829,7 +829,7 @@ fn kill_until_only_reserved_from_snapshot(
             .collect::<io::Result<Vec<_>>>()?
             .into_iter()
             .all(|alive| !alive);
-        if can_reconcile() && known_drained {
+        if known_drained && can_reconcile()? {
             let (current_generation, current) =
                 snapshot.refresh_members(session, generation, deadline)?;
             if current.iter().all(|pid| *pid == reserved) {

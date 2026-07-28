@@ -1232,11 +1232,23 @@ impl LocalPtyProcess {
                 leader,
                 leader,
                 deadline,
-                || self.child_waitable.load(Ordering::Acquire),
+                || match self.observe_child_wait_state_locked(leader)? {
+                    crate::process_session::ChildWaitState::Running => Ok(false),
+                    crate::process_session::ChildWaitState::Waitable => Ok(true),
+                    crate::process_session::ChildWaitState::OwnershipLost => {
+                        Err(std::io::Error::other("PTY child wait ownership was lost"))
+                    }
+                },
             ),
             None => {
                 crate::process_session::kill_until_only_leader(leader, leader, deadline, || {
-                    self.child_waitable.load(Ordering::Acquire)
+                    match self.observe_child_wait_state_locked(leader)? {
+                        crate::process_session::ChildWaitState::Running => Ok(false),
+                        crate::process_session::ChildWaitState::Waitable => Ok(true),
+                        crate::process_session::ChildWaitState::OwnershipLost => {
+                            Err(std::io::Error::other("PTY child wait ownership was lost"))
+                        }
+                    }
                 })
             }
         }
