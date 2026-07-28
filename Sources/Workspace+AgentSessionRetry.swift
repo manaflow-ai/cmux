@@ -29,7 +29,7 @@ extension Workspace {
         return panels[panelId] is TerminalPanel &&
             (currentBinding == nil || currentBinding == binding) &&
             !hasActiveAgentLifecycleForRetry(panelId: panelId) &&
-            panelShellActivityStates[panelId] != .commandRunning
+            panelShellActivityStates[panelId] == .promptIdle
     }
 
     func sendManagedAgentRetry(

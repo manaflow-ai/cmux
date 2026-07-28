@@ -21,6 +21,7 @@ struct AgentSessionRetryCoordinatorTests {
         )
         let panelId = try #require(workspace.focusedPanelId)
         let binding = managedBinding(sessionId: "retry-after-teardown")
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
         #expect(workspace.setSurfaceResumeBinding(binding, panelId: panelId))
         #expect(workspace.managedAgentRetryBinding(panelId: panelId) == binding)
         workspace.setAgentLifecycle(key: "claude_code", panelId: panelId, lifecycle: .running)
@@ -64,6 +65,7 @@ struct AgentSessionRetryCoordinatorTests {
         )
         let panelId = try #require(workspace.focusedPanelId)
         let binding = managedBinding(sessionId: "retry-before-late-teardown")
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
         #expect(workspace.setSurfaceResumeBinding(binding, panelId: panelId))
         workspace.setAgentLifecycle(key: "claude_code", panelId: panelId, lifecycle: .running)
 
@@ -92,6 +94,7 @@ struct AgentSessionRetryCoordinatorTests {
         )
         let panelId = try #require(workspace.focusedPanelId)
         let binding = managedBinding(sessionId: "retry-cancelled-by-new-command")
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
         #expect(workspace.setSurfaceResumeBinding(binding, panelId: panelId))
         workspace.setAgentLifecycle(key: "claude_code", panelId: panelId, lifecycle: .running)
 
@@ -117,6 +120,7 @@ struct AgentSessionRetryCoordinatorTests {
             agentSessionAutoRetrySettings: AgentSessionAutoRetrySettings(defaults: defaults)
         )
         let panelId = try #require(workspace.focusedPanelId)
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
         #expect(workspace.setSurfaceResumeBinding(
             managedBinding(sessionId: "manual-clear"),
             panelId: panelId
@@ -143,6 +147,7 @@ struct AgentSessionRetryCoordinatorTests {
         )
         let panelId = try #require(workspace.focusedPanelId)
         let binding = managedBinding(sessionId: "ended-before-later-command")
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
         #expect(workspace.setSurfaceResumeBinding(binding, panelId: panelId))
         workspace.setAgentLifecycle(key: "claude_code", panelId: panelId, lifecycle: .running)
 
@@ -172,14 +177,15 @@ struct AgentSessionRetryCoordinatorTests {
         )
         let panelId = try #require(workspace.focusedPanelId)
         let binding = managedBinding(sessionId: "ended-before-running-replay")
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
         #expect(workspace.setSurfaceResumeBinding(binding, panelId: panelId))
         workspace.setAgentLifecycle(key: "claude_code", panelId: panelId, lifecycle: .running)
-        workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
 
         #expect(workspace.clearSurfaceResumeBinding(panelId: panelId, agentSessionEnded: true))
+        workspace.setAgentLifecycle(key: "claude_code", panelId: panelId, lifecycle: .running)
         workspace.setAgentLifecycle(key: "claude_code", panelId: panelId, lifecycle: .idle)
         #expect(workspace.clearAgentLifecycle(key: "claude_code", panelId: panelId))
-        workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
         workspace.agentSessionRetryCoordinator.commandFinished(panelId: panelId, exitCode: 1)
 
         let retryStatusKey = "agent.auto_retry.\(panelId.uuidString.lowercased())"
@@ -201,6 +207,7 @@ struct AgentSessionRetryCoordinatorTests {
         let panelId = try #require(workspace.focusedPanelId)
         let endedBinding = managedBinding(sessionId: "ended-session")
         let replacementBinding = managedBinding(sessionId: "replacement-session")
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
         #expect(workspace.setSurfaceResumeBinding(endedBinding, panelId: panelId))
         workspace.setAgentLifecycle(key: "claude_code", panelId: panelId, lifecycle: .running)
         #expect(workspace.clearSurfaceResumeBinding(panelId: panelId, agentSessionEnded: true))
@@ -213,8 +220,8 @@ struct AgentSessionRetryCoordinatorTests {
     }
 
     @MainActor
-    @Test("command completion without an authoritative ended session fails closed")
-    func commandFinishedWithoutEndedCandidateFailsClosed() throws {
+    @Test("a binding observed outside the current command cannot authorize retry")
+    func bindingWithoutCommandOwnershipFailsClosed() throws {
         let suiteName = "AgentSessionRetryCoordinatorTests.noEndedCandidate"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -231,6 +238,58 @@ struct AgentSessionRetryCoordinatorTests {
         workspace.agentSessionRetryCoordinator.commandFinished(panelId: panelId, exitCode: 1)
 
         #expect(workspace.surfaceResumeBinding(panelId: panelId) == currentBinding)
+        #expect(workspace.statusEntries[retryStatusKey(panelId: panelId)] == nil)
+    }
+
+    @MainActor
+    @Test("a nonzero managed agent exit retries without a SessionEnd hook")
+    func nonzeroManagedExitWithoutSessionEndRetries() throws {
+        let suiteName = "AgentSessionRetryCoordinatorTests.hardExit"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: AgentSessionAutoRetrySettings.autoRetryAgentSessionsKey)
+
+        let workspace = Workspace(
+            agentSessionAutoRetrySettings: AgentSessionAutoRetrySettings(defaults: defaults)
+        )
+        let panelId = try #require(workspace.focusedPanelId)
+        let binding = managedBinding(sessionId: "hard-nonzero-exit")
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
+        #expect(workspace.setSurfaceResumeBinding(binding, panelId: panelId))
+        workspace.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .running)
+        workspace.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .idle)
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
+
+        workspace.agentSessionRetryCoordinator.commandFinished(panelId: panelId, exitCode: 1)
+
+        #expect(workspace.statusEntries[retryStatusKey(panelId: panelId)]?.icon == "arrow.clockwise")
+        #expect(workspace.clearSurfaceResumeBinding(panelId: panelId, agentSessionEnded: true))
+        #expect(workspace.statusEntries[retryStatusKey(panelId: panelId)]?.icon == "arrow.clockwise")
+        workspace.agentSessionRetryCoordinator.cancelAll()
+    }
+
+    @MainActor
+    @Test("an intentional signal exit never retries")
+    func signalExitDoesNotRetry() throws {
+        let suiteName = "AgentSessionRetryCoordinatorTests.signalExit"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: AgentSessionAutoRetrySettings.autoRetryAgentSessionsKey)
+
+        let workspace = Workspace(
+            agentSessionAutoRetrySettings: AgentSessionAutoRetrySettings(defaults: defaults)
+        )
+        let panelId = try #require(workspace.focusedPanelId)
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
+        #expect(workspace.setSurfaceResumeBinding(
+            managedBinding(sessionId: "ctrl-c-exit"),
+            panelId: panelId
+        ))
+        workspace.setAgentLifecycle(key: "claude_code", panelId: panelId, lifecycle: .running)
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
+
+        workspace.agentSessionRetryCoordinator.commandFinished(panelId: panelId, exitCode: 130)
+
         #expect(workspace.statusEntries[retryStatusKey(panelId: panelId)] == nil)
     }
 
@@ -284,6 +343,21 @@ struct AgentSessionRetryCoordinatorTests {
             panelId: runningShell.panelId
         )
         #expect(runningShell.workspace.statusEntries[runningShell.statusKey] == nil)
+
+        let unknownShell = try scheduledRetry(
+            suiteName: "AgentSessionRetryCoordinatorTests.timerUnknownShell",
+            sessionId: "unknown-shell"
+        )
+        defer {
+            unknownShell.defaults.removePersistentDomain(
+                forName: "AgentSessionRetryCoordinatorTests.timerUnknownShell"
+            )
+        }
+        unknownShell.workspace.panelShellActivityStates[unknownShell.panelId] = .unknown
+        unknownShell.workspace.agentSessionRetryCoordinator.retryTimerFired(
+            panelId: unknownShell.panelId
+        )
+        #expect(unknownShell.workspace.statusEntries[unknownShell.statusKey] == nil)
     }
 
     @MainActor
@@ -330,6 +404,7 @@ struct AgentSessionRetryCoordinatorTests {
         settings.setEnabled(true)
         let workspace = Workspace(agentSessionAutoRetrySettings: settings)
         let panelId = try #require(workspace.focusedPanelId)
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
         #expect(workspace.setSurfaceResumeBinding(
             managedBinding(sessionId: sessionId),
             panelId: panelId
