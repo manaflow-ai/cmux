@@ -912,6 +912,59 @@ func TestPersistentDaemonRejectsBadToken(t *testing.T) {
 	}
 }
 
+func TestPersistentDaemonLogsAuthMethodRejectionReason(t *testing.T) {
+	tests := []struct {
+		name       string
+		method     string
+		wantReason string
+	}{
+		{name: "missing", wantReason: "authentication method is missing"},
+		{name: "invalid", method: "daemon.unsupported", wantReason: "authentication method is invalid"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			stderr := newNotifyingBuffer()
+			socketPath, stop := startPersistentDaemonWithVerifierAndLogForTest(
+				t,
+				persistentDaemonFixedTokenVerifier("good-token"),
+				stderr,
+			)
+			defer stop()
+
+			conn, err := net.Dial("unix", socketPath)
+			if err != nil {
+				t.Fatalf("dial persistent daemon: %v", err)
+			}
+			defer conn.Close()
+
+			reader := bufio.NewReader(conn)
+			writer := bufio.NewWriter(conn)
+			writePersistentTestFrame(t, writer, rpcRequest{
+				ID:     1,
+				Method: test.method,
+				Params: map[string]any{"token": "good-token"},
+			})
+			frame := readPersistentTestFrame(t, conn, reader)
+			errObj, _ := frame["error"].(map[string]any)
+			if got := errObj["code"]; got != "unauthorized" {
+				t.Fatalf("auth method error code = %v, want unauthorized; frame=%v", got, frame)
+			}
+
+			select {
+			case <-stderr.notify:
+			case <-time.After(time.Second):
+				t.Fatalf("persistent daemon did not log authentication rejection")
+			}
+			if log := stderr.String(); !strings.Contains(log, test.wantReason) {
+				t.Fatalf("daemon log = %q, want reason %q", log, test.wantReason)
+			} else if test.method != "" && strings.Contains(log, test.method) {
+				t.Fatalf("daemon log leaked the supplied authentication method: %q", log)
+			}
+		})
+	}
+}
+
 func TestDialPersistentDaemonBadTokenWrapsAuthFailure(t *testing.T) {
 	socketPath, stop := startPersistentDaemonForTest(t, "good-token")
 	defer stop()

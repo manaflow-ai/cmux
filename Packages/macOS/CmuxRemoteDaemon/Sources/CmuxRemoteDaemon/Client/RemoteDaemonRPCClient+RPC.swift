@@ -278,7 +278,7 @@ extension RemoteDaemonRPCClient {
         let pendingCall = pendingCalls.register()
         let payload: Data
         do {
-            payload = try Self.callPayload(id: pendingCall.id, method: method, params: params)
+            payload = try encodeDaemonCallPayload(id: pendingCall.id, method: method, params: params)
         } catch {
             pendingCalls.remove(pendingCall)
             throw error
@@ -311,7 +311,7 @@ extension RemoteDaemonRPCClient {
         try writeQueue.sync {
             guard let pendingCall = pendingCalls.registerIfIdle() else { return }
             do {
-                let payload = try Self.callPayload(id: pendingCall.id, method: method, params: params)
+                let payload = try encodeDaemonCallPayload(id: pendingCall.id, method: method, params: params)
                 onAdmitted()
                 try writePayload(payload)
                 admittedCall = pendingCall
@@ -323,20 +323,6 @@ extension RemoteDaemonRPCClient {
 
         guard let admittedCall else { return nil }
         return try waitForCall(admittedCall, method: method, timeout: timeout)
-    }
-
-    private static func callPayload(id: Int, method: String, params: [String: Any]) throws -> Data {
-        do {
-            return try encodeJSON([
-                "id": id,
-                "method": method,
-                "params": params,
-            ])
-        } catch {
-            throw NSError(domain: "cmux.remote.daemon.rpc", code: 10, userInfo: [
-                NSLocalizedDescriptionKey: "failed to encode daemon RPC request \(method): \(error.localizedDescription)",
-            ])
-        }
     }
 
     private func waitForCall(
@@ -441,5 +427,19 @@ extension RemoteDaemonRPCClient {
 
     static func encodeJSON(_ object: [String: Any]) throws -> Data {
         try JSONSerialization.data(withJSONObject: object, options: [])
+    }
+}
+
+private func encodeDaemonCallPayload(id: Int, method: String, params: [String: Any]) throws -> Data {
+    do {
+        return try RemoteDaemonRPCClient.encodeJSON([
+            "id": id,
+            "method": method,
+            "params": params,
+        ])
+    } catch {
+        throw NSError(domain: "cmux.remote.daemon.rpc", code: 10, userInfo: [
+            NSLocalizedDescriptionKey: "failed to encode daemon RPC request \(method): \(error.localizedDescription)",
+        ])
     }
 }

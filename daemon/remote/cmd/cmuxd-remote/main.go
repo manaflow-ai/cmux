@@ -1163,6 +1163,10 @@ func authenticatePersistentDaemonConn(reader *bufio.Reader, writer *stdioFrameWr
 		return errors.New("authentication frame is invalid JSON")
 	}
 	if req.Method != persistentDaemonAuthMethod {
+		reason := "authentication method is invalid"
+		if req.Method == "" {
+			reason = "authentication method is missing"
+		}
 		_ = writer.writeResponse(rpcResponse{
 			ID: req.ID,
 			OK: false,
@@ -1171,7 +1175,7 @@ func authenticatePersistentDaemonConn(reader *bufio.Reader, writer *stdioFrameWr
 				Message: "persistent daemon authentication required",
 			},
 		})
-		return errors.New("authentication method is missing")
+		return errors.New(reason)
 	}
 	provided, _ := getStringParam(req.Params, "token")
 	if !verifier(provided) {
