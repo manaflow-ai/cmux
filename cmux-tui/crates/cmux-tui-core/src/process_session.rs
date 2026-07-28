@@ -1880,6 +1880,31 @@ mod tests {
 
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     #[test]
+    fn successful_preflight_survives_a_transient_initializer_failure() {
+        const CHILD_ENV: &str = "CMUX_TUI_TEST_TRANSIENT_PREFLIGHT_CACHE";
+        const TEST_NAME: &str =
+            "process_session::tests::successful_preflight_survives_a_transient_initializer_failure";
+        if std::env::var_os(CHILD_ENV).is_none() {
+            let status = Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", TEST_NAME])
+                .env(CHILD_ENV, "1")
+                .status()
+                .unwrap();
+            assert!(status.success(), "preflight cache subprocess failed: {status}");
+            return;
+        }
+
+        require_stable_process_signaling().unwrap();
+        set_process_session_preflight_failure_for_test(true);
+        initialize_stable_process_signaling();
+        set_process_session_preflight_failure_for_test(false);
+
+        require_cached_stable_process_signaling()
+            .expect("a later transient scan replaced the successful startup preflight");
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
     fn shutdown_batch_reuses_one_process_table_snapshot() {
         let mut children = [spawn_session_child(), spawn_session_child()];
         let sessions = children
