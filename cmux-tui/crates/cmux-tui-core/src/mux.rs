@@ -65,9 +65,6 @@ const KITTY_IMAGE_PROCESS_BUDGET_BYTES: u64 = 128 * 1024 * 1024;
 // keeps one replay pixel cache and one render pixel cache per PTY surface.
 // A grayscale native image expands by up to 3x in either RGB pixel cache.
 const KITTY_IMAGE_PERSISTENT_COPIES_PER_SURFACE: u64 = 2 + 3 + 3;
-const KITTY_INFLIGHT_PERSISTENT_COPIES_PER_SURFACE: u64 = 1;
-const KITTY_BYTE_OWNERS_PER_SURFACE: u64 =
-    KITTY_IMAGE_PERSISTENT_COPIES_PER_SURFACE + KITTY_INFLIGHT_PERSISTENT_COPIES_PER_SURFACE;
 // Image and placement limits are independent on the primary and alternate screens.
 const KITTY_OBJECT_OWNERS_PER_SURFACE: u64 = 2;
 const KITTY_IMAGE_PROCESS_BUDGET_COUNT: u64 = ghostty_vt::MAX_KITTY_IMAGES;
@@ -99,17 +96,34 @@ fn kitty_image_budget_capacity(surface_count: usize, current: usize) -> usize {
     current
 }
 
+fn kitty_surface_byte_reservation(image_bytes: u64) -> u64 {
+    image_bytes
+        .saturating_mul(KITTY_IMAGE_PERSISTENT_COPIES_PER_SURFACE)
+        .saturating_add(ghostty_vt::kitty_inflight_replay_limit_for_image_bytes(image_bytes))
+}
+
+fn kitty_image_bytes_for_process_share(process_share: u64) -> u64 {
+    let mut lower = 0;
+    let mut upper = process_share.min(ghostty_vt::MAX_KITTY_IMAGE_BYTES as u64);
+    while lower < upper {
+        let candidate = lower + (upper - lower).div_ceil(2);
+        if kitty_surface_byte_reservation(candidate) <= process_share {
+            lower = candidate;
+        } else {
+            upper = candidate - 1;
+        }
+    }
+    lower
+}
+
 fn kitty_image_limits_for_capacity(capacity: usize) -> KittyGraphicsLimits {
     if capacity == 0 {
         return KittyGraphicsLimits::disabled();
     }
     let surface_count = u64::try_from(capacity).unwrap_or(u64::MAX);
-    let persistent_owners = surface_count.saturating_mul(KITTY_BYTE_OWNERS_PER_SURFACE);
-    let image_bytes = KITTY_IMAGE_PROCESS_BUDGET_BYTES
-        .checked_div(persistent_owners)
-        .unwrap_or(0)
-        .min(ghostty_vt::MAX_KITTY_IMAGE_BYTES as u64);
-    let inflight_bytes = image_bytes.min(ghostty_vt::KITTY_INFLIGHT_REPLAY_MAX_BYTES as u64);
+    let process_share = KITTY_IMAGE_PROCESS_BUDGET_BYTES.checked_div(surface_count).unwrap_or(0);
+    let image_bytes = kitty_image_bytes_for_process_share(process_share);
+    let inflight_bytes = ghostty_vt::kitty_inflight_replay_limit_for_image_bytes(image_bytes);
     let object_owners = surface_count.saturating_mul(KITTY_OBJECT_OWNERS_PER_SURFACE);
     let images = KITTY_IMAGE_PROCESS_BUDGET_COUNT
         .checked_div(object_owners)
@@ -10673,18 +10687,38 @@ mod tests {
         let configured = surfaces
             .iter()
             .map(|surface| {
-                surface
-                    .with_terminal(|terminal| terminal.kitty_image_storage_limit().unwrap())
-                    .unwrap()
+                surface.with_terminal(|terminal| terminal.kitty_graphics_limits().unwrap()).unwrap()
+            })
+            .map(|limits| {
+                limits
+                    .image_bytes
+                    .saturating_mul(KITTY_IMAGE_PERSISTENT_COPIES_PER_SURFACE)
+                    .saturating_add(limits.inflight_bytes)
             })
             .sum::<u64>();
 
         assert!(
-            configured.saturating_mul(KITTY_IMAGE_PERSISTENT_COPIES_PER_SURFACE + 1)
-                <= KITTY_IMAGE_PROCESS_BUDGET_BYTES,
-            "per-terminal limits allow {} bytes across native screen storage, copied caches, and in-flight uploads",
-            configured.saturating_mul(KITTY_IMAGE_PERSISTENT_COPIES_PER_SURFACE + 1)
+            configured <= KITTY_IMAGE_PROCESS_BUDGET_BYTES,
+            "per-terminal limits allow {configured} bytes across native screen storage, copied caches, and in-flight uploads"
         );
+    }
+
+    #[test]
+    fn kitty_capacity_buckets_reserve_encoded_upload_bytes_inside_the_process_budget() {
+        let mut capacity = 1;
+        while capacity <= KITTY_IMAGE_BUDGET_OWNER_LIMIT {
+            let limits = kitty_image_limits_for_capacity(capacity);
+            assert_eq!(
+                limits.inflight_bytes,
+                ghostty_vt::kitty_inflight_replay_limit_for_image_bytes(limits.image_bytes)
+            );
+            assert!(
+                kitty_surface_byte_reservation(limits.image_bytes).saturating_mul(capacity as u64)
+                    <= KITTY_IMAGE_PROCESS_BUDGET_BYTES,
+                "capacity {capacity} exceeded the process byte budget with {limits:?}"
+            );
+            capacity = capacity.saturating_mul(2);
+        }
     }
 
     #[cfg(unix)]
@@ -10776,7 +10810,7 @@ mod tests {
         }
         wait_for_kitty_image_budget(&mux);
         let per_surface_limit = surfaces[0]
-            .with_terminal(|terminal| terminal.kitty_image_storage_limit().unwrap())
+            .with_terminal(|terminal| terminal.kitty_inflight_storage_limit())
             .unwrap() as usize;
         let segment_bytes = (per_surface_limit.saturating_mul(3) / 5) / 4 * 4;
         let first =
@@ -10810,10 +10844,11 @@ mod tests {
         let pixels = vec![0xff; IMAGE_WIDTH * IMAGE_HEIGHT * 4];
         assert_eq!(pixels.len(), ghostty_vt::MAX_KITTY_IMAGE_BYTES);
         let payload = base64::engine::general_purpose::STANDARD.encode(&pixels);
-        let first_payload = &payload[..payload.len() - 4];
+        let (first_payload, final_payload) = payload.split_at(payload.len() - 4);
         let first_chunk = format!(
             "\x1b_Ga=t,t=d,f=32,i={IMAGE_ID},s={IMAGE_WIDTH},v={IMAGE_HEIGHT},m=1,q=2;{first_payload}\x1b\\"
         );
+        let final_chunk = format!("\x1b_Gm=0,q=2;{final_payload}\x1b\\");
         assert!(first_chunk.len() <= ghostty_vt::KITTY_INFLIGHT_REPLAY_MAX_BYTES);
 
         surface
@@ -10824,6 +10859,17 @@ mod tests {
                 terminal
                     .preflight_vt_replay_bounded(crate::surface::VT_REPLAY_MAX_BYTES)
                     .expect("Mux quota rejected replay for a permitted maximum-size Kitty image");
+                terminal.vt_write(final_chunk.as_bytes());
+                assert_eq!(
+                    terminal
+                        .kitty_graphics_snapshot()
+                        .unwrap()
+                        .image(IMAGE_ID)
+                        .expect("maximum-size Kitty image was not admitted")
+                        .data
+                        .len(),
+                    pixels.len()
+                );
             })
             .unwrap();
     }
@@ -10862,10 +10908,7 @@ mod tests {
                 )
             })
             .unwrap();
-        let expected = KITTY_IMAGE_PROCESS_BUDGET_BYTES
-            .checked_div(KITTY_IMAGE_PERSISTENT_COPIES_PER_SURFACE + 1)
-            .unwrap()
-            .min(ghostty_vt::MAX_KITTY_IMAGE_BYTES as u64);
+        let expected = kitty_image_limits_for_capacity(1).image_bytes;
         assert!(
             survivor_limit.0 > constrained.0,
             "surviving terminal kept its peak-surface quota of {} bytes",

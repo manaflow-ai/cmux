@@ -17,7 +17,7 @@ pub use key::{KeyAction, KeyEncoder, KeyInput, Mods, key_input_from_chord};
 pub use kitty::{
     KITTY_INFLIGHT_REPLAY_MAX_BYTES, KittyGraphicsSnapshot, KittyImage, KittyImageAlias,
     KittyImageFormat, KittyPlacement, KittyPlacementKey, MAX_KITTY_IMAGE_BYTES, MAX_KITTY_IMAGES,
-    MAX_KITTY_PLACEMENTS,
+    MAX_KITTY_PLACEMENTS, kitty_inflight_replay_limit_for_image_bytes,
 };
 pub use mouse::{MouseAction, MouseButton, MouseEncoder, MouseEncoders, MouseInput};
 pub use render::{

@@ -5437,11 +5437,11 @@ mod tests {
 
     #[test]
     fn resize_replay_budget_covers_inflight_state_and_transport_limits() {
-        assert_eq!(ghostty_vt::KITTY_INFLIGHT_REPLAY_MAX_BYTES, 13_595_478);
+        assert_eq!(ghostty_vt::KITTY_INFLIGHT_REPLAY_MAX_BYTES, 13_595_480);
         assert_eq!(VT_REPLAY_TEXT_HEADROOM_BYTES, 2_097_152);
-        assert_eq!(VT_REPLAY_MAX_BYTES, 15_692_630);
-        assert_eq!(ATTACH_STREAM_MAX_BYTES - VT_REPLAY_MAX_BYTES, 1_084_586);
-        assert_eq!(VT_REPLAY_MAX_BYTES.div_ceil(3) * 4, 20_923_508);
+        assert_eq!(VT_REPLAY_MAX_BYTES, 15_692_632);
+        assert_eq!(ATTACH_STREAM_MAX_BYTES - VT_REPLAY_MAX_BYTES, 1_084_584);
+        assert_eq!(VT_REPLAY_MAX_BYTES.div_ceil(3) * 4, 20_923_512);
         const {
             assert!(
                 VT_REPLAY_MAX_BYTES + VT_REPLAY_FRAME_METADATA_HEADROOM_BYTES

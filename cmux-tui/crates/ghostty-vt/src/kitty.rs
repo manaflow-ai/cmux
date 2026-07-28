@@ -13,9 +13,22 @@ use crate::{Error, Result, check};
 pub const MAX_KITTY_IMAGE_BYTES: usize = 10_000_000;
 pub const MAX_KITTY_IMAGES: u64 = 4_096;
 pub const MAX_KITTY_PLACEMENTS: u64 = 16_384;
+const KITTY_INFLIGHT_REPLAY_FRAMING_MAX_BYTES: u64 = 256 * 1024;
+
+/// Wire bytes reserved for an incomplete direct upload with this decoded-byte
+/// allowance. The reservation covers exact base64 expansion and a proportional
+/// share of the bounded command-framing headroom.
+pub const fn kitty_inflight_replay_limit_for_image_bytes(image_bytes: u64) -> u64 {
+    let maximum = MAX_KITTY_IMAGE_BYTES as u64;
+    let bounded = if image_bytes < maximum { image_bytes } else { maximum };
+    let encoded = bounded.div_ceil(3).saturating_mul(4);
+    let framing = bounded.saturating_mul(KITTY_INFLIGHT_REPLAY_FRAMING_MAX_BYTES).div_ceil(maximum);
+    encoded.saturating_add(framing)
+}
+
 /// Maximum retained byte prefix for a valid incomplete direct Kitty upload.
 pub const KITTY_INFLIGHT_REPLAY_MAX_BYTES: usize =
-    (MAX_KITTY_IMAGE_BYTES * 4).div_ceil(3) + 256 * 1024;
+    kitty_inflight_replay_limit_for_image_bytes(MAX_KITTY_IMAGE_BYTES as u64) as usize;
 const PNG_SIGNATURE: &[u8; 8] = b"\x89PNG\r\n\x1a\n";
 
 #[cfg(test)]
@@ -1096,6 +1109,21 @@ mod tests {
 
     fn counter(counter: &'static std::thread::LocalKey<std::cell::Cell<usize>>) -> usize {
         counter.with(std::cell::Cell::get)
+    }
+
+    #[test]
+    fn inflight_limit_covers_exact_base64_expansion_and_bounded_framing() {
+        assert_eq!(kitty_inflight_replay_limit_for_image_bytes(0), 0);
+        assert_eq!(kitty_inflight_replay_limit_for_image_bytes(1), 5);
+        assert_eq!(KITTY_INFLIGHT_REPLAY_MAX_BYTES, 13_595_480);
+        assert_eq!(
+            kitty_inflight_replay_limit_for_image_bytes(MAX_KITTY_IMAGE_BYTES as u64),
+            KITTY_INFLIGHT_REPLAY_MAX_BYTES as u64
+        );
+        assert_eq!(
+            kitty_inflight_replay_limit_for_image_bytes(u64::MAX),
+            KITTY_INFLIGHT_REPLAY_MAX_BYTES as u64
+        );
     }
 
     #[test]
