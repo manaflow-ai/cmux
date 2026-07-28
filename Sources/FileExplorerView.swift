@@ -451,20 +451,29 @@ struct FileExplorerPanelView: NSViewRepresentable {
                     }
                 }
 
-                var rowsToReload = IndexSet()
                 for change in changes where !change.reloadChildren && change.expansion == nil {
                     if let row = visibleRowsByNodeId[ObjectIdentifier(change.node)] {
-                        rowsToReload.insert(row)
+                        refreshVisibleCell(for: change.node, at: row, in: outlineView)
                     }
-                }
-                if !rowsToReload.isEmpty, outlineView.numberOfColumns > 0 {
-                    outlineView.reloadData(
-                        forRowIndexes: rowsToReload,
-                        columnIndexes: IndexSet(integersIn: 0..<outlineView.numberOfColumns)
-                    )
                 }
             }
             return true
+        }
+
+        private func refreshVisibleCell(
+            for node: FileExplorerNode,
+            at row: Int,
+            in outlineView: NSOutlineView
+        ) {
+            guard outlineView.numberOfColumns > 0,
+                  let cellView = outlineView.view(
+                      atColumn: 0,
+                      row: row,
+                      makeIfNecessary: false
+                  ) as? FileExplorerCellView else {
+                return
+            }
+            cellView.configure(with: node, gitStatus: store.gitStatusByPath[node.path])
         }
 
         // MARK: - NSOutlineViewDataSource

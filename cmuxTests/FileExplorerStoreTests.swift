@@ -271,7 +271,7 @@ struct FileExplorerStoreTests {
         }
         coordinator.reloadIfNeeded()
 
-        #expect(outlineView.reloadRowsCallCount == 1)
+        #expect(outlineView.reloadRowsCallCount == 0)
         #expect(outlineView.reloadItemCallCount == 0)
         #expect(outlineView.itemAtRowCallCount < 20)
     }
