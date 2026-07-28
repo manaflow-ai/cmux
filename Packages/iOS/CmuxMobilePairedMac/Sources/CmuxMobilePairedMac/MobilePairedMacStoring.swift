@@ -164,27 +164,6 @@ public protocol MobilePairedMacStoring: Sendable {
         teamID: String?
     ) async throws
 
-    /// Remove one exact tagged Mac app instance whose LOCAL row lives in
-    /// `teamID` but whose server backup lives in `backupTeamID`.
-    ///
-    /// A team-less local row (`teamID == nil`) can be shown under, and forgotten
-    /// from, a selected team (legacy visibility). Its backup, however, is stored
-    /// in a per-team Durable Object, so the tombstone must be routed to the team
-    /// the row was DISPLAYED under (`backupTeamID`, captured up front) rather than
-    /// re-using the nil local team, which the server would resolve to whatever
-    /// team is selected when the delete flushes and could wipe a same-device
-    /// record from the wrong team's backup. The local delete still honors `teamID`
-    /// verbatim so the exact captured row is the one removed. Only the
-    /// backup-mirroring decorator distinguishes the two scopes; every other store
-    /// ignores `backupTeamID` and deletes the local `teamID` row.
-    func removeExactScope(
-        macDeviceID: String,
-        instanceTag: String?,
-        stackUserID: String?,
-        teamID: String?,
-        backupTeamID: String?
-    ) async throws
-
     /// Remove all paired Macs.
     func removeAll() async throws
 }
@@ -254,25 +233,6 @@ extension MobilePairedMacStoring {
         teamID: String?
     ) async throws {
         try await remove(
-            macDeviceID: macDeviceID,
-            instanceTag: instanceTag,
-            stackUserID: stackUserID,
-            teamID: teamID
-        )
-    }
-
-    /// Default: a store with no separate server backup deletes only the local
-    /// `teamID` row and ignores `backupTeamID`. The backup-mirroring decorator
-    /// (``BackingUpPairedMacStore``) overrides this to route its tombstone to
-    /// `backupTeamID` while still deleting the exact `teamID` local row.
-    public func removeExactScope(
-        macDeviceID: String,
-        instanceTag: String?,
-        stackUserID: String?,
-        teamID: String?,
-        backupTeamID _: String?
-    ) async throws {
-        try await removeExactScope(
             macDeviceID: macDeviceID,
             instanceTag: instanceTag,
             stackUserID: stackUserID,

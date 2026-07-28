@@ -226,18 +226,19 @@ extension MobileShellComposite {
                 // shown under a selected team, or delete the wrong team's row after a
                 // mid-revoke team switch.
                 //
-                // The server backup, however, lives in a per-team Durable Object, so
-                // a team-less row's tombstone must route to the team it was DISPLAYED
-                // under (`displayScope.teamID`), captured before the revoke. Reusing
-                // the nil local team for the backup would let the server resolve the
-                // delete to whatever team is selected at flush time and wipe a
-                // same-device record from the wrong team's backup.
+                // The backup tombstone follows the SAME scope: `upsert` stamps the
+                // row and uploads its backup under one resolved team, so the row's
+                // own `teamID` is the only client-side value tied to where the
+                // backup lives. The display team is arbitrary for a team-less row
+                // (it is shown under every selected team), so routing the tombstone
+                // there would strand it in an unrelated team's backup — the row's
+                // real backup would survive and restore the forgotten row, and a
+                // same-device record in the displayed team could be wrongly deleted.
                 try await pairedMacStore.removeExactScope(
                     macDeviceID: macDeviceID,
                     instanceTag: instanceTag,
                     stackUserID: rowStackUserID,
-                    teamID: rowTeamID,
-                    backupTeamID: displayScope.teamID
+                    teamID: rowTeamID
                 )
             } catch {
                 hiddenMacsLog.error(
