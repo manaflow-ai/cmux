@@ -1,8 +1,8 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
@@ -11,8 +11,8 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{Mutex, Notify, oneshot, watch};
 
 use crate::crypto::{
-    AuthGrant, AuthKind, AuthRequest, CryptoError, InboundAuthEvidence, ServerAuthenticator,
-    StaticIdentity, public_key_fingerprint,
+    AuthGrant, AuthKind, AuthRequest, ConnectionAttemptId, CryptoError, InboundAuthEvidence,
+    ServerAuthenticator, StaticIdentity, public_key_fingerprint,
 };
 
 const STATE_VERSION: u32 = 1;
@@ -22,6 +22,7 @@ const ENROLLMENT_RETRY_GRACE: Duration = Duration::from_secs(60);
 const MAX_INVITATION_RELAY_ROUTES: usize = 2;
 const MAX_RELAY_SLOT_BYTES: usize = 256;
 const MAX_RELAY_TICKET_BYTES: usize = 4 * 1024;
+const MAX_RECORDED_CONNECTION_ATTEMPTS: usize = 4_096;
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct EnrollmentRelayAccess {
@@ -359,12 +360,284 @@ pub struct PendingEnrollment {
     pub requested_at_unix: u64,
 }
 
+struct PersistenceWaiter {
+    receiver: oneshot::Receiver<Result<(), String>>,
+}
+
+impl PersistenceWaiter {
+    async fn wait_message(self) -> Result<(), String> {
+        self.receiver
+            .await
+            .unwrap_or_else(|_| Err("identity persistence coordinator stopped".into()))
+    }
+
+    async fn wait(self) -> Result<(), IdentityError> {
+        self.wait_message().await.map_err(IdentityError::Persistence)
+    }
+}
+
+struct PersistenceCoordinator {
+    path: PathBuf,
+    state: StdMutex<PersistenceCoordinatorState>,
+    #[cfg(test)]
+    hooks: Arc<PersistenceTestHooks>,
+}
+
+struct PersistenceCoordinatorState {
+    durable_revision: u64,
+    highest_seen_revision: u64,
+    in_flight: Option<u64>,
+    pending: BTreeMap<u64, PersistedState>,
+    waiters: BTreeMap<u64, Vec<oneshot::Sender<Result<(), String>>>>,
+    last_failure: Option<(u64, String)>,
+    worker_running: bool,
+}
+
+impl PersistenceCoordinator {
+    fn new(path: PathBuf, durable_revision: u64) -> Self {
+        Self {
+            path,
+            state: StdMutex::new(PersistenceCoordinatorState {
+                durable_revision,
+                highest_seen_revision: durable_revision,
+                in_flight: None,
+                pending: BTreeMap::new(),
+                waiters: BTreeMap::new(),
+                last_failure: None,
+                worker_running: false,
+            }),
+            #[cfg(test)]
+            hooks: Arc::new(PersistenceTestHooks::default()),
+        }
+    }
+
+    /// Accept a snapshot synchronously so cancellation at the caller's next
+    /// await cannot discard an in-memory mutation.
+    fn submit(self: &Arc<Self>, snapshot: PersistedState) -> PersistenceWaiter {
+        let revision = snapshot.revision;
+        let (sender, receiver) = oneshot::channel();
+        let mut sender = Some(sender);
+        let mut immediate = None;
+        let mut spawn_worker = false;
+        {
+            let mut state = self.lock_state();
+            if revision <= state.durable_revision {
+                immediate = Some(Ok(()));
+            } else {
+                let covered_by_newer_work =
+                    state.in_flight.is_some_and(|in_flight| in_flight >= revision)
+                        || state.pending.range(revision..).next().is_some();
+                if revision < state.highest_seen_revision {
+                    if covered_by_newer_work {
+                        state
+                            .waiters
+                            .entry(revision)
+                            .or_default()
+                            .push(sender.take().expect("persistence waiter is available"));
+                    } else {
+                        let message = state
+                            .last_failure
+                            .as_ref()
+                            .filter(|(failed_revision, _)| *failed_revision >= revision)
+                            .map(|(_, message)| message.clone())
+                            .unwrap_or_else(|| {
+                                format!(
+                                    "identity revision {revision} was superseded before it became durable"
+                                )
+                            });
+                        immediate = Some(Err(message));
+                    }
+                } else {
+                    if revision > state.highest_seen_revision {
+                        state.highest_seen_revision = revision;
+                    }
+                    state
+                        .waiters
+                        .entry(revision)
+                        .or_default()
+                        .push(sender.take().expect("persistence waiter is available"));
+                    if !covered_by_newer_work {
+                        state.pending.insert(revision, snapshot);
+                    }
+                    if !state.worker_running {
+                        state.worker_running = true;
+                        spawn_worker = true;
+                    }
+                }
+            }
+        }
+        if let Some(result) = immediate {
+            let _ = sender.expect("immediate persistence waiter is available").send(result);
+        }
+        if spawn_worker {
+            let coordinator = Arc::clone(self);
+            tokio::spawn(async move {
+                coordinator.drain().await;
+            });
+        }
+        PersistenceWaiter { receiver }
+    }
+
+    async fn drain(self: Arc<Self>) {
+        loop {
+            let Some((revision, snapshot)) = ({
+                let mut state = self.lock_state();
+                let next = state.pending.pop_first();
+                if let Some((revision, _)) = &next {
+                    state.in_flight = Some(*revision);
+                } else {
+                    state.worker_running = false;
+                }
+                next
+            }) else {
+                return;
+            };
+
+            let path = self.path.clone();
+            #[cfg(test)]
+            let hooks = self.hooks.clone();
+            let result = tokio::task::spawn_blocking(move || -> Result<(), String> {
+                #[cfg(test)]
+                hooks.before_write(revision)?;
+                let result = atomic_json(&path, &snapshot).map_err(|error| error.to_string());
+                #[cfg(test)]
+                hooks.after_write(result.is_ok());
+                result
+            })
+            .await
+            .unwrap_or_else(|error| {
+                Err(format!("identity persistence worker failed to join: {error}"))
+            });
+
+            let waiters = {
+                let mut state = self.lock_state();
+                debug_assert_eq!(state.in_flight, Some(revision));
+                state.in_flight = None;
+                match &result {
+                    Ok(()) => {
+                        state.durable_revision = state.durable_revision.max(revision);
+                        let durable_revision = state.durable_revision;
+                        state
+                            .pending
+                            .retain(|queued_revision, _| *queued_revision > durable_revision);
+                        if state.last_failure.as_ref().is_some_and(|(failed_revision, _)| {
+                            *failed_revision <= durable_revision
+                        }) {
+                            state.last_failure = None;
+                        }
+                    }
+                    Err(message) => {
+                        state.last_failure = Some((revision, message.clone()));
+                    }
+                }
+                take_waiters_through(&mut state.waiters, revision)
+            };
+            for waiter in waiters {
+                let _ = waiter.send(result.clone());
+            }
+        }
+    }
+
+    fn lock_state(&self) -> std::sync::MutexGuard<'_, PersistenceCoordinatorState> {
+        self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    fn durable_revision_at_least(&self, revision: u64) -> bool {
+        self.lock_state().durable_revision >= revision
+    }
+
+    #[cfg(test)]
+    fn durable_revision(&self) -> u64 {
+        self.lock_state().durable_revision
+    }
+}
+
+fn take_waiters_through(
+    waiters: &mut BTreeMap<u64, Vec<oneshot::Sender<Result<(), String>>>>,
+    revision: u64,
+) -> Vec<oneshot::Sender<Result<(), String>>> {
+    let revisions = waiters.range(..=revision).map(|(revision, _)| *revision).collect::<Vec<_>>();
+    revisions
+        .into_iter()
+        .flat_map(|revision| waiters.remove(&revision).unwrap_or_default())
+        .collect()
+}
+
+#[cfg(test)]
+#[derive(Default)]
+struct PersistenceTestHooks {
+    writes_started: std::sync::atomic::AtomicUsize,
+    writes_succeeded: std::sync::atomic::AtomicUsize,
+    fail_next: std::sync::atomic::AtomicUsize,
+    started_revisions: StdMutex<Vec<u64>>,
+    blocked: StdMutex<bool>,
+    released: std::sync::Condvar,
+    started: Notify,
+}
+
+#[cfg(test)]
+impl PersistenceTestHooks {
+    fn before_write(&self, revision: u64) -> Result<(), String> {
+        use std::sync::atomic::Ordering;
+
+        self.writes_started.fetch_add(1, Ordering::SeqCst);
+        self.started_revisions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(revision);
+        self.started.notify_waiters();
+        let mut blocked = self.blocked.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        while *blocked {
+            blocked =
+                self.released.wait(blocked).unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+        drop(blocked);
+        if self
+            .fail_next
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |remaining| remaining.checked_sub(1))
+            .is_ok()
+        {
+            return Err(format!("injected persistence failure for revision {revision}"));
+        }
+        Ok(())
+    }
+
+    fn after_write(&self, succeeded: bool) {
+        if succeeded {
+            self.writes_succeeded.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    fn block(&self) {
+        *self.blocked.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = true;
+    }
+
+    fn release(&self) {
+        let mut blocked = self.blocked.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        *blocked = false;
+        self.released.notify_all();
+    }
+
+    async fn wait_for_started(&self, expected: usize) {
+        use std::sync::atomic::Ordering;
+
+        loop {
+            let started = self.started.notified();
+            if self.writes_started.load(Ordering::SeqCst) >= expected {
+                return;
+            }
+            started.await;
+        }
+    }
+}
+
 pub struct AuthDatabase {
     state_dir: PathBuf,
     daemon_name: String,
     identity: StaticIdentity,
     allow_carrier: bool,
     state: Mutex<AuthState>,
+    persistence: Arc<PersistenceCoordinator>,
     pending_changed: Notify,
     revocation_tx: watch::Sender<u64>,
 }
@@ -392,12 +665,17 @@ impl AuthDatabase {
         let identity = load_or_create_identity(&state_dir.join("identity.json"))?;
         let persisted = load_state(&state_dir.join("devices.json"))?;
         let (revocation_tx, _) = watch::channel(persisted.revocation_generation);
+        let persistence = Arc::new(PersistenceCoordinator::new(
+            state_dir.join("devices.json"),
+            persisted.revision,
+        ));
         Ok(Arc::new(Self {
             state_dir,
             daemon_name: daemon_name.into(),
             identity,
             allow_carrier,
             state: Mutex::new(AuthState::from_persisted(persisted)),
+            persistence,
             pending_changed: Notify::new(),
             revocation_tx,
         }))
@@ -454,7 +732,9 @@ impl AuthDatabase {
                 claimed_by: None,
             },
         );
-        self.persist_locked(&state)?;
+        let persistence = self.submit_mutation_locked(&mut state)?;
+        drop(state);
+        persistence.wait().await?;
         Ok(EnrollmentInvitation {
             version: STATE_VERSION,
             id,
@@ -522,7 +802,7 @@ impl AuthDatabase {
 
     pub async fn approve(&self, invitation_id: &str) -> Result<DeviceRecord, IdentityError> {
         let now = unix_time()?;
-        let (record, decision) = {
+        let (record, decision, persistence, generation) = {
             let mut state = self.state.lock().await;
             let pending = state
                 .pending
@@ -550,36 +830,62 @@ impl AuthDatabase {
                 revoked_at_unix: None,
             };
             state.devices.insert(record.id.clone(), record.clone());
-            self.persist_locked(&state)?;
-            (record, pending.decision)
+            let generation = state.revocation_generation;
+            let persistence = self.submit_mutation_locked(&mut state)?;
+            (record, pending.decision, persistence, generation)
         };
         let grant = AuthGrant {
             device_id: record.id.clone(),
             daemon_name: self.daemon_name.clone(),
-            revocation_generation: *self.revocation_tx.borrow(),
+            revocation_generation: generation,
         };
-        let _ = decision.send(Ok(grant));
+        let (completed_tx, completed_rx) = oneshot::channel();
+        tokio::spawn(async move {
+            let result = persistence.wait_message().await;
+            let authorization = match &result {
+                Ok(()) => Ok(grant),
+                Err(message) => Err(message.clone()),
+            };
+            let _ = decision.send(authorization);
+            let _ = completed_tx.send(result);
+        });
+        completed_rx
+            .await
+            .unwrap_or_else(|_| Err("identity approval persistence task stopped".into()))
+            .map_err(IdentityError::Persistence)?;
         Ok(record)
     }
 
     pub async fn deny(&self, invitation_id: &str) -> Result<(), IdentityError> {
-        let decision = {
+        let (decision, persistence) = {
             let mut state = self.state.lock().await;
             let pending = state
                 .pending
                 .remove(invitation_id)
                 .ok_or_else(|| IdentityError::UnknownPending(invitation_id.into()))?;
             state.invitations.remove(invitation_id);
-            self.persist_locked(&state)?;
-            pending.decision
+            let persistence = self.submit_mutation_locked(&mut state)?;
+            (pending.decision, persistence)
         };
-        let _ = decision.send(Err("enrollment denied".into()));
-        Ok(())
+        let (completed_tx, completed_rx) = oneshot::channel();
+        tokio::spawn(async move {
+            let result = persistence.wait_message().await;
+            let authorization = match &result {
+                Ok(()) => Err("enrollment denied".into()),
+                Err(message) => Err(message.clone()),
+            };
+            let _ = decision.send(authorization);
+            let _ = completed_tx.send(result);
+        });
+        completed_rx
+            .await
+            .unwrap_or_else(|_| Err("identity denial persistence task stopped".into()))
+            .map_err(IdentityError::Persistence)
     }
 
     pub async fn revoke(&self, device_id: &str) -> Result<(), IdentityError> {
         let now = unix_time()?;
-        let generation = {
+        let (generation, persistence) = {
             let mut state = self.state.lock().await;
             let device = state
                 .devices
@@ -591,31 +897,108 @@ impl AuthDatabase {
                 .checked_add(1)
                 .ok_or_else(|| IdentityError::Invalid("revocation generation exhausted".into()))?;
             let generation = state.revocation_generation;
-            self.persist_locked(&state)?;
-            generation
+            let persistence = self.submit_mutation_locked(&mut state)?;
+            (generation, persistence)
         };
+        // Revocation takes effect in memory immediately. Durability still
+        // gates the method's successful return.
         let _ = self.revocation_tx.send(generation);
-        Ok(())
+        persistence.wait().await
     }
 
-    fn persist_locked(&self, state: &AuthState) -> Result<(), IdentityError> {
-        let persisted = PersistedState {
-            version: STATE_VERSION,
-            revocation_generation: state.revocation_generation,
-            devices: state.devices.values().cloned().collect(),
-            invitations: state
-                .invitations
-                .iter()
-                .map(|(id, invitation)| PersistedInvitation {
-                    id: id.clone(),
-                    secret: encode_key(&invitation.secret),
-                    expires_at_unix: invitation.expires_at_unix,
-                    route_hints: invitation.route_hints.clone(),
-                    claimed_by: invitation.claimed_by.clone(),
-                })
-                .collect(),
+    pub async fn record_connection_attempt(
+        &self,
+        device_id: &str,
+        connection_attempt: ConnectionAttemptId,
+    ) -> Result<(), IdentityError> {
+        if device_id.starts_with("carrier:") {
+            return Ok(());
+        }
+        let now = unix_time()?;
+        let key = (device_id.to_string(), connection_attempt);
+        let persistence = {
+            let mut state = self.state.lock().await;
+            if let Some(revision) = state.recorded_connection_attempts.get(&key).copied() {
+                if self.persistence.durable_revision_at_least(revision) {
+                    return Ok(());
+                }
+                self.persistence.submit(state.to_persisted())
+            } else {
+                let device = state
+                    .devices
+                    .get_mut(device_id)
+                    .ok_or_else(|| IdentityError::UnknownDevice(device_id.into()))?;
+                if device.revoked_at_unix.is_some() {
+                    return Err(IdentityError::Invalid(format!(
+                        "device {device_id} has been revoked"
+                    )));
+                }
+                device.last_seen_at_unix = now;
+                let persistence = self.submit_mutation_locked(&mut state)?;
+                let revision = state.revision;
+                if state.recorded_connection_attempts.len() >= MAX_RECORDED_CONNECTION_ATTEMPTS
+                    && let Some(stale) = state.recorded_connection_attempt_order.pop_front()
+                {
+                    state.recorded_connection_attempts.remove(&stale);
+                }
+                state.recorded_connection_attempts.insert(key.clone(), revision);
+                state.recorded_connection_attempt_order.push_back(key);
+                persistence
+            }
         };
-        atomic_json(&self.state_dir.join("devices.json"), &persisted)
+        persistence.wait().await
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn test_wait_for_persistence_writes(&self, expected: usize) {
+        self.persistence.hooks.wait_for_started(expected).await;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_fail_next_persistence_writes(&self, count: usize) {
+        self.persistence.hooks.fail_next.store(count, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_persistence_writes_started(&self) -> usize {
+        self.persistence.hooks.writes_started.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_persistence_writes_succeeded(&self) -> usize {
+        self.persistence.hooks.writes_succeeded.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_persistence_started_revisions(&self) -> Vec<u64> {
+        self.persistence
+            .hooks
+            .started_revisions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_durable_revision(&self) -> u64 {
+        self.persistence.durable_revision()
+    }
+
+    #[cfg(test)]
+    async fn test_retry_persistence(&self) -> Result<(), IdentityError> {
+        let persistence = {
+            let state = self.state.lock().await;
+            self.persistence.submit(state.to_persisted())
+        };
+        persistence.wait().await
+    }
+
+    fn submit_mutation_locked(
+        &self,
+        state: &mut AuthState,
+    ) -> Result<PersistenceWaiter, IdentityError> {
+        let snapshot = state.snapshot_after_mutation()?;
+        Ok(self.persistence.submit(snapshot))
     }
 }
 
@@ -623,21 +1006,23 @@ impl AuthDatabase {
 impl ServerAuthenticator for AuthDatabase {
     async fn invitation_secret(&self, id: &str) -> Result<Option<[u8; 32]>, CryptoError> {
         let now = unix_time().map_err(|error| CryptoError::Unauthorized(error.to_string()))?;
-        let mut state = self.state.lock().await;
-        state.prune_invitations(now);
-        Ok(state.invitations.get(id).map(|invitation| invitation.secret))
+        let state = self.state.lock().await;
+        Ok(state
+            .invitations
+            .get(id)
+            .filter(|invitation| invitation.expires_at_unix > now)
+            .map(|invitation| invitation.secret))
     }
 
     async fn authorize(&self, request: AuthRequest) -> Result<AuthGrant, String> {
         match request.mode {
             AuthKind::Enrolled => {
-                let now = unix_time().map_err(|error| error.to_string())?;
                 let fingerprint = public_key_fingerprint(&request.device_public_key);
-                let mut state = self.state.lock().await;
+                let state = self.state.lock().await;
                 let generation = state.revocation_generation;
                 let device = state
                     .devices
-                    .get_mut(&fingerprint)
+                    .get(&fingerprint)
                     .ok_or_else(|| "device is not enrolled".to_string())?;
                 if device.revoked_at_unix.is_some() {
                     return Err("device has been revoked".into());
@@ -647,8 +1032,6 @@ impl ServerAuthenticator for AuthDatabase {
                 {
                     return Err("device key does not match enrollment".into());
                 }
-                device.last_seen_at_unix = now;
-                self.persist_locked(&state).map_err(|error| error.to_string())?;
                 Ok(AuthGrant {
                     device_id: fingerprint,
                     daemon_name: self.daemon_name.clone(),
@@ -694,7 +1077,7 @@ impl ServerAuthenticator for AuthDatabase {
                             return Err("invitation was already claimed by another device".into());
                         }
                         let generation = state.revocation_generation;
-                        let device = state.devices.get_mut(&fingerprint).ok_or_else(|| {
+                        let device = state.devices.get(&fingerprint).ok_or_else(|| {
                             "claimed invitation has no enrolled device".to_string()
                         })?;
                         if device.revoked_at_unix.is_some()
@@ -703,8 +1086,6 @@ impl ServerAuthenticator for AuthDatabase {
                         {
                             return Err("device enrollment is no longer active".into());
                         }
-                        device.last_seen_at_unix = now;
-                        self.persist_locked(&state).map_err(|error| error.to_string())?;
                         return Ok(AuthGrant {
                             device_id: fingerprint,
                             daemon_name: self.daemon_name.clone(),
@@ -743,16 +1124,20 @@ impl ServerAuthenticator for AuthDatabase {
 }
 
 struct AuthState {
+    revision: u64,
     revocation_generation: u64,
     devices: HashMap<String, DeviceRecord>,
     invitations: HashMap<String, InvitationRecord>,
     pending: HashMap<String, PendingDecision>,
+    recorded_connection_attempts: HashMap<(String, ConnectionAttemptId), u64>,
+    recorded_connection_attempt_order: VecDeque<(String, ConnectionAttemptId)>,
 }
 
 impl AuthState {
     fn from_persisted(persisted: PersistedState) -> Self {
         let now = unix_time().unwrap_or(0);
         Self {
+            revision: persisted.revision,
             revocation_generation: persisted.revocation_generation,
             devices: persisted
                 .devices
@@ -776,6 +1161,36 @@ impl AuthState {
                 })
                 .collect(),
             pending: HashMap::new(),
+            recorded_connection_attempts: HashMap::new(),
+            recorded_connection_attempt_order: VecDeque::new(),
+        }
+    }
+
+    fn snapshot_after_mutation(&mut self) -> Result<PersistedState, IdentityError> {
+        self.revision = self
+            .revision
+            .checked_add(1)
+            .ok_or_else(|| IdentityError::Invalid("identity revision exhausted".into()))?;
+        Ok(self.to_persisted())
+    }
+
+    fn to_persisted(&self) -> PersistedState {
+        PersistedState {
+            version: STATE_VERSION,
+            revision: self.revision,
+            revocation_generation: self.revocation_generation,
+            devices: self.devices.values().cloned().collect(),
+            invitations: self
+                .invitations
+                .iter()
+                .map(|(id, invitation)| PersistedInvitation {
+                    id: id.clone(),
+                    secret: encode_key(&invitation.secret),
+                    expires_at_unix: invitation.expires_at_unix,
+                    route_hints: invitation.route_hints.clone(),
+                    claimed_by: invitation.claimed_by.clone(),
+                })
+                .collect(),
         }
     }
 
@@ -815,9 +1230,11 @@ impl std::fmt::Debug for PersistedIdentity {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct PersistedState {
     version: u32,
+    #[serde(default)]
+    revision: u64,
     #[serde(default)]
     revocation_generation: u64,
     #[serde(default)]
@@ -830,6 +1247,7 @@ impl Default for PersistedState {
     fn default() -> Self {
         Self {
             version: STATE_VERSION,
+            revision: 0,
             revocation_generation: 0,
             devices: Vec::new(),
             invitations: Vec::new(),
@@ -837,7 +1255,7 @@ impl Default for PersistedState {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 struct PersistedInvitation {
     id: String,
     secret: String,
@@ -903,6 +1321,10 @@ fn load_state(path: &Path) -> Result<PersistedState, IdentityError> {
         invitation.route_hints = sanitized;
     }
     if routes_changed {
+        state.revision = state
+            .revision
+            .checked_add(1)
+            .ok_or_else(|| IdentityError::Invalid("identity revision exhausted".into()))?;
         atomic_json(path, &state)?;
     }
     Ok(state)
@@ -1202,6 +1624,7 @@ pub enum IdentityError {
     Base64(base64::DecodeError),
     Crypto(CryptoError),
     Random(String),
+    Persistence(String),
     Invalid(String),
     InvitationExpired(String),
     UnknownPending(String),
@@ -1217,6 +1640,9 @@ impl std::fmt::Display for IdentityError {
             Self::Base64(error) => write!(formatter, "identity key encoding failed: {error}"),
             Self::Crypto(error) => write!(formatter, "identity crypto failed: {error}"),
             Self::Random(message) => write!(formatter, "secure randomness failed: {message}"),
+            Self::Persistence(message) => {
+                write!(formatter, "identity persistence failed: {message}")
+            }
             Self::Invalid(message) => write!(formatter, "invalid identity state: {message}"),
             Self::InvitationExpired(id) => write!(formatter, "invitation {id} is expired"),
             Self::UnknownPending(id) => write!(formatter, "no pending enrollment for {id}"),
@@ -1241,6 +1667,21 @@ mod tests {
     };
     use crate::link::test_support;
 
+    struct PersistenceReleaseGuard(Arc<PersistenceTestHooks>);
+
+    impl PersistenceReleaseGuard {
+        fn new(hooks: Arc<PersistenceTestHooks>) -> Self {
+            hooks.block();
+            Self(hooks)
+        }
+    }
+
+    impl Drop for PersistenceReleaseGuard {
+        fn drop(&mut self) {
+            self.0.release();
+        }
+    }
+
     #[tokio::test]
     async fn identity_is_stable_and_files_are_private() {
         let temp = tempfile::tempdir().unwrap();
@@ -1259,6 +1700,231 @@ mod tests {
                 0o600
             );
         }
+    }
+
+    #[tokio::test]
+    async fn persistence_runs_off_lock_and_success_waits_for_durability() {
+        let temp = tempfile::tempdir().unwrap();
+        let database = AuthDatabase::load_or_create(temp.path(), "daemon", false).unwrap();
+        let blocked = PersistenceReleaseGuard::new(database.persistence.hooks.clone());
+        let create = tokio::spawn({
+            let database = database.clone();
+            async move { database.create_invitation(Duration::from_secs(60), Vec::new()).await }
+        });
+
+        tokio::time::timeout(Duration::from_secs(1), database.test_wait_for_persistence_writes(1))
+            .await
+            .expect("persistence writer did not start");
+        let state = tokio::time::timeout(Duration::from_millis(100), database.state.lock()).await;
+        let returned_before_durable = create.is_finished();
+        let durable_revision = database.test_durable_revision();
+        drop(blocked);
+
+        assert!(state.is_ok(), "persistence writer held the authentication state lock");
+        assert!(!returned_before_durable, "mutation returned before its revision was durable");
+        assert_eq!(durable_revision, 0);
+        create.await.unwrap().unwrap();
+        assert_eq!(database.test_durable_revision(), 1);
+        assert_eq!(database.test_persistence_writes_succeeded(), 1);
+    }
+
+    #[tokio::test]
+    async fn cancelled_mutation_still_persists_before_newer_snapshot() {
+        let temp = tempfile::tempdir().unwrap();
+        let database = AuthDatabase::load_or_create(temp.path(), "daemon", false).unwrap();
+        let blocked = PersistenceReleaseGuard::new(database.persistence.hooks.clone());
+        let first = tokio::spawn({
+            let database = database.clone();
+            async move { database.create_invitation(Duration::from_secs(60), Vec::new()).await }
+        });
+        tokio::time::timeout(Duration::from_secs(1), database.test_wait_for_persistence_writes(1))
+            .await
+            .expect("first persistence write did not start");
+        first.abort();
+        assert!(first.await.unwrap_err().is_cancelled());
+
+        let second = tokio::spawn({
+            let database = database.clone();
+            async move { database.create_invitation(Duration::from_secs(60), Vec::new()).await }
+        });
+        tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                if database.state.lock().await.revision == 2 {
+                    return;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("newer mutation was not accepted while the first write was blocked");
+        drop(blocked);
+
+        second.await.unwrap().unwrap();
+        let persisted = load_state(&temp.path().join("devices.json")).unwrap();
+        assert_eq!(persisted.revision, 2);
+        assert_eq!(persisted.invitations.len(), 2);
+        assert_eq!(database.test_persistence_started_revisions(), [1, 2]);
+        assert_eq!(database.test_persistence_writes_succeeded(), 2);
+    }
+
+    #[tokio::test]
+    async fn older_snapshot_cannot_overwrite_newer_identity_state() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("devices.json");
+        let coordinator = Arc::new(PersistenceCoordinator::new(path.clone(), 0));
+        let blocked = PersistenceReleaseGuard::new(coordinator.hooks.clone());
+        let device = DeviceRecord {
+            id: "device".into(),
+            name: "current device".into(),
+            public_key: encode_key(&[7; 32]),
+            fingerprint: "device".into(),
+            created_at_unix: 1,
+            last_seen_at_unix: 9,
+            revoked_at_unix: Some(9),
+        };
+        let newer = PersistedState {
+            version: STATE_VERSION,
+            revision: 2,
+            revocation_generation: 1,
+            devices: vec![device],
+            invitations: vec![PersistedInvitation {
+                id: "current-invitation".into(),
+                secret: encode_key(&[8; 32]),
+                expires_at_unix: u64::MAX,
+                route_hints: vec!["wss://current.invalid/".into()],
+                claimed_by: Some("device".into()),
+            }],
+        };
+        let older = PersistedState {
+            version: STATE_VERSION,
+            revision: 1,
+            revocation_generation: 0,
+            devices: Vec::new(),
+            invitations: Vec::new(),
+        };
+
+        let newer_waiter = coordinator.submit(newer);
+        tokio::time::timeout(Duration::from_secs(1), coordinator.hooks.wait_for_started(1))
+            .await
+            .expect("newer persistence write did not start");
+        let older_waiter = coordinator.submit(older);
+        drop(blocked);
+        newer_waiter.wait().await.unwrap();
+        older_waiter.wait().await.unwrap();
+
+        let persisted = load_state(&path).unwrap();
+        assert_eq!(persisted.revision, 2);
+        assert_eq!(persisted.revocation_generation, 1);
+        assert_eq!(persisted.devices[0].revoked_at_unix, Some(9));
+        assert_eq!(persisted.invitations[0].id, "current-invitation");
+        assert_eq!(coordinator.hooks.writes_succeeded.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert_eq!(
+            *coordinator
+                .hooks
+                .started_revisions
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+            [2]
+        );
+    }
+
+    #[tokio::test]
+    async fn persistence_failure_wakes_waiter_and_retry_advances_durability() {
+        let temp = tempfile::tempdir().unwrap();
+        let database = AuthDatabase::load_or_create(temp.path(), "daemon", false).unwrap();
+        database.test_fail_next_persistence_writes(1);
+
+        let error =
+            database.create_invitation(Duration::from_secs(60), Vec::new()).await.unwrap_err();
+        assert!(
+            matches!(error, IdentityError::Persistence(message) if message.contains("injected"))
+        );
+        assert_eq!(database.test_durable_revision(), 0);
+        assert_eq!(database.test_persistence_writes_started(), 1);
+        assert_eq!(database.test_persistence_writes_succeeded(), 0);
+
+        database.test_retry_persistence().await.unwrap();
+        let persisted = load_state(&temp.path().join("devices.json")).unwrap();
+        assert_eq!(persisted.revision, 1);
+        assert_eq!(persisted.invitations.len(), 1);
+        assert_eq!(database.test_durable_revision(), 1);
+        assert_eq!(database.test_persistence_writes_started(), 2);
+        assert_eq!(database.test_persistence_writes_succeeded(), 1);
+    }
+
+    #[test]
+    fn legacy_device_state_without_revision_loads_at_revision_zero() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("devices.json");
+        fs::write(
+            &path,
+            serde_json::json!({
+                "version": STATE_VERSION,
+                "revocation_generation": 0,
+                "devices": [],
+                "invitations": [],
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let persisted = load_state(&path).unwrap();
+        assert_eq!(persisted.revision, 0);
+    }
+
+    #[tokio::test]
+    async fn authorization_is_read_only_until_logical_attempt_is_recorded() {
+        let temp = tempfile::tempdir().unwrap();
+        let database = AuthDatabase::load_or_create(temp.path(), "daemon", false).unwrap();
+        let client = StaticIdentity::generate().unwrap();
+        let fingerprint = public_key_fingerprint(&client.public_key());
+        let persistence = {
+            let mut state = database.state.lock().await;
+            state.devices.insert(
+                fingerprint.clone(),
+                DeviceRecord {
+                    id: fingerprint.clone(),
+                    name: "laptop".into(),
+                    public_key: encode_key(&client.public_key()),
+                    fingerprint: fingerprint.clone(),
+                    created_at_unix: 1,
+                    last_seen_at_unix: 1,
+                    revoked_at_unix: None,
+                },
+            );
+            database.submit_mutation_locked(&mut state).unwrap()
+        };
+        persistence.wait().await.unwrap();
+        let baseline = database.test_persistence_writes_succeeded();
+
+        for lane in Lane::ALL {
+            database
+                .authorize(AuthRequest {
+                    mode: AuthKind::Enrolled,
+                    invitation_id: None,
+                    device_public_key: client.public_key(),
+                    device_name: "laptop".into(),
+                    session: SessionId([2; 16]),
+                    lane,
+                    lanes: vec![lane],
+                    generation: 0,
+                    inbound: InboundAuthEvidence::Network(NetworkPeer::Tls),
+                })
+                .await
+                .unwrap();
+        }
+        assert_eq!(database.test_persistence_writes_succeeded(), baseline);
+
+        let first_attempt = ConnectionAttemptId([3; 16]);
+        database.record_connection_attempt(&fingerprint, first_attempt).await.unwrap();
+        assert_eq!(database.test_persistence_writes_succeeded(), baseline + 1);
+        database.record_connection_attempt(&fingerprint, first_attempt).await.unwrap();
+        assert_eq!(database.test_persistence_writes_succeeded(), baseline + 1);
+        database
+            .record_connection_attempt(&fingerprint, ConnectionAttemptId([4; 16]))
+            .await
+            .unwrap();
+        assert_eq!(database.test_persistence_writes_succeeded(), baseline + 2);
     }
 
     #[test]
@@ -1568,7 +2234,7 @@ mod tests {
                         lane: Lane::Control,
                         lanes: vec![Lane::Control],
                         generation: 0,
-                        connection_attempt: crate::crypto::ConnectionAttemptId([8; 16]),
+                        connection_attempt: ConnectionAttemptId([8; 16]),
                         resume: BTreeMap::new(),
                     },
                 )
@@ -1659,7 +2325,9 @@ mod tests {
                     revoked_at_unix: None,
                 },
             );
-            database.persist_locked(&state).unwrap();
+            let persistence = database.submit_mutation_locked(&mut state).unwrap();
+            drop(state);
+            persistence.wait().await.unwrap();
         }
         let mut revocations = database.subscribe_revocations();
         database.revoke(&fingerprint).await.unwrap();
