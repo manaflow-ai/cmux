@@ -83,6 +83,10 @@ struct HTMLFoundationCompatibilityNormalizer: Sendable {
                     omittingSelfClosingSlash: !tag.isClosing,
                     to: &output
                 )
+                if !tag.isClosing, tag.selfClosingSlashIndex != nil {
+                    output.append(contentsOf: closingReplacement)
+                    output.append(Self.greaterThan)
+                }
             } else {
                 output.append(contentsOf: source[index..<tag.endIndex])
                 if !tag.isClosing {
