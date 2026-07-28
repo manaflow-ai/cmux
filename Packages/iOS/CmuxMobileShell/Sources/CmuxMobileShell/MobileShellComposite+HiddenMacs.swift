@@ -163,10 +163,18 @@ extension MobileShellComposite {
         // flight).
         guard let scope = await currentScopeSnapshot() else { return false }
         do {
+            // Pin the revoke to the ROW's owning account, not the live session.
+            // A row owned by account A can still be on screen right after auth
+            // switches to account B (the list has not refreshed yet). The runtime
+            // forget checks this pinned account against the live session and fails
+            // closed on a mismatch, so passing the live account here would let it
+            // revoke B's matching device/tag while local cleanup deletes A's row.
+            // `computer.stackUserID` is the row's captured owner; fall back to the
+            // display scope only for a legacy row that never stored one.
             try await personalIrohForget.forgetComputer(
                 macDeviceID: computer.macDeviceID,
                 instanceTag: computer.instanceTag,
-                expectedAccountID: scope.userID
+                expectedAccountID: computer.stackUserID ?? scope.userID
             )
         } catch {
             hiddenMacsLog.error(
@@ -217,11 +225,19 @@ extension MobileShellComposite {
                 // user forgot. Using the display team here would miss a team-less row
                 // shown under a selected team, or delete the wrong team's row after a
                 // mid-revoke team switch.
+                //
+                // The server backup, however, lives in a per-team Durable Object, so
+                // a team-less row's tombstone must route to the team it was DISPLAYED
+                // under (`displayScope.teamID`), captured before the revoke. Reusing
+                // the nil local team for the backup would let the server resolve the
+                // delete to whatever team is selected at flush time and wipe a
+                // same-device record from the wrong team's backup.
                 try await pairedMacStore.removeExactScope(
                     macDeviceID: macDeviceID,
                     instanceTag: instanceTag,
                     stackUserID: rowStackUserID,
-                    teamID: rowTeamID
+                    teamID: rowTeamID,
+                    backupTeamID: displayScope.teamID
                 )
             } catch {
                 hiddenMacsLog.error(

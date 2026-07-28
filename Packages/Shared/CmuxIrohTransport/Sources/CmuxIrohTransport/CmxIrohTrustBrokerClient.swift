@@ -372,8 +372,21 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         method: String,
         body: Data?
     ) async throws -> Response {
-        let accessToken = await tokenSource.accessToken()
-        let refreshToken = await tokenSource.refreshToken()
+        // Build the request from ONE credential snapshot when the source offers
+        // it. Reading access then refresh through two independent snapshot calls
+        // lets a force refresh land between them and pair a stale access token
+        // with a rotated refresh token, which the broker rejects. The two-closure
+        // path remains for legacy callers/tests that predate `credentialPair`.
+        let accessToken: String?
+        let refreshToken: String?
+        if let credentialPair = tokenSource.credentialPair {
+            let pair = await credentialPair()
+            accessToken = pair?.accessToken
+            refreshToken = pair?.refreshToken
+        } else {
+            accessToken = await tokenSource.accessToken()
+            refreshToken = await tokenSource.refreshToken()
+        }
         guard let accessToken, let refreshToken else {
             throw CmxIrohTrustBrokerClientError.missingAuthentication
         }

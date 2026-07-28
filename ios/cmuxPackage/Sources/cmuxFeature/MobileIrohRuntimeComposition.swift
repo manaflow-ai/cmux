@@ -2634,6 +2634,22 @@ extension MobileIrohRuntimeComposition {
                       session.generation == generation,
                       session.accountID == expectedAccountID else { return nil }
                 return session.refreshToken
+            },
+            // Preferred path: return BOTH tokens from ONE snapshot so the broker
+            // never pairs a stale access token with a rotated refresh token if a
+            // force refresh lands between two reads. The same generation/account
+            // pinning still gates the snapshot, so a mid-forget sign-out or account
+            // switch yields nil and the revoke fails safely rather than acting as
+            // the wrong user.
+            credentialPair: { [weak auth] in
+                guard let auth,
+                      let session = try? await auth.authenticatedSessionSnapshot(),
+                      session.generation == generation,
+                      session.accountID == expectedAccountID else { return nil }
+                return CmxIrohBrokerCredentials(
+                    accessToken: session.accessToken,
+                    refreshToken: session.refreshToken
+                )
             }
         )
     }
