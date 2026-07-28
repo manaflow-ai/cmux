@@ -56,6 +56,51 @@ struct CommandClickHTMLOpenRoutingTests {
         })
     }
 
+    @Test
+    func htmlSymlinkOpensResolvedTargetInBrowser() throws {
+        _ = NSApplication.shared
+
+        let defaults = UserDefaults.standard
+        let supportedFilesKey = AppCatalogSection().openSupportedFilesInCmux.userDefaultsKey
+        let previousSupportedFiles = defaults.object(forKey: supportedFilesKey)
+        let previousBrowserDisabled = defaults.object(forKey: BrowserAvailabilitySettings.disabledKey)
+        defer {
+            restore(previousSupportedFiles, forKey: supportedFilesKey, in: defaults)
+            restore(previousBrowserDisabled, forKey: BrowserAvailabilitySettings.disabledKey, in: defaults)
+        }
+        defaults.set(true, forKey: supportedFilesKey)
+        defaults.set(false, forKey: BrowserAvailabilitySettings.disabledKey)
+
+        let fixtureDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let linkDirectory = fixtureDirectory.appendingPathComponent("link", isDirectory: true)
+        let targetDirectory = fixtureDirectory.appendingPathComponent("target", isDirectory: true)
+        let targetURL = targetDirectory.appendingPathComponent("page.html")
+        let symlinkURL = linkDirectory.appendingPathComponent("index.html")
+        try FileManager.default.createDirectory(at: linkDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: targetDirectory, withIntermediateDirectories: true)
+        try "<!doctype html><title>symlink target</title>".write(
+            to: targetURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        try FileManager.default.createSymbolicLink(at: symlinkURL, withDestinationURL: targetURL)
+        defer { try? FileManager.default.removeItem(at: fixtureDirectory) }
+
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let sourcePanelId = try #require(workspace.focusedPanelId)
+
+        #expect(CommandClickFileOpenRouter.openInCmux(
+            workspace: workspace,
+            sourcePanelId: sourcePanelId,
+            filePath: symlinkURL.path
+        ))
+
+        let browser = try #require(workspace.panels.values.compactMap { $0 as? BrowserPanel }.first)
+        #expect(browser.currentURL?.standardizedFileURL == targetURL.standardizedFileURL)
+    }
+
     private func restore(_ value: Any?, forKey key: String, in defaults: UserDefaults) {
         if let value {
             defaults.set(value, forKey: key)
