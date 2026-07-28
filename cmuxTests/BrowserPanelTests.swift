@@ -4077,9 +4077,14 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             "Reveal should let AppKit commit the invalidated frame instead of forcing display synchronously"
         )
         XCTAssertEqual(
-            webView.reattachRenderingStateCount,
-            hiddenReattachCount,
-            "A visibility-only reveal refreshes presentation but must not run the enter/exit-window reattach lifecycle, or every tab switch fires page visibilitychange"
+            revealedEnterInWindowCount,
+            hiddenEnterInWindowCount,
+            "A visibility-only reveal must not explicitly re-enter the WebKit window"
+        )
+        XCTAssertEqual(
+            revealedEndDeferringCount,
+            hiddenEndDeferringCount,
+            "A visibility-only reveal must not explicitly end deferred WebKit window changes"
         )
 
         await drainFormerPresentationRetryWindow()
@@ -4443,13 +4448,19 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             "Anchor rebind should invoke one synchronous deferred-window refresh"
         )
 
+        // AppKit queues one ordinary display invalidation when the hidden slot is
+        // reattached. Let that framework-owned turn settle before checking that
+        // the portal did not enqueue its former delayed presentation retry.
+        await waitForNextMainTurn()
+        let settledRedrawCountAfterRebind = webView.setNeedsDisplayCount
+
         await drainFormerPresentationRetryWindow()
 
         XCTAssertEqual(webView.enterInWindowCount, enterInWindowCountAfterRebind)
         XCTAssertEqual(webView.endDeferringViewInWindowChangesCount, endDeferringCountAfterRebind)
         XCTAssertEqual(
             webView.setNeedsDisplayCount,
-            redrawCountAfterRebind,
+            settledRedrawCountAfterRebind,
             "Anchor rebind must not enqueue a delayed presentation invalidation"
         )
     }
