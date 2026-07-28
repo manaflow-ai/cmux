@@ -226,6 +226,28 @@ struct MobileMacCompatiblePairedMacStore: MobilePairedMacStoring {
         )
     }
 
+    /// Forward exact-scope removal down the SAME rail rather than falling back to
+    /// the protocol default (which routes to `remove`). The inner build-scope
+    /// decorator's `remove` over-deletes its team-less fallback row; its
+    /// `removeExactScope` deletes only the exact scope. Keeping the exact-scope
+    /// call on the exact-scope path preserves that guarantee. The compatibility
+    /// guard still applies so an incompatible tagged instance cannot delete a
+    /// row it may not touch.
+    func removeExactScope(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws {
+        guard isCompatible(instanceTag: instanceTag) else { return }
+        try await inner.removeExactScope(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
+            stackUserID: stackUserID,
+            teamID: teamID
+        )
+    }
+
     func removeAll() async throws {
         for mac in try await loadAll(stackUserID: nil, teamID: nil) {
             try await inner.remove(

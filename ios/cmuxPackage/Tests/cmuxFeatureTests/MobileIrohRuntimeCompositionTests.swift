@@ -69,6 +69,28 @@ struct MobileIrohRuntimeCompositionTests {
         #expect(await fixture.endpointFactory.bindCount() == 1)
     }
 
+    /// Regression: when the durable device-id store is unavailable at activation
+    /// (Keychain locked before first unlock, or a persistent write failure), the
+    /// composition must defer activation rather than registering a binding under
+    /// an ephemeral throwaway id. A throwaway registration would create a second
+    /// `(user, device, tag)` binding and orphan the retained one, which is the
+    /// broker 409 wedge this PR exists to close.
+    @Test
+    func activationDefersWhenDurableDeviceIDUnavailable() async throws {
+        let fixture = try await MobileIrohSignOutFixture.make(resolvableDeviceID: false)
+
+        // No endpoint was bound: activation stopped at the durable-id guard.
+        #expect(await fixture.endpointFactory.bindCount() == 0)
+        // The retained binding survives untouched, so its durable slot is never
+        // orphaned by an ephemeral-id registration.
+        #expect(
+            try await fixture.brokerCredentials.loadBinding(
+                accountID: fixture.accountID,
+                appInstanceID: fixture.appInstanceID
+            ) == fixture.binding
+        )
+    }
+
     #if DEBUG
     @Test
     func debugTransportModePersistsAndRebindsWithoutRotatingIdentity() async throws {
@@ -1074,7 +1096,12 @@ private struct MobileIrohSignOutFixture {
     var tag: String { Self.tag }
     var bindingID: String { Self.bindingID }
 
-    static func make() async throws -> Self {
+    /// - Parameter resolvableDeviceID: When `false`, the composition's durable
+    ///   device-id resolver returns `nil`, simulating an unavailable identity
+    ///   store (Keychain locked before first unlock). Activation must then
+    ///   defer instead of registering a binding under an ephemeral id, so no
+    ///   endpoint is bound.
+    static func make(resolvableDeviceID: Bool = true) async throws -> Self {
         let suiteName = "MobileIrohRuntimeCompositionTests.signout.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
@@ -1198,7 +1225,7 @@ private struct MobileIrohSignOutFixture {
                 return endpointFactory
             },
             brokerFactory: { _ in broker },
-            deviceID: { stableDeviceID },
+            deviceID: { resolvableDeviceID ? stableDeviceID : nil },
             tag: tag,
             now: { Date(timeIntervalSince1970: 1_000) },
             debugDefaults: defaults
@@ -1221,7 +1248,13 @@ private struct MobileIrohSignOutFixture {
             _ = try await composition.transport(for: request)
         }
         let initialBindCount = await endpointFactory.bindCount()
-        #expect(initialBindCount > 0)
+        // A resolvable durable id activates and binds an endpoint; an
+        // unavailable one defers activation before any endpoint is created.
+        if resolvableDeviceID {
+            #expect(initialBindCount > 0)
+        } else {
+            #expect(initialBindCount == 0)
+        }
 
         return Self(
             composition: composition,
