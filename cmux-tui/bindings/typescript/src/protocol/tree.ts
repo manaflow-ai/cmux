@@ -55,6 +55,12 @@ export interface DeadPane {
 /** A pane in a tree snapshot. */
 export type Pane = LivePane | DeadPane;
 
+/** One appended horizontal viewport column and its frontend-relative width. */
+export interface ViewportSplit {
+  split: Id;
+  width: number;
+}
+
 /** A named split-tree screen. */
 export interface Screen {
   id: Id;
@@ -63,6 +69,10 @@ export interface Screen {
   active_pane: Id;
   zoomed_pane: Id | null;
   layout: Layout;
+  /** First viewport column width; absent on ordinary tiled screens. */
+  viewport_base_width?: number;
+  /** Appended viewport columns; absent on ordinary tiled screens. */
+  viewport_splits?: ViewportSplit[];
   panes: Pane[];
 }
 

@@ -867,8 +867,6 @@
       "concepts": "Conceptos",
       "anchorTitle": "Workspace de anclaje",
       "anchorDesc": "Cada grupo pertenece a exactamente un workspace llamado el anclaje. El encabezado del grupo en la barra lateral es la representación del anclaje: no hay una fila separada para él. Al hacer clic en el área del nombre del encabezado se enfocan los paneles del anclaje; al hacer clic en el chevrón se alterna el plegado.",
-      "anchorNew": "Los anclajes siempre son completamente nuevos cuando se crea un grupo. Nunca se promueven a partir de un workspace existente. El directorio de trabajo del anclaje se hereda del primer workspace seleccionado al agrupar una selección, o del workspace activo al crearlo mediante la CLI sin --cwd.",
-      "anchorClose": "Cerrar el workspace de anclaje disuelve el grupo: cada uno de los demás miembros se convierte en un workspace sin agrupar y permanece en la lista de pestañas. No se cierra nada más que el propio anclaje. La aplicación muestra un cuadro de diálogo de confirmación con una opción \"No volver a preguntar\" antes de que esto ocurra.",
       "identityTitle": "Identidad del grupo",
       "identityDesc": "Un grupo tiene un nombre, un icono (un SF Symbol, por defecto folder.fill) y un color personalizado opcional. Estos son independientes de las personalizaciones propias del workspace de anclaje. El color y el icono del anclaje se inicializan a partir del grupo al crearlo, pero pueden divergir posteriormente.",
       "pinningTitle": "Fijado",

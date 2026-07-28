@@ -2147,12 +2147,15 @@ class TabManager: ObservableObject {
 
         if let index = tabs.firstIndex(where: { $0.id == workspace.id }) {
             tabs.remove(at: index)
-            // Real-close path: if the closed workspace anchored a group, the
-            // group dissolves now and its remaining members survive as
-            // ungrouped workspaces. This lives at the explicit close site (not
-            // in the tabs didSet) so transient remove/insert reorders never
-            // trigger dissolve.
-            workspaces.dissolveGroupsAnchoredBy(closedWorkspaceId: workspace.id)
+            // Real-close path: if the closed workspace anchored a group, keep
+            // the group by promoting its first remaining member (in tabs order)
+            // to anchor so closing one workspace only closes that workspace and
+            // never scatters the rest of its group out to the ungrouped root
+            // tier. A group with no members left after the anchor's removal is
+            // dropped. This lives at the explicit close site (not in the tabs
+            // didSet) so transient remove/insert reorders never trigger the
+            // fixup.
+            let promotedAnchorIds = workspaces.promoteAnchorOrRemoveGroupsAnchoredBy(closedWorkspaceId: workspace.id)
 
             if selectedTabId == workspace.id {
                 // Keep the "focused index" stable when possible:
@@ -2160,6 +2163,19 @@ class TabManager: ObservableObject {
                 // - Otherwise (we closed the last workspace), focus the new last workspace (i-1).
                 let newIndex = min(index, max(0, tabs.count - 1))
                 selectedTabId = tabs[newIndex].id
+            }
+
+            // A promoted anchor's resolved display title switches from its own
+            // title to the group name. The imperatively-cached title consumers
+            // (custom titlebar text, WindowToolbarController label, notification
+            // popover titles) refresh on the group-name / order-change
+            // notifications, not on the observable model — and on a non-focused
+            // anchor close (Close Others, a socket close while a member stays
+            // selected) selectedTabId never changes, so nothing would otherwise
+            // invalidate them. Publish both signals for the promotion.
+            if !promotedAnchorIds.isEmpty {
+                workspaceGroupNameDidChange()
+                workspaceOrderDidChange(movedWorkspaceIds: promotedAnchorIds)
             }
         }
         publishCmuxWorkspaceClosed(workspace)
@@ -2372,39 +2388,29 @@ class TabManager: ObservableObject {
             }
         }
 
-        for workspace in plan.workspaces {
+        // Drain non-anchor members before group anchors (see anchorLastCloseOrder):
+        // closing a group's anchor is no longer destructive to the group (its next
+        // member is promoted to anchor), so batch close needs no special anchor
+        // confirmation or handling here.
+        for workspace in anchorLastCloseOrder(plan.workspaces) {
             guard tabs.contains(where: { $0.id == workspace.id }) else { continue }
-            // Anchor-close confirms inside closeWorkspaceIfRunningProcess.
-            // If the user cancels that dialog during a batch, abort the
-            // whole batch — otherwise the loop keeps closing later items
-            // even though the user said "no" to the dialog that was up.
-            if let groupId = workspace.groupId,
-               let group = workspaceGroups.first(where: { $0.id == groupId }),
-               group.anchorWorkspaceId == workspace.id,
-               !settings.value(for: settingsCatalog.workspaceGroups.anchorCloseSuppressed) {
-                let otherMemberCount = tabs.reduce(0) { partial, tab in
-                    tab.groupId == groupId && tab.id != workspace.id ? partial + 1 : partial
-                }
-                if !confirmAnchorWorkspaceClose(groupName: group.name, otherMemberCount: otherMemberCount) {
-                    return
-                }
-                // Anchor confirmed (or suppressed); skip the inner re-prompt
-                // by closing without going through closeWorkspaceIfRunningProcess.
-                if tabs.count <= 1 {
-                    // Mirror close detaches from the remote session (retained no-op).
-                    markRemoteTmuxKillOnWindowCloseIfNeeded(for: [workspace])
-                    if let window {
-                        window.performClose(nil)
-                    } else {
-                        AppDelegate.shared?.closeMainWindowContainingTabId(workspace.id)
-                    }
-                } else {
-                    closeWorkspace(workspace)
-                }
-                continue
-            }
             _ = closeWorkspaceIfRunningProcess(workspace, requiresConfirmation: false)
         }
+    }
+
+    /// Reorders a batch of workspaces so group anchors close after their
+    /// non-anchor members. Closing an anchor promotes the group's next member
+    /// and renormalizes the whole tabs/groups collection; closing in raw tabs
+    /// order (anchor first) would re-promote and rescan once per targeted
+    /// member — O(k x totalTabs) main-actor work plus a burst of title/order
+    /// invalidations. Members-first bounds a batch to at most one promotion per
+    /// group (or none, when the anchor was the group's last surviving member).
+    /// Every batch-close entrypoint (menu, shortcut, socket) must route through
+    /// this ordering.
+    func anchorLastCloseOrder(_ workspaces: [Workspace]) -> [Workspace] {
+        let anchorIds = Set(workspaceGroups.map(\.anchorWorkspaceId))
+        return workspaces.filter { !anchorIds.contains($0.id) }
+            + workspaces.filter { anchorIds.contains($0.id) }
     }
 
     func selectWorkspace(_ workspace: Workspace) {
@@ -2583,8 +2589,12 @@ class TabManager: ObservableObject {
         let title = willCloseWindow
             ? String(localized: "dialog.closeWindow.title", defaultValue: "Close window?")
             : String(localized: "dialog.closeWorkspaces.title", defaultValue: "Close workspaces?")
+        // Use the resolved display title so a group anchor is listed by the
+        // header name the user sees (the group name), not its underlying
+        // Workspace.title. This matters for a promoted anchor, whose own title
+        // (e.g. "API") diverges from its visible header ("Build").
         let titleLines = workspaces
-            .map { "• \(closeWorkspaceDisplayTitle($0.title))" }
+            .map { "• \(closeWorkspaceDisplayTitle(resolvedWorkspaceDisplayTitle(for: $0)))" }
             .joined(separator: "\n")
         let format = willCloseWindow
             ? String(
@@ -2621,21 +2631,10 @@ class TabManager: ObservableObject {
         requiresConfirmation: Bool = true,
         source: CloseConfirmationSource = .workspace
     ) -> Bool {
-        // Anchor-close ALWAYS prompts (subject to its own
-        // workspaceGroups.anchorCloseSuppressed flag), regardless of
-        // requiresConfirmation. Batch-close paths set requiresConfirmation=false
-        // after their own generic prompt, but that generic prompt doesn't
-        // mention group dissolution — silently ungrouping members during a
-        // multi-close would be surprising. The "Don't ask again" toggle on
-        // the anchor dialog is the user's opt-out.
-        if let groupId = workspace.groupId,
-           let group = workspaceGroups.first(where: { $0.id == groupId }),
-           group.anchorWorkspaceId == workspace.id {
-            let otherMemberCount = tabs.reduce(0) { partial, tab in
-                tab.groupId == groupId && tab.id != workspace.id ? partial + 1 : partial
-            }
-            if !confirmAnchorWorkspaceClose(groupName: group.name, otherMemberCount: otherMemberCount) { return false }
-        }
+        // Closing a group's anchor is non-destructive to the group: its next
+        // member is promoted to anchor in closeWorkspace, so the members stay
+        // grouped instead of scattering to root. No special anchor prompt is
+        // needed; the normal running-process confirmation below still applies.
         let willCloseWindow = tabs.count <= 1
         let needsCloseConfirmation = workspaceNeedsConfirmClose(workspace)
         if requiresConfirmation,
@@ -2680,83 +2679,6 @@ class TabManager: ObservableObject {
                 source: .tabCloseButton
             )
         }
-    }
-
-    /// Confirm before closing a workspace that is its group's anchor. Closing
-    /// the anchor dissolves the group (other members survive ungrouped).
-    /// "Don't ask again" sets the `workspaceGroups.anchorCloseSuppressed` flag.
-    private func confirmAnchorWorkspaceClose(groupName: String, otherMemberCount: Int) -> Bool {
-        if settings.value(for: settingsCatalog.workspaceGroups.anchorCloseSuppressed) {
-            return true
-        }
-        // Do NOT acquire beginCloseConfirmationSession here. The standard
-        // close confirmation path that runs immediately after (confirmClose())
-        // gates itself with the same flag, and endCloseConfirmationSession
-        // releases the flag asynchronously on the next main-queue turn — so
-        // wrapping this dialog with begin/end would leave the flag set when
-        // the inner confirmClose runs, causing it to return false and silently
-        // refuse the close even after the user accepted both prompts.
-        let title = String(
-            localized: "dialog.closeAnchor.title",
-            defaultValue: "Close this workspace?"
-        )
-        // Use printf-style format specifiers and String(format:) so the
-        // catalog entry can substitute the group name and member count at
-        // runtime. Embedding Swift `\(groupName)` interpolation in the
-        // catalog `value` would render literal `\(groupName)` on lookup.
-        let message: String
-        if otherMemberCount == 0 {
-            let format = String(
-                localized: "dialog.closeAnchor.message.lone",
-                defaultValue: "Closing this workspace will remove the group \u{201C}%@\u{201D}."
-            )
-            message = String.localizedStringWithFormat(format, groupName)
-        } else if otherMemberCount == 1 {
-            let format = String(
-                localized: "dialog.closeAnchor.message.one",
-                defaultValue: "Closing this workspace will ungroup \u{201C}%@\u{201D} and release 1 other workspace."
-            )
-            message = String.localizedStringWithFormat(format, groupName)
-        } else {
-            let format = String(
-                localized: "dialog.closeAnchor.message.many",
-                defaultValue: "Closing this workspace will ungroup \u{201C}%1$@\u{201D} and release %2$lld other workspaces."
-            )
-            message = String.localizedStringWithFormat(format, groupName, otherMemberCount)
-        }
-
-        let alert = NSAlert()
-        alert.messageText = title
-        alert.informativeText = message
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: String(localized: "dialog.closeTab.close", defaultValue: "Close"))
-        alert.addButton(withTitle: String(localized: "dialog.closeTab.cancel", defaultValue: "Cancel"))
-        let suppressionButton = NSButton(
-            checkboxWithTitle: String(
-                localized: "dialog.dontAskAgain",
-                defaultValue: "Don\u{2019}t ask again"
-            ),
-            target: nil,
-            action: nil
-        )
-        suppressionButton.state = .off
-        alert.accessoryView = suppressionButton
-        if let closeButton = alert.buttons.first {
-            closeButton.keyEquivalent = "\r"
-            closeButton.keyEquivalentModifierMask = []
-            alert.window.defaultButtonCell = closeButton.cell as? NSButtonCell
-            alert.window.initialFirstResponder = closeButton
-        }
-        if let cancelButton = alert.buttons.dropFirst().first {
-            cancelButton.keyEquivalent = "\u{1b}"
-        }
-
-        let response = runCloseConfirmationAlert(alert)
-        guard response == .alertFirstButtonReturn else { return false }
-        if suppressionButton.state == .on {
-            settings.set(true, for: settingsCatalog.workspaceGroups.anchorCloseSuppressed)
-        }
-        return true
     }
 
     private func confirmPinnedWorkspaceClose(source: CloseConfirmationSource) -> Bool {

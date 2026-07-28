@@ -1,9 +1,11 @@
 export { CmuxClient, type ClientOptions } from "./node-client.js";
 export {
   CmuxStream,
+  TERMINAL_KEY_TEXT_MAX_BYTES,
   type AttachSurfaceOptions,
   type CmuxClientOptions,
   type NewBrowserTabOptions,
+  type NewPaneRightOptions,
   type NewScreenOptions,
   type NewTabOptions,
   type NewWorkspaceOptions,
@@ -12,6 +14,7 @@ export {
   type CloseWorkspaceOptions,
   type MoveWorkspaceOptions,
   type RenameWorkspaceOptions,
+  type ResizeTransactionOptions,
   type SelectOptions,
   type SelectTabOptions,
   type SendOptions,

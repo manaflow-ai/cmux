@@ -191,6 +191,14 @@ Chrome 136 and newer reject CDP remote debugging on the OS-default profile direc
 
 Terminal panes, the workspace sidebar, and the shortcut modal share the same `▕` thumb, which expands to `▐` while hovered or dragged. A scrollbar is drawn only when its content exceeds the visible rows.
 
+## Viewport
+
+| Key | Type | Default | Effect |
+| --- | --- | --- | --- |
+| `viewport.animation` | boolean | `true` | Animate horizontal viewport movement |
+
+`Ctrl-b g` inserts a terminal immediately after the focused horizontal column at two-thirds of the current viewport width. Existing panes retain their tiled layout. The status bar gains a continuous horizontal track whenever the resulting screen is wider than the viewport. Focus movement and track clicks reveal offscreen panes. `Alt-n` applies automatic layout inside the focused column. Set `{"viewport":{"animation":false}}` to make viewport moves immediate.
+
 ## Server
 
 | Key | Type | Default | Effect |
@@ -205,7 +213,9 @@ WebSocket clients pair through a six-digit browser/TUI comparison by default. We
 | Key | Type | Default | Effect |
 | --- | --- | --- | --- |
 | `keys.prefix` | chord string | `"ctrl+b"` | Prefix chord |
+| `keys.macos_option_as_alt` | boolean | `true` | Treat an empty-text Alt character event as terminal Alt when true, or macOS Option composition when false |
 | `keys.alt_shortcuts` | boolean | `true` | Enables default modeless Alt bindings when true |
+| `keys.super_shortcuts` | boolean | `true` | Enables default modeless Command/Super bindings when true |
 | `keys.send-prefix` | chord string or array or `"none"` | current prefix chord | Send the configured prefix to the active surface |
 | `keys.new-tab` | chord string or array or `"none"` | `["t","alt+t"]` | New PTY tab |
 | `keys.new_browser_tab` | chord string or array or `"none"` | `"B"` | Browser URL prompt |
@@ -234,6 +244,8 @@ WebSocket clients pair through a six-digit browser/TUI comparison by default. We
 | `keys.toggle-sidebar-compact` | chord string or array or `"none"` | `"m"` | Toggle compact/full sidebar width and show the sidebar |
 | `keys.toggle-sidebar-view` | chord string or array or `"none"` | `"e"` | Toggle the built-in files/workspaces view; a plugin still takes precedence |
 | `keys.focus-sidebar` | chord string or array or `"none"` | `"S"` | Focus the built-in sidebar or sidebar plugin; a prefixed command returns focus to the pane |
+| `keys.new-pane-right` | chord string or array or `"none"` | `"g"` | Insert a two-thirds-width terminal after the focused horizontal column |
+| `keys.undo-layout` | chord string or array or `"none"` | `"U"` | Undo the latest structural layout action on the focused screen |
 | `keys.focus-next-pane` | chord string or array or `"none"` | `"o"` | Cycle to the next pane in the current screen |
 | `keys.focus-left` | chord string or array or `"none"` | `["h","left","alt+h","alt+left"]` | Focus left |
 | `keys.focus-right` | chord string or array or `"none"` | `["l","right","alt+l","alt+right"]` | Focus right |
@@ -246,6 +258,7 @@ WebSocket clients pair through a six-digit browser/TUI comparison by default. We
 | `keys.resize-shrink` | chord string or array or `"none"` | `"alt+-"` | Shrink the focused split |
 | `keys.scroll-up` | chord string or array or `"none"` | `["[","pageup"]` | Scroll active PTY up 10 rows |
 | `keys.scroll-down` | chord string or array or `"none"` | `"pagedown"` | Scroll active PTY down 10 rows |
+| `keys.clear-history` | chord string or array or `"none"` | `"cmd+k"` | Clear retained PTY history and completed visible rows while preserving active input |
 | `keys.browser-back` | chord string or array or `"none"` | `"<"` | Browser back |
 | `keys.browser-forward` | chord string or array or `"none"` | `">"` | Browser forward |
 | `keys.browser-reload` | chord string or array or `"none"` | `"r"` | Browser reload |
@@ -253,13 +266,15 @@ WebSocket clients pair through a six-digit browser/TUI comparison by default. We
 | `keys.show-shortcuts` | chord string or array or `"none"` | `"?"` | Open the resolved keyboard shortcut modal |
 | `keys.detach` | chord string or array or `"none"` | `"d"` | Quit local TUI or detach attached TUI |
 
-Each action override replaces all default chords for that action. Values may be a string, an array of strings, or `"none"`. Non-string array entries are ignored. Changing `keys.prefix` also moves the default `send-prefix` chord so pressing the configured prefix twice continues to pass it through. An explicit `keys.send-prefix` override takes precedence. Set `keys.alt_shortcuts` to `false` to remove default Alt chords before applying user overrides; explicitly configured Alt chords still work.
+Each action override replaces all default chords for that action. Values may be a string, an array of strings, or `"none"`. Non-string array entries are ignored. Changing `keys.prefix` also moves the default `send-prefix` chord so pressing the configured prefix twice continues to pass it through. An explicit `keys.send-prefix` override takes precedence. Set `keys.alt_shortcuts` or `keys.super_shortcuts` to `false` to remove that modeless default layer before applying user overrides; explicitly configured chords still work.
+
+Kitty keyboard reports the same empty-text character sequence for a real terminal Alt chord and a macOS Option dead-key prefix. Set `keys.macos_option_as_alt` to match the host terminal's `macos-option-as-alt` behavior. The default `true` keeps real Alt chords active. Set it to `false` when Option starts composition; cmux-tui then discards the prefix event and accepts the later composed text without invoking an Alt binding.
 
 `Ctrl-b x` closes the active tab because tab lifecycle is the more frequent cmux action. `Ctrl-b X` closes its containing pane. Both bindings accept independent overrides.
 
 Screen and tab positions are zero-based, so each `select-screen-N` or `select-tab-N` action selects index `N`. Generated workspace names also start at `0`. The snake_case spellings `select_screen_N` and `select_tab_N` are accepted as aliases. `Ctrl-b ]` and `Ctrl-b q` are intentionally unbound: cmux has no paste-buffer command and no pane-number quick-jump overlay yet. Zellij's modal `ctrl+p`, `ctrl+t`, `ctrl+s`, `ctrl+n`, and `ctrl+o` modes are not defaults because they conflict with common shell and editor control keys.
 
-Chord strings can be single characters or a key name with optional `ctrl`, `control`, `alt`, `option`, or `shift` modifiers. Examples: `"c"`, `"%"`, `"ctrl+b"`, `"alt+enter"`, `"tab"`, `"backtab"`, `"shift+tab"`, `"pageup"`, `"pagedown"`, `"esc"`, `"space"`, `"left"`, `"right"`, `"up"`, `"down"`, `"home"`, and `"end"`.
+Chord strings can be single characters or a key name with optional `ctrl`, `control`, `alt`, `option`, `cmd`, `command`, `super`, or `shift` modifiers. Examples: `"c"`, `"%"`, `"ctrl+b"`, `"alt+enter"`, `"cmd+k"`, `"tab"`, `"backtab"`, `"shift+tab"`, `"pageup"`, `"pagedown"`, `"esc"`, `"space"`, `"left"`, `"right"`, `"up"`, `"down"`, `"home"`, and `"end"`.
 
 ## Example
 
@@ -322,13 +337,18 @@ Chord strings can be single characters or a key name with optional `ctrl`, `cont
   "scrollbar": {
     "position": "column"
   },
+  "viewport": {
+    "animation": true
+  },
   "server": {
     "ws": "127.0.0.1:7681",
     "ws_token": "replace-with-a-secret"
   },
   "keys": {
     "prefix": "ctrl+a",
+    "macos_option_as_alt": true,
     "alt_shortcuts": false,
+    "super_shortcuts": false,
     "new-tab": ["t", "alt+t"],
     "new_browser_tab": "B",
     "new-pane-smart": "alt+n",

@@ -272,7 +272,8 @@ final class ComputerUseUXCoordinator {
     ) {
         userDefaults.set(true, forKey: ComputerUseOnboardingWindowController.seenDefaultsKey)
         let controller = onboardingWindowController ?? ComputerUseOnboardingWindowController(
-            runtimeService: runtimeService
+            runtimeService: runtimeService,
+            userDefaults: userDefaults
         )
         onboardingWindowController = controller
         controller.present(
@@ -306,7 +307,10 @@ final class ComputerUseUXCoordinator {
                 featureEnabled: enabled,
                 permissionStatusIsKnown: runtimeService.permissionStatusIsKnown,
                 accessibilityGranted: status.accessibility,
-                screenRecordingGranted: status.screenRecording
+                screenRecordingGranted: status.screenRecording,
+                directCaptureReady: userDefaults.bool(
+                    forKey: ComputerUseOnboardingWindowController.directCaptureReadyDefaultsKey
+                )
             )
             guard shouldPresent else { return }
             guard onboardingWindowController?.isVisible != true else { return }

@@ -174,28 +174,39 @@ struct ComputerUseUXTests {
     }
 
     @MainActor
-    @Test func onboardingAppearsAutomaticallyOnlyOnFirstComputerUse() {
-        #expect(!ComputerUseOnboardingWindowController.shouldPresentAutomatically(
+    @Test func onboardingAppearsUntilDirectCaptureIsReady() {
+        #expect(ComputerUseOnboardingWindowController.shouldPresentAutomatically(
             seen: true, featureEnabled: true, permissionStatusIsKnown: true,
-            accessibilityGranted: false, screenRecordingGranted: true))
-        #expect(!ComputerUseOnboardingWindowController.shouldPresentAutomatically(
+            accessibilityGranted: false, screenRecordingGranted: true,
+            directCaptureReady: false))
+        #expect(ComputerUseOnboardingWindowController.shouldPresentAutomatically(
             seen: true, featureEnabled: true, permissionStatusIsKnown: false,
-            accessibilityGranted: true, screenRecordingGranted: true))
+            accessibilityGranted: true, screenRecordingGranted: true,
+            directCaptureReady: false))
         #expect(ComputerUseOnboardingWindowController.shouldPresentAutomatically(
             seen: false, featureEnabled: true, permissionStatusIsKnown: true,
-            accessibilityGranted: false, screenRecordingGranted: true))
+            accessibilityGranted: false, screenRecordingGranted: true,
+            directCaptureReady: false))
         #expect(ComputerUseOnboardingWindowController.shouldPresentAutomatically(
             seen: false, featureEnabled: true, permissionStatusIsKnown: true,
-            accessibilityGranted: true, screenRecordingGranted: false))
+            accessibilityGranted: true, screenRecordingGranted: false,
+            directCaptureReady: false))
         #expect(ComputerUseOnboardingWindowController.shouldPresentAutomatically(
             seen: false, featureEnabled: true, permissionStatusIsKnown: false,
-            accessibilityGranted: true, screenRecordingGranted: true))
+            accessibilityGranted: true, screenRecordingGranted: true,
+            directCaptureReady: false))
+        #expect(ComputerUseOnboardingWindowController.shouldPresentAutomatically(
+            seen: false, featureEnabled: true, permissionStatusIsKnown: true,
+            accessibilityGranted: true, screenRecordingGranted: true,
+            directCaptureReady: false))
         #expect(!ComputerUseOnboardingWindowController.shouldPresentAutomatically(
             seen: false, featureEnabled: true, permissionStatusIsKnown: true,
-            accessibilityGranted: true, screenRecordingGranted: true))
+            accessibilityGranted: true, screenRecordingGranted: true,
+            directCaptureReady: true))
         #expect(!ComputerUseOnboardingWindowController.shouldPresentAutomatically(
             seen: false, featureEnabled: false, permissionStatusIsKnown: false,
-            accessibilityGranted: false, screenRecordingGranted: false))
+            accessibilityGranted: false, screenRecordingGranted: false,
+            directCaptureReady: false))
     }
 
     @Test @MainActor func onlyRealComputerUseToolHooksTriggerOnboarding() {
@@ -766,16 +777,59 @@ struct ComputerUseUXTests {
         #expect(!state.permissionCompanionLayoutReady)
     }
 
-    @Test @MainActor func completedOnboardingStaysInThePermissionCompanion() {
+    @Test @MainActor func completedOnboardingReturnsToExpandedMainWindow() {
         let state = ComputerUseOnboardingPresentationState()
         state.showPermissionCompanion()
         state.markPermissionCompanionLayoutReady()
 
-        state.showCompletionInPlace()
+        state.showCompletionInExpandedOnboarding()
 
-        #expect(state.permissionCompanionVisible)
-        #expect(state.permissionCompanionLayoutReady)
+        #expect(!state.permissionCompanionVisible)
+        #expect(!state.permissionCompanionLayoutReady)
         #expect(state.onboardingComplete)
+    }
+
+    @Test func permissionAdvancementWaitsForEachExplicitAllowAndDirectCapture() {
+        #expect(ComputerUseOnboardingAdvance.resolve(
+            activeStep: .accessibility,
+            statusIsKnown: true,
+            accessibilityGranted: true,
+            screenRecordingGranted: false,
+            directCaptureReady: false
+        ) == .requestSecondAllow)
+        #expect(ComputerUseOnboardingAdvance.resolve(
+            activeStep: .screenRecording,
+            statusIsKnown: true,
+            accessibilityGranted: true,
+            screenRecordingGranted: true,
+            directCaptureReady: false
+        ) == .verifyScreenCapture)
+        #expect(ComputerUseOnboardingAdvance.resolve(
+            activeStep: .screenRecording,
+            statusIsKnown: true,
+            accessibilityGranted: true,
+            screenRecordingGranted: true,
+            directCaptureReady: true
+        ) == .complete)
+
+        #expect(ComputerUseOnboardingAllowAction.resolve(
+            permissionStep: .screenRecording,
+            statusIsKnown: true,
+            screenRecordingGranted: false,
+            directCaptureReady: false
+        ) == .openSystemSettings)
+        #expect(ComputerUseOnboardingAllowAction.resolve(
+            permissionStep: .screenRecording,
+            statusIsKnown: true,
+            screenRecordingGranted: true,
+            directCaptureReady: false
+        ) == .verifyScreenCapture)
+        #expect(ComputerUseOnboardingAllowAction.resolve(
+            permissionStep: .screenRecording,
+            statusIsKnown: true,
+            screenRecordingGranted: true,
+            directCaptureReady: true
+        ) == .none)
     }
 
     @Test func completedOnboardingRemainsVisibleBeforeAutomaticDismissal() {
@@ -1339,6 +1393,62 @@ struct ComputerUseUXTests {
     }
 
     @Test(.timeLimit(.minutes(1))) @MainActor
+    func directCaptureVerificationUsesHostCapabilityAndExactHelperPeer() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-computer-use-direct-capture-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let sockets = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent(
+                "cmux-cu-capture-\(UUID().uuidString.prefix(8))",
+                isDirectory: true
+            )
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            try? FileManager.default.removeItem(at: sockets)
+        }
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: sockets, withIntermediateDirectories: true)
+        let paths = ComputerUseRuntimePaths(
+            homeDirectoryURL: home,
+            socketRootDirectoryURL: sockets,
+            userIdentifier: getuid(),
+            environment: ["CMUX_TAG": "direct-capture"],
+            authenticationToken: "agent-capability",
+            hostAuthenticationToken: "host-capability"
+        )
+        let currentIdentity = try #require(AgentPIDProcessIdentity(
+            pid: ProcessInfo.processInfo.processIdentifier
+        ))
+        try FileManager.default.createDirectory(
+            at: paths.runtimeDirectoryURL,
+            withIntermediateDirectories: true
+        )
+        let responder = try UnixSocketResponder(
+            path: paths.daemonSocketURL.path,
+            response: #"{"ok":true,"result":{"capturable":true}}"#
+        )
+
+        let ready = await ComputerUseRuntimeService.verifyDirectScreenCapture(
+            paths: paths,
+            expectedPeerIdentity: currentIdentity
+        )
+        let line = try #require(responder.receivedRequests.first)
+        let envelope = try #require(
+            try JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any]
+        )
+        let request = try #require(envelope["request"] as? [String: Any])
+
+        #expect(ready)
+        #expect(envelope["auth_token"] as? String == "agent-capability")
+        #expect(envelope["host_auth_token"] as? String == "host-capability")
+        #expect(request["method"] as? String == "verify_screen_capture")
+        responder.stop()
+    }
+
+    @Test(.timeLimit(.minutes(1))) @MainActor
     func nativePermissionRequestRejectsAReusedHelperProcessIdentity() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(
@@ -1491,7 +1601,7 @@ struct ComputerUseUXTests {
             "--cursor-shape",
             "cmux",
             "--idle-hide-ms",
-            "0",
+            "1200",
         ])
         #expect(configuration.environment["CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW"] == "1")
         #expect(configuration.environment["CUA_DRIVER_RS_PERMISSIONS_GATE"] == "0")
@@ -1527,7 +1637,7 @@ struct ComputerUseUXTests {
             "--cursor-shape",
             "cmux",
             "--idle-hide-ms",
-            "0",
+            "1200",
         ])
         #expect(codexConfiguration.environment == configuration.environment)
     }

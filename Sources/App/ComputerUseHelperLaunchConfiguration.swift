@@ -27,12 +27,10 @@ struct ComputerUseHelperLaunchConfiguration: Equatable, Sendable {
             "--no-permissions-gate",
             "--cursor-shape",
             "cmux",
-            // A cmux Computer Use session owns explicit cursor visibility and
-            // hides it at session end. Never fade a still-active cursor merely
-            // because the next tool call takes longer than the upstream 20s
-            // default.
+            // Keep the landing visible briefly, then remove an abandoned
+            // overlay even when a client fails to close its session cleanly.
             "--idle-hide-ms",
-            "0",
+            "1200",
         ])
         self.arguments = arguments
         environment = [

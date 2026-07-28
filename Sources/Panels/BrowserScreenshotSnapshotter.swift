@@ -4,6 +4,7 @@ import WebKit
 
 enum BrowserScreenshotCaptureBounds {
     static let maximumFullPagePixels: CGFloat = 100_000_000
+    static let maximumSelectionPixels: CGFloat = 4_194_304
 
     static func validateFullPageSize(_ size: NSSize) throws {
         guard size.width.isFinite,
@@ -18,15 +19,79 @@ enum BrowserScreenshotCaptureBounds {
             throw BrowserScreenshotError.captureAreaTooLarge
         }
     }
+
+    static func boundedSnapshotWidth(for rect: NSRect) throws -> CGFloat {
+        guard rect.minX.isFinite,
+              rect.minY.isFinite,
+              rect.maxX.isFinite,
+              rect.maxY.isFinite,
+              rect.width.isFinite,
+              rect.height.isFinite,
+              rect.width > 0,
+              rect.height > 0 else {
+            throw BrowserScreenshotError.invalidSelection
+        }
+        let areaBoundedWidth = sqrt(
+            maximumSelectionPixels * rect.width / rect.height
+        )
+        let width = floor(min(rect.width, areaBoundedWidth))
+        guard width >= 1 else {
+            throw BrowserScreenshotError.captureAreaTooLarge
+        }
+        return width
+    }
+
+    static func boundedOutputSize(
+        for size: NSSize,
+        maximumPixelCount: Int
+    ) throws -> NSSize {
+        guard size.width.isFinite,
+              size.height.isFinite,
+              size.width > 0,
+              size.height > 0,
+              maximumPixelCount > 0 else {
+            throw BrowserScreenshotError.invalidImageRepresentation
+        }
+        let sourceWidth = ceil(size.width)
+        let sourceHeight = ceil(size.height)
+        let sourcePixelCount = sourceWidth * sourceHeight
+        guard sourcePixelCount.isFinite, sourcePixelCount > 0 else {
+            throw BrowserScreenshotError.invalidImageRepresentation
+        }
+        let scale = min(
+            1,
+            sqrt(CGFloat(maximumPixelCount) / sourcePixelCount)
+        )
+        var width = max(1, Int(floor(sourceWidth * scale)))
+        var height = max(1, Int(floor(sourceHeight * scale)))
+        let candidatePixelCount = width.multipliedReportingOverflow(by: height)
+        if candidatePixelCount.overflow || candidatePixelCount.partialValue > maximumPixelCount {
+            if width >= height {
+                width = max(1, min(width, maximumPixelCount / height))
+            } else {
+                height = max(1, min(height, maximumPixelCount / width))
+            }
+        }
+        let boundedPixelCount = width.multipliedReportingOverflow(by: height)
+        guard !boundedPixelCount.overflow,
+              boundedPixelCount.partialValue <= maximumPixelCount else {
+            throw BrowserScreenshotError.invalidImageRepresentation
+        }
+        return NSSize(width: width, height: height)
+    }
 }
 
 @MainActor
 enum BrowserScreenshotWebViewSnapshotter {
     static func captureFullPage(
         from webView: WKWebView,
-        afterScreenUpdates: Bool = true
+        afterScreenUpdates: Bool = true,
+        onProgress: @escaping @MainActor () -> Void = {}
     ) async throws -> NSImage {
+        try Task.checkCancellation()
         let metrics = try await webContentMetrics(for: webView)
+        onProgress()
+        try Task.checkCancellation()
         try BrowserScreenshotCaptureBounds.validateFullPageSize(metrics.contentSize)
         if let snapshotRect = metrics.untransformedFullContentSnapshotRect(in: webView.bounds) {
             do {
@@ -35,10 +100,15 @@ enum BrowserScreenshotWebViewSnapshotter {
                     snapshotRect: snapshotRect,
                     afterScreenUpdates: afterScreenUpdates
                 )
+                onProgress()
+                try Task.checkCancellation()
                 if isAcceptableFullContentSnapshot(image, metrics: metrics) {
                     return image
                 }
+            } catch is CancellationError {
+                throw CancellationError()
             } catch {
+                onProgress()
                 #if DEBUG
                 cmuxDebugLog("browser.screenshot.fullPage.singleSnapshot.failed error=\(error.localizedDescription)")
                 #endif
@@ -48,7 +118,65 @@ enum BrowserScreenshotWebViewSnapshotter {
         return try await captureStitchedFullPage(
             from: webView,
             metrics: metrics,
-            afterScreenUpdates: afterScreenUpdates
+            afterScreenUpdates: afterScreenUpdates,
+            onProgress: onProgress
+        )
+    }
+
+    /// Captures a Design Mode overview at its final bounded resolution so
+    /// WebKit and AppKit never materialize the full document-sized bitmap.
+    static func captureBoundedFullPageOverview(
+        from webView: WKWebView,
+        maximumPixelCount: Int,
+        afterScreenUpdates: Bool = true,
+        onProgress: @escaping @MainActor () -> Void = {}
+    ) async throws -> NSImage {
+        try Task.checkCancellation()
+        let metrics = try await webContentMetrics(for: webView)
+        onProgress()
+        try Task.checkCancellation()
+        try BrowserScreenshotCaptureBounds.validateFullPageSize(metrics.contentSize)
+        let outputSize = try BrowserScreenshotCaptureBounds.boundedOutputSize(
+            for: metrics.contentSize,
+            maximumPixelCount: maximumPixelCount
+        )
+        guard let renderer = viewportSnapshotRenderer(
+            outputPixelSize: outputSize,
+            for: webView
+        ) else {
+            throw BrowserScreenshotError.captureAreaTooLarge
+        }
+        if let snapshotRect = metrics.untransformedFullContentSnapshotRect(in: webView.bounds) {
+            do {
+                let image = try await captureSingleFullContentSnapshot(
+                    from: webView,
+                    snapshotRect: snapshotRect,
+                    afterScreenUpdates: afterScreenUpdates,
+                    renderer: renderer
+                )
+                onProgress()
+                try Task.checkCancellation()
+                guard isAcceptableFullContentSnapshot(image, expectedSize: outputSize) else {
+                    throw BrowserScreenshotError.emptySnapshot
+                }
+                return image
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                onProgress()
+                #if DEBUG
+                cmuxDebugLog("browser.screenshot.designMode.singleSnapshot.failed error=\(error.localizedDescription)")
+                #endif
+            }
+        }
+
+        return try await captureBoundedDocumentRegion(
+            from: webView,
+            region: NSRect(origin: .zero, size: metrics.contentSize),
+            metrics: metrics,
+            maximumPixelCount: maximumPixelCount,
+            afterScreenUpdates: afterScreenUpdates,
+            onProgress: onProgress
         )
     }
 
@@ -61,6 +189,40 @@ enum BrowserScreenshotWebViewSnapshotter {
             from: webView,
             afterScreenUpdates: afterScreenUpdates,
             renderer: renderer
+        )
+    }
+
+    static func captureDocumentRect(
+        _ rect: NSRect,
+        from webView: WKWebView,
+        afterScreenUpdates: Bool = true,
+        onProgress: @escaping @MainActor () -> Void = {}
+    ) async throws -> NSImage {
+        try Task.checkCancellation()
+        let metrics = try await webContentMetrics(for: webView)
+        onProgress()
+        let bounds = webView.bounds
+        let scaleX = bounds.width / metrics.viewportSize.width
+        let scaleY = bounds.height / metrics.viewportSize.height
+        guard scaleX.isFinite,
+              scaleY.isFinite,
+              scaleX > 0,
+              scaleY > 0 else {
+            throw BrowserScreenshotError.webContentMetricsUnavailable
+        }
+        let documentRect = NSRect(
+            x: (rect.minX - bounds.minX) / scaleX,
+            y: (rect.minY - bounds.minY) / scaleY,
+            width: rect.width / scaleX,
+            height: rect.height / scaleY
+        )
+        return try await captureBoundedDocumentRegion(
+            from: webView,
+            region: documentRect,
+            metrics: metrics,
+            maximumPixelCount: Int(BrowserScreenshotCaptureBounds.maximumSelectionPixels),
+            afterScreenUpdates: afterScreenUpdates,
+            onProgress: onProgress
         )
     }
 
@@ -84,19 +246,32 @@ enum BrowserScreenshotWebViewSnapshotter {
     private static func captureSingleFullContentSnapshot(
         from webView: WKWebView,
         snapshotRect: NSRect,
-        afterScreenUpdates: Bool
+        afterScreenUpdates: Bool,
+        renderer: BrowserViewportSnapshotRenderer? = nil
     ) async throws -> NSImage {
         let configuration = WKSnapshotConfiguration()
         configuration.afterScreenUpdates = afterScreenUpdates
-        configuration.snapshotWidth = nil
+        configuration.snapshotWidth = renderer?.snapshotWidth
         configuration.rect = snapshotRect
-        return try await takeSnapshot(from: webView, configuration: configuration)
+        let image = try await takeSnapshot(from: webView, configuration: configuration)
+        guard let renderer else { return image }
+        guard hasExpectedPixelCoverage(
+            image,
+            expectedSize: renderer.plan.outputPixelSize
+        ) else {
+            throw BrowserScreenshotError.emptySnapshot
+        }
+        guard let normalized = renderer.normalizedImage(image) else {
+            throw BrowserScreenshotError.invalidImageRepresentation
+        }
+        return normalized
     }
 
     private static func captureStitchedFullPage(
         from webView: WKWebView,
         metrics: BrowserViewportContentMetrics,
-        afterScreenUpdates: Bool
+        afterScreenUpdates: Bool,
+        onProgress: @escaping @MainActor () -> Void
     ) async throws -> NSImage {
         let contentSize = metrics.contentSize
         let viewportSize = metrics.viewportSize
@@ -127,18 +302,23 @@ enum BrowserScreenshotWebViewSnapshotter {
         do {
             for row in 0..<tilePlan.rowCount {
                 for column in 0..<tilePlan.columnCount {
+                    try Task.checkCancellation()
                     guard let origin = tilePlan.origin(column: column, row: row) else {
                         throw BrowserScreenshotError.webContentMetricsUnavailable
                     }
-                    try await scroll(webView, to: origin)
+                    let actualOrigin = try await scroll(webView, to: origin)
+                    onProgress()
+                    try Task.checkCancellation()
                     let tile = try await captureVisibleViewport(
                         from: webView,
                         afterScreenUpdates: afterScreenUpdates,
                         renderer: tileRenderer
                     )
+                    onProgress()
+                    try Task.checkCancellation()
                     drawTile(
                         tile,
-                        at: origin,
+                        at: actualOrigin,
                         into: output,
                         contentSize: contentSize,
                         viewportSize: viewportSize
@@ -150,16 +330,201 @@ enum BrowserScreenshotWebViewSnapshotter {
             captureError = error
         }
 
-        try? await scroll(webView, to: metrics.scrollOffset)
+        // Restore the page in a fresh task because a cancelled capture task
+        // must not leave the user's page scrolled to an intermediate tile.
+        let restoration = Task { @MainActor [weak webView] in
+            guard let webView else { return }
+            _ = try? await scroll(webView, to: metrics.scrollOffset)
+        }
+        await restoration.value
+        onProgress()
         if let captureError {
             throw captureError
         }
+        try Task.checkCancellation()
 
         guard didCaptureTile else {
             throw BrowserScreenshotError.emptySnapshot
         }
 
         return output
+    }
+
+    /// Captures a CSS document region into an exact bounded bitmap. Tiles are
+    /// normalized in CSS pixels before being mapped into the smaller output,
+    /// so zoomed/emulated viewports and large selections use the same path.
+    private static func captureBoundedDocumentRegion(
+        from webView: WKWebView,
+        region: NSRect,
+        metrics: BrowserViewportContentMetrics,
+        maximumPixelCount: Int,
+        afterScreenUpdates: Bool,
+        onProgress: @escaping @MainActor () -> Void
+    ) async throws -> NSImage {
+        let pageRect = NSRect(origin: .zero, size: metrics.contentSize)
+        let captureRegion = region.standardized.intersection(pageRect)
+        guard !captureRegion.isNull,
+              captureRegion.width > 0,
+              captureRegion.height > 0,
+              let tilePlan = BrowserFullPageTilePlan(
+                  contentSize: captureRegion.size,
+                  viewportSize: metrics.viewportSize
+              ),
+              let tileRenderer = viewportSnapshotRenderer(
+                  outputPixelSize: metrics.viewportSize,
+                  for: webView
+              ) else {
+            throw BrowserScreenshotError.captureAreaTooLarge
+        }
+        let outputSize = try BrowserScreenshotCaptureBounds.boundedOutputSize(
+            for: captureRegion.size,
+            maximumPixelCount: maximumPixelCount
+        )
+        let bitmap = try blankBitmapRepresentation(size: outputSize)
+        var captureError: (any Error)?
+        var didDrawTile = false
+
+        do {
+            for row in 0..<tilePlan.rowCount {
+                for column in 0..<tilePlan.columnCount {
+                    try Task.checkCancellation()
+                    guard let relativeOrigin = tilePlan.origin(column: column, row: row) else {
+                        throw BrowserScreenshotError.webContentMetricsUnavailable
+                    }
+                    let actualOrigin = try await scroll(
+                        webView,
+                        to: NSPoint(
+                            x: captureRegion.minX + relativeOrigin.x,
+                            y: captureRegion.minY + relativeOrigin.y
+                        )
+                    )
+                    onProgress()
+                    try Task.checkCancellation()
+                    let tile = try await captureVisibleViewport(
+                        from: webView,
+                        afterScreenUpdates: afterScreenUpdates,
+                        renderer: tileRenderer
+                    )
+                    onProgress()
+                    try Task.checkCancellation()
+                    didDrawTile = drawBoundedRegionTile(
+                        tile,
+                        visibleOrigin: actualOrigin,
+                        viewportSize: metrics.viewportSize,
+                        captureRegion: captureRegion,
+                        outputSize: outputSize,
+                        into: bitmap
+                    ) || didDrawTile
+                }
+            }
+        } catch {
+            captureError = error
+        }
+
+        // Restoration is independent of caller cancellation so Design Mode
+        // never leaves the page at an intermediate stitched-capture offset.
+        let restoration = Task { @MainActor [weak webView] in
+            guard let webView else { return }
+            _ = try? await scroll(webView, to: metrics.scrollOffset)
+        }
+        await restoration.value
+        onProgress()
+        if let captureError {
+            throw captureError
+        }
+        try Task.checkCancellation()
+        guard didDrawTile else {
+            throw BrowserScreenshotError.emptySnapshot
+        }
+
+        let output = NSImage(size: outputSize)
+        output.addRepresentation(bitmap)
+        return output
+    }
+
+    private static func blankBitmapRepresentation(size: NSSize) throws -> NSBitmapImageRep {
+        let width = Int(size.width.rounded())
+        let height = Int(size.height.rounded())
+        guard width > 0,
+              height > 0,
+              let bitmap = NSBitmapImageRep(
+                  bitmapDataPlanes: nil,
+                  pixelsWide: width,
+                  pixelsHigh: height,
+                  bitsPerSample: 8,
+                  samplesPerPixel: 4,
+                  hasAlpha: true,
+                  isPlanar: false,
+                  colorSpaceName: .deviceRGB,
+                  bytesPerRow: 0,
+                  bitsPerPixel: 0
+              ),
+              let context = NSGraphicsContext(bitmapImageRep: bitmap) else {
+            throw BrowserScreenshotError.invalidImageRepresentation
+        }
+        bitmap.size = NSSize(width: width, height: height)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = context
+        NSColor.clear.setFill()
+        NSRect(x: 0, y: 0, width: width, height: height).fill()
+        NSGraphicsContext.restoreGraphicsState()
+        return bitmap
+    }
+
+    private static func drawBoundedRegionTile(
+        _ tile: NSImage,
+        visibleOrigin: NSPoint,
+        viewportSize: NSSize,
+        captureRegion: NSRect,
+        outputSize: NSSize,
+        into bitmap: NSBitmapImageRep
+    ) -> Bool {
+        guard tile.size.width > 0,
+              tile.size.height > 0,
+              viewportSize.width > 0,
+              viewportSize.height > 0,
+              captureRegion.width > 0,
+              captureRegion.height > 0,
+              let context = NSGraphicsContext(bitmapImageRep: bitmap) else {
+            return false
+        }
+        let visibleRect = NSRect(origin: visibleOrigin, size: viewportSize)
+        let intersection = visibleRect.intersection(captureRegion)
+        guard !intersection.isNull,
+              intersection.width > 0,
+              intersection.height > 0 else {
+            return false
+        }
+        let tileScaleX = tile.size.width / viewportSize.width
+        let tileScaleY = tile.size.height / viewportSize.height
+        let outputScaleX = outputSize.width / captureRegion.width
+        let outputScaleY = outputSize.height / captureRegion.height
+        let source = NSRect(
+            x: (intersection.minX - visibleOrigin.x) * tileScaleX,
+            y: tile.size.height - (intersection.maxY - visibleOrigin.y) * tileScaleY,
+            width: intersection.width * tileScaleX,
+            height: intersection.height * tileScaleY
+        )
+        let destination = NSRect(
+            x: (intersection.minX - captureRegion.minX) * outputScaleX,
+            y: outputSize.height - (intersection.maxY - captureRegion.minY) * outputScaleY,
+            width: intersection.width * outputScaleX,
+            height: intersection.height * outputScaleY
+        )
+
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = context
+        context.imageInterpolation = .high
+        tile.draw(
+            in: destination,
+            from: source,
+            operation: .copy,
+            fraction: 1,
+            respectFlipped: false,
+            hints: [.interpolation: NSImageInterpolation.high]
+        )
+        NSGraphicsContext.restoreGraphicsState()
+        return true
     }
 
     static func withOffscreenRenderHost<T>(
@@ -385,11 +750,30 @@ enum BrowserScreenshotWebViewSnapshotter {
         _ image: NSImage,
         metrics: BrowserViewportContentMetrics
     ) -> Bool {
-        let contentSize = metrics.contentSize
-        guard contentSize.width > 0, contentSize.height > 0 else { return false }
-        let widthMatches = image.size.width >= contentSize.width * 0.95
-        let heightMatches = image.size.height >= contentSize.height * 0.95
+        isAcceptableFullContentSnapshot(image, expectedSize: metrics.contentSize)
+    }
+
+    private static func isAcceptableFullContentSnapshot(
+        _ image: NSImage,
+        expectedSize: NSSize
+    ) -> Bool {
+        guard expectedSize.width > 0, expectedSize.height > 0 else { return false }
+        let widthMatches = image.size.width >= expectedSize.width * 0.95
+        let heightMatches = image.size.height >= expectedSize.height * 0.95
         return widthMatches && heightMatches
+    }
+
+    /// Checks WebKit's unmodified bitmap before normalization can stretch a
+    /// clipped viewport result into the requested full-document dimensions.
+    private static func hasExpectedPixelCoverage(
+        _ image: NSImage,
+        expectedSize: NSSize
+    ) -> Bool {
+        guard expectedSize.width > 0, expectedSize.height > 0 else { return false }
+        return image.representations.contains { representation in
+            CGFloat(representation.pixelsWide) >= expectedSize.width * 0.95
+                && CGFloat(representation.pixelsHigh) >= expectedSize.height * 0.95
+        }
     }
 
     private static func blankImage(size: NSSize) -> NSImage {
@@ -482,14 +866,35 @@ enum BrowserScreenshotWebViewSnapshotter {
         return metrics
     }
 
-    private static func scroll(_ webView: WKWebView, to point: NSPoint) async throws {
-        _ = try await webView.callAsyncJavaScript(
+    @discardableResult
+    private static func scroll(_ webView: WKWebView, to point: NSPoint) async throws -> CGPoint {
+        let value = try await webView.callAsyncJavaScript(
             """
-            window.scrollTo(x, y);
+            const doc = document.documentElement;
+            const body = document.body;
+            const maximumX = Math.max(
+              0,
+              doc ? doc.scrollWidth - window.innerWidth : 0,
+              body ? body.scrollWidth - window.innerWidth : 0
+            );
+            const maximumY = Math.max(
+              0,
+              doc ? doc.scrollHeight - window.innerHeight : 0,
+              body ? body.scrollHeight - window.innerHeight : 0
+            );
+            const expectedX = Math.min(Math.max(0, x), maximumX);
+            const expectedY = Math.min(Math.max(0, y), maximumY);
+            window.scrollTo({ left: x, top: y, behavior: "instant" });
+            document.documentElement?.getBoundingClientRect();
             await new Promise((resolve) => {
               requestAnimationFrame(() => requestAnimationFrame(resolve));
             });
-            return { x: window.scrollX || 0, y: window.scrollY || 0 };
+            return {
+              x: window.scrollX || 0,
+              y: window.scrollY || 0,
+              expectedX,
+              expectedY
+            };
             """,
             arguments: [
                 "x": Double(point.x),
@@ -498,6 +903,22 @@ enum BrowserScreenshotWebViewSnapshotter {
             in: nil,
             contentWorld: .page
         )
+        guard let result = value as? [String: Any] else {
+            throw BrowserScreenshotError.webContentMetricsUnavailable
+        }
+        let x = numberValue(result["x"])
+        let y = numberValue(result["y"])
+        let expectedX = numberValue(result["expectedX"])
+        let expectedY = numberValue(result["expectedY"])
+        guard x.isFinite,
+              y.isFinite,
+              expectedX.isFinite,
+              expectedY.isFinite,
+              abs(x - expectedX) <= 1,
+              abs(y - expectedY) <= 1 else {
+            throw BrowserScreenshotError.webContentMetricsUnavailable
+        }
+        return CGPoint(x: x, y: y)
     }
 
     private static func takeSnapshot(
