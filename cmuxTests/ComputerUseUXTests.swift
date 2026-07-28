@@ -615,22 +615,27 @@ struct ComputerUseUXTests {
         let controller = ComputerUseOnboardingWindowController(
             runtimeService: ComputerUseRuntimeService()
         )
-        let window = controller.makeWindow()
-        defer { window.close() }
+        let mainWindow = controller.makeWindow()
+        defer {
+            controller.dismiss()
+            mainWindow.close()
+        }
 
         controller.configureForPermissionCompanion(
-            window,
-            frame: NSRect(origin: window.frame.origin, size: companionSize)
+            mainWindow,
+            frame: NSRect(origin: mainWindow.frame.origin, size: companionSize)
         )
+        let companionWindow = NSApp.windows.first {
+            $0.identifier?.rawValue == "cmux.computerUse.onboarding.permissionCompanion"
+        }
 
-        #expect(window.frame.size == companionSize)
-        #expect(window.contentView?.frame.size == companionSize)
-        #expect(window.contentLayoutRect.width == companionSize.width)
-        #expect(window.contentLayoutRect.height < companionSize.height)
+        #expect(mainWindow.frame.size == CGSize(width: 600, height: 440))
+        #expect(companionWindow?.frame.size == companionSize)
+        #expect(companionWindow?.contentView?.frame.size == companionSize)
+        #expect(companionWindow?.contentLayoutRect.size == companionSize)
     }
 
-    @Test @MainActor func permissionCompanionKeepsStableWindowChromeDuringTransition() {
-        let companionSize = CGSize(width: 472, height: 112)
+    @Test @MainActor func permissionCompanionLeavesMainWindowChromeUntouched() {
         let controller = ComputerUseOnboardingWindowController(
             runtimeService: ComputerUseRuntimeService()
         )
@@ -644,15 +649,258 @@ struct ComputerUseUXTests {
         #expect(window.styleMask == expandedStyle)
         #expect(window.frame == expandedFrame)
         for buttonType in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
-            #expect(window.standardWindowButton(buttonType)?.isHidden == true)
+            #expect(window.standardWindowButton(buttonType)?.isHidden == false)
+        }
+    }
+
+    @Test @MainActor func preparingPermissionCompanionHidesMainWindowWithoutMutatingItsChrome() {
+        let controller = ComputerUseOnboardingWindowController(
+            runtimeService: ComputerUseRuntimeService()
+        )
+        let window = controller.makeWindow()
+        defer { window.close() }
+        window.center()
+        window.orderBack(nil)
+        let expandedFrame = window.frame
+        let expandedStyle = window.styleMask
+        let standardButtonVisibility = [
+            NSWindow.ButtonType.closeButton,
+            .miniaturizeButton,
+            .zoomButton,
+        ].map { window.standardWindowButton($0)?.isHidden }
+
+        controller.prepareForPermissionCompanion(window)
+
+        #expect(!window.isVisible)
+        #expect(window.frame == expandedFrame)
+        #expect(window.styleMask == expandedStyle)
+        #expect([
+            NSWindow.ButtonType.closeButton,
+            .miniaturizeButton,
+            .zoomButton,
+        ].map { window.standardWindowButton($0)?.isHidden } == standardButtonVisibility)
+    }
+
+    @Test @MainActor func permissionCompanionUsesASeparateBorderlessWindow() {
+        let companionSize = CGSize(width: 472, height: 112)
+        let controller = ComputerUseOnboardingWindowController(
+            runtimeService: ComputerUseRuntimeService()
+        )
+        let mainWindow = controller.makeWindow()
+        defer {
+            controller.dismiss()
+            mainWindow.close()
+        }
+        mainWindow.center()
+        mainWindow.orderBack(nil)
+        let mainFrame = mainWindow.frame
+        let destinationFrame = NSRect(
+            x: mainFrame.maxX + 24,
+            y: mainFrame.midY - companionSize.height / 2,
+            width: companionSize.width,
+            height: companionSize.height
+        )
+
+        controller.configureForPermissionCompanion(
+            mainWindow,
+            frame: destinationFrame
+        )
+
+        let companionWindow = NSApp.windows.first {
+            $0.identifier?.rawValue == "cmux.computerUse.onboarding.permissionCompanion"
+        }
+        #expect(!mainWindow.isVisible)
+        #expect(mainWindow.frame == mainFrame)
+        #expect(companionWindow !== mainWindow)
+        #expect(companionWindow?.styleMask == [.borderless, .nonactivatingPanel])
+        #expect(companionWindow?.frame == destinationFrame)
+        #expect(companionWindow?.contentLayoutRect.size == companionSize)
+        #expect(companionWindow?.standardWindowButton(.closeButton) == nil)
+        #expect(companionWindow?.standardWindowButton(.miniaturizeButton) == nil)
+        #expect(companionWindow?.standardWindowButton(.zoomButton) == nil)
+    }
+
+    @Test @MainActor func completionClosesCompanionAndRevealsCenteredMainWindowWithoutReturnGlide() {
+        let companionSize = CGSize(width: 472, height: 112)
+        let controller = ComputerUseOnboardingWindowController(
+            runtimeService: ComputerUseRuntimeService()
+        )
+        let mainWindow = controller.makeWindow()
+        defer {
+            controller.dismiss()
+            mainWindow.close()
+        }
+        mainWindow.center()
+        mainWindow.orderBack(nil)
+        let originalMainFrame = mainWindow.frame
+        let destinationFrame = NSRect(
+            x: originalMainFrame.maxX + 24,
+            y: originalMainFrame.midY - companionSize.height / 2,
+            width: companionSize.width,
+            height: companionSize.height
+        )
+        controller.configureForPermissionCompanion(
+            mainWindow,
+            frame: destinationFrame
+        )
+        let companionWindow = NSApp.windows.first {
+            $0.identifier?.rawValue == "cmux.computerUse.onboarding.permissionCompanion"
+        }
+        #expect(companionWindow?.isVisible == true)
+
+        controller.revealExpandedOnboarding(
+            mainWindow,
+            resetStep: false,
+            completed: true
+        )
+
+        #expect(companionWindow?.isVisible == false)
+        #expect(mainWindow.isVisible)
+        #expect(mainWindow.frame == originalMainFrame)
+        #expect(mainWindow.frame.size == CGSize(width: 600, height: 440))
+    }
+
+    /// Regression: interacting with the companion beside System Settings
+    /// (dragging the helper tile, pressing Back) must never activate cmux —
+    /// activation raised the main terminal window over the permission pane the
+    /// user was dragging into.
+    @Test @MainActor func permissionCompanionNeverActivatesTheApp() {
+        let controller = ComputerUseOnboardingWindowController(
+            runtimeService: ComputerUseRuntimeService()
+        )
+        let mainWindow = controller.makeWindow()
+        defer {
+            controller.dismiss()
+            mainWindow.close()
         }
 
         controller.configureForPermissionCompanion(
-            window,
-            frame: NSRect(origin: window.frame.origin, size: companionSize)
+            mainWindow,
+            frame: NSRect(origin: .zero, size: CGSize(width: 472, height: 112))
         )
+        let companionWindow = NSApp.windows.first {
+            $0.identifier?.rawValue == "cmux.computerUse.onboarding.permissionCompanion"
+        }
 
-        #expect(window.styleMask == expandedStyle)
+        let companionPanel = companionWindow as? NSPanel
+        #expect(companionPanel != nil)
+        #expect(companionPanel?.styleMask.contains(.nonactivatingPanel) == true)
+        #expect(companionPanel?.becomesKeyOnlyIfNeeded == true)
+        #expect(companionPanel?.hidesOnDeactivate == false)
+    }
+
+    /// The helper drag tile itself must also suppress activation: the press
+    /// that starts a Finder-compatible drag is not a request to front cmux.
+    @Test @MainActor func helperAppDragSourceDelaysWindowOrdering() throws {
+        let dragSource = ComputerUseAppDragSourceView()
+        let press = try #require(NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1
+        ))
+
+        #expect(dragSource.shouldDelayWindowOrdering(for: press))
+    }
+
+    /// While the direct-capture probe can raise Tahoe's consent alert, the
+    /// companion must explain that alert instead of stale drag instructions.
+    @Test func companionMessageExplainsPendingScreenCaptureConsent() {
+        #expect(
+            ComputerUsePermissionCompanionMessage.resolve(
+                permissionStep: .accessibility,
+                screenCaptureConsentPending: false
+            ) == .dragIntoAccessibility
+        )
+        #expect(
+            ComputerUsePermissionCompanionMessage.resolve(
+                permissionStep: .screenRecording,
+                screenCaptureConsentPending: false
+            ) == .dragIntoScreenshots
+        )
+        #expect(
+            ComputerUsePermissionCompanionMessage.resolve(
+                permissionStep: .screenRecording,
+                screenCaptureConsentPending: true
+            ) == .confirmScreenCapture
+        )
+        #expect(
+            ComputerUsePermissionCompanionMessage.resolve(
+                permissionStep: .accessibility,
+                screenCaptureConsentPending: true
+            ) == .confirmScreenCapture
+        )
+    }
+
+    /// Regression: Tahoe's direct-capture consent follows the helper's code
+    /// signature. After a helper rebuild the cached ready flag must drop, so
+    /// onboarding re-presents and the system "bypass" alert appears with the
+    /// onboarding explanation instead of mid-session with none.
+    @Test @MainActor func replacingTheInstalledHelperInvalidatesDirectCaptureReady() throws {
+        let suiteName = "cmux.tests.directCapture.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let key = ComputerUseOnboardingWindowController.directCaptureReadyDefaultsKey
+        defaults.set(true, forKey: key)
+
+        ComputerUseOnboardingWindowController.invalidateDirectCaptureReady(in: defaults)
+
+        #expect(!defaults.bool(forKey: key))
+        #expect(
+            ComputerUseOnboardingWindowController.shouldPresentAutomatically(
+                seen: true,
+                featureEnabled: true,
+                permissionStatusIsKnown: true,
+                accessibilityGranted: true,
+                screenRecordingGranted: true,
+                directCaptureReady: defaults.bool(forKey: key)
+            )
+        )
+    }
+
+    @Test @MainActor func screenCaptureConsentPendingTracksTheProbe() {
+        let presentationState = ComputerUseOnboardingPresentationState()
+        #expect(!presentationState.screenCaptureConsentPending)
+
+        presentationState.beginScreenCaptureConsent()
+        #expect(presentationState.screenCaptureConsentPending)
+
+        presentationState.endScreenCaptureConsent()
+        #expect(!presentationState.screenCaptureConsentPending)
+    }
+
+    @Test func permissionCompanionUsesOneAlignmentGrid() {
+        let instructionLeadingEdge = ComputerUsePermissionCompanionLayout.horizontalInset
+            + ComputerUsePermissionCompanionLayout.leadingColumnWidth
+            + ComputerUsePermissionCompanionLayout.columnSpacing
+        let dragTileLeadingEdge = ComputerUsePermissionCompanionLayout.horizontalInset
+            + ComputerUsePermissionCompanionLayout.leadingColumnWidth
+            + ComputerUsePermissionCompanionLayout.columnSpacing
+
+        #expect(instructionLeadingEdge == dragTileLeadingEdge)
+        #expect(
+            ComputerUsePermissionCompanionLayout.verticalInset * 2
+                + ComputerUsePermissionCompanionLayout.headerHeight
+                + ComputerUsePermissionCompanionLayout.rowSpacing
+                + ComputerUsePermissionCompanionLayout.dragRowHeight
+                == ComputerUsePermissionCompanionLayout.size.height
+        )
+    }
+
+    @Test func permissionCompanionStartsSmallAndCenteredOverMainWindow() {
+        let mainFrame = NSRect(x: 100, y: 200, width: 600, height: 440)
+
+        let companionFrame = ComputerUseOnboardingWindowController
+            .permissionCompanionStartingFrame(centeredOver: mainFrame)
+
+        #expect(companionFrame.size == ComputerUsePermissionCompanionLayout.size)
+        #expect(companionFrame.midX == mainFrame.midX)
+        #expect(companionFrame.midY == mainFrame.midY)
     }
 
     @Test @MainActor func permissionCompanionTransitionAllowsIntermediateWindowFrames() {
@@ -1602,6 +1850,8 @@ struct ComputerUseUXTests {
             "cmux",
             "--idle-hide-ms",
             "1200",
+            "--cursor-speed",
+            "1.75",
         ])
         #expect(configuration.environment["CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW"] == "1")
         #expect(configuration.environment["CUA_DRIVER_RS_PERMISSIONS_GATE"] == "0")
@@ -1638,6 +1888,8 @@ struct ComputerUseUXTests {
             "cmux",
             "--idle-hide-ms",
             "1200",
+            "--cursor-speed",
+            "1.75",
         ])
         #expect(codexConfiguration.environment == configuration.environment)
     }

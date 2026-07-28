@@ -8,6 +8,17 @@ final class ComputerUseOnboardingPresentationState: ObservableObject {
     @Published private(set) var permissionCompanionVisible = false
     @Published private(set) var permissionCompanionLayoutReady = false
     @Published private(set) var onboardingComplete = false
+    /// True while the direct-capture probe can raise Tahoe's system consent
+    /// alert, so whichever presentation is on screen explains that alert.
+    @Published private(set) var screenCaptureConsentPending = false
+
+    func beginScreenCaptureConsent() {
+        screenCaptureConsentPending = true
+    }
+
+    func endScreenCaptureConsent() {
+        screenCaptureConsentPending = false
+    }
 
     func showPermissionCompanion() {
         guard !permissionCompanionVisible else { return }
@@ -64,10 +75,19 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
 
     static let seenDefaultsKey = "cmux.computerUse.onboarding.seen"
     static let directCaptureReadyDefaultsKey = "cmux.computerUse.directCapture.ready"
+
+    /// Drops the cached direct-capture verification. Called when the installed
+    /// helper build changes: Tahoe's consent is bound to the helper's code
+    /// signature, so a stale `true` would keep onboarding away while the system
+    /// alert fires at the next capture with no explanation on screen.
+    static func invalidateDirectCaptureReady(in userDefaults: UserDefaults) {
+        userDefaults.removeObject(forKey: directCaptureReadyDefaultsKey)
+    }
     static let completionDismissDelay: Duration = .seconds(2.4)
     nonisolated static let permissionCompanionGlideDuration: TimeInterval = 0.48
     private static let expandedWindowSize = NSSize(width: 600, height: 440)
-    private static let permissionCompanionWindowSize = NSSize(width: 472, height: 112)
+    nonisolated private static let permissionCompanionWindowSize =
+        ComputerUsePermissionCompanionLayout.size
     private static let expandedWindowStyleMask: NSWindow.StyleMask = [
         .titled,
         .closable,
@@ -76,6 +96,7 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
     private static let systemSettingsBundleIdentifier = "com.apple.systempreferences"
 
     private var window: ComputerUseOnboardingWindow?
+    private var permissionCompanionWindow: ComputerUseOnboardingWindow?
     private let runtimeService: ComputerUseRuntimeService
     private let userDefaults: UserDefaults
     private let permissionWindowPlacement = ComputerUseOnboardingWindowPlacement()
@@ -85,6 +106,7 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
     private var pendingPlacementRequestID: UUID?
     private var systemSettingsActivatedForPendingRequest = false
     private var pendingPermissionCompanionFrame: NSRect?
+    private var pendingPermissionStep: ComputerUseOnboardingStep?
     private var presentationState: ComputerUseOnboardingPresentationState?
     private var completionDismissTask: Task<Void, Never>?
     private var completionHandler: (@MainActor () -> Void)?
@@ -117,7 +139,9 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
             )
     }
 
-    var isVisible: Bool { window?.isVisible ?? false }
+    var isVisible: Bool {
+        (window?.isVisible ?? false) || (permissionCompanionWindow?.isVisible ?? false)
+    }
 
     func present(
         startingAt startingPoint: StartingPoint = .overview,
@@ -127,6 +151,7 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         stopSystemSettingsObservation()
         completionDismissTask?.cancel()
         completionDismissTask = nil
+        dismissPermissionCompanion()
         window?.close()
         completionHandler = onCompleted
         dismissalHandler = onDismissed
@@ -152,8 +177,8 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
             initialDirectCaptureReady: userDefaults.bool(
                 forKey: Self.directCaptureReadyDefaultsKey
             ),
-            onPermissionSetupStarted: { [weak self] in
-                self?.permissionSetupStarted()
+            onPermissionSetupStarted: { [weak self] permissionStep in
+                self?.permissionSetupStarted(for: permissionStep)
             },
             onPermissionCompanionLayoutReady: { [weak self] in
                 self?.permissionCompanionLayoutReady()
@@ -174,6 +199,9 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
+        // NSPanel hides on app deactivation by default; onboarding must stay
+        // visible beside System Settings while cmux is inactive.
+        window.hidesOnDeactivate = false
         window.isMovableByWindowBackground = false
         window.contentView = ComputerUseOnboardingHostingView(rootView: rootView)
         configureForExpandedOnboarding(
@@ -184,8 +212,9 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         return window
     }
 
-    private func permissionSetupStarted() {
+    private func permissionSetupStarted(for permissionStep: ComputerUseOnboardingStep) {
         guard let window else { return }
+        pendingPermissionStep = permissionStep
         permissionSettingsWillOpen()
         window.orderFrontRegardless()
     }
@@ -194,6 +223,7 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         stopSystemSettingsObservation()
         completionDismissTask?.cancel()
         completionDismissTask = nil
+        dismissPermissionCompanion()
         window?.close()
         window = nil
     }
@@ -203,6 +233,7 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
               closingWindow === window
         else { return }
         stopSystemSettingsObservation()
+        dismissPermissionCompanion()
         closingWindow.delegate = nil
         window = nil
         completionHandler = nil
@@ -221,6 +252,7 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         pendingPlacementRequestID = nil
         systemSettingsActivatedForPendingRequest = false
         pendingPermissionCompanionFrame = nil
+        pendingPermissionStep = nil
     }
 
     private func observeSystemSettingsActivation() {
@@ -275,20 +307,22 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
                   clock.now < deadline
             {
                 if let frame = permissionCompanionFrameInSystemSettings(),
-                   let window
+                   let window,
+                   let pendingPermissionStep
                 {
                     pendingPermissionCompanionFrame = frame
-                    // Remove titlebar chrome before SwiftUI reveals the compact
-                    // hierarchy. Otherwise one rendered frame puts the arrow
-                    // and instruction underneath the traffic-light buttons.
-                    prepareForPermissionCompanion(window)
-                    presentationState?.showPermissionCompanion()
+                    let startingFrame = Self.permissionCompanionStartingFrame(
+                        centeredOver: window.frame
+                    )
+                    configureForPermissionCompanion(
+                        window,
+                        permissionStep: pendingPermissionStep,
+                        frame: startingFrame
+                    )
                     systemSettingsPlacementRetryTask = nil
-                    // The compact view's onAppear is the deterministic layout
-                    // handshake. It starts the frame interpolation only after
-                    // SwiftUI has replaced the 600×440 content, preventing the
-                    // expanded permission cards from being squeezed into the
-                    // 472×112 destination during the glide.
+                    // The borderless companion's onAppear is the deterministic
+                    // layout handshake. Only that compact window moves; the
+                    // expanded onboarding window has already been ordered out.
                     if presentationState?.permissionCompanionLayoutReady == true {
                         permissionCompanionLayoutReady()
                     }
@@ -316,18 +350,22 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
             let requestID = pendingPlacementRequestID,
             let frame = pendingPermissionCompanionFrame,
             presentationState?.permissionCompanionLayoutReady == true,
-            let window
+            let companionWindow = permissionCompanionWindow
         else {
             return
         }
-        window.contentView?.layoutSubtreeIfNeeded()
-        window.displayIfNeeded()
+        companionWindow.contentView?.layoutSubtreeIfNeeded()
+        companionWindow.displayIfNeeded()
         guard pendingPlacementRequestID == requestID else { return }
         pendingPlacementRequestID = nil
         pendingPermissionCompanionFrame = nil
         systemSettingsActivatedForPendingRequest = false
-        positionPermissionCompanion(at: frame, animate: true) { [weak self, weak window] in
-            guard let self, let window, self.window === window else { return }
+        positionPermissionCompanion(at: frame, animate: true) { [weak self, weak companionWindow] in
+            guard
+                let self,
+                let companionWindow,
+                self.permissionCompanionWindow === companionWindow
+            else { return }
             self.beginSystemSettingsTracking()
         }
     }
@@ -365,18 +403,19 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         animate: Bool,
         completion: (() -> Void)? = nil
     ) {
-        guard let window else {
+        guard let permissionCompanionWindow else {
             completion?()
             return
         }
-        guard window.frame != frame else {
+        guard permissionCompanionWindow.frame != frame else {
             completion?()
             return
         }
-        configureForPermissionCompanion(
-            window,
-            frame: frame,
-            animate: animate && shouldAnimate(window),
+        permissionCompanionWindow.setAppKitOwnedFrame(
+            frame,
+            display: permissionCompanionWindow.isVisible,
+            animate: animate && shouldAnimate(permissionCompanionWindow),
+            duration: Self.permissionCompanionGlideDuration,
             completion: completion
         )
     }
@@ -464,6 +503,28 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         pendingPlacementRequestID = nil
         systemSettingsActivatedForPendingRequest = false
         pendingPermissionCompanionFrame = nil
+        pendingPermissionStep = nil
+        revealExpandedOnboarding(
+            window,
+            resetStep: resetStep,
+            completed: false
+        )
+        completion?()
+    }
+
+    /// Replaces the compact companion with the centered main onboarding window.
+    /// The companion closes immediately; there is deliberately no return glide.
+    func revealExpandedOnboarding(
+        _ window: ComputerUseOnboardingWindow,
+        resetStep: Bool,
+        completed: Bool
+    ) {
+        dismissPermissionCompanion()
+        if completed {
+            presentationState?.showCompletionInExpandedOnboarding()
+        } else {
+            presentationState?.requestExpandedPresentation(resetToOverview: resetStep)
+        }
         let visibleFrame = window.screen?.visibleFrame
             ?? NSScreen.main?.visibleFrame
             ?? window.frame
@@ -473,45 +534,10 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
             width: Self.expandedWindowSize.width,
             height: Self.expandedWindowSize.height
         )
-        let animate = shouldAnimate(window)
-            && presentationState?.permissionCompanionVisible == true
-        if animate {
-            // Keep the already-laid-out compact card during the frame glide.
-            // Swap in the expanded hierarchy only after the destination frame
-            // is stable, the inverse of the compact-layout handshake above.
-            window.setAppKitOwnedFrame(
-                expandedFrame,
-                display: true,
-                animate: true,
-                duration: Self.permissionCompanionGlideDuration
-            ) { [weak self, weak window] in
-                guard let self, let window, self.window === window else { return }
-                self.finishExpandedPresentation(
-                    window: window,
-                    frame: expandedFrame,
-                    resetStep: resetStep
-                )
-                completion?()
-            }
-        } else {
-            finishExpandedPresentation(
-                window: window,
-                frame: expandedFrame,
-                resetStep: resetStep
-            )
-            completion?()
-        }
-    }
-
-    private func finishExpandedPresentation(
-        window: ComputerUseOnboardingWindow,
-        frame: NSRect,
-        resetStep: Bool
-    ) {
-        configureForExpandedOnboarding(window, frame: frame, animate: false)
-        presentationState?.requestExpandedPresentation(resetToOverview: resetStep)
+        configureForExpandedOnboarding(window, frame: expandedFrame)
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
+        window.orderFrontRegardless()
     }
 
     private func onboardingCompleted() {
@@ -524,13 +550,15 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         pendingPlacementRequestID = nil
         systemSettingsActivatedForPendingRequest = false
         pendingPermissionCompanionFrame = nil
-        showExpandedOnboarding(resetStep: false) { [weak self] in
-            guard let self else { return }
-            self.userDefaults.set(true, forKey: Self.directCaptureReadyDefaultsKey)
-            self.presentationState?.showCompletionInExpandedOnboarding()
-            self.window?.orderFrontRegardless()
-            self.scheduleCompletionDismissal()
-        }
+        pendingPermissionStep = nil
+        userDefaults.set(true, forKey: Self.directCaptureReadyDefaultsKey)
+        guard let window else { return }
+        revealExpandedOnboarding(
+            window,
+            resetStep: false,
+            completed: true
+        )
+        scheduleCompletionDismissal()
     }
 
     private func scheduleCompletionDismissal() {
@@ -551,43 +579,123 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         }
     }
 
-    /// Applies the compact permission presentation while preserving the
-    /// expanded window's chrome and layout model.
-    ///
-    /// Changing style masks during a resize rebuilds AppKit's frame/content
-    /// relationship mid-animation. Keeping one style mask lets the move and
-    /// resize remain a single smooth transition.
+    /// Orders out the expanded onboarding window and presents an independent,
+    /// borderless permission companion at a fixed 472×112 frame.
     func configureForPermissionCompanion(
-        _ window: ComputerUseOnboardingWindow,
+        _ mainWindow: ComputerUseOnboardingWindow,
+        permissionStep: ComputerUseOnboardingStep = .accessibility,
         frame: NSRect,
         animate: Bool = false,
         completion: (() -> Void)? = nil
     ) {
-        prepareForPermissionCompanion(window)
-        window.setAppKitOwnedFrame(
+        prepareForPermissionCompanion(mainWindow)
+        if presentationState?.permissionCompanionVisible != true {
+            presentationState?.showPermissionCompanion()
+        }
+        dismissPermissionCompanion()
+        let companionWindow = makePermissionCompanionWindow(
+            permissionStep: permissionStep,
             frame,
-            display: window.isVisible,
-            animate: animate,
-            duration: Self.permissionCompanionGlideDuration,
-            completion: completion
+            mainWindow: mainWindow
         )
+        permissionCompanionWindow = companionWindow
+        companionWindow.orderFrontRegardless()
+        if animate && shouldAnimate(companionWindow) {
+            companionWindow.setAppKitOwnedFrame(
+                frame,
+                display: true,
+                animate: true,
+                duration: Self.permissionCompanionGlideDuration,
+                completion: completion
+            )
+        } else {
+            companionWindow.displayIfNeeded()
+            completion?()
+        }
     }
 
-    /// Applies compact chrome before the compact SwiftUI hierarchy is shown.
-    /// Keeping this separate from frame movement prevents the titlebar buttons
-    /// from appearing over the instruction while the view handshake settles.
+    /// Hides the main window before the companion appears. Its frame and chrome
+    /// remain untouched so revealing it later cannot expose a ghost titlebar.
     func prepareForPermissionCompanion(
         _ window: ComputerUseOnboardingWindow
     ) {
-        window.titleVisibility = .hidden
-        window.titlebarAppearsTransparent = true
-        window.hasShadow = true
-        window.isOpaque = false
-        window.backgroundColor = .clear
-        window.contentView?.wantsLayer = true
-        window.contentView?.layer?.cornerRadius = 14
-        window.contentView?.layer?.masksToBounds = true
-        configureStandardButtons(window, visible: false)
+        window.orderOut(nil)
+    }
+
+    private func makePermissionCompanionWindow(
+        permissionStep: ComputerUseOnboardingStep,
+        _ frame: NSRect,
+        mainWindow: ComputerUseOnboardingWindow
+    ) -> ComputerUseOnboardingWindow {
+        let rootView = ComputerUsePermissionCompanionView(
+            permissionStep: permissionStep,
+            presentationState: presentationState
+                ?? ComputerUseOnboardingPresentationState(),
+            applicationName: runtimeService.applicationName,
+            helperAppURL: runtimeService.helperAppURL,
+            helperIcon: runtimeService.presentationIcon,
+            onBack: { [weak self] in
+                guard let self else { return }
+                self.showExpandedOnboarding(resetStep: false)
+                Task { @MainActor [weak self] in
+                    _ = await self?.runtimeService.refreshHelperStatus()
+                }
+            },
+            onDragEnded: { [weak self] operation in
+                guard operation != [] else { return }
+                Task { @MainActor [weak self] in
+                    _ = await self?.runtimeService.refreshHelperStatus()
+                }
+            },
+            onLayoutReady: { [weak self] in
+                guard let self else { return }
+                if self.presentationState?.markPermissionCompanionLayoutReady() == true {
+                    self.permissionCompanionLayoutReady()
+                }
+            }
+        )
+        // Nonactivating: interacting with the companion (dragging the helper
+        // tile, pressing Back) must not activate cmux, or the main terminal
+        // window raises over the System Settings pane the user is working in.
+        let companionWindow = ComputerUseOnboardingWindow(
+            contentRect: NSRect(origin: .zero, size: Self.permissionCompanionWindowSize),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        companionWindow.identifier = NSUserInterfaceItemIdentifier(
+            "cmux.computerUse.onboarding.permissionCompanion"
+        )
+        companionWindow.isReleasedWhenClosed = false
+        companionWindow.becomesKeyOnlyIfNeeded = true
+        companionWindow.level = .floating
+        companionWindow.collectionBehavior = [.canJoinAllSpaces]
+        companionWindow.hidesOnDeactivate = false
+        companionWindow.hasShadow = true
+        companionWindow.isOpaque = false
+        companionWindow.backgroundColor = .clear
+        companionWindow.isMovable = false
+        companionWindow.contentView = ComputerUseOnboardingHostingView(rootView: rootView)
+        companionWindow.setAppKitOwnedFrame(frame, display: false)
+        companionWindow.appearance = mainWindow.appearance
+        return companionWindow
+    }
+
+    private func dismissPermissionCompanion() {
+        permissionCompanionWindow?.orderOut(nil)
+        permissionCompanionWindow?.close()
+        permissionCompanionWindow = nil
+    }
+
+    nonisolated static func permissionCompanionStartingFrame(
+        centeredOver mainFrame: NSRect
+    ) -> NSRect {
+        NSRect(
+            x: mainFrame.midX - permissionCompanionWindowSize.width / 2,
+            y: mainFrame.midY - permissionCompanionWindowSize.height / 2,
+            width: permissionCompanionWindowSize.width,
+            height: permissionCompanionWindowSize.height
+        )
     }
 
     private func configureForExpandedOnboarding(

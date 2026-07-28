@@ -2448,54 +2448,6 @@ final class TerminalKeyboardCopyModeViewportRowTests: XCTestCase {
         XCTAssertEqual(cursor, TerminalKeyboardCopyModeCursor(row: 0, column: 3))
     }
 
-    func testCursorSelectionXRangeUsesCellInteriorWhenAvailable() throws {
-        let range = try XCTUnwrap(
-            terminalKeyboardCopyModeCursorSelectionXRange(
-                rectMinX: 20,
-                rectMaxX: 30,
-                boundsWidth: 100
-            )
-        )
-
-        XCTAssertEqual(range.startX, 20.5, accuracy: 0.0001)
-        XCTAssertEqual(range.endX, 29.5, accuracy: 0.0001)
-    }
-
-    func testCursorSelectionXRangeKeepsNonzeroDragAtRightEdge() throws {
-        let range = try XCTUnwrap(
-            terminalKeyboardCopyModeCursorSelectionXRange(
-                rectMinX: 99.5,
-                rectMaxX: 120,
-                boundsWidth: 100
-            )
-        )
-
-        XCTAssertEqual(range.startX, 98, accuracy: 0.0001)
-        XCTAssertEqual(range.endX, 99, accuracy: 0.0001)
-    }
-
-    func testCursorSelectionXRangeKeepsNonzeroDragForCollapsedCellWidth() throws {
-        let range = try XCTUnwrap(
-            terminalKeyboardCopyModeCursorSelectionXRange(
-                rectMinX: 50,
-                rectMaxX: 50.4,
-                boundsWidth: 100
-            )
-        )
-
-        XCTAssertEqual(range.startX, 50.2, accuracy: 0.0001)
-        XCTAssertEqual(range.endX, 51.2, accuracy: 0.0001)
-    }
-
-    func testCursorSelectionXRangeReturnsNilWhenViewCannotExpressHorizontalDrag() {
-        XCTAssertNil(
-            terminalKeyboardCopyModeCursorSelectionXRange(
-                rectMinX: 0,
-                rectMaxX: 10,
-                boundsWidth: 1
-            )
-        )
-    }
 }
 
 
@@ -2576,6 +2528,52 @@ struct TerminalKeyboardCopyModeCursorSwiftTests {
     }
 }
 
+@Suite("Terminal keyboard copy mode cursor appearance")
+@MainActor
+struct TerminalKeyboardCopyModeCursorAppearanceTests {
+    @Test func cursorUsesAnUnfilledCellOutline() throws {
+        let surfaceView = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        let layer = try #require(surfaceView.keyboardCopyModeCursorOverlayView.layer)
+        let backgroundAlpha = layer.backgroundColor
+            .flatMap { NSColor(cgColor: $0)?.alphaComponent } ?? 0
+
+        #expect(backgroundAlpha == 0)
+        #expect(layer.borderWidth == 1)
+    }
+
+    @Test func cursorUsesGhosttyRuntimeSnapshotColor() {
+        let color = GhosttyNSView.keyboardCopyModeCursorColor(
+            red: 0x33,
+            green: 0x66,
+            blue: 0x99
+        )
+        #expect(color.hexString() == "#336699")
+    }
+
+    @Test func wideCursorOutlineSpansBothAlignedGridCells() {
+        let metrics = KeyboardCopyModeGridMetrics(
+            cellWidth: 9.5,
+            cellHeight: 18,
+            xInset: 4,
+            yInset: 6,
+            viewHeight: 200
+        )
+        let cell = KeyboardCopyModeResolvedCell(
+            cursor: TerminalKeyboardCopyModeCursor(row: 2, column: 3),
+            widthCells: 2,
+            color: .clear
+        )
+
+        #expect(
+            metrics.topOriginRect(for: cell)
+                == CGRect(x: 32.5, y: 42, width: 19, height: 18)
+        )
+        #expect(
+            metrics.appKitRect(for: cell)
+                == CGRect(x: 32.5, y: 140, width: 19, height: 18)
+        )
+    }
+}
 
 final class GhosttyBackgroundThemeTests: XCTestCase {
     func testColorClampsOpacity() {

@@ -14,7 +14,7 @@ struct ComputerUseOnboardingView: View {
     @ObservedObject var presentationState: ComputerUseOnboardingPresentationState
     let initialStep: ComputerUseOnboardingStep
     let initialDirectCaptureReady: Bool
-    let onPermissionSetupStarted: @MainActor () -> Void
+    let onPermissionSetupStarted: @MainActor (ComputerUseOnboardingStep) -> Void
     let onPermissionCompanionLayoutReady: @MainActor () -> Void
     let onExpandedRequested: @MainActor () -> Void
     let onOnboardingCompleted: @MainActor () -> Void
@@ -39,7 +39,7 @@ struct ComputerUseOnboardingView: View {
         presentationState: ComputerUseOnboardingPresentationState,
         initialStep: ComputerUseOnboardingStep = .overview,
         initialDirectCaptureReady: Bool = false,
-        onPermissionSetupStarted: @escaping @MainActor () -> Void = {},
+        onPermissionSetupStarted: @escaping @MainActor (ComputerUseOnboardingStep) -> Void = { _ in },
         onPermissionCompanionLayoutReady: @escaping @MainActor () -> Void = {},
         onExpandedRequested: @escaping @MainActor () -> Void = {},
         onOnboardingCompleted: @escaping @MainActor () -> Void = {}
@@ -149,6 +149,22 @@ struct ComputerUseOnboardingView: View {
         .frame(width: 600, height: 440)
     }
 
+    /// While the direct-capture probe is up, the system shows its "requesting
+    /// to bypass the system private window picker" alert — the hero line must
+    /// explain that alert instead of restating the two permissions.
+    private var heroDetail: String {
+        if directCaptureVerificationInFlight {
+            return String(
+                localized: "computerUse.onboarding.hero.confirmCapture",
+                defaultValue: "macOS is asking to confirm screen capture.\nChoose Allow in the system alert to finish setup."
+            )
+        }
+        return String(
+            localized: "computerUse.onboarding.hero.detail",
+            defaultValue: "cmux Computer Use needs these permissions to use apps on your Mac.\nThese permissions are used when you ask cmux to perform tasks."
+        )
+    }
+
     private var permissionOnboarding: some View {
         ZStack(alignment: .top) {
             VStack(spacing: 0) {
@@ -162,10 +178,7 @@ struct ComputerUseOnboardingView: View {
                 .font(.system(size: 26, weight: .bold))
                 .padding(.top, 15)
 
-                Text(String(
-                    localized: "computerUse.onboarding.hero.detail",
-                    defaultValue: "cmux Computer Use needs these permissions to use apps on your Mac.\nThese permissions are used when you ask cmux to perform tasks."
-                ))
+                Text(heroDetail)
                 .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(overviewSecondaryText)
                 .multilineTextAlignment(.center)
@@ -273,12 +286,25 @@ struct ComputerUseOnboardingView: View {
                     localized: "computerUse.onboarding.screenshots.short",
                     defaultValue: "Screenshots"
                 ),
-                detail: String(
-                    localized: "computerUse.onboarding.screenshots.cardDetail",
-                    defaultValue: "cmux uses screenshots to know where to click"
-                )
+                detail: screenshotsCardDetail
             )
         }
+    }
+
+    /// Once ordinary Screen Recording is on, the remaining blocker is Tahoe's
+    /// direct-capture consent alert — say so instead of re-explaining
+    /// screenshots while a scary system dialog is (or is about to be) up.
+    private var screenshotsCardDetail: String {
+        if permissionStatusIsKnown, screenRecordingGranted, !directCaptureReady {
+            return String(
+                localized: "computerUse.onboarding.screenshots.confirmDetail",
+                defaultValue: "macOS asks to confirm — allow screen capture"
+            )
+        }
+        return String(
+            localized: "computerUse.onboarding.screenshots.cardDetail",
+            defaultValue: "cmux uses screenshots to know where to click"
+        )
     }
 
     private func permissionCard(
@@ -409,159 +435,22 @@ struct ComputerUseOnboardingView: View {
     }
 
     private var permissionCompanion: some View {
-        permissionCompanionInstructions
-        .frame(width: 472, height: 112)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(
-                    Color(nsColor: .separatorColor).opacity(0.5),
-                    lineWidth: 0.5
-                )
-        }
-        .onAppear {
-            if presentationState.markPermissionCompanionLayoutReady() {
-                onPermissionCompanionLayoutReady()
-            }
-        }
-    }
-
-    private var permissionCompanionInstructions: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack(spacing: 10) {
-                Image(systemName: "arrow.up")
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(Color.accentColor)
-                    .frame(width: 26, height: 26)
-                    .background(
-                        Color.accentColor.opacity(0.12),
-                        in: Circle()
-                    )
-                    .accessibilityHidden(true)
-
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(permissionCompanionInstruction)
-                        .font(.callout.weight(.semibold))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.88)
-
-                    Text(permissionCompanionFollowUp)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                .accessibilityElement(children: .combine)
-
-                Spacer(minLength: 0)
-            }
-
-            HStack(spacing: 8) {
-                Button {
-                    onExpandedRequested()
-                    refreshPermissions()
-                } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 12, weight: .semibold))
-                        .frame(width: 30, height: 40)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-                .background(
-                    Color(nsColor: .controlBackgroundColor),
-                    in: RoundedRectangle(cornerRadius: 8, style: .continuous)
-                )
-                .overlay {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .strokeBorder(
-                            Color(nsColor: .separatorColor).opacity(0.45),
-                            lineWidth: 0.5
-                        )
-                }
-                .help(String(localized: "computerUse.onboarding.back", defaultValue: "Back"))
-                .accessibilityLabel(
-                    String(localized: "computerUse.onboarding.back", defaultValue: "Back")
-                )
-
-                helperDragTile
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-    }
-
-    /// A file-URL drag source accepted by the macOS permission lists.
-    private var helperDragTile: some View {
-        HStack(spacing: 8) {
-            Group {
-                if let helperIcon {
-                    Image(nsImage: helperIcon)
-                        .resizable()
-                        .interpolation(.high)
-                        .frame(width: 24, height: 24)
-                } else {
-                    Image(systemName: "app.dashed")
-                        .font(.system(size: 18))
-                        .frame(width: 24, height: 24)
+        ComputerUsePermissionCompanionView(
+            permissionStep: step,
+            presentationState: presentationState,
+            applicationName: runtimeService.applicationName,
+            helperAppURL: helperAppURL,
+            helperIcon: helperIcon,
+            onBack: {
+                onExpandedRequested()
+                refreshPermissions()
+            },
+            onDragEnded: handleHelperDragEnded,
+            onLayoutReady: {
+                if presentationState.markPermissionCompanionLayoutReady() {
+                    onPermissionCompanionLayoutReady()
                 }
             }
-            .accessibilityHidden(true)
-
-            Text(runtimeService.applicationName)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(.primary)
-                .lineLimit(1)
-
-            Spacer(minLength: 8)
-        }
-        .padding(.horizontal, 9)
-        .frame(maxWidth: .infinity, minHeight: 40, maxHeight: 40, alignment: .leading)
-        .background(
-            Color(nsColor: .controlBackgroundColor),
-            in: RoundedRectangle(cornerRadius: 8, style: .continuous)
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(
-                    Color(nsColor: .separatorColor).opacity(0.45),
-                    lineWidth: 0.5
-                )
-        }
-        .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay {
-            ComputerUseAppDragSource(
-                helperAppURL: helperAppURL,
-                helperIcon: helperIcon,
-                onDragEnded: handleHelperDragEnded
-            )
-            .accessibilityHidden(true)
-            .allowsHitTesting(helperAppURL != nil)
-        }
-        .help(String(
-            localized: "computerUse.onboarding.dragTooltip",
-            defaultValue: "Drag \(runtimeService.applicationName) into the permission list"
-        ))
-        .opacity(helperAppURL == nil ? 0.55 : 1)
-    }
-
-    private var permissionCompanionInstruction: String {
-        if step == .accessibility {
-            return String(
-                localized: "computerUse.onboarding.companion.accessibility",
-                defaultValue: "Drag \(runtimeService.applicationName) into Accessibility"
-            )
-        }
-        return String(
-            localized: "computerUse.onboarding.companion.screenRecording",
-            defaultValue: "Drag \(runtimeService.applicationName) into Screenshots"
-        )
-    }
-
-    private var permissionCompanionFollowUp: String {
-        String(
-            localized: "computerUse.onboarding.companion.turnOn",
-            defaultValue: "Then turn it on."
         )
     }
 
@@ -627,7 +516,7 @@ struct ComputerUseOnboardingView: View {
         step = permissionStep
         permissionSetupInFlight = true
         permissionCheckArmed = true
-        onPermissionSetupStarted()
+        onPermissionSetupStarted(permissionStep)
         Task { @MainActor in
             defer { permissionSetupInFlight = false }
             _ = await runtimeService.ensureStandaloneHelperInstalled()
@@ -777,8 +666,15 @@ struct ComputerUseOnboardingView: View {
         guard !directCaptureVerificationInFlight else { return }
         directCaptureVerificationAttempted = true
         directCaptureVerificationInFlight = true
+        // The probe can raise Tahoe's system consent alert. Flag it so the
+        // visible presentation explains the alert instead of surprising the
+        // user with "attempting to bypass" wording out of nowhere.
+        presentationState.beginScreenCaptureConsent()
         Task { @MainActor in
-            defer { directCaptureVerificationInFlight = false }
+            defer {
+                directCaptureVerificationInFlight = false
+                presentationState.endScreenCaptureConsent()
+            }
             let ready = await runtimeService.verifyDirectScreenCapture()
             guard !Task.isCancelled else { return }
             directCaptureReady = ready
@@ -792,6 +688,221 @@ struct ComputerUseOnboardingView: View {
                 step = .screenRecording
                 onExpandedRequested()
             }
+        }
+    }
+}
+
+enum ComputerUsePermissionCompanionLayout {
+    static let size = CGSize(width: 472, height: 112)
+    static let horizontalInset: CGFloat = 12
+    static let verticalInset: CGFloat = 8
+    static let leadingColumnWidth: CGFloat = 40
+    static let headerHeight: CGFloat = 48
+    static let dragRowHeight: CGFloat = 40
+    static let columnSpacing: CGFloat = 8
+    static let rowSpacing: CGFloat = 8
+}
+
+/// The borderless drag surface shown beside System Settings.
+///
+/// Both rows use the same fixed leading column and inter-column spacing, so
+/// the instruction text and app tile share an exact leading edge.
+@MainActor
+struct ComputerUsePermissionCompanionView: View {
+    let permissionStep: ComputerUseOnboardingStep
+    @ObservedObject var presentationState: ComputerUseOnboardingPresentationState
+    let applicationName: String
+    let helperAppURL: URL?
+    let helperIcon: NSImage?
+    let onBack: @MainActor () -> Void
+    let onDragEnded: @MainActor (NSDragOperation) -> Void
+    let onLayoutReady: @MainActor () -> Void
+
+    private var message: ComputerUsePermissionCompanionMessage {
+        ComputerUsePermissionCompanionMessage.resolve(
+            permissionStep: permissionStep,
+            screenCaptureConsentPending: presentationState.screenCaptureConsentPending
+        )
+    }
+
+    var body: some View {
+        VStack(spacing: ComputerUsePermissionCompanionLayout.rowSpacing) {
+            HStack(spacing: ComputerUsePermissionCompanionLayout.columnSpacing) {
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(Color.accentColor)
+                    .frame(width: 30, height: 30)
+                    .background(
+                        Color.accentColor.opacity(0.12),
+                        in: Circle()
+                    )
+                    .frame(
+                        width: ComputerUsePermissionCompanionLayout.leadingColumnWidth,
+                        height: ComputerUsePermissionCompanionLayout.headerHeight
+                    )
+                    .accessibilityHidden(true)
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(instruction)
+                        .font(.callout.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.88)
+
+                    Text(followUp)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                .frame(
+                    maxWidth: .infinity,
+                    minHeight: ComputerUsePermissionCompanionLayout.headerHeight,
+                    maxHeight: ComputerUsePermissionCompanionLayout.headerHeight,
+                    alignment: .leading
+                )
+                .accessibilityElement(children: .combine)
+            }
+
+            HStack(spacing: ComputerUsePermissionCompanionLayout.columnSpacing) {
+                Button(action: onBack) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 12, weight: .semibold))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .frame(
+                    width: ComputerUsePermissionCompanionLayout.leadingColumnWidth,
+                    height: ComputerUsePermissionCompanionLayout.dragRowHeight
+                )
+                .background(
+                    Color(nsColor: .controlBackgroundColor),
+                    in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(
+                            Color(nsColor: .separatorColor).opacity(0.45),
+                            lineWidth: 0.5
+                        )
+                }
+                .help(String(localized: "computerUse.onboarding.back", defaultValue: "Back"))
+                .accessibilityLabel(
+                    String(localized: "computerUse.onboarding.back", defaultValue: "Back")
+                )
+
+                helperDragTile
+            }
+        }
+        .padding(.horizontal, ComputerUsePermissionCompanionLayout.horizontalInset)
+        .padding(.vertical, ComputerUsePermissionCompanionLayout.verticalInset)
+        .frame(
+            width: ComputerUsePermissionCompanionLayout.size.width,
+            height: ComputerUsePermissionCompanionLayout.size.height
+        )
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(
+                    Color(nsColor: .separatorColor).opacity(0.5),
+                    lineWidth: 0.5
+                )
+        }
+        .onAppear(perform: onLayoutReady)
+    }
+
+    /// A file-URL drag source accepted by the macOS permission lists.
+    private var helperDragTile: some View {
+        HStack(spacing: 8) {
+            Group {
+                if let helperIcon {
+                    Image(nsImage: helperIcon)
+                        .resizable()
+                        .interpolation(.high)
+                        .frame(width: 24, height: 24)
+                } else {
+                    Image(systemName: "app.dashed")
+                        .font(.system(size: 18))
+                        .frame(width: 24, height: 24)
+                }
+            }
+            .accessibilityHidden(true)
+
+            Text(applicationName)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+
+            Spacer(minLength: 8)
+        }
+        .padding(.horizontal, 9)
+        .frame(
+            maxWidth: .infinity,
+            minHeight: ComputerUsePermissionCompanionLayout.dragRowHeight,
+            maxHeight: ComputerUsePermissionCompanionLayout.dragRowHeight,
+            alignment: .leading
+        )
+        .background(
+            Color(nsColor: .controlBackgroundColor),
+            in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(
+                    Color(nsColor: .separatorColor).opacity(0.45),
+                    lineWidth: 0.5
+                )
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            ComputerUseAppDragSource(
+                helperAppURL: helperAppURL,
+                helperIcon: helperIcon,
+                onDragEnded: onDragEnded
+            )
+            .accessibilityHidden(true)
+            .allowsHitTesting(helperAppURL != nil)
+        }
+        .help(String(
+            localized: "computerUse.onboarding.dragTooltip",
+            defaultValue: "Drag \(applicationName) into the permission list"
+        ))
+        .opacity(helperAppURL == nil ? 0.55 : 1)
+    }
+
+    private var instruction: String {
+        switch message {
+        case .dragIntoAccessibility:
+            String(
+                localized: "computerUse.onboarding.companion.accessibility",
+                defaultValue: "Drag \(applicationName) into Accessibility"
+            )
+        case .dragIntoScreenshots:
+            String(
+                localized: "computerUse.onboarding.companion.screenRecording",
+                defaultValue: "Drag \(applicationName) into Screenshots"
+            )
+        case .confirmScreenCapture:
+            String(
+                localized: "computerUse.onboarding.companion.confirmCapture",
+                defaultValue: "Allow screen capture in the macOS alert"
+            )
+        }
+    }
+
+    private var followUp: String {
+        switch message {
+        case .dragIntoAccessibility, .dragIntoScreenshots:
+            String(
+                localized: "computerUse.onboarding.companion.turnOn",
+                defaultValue: "Then turn it on."
+            )
+        case .confirmScreenCapture:
+            String(
+                localized: "computerUse.onboarding.companion.confirmCapture.detail",
+                defaultValue: "The system “bypass” warning is expected here."
+            )
         }
     }
 }

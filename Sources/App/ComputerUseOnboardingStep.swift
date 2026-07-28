@@ -44,6 +44,28 @@ enum ComputerUseOnboardingAdvance: Equatable, Sendable {
     }
 }
 
+/// What the compact permission companion should instruct beside System Settings.
+///
+/// While the direct-capture probe is in flight, macOS shows its own consent
+/// alert (worded as the helper "attempting to bypass the system private window
+/// picker"). The companion must explain that alert instead of still telling the
+/// user to drag the helper into a permission list it has already left.
+enum ComputerUsePermissionCompanionMessage: Equatable, Sendable {
+    case dragIntoAccessibility
+    case dragIntoScreenshots
+    case confirmScreenCapture
+
+    static func resolve(
+        permissionStep: ComputerUseOnboardingStep,
+        screenCaptureConsentPending: Bool
+    ) -> Self {
+        guard !screenCaptureConsentPending else { return .confirmScreenCapture }
+        return permissionStep == .accessibility
+            ? .dragIntoAccessibility
+            : .dragIntoScreenshots
+    }
+}
+
 /// The operation behind an Allow button in the expanded onboarding window.
 ///
 /// Once ordinary Screen Recording is granted, the same Screenshots row retries

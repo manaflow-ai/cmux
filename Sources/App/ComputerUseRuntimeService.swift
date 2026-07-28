@@ -800,6 +800,13 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         return result
     }
 
+    /// Invoked after an already-installed helper bundle is replaced by a
+    /// different build. Tahoe's direct-capture consent follows the helper's
+    /// code signature, so any cached "capture verified" state is stale the
+    /// moment the installed build changes and must be re-verified through
+    /// onboarding rather than surprising the user mid-session.
+    var helperBuildReplacedHandler: (@MainActor () -> Void)?
+
     private func ensureStandaloneHelperInstalledWithinLifecycle() async -> URL? {
         guard acceptsNewLaunches, !Task.isCancelled, prepareRuntimeForLaunch() else { return nil }
         guard let bundledHelperAppURL else { return nil }
@@ -819,6 +826,9 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         }
 
         guard await stopDaemon(), acceptsNewLaunches, !Task.isCancelled else { return nil }
+        let replacesExistingHelper = FileManager.default.fileExists(
+            atPath: destination.path
+        )
         let directory = paths.installedHelperDirectoryURL
         let installationTask = Task.detached(priority: .userInitiated) {
             Self.installHelper(
@@ -834,6 +844,9 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         }
         guard acceptsNewLaunches, !Task.isCancelled else { return nil }
         installedHelperURL = result
+        if result != nil, replacesExistingHelper {
+            helperBuildReplacedHandler?()
+        }
         return result
     }
 

@@ -3159,21 +3159,7 @@ final class Workspace: Identifiable, ObservableObject {
         bonsplitController.tabContextMoveDestinationsProvider = { [weak self] tabId, _ in
             self?.bonsplitTabMoveDestinations(for: tabId) ?? []
         }
-        bonsplitController.tabContextForkConversationAvailabilityProvider = { [weak self] tabId, _ in
-            guard let self,
-                  let panelId = self.panelIdFromSurfaceId(tabId) else { return .hidden }
-            switch self.forkAgentConversationContextMenuPresentationAvailability(forPanelId: panelId) {
-            case .available:
-                return .available
-            case .agentIndexRefreshing:
-                return .refreshing
-            case .notTerminalPanel,
-                 .noAgentSnapshot,
-                 .unsupported,
-                 .requiresProbe:
-                return .hidden
-            }
-        }
+        configureForkAgentConversationContextMenuAvailability()
         bonsplitController.tabContextForkConversationDefaultActionProvider = { _, _ in
             AgentConversationForkDefaultSettings.current().tabContextAction
         }
@@ -3495,6 +3481,7 @@ final class Workspace: Identifiable, ObservableObject {
         let reassertAppKitFocus: Bool
         let focusIntent: PanelFocusIntent?
         let resumeHibernatedAgent: Bool?
+        let focusTransactionId: UUID?
         let previousTerminalHostedView: GhosttySurfaceScrollView?
     }
     /// The coalesced pending tab-selection request; stored in the
@@ -3503,6 +3490,7 @@ final class Workspace: Identifiable, ObservableObject {
         get { surfaceRegistry.pendingTabSelection }
         set { surfaceRegistry.pendingTabSelection = newValue }
     }
+    private(set) var activeFocusTransactionId: UUID?
     private var isReconcilingFocusState = false
     private var focusReconcileScheduled = false
 #if DEBUG
@@ -9308,16 +9296,19 @@ final class Workspace: Identifiable, ObservableObject {
         _ panelId: UUID,
         previousHostedView: GhosttySurfaceScrollView? = nil,
         trigger: FocusPanelTrigger = .standard,
-        focusIntent: PanelFocusIntent? = nil
+        focusIntent: PanelFocusIntent? = nil,
+        focusTransactionId: UUID? = nil
     ) {
         guard !remoteTmuxMirrorInterceptsFocusPanel(panelId, previousHostedView: previousHostedView, trigger: trigger, focusIntent: focusIntent) else { return }
+        let effectiveFocusTransactionId = focusTransactionId ?? activeFocusTransactionId
         markExplicitFocusIntent(on: panelId)
 #if DEBUG
         let pane = bonsplitController.focusedPaneId?.id.uuidString.prefix(5) ?? "nil"
         let triggerLabel = trigger == .terminalFirstResponder ? "firstResponder" : "standard"
-        cmuxDebugLog("focus.panel panel=\(panelId.uuidString.prefix(5)) pane=\(pane) trigger=\(triggerLabel)")
+        let transactionLabel = effectiveFocusTransactionId.map { String($0.uuidString.prefix(5)) } ?? "nil"
+        cmuxDebugLog("focus.panel panel=\(panelId.uuidString.prefix(5)) pane=\(pane) trigger=\(triggerLabel) tx=\(transactionLabel)")
         AppDelegate.shared?.focusLog.append(
-            "Workspace.focusPanel panelId=\(panelId.uuidString) focusedPane=\(pane) trigger=\(triggerLabel)"
+            "Workspace.focusPanel panelId=\(panelId.uuidString) focusedPane=\(pane) trigger=\(triggerLabel) transactionId=\(transactionLabel)"
         )
 #endif
         guard let tabId = surfaceIdFromPanelId(panelId) else { return }
@@ -9378,6 +9369,7 @@ final class Workspace: Identifiable, ObservableObject {
                     inPane: targetPaneId,
                     reassertAppKitFocus: false,
                     focusIntent: activationIntent,
+                    focusTransactionId: effectiveFocusTransactionId,
                     previousTerminalHostedView: previousTerminalHostedView
                 )
             }
@@ -9416,6 +9408,7 @@ final class Workspace: Identifiable, ObservableObject {
                 reassertAppKitFocus: !shouldSuppressReentrantRefocus,
                 focusIntent: activationIntent,
                 resumeHibernatedAgent: true,
+                focusTransactionId: effectiveFocusTransactionId,
                 previousTerminalHostedView: previousTerminalHostedView
             )
         }
@@ -11174,15 +11167,18 @@ extension Workspace: BonsplitDelegate {
         reassertAppKitFocus: Bool = true,
         focusIntent: PanelFocusIntent? = nil,
         resumeHibernatedAgent: Bool? = nil,
+        focusTransactionId: UUID? = nil,
         previousTerminalHostedView: GhosttySurfaceScrollView? = nil
     ) {
         guard !remoteTmuxMirrorMutations.suppressesFocusActivation else { return }
+        let effectiveFocusTransactionId = focusTransactionId ?? activeFocusTransactionId
         pendingTabSelection = PendingTabSelectionRequest(
             tabId: tabId,
             pane: pane,
             reassertAppKitFocus: reassertAppKitFocus,
             focusIntent: focusIntent,
             resumeHibernatedAgent: resumeHibernatedAgent,
+            focusTransactionId: effectiveFocusTransactionId,
             previousTerminalHostedView: previousTerminalHostedView
         )
         guard !isApplyingTabSelection else { return }
@@ -11203,6 +11199,7 @@ extension Workspace: BonsplitDelegate {
                 reassertAppKitFocus: request.reassertAppKitFocus,
                 focusIntent: request.focusIntent,
                 resumeHibernatedAgent: request.resumeHibernatedAgent,
+                focusTransactionId: request.focusTransactionId,
                 previousTerminalHostedView: request.previousTerminalHostedView
             )
         }
@@ -11225,8 +11222,15 @@ extension Workspace: BonsplitDelegate {
         reassertAppKitFocus: Bool,
         focusIntent: PanelFocusIntent?,
         resumeHibernatedAgent: Bool?,
+        focusTransactionId: UUID?,
         previousTerminalHostedView: GhosttySurfaceScrollView?
     ) {
+        let transactionId = focusTransactionId ?? UUID()
+        let previousActiveFocusTransactionId = activeFocusTransactionId
+        activeFocusTransactionId = transactionId
+        defer {
+            activeFocusTransactionId = previousActiveFocusTransactionId
+        }
         let previousFocusedPanelId = focusedPanelId
         let previousPresentedDirectory = presentedCurrentDirectory
         let previousCurrentDirectory = currentDirectory
@@ -11334,7 +11338,8 @@ extension Workspace: BonsplitDelegate {
         activatePanel(
             panel,
             focusIntent: activationIntent,
-            reassertAppKitFocus: reassertAppKitFocus
+            reassertAppKitFocus: reassertAppKitFocus,
+            focusTransactionId: transactionId
         )
         let focusIntentAllowsBrowserOmnibarAutofocus =
             explicitFocusIntent ||
@@ -11363,7 +11368,8 @@ extension Workspace: BonsplitDelegate {
 #endif
                     terminalPanel.hostedView.moveFocus(
                         from: previousTerminalHostedView,
-                        respectForeignFirstResponder: true
+                        respectForeignFirstResponder: true,
+                        focusTransactionId: transactionId
                     )
                 }
 #if DEBUG
@@ -11373,7 +11379,11 @@ extension Workspace: BonsplitDelegate {
                     "tab=\(selectedTabId.uuid.uuidString.prefix(5)) intent=\(String(describing: activationIntent))"
                 )
 #endif
-                terminalPanel.hostedView.ensureFocus(for: id, surfaceId: panelId)
+                terminalPanel.hostedView.ensureFocus(
+                    for: id,
+                    surfaceId: panelId,
+                    focusTransactionId: transactionId
+                )
             }
         }
 
@@ -11397,12 +11407,13 @@ extension Workspace: BonsplitDelegate {
         // synchronously) so the `@Published` mutations above settle before any
         // observer runs, and so a notification-driven focus cycle (command-palette
         // restore + cross-workspace handoff) cannot synchronously re-enter
-        // applyTabSelectionNow and hang the main thread. See issue #5100.
+        // applyTabSelectionNow and hang the main thread. See issue #8843.
         FocusSurfaceBroadcaster.shared.emit(
             FocusSurfaceBroadcaster.FocusSurfacePayload(
                 workspaceId: self.id,
                 panelId: panelId,
-                explicitFocusIntent: explicitFocusIntent
+                explicitFocusIntent: explicitFocusIntent,
+                transactionId: transactionId
             )
         )
         publishCmuxFocusedSelection(paneId: focusedPane, surfaceId: panelId, origin: "bonsplit_selection")
@@ -11420,14 +11431,15 @@ extension Workspace: BonsplitDelegate {
     private func activatePanel(
         _ panel: any Panel,
         focusIntent: PanelFocusIntent,
-        reassertAppKitFocus: Bool
+        reassertAppKitFocus: Bool,
+        focusTransactionId: UUID? = nil
     ) {
         if let terminalPanel = panel as? TerminalPanel {
             let shouldFocusTerminalSurface = shouldMoveTerminalSurfaceFocus(for: focusIntent)
             terminalPanel.surface.setFocus(shouldFocusTerminalSurface)
             terminalPanel.hostedView.setActive(true)
             if reassertAppKitFocus && shouldFocusTerminalSurface {
-                terminalPanel.focus()
+                terminalPanel.focus(focusTransactionId: focusTransactionId)
             }
             return
         }

@@ -72,10 +72,28 @@ reopens the same pane. If macOS has not listed the helper yet, drag or add the
 **cmux Computer Use** app tile to the list, then turn it on. cmux reads status
 from the helper over its Unix socket, advances beside System Settings to the
 next missing permission, and shows completion in place once both are granted.
+On macOS Tahoe a third confirmation follows Screen Recording: the system's
+direct-capture consent, an alert that says **cmux Computer Use** "is attempting
+to bypass the system private window picker". That alert is expected — it comes
+from onboarding's host-authenticated capture probe, onboarding explains it in
+place, and the user must allow it before setup completes. Never "fix" it by
+suppressing the probe; without that consent, agent screenshots on Tahoe fail.
+The consent follows the helper's code signature, so every rebuilt (ad-hoc
+signed) dev helper re-triggers it: cmux invalidates its cached
+direct-capture-ready flag whenever it replaces the installed helper build,
+which re-presents onboarding so the alert always lands with its explanation.
 Do not invoke `check_permissions {prompt:true}` or any standalone driver while
 this flow is active: that creates the stray native permission dialogs this
 onboarding deliberately avoids. The main cmux process never calls a TCC API or
 executes the driver binary.
+
+A TCC prompt naming **Codex Computer Use** (`com.openai.sky.CUAService`) is
+not from cmux. The `codex` CLI ships its own computer-use helper; when codex
+runs inside a cmux terminal and pokes that helper with an Apple Event, macOS
+attributes the request to the responsible parent — the cmux app — so the
+dialog reads as cmux asking to control "Codex Computer Use". Nothing in cmux
+or its driver references that service; denying the prompt does not affect
+cmux computer use.
 
 If actions fail with a permission error, grant Accessibility to cmux Computer
 Use. If screenshots come back blank, grant Screen Recording to cmux Computer
