@@ -321,7 +321,9 @@ struct TextBoxPendingPasteReservationTests {
             replacementRange: textView.selectedRange()
         )
         let detectedAttachmentRange = (textView.string as NSString).range(
-            of: String(TextBoxInputTextView.attachmentReplacementCharacter)
+            of: String(
+                UnicodeScalar(NSTextAttachment.character)!
+            )
         )
         let attachmentRange = try #require(
             detectedAttachmentRange.location == NSNotFound
