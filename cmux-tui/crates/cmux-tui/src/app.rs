@@ -67,7 +67,7 @@ use crate::pty_input::{
 use crate::session::tree::{PaneView, ScreenView};
 use crate::session::{
     CLEAR_HISTORY_UNSUPPORTED_ERROR, ClientInfo, Session, SidebarPluginSurface, SurfaceHandle,
-    TreeView, is_remote_surface_unavailable, is_remote_timeout, is_remote_transport_failure,
+    TreeView, is_remote_timeout, is_remote_transport_failure, is_surface_unavailable,
 };
 use crate::sidebar_files::{FileBrowser, FileCommand, file_url, shell_single_quote};
 use crate::ui::graphics::GraphicPlacement;
@@ -1325,7 +1325,7 @@ impl OrderedSession {
                         drop(attach_claims);
                         Ok(())
                     }
-                    Err(error) if retired && is_remote_surface_unavailable(&error, id) => {
+                    Err(error) if retired && is_surface_unavailable(&error, id) => {
                         attach_failures.lock().unwrap().remove(&id);
                         pending.defer(SessionMutationOutcome::Success { tree: None });
                         drop(attach_claims);
@@ -1815,6 +1815,11 @@ impl OrderedSession {
                     Ok(_) => {
                         failures.lock().unwrap().remove(&surface_id);
                         committed_mutation_generation.fetch_add(1, Ordering::AcqRel);
+                        pending.defer(SessionMutationOutcome::Success { tree: None });
+                        Ok(())
+                    }
+                    Err(error) if is_surface_unavailable(&error, surface_id) => {
+                        failures.lock().unwrap().remove(&surface_id);
                         pending.defer(SessionMutationOutcome::Success { tree: None });
                         Ok(())
                     }
@@ -8227,6 +8232,16 @@ impl App {
                 || self.routing_refresh_pending)
             && !self.input_can_update_pending_mutation(&input)
         {
+            let passive = matches!(
+                &input,
+                TerminalInput::Mouse(MouseEvent {
+                    kind: MouseEventKind::Moved | MouseEventKind::Up(_),
+                    ..
+                })
+            );
+            if passive {
+                return Ok(RenderAction::None);
+            }
             self.status_message = Some(
                 localization::catalog()
                     .terminal

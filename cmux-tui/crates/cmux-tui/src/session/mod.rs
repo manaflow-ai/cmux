@@ -53,11 +53,12 @@ pub(crate) fn is_remote_timeout(error: &anyhow::Error) -> bool {
         .is_some_and(remote::RemoteRequestError::is_timeout)
 }
 
-pub(crate) fn is_remote_surface_unavailable(error: &anyhow::Error, surface: SurfaceId) -> bool {
+pub(crate) fn is_surface_unavailable(error: &anyhow::Error, surface: SurfaceId) -> bool {
     let expected = format!("unknown surface {surface}");
-    error
-        .downcast_ref::<remote::RemoteRequestError>()
-        .is_some_and(|error| error.rejection_message() == Some(expected.as_str()))
+    error.to_string() == expected
+        || error
+            .downcast_ref::<remote::RemoteRequestError>()
+            .is_some_and(|error| error.rejection_message() == Some(expected.as_str()))
 }
 
 fn normalize_remote_layout_undo_error(error: anyhow::Error) -> anyhow::Error {
@@ -1819,22 +1820,23 @@ mod tests {
     use cmux_tui_core::{LayoutUndoError, Mux, SurfaceOptions};
 
     use super::{
-        Session, is_remote_surface_unavailable, normalize_remote_layout_undo_error, resize_action,
+        Session, is_surface_unavailable, normalize_remote_layout_undo_error, resize_action,
         test_remote_rejected_error_with_code, test_remote_rejected_error_with_message,
         test_remote_transport_error,
     };
 
     #[test]
-    fn remote_surface_unavailable_matches_only_the_requested_surface_rejection() {
-        assert!(is_remote_surface_unavailable(
+    fn surface_unavailable_matches_local_or_requested_remote_surface() {
+        assert!(is_surface_unavailable(&anyhow::anyhow!("unknown surface 77"), 77));
+        assert!(is_surface_unavailable(
             &test_remote_rejected_error_with_message("unknown surface 77"),
             77
         ));
-        assert!(!is_remote_surface_unavailable(
+        assert!(!is_surface_unavailable(
             &test_remote_rejected_error_with_message("unknown surface 78"),
             77
         ));
-        assert!(!is_remote_surface_unavailable(&test_remote_transport_error(), 77));
+        assert!(!is_surface_unavailable(&test_remote_transport_error(), 77));
     }
 
     #[test]
