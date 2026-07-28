@@ -16,108 +16,106 @@ final class GotoSplitCycleUITests: XCTestCase {
         try? FileManager.default.removeItem(atPath: dataPath)
     }
 
+    override func tearDown() {
+        try? FileManager.default.removeItem(atPath: dataPath)
+        super.tearDown()
+    }
+
     // MARK: - Tests
 
     func testGotoSplitNextCyclesAllPanes() {
-        // Uses the Ghostty trigger loaded by the app for goto_split:next.
-        let (app, configCleanup) = launchWithThreePaneLayout()
-        defer { configCleanup() }
-
-        XCTAssertTrue(
-            waitForData(
-                keys: ["setupComplete", "allPaneIds", "focusedPaneId", "ghosttyGotoSplitNextShortcut"],
-                timeout: 10.0
-            ),
-            "Expected three-pane setup data to be written"
+        verifyCycleNavigation(
+            shortcutKey: "ghosttyGotoSplitNextShortcut",
+            directionName: "next",
+            step: 1
         )
-
-        guard let setup = loadData() else {
-            XCTFail("Missing setup data")
-            return
-        }
-        XCTAssertEqual(setup["paneCount"], "3", "Expected 3 panes")
-
-        let allPaneIds = Set(setup["allPaneIds"]!.split(separator: ",").map(String.init))
-        XCTAssertEqual(allPaneIds.count, 3, "Expected 3 distinct pane IDs")
-
-        let startPane = setup["focusedPaneId"]!
-        XCTAssertTrue(allPaneIds.contains(startPane), "Start pane should be in allPaneIds")
-        let nextShortcut = setup["ghosttyGotoSplitNextShortcut"] ?? ""
-        XCTAssertFalse(nextShortcut.isEmpty, "Expected Ghostty goto_split:next shortcut")
-
-        // Send goto_split:next 3 times — should visit all panes and wrap.
-        var visited = [startPane]
-        for i in 0..<3 {
-            typeShortcut(nextShortcut, in: app)
-
-            XCTAssertTrue(
-                waitForDataMatch(timeout: 3.0) { data in
-                    guard let focused = data["focusedPaneId"], !focused.isEmpty else { return false }
-                    return focused != visited.last
-                },
-                "Focus did not change after goto_split:next #\(i + 1)"
-            )
-
-            guard let data = loadData(), let focused = data["focusedPaneId"] else {
-                XCTFail("Missing focusedPaneId after goto_split:next #\(i + 1)")
-                return
-            }
-            visited.append(focused)
-        }
-
-        let visitedSet = Set(visited.prefix(3))
-        XCTAssertEqual(visitedSet, allPaneIds, "goto_split:next should visit all 3 panes")
-        XCTAssertEqual(visited[3], visited[0], "goto_split:next should wrap back to start")
     }
 
     func testGotoSplitPreviousCyclesAllPanes() {
-        // Uses the Ghostty trigger loaded by the app for goto_split:previous.
+        verifyCycleNavigation(
+            shortcutKey: "ghosttyGotoSplitPreviousShortcut",
+            directionName: "previous",
+            step: -1
+        )
+    }
+
+    private func verifyCycleNavigation(
+        shortcutKey: String,
+        directionName: String,
+        step: Int,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        // Uses the Ghostty trigger loaded by the app for goto_split:previous/next.
         let (app, configCleanup) = launchWithThreePaneLayout()
         defer { configCleanup() }
 
         XCTAssertTrue(
             waitForData(
-                keys: ["setupComplete", "allPaneIds", "focusedPaneId", "ghosttyGotoSplitPreviousShortcut"],
+                keys: ["setupComplete", "allPaneIds", "focusedPaneId", shortcutKey],
                 timeout: 10.0
             ),
-            "Expected three-pane setup data to be written"
+            "Expected three-pane setup data to be written",
+            file: file,
+            line: line
         )
 
         guard let setup = loadData() else {
-            XCTFail("Missing setup data")
+            XCTFail("Missing setup data", file: file, line: line)
             return
         }
-        XCTAssertEqual(setup["paneCount"], "3", "Expected 3 panes")
+        XCTAssertEqual(setup["paneCount"], "3", "Expected 3 panes", file: file, line: line)
 
-        let allPaneIds = Set(setup["allPaneIds"]!.split(separator: ",").map(String.init))
-        XCTAssertEqual(allPaneIds.count, 3, "Expected 3 distinct pane IDs")
+        guard let allPaneIdsRaw = setup["allPaneIds"] else {
+            XCTFail("Missing allPaneIds in setup data", file: file, line: line)
+            return
+        }
+        let orderedPaneIds = allPaneIdsRaw.split(separator: ",").map(String.init)
+        let allPaneIds = Set(orderedPaneIds)
+        XCTAssertEqual(allPaneIds.count, 3, "Expected 3 distinct pane IDs", file: file, line: line)
 
-        let startPane = setup["focusedPaneId"]!
-        let previousShortcut = setup["ghosttyGotoSplitPreviousShortcut"] ?? ""
-        XCTAssertFalse(previousShortcut.isEmpty, "Expected Ghostty goto_split:previous shortcut")
+        guard let startPane = setup["focusedPaneId"] else {
+            XCTFail("Missing focusedPaneId in setup data", file: file, line: line)
+            return
+        }
+        XCTAssertTrue(allPaneIds.contains(startPane), "Start pane should be in allPaneIds", file: file, line: line)
+        guard let startIndex = orderedPaneIds.firstIndex(of: startPane) else {
+            XCTFail("Start pane missing from ordered pane IDs", file: file, line: line)
+            return
+        }
+        let shortcut = setup[shortcutKey] ?? ""
+        XCTAssertFalse(shortcut.isEmpty, "Expected Ghostty goto_split:\(directionName) shortcut", file: file, line: line)
 
+        // Send the shortcut 3 times: visit all panes once, then wrap to the start.
         var visited = [startPane]
         for i in 0..<3 {
-            typeShortcut(previousShortcut, in: app)
+            typeShortcut(shortcut, in: app, file: file, line: line)
 
             XCTAssertTrue(
                 waitForDataMatch(timeout: 3.0) { data in
                     guard let focused = data["focusedPaneId"], !focused.isEmpty else { return false }
                     return focused != visited.last
                 },
-                "Focus did not change after goto_split:previous #\(i + 1)"
+                "Focus did not change after goto_split:\(directionName) #\(i + 1)",
+                file: file,
+                line: line
             )
 
             guard let data = loadData(), let focused = data["focusedPaneId"] else {
-                XCTFail("Missing focusedPaneId after goto_split:previous #\(i + 1)")
+                XCTFail("Missing focusedPaneId after goto_split:\(directionName) #\(i + 1)", file: file, line: line)
                 return
             }
             visited.append(focused)
         }
 
-        let visitedSet = Set(visited.prefix(3))
-        XCTAssertEqual(visitedSet, allPaneIds, "goto_split:previous should visit all 3 panes")
-        XCTAssertEqual(visited[3], visited[0], "goto_split:previous should wrap back to start")
+        let expectedVisited = (0...3).map { offset in
+            let rawIndex = startIndex + (step * offset)
+            let wrappedIndex = (rawIndex % orderedPaneIds.count + orderedPaneIds.count) % orderedPaneIds.count
+            return orderedPaneIds[wrappedIndex]
+        }
+        XCTAssertEqual(visited, expectedVisited, "goto_split:\(directionName) should cycle in ordered panes", file: file, line: line)
+        XCTAssertEqual(Set(visited.prefix(3)), allPaneIds, "goto_split:\(directionName) should visit all 3 panes", file: file, line: line)
+        XCTAssertEqual(visited[3], visited[0], "goto_split:\(directionName) should wrap back to start", file: file, line: line)
     }
 
     // MARK: - Launch Helpers
@@ -262,7 +260,14 @@ final class GotoSplitCycleUITests: XCTestCase {
         }
 
         if app.state == .runningForeground { return }
-        if app.state == .runningBackground { return }
+        if app.state == .runningBackground {
+            app.activate()
+            if waitForCondition(timeout: timeout, predicate: { app.state == .runningForeground }) {
+                return
+            }
+            XCTFail("App failed to enter foreground. state=\(app.state.rawValue)")
+            return
+        }
         XCTFail("App failed to start. state=\(app.state.rawValue)")
     }
 }

@@ -197,11 +197,15 @@ extension Workspace {
     }
 
     /// Cycles focus to the next or previous split pane in tree order, wrapping at the ends.
-    func cycleFocus(forward: Bool) {
-        let allPaneIds = bonsplitController.allPaneIds
+    @discardableResult
+    func cycleFocus(forward: Bool) -> Bool {
+        let panesById = Dictionary(
+            uniqueKeysWithValues: bonsplitController.allPaneIds.map { ($0.id, $0) }
+        )
+        let allPaneIds = spatiallyOrderedPaneIds.compactMap { panesById[$0] }
         guard allPaneIds.count > 1,
               let currentId = bonsplitController.focusedPaneId,
-              let currentIndex = allPaneIds.firstIndex(of: currentId) else { return }
+              let currentIndex = allPaneIds.firstIndex(of: currentId) else { return false }
 
         if let previousPanelId = focusedPanelId,
            let previousPanel = panels[previousPanelId] {
@@ -217,6 +221,7 @@ extension Workspace {
            let tabId = bonsplitController.selectedTab(inPane: paneId)?.id {
             applyTabSelection(tabId: tabId, inPane: paneId)
         }
+        return true
     }
 
     /// Moves the selected surface within its focused split or Canvas pane

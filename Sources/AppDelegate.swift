@@ -10721,7 +10721,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         var resolved = false
         let deadline = Date().addingTimeInterval(6.0)
 
-        func checkAndSignal() {
+        func checkAndSignal(notification: Notification? = nil) {
             guard !resolved else { return }
             guard Date() < deadline else {
                 if let observer { NotificationCenter.default.removeObserver(observer) }
@@ -10729,18 +10729,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 self.writeGotoSplitTestData(["setupError": "Timed out waiting for terminal focus"])
                 return
             }
+            if let notifiedTabId = notification?.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
+               notifiedTabId != tab.id {
+                return
+            }
             guard let focusedPanelId = tab.focusedPanelId,
-                  tab.terminalPanel(for: focusedPanelId) != nil,
-                  let window = NSApp.mainWindow ?? NSApp.keyWindow,
-                  window.firstResponder is NSView else {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { checkAndSignal() }
+                  let terminalPanel = tab.terminalPanel(for: focusedPanelId),
+                  let window = terminalPanel.hostedView.window,
+                  let firstResponder = window.firstResponder,
+                  terminalPanel.hostedView.responderMatchesPreferredKeyboardFocus(firstResponder) else {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { checkAndSignal(notification: nil) }
                 return
             }
 
             if let observer { NotificationCenter.default.removeObserver(observer) }
             resolved = true
 
-            let allPaneIds = tab.bonsplitController.allPaneIds.map(\.description)
+            let allPaneIds = tab.spatiallyOrderedPaneIds.map(\.uuidString)
             let focusedPaneId = tab.bonsplitController.focusedPaneId?.description ?? ""
 
             self.writeGotoSplitTestData([
@@ -10757,10 +10762,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             forName: .ghosttyDidFocusSurface,
             object: nil,
             queue: .main
-        ) { _ in checkAndSignal() }
+        ) { notification in checkAndSignal(notification: notification) }
 
         // Also poll in case the notification already fired before we observed.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { checkAndSignal() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { checkAndSignal(notification: nil) }
     }
 
     private func setupBonsplitTabDragUITestIfNeeded() {
@@ -14101,9 +14106,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchesGhosttyGotoSplitPreviousShortcut(event) {
-            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: NSApp.keyWindow); tabManager?.cyclePaneFocus(forward: false)
+            let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: NSApp.keyWindow)
+            let moved = routedTabs?.cyclePaneFocus(forward: false) ?? false
 #if DEBUG
-            if let workspace = tabManager?.selectedWorkspace {
+            if moved, let workspace = routedTabs?.selectedWorkspace {
                 recordGotoSplitCycleMoveIfNeeded(tabId: workspace.id, forward: false)
             }
 #endif
@@ -14111,9 +14118,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchesGhosttyGotoSplitNextShortcut(event) {
-            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: NSApp.keyWindow); tabManager?.cyclePaneFocus(forward: true)
+            let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: NSApp.keyWindow)
+            let moved = routedTabs?.cyclePaneFocus(forward: true) ?? false
 #if DEBUG
-            if let workspace = tabManager?.selectedWorkspace {
+            if moved, let workspace = routedTabs?.selectedWorkspace {
                 recordGotoSplitCycleMoveIfNeeded(tabId: workspace.id, forward: true)
             }
 #endif
