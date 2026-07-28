@@ -35,6 +35,34 @@ struct CmuxTopMemoryAttributionTests {
         #expect(!row.detail.contains(secondWorkspaceID.uuidString))
     }
 
+    @Test func commonOwnerPreservesMatchingSurfaceWithoutPaneMetadata() throws {
+        let surfaceID = UUID(uuidString: "33333333-3333-3333-3333-333333333333")!
+        let first = owner(workspaceID: firstWorkspaceID, surfaceID: surfaceID)
+        let second = owner(workspaceID: firstWorkspaceID, surfaceID: surfaceID)
+
+        let common = try #require(first.commonOwner(with: second))
+
+        #expect(common.workspaceID == firstWorkspaceID)
+        #expect(common.surfaceID == surfaceID)
+    }
+
+    @Test func commonOwnerWidensDifferentSurfacesToWorkspace() throws {
+        let first = owner(
+            workspaceID: firstWorkspaceID,
+            surfaceID: UUID(uuidString: "33333333-3333-3333-3333-333333333333")!
+        )
+        let second = owner(
+            workspaceID: firstWorkspaceID,
+            surfaceID: UUID(uuidString: "44444444-4444-4444-4444-444444444444")!
+        )
+
+        let common = try #require(first.commonOwner(with: second))
+
+        #expect(common.workspaceID == firstWorkspaceID)
+        #expect(common.paneID == nil)
+        #expect(common.surfaceID == nil)
+    }
+
     private func memoryDiagnosticPayload() -> [String: Any] {
         let appPID = 100
         let firstHelperPID = 101
@@ -95,6 +123,21 @@ struct CmuxTopMemoryAttributionTests {
             surfaceRef: nil,
             surfaceType: nil,
             reason: "surface-process-tree"
+        )
+    }
+
+    private func owner(
+        workspaceID: UUID,
+        surfaceID: UUID
+    ) -> CmuxTopProcessOwner {
+        CmuxTopProcessOwner(
+            workspaceID: workspaceID,
+            workspaceRef: nil,
+            paneID: nil,
+            paneRef: nil,
+            surfaceID: surfaceID,
+            surfaceRef: nil,
+            surfaceType: "terminal"
         )
     }
 }
