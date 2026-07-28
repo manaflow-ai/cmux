@@ -43,10 +43,16 @@ export const IROH_RELAY_RESERVATION_LEASE_MS = 60 * 1_000;
 // slot would push the count over the cap, that registration is REJECTED
 // (`enforceActiveBindingSanityCap` throws IrohQuotaExceededError); the row set is
 // never evicted, so a churning client can never shed the account's real hosts.
-// The value sits comfortably above any legitimate multi-tag developer's active
-// slot count (low hundreds) while still catching a runaway registration loop,
-// which blows past it almost immediately.
-export const IROH_ACTIVE_BINDING_SANITY_CAP = 512;
+//
+// The cap is pinned to the client's discovery-snapshot wire limit: the iOS
+// decoder (CmxIrohDiscoveryResponse.maximumBindingCount) rejects any snapshot
+// carrying MORE than 256 bindings, and discoverySnapshot returns every active
+// binding for the account uncapped. Admitting a 257th active binding would make
+// the account's own discovery response undecodable on every client, wedging all
+// of that user's devices, so the broker refuses to grow past what the client can
+// receive. It still sits far above any legitimate multi-tag developer's slot
+// count while catching a runaway registration loop, which blows past it at once.
+export const IROH_ACTIVE_BINDING_SANITY_CAP = 256;
 
 export type IrohRetentionCategory =
   | "revokedHints"
@@ -315,9 +321,13 @@ function makeLiveRepository(): IrohRepositoryShape {
         // second and overwrite — or reincarnate away — the newer incarnation,
         // reintroducing an out-of-order wedge. A live heartbeat's own challenge is
         // always newer than the row it refreshes, so it passes; only a delayed or
-        // replayed older challenge trips this. registeredAt is stable across
-        // heartbeats (only reincarnation/insert stamps it to now), so it is the
-        // correct high-water mark to compare against.
+        // replayed older challenge trips this. registeredAt is the mint time of
+        // the newest challenge that has landed: every applied registration —
+        // insert, reincarnation, AND in-place heartbeat — stamps it to its own
+        // challenge.createdAt, so it is a monotonic high-water mark. (If a
+        // heartbeat left registeredAt frozen at the original insert, two reversed
+        // heartbeats would both clear this gate and the older one would clobber
+        // the newer refresh.)
         if (existingSlot && challenge.createdAt < existingSlot.registeredAt) {
           throw new IrohConflictError({ code: "challenge_superseded" });
         }
@@ -367,6 +377,12 @@ function makeLiveRepository(): IrohRepositoryShape {
               pathHintsNextExpiry: nextPathHintExpiry(accountPrivatePathHints),
               lastSeenAt: input.now,
               updatedAt: input.now,
+              // Advance the slot's registration high-water mark to this
+              // challenge's mint time so a later-landing OLDER heartbeat is
+              // rejected by the staleness gate instead of overwriting this
+              // refresh. The gate above guarantees challenge.createdAt >=
+              // existingSlot.registeredAt, so this only ever moves forward.
+              registeredAt: challenge.createdAt,
             })
             .where(eq(irohEndpointBindings.id, existingSlot.id))
             .returning();
