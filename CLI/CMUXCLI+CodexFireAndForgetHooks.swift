@@ -108,7 +108,7 @@ extension CMUXCLI {
         ) else {
             return []
         }
-        let repository = codexRepositoryDecisionRoots(
+        let repository = await codexRepositoryDecisionRoots(
             currentDirectory: effectiveDirectory
         )
         guard repository.resolved else {
@@ -401,9 +401,10 @@ extension CMUXCLI {
     /// invocation-only override cannot hide an authoritative root decision.
     private func codexRepositoryDecisionRoots(
         currentDirectory: String
-    ) -> (resolved: Bool, roots: [String]) {
-        let result = CLIProcessRunner.runProcess(
-            executablePath: "/usr/bin/env",
+    ) async -> (resolved: Bool, roots: [String]) {
+        let result = await CommandRunner().run(
+            directory: currentDirectory,
+            executable: "/usr/bin/env",
             arguments: [
                 "LC_ALL=C",
                 "/usr/bin/git",
@@ -417,8 +418,10 @@ extension CMUXCLI {
             ],
             timeout: 1
         )
-        if result.status == 0, !result.timedOut {
-            let paths = result.stdout
+        if result.executionError == nil,
+           result.exitStatus == 0,
+           !result.timedOut {
+            let paths = (result.stdout ?? "")
                 .split(whereSeparator: \.isNewline)
                 .compactMap { normalizedHookValue(String($0)) }
             guard paths.count == 3,
@@ -453,9 +456,10 @@ extension CMUXCLI {
             return (true, Array(Set(roots)).sorted())
         }
 
-        guard !result.timedOut,
-              result.status == 128,
-              result.stderr.contains("not a git repository"),
+        guard result.executionError == nil,
+              !result.timedOut,
+              result.exitStatus == 128,
+              (result.stderr ?? "").contains("not a git repository"),
               !codexRepositoryEnvironmentIsConfigured(),
               !codexRepositoryMarkerExists(currentDirectory: currentDirectory) else {
             return (false, [])
