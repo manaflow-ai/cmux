@@ -99,7 +99,7 @@ function hookEnvironment(cwd: string): NodeJS.ProcessEnv {
 
 function isRootSession(ctx: ExtensionContext): boolean {
   if (firstString(process.env.GJC_TEAM_WORKER, process.env.GJC_TEAM_INTERNAL_WORKER)) return false;
-  return ctx.sessionMetadata?.kind !== "sub";
+  return ctx.sessionMetadata?.kind === "main";
 }
 
 interface HookInvocation {
@@ -178,37 +178,37 @@ async function sendHook(
   subcommand: string,
   ctx: ExtensionContext,
   extra: Record<string, unknown> = {},
-): Promise<void> {
+): Promise<boolean> {
   const invocation = hookInvocation(subcommand, ctx, extra);
-  if (!invocation) return;
-  await new Promise<void>((resolve) => {
+  if (!invocation) return false;
+  return await new Promise<boolean>((resolve) => {
     let settled = false;
     let timeout: ReturnType<typeof setTimeout> | null = null;
-    const settle = () => {
+    const settle = (delivered: boolean) => {
       if (settled) return;
       settled = true;
       if (timeout) clearTimeout(timeout);
-      resolve();
+      resolve(delivered);
     };
     try {
       const child = spawn(invocation.cmux, ["hooks", "gajae-code", subcommand], {
         env: invocation.env,
         stdio: ["pipe", "ignore", "ignore"],
       });
-      child.on("error", settle);
-      child.stdin.on("error", settle);
+      child.on("error", () => settle(false));
+      child.stdin.on("error", () => settle(false));
       // Session switches must reach cmux in event order so an older session
       // cannot win the surface binding race after a newer one.
-      child.on("close", settle);
+      child.on("close", (code) => settle(code === 0));
       timeout = setTimeout(() => {
         try {
           child.kill("SIGTERM");
         } catch (_) {}
-        settle();
+        settle(false);
       }, 5000);
       child.stdin.end(invocation.payload);
     } catch (_) {
-      settle();
+      settle(false);
     }
   });
 }
@@ -218,14 +218,14 @@ async function bindCurrentSession(ctx: ExtensionContext): Promise<void> {
   const nextSessionId = firstString(ctx.sessionManager.getSessionId());
   if (!nextSessionId) return;
   const previousSessionId = activeSessionId;
-  activeSessionId = nextSessionId;
-  await sendHook(
+  const delivered = await sendHook(
     "session-start",
     ctx,
     previousSessionId && previousSessionId !== nextSessionId
       ? { previous_session_id: previousSessionId }
       : {},
   );
+  if (delivered) activeSessionId = nextSessionId;
 }
 
 export default function cmuxGajaeCodeSessionExtension(api: ExtensionAPI) {

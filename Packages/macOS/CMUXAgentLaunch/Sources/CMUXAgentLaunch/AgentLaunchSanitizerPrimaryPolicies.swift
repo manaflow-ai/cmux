@@ -294,7 +294,6 @@ extension AgentLaunchSanitizer {
         booleanOptions: [
             "--allow-home",
             "--continue",
-            "--default",
             "--no-lsp",
             "--no-pty",
             "--no-rules",
@@ -334,6 +333,7 @@ extension AgentLaunchSanitizer {
             "--continue",
             "--credential",
             "--cwd",
+            "--default",
             "--fork",
             "--provider-session-id",
             "--resume",

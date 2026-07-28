@@ -1431,6 +1431,32 @@ final class ClaudeHookSessionStore {
         }
     }
 
+    /// Removes a superseded session record only when it still belongs to the
+    /// expected pane. This intentionally leaves active-session indexes alone:
+    /// callers use it after promoting the replacement session, so clearing an
+    /// index here could erase that newer binding.
+    @discardableResult
+    func removeSessionIfMatchingAddress(
+        sessionId: String,
+        workspaceId: String,
+        surfaceId: String
+    ) throws -> ClaudeHookSessionRecord? {
+        let normalizedSessionId = normalizeSessionId(sessionId)
+        guard !normalizedSessionId.isEmpty,
+              let normalizedWorkspaceId = normalizeOptional(workspaceId),
+              let normalizedSurfaceId = normalizeOptional(surfaceId) else {
+            return nil
+        }
+        return try withLockedState { state in
+            guard let existing = state.sessions[normalizedSessionId],
+                  normalizeOptional(existing.workspaceId) == normalizedWorkspaceId,
+                  normalizeOptional(existing.surfaceId) == normalizedSurfaceId else {
+                return nil
+            }
+            return state.sessions.removeValue(forKey: normalizedSessionId)
+        }
+    }
+
     private func hasActiveTurnMismatch(
         _ state: ClaudeHookSessionStoreFile,
         record: ClaudeHookSessionRecord,
@@ -30830,14 +30856,11 @@ export default CMUXSessionRestore;
                        in: rawObject,
                        keys: ["previous_session_id", "previousSessionId"]
                    ),
-                   previousSessionId != sessionId,
-                   let previousRecord = try? store.lookup(sessionId: previousSessionId),
-                   previousRecord.workspaceId == workspaceId,
-                   previousRecord.surfaceId == surfaceId {
+                   previousSessionId != sessionId {
                     // GJC can switch or branch sessions without replacing the
                     // agent process. Retire the old record after the new one is
                     // stored, but keep the surface binding alive for the new ID.
-                    _ = try? store.consume(
+                    _ = try? store.removeSessionIfMatchingAddress(
                         sessionId: previousSessionId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId

@@ -62,6 +62,7 @@ def verify_hook_persistence(cli_path: str, root: Path, base_env: dict[str, str])
     surface_id = "22222222-2222-2222-2222-222222222222"
     first_session_id = "gjc-hook-session-old"
     final_session_id = "gjc-hook-session-new"
+    foreign_session_id = "gjc-hook-session-foreign"
     tmux_session = "gajae_code_cmux_restore"
     socket_path = Path("/tmp") / f"cmux-gjc-hook-{os.getpid()}-{time.monotonic_ns()}.sock"
     launch_argv = [
@@ -106,20 +107,47 @@ def verify_hook_persistence(cli_path: str, root: Path, base_env: dict[str, str])
 
     with MockCmuxSocket(socket_path, workspace_id=workspace_id, surface_id=surface_id) as server:
         first = run_hook(cli_path, hook_env, first_session_id)
-        second = run_hook(cli_path, hook_env, final_session_id, previous_session_id=first_session_id)
-        if first.returncode != 0 or first.stdout != "{}\n" or second.returncode != 0 or second.stdout != "{}\n":
+        store_path = hook_state_dir / "gajae-code-hook-sessions.json"
+        seeded_store = json.loads(store_path.read_text(encoding="utf-8"))
+        now = time.time()
+        seeded_store["sessions"][foreign_session_id] = {
+            "sessionId": foreign_session_id,
+            "workspaceId": "foreign-workspace",
+            "surfaceId": "foreign-surface",
+            "cwd": str(workspace),
+            "startedAt": now,
+            "updatedAt": now,
+        }
+        store_path.write_text(json.dumps(seeded_store), encoding="utf-8")
+
+        second = run_hook(
+            cli_path,
+            hook_env,
+            final_session_id,
+            previous_session_id=first_session_id,
+        )
+        third = run_hook(
+            cli_path,
+            hook_env,
+            final_session_id,
+            previous_session_id=foreign_session_id,
+        )
+        results = [first, second, third]
+        if any(result.returncode != 0 or result.stdout != "{}\n" for result in results):
             print("FAIL: Gajae Code session-start persistence command failed")
-            print(f"first={first.returncode} stdout={first.stdout!r} stderr={first.stderr!r}")
-            print(f"second={second.returncode} stdout={second.stdout!r} stderr={second.stderr!r}")
+            for index, result in enumerate(results, start=1):
+                print(
+                    f"hook {index}={result.returncode} "
+                    f"stdout={result.stdout!r} stderr={result.stderr!r}"
+                )
             return False
         deadline = time.monotonic() + 5
         while time.monotonic() < deadline:
-            if len(json_rpc_messages(server.messages(), "surface.resume.set")) >= 2:
+            if len(json_rpc_messages(server.messages(), "surface.resume.set")) >= 3:
                 break
             time.sleep(0.05)
         messages = server.messages()
 
-    store_path = hook_state_dir / "gajae-code-hook-sessions.json"
     try:
         store = json.loads(store_path.read_text(encoding="utf-8"))
         sessions = store["sessions"]
@@ -131,6 +159,9 @@ def verify_hook_persistence(cli_path: str, root: Path, base_env: dict[str, str])
         return False
     if first_session_id in sessions:
         print(f"FAIL: switched Gajae Code session was not retired: {sessions!r}")
+        return False
+    if foreign_session_id not in sessions:
+        print(f"FAIL: mismatched previous Gajae Code session was retired: {sessions!r}")
         return False
 
     expected_fields = {
@@ -186,8 +217,8 @@ def verify_hook_persistence(cli_path: str, root: Path, base_env: dict[str, str])
             return False
 
     resume_sets = json_rpc_messages(messages, "surface.resume.set")
-    if len(resume_sets) != 2:
-        print(f"FAIL: expected two surface.resume.set calls, saw {messages!r}")
+    if len(resume_sets) != 3:
+        print(f"FAIL: expected three surface.resume.set calls, saw {messages!r}")
         return False
     params = resume_sets[-1].get("params")
     if not isinstance(params, dict):
@@ -272,13 +303,19 @@ def main() -> int:
             """#!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$*" >> "$FAKE_CMUX_ARGS_LOG"
-cat >> "$FAKE_CMUX_STDIN_LOG"
-echo >> "$FAKE_CMUX_STDIN_LOG"
+payload="$(cat)"
+printf '%s\n' "$payload" >> "$FAKE_CMUX_STDIN_LOG"
 printf 'kind=%s\tcwd=%s\targv=%s\ttmux=%s\n' \
   "${CMUX_AGENT_LAUNCH_KIND-}" \
   "${CMUX_AGENT_LAUNCH_CWD-}" \
   "${CMUX_AGENT_LAUNCH_ARGV_B64-}" \
   "${GJC_TMUX_SESSION-}" >> "$FAKE_CMUX_ENV_LOG"
+if [[ -n "${FAKE_CMUX_FAIL_ONCE_SESSION-}" \
+  && "$payload" == *"${FAKE_CMUX_FAIL_ONCE_SESSION}"* \
+  && ! -e "$FAKE_CMUX_FAIL_ONCE_FLAG" ]]; then
+  : > "$FAKE_CMUX_FAIL_ONCE_FLAG"
+  exit 17
+fi
 """,
         )
 
@@ -291,6 +328,8 @@ printf 'kind=%s\tcwd=%s\targv=%s\ttmux=%s\n' \
                 "FAKE_CMUX_ARGS_LOG": str(fake_args_log),
                 "FAKE_CMUX_STDIN_LOG": str(fake_stdin_log),
                 "FAKE_CMUX_ENV_LOG": str(fake_env_log),
+                "FAKE_CMUX_FAIL_ONCE_SESSION": "gjc-session-d",
+                "FAKE_CMUX_FAIL_ONCE_FLAG": str(root / "fake-cmux-failed-once"),
                 "GJC_TMUX_ACTIVE_SESSION": "gajae_code_live_123",
                 "CMUX_AGENT_LAUNCH_KIND": "claude",
                 "CMUX_AGENT_LAUNCH_ARGV_B64": "inherited-ancestor-capture",
@@ -332,6 +371,13 @@ sessionId = "gjc-session-b";
 await handlers.get("session_switch")({ reason: "resume" }, ctx);
 sessionId = "gjc-session-c";
 await handlers.get("session_branch")({ previousSessionFile: "old.jsonl" }, ctx);
+sessionId = "gjc-session-d";
+await handlers.get("session_switch")({ reason: "resume" }, ctx);
+await handlers.get("session_switch")({ reason: "retry" }, ctx);
+await handlers.get("session_start")({}, {
+  cwd: ctx.cwd,
+  sessionManager: ctx.sessionManager
+});
 await handlers.get("session_start")({}, { ...ctx, sessionMetadata: { kind: "sub" } });
 process.env.GJC_TEAM_WORKER = "team/worker-1";
 await handlers.get("session_start")({}, ctx);
@@ -351,11 +397,13 @@ delete process.env.GJC_TEAM_WORKER;
             print(f"exit={check.returncode} stdout={check.stdout!r} stderr={check.stderr!r}")
             return 1
 
-        expected_invocations = 5
-        args_log = wait_for_text(fake_args_log, expected_invocations, timeout=10)
-        stdin_log = wait_for_text(fake_stdin_log, expected_invocations, timeout=10)
-        env_log = wait_for_text(fake_env_log, expected_invocations, timeout=10)
-        time.sleep(0.3)
+        expected_invocations = 7
+        wait_for_text(fake_args_log, expected_invocations, timeout=10)
+        wait_for_text(fake_stdin_log, expected_invocations, timeout=10)
+        wait_for_text(fake_env_log, expected_invocations, timeout=10)
+        args_log = fake_args_log.read_text(encoding="utf-8")
+        stdin_log = fake_stdin_log.read_text(encoding="utf-8")
+        env_log = fake_env_log.read_text(encoding="utf-8")
         if len([line for line in args_log.splitlines() if line.strip()]) != expected_invocations:
             print(f"FAIL: sub-session or team worker emitted Gajae Code hooks: {args_log!r}")
             return 1
@@ -381,6 +429,12 @@ delete process.env.GJC_TEAM_WORKER;
             return 1
         if by_session.get("gjc-session-c", {}).get("previous_session_id") != "gjc-session-b":
             print(f"FAIL: session_branch did not carry the previous Gajae Code session: {payloads!r}")
+            return 1
+        retry_payloads = [payload for payload in payloads if payload.get("session_id") == "gjc-session-d"]
+        if len(retry_payloads) != 2 or any(
+            payload.get("previous_session_id") != "gjc-session-c" for payload in retry_payloads
+        ):
+            print(f"FAIL: failed session delivery did not retry with the prior session: {payloads!r}")
             return 1
         if not any(payload.get("prompt") == "hello gjc" for payload in payloads):
             print(f"FAIL: before_agent_start prompt missing: {payloads!r}")
