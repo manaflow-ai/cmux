@@ -93,6 +93,24 @@ pub enum BrowserFailure<'a> {
     Other(&'a str),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BrowserFailureKind {
+    NotResponding,
+    ResizeRecovery,
+    NewPageVerification,
+    UpdatedPageVerification,
+    Other,
+}
+
+impl BrowserFailureKind {
+    fn allows_navigation_recovery(self) -> bool {
+        matches!(
+            self,
+            Self::ResizeRecovery | Self::NewPageVerification | Self::UpdatedPageVerification
+        )
+    }
+}
+
 impl BrowserStatus {
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -110,6 +128,8 @@ impl BrowserStatus {
     }
 
     pub fn failure(&self) -> Option<BrowserFailure<'_>> {
+        // This decoder is presentation compatibility for string-only remote
+        // state. Local control flow uses BrowserState::failure_kind.
         let BrowserStatus::Failed(error) = self else { return None };
         if error == BROWSER_NOT_RESPONDING_MESSAGE {
             return Some(BrowserFailure::NotResponding);
@@ -130,17 +150,6 @@ impl BrowserStatus {
             return Some(BrowserFailure::UpdatedPageVerification(detail));
         }
         Some(BrowserFailure::Other(error))
-    }
-
-    fn allows_navigation_recovery(&self) -> bool {
-        matches!(
-            self.failure(),
-            Some(
-                BrowserFailure::ResizeRecovery
-                    | BrowserFailure::NewPageVerification(_)
-                    | BrowserFailure::UpdatedPageVerification(_)
-            )
-        )
     }
 }
 
@@ -198,6 +207,10 @@ struct BrowserState {
     /// Cross-document navigation stays fail-closed until a loader-matched
     /// first paint is captured and admitted.
     pending_document_epoch: Option<u64>,
+    /// One owner for the lifetime of an unresolved navigation or document
+    /// paint barrier. The browser worker wakes at this deadline even when no
+    /// further CDP event or input arrives.
+    pending_authority_deadline: Option<Instant>,
     /// A targeted navigation may settle through a same-document event from
     /// the current main frame and loader.
     pending_same_document_navigation: bool,
@@ -257,6 +270,7 @@ struct BrowserState {
     reconfigure_failure: Option<BrowserReconfigureFailure>,
     page_viewport: Option<(u32, u32)>,
     status: BrowserStatus,
+    failure_kind: Option<BrowserFailureKind>,
     source: Option<BrowserSource>,
     next_frame_seq: u64,
     live_since: Option<Instant>,
@@ -308,6 +322,7 @@ struct PointerFrameInvalidation {
     previous_motion_generation: u64,
     previous_pending_frame_epoch: Option<u64>,
     previous_pending_navigation_epoch: Option<u64>,
+    previous_pending_authority_deadline: Option<Instant>,
     previous_pending_same_document_navigation: bool,
     previous_accepted_navigation_epoch: u64,
     previous_pending_frame: Option<(u64, BrowserFrame)>,
@@ -521,7 +536,8 @@ impl ActivePointerPress {
             last_target_y: point.1,
             click_count,
             compatibility_expires_at: match input_owner {
-                BrowserPointerOwner::Local | BrowserPointerOwner::Client(_) => None,
+                BrowserPointerOwner::Local => Some(Instant::now() + LOCAL_POINTER_PRESS_LEASE),
+                BrowserPointerOwner::Client(_) => None,
                 BrowserPointerOwner::Legacy => Some(Instant::now() + LEGACY_POINTER_PRESS_LEASE),
             },
             release_retry_at: None,
@@ -532,7 +548,8 @@ impl ActivePointerPress {
         self.last_target_x = target_x;
         self.last_target_y = target_y;
         self.compatibility_expires_at = match self.input_owner {
-            BrowserPointerOwner::Local | BrowserPointerOwner::Client(_) => None,
+            BrowserPointerOwner::Local => Some(Instant::now() + LOCAL_POINTER_PRESS_LEASE),
+            BrowserPointerOwner::Client(_) => None,
             BrowserPointerOwner::Legacy => Some(Instant::now() + LEGACY_POINTER_PRESS_LEASE),
         };
     }
@@ -696,6 +713,7 @@ const STALL_THRESHOLD: Duration = Duration::from_secs(2);
 const BROWSER_COMMAND_QUEUE_CAPACITY: usize = 64;
 const BROWSER_RETAINED_RELEASE_CAPACITY: usize = BROWSER_COMMAND_QUEUE_CAPACITY + 1;
 const LEGACY_POINTER_PRESS_LEASE: Duration = Duration::from_secs(5);
+const LOCAL_POINTER_PRESS_LEASE: Duration = Duration::from_secs(30);
 const MAX_RECONFIGURE_WAITERS_PER_RESERVATION: usize = 64;
 const BROWSER_NOT_RESPONDING_MESSAGE: &str = "browser is not responding";
 const BROWSER_RESIZE_RECOVERY_FAILED_MESSAGE: &str =
@@ -705,6 +723,11 @@ const BROWSER_UPDATED_PAGE_VERIFICATION_FAILED_PREFIX: &str =
     "could not verify updated page pixels: ";
 const BROWSER_VERIFICATION_FAILED_SUFFIX: &str = "; reload to retry";
 const AUTHORITY_CAPTURE_ATTEMPTS: usize = 3;
+#[cfg(not(test))]
+const AUTHORITY_CAPTURE_BUDGET: Duration = Duration::from_secs(2);
+#[cfg(test)]
+const AUTHORITY_CAPTURE_BUDGET: Duration = Duration::from_millis(150);
+const NAVIGATION_AUTHORITY_TIMEOUT: Duration = Duration::from_secs(15);
 const BROWSER_RECONFIGURE_RETRY_DELAYS: [Duration; 2] =
     [Duration::from_millis(250), Duration::from_millis(500)];
 #[cfg(not(test))]
@@ -913,6 +936,7 @@ pub(crate) fn new_surface(
             pending_frame_epoch: None,
             pending_navigation_epoch: None,
             pending_document_epoch: None,
+            pending_authority_deadline: None,
             pending_same_document_navigation: false,
             pending_failure_recovery: false,
             pending_navigation_rollback: None,
@@ -938,6 +962,7 @@ pub(crate) fn new_surface(
             reconfigure_failure: None,
             page_viewport: None,
             status: BrowserStatus::Starting,
+            failure_kind: None,
             source: None,
             next_frame_seq: 1,
             live_since: None,
@@ -1430,12 +1455,12 @@ fn start_browser_worker(
         std::thread::Builder::new().name(format!("browser-surface-{id}-worker")).spawn(move || {
             let mut failures = BrowserWorkerErrorState::default();
             loop {
-                let first = match next_pointer_lifecycle_deadline(&failures) {
+                let first = match next_browser_lifecycle_deadline(&surface, &failures) {
                     Some(deadline) => {
                         match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
                             Ok(first) => first,
                             Err(RecvTimeoutError::Timeout) => {
-                                release_due_pointer_presses(&surface, &mux, id, &mut failures);
+                                service_due_browser_lifecycles(&surface, &mux, id, &mut failures);
                                 continue;
                             }
                             Err(RecvTimeoutError::Disconnected) => break,
@@ -1460,11 +1485,11 @@ fn start_browser_worker(
                 }
                 drop(order);
                 batch.sort_unstable_by_key(|queued| queued.sequence);
-                release_due_pointer_presses(&surface, &mux, id, &mut failures);
+                service_due_browser_lifecycles(&surface, &mux, id, &mut failures);
                 batch.retain(|queued| !matches!(&queued.command, BrowserCommand::WakeLatest));
                 coalesce_worker_mouse_moves(&mut batch);
                 for queued in batch {
-                    release_due_pointer_presses(&surface, &mux, id, &mut failures);
+                    service_due_browser_lifecycles(&surface, &mux, id, &mut failures);
                     run_browser_worker_command(&surface, queued.command, &mux, id, &mut failures);
                 }
             }
@@ -1472,6 +1497,19 @@ fn start_browser_worker(
                 let _ = done_tx.send(());
             }
         });
+}
+
+fn next_browser_lifecycle_deadline(
+    surface: &Surface,
+    failures: &BrowserWorkerErrorState,
+) -> Option<Instant> {
+    [
+        next_pointer_lifecycle_deadline(failures),
+        surface.as_browser().and_then(BrowserSurface::pending_authority_deadline),
+    ]
+    .into_iter()
+    .flatten()
+    .min()
 }
 
 fn next_pointer_lifecycle_deadline(failures: &BrowserWorkerErrorState) -> Option<Instant> {
@@ -1485,6 +1523,20 @@ fn next_pointer_lifecycle_deadline(failures: &BrowserWorkerErrorState) -> Option
             (None, None) => None,
         })
         .min()
+}
+
+fn service_due_browser_lifecycles(
+    surface: &Surface,
+    mux: &Weak<Mux>,
+    id: SurfaceId,
+    failures: &mut BrowserWorkerErrorState,
+) {
+    release_due_pointer_presses(surface, mux, id, failures);
+    if let Some(message) =
+        surface.as_browser().and_then(|browser| browser.expire_navigation_authority(Instant::now()))
+    {
+        emit_browser_failure(mux, id, message);
+    }
 }
 
 fn release_due_pointer_presses(
@@ -1518,7 +1570,7 @@ fn release_abandoned_pointer_presses(
             let compatibility_lease_expired =
                 press.compatibility_expires_at.is_some_and(|deadline| deadline <= now);
             match press.input_owner {
-                BrowserPointerOwner::Local => retry_due,
+                BrowserPointerOwner::Local => retry_due || compatibility_lease_expired,
                 BrowserPointerOwner::Legacy => retry_due || compatibility_lease_expired,
                 BrowserPointerOwner::Client(client) => {
                     retry_due
@@ -1794,7 +1846,7 @@ fn record_browser_worker_result(
                         .is_some_and(BrowserSurface::claim_not_responding_report);
                     if should_report {
                         if let Some(browser) = surface.as_browser() {
-                            browser.mark_failed(BROWSER_NOT_RESPONDING_MESSAGE.to_string());
+                            browser.mark_not_responding();
                         }
                         emit_browser_failure(mux, id, BROWSER_NOT_RESPONDING_MESSAGE.to_string());
                     }
@@ -2164,7 +2216,11 @@ impl BrowserSurface {
             state.pending_failure_recovery = false;
             state.pending_frame = None;
             state.pending_navigation_rollback = None;
-            self.mark_failed_locked(&mut state, BROWSER_RESIZE_RECOVERY_FAILED_MESSAGE);
+            self.mark_failed_locked(
+                &mut state,
+                BrowserFailureKind::ResizeRecovery,
+                BROWSER_RESIZE_RECOVERY_FAILED_MESSAGE,
+            );
             self.mark_state_dirty_locked(&mut state);
             self.dirty.store(true, Ordering::Release);
         }
@@ -2314,13 +2370,11 @@ impl BrowserSurface {
         // failed navigation; they must not mask that failure. A fresh
         // frame does prove Chrome recovered from the worker's
         // not-responding state, so clear only that class here.
-        let clears_not_responding = matches!(
-            state.status,
-            BrowserStatus::Failed(ref error) if error == BROWSER_NOT_RESPONDING_MESSAGE
-        );
+        let clears_not_responding = state.failure_kind == Some(BrowserFailureKind::NotResponding);
         if !matches!(state.status, BrowserStatus::Failed(_)) || clears_not_responding {
             state.status = BrowserStatus::Live;
             if clears_not_responding {
+                state.failure_kind = None;
                 state.not_responding_reported = false;
                 // `mark_failed` overwrote the title with "browser failed: ..."
                 // and broadcast the failure to attach clients. Recovering only
@@ -2449,6 +2503,7 @@ impl BrowserSurface {
         state.source = current_session.as_ref().map(|session| session.runtime.source());
         if !matches!(state.status, BrowserStatus::Failed(_)) {
             state.status = BrowserStatus::Live;
+            state.failure_kind = None;
         }
         let now = Instant::now();
         state.live_since = Some(now);
@@ -2458,12 +2513,25 @@ impl BrowserSurface {
         Ok(())
     }
 
-    fn mark_failed_locked(&self, state: &mut BrowserState, message: &str) {
+    fn mark_failed_locked(
+        &self,
+        state: &mut BrowserState,
+        kind: BrowserFailureKind,
+        message: &str,
+    ) {
         state.status = BrowserStatus::Failed(message.to_string());
+        state.failure_kind = Some(kind);
         // Failure revokes admission for new input, but does not always prove
         // that the document or its coordinate mapping changed. Preserve an
         // accepted press long enough to deliver its balancing release.
         self.invalidate_pointer_frame_locked(state, false);
+        state.pending_frame_epoch = None;
+        state.pending_navigation_epoch = None;
+        state.pending_document_epoch = None;
+        state.pending_authority_deadline = None;
+        state.pending_same_document_navigation = false;
+        state.pending_failure_recovery = false;
+        state.pending_frame = None;
         state.pending_navigation_rollback = None;
         state.pending_screencast_capture = None;
         state.title = format!("browser failed: {message}");
@@ -2472,7 +2540,18 @@ impl BrowserSurface {
 
     pub fn mark_failed(&self, message: String) {
         let mut state = self.state.lock().unwrap();
-        self.mark_failed_locked(&mut state, &message);
+        self.mark_failed_locked(&mut state, BrowserFailureKind::Other, &message);
+        self.mark_state_dirty_locked(&mut state);
+        self.dirty.store(true, Ordering::Release);
+    }
+
+    fn mark_not_responding(&self) {
+        let mut state = self.state.lock().unwrap();
+        self.mark_failed_locked(
+            &mut state,
+            BrowserFailureKind::NotResponding,
+            BROWSER_NOT_RESPONDING_MESSAGE,
+        );
         self.mark_state_dirty_locked(&mut state);
         self.dirty.store(true, Ordering::Release);
     }
@@ -2480,6 +2559,7 @@ impl BrowserSurface {
     fn clear_error_locked(&self, state: &mut BrowserState) -> bool {
         if matches!(state.status, BrowserStatus::Failed(_)) {
             state.status = BrowserStatus::Live;
+            state.failure_kind = None;
             // A verified paint from an explicit navigation or reload is the
             // recovery action for an exhausted resize. Let the desired
             // geometry enter a new bounded retry cycle only after that proof.
@@ -2575,15 +2655,16 @@ impl BrowserSurface {
 
     fn require_navigation_session(&self) -> anyhow::Result<BrowserSession> {
         let session = self.require_attached_session()?;
-        let status = self.status();
-        if matches!(&status, BrowserStatus::Live) || status.allows_navigation_recovery() {
-            Ok(session)
-        } else {
-            match status {
-                BrowserStatus::Starting => anyhow::bail!("browser is still starting"),
-                BrowserStatus::Failed(error) => anyhow::bail!("browser failed: {error}"),
-                BrowserStatus::Live => unreachable!(),
-            }
+        let state = self.state.lock().unwrap();
+        if matches!(state.status, BrowserStatus::Live)
+            || state.failure_kind.is_some_and(BrowserFailureKind::allows_navigation_recovery)
+        {
+            return Ok(session);
+        }
+        match &state.status {
+            BrowserStatus::Starting => anyhow::bail!("browser is still starting"),
+            BrowserStatus::Failed(error) => anyhow::bail!("browser failed: {error}"),
+            BrowserStatus::Live => unreachable!(),
         }
     }
 
@@ -2591,7 +2672,8 @@ impl BrowserSurface {
         let session = self.require_attached_session()?;
         let state = self.state.lock().unwrap();
         if matches!(state.status, BrowserStatus::Live)
-            || state.pending_failure_recovery && state.status.allows_navigation_recovery()
+            || state.pending_failure_recovery
+                && state.failure_kind.is_some_and(BrowserFailureKind::allows_navigation_recovery)
         {
             return Ok(session);
         }
@@ -2911,6 +2993,7 @@ impl BrowserSurface {
         let previous_motion_generation = state.pointer_motion_generation;
         let previous_pending_frame_epoch = state.pending_frame_epoch;
         let previous_pending_navigation_epoch = state.pending_navigation_epoch;
+        let previous_pending_authority_deadline = state.pending_authority_deadline;
         let previous_pending_same_document_navigation = state.pending_same_document_navigation;
         let previous_accepted_navigation_epoch = state.accepted_navigation_epoch;
         let previous_pending_frame = state.pending_frame.clone();
@@ -2930,6 +3013,7 @@ impl BrowserSurface {
             previous_motion_generation,
             previous_pending_frame_epoch,
             previous_pending_navigation_epoch,
+            previous_pending_authority_deadline,
             previous_pending_same_document_navigation,
             previous_accepted_navigation_epoch,
             previous_pending_frame,
@@ -2989,8 +3073,10 @@ impl BrowserSurface {
         let pending_frame_epoch = self.frame_epoch.current().wrapping_add(1);
         state.pending_frame_epoch = Some(pending_frame_epoch);
         state.pending_navigation_epoch = Some(pending_frame_epoch);
+        state.pending_authority_deadline = Some(Instant::now() + NAVIGATION_AUTHORITY_TIMEOUT);
         state.pending_same_document_navigation = may_be_same_document;
-        state.pending_failure_recovery = state.status.allows_navigation_recovery();
+        state.pending_failure_recovery =
+            state.failure_kind.is_some_and(BrowserFailureKind::allows_navigation_recovery);
         state.pending_frame = None;
         invalidation.expected_frame_epoch = Some(pending_frame_epoch);
         state.pending_navigation_rollback = Some(invalidation.clone());
@@ -3040,6 +3126,7 @@ impl BrowserSurface {
         state.pending_frame_epoch = None;
         state.pending_navigation_epoch = None;
         state.pending_document_epoch = None;
+        state.pending_authority_deadline = None;
         state.pending_same_document_navigation = false;
         state.pending_failure_recovery = false;
         state.pending_frame = None;
@@ -3105,6 +3192,7 @@ impl BrowserSurface {
         state.pending_frame_epoch = None;
         state.pending_navigation_epoch = None;
         state.pending_document_epoch = None;
+        state.pending_authority_deadline = None;
         state.pending_same_document_navigation = false;
         state.pending_failure_recovery = false;
         state.pending_frame = None;
@@ -3136,7 +3224,12 @@ impl BrowserSurface {
             // this document instead of restoring the older page.
             state.handled_navigation_epoch = frame_epoch;
             state.pending_document_epoch = Some(frame_epoch);
+            state
+                .pending_authority_deadline
+                .get_or_insert_with(|| Instant::now() + NAVIGATION_AUTHORITY_TIMEOUT);
             self.mark_state_dirty_locked(&mut state);
+            drop(state);
+            self.wake_lifecycle_worker();
             return true;
         }
         if state.pending_navigation_epoch.is_none() {
@@ -3153,6 +3246,7 @@ impl BrowserSurface {
         state.pending_navigation_rollback = None;
         self.invalidate_pointer_frame_locked(&mut state, !capture_revoked_at_command);
         state.pending_document_epoch = Some(frame_epoch);
+        state.pending_authority_deadline = Some(Instant::now() + NAVIGATION_AUTHORITY_TIMEOUT);
         let pending_frame_epoch = state
             .pending_frame_epoch
             .unwrap_or(frame_epoch)
@@ -3161,11 +3255,53 @@ impl BrowserSurface {
         state.pending_frame_epoch = Some(pending_frame_epoch);
         state.pending_frame = None;
         self.mark_state_dirty_locked(&mut state);
+        drop(state);
+        self.wake_lifecycle_worker();
         true
     }
 
     fn needs_document_paint(&self, navigation_epoch: u64) -> bool {
         self.state.lock().unwrap().pending_document_epoch == Some(navigation_epoch)
+    }
+
+    fn pending_authority_deadline(&self) -> Option<Instant> {
+        self.state.lock().unwrap().pending_authority_deadline
+    }
+
+    fn expire_navigation_authority(&self, now: Instant) -> Option<String> {
+        let mut state = self.state.lock().unwrap();
+        if state.pending_authority_deadline.is_none_or(|deadline| deadline > now) {
+            return None;
+        }
+        let has_pending_authority = state.pending_navigation_epoch.is_some()
+            || state.pending_document_epoch.is_some()
+            || state.pending_same_document_navigation;
+        if !has_pending_authority {
+            state.pending_authority_deadline = None;
+            return None;
+        }
+        let same_document =
+            state.pending_document_epoch.is_none() && state.pending_same_document_navigation;
+        let detail = "navigation did not produce verifiable pixels before its safety deadline";
+        let (kind, message) = if same_document {
+            (
+                BrowserFailureKind::UpdatedPageVerification,
+                format!(
+                    "{BROWSER_UPDATED_PAGE_VERIFICATION_FAILED_PREFIX}{detail}{BROWSER_VERIFICATION_FAILED_SUFFIX}"
+                ),
+            )
+        } else {
+            (
+                BrowserFailureKind::NewPageVerification,
+                format!(
+                    "{BROWSER_NEW_PAGE_VERIFICATION_FAILED_PREFIX}{detail}{BROWSER_VERIFICATION_FAILED_SUFFIX}"
+                ),
+            )
+        };
+        self.mark_failed_locked(&mut state, kind, &message);
+        self.mark_state_dirty_locked(&mut state);
+        self.dirty.store(true, Ordering::Release);
+        Some(message)
     }
 
     fn screencast_capture_context_matches(
@@ -3259,7 +3395,10 @@ impl BrowserSurface {
             || state.pending_document_epoch.is_some()
             || state.pending_navigation_epoch.is_some() && !state.pending_same_document_navigation
             || !(matches!(state.status, BrowserStatus::Live)
-                || state.pending_failure_recovery && state.status.allows_navigation_recovery())
+                || state.pending_failure_recovery
+                    && state
+                        .failure_kind
+                        .is_some_and(BrowserFailureKind::allows_navigation_recovery))
         {
             return false;
         }
@@ -3282,10 +3421,13 @@ impl BrowserSurface {
         state.pending_frame_epoch =
             Some(state.pending_frame_epoch.map_or(frame_epoch, |pending| pending.max(frame_epoch)));
         state.pending_navigation_epoch = None;
+        state.pending_authority_deadline = Some(Instant::now() + NAVIGATION_AUTHORITY_TIMEOUT);
         state.pending_same_document_navigation = true;
         state.pending_frame = None;
         state.pending_navigation_rollback = None;
         self.mark_state_dirty_locked(&mut state);
+        drop(state);
+        self.wake_lifecycle_worker();
         true
     }
 
@@ -3310,6 +3452,7 @@ impl BrowserSurface {
         state.pending_document_epoch = None;
         if !precedes_pending_command {
             state.pending_navigation_epoch = None;
+            state.pending_authority_deadline = None;
             state.pending_same_document_navigation = false;
             state.pending_failure_recovery = false;
             state.pending_frame_epoch = None;
@@ -3347,6 +3490,7 @@ impl BrowserSurface {
         let recovers_failure = state.pending_failure_recovery;
         state.pending_frame_epoch = None;
         state.pending_navigation_epoch = None;
+        state.pending_authority_deadline = None;
         state.pending_same_document_navigation = false;
         state.pending_failure_recovery = false;
         state.pending_frame = None;
@@ -3433,6 +3577,7 @@ impl BrowserSurface {
             state.failed_screencast_capture_epoch = Some(frame_epoch);
             self.mark_failed_locked(
                 &mut state,
+                BrowserFailureKind::UpdatedPageVerification,
                 &format!(
                     "{BROWSER_UPDATED_PAGE_VERIFICATION_FAILED_PREFIX}{error}{BROWSER_VERIFICATION_FAILED_SUFFIX}"
                 ),
@@ -3456,6 +3601,7 @@ impl BrowserSurface {
         state.pending_navigation_rollback = None;
         self.mark_failed_locked(
             &mut state,
+            BrowserFailureKind::NewPageVerification,
             &format!(
                 "{BROWSER_NEW_PAGE_VERIFICATION_FAILED_PREFIX}{error}{BROWSER_VERIFICATION_FAILED_SUFFIX}"
             ),
@@ -3477,6 +3623,7 @@ impl BrowserSurface {
         state.pending_navigation_rollback = None;
         self.mark_failed_locked(
             &mut state,
+            BrowserFailureKind::UpdatedPageVerification,
             &format!(
                 "{BROWSER_UPDATED_PAGE_VERIFICATION_FAILED_PREFIX}{error}{BROWSER_VERIFICATION_FAILED_SUFFIX}"
             ),
@@ -3501,6 +3648,9 @@ impl BrowserSurface {
             });
         if committed_navigation_precedes_failed_command {
             state.pending_navigation_epoch = invalidation.previous_pending_navigation_epoch;
+            if invalidation.previous_pending_navigation_epoch.is_some() {
+                state.pending_authority_deadline = invalidation.previous_pending_authority_deadline;
+            }
             state.pending_same_document_navigation =
                 invalidation.previous_pending_same_document_navigation;
             state.pending_failure_recovery = false;
@@ -3532,8 +3682,8 @@ impl BrowserSurface {
             self.mark_state_dirty_locked(&mut state);
             return;
         }
-        let restoring_failed_recovery =
-            state.pending_failure_recovery && state.status.allows_navigation_recovery();
+        let restoring_failed_recovery = state.pending_failure_recovery
+            && state.failure_kind.is_some_and(BrowserFailureKind::allows_navigation_recovery);
         if state.pointer_frame_revision != invalidation.revision
             || !(matches!(state.status, BrowserStatus::Live) || restoring_failed_recovery)
             || state.latest_frame.as_ref().map(|frame| frame.seq)
@@ -3552,6 +3702,7 @@ impl BrowserSurface {
         state.pointer_motion_generation = invalidation.previous_motion_generation;
         state.pending_frame_epoch = invalidation.previous_pending_frame_epoch;
         state.pending_navigation_epoch = invalidation.previous_pending_navigation_epoch;
+        state.pending_authority_deadline = invalidation.previous_pending_authority_deadline;
         state.pending_same_document_navigation =
             invalidation.previous_pending_same_document_navigation;
         state.pending_failure_recovery = false;
@@ -3699,6 +3850,10 @@ impl BrowserSurface {
             Ok(()) | Err(TrySendError::Full(_)) => Ok(()),
             Err(TrySendError::Disconnected(_)) => anyhow::bail!("browser command worker is closed"),
         }
+    }
+
+    fn wake_lifecycle_worker(&self) {
+        let _ = self.enqueue_bounded(BrowserCommand::WakeLatest);
     }
 
     // A release closes state established by an earlier accepted press. If the
@@ -4339,6 +4494,7 @@ impl BrowserSurface {
         if session.session_id != session_id {
             return Ok(BrowserWorkerSuccess::LocallySettled);
         }
+        let deadline = Instant::now() + AUTHORITY_CAPTURE_BUDGET;
         let mut last_error = None;
         for _ in 0..AUTHORITY_CAPTURE_ATTEMPTS {
             if !self.needs_document_paint(navigation_epoch)
@@ -4346,7 +4502,7 @@ impl BrowserSurface {
             {
                 return Ok(BrowserWorkerSuccess::LocallySettled);
             }
-            match self.capture_main_frame_after_restart(&session, frame_id, loader_id) {
+            match self.capture_main_frame_after_restart(&session, frame_id, loader_id, deadline) {
                 Ok((frame_epoch, captured)) => {
                     let accepted = self.accept_document_paint(
                         navigation_epoch,
@@ -4388,12 +4544,13 @@ impl BrowserSurface {
         if session.session_id != session_id {
             return Ok(BrowserWorkerSuccess::LocallySettled);
         }
+        let deadline = Instant::now() + AUTHORITY_CAPTURE_BUDGET;
         let mut last_error = None;
         for _ in 0..AUTHORITY_CAPTURE_ATTEMPTS {
             if !self.needs_same_document_paint() {
                 return Ok(BrowserWorkerSuccess::LocallySettled);
             }
-            match self.capture_main_frame_after_restart(&session, frame_id, loader_id) {
+            match self.capture_main_frame_after_restart(&session, frame_id, loader_id, deadline) {
                 Ok((frame_epoch, captured)) => {
                     let accepted = self.accept_same_document_paint(
                         frame_epoch,
@@ -4464,6 +4621,7 @@ impl BrowserSurface {
             );
             return Ok(BrowserWorkerSuccess::LocallySettled);
         }
+        let deadline = Instant::now() + AUTHORITY_CAPTURE_BUDGET;
         let mut last_error = None;
         for _ in 0..AUTHORITY_CAPTURE_ATTEMPTS {
             if !self.may_need_screencast_capture(reservation_id, frame_epoch, navigation_epoch) {
@@ -4479,7 +4637,7 @@ impl BrowserSurface {
             match session
                 .runtime
                 .client
-                .capture_main_frame_for_loader(session_id, frame_id, loader_id)
+                .capture_main_frame_for_loader_before(session_id, frame_id, loader_id, deadline)
             {
                 Ok(captured) => {
                     let accepted = self.accept_screencast_capture(
@@ -4533,23 +4691,30 @@ impl BrowserSurface {
         session: &BrowserSession,
         frame_id: &str,
         loader_id: &str,
+        deadline: Instant,
     ) -> anyhow::Result<(u64, CapturedFrame)> {
-        let frame_epoch = self.restart_screencast_for_authority(session)?;
-        let captured = session.runtime.client.capture_main_frame_for_loader(
+        let frame_epoch = self.restart_screencast_for_authority(session, deadline)?;
+        let captured = session.runtime.client.capture_main_frame_for_loader_before(
             &session.session_id,
             frame_id,
             loader_id,
+            deadline,
         )?;
         Ok((frame_epoch, captured))
     }
 
-    fn restart_screencast_for_authority(&self, session: &BrowserSession) -> anyhow::Result<u64> {
+    fn restart_screencast_for_authority(
+        &self,
+        session: &BrowserSession,
+        deadline: Instant,
+    ) -> anyhow::Result<u64> {
         let (width, height) = self.pixel_size();
-        session.runtime.client.stop_screencast(&session.session_id)?;
-        session.runtime.client.start_screencast_with_frame_barrier(
+        session.runtime.client.stop_screencast_before(&session.session_id, deadline)?;
+        session.runtime.client.start_screencast_with_frame_barrier_before(
             &session.session_id,
             width,
             height,
+            deadline,
         )
     }
 
@@ -6476,7 +6641,7 @@ mod tests {
         let (_snapshot, stream) = browser.attach_frames();
 
         let failed_title = format!("browser failed: {}", super::BROWSER_NOT_RESPONDING_MESSAGE);
-        browser.mark_failed(super::BROWSER_NOT_RESPONDING_MESSAGE.to_string());
+        browser.mark_not_responding();
         let failed = stream.slot.lock().unwrap().state.clone().expect("failure was broadcast");
         assert_eq!(
             failed.status,
@@ -8467,7 +8632,10 @@ mod tests {
         stop_tx.send(()).unwrap();
         runtime.shutdown();
         let capture_attempts = server.join().unwrap();
-        assert_eq!(capture_attempts, AUTHORITY_CAPTURE_ATTEMPTS);
+        assert!(
+            (1..=AUTHORITY_CAPTURE_ATTEMPTS).contains(&capture_attempts),
+            "document verification must make progress without exceeding its retry cap"
+        );
         let next_error = next_navigation.as_ref().err().map(ToString::to_string);
         assert!(
             next_navigation.is_ok(),
@@ -8481,6 +8649,7 @@ mod tests {
         let addr = listener.local_addr().unwrap();
         let server = thread::spawn(move || {
             let (stream, _) = listener.accept().unwrap();
+            stream.set_read_timeout(Some(Duration::from_millis(500))).unwrap();
             let mut ws = accept(stream).unwrap();
             let discover = read_ws_json(&mut ws);
             assert_eq!(discover["method"], "Target.setDiscoverTargets");
@@ -8540,6 +8709,8 @@ mod tests {
             }),
             navigation_epoch,
         );
+        browser.state.lock().unwrap().pending_authority_deadline =
+            Some(Instant::now() + Duration::from_secs(5));
 
         let started = Instant::now();
         let result = browser.authorize_document_paint_blocking(
@@ -8577,6 +8748,8 @@ mod tests {
             }),
             navigation_epoch,
         );
+        browser.state.lock().unwrap().pending_authority_deadline = Some(Instant::now());
+        browser.wake_lifecycle_worker();
 
         let deadline = Instant::now() + Duration::from_millis(500);
         while matches!(browser.status(), BrowserStatus::Live) && Instant::now() < deadline {

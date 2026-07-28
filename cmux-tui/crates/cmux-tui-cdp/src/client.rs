@@ -583,7 +583,17 @@ impl CdpClient {
         params: Value,
         session_id: Option<&str>,
     ) -> anyhow::Result<Value> {
-        self.call_inner(method, params, session_id, None)
+        self.call_inner(method, params, session_id, None, None)
+    }
+
+    fn call_before(
+        &self,
+        method: &str,
+        params: Value,
+        session_id: Option<&str>,
+        deadline: Instant,
+    ) -> anyhow::Result<Value> {
+        self.call_inner(method, params, session_id, None, Some(deadline))
     }
 
     fn call_with_frame_barrier(
@@ -593,7 +603,18 @@ impl CdpClient {
         session_id: &str,
         frame_barrier: Arc<FrameEpoch>,
     ) -> anyhow::Result<Value> {
-        self.call_inner(method, params, Some(session_id), Some(frame_barrier))
+        self.call_inner(method, params, Some(session_id), Some(frame_barrier), None)
+    }
+
+    fn call_with_frame_barrier_before(
+        &self,
+        method: &str,
+        params: Value,
+        session_id: &str,
+        frame_barrier: Arc<FrameEpoch>,
+        deadline: Instant,
+    ) -> anyhow::Result<Value> {
+        self.call_inner(method, params, Some(session_id), Some(frame_barrier), Some(deadline))
     }
 
     fn call_inner(
@@ -602,7 +623,20 @@ impl CdpClient {
         params: Value,
         session_id: Option<&str>,
         frame_barrier: Option<Arc<FrameEpoch>>,
+        deadline: Option<Instant>,
     ) -> anyhow::Result<Value> {
+        let timeout = match deadline {
+            Some(deadline) => {
+                let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                    anyhow::bail!("CDP call {method} timed out");
+                };
+                self.inner.timeout.min(remaining)
+            }
+            None => self.inner.timeout,
+        };
+        if timeout.is_zero() {
+            anyhow::bail!("CDP call {method} timed out");
+        }
         let id = self.inner.next_id.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = channel();
         self.inner.pending.lock().unwrap().insert(id, PendingCall { response: tx, frame_barrier });
@@ -621,7 +655,7 @@ impl CdpClient {
             return Err(e);
         }
 
-        match rx.recv_timeout(self.inner.timeout) {
+        match rx.recv_timeout(timeout) {
             Ok(Ok(value)) => Ok(value),
             Ok(Err(e)) => anyhow::bail!("{e}"),
             Err(_) => {
@@ -821,6 +855,31 @@ impl CdpClient {
         max_width: u32,
         max_height: u32,
     ) -> anyhow::Result<u64> {
+        self.start_screencast_with_frame_barrier_deadline(session_id, max_width, max_height, None)
+    }
+
+    pub fn start_screencast_with_frame_barrier_before(
+        &self,
+        session_id: &str,
+        max_width: u32,
+        max_height: u32,
+        deadline: Instant,
+    ) -> anyhow::Result<u64> {
+        self.start_screencast_with_frame_barrier_deadline(
+            session_id,
+            max_width,
+            max_height,
+            Some(deadline),
+        )
+    }
+
+    fn start_screencast_with_frame_barrier_deadline(
+        &self,
+        session_id: &str,
+        max_width: u32,
+        max_height: u32,
+        deadline: Option<Instant>,
+    ) -> anyhow::Result<u64> {
         let (frame_epoch, main_frame_id) = {
             let frame_sessions = self.inner.frame_epochs.lock().unwrap();
             let frame_session = frame_sessions.get(session_id).ok_or_else(|| {
@@ -832,7 +891,7 @@ impl CdpClient {
             (frame_session.epoch.clone(), main_frame_id)
         };
         let screencast_barrier = self
-            .chrome_wall_time_upper_bound(session_id, &main_frame_id)
+            .chrome_wall_time_upper_bound(session_id, &main_frame_id, deadline)
             .map_or(ScreencastBarrier::LoaderVerifiedCapture, ScreencastBarrier::Timestamp);
         {
             let mut frame_sessions = self.inner.frame_epochs.lock().unwrap();
@@ -858,17 +917,27 @@ impl CdpClient {
             frame_session.timestampless_capture_throttle = None;
             frame_session.suppressed_timestampless_epoch = None;
         }
-        self.call_with_frame_barrier(
-            "Page.startScreencast",
-            json!({
-                "format": "png",
-                "maxWidth": max_width,
-                "maxHeight": max_height,
-                "everyNthFrame": 1,
-            }),
-            session_id,
-            frame_epoch.clone(),
-        )?;
+        let params = json!({
+            "format": "png",
+            "maxWidth": max_width,
+            "maxHeight": max_height,
+            "everyNthFrame": 1,
+        });
+        match deadline {
+            Some(deadline) => self.call_with_frame_barrier_before(
+                "Page.startScreencast",
+                params,
+                session_id,
+                frame_epoch.clone(),
+                deadline,
+            )?,
+            None => self.call_with_frame_barrier(
+                "Page.startScreencast",
+                params,
+                session_id,
+                frame_epoch.clone(),
+            )?,
+        };
         Ok(frame_epoch.current())
     }
 
@@ -923,30 +992,38 @@ impl CdpClient {
         &self,
         session_id: &str,
         frame_id: &str,
+        deadline: Option<Instant>,
     ) -> anyhow::Result<f64> {
-        let world = self.call(
-            "Page.createIsolatedWorld",
-            json!({
-                "frameId": frame_id,
-                "worldName": "cmux-screencast-barrier",
-                "grantUniversalAccess": false,
-            }),
-            Some(session_id),
-        )?;
+        let world_params = json!({
+            "frameId": frame_id,
+            "worldName": "cmux-screencast-barrier",
+            "grantUniversalAccess": false,
+        });
+        let world = match deadline {
+            Some(deadline) => self.call_before(
+                "Page.createIsolatedWorld",
+                world_params,
+                Some(session_id),
+                deadline,
+            )?,
+            None => self.call("Page.createIsolatedWorld", world_params, Some(session_id))?,
+        };
         let context_id =
             world.get("executionContextId").and_then(Value::as_u64).ok_or_else(|| {
                 anyhow::anyhow!("Page.createIsolatedWorld response missing executionContextId")
             })?;
-        let evaluated = self.call(
-            "Runtime.evaluate",
-            json!({
-                "expression": "globalThis.Date.now()",
-                "contextId": context_id,
-                "returnByValue": true,
-                "silent": true,
-            }),
-            Some(session_id),
-        )?;
+        let evaluate_params = json!({
+            "expression": "globalThis.Date.now()",
+            "contextId": context_id,
+            "returnByValue": true,
+            "silent": true,
+        });
+        let evaluated = match deadline {
+            Some(deadline) => {
+                self.call_before("Runtime.evaluate", evaluate_params, Some(session_id), deadline)?
+            }
+            None => self.call("Runtime.evaluate", evaluate_params, Some(session_id))?,
+        };
         if evaluated.get("exceptionDetails").is_some() {
             anyhow::bail!("Runtime.evaluate failed while reading Chrome wall time");
         }
@@ -969,6 +1046,14 @@ impl CdpClient {
         self.call("Page.stopScreencast", json!({}), Some(session_id)).map(|_| ())
     }
 
+    pub fn stop_screencast_before(
+        &self,
+        session_id: &str,
+        deadline: Instant,
+    ) -> anyhow::Result<()> {
+        self.call_before("Page.stopScreencast", json!({}), Some(session_id), deadline).map(|_| ())
+    }
+
     /// Capture the presented viewport only while the main frame remains
     /// attached to `loader_id`. The before/after checks make the returned
     /// pixels document authority instead of inferring identity from event
@@ -979,17 +1064,39 @@ impl CdpClient {
         frame_id: &str,
         loader_id: &str,
     ) -> anyhow::Result<CapturedFrame> {
-        self.require_main_frame_loader(session_id, frame_id, loader_id)?;
-        let result = self.call(
-            "Page.captureScreenshot",
-            json!({
-                "format": "png",
-                "fromSurface": true,
-                "captureBeyondViewport": false,
-            }),
-            Some(session_id),
-        )?;
-        self.require_main_frame_loader(session_id, frame_id, loader_id)?;
+        self.capture_main_frame_for_loader_deadline(session_id, frame_id, loader_id, None)
+    }
+
+    pub fn capture_main_frame_for_loader_before(
+        &self,
+        session_id: &str,
+        frame_id: &str,
+        loader_id: &str,
+        deadline: Instant,
+    ) -> anyhow::Result<CapturedFrame> {
+        self.capture_main_frame_for_loader_deadline(session_id, frame_id, loader_id, Some(deadline))
+    }
+
+    fn capture_main_frame_for_loader_deadline(
+        &self,
+        session_id: &str,
+        frame_id: &str,
+        loader_id: &str,
+        deadline: Option<Instant>,
+    ) -> anyhow::Result<CapturedFrame> {
+        self.require_main_frame_loader(session_id, frame_id, loader_id, deadline)?;
+        let params = json!({
+            "format": "png",
+            "fromSurface": true,
+            "captureBeyondViewport": false,
+        });
+        let result = match deadline {
+            Some(deadline) => {
+                self.call_before("Page.captureScreenshot", params, Some(session_id), deadline)?
+            }
+            None => self.call("Page.captureScreenshot", params, Some(session_id))?,
+        };
+        self.require_main_frame_loader(session_id, frame_id, loader_id, deadline)?;
         let data_b64 = result
             .get("data")
             .and_then(Value::as_str)
@@ -1009,8 +1116,14 @@ impl CdpClient {
         session_id: &str,
         expected_frame_id: &str,
         expected_loader_id: &str,
+        deadline: Option<Instant>,
     ) -> anyhow::Result<()> {
-        let result = self.call("Page.getFrameTree", json!({}), Some(session_id))?;
+        let result = match deadline {
+            Some(deadline) => {
+                self.call_before("Page.getFrameTree", json!({}), Some(session_id), deadline)?
+            }
+            None => self.call("Page.getFrameTree", json!({}), Some(session_id))?,
+        };
         let frame = result
             .get("frameTree")
             .and_then(|tree| tree.get("frame"))
