@@ -36,10 +36,13 @@ final class ComputerUseOnboardingPresentationState: ObservableObject {
         return true
     }
 
-    func showCompletionInExpandedOnboarding() {
+    @discardableResult
+    func showCompletionInExpandedOnboarding() -> Bool {
+        guard !screenCaptureConsentPending else { return false }
         onboardingComplete = true
         permissionCompanionVisible = false
         permissionCompanionLayoutReady = false
+        return true
     }
 
     func requestExpandedPresentation(resetToOverview: Bool = true) {
@@ -507,12 +510,14 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         resetStep: Bool,
         completed: Bool
     ) {
-        dismissPermissionCompanion()
         if completed {
-            presentationState?.showCompletionInExpandedOnboarding()
+            guard presentationState?.showCompletionInExpandedOnboarding() != false else {
+                return
+            }
         } else {
             presentationState?.requestExpandedPresentation(resetToOverview: resetStep)
         }
+        dismissPermissionCompanion()
         let visibleFrame = window.screen?.visibleFrame
             ?? NSScreen.main?.visibleFrame
             ?? window.frame
@@ -529,6 +534,7 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
     }
 
     private func onboardingCompleted() {
+        guard presentationState?.screenCaptureConsentPending != true else { return }
         completionDismissTask?.cancel()
         completionDismissTask = nil
         systemSettingsPlacementRetryTask?.cancel()
@@ -564,7 +570,7 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
     }
 
     /// Orders out the expanded onboarding window and presents an independent,
-    /// borderless permission companion at a fixed 472×112 frame.
+    /// borderless permission companion at its fixed compact frame.
     func configureForPermissionCompanion(
         _ mainWindow: ComputerUseOnboardingWindow,
         permissionStep: ComputerUseOnboardingStep = .accessibility,

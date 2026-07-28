@@ -565,7 +565,7 @@ struct ComputerUseUXTests {
 
     @Test @MainActor func onboardingContentCannotOutgrowItsAppKitWindow() async {
         let expandedSize = CGSize(width: 600, height: 440)
-        let companionSize = CGSize(width: 472, height: 112)
+        let companionSize = ComputerUsePermissionCompanionLayout.size
         let oversizedContent = Color.clear.frame(width: 680, height: 883)
         let window = ComputerUseOnboardingWindow(
             contentRect: NSRect(origin: .zero, size: expandedSize),
@@ -611,7 +611,7 @@ struct ComputerUseUXTests {
     }
 
     @Test @MainActor func permissionCompanionUsesItsEntireFixedFrameForContent() {
-        let companionSize = CGSize(width: 472, height: 112)
+        let companionSize = ComputerUsePermissionCompanionLayout.size
         let controller = ComputerUseOnboardingWindowController(
             runtimeService: ComputerUseRuntimeService()
         )
@@ -682,7 +682,7 @@ struct ComputerUseUXTests {
     }
 
     @Test @MainActor func permissionCompanionUsesASeparateBorderlessWindow() {
-        let companionSize = CGSize(width: 472, height: 112)
+        let companionSize = ComputerUsePermissionCompanionLayout.size
         let controller = ComputerUseOnboardingWindowController(
             runtimeService: ComputerUseRuntimeService()
         )
@@ -721,7 +721,7 @@ struct ComputerUseUXTests {
     }
 
     @Test @MainActor func completionClosesCompanionAndRevealsCenteredMainWindowWithoutReturnGlide() {
-        let companionSize = CGSize(width: 472, height: 112)
+        let companionSize = ComputerUsePermissionCompanionLayout.size
         let controller = ComputerUseOnboardingWindowController(
             runtimeService: ComputerUseRuntimeService()
         )
@@ -776,7 +776,10 @@ struct ComputerUseUXTests {
 
         controller.configureForPermissionCompanion(
             mainWindow,
-            frame: NSRect(origin: .zero, size: CGSize(width: 472, height: 112))
+            frame: NSRect(
+                origin: .zero,
+                size: ComputerUsePermissionCompanionLayout.size
+            )
         )
         let companionWindow = NSApp.windows.first {
             $0.identifier?.rawValue == "cmux.computerUse.onboarding.permissionCompanion"
@@ -934,7 +937,7 @@ struct ComputerUseUXTests {
 
     @Test @MainActor func permissionCompanionTransitionAllowsIntermediateWindowFrames() {
         let expandedSize = CGSize(width: 600, height: 440)
-        let companionSize = CGSize(width: 472, height: 112)
+        let companionSize = ComputerUsePermissionCompanionLayout.size
         let window = ComputerUseOnboardingWindow(
             contentRect: NSRect(origin: .zero, size: expandedSize),
             styleMask: [.titled, .closable, .fullSizeContentView],
@@ -1174,7 +1177,7 @@ struct ComputerUseUXTests {
         ))
 
         let onboarding = placement.frame(
-            onboardingSize: CGSize(width: 472, height: 112),
+            onboardingSize: ComputerUsePermissionCompanionLayout.size,
             beside: systemSettings,
             in: permissionDisplay
         )
