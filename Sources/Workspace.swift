@@ -3155,21 +3155,7 @@ final class Workspace: Identifiable, ObservableObject {
         bonsplitController.tabContextMoveDestinationsProvider = { [weak self] tabId, _ in
             self?.bonsplitTabMoveDestinations(for: tabId) ?? []
         }
-        bonsplitController.tabContextForkConversationAvailabilityProvider = { [weak self] tabId, _ in
-            guard let self,
-                  let panelId = self.panelIdFromSurfaceId(tabId) else { return .hidden }
-            switch self.forkAgentConversationContextMenuPresentationAvailability(forPanelId: panelId) {
-            case .available:
-                return .available
-            case .agentIndexRefreshing:
-                return .refreshing
-            case .notTerminalPanel,
-                 .noAgentSnapshot,
-                 .unsupported,
-                 .requiresProbe:
-                return .hidden
-            }
-        }
+        configureForkAgentConversationContextMenuAvailability()
         bonsplitController.tabContextForkConversationDefaultActionProvider = { _, _ in
             AgentConversationForkDefaultSettings.current().tabContextAction
         }
