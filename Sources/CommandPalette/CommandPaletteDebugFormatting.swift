@@ -1,20 +1,20 @@
 import AppKit
 
 #if DEBUG
-func debugCommandPaletteWindowSummary(_ window: NSWindow?) -> String {
+func commandPaletteDiagnosticWindowSummary(_ window: NSWindow?) -> String {
     guard let window else { return "nil" }
     let ident = window.identifier?.rawValue ?? "nil"
     return "num=\(window.windowNumber) ident=\(ident) key=\(window.isKeyWindow ? 1 : 0) main=\(window.isMainWindow ? 1 : 0)"
 }
 
-func debugCommandPaletteNormalizedModifierFlags(_ flags: NSEvent.ModifierFlags) -> NSEvent.ModifierFlags {
+func commandPaletteDiagnosticNormalizedModifierFlags(_ flags: NSEvent.ModifierFlags) -> NSEvent.ModifierFlags {
     flags
         .intersection(.deviceIndependentFlagsMask)
         .subtracting([.numericPad, .function, .capsLock])
 }
 
-func debugCommandPaletteModifierFlagsSummary(_ flags: NSEvent.ModifierFlags) -> String {
-    let normalized = debugCommandPaletteNormalizedModifierFlags(flags)
+func commandPaletteDiagnosticModifierFlagsSummary(_ flags: NSEvent.ModifierFlags) -> String {
+    let normalized = commandPaletteDiagnosticNormalizedModifierFlags(flags)
     var parts: [String] = []
     if normalized.contains(.command) { parts.append("cmd") }
     if normalized.contains(.shift) { parts.append("shift") }
@@ -23,15 +23,15 @@ func debugCommandPaletteModifierFlagsSummary(_ flags: NSEvent.ModifierFlags) -> 
     return parts.isEmpty ? "none" : parts.joined(separator: "+")
 }
 
-func debugCommandPaletteKeyEventSummary(_ event: NSEvent) -> String {
+func commandPaletteDiagnosticKeyEventSummary(_ event: NSEvent) -> String {
     let chars = event.characters.map(String.init(reflecting:)) ?? "nil"
     let charsIgnoring = event.charactersIgnoringModifiers.map(String.init(reflecting:)) ?? "nil"
     return
-        "type=\(event.type) keyCode=\(event.keyCode) flags=\(debugCommandPaletteModifierFlagsSummary(event.modifierFlags)) " +
+        "type=\(event.type) keyCode=\(event.keyCode) flags=\(commandPaletteDiagnosticModifierFlagsSummary(event.modifierFlags)) " +
         "chars=\(chars) charsIgnoring=\(charsIgnoring)"
 }
 
-func debugCommandPaletteTextPreview(_ text: String, limit: Int = 120) -> String {
+func commandPaletteDiagnosticTextPreview(_ text: String, limit: Int = 120) -> String {
     let escaped = text
         .replacingOccurrences(of: "\\", with: "\\\\")
         .replacingOccurrences(of: "\n", with: "\\n")
@@ -44,7 +44,7 @@ func debugCommandPaletteTextPreview(_ text: String, limit: Int = 120) -> String 
     return "\(prefix)..."
 }
 
-func debugCommandPaletteResponderSummary(_ responder: NSResponder?) -> String {
+func commandPaletteDiagnosticResponderSummary(_ responder: NSResponder?) -> String {
     guard let responder else { return "nil" }
 
     let typeName = String(describing: type(of: responder))
@@ -63,4 +63,10 @@ func debugCommandPaletteResponderSummary(_ responder: NSResponder?) -> String {
 
     return typeName
 }
+
+let debugCommandPaletteWindowSummary = commandPaletteDiagnosticWindowSummary
+let debugCommandPaletteModifierFlagsSummary = commandPaletteDiagnosticModifierFlagsSummary
+let debugCommandPaletteKeyEventSummary = commandPaletteDiagnosticKeyEventSummary
+let debugCommandPaletteTextPreview: (String) -> String = { commandPaletteDiagnosticTextPreview($0) }
+let debugCommandPaletteResponderSummary = commandPaletteDiagnosticResponderSummary
 #endif

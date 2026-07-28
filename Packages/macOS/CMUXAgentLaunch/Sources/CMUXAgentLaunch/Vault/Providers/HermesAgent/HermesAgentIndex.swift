@@ -150,9 +150,42 @@ public enum HermesAgentIndex {
         defer { snapshot.remove() }
 
         return try withDatabase(snapshot.databaseURL.path) { db in
+            func openingUserTurn() throws -> HermesAgentTranscriptTurn? {
+                let sql = """
+                    SELECT role, content, tool_name, tool_calls
+                    FROM messages
+                    WHERE session_id = ? AND role = 'user' AND COALESCE(content, '') <> ''
+                    ORDER BY timestamp, id
+                    LIMIT 1
+                    """
+                var stmt: OpaquePointer?
+                guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
+                    sqlite3_finalize(stmt)
+                    throw HermesAgentIndexError.sqlite(sqliteMessage(db) ?? "prepare failed")
+                }
+                defer { sqlite3_finalize(stmt) }
+
+                let destructor = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
+                guard sqlite3_bind_text(stmt, 1, sessionId, -1, destructor) == SQLITE_OK else {
+                    throw HermesAgentIndexError.sqlite(sqliteMessage(db) ?? "bind failed")
+                }
+                let stepResult = sqlite3_step(stmt)
+                if stepResult == SQLITE_DONE { return nil }
+                guard stepResult == SQLITE_ROW else {
+                    throw HermesAgentIndexError.sqlite(sqliteMessage(db) ?? "step failed")
+                }
+                let content = decodedContentText(sqliteText(stmt, 1))
+                guard let text = normalized(content) else { return nil }
+                return HermesAgentTranscriptTurn(
+                    role: sqliteText(stmt, 0) ?? "user",
+                    content: text,
+                    toolName: nil
+                )
+            }
+
             let turns = try loadTranscript(db: db, sessionId: sessionId, limit: limit, latest: latest)
             guard latest, preservingOpeningUser,
-                  let openingUser = try loadOpeningUserTurn(db: db, sessionId: sessionId),
+                  let openingUser = try openingUserTurn(),
                   !turns.contains(openingUser) else {
                 return turns
             }
@@ -321,38 +354,6 @@ public enum HermesAgentIndex {
             throw HermesAgentIndexError.sqlite(sqliteMessage(db) ?? "step failed")
         }
         return turns
-    }
-
-    private static func loadOpeningUserTurn(
-        db: OpaquePointer,
-        sessionId: String
-    ) throws -> HermesAgentTranscriptTurn? {
-        let sql = """
-            SELECT role, content, tool_name, tool_calls
-            FROM messages
-            WHERE session_id = ? AND role = 'user' AND COALESCE(content, '') <> ''
-            ORDER BY timestamp, id
-            LIMIT 1
-            """
-        var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
-            sqlite3_finalize(stmt)
-            throw HermesAgentIndexError.sqlite(sqliteMessage(db) ?? "prepare failed")
-        }
-        defer { sqlite3_finalize(stmt) }
-
-        let destructor = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
-        guard sqlite3_bind_text(stmt, 1, sessionId, -1, destructor) == SQLITE_OK else {
-            throw HermesAgentIndexError.sqlite(sqliteMessage(db) ?? "bind failed")
-        }
-        let stepResult = sqlite3_step(stmt)
-        if stepResult == SQLITE_DONE { return nil }
-        guard stepResult == SQLITE_ROW else {
-            throw HermesAgentIndexError.sqlite(sqliteMessage(db) ?? "step failed")
-        }
-        let content = decodedContentText(sqliteText(stmt, 1))
-        guard let text = normalized(content) else { return nil }
-        return HermesAgentTranscriptTurn(role: sqliteText(stmt, 0) ?? "user", content: text, toolName: nil)
     }
 
     private static func makeSnapshot(stateDBPath: String, prefix: String) throws -> HermesAgentDatabaseSnapshot? {

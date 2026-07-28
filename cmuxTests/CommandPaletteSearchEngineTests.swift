@@ -513,14 +513,8 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(cancellationChecks, 4)
     }
 
-    func testExactForkQueryPinsHarnessAndDestinationFlowBeforeNativeShortcuts() {
+    func testExactForkQueryPinsForkRightBeforeOtherForkCommands() {
         let entries = [
-            FixtureEntry(
-                id: "palette.forkAgentConversation",
-                rank: 5,
-                title: "Fork Conversation…",
-                searchableTexts: ["Fork Conversation…", "Terminal", "fork", "harness", "destination"]
-            ),
             FixtureEntry(
                 id: "palette.forkAgentConversationLeft",
                 rank: 0,
@@ -561,7 +555,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             ContentView.commandPaletteForkPriorityBoost(commandId: commandId, query: "fork")
         }
 
-        XCTAssertEqual(results.map(\.payload).first, "palette.forkAgentConversation")
+        XCTAssertEqual(results.map(\.payload).first, "palette.forkAgentConversationRight")
     }
 
     func testForkableAgentCacheKeepsPanelVisibleWithoutFallbackSnapshot() {
@@ -1099,7 +1093,6 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
 
     func testForkCommandsDismissPaletteBeforeRunning() {
         let forkCommandIds = [
-            "palette.forkAgentConversation",
             "palette.forkAgentConversationRight",
             "palette.forkAgentConversationLeft",
             "palette.forkAgentConversationTop",

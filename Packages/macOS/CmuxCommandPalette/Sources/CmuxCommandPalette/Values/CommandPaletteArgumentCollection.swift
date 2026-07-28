@@ -1,14 +1,7 @@
 /// In-progress finite-choice values for one command-palette command.
 public struct CommandPaletteArgumentCollection: Sendable, Equatable {
     /// The result of attempting to select the current finite choice.
-    public enum SelectionResult: Sendable, Equatable {
-        /// The supplied value is not declared by the current argument.
-        case invalid
-        /// The value was accepted and another argument remains.
-        case advanced
-        /// The value was accepted and all arguments are now collected.
-        case completed
-    }
+    public typealias SelectionResult = CommandPaletteArgumentSelectionResult
 
     /// Stable identity of the command receiving the values.
     public let commandID: String

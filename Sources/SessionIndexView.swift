@@ -3,6 +3,7 @@ import AppKit
 import Bonsplit
 import CmuxAppKitSupportUI
 import CMUXAgentLaunch
+import Observation
 import SQLite3
 import SwiftUI
 import UniformTypeIdentifiers
@@ -716,7 +717,7 @@ private func sessionRowMenuItems(entry: SessionEntry, onResume: ((SessionEntry) 
 
 struct SessionTranscriptPreviewView: View {
     let entry: SessionEntry
-    @ObservedObject var sizeModel: SessionTranscriptPopoverSizeModel
+    let sizeModel: SessionTranscriptPopoverSizeModel
     let onResize: (CGSize) -> Void
     let onDismiss: () -> Void
 
@@ -868,8 +869,9 @@ enum SessionTranscriptPreviewLayout {
     }
 }
 
-final class SessionTranscriptPopoverSizeModel: ObservableObject {
-    @Published var size: CGSize
+@Observable
+final class SessionTranscriptPopoverSizeModel {
+    var size: CGSize
 
     init(size: CGSize = SessionTranscriptPreviewLayout.defaultSize) {
         self.size = size

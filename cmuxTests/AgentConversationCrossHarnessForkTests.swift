@@ -138,6 +138,24 @@ struct AgentConversationCrossHarnessForkTests {
     }
 
     @Test
+    func genericForkCommandRanksAboveNativeShortcutAndDismissesBeforeRunning() {
+        let genericBoost = ContentView.commandPaletteForkPriorityBoost(
+            commandId: "palette.forkAgentConversation",
+            query: "fork"
+        )
+        let nativeBoost = ContentView.commandPaletteForkPriorityBoost(
+            commandId: "palette.forkAgentConversationRight",
+            query: "fork"
+        )
+
+        #expect(genericBoost > nativeBoost)
+        #expect(nativeBoost > 0)
+        #expect(ContentView.commandPaletteShouldDismissBeforeRun(
+            forCommandId: "palette.forkAgentConversation"
+        ))
+    }
+
+    @Test
     func crossHarnessForkCreatesSplitWithTransferredPrompt() async throws {
         let fixture = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: fixture) }

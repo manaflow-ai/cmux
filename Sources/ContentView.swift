@@ -707,7 +707,7 @@ struct ContentView: View {
     @StateObject private var fullscreenControlsViewModel = TitlebarControlsViewModel()
     @StateObject private var fileExplorerStore = FileExplorerStore()
     @StateObject private var sessionIndexStore = SessionIndexStore()
-    @StateObject private var selectedWorkspaceDirectoryObserver = SelectedWorkspaceDirectoryObserver()
+    @State private var selectedWorkspaceDirectoryObserver = SelectedWorkspaceDirectoryObserver()
     @State private var commandPaletteOverlayRenderModel = CommandPaletteOverlayRenderModel()
     @State private var backgroundWorkspacePrimeCoordinator = BackgroundWorkspacePrimeCoordinator()
     @State private var workspacePresentationModeRuntimeCache = WorkspacePresentationModeRuntimeCache()
@@ -4837,11 +4837,17 @@ struct ContentView: View {
     }
 
     nonisolated static func commandPaletteForkPriorityBoost(commandId: String, query: String) -> Int {
-        guard CommandPaletteFuzzyMatcher.normalizeForSearch(query) == "fork",
-              commandId == "palette.forkAgentConversation" else {
+        guard CommandPaletteFuzzyMatcher.normalizeForSearch(query) == "fork" else {
             return 0
         }
-        return 10_000
+        switch commandId {
+        case "palette.forkAgentConversation":
+            10_001
+        case "palette.forkAgentConversationRight":
+            10_000
+        default:
+            0
+        }
     }
 
     private static func commandPaletteMaterializedSearchResults(

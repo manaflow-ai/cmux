@@ -1,35 +1,30 @@
 import Combine
 import Foundation
+import Observation
 
 @MainActor
-final class SelectedWorkspaceDirectoryObserver: ObservableObject {
-    private struct Snapshot: Equatable {
-        let workspaceId: UUID?
-        let currentDirectory: String?
-        let remoteConfiguration: WorkspaceRemoteConfiguration?
-        let remoteConnectionState: WorkspaceRemoteConnectionState?
-        let remoteConnectionDetail: String?
-        let remoteDaemonStatus: WorkspaceRemoteDaemonStatus?
-        let activeRemoteTerminalSessionCount: Int
-    }
-
-    @Published private(set) var directoryChangeGeneration: UInt64 = 0
+@Observable
+final class SelectedWorkspaceDirectoryObserver {
+    private(set) var directoryChangeGeneration: UInt64 = 0
+    @ObservationIgnored
     private weak var tabManager: TabManager?
-    private var cancellable: AnyCancellable?
+    @ObservationIgnored
+    private var cancelObservation: (() -> Void)?
 
     func wire(tabManager: TabManager) {
-        guard self.tabManager !== tabManager || cancellable == nil else { return }
+        guard self.tabManager !== tabManager || cancelObservation == nil else { return }
+        cancelObservation?()
         self.tabManager = tabManager
-        cancellable = tabManager.selectedTabIdPublisher
+        let subscription = tabManager.selectedTabIdPublisher
             .map { [weak tabManager] tabId -> Workspace? in
                 guard let tabId, let tabManager else { return nil }
                 return tabManager.tabs.first(where: { $0.id == tabId })
             }
             .removeDuplicates(by: { $0?.id == $1?.id })
-            .map { workspace -> AnyPublisher<(Snapshot, UInt64), Never> in
+            .map { workspace -> AnyPublisher<(SelectedWorkspaceDirectorySnapshot, UInt64), Never> in
                 guard let workspace else {
                     return Just(
-                        Snapshot(
+                        SelectedWorkspaceDirectorySnapshot(
                             workspaceId: nil,
                             currentDirectory: nil,
                             remoteConfiguration: nil,
@@ -65,7 +60,7 @@ final class SelectedWorkspaceDirectoryObserver: ObservableObject {
                             remoteConnectionState,
                             remoteConnectionDetail
                         ) = previousValues
-                        return Snapshot(
+                        return SelectedWorkspaceDirectorySnapshot(
                             workspaceId: workspace.id,
                             currentDirectory: workspace.isRemoteWorkspace
                                 ? workspace.presentedCurrentDirectory
@@ -86,5 +81,6 @@ final class SelectedWorkspaceDirectoryObserver: ObservableObject {
             .sink { [weak self] _ in
                 self?.directoryChangeGeneration &+= 1
             }
+        cancelObservation = { subscription.cancel() }
     }
 }
