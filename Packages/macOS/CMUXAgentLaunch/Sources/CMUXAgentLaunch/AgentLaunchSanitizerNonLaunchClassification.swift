@@ -16,8 +16,14 @@ extension AgentLaunchSanitizer {
             if !argument.hasPrefix("-") || argument == "-" {
                 return claudeTeamsManagementCommands.contains(argument)
             }
+            let name = optionName(argument)
             guard claudeTeamsPolicyRecognizesOption(argument, policy: policy),
-                  !claudeTeamsManagementDisqualifyingOptions.contains(optionName(argument)) else {
+                  !claudeTeamsManagementDisqualifyingOptions.contains(name) else {
+                return false
+            }
+            if (name == "--debug" || name == "-d"), !argument.contains("=") {
+                // Claude may consume the next token as an optional debug filter,
+                // so an unattached value makes the command boundary ambiguous.
                 return false
             }
             let width = optionWidth(args, index: index, policy: policy)

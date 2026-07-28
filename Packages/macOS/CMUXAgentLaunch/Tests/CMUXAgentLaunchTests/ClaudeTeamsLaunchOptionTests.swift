@@ -80,6 +80,8 @@ struct ClaudeTeamsLaunchOptionTests {
             ["--", "config"],
             ["please", "config"],
             ["--unknown-option", "config"],
+            ["--debug", "auth", "start a team"],
+            ["-d", "doctor", "start a team"],
             ["--continue", "config"],
             ["--remote-control", "session-name", "auth"],
             ["--resume", "doctor"],
