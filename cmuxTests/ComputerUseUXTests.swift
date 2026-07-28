@@ -874,6 +874,35 @@ struct ComputerUseUXTests {
         #expect(!presentationState.screenCaptureConsentPending)
     }
 
+    /// Regression: ScreenCaptureKit can return from its first direct-content
+    /// query while Tahoe's system consent sheet is still waiting for a user
+    /// decision. The companion must remain visible and completion must not
+    /// replace it until that prompt-capable verification has actually ended.
+    @Test @MainActor func pendingScreenCaptureConsentCannotShowCompletion() {
+        let presentationState = ComputerUseOnboardingPresentationState()
+        presentationState.showPermissionCompanion()
+        presentationState.beginScreenCaptureConsent()
+
+        presentationState.showCompletionInExpandedOnboarding()
+
+        #expect(presentationState.screenCaptureConsentPending)
+        #expect(presentationState.permissionCompanionVisible)
+        #expect(!presentationState.onboardingComplete)
+    }
+
+    /// The dogfood companion was an overly wide 472×112 strip with only eight
+    /// points of vertical breathing room. Keep the next composition compact
+    /// enough to sit beside System Settings while giving its two rows a native
+    /// panel proportion and full macOS control spacing.
+    @Test func permissionCompanionUsesBalancedNativeProportions() {
+        let size = ComputerUsePermissionCompanionLayout.size
+
+        #expect(size == CGSize(width: 456, height: 138))
+        #expect(size.width / size.height < 3.5)
+        #expect(ComputerUsePermissionCompanionLayout.horizontalInset >= 16)
+        #expect(ComputerUsePermissionCompanionLayout.verticalInset >= 14)
+    }
+
     @Test func permissionCompanionUsesOneAlignmentGrid() {
         let instructionLeadingEdge = ComputerUsePermissionCompanionLayout.horizontalInset
             + ComputerUsePermissionCompanionLayout.leadingColumnWidth
