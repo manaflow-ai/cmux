@@ -16,7 +16,7 @@ public struct AgentProcessCandidateSelector: Sendable {
         processes: [AgentProcessCandidate],
         policy: AgentProcessCandidatePolicy
     ) {
-        normalizedArgumentNeedles = Self.unconstrainedArgumentNeedles(
+        normalizedArgumentNeedles = unconstrainedArgumentNeedles(
             in: policy.detectionRules
         ).map {
             Array($0.replacingOccurrences(of: "\\", with: "/").lowercased().utf8)
@@ -26,17 +26,17 @@ public struct AgentProcessCandidateSelector: Sendable {
             return
         }
 
-        let registeredBasenames = Self.registeredBasenames(
+        let registeredBasenames = registeredBasenames(
             in: policy.detectionRules
         )
         let builtInAgentBasenames = Set(
-            policy.builtInAgentBasenames.compactMap(Self.normalizedBasename)
+            policy.builtInAgentBasenames.compactMap(normalizedBasename)
         )
         let wrapperBasenames = Set(
-            policy.wrapperBasenames.compactMap(Self.normalizedBasename)
+            policy.wrapperBasenames.compactMap(normalizedBasename)
         )
         processIDs = Set(processes.compactMap { process in
-            Self.isCandidate(
+            isCandidate(
                 process,
                 registeredBasenames: registeredBasenames,
                 builtInAgentBasenames: builtInAgentBasenames,
@@ -79,70 +79,70 @@ public struct AgentProcessCandidateSelector: Sendable {
             metadata.executableArgument,
             metadata.firstArgumentAfterExecutable,
         ].compactMap { $0 }
-        return AgentLaunchCaptureTrust.launchExecutableMatches(
+        return agentLaunchExecutableMatches(
             kind: "claude",
             executableCandidates: executableCandidates,
             recordedKind: metadata.agentLaunchKind,
             recordedExecutable: metadata.agentLaunchExecutable
-        ) || AgentLaunchCaptureTrust.launchExecutableMatches(
+        ) || agentLaunchExecutableMatches(
             kind: "codex",
             executableCandidates: executableCandidates,
             recordedKind: metadata.agentLaunchKind,
             recordedExecutable: metadata.agentLaunchExecutable
         )
     }
+}
 
-    private static func unconstrainedArgumentNeedles(
-        in rules: [AgentProcessDetectionRule]
-    ) -> [String] {
-        rules.flatMap { rule in
-            var needles: [String] = []
-            if rule.processName == nil, rule.processNames.isEmpty {
-                needles.append(contentsOf: rule.argvContains)
-            }
-            if rule.alternateProcessNames.isEmpty {
-                needles.append(contentsOf: rule.alternateArgvContains)
-                needles.append(contentsOf: rule.alternateArgvContainsAny)
-            }
-            return needles
+private func unconstrainedArgumentNeedles(
+    in rules: [AgentProcessDetectionRule]
+) -> [String] {
+    rules.flatMap { rule in
+        var needles: [String] = []
+        if rule.processName == nil, rule.processNames.isEmpty {
+            needles.append(contentsOf: rule.argvContains)
         }
-    }
-
-    private static func registeredBasenames(
-        in rules: [AgentProcessDetectionRule]
-    ) -> Set<String> {
-        Set(rules.flatMap { rule in
-            ([rule.processName].compactMap { $0 }
-                + rule.processNames
-                + rule.alternateProcessNames)
-                .compactMap(normalizedBasename)
-        })
-    }
-
-    private static func isCandidate(
-        _ process: AgentProcessCandidate,
-        registeredBasenames: Set<String>,
-        builtInAgentBasenames: Set<String>,
-        wrapperBasenames: Set<String>
-    ) -> Bool {
-        if process.isTerminalForegroundProcessGroup || process.shouldInspectArguments {
-            return true
+        if rule.alternateProcessNames.isEmpty {
+            needles.append(contentsOf: rule.alternateArgvContains)
+            needles.append(contentsOf: rule.alternateArgvContainsAny)
         }
+        return needles
+    }
+}
 
-        let basenames = [process.name, process.path]
-            .compactMap { $0 }
+private func registeredBasenames(
+    in rules: [AgentProcessDetectionRule]
+) -> Set<String> {
+    Set(rules.flatMap { rule in
+        ([rule.processName].compactMap { $0 }
+            + rule.processNames
+            + rule.alternateProcessNames)
             .compactMap(normalizedBasename)
-        return basenames.contains { basename in
-            registeredBasenames.contains(basename)
-                || builtInAgentBasenames.contains(basename)
-                || wrapperBasenames.contains(basename)
-        }
+    })
+}
+
+private func isCandidate(
+    _ process: AgentProcessCandidate,
+    registeredBasenames: Set<String>,
+    builtInAgentBasenames: Set<String>,
+    wrapperBasenames: Set<String>
+) -> Bool {
+    if process.isTerminalForegroundProcessGroup || process.shouldInspectArguments {
+        return true
     }
 
-    private static func normalizedBasename(_ value: String) -> String? {
-        let basename = (value as NSString).lastPathComponent
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        return basename.isEmpty ? nil : basename
+    let basenames = [process.name, process.path]
+        .compactMap { $0 }
+        .compactMap(normalizedBasename)
+    return basenames.contains { basename in
+        registeredBasenames.contains(basename)
+            || builtInAgentBasenames.contains(basename)
+            || wrapperBasenames.contains(basename)
     }
+}
+
+private func normalizedBasename(_ value: String) -> String? {
+    let basename = (value as NSString).lastPathComponent
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .lowercased()
+    return basename.isEmpty ? nil : basename
 }

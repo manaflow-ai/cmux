@@ -144,7 +144,7 @@ struct CachedAgentProcessIdentityValidator: Sendable {
         executableCandidates: [String],
         environment: [String: String]
     ) -> Bool {
-        AgentLaunchCaptureTrust.launchExecutableMatches(
+        agentLaunchExecutableMatches(
             kind: kind.rawValue,
             executableCandidates: executableCandidates,
             recordedKind: environment["CMUX_AGENT_LAUNCH_KIND"],
