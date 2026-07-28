@@ -8644,7 +8644,8 @@ mod tests {
     }
 
     #[test]
-    fn document_verification_retries_share_one_worker_budget() {
+    fn document_verification_gives_each_bounded_attempt_a_full_budget() {
+        const ONE_PIXEL_PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
         let server = thread::spawn(move || {
@@ -8655,8 +8656,27 @@ mod tests {
             assert_eq!(discover["method"], "Target.setDiscoverTargets");
             write_ws_json(&mut ws, json!({"id": discover["id"], "result": {}}));
 
+            let seed = read_ws_json(&mut ws);
+            assert_eq!(seed["method"], "Page.getFrameTree");
+            write_ws_json(
+                &mut ws,
+                json!({
+                    "id": seed["id"],
+                    "result": {
+                        "frameTree": {
+                            "frame": {
+                                "id": "main-frame",
+                                "loaderId": "loader-1",
+                                "url": "https://example.test"
+                            }
+                        }
+                    }
+                }),
+            );
+
             let mut attempts = 0;
-            while attempts < AUTHORITY_CAPTURE_ATTEMPTS {
+            let mut successful_attempt_calls = 0;
+            loop {
                 let request = match ws.read() {
                     Ok(Message::Text(text)) => serde_json::from_str::<Value>(&text).ok(),
                     Ok(Message::Binary(bytes)) => serde_json::from_slice::<Value>(&bytes).ok(),
@@ -8664,20 +8684,55 @@ mod tests {
                     Err(_) => break,
                 };
                 let Some(request) = request else { continue };
-                assert_eq!(request["method"], "Page.stopScreencast");
-                attempts += 1;
-                thread::sleep(Duration::from_millis(100));
+                let method = request["method"].as_str().unwrap();
+                if method == "Page.stopScreencast" {
+                    attempts += 1;
+                    if attempts < AUTHORITY_CAPTURE_ATTEMPTS {
+                        thread::sleep(Duration::from_millis(100));
+                        if ws
+                            .send(Message::Text(
+                                json!({
+                                    "id": request["id"],
+                                    "error": {"message": "injected restart failure"}
+                                })
+                                .to_string()
+                                .into(),
+                            ))
+                            .is_err()
+                        {
+                            break;
+                        }
+                        continue;
+                    }
+                }
+                successful_attempt_calls += 1;
+                let result = match method {
+                    "Page.stopScreencast" | "Page.startScreencast" => json!({}),
+                    "Page.createIsolatedWorld" => json!({"executionContextId": 41}),
+                    "Runtime.evaluate" => {
+                        json!({"result": {"type": "number", "value": 10_000.0}})
+                    }
+                    "Page.getFrameTree" => json!({
+                        "frameTree": {
+                            "frame": {
+                                "id": "main-frame",
+                                "loaderId": "loader-2",
+                                "url": "https://next.test"
+                            }
+                        }
+                    }),
+                    "Page.captureScreenshot" => json!({"data": ONE_PIXEL_PNG}),
+                    method => panic!("unexpected CDP method {method}"),
+                };
                 if ws
                     .send(Message::Text(
-                        json!({
-                            "id": request["id"],
-                            "error": {"message": "injected restart failure"}
-                        })
-                        .to_string()
-                        .into(),
+                        json!({"id": request["id"], "result": result}).to_string().into(),
                     ))
                     .is_err()
                 {
+                    break;
+                }
+                if successful_attempt_calls == 7 {
                     break;
                 }
             }
@@ -8691,6 +8746,8 @@ mod tests {
         .unwrap();
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
+        runtime.client.register_frame_epoch("session-1", browser.frame_epoch.clone());
+        runtime.client.seed_main_frame("session-1").unwrap();
         *browser.session.lock().unwrap() = Some(BrowserSession {
             runtime: runtime.clone(),
             target_id: "target-1".to_string(),
@@ -8723,18 +8780,24 @@ mod tests {
 
         runtime.shutdown();
         let attempts = server.join().unwrap();
-        assert!(result.is_err());
         assert!(
-            elapsed < Duration::from_millis(250),
-            "verification monopolized the input worker for {elapsed:?} across {attempts} retries"
+            result.is_ok(),
+            "two slow transient restart failures must not starve the healthy bounded attempt: {result:?}"
+        );
+        assert_eq!(
+            attempts, AUTHORITY_CAPTURE_ATTEMPTS,
+            "document verification must reach the healthy final attempt"
+        );
+        assert!(
+            elapsed < Duration::from_millis(600),
+            "bounded attempts monopolized the input worker for {elapsed:?}"
         );
     }
 
     #[test]
-    fn unpainted_document_navigation_expires_to_reloadable_failure() {
+    fn late_document_paint_recovers_expired_navigation_authority() {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
-        let worker_done = browser.take_worker_done_for_test();
         browser.store_frame(test_frame(1));
         let navigation_epoch = browser.frame_epoch.advance_navigation();
         handle_frame_navigated(
@@ -8749,26 +8812,35 @@ mod tests {
             navigation_epoch,
         );
         browser.state.lock().unwrap().pending_authority_deadline = Some(Instant::now());
-        browser.wake_lifecycle_worker();
-
-        let deadline = Instant::now() + Duration::from_millis(500);
-        while matches!(browser.status(), BrowserStatus::Live) && Instant::now() < deadline {
-            thread::sleep(Duration::from_millis(10));
-        }
+        let message = browser
+            .expire_navigation_authority(Instant::now())
+            .expect("expired authority must surface a bounded recovery action");
         let status = browser.status();
         let state = browser.state.lock().unwrap();
         let pending_frame_epoch = state.pending_frame_epoch;
         let pending_document_epoch = state.pending_document_epoch;
+        let pending_failure_recovery = state.pending_failure_recovery;
         drop(state);
 
-        browser.kill();
-        worker_done.recv_timeout(Duration::from_secs(1)).unwrap();
         assert!(
             matches!(status.failure(), Some(super::BrowserFailure::NewPageVerification(_))),
             "an unpainted committed document must surface a reloadable failure: {status:?}"
         );
-        assert_eq!(pending_frame_epoch, None);
-        assert_eq!(pending_document_epoch, None);
+        assert!(message.contains("reload to retry"));
+        assert_eq!(pending_frame_epoch, Some(navigation_epoch));
+        assert_eq!(pending_document_epoch, Some(navigation_epoch));
+        assert!(
+            pending_failure_recovery,
+            "the expired barrier must retain authority for a late current-document paint"
+        );
+        assert_eq!(browser.latest_frame_seq(), None);
+
+        assert!(
+            browser.accept_document_paint(navigation_epoch, navigation_epoch, test_frame(2),),
+            "a late loader-verified paint must recover the still-current document"
+        );
+        assert_eq!(browser.status(), BrowserStatus::Live);
+        assert_eq!(browser.latest_frame_seq(), Some(2));
     }
 
     #[test]
@@ -9452,15 +9524,30 @@ mod tests {
             now,
         );
         let retained_after_timeout = failures.active_pointer_presses.contains_key("left");
+        let retry_at = failures
+            .active_pointer_presses
+            .get("left")
+            .and_then(|press| press.release_retry_at)
+            .expect("the ambiguous release must schedule one retry");
         super::release_abandoned_pointer_presses(
             &surface,
             &Weak::new(),
             surface.id,
             &mut failures,
-            now + Duration::from_secs(1),
+            now,
+        );
+        let retained_before_retry = failures.active_pointer_presses.contains_key("left");
+        let retried_without_yielding = retry_rx.recv_timeout(Duration::from_millis(20)).ok();
+        super::release_abandoned_pointer_presses(
+            &surface,
+            &Weak::new(),
+            surface.id,
+            &mut failures,
+            retry_at,
         );
         let consumed_after_retry = failures.active_pointer_presses.is_empty();
-        let retry_observed = retry_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        let retry_observed = retried_without_yielding
+            .unwrap_or_else(|| retry_rx.recv_timeout(Duration::from_secs(1)).unwrap());
 
         runtime.shutdown();
         server.join().unwrap();
@@ -9468,6 +9555,15 @@ mod tests {
         assert!(
             retained_after_timeout,
             "the first ambiguous cleanup release must remain owned for one retry"
+        );
+        assert!(retry_at > now, "the retry must yield the worker before another CDP call");
+        assert!(
+            retained_before_retry,
+            "the retry must remain pending until its deferred lifecycle deadline"
+        );
+        assert!(
+            retried_without_yielding.is_none(),
+            "the worker must not perform two potentially long CDP calls back-to-back"
         );
         assert!(consumed_after_retry, "the bounded cleanup retry must consume the press");
         assert!(retry_observed, "cleanup must dispatch one balancing release retry");
