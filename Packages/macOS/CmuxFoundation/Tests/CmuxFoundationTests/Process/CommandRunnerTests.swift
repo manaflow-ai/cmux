@@ -121,6 +121,27 @@ import Testing
         #expect(result.exitStatus == nil)
     }
 
+    @Test func taskCancellationReturnsWithoutWaitingForTheChild() async throws {
+        let command = Task {
+            await runner.run(
+                directory: tempDir,
+                executable: "sh",
+                arguments: ["-c", "sleep 10 & wait"],
+                timeout: 30
+            )
+        }
+        try await Task.sleep(for: .milliseconds(100))
+        command.cancel()
+
+        let result = try await expectCompletes(within: 4) {
+            await command.value
+        }
+
+        #expect(result.executionError != nil)
+        #expect(result.timedOut == false)
+        #expect(result.exitStatus == nil)
+    }
+
     @Test func handlesLargeOutputWithoutDeadlock() async {
         // ~1 MiB of output exceeds the pipe buffer; concurrent draining must avoid deadlock.
         let result = await runner.run(
