@@ -246,7 +246,7 @@ final class AutomationSocketUITests: XCTestCase {
             ]
                 .compactMap { $0 }
                 .joined(separator: "\n")
-            return issue.type == .system &&
+            return (issue.type == .system || issue.type == .assertionFailure) &&
                 diagnostics.contains("Failed to activate application") &&
                 diagnostics.contains("Running Background")
         }
