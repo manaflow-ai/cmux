@@ -106,7 +106,6 @@ func configureClaudeTeamsShellWrapper(shimDir string) error {
 
 	os.Setenv("CMUX_CLAUDE_TEAMS_ORIGINAL_SHELL", originalShell)
 	os.Setenv("CMUX_CLAUDE_TEAMS_SHIM_DIR", shimDir)
-	os.Setenv("SHELL", wrapperPath)
 	os.Setenv("CLAUDE_CODE_SHELL", wrapperPath)
 	return nil
 }

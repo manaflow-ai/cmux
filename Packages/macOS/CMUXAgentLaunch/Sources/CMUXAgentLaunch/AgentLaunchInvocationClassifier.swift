@@ -92,6 +92,12 @@ public struct AgentLaunchInvocationClassifier {
             let argument = args[index]
             if argument == "--" { return false }
             if !argument.hasPrefix("-") || argument == "-" {
+                if argument == "agents" {
+                    return claudeTeamsAgentsJSONInvocation(
+                        args: args,
+                        startIndex: index + 1
+                    )
+                }
                 if let allowedSubcommands = claudeTeamsManagementSubcommands[argument] {
                     return claudeTeamsManagementSubcommand(
                         args: args,
@@ -126,6 +132,22 @@ public struct AgentLaunchInvocationClassifier {
             index += max(width, 1)
         }
         return false
+    }
+
+    private func claudeTeamsAgentsJSONInvocation(args: [String], startIndex: Int) -> Bool {
+        var sawJSON = false
+        for argument in args.dropFirst(startIndex) {
+            switch argument {
+            case "--json":
+                guard !sawJSON else { return false }
+                sawJSON = true
+            case "--all":
+                continue
+            default:
+                return false
+            }
+        }
+        return sawJSON
     }
 
     private func claudeTeamsManagementSubcommand(

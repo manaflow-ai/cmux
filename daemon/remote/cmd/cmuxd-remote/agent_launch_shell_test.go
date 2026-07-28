@@ -118,12 +118,12 @@ func TestClaudeTeamsShellWrapperKeepsFishIdentity(t *testing.T) {
 	if err := configureClaudeTeamsShellWrapper(shimDir); err != nil {
 		t.Fatal(err)
 	}
-	wrapperPath := os.Getenv("SHELL")
+	if got := os.Getenv("SHELL"); got != fishPath {
+		t.Fatalf("SHELL = %q, want original fish path %q", got, fishPath)
+	}
+	wrapperPath := os.Getenv("CLAUDE_CODE_SHELL")
 	if filepath.Base(wrapperPath) != "bash" {
 		t.Fatalf("wrapper shell name = %q, want bash", filepath.Base(wrapperPath))
-	}
-	if claudeShell := os.Getenv("CLAUDE_CODE_SHELL"); claudeShell != wrapperPath {
-		t.Fatalf("CLAUDE_CODE_SHELL = %q, want wrapper %q", claudeShell, wrapperPath)
 	}
 
 	command := exec.Command(wrapperPath, "-lc", "command -v tmux")
@@ -168,7 +168,10 @@ func TestClaudeTeamsShellWrapperSupportsNonPOSIXLoginShell(t *testing.T) {
 	if err := configureClaudeTeamsShellWrapper(shimDir); err != nil {
 		t.Fatal(err)
 	}
-	wrapperPath := os.Getenv("SHELL")
+	if got := os.Getenv("SHELL"); got != tcshPath {
+		t.Fatalf("SHELL = %q, want original tcsh path %q", got, tcshPath)
+	}
+	wrapperPath := os.Getenv("CLAUDE_CODE_SHELL")
 	if filepath.Base(wrapperPath) != "bash" {
 		t.Fatalf("wrapper shell name = %q, want bash", filepath.Base(wrapperPath))
 	}

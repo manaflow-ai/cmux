@@ -48,6 +48,9 @@ func claudeTeamsManagementInvocation(args []string) bool {
 			return false
 		}
 		if !strings.HasPrefix(argument, "-") || argument == "-" {
+			if argument == "agents" {
+				return claudeTeamsAgentsJSONInvocation(args, index+1)
+			}
 			if allowedSubcommands := claudeTeamsManagementSubcommands[argument]; allowedSubcommands != nil {
 				return claudeTeamsManagementSubcommand(args, index+1, allowedSubcommands)
 			}
@@ -69,6 +72,23 @@ func claudeTeamsManagementInvocation(args []string) bool {
 		index += width
 	}
 	return false
+}
+
+func claudeTeamsAgentsJSONInvocation(args []string, index int) bool {
+	sawJSON := false
+	for ; index < len(args); index++ {
+		switch args[index] {
+		case "--json":
+			if sawJSON {
+				return false
+			}
+			sawJSON = true
+		case "--all":
+		default:
+			return false
+		}
+	}
+	return sawJSON
 }
 
 func claudeTeamsManagementSubcommand(args []string, index int, allowedSubcommands map[string]bool) bool {

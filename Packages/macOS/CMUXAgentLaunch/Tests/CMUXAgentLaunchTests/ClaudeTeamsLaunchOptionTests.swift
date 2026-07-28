@@ -77,6 +77,8 @@ struct ClaudeTeamsLaunchOptionTests {
         #expect(classifier.claudeTeamsLaunchIsManagementCommand(
             args: ["daemon", "--json-path", "/tmp/daemon.json", "status"]
         ))
+        #expect(classifier.claudeTeamsLaunchIsManagementCommand(args: ["agents", "--json"]))
+        #expect(classifier.claudeTeamsLaunchIsManagementCommand(args: ["agents", "--all", "--json"]))
     }
 
     @Test("Does not promote command-shaped values or prompt payloads")
@@ -84,6 +86,8 @@ struct ClaudeTeamsLaunchOptionTests {
         let classifier = AgentLaunchInvocationClassifier()
         let launches = [
             ["agents"],
+            ["agents", "--all"],
+            ["agents", "--json", "prompt"],
             ["--verbose", "agents"],
             ["daemon"],
             ["daemon", "run"],

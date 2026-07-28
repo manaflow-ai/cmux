@@ -178,7 +178,9 @@ exit 86
                 return 1
             claude_log.unlink()
 
-        for daemon_args in (
+        for management_args in (
+            ("agents", "--json"),
+            ("agents", "--all", "--json"),
             ("daemon", "logs"),
             ("daemon", "status"),
             ("daemon", "stop"),
@@ -186,7 +188,7 @@ exit 86
             ("daemon", "--json-path", "/tmp/cmux-daemon.json", "status"),
         ):
             management = subprocess.run(
-                [cli_path, "claude-teams", *daemon_args],
+                [cli_path, "claude-teams", *management_args],
                 capture_output=True,
                 text=True,
                 check=False,
@@ -194,12 +196,14 @@ exit 86
                 timeout=30,
             )
             if management.returncode != 0 or not claude_log.exists():
-                print(f"FAIL: Claude management invocation {daemon_args!r} required a live surface")
+                print(f"FAIL: Claude management invocation {management_args!r} required a live surface")
                 return 1
             claude_log.unlink()
 
         for real_args in (
             ["agents"],
+            ["agents", "--all"],
+            ["agents", "--json", "prompt"],
             ["daemon"],
             ["daemon", "run"],
             ["start a team"],
