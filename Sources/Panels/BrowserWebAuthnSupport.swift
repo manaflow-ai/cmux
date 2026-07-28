@@ -669,8 +669,8 @@ enum BrowserWebAuthnCredentialReply {
             "signature": signature.base64URLEncodedString(),
         ]
 
-        if !userHandle!.isEmpty {
-            response["userHandle"] = userHandle!.base64URLEncodedString()
+        if let userHandle, !userHandle.isEmpty {
+            response["userHandle"] = userHandle.base64URLEncodedString()
         }
 
         return [
