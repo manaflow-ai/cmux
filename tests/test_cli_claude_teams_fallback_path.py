@@ -10,7 +10,12 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from claude_teams_test_utils import focused_cmux_server, resolve_cmux_cli
+from claude_teams_test_utils import (
+    FOCUSED_SURFACE_ID,
+    FOCUSED_WORKSPACE_ID,
+    focused_cmux_server,
+    resolve_cmux_cli,
+)
 
 
 def make_executable(path: Path, content: str) -> None:
@@ -29,12 +34,18 @@ def main() -> int:
         tmp = Path(td)
         home = tmp / "home"
         fallback_bin = home / ".bun" / "bin"
-        managed_bin = tmp / "cmux-cli-shims" / "surface-1"
+        managed_bin = tmp / "cmux-cli-shims" / "99999999-9999-4999-8999-999999999999"
+        live_managed_bin = tmp / "cmux-cli-shims" / FOCUSED_SURFACE_ID
         fallback_bin.mkdir(parents=True, exist_ok=True)
         managed_bin.mkdir(parents=True, exist_ok=True)
+        live_managed_bin.mkdir(parents=True, exist_ok=True)
 
         make_executable(
             managed_bin / "claude",
+            "#!/usr/bin/env bash\necho managed-claude-shim-must-not-run >&2\nexit 42\n",
+        )
+        make_executable(
+            live_managed_bin / "claude",
             "#!/usr/bin/env bash\necho managed-claude-shim-must-not-run >&2\nexit 42\n",
         )
 
@@ -116,7 +127,51 @@ exit 86
             return 1
         claude_log.unlink()
 
-        for real_args in (["start a team"], ["--tmux", "explain --version"]):
+        for command in (
+            "agents",
+            "auth",
+            "auto-mode",
+            "doctor",
+            "gateway",
+            "install",
+            "mcp",
+            "plugin",
+            "plugins",
+            "project",
+            "setup-token",
+            "ultrareview",
+            "update",
+            "upgrade",
+        ):
+            management = subprocess.run(
+                [cli_path, "claude-teams", command],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=unmanaged_env,
+                timeout=30,
+            )
+            if management.returncode != 0 or not claude_log.exists():
+                print(f"FAIL: Claude management command {command!r} required a live surface")
+                return 1
+            claude_log.unlink()
+
+        for real_args in (
+            ["start a team"],
+            ["--tmux", "explain --version"],
+            ["--model", "config"],
+            ["--append-system-prompt", "doctor"],
+            ["--tmux", "config"],
+            ["--", "config"],
+            ["please", "config"],
+            ["--unknown-option", "config"],
+            ["--continue", "config"],
+            ["--remote-control", "session-name", "auth"],
+            ["api-key"],
+            ["config"],
+            ["rc"],
+            ["remote-control"],
+        ):
             unmanaged = subprocess.run(
                 [cli_path, "claude-teams", *real_args],
                 capture_output=True,
@@ -184,22 +239,45 @@ exit 86
             print(f"FAIL: contextless Teams launch consulted mutable focus: {requests!r}")
             return 1
 
-        managed_tmux = managed_bin / "tmux"
-        managed_tmux.unlink()
-        forged_env = env.copy()
-        forged_tmp = tmp / "different-temp-root"
-        forged_tmp.mkdir()
-        forged_env["TMPDIR"] = str(forged_tmp)
-        forged = subprocess.run(
-            [cli_path, "claude-teams", "start a team"],
-            capture_output=True,
-            text=True,
-            check=False,
-            env=forged_env,
-            timeout=30,
-        )
-        if forged.returncode == 0 or claude_log.exists() or managed_tmux.exists():
-            print("FAIL: forged managed-root environment was accepted outside the trusted temp base")
+        overridden_tmp = tmp / "unrelated-tmpdir"
+        overridden_tmp.mkdir()
+        with focused_cmux_server(tmp / "live-cmux.sock") as (socket_path, _):
+            live_env = env.copy()
+            live_env["CMUX_SOCKET_PATH"] = socket_path
+            live_env["CMUX_WORKSPACE_ID"] = FOCUSED_WORKSPACE_ID
+            live_env["CMUX_SURFACE_ID"] = FOCUSED_SURFACE_ID
+            live_env["CMUX_CLAUDE_WRAPPER_SHIM"] = str(live_managed_bin / "claude")
+            live_env["CMUX_CLAUDE_WRAPPER_SHIM_ROOT"] = str(live_managed_bin)
+            live_env["TMPDIR"] = str(overridden_tmp)
+            live = subprocess.run(
+                [cli_path, "claude-teams", "start a team"],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=live_env,
+                timeout=30,
+            )
+            live_reached_provider = claude_log.exists()
+            claude_log.unlink(missing_ok=True)
+            mismatch_env = live_env.copy()
+            mismatch_env["CMUX_CLAUDE_WRAPPER_SHIM"] = str(managed_bin / "claude")
+            mismatch_env["CMUX_CLAUDE_WRAPPER_SHIM_ROOT"] = str(managed_bin)
+            mismatched_tmux = managed_bin / "tmux"
+            mismatched_tmux.unlink(missing_ok=True)
+            mismatch = subprocess.run(
+                [cli_path, "claude-teams", "start a team"],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=mismatch_env,
+                timeout=30,
+            )
+        if live.returncode != 0 or not live_reached_provider or not (live_managed_bin / "tmux").is_file():
+            print("FAIL: live surface UUID root was rejected when TMPDIR differed")
+            print(f"stderr={live.stderr.strip()}")
+            return 1
+        if mismatch.returncode == 0 or claude_log.exists() or mismatched_tmux.exists():
+            print("FAIL: managed wrapper root for a different surface was accepted")
             return 1
 
     print("PASS: provider fallback survives while real Teams launches require managed routing")

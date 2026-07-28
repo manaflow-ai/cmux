@@ -20347,19 +20347,20 @@ struct CMUXCLI {
            !explicitPassword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             launcherEnvironment["CMUX_SOCKET_PASSWORD"] = explicitPassword
         }
-        let shimDirectory = try createClaudeTeamsShimDirectory(
-            processEnvironment: launcherEnvironment,
-            commandArgs: commandArgs
-        )
         let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
         let launchContext = try tmuxCompatLaunchContext(
             processEnvironment: launcherEnvironment,
             explicitPassword: explicitPassword
         )
-        if !tmuxCompatIsInformationalInvocation(commandArgs: commandArgs),
+        if !claudeTeamsIsNonLaunchInvocation(commandArgs: commandArgs),
            normalizedTmuxTarget(launchContext?.surfaceId) == nil {
             throw CLIError(message: managedTerminalRequiredMessage(displayName: "Claude Teams"))
         }
+        let shimDirectory = try createClaudeTeamsShimDirectory(
+            processEnvironment: launcherEnvironment,
+            commandArgs: commandArgs,
+            launchContext: launchContext
+        )
         // Check custom path from Settings > Automation > Claude Code first.
         // Never fall back to a cmux-bundled provider binary.
         guard let claudeExecutablePath = resolveClaudeExecutable(
@@ -22425,15 +22426,21 @@ struct CMUXCLI {
             includingExecutableAt: openCodeExecutablePath
         )
 
-        // Ensure oh-my-openagent plugin is registered and installed
-        try omoEnsurePlugin(processEnvironment: launcherEnvironment)
-
-        let shimDirectory = try createOMOShimDirectory()
         let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
         let launchContext = try tmuxCompatLaunchContext(
             processEnvironment: launcherEnvironment,
             explicitPassword: explicitPassword
         )
+        if !omoIsNonLaunchInvocation(commandArgs: commandArgs),
+           normalizedTmuxTarget(launchContext?.surfaceId) == nil {
+            throw CLIError(message: managedTerminalRequiredMessage(displayName: "cmux omo"))
+        }
+
+        // Ensure oh-my-openagent plugin is registered and installed only after a
+        // real launch's inherited surface identity has been validated.
+        try omoEnsurePlugin(processEnvironment: launcherEnvironment)
+
+        let shimDirectory = try createOMOShimDirectory()
         let openCodePort = omoResolvedPort(
             commandArgs: commandArgs,
             processEnvironment: launcherEnvironment
@@ -22573,12 +22580,16 @@ struct CMUXCLI {
             includingExecutableAt: omxExecutablePath
         )
 
-        let shimDirectory = try createOMXShimDirectory()
         let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
         let launchContext = try tmuxCompatLaunchContext(
             processEnvironment: launcherEnvironment,
             explicitPassword: explicitPassword
         )
+        if !omxIsNonLaunchInvocation(commandArgs: commandArgs),
+           normalizedTmuxTarget(launchContext?.surfaceId) == nil {
+            throw CLIError(message: managedTerminalRequiredMessage(displayName: "cmux omx"))
+        }
+        let shimDirectory = try createOMXShimDirectory()
         configureOMXEnvironment(
             processEnvironment: launcherEnvironment,
             shimDirectory: shimDirectory,

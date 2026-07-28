@@ -56,4 +56,41 @@ struct ClaudeTeamsLaunchOptionTests {
         #expect(!hasDangerousSkip(["--model", "sonnet", "make a demo team"]))
         #expect(!hasDangerousSkip([]))
     }
+
+    @Test("Recognizes canonical Claude management commands after safe options")
+    func recognizesManagementCommands() {
+        for command in [
+            "agents", "auth", "auto-mode", "doctor", "gateway", "install", "mcp",
+            "plugin", "plugins", "project", "setup-token", "ultrareview", "update", "upgrade",
+        ] {
+            #expect(AgentLaunchSanitizer.claudeTeamsLaunchIsManagementCommand(args: [command]))
+            #expect(AgentLaunchSanitizer.claudeTeamsLaunchIsManagementCommand(args: ["--verbose", command]))
+        }
+        #expect(AgentLaunchSanitizer.claudeTeamsLaunchIsManagementCommand(
+            args: ["--tmux", "classic", "auth"]
+        ))
+    }
+
+    @Test("Does not promote command-shaped values or prompt payloads")
+    func rejectsManagementCommandMasqueraders() {
+        let launches = [
+            ["--model", "config"],
+            ["--append-system-prompt", "doctor"],
+            ["--tmux", "config"],
+            ["--", "config"],
+            ["please", "config"],
+            ["--unknown-option", "config"],
+            ["--continue", "config"],
+            ["--remote-control", "session-name", "auth"],
+            ["--resume", "doctor"],
+            ["--worktree", "config"],
+            ["api-key"],
+            ["config"],
+            ["rc"],
+            ["remote-control"],
+        ]
+        for args in launches {
+            #expect(!AgentLaunchSanitizer.claudeTeamsLaunchIsManagementCommand(args: args))
+        }
+    }
 }

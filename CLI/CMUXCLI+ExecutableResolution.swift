@@ -165,6 +165,19 @@ extension CMUXCLI {
         }
     }
 
+    func claudeTeamsIsNonLaunchInvocation(commandArgs: [String]) -> Bool {
+        tmuxCompatIsInformationalInvocation(commandArgs: commandArgs)
+            || AgentLaunchSanitizer.claudeTeamsLaunchIsManagementCommand(args: commandArgs)
+    }
+
+    func omoIsNonLaunchInvocation(commandArgs: [String]) -> Bool {
+        AgentLaunchSanitizer.omoLaunchIsNonLaunch(args: commandArgs)
+    }
+
+    func omxIsNonLaunchInvocation(commandArgs: [String]) -> Bool {
+        AgentLaunchSanitizer.omxLaunchIsNonLaunch(args: commandArgs)
+    }
+
     /// Environment the lead `claude` is launched with. CLAUDE_CODE_SANDBOXED skips
     /// Claude Code's interactive "Do you trust this folder?" gate so the unattended
     /// lead/teammate panes don't deadlock on it (#6447). That gate is a real safety

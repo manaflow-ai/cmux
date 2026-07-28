@@ -170,7 +170,8 @@ extension CMUXCLI {
 
     func createClaudeTeamsShimDirectory(
         processEnvironment: [String: String],
-        commandArgs: [String]
+        commandArgs: [String],
+        launchContext: TmuxCompatLaunchContext?
     ) throws -> URL {
         let downstreamTmuxMissing = String(
             localized: "cli.tmux-compat.error.downstreamTmuxMissing",
@@ -222,13 +223,11 @@ extension CMUXCLI {
            let rawClaudeShim = normalizedTmuxTarget(processEnvironment["CMUX_CLAUDE_WRAPPER_SHIM"]) {
             let managedRoot = URL(fileURLWithPath: rawRoot, isDirectory: true).standardizedFileURL
             let claudeShim = URL(fileURLWithPath: rawClaudeShim, isDirectory: false).standardizedFileURL
-            let temporaryRoot = normalizedTmuxTarget(processEnvironment["TMPDIR"])
-                .map { URL(fileURLWithPath: $0, isDirectory: true).standardizedFileURL }
-                ?? FileManager.default.temporaryDirectory.standardizedFileURL
-            let managedBase = temporaryRoot
-                .appendingPathComponent("cmux-cli-shims", isDirectory: true)
-                .standardizedFileURL
-            if managedRoot.deletingLastPathComponent() == managedBase,
+            let surfaceId = normalizedTmuxTarget(launchContext?.surfaceId)
+            if let surfaceId,
+               isUUID(surfaceId),
+               managedRoot.lastPathComponent == surfaceId,
+               managedRoot.deletingLastPathComponent().lastPathComponent == "cmux-cli-shims",
                claudeShim.deletingLastPathComponent() == managedRoot,
                claudeShim.lastPathComponent == "claude",
                FileManager.default.isExecutableFile(atPath: claudeShim.path) {
@@ -251,7 +250,7 @@ extension CMUXCLI {
             }
         }
 
-        guard tmuxCompatIsInformationalInvocation(commandArgs: commandArgs) else {
+        guard claudeTeamsIsNonLaunchInvocation(commandArgs: commandArgs) else {
             throw CLIError(message: managedTerminalRequiredMessage(displayName: "Claude Teams"))
         }
         return try createTmuxCompatShimDirectory(

@@ -10,6 +10,11 @@ import socketserver
 import threading
 from pathlib import Path
 
+FOCUSED_WORKSPACE_ID = "11111111-1111-4111-8111-111111111111"
+FOCUSED_WINDOW_ID = "22222222-2222-4222-8222-222222222222"
+FOCUSED_PANE_ID = "33333333-3333-4333-8333-333333333333"
+FOCUSED_SURFACE_ID = "44444444-4444-4444-8444-444444444444"
+
 
 def resolve_cmux_cli() -> str:
     explicit = os.environ.get("CMUX_CLI_BIN") or os.environ.get("CMUX_CLI")
@@ -30,13 +35,20 @@ def resolve_cmux_cli() -> str:
 class _FocusedCmuxHandler(socketserver.StreamRequestHandler):
     def handle(self) -> None:
         while line := self.rfile.readline():
-            request = json.loads(line.decode("utf-8"))
+            decoded_line = line.decode("utf-8").rstrip("\r\n")
+            if decoded_line.startswith("auth "):
+                self.server.requests.append("auth")  # type: ignore[attr-defined]
+                self.wfile.write(b"OK\n")
+                self.wfile.flush()
+                continue
+
+            request = json.loads(decoded_line)
             method = str(request["method"])
             self.server.requests.append(method)  # type: ignore[attr-defined]
-            workspace_id = "11111111-1111-4111-8111-111111111111"
-            window_id = "22222222-2222-4222-8222-222222222222"
-            pane_id = "33333333-3333-4333-8333-333333333333"
-            surface_id = "44444444-4444-4444-8444-444444444444"
+            workspace_id = FOCUSED_WORKSPACE_ID
+            window_id = FOCUSED_WINDOW_ID
+            pane_id = FOCUSED_PANE_ID
+            surface_id = FOCUSED_SURFACE_ID
             if method == "system.identify":
                 result = {
                     "focused": {

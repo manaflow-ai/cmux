@@ -10,7 +10,12 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from claude_teams_test_utils import resolve_cmux_cli
+from claude_teams_test_utils import (
+    FOCUSED_SURFACE_ID,
+    FOCUSED_WORKSPACE_ID,
+    focused_cmux_server,
+    resolve_cmux_cli,
+)
 from node_runtime import ensure_node_on_path
 
 
@@ -53,7 +58,7 @@ def run_claude_teams(
         runtime_node_options_log = tmp / "runtime-node-options.log"
         child_node_options_log = tmp / "child-node-options.log"
         fake_home = tmp / "home"
-        wrapper_shim_bin = tmp / "cmux-cli-shims" / "surface-1"
+        wrapper_shim_bin = tmp / "cmux-cli-shims" / FOCUSED_SURFACE_ID
         fake_home.mkdir(parents=True, exist_ok=True)
         wrapper_shim_bin.mkdir(parents=True, exist_ok=True)
 
@@ -150,36 +155,39 @@ fs.writeFileSync(
         env["FAKE_SHELL_SNAPSHOT_PATH"] = f"{wrapper_shim_bin}:{env['PATH']}"
         env["CMUX_CLAUDE_WRAPPER_SHIM"] = str(wrapper_shim_bin / "claude")
         env["CMUX_CLAUDE_WRAPPER_SHIM_ROOT"] = str(wrapper_shim_bin)
+        env["CMUX_WORKSPACE_ID"] = FOCUSED_WORKSPACE_ID
+        env["CMUX_SURFACE_ID"] = FOCUSED_SURFACE_ID
         env["TMUX"] = "__HOST_TMUX__"
         env["TMUX_PANE"] = "%999"
         env["TERM"] = "xterm-256color"
         env["TERM_PROGRAM"] = "__HOST_TERM_PROGRAM__"
         env["NODE_OPTIONS"] = node_options
-        expect_managed_tmux_shim = tmpdir is None
+        expect_managed_tmux_shim = True
         env["TMPDIR"] = str(tmp) if tmpdir is None else tmpdir
         explicit_socket_path = str(tmp / "explicit-cmux.sock")
         explicit_socket_password = "topsecret"
 
-        proc = subprocess.run(
-            [
-                cli_path,
-                "--socket",
-                explicit_socket_path,
-                "--password",
-                explicit_socket_password,
-                "claude-teams",
-                # The trust-gate bypass (CLAUDE_CODE_SANDBOXED) is only granted
-                # once the user opts into skipping safety prompts, so exercise the
-                # bypass path with --dangerously-skip-permissions.
-                "--dangerously-skip-permissions",
-                "--version",
-            ],
-            capture_output=True,
-            text=True,
-            check=False,
-            env=env,
-            timeout=30,
-        )
+        with focused_cmux_server(Path(explicit_socket_path)):
+            proc = subprocess.run(
+                [
+                    cli_path,
+                    "--socket",
+                    explicit_socket_path,
+                    "--password",
+                    explicit_socket_password,
+                    "claude-teams",
+                    # The trust-gate bypass (CLAUDE_CODE_SANDBOXED) is only granted
+                    # once the user opts into skipping safety prompts, so exercise the
+                    # bypass path with --dangerously-skip-permissions.
+                    "--dangerously-skip-permissions",
+                    "--version",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=env,
+                timeout=30,
+            )
 
         if proc.returncode != 0:
             return proc, "", "", ""
