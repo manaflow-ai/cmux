@@ -10,6 +10,7 @@ export class CmuxError extends Error {
 export class CmuxCommandError extends CmuxError {
   readonly commandId: unknown;
   readonly response: unknown;
+  readonly errorCode: string | undefined;
   readonly delivery: CmuxErrorDelivery | undefined;
 
   constructor(
@@ -17,11 +18,30 @@ export class CmuxCommandError extends CmuxError {
     commandId?: unknown,
     response?: unknown,
     delivery?: CmuxErrorDelivery,
+  );
+  constructor(
+    message: string,
+    commandId?: unknown,
+    response?: unknown,
+    errorCode?: string,
+    delivery?: CmuxErrorDelivery,
+  );
+  constructor(
+    message: string,
+    commandId?: unknown,
+    response?: unknown,
+    errorCode?: string,
+    delivery?: CmuxErrorDelivery,
   ) {
     super(message);
     this.commandId = commandId;
     this.response = response;
-    this.delivery = delivery;
+    const legacyDelivery = delivery === undefined
+      && (errorCode === "known-not-delivered" || errorCode === "ambiguous")
+      ? errorCode
+      : undefined;
+    this.errorCode = legacyDelivery === undefined ? errorCode : undefined;
+    this.delivery = delivery ?? legacyDelivery;
   }
 }
 

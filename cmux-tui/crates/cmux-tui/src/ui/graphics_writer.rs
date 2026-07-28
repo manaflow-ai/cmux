@@ -2,7 +2,7 @@ use std::collections::{BTreeSet, VecDeque};
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -697,7 +697,7 @@ fn submit_snapshot(
     tx: &SyncSender<()>,
     submission: GraphicsSubmission,
 ) -> bool {
-    *slot.lock().unwrap() = Some(submission);
+    *lock_recover(slot) = Some(submission);
     match tx.try_send(()) {
         Ok(()) | Err(TrySendError::Full(())) => true,
         Err(TrySendError::Disconnected(())) => false,
@@ -951,7 +951,7 @@ where
             if shutdown.load(Ordering::Acquire) {
                 return;
             }
-            let next = slot.lock().unwrap().take();
+            let next = lock_recover(&slot).take();
             let Some(submission) = next else { break };
             let processed_graphics = submission
                 .placements
@@ -959,7 +959,7 @@ where
                 .map(|placement| ProcessedGraphic {
                     surface: placement.surface,
                     rect: placement.rect,
-                    seq: placement.seq,
+                    seq: placement.frame.seq,
                     pointer_frame_seq: placement.pointer_frame_seq,
                 })
                 .collect();
@@ -1081,6 +1081,10 @@ where
     }
 }
 
+fn lock_recover<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 struct DoneOnDrop(SyncSender<()>);
 
 impl Drop for DoneOnDrop {
@@ -1093,7 +1097,34 @@ impl Drop for DoneOnDrop {
 mod tests {
     use super::*;
     use crate::ui::graphics::delete_image;
-    use cmux_tui_core::Rect;
+    use cmux_tui_core::{BrowserFrame, Rect};
+
+    fn test_frame(seq: u64, data_b64: &str) -> Arc<BrowserFrame> {
+        Arc::new(BrowserFrame {
+            session_id: "test".to_string(),
+            data_b64: data_b64.to_string(),
+            css_width: 10,
+            css_height: 5,
+            image_width: 10,
+            image_height: 5,
+            seq,
+        })
+    }
+
+    fn test_placement(
+        surface: SurfaceId,
+        rect: Rect,
+        seq: u64,
+        pointer_frame_seq: Option<u64>,
+    ) -> GraphicPlacement {
+        GraphicPlacement {
+            surface,
+            rect,
+            pointer_frame_seq,
+            source_crop_px: None,
+            frame: test_frame(seq, "AAAA"),
+        }
+    }
 
     struct FailingOutput;
 
@@ -1304,9 +1335,9 @@ mod tests {
                 placements: vec![GraphicPlacement {
                     surface: 1,
                     rect: Rect { x: 0, y: 0, width: 10, height: 5 },
-                    seq: 1,
                     pointer_frame_seq: Some(1),
-                    data_b64: "AAAA".to_string(),
+                    source_crop_px: None,
+                    frame: test_frame(1, "AAAA"),
                 }],
             },
         );
@@ -1319,9 +1350,9 @@ mod tests {
                 placements: vec![GraphicPlacement {
                     surface: 1,
                     rect: Rect { x: 1, y: 1, width: 11, height: 6 },
-                    seq: 2,
                     pointer_frame_seq: Some(1),
-                    data_b64: "BBBB".to_string(),
+                    source_crop_px: None,
+                    frame: test_frame(2, "BBBB"),
                 }],
             },
         );
@@ -1329,7 +1360,7 @@ mod tests {
         let latest = slot.lock().unwrap().take().expect("latest snapshot");
         assert_eq!(latest.id, 2);
         assert_eq!(latest.placements.len(), 1);
-        assert_eq!(latest.placements[0].seq, 2);
+        assert_eq!(latest.placements[0].frame.seq, 2);
         assert_eq!(latest.placements[0].rect.x, 1);
         rx.recv_timeout(Duration::from_secs(1)).unwrap();
         assert!(rx.try_recv().is_err());
@@ -1365,13 +1396,7 @@ mod tests {
         assert!(writer.submit(
             7,
             1,
-            vec![GraphicPlacement {
-                surface: 11,
-                rect: Rect { x: 1, y: 2, width: 3, height: 4 },
-                seq: 13,
-                pointer_frame_seq: Some(8),
-                data_b64: "AAAA".to_string(),
-            }]
+            vec![test_placement(11, Rect { x: 1, y: 2, width: 3, height: 4 }, 13, Some(8),)]
         ));
         assert!(
             processed_rx.recv_timeout(Duration::from_millis(50)).is_err(),
@@ -1429,13 +1454,7 @@ mod tests {
         assert!(writer.submit(
             8,
             1,
-            vec![GraphicPlacement {
-                surface: 11,
-                rect: Rect { x: 1, y: 2, width: 3, height: 4 },
-                seq: 14,
-                pointer_frame_seq: Some(8),
-                data_b64: "AAAA".to_string(),
-            }]
+            vec![test_placement(11, Rect { x: 1, y: 2, width: 3, height: 4 }, 14, Some(8),)]
         ));
         let attempt_deadline = Instant::now() + Duration::from_secs(1);
         while attempts.load(Ordering::Acquire) == 0 {
@@ -1477,13 +1496,7 @@ mod tests {
         assert!(writer.submit(
             36,
             1,
-            vec![GraphicPlacement {
-                surface: 15,
-                rect: Rect { x: 1, y: 2, width: 3, height: 4 },
-                seq: 21,
-                pointer_frame_seq: Some(21),
-                data_b64: "AAAA".to_string(),
-            }]
+            vec![test_placement(15, Rect { x: 1, y: 2, width: 3, height: 4 }, 21, Some(21),)]
         ));
         let partial_deadline = Instant::now() + Duration::from_secs(1);
         while output.bytes().is_empty() {
@@ -1537,13 +1550,8 @@ mod tests {
             },
         )
         .unwrap();
-        let placement = |seq| GraphicPlacement {
-            surface: 11,
-            rect: Rect { x: 1, y: 2, width: 3, height: 4 },
-            seq,
-            pointer_frame_seq: Some(seq),
-            data_b64: "AAAA".to_string(),
-        };
+        let placement =
+            |seq| test_placement(11, Rect { x: 1, y: 2, width: 3, height: 4 }, seq, Some(seq));
 
         assert!(writer.submit(9, 1, vec![placement(15)]));
         ready_rx.recv_timeout(Duration::from_secs(1)).unwrap();
@@ -1589,13 +1597,7 @@ mod tests {
             },
         )
         .unwrap();
-        let placement = GraphicPlacement {
-            surface: 11,
-            rect: Rect { x: 1, y: 2, width: 3, height: 4 },
-            seq: 17,
-            pointer_frame_seq: Some(17),
-            data_b64: "AAAA".to_string(),
-        };
+        let placement = test_placement(11, Rect { x: 1, y: 2, width: 3, height: 4 }, 17, Some(17));
 
         assert!(writer.submit(21, 1, vec![placement]));
         ready_rx.recv_timeout(Duration::from_secs(1)).unwrap();
@@ -1649,13 +1651,7 @@ mod tests {
             },
         )
         .unwrap();
-        let placement = GraphicPlacement {
-            surface: 12,
-            rect: Rect { x: 1, y: 2, width: 3, height: 4 },
-            seq: 18,
-            pointer_frame_seq: Some(18),
-            data_b64: "AAAA".to_string(),
-        };
+        let placement = test_placement(12, Rect { x: 1, y: 2, width: 3, height: 4 }, 18, Some(18));
 
         assert!(writer.submit(31, 1, vec![placement]));
         ready_rx.recv_timeout(Duration::from_secs(1)).unwrap();
@@ -1701,12 +1697,8 @@ mod tests {
             },
         )
         .unwrap();
-        let placement = |surface, seq| GraphicPlacement {
-            surface,
-            rect: Rect { x: 1, y: 2, width: 3, height: 4 },
-            seq,
-            pointer_frame_seq: Some(seq),
-            data_b64: "AAAA".to_string(),
+        let placement = |surface, seq| {
+            test_placement(surface, Rect { x: 1, y: 2, width: 3, height: 4 }, seq, Some(seq))
         };
 
         assert!(writer.submit(34, 1, vec![placement(13, 19)]));
@@ -1749,13 +1741,8 @@ mod tests {
             },
         )
         .unwrap();
-        let placement = |seq| GraphicPlacement {
-            surface: 11,
-            rect: Rect { x: 1, y: 2, width: 3, height: 4 },
-            seq,
-            pointer_frame_seq: Some(seq),
-            data_b64: "AAAA".to_string(),
-        };
+        let placement =
+            |seq| test_placement(11, Rect { x: 1, y: 2, width: 3, height: 4 }, seq, Some(seq));
 
         assert!(writer.submit(11, 1, vec![placement(17)]));
         ready_rx.recv_timeout(Duration::from_secs(1)).unwrap();
@@ -1791,13 +1778,8 @@ mod tests {
             },
         )
         .unwrap();
-        let placement = |seq| GraphicPlacement {
-            surface: 11,
-            rect: Rect { x: 1, y: 2, width: 3, height: 4 },
-            seq,
-            pointer_frame_seq: Some(seq),
-            data_b64: "AAAA".to_string(),
-        };
+        let placement =
+            |seq| test_placement(11, Rect { x: 1, y: 2, width: 3, height: 4 }, seq, Some(seq));
 
         assert!(writer.submit(13, 1, vec![placement(19)]));
         ready_rx.recv_timeout(Duration::from_secs(1)).unwrap();
@@ -1832,13 +1814,7 @@ mod tests {
         assert!(writer.submit(
             id,
             1,
-            vec![GraphicPlacement {
-                surface: 11,
-                rect: Rect { x: 1, y: 2, width: 3, height: 4 },
-                seq: 21,
-                pointer_frame_seq: Some(21),
-                data_b64: "AAAA".to_string(),
-            }]
+            vec![test_placement(11, Rect { x: 1, y: 2, width: 3, height: 4 }, 21, Some(21),)]
         ));
         let deadline = Instant::now() + Duration::from_secs(1);
         while occurrences(&output.bytes(), &query) == 0 {
@@ -1870,13 +1846,7 @@ mod tests {
         assert!(writer.submit(
             9,
             1,
-            vec![GraphicPlacement {
-                surface: 11,
-                rect: Rect { x: 1, y: 2, width: 3, height: 4 },
-                seq: 15,
-                pointer_frame_seq: Some(9),
-                data_b64: "AAAA".to_string(),
-            }]
+            vec![test_placement(11, Rect { x: 1, y: 2, width: 3, height: 4 }, 15, Some(9),)]
         ));
         ready_rx
             .recv_timeout(Duration::from_secs(1))

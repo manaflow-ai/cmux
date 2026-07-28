@@ -36,6 +36,8 @@ pub struct BrowserFrame {
     pub data_b64: String,
     pub css_width: u32,
     pub css_height: u32,
+    pub image_width: u32,
+    pub image_height: u32,
     pub seq: u64,
 }
 
@@ -45,6 +47,8 @@ fn browser_frame_from_capture(session_id: &str, captured: CapturedFrame) -> Brow
         data_b64: captured.data_b64,
         css_width: captured.css_width,
         css_height: captured.css_height,
+        image_width: captured.css_width,
+        image_height: captured.css_height,
         seq: 0,
     }
 }
@@ -176,7 +180,7 @@ struct BrowserSession {
 }
 
 struct BrowserState {
-    latest_frame: Option<BrowserFrame>,
+    latest_frame: Option<Arc<BrowserFrame>>,
     // Frames are stamped at CDP ingress. A lifecycle barrier reserves the next
     // epoch and holds its first frame until the matching state change commits.
     accepted_frame_epoch: u64,
@@ -1268,6 +1272,8 @@ fn start_surface_thread(
                         data_b64: frame.data_b64,
                         css_width: frame.css_width,
                         css_height: frame.css_height,
+                        image_width: frame.image_width,
+                        image_height: frame.image_height,
                         seq: 0,
                     };
                     let visible_state_changed = browser.store_frame_for_epoch(frame, frame_epoch);
@@ -1832,7 +1838,7 @@ fn emit_browser_failure(mux: &Weak<Mux>, id: SurfaceId, message: String) {
 }
 
 impl BrowserSurface {
-    pub fn latest_frame(&self) -> Option<BrowserFrame> {
+    pub fn latest_frame(&self) -> Option<Arc<BrowserFrame>> {
         let state = self.state.lock().unwrap();
         if matches!(state.status, BrowserStatus::Failed(_)) {
             None
@@ -1898,12 +1904,17 @@ impl BrowserSurface {
         if matches!(state.status, BrowserStatus::Failed(_)) {
             return None;
         }
-        state.latest_frame.clone().map(|frame| BrowserFrameUpdate {
-            frame,
+        state.latest_frame.as_ref().map(|frame| BrowserFrameUpdate {
+            frame: frame.as_ref().clone(),
             status: state.status.clone(),
             pointer_frame_floor_seq: self.exported_pointer_frame_floor_seq_locked(&state),
             pointer_frame_seq: self.exported_pointer_frame_seq_locked(&state),
         })
+    }
+
+    pub fn has_latest_frame(&self) -> bool {
+        let state = self.state.lock().unwrap();
+        !matches!(state.status, BrowserStatus::Failed(_)) && state.latest_frame.is_some()
     }
 
     pub fn title(&self) -> String {
@@ -2351,9 +2362,10 @@ impl BrowserSurface {
         if clears_not_responding {
             self.mark_state_dirty_locked(state);
         }
+        let frame = Arc::new(frame);
         state.latest_frame = Some(frame.clone());
         let update = BrowserFrameUpdate {
-            frame,
+            frame: frame.as_ref().clone(),
             status: state.status.clone(),
             pointer_frame_floor_seq: self.exported_pointer_frame_floor_seq_locked(state),
             pointer_frame_seq: self.exported_pointer_frame_seq_locked(state),
@@ -2873,10 +2885,10 @@ impl BrowserSurface {
     fn set_pending_attach_frame_locked(
         &self,
         state: &mut BrowserState,
-        frame: Option<BrowserFrame>,
+        frame: Option<Arc<BrowserFrame>>,
     ) {
         let update = frame.map(|frame| BrowserFrameUpdate {
-            frame,
+            frame: frame.as_ref().clone(),
             status: state.status.clone(),
             pointer_frame_floor_seq: self.exported_pointer_frame_floor_seq_locked(state),
             pointer_frame_seq: self.exported_pointer_frame_seq_locked(state),
@@ -4726,7 +4738,7 @@ fn browser_attach_state_locked(
         cols: state.size.0,
         rows: state.size.1,
         status: state.status.clone(),
-        frame: include_frame.then(|| state.latest_frame.clone()).flatten(),
+        frame: include_frame.then(|| state.latest_frame.as_deref().cloned()).flatten(),
         pointer_frame_seq,
         pointer_frame_floor_seq,
         frames_stalled: frames_stalled_locked(state, now, dead),
@@ -4918,6 +4930,8 @@ mod tests {
             data_b64: "AAAA".to_string(),
             css_width: 80,
             css_height: 48,
+            image_width: 80,
+            image_height: 48,
             seq,
         }
     }
@@ -5265,6 +5279,22 @@ mod tests {
         browser.clear_error();
         assert_eq!(browser.status(), BrowserStatus::Live);
         assert_eq!(browser.latest_frame().map(|frame| frame.seq), Some(2));
+    }
+
+    #[test]
+    fn repeated_latest_frame_reads_share_the_encoded_payload() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        browser.store_frame(test_frame(1));
+
+        let first = browser.latest_frame().expect("first frame");
+        let second = browser.latest_frame().expect("second frame");
+
+        assert_eq!(
+            first.data_b64.as_ptr(),
+            second.data_b64.as_ptr(),
+            "reading the current frame must not copy its encoded image payload"
+        );
     }
 
     #[test]
@@ -5674,6 +5704,8 @@ mod tests {
                 data_b64: format!("frame-{index}"),
                 css_width: 80,
                 css_height: 24,
+                image_width: 80,
+                image_height: 24,
                 ack_id: index,
                 frame_epoch: 0,
             })
@@ -5698,6 +5730,8 @@ mod tests {
             data_b64: "frame-latest".to_string(),
             css_width: 80,
             css_height: 24,
+            image_width: 80,
+            image_height: 24,
             ack_id: 1,
             frame_epoch: 0,
         });
@@ -5735,6 +5769,8 @@ mod tests {
                 data_b64: "frame-final".to_string(),
                 css_width: 80,
                 css_height: 24,
+                image_width: 80,
+                image_height: 24,
                 ack_id: 1,
                 frame_epoch: 0,
             }));
@@ -7198,7 +7234,7 @@ mod tests {
         }
         assert_eq!(browser.latest_frame_seq(), Some(2));
         assert_eq!(
-            browser.latest_frame().map(|frame| frame.data_b64),
+            browser.latest_frame().map(|frame| frame.data_b64.clone()),
             Some(ONE_PIXEL_PNG.to_string())
         );
 
@@ -7220,7 +7256,7 @@ mod tests {
             "the loader-verified replacement must rotate pointer authority with its bitmap"
         );
         assert_eq!(
-            browser.latest_frame().map(|frame| frame.data_b64),
+            browser.latest_frame().map(|frame| frame.data_b64.clone()),
             Some(ONE_PIXEL_PNG.to_string()),
             "later timestamp-less pixels must update through a loader-verified capture"
         );
@@ -7502,6 +7538,8 @@ mod tests {
                 data_b64: "rejected-after-failure".to_string(),
                 css_width: 80,
                 css_height: 48,
+                image_width: 80,
+                image_height: 48,
                 ack_id: 2,
                 frame_epoch: rejected_epoch,
             },
@@ -8414,6 +8452,8 @@ mod tests {
                 data_b64: "queued-before-barrier".to_string(),
                 css_width: 80,
                 css_height: 48,
+                image_width: 80,
+                image_height: 48,
                 ack_id: 2,
                 frame_epoch: 0,
             },
@@ -8430,6 +8470,8 @@ mod tests {
                 data_b64: frame.data_b64,
                 css_width: frame.css_width,
                 css_height: frame.css_height,
+                image_width: frame.image_width,
+                image_height: frame.image_height,
                 seq: 0,
             },
             frame.frame_epoch,

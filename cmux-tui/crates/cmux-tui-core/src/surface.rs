@@ -581,8 +581,8 @@ pub struct SurfaceMeta {
 }
 
 /// A pane tab runtime.
-// Both variants are long-lived behind Arc<Surface>. Boxing one variant would
-// add another allocation and pointer chase for a small per-tab size reduction.
+// Surface values are always stored behind Arc, so boxing one variant would add
+// a second allocation and pointer chase without shrinking their owning state.
 #[allow(clippy::large_enum_variant)]
 pub enum Surface {
     Pty(PtySurface),
@@ -2867,6 +2867,10 @@ impl Surface {
     }
 
     pub fn browser_frame(&self) -> Option<BrowserFrame> {
+        self.browser_frame_shared().map(|frame| frame.as_ref().clone())
+    }
+
+    pub fn browser_frame_shared(&self) -> Option<Arc<BrowserFrame>> {
         self.as_browser().and_then(BrowserSurface::latest_frame)
     }
 
@@ -2909,6 +2913,10 @@ impl Surface {
         if let Some(browser) = self.as_browser() {
             browser.forget_pointer_owner(owner);
         }
+    }
+
+    pub fn has_browser_frame(&self) -> bool {
+        self.as_browser().is_some_and(BrowserSurface::has_latest_frame)
     }
 
     pub fn browser_url(&self) -> Option<String> {
