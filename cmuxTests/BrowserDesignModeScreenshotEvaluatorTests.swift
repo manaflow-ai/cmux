@@ -93,18 +93,18 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
         #expect(captureStartCount == 1)
 
         let recoveryDeadline = ContinuousClock.now + .seconds(1)
-        var captured: NSImage?
-        while captured == nil, ContinuousClock.now < recoveryDeadline {
+        var recoveredCapture: NSImage?
+        while recoveredCapture == nil, ContinuousClock.now < recoveryDeadline {
             do {
-                captured = try await evaluator.captureVisibleViewport(from: webView)
+                recoveredCapture = try await evaluator.captureVisibleViewport(from: webView)
             } catch is CancellationError {
-                try? await ContinuousClock().sleep(for: .milliseconds(1))
+                await Task.yield()
             } catch {
                 Issue.record("Expected capture to recover after quarantine: \(error)")
                 break
             }
         }
-        #expect(captured === expected)
+        #expect(recoveredCapture === expected)
         #expect(captureStartCount == 2)
 
         firstCompletion?(.success(expected))
