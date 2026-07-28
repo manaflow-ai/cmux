@@ -96,10 +96,39 @@ final class SimulatorWebInspectorService {
     }
 
     func attach(targetIdentifier: String) async throws -> SimulatorWebInspectorSessionStatus {
-        guard socket != nil,
-              let deviceIdentifier = currentDeviceIdentifier,
+        guard let deviceIdentifier = currentDeviceIdentifier,
               let target = catalog.target(selector: targetIdentifier) else {
             throw SimulatorWebInspectorError.targetNotFound
+        }
+        do {
+            return try await attach(
+                target: target,
+                deviceIdentifier: deviceIdentifier
+            )
+        } catch let attachmentError as SimulatorWebInspectorError {
+            guard attachmentError.retriesAttachment else { throw attachmentError }
+            releaseSessionWithoutMutationGate(emit: false)
+            do {
+                _ = try await refreshTargets(deviceIdentifier: deviceIdentifier)
+            } catch {
+                throw attachmentError
+            }
+            guard let refreshedTarget = catalog.target(rematching: target) else {
+                throw attachmentError
+            }
+            return try await attach(
+                target: refreshedTarget,
+                deviceIdentifier: deviceIdentifier
+            )
+        }
+    }
+
+    private func attach(
+        target: SimulatorWebInspectorTarget,
+        deviceIdentifier: String
+    ) async throws -> SimulatorWebInspectorSessionStatus {
+        guard socket != nil, currentDeviceIdentifier == deviceIdentifier else {
+            throw SimulatorWebInspectorError.transportClosed
         }
         if session != nil { try await releaseSession(emit: false) }
         let key = try mutationKey(deviceIdentifier: deviceIdentifier, target: target)
@@ -368,4 +397,19 @@ func simulatorWebInspectorInteger(_ value: Any?) -> Int64? {
     if let value = value as? Int64 { return value }
     if let value = value as? Int { return Int64(value) }
     return nil
+}
+
+private extension SimulatorWebInspectorError {
+    var retriesAttachment: Bool {
+        switch self {
+        case .sessionUnavailable, .transportClosed, .socketFailure:
+            true
+        case .unavailable, .invalidSocketPath, .invalidFrame, .frameTooLarge,
+             .invalidPropertyList, .invalidMessage, .targetNotFound, .targetInUse,
+             .commandTooLarge, .wrapperAcknowledgementBacklog,
+             .wrapperIdentifierCollision, .reservedIdentifier, .timedOut,
+             .remoteCommand:
+            false
+        }
+    }
 }
