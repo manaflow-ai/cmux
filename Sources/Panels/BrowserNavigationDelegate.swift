@@ -25,6 +25,7 @@ import WebKit
     var handleDroppedFileNavigation: (([URL]) -> Bool)?
     var currentRestoreAttemptID: (() -> UUID?)?
     var terminalPolicyCancellationReporter: ((WKNavigationAction, WKWebView) -> () -> Void)?
+    var willReplaceNavigationForUserAgentPolicy: ((WKWebView, WKNavigation?) -> Void)?
     var didReplaceNavigationForUserAgentPolicy: ((WKWebView, WKNavigation?, WKNavigation?) -> Void)?
     var didRenderPDFDocument: ((URL, Bool) -> Void)?
     var didClearPDFDocument: (() -> Void)?
@@ -478,6 +479,7 @@ import WebKit
         }
 
         let replacedNavigation = activeMainFrameNavigation
+        willReplaceNavigationForUserAgentPolicy?(webView, replacedNavigation)
         decisionHandler(.cancel)
         requestNavigation(restartRequest, .currentTab, { [weak self, weak webView] replacementNavigation in
             guard let self, let webView else { return }

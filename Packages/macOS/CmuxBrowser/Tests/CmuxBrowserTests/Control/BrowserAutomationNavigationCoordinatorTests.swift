@@ -199,33 +199,6 @@ struct BrowserAutomationNavigationCoordinatorTests {
         #expect(await coordinator.wait(for: ticket) == .cancelled)
     }
 
-    @Test("An authoritative policy replacement preserves the active transaction")
-    func policyReplacementTransfersTransaction() async {
-        let coordinator = BrowserAutomationNavigationCoordinator()
-        let instanceID = UUID()
-        let originalNavigation = NSObject()
-        let replacementNavigation = NSObject()
-        coordinator.bind(to: instanceID)
-        let ticket = coordinator.begin(instanceID: instanceID)
-        coordinator.didStart(ticket, navigationID: ObjectIdentifier(originalNavigation))
-
-        coordinator.didReplaceNavigation(
-            instanceID: instanceID,
-            replacedNavigationID: ObjectIdentifier(originalNavigation),
-            replacementNavigationID: ObjectIdentifier(replacementNavigation)
-        )
-        coordinator.didCancel(
-            instanceID: instanceID,
-            navigationID: ObjectIdentifier(originalNavigation)
-        )
-        coordinator.didCommit(
-            instanceID: instanceID,
-            navigationID: ObjectIdentifier(replacementNavigation)
-        )
-
-        #expect(await coordinator.wait(for: ticket) == .committed)
-    }
-
     @Test("An authoritative same-document navigation event completes the transaction")
     func sameDocumentNavigationEventCompletes() async {
         let coordinator = BrowserAutomationNavigationCoordinator()

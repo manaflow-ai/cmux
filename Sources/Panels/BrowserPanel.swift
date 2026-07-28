@@ -3863,6 +3863,19 @@ final class BrowserPanel: Panel, ObservableObject {
                 }
             }
         }
+        navigationDelegate.willReplaceNavigationForUserAgentPolicy = {
+            [weak self] webView, replacedNavigation in
+            MainActor.assumeIsolated {
+                guard let self,
+                      self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else {
+                    return
+                }
+                self.automationNavigationCoordinator.willReplaceNavigation(
+                    instanceID: boundWebViewInstanceID,
+                    navigationID: replacedNavigation.map { ObjectIdentifier($0) }
+                )
+            }
+        }
         navigationDelegate.didReplaceNavigationForUserAgentPolicy = {
             [weak self] webView, replacedNavigation, replacementNavigation in
             MainActor.assumeIsolated {
