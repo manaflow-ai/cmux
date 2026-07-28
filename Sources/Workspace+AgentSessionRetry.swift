@@ -20,6 +20,18 @@ extension Workspace {
         return binding
     }
 
+    /// Final MainActor ownership gate before the coordinator injects a retry.
+    func canSafelySendManagedAgentRetry(
+        binding: SurfaceResumeBindingSnapshot,
+        panelId: UUID
+    ) -> Bool {
+        let currentBinding = surfaceResumeBindingsByPanelId[panelId]
+        return panels[panelId] is TerminalPanel &&
+            (currentBinding == nil || currentBinding == binding) &&
+            !hasActiveAgentLifecycleForRetry(panelId: panelId) &&
+            panelShellActivityStates[panelId] != .commandRunning
+    }
+
     func sendManagedAgentRetry(
         binding: SurfaceResumeBindingSnapshot,
         panelId: UUID

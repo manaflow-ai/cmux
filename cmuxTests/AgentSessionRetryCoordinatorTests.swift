@@ -187,6 +187,168 @@ struct AgentSessionRetryCoordinatorTests {
         workspace.agentSessionRetryCoordinator.cancelAll()
     }
 
+    @MainActor
+    @Test("a delayed command completion cannot retry a replacement session")
+    func replacementSessionInvalidatesEndedCandidate() throws {
+        let suiteName = "AgentSessionRetryCoordinatorTests.replacementSession"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: AgentSessionAutoRetrySettings.autoRetryAgentSessionsKey)
+
+        let workspace = Workspace(
+            agentSessionAutoRetrySettings: AgentSessionAutoRetrySettings(defaults: defaults)
+        )
+        let panelId = try #require(workspace.focusedPanelId)
+        let endedBinding = managedBinding(sessionId: "ended-session")
+        let replacementBinding = managedBinding(sessionId: "replacement-session")
+        #expect(workspace.setSurfaceResumeBinding(endedBinding, panelId: panelId))
+        workspace.setAgentLifecycle(key: "claude_code", panelId: panelId, lifecycle: .running)
+        #expect(workspace.clearSurfaceResumeBinding(panelId: panelId, agentSessionEnded: true))
+
+        #expect(workspace.setSurfaceResumeBinding(replacementBinding, panelId: panelId))
+        workspace.agentSessionRetryCoordinator.commandFinished(panelId: panelId, exitCode: 1)
+
+        #expect(workspace.surfaceResumeBinding(panelId: panelId) == replacementBinding)
+        #expect(workspace.statusEntries[retryStatusKey(panelId: panelId)] == nil)
+    }
+
+    @MainActor
+    @Test("command completion without an authoritative ended session fails closed")
+    func commandFinishedWithoutEndedCandidateFailsClosed() throws {
+        let suiteName = "AgentSessionRetryCoordinatorTests.noEndedCandidate"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: AgentSessionAutoRetrySettings.autoRetryAgentSessionsKey)
+
+        let workspace = Workspace(
+            agentSessionAutoRetrySettings: AgentSessionAutoRetrySettings(defaults: defaults)
+        )
+        let panelId = try #require(workspace.focusedPanelId)
+        let currentBinding = managedBinding(sessionId: "still-current")
+        #expect(workspace.setSurfaceResumeBinding(currentBinding, panelId: panelId))
+        workspace.setAgentLifecycle(key: "claude_code", panelId: panelId, lifecycle: .running)
+
+        workspace.agentSessionRetryCoordinator.commandFinished(panelId: panelId, exitCode: 1)
+
+        #expect(workspace.surfaceResumeBinding(panelId: panelId) == currentBinding)
+        #expect(workspace.statusEntries[retryStatusKey(panelId: panelId)] == nil)
+    }
+
+    @MainActor
+    @Test("timer fire revalidates pane ownership before sending a retry")
+    func timerFireRevalidatesPaneOwnership() throws {
+        let activeLifecycle = try scheduledRetry(
+            suiteName: "AgentSessionRetryCoordinatorTests.timerActiveLifecycle",
+            sessionId: "active-lifecycle"
+        )
+        defer {
+            activeLifecycle.defaults.removePersistentDomain(
+                forName: "AgentSessionRetryCoordinatorTests.timerActiveLifecycle"
+            )
+        }
+        activeLifecycle.workspace.agentLifecycleStatesByPanelId[activeLifecycle.panelId] = [
+            "claude_code": .running,
+        ]
+        activeLifecycle.workspace.agentSessionRetryCoordinator.retryTimerFired(
+            panelId: activeLifecycle.panelId
+        )
+        #expect(activeLifecycle.workspace.statusEntries[activeLifecycle.statusKey] == nil)
+
+        let replacementBinding = try scheduledRetry(
+            suiteName: "AgentSessionRetryCoordinatorTests.timerReplacementBinding",
+            sessionId: "binding-owner"
+        )
+        defer {
+            replacementBinding.defaults.removePersistentDomain(
+                forName: "AgentSessionRetryCoordinatorTests.timerReplacementBinding"
+            )
+        }
+        replacementBinding.workspace.surfaceResumeBindingsByPanelId[replacementBinding.panelId] =
+            managedBinding(sessionId: "new-binding-owner")
+        replacementBinding.workspace.agentSessionRetryCoordinator.retryTimerFired(
+            panelId: replacementBinding.panelId
+        )
+        #expect(replacementBinding.workspace.statusEntries[replacementBinding.statusKey] == nil)
+
+        let runningShell = try scheduledRetry(
+            suiteName: "AgentSessionRetryCoordinatorTests.timerRunningShell",
+            sessionId: "running-shell"
+        )
+        defer {
+            runningShell.defaults.removePersistentDomain(
+                forName: "AgentSessionRetryCoordinatorTests.timerRunningShell"
+            )
+        }
+        runningShell.workspace.panelShellActivityStates[runningShell.panelId] = .commandRunning
+        runningShell.workspace.agentSessionRetryCoordinator.retryTimerFired(
+            panelId: runningShell.panelId
+        )
+        #expect(runningShell.workspace.statusEntries[runningShell.statusKey] == nil)
+    }
+
+    @MainActor
+    @Test("disabling auto-retry immediately cancels scheduled recovery")
+    func disablingCancelsScheduledRecovery() throws {
+        let suiteName = "AgentSessionRetryCoordinatorTests.settingDisabled"
+        let notificationCenter = NotificationCenter()
+        let fixture = try scheduledRetry(
+            suiteName: suiteName,
+            sessionId: "disabled-while-waiting",
+            notificationCenter: notificationCenter
+        )
+        defer { fixture.defaults.removePersistentDomain(forName: suiteName) }
+        let settings = AgentSessionAutoRetrySettings(
+            defaults: fixture.defaults,
+            notificationCenter: notificationCenter
+        )
+
+        settings.setEnabled(false)
+
+        #expect(fixture.workspace.statusEntries[fixture.statusKey] == nil)
+        settings.setEnabled(true)
+        fixture.workspace.agentSessionRetryCoordinator.retryTimerFired(panelId: fixture.panelId)
+        #expect(fixture.workspace.statusEntries[fixture.statusKey] == nil)
+    }
+
+    @MainActor
+    private func scheduledRetry(
+        suiteName: String,
+        sessionId: String,
+        notificationCenter: NotificationCenter = .default
+    ) throws -> (
+        workspace: Workspace,
+        defaults: UserDefaults,
+        panelId: UUID,
+        statusKey: String
+    ) {
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        let settings = AgentSessionAutoRetrySettings(
+            defaults: defaults,
+            notificationCenter: notificationCenter
+        )
+        settings.setEnabled(true)
+        let workspace = Workspace(agentSessionAutoRetrySettings: settings)
+        let panelId = try #require(workspace.focusedPanelId)
+        #expect(workspace.setSurfaceResumeBinding(
+            managedBinding(sessionId: sessionId),
+            panelId: panelId
+        ))
+        workspace.setAgentLifecycle(key: "claude_code", panelId: panelId, lifecycle: .running)
+        #expect(workspace.clearSurfaceResumeBinding(panelId: panelId, agentSessionEnded: true))
+        workspace.setAgentLifecycle(key: "claude_code", panelId: panelId, lifecycle: .idle)
+        #expect(workspace.clearAgentLifecycle(key: "claude_code", panelId: panelId))
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
+        workspace.agentSessionRetryCoordinator.commandFinished(panelId: panelId, exitCode: 1)
+        let statusKey = retryStatusKey(panelId: panelId)
+        #expect(workspace.statusEntries[statusKey]?.icon == "arrow.clockwise")
+        return (workspace, defaults, panelId, statusKey)
+    }
+
+    private func retryStatusKey(panelId: UUID) -> String {
+        "agent.auto_retry.\(panelId.uuidString.lowercased())"
+    }
+
     private func managedBinding(sessionId: String) -> SurfaceResumeBindingSnapshot {
         SurfaceResumeBindingSnapshot(
             name: "Claude",

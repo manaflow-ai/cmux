@@ -54,4 +54,23 @@ struct AgentSessionAutoRetrySettings {
     func notifyDidChange() {
         notificationCenter.post(name: Self.didChangeNotification, object: nil)
     }
+
+    @MainActor
+    func observeDidChange(
+        _ handler: @escaping @MainActor @Sendable () -> Void
+    ) -> NSObjectProtocol {
+        notificationCenter.addObserver(
+            forName: Self.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            MainActor.assumeIsolated {
+                handler()
+            }
+        }
+    }
+
+    func removeDidChangeObserver(_ observer: NSObjectProtocol) {
+        notificationCenter.removeObserver(observer)
+    }
 }

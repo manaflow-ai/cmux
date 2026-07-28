@@ -20,12 +20,17 @@ final class AgentSessionRetryCoordinator {
         var timer: Timer?
     }
 
+    private struct EndedSessionCandidate {
+        let binding: SurfaceResumeBindingSnapshot
+        let hadActiveAgentSession: Bool
+    }
+
     @ObservationIgnored private weak var workspace: Workspace?
     @ObservationIgnored private let policy: AgentSessionRetryPolicy
     @ObservationIgnored private let settings: AgentSessionAutoRetrySettings
+    @ObservationIgnored private var settingsDidChangeObserver: NSObjectProtocol?
     @ObservationIgnored private var activePanelIds: Set<UUID> = []
-    @ObservationIgnored private var awaitingCommandCompletionPanelIds: Set<UUID> = []
-    @ObservationIgnored private var retryCandidatesByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
+    @ObservationIgnored private var endedSessionCandidatesByPanelId: [UUID: EndedSessionCandidate] = [:]
     @ObservationIgnored private var statesByPanelId: [UUID: RetryState] = [:]
 
     init(
@@ -36,11 +41,19 @@ final class AgentSessionRetryCoordinator {
         self.workspace = workspace
         self.policy = policy
         self.settings = settings
+        self.settingsDidChangeObserver = nil
+        self.settingsDidChangeObserver = settings.observeDidChange { [weak self] in
+            guard let self, !self.settings.isEnabled else { return }
+            self.cancelAll()
+        }
     }
 
     deinit {
         for state in statesByPanelId.values {
             state.timer?.invalidate()
+        }
+        if let settingsDidChangeObserver {
+            settings.removeDidChangeObserver(settingsDidChangeObserver)
         }
     }
 
@@ -50,6 +63,7 @@ final class AgentSessionRetryCoordinator {
     ) {
         switch lifecycle {
         case .running, .needsInput:
+            endedSessionCandidatesByPanelId.removeValue(forKey: panelId)
             if case .waiting = statesByPanelId[panelId]?.phase {
                 // A fresh hook arrived before our timer fired. A manual resume
                 // or another live agent now owns the pane, so never inject a
@@ -67,12 +81,9 @@ final class AgentSessionRetryCoordinator {
                 workspace?.removeAgentRetryStatusEntry(panelId: panelId)
             }
             activePanelIds.insert(panelId)
-            if let binding = workspace?.managedAgentRetryBinding(panelId: panelId) {
-                retryCandidatesByPanelId[panelId] = binding
-            }
         case .idle:
             if statesByPanelId[panelId] == nil,
-               !awaitingCommandCompletionPanelIds.contains(panelId) {
+               endedSessionCandidatesByPanelId[panelId] == nil {
                 reset(panelId: panelId)
             }
         case .unknown:
@@ -84,7 +95,7 @@ final class AgentSessionRetryCoordinator {
         panelId: UUID,
         binding: SurfaceResumeBindingSnapshot?
     ) {
-        awaitingCommandCompletionPanelIds.remove(panelId)
+        endedSessionCandidatesByPanelId.removeValue(forKey: panelId)
         guard let binding,
               binding.isAgentHookBinding,
               binding.checkpointId?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
@@ -106,7 +117,6 @@ final class AgentSessionRetryCoordinator {
                 reset(panelId: panelId)
             }
         }
-        retryCandidatesByPanelId[panelId] = binding
     }
 
     func managedResumeBindingDidClear(
@@ -114,22 +124,30 @@ final class AgentSessionRetryCoordinator {
         binding: SurfaceResumeBindingSnapshot,
         sessionDidEnd: Bool
     ) {
-        guard sessionDidEnd,
+        let hadActiveAgentSession = activePanelIds.contains(panelId) ||
+            workspace?.hasActiveAgentLifecycleForRetry(panelId: panelId) == true
+        guard settings.isEnabled,
+              sessionDidEnd,
               binding.isAgentHookBinding,
-              retryCandidatesByPanelId[panelId] == binding else {
+              binding.checkpointId?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
+              binding.kind?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
+              hadActiveAgentSession else {
             reset(panelId: panelId)
             return
         }
-        // Managed session teardown deliberately removes the persistent binding
-        // before Ghostty reports the command exit code. Keep this in-memory
-        // candidate until that authoritative termination signal classifies it.
-        awaitingCommandCompletionPanelIds.insert(panelId)
+        // This exact binding is the only authority command-finished may consume.
+        // A panel-current binding can already belong to a replacement session.
+        endedSessionCandidatesByPanelId[panelId] = EndedSessionCandidate(
+            binding: binding,
+            hadActiveAgentSession: hadActiveAgentSession
+        )
+        activePanelIds.remove(panelId)
     }
 
     func agentLifecycleDidClear(panelId: UUID) {
         guard workspace?.hasActiveAgentLifecycleForRetry(panelId: panelId) != true,
               statesByPanelId[panelId] == nil,
-              !awaitingCommandCompletionPanelIds.contains(panelId) else {
+              endedSessionCandidatesByPanelId[panelId] == nil else {
             return
         }
         reset(panelId: panelId)
@@ -137,7 +155,7 @@ final class AgentSessionRetryCoordinator {
 
     func shellActivityDidChange(panelId: UUID, state: PanelShellActivityState) {
         guard state == .commandRunning else { return }
-        if awaitingCommandCompletionPanelIds.contains(panelId) {
+        if endedSessionCandidatesByPanelId[panelId] != nil {
             // The ended managed command must produce the next command-finished
             // event before another shell command starts. If that event was lost or
             // delayed, a new command makes the pending exit ambiguous; fail closed
@@ -151,32 +169,30 @@ final class AgentSessionRetryCoordinator {
     }
 
     func commandFinished(panelId: UUID, exitCode: Int?) {
-        guard let workspace else { return }
+        guard workspace != nil else { return }
         if case .waiting = statesByPanelId[panelId]?.phase { return }
         if case .exhausted = statesByPanelId[panelId]?.phase { return }
-        awaitingCommandCompletionPanelIds.remove(panelId)
-
-        let binding = workspace.managedAgentRetryBinding(panelId: panelId) ??
-            retryCandidatesByPanelId[panelId]
-        let hadActiveSession = activePanelIds.contains(panelId) ||
-            workspace.hasActiveAgentLifecycleForRetry(panelId: panelId)
+        guard let candidate = endedSessionCandidatesByPanelId.removeValue(forKey: panelId) else {
+            reset(panelId: panelId)
+            return
+        }
         let completedAttempts = statesByPanelId[panelId]?.completedAttempts ?? 0
         let context = AgentSessionRetryContext(
             isEnabled: settings.isEnabled,
-            hadActiveAgentSession: hadActiveSession,
-            hasManagedResumeBinding: binding != nil,
+            hadActiveAgentSession: candidate.hadActiveAgentSession,
+            hasManagedResumeBinding: true,
             exitCode: exitCode
         )
 
         switch policy.decision(for: context, completedAttempts: completedAttempts) {
         case let .retry(attempt, maximumAttempts, delaySeconds):
-            guard let binding, let exitCode else {
+            guard let exitCode else {
                 reset(panelId: panelId)
                 return
             }
             scheduleRetry(
                 panelId: panelId,
-                binding: binding,
+                binding: candidate.binding,
                 exitCode: exitCode,
                 attempt: attempt,
                 maximumAttempts: maximumAttempts,
@@ -187,7 +203,7 @@ final class AgentSessionRetryCoordinator {
                 panelId: panelId,
                 exitCode: exitCode,
                 maximumAttempts: maximumAttempts,
-                binding: binding
+                binding: candidate.binding
             )
         case .reject:
             reset(panelId: panelId)
@@ -204,8 +220,7 @@ final class AgentSessionRetryCoordinator {
         }
         statesByPanelId.removeAll()
         activePanelIds.removeAll()
-        awaitingCommandCompletionPanelIds.removeAll()
-        retryCandidatesByPanelId.removeAll()
+        endedSessionCandidatesByPanelId.removeAll()
         workspace?.removeAllAgentRetryStatusEntries()
     }
 
@@ -246,12 +261,15 @@ final class AgentSessionRetryCoordinator {
         )
     }
 
-    private func retryTimerFired(panelId: UUID) {
+    func retryTimerFired(panelId: UUID) {
         guard let workspace,
               let state = statesByPanelId[panelId],
               case let .waiting(attempt, maximumAttempts, _) = state.phase,
               settings.isEnabled,
-              retryCandidatesByPanelId[panelId] == state.binding else {
+              workspace.canSafelySendManagedAgentRetry(
+                  binding: state.binding,
+                  panelId: panelId
+              ) else {
             reset(panelId: panelId)
             return
         }
@@ -317,8 +335,7 @@ final class AgentSessionRetryCoordinator {
     private func reset(panelId: UUID) {
         statesByPanelId.removeValue(forKey: panelId)?.timer?.invalidate()
         activePanelIds.remove(panelId)
-        awaitingCommandCompletionPanelIds.remove(panelId)
-        retryCandidatesByPanelId.removeValue(forKey: panelId)
+        endedSessionCandidatesByPanelId.removeValue(forKey: panelId)
         workspace?.removeAgentRetryStatusEntry(panelId: panelId)
     }
 
