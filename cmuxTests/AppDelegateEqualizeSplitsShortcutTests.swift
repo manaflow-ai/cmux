@@ -1623,6 +1623,109 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    func testClosedWindowHistorySettlesAcceptedMultiTurnFontChange() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        ClosedItemHistoryStore.shared.removeAll()
+
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let windowId =
+            appDelegate.registerMainWindowContextForTesting(
+                tabManager: manager
+            )
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(
+                windowId: windowId
+            )
+            ClosedItemHistoryStore.shared.removeAll()
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        for _ in 0..<20 {
+            let panel = TerminalPanel(
+                workspaceId: workspace.id,
+                runtimeSpawnPolicy: .pacedSessionRestore
+            )
+            workspace.panels[panel.id] = panel
+        }
+        let terminalPanels =
+            workspace.panels.values.compactMap {
+                $0 as? TerminalPanel
+            }
+        for panel in terminalPanels {
+            panel.surface.recordCurrentFontSizeLineage(
+                TerminalFontSizeLineage(
+                    basePoints: 20,
+                    isExplicitOverride: true
+                )
+            )
+        }
+
+        let context = try XCTUnwrap(
+            appDelegate.mainWindowContexts.values.first {
+                $0.windowId == windowId
+            }
+        )
+        XCTAssertTrue(
+            context.workspaceTerminalFontSizeCoordinator.enqueue(
+                .relative([-1]),
+                workspaceId: workspace.id,
+                deferFlush: true
+            )
+        )
+#if DEBUG
+        context.workspaceTerminalFontSizeCoordinator
+            .debugFlushOneDrain()
+#else
+        XCTFail("Workspace font-size coalescer hooks require DEBUG")
+        return
+#endif
+
+        let adjustedBeforeSnapshot = terminalPanels.count {
+            $0.surface.fontSizeLineageSnapshot()?.basePoints == 19
+        }
+        XCTAssertGreaterThan(adjustedBeforeSnapshot, 0)
+        XCTAssertLessThan(
+            adjustedBeforeSnapshot,
+            terminalPanels.count,
+            "The first bounded drain must leave accepted work pending"
+        )
+
+        appDelegate.recordClosedWindowHistoryForTesting(
+            windowId: windowId
+        )
+        let historyItem = try XCTUnwrap(
+            ClosedItemHistoryStore.shared.menuSnapshot().items.first
+        )
+        let historyRecord = try XCTUnwrap(
+            ClosedItemHistoryStore.shared.removeRecord(
+                id: historyItem.id
+            )?.record
+        )
+        guard case .window(let closedWindow) =
+                historyRecord.entry else {
+            XCTFail("Expected closed-window history")
+            return
+        }
+        let persistedFontSizes =
+            closedWindow.snapshot.tabManager.workspaces
+                .flatMap(\.panels)
+                .compactMap(\.terminal?.fontSize)
+
+        XCTAssertEqual(
+            persistedFontSizes.count,
+            terminalPanels.count
+        )
+        XCTAssertTrue(
+            persistedFontSizes.allSatisfy {
+                abs($0 - 19) < 0.000_1
+            },
+            "Window close must settle every accepted font change before recording its restorable snapshot"
+        )
+    }
+
     func testForwardedWorkspaceFontSizeShortcutUsesDestinationWindowDock() {
         let sourceManager = TabManager()
         let destinationManager = TabManager()
@@ -3254,6 +3357,110 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             scheduler.delays.count,
             2,
             "A persistent failure must park until an external retry signal"
+        )
+    }
+
+    func testBlockedTransferStageDoesNotWakeParkedOwnerOrSpin() {
+        let sourceManager = TabManager()
+        let destinationManager = TabManager()
+        guard let sourceWorkspace = sourceManager.selectedWorkspace,
+              let sourcePanelId = sourceWorkspace.focusedPanelId,
+              let sourcePanel =
+                sourceWorkspace.terminalPanel(for: sourcePanelId),
+              let destinationWorkspace =
+                destinationManager.selectedWorkspace else {
+            XCTFail("Expected source and destination terminals")
+            return
+        }
+
+        let arbiter = WorkspaceTerminalFontSizeCoordinator.Arbiter()
+        let sourceScheduler = ManualWorkspaceFontSizeDrainScheduler()
+        let destinationScheduler =
+            ManualWorkspaceFontSizeDrainScheduler()
+        var sourceApplyAttemptCount = 0
+        let sourceCoordinator =
+            WorkspaceTerminalFontSizeCoordinator(
+                tabManager: sourceManager,
+                arbiter: arbiter,
+                schedule:
+                    sourceScheduler.schedule(delay:action:),
+                applyChange: { _, candidate, _, _ in
+                    guard candidate === sourcePanel else {
+                        return .alreadySatisfied
+                    }
+                    sourceApplyAttemptCount += 1
+                    return .failed
+                }
+            )
+        let destinationCoordinator =
+            WorkspaceTerminalFontSizeCoordinator(
+                tabManager: destinationManager,
+                arbiter: arbiter,
+                schedule:
+                    destinationScheduler
+                        .schedule(delay:action:)
+            )
+        defer {
+            sourceCoordinator.cancelAll()
+            destinationCoordinator.cancelAll()
+        }
+
+        XCTAssertTrue(
+            sourceCoordinator.enqueue(
+                .relative([-1]),
+                workspaceId: sourceWorkspace.id,
+                deferFlush: true
+            )
+        )
+        XCTAssertTrue(
+            destinationCoordinator.enqueue(
+                .relative([-1]),
+                workspaceId: destinationWorkspace.id,
+                deferFlush: true
+            )
+        )
+#if DEBUG
+        sourceCoordinator.debugFlushOneDrain()
+#else
+        XCTFail("Workspace font-size coalescer hooks require DEBUG")
+        return
+#endif
+        sourceCoordinator.terminalWillLeaveWorkspace(
+            sourcePanel,
+            workspace: sourceWorkspace
+        )
+        guard let sourceRetryIndex =
+                sourceScheduler.delays.indices.last else {
+            XCTFail("Expected the source mutation backoff")
+            return
+        }
+        sourceScheduler.fire(at: sourceRetryIndex)
+        XCTAssertGreaterThanOrEqual(sourceApplyAttemptCount, 2)
+
+        let sourceScheduleCount = sourceScheduler.delays.count
+        let destinationScheduleCount =
+            destinationScheduler.delays.count
+        destinationCoordinator.terminalDidEnterWorkspace(
+            sourcePanel,
+            workspace: destinationWorkspace
+        )
+
+        XCTAssertEqual(
+            sourceScheduler.delays.count,
+            sourceScheduleCount,
+            "A blocked later stage must not reset or reschedule the parked stage owner"
+        )
+        guard destinationScheduleCount > 0 else {
+            XCTFail("Expected the destination's coalescing drain")
+            return
+        }
+        destinationScheduler.fire(
+            at: destinationScheduleCount - 1
+        )
+        XCTAssertEqual(
+            destinationScheduler.delays.count,
+            destinationScheduleCount,
+            "A blocked transfer stage must wait for transfer progress instead of scheduling a zero-delay spin"
         )
     }
 
