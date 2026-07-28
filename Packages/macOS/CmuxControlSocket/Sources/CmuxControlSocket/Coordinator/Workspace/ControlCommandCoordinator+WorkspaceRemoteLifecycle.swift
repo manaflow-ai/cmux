@@ -1,6 +1,49 @@
 internal import Foundation
 
 extension ControlCommandCoordinator {
+    /// `workspace.remote.terminal_session_connected` — record the terminal's
+    /// successful SSH/PTY handshake independently of auxiliary proxy state.
+    func workspaceRemoteTerminalSessionConnected(_ params: [String: JSONValue]) -> ControlCallResult {
+        guard let workspaceID = uuid(params, "workspace_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+        guard let surfaceID = uuid(params, "surface_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
+        }
+        let relayPort = strictInt(params, "relay_port")
+        if relayPort.map({ $0 <= 0 || $0 > 65535 }) == true ||
+            (params["relay_port"] != nil && relayPort == nil) {
+            return .err(code: "invalid_params", message: "Invalid relay_port", data: nil)
+        }
+
+        let resolution = context?.controlWorkspaceRemoteTerminalSessionConnected(
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            relayPort: relayPort
+        ) ?? .notFound
+        switch resolution {
+        case .notFound:
+            return .err(code: "not_found", message: "Workspace not found", data: .object([
+                "workspace_id": .string(workspaceID.uuidString),
+                "workspace_ref": ref(.workspace, workspaceID),
+                "surface_id": .string(surfaceID.uuidString),
+                "surface_ref": ref(.surface, surfaceID),
+                "relay_port": relayPort.map { .int(Int64($0)) } ?? .null,
+            ]))
+        case .resolved(let windowID, let resolvedWorkspaceID, let remoteStatus):
+            return .ok(.object([
+                "window_id": orNull(windowID?.uuidString),
+                "window_ref": ref(.window, windowID),
+                "workspace_id": .string(resolvedWorkspaceID.uuidString),
+                "workspace_ref": ref(.workspace, resolvedWorkspaceID),
+                "surface_id": .string(surfaceID.uuidString),
+                "surface_ref": ref(.surface, surfaceID),
+                "relay_port": relayPort.map { .int(Int64($0)) } ?? .null,
+                "remote": remoteStatus,
+            ]))
+        }
+    }
+
     /// `workspace.remote.terminal_session_end` — retire any persistent PTY
     /// generation owned by the wrapper, then optionally record terminal end.
     func workspaceRemoteTerminalSessionEnd(_ params: [String: JSONValue]) -> ControlCallResult {

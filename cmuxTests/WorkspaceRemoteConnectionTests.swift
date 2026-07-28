@@ -1752,6 +1752,12 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         let paneID = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
         let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
+        XCTAssertTrue(
+            workspace.markRemoteTerminalSessionConnected(
+                surfaceId: panelID,
+                relayPort: config.relayPort
+            )
+        )
         let detached = try XCTUnwrap(workspace.detachSurface(panelId: panelID))
 
         wait(for: [cleanupRequested], timeout: 1.0)
@@ -1766,6 +1772,12 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertTrue(workspace.isRemoteWorkspace)
         XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 1)
         XCTAssertTrue(workspace.isRemoteTerminalSurface(detached.panelId))
+        workspace.applyRemoteConnectionStateUpdate(
+            .reconnecting,
+            detail: "Auxiliary daemon reconnecting",
+            target: config.displayTarget
+        )
+        XCTAssertEqual(workspace.remoteConnectionState, .connected)
     }
 
     @MainActor
@@ -3430,7 +3442,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
-    func testProxyOnlyErrorsKeepSSHWorkspaceConnectedAndLoggedInSidebar() {
+    func testProxyOnlyErrorsKeepSSHWorkspaceConnectedAndLoggedInSidebar() throws {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
@@ -3447,6 +3459,13 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         workspace.configureRemoteConnection(config, autoConnect: false)
         XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 1)
+        let remoteSurfaceId = try XCTUnwrap(workspace.focusedPanelId)
+        XCTAssertTrue(
+            workspace.markRemoteTerminalSessionConnected(
+                surfaceId: remoteSurfaceId,
+                relayPort: 64007
+            )
+        )
 
         let proxyError = "Remote proxy to cmux-macmini unavailable: Failed to start local daemon proxy: daemon RPC timeout waiting for hello response (retry in 3s)"
         workspace.applyRemoteConnectionStateUpdate(.error, detail: proxyError, target: "cmux-macmini")

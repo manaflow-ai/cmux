@@ -2279,6 +2279,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		7989B0057989B0057989B005 /* Workspace+RemoteRelayCommandRewrite.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7989B1057989B1057989B105 /* Workspace+RemoteRelayCommandRewrite.swift */; };
 		806100010000000000000001 /* Workspace+RemoteSessionLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 806100010000000000000002 /* Workspace+RemoteSessionLifecycle.swift */; };
 		7989B0047989B0047989B004 /* Workspace+RemoteSurfaceResumeBinding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7989B1047989B1047989B104 /* Workspace+RemoteSurfaceResumeBinding.swift */; };
+		906800000000000000000001 /* Workspace+RemoteTerminalLiveness.swift in Sources */ = {isa = PBXBuildFile; fileRef = 906800000000000000000002 /* Workspace+RemoteTerminalLiveness.swift */; };
 		7738C0037738C0037738C003 /* Workspace+RemoteTmuxControlTopology.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7738D0037738D0037738D003 /* Workspace+RemoteTmuxControlTopology.swift */; };
 		D77340010000000000000002 /* Workspace+RemoteTmuxTabOrder.swift in Sources */ = {isa = PBXBuildFile; fileRef = D77340010000000000000001 /* Workspace+RemoteTmuxTabOrder.swift */; };
 		C548600A000000000000001 /* Workspace+SessionRestoreIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C548600A000000000000002 /* Workspace+SessionRestoreIdentity.swift */; };
@@ -4646,6 +4647,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		7989B1057989B1057989B105 /* Workspace+RemoteRelayCommandRewrite.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+RemoteRelayCommandRewrite.swift"; sourceTree = "<group>"; };
 		806100010000000000000002 /* Workspace+RemoteSessionLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+RemoteSessionLifecycle.swift"; sourceTree = "<group>"; };
 		7989B1047989B1047989B104 /* Workspace+RemoteSurfaceResumeBinding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+RemoteSurfaceResumeBinding.swift"; sourceTree = "<group>"; };
+		906800000000000000000002 /* Workspace+RemoteTerminalLiveness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+RemoteTerminalLiveness.swift"; sourceTree = "<group>"; };
 		7738D0037738D0037738D003 /* Workspace+RemoteTmuxControlTopology.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+RemoteTmuxControlTopology.swift"; sourceTree = "<group>"; };
 		D77340010000000000000001 /* Workspace+RemoteTmuxTabOrder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+RemoteTmuxTabOrder.swift"; sourceTree = "<group>"; };
 		C548600A000000000000002 /* Workspace+SessionRestoreIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SessionRestoreIdentity.swift"; sourceTree = "<group>"; };
@@ -5525,6 +5527,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				791100020000000000000001 /* Workspace+RemoteDisconnectPlaceholder.swift */,
 				797800030000000000000002 /* Workspace+PersistentRemotePTYReattach.swift */,
 				806100010000000000000002 /* Workspace+RemoteSessionLifecycle.swift */,
+				906800000000000000000002 /* Workspace+RemoteTerminalLiveness.swift */,
 				7989B1057989B1057989B105 /* Workspace+RemoteRelayCommandRewrite.swift */,
 				7989B1047989B1047989B104 /* Workspace+RemoteSurfaceResumeBinding.swift */,
 				8837B0020000000000000002 /* WorkspaceSurfaceResumeStartupLaunch+WorkingDirectory.swift */,
@@ -9193,6 +9196,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				7989B0057989B0057989B005 /* Workspace+RemoteRelayCommandRewrite.swift in Sources */,
 				806100010000000000000001 /* Workspace+RemoteSessionLifecycle.swift in Sources */,
 				7989B0047989B0047989B004 /* Workspace+RemoteSurfaceResumeBinding.swift in Sources */,
+				906800000000000000000001 /* Workspace+RemoteTerminalLiveness.swift in Sources */,
 				7738C0037738C0037738C003 /* Workspace+RemoteTmuxControlTopology.swift in Sources */,
 				D77340010000000000000002 /* Workspace+RemoteTmuxTabOrder.swift in Sources */,
 				C548600A000000000000001 /* Workspace+SessionRestoreIdentity.swift in Sources */,

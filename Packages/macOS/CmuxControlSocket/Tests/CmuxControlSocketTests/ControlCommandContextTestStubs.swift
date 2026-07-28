@@ -364,6 +364,12 @@ extension ControlWorkspaceContext {
         sessionID: String
     ) -> ControlWorkspaceRemotePTYAttachEndResolution { .notFound }
 
+    func controlWorkspaceRemoteTerminalSessionConnected(
+        workspaceID: UUID,
+        surfaceID: UUID,
+        relayPort: Int?
+    ) -> ControlWorkspaceRemoteTerminalSessionConnectedResolution { .notFound }
+
     func controlWorkspaceRemoteTerminalSessionEnd(
         workspaceID: UUID,
         surfaceID: UUID,

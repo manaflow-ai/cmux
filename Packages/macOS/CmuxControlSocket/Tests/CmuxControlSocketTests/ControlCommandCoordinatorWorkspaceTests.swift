@@ -221,7 +221,7 @@ struct ControlCommandCoordinatorWorkspaceTests {
         let (coordinator, context) = coordinator()
         let workspaceID = UUID()
         let surfaceID = UUID()
-        context.terminalSessionEndResolution = .resolved(
+        context.terminalSessionConnectedResolution = .resolved(
             windowID: nil,
             workspaceID: workspaceID,
             remoteStatus: .object(["connected": .bool(true)])

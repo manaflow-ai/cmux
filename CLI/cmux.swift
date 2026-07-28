@@ -9236,13 +9236,14 @@ struct CMUXCLI {
             localCLIPath: resolvedExecutableURL()?.path,
             foregroundAuthToken: deferredRemoteReconnectToken
         )
-        let sshConnectionTimingCommandScript = sshConnectionTimingLocalCommandScript(
+        let sshConnectedCommandScript = sshConnectedLocalCommandScript(
             target: sshOptions.displayDestination,
-            relayPort: sshOptions.remoteRelayPort
+            relayPort: sshOptions.remoteRelayPort,
+            localCLIPath: resolvedExecutableURL()?.path
         )
         let combinedLocalCommandScript = combinedLocalShellScript([
             deferredRemoteReconnectCommandScript,
-            sshConnectionTimingCommandScript,
+            sshConnectedCommandScript,
         ])
         let configuredForegroundAuthToken = deferredRemoteReconnectCommandScript == nil
             ? nil
@@ -12641,6 +12642,15 @@ struct CMUXCLI {
             try Self.writeAll(fd: fd, data: handshakeData)
             attachmentToken = try readSSHPTYBridgeReady(fd: fd)
             bridgeReachedReady = true
+            if let surfaceID {
+                _ = try? client.sendV2(
+                    method: "workspace.remote.terminal_session_connected",
+                    params: [
+                        "workspace_id": workspaceId,
+                        "surface_id": surfaceID,
+                    ]
+                )
+            }
         } catch {
             let sessionNotFound = requireExisting &&
                 (error as? CLIError)?.exitCode == SSHPTYAttachExitCode.sessionNotFound.rawValue
@@ -12990,18 +13000,32 @@ struct CMUXCLI {
         ].joined(separator: " ")
     }
 
-    private func sshConnectionTimingLocalCommandScript(target: String, relayPort: Int) -> String {
+    private func sshConnectedLocalCommandScript(
+        target: String,
+        relayPort: Int,
+        localCLIPath: String?
+    ) -> String {
         let escapedTarget = target
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
+        let preferredCLIPath = localCLIPath?.trimmingCharacters(in: .whitespacesAndNewlines)
         return [
+            preferredCLIPath.map { "cmux_ssh_connected_cli=\(shellQuote($0));" } ?? "cmux_ssh_connected_cli=\"\";",
+            "cmux_ssh_connected_socket=\"${CMUX_SOCKET_PATH:-${CMUX_SOCKET:-}}\";",
+            "if [ -z \"$cmux_ssh_connected_cli\" ] && [ -n \"${CMUX_BUNDLED_CLI_PATH:-}\" ]; then cmux_ssh_connected_cli=\"$CMUX_BUNDLED_CLI_PATH\"; fi;",
+            "if [ ! -x \"$cmux_ssh_connected_cli\" ]; then cmux_ssh_connected_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi;",
+            "if [ -n \"$cmux_ssh_connected_socket\" ] && [ -x \"$cmux_ssh_connected_cli\" ] && [ -n \"${CMUX_WORKSPACE_ID:-}\" ] && [ -n \"${CMUX_SURFACE_ID:-}\" ]; then",
+            "cmux_ssh_connected_payload=\"{\\\"workspace_id\\\":\\\"$CMUX_WORKSPACE_ID\\\",\\\"surface_id\\\":\\\"$CMUX_SURFACE_ID\\\",\\\"relay_port\\\":\(relayPort)}\";",
+            "\"$cmux_ssh_connected_cli\" --socket \"$cmux_ssh_connected_socket\" rpc workspace.remote.terminal_session_connected \"$cmux_ssh_connected_payload\" >/dev/null 2>&1 || true;",
+            "unset cmux_ssh_connected_payload;",
+            "fi;",
             "cmux_ssh_log_path=\"\";",
             "if [ -r /tmp/cmux-last-debug-log-path ]; then cmux_ssh_log_path=\"$(tr -d '\\r\\n' < /tmp/cmux-last-debug-log-path 2>/dev/null || true)\"; fi;",
             "if [ -n \"$cmux_ssh_log_path\" ]; then",
             "cmux_ssh_ts=\"$(python3 -c 'from datetime import datetime, timezone; print(datetime.now(timezone.utc).isoformat(timespec=\"milliseconds\").replace(\"+00:00\", \"Z\"))' 2>/dev/null || date -u +%Y-%m-%dT%H:%M:%SZ)\";",
             "printf '%s [cmux-cli] cli.ssh.handshake target=\(escapedTarget) relayPort=\(relayPort) stage=ssh.connected workspace=%s surface=%s\\n' \"$cmux_ssh_ts\" \"${CMUX_WORKSPACE_ID:-nil}\" \"${CMUX_SURFACE_ID:-nil}\" >> \"$cmux_ssh_log_path\";",
             "fi;",
-            "unset cmux_ssh_log_path cmux_ssh_ts;",
+            "unset cmux_ssh_connected_cli cmux_ssh_connected_socket cmux_ssh_log_path cmux_ssh_ts;",
         ].joined(separator: " ")
     }
 

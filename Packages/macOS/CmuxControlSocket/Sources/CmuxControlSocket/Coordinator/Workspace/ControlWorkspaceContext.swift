@@ -269,6 +269,20 @@ public protocol ControlWorkspaceContext: AnyObject {
         sessionID: String
     ) -> ControlWorkspaceRemotePTYAttachEndResolution
 
+    /// Records an authoritative terminal handshake for
+    /// `workspace.remote.terminal_session_connected`.
+    ///
+    /// - Parameters:
+    ///   - workspaceID: The workspace id captured when the terminal launched.
+    ///   - surfaceID: The connected terminal surface id.
+    ///   - relayPort: The relay generation for non-persistent SSH, when present.
+    /// - Returns: The connected-session resolution.
+    func controlWorkspaceRemoteTerminalSessionConnected(
+        workspaceID: UUID,
+        surfaceID: UUID,
+        relayPort: Int?
+    ) -> ControlWorkspaceRemoteTerminalSessionConnectedResolution
+
     /// Records a remote terminal session-end for
     /// `workspace.remote.terminal_session_end`.
     ///

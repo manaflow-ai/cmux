@@ -40,6 +40,64 @@ final class WorkspaceRemoteBadgeTruthTests: XCTestCase {
     }
 
     @MainActor
+    func testConfirmedLegacySSHTerminalOwnsPresentationUntilSessionEnds() throws {
+        let workspace = Workspace()
+        let config = remoteConfiguration(preserveAfterTerminalExit: false)
+        workspace.configureRemoteConnection(config, autoConnect: false)
+        let surfaceId = try seededTerminalSurfaceID(in: workspace)
+
+        workspace.applyRemoteConnectionStateUpdate(
+            .reconnecting,
+            detail: "Reconnecting to host",
+            target: "host"
+        )
+        XCTAssertEqual(workspace.remoteConnectionState, .reconnecting)
+
+        XCTAssertTrue(
+            workspace.markRemoteTerminalSessionConnected(
+                surfaceId: surfaceId,
+                relayPort: 64007
+            )
+        )
+        XCTAssertEqual(workspace.remoteConnectionState, .connected)
+
+        workspace.trackRemoteTerminalSurface(surfaceId)
+        workspace.applyRemoteConnectionStateUpdate(
+            .reconnecting,
+            detail: "Auxiliary daemon reconnecting",
+            target: "host"
+        )
+        XCTAssertEqual(workspace.remoteConnectionState, .connected)
+
+        let proxyError = "Remote proxy to host unavailable: Remote daemon transport failed"
+        workspace.applyRemoteConnectionStateUpdate(.error, detail: proxyError, target: "host")
+        XCTAssertEqual(workspace.remoteConnectionState, .connected)
+        XCTAssertEqual(workspace.remoteConnectionDetail, proxyError)
+
+        workspace.markRemoteTerminalSessionEnded(surfaceId: surfaceId, relayPort: 64007)
+        XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
+    }
+
+    @MainActor
+    func testTerminalConnectedRejectsStaleRelayGeneration() throws {
+        let workspace = Workspace()
+        workspace.configureRemoteConnection(
+            remoteConfiguration(preserveAfterTerminalExit: false),
+            autoConnect: false
+        )
+        let surfaceId = try seededTerminalSurfaceID(in: workspace)
+
+        XCTAssertFalse(
+            workspace.markRemoteTerminalSessionConnected(
+                surfaceId: surfaceId,
+                relayPort: 64008
+            )
+        )
+        XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
+    }
+
+    @MainActor
     func testLegacySSHProxyOnlyErrorDowngradesAfterLastTerminalSessionEnds() throws {
         let workspace = Workspace()
         let config = remoteConfiguration(preserveAfterTerminalExit: false)

@@ -688,6 +688,33 @@ extension TerminalController: ControlWorkspaceContext {
         )
     }
 
+    func controlWorkspaceRemoteTerminalSessionConnected(
+        workspaceID workspaceId: UUID,
+        surfaceID surfaceId: UUID,
+        relayPort: Int?
+    ) -> ControlWorkspaceRemoteTerminalSessionConnectedResolution {
+        let located = AppDelegate.shared?.workspaceContainingPanel(
+            panelId: surfaceId,
+            preferredWorkspaceId: workspaceId
+        )
+        let fallbackOwner = AppDelegate.shared?.tabManagerFor(tabId: workspaceId)
+        let fallbackWorkspace = fallbackOwner?.tabs.first(where: { $0.id == workspaceId })
+        guard let owner = located?.tabManager ?? fallbackOwner,
+              let workspace = located?.workspace ?? fallbackWorkspace,
+              workspace.markRemoteTerminalSessionConnected(
+                surfaceId: surfaceId,
+                relayPort: relayPort
+              ) else {
+            return .notFound
+        }
+        let windowId = AppDelegate.shared?.windowId(for: owner)
+        return .resolved(
+            windowID: windowId,
+            workspaceID: workspace.id,
+            remoteStatus: JSONValue(foundationObject: workspace.remoteStatusPayload()) ?? .object([:])
+        )
+    }
+
     func controlWorkspaceRemoteTerminalSessionEnd(
         workspaceID workspaceId: UUID,
         surfaceID surfaceId: UUID,
@@ -702,8 +729,14 @@ extension TerminalController: ControlWorkspaceContext {
         case (nil, nil): true
         default: false
         }
-        guard let owner = AppDelegate.shared?.tabManagerFor(tabId: workspaceId),
-              let workspace = owner.tabs.first(where: { $0.id == workspaceId }) else {
+        let located = AppDelegate.shared?.workspaceContainingPanel(
+            panelId: surfaceId,
+            preferredWorkspaceId: workspaceId
+        )
+        let fallbackOwner = AppDelegate.shared?.tabManagerFor(tabId: workspaceId)
+        let fallbackWorkspace = fallbackOwner?.tabs.first(where: { $0.id == workspaceId })
+        guard let owner = located?.tabManager ?? fallbackOwner,
+              let workspace = located?.workspace ?? fallbackWorkspace else {
             return .notFound
         }
         if !lifecycleOnly, generationIsCurrent {

@@ -229,6 +229,71 @@ extension AgentNotificationRegressionTests {
         #expect(fixture.store.notifications.map(\.body) == ["Replacement after clear"])
     }
 
+    @Test("Correlation clear cancels only matching in-flight policy work")
+    func correlationClearCancelsMatchingInFlightPolicyWork() async throws {
+        let fixture = try makeFixture(policyHookCommand: "sleep 1; cat")
+        defer { fixture.restore() }
+        let correlationKey = "remote-host:\(UUID().uuidString)"
+
+        fixture.store.addNotification(
+            tabId: fixture.source.id,
+            surfaceId: nil,
+            title: "Remote Proxy Unavailable",
+            subtitle: "host",
+            body: "Transient proxy failure",
+            cooldownKey: correlationKey,
+            cooldownInterval: 60
+        )
+        fixture.store.addNotification(
+            tabId: fixture.source.id,
+            surfaceId: nil,
+            title: "Unrelated",
+            subtitle: "",
+            body: "Keep this notification"
+        )
+
+        fixture.store.clearNotifications(forTabId: fixture.source.id, correlationKey: correlationKey)
+        await waitForNotification(in: fixture.store)
+
+        #expect(fixture.store.notifications.map(\.body) == ["Keep this notification"])
+    }
+
+    @Test("Correlation clear preserves another workspace's same-host alert")
+    func correlationClearIsScopedToWorkspace() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        let sourceCorrelationKey = "remote-host:\(UUID().uuidString)"
+        let correlationKey = "remote-host:\(UUID().uuidString)"
+
+        fixture.store.addNotification(
+            tabId: fixture.source.id,
+            surfaceId: nil,
+            title: "Remote Proxy Unavailable",
+            subtitle: "source",
+            body: "Recovered source alert",
+            cooldownKey: sourceCorrelationKey,
+            cooldownInterval: 60
+        )
+        fixture.store.clearNotifications(
+            forTabId: fixture.source.id,
+            correlationKey: sourceCorrelationKey
+        )
+        #expect(fixture.store.notifications.isEmpty)
+
+        fixture.store.addNotification(
+            tabId: fixture.destination.id,
+            surfaceId: nil,
+            title: "Remote Proxy Unavailable",
+            subtitle: "host",
+            body: "Same host in another workspace",
+            cooldownKey: correlationKey,
+            cooldownInterval: 60
+        )
+        fixture.store.clearNotifications(forTabId: fixture.source.id, correlationKey: correlationKey)
+
+        #expect(fixture.store.notifications.map(\.body) == ["Same host in another workspace"])
+    }
+
     @Test("Clearing policy work discards a hook result that completes afterwards")
     func clearTerminatesInFlightPolicyHookProcess() async throws {
         // Subprocess termination on cancellation is best-effort and is NOT

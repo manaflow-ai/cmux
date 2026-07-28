@@ -212,6 +212,7 @@ extension DockSplitStore {
             resumeBinding: resumeBinding,
             agentRuntime: agentProvenExited ? nil : preservedTransfer?.agentRuntime,
             isRemoteTerminal: preservedTransfer?.isRemoteTerminal ?? false,
+            remoteTerminalSessionPhase: preservedTransfer?.remoteTerminalSessionPhase,
             remoteRelayPort: preservedTransfer?.remoteRelayPort,
             remotePTYSessionID: preservedTransfer?.remotePTYSessionID,
             remoteCleanupConfiguration: preservedTransfer?.remoteCleanupConfiguration

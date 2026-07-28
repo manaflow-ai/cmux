@@ -15,6 +15,7 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
         referenceWorkspaceID: UUID?
     )?
     var terminalSessionEndResolution: ControlWorkspaceRemoteTerminalSessionEndResolution = .notFound
+    var terminalSessionConnectedResolution: ControlWorkspaceRemoteTerminalSessionConnectedResolution = .notFound
     var terminalSessionEndCall: (
         workspaceID: UUID, surfaceID: UUID, relayPort: Int?,
         sessionID: String?, lifecycleID: String?, lifecycleOnly: Bool
@@ -92,8 +93,8 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
         workspaceID: UUID,
         surfaceID: UUID,
         relayPort: Int?
-    ) -> ControlWorkspaceRemoteTerminalSessionEndResolution {
+    ) -> ControlWorkspaceRemoteTerminalSessionConnectedResolution {
         terminalSessionConnectedCall = (workspaceID, surfaceID, relayPort)
-        return terminalSessionEndResolution
+        return terminalSessionConnectedResolution
     }
 }

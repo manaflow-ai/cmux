@@ -61,6 +61,8 @@ extension ControlCommandCoordinator {
             return workspaceRemoteStatus(request.params)
         case "workspace.remote.pty_attach_end":
             return workspaceRemotePTYAttachEnd(request.params)
+        case "workspace.remote.terminal_session_connected":
+            return workspaceRemoteTerminalSessionConnected(request.params)
         case "workspace.remote.terminal_session_end":
             return workspaceRemoteTerminalSessionEnd(request.params)
         default:
