@@ -4889,6 +4889,24 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
         }
         defer { NotificationCenter.default.removeObserver(token) }
 
+        var sawFirstResponderNotification = false
+        var observedFirstResponderTransactions: [UUID] = []
+        let firstResponderToken = NotificationCenter.default.addObserver(
+            forName: .ghosttyDidBecomeFirstResponderSurface,
+            object: nil,
+            queue: nil
+        ) { notification in
+            guard notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID == workspace.id,
+                  notification.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID == leftPanel.id else {
+                return
+            }
+            sawFirstResponderNotification = true
+            if let transactionId = notification.userInfo?[GhosttyNotificationKey.focusTransactionId] as? UUID {
+                observedFirstResponderTransactions.append(transactionId)
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(firstResponderToken) }
+
         let transactionId = UUID()
         window.makeFirstResponder(nil)
         workspace.applyTabSelection(
@@ -4902,6 +4920,15 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
             firstResponderFeedbackCount,
             0,
             "Expected AppKit first-responder focus to feed back through workspace.focusPanel"
+        )
+        XCTAssertTrue(
+            sawFirstResponderNotification,
+            "Expected the terminal first-responder notification to be posted for the focused panel"
+        )
+        XCTAssertEqual(
+            observedFirstResponderTransactions.last,
+            transactionId,
+            "Terminal first-responder notifications should carry the active focus transaction"
         )
         XCTAssertEqual(
             observedTransactions.last,

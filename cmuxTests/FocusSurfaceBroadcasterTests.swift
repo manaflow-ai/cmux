@@ -128,6 +128,10 @@ struct FocusSurfaceBroadcasterTests {
             object: nil,
             queue: nil
         ) { notification in
+            guard notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID == payload.workspaceId,
+                  notification.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID == payload.panelId else {
+                return
+            }
             postedUserInfo = notification.userInfo
         }
         defer { NotificationCenter.default.removeObserver(observer) }
