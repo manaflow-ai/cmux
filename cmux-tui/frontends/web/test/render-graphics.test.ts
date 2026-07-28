@@ -12,6 +12,7 @@ import {
   resolveRenderGraphicPlacement,
   updateDecodedRenderGraphicImages,
 } from "../src/lib/renderGraphics";
+import { sameImageGenerations } from "../src/hooks/useDecodedRenderGraphicImages";
 
 const placement: RenderGraphicPlacement = {
   image_id: 9,
@@ -56,6 +57,17 @@ describe("render graphics", () => {
 
     expect(Array.from(rgb!.pixels)).toEqual([255, 0, 0, 255, 0, 255, 0, 255]);
     expect(Array.from(rgba!.pixels)).toEqual([0, 0, 255, 255]);
+  });
+
+  it("does not reconstruct keys for an identical image array", () => {
+    const inaccessible = new Proxy({} as RenderGraphicImage, {
+      get() {
+        throw new Error("stable images must not be enumerated");
+      },
+    });
+    const images = [inaccessible];
+
+    expect(sameImageGenerations(images, images)).toBe(true);
   });
 
   it("rejects dimension mismatches and images beyond the server storage bound", () => {

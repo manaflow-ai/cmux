@@ -1112,6 +1112,16 @@ mod tests {
     }
 
     #[test]
+    fn snapshot_format_rejects_unreachable_grayscale_storage() {
+        for raw in [
+            sys::GHOSTTY_KITTY_IMAGE_FORMAT_GRAY,
+            sys::GHOSTTY_KITTY_IMAGE_FORMAT_GRAY_ALPHA,
+        ] {
+            assert!(matches!(snapshot_image_format(raw), Err(Error::InvalidValue)));
+        }
+    }
+
+    #[test]
     fn inflight_limit_covers_exact_base64_expansion_and_bounded_framing() {
         assert_eq!(kitty_inflight_replay_limit_for_image_bytes(0), 0);
         assert_eq!(kitty_inflight_replay_limit_for_image_bytes(1), 5);

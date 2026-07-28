@@ -79,6 +79,22 @@ fn chunked_rgb_transmission_is_snapshotted_as_owned_pixels() {
 }
 
 #[test]
+fn unsupported_grayscale_transmissions_are_ignored_and_parser_recovers() {
+    let grayscale = [0x10, 0x80];
+    let grayscale_alpha = [0x20, 0x40, 0xa0, 0xc0];
+    let mut terminal = terminal();
+    terminal.vt_write(&kitty("a=t,t=d,f=8,i=70,s=2,v=1,q=2", &encode_base64(&grayscale)));
+    terminal.vt_write(&kitty("a=t,t=d,f=16,i=71,s=2,v=1,q=2", &encode_base64(&grayscale_alpha)));
+    terminal.vt_write(&kitty("a=t,t=d,f=24,i=72,s=1,v=1,q=2", "/wAA"));
+
+    let snapshot = terminal.kitty_graphics_snapshot().unwrap();
+    assert!(snapshot.image(70).is_none());
+    assert!(snapshot.image(71).is_none());
+    assert_eq!(snapshot.image(72).unwrap().format, KittyImageFormat::Rgb);
+    assert_eq!(&*snapshot.image(72).unwrap().data, &[255, 0, 0]);
+}
+
+#[test]
 fn failed_alias_restore_does_not_partially_reassign_images() {
     let mut terminal = terminal();
     terminal.vt_write(&kitty("a=t,t=d,f=24,i=7,s=1,v=1,q=2", "/wAA"));
