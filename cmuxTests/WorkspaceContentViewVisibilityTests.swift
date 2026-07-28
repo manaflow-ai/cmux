@@ -13,7 +13,15 @@ import Bonsplit
 
 @Suite(.serialized)
 final class WorkspaceContentViewVisibilityTests {
-    private final class ClosureLifetimeSentinel {}
+    private final class ClosureLifetimeSentinel {
+        let identifier: Int
+        let deinitialized: AsyncStream<Int>.Continuation
+        init(identifier: Int, deinitialized: AsyncStream<Int>.Continuation) {
+            self.identifier = identifier
+            self.deinitialized = deinitialized
+        }
+        deinit { deinitialized.yield(identifier) }
+    }
 
     private final class WeakReference<Value: AnyObject> {
         weak var value: Value?
@@ -55,11 +63,17 @@ final class WorkspaceContentViewVisibilityTests {
         let releaseEvents = AsyncStream<Int>.makeStream()
         defer { releaseEvents.continuation.finish() }
         var releaseIterator = releaseEvents.stream.makeAsyncIterator()
+        let deinitEvents = AsyncStream<Int>.makeStream()
+        defer { deinitEvents.continuation.finish() }
+        var deinitIterator = deinitEvents.stream.makeAsyncIterator()
         var releases: [Int] = []
 
         func schedule(_ index: Int, delay: Duration, force: Bool = false)
             -> WeakReference<ClosureLifetimeSentinel> {
-            let sentinel = ClosureLifetimeSentinel()
+            let sentinel = ClosureLifetimeSentinel(
+                identifier: index,
+                deinitialized: deinitEvents.continuation
+            )
             let reference = WeakReference(sentinel)
             scheduler.schedule(force: force, delay: delay) { [sentinel] releasedForce in
                 _ = sentinel
@@ -74,7 +88,8 @@ final class WorkspaceContentViewVisibilityTests {
         #expect(releases.isEmpty)
         let immediateRelease = await releaseIterator.next()
         #expect(immediateRelease == -1)
-        await Task.yield()
+        let immediateDeinit = await deinitIterator.next()
+        #expect(immediateDeinit == -1)
         #expect(immediate.value == nil)
         releases.removeAll()
 
@@ -83,7 +98,14 @@ final class WorkspaceContentViewVisibilityTests {
         let superseded = (0..<999).map { schedule($0, delay: .seconds(1)) }
         let final = schedule(999, delay: .milliseconds(50), force: true)
         await clock.waitUntilSleeping(for: .milliseconds(50))
+        var canceledIdentifiers: Set<Int> = []
+        for _ in 0..<1_000 {
+            if let identifier = await deinitIterator.next() {
+                canceledIdentifiers.insert(identifier)
+            }
+        }
         #expect(releases.isEmpty)
+        #expect(canceledIdentifiers == Set(0..<999).union([-2]))
         #expect(sleeping.value == nil)
         #expect(superseded.allSatisfy { $0.value == nil })
         #expect(final.value != nil)
@@ -98,7 +120,8 @@ final class WorkspaceContentViewVisibilityTests {
         #expect(releases == [999])
 
         await clock.waitUntilIdle()
-        await Task.yield()
+        let finalDeinit = await deinitIterator.next()
+        #expect(finalDeinit == 999)
         #expect(final.value == nil)
     }
 
