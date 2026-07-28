@@ -124,6 +124,59 @@ struct TextBoxPendingPasteReservationInteractionTests {
         #expect(textView.string == "pastedtyped")
     }
 
+    @Test("typing inside a selected-text marker cancels the pending paste")
+    func typingInsideSelectedTextMarkerCancelsPendingPaste() throws {
+        let (window, textView) = makeTextView()
+        defer { close(window) }
+        selectMiddleWord(in: textView)
+
+        let pasteID = UUID()
+        #expect(textView.beginPendingPasteReservation(id: pasteID))
+        let markerRange = try #require(
+            textView.pendingAttachmentUploadPlaceholderRange(id: pasteID)
+        )
+        textView.insertText(
+            "typed",
+            replacementRange: NSRange(location: markerRange.location, length: 0)
+        )
+
+        #expect(textView.string == "before typedselected after")
+        #expect(textView.pendingPasteReservations[pasteID] == nil)
+        #expect(
+            !textView.commitPendingPasteReservation(
+                id: pasteID,
+                withText: "late paste"
+            )
+        )
+    }
+
+    @Test("completed paste projects content hidden by another reservation")
+    func completedPasteProjectsOtherPendingSelection() throws {
+        let (window, textView) = makeTextView()
+        defer { close(window) }
+        selectMiddleWord(in: textView)
+
+        let firstPasteID = UUID()
+        #expect(textView.beginPendingPasteReservation(id: firstPasteID))
+        textView.setSelectedRange(
+            (textView.string as NSString).range(of: "after")
+        )
+        let secondPasteID = UUID()
+        #expect(textView.beginPendingPasteReservation(id: secondPasteID))
+        #expect(
+            textView.commitPendingPasteReservation(
+                id: firstPasteID,
+                withText: "pasted"
+            )
+        )
+
+        #expect(textView.plainText() == "before pasted ")
+        let projectedContent = textView.bindingContentForPreservation()
+        #expect(projectedContent.text == "before pasted after")
+        #expect(projectedContent.attachments.isEmpty)
+        #expect(textView.pendingPasteReservations[secondPasteID] != nil)
+    }
+
     private func makeTextView() -> (NSWindow, TextBoxInputTextView) {
         let textView = TextBoxInputTextView(
             frame: NSRect(x: 0, y: 0, width: 320, height: 30)

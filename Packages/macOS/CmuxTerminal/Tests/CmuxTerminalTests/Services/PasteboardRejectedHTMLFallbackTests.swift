@@ -28,4 +28,25 @@ struct PasteboardRejectedHTMLFallbackTests {
                 == "plain fallback"
         )
     }
+
+    @Test("image with data-backed rejected HTML preserves advertised plain text")
+    func imageWithDataBackedRejectedHTMLPreservesPlainText() {
+        let pasteboard = NSPasteboard(
+            name: .init("cmux-tests-data-rejected-html-\(UUID().uuidString)")
+        )
+        defer {
+            pasteboard.clearContents()
+            pasteboard.releaseGlobally()
+        }
+        pasteboard.declareTypes([.png, .html, .string], owner: nil)
+        pasteboard.setData(Data([0x89, 0x50, 0x4E, 0x47]), forType: .png)
+        pasteboard.setData(Data([0xFF, 0xFE, 0x00]), forType: .html)
+        pasteboard.setString("plain fallback", forType: .string)
+
+        #expect(pasteboard.string(forType: .html) == nil)
+        #expect(
+            TerminalPasteboardService().stringContents(from: pasteboard)
+                == "plain fallback"
+        )
+    }
 }
