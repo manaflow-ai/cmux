@@ -4726,6 +4726,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // SwiftUI's window accessor can run once more while dismantling a
             // retained NSWindow. A committed close is authoritative: never
             // recreate its context or give its terminal graph a respawn route.
+            finalizeRejectedMainWindowRegistrationIfUnowned(tabManager)
             return
         }
         let recoverableRoute = recoverableMainWindowRoute(windowId: windowId)
