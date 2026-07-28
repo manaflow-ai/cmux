@@ -17,6 +17,10 @@ struct TerminalLinkOpenCoordinatorTests {
         defaults.removePersistentDomain(forName: suiteName)
         defaults.set(false, forKey: BrowserAvailabilitySettings.disabledKey)
         defaults.set(true, forKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey)
+        defaults.set(
+            true,
+            forKey: AppCatalogSection().openSupportedFilesInCmux.userDefaultsKey
+        )
         return defaults
     }
 
@@ -112,92 +116,73 @@ struct TerminalLinkOpenCoordinatorTests {
     )
     @MainActor
     func visibleHTMLPathOpensInBrowser(pathExtension: String) throws {
-        try withStandardHTMLRoutingEnabled {
-            _ = NSApplication.shared
-            let htmlURL = try makeHTMLFixture(pathExtension: pathExtension)
-            defer { try? FileManager.default.removeItem(at: htmlURL.deletingLastPathComponent()) }
+        _ = NSApplication.shared
+        let defaults = makeDefaults()
+        let htmlURL = try makeHTMLFixture(pathExtension: pathExtension)
+        defer { try? FileManager.default.removeItem(at: htmlURL.deletingLastPathComponent()) }
 
-            let workspace = Workspace()
-            defer { workspace.teardownAllPanels() }
-            let sourcePanelId = try #require(workspace.focusedPanelId)
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let sourcePanelId = try #require(workspace.focusedPanelId)
 
-            #expect(CommandClickFileOpenRouter.openInCmux(
-                workspace: workspace,
-                sourcePanelId: sourcePanelId,
-                filePath: htmlURL.path
-            ))
+        #expect(CommandClickFileOpenRouter.openInCmux(
+            workspace: workspace,
+            sourcePanelId: sourcePanelId,
+            filePath: htmlURL.path,
+            defaults: defaults
+        ))
 
-            let browser = try #require(
-                workspace.panels.values.compactMap { $0 as? BrowserPanel }.first
-            )
-            #expect(browser.currentURL?.standardizedFileURL == htmlURL.standardizedFileURL)
-            #expect(!workspace.panels.values.contains { $0 is FilePreviewPanel })
-        }
+        let browser = try #require(
+            workspace.panels.values.compactMap { $0 as? BrowserPanel }.first
+        )
+        #expect(browser.currentURL?.standardizedFileURL == htmlURL.standardizedFileURL)
+        #expect(!workspace.panels.values.contains { $0 is FilePreviewPanel })
     }
 
     @Test("Dock HTML paths open in Browser instead of externally")
     @MainActor
     func dockHTMLPathOpensInBrowser() throws {
-        try withStandardHTMLRoutingEnabled {
-            let htmlURL = try makeHTMLFixture(pathExtension: "html")
-            defer { try? FileManager.default.removeItem(at: htmlURL.deletingLastPathComponent()) }
+        let defaults = makeDefaults()
+        let htmlURL = try makeHTMLFixture(pathExtension: "html")
+        defer { try? FileManager.default.removeItem(at: htmlURL.deletingLastPathComponent()) }
 
-            let store = DockSplitStore(
-                workspaceId: UUID(),
-                baseDirectoryProvider: { FileManager.default.temporaryDirectory.path },
-                browserAvailabilityProvider: { true }
-            )
-            defer { store.closeAllPanels() }
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { FileManager.default.temporaryDirectory.path },
+            browserAvailabilityProvider: { true }
+        )
+        defer { store.closeAllPanels() }
 
-            let rootPane = try #require(store.bonsplitController.allPaneIds.first)
-            let terminalPanelId = try #require(
-                store.newSurface(kind: .terminal, inPane: rootPane, focus: true)
-            )
-            var externallyOpened: [URL] = []
-            let coordinator = TerminalLinkOpenCoordinator(
-                defaults: .standard,
-                containerResolver: { _, panelId in
-                    panelId == terminalPanelId ? store : nil
-                },
-                externalOpen: { openedURL in
-                    externallyOpened.append(openedURL)
-                    return true
-                },
-                deferOperation: { operation in operation() }
-            )
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let terminalPanelId = try #require(
+            store.newSurface(kind: .terminal, inPane: rootPane, focus: true)
+        )
+        var externallyOpened: [URL] = []
+        let coordinator = TerminalLinkOpenCoordinator(
+            defaults: defaults,
+            containerResolver: { _, panelId in
+                panelId == terminalPanelId ? store : nil
+            },
+            externalOpen: { openedURL in
+                externallyOpened.append(openedURL)
+                return true
+            },
+            deferOperation: { operation in operation() }
+        )
 
-            #expect(coordinator.open(TerminalLinkOpenRequest(
-                rawValue: htmlURL.path,
-                sourceWorkspaceId: nil,
-                sourcePanelId: terminalPanelId,
-                workingDirectory: nil
-            )))
+        #expect(coordinator.open(TerminalLinkOpenRequest(
+            rawValue: htmlURL.path,
+            sourceWorkspaceId: nil,
+            sourcePanelId: terminalPanelId,
+            workingDirectory: nil
+        )))
 
-            let browserPanels = store.bonsplitController.allTabIds.compactMap {
-                store.panel(for: $0) as? BrowserPanel
-            }
-            #expect(browserPanels.count == 1)
-            #expect(browserPanels.first?.currentURL?.standardizedFileURL == htmlURL.standardizedFileURL)
-            #expect(externallyOpened.isEmpty)
+        let browserPanels = store.bonsplitController.allTabIds.compactMap {
+            store.panel(for: $0) as? BrowserPanel
         }
-    }
-
-    @MainActor
-    private func withStandardHTMLRoutingEnabled(
-        _ operation: () throws -> Void
-    ) rethrows {
-        let defaults = UserDefaults.standard
-        let supportedFilesKey = AppCatalogSection().openSupportedFilesInCmux.userDefaultsKey
-        let previousSupportedFiles = defaults.object(forKey: supportedFilesKey)
-        let previousBrowserDisabled = defaults.object(forKey: BrowserAvailabilitySettings.disabledKey)
-        defer {
-            restore(previousSupportedFiles, forKey: supportedFilesKey, in: defaults)
-            restore(previousBrowserDisabled, forKey: BrowserAvailabilitySettings.disabledKey, in: defaults)
-        }
-
-        defaults.set(true, forKey: supportedFilesKey)
-        defaults.set(false, forKey: BrowserAvailabilitySettings.disabledKey)
-        try operation()
+        #expect(browserPanels.count == 1)
+        #expect(browserPanels.first?.currentURL?.standardizedFileURL == htmlURL.standardizedFileURL)
+        #expect(externallyOpened.isEmpty)
     }
 
     private func makeHTMLFixture(pathExtension: String) throws -> URL {
@@ -211,13 +196,5 @@ struct TerminalLinkOpenCoordinatorTests {
             encoding: .utf8
         )
         return fileURL
-    }
-
-    private func restore(_ value: Any?, forKey key: String, in defaults: UserDefaults) {
-        if let value {
-            defaults.set(value, forKey: key)
-        } else {
-            defaults.removeObject(forKey: key)
-        }
     }
 }

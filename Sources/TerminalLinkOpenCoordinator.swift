@@ -47,7 +47,10 @@ struct TerminalLinkOpenCoordinator {
                cwd: resolvedWorkingDirectory(request: request, container: container)
            ) {
             let fileURL = URL(fileURLWithPath: resolvedPath)
-            if CommandClickFileOpenRouter.shouldRouteInCmux(path: resolvedPath) {
+            if CommandClickFileOpenRouter.shouldRouteInCmux(
+                path: resolvedPath,
+                defaults: defaults
+            ) {
                 log("link.openURL resolvedAsFilePath=\(resolvedPath)")
                 return routeLocalFile(
                     fileURL,
@@ -76,7 +79,10 @@ struct TerminalLinkOpenCoordinator {
         if TerminalOpenURLFileRoutingPolicy().shouldAttemptCmuxFileRouting(
             rawOpenURLValue: trimmed,
             target: target
-        ), CommandClickFileOpenRouter.shouldRouteInCmux(path: target.url.path) {
+        ), CommandClickFileOpenRouter.shouldRouteInCmux(
+            path: target.url.path,
+            defaults: defaults
+        ) {
             return routeLocalFile(
                 target.url,
                 request: request,
@@ -155,7 +161,10 @@ struct TerminalLinkOpenCoordinator {
 
             guard let currentContainer,
                   !currentContainer.terminalLinkIsRemoteTerminal(sourcePanelId),
-                  CommandClickFileOpenRouter.shouldRouteInCmux(path: fileURL.path) else {
+                  CommandClickFileOpenRouter.shouldRouteInCmux(
+                      path: fileURL.path,
+                      defaults: self.defaults
+                  ) else {
                 externalFallback()
                 return
             }
