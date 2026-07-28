@@ -41,25 +41,12 @@ struct CommandClickHTMLOpenRoutingTests {
         let workspace = Workspace()
         defer { workspace.teardownAllPanels() }
         let sourcePanelId = try #require(workspace.focusedPanelId)
-        var externallyOpened: [URL] = []
-        let coordinator = TerminalLinkOpenCoordinator(
-            defaults: defaults,
-            containerResolver: { workspaceId, panelId in
-                workspaceId == workspace.id && panelId == sourcePanelId ? workspace : nil
-            },
-            externalOpen: { url in
-                externallyOpened.append(url)
-                return true
-            },
-            deferOperation: { operation in operation() }
-        )
 
-        #expect(coordinator.open(TerminalLinkOpenRequest(
-            rawValue: htmlURL.path,
-            sourceWorkspaceId: workspace.id,
+        #expect(CommandClickFileOpenRouter.openInCmux(
+            workspace: workspace,
             sourcePanelId: sourcePanelId,
-            workingDirectory: nil
-        )))
+            filePath: htmlURL.path
+        ))
 
         let browser = try #require(workspace.panels.values.compactMap { $0 as? BrowserPanel }.first)
         #expect(browser.currentURL?.standardizedFileURL == htmlURL.standardizedFileURL)
@@ -67,7 +54,6 @@ struct CommandClickHTMLOpenRoutingTests {
             guard let preview = panel as? FilePreviewPanel else { return false }
             return URL(fileURLWithPath: preview.filePath).standardizedFileURL == htmlURL.standardizedFileURL
         })
-        #expect(externallyOpened.isEmpty)
     }
 
     @Test
