@@ -560,10 +560,12 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// Moves this surface between focus-routing placements (workspace ↔
     /// right-sidebar dock) and keeps the surface registry's record in sync.
     /// Used when a live terminal is dragged across containers so it is not
-    /// recreated. No-op when the placement is unchanged.
+    /// recreated. Clears placement-owned directory state so a prior Dock tenure
+    /// cannot outrank the incoming container's directory. No-op when unchanged.
     @MainActor
     public func setFocusPlacement(_ placement: TerminalSurfaceFocusPlacement) {
         guard focusPlacement != placement else { return }
+        reportedWorkingDirectory = nil
         focusPlacement = placement
         registry.updateFocusPlacement(id: id, placement)
     }

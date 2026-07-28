@@ -194,9 +194,9 @@ struct DockWorkingDirectoryInheritanceTests {
         }
     }
 
-    @Test("Workspace-owned PWD report does not poison later Dock inheritance")
+    @Test("Dock PWD cache invalidates across a workspace round trip")
     @MainActor
-    func workspaceReportDoesNotPoisonDockInheritance() async throws {
+    func dockReportInvalidatesAcrossWorkspaceRoundTrip() async throws {
         let resolver = TerminalWorkingDirectoryResolver(liveDirectoryProvider: { _ in nil })
         try await withDock(
             inheritanceEnabled: true,
@@ -209,8 +209,12 @@ struct DockWorkingDirectoryInheritanceTests {
                 focus: true
             ))
             let sourcePanel = try terminalPanel(in: store, panelId: sourcePanelId)
+            sourcePanel.surface.recordReportedWorkingDirectory(root.path)
+            #expect(sourcePanel.surface.reportedWorkingDirectory == root.path)
+
             sourcePanel.surface.setFocusPlacement(.workspace)
             defer { sourcePanel.surface.setFocusPlacement(.rightSidebarDock) }
+            #expect(sourcePanel.surface.reportedWorkingDirectory == nil)
 
             await confirmation("workspace PWD report delivered") { delivered in
                 var wasDelivered = false
