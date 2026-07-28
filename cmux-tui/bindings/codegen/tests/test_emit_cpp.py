@@ -11,6 +11,29 @@ from support import schema_document
 
 
 class CppEmitterTests(unittest.TestCase):
+    def test_predefined_macro_enum_values_use_safe_identifiers(self) -> None:
+        document = copy.deepcopy(schema_document())
+        document["types"]["Transport"] = {
+            "kind": "enum",
+            "values": ["unix", "ws"],
+        }
+
+        generated = emit(load_ir_document(document))
+        header = generated[
+            PurePosixPath("include/cmux/generated/models.hpp")
+        ]
+        source = generated[PurePosixPath("src/generated/protocol.cpp")]
+
+        self.assertIn("enum class Transport {\n    unix_,\n    ws,\n};", header)
+        self.assertIn(
+            'case Transport::unix_: return Json(std::string("unix"));',
+            source,
+        )
+        self.assertIn(
+            'if (value == Json(std::string("unix"))) return Transport::unix_;',
+            source,
+        )
+
     def test_command_metadata_includes_field_compatibility_requirements(self) -> None:
         document = copy.deepcopy(schema_document())
         document["commands"]["list-workspaces"]["request"] = {

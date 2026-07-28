@@ -77,6 +77,7 @@ if(CMUX_BUILD_TESTS)
         tests/test_client.cpp
         tests/test_generated.cpp
         tests/test_json.cpp
+        tests/test_macro_collision.cpp
         tests/test_unix_transport.cpp
     )
     target_link_libraries(cmux_cpp_tests PRIVATE cmux::sdk Threads::Threads)
