@@ -15,15 +15,27 @@ nonisolated private let mobileIrohLog = Logger(
 
 /// Keeps synchronous Keychain and defaults work off the UI actor while
 /// serializing concurrent activation reads through one identity owner.
-private actor MobileIrohDurableDeviceIDResolver {
-    private let defaults: UserDefaults
+///
+/// `UserDefaults` documents its API as thread-safe but does not conform to
+/// `Sendable`. Keep the unchecked boundary private and pass only this owner
+/// across the actor boundary.
+private final class MobileIrohSendableDefaults: @unchecked Sendable {
+    let value: UserDefaults
 
-    init(defaults: UserDefaults) {
+    init(_ value: UserDefaults) {
+        self.value = value
+    }
+}
+
+private actor MobileIrohDurableDeviceIDResolver {
+    private let defaults: MobileIrohSendableDefaults
+
+    init(defaults: MobileIrohSendableDefaults) {
         self.defaults = defaults
     }
 
     func resolve() -> String? {
-        DeviceRegistryService.durableDeviceID(defaults: defaults)
+        DeviceRegistryService.durableDeviceID(defaults: defaults.value)
     }
 }
 
@@ -234,7 +246,7 @@ public final class MobileIrohRuntimeComposition:
         )
         let networkPathState = MobileIrohNetworkPathState()
         let durableDeviceIDResolver = MobileIrohDurableDeviceIDResolver(
-            defaults: defaults
+            defaults: MobileIrohSendableDefaults(defaults)
         )
         let lanPeerDiscovery = CmxIrohLANPeerDiscovery(
             networkPath: { await networkPathState.snapshot() },
