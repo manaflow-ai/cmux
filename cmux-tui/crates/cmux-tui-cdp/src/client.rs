@@ -1377,8 +1377,7 @@ fn handle_text(inner: &Arc<Inner>, text: &str) {
                         }
                     }
                 }
-                let Some(frame) = screencast_frame(params, target_session, frame_epoch, None)
-                else {
+                let Some(frame) = screencast_frame(params, target_session, frame_epoch) else {
                     return;
                 };
                 if capture_timestamp.is_some()
@@ -1563,12 +1562,7 @@ fn ack_screencast_frame(inner: &Arc<Inner>, target_session: &str, frame_session:
     let _ = inner.outbound.send(Outbound::Message(text));
 }
 
-fn screencast_frame(
-    params: &Value,
-    session_id: &str,
-    frame_epoch: u64,
-    minimum_timestamp: Option<f64>,
-) -> Option<ScreencastFrame> {
+fn screencast_frame(params: &Value, session_id: &str, frame_epoch: u64) -> Option<ScreencastFrame> {
     let supplied = params.get("data")?.as_str()?;
     if supplied.len() > MAX_ENCODED_FRAME_BYTES {
         return None;
@@ -1578,13 +1572,6 @@ fn screencast_frame(
     }
     let ack_id = params.get("sessionId")?.as_u64()?;
     let metadata = params.get("metadata").unwrap_or(&Value::Null);
-    if let Some(minimum_timestamp) = minimum_timestamp {
-        let capture_timestamp =
-            metadata.get("timestamp").and_then(Value::as_f64).filter(|value| value.is_finite())?;
-        if capture_timestamp < minimum_timestamp {
-            return None;
-        }
-    }
     let css_width = metadata
         .get("deviceWidth")
         .and_then(|v| v.as_u64())
@@ -1896,7 +1883,7 @@ mod tests {
             "metadata": {"deviceWidth": 80, "deviceHeight": 24}
         });
 
-        assert!(screencast_frame(&params, "session-1", 0, None).is_none());
+        assert!(screencast_frame(&params, "session-1", 0).is_none());
     }
 
     #[test]
@@ -1907,7 +1894,7 @@ mod tests {
             "metadata": {"deviceWidth": 80, "deviceHeight": 24}
         });
 
-        let frame = screencast_frame(&params, "session-1", 0, None).unwrap();
+        let frame = screencast_frame(&params, "session-1", 0).unwrap();
         assert_eq!(frame.data_b64, "aGk=");
         assert_eq!((frame.image_width, frame.image_height), (80, 24));
     }
@@ -1920,7 +1907,7 @@ mod tests {
             "metadata": {"deviceWidth": 80, "deviceHeight": 24}
         });
 
-        let frame = screencast_frame(&params, "session-1", 0, None).unwrap();
+        let frame = screencast_frame(&params, "session-1", 0).unwrap();
         assert_eq!((frame.css_width, frame.css_height), (80, 24));
         assert_eq!((frame.image_width, frame.image_height), (3, 2));
     }
@@ -1933,7 +1920,7 @@ mod tests {
             "metadata": {"deviceWidth": 80, "deviceHeight": 24}
         });
 
-        assert!(screencast_frame(&params, "session-1", 0, None).is_none());
+        assert!(screencast_frame(&params, "session-1", 0).is_none());
     }
 
     #[test]

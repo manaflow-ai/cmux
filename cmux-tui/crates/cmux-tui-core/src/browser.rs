@@ -3806,11 +3806,7 @@ impl BrowserSurface {
         let mut order = self.command_order.lock().unwrap();
         let command = order.sequence(command);
         let mut latest_nav = self.latest_nav.lock().unwrap();
-        if let Some(pending) = latest_nav.as_mut() {
-            pending.command = command.command;
-        } else {
-            *latest_nav = Some(command);
-        }
+        *latest_nav = Some(command);
         drop(latest_nav);
         let wake = order.sequence(BrowserCommand::WakeLatest);
         match tx.try_send(wake) {
