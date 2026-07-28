@@ -3616,4 +3616,45 @@ mod tests {
         assert_eq!(value["future"]["unknown"], json!(true));
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    /// `docs/keyboard.md` teaches users which action keys to configure, so it
+    /// must stay in sync with the canonical `ActionDefinition::config_key`
+    /// names and must never advertise a back-compat alias in their place.
+    #[test]
+    fn keyboard_docs_list_canonical_action_keys() {
+        const KEYBOARD_DOC: &str = include_str!("../../../docs/keyboard.md");
+
+        let block = KEYBOARD_DOC
+            .split_once("Supported action keys are:")
+            .expect("supported action keys section")
+            .1
+            .split_once("```text")
+            .expect("fenced action key block")
+            .1
+            .split_once("```")
+            .expect("closing fence")
+            .0;
+        let documented: Vec<&str> =
+            block.lines().map(str::trim).filter(|line| !line.is_empty()).collect();
+        assert_eq!(
+            documented.len(),
+            action_definitions().len(),
+            "docs/keyboard.md action key list should contain exactly the canonical action catalog"
+        );
+
+        for definition in action_definitions() {
+            assert!(
+                documented.contains(&definition.config_key),
+                "docs/keyboard.md does not list canonical action key `{}`",
+                definition.config_key
+            );
+        }
+
+        for alias in ["new_browser_tab", "rename-pane"] {
+            assert!(
+                !documented.contains(&alias),
+                "docs/keyboard.md lists back-compat alias `{alias}` in the supported action key block; list the canonical key instead"
+            );
+        }
+    }
 }
