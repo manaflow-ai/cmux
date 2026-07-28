@@ -214,14 +214,12 @@ final class ClaudeHookSessionStore {
 
     private let statePath: String
     private let fileManager: FileManager
-    private let supersedesSameProcessSessionsOnUpsert: Bool
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
 
     init(
         processEnv: [String: String] = ProcessInfo.processInfo.environment,
-        fileManager: FileManager = .default,
-        supersedesSameProcessSessionsOnUpsert: Bool = false
+        fileManager: FileManager = .default
     ) {
         if let overridePath = processEnv["CMUX_CLAUDE_HOOK_STATE_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
            !overridePath.isEmpty {
@@ -235,7 +233,6 @@ final class ClaudeHookSessionStore {
             self.statePath = NSString(string: Self.defaultStatePath).expandingTildeInPath
         }
         self.fileManager = fileManager
-        self.supersedesSameProcessSessionsOnUpsert = supersedesSameProcessSessionsOnUpsert
         self.encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     }
 
@@ -643,6 +640,7 @@ final class ClaudeHookSessionStore {
         }
     }
 
+    @discardableResult
     func upsert(
         sessionId: String,
         workspaceId: String,
@@ -662,11 +660,12 @@ final class ClaudeHookSessionStore {
         hadPendingBackgroundWorkAtStop: Bool? = nil,
         markActive: Bool = false,
         turnId: String? = nil,
-        allowsNewSessionReplacement: Bool = false
-    ) throws {
+        allowsNewSessionReplacement: Bool = false,
+        supersedesSameProcessSession: Bool = false
+    ) throws -> [ClaudeHookSessionRecord] {
         let normalized = normalizeSessionId(sessionId)
-        guard !normalized.isEmpty else { return }
-        try withLockedState { state in
+        guard !normalized.isEmpty else { return [] }
+        return try withLockedState { state in
             let now = Date().timeIntervalSince1970
             var record = state.sessions[normalized] ?? ClaudeHookSessionRecord(
                 sessionId: normalized,
@@ -711,12 +710,15 @@ final class ClaudeHookSessionStore {
                 hadPendingBackgroundWorkAtStop: hadPendingBackgroundWorkAtStop,
                 now: now
             )
-            if supersedesSameProcessSessionsOnUpsert {
-                supersedeSessionsOwnedBySameProcess(
+            let superseded: [ClaudeHookSessionRecord]
+            if supersedesSameProcessSession {
+                superseded = supersedeSessionsOwnedBySameProcess(
                     &state,
                     keepingSessionId: normalized,
-                    pid: record.pid
+                    owner: record
                 )
+            } else {
+                superseded = []
             }
             state.sessions[normalized] = record
             if markActive {
@@ -733,6 +735,7 @@ final class ClaudeHookSessionStore {
                     state.activeSessionsBySurface[normalizedSurface] = activeRecord
                 }
             }
+            return superseded
         }
     }
 
@@ -1465,16 +1468,22 @@ final class ClaudeHookSessionStore {
     private func supersedeSessionsOwnedBySameProcess(
         _ state: inout ClaudeHookSessionStoreFile,
         keepingSessionId: String,
-        pid: Int?
-    ) {
-        guard let pid else { return }
+        owner: ClaudeHookSessionRecord
+    ) -> [ClaudeHookSessionRecord] {
+        guard let pid = owner.pid,
+              let startSeconds = owner.pidStartSeconds,
+              let startMicroseconds = owner.pidStartMicroseconds else { return [] }
         let superseded = state.sessions.values.filter {
-            $0.sessionId != keepingSessionId && $0.pid == pid
+            $0.sessionId != keepingSessionId
+                && $0.pid == pid
+                && $0.pidStartSeconds == startSeconds
+                && $0.pidStartMicroseconds == startMicroseconds
         }
         for record in superseded {
             state.sessions.removeValue(forKey: record.sessionId)
             clearActiveSessionIfMatching(&state, removed: record, turnId: nil)
         }
+        return superseded
     }
 
     private func fallbackRecord(
@@ -27989,7 +27998,7 @@ struct CMUXCLI {
         _ = try? client.sendV2(method: "surface.resume.set", params: params)
     }
 
-    private func clearAgentSurfaceResumeBinding(
+    func clearAgentSurfaceResumeBinding(
         client: SocketClient,
         workspaceId: String,
         surfaceId: String,
@@ -30441,27 +30450,18 @@ export default CMUXSessionRestore;
         // stale/invalid AMBIENT CMUX_WORKSPACE_ID must not abort routing — treated as absent, it falls
         // through to the PID/TTY binding below, which is ground truth.
         let hasInvalidDirectWorkspaceArg = hookWsFlag != nil && resolvedDirectWorkspaceArg == nil
-        var processBindingCache: CallerTerminalBinding?
-        var didResolveProcessBinding = false
-        func processBinding() -> CallerTerminalBinding? {
-            if !didResolveProcessBinding {
-                didResolveProcessBinding = true
-                switch liveAgentControllingTTYBinding(pid: inferredPID, client: client) {
-                case .resolved(let binding):
-                    processBindingCache = binding
-                case .unsupported:
-                    processBindingCache = uniqueCallerTerminalBindingByTTY(client: client)
-                        ?? resolveAgentProcessTerminalBinding(pid: inferredPID, client: client)
-                case .failed, .notAttempted:
-                    processBindingCache = uniqueCallerTerminalBindingByTTY(client: client)
-                }
-            }
-            return processBindingCache
+        var processBindingCache: AgentHookProcessBindingResult?
+        func processBindingResolution() -> AgentHookProcessBindingResult {
+            if let processBindingCache { return processBindingCache }
+            let resolved = resolveAgentHookProcessBinding(pid: inferredPID, client: client)
+            processBindingCache = resolved
+            return resolved
         }
+        func processBinding() -> CallerTerminalBinding? { processBindingResolution().binding }
 #if DEBUG
         func processBindingDebugState() -> String {
-            guard didResolveProcessBinding else { return "deferred" }
-            return processBindingCache == nil ? "nil" : "resolved"
+            guard let processBindingCache else { return "deferred" }
+            return processBindingCache.binding == nil ? "nil" : "resolved"
         }
 #endif
         let resolvedDirectSurfaceArg: String? = {
@@ -30487,8 +30487,7 @@ export default CMUXSessionRestore;
             processEnv: env.merging(
                 ["CMUX_CLAUDE_HOOK_STATE_PATH": agentHookStatePath(sessionStoreSuffix: def.sessionStoreSuffix, env: env)],
                 uniquingKeysWith: { _, new in new }
-            ),
-            supersedesSameProcessSessionsOnUpsert: def.name == "omp"
+            )
         )
 
         let hookCwd = input.cwd
@@ -30655,6 +30654,17 @@ export default CMUXSessionRestore;
             if let strictPiTarget {
                 return strictPiTarget
             }
+            if hookWsFlag == nil, explicitSurfaceFlag == nil,
+               processBindingResolution().rejectsAmbientClaim {
+#if DEBUG
+                agentHookDebugLog(
+                    "agentHook.target.nil agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) reason=processBindingRejected mapped=\(mapped == nil ? 0 : 1)",
+                    socketPath: client.socketPath,
+                    env: env
+                )
+#endif
+                return nil
+            }
             func resolveTarget(
                 workspaceId: String,
                 preferredSurfaceId: String?,
@@ -30776,6 +30786,7 @@ export default CMUXSessionRestore;
                 kind: def.name, current: launchCommand, mapped: mapped,
                 transcriptPath: input.transcriptPath ?? mapped?.transcriptPath, currentPID: pid
             )
+            var supersededOMPRecords: [ClaudeHookSessionRecord] = []
             func codexSessionStartWentStaleAfterAccept() -> Bool {
                 def.name == "codex" && ((try? store.codexSessionStartIsStale(
                     sessionId: sessionId,
@@ -30799,7 +30810,7 @@ export default CMUXSessionRestore;
                         updateRuntimeStatus: !suppressVisibleMutations
                     )) ?? false
                 } else {
-                    try? store.upsert(
+                    supersededOMPRecords = (try? store.upsert(
                         sessionId: sessionId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
@@ -30809,8 +30820,9 @@ export default CMUXSessionRestore;
                         launchCommand: resumeLaunchCommand,
                         agentLifecycle: .unknown,
                         runtimeStatus: suppressVisibleMutations ? nil : .running,
-                        updateRuntimeStatus: !suppressVisibleMutations
-                    )
+                        updateRuntimeStatus: !suppressVisibleMutations,
+                        supersedesSameProcessSession: def.name == "omp"
+                    )) ?? []
                     acceptedSessionStart = true
                 }
                 if !acceptedSessionStart {
@@ -30825,6 +30837,9 @@ export default CMUXSessionRestore;
                 didSendFeedTelemetry = true
                 print("{}")
                 return
+            }
+            if !suppressVisibleMutations {
+                clearSupersededAgentHookSessions(supersededOMPRecords, statusKey: def.statusKey, client: client)
             }
             sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId, surfaceId: surfaceId)
             if !suppressVisibleMutations {

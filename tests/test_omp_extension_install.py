@@ -355,10 +355,15 @@ def main() -> int:
         fake_args_log = root / "fake-cmux-args.log"
         fake_stdin_log = root / "fake-cmux-stdin.log"
         fake_env_log = root / "fake-cmux-env.log"
+        fake_concurrency_log = root / "fake-cmux-concurrency.log"
+        fake_lock_dir = root / "fake-cmux.lock"
         make_executable(
             fake_cmux,
             """#!/usr/bin/env bash
 set -euo pipefail
+if ! mkdir "$FAKE_CMUX_LOCK_DIR" 2>/dev/null; then
+  printf 'overlap\n' >> "$FAKE_CMUX_CONCURRENCY_LOG"
+fi
 sleep 3
 printf '%s\n' "$*" >> "$FAKE_CMUX_ARGS_LOG"
 cat >> "$FAKE_CMUX_STDIN_LOG"
@@ -373,6 +378,7 @@ printf '\n---\n' >> "$FAKE_CMUX_STDIN_LOG"
     printf 'amp=missing\n'
   fi
 } >> "$FAKE_CMUX_ENV_LOG"
+rmdir "$FAKE_CMUX_LOCK_DIR" 2>/dev/null || true
 """,
         )
 
@@ -383,6 +389,8 @@ printf '\n---\n' >> "$FAKE_CMUX_STDIN_LOG"
         check_env["FAKE_CMUX_ARGS_LOG"] = str(fake_args_log)
         check_env["FAKE_CMUX_STDIN_LOG"] = str(fake_stdin_log)
         check_env["FAKE_CMUX_ENV_LOG"] = str(fake_env_log)
+        check_env["FAKE_CMUX_CONCURRENCY_LOG"] = str(fake_concurrency_log)
+        check_env["FAKE_CMUX_LOCK_DIR"] = str(fake_lock_dir)
         check_env["AMP_API_KEY"] = "amp-secret"
         check_source = """
 const extensionPath = process.env.CMUX_TEST_OMP_EXTENSION_PATH;
@@ -468,6 +476,9 @@ if (elapsed > 2000) throw new Error(`handlers blocked for ${elapsed}ms`);
             return 1
         if "amp=present" not in env_log:
             print(f"FAIL: extension stripped unrelated AMP_API_KEY from hook environment, got {env_log!r}")
+            return 1
+        if fake_concurrency_log.exists():
+            print(f"FAIL: extension ran hook children concurrently: {fake_concurrency_log.read_text()!r}")
             return 1
         argv_line = next((line for line in env_log.splitlines() if line.startswith("argv=")), "")
         try:

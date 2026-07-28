@@ -16,7 +16,7 @@ struct CLIOmpHookBindingTests {
     private static let liveWorkspaceId = "44444444-4444-4444-4444-444444444444"
     private static let leakedSurfaceId = "22222222-2222-2222-2222-222222222222"
     private static let liveSurfaceId = "33333333-3333-3333-3333-333333333333"
-    private static let ompPID = 43_210
+    private static let ompPID = Int(getpid())
 
     @Test
     func controllingTTYPolicyDoesNotCorroborateWithInheritedEnvironment() {
@@ -50,7 +50,8 @@ struct CLIOmpHookBindingTests {
         try Self.writePriorSession(
             to: storeURL,
             sessionId: previousSessionId,
-            surfaceId: Self.liveSurfaceId,
+            workspaceId: Self.leakedWorkspaceId,
+            surfaceId: Self.leakedSurfaceId,
             cwd: context.root.path
         )
 
@@ -101,6 +102,12 @@ struct CLIOmpHookBindingTests {
         let resumeParams = try #require(resumeRequest["params"] as? [String: Any])
         #expect(resumeParams["workspace_id"] as? String == Self.liveWorkspaceId)
         #expect(resumeParams["surface_id"] as? String == Self.liveSurfaceId)
+        let clearRequest = try #require(requests.first {
+            $0["method"] as? String == "surface.resume.clear"
+        })
+        let clearParams = try #require(clearRequest["params"] as? [String: Any])
+        #expect(clearParams["surface_id"] as? String == Self.leakedSurfaceId)
+        #expect(clearParams["checkpoint_id"] as? String == previousSessionId)
 
         let store = try #require(
             JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any]
@@ -115,32 +122,110 @@ struct CLIOmpHookBindingTests {
         #expect(store["activeSessionsByWorkspace"] == nil)
     }
 
+    @Test
+    func rejectedLivePIDBindingDoesNotPersistInheritedTarget() throws {
+        let context = try Harness.makeContext(name: "omp-rejected-pid")
+        defer { context.cleanup() }
+        let serverHandled = Harness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [Self.leakedWorkspaceId: [Self.leakedSurfaceId]],
+            pidTarget: nil
+        )
+        var environment = Harness.hookEnvironment(context: context)
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = context.root.path
+        environment["CMUX_WORKSPACE_ID"] = Self.leakedWorkspaceId
+        environment["CMUX_SURFACE_ID"] = Self.leakedSurfaceId
+        environment["CMUX_OMP_PID"] = String(Self.ompPID)
+
+        let result = Harness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "omp", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"omp-rejected-session","hook_event_name":"SessionStart"}"#
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        let requests = context.state.snapshot().compactMap(Self.jsonObject)
+        #expect(requests.contains { $0["method"] as? String == "agent.resolve_delivery_target" })
+        #expect(!requests.contains { $0["method"] as? String == "surface.resume.set" })
+    }
+
+    @Test
+    func numericPIDWithoutGenerationDoesNotSupersedePriorSession() throws {
+        let context = try Harness.makeContext(name: "omp-pid-generation")
+        defer { context.cleanup() }
+        try Self.writePriorSession(
+            to: context.storeURL,
+            sessionId: "generation-unknown",
+            workspaceId: Self.leakedWorkspaceId,
+            surfaceId: Self.leakedSurfaceId,
+            cwd: context.root.path,
+            includeProcessGeneration: false
+        )
+        let store = ClaudeHookSessionStore(
+            processEnv: ["CMUX_CLAUDE_HOOK_STATE_PATH": context.storeURL.path]
+        )
+
+        let superseded = try store.upsert(
+            sessionId: "generation-known",
+            workspaceId: Self.liveWorkspaceId,
+            surfaceId: Self.liveSurfaceId,
+            cwd: context.root.path,
+            pid: Self.ompPID,
+            supersedesSameProcessSession: true
+        )
+
+        #expect(superseded.isEmpty)
+        let saved = try #require(
+            JSONSerialization.jsonObject(with: Data(contentsOf: context.storeURL)) as? [String: Any]
+        )
+        let sessions = try #require(saved["sessions"] as? [String: Any])
+        #expect(sessions["generation-unknown"] != nil)
+        #expect(sessions["generation-known"] != nil)
+    }
+
     private static func writePriorSession(
         to storeURL: URL,
         sessionId: String,
+        workspaceId: String,
         surfaceId: String,
-        cwd: String
+        cwd: String,
+        includeProcessGeneration: Bool = true
     ) throws {
         let timestamp = Date.now.timeIntervalSince1970
+        var record: [String: Any] = [
+            "sessionId": sessionId,
+            "workspaceId": workspaceId,
+            "surfaceId": surfaceId,
+            "cwd": cwd,
+            "pid": ompPID,
+            "isRestorable": true,
+            "startedAt": timestamp,
+            "updatedAt": timestamp,
+        ]
+        if includeProcessGeneration {
+            let identity = try #require(Self.processStartIdentity(pid: Self.ompPID))
+            record["pidStartSeconds"] = identity.seconds
+            record["pidStartMicroseconds"] = identity.microseconds
+        }
         let store: [String: Any] = [
             "version": 1,
             "activeSessionsBySurface": [:],
             "activeSessionsByWorkspace": [:],
-            "sessions": [
-                sessionId: [
-                    "sessionId": sessionId,
-                    "workspaceId": liveWorkspaceId,
-                    "surfaceId": surfaceId,
-                    "cwd": cwd,
-                    "pid": ompPID,
-                    "isRestorable": true,
-                    "startedAt": timestamp,
-                    "updatedAt": timestamp,
-                ],
-            ],
+            "sessions": [sessionId: record],
         ]
         let data = try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted, .sortedKeys])
         try data.write(to: storeURL)
+    }
+
+    private static func processStartIdentity(pid: Int) -> (seconds: Int64, microseconds: Int64)? {
+        var info = proc_bsdinfo()
+        let expectedSize = MemoryLayout<proc_bsdinfo>.stride
+        let size = proc_pidinfo(pid_t(pid), PROC_PIDTBSDINFO, 0, &info, Int32(expectedSize))
+        guard size == expectedSize else { return nil }
+        return (Int64(info.pbi_start_tvsec), Int64(info.pbi_start_tvusec))
     }
 
     private static func base64NULSeparated(_ values: [String]) -> String {

@@ -153,31 +153,39 @@ function hookInvocation(subcommand: string, ctx: ExtensionContext, extra: Record
   };
 }
 
-async function sendHook(subcommand: string, ctx: ExtensionContext, extra: Record<string, unknown> = {}): Promise<void> {
-  const invocation = hookInvocation(subcommand, ctx, extra);
-  if (!invocation) return;
-  await new Promise<void>((resolve) => {
-    let settled = false;
+function runHook(invocation: HookInvocation, subcommand: string): Promise<void> {
+  return new Promise<void>((resolve) => {
+    let child: ReturnType<typeof spawn> | null = null;
+    const timeout = setTimeout(() => {
+      child?.kill("SIGKILL");
+    }, 5000);
+    timeout.unref();
     const settle = () => {
-      if (settled) return;
-      settled = true;
+      clearTimeout(timeout);
       resolve();
     };
     try {
-      const child = spawn(invocation.cmux, ["hooks", "omp", subcommand], {
+      child = spawn(invocation.cmux, ["hooks", "omp", subcommand], {
         env: invocation.env,
         stdio: ["pipe", "ignore", "ignore"],
-        detached: true,
       });
       child.on("error", settle);
-      child.stdin.on("error", settle);
-      child.stdin.on("finish", settle);
-      child.unref();
+      child.on("close", settle);
+      child.stdin.on("error", () => {});
       child.stdin.end(invocation.payload);
     } catch (_) {
       settle();
     }
   });
+}
+
+let hookQueue: Promise<void> = Promise.resolve();
+
+function sendHook(subcommand: string, ctx: ExtensionContext, extra: Record<string, unknown> = {}): Promise<void> {
+  const invocation = hookInvocation(subcommand, ctx, extra);
+  if (!invocation) return Promise.resolve();
+  hookQueue = hookQueue.then(() => runHook(invocation, subcommand)).catch(() => {});
+  return Promise.resolve();
 }
 
 export default function cmuxOmpSessionExtension(api: ExtensionAPI) {

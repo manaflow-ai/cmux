@@ -1,6 +1,11 @@
 import Foundation
 
 extension CMUXCLI {
+    struct AgentHookProcessBindingResult {
+        let binding: CallerTerminalBinding?
+        let rejectsAmbientClaim: Bool
+    }
+
     enum AgentHookProcessBindingProbe {
         case notAttempted
         case unsupported
@@ -41,5 +46,48 @@ extension CMUXCLI {
             return .failed
         }
         return .resolved(CallerTerminalBinding(workspaceId: workspaceId, surfaceId: surfaceId))
+    }
+
+    func resolveAgentHookProcessBinding(
+        pid: Int?,
+        client: SocketClient
+    ) -> AgentHookProcessBindingResult {
+        switch liveAgentControllingTTYBinding(pid: pid, client: client) {
+        case .resolved(let binding):
+            return AgentHookProcessBindingResult(binding: binding, rejectsAmbientClaim: false)
+        case .unsupported:
+            return AgentHookProcessBindingResult(
+                binding: uniqueCallerTerminalBindingByTTY(client: client)
+                    ?? resolveAgentProcessTerminalBinding(pid: pid, client: client),
+                rejectsAmbientClaim: false
+            )
+        case .failed:
+            return AgentHookProcessBindingResult(binding: nil, rejectsAmbientClaim: true)
+        case .notAttempted:
+            return AgentHookProcessBindingResult(
+                binding: uniqueCallerTerminalBindingByTTY(client: client),
+                rejectsAmbientClaim: false
+            )
+        }
+    }
+
+    func clearSupersededAgentHookSessions(
+        _ records: [ClaudeHookSessionRecord],
+        statusKey: String,
+        client: SocketClient
+    ) {
+        for record in records {
+            clearAgentSurfaceResumeBinding(
+                client: client,
+                workspaceId: record.workspaceId,
+                surfaceId: record.surfaceId,
+                sessionId: record.sessionId
+            )
+            let pidKey = "\(statusKey).\(record.sessionId)"
+            _ = try? sendV1Command(
+                "clear_agent_pid \(pidKey) --tab=\(record.workspaceId)\(socketPanelOption(record.surfaceId)) --clear-status",
+                client: client
+            )
+        }
     }
 }
