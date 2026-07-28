@@ -2280,6 +2280,35 @@ def _python_literal_boolean(node: ast.AST) -> Optional[bool]:
     return None
 
 
+def _python_match_pattern_is_irrefutable(pattern: ast.AST) -> bool:
+    """Return whether a structural-match pattern accepts every subject."""
+    match_as_type = getattr(ast, "MatchAs", None)
+    if match_as_type is not None and isinstance(pattern, match_as_type):
+        return pattern.pattern is None or _python_match_pattern_is_irrefutable(
+            pattern.pattern
+        )
+
+    match_or_type = getattr(ast, "MatchOr", None)
+    return bool(
+        match_or_type is not None
+        and isinstance(pattern, match_or_type)
+        and any(
+            _python_match_pattern_is_irrefutable(alternative)
+            for alternative in pattern.patterns
+        )
+    )
+
+
+def _python_match_is_exhaustive(cases: list[ast.match_case]) -> bool:
+    """Return whether the final case leaves no unmatched continuation."""
+    if not cases:
+        return False
+    final_case = cases[-1]
+    return final_case.guard is None and _python_match_pattern_is_irrefutable(
+        final_case.pattern
+    )
+
+
 def _python_bindings_after_statement(
     statement: ast.stmt,
     bindings: dict[str, str],
@@ -2433,7 +2462,11 @@ def _python_bindings_after_statement(
         subject_bindings.update(
             _python_binding_updates(statement.subject)
         )
-        variants = [subject_bindings]
+        variants = (
+            []
+            if _python_match_is_exhaustive(statement.cases)
+            else [subject_bindings]
+        )
         for case in statement.cases:
             case_bindings = subject_bindings.copy()
             case_bindings.update(_python_binding_updates(case.pattern))
@@ -3165,7 +3198,10 @@ class _PythonSleepVisitor(ast.NodeVisitor):
                 self.visit(statement)
             states.append(self._scope_state())
 
-        self._merge_scope_states(states)
+        if states:
+            self._merge_scope_states(states)
+        else:
+            self._restore_scope_state(base)
 
     def visit_Break(self, node: ast.Break) -> None:
         if self.loop_break_states:
@@ -3261,7 +3297,7 @@ class _PythonSleepVisitor(ast.NodeVisitor):
     def visit_Match(self, node: ast.Match) -> None:
         self.visit(node.subject)
         base = self._scope_state()
-        states = [base]
+        states = [] if _python_match_is_exhaustive(node.cases) else [base]
         for case in node.cases:
             self._restore_scope_state(base)
             self._bind_match_pattern(case.pattern)

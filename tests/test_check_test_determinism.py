@@ -1648,7 +1648,7 @@ class DeterminismCheckerCLITests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn(
-            "fixtures/exhaustive-match.py:9: sleep-then-assert:",
+            "fixtures/exhaustive-match.py:8: sleep-then-assert:",
             result.stdout,
         )
 
