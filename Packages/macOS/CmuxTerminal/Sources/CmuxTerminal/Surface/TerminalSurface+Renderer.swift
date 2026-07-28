@@ -182,7 +182,7 @@ extension TerminalSurface {
     @MainActor
     public func releaseRenderer() -> Bool {
 #if os(macOS)
-        guard rendererPresentationPhase != .released else { return false }
+        guard !rendererPresentationPhase.isReleased else { return false }
         // A visible portal is protected once it is actually attached. Before
         // that point (including the hidden bootstrap window), release is the
         // normalization step that makes first presentation safe and retryable.
@@ -197,7 +197,9 @@ extension TerminalSurface {
         // latest-value request. The pinned core accepts it losslessly; retaining
         // the rejection path keeps compatibility shims retryable.
         if ghostty_surface_set_renderer_realized(surface, false) {
-            rendererPresentationPhase = .released
+            rendererPresentationPhase = rendererPresentationPhase == .awaitingFirstPresentation
+                ? .releasedBeforeFirstPresentation
+                : .released
             surfaceCallbackContext?.takeUnretainedValue().cancelRendererPresentationRepair()
             return true
         }
@@ -237,16 +239,19 @@ extension TerminalSurface {
         // lift it only after the realization enqueue succeeds.
         setOcclusion(false)
 
-        if rendererPresentationPhase == .awaitingFirstPresentation {
+        if rendererPresentationPhase != .released {
             // Ghostty starts with a live renderer even if its view was born
-            // hidden. Release it once so first presentation can take the exact
-            // same proven restore path as a renderer reclaimed later.
-            // Arm before publication so a compatibility rejection remains
-            // retryable.
+            // hidden. An earlier release publication may still be pending when
+            // AppKit makes the surface presentable. Use one native renderer-
+            // thread rebuild transaction so a later realize cannot coalesce
+            // away the required first unrealize transition.
             callbackContext?.armRendererPresentationRepair()
-            guard ghostty_surface_set_renderer_realized(surface, false) else { return }
-            callbackContext?.cancelRendererPresentationRepair()
-            rendererPresentationPhase = .released
+            if ghostty_surface_rebuild_renderer(surface) {
+                callbackContext?.cancelRendererPresentationRepair()
+                rendererPresentationPhase = .presented
+                setOcclusion(true)
+            }
+            return
         }
 
         // The C API publishes non-blocking latest-value state outside the

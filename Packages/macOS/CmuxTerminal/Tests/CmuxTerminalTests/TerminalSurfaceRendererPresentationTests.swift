@@ -84,13 +84,15 @@ private func rendererReleaseWasOccluded() -> Bool
         #expect(surface.isRendererPortalVisible)
         #expect(!surface.isRendererPresented)
         #expect(rendererRealizedCalls() == [false])
+        #expect(rendererRebuildCallCount() == 0)
 
         surface.paneHost.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
         surface.surfaceView.frame = surface.paneHost.bounds
         surface.rendererPresentationReadinessDidChange()
 
         #expect(surface.isRendererPresented)
-        #expect(rendererRealizedCalls() == [false, true])
+        #expect(rendererRealizedCalls() == [false])
+        #expect(rendererRebuildCallCount() == 1)
     }
 
     @Test func firstPresentationWaitsUntilTheSurfaceIsAttachedToARealWindow() {
@@ -115,11 +117,13 @@ private func rendererReleaseWasOccluded() -> Bool
         #expect(surface.isRendererPortalVisible)
         #expect(!surface.isRendererPresented)
         #expect(rendererRealizedCalls() == [false])
+        #expect(rendererRebuildCallCount() == 0)
 
         surface.ensureRendererPresented(presentationReady: true)
 
         #expect(surface.isRendererPresented)
-        #expect(rendererRealizedCalls() == [false, true])
+        #expect(rendererRealizedCalls() == [false])
+        #expect(rendererRebuildCallCount() == 1)
     }
 
     @Test func hiddenRuntimeIsReleasedThenRealizedOnFirstVisibility() {
@@ -144,11 +148,13 @@ private func rendererReleaseWasOccluded() -> Bool
 
         #expect(surface.isRendererPortalVisible)
         #expect(surface.isRendererRealized)
-        #expect(rendererRealizedCalls() == [false, true])
+        #expect(rendererRealizedCalls() == [false])
+        #expect(rendererRebuildCallCount() == 1)
 
         surface.setRendererPortalVisible(true, presentationReady: true)
 
-        #expect(rendererRealizedCalls() == [false, true])
+        #expect(rendererRealizedCalls() == [false])
+        #expect(rendererRebuildCallCount() == 1)
     }
 
     @Test func hiddenRuntimeIsOccludedBeforeRendererRelease() {
@@ -189,10 +195,12 @@ private func rendererReleaseWasOccluded() -> Bool
         #expect(surface.isRendererRealized)
         #expect(surface.isRendererPresented)
         #expect(rendererRealizedCalls().isEmpty)
+        #expect(rendererRebuildCallCount() == 0)
 
         surface.setRendererPortalVisible(true, presentationReady: true)
 
         #expect(rendererRealizedCalls().isEmpty)
+        #expect(rendererRebuildCallCount() == 0)
     }
 
     @Test func reclaimedRuntimeIsRealizedOnceWhenShownAgain() {
@@ -221,6 +229,7 @@ private func rendererReleaseWasOccluded() -> Bool
 
         #expect(surface.isRendererPresented)
         #expect(rendererRealizedCalls() == [false, true])
+        #expect(rendererRebuildCallCount() == 0)
     }
 
     @Test func rejectedFirstPresentationWaitsForRendererActivityBeforeSchedulingRepair() {
@@ -246,7 +255,8 @@ private func rendererReleaseWasOccluded() -> Bool
         surface.setRendererPortalVisible(true, presentationReady: true)
 
         #expect(!surface.isRendererPresented)
-        #expect(rendererRealizedCalls() == [false])
+        #expect(rendererRealizedCalls().isEmpty)
+        #expect(rendererRebuildCallCount() == 1)
         #expect(scheduler.scheduledSurfaceIDs.isEmpty)
 
         setRendererRealizedResult(true)
@@ -269,7 +279,8 @@ private func rendererReleaseWasOccluded() -> Bool
         )
 
         #expect(surface.isRendererPresented)
-        #expect(rendererRealizedCalls() == [false, false, true])
+        #expect(rendererRealizedCalls().isEmpty)
+        #expect(rendererRebuildCallCount() == 2)
         #expect(scheduler.scheduledSurfaceIDs == [surface.id])
     }
 
@@ -303,7 +314,8 @@ private func rendererReleaseWasOccluded() -> Bool
         )
 
         #expect(!surface.isRendererPresented)
-        #expect(rendererRealizedCalls() == [true, true])
+        #expect(rendererRealizedCalls().isEmpty)
+        #expect(rendererRebuildCallCount() == 2)
         #expect(scheduler.scheduledSurfaceIDs == [surface.id])
 
         setRendererRealizedResult(true)
@@ -313,7 +325,8 @@ private func rendererReleaseWasOccluded() -> Bool
         )
 
         #expect(surface.isRendererPresented)
-        #expect(rendererRealizedCalls() == [true, true, true])
+        #expect(rendererRealizedCalls().isEmpty)
+        #expect(rendererRebuildCallCount() == 3)
         #expect(scheduler.scheduledSurfaceIDs == [surface.id, surface.id])
     }
 
@@ -342,7 +355,8 @@ private func rendererReleaseWasOccluded() -> Bool
         surface.retryRendererPresentationAfterActivity(presentationReady: true)
 
         #expect(!surface.isRendererPresented)
-        #expect(rendererRealizedCalls() == [true])
+        #expect(rendererRealizedCalls().isEmpty)
+        #expect(rendererRebuildCallCount() == 1)
         #expect(scheduler.scheduledSurfaceIDs.isEmpty)
     }
 
@@ -379,13 +393,15 @@ private func rendererReleaseWasOccluded() -> Bool
         )
 
         #expect(scheduler.scheduledSurfaceIDs == [surface.id])
-        #expect(rendererRealizedCalls() == [true])
+        #expect(rendererRealizedCalls().isEmpty)
+        #expect(rendererRebuildCallCount() == 1)
 
         surface.releaseSurfaceForTesting()
         queuedRepair?()
 
         #expect(!surface.hasLiveSurface)
-        #expect(rendererRealizedCalls() == [true])
+        #expect(rendererRealizedCalls().isEmpty)
+        #expect(rendererRebuildCallCount() == 1)
     }
 
     private func rendererRealizedCalls() -> [Bool] {
