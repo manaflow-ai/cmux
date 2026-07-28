@@ -28,6 +28,14 @@ type notifyingBuffer struct {
 	notify chan struct{}
 }
 
+type errorWriter struct {
+	err error
+}
+
+func (w errorWriter) Write([]byte) (int, error) {
+	return 0, w.err
+}
+
 type persistentTestFrameQueue struct {
 	mu     sync.Mutex
 	frames []map[string]any
@@ -962,6 +970,20 @@ func TestPersistentDaemonLogsAuthMethodRejectionReason(t *testing.T) {
 				t.Fatalf("daemon log leaked the supplied authentication method: %q", log)
 			}
 		})
+	}
+}
+
+func TestPersistentDaemonReportsAuthRejectionWriteFailure(t *testing.T) {
+	writeErr := errors.New("test auth write failed")
+	reader := bufio.NewReader(strings.NewReader("{\"id\":1,\"method\":\"daemon.unsupported\"}\n"))
+	writer := &stdioFrameWriter{writer: bufio.NewWriter(errorWriter{err: writeErr})}
+
+	err := authenticatePersistentDaemonConn(reader, writer, persistentDaemonFixedTokenVerifier("good-token"))
+	if !errors.Is(err, writeErr) {
+		t.Fatalf("authenticatePersistentDaemonConn error = %v, want wrapped write error", err)
+	}
+	if !strings.Contains(err.Error(), "authentication response write failed") {
+		t.Fatalf("authenticatePersistentDaemonConn error = %v, want response-write diagnostic", err)
 	}
 }
 

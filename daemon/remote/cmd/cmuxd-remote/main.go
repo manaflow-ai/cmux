@@ -1137,57 +1137,54 @@ func handlePersistentDaemonConnWithAuthTimeout(
 func authenticatePersistentDaemonConn(reader *bufio.Reader, writer *stdioFrameWriter, verifier persistentDaemonTokenVerifier) error {
 	line, oversized, err := readRPCFrame(reader, maxRPCFrameBytes)
 	if err != nil || oversized {
-		_ = writer.writeResponse(rpcResponse{
+		rejection := fmt.Errorf("authentication frame read failed: %w", err)
+		if oversized {
+			rejection = errors.New("authentication frame exceeds size limit")
+		}
+		return writePersistentDaemonAuthRejection(writer, rpcResponse{
 			OK: false,
 			Error: &rpcError{
 				Code:    "unauthorized",
 				Message: "persistent daemon authentication required",
 			},
-		})
-		if oversized {
-			return errors.New("authentication frame exceeds size limit")
-		}
-		return fmt.Errorf("authentication frame read failed: %w", err)
+		}, rejection)
 	}
 	line = bytes.TrimSuffix(line, []byte{'\n'})
 	line = bytes.TrimSuffix(line, []byte{'\r'})
 	var req rpcRequest
 	if err := json.Unmarshal(line, &req); err != nil {
-		_ = writer.writeResponse(rpcResponse{
+		return writePersistentDaemonAuthRejection(writer, rpcResponse{
 			OK: false,
 			Error: &rpcError{
 				Code:    "invalid_request",
 				Message: "invalid JSON request",
 			},
-		})
-		return errors.New("authentication frame is invalid JSON")
+		}, errors.New("authentication frame is invalid JSON"))
 	}
 	if req.Method != persistentDaemonAuthMethod {
 		reason := "authentication method is invalid"
 		if req.Method == "" {
 			reason = "authentication method is missing"
 		}
-		_ = writer.writeResponse(rpcResponse{
+		return writePersistentDaemonAuthRejection(writer, rpcResponse{
 			ID: req.ID,
 			OK: false,
 			Error: &rpcError{
 				Code:    "unauthorized",
 				Message: "persistent daemon authentication required",
 			},
-		})
-		return errors.New(reason)
+		}, errors.New(reason))
 	}
 	provided, _ := getStringParam(req.Params, "token")
 	if !verifier(provided) {
-		_ = writer.writeResponse(rpcResponse{
+		return writePersistentDaemonAuthRejection(writer, rpcResponse{
 			ID: req.ID,
 			OK: false,
 			Error: &rpcError{
 				Code:    "unauthorized",
 				Message: "invalid persistent daemon token",
 			},
-		})
-		return errors.New("authentication token is invalid")
+		}, errors.New("authentication token is invalid"))
 	}
 	if err := writer.writeResponse(rpcResponse{
 		ID: req.ID,
@@ -1199,6 +1196,13 @@ func authenticatePersistentDaemonConn(reader *bufio.Reader, writer *stdioFrameWr
 		return fmt.Errorf("authentication response write failed: %w", err)
 	}
 	return nil
+}
+
+func writePersistentDaemonAuthRejection(writer *stdioFrameWriter, response rpcResponse, rejection error) error {
+	if err := writer.writeResponse(response); err != nil {
+		return fmt.Errorf("authentication response write failed: %w", err)
+	}
+	return rejection
 }
 
 func runRPCServerWithReader(
