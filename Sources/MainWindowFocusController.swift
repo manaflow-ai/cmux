@@ -24,6 +24,27 @@ final class MainWindowFocusController {
         let sourceWorkspaceID: UUID?
         let sourcePanelID: UUID?
         let initialSearchQuery: String?
+
+        func consumingInitialSearchQuery() -> Self {
+            Self(
+                id: id,
+                mode: mode,
+                target: target,
+                sourceWorkspaceID: sourceWorkspaceID,
+                sourcePanelID: sourcePanelID,
+                initialSearchQuery: nil
+            )
+        }
+
+        func matchesPresentation(
+            mode: RightSidebarMode,
+            sourceWorkspaceID: UUID?,
+            sourcePanelID: UUID?
+        ) -> Bool {
+            self.mode == mode &&
+                self.sourceWorkspaceID == sourceWorkspaceID &&
+                self.sourcePanelID == sourcePanelID
+        }
     }
 
     private enum RightSidebarFocusState: Equatable {
@@ -480,7 +501,7 @@ final class MainWindowFocusController {
         if isFallbackSidebarHost, request.target != .host {
             return
         }
-        rightSidebarFocusState = .focused(request)
+        rightSidebarFocusState = .focused(request.consumingInitialSearchQuery())
     }
 
     @discardableResult
@@ -528,12 +549,49 @@ final class MainWindowFocusController {
         ) else {
             return false
         }
-        if rightSidebarFocusState.request != nil {
-            rightSidebarFocusState = .inactive
-        }
+        reconcileRightSidebarFocusForNonFocusingPresentation(
+            mode: mode,
+            sourceWorkspaceID: sourceWorkspaceID,
+            sourcePanelID: sourcePanelID
+        )
         displayRightSidebar(state, mode: mode)
         publishFeedFocusSnapshot()
         return true
+    }
+
+    private func reconcileRightSidebarFocusForNonFocusingPresentation(
+        mode: RightSidebarMode,
+        sourceWorkspaceID: UUID?,
+        sourcePanelID: UUID?
+    ) {
+        switch rightSidebarFocusState {
+        case .inactive:
+            return
+        case .requested:
+            invalidateRightSidebarFocusForNonFocusingPresentation()
+        case .focused(let request):
+            if request.matchesPresentation(
+                mode: mode,
+                sourceWorkspaceID: sourceWorkspaceID,
+                sourcePanelID: sourcePanelID
+            ) {
+                rightSidebarFocusState = .focused(request.consumingInitialSearchQuery())
+            } else {
+                invalidateRightSidebarFocusForNonFocusingPresentation()
+            }
+        }
+    }
+
+    private func invalidateRightSidebarFocusForNonFocusingPresentation() {
+        if let window,
+           let responder = window.firstResponder,
+           ownsRightSidebarFocus(responder) {
+            _ = window.makeFirstResponder(nil)
+        }
+        rightSidebarFocusState = .inactive
+        if case .rightSidebar = intent {
+            intent = nil
+        }
     }
 
     @discardableResult
@@ -575,11 +633,11 @@ final class MainWindowFocusController {
             initialSearchQuery: initialSearchQuery
         )
         if modeResult {
-            rightSidebarFocusState = .focused(request)
+            rightSidebarFocusState = .focused(request.consumingInitialSearchQuery())
         }
         let fallbackResult = modeResult ? false : focusFallbackRightSidebarHost()
         if fallbackResult, target == .host {
-            rightSidebarFocusState = .focused(request)
+            rightSidebarFocusState = .focused(request.consumingInitialSearchQuery())
         }
         let result = modeResult || fallbackResult || rightSidebarFocusState.request?.mode == mode
         publishFeedFocusSnapshot()
@@ -829,9 +887,9 @@ final class MainWindowFocusController {
             initialSearchQuery: request.initialSearchQuery
         )
         if result {
-            rightSidebarFocusState = .focused(request)
+            rightSidebarFocusState = .focused(request.consumingInitialSearchQuery())
         } else if request.target == .host, focusFallbackRightSidebarHost() {
-            rightSidebarFocusState = .focused(request)
+            rightSidebarFocusState = .focused(request.consumingInitialSearchQuery())
         }
         publishFeedFocusSnapshot()
     }
