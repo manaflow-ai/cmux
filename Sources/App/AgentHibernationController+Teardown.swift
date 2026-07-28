@@ -17,6 +17,7 @@ extension AgentHibernationController {
         let requestID: UUID
         let epoch: UInt64
         let generation: UInt64
+        let trigger: AgentHibernationReclaimTrigger
     }
 
     /// Runs the transcript snapshot off the main actor, then resumes teardown on the
@@ -24,13 +25,18 @@ extension AgentHibernationController {
     /// SIGTERM / pty-close can trigger Claude's interrupted-exit transcript rewrite,
     /// so the teardown is sequenced after it rather than racing it; the re-validation
     /// below covers disable/stop and anything else that changed during the brief I/O hop.
-    func beginConfirmedTeardowns(_ requests: [ConfirmedTeardownRequest]) {
+    func beginConfirmedTeardowns(
+        _ requests: [ConfirmedTeardownRequest],
+        onCompletion: (@MainActor (Int) -> Void)? = nil
+    ) {
         guard !requests.isEmpty else { return }
         Task { @MainActor in
+            var hibernatedCount = 0
             defer {
                 for request in requests {
                     self.clearInFlightTeardown(request.record.key, requestID: request.requestID)
                 }
+                onCompletion?(hibernatedCount)
             }
 
             var snapshotOutcomes = await Self.snapshotOutcomes(for: requests)
@@ -98,12 +104,22 @@ extension AgentHibernationController {
                     index: postSnapshotIndex
                 )
                 // Re-validate: the pane must still be exactly as confirmed. Any activity,
-                // scrollback change, visibility/protection change, hibernation disable,
-                // hibernation, or surface loss during the hop aborts; the regular 30s
-                // tick will re-arm if still idle.
+                // process-set or scrollback change, visibility/protection change,
+                // hibernation, or surface loss during the hop aborts; a later evaluation
+                // can re-arm it if it is still idle.
                 guard AgentHibernationTrackingGate.isEnabled(),
                       record.isStillOwnedByOriginalWorkspace,
-                      !postSnapshotIndex.hasLiveProcess(workspaceId: record.key.workspaceId, panelId: record.key.panelId),
+                      (
+                          request.trigger == .systemMemoryPressure ||
+                              !postSnapshotIndex.hasLiveProcess(
+                                  workspaceId: record.key.workspaceId,
+                                  panelId: record.key.panelId
+                              )
+                      ),
+                      postSnapshotIndex.processIDs(
+                          workspaceId: record.key.workspaceId,
+                          panelId: record.key.panelId
+                      ) == record.processIDs,
                       TabManager.restorableAgentSnapshotFingerprint(currentAgent) ==
                           TabManager.restorableAgentSnapshotFingerprint(record.agent),
                       !record.terminalPanel.isAgentHibernated,
@@ -178,6 +194,7 @@ extension AgentHibernationController {
                     agent: record.agent,
                     lastActivityAt: Date(timeIntervalSince1970: request.effectiveLastActivityAt)
                 )
+                hibernatedCount += 1
                 guard let snapshot else { continue }
                 if self.armPostTeardownRestoreMonitor(snapshot: snapshot, processIDs: record.processIDs) {
                     restoreOwnedSnapshotPaths.insert(snapshot.snapshotPath)

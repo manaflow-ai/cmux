@@ -311,7 +311,7 @@ struct AgentHibernationPlannerSwiftTests {
             trigger: .systemMemoryPressure
         )
 
-        #expect(selected == Set([idle]))
+        #expect(selected == Set([idle, liveProcess]))
     }
 
     @MainActor
