@@ -608,6 +608,25 @@ test("release gate grants asynchronous Iroh publication a bounded startup window
   );
 });
 
+test("simulator launch seeds a deterministic durable device id before app launch", () => {
+  const launcher = fs.readFileSync(
+    path.join(repoRoot, "scripts/mobile-dev-launch.sh"),
+    "utf8",
+  );
+  const simulatorBranch = launcher.slice(
+    launcher.indexOf('if [[ "$TARGET" == "simulator" ]]'),
+    launcher.indexOf("\nelse\n", launcher.indexOf('if [[ "$TARGET" == "simulator" ]]')),
+  );
+  const seed = simulatorBranch.indexOf(
+    'cmux_attach_seed_simulator_device_id "$SIM_UDID" "$BUNDLE_ID"',
+  );
+  const launch = simulatorBranch.indexOf('xcrun simctl "${launch_args[@]}"');
+
+  assert.notEqual(seed, -1, "simulator launch must seed the durable identity mirror");
+  assert.notEqual(launch, -1, "simulator launch command is missing");
+  assert.ok(seed < launch, "durable identity must be seeded before the app starts");
+});
+
 test("release gate assigns each mode to its transport proof", () => {
   const cases = [
     ["automatic", "app-rpc"],
