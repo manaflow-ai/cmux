@@ -123,7 +123,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         contextMenuDidOpen: @escaping () -> Void,
         contextMenuDidClose: @escaping () -> Void
     ) {
-        let requiresFullApply = actions == nil
+        let requiresFullApply = self.actions == nil
         let previous = self.model
         self.actions = actions
         self.contextMenuDidOpen = contextMenuDidOpen

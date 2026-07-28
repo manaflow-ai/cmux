@@ -16,6 +16,8 @@ public enum ShortcutFocusAtom: String, CaseIterable, Sendable {
     case markdownFocus
     /// A file-preview text editor owns focus.
     case filePreviewTextEditorFocus
+    /// A native Simulator device surface owns focus.
+    case simulatorFocus
     /// A terminal owns focus — i.e. none of the other focus atoms hold.
     case terminalFocus
 }

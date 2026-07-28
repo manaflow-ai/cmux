@@ -1500,7 +1500,6 @@ struct SessionMarkdownPanelSnapshot: Codable, Sendable {
 struct SessionFilePreviewPanelSnapshot: Codable, Sendable {
     var filePath: String
 }
-struct SessionCustomSidebarPanelSnapshot: Codable, Sendable { var name: String }
 /// Marker for a workspace todo pane; the pane has no content of its own (the checklist
 /// persists on the workspace), so the panel `type` plus this empty marker is enough to restore it.
 struct SessionWorkspaceTodoPanelSnapshot: Codable, Sendable {}
@@ -1551,11 +1550,11 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var filePreview: SessionFilePreviewPanelSnapshot?
     var rightSidebarTool: SessionRightSidebarToolPanelSnapshot?
     var customSidebar: SessionCustomSidebarPanelSnapshot? = nil
+    var simulator: SessionSimulatorPanelSnapshot? = nil
     var agentSession: SessionAgentSessionPanelSnapshot? = nil
     var project: SessionProjectPanelSnapshot?
     var workspaceTodo: SessionWorkspaceTodoPanelSnapshot? = nil
 }
-
 extension SessionPanelSnapshot: WorkspaceSessionRemoteRestorePanelSnapshot {}
 
 enum SessionSplitOrientation: String, Codable, Sendable {
@@ -1659,6 +1658,8 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var customTitleSource: Workspace.CustomTitleSource? = nil
     var customDescription: String?
     var customColor: String?
+    var customizationDirectory: String? = nil
+    var usesWorkspaceDirectoryCustomization: Bool? = nil // `nil` infers a legacy local root.
     var isPinned: Bool
     var groupId: UUID? = nil
     var isManuallyUnread: Bool? = nil
@@ -1668,8 +1669,7 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var currentDirectory: String
     var focusedPanelId: UUID?
     var layout: SessionWorkspaceLayoutSnapshot
-    /// `WorkspaceLayoutMode` raw value; absent in pre-canvas snapshots
-    /// (treated as splits).
+    /// `WorkspaceLayoutMode` raw value; absent in pre-canvas snapshots (treated as splits).
     var layoutMode: String? = nil
     /// Canvas pane frames in z-order; persisted whenever any exist so
     /// positions survive toggling back to splits across restarts.
@@ -1697,7 +1697,7 @@ struct SessionWorkspaceGroupSnapshot: Codable, Sendable, Equatable {
     var id: UUID
     var name: String
     var isCollapsed: Bool
-    /// The workspace whose close dissolves the group. The loader prefers
+    /// The group's anchor workspace (the group header). The loader prefers
     /// `anchorMemberIndex` (restore-stable) and treats this field as a hint when
     /// duplicate/corrupt snapshots force a workspace to mint a fresh UUID.
     var anchorWorkspaceId: UUID? = nil

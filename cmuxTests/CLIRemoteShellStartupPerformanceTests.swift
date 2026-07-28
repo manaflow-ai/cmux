@@ -248,7 +248,9 @@ struct CLIRemoteShellStartupPerformanceTests {
           shift
         done
         [ -n "$remote_command" ] && exec /bin/sh -c "$remote_command"
-        case "$last" in /bin/sh\\ -c*) exec /bin/sh -c "$last" ;; esac
+        # The staged installer arrives either as the legacy literal /bin/sh -c form or
+        # per-word quoted ('/bin/sh' '-c' ...); a real remote login shell parses both.
+        case "$last" in /bin/sh\\ -c*|"'/bin/sh' '-c' "*) exec /bin/sh -c "$last" ;; esac
         exit 0
         """
     }

@@ -5,6 +5,7 @@ import Foundation
 final class FakeSurfaceControlCommandContext: ControlCommandContext {
     var paneCreateResolution: ControlPaneCreateResolution = .tabManagerUnavailable
     var createResolution: ControlSurfaceCreateResolution = .tabManagerUnavailable
+    var surfaceListSnapshot: ControlSurfaceListSnapshot?
     var resumeResolution: ControlSurfaceResumeResolution = .surfaceNotFound
     var reportPWDResolution: ControlSurfaceReportPWDResolution = .recorded(surfaceID: UUID())
     var reportedPWD: (workspaceID: UUID, requestedSurfaceID: UUID?, path: String)?
@@ -24,6 +25,9 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
     func controlMoveWindow(id: UUID, toDisplayMatching query: String) -> String? { nil }
     func controlMoveAllWindows(toDisplayMatching query: String) -> ControlMoveAllWindowsResult? { nil }
     func controlSurfaceRoutingResolvesTabManager(routing: ControlRoutingSelectors) -> Bool { true }
+    func controlSurfaceList(routing: ControlRoutingSelectors) -> ControlSurfaceListSnapshot? {
+        surfaceListSnapshot
+    }
     func controlPaneRoutingResolvesTabManager(routing: ControlRoutingSelectors) -> Bool { true }
 
     func controlPaneCreate(
