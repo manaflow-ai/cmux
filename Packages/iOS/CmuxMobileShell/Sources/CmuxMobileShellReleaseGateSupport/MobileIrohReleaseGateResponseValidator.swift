@@ -10,6 +10,14 @@ internal import CmuxMobileShell
 /// chat descriptors, notification identifiers, session identifiers, and
 /// artifact metadata never enter the report.
 enum MobileIrohReleaseGateResponseValidator {
+    static func freshWorkspaceEvent(_ event: MobileEventEnvelope) -> Bool {
+        // Host events are encoded once per connection and intentionally omit a
+        // subscription stream ID. The exact server registration is verified by
+        // the idempotent subscribe acknowledgement immediately before the
+        // controlled workspace mutation.
+        event.topic == "workspace.updated"
+    }
+
     static func independentEventSubscription(
         _ data: Data,
         expectedStreamID: String,

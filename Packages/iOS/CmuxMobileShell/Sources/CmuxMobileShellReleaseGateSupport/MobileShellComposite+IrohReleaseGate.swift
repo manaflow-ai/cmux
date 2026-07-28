@@ -448,7 +448,6 @@ extension MobileShellComposite {
             }
             try await verifyFreshWorkspaceEvent(
                 client: client,
-                streamID: streamID,
                 workspace: workspace,
                 temporaryName: eventMarker
             )
@@ -553,7 +552,6 @@ extension MobileShellComposite {
 
     private func verifyFreshWorkspaceEvent(
         client: MobileCoreRPCClient,
-        streamID: String,
         workspace: MobileWorkspacePreview,
         temporaryName: String
     ) async throws {
@@ -562,7 +560,7 @@ extension MobileShellComposite {
             group.addTask {
                 for await event in eventStream {
                     try Task.checkCancellation()
-                    if event.topic == "workspace.updated", event.streamID == streamID {
+                    if MobileIrohReleaseGateResponseValidator.freshWorkspaceEvent(event) {
                         return true
                     }
                 }
