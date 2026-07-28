@@ -912,10 +912,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var secondaryAggregationTask: Task<Void, Never>?
     private var secondaryAggregationTaskGeneration = UUID()
     private var secondaryAggregationPending = false
-    /// Coalesced retry after a live control stream ends. One task covers all
-    /// online Macs so simultaneous cellular path loss does not fan out timers.
+    /// Coalesced retry after any control-pool dial or stream failure. One task
+    /// covers all online Macs so simultaneous cellular path loss does not fan
+    /// out timers.
     private var secondaryAggregationRetryTask: Task<Void, Never>?
-    private var secondaryAggregationRetryDelay: Duration = .seconds(2)
+    private var secondaryAggregationRetryState = MobileControlPoolRetryState()
     /// The disconnected-Mac reconnect started by a team boundary transition.
     /// Replaced and cancelled by every newer team switch or account sign-out.
     private var teamScopeReconnectTask: Task<Void, Never>?
@@ -3644,6 +3645,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// triggers into one in-flight pass plus one trailing pass so a valid connect
     /// is never starved by cancel/restart churn.
     func scheduleSecondaryAggregation() {
+        // The shared retry timer owns the next dial opportunity. Presence pushes
+        // remain useful for pool membership, but cannot bypass the cooldown and
+        // multiply a cellular or broker outage by the number of online Macs.
+        guard secondaryAggregationRetryTask == nil else { return }
         guard secondaryAggregationTask == nil else {
             secondaryAggregationPending = true
             return
@@ -3657,6 +3662,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 await self.refreshSecondaryMacWorkspaces()
             } while self.secondaryAggregationTaskGeneration == taskGeneration
                 && self.secondaryAggregationPending
+                && self.secondaryAggregationRetryTask == nil
                 && !Task.isCancelled
             guard self.secondaryAggregationTaskGeneration == taskGeneration else { return }
             self.secondaryAggregationTask = nil
@@ -3746,7 +3752,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if wanted.allSatisfy({ secondaryMacSubscriptions[$0] != nil }) {
             secondaryAggregationRetryTask?.cancel()
             secondaryAggregationRetryTask = nil
-            secondaryAggregationRetryDelay = .seconds(2)
+            secondaryAggregationRetryState.reset()
+        } else if !wanted.isEmpty {
+            // Initial dial failures need the same shared cooldown as ended live
+            // streams. Otherwise every presence heartbeat immediately retries all
+            // unavailable Macs and defeats the coalesced exponential backoff.
+            scheduleSecondaryAggregationRetry()
         }
     }
     private func isSecondaryRefreshStillCurrent(
@@ -4083,8 +4094,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
               isSignedIn else {
             return
         }
-        let delay = secondaryAggregationRetryDelay
-        secondaryAggregationRetryDelay = min(delay * 2, .seconds(60))
+        guard let delay = secondaryAggregationRetryState.schedule() else { return }
         secondaryAggregationRetryTask = Task { @MainActor [weak self] in
             guard let self else { return }
             do {
@@ -4092,6 +4102,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             } catch {
                 return
             }
+            self.secondaryAggregationRetryState.fire()
             self.secondaryAggregationRetryTask = nil
             self.scheduleSecondaryAggregation()
         }
@@ -4287,7 +4298,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         secondaryAggregationPending = false
         secondaryAggregationRetryTask?.cancel()
         secondaryAggregationRetryTask = nil
-        secondaryAggregationRetryDelay = .seconds(2)
+        secondaryAggregationRetryState.reset()
         for (_, subscription) in secondaryMacSubscriptions { subscription.cancel() }
         secondaryMacSubscriptions.removeAll()
     }
