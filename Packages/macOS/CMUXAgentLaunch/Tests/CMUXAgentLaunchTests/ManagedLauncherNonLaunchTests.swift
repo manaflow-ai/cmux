@@ -87,9 +87,9 @@ struct ManagedLauncherNonLaunchTests {
     @Test("OMX preserves documented management commands")
     func omxManagementCommands() {
         for command in [
-            "agents", "agents-init", "auth", "cancel", "capabilities", "deepinit",
-            "doctor", "help", "list", "session", "setup", "status", "uninstall",
-            "update", "version",
+            "agents", "agents-init", "ask", "auth", "cancel", "capabilities", "deepinit",
+            "doctor", "explore", "help", "hooks", "hud", "list", "reasoning",
+            "session", "setup", "sparkshell", "status", "tmux-hook", "uninstall", "update", "version",
         ] {
             #expect(classifier.omxLaunchIsNonLaunch(args: [command]))
         }
@@ -104,6 +104,7 @@ struct ManagedLauncherNonLaunchTests {
             ["team", "status", "demo"],
             ["unknown-command"],
             ["--scope", "project", "setup"],
+            ["--scope", "project", "ask"],
             ["--scope", "--version"],
             ["--", "--version"],
             ["--high"],

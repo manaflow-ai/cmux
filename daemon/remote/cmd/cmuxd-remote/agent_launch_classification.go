@@ -195,9 +195,10 @@ func agentOptionName(argument string) string {
 
 var claudeTeamsManagementCommands = map[string]bool{
 	"auth": true, "auto-mode": true, "doctor": true,
-	"gateway": true, "install": true, "mcp": true, "plugin": true,
-	"plugins": true, "project": true, "setup-token": true,
-	"ultrareview": true, "update": true, "upgrade": true,
+	"gateway": true, "install": true, "kill": true, "logs": true,
+	"mcp": true, "plugin": true, "plugins": true, "project": true,
+	"rm": true, "setup-token": true, "stop": true, "ultrareview": true,
+	"update": true, "upgrade": true,
 }
 
 var claudeTeamsManagementDisqualifyingOptions = map[string]bool{
@@ -262,8 +263,10 @@ var omcManagementCommands = map[string]bool{
 }
 
 var omxManagementCommands = map[string]bool{
-	"agents": true, "agents-init": true, "auth": true, "cancel": true,
-	"capabilities": true, "deepinit": true, "doctor": true, "help": true,
-	"list": true, "session": true, "setup": true, "status": true,
-	"uninstall": true, "update": true, "version": true,
+	"agents": true, "agents-init": true, "ask": true, "auth": true,
+	"cancel": true, "capabilities": true, "deepinit": true, "doctor": true,
+	"explore": true, "help": true, "hooks": true, "hud": true,
+	"list": true, "reasoning": true, "session": true, "setup": true,
+	"sparkshell": true, "status": true, "tmux-hook": true, "uninstall": true,
+	"update": true, "version": true,
 }

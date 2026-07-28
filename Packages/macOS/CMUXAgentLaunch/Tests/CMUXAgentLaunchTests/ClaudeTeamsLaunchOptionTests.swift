@@ -61,8 +61,8 @@ struct ClaudeTeamsLaunchOptionTests {
     func recognizesManagementCommands() {
         let classifier = AgentLaunchInvocationClassifier()
         for command in [
-            "auth", "auto-mode", "doctor", "gateway", "install", "mcp",
-            "plugin", "plugins", "project", "setup-token", "ultrareview", "update", "upgrade",
+            "auth", "auto-mode", "doctor", "gateway", "install", "kill", "logs", "mcp",
+            "plugin", "plugins", "project", "rm", "setup-token", "stop", "ultrareview", "update", "upgrade",
         ] {
             #expect(classifier.claudeTeamsLaunchIsManagementCommand(args: [command]))
             #expect(classifier.claudeTeamsLaunchIsManagementCommand(args: ["--verbose", command]))
@@ -70,6 +70,7 @@ struct ClaudeTeamsLaunchOptionTests {
         #expect(classifier.claudeTeamsLaunchIsManagementCommand(
             args: ["--tmux", "classic", "auth"]
         ))
+        #expect(classifier.claudeTeamsLaunchIsManagementCommand(args: ["logs", "session-id"]))
     }
 
     @Test("Does not promote command-shaped values or prompt payloads")
@@ -79,6 +80,7 @@ struct ClaudeTeamsLaunchOptionTests {
             ["agents"],
             ["--verbose", "agents"],
             ["--model", "config"],
+            ["--model", "logs"],
             ["--append-system-prompt", "doctor"],
             ["--tmux", "config"],
             ["--", "config"],
