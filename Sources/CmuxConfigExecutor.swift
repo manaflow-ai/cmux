@@ -282,7 +282,7 @@ struct CmuxConfigExecutor {
                 targetWorkspace.clearSplitZoom()
                 targetWorkspace.newTerminalSurface(
                     inPane: targetPaneID,
-                    focus: true,
+                    focus: selectWorkspace,
                     initialInput: shellInput,
                     inheritWorkingDirectoryFallback: true
                 )
