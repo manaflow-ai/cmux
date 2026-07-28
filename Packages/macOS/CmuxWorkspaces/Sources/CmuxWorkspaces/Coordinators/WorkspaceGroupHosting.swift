@@ -39,6 +39,7 @@ public protocol WorkspaceGroupHosting<Tab>: WorkspaceOrderHosting {
         initialBrowserTransparentBackground: Bool,
         inheritWorkingDirectory: Bool,
         select: Bool,
+        sourceWorkspaceID: UUID?,
         workspaceDirectoryCustomizationMode: WorkspaceDirectoryCustomizationCreationMode
     ) -> Tab
     /// Closes a member workspace during group deletion (legacy

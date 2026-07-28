@@ -97,17 +97,79 @@ struct CommandPaletteSettingToggleDescriptor: Sendable {
         return String.localizedStringWithFormat(format, sectionTitle(), state)
     }
 
+    func execute(
+        enabled requestedValue: Bool?,
+        defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default
+    ) -> CmuxActionExecutionResult {
+        guard isAvailable(defaults) else {
+            return .failed(
+                code: "action_unavailable",
+                message: String(
+                    localized: "action.error.notApplicable",
+                    defaultValue: "The action does not apply to the target's current state."
+                )
+            )
+        }
+
+        let targetValue = requestedValue ?? !isOn(defaults)
+        setOn(targetValue, defaults, notificationCenter)
+        guard isOn(defaults) == targetValue else {
+            return .failed(
+                code: "action_failed",
+                message: String(
+                    localized: "action.error.configuredActionFailed",
+                    defaultValue: "The configured action could not be started."
+                )
+            )
+        }
+        return .completed
+    }
+
+    @discardableResult
     func toggle(
         defaults: UserDefaults = .standard,
         notificationCenter: NotificationCenter = .default
-    ) {
-        guard isAvailable(defaults) else { return }
-        setOn(!isOn(defaults), defaults, notificationCenter)
+    ) -> CmuxActionExecutionResult {
+        execute(enabled: nil, defaults: defaults, notificationCenter: notificationCenter)
     }
 }
 
 enum CommandPaletteSettingsToggleCommands {
     static let commandIdPrefix = "palette.toggleSetting."
+    static let enabledArgument = CmuxActionArgumentDefinition(
+        name: "enabled",
+        valueType: .boolean,
+        required: false
+    )
+
+    static func execute(
+        _ descriptor: CommandPaletteSettingToggleDescriptor,
+        invocation: CmuxActionInvocation,
+        defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default
+    ) -> CmuxActionExecutionResult {
+        let enabled: Bool?
+        if invocation.arguments[enabledArgument.name] != nil {
+            guard let parsedValue = invocation.bool(enabledArgument.name) else {
+                return .failed(
+                    code: "action_failed",
+                    message: String(
+                        localized: "action.error.configuredActionFailed",
+                        defaultValue: "The configured action could not be started."
+                    )
+                )
+            }
+            enabled = parsedValue
+        } else {
+            enabled = nil
+        }
+        return descriptor.execute(
+            enabled: enabled,
+            defaults: defaults,
+            notificationCenter: notificationCenter
+        )
+    }
 
     static func descriptor(commandId: String) -> CommandPaletteSettingToggleDescriptor? {
         descriptors.first { $0.commandId == commandId }
@@ -929,6 +991,7 @@ extension ContentView {
                 title: { _ in descriptor.commandTitle() },
                 subtitle: { _ in descriptor.commandSubtitle() },
                 keywords: descriptor.keywords + ["settings", "toggle", descriptor.settingsKey],
+                arguments: [CommandPaletteSettingsToggleCommands.enabledArgument],
                 when: { _ in descriptor.isAvailable(.standard) }
             )
         }
@@ -936,8 +999,11 @@ extension ContentView {
 
     func registerSettingsToggleCommandHandlers(_ registry: inout CommandPaletteHandlerRegistry) {
         for descriptor in CommandPaletteSettingsToggleCommands.descriptors {
-            registry.register(commandId: descriptor.commandId) {
-                descriptor.toggle()
+            registry.register(commandId: descriptor.commandId) { invocation in
+                CommandPaletteSettingsToggleCommands.execute(
+                    descriptor,
+                    invocation: invocation
+                )
             }
         }
     }

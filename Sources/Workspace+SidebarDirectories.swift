@@ -86,7 +86,7 @@ extension Workspace {
                removedDirectories.contains(workingDirectory) {
                 agentPanel.clearWorkingDirectory()
             }
-            panelDirectories.removeValue(forKey: panelId)
+            removeTrackedPanelDirectory(for: panelId)
             panelDirectoryDisplayLabels.removeValue(forKey: panelId)
             clearPanelGitBranch(panelId: panelId)
         }

@@ -2933,6 +2933,50 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
     }
 
+    func testForegroundRemoteShellHazardDoesNotRequireParseableArguments() {
+        let processes = [
+            TerminalSSHSessionDetector.ProcessSnapshot(
+                pid: 2145,
+                pgid: 1967,
+                tpgid: 1967,
+                tty: "ttys004",
+                executableName: "ssh"
+            ),
+        ]
+
+        XCTAssertTrue(
+            TerminalSSHSessionDetector.hasForegroundRemoteShellForTesting(
+                ttyName: "/dev/ttys004",
+                processes: processes
+            )
+        )
+        XCTAssertNil(
+            TerminalSSHSessionDetector.detectForTesting(
+                ttyName: "/dev/ttys004",
+                processes: processes,
+                argumentsByPID: [:]
+            ),
+            "Destination parsing may fail, but the foreground remote shell must remain a transfer hazard."
+        )
+    }
+
+    func testBackgroundRemoteShellIsNotAFileTransferHazard() {
+        XCTAssertFalse(
+            TerminalSSHSessionDetector.hasForegroundRemoteShellForTesting(
+                ttyName: "ttys004",
+                processes: [
+                    .init(
+                        pid: 2145,
+                        pgid: 2145,
+                        tpgid: 1967,
+                        tty: "ttys004",
+                        executableName: "ssh"
+                    ),
+                ]
+            )
+        )
+    }
+
     func testDetectsForegroundSSHSessionWithShortControlPathFlag() {
         let session = TerminalSSHSessionDetector.detectForTesting(
             ttyName: "/dev/ttys004",

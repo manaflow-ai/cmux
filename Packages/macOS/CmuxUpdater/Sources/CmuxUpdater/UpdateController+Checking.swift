@@ -6,16 +6,19 @@ import Foundation
 /// cycle-finished callback.
 extension UpdateController {
     /// Check for updates (used by the menu item).
-    public func checkForUpdates() {
+    @discardableResult
+    public func checkForUpdates() -> UpdateRequestOutcome {
         requestUpdateCheck(.manual)
     }
 
     /// Check for updates using the custom popover-based UI.
-    public func checkForUpdatesInCustomUI() {
+    @discardableResult
+    public func checkForUpdatesInCustomUI() -> UpdateRequestOutcome {
         requestUpdateCheck(.manual)
     }
 
-    func requestUpdateCheck(_ intent: UpdateCheckIntent) {
+    @discardableResult
+    func requestUpdateCheck(_ intent: UpdateCheckIntent) -> UpdateRequestOutcome {
         // A coincident menu check must not downgrade ownership after the user already accepted an
         // install. It may replace the transport session, but its result still serves that install.
         let intent = attemptCoordinator.isMonitoring ? UpdateCheckIntent.installLatest : intent
@@ -26,7 +29,7 @@ extension UpdateController {
         switch model.state {
         case .startingDownload, .downloading, .extracting, .installing:
             log.append("update check ignored while install is progressing (intent=\(intent.rawValue))")
-            return
+            return .inProgress
         default:
             break
         }
@@ -40,7 +43,7 @@ extension UpdateController {
             attemptCoordinator.cancel()
             installWatchdog.disarm()
             model.setState(.notFound(.init(acknowledgement: {})))
-            return
+            return .suppressed
         }
 
         cancelReadinessRetry()
@@ -48,16 +51,17 @@ extension UpdateController {
             self?.requestUpdateCheck(intent)
         }) else {
             log.append("update check halted because updater startup failed (intent=\(intent.rawValue))")
-            return
+            return .failed
         }
         ensureSparkleInstallationCache()
 
         if mustFinishCurrentCycleBeforeChecking {
             queueReplacementCheck(intent)
-            return
+            return .accepted
         }
 
         beginCheckWhenReady(intent)
+        return .accepted
     }
 
     private var mustFinishCurrentCycleBeforeChecking: Bool {

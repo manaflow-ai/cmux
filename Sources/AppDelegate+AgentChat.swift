@@ -78,14 +78,24 @@ extension AppDelegate {
     func performConfiguredNewAgentChatAction(
         context: MainWindowContext,
         preferredWindow: NSWindow?,
+        modelTarget: CmuxActionModelTarget? = nil,
+        focus: Bool = true,
+        beepOnFailure: Bool = true,
         onExecuted: (() -> Void)?
     ) -> Bool {
-        let cmuxConfigStore = context.cmuxConfigStore
+        guard let liveContext = liveMainWindowContextForAction(tabManager: context.tabManager),
+              liveContext === context else {
+            return false
+        }
+        let cmuxConfigStore = liveContext.cmuxConfigStore
         return performNewAgentChatAction(
-            tabManager: context.tabManager,
+            tabManager: liveContext.tabManager,
             agentChat: cmuxConfigStore?.agentChat ?? .default,
             globalConfigPath: cmuxConfigStore?.globalConfigPath,
-            preferredWindow: resolvedWindow(for: context) ?? preferredWindow,
+            preferredWindow: resolvedWindow(for: liveContext) ?? preferredWindow,
+            modelTarget: modelTarget,
+            focus: focus,
+            beepOnFailure: beepOnFailure,
             onExecuted: onExecuted
         )
     }
@@ -94,15 +104,17 @@ extension AppDelegate {
     func executeConfiguredCmuxAction(
         id actionID: String,
         tabManager: TabManager,
+        target: CmuxActionModelTarget? = nil,
         preferredWindow: NSWindow? = nil
     ) -> Bool {
-        guard let context = mainWindowContext(for: tabManager),
+        guard let context = liveMainWindowContextForAction(tabManager: tabManager),
               let action = context.cmuxConfigStore?.resolvedAction(id: actionID) else {
             return false
         }
         return executeConfiguredCmuxAction(
             action,
             context: context,
+            target: target,
             preferredWindow: preferredWindow
         )
     }
@@ -113,33 +125,79 @@ extension AppDelegate {
         agentChat: CmuxAgentChatConfiguration,
         globalConfigPath: String?,
         preferredWindow: NSWindow?,
+        modelTarget: CmuxActionModelTarget? = nil,
+        focus: Bool = true,
+        beepOnFailure: Bool = true,
         onExecuted: (() -> Void)? = nil
     ) -> Bool {
         guard CmuxFeatureFlags.shared.isAgentChatUIEnabled else {
-            NSSound.beep()
+            if beepOnFailure { NSSound.beep() }
             return false
         }
         guard BrowserAvailabilitySettings.isEnabled() else {
-            NSSound.beep()
+            if beepOnFailure { NSSound.beep() }
             return false
         }
+        guard let sourceWindowContext = liveMainWindowContextForAction(tabManager: tabManager) else {
+            return false
+        }
+        let sourceWindowID = sourceWindowContext.windowId
+        let sourceWorkspace: Workspace?
+        if let modelTarget {
+            guard let workspaceID = modelTarget.workspaceID,
+                  let workspace = tabManager.tabs.first(where: { $0.id == workspaceID }),
+                  modelTarget.panelID.map({ workspace.panels[$0] != nil }) ?? true else {
+                return false
+            }
+            sourceWorkspace = workspace
+        } else {
+            sourceWorkspace = tabManager.selectedWorkspace
+        }
+        let sourceWorkspaceID = sourceWorkspace?.id
+        let sourcePanelID = modelTarget?.panelID
+        let resolvedCwd = if let sourcePanelID {
+            sourceWorkspace?.resolvedWorkingDirectory(panelID: sourcePanelID)
+        } else {
+            sourceWorkspace?.resolvedWorkingDirectory()
+        }
+        let baseCwd = resolvedCwd ?? FileManager.default.homeDirectoryForCurrentUser.path
         AgentChatThemeSync.start()
         guard AgentChatActionInFlightGate.begin() else {
-            NSSound.beep()
+            if beepOnFailure { NSSound.beep() }
             return false
         }
         Task { @MainActor [weak self, weak tabManager] in
             defer { AgentChatActionInFlightGate.end() }
-            guard let self else { return }
+            guard let self,
+                  let tabManager else {
+                return
+            }
+            let targetIsAvailable: @MainActor () -> Bool = { [weak self, weak tabManager] in
+                guard let self,
+                      let tabManager,
+                      self.liveMainWindowContextForAction(tabManager: tabManager)?.windowId == sourceWindowID else {
+                    return false
+                }
+                if let sourceWorkspaceID {
+                    guard let sourceWorkspace = tabManager.tabs.first(where: { $0.id == sourceWorkspaceID }),
+                          sourcePanelID.map({ sourceWorkspace.panels[$0] != nil }) ?? true else {
+                        return false
+                    }
+                    return true
+                }
+                return modelTarget == nil
+            }
+            guard targetIsAvailable() else { return }
             let availability = await self.ensureAgentChatServerAvailable(
                 agentChat,
                 globalConfigPath: globalConfigPath,
-                preferredWindow: preferredWindow
+                preferredWindow: preferredWindow,
+                targetIsAvailable: targetIsAvailable
             )
+            guard targetIsAvailable() else { return }
             AgentChatThemeSync.syncNow(agentChat: agentChat)
-            guard let tabManager else { return }
             guard let browserURL = availability.browserURL else {
-                NSSound.beep()
+                if beepOnFailure { NSSound.beep() }
                 self.postAgentChatServerUnavailableNotification(
                     workspace: nil,
                     agentChat: agentChat
@@ -148,9 +206,12 @@ extension AppDelegate {
             }
             guard let workspace = self.openAgentChatWorkspace(
                 tabManager: tabManager,
-                url: browserURL
+                url: browserURL,
+                baseCwd: baseCwd,
+                sourceWorkspaceID: sourceWorkspaceID,
+                focus: focus
             ) else {
-                NSSound.beep()
+                if beepOnFailure { NSSound.beep() }
                 return
             }
             if !availability.isReachable {
@@ -167,7 +228,10 @@ extension AppDelegate {
     @discardableResult
     private func openAgentChatWorkspace(
         tabManager: TabManager,
-        url: URL
+        url: URL,
+        baseCwd: String,
+        sourceWorkspaceID: UUID?,
+        focus: Bool
     ) -> Workspace? {
         let beforeIds = Set(tabManager.tabs.map(\.id))
         let workspaceName = String(
@@ -192,32 +256,37 @@ extension AppDelegate {
             name: workspaceName,
             workspace: workspaceDefinition
         )
-        let baseCwd = tabManager.selectedWorkspace?.currentDirectory
-            ?? FileManager.default.homeDirectoryForCurrentUser.path
         guard CmuxConfigExecutor.executeWorkspaceCommand(
             command: command,
             workspace: workspaceDefinition,
             tabManager: tabManager,
-            baseCwd: baseCwd
+            baseCwd: baseCwd,
+            sourceWorkspaceID: sourceWorkspaceID,
+            select: focus
         ) else {
             return nil
         }
-        return tabManager.tabs.first { !beforeIds.contains($0.id) } ?? tabManager.selectedWorkspace
+        return tabManager.tabs.first { !beforeIds.contains($0.id) }
     }
 
 
     private func ensureAgentChatServerAvailable(
         _ agentChat: CmuxAgentChatConfiguration,
         globalConfigPath: String?,
-        preferredWindow: NSWindow?
+        preferredWindow: NSWindow?,
+        targetIsAvailable: @escaping @MainActor () -> Bool
     ) async -> AgentChatServerAvailability {
+        guard targetIsAvailable() else {
+            return AgentChatServerAvailability(isReachable: false, browserURL: nil)
+        }
         switch agentChat.serverMode {
         case .explicitURL:
             return await ensureExplicitAgentChatServerAvailable(
                 agentChat,
                 startCommand: agentChat.startCommand,
                 globalConfigPath: globalConfigPath,
-                preferredWindow: preferredWindow
+                preferredWindow: preferredWindow,
+                targetIsAvailable: targetIsAvailable
             )
         case .appOwned:
             guard let startCommand = agentChat.startCommand else {
@@ -227,10 +296,14 @@ extension AppDelegate {
                 agentChat,
                 startCommand: startCommand,
                 globalConfigPath: globalConfigPath,
-                preferredWindow: preferredWindow
+                preferredWindow: preferredWindow,
+                targetIsAvailable: targetIsAvailable
             )
         case .legacyDefaultURL:
             let isHealthy = await Self.agentChatServerIsHealthy(healthURL: agentChat.healthURL, timeout: 1.5)
+            guard targetIsAvailable() else {
+                return AgentChatServerAvailability(isReachable: false, browserURL: nil)
+            }
             return AgentChatServerAvailability(isReachable: isHealthy, browserURL: agentChat.url)
         }
     }
@@ -239,10 +312,20 @@ extension AppDelegate {
         _ agentChat: CmuxAgentChatConfiguration,
         startCommand: String?,
         globalConfigPath: String?,
-        preferredWindow: NSWindow?
+        preferredWindow: NSWindow?,
+        targetIsAvailable: @escaping @MainActor () -> Bool
     ) async -> AgentChatServerAvailability {
+        guard targetIsAvailable() else {
+            return AgentChatServerAvailability(isReachable: false, browserURL: nil)
+        }
         if await Self.agentChatServerIsHealthy(healthURL: agentChat.healthURL, timeout: 1.5) {
+            guard targetIsAvailable() else {
+                return AgentChatServerAvailability(isReachable: false, browserURL: nil)
+            }
             return AgentChatServerAvailability(isReachable: true, browserURL: agentChat.url)
+        }
+        guard targetIsAvailable() else {
+            return AgentChatServerAvailability(isReachable: false, browserURL: nil)
         }
         let unavailable = AgentChatServerAvailability(isReachable: false, browserURL: agentChat.url)
         guard let startCommand else { return unavailable }
@@ -250,11 +333,15 @@ extension AppDelegate {
             agentChat,
             command: startCommand,
             globalConfigPath: globalConfigPath,
-            preferredWindow: preferredWindow
+            preferredWindow: preferredWindow,
+            targetIsAvailable: targetIsAvailable
         ) else {
             return unavailable
         }
-        guard Self.launchDetachedAgentChatStartCommand(
+        guard targetIsAvailable() else {
+            return AgentChatServerAvailability(isReachable: false, browserURL: nil)
+        }
+        guard let launchedProcess = Self.launchDetachedAgentChatStartCommand(
             startCommand,
             currentDirectoryURL: Self.agentChatStartCommandDirectoryURL(for: agentChat),
             environmentOverrides: [:]
@@ -264,7 +351,15 @@ extension AppDelegate {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(10))
         while !Task.isCancelled, clock.now < deadline {
+            guard targetIsAvailable() else {
+                if launchedProcess.isRunning { launchedProcess.terminate() }
+                return AgentChatServerAvailability(isReachable: false, browserURL: nil)
+            }
             if await Self.agentChatServerIsHealthy(healthURL: agentChat.healthURL, timeout: 1.5) {
+                guard targetIsAvailable() else {
+                    if launchedProcess.isRunning { launchedProcess.terminate() }
+                    return AgentChatServerAvailability(isReachable: false, browserURL: nil)
+                }
                 return AgentChatServerAvailability(isReachable: true, browserURL: agentChat.url)
             }
             do {
@@ -281,16 +376,32 @@ extension AppDelegate {
         _ agentChat: CmuxAgentChatConfiguration,
         startCommand: String,
         globalConfigPath: String?,
-        preferredWindow: NSWindow?
+        preferredWindow: NSWindow?,
+        targetIsAvailable: @escaping @MainActor () -> Bool
     ) async -> AgentChatServerAvailability {
+        guard targetIsAvailable() else {
+            return AgentChatServerAvailability(isReachable: false, browserURL: nil)
+        }
         if let session = AgentChatActionInFlightGate.ownedServerSession() {
             if await Self.agentChatServerIsHealthy(healthURL: session.healthURL, timeout: 1.5) {
+                guard targetIsAvailable() else {
+                    return AgentChatServerAvailability(isReachable: false, browserURL: nil)
+                }
                 return AgentChatServerAvailability(isReachable: true, browserURL: session.browserURL)
+            }
+            guard targetIsAvailable() else {
+                return AgentChatServerAvailability(isReachable: false, browserURL: nil)
             }
             AgentChatActionInFlightGate.clearOwnedServerSession(matching: session)
             await AgentChatActionInFlightGate.sidecarStateFileStore()?.removeStateFile()
+            guard targetIsAvailable() else {
+                return AgentChatServerAvailability(isReachable: false, browserURL: nil)
+            }
         }
 
+        guard targetIsAvailable() else {
+            return AgentChatServerAvailability(isReachable: false, browserURL: nil)
+        }
         let launchId = UUID().uuidString
         guard let token = Self.generateAgentChatToken(),
               let stateFileStore = AgentChatActionInFlightGate.sidecarStateFileStore() else {
@@ -303,16 +414,26 @@ extension AppDelegate {
         ) else {
             return AgentChatServerAvailability(isReachable: false, browserURL: agentChat.url)
         }
+        guard targetIsAvailable() else {
+            await stateFileStore.removeStateFile(launchId: launchId)
+            return AgentChatServerAvailability(isReachable: false, browserURL: nil)
+        }
 
         guard await authorizeAgentChatStartCommandIfNeeded(
             agentChat,
             command: startCommand,
             globalConfigPath: globalConfigPath,
-            preferredWindow: preferredWindow
+            preferredWindow: preferredWindow,
+            targetIsAvailable: targetIsAvailable
         ) else {
+            await stateFileStore.removeStateFile(launchId: launchId)
             return AgentChatServerAvailability(isReachable: false, browserURL: agentChat.url)
         }
-        guard Self.launchDetachedAgentChatStartCommand(
+        guard targetIsAvailable() else {
+            await stateFileStore.removeStateFile(launchId: launchId)
+            return AgentChatServerAvailability(isReachable: false, browserURL: nil)
+        }
+        guard let launchedProcess = Self.launchDetachedAgentChatStartCommand(
             startCommand,
             currentDirectoryURL: Self.agentChatStartCommandDirectoryURL(for: agentChat),
             environmentOverrides: [
@@ -330,10 +451,21 @@ extension AppDelegate {
             launchId: launchId,
             launchDate: launchDate
         ) else {
+            if launchedProcess.isRunning { launchedProcess.terminate() }
+            await stateFileStore.removeStateFile(launchId: launchId)
             return AgentChatServerAvailability(isReachable: false, browserURL: agentChat.url)
+        }
+        guard targetIsAvailable() else {
+            if launchedProcess.isRunning { launchedProcess.terminate() }
+            return AgentChatServerAvailability(isReachable: false, browserURL: nil)
         }
         AgentChatActionInFlightGate.updateOwnedServerSession(session)
         let isHealthy = await Self.agentChatServerIsHealthy(healthURL: session.healthURL, timeout: 1.5)
+        guard targetIsAvailable() else {
+            AgentChatActionInFlightGate.clearOwnedServerSession(matching: session)
+            if launchedProcess.isRunning { launchedProcess.terminate() }
+            return AgentChatServerAvailability(isReachable: false, browserURL: nil)
+        }
         return AgentChatServerAvailability(isReachable: isHealthy, browserURL: session.browserURL)
     }
 
@@ -341,8 +473,10 @@ extension AppDelegate {
         _ agentChat: CmuxAgentChatConfiguration,
         command: String,
         globalConfigPath: String?,
-        preferredWindow: NSWindow?
+        preferredWindow: NSWindow?,
+        targetIsAvailable: @escaping @MainActor () -> Bool
     ) async -> Bool {
+        guard targetIsAvailable() else { return false }
         guard agentChat.startCommandRequiresTrust else { return true }
         guard case .local(let sourcePath) = agentChat.source,
               let globalConfigPath else {
@@ -362,7 +496,7 @@ extension AppDelegate {
                 displayTitle: String(localized: "command.newAgentChat.title", defaultValue: "New agent chat"),
                 presentingWindow: preferredWindow,
                 onAuthorized: {
-                    continuation.resume(returning: true)
+                    continuation.resume(returning: targetIsAvailable())
                 },
                 onDenied: {
                     continuation.resume(returning: false)
@@ -422,14 +556,14 @@ extension AppDelegate {
         _ command: String,
         currentDirectoryURL: URL,
         environmentOverrides: [String: String]
-    ) -> Bool {
+    ) -> Process? {
         let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedCommand.isEmpty else { return false }
+        guard !trimmedCommand.isEmpty else { return nil }
         let environment = ProcessInfo.processInfo.environment
         guard let shellPath = environment["SHELL"]?.trimmingCharacters(in: .whitespacesAndNewlines),
               !shellPath.isEmpty else {
             NSLog("[AgentChat] SHELL is not set; cannot launch startCommand")
-            return false
+            return nil
         }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: shellPath)
@@ -441,10 +575,10 @@ extension AppDelegate {
         process.standardError = FileHandle.nullDevice
         do {
             try process.run()
-            return true
+            return process
         } catch {
             NSLog("[AgentChat] failed to launch startCommand: %@", String(describing: error))
-            return false
+            return nil
         }
     }
 

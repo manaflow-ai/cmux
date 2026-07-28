@@ -199,11 +199,16 @@ def main() -> int:
                 "workspace.create",
                 {
                     "title": "caller-target",
-                    "workspace_id": WORKSPACE_ID,
                     "surface_id": SURFACE_ID,
                     "focus": False,
                 },
             )
+            caller_params = state.calls[-1][1]
+            if "workspace_id" in caller_params:
+                raise AssertionError(
+                    "a live caller surface must be authoritative over its spawn-time workspace: "
+                    f"{caller_params!r}"
+                )
 
             run_cli(
                 cli,

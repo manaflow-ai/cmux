@@ -2,6 +2,39 @@ import CmuxFoundation
 import AppKit
 import Foundation
 
+/// Controls operational Cloud VM presentation after authorization succeeds.
+///
+/// Authentication, authorization, and trust UI intentionally live outside
+/// this policy and must still be presented when the shared action requires it.
+nonisolated enum CloudVMActionPresentationPolicy: Sendable, Equatable {
+    /// User-invoked actions show progress and actionable command results.
+    case interactive
+    /// The Cloud VM loading workspace owns progress and failure presentation.
+    case workspaceLoading
+    /// CLI/socket actions report lifecycle through their typed result only.
+    case automation
+
+    var showsProgress: Bool {
+        self == .interactive
+    }
+
+    var presentsFailure: Bool {
+        self == .interactive
+    }
+
+    var presentsMissingTarget: Bool {
+        self == .interactive
+    }
+
+    var allowsInteractiveInput: Bool {
+        self == .interactive
+    }
+
+    func presentsOutputOnSuccess(requested: Bool) -> Bool {
+        self == .interactive && requested
+    }
+}
+
 @MainActor
 final class CloudVMActionLauncher {
     static let shared = CloudVMActionLauncher()
@@ -41,15 +74,14 @@ final class CloudVMActionLauncher {
         arguments: [String] = ["vm", "base", "open"],
         successTitle: String? = nil,
         presentOutputOnSuccess: Bool = false,
-        showsProgress: Bool = true,
-        presentsFailureAlert: Bool = true,
+        presentationPolicy: CloudVMActionPresentationPolicy = .interactive,
         environmentOverrides: [String: String] = [:],
         onCompletion: ((Completion) -> Void)? = nil
     ) -> Bool {
         let cliURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux")
         guard let cliURL,
               FileManager.default.isExecutableFile(atPath: cliURL.path) else {
-            if presentsFailureAlert {
+            if presentationPolicy.presentsFailure {
                 presentStartFailure(
                     summary: String(
                         localized: "command.cloudVM.failed.missingCLI",
@@ -86,7 +118,7 @@ final class CloudVMActionLauncher {
         outputCollector.start()
         let launchWindow = preferredWindow
         let presentation = Self.progressPresentation(arguments: arguments)
-        let progressController = showsProgress
+        let progressController = presentationPolicy.showsProgress
             ? CloudVMActionProgressController(
                 title: presentation.title,
                 message: presentation.message,
@@ -107,14 +139,18 @@ final class CloudVMActionLauncher {
                         workspaceId: Self.createdWorkspaceId(from: output)
                     )
                 )
-                if terminationStatus == 0, presentOutputOnSuccess, !Self.shared.isShuttingDown {
+                if terminationStatus == 0,
+                   presentationPolicy.presentsOutputOnSuccess(requested: presentOutputOnSuccess),
+                   !Self.shared.isShuttingDown {
                     Self.shared.presentCommandResult(
                         title: successTitle ?? String(localized: "command.cloudVM.result.title", defaultValue: "Cloud VM"),
                         output: output,
                         preferredWindow: launchWindow
                     )
                 }
-                guard terminationStatus != 0, !Self.shared.isShuttingDown, presentsFailureAlert else { return }
+                guard terminationStatus != 0,
+                      !Self.shared.isShuttingDown,
+                      presentationPolicy.presentsFailure else { return }
                 let format = String(
                     localized: "command.cloudVM.failed.exit",
                     defaultValue: "Cloud VM command exited with status %d."
@@ -145,7 +181,7 @@ final class CloudVMActionLauncher {
         } catch {
             outputCollector.cancel()
             progressController?.close()
-            if presentsFailureAlert {
+            if presentationPolicy.presentsFailure {
                 presentStartFailure(
                     summary: String(
                         localized: "command.cloudVM.failed.launch",

@@ -42,6 +42,9 @@ public final class ControlCommandCoordinator {
     @ObservationIgnored
     public var handles: ControlHandleRegistry
 
+    /// Filesystem access used by the worker-lane inline VS Code command.
+    public nonisolated let inlineVSCodeFileSystem: ControlInlineVSCodeFileSystem
+
     @ObservationIgnored
     nonisolated let simulatorOperationAdmissionGate =
         ControlSimulatorOperationAdmissionGate(maximumConcurrentOperations: 4)
@@ -51,12 +54,15 @@ public final class ControlCommandCoordinator {
     /// - Parameters:
     ///   - context: The app-state seam. May be set after init (see ``context``).
     ///   - handles: The handle registry to adopt. Defaults to a fresh one.
+    ///   - inlineVSCodeFileSystem: Filesystem access for inline editor paths.
     public init(
         context: (any ControlCommandContext)? = nil,
-        handles: ControlHandleRegistry = ControlHandleRegistry()
+        handles: ControlHandleRegistry = ControlHandleRegistry(),
+        inlineVSCodeFileSystem: ControlInlineVSCodeFileSystem = ControlInlineVSCodeFileSystem()
     ) {
         self.context = context
         self.handles = handles
+        self.inlineVSCodeFileSystem = inlineVSCodeFileSystem
     }
 
     // MARK: - Dispatch
@@ -92,6 +98,24 @@ public final class ControlCommandCoordinator {
         // host; re-lift it against that architecture in a follow-up.
         // handleSidebarV1 / handleBrowserPanelV1 are V1 string-command handlers;
         // the app's v1 dispatcher calls them directly with (command:args:).
+        return nil
+    }
+
+    /// Runs coordinator domains whose work must suspend without occupying the
+    /// main actor. The socket dispatcher invokes this only from its worker
+    /// lane, then encodes the returned value on that worker.
+    public func handleAsync(
+        _ request: ControlRequest,
+        deadline: Date? = nil
+    ) async -> ControlCallResult? {
+        if let result = await handleCommandPalette(request, deadline: deadline) { return result }
+        if request.method == "vscode.open" {
+            return await inlineVSCodeOpen(
+                request.params,
+                context: context,
+                deadline: deadline
+            )
+        }
         return nil
     }
 
@@ -248,6 +272,36 @@ public final class ControlCommandCoordinator {
         return true
     }
 
+    /// Whether any supplied surface alias is unresolved or resolves to a
+    /// different target than another supplied alias.
+    ///
+    /// A nil-coalescing precedence walk is unsafe for strict command targets:
+    /// an unresolved alias could fall through to a later valid alias, while a
+    /// valid first alias could hide a malformed or contradictory later alias.
+    /// Strict endpoints call this before building their otherwise
+    /// precedence-preserving routing selectors.
+    func hasInvalidSurfaceAliases(
+        _ params: [String: JSONValue]
+    ) -> Bool {
+        var selected: UUID?
+        var sawUnresolvedAlias = false
+        var sawConflict = false
+
+        for key in ["surface_id", "terminal_id", "tab_id"] where hasNonNull(params, key) {
+            guard let candidate = uuid(params, key) else {
+                sawUnresolvedAlias = true
+                continue
+            }
+            if let selected, selected != candidate {
+                sawConflict = true
+            } else if selected == nil {
+                selected = candidate
+            }
+        }
+
+        return sawUnresolvedAlias || sawConflict
+    }
+
     /// Builds the routing selectors for `window.current`, resolving each
     /// selector through the handle registry exactly as the legacy
     /// `v2ResolveTabManager` did before walking its precedence.
@@ -260,7 +314,13 @@ public final class ControlCommandCoordinator {
             surfaceID: uuid(params, "surface_id")
                 ?? uuid(params, "terminal_id")
                 ?? uuid(params, "tab_id"),
-            paneID: uuid(params, "pane_id")
+            paneID: uuid(params, "pane_id"),
+            hasGroupIDParam: hasNonNull(params, "group_id"),
+            hasWorkspaceIDParam: hasNonNull(params, "workspace_id"),
+            hasSurfaceIDParam: hasNonNull(params, "surface_id")
+                || hasNonNull(params, "terminal_id")
+                || hasNonNull(params, "tab_id"),
+            hasPaneIDParam: hasNonNull(params, "pane_id")
         )
     }
 }

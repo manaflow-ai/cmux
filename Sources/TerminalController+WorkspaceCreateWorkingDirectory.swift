@@ -6,6 +6,7 @@ extension TerminalController {
         case notProvided
         case valid(String)
         case invalid
+        case wrongFileType
         case busy
         case timedOut
         case cancelled

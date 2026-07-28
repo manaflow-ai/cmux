@@ -1,4 +1,5 @@
 import Bonsplit
+import CmuxCommandPalette
 import Foundation
 
 enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Hashable {
@@ -42,6 +43,33 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
 
     var configID: String {
         rawValue
+    }
+
+    /// Immutable target scope used by configured aliases of this action.
+    var commandPaletteTargetRequirement: CmuxConfigPaletteTargetRequirement {
+        switch self {
+        case .newWorkspace, .newAgentChat, .cloudVM, .mobileConnect:
+            return .window
+        case .newTerminal, .newBrowser, .newSimulator, .splitRight, .splitDown:
+            return .panelInPane
+        }
+    }
+
+    /// Static arguments accepted by command-palette and CLI invocations.
+    var commandPaletteArguments: [CmuxActionArgumentDefinition] {
+        switch self {
+        case .newWorkspace, .newTerminal, .newBrowser, .newSimulator,
+             .splitRight, .splitDown:
+            return [
+                CmuxActionArgumentDefinition(
+                    name: "focus",
+                    valueType: .boolean,
+                    required: false
+                )
+            ]
+        case .newAgentChat, .cloudVM, .mobileConnect:
+            return []
+        }
     }
 
     var resolvedConfigMetadata: (title: String, keywords: [String]) {

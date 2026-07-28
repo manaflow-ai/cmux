@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 
 extension cmuxApp {
     func performNewSimulatorPaneFromMenu() {
@@ -33,12 +34,42 @@ extension AppDelegate {
 
     func performConfiguredNewSimulatorAction(
         context: MainWindowContext,
+        modelTarget: CmuxActionModelTarget?,
+        focus: Bool,
         onExecuted: (() -> Void)?
     ) -> Bool {
-        guard CmuxFeatureFlags.shared.isSimulatorEnabled,
-              let workspace = context.tabManager.selectedWorkspace,
-              let pane = workspace.bonsplitController.focusedPaneId,
-              workspace.newSimulatorSurface(inPane: pane, focus: true) != nil else {
+        guard CmuxFeatureFlags.shared.isSimulatorEnabled else {
+            return false
+        }
+        let workspace: Workspace
+        let pane: PaneID
+        if let modelTarget {
+            guard let workspaceID = modelTarget.workspaceID,
+                  let targetWorkspace = context.tabManager.tabs.first(
+                    where: { $0.id == workspaceID }
+                  ),
+                  let panelID = modelTarget.panelID,
+                  let targetPane = targetWorkspace.paneId(
+                    forPanelId: panelID
+                  ) else {
+                return false
+            }
+            workspace = targetWorkspace
+            pane = targetPane
+        } else {
+            guard let selectedWorkspace =
+                    context.tabManager.selectedWorkspace,
+                  let focusedPane =
+                    selectedWorkspace.bonsplitController.focusedPaneId else {
+                return false
+            }
+            workspace = selectedWorkspace
+            pane = focusedPane
+        }
+        guard workspace.newSimulatorSurface(
+            inPane: pane,
+            focus: focus
+        ) != nil else {
             return false
         }
         onExecuted?()

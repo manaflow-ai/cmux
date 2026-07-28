@@ -10,6 +10,7 @@ import Foundation
 final class FakeFocusedResolving: FocusedNotificationResolving {
     var hasNotificationStore = true
     var focusedTargetValue: FocusedNotificationTarget?
+    var existingWorkspaceIds: Set<UUID> = []
     /// Panel resolution keyed by `(tabId, surfaceId)`.
     var panelByTabSurface: [PanelKey: FocusedPanel] = [:]
 
@@ -32,6 +33,10 @@ final class FakeFocusedResolving: FocusedNotificationResolving {
 
     func focusedTarget(preferredWindowToken: AnyObject?) -> FocusedNotificationTarget? {
         focusedTargetValue
+    }
+
+    func workspaceExists(forTabId tabId: UUID) -> Bool {
+        existingWorkspaceIds.contains(tabId)
     }
 
     func focusedPanel(forTabId tabId: UUID, surfaceId: UUID?) -> FocusedPanel? {

@@ -494,8 +494,12 @@ struct SidebarWorkspaceRowMenuBuilder {
 
         menu.addItem(item(
             String(localized: "contextMenu.addChecklistItem", defaultValue: "Add Checklist Item…")
-        ) { [tab] in
-            WorkspaceTodoActions.requestChecklistAddField(workspaceId: tab.id)
+        ) { [weak tabManager, tab] in
+            guard let tabManager else { return }
+            WorkspaceTodoActions.requestChecklistAddField(
+                workspaceId: tab.id,
+                in: tabManager
+            )
         })
     }
 

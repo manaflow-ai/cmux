@@ -110,6 +110,7 @@ extension WorkspaceGroupCoordinator {
                     initialBrowserTransparentBackground: false,
                     inheritWorkingDirectory: true,
                     select: true,
+                    sourceWorkspaceID: nil,
                     workspaceDirectoryCustomizationMode: .trackDirectory
                 )
             }

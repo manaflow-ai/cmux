@@ -36,6 +36,16 @@ final class FileExplorerState: ObservableObject {
     /// persisted).
     @Published var rightSidebarOwnsInputFocus: Bool = false
 
+    /// An explicit workspace/panel whose content the right sidebar represents.
+    ///
+    /// Normal UI navigation leaves these values nil, so the sidebar follows the
+    /// selected workspace. Automation binds both IDs before presenting the
+    /// sidebar, which lets it operate on a background panel without changing
+    /// workspace selection. The binding is runtime-only and is revalidated by
+    /// every consumer before use.
+    @Published private(set) var rightSidebarContentWorkspaceID: UUID?
+    @Published private(set) var rightSidebarContentPanelID: UUID?
+
     /// Active mode for the right sidebar (file tree, search, sessions, or enabled beta modes).
     var mode: RightSidebarMode {
         get { storedMode }
@@ -57,6 +67,8 @@ final class FileExplorerState: ObservableObject {
         self.showHiddenFiles = storedShowHidden == nil ? true : defaults.bool(forKey: "fileExplorer.showHidden")
         let customSidebarName = defaults.string(forKey: Self.customSidebarNameKey)?.nilIfEmpty
         self.storedCustomSidebarName = customSidebarName
+        self.rightSidebarContentWorkspaceID = nil
+        self.rightSidebarContentPanelID = nil
         let storedMode = RightSidebarMode(rawValue: defaults.string(forKey: Self.modeKey) ?? "") ?? .files
         self.storedMode = Self.availableMode(storedMode, defaults: defaults)
         defaults.set(self.storedMode.rawValue, forKey: Self.modeKey)
@@ -77,8 +89,35 @@ final class FileExplorerState: ObservableObject {
         setVisible(!isVisible)
     }
 
+    func bindRightSidebarContent(workspaceID: UUID, panelID: UUID?) {
+        guard rightSidebarContentWorkspaceID != workspaceID
+                || rightSidebarContentPanelID != panelID else {
+            return
+        }
+
+        // Publish the panel first. Until the workspace publication arrives,
+        // target resolution fails closed instead of briefly using selection.
+        rightSidebarContentPanelID = panelID
+        rightSidebarContentWorkspaceID = workspaceID
+    }
+
+    func clearRightSidebarContentBinding() {
+        guard rightSidebarContentWorkspaceID != nil
+                || rightSidebarContentPanelID != nil else {
+            return
+        }
+
+        // Clear the workspace first. A transient panel-only binding is invalid
+        // and therefore cannot redirect work to the selected workspace.
+        rightSidebarContentWorkspaceID = nil
+        rightSidebarContentPanelID = nil
+    }
+
     func setVisible(_ nextValue: Bool) {
         guard isVisible != nextValue else { return }
+        if !nextValue {
+            clearRightSidebarContentBinding()
+        }
 
         // Suppress both SwiftUI transactions and AppKit/Core Animation implicit layout changes.
         NSAnimationContext.beginGrouping()

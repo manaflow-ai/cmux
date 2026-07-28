@@ -1,6 +1,30 @@
 import Foundation
 
 extension TabManager {
+    /// Closes an explicitly targeted panel without an interactive veto while
+    /// preserving the Close Tab preference for a workspace's final panel.
+    @discardableResult
+    func closePanelNonInteractively(
+        workspaceID: UUID,
+        panelID: UUID,
+        allowPinnedWorkspace: Bool = false
+    ) -> Bool {
+        guard let workspace = tabs.first(where: { $0.id == workspaceID }),
+              workspace.panels[panelID] != nil,
+              let surfaceID = workspace.surfaceIdFromPanelId(panelID) else {
+            return false
+        }
+        if closeWorkspaceOnLastSurfacePreferenceEnabled(),
+           workspace.panels.count == 1 {
+            return closeWorkspaceNonInteractively(
+                workspace,
+                allowPinned: allowPinnedWorkspace
+            )
+        }
+        workspace.markExplicitClose(surfaceId: surfaceID)
+        return workspace.requestNonInteractiveCloseTabRecordingHistory(surfaceID)
+    }
+
     /// Closes a socket/API-targeted workspace without an interactive veto.
     ///
     /// Closing a window's last workspace means closing the window. A remote-tmux
@@ -18,9 +42,11 @@ extension TabManager {
             closeWorkspace(workspace, recordHistory: recordHistory)
             return !tabs.contains(where: { $0.id == workspace.id })
         }
-        guard let appDelegate = AppDelegate.shared,
-              let windowId = appDelegate.windowId(for: self),
-              appDelegate.mainWindow(for: windowId) != nil else { return false }
+        guard let windowCloseTarget = nonInteractiveWindowCloseTarget() else {
+            return false
+        }
+        let appDelegate = windowCloseTarget.appDelegate
+        let windowId = windowCloseTarget.windowID
         if workspace.isRemoteTmuxMirror {
             appDelegate.remoteTmuxController.detachMirrorWorkspaceKeptOpenLocally(workspaceId: workspace.id)
         }
@@ -38,5 +64,48 @@ extension TabManager {
         workspace.teardownRemoteConnection()
         workspace.owningTabManager = nil
         return true
+    }
+
+    /// Closes the exact workspace set without presenting per-workspace or
+    /// group-anchor confirmation. Every requested ID must still be live.
+    @discardableResult
+    func closeWorkspacesNonInteractively(
+        _ workspaceIDs: [UUID],
+        allowPinned: Bool = false
+    ) -> Bool {
+        let requestedIDs = Set(workspaceIDs)
+        guard !requestedIDs.isEmpty else { return false }
+        let orderedWorkspaces = tabs.filter { requestedIDs.contains($0.id) }
+        guard orderedWorkspaces.count == requestedIDs.count,
+              orderedWorkspaces.allSatisfy({
+                  canCloseWorkspace($0, allowPinned: allowPinned)
+              }) else {
+            return false
+        }
+        if orderedWorkspaces.count == tabs.count,
+           nonInteractiveWindowCloseTarget() == nil {
+            return false
+        }
+        for workspace in orderedWorkspaces {
+            guard closeWorkspaceNonInteractively(
+                workspace,
+                allowPinned: allowPinned
+            ) else {
+                return false
+            }
+        }
+        return true
+    }
+
+    private func nonInteractiveWindowCloseTarget() -> (
+        appDelegate: AppDelegate,
+        windowID: UUID
+    )? {
+        guard let appDelegate = AppDelegate.shared,
+              let windowID = appDelegate.windowId(for: self),
+              appDelegate.mainWindow(for: windowID) != nil else {
+            return nil
+        }
+        return (appDelegate, windowID)
     }
 }

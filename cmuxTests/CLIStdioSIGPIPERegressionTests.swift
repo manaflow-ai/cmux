@@ -141,6 +141,44 @@ final class CLIStdioSIGPIPERegressionTests: XCTestCase {
     }
 
     @MainActor
+    func testActionCatalogHelperExitsNormallyWhenStdoutPipeIsClosed() throws {
+        let cliPath = try bundledCLIPath()
+        let process = Process()
+        let stdoutHandle = try closedPipeWriteHandle(named: "action catalog stdout")
+        defer { try? stdoutHandle.close() }
+
+        // Test hosts may ignore SIGPIPE. Reset it before exec so this catches
+        // entrypoint ordering instead of inheriting the host's disposition.
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = [
+            "-c",
+            #"trap - PIPE; exec "$1" __action-catalog-read-v1 "" "$2" 1024"#,
+            "sh",
+            cliPath,
+            "/tmp/cmux-action-catalog-\(UUID().uuidString).json",
+        ]
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = stdoutHandle
+        process.standardError = Pipe()
+        process.environment = cliTestEnvironment()
+
+        try process.run()
+
+        let waitResult = waitForExit(
+            of: process,
+            description: "action catalog helper exited after closed stdout pipe"
+        )
+        guard waitResult == .completed else {
+            process.terminate()
+            XCTFail("Action catalog helper did not exit within 5s after closed stdout pipe")
+            return
+        }
+
+        XCTAssertEqual(process.terminationReason, .exit)
+        XCTAssertEqual(process.terminationStatus, 74)
+    }
+
+    @MainActor
     func testReadScreenArgumentErrorPreservesExitCodeWhenStderrPipeIsClosed() throws {
         let cliPath = try bundledCLIPath()
         let process = Process()

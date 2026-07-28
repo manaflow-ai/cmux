@@ -61,7 +61,8 @@ extension AppDelegate {
         windowId: UUID = UUID(),
         tabManager: TabManager,
         cmuxConfigStore: CmuxConfigStore? = nil,
-        fileExplorerState: FileExplorerState? = nil
+        fileExplorerState: FileExplorerState? = nil,
+        commandPaletteControlHandler: ((CommandPaletteControlRequest) -> Void)? = nil
     ) -> UUID {
         tabManager.windowId = windowId
         mainWindowContexts[ObjectIdentifier(tabManager)] = MainWindowContext(
@@ -71,6 +72,7 @@ extension AppDelegate {
             sidebarSelectionState: SidebarSelectionState(),
             fileExplorerState: fileExplorerState,
             cmuxConfigStore: cmuxConfigStore,
+            commandPaletteControlHandler: commandPaletteControlHandler,
             window: nil
         )
         // Context-based tests exercise observer pipelines without a live phone

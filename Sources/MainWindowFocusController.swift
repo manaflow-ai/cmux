@@ -21,12 +21,36 @@ final class MainWindowFocusController {
         let id: UInt64
         let mode: RightSidebarMode
         let target: RightSidebarFocusTarget
+        let sourceWorkspaceID: UUID?
+        let sourcePanelID: UUID?
+        let initialSearchQuery: String?
+
+        func consumingInitialSearchQuery() -> Self {
+            Self(
+                id: id,
+                mode: mode,
+                target: target,
+                sourceWorkspaceID: sourceWorkspaceID,
+                sourcePanelID: sourcePanelID,
+                initialSearchQuery: nil
+            )
+        }
+
+        func matchesPresentation(
+            mode: RightSidebarMode,
+            sourceWorkspaceID: UUID?,
+            sourcePanelID: UUID?
+        ) -> Bool {
+            self.mode == mode &&
+                self.sourceWorkspaceID == sourceWorkspaceID &&
+                self.sourcePanelID == sourcePanelID
+        }
     }
 
     private enum RightSidebarFocusState: Equatable {
         case inactive
         case requested(RightSidebarFocusRequest)
-        case focused(mode: RightSidebarMode, target: RightSidebarFocusTarget)
+        case focused(RightSidebarFocusRequest)
 
         var mode: RightSidebarMode? {
             switch self {
@@ -34,8 +58,8 @@ final class MainWindowFocusController {
                 return nil
             case .requested(let request):
                 return request.mode
-            case .focused(let mode, _):
-                return mode
+            case .focused(let request):
+                return request.mode
             }
         }
 
@@ -44,6 +68,15 @@ final class MainWindowFocusController {
                 return request
             }
             return nil
+        }
+
+        var restorationRequest: RightSidebarFocusRequest? {
+            switch self {
+            case .inactive:
+                return nil
+            case .requested(let request), .focused(let request):
+                return request
+            }
         }
     }
 
@@ -146,7 +179,10 @@ final class MainWindowFocusController {
 
     func noteRightSidebarInteraction(mode: RightSidebarMode) {
         rememberedRightSidebarMode = mode
-        rightSidebarFocusState = .focused(mode: mode, target: .host)
+        rightSidebarFocusState = .focused(makeRightSidebarFocusRequest(
+            mode: mode,
+            target: .host
+        ))
         intent = .rightSidebar(mode: mode)
         if mode != .feed {
             feedSelectedItemId = nil
@@ -290,8 +326,14 @@ final class MainWindowFocusController {
             publishFeedFocusSnapshot()
             return true
         }
-        if let request = rightSidebarFocusState.request, request.mode == mode {
-            return focusRightSidebar(mode: mode, target: request.target)
+        if let request = rightSidebarFocusState.restorationRequest, request.mode == mode {
+            return focusRightSidebar(
+                mode: mode,
+                target: request.target,
+                sourceWorkspaceID: request.sourceWorkspaceID,
+                sourcePanelID: request.sourcePanelID,
+                initialSearchQuery: request.initialSearchQuery
+            )
         }
         if mode == .find {
             return focusFileSearch()
@@ -349,7 +391,10 @@ final class MainWindowFocusController {
     func selectFeedItem(_ id: UUID, focusFeed: Bool) -> Bool {
         feedSelectedItemId = id
         rememberedRightSidebarMode = .feed
-        rightSidebarFocusState = .focused(mode: .feed, target: .host)
+        rightSidebarFocusState = .focused(makeRightSidebarFocusRequest(
+            mode: .feed,
+            target: .host
+        ))
         intent = .rightSidebar(mode: .feed)
         publishFeedFocusSnapshot()
 
@@ -446,70 +491,223 @@ final class MainWindowFocusController {
         isFallbackSidebarHost: Bool
     ) {
         guard let request = rightSidebarFocusState.request else {
-            rightSidebarFocusState = .focused(mode: responderMode, target: .host)
+            rightSidebarFocusState = .focused(makeRightSidebarFocusRequest(
+                mode: responderMode,
+                target: .host
+            ))
             return
         }
         guard request.mode == responderMode else { return }
         if isFallbackSidebarHost, request.target != .host {
             return
         }
-        rightSidebarFocusState = .focused(mode: request.mode, target: request.target)
+        rightSidebarFocusState = .focused(request.consumingInitialSearchQuery())
     }
 
     @discardableResult
-    func focusRightSidebar(mode requestedMode: RightSidebarMode? = nil, focusFirstItem: Bool = true) -> Bool {
+    func focusRightSidebar(
+        mode requestedMode: RightSidebarMode? = nil,
+        focusFirstItem: Bool = true,
+        sourceWorkspaceID: UUID? = nil,
+        sourcePanelID: UUID? = nil
+    ) -> Bool {
         guard let state = fileExplorerState else { return false }
         let desiredMode = requestedMode ?? rememberedRightSidebarMode ?? state.mode
         guard desiredMode.isAvailable() else {
             guard requestedMode == nil else { return false }
-            return focusRightSidebar(mode: .files, focusFirstItem: focusFirstItem)
+            return focusRightSidebar(
+                mode: .files,
+                focusFirstItem: focusFirstItem,
+                sourceWorkspaceID: sourceWorkspaceID,
+                sourcePanelID: sourcePanelID
+            )
         }
         let mode = desiredMode
         let target = rightSidebarFocusTarget(mode: mode, focusFirstItem: focusFirstItem)
-        return focusRightSidebar(mode: mode, target: target, terminalYieldReason: "rightSidebarFocus")
+        return focusRightSidebar(
+            mode: mode,
+            target: target,
+            terminalYieldReason: "rightSidebarFocus",
+            sourceWorkspaceID: sourceWorkspaceID,
+            sourcePanelID: sourcePanelID
+        )
+    }
+
+    /// Reveals an exact right-sidebar target without changing first responder
+    /// or the selected workspace. This is the non-focus form of the same
+    /// presentation action used by command-palette and automation callers.
+    @discardableResult
+    func presentRightSidebar(
+        mode: RightSidebarMode,
+        sourceWorkspaceID: UUID? = nil,
+        sourcePanelID: UUID? = nil
+    ) -> Bool {
+        guard let state = prepareRightSidebarPresentation(
+            mode: mode,
+            sourceWorkspaceID: sourceWorkspaceID,
+            sourcePanelID: sourcePanelID
+        ) else {
+            return false
+        }
+        reconcileRightSidebarFocusForNonFocusingPresentation(
+            mode: mode,
+            sourceWorkspaceID: sourceWorkspaceID,
+            sourcePanelID: sourcePanelID
+        )
+        displayRightSidebar(state, mode: mode)
+        publishFeedFocusSnapshot()
+        return true
+    }
+
+    private func reconcileRightSidebarFocusForNonFocusingPresentation(
+        mode: RightSidebarMode,
+        sourceWorkspaceID: UUID?,
+        sourcePanelID: UUID?
+    ) {
+        switch rightSidebarFocusState {
+        case .inactive:
+            return
+        case .requested:
+            invalidateRightSidebarFocusForNonFocusingPresentation()
+        case .focused(let request):
+            if request.matchesPresentation(
+                mode: mode,
+                sourceWorkspaceID: sourceWorkspaceID,
+                sourcePanelID: sourcePanelID
+            ) {
+                rightSidebarFocusState = .focused(request.consumingInitialSearchQuery())
+            } else {
+                invalidateRightSidebarFocusForNonFocusingPresentation()
+            }
+        }
+    }
+
+    private func invalidateRightSidebarFocusForNonFocusingPresentation() {
+        if let window,
+           let responder = window.firstResponder,
+           ownsRightSidebarFocus(responder) {
+            _ = window.makeFirstResponder(nil)
+        }
+        rightSidebarFocusState = .inactive
+        if case .rightSidebar = intent {
+            intent = nil
+        }
     }
 
     @discardableResult
     private func focusRightSidebar(
         mode: RightSidebarMode,
         target: RightSidebarFocusTarget,
-        terminalYieldReason: String = "rightSidebarFocus"
+        terminalYieldReason: String = "rightSidebarFocus",
+        sourceWorkspaceID: UUID? = nil,
+        sourcePanelID: UUID? = nil,
+        initialSearchQuery: String? = nil
     ) -> Bool {
-        guard let state = fileExplorerState else { return false }
-        guard mode.isAvailable() else { return false }
-        rememberedRightSidebarMode = mode
-        beginRightSidebarFocusRequest(mode: mode, target: target)
+        guard let state = prepareRightSidebarPresentation(
+            mode: mode,
+            sourceWorkspaceID: sourceWorkspaceID,
+            sourcePanelID: sourcePanelID
+        ) else {
+            return false
+        }
+        beginRightSidebarFocusRequest(
+            mode: mode,
+            target: target,
+            sourceWorkspaceID: sourceWorkspaceID,
+            sourcePanelID: sourcePanelID,
+            initialSearchQuery: initialSearchQuery
+        )
+        guard let request = rightSidebarFocusState.request else { return false }
         intent = .rightSidebar(mode: mode)
-        if mode != .feed {
-            feedSelectedItemId = nil
-        }
         publishFeedFocusSnapshot()
-        yieldCurrentTerminalSurfaceFocus(reason: terminalYieldReason)
-        state.setVisible(true)
-        if state.mode != mode {
-            state.mode = mode
-        }
+        yieldCurrentTerminalSurfaceFocus(
+            reason: terminalYieldReason,
+            workspaceID: sourceWorkspaceID,
+            panelID: sourcePanelID
+        )
+        displayRightSidebar(state, mode: mode)
 
-        let modeResult = focusRightSidebarEndpoint(mode: mode, target: target)
+        let modeResult = focusRightSidebarEndpoint(
+            mode: mode,
+            target: target,
+            initialSearchQuery: initialSearchQuery
+        )
         if modeResult {
-            rightSidebarFocusState = .focused(mode: mode, target: target)
+            rightSidebarFocusState = .focused(request.consumingInitialSearchQuery())
         }
         let fallbackResult = modeResult ? false : focusFallbackRightSidebarHost()
         if fallbackResult, target == .host {
-            rightSidebarFocusState = .focused(mode: mode, target: .host)
+            rightSidebarFocusState = .focused(request.consumingInitialSearchQuery())
         }
         let result = modeResult || fallbackResult || rightSidebarFocusState.request?.mode == mode
         publishFeedFocusSnapshot()
         return result
     }
 
+    private func prepareRightSidebarPresentation(
+        mode: RightSidebarMode,
+        sourceWorkspaceID: UUID?,
+        sourcePanelID: UUID?
+    ) -> FileExplorerState? {
+        guard let state = fileExplorerState,
+              mode.isAvailable(),
+              applyRightSidebarContentBinding(
+                to: state,
+                workspaceID: sourceWorkspaceID,
+                panelID: sourcePanelID
+              ) else {
+            return nil
+        }
+        rememberedRightSidebarMode = mode
+        if mode != .feed {
+            feedSelectedItemId = nil
+        }
+        return state
+    }
+
+    private func displayRightSidebar(
+        _ state: FileExplorerState,
+        mode: RightSidebarMode
+    ) {
+        state.setVisible(true)
+        if state.mode != mode {
+            state.mode = mode
+        }
+    }
+
     @discardableResult
-    func focusFileSearch() -> Bool {
+    func focusFileSearch(
+        initialQuery: String? = nil,
+        sourceWorkspaceID: UUID? = nil,
+        sourcePanelID: UUID? = nil
+    ) -> Bool {
         return focusRightSidebar(
             mode: .find,
             target: .searchField,
-            terminalYieldReason: "fileSearchFocus"
+            terminalYieldReason: "fileSearchFocus",
+            sourceWorkspaceID: sourceWorkspaceID,
+            sourcePanelID: sourcePanelID,
+            initialSearchQuery: initialQuery
         )
+    }
+
+    private func applyRightSidebarContentBinding(
+        to state: FileExplorerState,
+        workspaceID: UUID?,
+        panelID: UUID?
+    ) -> Bool {
+        guard let workspaceID else {
+            guard panelID == nil else { return false }
+            state.clearRightSidebarContentBinding()
+            return true
+        }
+        guard let tabManager,
+              let workspace = tabManager.tabs.first(where: { $0.id == workspaceID }),
+              panelID.map({ workspace.panels[$0] != nil }) ?? true else {
+            return false
+        }
+        state.bindRightSidebarContent(workspaceID: workspaceID, panelID: panelID)
+        return true
     }
 
     @discardableResult
@@ -683,23 +881,50 @@ final class MainWindowFocusController {
               request.mode == mode else {
             return
         }
-        let result = focusRightSidebarEndpoint(mode: mode, target: request.target)
+        let result = focusRightSidebarEndpoint(
+            mode: mode,
+            target: request.target,
+            initialSearchQuery: request.initialSearchQuery
+        )
         if result {
-            rightSidebarFocusState = .focused(mode: mode, target: request.target)
+            rightSidebarFocusState = .focused(request.consumingInitialSearchQuery())
         } else if request.target == .host, focusFallbackRightSidebarHost() {
-            rightSidebarFocusState = .focused(mode: mode, target: .host)
+            rightSidebarFocusState = .focused(request.consumingInitialSearchQuery())
         }
         publishFeedFocusSnapshot()
     }
 
-    private func beginRightSidebarFocusRequest(mode: RightSidebarMode, target: RightSidebarFocusTarget) {
+    private func beginRightSidebarFocusRequest(
+        mode: RightSidebarMode,
+        target: RightSidebarFocusTarget,
+        sourceWorkspaceID: UUID? = nil,
+        sourcePanelID: UUID? = nil,
+        initialSearchQuery: String? = nil
+    ) {
+        rightSidebarFocusState = .requested(makeRightSidebarFocusRequest(
+            mode: mode,
+            target: target,
+            sourceWorkspaceID: sourceWorkspaceID,
+            sourcePanelID: sourcePanelID,
+            initialSearchQuery: initialSearchQuery
+        ))
+    }
+
+    private func makeRightSidebarFocusRequest(
+        mode: RightSidebarMode,
+        target: RightSidebarFocusTarget,
+        sourceWorkspaceID: UUID? = nil,
+        sourcePanelID: UUID? = nil,
+        initialSearchQuery: String? = nil
+    ) -> RightSidebarFocusRequest {
         nextRightSidebarFocusRequestId &+= 1
-        rightSidebarFocusState = .requested(
-            RightSidebarFocusRequest(
-                id: nextRightSidebarFocusRequestId,
-                mode: mode,
-                target: target
-            )
+        return RightSidebarFocusRequest(
+            id: nextRightSidebarFocusRequestId,
+            mode: mode,
+            target: target,
+            sourceWorkspaceID: sourceWorkspaceID,
+            sourcePanelID: sourcePanelID,
+            initialSearchQuery: initialSearchQuery
         )
     }
 
@@ -723,13 +948,14 @@ final class MainWindowFocusController {
 
     private func focusRightSidebarEndpoint(
         mode: RightSidebarMode,
-        target: RightSidebarFocusTarget
+        target: RightSidebarFocusTarget,
+        initialSearchQuery: String? = nil
     ) -> Bool {
         switch mode {
         case .files:
             return fileExplorerHost?.focusOutline() == true
         case .find:
-            return fileSearchHost?.focusSearchField() == true
+            return fileSearchHost?.focusSearchField(initialQuery: initialSearchQuery) == true
         case .sessions, .customSidebar:
             return mode == .customSidebar ? focusFallbackRightSidebarHost() : false
         case .feed:
@@ -753,12 +979,24 @@ final class MainWindowFocusController {
         return window.makeFirstResponder(host)
     }
 
-    private func yieldCurrentTerminalSurfaceFocus(reason: String) {
-        guard let tabManager,
-              let workspace = tabManager.selectedWorkspace else {
+    private func yieldCurrentTerminalSurfaceFocus(
+        reason: String,
+        workspaceID: UUID? = nil,
+        panelID: UUID? = nil
+    ) {
+        guard let tabManager else {
             return
         }
+        let workspace = if let workspaceID {
+            tabManager.tabs.first(where: { $0.id == workspaceID })
+        } else {
+            tabManager.selectedWorkspace
+        }
+        guard let workspace else { return }
         let terminalPanel: TerminalPanel? = {
+            if let panelID {
+                return workspace.terminalPanel(for: panelID)
+            }
             if let focusedPanelId = workspace.focusedPanelId,
                let terminalPanel = workspace.terminalPanel(for: focusedPanelId) {
                 return terminalPanel

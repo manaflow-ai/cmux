@@ -84,12 +84,30 @@ extension AppDelegate {
         )
     }
 
-    func restartSocketListenerIfEnabled(source: String) {
+    @discardableResult
+    func restartSocketListenerIfEnabled(
+        tabManager preferredTabManager: TabManager? = nil,
+        expectedWindowID: UUID? = nil,
+        source: String
+    ) -> Bool {
         guard let config = socketListenerConfigurationIfEnabled() else {
             TerminalController.shared.stop()
-            return
+            return false
         }
-        let manager = activeTabManagerForCommands()
+        let manager: TabManager
+        if let preferredTabManager {
+            guard let context = liveMainWindowContextForAction(
+                tabManager: preferredTabManager
+            ), expectedWindowID.map({ $0 == context.windowId }) ?? true else {
+                return false
+            }
+            manager = preferredTabManager
+        } else {
+            guard let activeManager = activeTabManagerForCommands() else {
+                return false
+            }
+            manager = activeManager
+        }
         let restartPath = TerminalController.shared.activeSocketPath(
             preferredPath: config.preferredSocketPath
         )
@@ -104,5 +122,6 @@ extension AppDelegate {
             socketPath: restartPath,
             routingFallbackTabManager: manager
         )
+        return true
     }
 }

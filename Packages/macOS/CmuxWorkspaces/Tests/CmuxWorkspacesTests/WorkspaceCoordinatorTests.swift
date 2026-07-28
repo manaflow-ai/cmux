@@ -69,6 +69,7 @@ final class StubGroupHost: WorkspaceGroupHosting {
         initialBrowserTransparentBackground: Bool,
         inheritWorkingDirectory: Bool,
         select: Bool,
+        sourceWorkspaceID: UUID?,
         workspaceDirectoryCustomizationMode: WorkspaceDirectoryCustomizationCreationMode
     ) -> CoordinatorStubTab {
         let tab = CoordinatorStubTab(currentDirectory: workingDirectory ?? "/tmp")

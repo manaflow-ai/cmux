@@ -4,6 +4,19 @@ import Testing
 
 @Suite(.serialized)
 struct CLIExplicitSurfaceRoutingTests {
+    @Test func callerSurfaceContextWinsOverStaleCallerWorkspaceForWorkspaceCommands() throws {
+        for (arguments, method) in [
+            (["list-workspaces", "--json"], "workspace.list"),
+            (["new-workspace", "--json"], "workspace.create"),
+            (["workspace-group", "list", "--json"], "workspace.group.list"),
+        ] {
+            try assertCallerContextCommand(
+                arguments: arguments,
+                expectedMethod: method
+            )
+        }
+    }
+
     @Test func explicitSurfaceCommandsDoNotInheritCallerWorkspace() throws {
         try assertExplicitSurfaceCommand(
             arguments: ["read-screen", "--surface", Self.targetSurfaceRef, "--lines", "5"],
@@ -96,6 +109,65 @@ struct CLIExplicitSurfaceRoutingTests {
         #expect(readParams["surface_id"] as? String == Self.numericSurfaceId)
     }
 
+    private func assertCallerContextCommand(
+        arguments: [String],
+        expectedMethod: String
+    ) throws {
+        let socketPath = Self.makeSocketPath(expectedMethod)
+        let listenerFD = try Self.bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let state = ServerState()
+        let handled = Self.startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return Self.malformedRequestResponse(raw: line)
+            }
+            guard method == expectedMethod else {
+                return Self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": method]
+                )
+            }
+            let responseResult: [String: Any]
+            switch method {
+            case "workspace.list":
+                responseResult = ["workspaces": []]
+            case "workspace.create":
+                responseResult = ["workspace_id": Self.createdWorkspaceId]
+            case "workspace.group.list":
+                responseResult = ["groups": []]
+            default:
+                responseResult = [:]
+            }
+            return Self.v2Response(id: id, ok: true, result: responseResult)
+        }
+
+        let result = Self.runProcess(
+            executablePath: try Self.bundledCLIPath(),
+            arguments: arguments,
+            environment: cliEnvironment(socketPath: socketPath),
+            timeout: 5
+        )
+
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        #expect(state.errorsSnapshot().isEmpty, Comment(rawValue: state.errorsSnapshot().joined(separator: "\n")))
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
+
+        let requests = try state.requestObjects()
+        #expect(requests.compactMap { $0["method"] as? String } == [expectedMethod])
+        let params = try #require(requests.first?["params"] as? [String: Any])
+        #expect(params["workspace_id"] == nil)
+        #expect(params["surface_id"] as? String == Self.callerSurfaceId)
+        #expect(params["window_id"] == nil)
+    }
+
     private func assertExplicitSurfaceCommand(
         arguments: [String],
         expectedMethod: String,
@@ -169,6 +241,7 @@ struct CLIExplicitSurfaceRoutingTests {
 
     private static let callerWorkspaceId = "11111111-1111-1111-1111-111111111111"
     private static let callerSurfaceId = "22222222-2222-2222-2222-222222222222"
+    private static let createdWorkspaceId = "55555555-5555-5555-5555-555555555555"
     private static let targetSurfaceRef = "surface:11"
     private static let numericSurfaceId = "33333333-3333-3333-3333-333333333333"
 

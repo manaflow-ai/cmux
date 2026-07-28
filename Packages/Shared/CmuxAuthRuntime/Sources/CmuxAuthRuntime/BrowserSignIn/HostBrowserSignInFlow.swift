@@ -1,3 +1,4 @@
+public import AuthenticationServices
 public import Foundation
 public import Observation
 import os
@@ -83,14 +84,14 @@ public final class HostBrowserSignInFlow {
 
     /// Start a browser sign-in without awaiting the result (Settings button).
     /// Reuses a handed-off attempt; otherwise cancels the previous popup.
-    public func beginSignIn() {
+    public func beginSignIn(presentationAnchor: ASPresentationAnchor? = nil) {
         log.log("auth.browser.beginSignIn signedIn=\(coordinator.isAuthenticated) signingIn=\(isSigningIn)")
         if let activeAttemptID, handedOffAttemptID == activeAttemptID {
             isPresentingSignIn = true
             signInIsSlow = true
             return
         }
-        _ = startAttempt()
+        _ = startAttempt(presentationAnchor: presentationAnchor)
     }
 
     /// The hosted sign-in URL for a manual fallback.
@@ -114,7 +115,7 @@ public final class HostBrowserSignInFlow {
             log.log("auth.browser.signIn.result result=alreadySignedIn")
             return true
         }
-        let result = await deadline.resolve(startAttempt(), timeout: timeout)
+        let result = await deadline.resolve(startAttempt(presentationAnchor: nil), timeout: timeout)
         log.log("auth.browser.signIn.result signedIn=\(result)")
         return result
     }
@@ -181,7 +182,7 @@ public final class HostBrowserSignInFlow {
 
     // MARK: - Attempt lifecycle
 
-    private func startAttempt() -> Task<Bool, Never> {
+    private func startAttempt(presentationAnchor: ASPresentationAnchor?) -> Task<Bool, Never> {
         if let activeAttemptID {
             log.log("auth.browser.attempt.replace previous=\(activeAttemptID)")
         }
@@ -208,7 +209,10 @@ public final class HostBrowserSignInFlow {
             guard let self else { return false }
             defer { self.finishAttempt(attemptID) }
             guard self.activeAttemptID == attemptID else { return false }
-            guard let result = await self.runBrowserSession(attemptID: attemptID) else {
+            guard let result = await self.runBrowserSession(
+                attemptID: attemptID,
+                presentationAnchor: presentationAnchor
+            ) else {
                 self.log.log("auth.browser.attempt.noResult id=\(attemptID) signedIn=\(self.coordinator.isAuthenticated)")
                 return self.coordinator.isAuthenticated
             }
@@ -228,7 +232,10 @@ public final class HostBrowserSignInFlow {
         }
     }
 
-    private func runBrowserSession(attemptID: UInt64) async -> HostBrowserAuthSessionResult? {
+    private func runBrowserSession(
+        attemptID: UInt64,
+        presentationAnchor: ASPresentationAnchor?
+    ) async -> HostBrowserAuthSessionResult? {
         await withCheckedContinuation {
             (continuation: CheckedContinuation<HostBrowserAuthSessionResult?, Never>) in
             activeSessionContinuation = continuation
@@ -237,7 +244,11 @@ public final class HostBrowserSignInFlow {
             let signInURL = makeSignInURL(callbackState)
             let scheme = callbackScheme()
             log.log("auth.browser.session.create id=\(attemptID) signInURL=\(signInURL.absoluteString) callbackScheme=\(scheme)")
-            let session = sessionFactory.makeSession(signInURL: signInURL, callbackScheme: scheme) { result in
+            let session = sessionFactory.makeSession(
+                signInURL: signInURL,
+                callbackScheme: scheme,
+                presentationAnchor: presentationAnchor
+            ) { result in
                 self.log.log("auth.browser.session.completion id=\(attemptID) \(self.sessionResultSummary(result))")
                 if case let .callback(url) = result, !self.callbackRouter.isAuthCallbackURL(url) {
                     self.log.log("auth.browser.session.completion.nonAuth id=\(attemptID) \(self.authCallbackSummary(url))")

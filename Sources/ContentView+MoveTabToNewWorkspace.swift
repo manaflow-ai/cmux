@@ -14,17 +14,26 @@ extension ContentView {
                 title: { _ in String(localized: "command.moveTabToNewWorkspace.title", defaultValue: "Move Tab to New Workspace") },
                 subtitle: panelSubtitle,
                 keywords: ["move", "tab", "workspace", "detach", "sidebar", "surface"],
+                arguments: Self.commandPaletteOptionalFocusArguments,
                 when: { $0.bool(CommandPaletteContextKeys.hasFocusedPanel) },
                 enablement: { $0.bool(CommandPaletteContextKeys.panelCanMoveToNewWorkspace) }
             )
         )
     }
 
-    func moveFocusedPanelToNewWorkspace() -> Bool {
-        guard let panelContext = focusedPanelContext else { return false }
+    func movePanelToNewWorkspace(
+        context: CommandPaletteActionContext,
+        focus: Bool
+    ) -> Bool {
+        guard let (workspace, panelID, _) = context.panel(),
+              workspace.panels.count > 1 else {
+            return false
+        }
         return AppDelegate.shared?.moveSurfaceToNewWorkspace(
-            panelId: panelContext.panelId,
-            focus: true,
+            panelId: panelID,
+            sourceWorkspaceID: workspace.id,
+            destinationManager: context.tabManager,
+            focus: focus,
             focusWindow: false
         ) != nil
     }

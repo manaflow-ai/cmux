@@ -3,7 +3,7 @@ import CmuxRemoteSession
 import Foundation
 import Darwin
 
-struct DetectedSSHSession: Equatable {
+nonisolated struct DetectedSSHSession: Equatable, Sendable {
     let destination: String
     let port: Int?
     let identityFile: String?
@@ -237,7 +237,7 @@ struct DetectedSSHSession: Equatable {
         )
     }
 
-    private func cleanupUploadedRemotePathsAsync(_ remotePaths: [String]) {
+    func cleanupUploadedRemotePathsAsync(_ remotePaths: [String]) {
         guard !remotePaths.isEmpty else { return }
         let session = self
         DispatchQueue.global(qos: .utility).async {
@@ -385,8 +385,8 @@ struct DetectedSSHSession: Equatable {
 #endif
 }
 
-enum TerminalSSHSessionDetector {
-    struct ProcessSnapshot: Equatable {
+nonisolated enum TerminalSSHSessionDetector {
+    struct ProcessSnapshot: Equatable, Sendable {
         let pid: Int32
         let pgid: Int32
         let tpgid: Int32
@@ -412,6 +412,26 @@ enum TerminalSSHSessionDetector {
             processes: processes,
             argumentsByPID: argumentsByPID
         )
+    }
+
+    static func hasForegroundRemoteShell(forTTY ttyName: String) -> Bool {
+        let normalizedTTY = normalizeTTYName(ttyName)
+        guard !normalizedTTY.isEmpty else { return false }
+        return hasForegroundRemoteShellForTesting(
+            ttyName: normalizedTTY,
+            processes: processSnapshots(forTTY: normalizedTTY)
+        )
+    }
+
+    static func hasForegroundRemoteShellForTesting(
+        ttyName: String,
+        processes: [ProcessSnapshot]
+    ) -> Bool {
+        let normalizedTTY = normalizeTTYName(ttyName)
+        guard !normalizedTTY.isEmpty else { return false }
+        return processes.contains {
+            isForegroundRemoteShellProcess($0, ttyName: normalizedTTY)
+        }
     }
 
     static func detectForTesting(

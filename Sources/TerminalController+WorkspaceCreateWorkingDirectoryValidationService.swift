@@ -9,22 +9,28 @@ extension TerminalController {
         }
 
         typealias Probe = @Sendable (_ path: String, _ lane: ProbeLane) async -> Bool
+        typealias BlockingCanonicalProbe = @Sendable (
+            _ path: String,
+            _ lane: ProbeLane,
+            _ probeVariant: String?
+        ) -> WorkspaceCreateWorkingDirectoryCanonicalProbeResult
         typealias LaneClassifier = @Sendable (_ path: String) async -> ProbeLane
+        typealias PathResolver = @Sendable (_ rawValue: String) -> String?
         typealias DeadlineSleep = @Sendable (_ timeout: Duration) async -> Void
 
         private struct QueuedProbe {
-            let pathID: Data
+            let key: WorkspaceCreateWorkingDirectoryProbeKey
             let path: String
             let lane: ProbeLane
         }
 
         private struct QueuedClassification {
-            let pathID: Data
+            let key: WorkspaceCreateWorkingDirectoryProbeKey
             let path: String
         }
 
         private struct Waiter {
-            let pathID: Data
+            let key: WorkspaceCreateWorkingDirectoryProbeKey
             let continuation: CheckedContinuation<WorkspaceCreateWorkingDirectoryValidation, Never>
             let deadlineTask: Task<Void, Never>
         }
@@ -35,14 +41,19 @@ extension TerminalController {
         private let classificationCapacity: Int
         private let maximumPendingWaiters: Int
         private let maximumPathUTF8Bytes: Int
+        private let pathResolver: PathResolver
         private let laneClassifier: LaneClassifier
-        private let probe: Probe
+        private let canonicalProbe: @Sendable (
+            _ path: String,
+            _ lane: ProbeLane,
+            _ probeVariant: String?
+        ) async -> WorkspaceCreateWorkingDirectoryCanonicalProbeResult
         private let sleepUntilDeadline: DeadlineSleep
-        private var activeLanesByPath: [Data: ProbeLane] = [:]
+        private var activeLanesByPath: [WorkspaceCreateWorkingDirectoryProbeKey: ProbeLane] = [:]
         private var queuedProbes: [QueuedProbe] = []
-        private var classifyingPathIDs: Set<Data> = []
+        private var classifyingPathIDs: Set<WorkspaceCreateWorkingDirectoryProbeKey> = []
         private var queuedClassifications: [QueuedClassification] = []
-        private var waiterIDsByPath: [Data: Set<UUID>] = [:]
+        private var waiterIDsByPath: [WorkspaceCreateWorkingDirectoryProbeKey: Set<UUID>] = [:]
         private var waiters: [UUID: Waiter] = [:]
 
         init(
@@ -52,6 +63,14 @@ extension TerminalController {
             classificationCapacity: Int = 3,
             maximumPendingWaiters: Int,
             maximumPathUTF8Bytes: Int = 4_096,
+            pathResolver: @escaping PathResolver = {
+                guard let path = TerminalController.v2ExpandedWorkingDirectory($0),
+                      (path as NSString).isAbsolutePath,
+                      !TerminalController.v2WorkingDirectoryContainsDotComponent(path) else {
+                    return nil
+                }
+                return path
+            },
             laneClassifier: @escaping LaneClassifier,
             probe: @escaping Probe,
             sleepUntilDeadline: @escaping DeadlineSleep
@@ -66,23 +85,62 @@ extension TerminalController {
             self.classificationCapacity = classificationCapacity
             self.maximumPendingWaiters = maximumPendingWaiters
             self.maximumPathUTF8Bytes = maximumPathUTF8Bytes
+            self.pathResolver = pathResolver
             self.laneClassifier = laneClassifier
-            self.probe = probe
+            canonicalProbe = { path, lane, _ in
+                await probe(path, lane) ? .valid(path) : .invalid
+            }
+            self.sleepUntilDeadline = sleepUntilDeadline
+        }
+
+        /// Creates a bounded service for blocking probes that return a
+        /// kernel-canonical path. The synchronous probe always runs in a
+        /// detached utility worker, while this actor retains its capacity lane
+        /// until that worker exits, including after caller timeout.
+        init(
+            timeout: Duration,
+            localCapacity: Int,
+            externalCapacity: Int,
+            classificationCapacity: Int = 3,
+            maximumPendingWaiters: Int,
+            maximumPathUTF8Bytes: Int = 4_096,
+            pathResolver: @escaping PathResolver,
+            laneClassifier: @escaping LaneClassifier,
+            blockingCanonicalProbe: @escaping BlockingCanonicalProbe,
+            sleepUntilDeadline: @escaping DeadlineSleep
+        ) {
+            precondition(
+                localCapacity > 0 && externalCapacity > 0 && classificationCapacity > 0
+                    && maximumPendingWaiters > 0 && maximumPathUTF8Bytes > 0
+            )
+            self.timeout = timeout
+            self.localCapacity = localCapacity
+            self.externalCapacity = externalCapacity
+            self.classificationCapacity = classificationCapacity
+            self.maximumPendingWaiters = maximumPendingWaiters
+            self.maximumPathUTF8Bytes = maximumPathUTF8Bytes
+            self.pathResolver = pathResolver
+            self.laneClassifier = laneClassifier
+            canonicalProbe = { path, lane, probeVariant in
+                await Task.detached(priority: .utility) {
+                    blockingCanonicalProbe(path, lane, probeVariant)
+                }.value
+            }
             self.sleepUntilDeadline = sleepUntilDeadline
         }
 
         func validate(
             rawValue: String?,
-            isProvided: Bool
+            isProvided: Bool,
+            timeoutOverride: Duration? = nil,
+            probeVariant: String? = nil
         ) async -> WorkspaceCreateWorkingDirectoryValidation {
             guard isProvided else { return .notProvided }
             guard let rawValue, rawValue.utf8.count <= maximumPathUTF8Bytes else {
                 return .invalid
             }
-            guard let path = TerminalController.v2ExpandedWorkingDirectory(rawValue),
-                  path.utf8.count <= maximumPathUTF8Bytes,
-                  (path as NSString).isAbsolutePath,
-                  !TerminalController.v2WorkingDirectoryContainsDotComponent(path) else {
+            guard let path = pathResolver(rawValue),
+                  path.utf8.count <= maximumPathUTF8Bytes else {
                 return .invalid
             }
             guard !Task.isCancelled else { return .cancelled }
@@ -90,7 +148,13 @@ extension TerminalController {
             return await withTaskCancellationHandler {
                 guard !Task.isCancelled else { return .cancelled }
                 return await withCheckedContinuation { continuation in
-                    register(waiterID: waiterID, path: path, continuation: continuation)
+                    register(
+                        waiterID: waiterID,
+                        path: path,
+                        probeVariant: probeVariant,
+                        timeout: timeoutOverride ?? timeout,
+                        continuation: continuation
+                    )
                 }
             } onCancel: {
                 Task { await self.cancelWaiter(waiterID) }
@@ -100,29 +164,34 @@ extension TerminalController {
         private func register(
             waiterID: UUID,
             path: String,
+            probeVariant: String?,
+            timeout: Duration,
             continuation: CheckedContinuation<WorkspaceCreateWorkingDirectoryValidation, Never>
         ) {
             guard waiters.count < maximumPendingWaiters else {
                 continuation.resume(returning: .busy)
                 return
             }
-            let deadlineTask = Task { [weak self, sleepUntilDeadline, timeout] in
+            let deadlineTask = Task { [weak self, sleepUntilDeadline] in
                 await sleepUntilDeadline(timeout)
                 guard !Task.isCancelled else { return }
                 await self?.timeoutWaiter(waiterID)
             }
-            let pathID = Data(path.utf8)
+            let key = WorkspaceCreateWorkingDirectoryProbeKey(
+                pathID: Data(path.utf8),
+                probeVariant: probeVariant
+            )
             waiters[waiterID] = Waiter(
-                pathID: pathID,
+                key: key,
                 continuation: continuation,
                 deadlineTask: deadlineTask
             )
-            waiterIDsByPath[pathID, default: []].insert(waiterID)
-            if activeLanesByPath[pathID] == nil,
-               !classifyingPathIDs.contains(pathID),
-               !queuedClassifications.contains(where: { $0.pathID == pathID }),
-               !queuedProbes.contains(where: { $0.pathID == pathID }) {
-                queuedClassifications.append(QueuedClassification(pathID: pathID, path: path))
+            waiterIDsByPath[key, default: []].insert(waiterID)
+            if activeLanesByPath[key] == nil,
+               !classifyingPathIDs.contains(key),
+               !queuedClassifications.contains(where: { $0.key == key }),
+               !queuedProbes.contains(where: { $0.key == key }) {
+                queuedClassifications.append(QueuedClassification(key: key, path: path))
             }
             startClassificationsUpToLimit()
             startProbesUpToLimit()
@@ -142,14 +211,14 @@ extension TerminalController {
             result: WorkspaceCreateWorkingDirectoryValidation
         ) {
             guard let waiter = waiters.removeValue(forKey: waiterID) else { return }
-            let pathID = waiter.pathID
+            let key = waiter.key
             waiter.deadlineTask.cancel()
-            waiterIDsByPath[pathID]?.remove(waiterID)
-            if waiterIDsByPath[pathID]?.isEmpty == true {
-                waiterIDsByPath.removeValue(forKey: pathID)
-                if activeLanesByPath[pathID] == nil {
-                    queuedClassifications.removeAll { $0.pathID == pathID }
-                    queuedProbes.removeAll { $0.pathID == pathID }
+            waiterIDsByPath[key]?.remove(waiterID)
+            if waiterIDsByPath[key]?.isEmpty == true {
+                waiterIDsByPath.removeValue(forKey: key)
+                if activeLanesByPath[key] == nil {
+                    queuedClassifications.removeAll { $0.key == key }
+                    queuedProbes.removeAll { $0.key == key }
                 }
             }
             waiter.continuation.resume(returning: result)
@@ -159,8 +228,8 @@ extension TerminalController {
             while classifyingPathIDs.count < classificationCapacity,
                   !queuedClassifications.isEmpty {
                 let queued = queuedClassifications.removeFirst()
-                guard waiterIDsByPath[queued.pathID]?.isEmpty == false else { continue }
-                classifyingPathIDs.insert(queued.pathID)
+                guard waiterIDsByPath[queued.key]?.isEmpty == false else { continue }
+                classifyingPathIDs.insert(queued.key)
                 Task.detached(priority: .utility) { [weak self, laneClassifier] in
                     let lane = await laneClassifier(queued.path)
                     await self?.completeClassification(queued, lane: lane)
@@ -172,10 +241,10 @@ extension TerminalController {
             _ classification: QueuedClassification,
             lane: ProbeLane
         ) {
-            guard classifyingPathIDs.remove(classification.pathID) != nil else { return }
-            if waiterIDsByPath[classification.pathID]?.isEmpty == false {
+            guard classifyingPathIDs.remove(classification.key) != nil else { return }
+            if waiterIDsByPath[classification.key]?.isEmpty == false {
                 queuedProbes.append(QueuedProbe(
-                    pathID: classification.pathID,
+                    key: classification.key,
                     path: classification.path,
                     lane: lane
                 ))
@@ -187,25 +256,39 @@ extension TerminalController {
         private func startProbesUpToLimit() {
             while let index = queuedProbes.firstIndex(where: { hasCapacity(for: $0.lane) }) {
                 let queued = queuedProbes.remove(at: index)
-                let pathID = queued.pathID
+                let key = queued.key
                 let path = queued.path
-                guard waiterIDsByPath[pathID]?.isEmpty == false else { continue }
-                activeLanesByPath[pathID] = queued.lane
-                Task { [weak self, probe, lane = queued.lane] in
-                    let isDirectory = await probe(path, lane)
+                guard waiterIDsByPath[key]?.isEmpty == false else { continue }
+                activeLanesByPath[key] = queued.lane
+                Task { [weak self, canonicalProbe, lane = queued.lane] in
+                    let probeResult = await canonicalProbe(
+                        path,
+                        lane,
+                        key.probeVariant
+                    )
                     await self?.completeProbe(
-                        pathID: pathID,
-                        path: path,
-                        isDirectory: isDirectory
+                        key: key,
+                        probeResult: probeResult
                     )
                 }
             }
         }
 
-        private func completeProbe(pathID: Data, path: String, isDirectory: Bool) {
-            guard activeLanesByPath.removeValue(forKey: pathID) != nil else { return }
-            let waiterIDs = Array(waiterIDsByPath[pathID] ?? [])
-            let result: WorkspaceCreateWorkingDirectoryValidation = isDirectory ? .valid(path) : .invalid
+        private func completeProbe(
+            key: WorkspaceCreateWorkingDirectoryProbeKey,
+            probeResult: WorkspaceCreateWorkingDirectoryCanonicalProbeResult
+        ) {
+            guard activeLanesByPath.removeValue(forKey: key) != nil else { return }
+            let waiterIDs = Array(waiterIDsByPath[key] ?? [])
+            let result: WorkspaceCreateWorkingDirectoryValidation
+            switch probeResult {
+            case .valid(let canonicalPath):
+                result = .valid(canonicalPath)
+            case .invalid:
+                result = .invalid
+            case .wrongFileType:
+                result = .wrongFileType
+            }
             for waiterID in waiterIDs {
                 finishWaiter(waiterID, result: result)
             }

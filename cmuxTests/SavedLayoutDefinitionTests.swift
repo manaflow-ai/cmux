@@ -74,6 +74,57 @@ import Testing
         _ = try JSONDecoder().decode(CmuxLayoutNode.self, from: layoutData)
     }
 
+    @Test func captureUsesExplicitTargetPanelDirectoryWithoutChangingFocus() throws {
+        let focusedCwd = "/tmp/cmux-layout-focused-\(UUID().uuidString)"
+        let targetCwd = "/tmp/cmux-layout-target-\(UUID().uuidString)"
+        let workspace = Workspace(workingDirectory: focusedCwd)
+        let focusedPanelID = try #require(workspace.focusedPanelId)
+        let paneID = try #require(workspace.paneId(forPanelId: focusedPanelID))
+        let targetPanel = try #require(
+            workspace.newTerminalSurface(
+                inPane: paneID,
+                focus: false,
+                workingDirectory: targetCwd
+            )
+        )
+        workspace.panelCustomTitles[targetPanel.id] = "Explicit Target"
+
+        let capture = try workspace.captureLayoutDefinition(focusedPanelID: targetPanel.id)
+
+        #expect(capture.workspace.cwd == targetCwd)
+        #expect(workspace.focusedPanelId == focusedPanelID)
+        guard case .pane(let pane) = try #require(capture.workspace.layout) else {
+            Issue.record("Expected a single captured pane")
+            return
+        }
+        let targetSurface = try #require(
+            pane.surfaces.first(where: { $0.name == "Explicit Target" })
+        )
+        #expect(targetSurface.cwd == nil)
+        #expect(targetSurface.focus == true)
+    }
+
+    @Test func captureWithoutExplicitTargetPreservesWorkspaceDirectoryFallback() throws {
+        let workspaceCwd = "/tmp/cmux-layout-workspace-\(UUID().uuidString)"
+        let workspace = Workspace(workingDirectory: workspaceCwd)
+
+        let capture = try workspace.captureLayoutDefinition()
+
+        #expect(capture.workspace.cwd == workspaceCwd)
+    }
+
+    @Test func captureFailsClosedWhenExplicitTargetHasNoDirectory() throws {
+        let workspace = Workspace(
+            workingDirectory: "/tmp/cmux-layout-browser-\(UUID().uuidString)",
+            initialSurface: .browser
+        )
+        let browserPanelID = try #require(workspace.focusedPanelId)
+
+        #expect(throws: SavedLayoutCaptureError.targetPanelUnavailable) {
+            try workspace.captureLayoutDefinition(focusedPanelID: browserPanelID)
+        }
+    }
+
     private static var nestedLayout: CmuxLayoutNode {
         .split(
             CmuxSplitDefinition(

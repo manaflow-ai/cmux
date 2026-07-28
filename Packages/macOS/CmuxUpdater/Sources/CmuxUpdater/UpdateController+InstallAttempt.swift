@@ -12,7 +12,16 @@ extension UpdateController {
     /// fresh check instead of installing the update that was captured when the prompt was first
     /// surfaced, so a newer release published in the meantime is installed directly rather than
     /// prompting the user again right after relaunch (issue #6366).
-    public func attemptUpdate() {
+    @discardableResult
+    public func attemptUpdate() -> UpdateRequestOutcome {
+        guard !attemptCoordinator.isMonitoring else { return .inProgress }
+        switch model.state {
+        case .startingDownload, .downloading, .extracting, .installing:
+            return .inProgress
+        case .idle, .permissionRequest, .preparingCheck, .checking, .updateAvailable,
+                .notFound, .error:
+            break
+        }
         model.discardPendingChanges()
         let action = attemptCoordinator.requestInstallLatest(currentState: model.state)
         if action == .startFreshCheck {
@@ -21,7 +30,7 @@ extension UpdateController {
             // silently looping on "Update Available".
             installWatchdog.arm { [weak self] in self?.fireInstallWatchdogIfStalled() }
         }
-        performAttemptAction(action)
+        return performAttemptAction(action)
     }
 
     private func fireInstallWatchdogIfStalled() {
@@ -68,12 +77,13 @@ extension UpdateController {
         model.replaceActiveState(with: errorState)
     }
 
-    func performAttemptAction(_ action: AttemptUpdateCoordinator.Action) {
+    @discardableResult
+    func performAttemptAction(_ action: AttemptUpdateCoordinator.Action) -> UpdateRequestOutcome {
         switch action {
         case .none:
-            break
+            return .inProgress
         case .startFreshCheck:
-            requestUpdateCheck(.installLatest)
+            return requestUpdateCheck(.installLatest)
         case .confirmInstall:
             // Reactions process drained snapshots, so the live state can have moved past the
             // snapshot that produced this action. Confirm only a live "Update Available" prompt
@@ -88,20 +98,24 @@ extension UpdateController {
                 // synchronous. The pill stays visible until download or a retryable error.
                 model.setState(.startingDownload)
                 available.reply.consume(.install, source: .installAttempt)
+                return .accepted
             } else if case .updateAvailable(let available) = model.state,
                       available.reply.consumedSource == .user {
                 log.append("attemptUpdate hand-off cancelled by explicit user prompt choice")
                 attemptCoordinator.cancel()
                 installWatchdog.disarm()
+                return .suppressed
             } else {
                 setInstallDidNotStartError(
                     diagnostic: "fresh prompt disappeared before install reply (state=\(model.state))"
                 )
+                return .accepted
             }
         case .installFailed:
             setInstallDidNotStartError(
                 diagnostic: "accepted install reached unexpected terminal state (state=\(model.state))"
             )
+            return .accepted
         }
     }
 }

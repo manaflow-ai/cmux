@@ -278,11 +278,15 @@ final class SidebarRowChecklistSection: NSView {
                 isAdding: isAdding,
                 armToken: model.checklistAddFieldActivationToken,
                 onBeginAdding: { [weak self] in
-                    guard let model = self?.model else { return }
+                    guard let model = self?.model,
+                          let tabManager = self?.actions?.commands.tabManager else { return }
                     // Arm via the same activation-token path the context menu
                     // uses, so the armed field is part of the row model and
                     // the prototype height measurement sees it.
-                    WorkspaceTodoActions.requestChecklistAddField(workspaceId: model.workspaceId)
+                    WorkspaceTodoActions.requestChecklistAddField(
+                        workspaceId: model.workspaceId,
+                        in: tabManager
+                    )
                 },
                 // Workspace-bound closures frozen for THIS configure pass:
                 // resolving through the pooled section's `self.actions` at

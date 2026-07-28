@@ -8,6 +8,29 @@ import Testing
 /// the sign-out-vs-callback race guards, deadlines, and attempt cancellation.
 @MainActor
 @Suite(.serialized) struct HostBrowserSignInFlowTests {
+    @Test func beginSignInPassesExactPresentationAnchorToAttempt() async {
+        let harness = HostBrowserSignInFlowHarness()
+        let exactAnchor = ASPresentationAnchor()
+
+        harness.flow.beginSignIn(presentationAnchor: exactAnchor)
+        await harness.waitForSession()
+
+        #expect(harness.factory.sessions[0].presentationAnchor === exactAnchor)
+        harness.factory.sessions[0].cancel()
+        await harness.waitForCondition { harness.flow.isSigningIn == false }
+    }
+
+    @Test func beginSignInWithoutAnchorPreservesFactoryDefaultBehavior() async {
+        let harness = HostBrowserSignInFlowHarness()
+
+        harness.flow.beginSignIn()
+        await harness.waitForSession()
+
+        #expect(harness.factory.sessions[0].presentationAnchor == nil)
+        harness.factory.sessions[0].cancel()
+        await harness.waitForCondition { harness.flow.isSigningIn == false }
+    }
+
     @Test func concurrentSignOutBeginsOnceAndClearsLocalAuthBeforeTeardownCompletes() async {
         let teardownStarted = TestPhaseSignal()
         let teardownBlocker = TestContinuationBlocker()

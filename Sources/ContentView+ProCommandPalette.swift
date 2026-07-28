@@ -10,6 +10,23 @@ extension ContentView {
     static let commandPaletteProUpgradeCommandId = "palette.pro.upgrade"
     static let commandPaletteProWelcomeChecklistCommandId = "palette.pro.welcomeChecklist"
 
+    static func commandPaletteProPresentationResult(
+        targetAvailable: Bool,
+        didPresent: Bool
+    ) -> CmuxActionExecutionResult {
+        guard targetAvailable else { return .targetUnavailable }
+        guard didPresent else {
+            return .failed(
+                code: "presentation_failed",
+                message: String(
+                    localized: "action.error.configuredActionFailed",
+                    defaultValue: "The configured action could not be started."
+                )
+            )
+        }
+        return .presented
+    }
+
     static func commandPaletteProCommandContributions() -> [CommandPaletteCommandContribution] {
         func constant(_ value: String) -> (CommandPaletteContextSnapshot) -> String {
             { _ in value }
@@ -37,18 +54,77 @@ extension ContentView {
         ]
     }
 
-    func registerProCommandHandlers(_ registry: inout CommandPaletteHandlerRegistry) {
-        registry.register(commandId: Self.commandPaletteProUpgradeCommandId) {
+    func registerProCommandHandlers(
+        _ registry: inout CommandPaletteHandlerRegistry,
+        context: CommandPaletteActionContext,
+        presentUpgrade: (@MainActor (TabManager, CommandPaletteActionTarget) -> Bool)? = nil,
+        presentWelcomeChecklist: (@MainActor (TabManager, CommandPaletteActionTarget) -> Bool)? = nil
+    ) {
+        registry.register(commandId: Self.commandPaletteProUpgradeCommandId) { _ in
 #if DEBUG
             cmuxDebugLog("palette.pro.upgrade.invoke")
 #endif
-            ProUpgradePresenter.present()
+            guard context.target.windowID == windowId,
+                  context.owningWindowID == windowId,
+                  ProUpgradePresenter.capturedSourceIsAvailable(
+                appDelegate: AppDelegate.shared,
+                tabManager: context.tabManager,
+                sourceWindowID: context.target.windowID,
+                sourceWorkspaceID: context.target.workspaceID,
+                sourcePanelID: context.target.panelID
+            ) else {
+                return Self.commandPaletteProPresentationResult(
+                    targetAvailable: false,
+                    didPresent: false
+                )
+            }
+            let didPresent = if let presentUpgrade {
+                presentUpgrade(context.tabManager, context.target)
+            } else {
+                ProUpgradePresenter.present(
+                    tabManager: context.tabManager,
+                    sourceWindowID: context.target.windowID,
+                    sourceWorkspaceID: context.target.workspaceID,
+                    sourcePanelID: context.target.panelID
+                )
+            }
+            return Self.commandPaletteProPresentationResult(
+                targetAvailable: true,
+                didPresent: didPresent
+            )
         }
-        registry.register(commandId: Self.commandPaletteProWelcomeChecklistCommandId) {
+        registry.register(commandId: Self.commandPaletteProWelcomeChecklistCommandId) { _ in
 #if DEBUG
             cmuxDebugLog("palette.pro.welcomeChecklist.invoke")
 #endif
-            ProWelcomeChecklistPresenter.present()
+            guard context.target.windowID == windowId,
+                  context.owningWindowID == windowId,
+                  ProUpgradePresenter.capturedSourceIsAvailable(
+                appDelegate: AppDelegate.shared,
+                tabManager: context.tabManager,
+                sourceWindowID: context.target.windowID,
+                sourceWorkspaceID: context.target.workspaceID,
+                sourcePanelID: context.target.panelID
+            ) else {
+                return Self.commandPaletteProPresentationResult(
+                    targetAvailable: false,
+                    didPresent: false
+                )
+            }
+            let didPresent = if let presentWelcomeChecklist {
+                presentWelcomeChecklist(context.tabManager, context.target)
+            } else {
+                ProWelcomeChecklistPresenter.present(
+                    tabManager: context.tabManager,
+                    sourceWindowID: context.target.windowID,
+                    sourceWorkspaceID: context.target.workspaceID,
+                    sourcePanelID: context.target.panelID
+                )
+            }
+            return Self.commandPaletteProPresentationResult(
+                targetAvailable: true,
+                didPresent: didPresent
+            )
         }
     }
 }

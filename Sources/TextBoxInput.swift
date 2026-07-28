@@ -4,6 +4,8 @@ import AppKit
 import CmuxTerminal
 import Carbon.HIToolbox
 import CmuxSettingsUI
+import Darwin
+import Dispatch
 import Observation
 import SwiftUI
 import UniformTypeIdentifiers
@@ -221,13 +223,20 @@ struct TextBoxAttachment: Identifiable {
     let thumbnail: NSImage?
     let inlineThumbnailSource: TextBoxInlineAttachmentThumbnailSource?
     let cleanupLocalURLWhenDisposed: Bool
+    let cleanupPathEntryIdentity: TextBoxPreparedLocalFileIdentity?
+    let preparedLocalFileDisposition: TextBoxPreparedLocalFileDisposition?
+    /// Regular UI attachment paths still run the legacy durable-copy preflight
+    /// when inserted. Prepared attachments have already completed that
+    /// ownership check and started any required copy away from the main actor.
+    let requiresDurableCopyPreparationOnInsertion: Bool
 
     init(
         displayName: String,
         submissionText: String,
         submissionPath: String,
         localURL: URL?,
-        cleanupLocalURLWhenDisposed: Bool = false
+        cleanupLocalURLWhenDisposed: Bool = false,
+        cleanupPathEntryIdentity: TextBoxPreparedLocalFileIdentity? = nil
     ) {
         let standardizedURL = localURL?.standardizedFileURL
         let fallbackName = standardizedURL?.lastPathComponent ?? URL(fileURLWithPath: submissionPath).lastPathComponent
@@ -245,6 +254,9 @@ struct TextBoxAttachment: Identifiable {
             nil
         }
         self.cleanupLocalURLWhenDisposed = cleanupLocalURLWhenDisposed
+        self.cleanupPathEntryIdentity = cleanupPathEntryIdentity
+        self.preparedLocalFileDisposition = nil
+        self.requiresDurableCopyPreparationOnInsertion = true
     }
 
     init(
@@ -266,6 +278,31 @@ struct TextBoxAttachment: Identifiable {
             TextBoxInlineAttachmentThumbnailSource(fileURL: standardizedURL)
         }
         self.cleanupLocalURLWhenDisposed = cleanupLocalURLWhenDisposed
+        self.cleanupPathEntryIdentity = nil
+        self.preparedLocalFileDisposition = nil
+        self.requiresDurableCopyPreparationOnInsertion = true
+    }
+
+    init(
+        preparedFile: TextBoxPreparedFileAttachment,
+        submissionText: String,
+        submissionPath: String? = nil
+    ) {
+        let fileURL = preparedFile.fileURL
+        self.displayName = preparedFile.displayName
+        self.submissionText = submissionText
+        self.submissionPath = submissionPath ?? fileURL.path
+        self.localURL = fileURL
+        let thumbnail = TextBoxAttachment.makeThumbnail(from: preparedFile)
+        self.thumbnail = thumbnail
+        self.inlineThumbnailSource = thumbnail.map { _ in
+            TextBoxInlineAttachmentThumbnailSource(fileURL: fileURL)
+        }
+        self.cleanupLocalURLWhenDisposed =
+            preparedFile.localFileDisposition.cleanupLocalURLWhenDisposed
+        self.cleanupPathEntryIdentity = preparedFile.cleanupPathEntryIdentity
+        self.preparedLocalFileDisposition = preparedFile.localFileDisposition
+        self.requiresDurableCopyPreparationOnInsertion = false
     }
 
     var isImage: Bool {
@@ -294,8 +331,92 @@ struct TextBoxAttachment: Identifiable {
     }
 
     static func shouldCleanupLocalURLWhenDisposed(_ fileURL: URL) -> Bool {
-        GhosttyApp.terminalPasteboard.isOwnedTemporaryImageFile(fileURL)
-            || TextBoxDraftAttachmentStorage.isOwnedDraftCopy(fileURL)
+        localFileDisposition(for: fileURL).cleanupLocalURLWhenDisposed
+    }
+
+    /// Captures ownership and starts any required durable-copy preflight. This
+    /// is called only by `TextBoxPreparedFileAttachment` on its background
+    /// preparation executor.
+    static func prepareLocalFileForBackgroundInsertion(
+        _ fileURL: URL,
+        capturedDisposition: TextBoxPreparedLocalFileDisposition? = nil
+    ) -> TextBoxPreparedLocalFileDisposition {
+        let disposition = capturedDisposition ?? localFileDisposition(for: fileURL)
+        if disposition == .cmuxTemporaryImage {
+            TextBoxDraftAttachmentStorage.prepareDurableCopyForOwnedTemporaryFile(
+                at: fileURL
+            )
+        }
+        return disposition
+    }
+
+    static func localFileDispositionForBackgroundPreparation(
+        _ fileURL: URL
+    ) -> TextBoxPreparedLocalFileDisposition {
+        localFileDisposition(for: fileURL)
+    }
+
+    static func makeOwnedRemoteUploadSnapshot(
+        fromValidatedDescriptor descriptor: Int32,
+        byteCount: off_t,
+        displayName: String
+    ) -> URL? {
+        TextBoxDraftAttachmentStorage.makeOwnedRemoteUploadSnapshot(
+            fromValidatedDescriptor: descriptor,
+            byteCount: byteCount,
+            displayName: displayName
+        )
+    }
+
+    static func disposePreparedLocalFileIfNeeded(
+        at fileURL: URL,
+        disposition: TextBoxPreparedLocalFileDisposition
+    ) {
+        TextBoxDraftAttachmentStorage.disposePreparedLocalFileIfNeeded(
+            at: fileURL,
+            disposition: disposition
+        )
+    }
+
+    static func disposePreparedLocalFileIfNeeded(
+        _ preparedFile: TextBoxPreparedFileAttachment
+    ) {
+        disposePreparedLocalFileIfNeeded(
+            at: preparedFile.fileURL,
+            disposition: preparedFile.localFileDisposition
+        )
+    }
+
+    static func handlePreparedLocalFileIdentityMismatch(
+        at fileURL: URL,
+        disposition: TextBoxPreparedLocalFileDisposition? = nil
+    ) {
+        let wasCmuxTemporaryImage =
+            disposition == .cmuxTemporaryImage
+            || (
+                disposition == nil
+                && GhosttyApp.terminalPasteboard.isOwnedTemporaryImageFile(
+                    fileURL
+                )
+            )
+        guard wasCmuxTemporaryImage else { return }
+        TextBoxDraftAttachmentStorage.removeCopiedDraftForOriginalTemporaryFile(
+            fileURL
+        )
+        GhosttyApp.terminalPasteboard
+            .relinquishTemporaryImageFileOwnership(fileURL)
+    }
+
+    private static func localFileDisposition(
+        for fileURL: URL
+    ) -> TextBoxPreparedLocalFileDisposition {
+        if GhosttyApp.terminalPasteboard.isOwnedTemporaryImageFile(fileURL) {
+            return .cmuxTemporaryImage
+        }
+        if TextBoxDraftAttachmentStorage.isOwnedDraftCopy(fileURL) {
+            return .cmuxDraftCopy
+        }
+        return .callerOwned
     }
 
     private static func makeThumbnail(for url: URL) -> NSImage? {
@@ -304,6 +425,38 @@ struct TextBoxAttachment: Identifiable {
             return nil
         }
         return image
+    }
+
+    private static func makeThumbnail(
+        from preparedFile: TextBoxPreparedFileAttachment
+    ) -> NSImage? {
+        guard let pixelData = preparedFile.thumbnailPixelData,
+              preparedFile.thumbnailPixelWidth > 0,
+              preparedFile.thumbnailPixelHeight > 0,
+              preparedFile.thumbnailBytesPerRow >= preparedFile.thumbnailPixelWidth * 4,
+              let provider = CGDataProvider(data: pixelData as CFData),
+              let image = CGImage(
+                width: preparedFile.thumbnailPixelWidth,
+                height: preparedFile.thumbnailPixelHeight,
+                bitsPerComponent: 8,
+                bitsPerPixel: 32,
+                bytesPerRow: preparedFile.thumbnailBytesPerRow,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: [
+                    .byteOrder32Big,
+                    CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+                ],
+                provider: provider,
+                decode: nil,
+                shouldInterpolate: true,
+                intent: .defaultIntent
+              ) else {
+            return nil
+        }
+        return NSImage(
+            cgImage: image,
+            size: NSSize(width: image.width, height: image.height)
+        )
     }
 
     private static func isImageFileURL(_ url: URL) -> Bool {
@@ -316,8 +469,264 @@ struct TextBoxAttachment: Identifiable {
     }
 }
 
-private enum TextBoxDraftAttachmentStorage {
+nonisolated enum TextBoxDraftAttachmentStorageQuotaLimits {
+    static let maximumFileBytes: off_t = 256 * 1024 * 1024
+    static let maximumAggregateBytes: off_t = 1024 * 1024 * 1024
+}
+
+enum TextBoxDraftAttachmentStorage {
     private static let directoryName = "textbox-draft-attachments"
+    private static let remoteUploadSnapshotDirectoryPrefix = "remote-upload-"
+    private static let remoteUploadSnapshotCopyBufferSize = 64 * 1024
+    private static let quotaLockFilename = ".quota.lock"
+    private static let maximumRetainedEntryCount = 4_096
+    /// The aggregate admits four maximum-size remote snapshots while bounding
+    /// durable drafts shared by stable and tagged cmux processes.
+    private static let maximumDurableFileBytes =
+        TextBoxDraftAttachmentStorageQuotaLimits.maximumFileBytes
+    private static let maximumAggregateDurableBytes: off_t =
+        TextBoxDraftAttachmentStorageQuotaLimits.maximumAggregateBytes
+
+    final class DurableStorageQuota: @unchecked Sendable {
+        private static let accessWaitTimeout: DispatchTimeInterval =
+            .milliseconds(250)
+        private static let accessWaitPollNanoseconds: UInt64 = 10_000_000
+        private static let fileLockRetryDelayMicroseconds: useconds_t = 5_000
+
+        struct Reservation: Sendable {
+            let id: UUID
+            let lockDescriptor: Int32
+        }
+
+        private let localAdmission = DispatchSemaphore(value: 1)
+        private let activeReservationID = OSAllocatedUnfairLock<UUID?>(
+            initialState: nil
+        )
+
+        func reserve(
+            byteCount: off_t,
+            storageDirectory: URL,
+            destinationURL: URL,
+            waitsForAccess: Bool,
+            accessDeadline: DispatchTime? = nil
+        ) -> Reservation? {
+            guard byteCount >= 0,
+                  byteCount <= maximumDurableFileBytes else {
+                return nil
+            }
+            let storageDirectory = storageDirectory.standardizedFileURL
+            let destinationURL = destinationURL.standardizedFileURL
+            guard destinationURL.path.hasPrefix(
+                storageDirectory.path + "/"
+            ) else {
+                return nil
+            }
+
+            let effectiveAccessDeadline = waitsForAccess
+                ? (accessDeadline ?? Self.defaultAccessDeadline())
+                : nil
+            let didEnterLocally = waitForLocalAdmission(
+                until: effectiveAccessDeadline
+            )
+            guard didEnterLocally else { return nil }
+            var shouldReleaseLocalAdmission = true
+            defer {
+                if shouldReleaseLocalAdmission {
+                    localAdmission.signal()
+                }
+            }
+
+            let lockURL = storageDirectory.appendingPathComponent(
+                quotaLockFilename,
+                isDirectory: false
+            )
+            let lockDescriptor = lockURL.withUnsafeFileSystemRepresentation {
+                path -> Int32 in
+                guard let path else { return -1 }
+                return Darwin.open(
+                    path,
+                    O_RDWR | O_CREAT | O_NOFOLLOW | O_CLOEXEC,
+                    mode_t(S_IRUSR | S_IWUSR)
+                )
+            }
+            guard lockDescriptor >= 0 else { return nil }
+            var shouldCloseLockDescriptor = true
+            defer {
+                if shouldCloseLockDescriptor {
+                    Darwin.close(lockDescriptor)
+                }
+            }
+
+            var lockMetadata = stat()
+            guard Darwin.fstat(lockDescriptor, &lockMetadata) == 0,
+                  lockMetadata.st_mode & mode_t(S_IFMT)
+                    == mode_t(S_IFREG),
+                  acquireFileLock(
+                    descriptor: lockDescriptor,
+                    accessDeadline: effectiveAccessDeadline
+                  ),
+                  !Task.isCancelled,
+                  let retainedBytes = retainedLogicalByteCount(
+                    in: storageDirectory
+                  ),
+                  retainedBytes
+                    <= maximumAggregateDurableBytes - byteCount else {
+                return nil
+            }
+
+            let reservation = Reservation(
+                id: UUID(),
+                lockDescriptor: lockDescriptor
+            )
+            activeReservationID.withLock { $0 = reservation.id }
+            shouldCloseLockDescriptor = false
+            shouldReleaseLocalAdmission = false
+            return reservation
+        }
+
+        func release(_ reservation: Reservation) {
+            let ownsAdmission = activeReservationID.withLock { activeID in
+                guard activeID == reservation.id else { return false }
+                activeID = nil
+                return true
+            }
+            guard ownsAdmission else { return }
+            _ = setFileLock(
+                descriptor: reservation.lockDescriptor,
+                type: Int16(F_UNLCK),
+                accessDeadline: nil
+            )
+            Darwin.close(reservation.lockDescriptor)
+            localAdmission.signal()
+        }
+
+        private func acquireFileLock(
+            descriptor: Int32,
+            accessDeadline: DispatchTime?
+        ) -> Bool {
+            setFileLock(
+                descriptor: descriptor,
+                type: Int16(F_WRLCK),
+                accessDeadline: accessDeadline
+            )
+        }
+
+        private func setFileLock(
+            descriptor: Int32,
+            type: Int16,
+            accessDeadline: DispatchTime?
+        ) -> Bool {
+            var lock = flock(
+                l_start: 0,
+                l_len: 0,
+                l_pid: 0,
+                l_type: type,
+                l_whence: Int16(SEEK_SET)
+            )
+            while true {
+                if type != Int16(F_UNLCK), Task.isCancelled {
+                    return false
+                }
+                if Darwin.fcntl(descriptor, F_SETLK, &lock) == 0 {
+                    return true
+                }
+                let lockError = errno
+                guard type != Int16(F_UNLCK),
+                      lockError == EACCES
+                        || lockError == EAGAIN
+                        || lockError == EINTR,
+                      let accessDeadline,
+                      DispatchTime.now().uptimeNanoseconds
+                        < accessDeadline.uptimeNanoseconds else {
+                    return false
+                }
+                Darwin.usleep(Self.fileLockRetryDelayMicroseconds)
+            }
+        }
+
+        private func waitForLocalAdmission(
+            until accessDeadline: DispatchTime?
+        ) -> Bool {
+            guard let accessDeadline else {
+                return localAdmission.wait(timeout: .now()) == .success
+            }
+            while true {
+                guard !Task.isCancelled else { return false }
+                let now = DispatchTime.now().uptimeNanoseconds
+                guard now < accessDeadline.uptimeNanoseconds else {
+                    return false
+                }
+                let pollDeadline = DispatchTime(
+                    uptimeNanoseconds: min(
+                        accessDeadline.uptimeNanoseconds,
+                        now &+ Self.accessWaitPollNanoseconds
+                    )
+                )
+                if localAdmission.wait(timeout: pollDeadline) == .success {
+                    return true
+                }
+            }
+        }
+
+        static func defaultAccessDeadline() -> DispatchTime {
+            .now() + accessWaitTimeout
+        }
+
+        /// Counts logical lengths, not allocated blocks, so sparse files consume
+        /// their full declared size for admission.
+        private func retainedLogicalByteCount(
+            in storageDirectory: URL
+        ) -> off_t? {
+            let enumerationFailed = OSAllocatedUnfairLock(
+                initialState: false
+            )
+            guard let enumerator = FileManager.default.enumerator(
+                at: storageDirectory,
+                includingPropertiesForKeys: nil,
+                options: [],
+                errorHandler: { _, _ in
+                    enumerationFailed.withLock { $0 = true }
+                    return false
+                }
+            ) else {
+                return nil
+            }
+
+            var total: off_t = 0
+            var retainedEntryCount = 0
+            while let entryURL = enumerator.nextObject() as? URL {
+                guard !Task.isCancelled else { return nil }
+                retainedEntryCount += 1
+                guard retainedEntryCount <= maximumRetainedEntryCount else {
+                    return nil
+                }
+                var metadata = stat()
+                let didReadMetadata =
+                    entryURL.standardizedFileURL
+                        .withUnsafeFileSystemRepresentation { path in
+                            guard let path else { return false }
+                            return Darwin.lstat(path, &metadata) == 0
+                        }
+                guard didReadMetadata else { return nil }
+
+                switch metadata.st_mode & mode_t(S_IFMT) {
+                case mode_t(S_IFDIR):
+                    continue
+                case mode_t(S_IFREG):
+                    guard metadata.st_size >= 0,
+                          metadata.st_size <= off_t.max - total else {
+                        return nil
+                    }
+                    total += metadata.st_size
+                default:
+                    return nil
+                }
+            }
+            return enumerationFailed.withLock { $0 } ? nil : total
+        }
+    }
+
+    private static let quota = DurableStorageQuota()
     private struct DraftCopyState {
         var copiedDraftPathByOriginalPath: [String: String] = [:]
         var pendingOriginalPaths: Set<String> = []
@@ -329,8 +738,23 @@ private enum TextBoxDraftAttachmentStorage {
     )
 
     static func snapshot(for attachment: TextBoxAttachment) -> SessionTextBoxInputAttachmentSnapshot {
-        guard let localURL = attachment.localURL,
-              GhosttyApp.terminalPasteboard.isOwnedTemporaryImageFile(localURL) else {
+        guard let localURL = attachment.localURL else {
+            return fallbackSnapshot(for: attachment)
+        }
+        if let identity = attachment.cleanupPathEntryIdentity,
+           !identity.stillNamesEntry(at: localURL) {
+            TextBoxAttachment.handlePreparedLocalFileIdentityMismatch(
+                at: localURL,
+                disposition: attachment.preparedLocalFileDisposition
+            )
+            return fallbackSnapshot(
+                for: attachment,
+                cleanupLocalPathWhenDisposed: false
+            )
+        }
+        guard GhosttyApp.terminalPasteboard.isOwnedTemporaryImageFile(
+            localURL
+        ) else {
             return fallbackSnapshot(for: attachment)
         }
         let standardizedLocalURL = localURL.standardizedFileURL
@@ -350,39 +774,228 @@ private enum TextBoxDraftAttachmentStorage {
             originalLocalURL: standardizedLocalURL,
             durableURL: durableURL
         )
+        let durableIdentity = TextBoxPreparedLocalFileIdentity.capture(
+            at: durableURL
+        )
         return SessionTextBoxInputAttachmentSnapshot(
             displayName: attachment.displayName,
             submissionText: submissionFields.text,
             submissionPath: submissionFields.path,
             localPath: durableURL.path,
-            cleanupLocalPathWhenDisposed: true
+            cleanupLocalPathWhenDisposed: durableIdentity != nil,
+            cleanupPathEntryIdentity: durableIdentity
         )
     }
 
-    private static func fallbackSnapshot(for attachment: TextBoxAttachment) -> SessionTextBoxInputAttachmentSnapshot {
-        SessionTextBoxInputAttachmentSnapshot(
+    private static func fallbackSnapshot(
+        for attachment: TextBoxAttachment,
+        cleanupLocalPathWhenDisposed: Bool? = nil
+    ) -> SessionTextBoxInputAttachmentSnapshot {
+        let shouldCleanup =
+            cleanupLocalPathWhenDisposed
+            ?? attachment.cleanupLocalURLWhenDisposed
+        let cleanupIdentity = shouldCleanup
+            ? (
+                attachment.cleanupPathEntryIdentity
+                ?? attachment.localURL.flatMap(
+                    TextBoxPreparedLocalFileIdentity.capture(at:)
+                )
+            )
+            : nil
+        return SessionTextBoxInputAttachmentSnapshot(
             displayName: attachment.displayName,
             submissionText: attachment.submissionText,
             submissionPath: attachment.submissionPath,
             localPath: attachment.localURL?.standardizedFileURL.path,
-            cleanupLocalPathWhenDisposed: attachment.cleanupLocalURLWhenDisposed
+            cleanupLocalPathWhenDisposed:
+                shouldCleanup && cleanupIdentity != nil,
+            cleanupPathEntryIdentity: cleanupIdentity
         )
     }
 
     static func prepareDurableCopy(for attachment: TextBoxAttachment) {
-        guard let localURL = attachment.localURL,
+        guard attachment.requiresDurableCopyPreparationOnInsertion,
+              let localURL = attachment.localURL,
               GhosttyApp.terminalPasteboard.isOwnedTemporaryImageFile(localURL) else {
             return
         }
+        prepareDurableCopyForOwnedTemporaryFile(at: localURL)
+    }
+
+    /// Starts the existing durable-copy pipeline for a URL whose pasteboard
+    /// ownership has already been captured. Prepared-file callers invoke this
+    /// on their background executor before crossing into UI insertion.
+    static func prepareDurableCopyForOwnedTemporaryFile(at localURL: URL) {
         let standardizedLocalURL = localURL.standardizedFileURL
         guard FileManager.default.fileExists(atPath: standardizedLocalURL.path) else { return }
         prepareDurableCopy(forTemporaryFileAtPath: standardizedLocalURL.path)
     }
 
+    static func makeOwnedRemoteUploadSnapshot(
+        fromValidatedDescriptor sourceDescriptor: Int32,
+        byteCount: off_t,
+        displayName: String
+    ) -> URL? {
+        guard sourceDescriptor >= 0,
+              byteCount >= 0,
+              let storageDirectory = storageDirectory() else {
+            return nil
+        }
+
+        let rawDisplayName = (displayName as NSString).lastPathComponent
+        let safeDisplayName = rawDisplayName.isEmpty
+            || rawDisplayName == "."
+            || rawDisplayName == ".."
+            ? "attachment"
+            : rawDisplayName
+        let snapshotDirectory = storageDirectory.appendingPathComponent(
+            "\(remoteUploadSnapshotDirectoryPrefix)\(UUID().uuidString)",
+            isDirectory: true
+        )
+        guard let quotaReservation = quota.reserve(
+            byteCount: byteCount,
+            storageDirectory: storageDirectory,
+            destinationURL: snapshotDirectory,
+            waitsForAccess: true
+        ) else {
+            return nil
+        }
+        defer { quota.release(quotaReservation) }
+
+        do {
+            try FileManager.default.createDirectory(
+                at: snapshotDirectory,
+                withIntermediateDirectories: false,
+                attributes: [.posixPermissions: NSNumber(value: 0o700)]
+            )
+        } catch {
+            return nil
+        }
+
+        let snapshotURL = snapshotDirectory
+            .appendingPathComponent(safeDisplayName, isDirectory: false)
+            .standardizedFileURL
+        let destinationDescriptor = snapshotURL.withUnsafeFileSystemRepresentation {
+            destinationPath -> Int32 in
+            guard let destinationPath else { return -1 }
+            return Darwin.open(
+                destinationPath,
+                O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC,
+                mode_t(S_IRUSR | S_IWUSR)
+            )
+        }
+        guard destinationDescriptor >= 0 else {
+            try? FileManager.default.removeItem(at: snapshotDirectory)
+            return nil
+        }
+
+        var completed = false
+        defer {
+            Darwin.close(destinationDescriptor)
+            if !completed {
+                try? FileManager.default.removeItem(at: snapshotDirectory)
+            }
+        }
+
+        var buffer = [UInt8](
+            repeating: 0,
+            count: remoteUploadSnapshotCopyBufferSize
+        )
+        var sourceOffset: off_t = 0
+        while sourceOffset < byteCount {
+            guard !Task.isCancelled else { return nil }
+            let requestedByteCount = Int(min(
+                off_t(buffer.count),
+                byteCount - sourceOffset
+            ))
+            let bytesRead = buffer.withUnsafeMutableBytes { bytes -> Int in
+                guard let baseAddress = bytes.baseAddress else { return -1 }
+                while true {
+                    let result = Darwin.pread(
+                        sourceDescriptor,
+                        baseAddress,
+                        requestedByteCount,
+                        sourceOffset
+                    )
+                    if result < 0, errno == EINTR {
+                        continue
+                    }
+                    return result
+                }
+            }
+            guard bytesRead == requestedByteCount else { return nil }
+
+            var destinationOffset = 0
+            while destinationOffset < bytesRead {
+                guard !Task.isCancelled else { return nil }
+                let bytesWritten = buffer.withUnsafeBytes { bytes -> Int in
+                    guard let baseAddress = bytes.baseAddress else { return -1 }
+                    while true {
+                        let result = Darwin.write(
+                            destinationDescriptor,
+                            baseAddress.advanced(by: destinationOffset),
+                            bytesRead - destinationOffset
+                        )
+                        if result < 0, errno == EINTR {
+                            continue
+                        }
+                        return result
+                    }
+                }
+                guard bytesWritten > 0 else { return nil }
+                destinationOffset += bytesWritten
+            }
+            sourceOffset += off_t(bytesRead)
+        }
+        guard !Task.isCancelled else { return nil }
+
+        completed = true
+        return snapshotURL
+    }
+
+    static func disposePreparedLocalFileIfNeeded(
+        at fileURL: URL,
+        disposition: TextBoxPreparedLocalFileDisposition
+    ) {
+        switch disposition {
+        case .callerOwned:
+            return
+        case .cmuxTemporaryImage:
+            removeCopiedDraftForOriginalTemporaryFile(fileURL)
+            GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles([
+                fileURL
+            ])
+        case .cmuxDraftCopy:
+            _ = removeIfOwnedDraftCopy(fileURL)
+        }
+    }
+
     static func removeIfOwnedDraftCopy(_ fileURL: URL) -> Bool {
         guard isOwnedDraftCopy(fileURL) else { return false }
-        try? FileManager.default.removeItem(at: fileURL.standardizedFileURL)
+        let standardizedFileURL = fileURL.standardizedFileURL
+        try? FileManager.default.removeItem(at: standardizedFileURL)
+        removeRemoteUploadSnapshotDirectoryIfEmpty(
+            containing: standardizedFileURL
+        )
         return true
+    }
+
+    private static func removeRemoteUploadSnapshotDirectoryIfEmpty(
+        containing fileURL: URL
+    ) {
+        let parentDirectory = fileURL.deletingLastPathComponent().standardizedFileURL
+        guard parentDirectory.lastPathComponent.hasPrefix(
+            remoteUploadSnapshotDirectoryPrefix
+        ),
+        let storageDirectory = storageDirectory(createIfMissing: false),
+        parentDirectory.deletingLastPathComponent().standardizedFileURL
+            == storageDirectory.standardizedFileURL else {
+            return
+        }
+        parentDirectory.withUnsafeFileSystemRepresentation { path in
+            guard let path else { return }
+            _ = Darwin.rmdir(path)
+        }
     }
 
     static func removeCopiedDraftForOriginalTemporaryFile(_ fileURL: URL) {
@@ -430,17 +1043,9 @@ private enum TextBoxDraftAttachmentStorage {
         guard shouldStart else { return }
 
         let originalURL = URL(fileURLWithPath: originalPath).standardizedFileURL
-        if let durableURL = linkToDurableStorageIfPossible(originalURL) {
-            draftCopyState.withLock { state in
-                state.pendingOriginalPaths.remove(originalPath)
-                state.cancelledOriginalPaths.remove(originalPath)
-                state.copiedDraftPathByOriginalPath[originalPath] = durableURL.path
-            }
-            return
-        }
-
         Task.detached(priority: .utility) {
-            let durableURL = copyToDurableStorage(originalURL)
+            let durableURL = linkToDurableStorageIfPossible(originalURL)
+                ?? copyToDurableStorage(originalURL)
             let copiedPathToRemove = draftCopyState.withLock { state -> String? in
                 guard state.pendingOriginalPaths.remove(originalPath) != nil else {
                     return nil
@@ -462,10 +1067,14 @@ private enum TextBoxDraftAttachmentStorage {
         let pendingOriginalPaths = draftCopyState.withLock { state in
             Array(state.pendingOriginalPaths)
         }
+        let accessDeadline = DurableStorageQuota.defaultAccessDeadline()
         for originalPath in pendingOriginalPaths {
             let originalURL = URL(fileURLWithPath: originalPath).standardizedFileURL
             let durableURL = linkToDurableStorageIfPossible(originalURL)
-                ?? copyToDurableStorage(originalURL)
+                ?? copyToDurableStorage(
+                    originalURL,
+                    accessDeadline: accessDeadline
+                )
             let copiedPathToRemove = draftCopyState.withLock { state -> String? in
                 guard state.pendingOriginalPaths.remove(originalPath) != nil else {
                     return nil
@@ -497,17 +1106,39 @@ private enum TextBoxDraftAttachmentStorage {
         return (TextBoxAttachment.submissionText(forLocalFileURL: durableURL), durableURL.path)
     }
 
-    private static func copyToDurableStorage(_ sourceURL: URL) -> URL? {
+    private static func copyToDurableStorage(
+        _ sourceURL: URL,
+        accessDeadline: DispatchTime? = nil
+    ) -> URL? {
         let sourceURL = sourceURL.standardizedFileURL
-        guard let destinationURL = durableStorageURL(for: sourceURL) else { return nil }
-        if FileManager.default.fileExists(atPath: destinationURL.path) {
+        guard let destinationURL = durableStorageURL(for: sourceURL),
+              let sourceByteCount = logicalRegularFileByteCount(
+                at: sourceURL
+              ),
+              let storageDirectory = storageDirectory(),
+              let quotaReservation = quota.reserve(
+                byteCount: sourceByteCount,
+                storageDirectory: storageDirectory,
+                destinationURL: destinationURL,
+                waitsForAccess: true,
+                accessDeadline: accessDeadline
+              ) else {
+            return nil
+        }
+        defer { quota.release(quotaReservation) }
+        if logicalRegularFileByteCount(at: destinationURL) != nil {
             return destinationURL.standardizedFileURL
         }
         do {
             try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+            guard logicalRegularFileByteCount(at: destinationURL)
+                    == sourceByteCount else {
+                try? FileManager.default.removeItem(at: destinationURL)
+                return nil
+            }
             return destinationURL.standardizedFileURL
         } catch {
-            if FileManager.default.fileExists(atPath: destinationURL.path) {
+            if logicalRegularFileByteCount(at: destinationURL) != nil {
                 return destinationURL.standardizedFileURL
             }
             return nil
@@ -516,19 +1147,55 @@ private enum TextBoxDraftAttachmentStorage {
 
     private static func linkToDurableStorageIfPossible(_ sourceURL: URL) -> URL? {
         let sourceURL = sourceURL.standardizedFileURL
-        guard let destinationURL = durableStorageURL(for: sourceURL) else { return nil }
-        if FileManager.default.fileExists(atPath: destinationURL.path) {
+        guard let destinationURL = durableStorageURL(for: sourceURL),
+              let sourceByteCount = logicalRegularFileByteCount(
+                at: sourceURL
+              ),
+              let storageDirectory = storageDirectory(),
+              let quotaReservation = quota.reserve(
+                byteCount: sourceByteCount,
+                storageDirectory: storageDirectory,
+                destinationURL: destinationURL,
+                waitsForAccess: false
+              ) else {
+            return nil
+        }
+        defer { quota.release(quotaReservation) }
+        if logicalRegularFileByteCount(at: destinationURL) != nil {
             return destinationURL
         }
         do {
             try FileManager.default.linkItem(at: sourceURL, to: destinationURL)
+            guard logicalRegularFileByteCount(at: destinationURL)
+                    == sourceByteCount else {
+                try? FileManager.default.removeItem(at: destinationURL)
+                return nil
+            }
             return destinationURL
         } catch {
-            if FileManager.default.fileExists(atPath: destinationURL.path) {
+            if logicalRegularFileByteCount(at: destinationURL) != nil {
                 return destinationURL
             }
             return nil
         }
+    }
+
+    private static func logicalRegularFileByteCount(
+        at fileURL: URL
+    ) -> off_t? {
+        var metadata = stat()
+        let didReadMetadata =
+            fileURL.standardizedFileURL.withUnsafeFileSystemRepresentation {
+                path in
+                guard let path else { return false }
+                return Darwin.lstat(path, &metadata) == 0
+            }
+        guard didReadMetadata,
+              metadata.st_mode & mode_t(S_IFMT) == mode_t(S_IFREG),
+              metadata.st_size >= 0 else {
+            return nil
+        }
+        return metadata.st_size
     }
 
     private static func durableStorageURL(for sourceURL: URL) -> URL? {
@@ -546,6 +1213,108 @@ private enum TextBoxDraftAttachmentStorage {
         let directoryPath = directory.standardizedFileURL.path
         let filePath = fileURL.standardizedFileURL.path
         return filePath == directoryPath || filePath.hasPrefix(directoryPath + "/")
+    }
+
+    /// Older snapshots persisted the cleanup bit without the directory-entry
+    /// identity now required for safe unlinking. Migrate only paths matching a
+    /// layout cmux itself creates, and capture the current regular-file entry.
+    /// Arbitrary paths, symlinks, and unknown descendants remain caller-owned.
+    static func migratedCleanupIdentityForLegacySnapshot(
+        at fileURL: URL
+    ) -> TextBoxPreparedLocalFileIdentity? {
+        guard let storageDirectoryURL = storageDirectory(
+            createIfMissing: false
+        )
+        else {
+            return nil
+        }
+        let storageDirectory = storageDirectoryURL.standardizedFileURL
+        let fileURL = fileURL.standardizedFileURL
+        guard isDirectoryWithoutFollowingLinks(storageDirectory) else {
+            return nil
+        }
+
+        let directoryComponents = storageDirectory.pathComponents
+        let fileComponents = fileURL.pathComponents
+        guard fileComponents.count > directoryComponents.count,
+              fileComponents.starts(with: directoryComponents) else {
+            return nil
+        }
+        let relativeComponents = Array(
+            fileComponents.dropFirst(directoryComponents.count)
+        )
+
+        switch relativeComponents.count {
+        case 1:
+            guard isStableDraftCopyFilename(relativeComponents[0]) else {
+                return nil
+            }
+        case 2:
+            let snapshotDirectoryName = relativeComponents[0]
+            let displayName = relativeComponents[1]
+            guard isRemoteUploadSnapshotDirectoryName(
+                snapshotDirectoryName
+            ),
+            !displayName.isEmpty,
+            displayName != ".",
+            displayName != "..",
+            isDirectoryWithoutFollowingLinks(
+                storageDirectory.appendingPathComponent(
+                    snapshotDirectoryName,
+                    isDirectory: true
+                )
+            ) else {
+                return nil
+            }
+        default:
+            return nil
+        }
+
+        var metadata = stat()
+        let didReadMetadata = fileURL.withUnsafeFileSystemRepresentation {
+            path in
+            guard let path else { return false }
+            return Darwin.lstat(path, &metadata) == 0
+        }
+        guard didReadMetadata,
+              metadata.st_mode & mode_t(S_IFMT) == mode_t(S_IFREG) else {
+            return nil
+        }
+        return TextBoxPreparedLocalFileIdentity(metadata)
+    }
+
+    private static func isDirectoryWithoutFollowingLinks(_ url: URL) -> Bool {
+        var metadata = stat()
+        let didReadMetadata = url.withUnsafeFileSystemRepresentation { path in
+            guard let path else { return false }
+            return Darwin.lstat(path, &metadata) == 0
+        }
+        return didReadMetadata
+            && metadata.st_mode & mode_t(S_IFMT) == mode_t(S_IFDIR)
+    }
+
+    private static func isStableDraftCopyFilename(_ filename: String) -> Bool {
+        guard let separator = filename.firstIndex(of: "-"),
+              separator != filename.startIndex,
+              filename.index(after: separator) != filename.endIndex else {
+            return false
+        }
+        let token = filename[..<separator]
+        return token.count <= 16
+            && token.allSatisfy { "0123456789abcdef".contains($0) }
+    }
+
+    private static func isRemoteUploadSnapshotDirectoryName(
+        _ name: String
+    ) -> Bool {
+        guard name.hasPrefix(remoteUploadSnapshotDirectoryPrefix) else {
+            return false
+        }
+        let uuidString = String(
+            name.dropFirst(remoteUploadSnapshotDirectoryPrefix.count)
+        )
+        guard let uuid = UUID(uuidString: uuidString) else { return false }
+        return uuid.uuidString == uuidString.uppercased()
     }
 
     private static func stablePathToken(_ path: String) -> String {
@@ -594,6 +1363,7 @@ private enum TextBoxDraftAttachmentStorage {
         }
         return durableURL
     }
+
 #endif
 }
 
@@ -634,12 +1404,26 @@ extension SessionTextBoxInputAttachmentSnapshot {
         } else {
             restoredLocalURL = nil
         }
+        let restoredCleanupIdentity: TextBoxPreparedLocalFileIdentity?
+        if cleanupLocalPathWhenDisposed, let restoredLocalURL {
+            restoredCleanupIdentity =
+                cleanupPathEntryIdentity
+                ?? TextBoxDraftAttachmentStorage
+                    .migratedCleanupIdentityForLegacySnapshot(
+                        at: restoredLocalURL
+                    )
+        } else {
+            restoredCleanupIdentity = nil
+        }
         return TextBoxAttachment(
             displayName: displayName,
             submissionText: submissionText,
             submissionPath: submissionPath,
             localURL: restoredLocalURL,
-            cleanupLocalURLWhenDisposed: cleanupLocalPathWhenDisposed
+            cleanupLocalURLWhenDisposed:
+                cleanupLocalPathWhenDisposed
+                && restoredCleanupIdentity != nil,
+            cleanupPathEntryIdentity: restoredCleanupIdentity
         )
     }
 }
@@ -2759,9 +3543,18 @@ struct TextBoxInputContainer: View {
             .map(\.standardizedFileURL)
         guard !standardizedURLs.isEmpty else { return false }
 
+        let target = surface.resolvedImageTransferTarget()
+        guard target != .unknown else {
+            TerminalImageTransferGuidance.presentUnverifiedRemoteSession(
+                in: textView.window
+            )
+            GhosttyApp.terminalPasteboard
+                .cleanupTransferredTemporaryImageFiles(standardizedURLs)
+            return false
+        }
         let plan = TerminalImageTransferPlanner.plan(
             fileURLs: standardizedURLs,
-            target: surface.resolvedImageTransferTarget(),
+            target: target,
             mode: .paste
         )
 
@@ -2783,6 +3576,8 @@ struct TextBoxInputContainer: View {
             uploadFileAttachments(uploadURLs, remoteTarget: remoteTarget, focusing: textView)
             return true
         case .reject:
+            GhosttyApp.terminalPasteboard
+                .cleanupTransferredTemporaryImageFiles(standardizedURLs)
             return false
         }
     }
@@ -2800,6 +3595,19 @@ struct TextBoxInputContainer: View {
             for: operation,
             onCancel: { _ = operation.cancel() }
         )
+        let cleanupRemotePaths: @Sendable ([String]) -> Void
+        switch remoteTarget {
+        case .workspaceRemote:
+            let controller = surface.owningWorkspace()?
+                .remotePTYSessionControllerForSocketCommand()
+            cleanupRemotePaths = { remotePaths in
+                controller?.cleanupAbandonedUploadedFiles(remotePaths)
+            }
+        case .detectedSSH(let session):
+            cleanupRemotePaths = { remotePaths in
+                session.cleanupUploadedRemotePathsAsync(remotePaths)
+            }
+        }
 
         let finish: (Result<[String], Error>) -> Void = { [weak surface] result in
             DispatchQueue.main.async {
@@ -2814,6 +3622,9 @@ struct TextBoxInputContainer: View {
 
                 surface?.hostedView.endImageTransferIndicator(for: operation)
                 guard operation.finish() else {
+                    if case .success(let remotePaths) = result {
+                        cleanupRemotePaths(remotePaths)
+                    }
                     removePendingPlaceholder()
                     GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
                     return
@@ -2821,7 +3632,9 @@ struct TextBoxInputContainer: View {
 
                 switch result {
                 case .success(let remotePaths):
-                    guard !remotePaths.isEmpty else {
+                    guard remotePaths.count == fileURLs.count,
+                          !remotePaths.contains(where: \.isEmpty) else {
+                        cleanupRemotePaths(remotePaths)
                         removePendingPlaceholder()
                         GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
                         NSSound.beep()
@@ -2837,6 +3650,7 @@ struct TextBoxInputContainer: View {
                         )
                     }
                     guard !newAttachments.isEmpty else {
+                        cleanupRemotePaths(remotePaths)
                         removePendingPlaceholder()
                         GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
                         NSSound.beep()
@@ -2844,6 +3658,7 @@ struct TextBoxInputContainer: View {
                     }
                     guard textViewReference.textView === textView,
                           textView.canAcceptPendingAttachmentUpload(validationToken: uploadValidationToken) else {
+                        cleanupRemotePaths(remotePaths)
                         removePendingPlaceholder()
                         GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
                         return
@@ -2852,6 +3667,7 @@ struct TextBoxInputContainer: View {
                         id: placeholderID,
                         with: newAttachments
                     ) else {
+                        cleanupRemotePaths(remotePaths)
                         removePendingPlaceholder()
                         GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
                         return
@@ -3109,6 +3925,10 @@ struct TextBoxInputView: NSViewRepresentable {
 
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? TextBoxInputTextView else { return }
+            // A real post-mount edit supersedes the construction-time
+            // snapshot. Otherwise a stale queued `false` can overwrite the
+            // prepared marker state just published below.
+            pendingAttachmentUploadStateForNextLayout = nil
             textView.normalizeTextBaselineOffsets()
             publishTextViewContent(textView)
             noteMarkedTextStateChanged(textView.hasMarkedText(), from: textView)
@@ -3262,6 +4082,7 @@ final class TextBoxInputTextView: NSTextView {
     var onMoveToWindow: (TextBoxInputTextView) -> Void = { _ in }
     var onLayoutCompleted: (TextBoxInputTextView, Int) -> Void = { _, _ in }
     var onMarkedTextStateChanged: (Bool) -> Void = { _ in }
+    var onPendingAttachmentUploadPlaceholdersChanged: (Set<UUID>) -> Void = { _ in }
     private var isReportingLayoutCompletion = false
 
     private static let localControlKeys: Set<String> = ["a", "e", "f", "b", "n", "p", "k", "h"]
@@ -3447,6 +4268,7 @@ final class TextBoxInputTextView: NSTextView {
         if activeInsertTextDepth > 0 {
             didChangeTextDuringActiveInsertText = true
         }
+        stripPendingAttachmentUploadPlaceholderAttributeFromAdjacentText()
         isHandlingDidChangeText = true
         defer { isHandlingDidChangeText = false }
         if undoManager?.isUndoing == true || undoManager?.isRedoing == true {
@@ -3455,6 +4277,9 @@ final class TextBoxInputTextView: NSTextView {
         super.didChangeText()
         flushAutomaticAttachmentFileCleanup()
         refreshMentionCompletions()
+        onPendingAttachmentUploadPlaceholdersChanged(
+            pendingAttachmentUploadPlaceholderIDs()
+        )
     }
 
     override func copy(_ sender: Any?) {
@@ -3542,9 +4367,26 @@ final class TextBoxInputTextView: NSTextView {
         }
     }
 
-    func attributedContentForPreservation() -> NSAttributedString {
+    func attributedContentForPreservation(
+        preservingPendingAttachmentUploadPlaceholderIDs preservedIDs: Set<UUID> = []
+    ) -> NSAttributedString {
         let preserved = NSMutableAttributedString(attributedString: attributedString())
-        Self.removePendingAttachmentUploadPlaceholders(from: preserved)
+        Self.removePendingAttachmentUploadPlaceholders(
+            from: preserved,
+            preserving: preservedIDs
+        )
+        return preserved
+    }
+
+    static func attributedContentForPreservation(
+        from attributed: NSAttributedString,
+        preservingPendingAttachmentUploadPlaceholderIDs preservedIDs: Set<UUID> = []
+    ) -> NSAttributedString {
+        let preserved = NSMutableAttributedString(attributedString: attributed)
+        removePendingAttachmentUploadPlaceholders(
+            from: preserved,
+            preserving: preservedIDs
+        )
         return preserved
     }
 
@@ -3649,6 +4491,7 @@ final class TextBoxInputTextView: NSTextView {
             ),
             replacementRange: selectedRange()
         )
+        typingAttributes = currentTextAttributes()
         normalizeTextBaselineOffsets()
         recenterSingleLineTextContainer()
     }
@@ -3658,13 +4501,18 @@ final class TextBoxInputTextView: NSTextView {
         id: UUID,
         with attachments: [TextBoxAttachment]
     ) -> Bool {
-        guard !attachments.isEmpty,
-              let textStorage,
+        guard !attachments.isEmpty else {
+            return false
+        }
+        stripPendingAttachmentUploadPlaceholderAttributeFromAdjacentText(id: id)
+        guard let textStorage,
               let placeholderRange = pendingAttachmentUploadPlaceholderRange(id: id) else {
             return false
         }
 
-        attachments.forEach(TextBoxDraftAttachmentStorage.prepareDurableCopy)
+        attachments
+            .filter(\.requiresDurableCopyPreparationOnInsertion)
+            .forEach(TextBoxDraftAttachmentStorage.prepareDurableCopy)
         let selectedRangeBeforeReplacement = selectedRange()
         let inserted = inlineAttachmentAttributedString(for: attachments, replacing: placeholderRange)
         textStorage.replaceCharacters(in: placeholderRange, with: inserted)
@@ -3683,6 +4531,7 @@ final class TextBoxInputTextView: NSTextView {
 
     @discardableResult
     func removePendingAttachmentUploadPlaceholder(id: UUID) -> Bool {
+        stripPendingAttachmentUploadPlaceholderAttributeFromAdjacentText(id: id)
         guard let textStorage,
               let placeholderRange = pendingAttachmentUploadPlaceholderRange(id: id) else {
             return false
@@ -3707,12 +4556,126 @@ final class TextBoxInputTextView: NSTextView {
         pendingAttachmentUploadPlaceholderRange(id: nil) != nil
     }
 
+    func pendingAttachmentUploadPlaceholderIDs() -> Set<UUID> {
+        let attributed = attributedString()
+        var result = Set<UUID>()
+        for range in Self.pendingAttachmentUploadPlaceholderRanges(
+            in: attributed,
+            id: nil
+        ) {
+            let value = attributed.attribute(
+                Self.pendingAttachmentUploadPlaceholderAttribute,
+                at: range.location,
+                effectiveRange: nil
+            )
+            guard let value = value as? String,
+                  let id = UUID(uuidString: value) else {
+                continue
+            }
+            result.insert(id)
+        }
+        return result
+    }
+
+    /// Keeps one marker for each live request and removes orphaned, duplicate,
+    /// or malformed markers without adding cleanup edits to the undo stack.
+    @discardableResult
+    func reconcilePendingAttachmentUploadPlaceholders(
+        keeping liveRequestIDs: Set<UUID>
+    ) -> Set<UUID> {
+        let attributed = attributedString()
+        let fullRange = NSRange(location: 0, length: attributed.length)
+        guard fullRange.length > 0 else { return [] }
+
+        var retainedLiveIDs = Set<UUID>()
+        var rangesToRemove: [NSRange] = []
+        var rangesToStrip: [NSRange] = []
+        attributed.enumerateAttribute(
+            Self.pendingAttachmentUploadPlaceholderAttribute,
+            in: fullRange,
+            options: []
+        ) { value, range, _ in
+            guard value != nil else { return }
+            let markerRanges =
+                Self.pendingAttachmentUploadPlaceholderCharacterRanges(
+                    in: attributed,
+                    within: range
+                )
+            var cursor = range.location
+            for markerRange in markerRanges {
+                if cursor < markerRange.location {
+                    rangesToStrip.append(NSRange(
+                        location: cursor,
+                        length: markerRange.location - cursor
+                    ))
+                }
+                if let value = value as? String,
+                   let requestID = UUID(uuidString: value),
+                   liveRequestIDs.contains(requestID),
+                   retainedLiveIDs.insert(requestID).inserted {
+                    // Keep the single authoritative marker character.
+                } else {
+                    rangesToRemove.append(markerRange)
+                }
+                cursor = NSMaxRange(markerRange)
+            }
+            if cursor < NSMaxRange(range) {
+                rangesToStrip.append(NSRange(
+                    location: cursor,
+                    length: NSMaxRange(range) - cursor
+                ))
+            }
+        }
+        guard !rangesToRemove.isEmpty || !rangesToStrip.isEmpty,
+              let textStorage else {
+            return pendingAttachmentUploadPlaceholderIDs()
+        }
+
+        let adjustedSelection = Self.adjustedSelectionRange(
+            selectedRange(),
+            removing: rangesToRemove
+        )
+        let currentUndoManager = undoManager
+        let shouldReenableUndoRegistration =
+            currentUndoManager?.isUndoRegistrationEnabled == true
+        if shouldReenableUndoRegistration {
+            currentUndoManager?.disableUndoRegistration()
+        }
+        defer {
+            if shouldReenableUndoRegistration {
+                currentUndoManager?.enableUndoRegistration()
+            }
+        }
+
+        textStorage.beginEditing()
+        for range in rangesToStrip {
+            textStorage.removeAttribute(
+                Self.pendingAttachmentUploadPlaceholderAttribute,
+                range: range
+            )
+        }
+        for range in rangesToRemove.sorted(by: { $0.location > $1.location }) {
+            textStorage.replaceCharacters(
+                in: range,
+                with: NSAttributedString(string: "")
+            )
+        }
+        textStorage.endEditing()
+        setSelectedRange(adjustedSelection)
+        normalizeTextBaselineOffsets()
+        recenterSingleLineTextContainer()
+        didChangeText()
+        return pendingAttachmentUploadPlaceholderIDs()
+    }
+
     private func insertAttachments(
         _ attachments: [TextBoxAttachment],
         replacementRange: NSRange
     ) {
         guard !attachments.isEmpty else { return }
-        attachments.forEach(TextBoxDraftAttachmentStorage.prepareDurableCopy)
+        attachments
+            .filter(\.requiresDurableCopyPreparationOnInsertion)
+            .forEach(TextBoxDraftAttachmentStorage.prepareDurableCopy)
         let inserted = NSMutableAttributedString()
         inserted.append(inlineAttachmentAttributedString(for: attachments, replacing: replacementRange))
         insertText(inserted, replacementRange: replacementRange)
@@ -5403,16 +6366,154 @@ final class TextBoxInputTextView: NSTextView {
                   idString == nil || value == idString else {
                 return
             }
-            result.append(range)
-            if idString != nil {
+            let markerRanges = pendingAttachmentUploadPlaceholderCharacterRanges(
+                in: attributed,
+                within: range
+            )
+            if let firstMarkerRange = markerRanges.first, idString != nil {
+                result.append(firstMarkerRange)
                 stop.pointee = true
+            } else {
+                result.append(contentsOf: markerRanges)
             }
         }
         return result
     }
 
-    private static func removePendingAttachmentUploadPlaceholders(from attributed: NSMutableAttributedString) {
-        for range in pendingAttachmentUploadPlaceholderRanges(in: attributed, id: nil).reversed() {
+    private static func pendingAttachmentUploadPlaceholderCharacterRanges(
+        in attributed: NSAttributedString,
+        within range: NSRange
+    ) -> [NSRange] {
+        let string = attributed.string as NSString
+        guard range.location >= 0,
+              range.length > 0,
+              NSMaxRange(range) <= string.length else {
+            return []
+        }
+
+        var result: [NSRange] = []
+        var searchRange = range
+        while searchRange.length > 0 {
+            let markerRange = string.range(
+                of: pendingAttachmentUploadPlaceholderCharacter,
+                options: [],
+                range: searchRange
+            )
+            guard markerRange.location != NSNotFound else { break }
+            result.append(markerRange)
+            let nextLocation = NSMaxRange(markerRange)
+            searchRange = NSRange(
+                location: nextLocation,
+                length: NSMaxRange(range) - nextLocation
+            )
+        }
+        return result
+    }
+
+    private func stripPendingAttachmentUploadPlaceholderAttributeFromAdjacentText(
+        id: UUID? = nil
+    ) {
+        guard let textStorage else { return }
+        let fullRange = NSRange(location: 0, length: textStorage.length)
+        guard fullRange.length > 0 else { return }
+
+        var rangesToStrip: [NSRange] = []
+        textStorage.enumerateAttribute(
+            Self.pendingAttachmentUploadPlaceholderAttribute,
+            in: fullRange,
+            options: []
+        ) { value, range, _ in
+            guard value != nil,
+                  id == nil || value as? String == id?.uuidString else {
+                return
+            }
+            let markerRanges =
+                Self.pendingAttachmentUploadPlaceholderCharacterRanges(
+                    in: textStorage,
+                    within: range
+                )
+            var cursor = range.location
+            for markerRange in markerRanges {
+                if cursor < markerRange.location {
+                    rangesToStrip.append(NSRange(
+                        location: cursor,
+                        length: markerRange.location - cursor
+                    ))
+                }
+                cursor = NSMaxRange(markerRange)
+            }
+            if cursor < NSMaxRange(range) {
+                rangesToStrip.append(NSRange(
+                    location: cursor,
+                    length: NSMaxRange(range) - cursor
+                ))
+            }
+        }
+        guard !rangesToStrip.isEmpty else { return }
+
+        textStorage.beginEditing()
+        for range in rangesToStrip {
+            textStorage.removeAttribute(
+                Self.pendingAttachmentUploadPlaceholderAttribute,
+                range: range
+            )
+        }
+        textStorage.endEditing()
+    }
+
+    private static func removePendingAttachmentUploadPlaceholders(
+        from attributed: NSMutableAttributedString,
+        preserving preservedIDs: Set<UUID>
+    ) {
+        let fullRange = NSRange(location: 0, length: attributed.length)
+        guard fullRange.length > 0 else { return }
+
+        var rangesToRemove: [NSRange] = []
+        var rangesToStrip: [NSRange] = []
+        var retainedIDs = Set<UUID>()
+        attributed.enumerateAttribute(
+            pendingAttachmentUploadPlaceholderAttribute,
+            in: fullRange,
+            options: []
+        ) { value, range, _ in
+            guard value != nil else { return }
+            let markerRanges =
+                pendingAttachmentUploadPlaceholderCharacterRanges(
+                    in: attributed,
+                    within: range
+                )
+            var cursor = range.location
+            for markerRange in markerRanges {
+                if cursor < markerRange.location {
+                    rangesToStrip.append(NSRange(
+                        location: cursor,
+                        length: markerRange.location - cursor
+                    ))
+                }
+                if let value = value as? String,
+                   let id = UUID(uuidString: value),
+                   preservedIDs.contains(id),
+                   retainedIDs.insert(id).inserted {
+                    // Preserve one actual marker character for each live request.
+                } else {
+                    rangesToRemove.append(markerRange)
+                }
+                cursor = NSMaxRange(markerRange)
+            }
+            if cursor < NSMaxRange(range) {
+                rangesToStrip.append(NSRange(
+                    location: cursor,
+                    length: NSMaxRange(range) - cursor
+                ))
+            }
+        }
+        for range in rangesToStrip {
+            attributed.removeAttribute(
+                pendingAttachmentUploadPlaceholderAttribute,
+                range: range
+            )
+        }
+        for range in rangesToRemove.reversed() {
             attributed.replaceCharacters(in: range, with: NSAttributedString(string: ""))
         }
     }
@@ -5429,7 +6530,17 @@ final class TextBoxInputTextView: NSTextView {
         var urlsToClean: [URL] = []
         for attachment in attachments {
             guard attachment.cleanupLocalURLWhenDisposed,
-                  let url = attachment.localURL else { continue }
+                  let url = attachment.localURL else {
+                continue
+            }
+            if let identity = attachment.cleanupPathEntryIdentity,
+               !identity.stillNamesEntry(at: url) {
+                TextBoxAttachment.handlePreparedLocalFileIdentityMismatch(
+                    at: url,
+                    disposition: attachment.preparedLocalFileDisposition
+                )
+                continue
+            }
             let key = Self.attachmentCleanupKey(for: url)
             pendingUndoableAttachmentFileCleanup.removeValue(forKey: key)
             guard !activeKeys.contains(key) else { continue }
@@ -5515,6 +6626,32 @@ final class TextBoxInputTextView: NSTextView {
 
     private static func attachmentCleanupKey(for fileURL: URL) -> String {
         fileURL.standardizedFileURL.path
+    }
+
+    private static func adjustedSelectionRange(
+        _ selectedRange: NSRange,
+        removing ranges: [NSRange]
+    ) -> NSRange {
+        let sortedRanges = ranges.sorted { $0.location < $1.location }
+
+        func adjustedPosition(_ position: Int) -> Int {
+            var removedBeforePosition = 0
+            for range in sortedRanges {
+                guard position > range.location else { break }
+                if position < NSMaxRange(range) {
+                    return range.location - removedBeforePosition
+                }
+                removedBeforePosition += range.length
+            }
+            return position - removedBeforePosition
+        }
+
+        let adjustedLocation = adjustedPosition(selectedRange.location)
+        let adjustedEnd = adjustedPosition(NSMaxRange(selectedRange))
+        return NSRange(
+            location: adjustedLocation,
+            length: max(0, adjustedEnd - adjustedLocation)
+        )
     }
 
     private func adjustedSelectionRange(

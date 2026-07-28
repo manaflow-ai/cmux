@@ -70,6 +70,32 @@ struct CanvasViewportZoomTests {
         #expect(abs(root.currentCenterInCanvas.y - centerAfterOverview.y) < 0.5)
     }
 
+    @Test func explicitOverviewStateIsIdempotent() {
+        let root = makeRoot()
+
+        #expect(!root.isOverviewEnabled)
+        #expect(root.setOverviewEnabled(true))
+        #expect(root.isOverviewEnabled)
+        let firstRestore = root.overviewRestore
+
+        #expect(root.setOverviewEnabled(true))
+        #expect(root.isOverviewEnabled)
+        #expect(root.overviewRestore?.magnification == firstRestore?.magnification)
+        #expect(root.overviewRestore?.origin == firstRestore?.origin)
+
+        #expect(root.setOverviewEnabled(false))
+        #expect(!root.isOverviewEnabled)
+        #expect(root.setOverviewEnabled(false))
+        #expect(!root.isOverviewEnabled)
+    }
+
+    @Test func explicitOverviewEnableReportsMissingContent() {
+        let root = makeRoot(panelFrames: [])
+
+        #expect(!root.setOverviewEnabled(true))
+        #expect(!root.isOverviewEnabled)
+    }
+
     @Test func revealPaneCancelsPendingDiscreteZoomCompletion() throws {
         let panelA = UUID()
         let panelB = UUID()

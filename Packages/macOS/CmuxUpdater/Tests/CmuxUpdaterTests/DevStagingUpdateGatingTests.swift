@@ -73,11 +73,31 @@ import Testing
             defaults: defaults,
             isDevLikeBundle: true
         )
-        controller.checkForUpdates()
+        #expect(controller.checkForUpdates() == .suppressed)
 
         // No query / no checking state — the manual check resolves to notFound synchronously.
         guard case .notFound = controller.model.state else {
             Issue.record("dev/staging manual check should surface .notFound, got \(controller.model.state)")
+            return
+        }
+    }
+
+    @Test func devLikeBundleInstallAttemptIsSuppressed() throws {
+        let suiteName = "com.cmuxterm.updatertests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let controller = UpdateController(
+            log: NoopUpdateLog(),
+            clock: SystemUpdateClock(),
+            hostBundle: .main,
+            defaults: defaults,
+            isDevLikeBundle: true
+        )
+
+        #expect(controller.attemptUpdate() == .suppressed)
+        guard case .notFound = controller.model.state else {
+            Issue.record("dev/staging install attempt should resolve to .notFound")
             return
         }
     }

@@ -1414,6 +1414,7 @@ struct SessionTextBoxInputAttachmentSnapshot: Codable, Equatable, Sendable {
     var submissionPath: String
     var localPath: String?
     var cleanupLocalPathWhenDisposed: Bool
+    var cleanupPathEntryIdentity: TextBoxPreparedLocalFileIdentity? = nil
 }
 
 struct SessionBrowserPanelSnapshot: Codable, Sendable {

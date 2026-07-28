@@ -59,12 +59,18 @@ public final class TerminalPasteboardService: Sendable {
 
     /// The directory that owned temporary image files are written into.
     let temporaryDirectory: URL
+    private let temporaryImageParentDirectory:
+        TerminalPasteboardTemporaryImageParentDirectory?
 
     private let temporaryImageOwnershipLock = NSLock()
     // SAFETY: guarded by `temporaryImageOwnershipLock`; mutated from
     // synchronous callers on arbitrary threads (paste paths, upload
     // completions, app termination cleanup).
-    nonisolated(unsafe) private var ownedTemporaryImagePaths: Set<String> = []
+    nonisolated(unsafe) private var ownedTemporaryImageFiles:
+        [String: TerminalPasteboardTemporaryImageFileIdentity] = [:]
+    // SAFETY: guarded by `temporaryImageOwnershipLock` with the ownership map.
+    nonisolated(unsafe) private var temporaryImageCleanupQuarantine:
+        TerminalPasteboardTemporaryImageCleanupQuarantine?
 
     private let standardClipboardWriteCaptureLock = NSLock()
     // SAFETY: guarded by `standardClipboardWriteCaptureLock`; armed on the
@@ -78,7 +84,12 @@ public final class TerminalPasteboardService: Sendable {
     ///   files. Tests inject a scratch directory; the app uses the user's
     ///   temporary directory.
     public init(temporaryDirectory: URL = FileManager.default.temporaryDirectory) {
-        self.temporaryDirectory = temporaryDirectory
+        let normalizedTemporaryDirectory = temporaryDirectory.standardizedFileURL
+        self.temporaryDirectory = normalizedTemporaryDirectory
+        self.temporaryImageParentDirectory =
+            TerminalPasteboardTemporaryImageParentDirectory(
+                opening: normalizedTemporaryDirectory
+            )
         self.selectionPasteboard = NSPasteboard(
             name: NSPasteboard.Name("com.mitchellh.ghostty.selection")
         )
@@ -196,9 +207,18 @@ extension TerminalPasteboardService {
 
     /// Whether the file was materialized by this service and is still owned.
     public func isOwnedTemporaryImageFile(_ fileURL: URL) -> Bool {
-        let normalizedPath = fileURL.standardizedFileURL.path
+        guard fileURL.isFileURL else { return false }
+        let normalizedURL = fileURL.standardizedFileURL
+        let normalizedPath = normalizedURL.path
         temporaryImageOwnershipLock.lock()
-        let isOwned = ownedTemporaryImagePaths.contains(normalizedPath)
+        guard let ownedIdentity = ownedTemporaryImageFiles[normalizedPath] else {
+            temporaryImageOwnershipLock.unlock()
+            return false
+        }
+        let isOwned = ownedIdentity.stillNamesEntry(at: normalizedURL)
+        if !isOwned {
+            ownedTemporaryImageFiles.removeValue(forKey: normalizedPath)
+        }
         temporaryImageOwnershipLock.unlock()
         return isOwned
     }
@@ -206,41 +226,98 @@ extension TerminalPasteboardService {
     /// Deletes the given files if (and only if) this service still owns them,
     /// consuming ownership.
     public func cleanupTransferredTemporaryImageFiles(_ fileURLs: [URL]) {
+        cleanupTransferredTemporaryImageFiles(
+            fileURLs,
+            afterQuarantineValidation: {}
+        )
+    }
+
+    private func cleanupTransferredTemporaryImageFiles(
+        _ fileURLs: [URL],
+        afterQuarantineValidation: () -> Void
+    ) {
+        guard !fileURLs.isEmpty else { return }
+        guard let quarantine = cleanupQuarantine() else { return }
         for fileURL in fileURLs {
             let normalizedURL = fileURL.standardizedFileURL
             guard normalizedURL.isFileURL,
-                  consumeOwnedTemporaryImageFile(normalizedURL) else {
+                  let ownedIdentity = consumeOwnedTemporaryImageFile(normalizedURL) else {
                 continue
             }
-            try? FileManager.default.removeItem(at: normalizedURL)
+            ownedIdentity.quarantineAndUnlinkIfStillOwned(
+                at: normalizedURL,
+                quarantine: quarantine,
+                afterQuarantineValidation: afterQuarantineValidation
+            )
         }
+    }
+
+    /// Gives up ownership of a temporary image path without deleting the
+    /// current directory entry. Callers use this after proving the path no
+    /// longer names the file cmux originally created.
+    public func relinquishTemporaryImageFileOwnership(_ fileURL: URL) {
+        guard fileURL.isFileURL else { return }
+        _ = consumeOwnedTemporaryImageFile(fileURL.standardizedFileURL)
     }
 
     /// Deletes every temporary image file this service still owns.
     public func cleanupAllOwnedTemporaryImageFiles() {
+        guard let quarantine = cleanupQuarantine() else { return }
         temporaryImageOwnershipLock.lock()
-        let paths = ownedTemporaryImagePaths
-        ownedTemporaryImagePaths.removeAll()
+        let ownedFiles = ownedTemporaryImageFiles
+        ownedTemporaryImageFiles.removeAll()
         temporaryImageOwnershipLock.unlock()
 
-        for path in paths {
-            try? FileManager.default.removeItem(at: URL(fileURLWithPath: path))
+        for (path, ownedIdentity) in ownedFiles {
+            let fileURL = URL(fileURLWithPath: path)
+            ownedIdentity.quarantineAndUnlinkIfStillOwned(
+                at: fileURL,
+                quarantine: quarantine
+            )
         }
     }
 
-    func registerOwnedTemporaryImageFile(_ fileURL: URL) {
-        let normalizedPath = fileURL.standardizedFileURL.path
+    @discardableResult
+    func registerOwnedTemporaryImageFile(_ fileURL: URL) -> Bool {
+        guard fileURL.isFileURL else { return false }
+        let normalizedURL = fileURL.standardizedFileURL
+        guard let temporaryImageParentDirectory,
+              let ownedIdentity = TerminalPasteboardTemporaryImageFileIdentity(
+            capturing: normalizedURL,
+            parentDirectory: temporaryImageParentDirectory
+        ) else {
+            return false
+        }
         temporaryImageOwnershipLock.lock()
-        ownedTemporaryImagePaths.insert(normalizedPath)
+        ownedTemporaryImageFiles[normalizedURL.path] = ownedIdentity
         temporaryImageOwnershipLock.unlock()
+        return true
     }
 
-    private func consumeOwnedTemporaryImageFile(_ fileURL: URL) -> Bool {
+    private func consumeOwnedTemporaryImageFile(
+        _ fileURL: URL
+    ) -> TerminalPasteboardTemporaryImageFileIdentity? {
         let normalizedPath = fileURL.standardizedFileURL.path
         temporaryImageOwnershipLock.lock()
-        let didOwnFile = ownedTemporaryImagePaths.remove(normalizedPath) != nil
+        let ownedIdentity = ownedTemporaryImageFiles.removeValue(forKey: normalizedPath)
         temporaryImageOwnershipLock.unlock()
-        return didOwnFile
+        return ownedIdentity
+    }
+
+    private func cleanupQuarantine()
+        -> TerminalPasteboardTemporaryImageCleanupQuarantine?
+    {
+        temporaryImageOwnershipLock.lock()
+        defer { temporaryImageOwnershipLock.unlock() }
+        if let temporaryImageCleanupQuarantine {
+            return temporaryImageCleanupQuarantine
+        }
+        let quarantine =
+            TerminalPasteboardTemporaryImageCleanupQuarantine(
+                inside: temporaryDirectory
+            )
+        temporaryImageCleanupQuarantine = quarantine
+        return quarantine
     }
 
 #if DEBUG
@@ -248,6 +325,19 @@ extension TerminalPasteboardService {
     /// be exercised deterministically.
     public func debugRegisterOwnedTemporaryImageFile(_ fileURL: URL) {
         registerOwnedTemporaryImageFile(fileURL)
+    }
+
+    /// Test bridge for replacing the original pathname in the former
+    /// identity-check-to-unlink race window. The hook now runs only after the
+    /// owned entry has moved into the private quarantine.
+    public func debugCleanupTransferredTemporaryImageFiles(
+        _ fileURLs: [URL],
+        afterQuarantineValidation: () -> Void
+    ) {
+        cleanupTransferredTemporaryImageFiles(
+            fileURLs,
+            afterQuarantineValidation: afterQuarantineValidation
+        )
     }
 #endif
 }

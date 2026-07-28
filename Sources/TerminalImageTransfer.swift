@@ -9,14 +9,17 @@ enum TerminalImageTransferMode {
     case drop
 }
 
-enum TerminalRemoteUploadTarget: Equatable {
+nonisolated enum TerminalRemoteUploadTarget: Equatable, Sendable {
     case workspaceRemote
     case detectedSSH(DetectedSSHSession)
 }
 
-enum TerminalImageTransferTarget: Equatable {
+nonisolated enum TerminalImageTransferTarget: Equatable, Sendable {
     case local
     case remote(TerminalRemoteUploadTarget)
+    /// The terminal may be running an unmanaged remote shell, but cmux has no
+    /// structured upload route for it.
+    case unknown
 }
 
 enum TerminalImageTransferPlan: Equatable {
@@ -77,8 +80,41 @@ enum PasteboardFileURLReader {
     }
 }
 
-enum TerminalImageTransferExecutionError: Error {
+enum TerminalImageTransferExecutionError: LocalizedError {
     case cancelled
+    case unverifiedRemoteSession
+
+    var errorDescription: String? {
+        switch self {
+        case .cancelled:
+            return nil
+        case .unverifiedRemoteSession:
+            return String(
+                localized: "terminal.fileTransfer.error.unverifiedRemoteSession",
+                defaultValue: "cmux can't determine where this terminal is running. Exit the manually started remote shell, or open the host through a cmux-managed SSH workspace, then try again."
+            )
+        }
+    }
+}
+
+@MainActor
+enum TerminalImageTransferGuidance {
+    static func presentUnverifiedRemoteSession(in window: NSWindow?) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(
+            localized: "terminal.fileTransfer.error.unverifiedRemoteSession.title",
+            defaultValue: "File transfer target unavailable"
+        )
+        alert.informativeText =
+            TerminalImageTransferExecutionError.unverifiedRemoteSession
+                .localizedDescription
+        if let window {
+            alert.beginSheetModal(for: window)
+        } else {
+            alert.runModal()
+        }
+    }
 }
 
 // The app-side conformer of the session coordinator's transfer-cancellation
@@ -245,6 +281,8 @@ enum TerminalImageTransferPlanner {
                 return .insertText(insertedText(forFileURLs: fileURLs))
             }
             return .uploadFiles(fileURLs, remoteTarget)
+        case .unknown:
+            return .reject
         }
     }
 
@@ -494,23 +532,36 @@ enum TerminalImageTransferPlanner {
 }
 
 extension TerminalSurface {
+    /// Captures the host that owns this terminal from cmux-managed state.
+    ///
+    /// File transfers must not infer an upload destination from the foreground
+    /// process command line. A manually started `ssh` process does not transfer
+    /// ownership of caller-supplied files to that host.
     @MainActor
-    func resolvedImageTransferTarget() -> TerminalImageTransferTarget {
-        guard let workspace = owningWorkspace() else { return .local }
+    func managedImageTransferTargetSnapshot() -> TerminalImageTransferTarget {
+        guard let workspace = owningWorkspace() else {
+            return .unknown
+        }
         if workspace.isRemoteTerminalSurface(id) {
             return .remote(.workspaceRemote)
         }
-        // Remote tmux mirror surfaces have no local TTY/process, so the SSH
-        // detector below can't see them. Upload pasted images to the tmux host
-        // over SSH (where claude runs can read them) instead of inserting a
-        // macOS-local path the remote host has no access to.
-        if let target = AppDelegate.shared?.remoteTmuxController.remoteUploadTarget(forSurfaceId: id) {
-            return .remote(target)
+        if let remoteTmuxTarget = AppDelegate.shared?.remoteTmuxController
+            .remoteUploadTarget(forSurfaceId: id) {
+            return .remote(remoteTmuxTarget)
         }
+        // Foreground-process inspection is only a conservative hazard signal.
+        // It never supplies credentials or an upload destination. A manually
+        // started remote shell stays unknown until a structured cmux route
+        // owns it.
         if let ttyName = workspace.surfaceTTYNames[id],
-           let session = TerminalSSHSessionDetector.detect(forTTY: ttyName) {
-            return .remote(.detectedSSH(session))
+           TerminalSSHSessionDetector.hasForegroundRemoteShell(forTTY: ttyName) {
+            return .unknown
         }
         return .local
+    }
+
+    @MainActor
+    func resolvedImageTransferTarget() -> TerminalImageTransferTarget {
+        managedImageTransferTargetSnapshot()
     }
 }

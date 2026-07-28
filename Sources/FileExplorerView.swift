@@ -1033,7 +1033,7 @@ final class FileExplorerContainerView: NSView {
     }
 
     @discardableResult
-    func focusSearchField() -> Bool {
+    func focusSearchField(initialQuery: String? = nil) -> Bool {
         guard let window, cmuxCanAcceptRightSidebarKeyboardFocus else {
 #if DEBUG
             dlog(
@@ -1044,6 +1044,9 @@ final class FileExplorerContainerView: NSView {
             return false
         }
         isSearchVisible = true
+        if let initialQuery {
+            searchField.stringValue = initialQuery
+        }
         updateSearchLayout()
         refreshSearchIfNeeded()
         let result = window.makeFirstResponder(searchField)

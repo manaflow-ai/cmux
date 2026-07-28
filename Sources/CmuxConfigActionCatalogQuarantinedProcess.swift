@@ -1,0 +1,1 @@
+protocol CmuxConfigActionCatalogQuarantinedProcess: AnyObject, Sendable {}

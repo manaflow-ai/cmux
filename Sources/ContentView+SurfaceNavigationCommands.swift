@@ -25,7 +25,8 @@ extension ContentView {
                 ),
                 subtitle: subtitle,
                 keywords: ["next", "tab", "pane"],
-                when: { $0.bool(CommandPaletteContextKeys.hasFocusedPanel) }
+                when: { $0.bool(CommandPaletteContextKeys.hasFocusedPanel) },
+                enablement: { $0.bool(CommandPaletteContextKeys.panelHasPeerTab) }
             ),
             CommandPaletteCommandContribution(
                 commandId: "palette.previousTabInPane",
@@ -37,7 +38,8 @@ extension ContentView {
                 ),
                 subtitle: subtitle,
                 keywords: ["previous", "tab", "pane"],
-                when: { $0.bool(CommandPaletteContextKeys.hasFocusedPanel) }
+                when: { $0.bool(CommandPaletteContextKeys.hasFocusedPanel) },
+                enablement: { $0.bool(CommandPaletteContextKeys.panelHasPeerTab) }
             ),
         ]
         contributions.append(contentsOf: SurfacePaneMovement.allCases.map { movement in
@@ -54,28 +56,52 @@ extension ContentView {
 
     func registerSurfaceNavigationCommandHandlers(
         _ registry: inout CommandPaletteHandlerRegistry,
-        preferredWindow: @escaping () -> NSWindow?
+        context: CommandPaletteActionContext
     ) {
-        registry.register(commandId: "palette.nextTabInPane") {
-            tabManager.selectNextSurface()
+        registry.register(commandId: "palette.nextTabInPane") { invocation in
+            guard let panelContext = context.panel() else {
+                return .targetUnavailable
+            }
+            let didSelect = tabManager.selectNextSurface(
+                tabId: panelContext.workspace.id,
+                fromPanelId: panelContext.panelId
+            )
+            if !didSelect, invocation.source == .commandPalette { NSSound.beep() }
+            return didSelect ? .completed : surfaceNavigationFailure(code: "tab_navigation_unavailable")
         }
-        registry.register(commandId: "palette.previousTabInPane") {
-            tabManager.selectPreviousSurface()
+        registry.register(commandId: "palette.previousTabInPane") { invocation in
+            guard let panelContext = context.panel() else {
+                return .targetUnavailable
+            }
+            let didSelect = tabManager.selectPreviousSurface(
+                tabId: panelContext.workspace.id,
+                fromPanelId: panelContext.panelId
+            )
+            if !didSelect, invocation.source == .commandPalette { NSSound.beep() }
+            return didSelect ? .completed : surfaceNavigationFailure(code: "tab_navigation_unavailable")
         }
         for movement in SurfacePaneMovement.allCases {
-            registry.register(commandId: movement.commandID) {
-                guard let preferredWindow = preferredWindow() else {
-                    NSSound.beep()
-                    return
+            registry.register(commandId: movement.commandID) { invocation in
+                guard let panelContext = context.panel() else {
+                    return .targetUnavailable
                 }
-                if AppDelegate.shared?.performSurfacePaneMovement(
-                    movement,
-                    tabManager: tabManager,
-                    preferredWindow: preferredWindow
-                ) != true {
-                    NSSound.beep()
-                }
+                let didMove = panelContext.workspace.moveSurface(
+                    panelId: panelContext.panelId,
+                    to: movement
+                )
+                if !didMove, invocation.source == .commandPalette { NSSound.beep() }
+                return didMove ? .completed : surfaceNavigationFailure(code: "surface_navigation_unavailable")
             }
         }
+    }
+
+    private func surfaceNavigationFailure(code: String) -> CmuxActionExecutionResult {
+        .failed(
+            code: code,
+            message: String(
+                localized: "action.error.configuredActionFailed",
+                defaultValue: "The configured action could not be started."
+            )
+        )
     }
 }

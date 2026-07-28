@@ -564,7 +564,21 @@ class GhosttyApp {
                 }
 
                 let target = MainActor.assumeIsolated {
-                    callbackContext.terminalSurface?.resolvedImageTransferTarget() ?? .local
+                    callbackContext.terminalSurface?.resolvedImageTransferTarget() ?? .unknown
+                }
+                guard target != .unknown else {
+                    MainActor.assumeIsolated {
+                        callbackContext.terminalSurface?.hostedView
+                            .endImageTransferIndicator(for: operation)
+                        TerminalImageTransferGuidance
+                            .presentUnverifiedRemoteSession(
+                                in: callbackContext.terminalSurface?.hostedView.window
+                            )
+                    }
+                    GhosttyApp.terminalPasteboard
+                        .cleanupTransferredTemporaryImageFiles(fileURLs)
+                    completeClipboardRequest(with: "")
+                    return
                 }
                 let plan = TerminalImageTransferPlanner.plan(
                     fileURLs: fileURLs,
@@ -1970,7 +1984,8 @@ class GhosttyApp {
         return true
     }
 
-    func openConfigurationInTextEdit() {
+    @discardableResult
+    func openConfigurationInTextEdit() -> Bool {
         #if os(macOS)
         let environment = ConfigSourceEnvironment.live()
         let fileURLs: [URL]
@@ -1978,15 +1993,18 @@ class GhosttyApp {
             fileURLs = try environment.materializedGhosttySettingsEditorURLs()
         } catch {
             NSSound.beep()
-            return
+            return false
         }
         guard !fileURLs.isEmpty else {
             NSSound.beep()
-            return
+            return false
         }
         let editorURL = URL(fileURLWithPath: "/System/Applications/TextEdit.app")
         let configuration = NSWorkspace.OpenConfiguration()
         NSWorkspace.shared.open(fileURLs, withApplicationAt: editorURL, configuration: configuration)
+        return true
+        #else
+        return false
         #endif
     }
 
@@ -7235,7 +7253,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     private func resolvedImageTransferTarget() -> TerminalImageTransferTarget {
         MainActor.assumeIsolated {
-            terminalSurface?.resolvedImageTransferTarget() ?? .local
+            terminalSurface?.resolvedImageTransferTarget() ?? .unknown
         }
     }
 
@@ -7269,9 +7287,18 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             terminalSurface?.sendText(text)
             return true
         case .fileURLs(let fileURLs):
+            let target = resolvedImageTransferTarget()
+            guard target != .unknown else {
+                TerminalImageTransferGuidance.presentUnverifiedRemoteSession(
+                    in: window
+                )
+                GhosttyApp.terminalPasteboard
+                    .cleanupTransferredTemporaryImageFiles(fileURLs)
+                return true
+            }
             let plan = TerminalImageTransferPlanner.plan(
                 fileURLs: fileURLs,
-                target: resolvedImageTransferTarget(),
+                target: target,
                 mode: .drop
             )
             return executeImageTransferPlan(plan, onCancel: onCancel)

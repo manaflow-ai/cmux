@@ -619,6 +619,52 @@ struct TitlebarControlsHoverPolicyTests {
 @Suite(.serialized)
 struct NotificationsPopoverAnchorPolicyTests {
     @Test
+    func testNotificationsPopoverPresentationResultIsIdempotentAndTyped() {
+        checkEqual(
+            UpdateTitlebarAccessoryController.notificationsPopoverPresentationResult(
+                wasShown: false,
+                isShown: true
+            ),
+            .presented
+        )
+        checkEqual(
+            UpdateTitlebarAccessoryController.notificationsPopoverPresentationResult(
+                wasShown: true,
+                isShown: true
+            ),
+            .completed
+        )
+        checkEqual(
+            UpdateTitlebarAccessoryController.notificationsPopoverPresentationResult(
+                wasShown: false,
+                isShown: false
+            ),
+            .failed
+        )
+        checkTrue(
+            UpdateTitlebarAccessoryController.detachedNotificationsPopoverSatisfiesShow(
+                isShown: true,
+                hasPreferredWindow: true,
+                isInPreferredWindow: true
+            )
+        )
+        checkFalse(
+            UpdateTitlebarAccessoryController.detachedNotificationsPopoverSatisfiesShow(
+                isShown: true,
+                hasPreferredWindow: true,
+                isInPreferredWindow: false
+            )
+        )
+        checkTrue(
+            UpdateTitlebarAccessoryController.detachedNotificationsPopoverSatisfiesShow(
+                isShown: true,
+                hasPreferredWindow: false,
+                isInPreferredWindow: false
+            )
+        )
+    }
+
+    @Test
     func testPreferredPopoverAnchorUsesVisibleButtonAnchorBeforeWideFallback() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 220, height: 80),

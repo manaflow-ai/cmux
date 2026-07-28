@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import CmuxSettings
 import CmuxWorkspaces
 import Foundation
@@ -167,6 +168,29 @@ enum WorkspaceTodoActions {
         guard let paneId = workspace.bonsplitController.focusedPaneId else {
             return nil
         }
+        return openTodoPane(in: workspace, paneId: paneId, focus: focus)
+    }
+
+    /// Opens the todo surface in the pane that owns an immutable source
+    /// panel. Automation uses this entrypoint so another pane's live focus
+    /// cannot redirect the action between list and run.
+    @discardableResult
+    static func openTodoPane(
+        for workspace: Workspace,
+        sourcePanelID: UUID,
+        focus: Bool = true
+    ) -> WorkspaceTodoPanel? {
+        guard let paneId = workspace.paneId(forPanelId: sourcePanelID) else {
+            return nil
+        }
+        return openTodoPane(in: workspace, paneId: paneId, focus: focus)
+    }
+
+    private static func openTodoPane(
+        in workspace: Workspace,
+        paneId: PaneID,
+        focus: Bool
+    ) -> WorkspaceTodoPanel? {
         guard let panel = workspace.openOrFocusWorkspaceTodoSurface(inPane: paneId, focus: focus) else {
             return nil
         }
@@ -178,17 +202,11 @@ enum WorkspaceTodoActions {
     /// add-item field (used by the context menu and the command palette,
     /// which have no direct handle on the row's transient UI state). Also
     /// enables the feature so the checklist UI is actually visible.
-    static func requestChecklistAddField(workspaceId: UUID) {
+    static func requestChecklistAddField(workspaceId: UUID, in tabManager: TabManager) {
         guard WorkspaceTodoFeature.isEnabled else { return }
         WorkspaceTodoFeature.markUsed()
-        NotificationCenter.default.post(
-            name: .workspaceChecklistAddItemRequested,
-            object: nil,
-            userInfo: [Self.workspaceIdUserInfoKey: workspaceId]
-        )
+        tabManager.checklistAddRequestStore.request(workspaceID: workspaceId)
     }
-
-    static let workspaceIdUserInfoKey = "workspaceId"
 }
 
 @MainActor
@@ -213,16 +231,5 @@ private func checklistImageAttachment(for url: URL) -> WorkspaceChecklistAttachm
         fileURL: url,
         byteCount: resourceValues?.fileSize.map(Int64.init),
         contentTypeIdentifier: resourceValues?.contentType?.identifier
-    )
-}
-
-extension Notification.Name {
-    /// Posted by ``WorkspaceTodoActions/requestChecklistAddField(workspaceId:)``;
-    /// observed by the workspace sidebar, which arms the row's add-item
-    /// field — via the anchored checklist popover in `.popover` style (even
-    /// for a workspace's very first item), or by expanding the row's inline
-    /// checklist in `.inline` style.
-    static let workspaceChecklistAddItemRequested = Notification.Name(
-        "cmux.workspaceChecklistAddItemRequested"
     )
 }

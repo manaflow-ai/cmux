@@ -215,8 +215,8 @@ struct SidebarWorkspaceChecklistSection: View {
                 summaryLine
             }
             // In popover style, "Add Checklist Item…" opens the popover
-            // directly (see the container's `.workspaceChecklistAddItemRequested`
-            // handler) — the row itself shows nothing inline (no ghost
+            // through the container's durable presentation-request handler.
+            // The row itself shows nothing inline (no ghost
             // "Add item" affordance) until an item actually exists, at
             // which point `summaryLine` above is the small status preview.
             if !presentsPopover, isExpanded || totalCount == 0 {

@@ -754,6 +754,33 @@ final class TerminalControllerSocketSecurityTests {
         }
     }
 
+    @Test func testPaletteConfigAwaitRunsOnTheSocketWorker() async throws {
+        let socketPath = makeSocketPath("palette-worker")
+        let tabManager = TabManager()
+        TerminalController.shared.start(
+            tabManager: tabManager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        let requestLine = try makeV2RequestLine(method: "palette.list", params: [:])
+        let inline = try decodeV2Envelope(TerminalController.shared.handleSocketLine(requestLine))
+        let inlineError = try XCTUnwrap(inline["error"] as? [String: Any])
+        XCTAssertEqual(inlineError["code"] as? String, "invalid_dispatch")
+
+        let worker = try await sendV2RequestAsync(
+            method: "palette.list",
+            params: [:],
+            to: socketPath
+        )
+        let workerError = try XCTUnwrap(worker["error"] as? [String: Any])
+        XCTAssertEqual(workerError["code"] as? String, "not_found")
+        XCTAssertFalse(
+            (workerError["message"] as? String)?.contains("has no worker handler") == true
+        )
+    }
+
     @Test func testV1PingRunsOnWorkerLaneAndStaysMainThreadCallable() async throws {
         let socketPath = makeSocketPath("v1-ping")
         let tabManager = TabManager()

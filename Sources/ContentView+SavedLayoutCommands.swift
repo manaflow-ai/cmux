@@ -3,6 +3,21 @@ import CmuxCommandPalette
 import Foundation
 
 extension ContentView {
+    static func savedLayoutPresentingWindow(
+        for context: CommandPaletteActionContext,
+        appDelegate: AppDelegate?
+    ) -> NSWindow? {
+        guard context.target.windowID == context.owningWindowID,
+              let appDelegate,
+              let liveContext = appDelegate.liveMainWindowContextForAction(
+                  tabManager: context.tabManager
+              ),
+              liveContext.windowId == context.target.windowID else {
+            return nil
+        }
+        return appDelegate.mainWindow(for: context.target.windowID)
+    }
+
     static func shouldHandleSavedLayoutSaveRequest(
         observedWindow: NSWindow?,
         requestedWindow: NSWindow?,
@@ -28,6 +43,14 @@ extension ContentView {
                 subtitle: workspaceSubtitle,
                 shortcutHint: KeyboardShortcutSettings.shortcutIfBound(for: .saveLayoutTemplate)?.displayString,
                 keywords: ["save", "layout", "template", "preset", "workspace", "split"],
+                arguments: [
+                    CmuxActionArgumentDefinition(name: "name"),
+                    CmuxActionArgumentDefinition(
+                        name: "overwrite",
+                        valueType: .boolean,
+                        required: false
+                    ),
+                ],
                 when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) },
                 enablement: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
             )
@@ -39,34 +62,100 @@ extension ContentView {
                     commandId: savedLayoutOpenCommandID(layout.name),
                     title: { _ in String.localizedStringWithFormat(format, layout.name) },
                     subtitle: { _ in String(localized: "command.savedLayout.subtitle", defaultValue: "Saved Layouts") },
-                    keywords: ["new", "open", "layout", "template", "preset", "workspace", "split", layout.name]
+                    keywords: ["new", "open", "layout", "template", "preset", "workspace", "split", layout.name],
+                    arguments: Self.commandPaletteOptionalFocusArguments
                 )
             )
         }
     }
 
-    func registerSavedLayoutCommandHandlers(_ registry: inout CommandPaletteHandlerRegistry) {
-        registry.register(commandId: "palette.layout.saveCurrent") {
-            presentSavedLayoutSavePrompt()
+    func registerSavedLayoutCommandHandlers(
+        _ registry: inout CommandPaletteHandlerRegistry,
+        context: CommandPaletteActionContext
+    ) {
+        registry.register(commandId: "palette.layout.saveCurrent") { invocation in
+            guard let workspaceID = context.workspace()?.id else {
+                return .targetUnavailable
+            }
+            if let name = invocation.string("name") {
+                do {
+                    try saveCurrentLayout(
+                        named: name,
+                        overwrite: invocation.bool("overwrite") ?? false,
+                        workspaceID: workspaceID,
+                        focusedPanelID: context.target.panelID
+                    )
+                    return .completed
+                } catch {
+                    return .failed(
+                        code: savedLayoutActionErrorCode(error),
+                        message: savedLayoutErrorMessage(error)
+                    )
+                }
+            }
+            guard context.target.panelID == nil || context.panel() != nil,
+                  let presentingWindow = Self.savedLayoutPresentingWindow(
+                      for: context,
+                      appDelegate: AppDelegate.shared
+                  ) else {
+                return .targetUnavailable
+            }
+            presentSavedLayoutSavePrompt(
+                workspaceID: workspaceID,
+                focusedPanelID: context.target.panelID,
+                presentingWindow: presentingWindow
+            )
+            return .presented
         }
         for layout in savedLayoutsForCommandPalette() {
             let layoutName = layout.name
-            registry.register(commandId: savedLayoutOpenCommandID(layoutName)) {
+            registry.register(commandId: savedLayoutOpenCommandID(layoutName)) { invocation in
+                guard context.target.workspaceID == nil || context.workspace() != nil else {
+                    return .targetUnavailable
+                }
                 do {
                     guard let resolvedLayout = try SavedLayoutStore().layout(named: layoutName) else {
-                        NSSound.beep()
-                        return
+                        throw SavedLayoutStoreError.notFound(layoutName)
                     }
-                    _ = tabManager.openWorkspace(fromSavedLayout: resolvedLayout, cwdOverride: nil, focus: true)
+                    guard context.tabManager.openWorkspace(
+                        fromSavedLayout: resolvedLayout,
+                        cwdOverride: nil,
+                        focus: Self.commandPaletteShouldFocus(
+                            invocation,
+                            interactiveDefault: true
+                        ),
+                        sourceWorkspaceID: context.workspace()?.id
+                    ) != nil else {
+                        return .failed(
+                            code: "action_failed",
+                            message: savedLayoutErrorMessage(SavedLayoutActionError.targetUnavailable)
+                        )
+                    }
+                    return .completed
                 } catch {
-                    NSSound.beep()
+                    return .failed(
+                        code: savedLayoutActionErrorCode(error),
+                        message: savedLayoutErrorMessage(error)
+                    )
                 }
             }
         }
     }
 
-    func presentSavedLayoutSavePrompt() {
-        guard let workspace = tabManager.selectedWorkspace else {
+    func presentSavedLayoutSavePrompt(
+        workspaceID requestedWorkspaceID: UUID? = nil,
+        focusedPanelID requestedFocusedPanelID: UUID? = nil,
+        presentingWindow: NSWindow? = nil
+    ) {
+        let resolvedPresentingWindow = presentingWindow ?? commandPaletteTargetWindow
+        guard let workspaceID = requestedWorkspaceID ?? tabManager.selectedWorkspace?.id,
+              let workspace = tabManager.tabs.first(where: { $0.id == workspaceID }) else {
+            NSSound.beep()
+            return
+        }
+        let focusedPanelID = requestedFocusedPanelID ?? workspace.focusedPanelId
+        if let requestedFocusedPanelID,
+           workspace.panels[requestedFocusedPanelID] == nil {
             NSSound.beep()
             return
         }
@@ -81,12 +170,15 @@ extension ContentView {
         alert.accessoryView = input
         alert.window.initialFirstResponder = input
 
-        guard alert.runCmuxModal() == .alertFirstButtonReturn else { return }
+        guard alert.runCmuxModal(presentingWindow: resolvedPresentingWindow) == .alertFirstButtonReturn else {
+            return
+        }
         let name = input.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else {
             presentSavedLayoutError(
                 title: String(localized: "dialog.savedLayout.error.title", defaultValue: "Layout Not Saved"),
-                message: String(localized: "dialog.savedLayout.error.blankName", defaultValue: "Enter a name before saving the layout.")
+                message: String(localized: "dialog.savedLayout.error.blankName", defaultValue: "Enter a name before saving the layout."),
+                presentingWindow: resolvedPresentingWindow
             )
             return
         }
@@ -94,25 +186,80 @@ extension ContentView {
         let store = SavedLayoutStore()
         let overwrite: Bool
         do {
-            overwrite = try store.layout(named: name) == nil ? false : confirmSavedLayoutOverwrite(name: name)
+            overwrite = try store.layout(named: name) == nil
+                ? false
+                : confirmSavedLayoutOverwrite(name: name, presentingWindow: resolvedPresentingWindow)
         } catch {
-            presentSavedLayoutError(title: savedLayoutErrorTitle(), message: savedLayoutErrorMessage(error))
+            presentSavedLayoutError(
+                title: savedLayoutErrorTitle(),
+                message: savedLayoutErrorMessage(error),
+                presentingWindow: resolvedPresentingWindow
+            )
             return
         }
         guard overwrite || (try? store.layout(named: name)) == nil else { return }
 
         do {
-            let capture = try workspace.captureLayoutDefinition()
-            try store.save(
-                CmuxSavedLayout(name: name, description: nil, workspace: capture.workspace),
-                overwrite: overwrite
+            try saveCurrentLayout(
+                named: name,
+                overwrite: overwrite,
+                workspaceID: workspaceID,
+                focusedPanelID: focusedPanelID
             )
         } catch {
-            presentSavedLayoutError(title: savedLayoutErrorTitle(), message: savedLayoutErrorMessage(error))
+            presentSavedLayoutError(
+                title: savedLayoutErrorTitle(),
+                message: savedLayoutErrorMessage(error),
+                presentingWindow: resolvedPresentingWindow
+            )
         }
     }
 
-    private func confirmSavedLayoutOverwrite(name: String) -> Bool {
+    private func saveCurrentLayout(
+        named rawName: String,
+        overwrite: Bool,
+        workspaceID: UUID,
+        focusedPanelID: UUID?
+    ) throws {
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { throw SavedLayoutStoreError.blankName }
+        guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceID }) else {
+            throw SavedLayoutActionError.targetUnavailable
+        }
+        if let focusedPanelID, workspace.panels[focusedPanelID] == nil {
+            throw SavedLayoutActionError.targetUnavailable
+        }
+        let capture = try workspace.captureLayoutDefinition(focusedPanelID: focusedPanelID)
+        try SavedLayoutStore().save(
+            CmuxSavedLayout(name: name, description: nil, workspace: capture.workspace),
+            overwrite: overwrite
+        )
+    }
+
+    private func savedLayoutActionErrorCode(_ error: Error) -> String {
+        if let storeError = error as? SavedLayoutStoreError {
+            switch storeError {
+            case .blankName:
+                return "invalid_argument"
+            case .duplicateName:
+                return "already_exists"
+            case .notFound:
+                return "not_found"
+            case .corruptFile:
+                return "invalid_state"
+            }
+        }
+        if error is SavedLayoutActionError ||
+            (error as? SavedLayoutCaptureError) == .targetPanelUnavailable {
+            return "target_unavailable"
+        }
+        return "internal_error"
+    }
+
+    private func confirmSavedLayoutOverwrite(
+        name: String,
+        presentingWindow: NSWindow?
+    ) -> Bool {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = String(localized: "dialog.savedLayout.overwrite.title", defaultValue: "Replace Saved Layout?")
@@ -120,16 +267,20 @@ extension ContentView {
         alert.informativeText = String.localizedStringWithFormat(format, name)
         alert.addButton(withTitle: String(localized: "dialog.savedLayout.overwrite.confirm", defaultValue: "Replace"))
         alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
-        return alert.runCmuxModal() == .alertFirstButtonReturn
+        return alert.runCmuxModal(presentingWindow: presentingWindow) == .alertFirstButtonReturn
     }
 
-    private func presentSavedLayoutError(title: String, message: String) {
+    private func presentSavedLayoutError(
+        title: String,
+        message: String,
+        presentingWindow: NSWindow?
+    ) {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = title
         alert.informativeText = message
         alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
-        _ = alert.runCmuxModal()
+        _ = alert.runCmuxModal(presentingWindow: presentingWindow)
     }
 
     private func savedLayoutErrorTitle() -> String {
@@ -137,6 +288,13 @@ extension ContentView {
     }
 
     private func savedLayoutErrorMessage(_ error: Error) -> String {
+        if error is SavedLayoutActionError ||
+            (error as? SavedLayoutCaptureError) == .targetPanelUnavailable {
+            return String(
+                localized: "action.error.targetUnavailable",
+                defaultValue: "The action target is no longer available."
+            )
+        }
         if let storeError = error as? SavedLayoutStoreError {
             switch storeError {
             case .blankName:

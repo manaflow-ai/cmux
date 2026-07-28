@@ -1,6 +1,261 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "action.error.panelActionFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The panel action could not be completed."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パネルのアクションを完了できませんでした。"
+          }
+        }
+      }
+    },
+    "action.error.checklistItemAddFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The checklist item could not be added."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チェックリスト項目を追加できませんでした。"
+          }
+        }
+      }
+    },
+    "action.error.closeFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The requested item could not be closed."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "指定した項目を閉じることができませんでした。"
+          }
+        }
+      }
+    },
+    "action.error.cloudVMRestoreFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VM restore could not be started."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VM の復元を開始できませんでした。"
+          }
+        }
+      }
+    },
+    "action.error.configuredActionFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The configured action could not be started."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定されたアクションを開始できませんでした。"
+          }
+        }
+      }
+    },
+    "action.error.confirmationRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automation must explicitly pass force=true for this action."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動化からこのアクションを実行するには force=true を明示的に指定してください。"
+          }
+        }
+      }
+    },
+    "action.error.directoryUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The directory does not exist or is not a folder."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ディレクトリが存在しないか、フォルダではありません。"
+          }
+        }
+      }
+    },
+    "action.error.inlineVSCodeOpenFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VS Code (Inline) could not open the directory."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VS Code (Inline) でディレクトリを開けませんでした。"
+          }
+        }
+      }
+    },
+    "action.error.identifierCopyFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The identifiers could not be copied."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "識別子をコピーできませんでした。"
+          }
+        }
+      }
+    },
+    "action.error.fileUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The file does not exist or is not a regular file."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルが存在しないか、通常のファイルではありません。"
+          }
+        }
+      }
+    },
+    "action.error.notApplicable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The action does not apply to the target's current state."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアクションは対象の現在の状態には適用できません。"
+          }
+        }
+      }
+    },
+    "action.error.targetUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The action target is no longer available."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクションの対象は使用できなくなりました。"
+          }
+        }
+      }
+    },
+    "action.error.terminalActionFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The terminal action could not be completed."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルのアクションを完了できませんでした。"
+          }
+        }
+      }
+    },
+    "action.error.terminalAttachmentQueueFull": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The terminal text-box attachment queue is full."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルのテキストボックスの添付キューがいっぱいです。"
+          }
+        }
+      }
+    },
+    "action.error.terminalInputRejected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The terminal did not accept the input."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルが入力を受け付けませんでした。"
+          }
+        }
+      }
+    },
     "about.appName": {
       "extractionState": "manual",
       "localizations": {
@@ -46782,6 +47037,312 @@
         }
       }
     },
+    "cli.error.optionRequiresValue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ requires a non-empty value"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ には空でない値が必要です"
+          }
+        }
+      }
+    },
+    "cli.palette.error.argumentFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Action arguments must use --arg name=value"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクション引数は --arg name=value 形式で指定してください"
+          }
+        }
+      }
+    },
+    "cli.palette.error.duplicateArgument": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Each action argument may be supplied once"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各アクション引数は 1 回だけ指定できます"
+          }
+        }
+      }
+    },
+    "cli.palette.error.listArguments": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "palette list does not accept extra arguments"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "palette list は追加の引数を受け付けません"
+          }
+        }
+      }
+    },
+    "cli.palette.error.invalidTargetJSON": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--target must be the JSON target object returned by palette list"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--target には palette list が返した JSON target オブジェクトを指定してください"
+          }
+        }
+      }
+    },
+    "cli.palette.error.malformedListResponse": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Malformed palette.list response"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "palette.list の応答形式が不正です"
+          }
+        }
+      }
+    },
+    "cli.palette.error.malformedRunResponse": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Malformed palette.run response"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "palette.run の応答形式が不正です"
+          }
+        }
+      }
+    },
+    "cli.palette.error.runCommandID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "palette run requires an action id"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "palette run にはアクション ID が必要です"
+          }
+        }
+      }
+    },
+    "cli.palette.error.targetConflict": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--target cannot be combined with --window"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--target と --window は同時に指定できません"
+          }
+        }
+      }
+    },
+    "cli.palette.error.unknownSubcommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown palette subcommand"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明な palette サブコマンドです"
+          }
+        }
+      }
+    },
+    "cli.palette.runPresented": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Presented command palette action:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンドパレットのアクションを表示しました:"
+          }
+        }
+      }
+    },
+    "cli.palette.runQueued": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Queued command palette action:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンドパレットのアクションをキューに追加しました:"
+          }
+        }
+      }
+    },
+    "cli.palette.runSuccess": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ran command palette action:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンドパレットのアクションを実行しました:"
+          }
+        }
+      }
+    },
+    "cli.palette.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux palette [list] [--window <id|ref|index>]\n       cmux palette run <action-id> [--arg <name=value> ...] [--window <id|ref|index>]\n       cmux palette run <action-id> --target '<target-json>'\n       cmux palette <action-id> [--arg <name=value> ...]   (shorthand for 'run')\n\nList or invoke the exact actions available through Cmd+Shift+P in\nthe target window's current context. Action IDs and argument names\nare strings declared by the live action registry, including custom\nactions loaded from cmux.json. Echo the target object from JSON list\noutput into --target to preserve its exact window, workspace, pane,\nand config snapshot.\n\nExamples:\n  cmux palette list\n  cmux palette run palette.newTerminalTab\n  cmux palette run palette.renameWorkspace --arg name=api\n  cmux palette run palette.renameWorkspace --arg name=api --target '{\"window_id\":\"...\",\"workspace_id\":\"...\",\"panel_id\":\"...\",\"config_snapshot_id\":\"...\"}'\n  cmux palette palette.terminalOpenDirectory.vscodeInline"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用法: cmux palette [list] [--window <id|ref|index>]\n       cmux palette run <action-id> [--arg <name=value> ...] [--window <id|ref|index>]\n       cmux palette run <action-id> --target '<target-json>'\n       cmux palette <action-id> [--arg <name=value> ...]   ('run' の省略形)\n\n対象ウィンドウの現在のコンテキストで Cmd+Shift+P に表示される\nアクションを一覧表示または実行します。アクション ID と引数名は、\ncmux.json から読み込まれるカスタムアクションを含め、実行中の\nアクションレジストリで文字列として宣言されます。JSON の一覧出力に\n含まれる target を --target に渡すと、ウィンドウ、ワークスペース、\nペイン、設定スナップショットを正確に維持できます。\n\n例:\n  cmux palette list\n  cmux palette run palette.newTerminalTab\n  cmux palette run palette.renameWorkspace --arg name=api\n  cmux palette run palette.renameWorkspace --arg name=api --target '{\"window_id\":\"...\",\"workspace_id\":\"...\",\"panel_id\":\"...\",\"config_snapshot_id\":\"...\"}'\n  cmux palette palette.terminalOpenDirectory.vscodeInline"
+          }
+        }
+      }
+    },
+    "cli.vscode.error.arguments": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vscode open accepts one directory path"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vscode open にはディレクトリパスを 1 つ指定できます"
+          }
+        }
+      }
+    },
+    "cli.vscode.error.malformedResponse": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Malformed vscode.open response"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vscode.open の応答形式が不正です"
+          }
+        }
+      }
+    },
+    "cli.vscode.openQueued": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Queued for VS Code (Inline):"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VS Code (Inline) で開く処理をキューに追加しました:"
+          }
+        }
+      }
+    },
+    "cli.vscode.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux vscode open [path] [--workspace <id|ref|index>] [--window <id|ref|index>]\n       cmux vscode [path]       (shorthand for 'open')\n\nOpen a directory in a cmux VS Code (Inline) browser pane. The path\ndefaults to the current directory.\n\nExamples:\n  cmux vscode .\n  cmux vscode open ~/project --workspace workspace:2"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用法: cmux vscode open [path] [--workspace <id|ref|index>] [--window <id|ref|index>]\n       cmux vscode [path]       ('open' の省略形)\n\ncmux 内の VS Code (Inline) ブラウザペインでディレクトリを開きます。\nパスを省略すると、現在のディレクトリを使用します。\n\n例:\n  cmux vscode .\n  cmux vscode open ~/project --workspace workspace:2"
+          }
+        }
+      }
+    },
     "cli.rightSidebar.error.invalidWindow": {
       "extractionState": "manual",
       "localizations": {
@@ -57241,6 +57802,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ '%@' はワークスペースコマンドを参照する必要があります"
+          }
+        }
+      }
+    },
+    "command.cmuxConfig.issue.paletteActionIDCollision.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Action '%@' conflicts with a cmux command palette action and was ignored"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクション '%@' は cmux のコマンドパレットアクションと競合するため無視されました"
           }
         }
       }
@@ -83129,6 +83707,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "無法將檔案上傳到遠端工作階段。請確認遠端主機可連線，然後再試一次。"
+          }
+        }
+      }
+    },
+    "config.actionCatalog.error.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.json is empty"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.json は空です"
+          }
+        }
+      }
+    },
+    "config.actionCatalog.error.jsoncPreprocessing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "JSONC preprocessing failed: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "JSONC の前処理に失敗しました: %@"
+          }
+        }
+      }
+    },
+    "config.actionCatalog.error.tooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.json exceeds the %lld-byte action catalog limit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.json はアクションカタログの上限（%lld バイト）を超えています"
+          }
+        }
+      }
+    },
+    "config.actionCatalog.error.unreadable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.json could not be read"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.json を読み込めませんでした"
           }
         }
       }
@@ -227071,6 +227717,363 @@
         }
       }
     },
+    "socket.palette.error.argumentsObject": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'arguments' must be an object of string values"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'arguments' は文字列値のオブジェクトである必要があります"
+          }
+        }
+      }
+    },
+    "socket.palette.error.commandNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command palette action not found in the current context"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のコンテキストにコマンドパレットのアクションが見つかりません"
+          }
+        }
+      }
+    },
+    "socket.palette.error.configurationChanged": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command palette configuration changed; run palette list again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンドパレットの設定が変更されました。palette list を再実行してください。"
+          }
+        }
+      }
+    },
+    "socket.palette.error.configurationPending": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The command palette configuration is still loading; retry the command."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンドパレットの設定を読み込み中です。コマンドを再試行してください。"
+          }
+        }
+      }
+    },
+    "socket.palette.error.configurationTimeout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command palette configuration timed out."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンドパレットの設定の読み込みがタイムアウトしました。"
+          }
+        }
+      }
+    },
+    "socket.palette.error.invalidArgumentValues": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid values for action arguments: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクション引数の値が無効です: %@"
+          }
+        }
+      }
+    },
+    "socket.palette.error.internal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command palette request could not be handled."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンドパレットのリクエストを処理できませんでした。"
+          }
+        }
+      }
+    },
+    "socket.palette.error.invalidTarget": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid command palette target"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンドパレットの対象が無効です"
+          }
+        }
+      }
+    },
+    "socket.palette.error.missingCommandID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing 'command_id' parameter"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'command_id' パラメータがありません"
+          }
+        }
+      }
+    },
+    "socket.palette.error.missingArguments": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing required action arguments: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "必須のアクション引数がありません: %@"
+          }
+        }
+      }
+    },
+    "socket.palette.error.targetUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The command palette target is no longer available"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンドパレットの対象は使用できなくなりました"
+          }
+        }
+      }
+    },
+    "socket.palette.error.unknownArguments": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown action arguments: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明なアクション引数です: %@"
+          }
+        }
+      }
+    },
+    "socket.palette.error.windowNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command palette window not found"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンドパレットのウィンドウが見つかりません"
+          }
+        }
+      }
+    },
+    "socket.vscode.error.cwdMustBeAbsolute": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'cwd' must be an absolute path"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'cwd' は絶対パスで指定してください"
+          }
+        }
+      }
+    },
+    "socket.vscode.error.directoryNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Directory not found"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ディレクトリが見つかりません"
+          }
+        }
+      }
+    },
+    "socket.vscode.error.missingPath": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing 'path' parameter"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'path' パラメータがありません"
+          }
+        }
+      }
+    },
+    "socket.vscode.error.notDirectory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Path is not a directory"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パスはディレクトリではありません"
+          }
+        }
+      }
+    },
+    "socket.vscode.error.openFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to open VS Code Inline"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VS Code Inline を開けませんでした"
+          }
+        }
+      }
+    },
+    "socket.vscode.error.tabManagerUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The inline editor is unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インラインエディタを利用できません"
+          }
+        }
+      }
+    },
+    "socket.vscode.error.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VS Code Inline is unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VS Code Inline を利用できません"
+          }
+        }
+      }
+    },
+    "socket.vscode.error.workspaceNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace not found"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースが見つかりません"
+          }
+        }
+      }
+    },
     "socket.terminal.inputQueueFull": {
       "extractionState": "manual",
       "localizations": {
@@ -234397,6 +235400,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "エージェントは休止中"
+          }
+        }
+      }
+    },
+    "terminal.fileTransfer.error.unverifiedRemoteSession": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux can't determine where this terminal is running. Exit the manually started remote shell, or open the host through a cmux-managed SSH workspace, then try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux はこのターミナルがどこで実行されているか確認できません。手動で開始したリモートシェルを終了するか、cmux が管理する SSH ワークスペースでホストを開いてから、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "terminal.fileTransfer.error.unverifiedRemoteSession.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File transfer target unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイル転送先を利用できません"
           }
         }
       }

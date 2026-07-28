@@ -16,13 +16,17 @@ private final class ShortcutUnrelatedResponderView: NSView {
 private final class CanvasViewportSpy: CanvasViewportControlling {
     var revealedPanelIds: [UUID] = []
     var overviewToggleCount = 0
+    var isOverviewEnabled = false
     var modelDidChangeCount = 0
     var resetZoomCount = 0
     var currentMagnification: CGFloat = 1
     var currentCenterInCanvas: CGPoint = .zero
 
     func revealPane(_ panelId: UUID, animated: Bool) { revealedPanelIds.append(panelId) }
-    func toggleOverview() { overviewToggleCount += 1 }
+    func toggleOverview() {
+        overviewToggleCount += 1
+        isOverviewEnabled.toggle()
+    }
     func zoom(by factor: CGFloat) {}
     func resetZoom() { resetZoomCount += 1 }
     func setViewport(center: CGPoint, magnification: CGFloat?) {}

@@ -35,6 +35,12 @@ public protocol FocusedNotificationResolving: AnyObject {
     /// focused. Mirrors `focusedNotificationTarget(preferredWindow:)`.
     func focusedTarget(preferredWindowToken: AnyObject?) -> FocusedNotificationTarget?
 
+    /// Whether `tabId` still identifies a live workspace.
+    ///
+    /// Explicit command-palette targets use this check before mutating unread
+    /// state so a workspace deleted after list-time resolution fails closed.
+    func workspaceExists(forTabId tabId: UUID) -> Bool
+
     /// Resolves `surfaceId` to the owning panel within `tabId`'s workspace, or
     /// `nil` when there is no surface or no owning panel. Mirrors
     /// `focusedPanelNotificationTarget(_:)`.

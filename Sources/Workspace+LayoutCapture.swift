@@ -2,10 +2,16 @@ import Bonsplit
 import Foundation
 
 enum SavedLayoutCaptureError: Error, Equatable, LocalizedError {
+    case targetPanelUnavailable
     case unsupportedSplitOrientation(String)
 
     var errorDescription: String? {
         switch self {
+        case .targetPanelUnavailable:
+            return String(
+                localized: "action.error.targetUnavailable",
+                defaultValue: "The action target is no longer available."
+            )
         case .unsupportedSplitOrientation(let orientation):
             return "Unsupported split orientation in layout capture: \(orientation)"
         }
@@ -18,12 +24,22 @@ struct CmuxWorkspaceLayoutCapture {
 }
 
 extension Workspace {
-    func captureLayoutDefinition() throws -> CmuxWorkspaceLayoutCapture {
+    func captureLayoutDefinition(focusedPanelID: UUID? = nil) throws -> CmuxWorkspaceLayoutCapture {
         var unsupportedSurfaceCount = 0
-        let baseCwd = currentDirectory
+        let baseCwd: String
+        if let focusedPanelID {
+            guard let targetCwd = resolvedWorkingDirectory(panelID: focusedPanelID) else {
+                throw SavedLayoutCaptureError.targetPanelUnavailable
+            }
+            baseCwd = targetCwd
+        } else {
+            // Legacy callers capture the workspace's focus-derived directory.
+            baseCwd = currentDirectory
+        }
         let root = try captureLayoutNode(
             from: bonsplitController.treeSnapshot(),
             baseCwd: baseCwd,
+            focusedPanelID: focusedPanelID,
             unsupportedSurfaceCount: &unsupportedSurfaceCount
         )
         let workspaceDefinition = CmuxWorkspaceDefinition(
@@ -42,6 +58,7 @@ extension Workspace {
     private func captureLayoutNode(
         from node: ExternalTreeNode,
         baseCwd: String,
+        focusedPanelID: UUID?,
         unsupportedSurfaceCount: inout Int
     ) throws -> CmuxLayoutNode {
         switch node {
@@ -60,8 +77,8 @@ extension Workspace {
                     direction: direction,
                     split: Self.clampedSavedLayoutSplit(split.dividerPosition),
                     children: [
-                        try captureLayoutNode(from: split.first, baseCwd: baseCwd, unsupportedSurfaceCount: &unsupportedSurfaceCount),
-                        try captureLayoutNode(from: split.second, baseCwd: baseCwd, unsupportedSurfaceCount: &unsupportedSurfaceCount),
+                        try captureLayoutNode(from: split.first, baseCwd: baseCwd, focusedPanelID: focusedPanelID, unsupportedSurfaceCount: &unsupportedSurfaceCount),
+                        try captureLayoutNode(from: split.second, baseCwd: baseCwd, focusedPanelID: focusedPanelID, unsupportedSurfaceCount: &unsupportedSurfaceCount),
                     ]
                 )
             )
@@ -69,6 +86,7 @@ extension Workspace {
             let surfaces = captureSurfaces(
                 from: pane,
                 baseCwd: baseCwd,
+                focusedPanelID: focusedPanelID,
                 unsupportedSurfaceCount: &unsupportedSurfaceCount
             )
             return .pane(CmuxPaneDefinition(surfaces: surfaces.isEmpty ? [CmuxSurfaceDefinition(type: .terminal)] : surfaces))
@@ -78,6 +96,7 @@ extension Workspace {
     private func captureSurfaces(
         from pane: ExternalPaneNode,
         baseCwd: String,
+        focusedPanelID: UUID?,
         unsupportedSurfaceCount: inout Int
     ) -> [CmuxSurfaceDefinition] {
         guard let paneUUID = UUID(uuidString: pane.id) else {
@@ -98,6 +117,7 @@ extension Workspace {
                     panelId: panelId,
                     panel: panel,
                     baseCwd: baseCwd,
+                    focusedPanelID: focusedPanelID,
                     unsupportedSurfaceCount: &unsupportedSurfaceCount
                 )
             )
@@ -109,6 +129,7 @@ extension Workspace {
         panelId: UUID,
         panel: any Panel,
         baseCwd: String,
+        focusedPanelID: UUID?,
         unsupportedSurfaceCount: inout Int
     ) -> CmuxSurfaceDefinition {
         var definition: CmuxSurfaceDefinition
@@ -161,7 +182,7 @@ extension Workspace {
         // schema extension, so non-focused multi-tab panes reopen with their
         // first tab selected (tracked in
         // https://github.com/manaflow-ai/cmux/issues/7444).
-        if focusedPanelId == panelId {
+        if (focusedPanelID ?? focusedPanelId) == panelId {
             definition.focus = true
         }
         return definition

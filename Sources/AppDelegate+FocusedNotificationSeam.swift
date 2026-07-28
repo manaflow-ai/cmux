@@ -4,6 +4,10 @@ import Foundation
 
 @MainActor
 extension AppDelegate {
+    func workspaceExists(forTabId tabId: UUID) -> Bool {
+        workspaceFor(tabId: tabId) != nil
+    }
+
     func focusedPanel(forTabId tabId: UUID, surfaceId: UUID?) -> FocusedPanel? {
         guard let surfaceId,
               let workspace = workspaceFor(tabId: tabId) else {

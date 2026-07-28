@@ -134,7 +134,14 @@ extension TerminalSurface {
     @MainActor
     @discardableResult
     public func clearScreenKeepingScrollback() -> Bool {
-        return sendNamedKey("ctrl-l").accepted
+        clearScreenKeepingScrollbackResult().accepted
+    }
+
+    /// Clears through Ctrl-L while preserving whether the keystroke was sent,
+    /// queued, or rejected for callers that expose typed action outcomes.
+    @MainActor
+    public func clearScreenKeepingScrollbackResult() -> NamedKeySendResult {
+        sendNamedKey("ctrl-l")
     }
 
     /// The visible viewport text, or nil without a live surface.

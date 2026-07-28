@@ -14,26 +14,10 @@ extension CommandPaletteCommandContribution {
             subtitle: { _ in
                 String(localized: "command.newSimulatorPane.subtitle", defaultValue: "iPhone and iPad")
             },
-            keywords: ["new", "simulator", "iphone", "ipad", "ios", "pane"]
+            keywords: ["new", "simulator", "iphone", "ipad", "ios", "pane"],
+            arguments: CmuxSurfaceTabBarBuiltInAction.newSimulator.commandPaletteArguments,
+            when: ContentView.commandPalettePanelInPaneIsAvailable
         )
-    }
-}
-
-extension CommandPaletteHandlerRegistry {
-    @MainActor
-    mutating func registerNewSimulatorPane(tabManager: TabManager, windowId: UUID) {
-        register(commandId: "palette.newSimulatorPane") {
-            guard CmuxFeatureFlags.shared.isSimulatorEnabled,
-                  let appDelegate = AppDelegate.shared,
-                  appDelegate.executeConfiguredCmuxAction(
-                    id: CmuxSurfaceTabBarBuiltInAction.newSimulator.configID,
-                    tabManager: tabManager,
-                    preferredWindow: appDelegate.mainWindow(for: windowId)
-                  ) else {
-                NSSound.beep()
-                return
-            }
-        }
     }
 }
 

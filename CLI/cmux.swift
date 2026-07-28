@@ -3350,6 +3350,9 @@ struct CMUXCLI {
         if normalizedCommand == "surface-resume" {
             return false
         }
+        if normalizedCommand == "palette" || normalizedCommand == "vscode" {
+            return false
+        }
         if normalizedCommand == "surface", commandArgs.first?.lowercased() == "resume" {
             return false
         }
@@ -5605,6 +5608,26 @@ struct CMUXCLI {
         // Project pane
         case "project":
             try runProjectCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+
+        // Live Cmd+Shift+P actions
+        case "palette":
+            try runCommandPaletteCommand(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowId
+            )
+
+        // Parameterized VS Code inline pane
+        case "vscode":
+            try runInlineVSCodeCommand(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowId
+            )
 
         // Legacy aliases shimmed onto the v2 browser command surface.
         case "open-browser":
@@ -17164,6 +17187,39 @@ struct CMUXCLI {
               cmux markdown open ./docs/design.md --workspace 0
               cmux markdown open plan.md --direction down
             """
+        case "palette":
+            return String(localized: "cli.palette.usage", defaultValue: """
+            Usage: cmux palette [list] [--window <id|ref|index>]
+                   cmux palette run <action-id> [--arg <name=value> ...] [--window <id|ref|index>]
+                   cmux palette run <action-id> --target '<target-json>'
+                   cmux palette <action-id> [--arg <name=value> ...]   (shorthand for 'run')
+
+            List or invoke the exact actions available through Cmd+Shift+P in
+            the target window's current context. Action IDs and argument names
+            are strings declared by the live action registry, including custom
+            actions loaded from cmux.json. Echo the target object from JSON list
+            output into --target to preserve its exact window, workspace, pane,
+            and config snapshot.
+
+            Examples:
+              cmux palette list
+              cmux palette run palette.newTerminalTab
+              cmux palette run palette.renameWorkspace --arg name=api
+              cmux palette run palette.renameWorkspace --arg name=api --target '{"window_id":"...","workspace_id":"...","panel_id":"...","config_snapshot_id":"..."}'
+              cmux palette palette.terminalOpenDirectory.vscodeInline
+            """)
+        case "vscode":
+            return String(localized: "cli.vscode.usage", defaultValue: """
+            Usage: cmux vscode open [path] [--workspace <id|ref|index>] [--window <id|ref|index>]
+                   cmux vscode [path]       (shorthand for 'open')
+
+            Open a directory in a cmux VS Code (Inline) browser pane. The path
+            defaults to the current directory.
+
+            Examples:
+              cmux vscode .
+              cmux vscode open ~/project --workspace workspace:2
+            """)
         default:
             return nil
         }
@@ -17284,6 +17340,10 @@ struct CMUXCLI {
                 skipNext = true
                 continue
             }
+            if !pastTerminator, arg.hasPrefix("\(name)=") {
+                values.append(String(arg.dropFirst(name.count + 1)))
+                continue
+            }
             remaining.append(arg)
         }
         return (values, remaining)
@@ -17330,7 +17390,7 @@ struct CMUXCLI {
         optionValue(args, name: "--window") ?? windowOverride
     }
 
-    private func applyWindowOrCallerContext(to params: inout [String: Any], client: SocketClient, windowRaw: String?) throws {
+    func applyWindowOrCallerContext(to params: inout [String: Any], client: SocketClient, windowRaw: String?) throws {
         if let windowHandle = try normalizeWindowHandle(windowRaw, client: client) {
             params["window_id"] = windowHandle
             return
@@ -17338,12 +17398,20 @@ struct CMUXCLI {
 
         let env = ProcessInfo.processInfo.environment
         let workspaceHandle = try normalizeWorkspaceHandle(env["CMUX_WORKSPACE_ID"], client: client)
-        if let workspaceHandle {
-            params["workspace_id"] = workspaceHandle
-        }
         let surfaceHandle = try normalizeSurfaceHandle(env["CMUX_SURFACE_ID"], client: client, workspaceHandle: workspaceHandle)
         if let surfaceHandle {
+            // A surface keeps its identity when its tab moves, while the
+            // shell's injected workspace ID remains the spawn-time value.
+            // Sending both would let the stale workspace outrank the live
+            // surface during server-side routing.
             params["surface_id"] = surfaceHandle
+        } else if let workspaceHandle {
+            params["workspace_id"] = workspaceHandle
+        }
+        if workspaceHandle == nil,
+           surfaceHandle == nil,
+           let windowHandle = try normalizeWindowHandle(env["CMUX_WINDOW_ID"], client: client) {
+            params["window_id"] = windowHandle
         }
     }
 
@@ -35502,6 +35570,8 @@ export default CMUXSessionRestore;
           agent-hibernation <on|off>
           restore-session
           open <path-or-url>... [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]
+          palette [list|run <action-id>] [--arg <name=value> ...] [--window <id|ref|index> | --target <json>]
+          vscode open [path] [--workspace <id|ref|index>] [--window <id|ref|index>]
           diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--unstaged|--staged|--branch|--last-turn] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--cwd <path>] [--base <ref>] [--focus <true|false>] [--no-focus] [--title <text>] [--layout <split|unified>] [--font-size <points>]
           feedback [--email <email> --body <text> [--image <path> ...]]
           feed tui|clear
@@ -35699,6 +35769,16 @@ struct CMUXTermMain {
         let initialSIGPIPEInspectionPayload = CMUXCLI.currentSIGPIPEInspectionPayload()
         _ = signal(SIGPIPE, SIG_DFL)
         configureCLIStdioNoSIGPIPE()
+        if let exitCode = CMUXActionCatalogReadHelper().runIfRequested(
+            arguments: CommandLine.arguments
+        ) {
+            exit(exitCode)
+        }
+        if let exitCode = CMUXTextBoxAttachmentSnapshotHelper().runIfRequested(
+            arguments: CommandLine.arguments
+        ) {
+            exit(exitCode)
+        }
         let cli = CMUXCLI(
             args: CommandLine.arguments,
             initialSIGPIPEInspectionPayload: initialSIGPIPEInspectionPayload
