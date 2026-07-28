@@ -533,6 +533,120 @@ struct CodexResumeProcessLeaseTests {
   }
 
   @Test
+  func testStopFromExactRecordedOwnerCompletesAfterOwnerExits() throws {
+    let context = try H.makeContext(name: "codex-exited-owner-stop")
+    defer { context.cleanup() }
+    let sessionId = "exited-owner-stop-session"
+    let turnId = "completed-turn"
+    let processLeaseId = UUID().uuidString
+    let ownerProcess = Process()
+    let ownerProcessInput = Pipe()
+    var ownerProcessInputClosed = false
+    ownerProcess.executableURL = URL(fileURLWithPath: "/bin/cat")
+    ownerProcess.standardInput = ownerProcessInput
+    try ownerProcess.run()
+    defer {
+      if !ownerProcessInputClosed {
+        try? ownerProcessInput.fileHandleForWriting.close()
+      }
+      if ownerProcess.isRunning {
+        ownerProcess.terminate()
+        ownerProcess.waitUntilExit()
+      }
+    }
+    let ownerPID = Int(ownerProcess.processIdentifier)
+    let ownerEnvironment = H.launchEnvironment(
+      context: context,
+      sessionId: sessionId
+    ).merging(
+      [
+        "CMUX_CODEX_PID": String(ownerPID),
+        "CMUX_CODEX_PROCESS_IDENTITY_REQUIRED": "1",
+        "CMUX_CODEX_PROCESS_LEASE_ID": processLeaseId,
+      ],
+      uniquingKeysWith: { _, new in new }
+    ).merging(
+      try H.codexProcessIdentityEnvironment(pid: ownerPID),
+      uniquingKeysWith: { _, new in new }
+    )
+    H.startMockServer(context: context, connectionLimit: 64)
+
+    let start = H.runHook(
+      context: context,
+      subcommand: "session-start",
+      standardInput:
+        #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+      extraEnvironment: ownerEnvironment
+    )
+    codexExpectFalse(start.timedOut, start.stderr)
+    codexExpectEqual(start.status, 0, start.stderr)
+
+    let prompt = H.runHook(
+      context: context,
+      subcommand: "prompt-submit",
+      standardInput:
+        #"{"session_id":"\#(sessionId)","turn_id":"\#(turnId)","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"finish"}"#,
+      extraEnvironment: ownerEnvironment
+    )
+    codexExpectFalse(prompt.timedOut, prompt.stderr)
+    codexExpectEqual(prompt.status, 0, prompt.stderr)
+
+    let leaseDirectory = context.root.appendingPathComponent(
+      "codex-monitor-leases",
+      isDirectory: true
+    )
+    let leaseURLs = try FileManager.default.contentsOfDirectory(
+      at: leaseDirectory,
+      includingPropertiesForKeys: nil,
+      options: [.skipsHiddenFiles]
+    )
+    let leaseURL = try codexRequire(leaseURLs.first)
+    let activeLease = try codexRequire(
+      JSONSerialization.jsonObject(with: Data(contentsOf: leaseURL))
+        as? [String: Any]
+    )
+    codexExpectEqual(activeLease["sessionId"] as? String, sessionId)
+    codexExpectEqual(activeLease["turnId"] as? String, turnId)
+    codexExpectNil(activeLease["retiredAt"])
+
+    try ownerProcessInput.fileHandleForWriting.close()
+    ownerProcessInputClosed = true
+    ownerProcess.waitUntilExit()
+
+    let stop = H.runHook(
+      context: context,
+      subcommand: "stop",
+      standardInput:
+        #"{"session_id":"\#(sessionId)","turn_id":"\#(turnId)","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"finished"}"#,
+      extraEnvironment: ownerEnvironment
+    )
+    codexExpectFalse(stop.timedOut, stop.stderr)
+    codexExpectEqual(stop.status, 0, stop.stderr)
+
+    let record = try H.readSession(sessionId, context: context)
+    codexExpectEqual(record["runtimeStatus"] as? String, "idle")
+    codexExpectEqual(record["lastNotificationStatus"] as? String, "idle")
+    codexExpectNil(record["activePromptDepth"])
+    codexExpectNil(record["activePromptTurnId"])
+    codexExpectNil(record["activePromptTurnIds"])
+    codexExpectTrue(record["lastEmittedNotificationFingerprint"] != nil)
+
+    let retiredLease = try codexRequire(
+      JSONSerialization.jsonObject(with: Data(contentsOf: leaseURL))
+        as? [String: Any]
+    )
+    codexExpectTrue(retiredLease["retiredAt"] != nil)
+    codexExpectTrue(
+      context.state.commands.contains {
+        H.jsonObject($0)?["method"] as? String == "surface.resume.set"
+      }
+    )
+    codexExpectTrue(
+      context.state.commands.contains { $0.contains("notify_target_async") }
+    )
+  }
+
+  @Test
   func testDelayedOlderCodexStopCannotRetireNewerProcessMonitorLease() throws {
     let context = try H.makeContext(name: "codex-stale-stop-lease")
     defer { context.cleanup() }
