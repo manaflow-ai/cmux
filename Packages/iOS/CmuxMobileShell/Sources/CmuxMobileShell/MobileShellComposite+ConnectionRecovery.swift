@@ -933,6 +933,8 @@ extension MobileShellComposite {
     struct DeadlineRaceOutcome<Value: Sendable>: Sendable {
         let value: Value?
         let abandoned: Task<Value, Never>?
+        let didTimeOut: Bool
+        let wasCancelled: Bool
     }
 
     static func raceAgainstDeadline<Value: Sendable>(
@@ -948,19 +950,27 @@ extension MobileShellComposite {
             await operationTask.value
         }
         let value: Value?
+        let didTimeOut: Bool
+        let wasCancelled: Bool
         do {
             value = try await RPCTaskTimeout().value(
                 deadlineWaiter,
                 timeoutNanoseconds: nanoseconds
             )
+            didTimeOut = false
+            wasCancelled = false
         } catch {
             deadlineWaiter.cancel()
             operationTask.cancel()
             value = nil
+            wasCancelled = Task.isCancelled || error is CancellationError
+            didTimeOut = !wasCancelled
         }
         return DeadlineRaceOutcome(
             value: value,
-            abandoned: value == nil ? operationTask : nil
+            abandoned: value == nil ? operationTask : nil,
+            didTimeOut: didTimeOut,
+            wasCancelled: wasCancelled
         )
     }
 }

@@ -1960,6 +1960,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             ) ?? .superseded
         }
         registerAbandonedReconnectDial(race.abandoned)
+        if race.wasCancelled {
+            finishStoredMacReconnectAttempt(generation: generation)
+            return .superseded
+        }
         if let outcome = race.value {
             if outcome.didConnect, multiMacAggregationEnabled {
                 // Start secondary dials only after the bounded foreground

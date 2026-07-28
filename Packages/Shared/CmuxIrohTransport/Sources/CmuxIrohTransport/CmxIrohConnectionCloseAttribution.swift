@@ -60,15 +60,6 @@ public struct CmxIrohConnectionCloseAttribution: Sendable, Equatable {
             || cause.contains("ConnectionLost(Reset)") {
             return .remote
         }
-        let normalized = cause.lowercased()
-        if normalized.contains("peer") || normalized.contains("remote") {
-            return .remote
-        }
-        if normalized.contains("timed out")
-            || normalized.contains("timeout")
-            || normalized.contains("timedout") {
-            return .timedOut
-        }
         return .unknown
     }
 
@@ -140,10 +131,6 @@ public struct CmxIrohConnectionCloseAttribution: Sendable, Equatable {
             || cause.contains("Failed to resolve") {
             return .dnsFailed
         }
-        if cause.localizedCaseInsensitiveContains("timed out")
-            || cause.localizedCaseInsensitiveContains("timeout") {
-            return .timedOut
-        }
         if cause.contains("Tls")
             || cause.contains("TLS")
             || cause.contains("CryptoError")
@@ -158,8 +145,7 @@ public struct CmxIrohConnectionCloseAttribution: Sendable, Equatable {
         if cause.contains("ConnectionLost(")
             || cause.contains("ClosedStream")
             || cause.contains("Reset(")
-            || cause.contains("Stopped(")
-            || cause.localizedCaseInsensitiveContains("closed") {
+            || cause.contains("Stopped(") {
             return .connectionClosed
         }
         return .unknown
