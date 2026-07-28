@@ -154,20 +154,20 @@ public enum AgentLaunchCaptureTrust {
         }
         return descriptors
     }
-}
 
-private func normalizedAgentName(_ value: String?) -> String? {
-    guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-          !value.isEmpty else {
-        return nil
+    private static func normalizedAgentName(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else {
+            return nil
+        }
+        return value.lowercased()
     }
-    return value.lowercased()
-}
 
-private func processBasename(_ value: String?) -> String? {
-    guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-          !value.isEmpty else {
-        return nil
+    private static func processBasename(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else {
+            return nil
+        }
+        return URL(fileURLWithPath: value).lastPathComponent.lowercased()
     }
-    return URL(fileURLWithPath: value).lastPathComponent.lowercased()
 }

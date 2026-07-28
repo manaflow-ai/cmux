@@ -25,7 +25,7 @@ public struct AgentProcessCandidateSelector: Sendable {
         )
         self.executableIdentityMatcher = executableIdentityMatcher
         self.launchExecutableMatcher = launchExecutableMatcher
-        normalizedArgumentNeedles = unconstrainedArgumentNeedles(
+        normalizedArgumentNeedles = Self.unconstrainedArgumentNeedles(
             in: policy.detectionRules
         ).map {
             Array($0.replacingOccurrences(of: "\\", with: "/").lowercased().utf8)
@@ -36,7 +36,7 @@ public struct AgentProcessCandidateSelector: Sendable {
         }
 
         processIDs = Set(processes.compactMap { process in
-            isCandidate(
+            Self.isCandidate(
                 process,
                 executableIdentityMatcher: executableIdentityMatcher
             ) ? process.processID : nil
@@ -93,31 +93,31 @@ public struct AgentProcessCandidateSelector: Sendable {
             recordedExecutable: metadata.agentLaunchExecutable
         )
     }
-}
 
-private func unconstrainedArgumentNeedles(
-    in rules: [AgentProcessDetectionRule]
-) -> [String] {
-    rules.flatMap { rule in
-        var needles: [String] = []
-        if rule.processName == nil, rule.processNames.isEmpty {
-            needles.append(contentsOf: rule.argvContains)
+    private static func unconstrainedArgumentNeedles(
+        in rules: [AgentProcessDetectionRule]
+    ) -> [String] {
+        rules.flatMap { rule in
+            var needles: [String] = []
+            if rule.processName == nil, rule.processNames.isEmpty {
+                needles.append(contentsOf: rule.argvContains)
+            }
+            if rule.alternateProcessNames.isEmpty {
+                needles.append(contentsOf: rule.alternateArgvContains)
+                needles.append(contentsOf: rule.alternateArgvContainsAny)
+            }
+            return needles
         }
-        if rule.alternateProcessNames.isEmpty {
-            needles.append(contentsOf: rule.alternateArgvContains)
-            needles.append(contentsOf: rule.alternateArgvContainsAny)
-        }
-        return needles
-    }
-}
-
-private func isCandidate(
-    _ process: AgentProcessCandidate,
-    executableIdentityMatcher: AgentProcessExecutableIdentityMatcher
-) -> Bool {
-    if process.isTerminalForegroundProcessGroup || process.shouldInspectArguments {
-        return true
     }
 
-    return executableIdentityMatcher.matches(process.name, process.path)
+    private static func isCandidate(
+        _ process: AgentProcessCandidate,
+        executableIdentityMatcher: AgentProcessExecutableIdentityMatcher
+    ) -> Bool {
+        if process.isTerminalForegroundProcessGroup || process.shouldInspectArguments {
+            return true
+        }
+
+        return executableIdentityMatcher.matches(process.name, process.path)
+    }
 }
