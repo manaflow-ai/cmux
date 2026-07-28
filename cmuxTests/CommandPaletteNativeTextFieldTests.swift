@@ -42,6 +42,32 @@ struct CommandPaletteNativeTextFieldTests {
     }
 
     @Test
+    func palettePanelCanDismissSynchronouslyBeforeFocusChangingAction() throws {
+        let ownerWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 700),
+            styleMask: [.titled, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        let controller = WindowCommandPalettePanelController(ownerWindow: ownerWindow)
+
+        controller.update(
+            isVisible: true,
+            onDismiss: { _ in },
+            onDidBecomeKey: {}
+        ) { _, _ in
+            AnyView(Color.clear.frame(width: 320, height: 120))
+        }
+
+        let panel = try #require(controller.presentedWindow)
+        controller.dismissImmediately()
+
+        #expect(controller.presentedWindow == nil)
+        #expect(!panel.isVisible)
+        #expect(panel.parent == nil)
+    }
+
+    @Test
     func commandRowsPublishSynchronouslyForFirstPresentation() {
         let model = CommandPaletteOverlayRenderModel()
         let state = CommandPaletteCommandListRenderState(
