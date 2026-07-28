@@ -15,7 +15,9 @@ struct SimulatorWebInspectorSessionRouterTests {
         let wrappedData = try #require(creationResult.messagesForTarget.first)
         let wrapped = try Self.object(wrappedData)
         #expect(wrapped["method"] as? String == "Target.sendMessageToTarget")
+        #expect(wrapped["id"] is NSNumber)
         let parameters = try #require(wrapped["params"] as? [String: Any])
+        #expect(Set(parameters.keys) == ["message", "targetId"])
         #expect(parameters["targetId"] as? String == "INNER")
         #expect(parameters["message"] as? String == String(decoding: command, as: UTF8.self))
 
