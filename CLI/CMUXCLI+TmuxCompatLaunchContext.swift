@@ -69,6 +69,22 @@ extension CMUXCLI {
                     method: "surface.list",
                     params: ["workspace_id": workspaceId]
                 )
+                return try contextFromSurfacePayload(
+                    payload,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    surfaceHandle: surfaceHandle,
+                    windowHandle: windowHandle
+                )
+            }
+
+            func contextFromSurfacePayload(
+                _ payload: [String: Any],
+                workspaceId: String,
+                surfaceId: String,
+                surfaceHandle: String,
+                windowHandle: String?
+            ) throws -> TmuxCompatLaunchContext {
                 let surfaces = payload["surfaces"] as? [[String: Any]] ?? []
                 guard let surface = surfaces.first(where: {
                     ($0["id"] as? String) == surfaceId || ($0["ref"] as? String) == surfaceHandle
@@ -106,10 +122,36 @@ extension CMUXCLI {
             let ownWorkspace = normalizedTmuxTarget(processEnvironment["CMUX_WORKSPACE_ID"])
             let ownSurface = normalizedTmuxTarget(processEnvironment["CMUX_SURFACE_ID"])
             if ownWorkspace != nil || ownSurface != nil {
-                guard let ownWorkspace, let ownSurface else { return nil }
-                return try? contextFromSurface(
-                    workspaceHandle: ownWorkspace,
-                    surfaceHandle: ownSurface,
+                if let ownWorkspace, let ownSurface {
+                    if let context = try? contextFromSurface(
+                        workspaceHandle: ownWorkspace,
+                        surfaceHandle: ownSurface,
+                        windowHandle: nil
+                    ) {
+                        return context
+                    }
+                }
+
+                // A surface's stable UUID survives moves between workspaces. The inherited
+                // workspace can therefore be stale while the launch surface is still live.
+                // Relocate that UUID from structured socket state without consulting global
+                // focus; an inherited identity must never silently retarget to another surface.
+                guard let ownSurface else { return nil }
+                let surfaceId = tmuxTrimIdSigil(ownSurface)
+                guard isUUID(surfaceId) else { return nil }
+                let payload = try client.sendV2(
+                    method: "surface.list",
+                    params: ["surface_id": surfaceId]
+                )
+                guard let currentWorkspaceId = payload["workspace_id"] as? String,
+                      isUUID(currentWorkspaceId) else {
+                    return nil
+                }
+                return try? contextFromSurfacePayload(
+                    payload,
+                    workspaceId: currentWorkspaceId,
+                    surfaceId: surfaceId,
+                    surfaceHandle: surfaceId,
                     windowHandle: nil
                 )
             }
@@ -174,7 +216,10 @@ extension CMUXCLI {
         }
     }
 
-    func createClaudeTeamsShimDirectory(processEnvironment: [String: String]) throws -> URL {
+    func createClaudeTeamsShimDirectory(
+        processEnvironment: [String: String],
+        commandArgs: [String]
+    ) throws -> URL {
         let script = """
         #!/usr/bin/env bash
         set -euo pipefail
@@ -237,10 +282,18 @@ extension CMUXCLI {
                     )
                     return managedRoot
                 } catch {
-                    // A stale or read-only per-surface directory should not block teams launch;
-                    // retain the stable home-directory shim as the compatibility fallback.
+                    // Informational launches do not create teammates, so they may use the
+                    // launcher-only compatibility directory below. Real Teams sessions must
+                    // keep tmux in Claude's managed snapshot PATH.
                 }
             }
+        }
+
+        guard claudeTeamsIsInformationalInvocation(commandArgs: commandArgs) else {
+            throw CLIError(message: String(
+                localized: "cli.claude-teams.error.managedTerminalRequired",
+                defaultValue: "Claude Teams must be launched from a cmux-managed terminal surface. Open a terminal surface in cmux and run this command there."
+            ))
         }
         return try createTmuxCompatShimDirectory(
             directoryName: "claude-teams-bin",

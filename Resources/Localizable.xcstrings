@@ -34291,6 +34291,23 @@
         }
       }
     },
+    "cli.claude-teams.error.managedTerminalRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Teams must be launched from a cmux-managed terminal surface. Open a terminal surface in cmux and run this command there."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Teams は cmux が管理するターミナルサーフェスから起動する必要があります。cmux でターミナルサーフェスを開き、そこでこのコマンドを実行してください。"
+          }
+        }
+      }
+    },
     "cli.claude-teams.usage": {
       "extractionState": "manual",
       "localizations": {

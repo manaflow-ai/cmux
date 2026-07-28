@@ -148,6 +148,15 @@ extension CMUXCLI {
         )
     }
 
+    /// Whether Claude will exit after printing help or version information. Reuse the
+    /// launch parser so flag-shaped prompt text and option values cannot downgrade a real
+    /// Teams session to the launcher-only tmux shim.
+    func claudeTeamsIsInformationalInvocation(commandArgs: [String]) -> Bool {
+        ["--help", "-h", "--version", "-v"].contains { option in
+            AgentLaunchSanitizer.claudeTeamsLaunchHasOption(option, args: commandArgs)
+        }
+    }
+
     /// Environment the lead `claude` is launched with. CLAUDE_CODE_SANDBOXED skips
     /// Claude Code's interactive "Do you trust this folder?" gate so the unattended
     /// lead/teammate panes don't deadlock on it (#6447). That gate is a real safety

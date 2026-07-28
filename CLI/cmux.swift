@@ -20179,8 +20179,31 @@ struct CMUXCLI {
         }
         if let launchContext {
             setenv("CMUX_WORKSPACE_ID", launchContext.workspaceId, 1)
+            setenv("CMUX_TAB_ID", launchContext.workspaceId, 1)
             if let surfaceId = launchContext.surfaceId {
                 setenv("CMUX_SURFACE_ID", surfaceId, 1)
+                setenv("CMUX_PANEL_ID", surfaceId, 1)
+            } else {
+                unsetenv("CMUX_SURFACE_ID")
+                unsetenv("CMUX_PANEL_ID")
+            }
+            if let paneId = launchContext.paneId {
+                setenv("CMUX_PANE_ID", paneId, 1)
+            } else {
+                unsetenv("CMUX_PANE_ID")
+            }
+        } else {
+            // An inherited routing identity was rejected or could not be validated. Do not
+            // leak any primary or legacy fragment into the agent process: mixed stale values
+            // can route later Claude/OMO/OMX/OMC commands to an unrelated surface.
+            for key in [
+                "CMUX_WORKSPACE_ID",
+                "CMUX_SURFACE_ID",
+                "CMUX_PANEL_ID",
+                "CMUX_TAB_ID",
+                "CMUX_PANE_ID",
+            ] {
+                unsetenv(key)
             }
         }
     }
@@ -20220,6 +20243,7 @@ struct CMUXCLI {
         print("CMUX_SURFACE_ID=\(dump("CMUX_SURFACE_ID"))")
         print("CMUX_PANEL_ID=\(dump("CMUX_PANEL_ID"))")
         print("CMUX_TAB_ID=\(dump("CMUX_TAB_ID"))")
+        print("CMUX_PANE_ID=\(dump("CMUX_PANE_ID"))")
         print("TMUX=\(dump("TMUX"))")
         print("TMUX_PANE=\(dump("TMUX_PANE"))")
     }
@@ -20323,7 +20347,10 @@ struct CMUXCLI {
            !explicitPassword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             launcherEnvironment["CMUX_SOCKET_PASSWORD"] = explicitPassword
         }
-        let shimDirectory = try createClaudeTeamsShimDirectory(processEnvironment: launcherEnvironment)
+        let shimDirectory = try createClaudeTeamsShimDirectory(
+            processEnvironment: launcherEnvironment,
+            commandArgs: commandArgs
+        )
         let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
         let launchContext = try tmuxCompatLaunchContext(
             processEnvironment: launcherEnvironment,

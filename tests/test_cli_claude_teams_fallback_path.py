@@ -29,7 +29,16 @@ def main() -> int:
         tmp = Path(td)
         home = tmp / "home"
         fallback_bin = home / ".bun" / "bin"
+        managed_bin = tmp / "cmux-cli-shims" / "surface-1"
         fallback_bin.mkdir(parents=True, exist_ok=True)
+        managed_bin.mkdir(parents=True, exist_ok=True)
+
+        make_executable(
+            managed_bin / "claude",
+            "#!/usr/bin/env bash\necho managed-claude-shim-must-not-run >&2\nexit 42\n",
+        )
+
+        claude_log = tmp / "claude.log"
 
         make_executable(
             fallback_bin / "claude-node-helper",
@@ -42,6 +51,7 @@ printf 'helper:%s\\n' "$0"
             fallback_bin / "claude",
             """#!/usr/bin/env bash
 set -euo pipefail
+printf 'ran\n' > "$FAKE_CLAUDE_LOG"
 command -v claude-node-helper
 claude-node-helper
 """,
@@ -50,6 +60,9 @@ claude-node-helper
         env = os.environ.copy()
         env["HOME"] = str(home)
         env["PATH"] = "/usr/bin:/bin"
+        env["CMUX_CLAUDE_WRAPPER_SHIM"] = str(managed_bin / "claude")
+        env["CMUX_CLAUDE_WRAPPER_SHIM_ROOT"] = str(managed_bin)
+        env["FAKE_CLAUDE_LOG"] = str(claude_log)
         env.pop("CMUX_CUSTOM_CLAUDE_PATH", None)
 
         proc = subprocess.run(
@@ -74,7 +87,44 @@ claude-node-helper
             print(f"FAIL: expected fallback helper to remain on PATH, got {lines!r}")
             return 1
 
-    print("PASS: cmux claude-teams preserves fallback provider dirs in PATH")
+        claude_log.unlink()
+        unmanaged_env = env.copy()
+        unmanaged_env.pop("CMUX_CLAUDE_WRAPPER_SHIM", None)
+        unmanaged_env.pop("CMUX_CLAUDE_WRAPPER_SHIM_ROOT", None)
+
+        informational = subprocess.run(
+            [cli_path, "claude-teams", "--version"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=unmanaged_env,
+            timeout=30,
+        )
+        if informational.returncode != 0 or not claude_log.exists():
+            print("FAIL: unmanaged informational invocation should retain compatibility fallback")
+            return 1
+        claude_log.unlink()
+
+        for real_args in (["start a team"], ["--tmux", "explain --version"]):
+            unmanaged = subprocess.run(
+                [cli_path, "claude-teams", *real_args],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=unmanaged_env,
+                timeout=30,
+            )
+            if unmanaged.returncode == 0:
+                print(f"FAIL: unmanaged real launch succeeded for args {real_args!r}")
+                return 1
+            if claude_log.exists():
+                print(f"FAIL: unmanaged real launch reached Claude for args {real_args!r}")
+                return 1
+            if not unmanaged.stderr.strip():
+                print(f"FAIL: unmanaged launch lacked actionable guidance for args {real_args!r}")
+                return 1
+
+    print("PASS: provider fallback survives while real Teams launches require managed routing")
     return 0
 
 
