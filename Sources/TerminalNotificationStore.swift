@@ -161,6 +161,7 @@ final class TerminalNotificationStore: ObservableObject {
     static let shared = TerminalNotificationStore()
     let notificationHookCache = CmuxNotificationHookCache()
 
+    static let authorizationStatusDidChangeNotification = Notification.Name("cmux.terminalNotificationAuthorizationStatusDidChange")
     static let categoryIdentifier = "com.cmuxterm.app.userNotification"
     static let actionShowIdentifier = "com.cmuxterm.app.userNotification.show"
     nonisolated static let retargetsToLiveSurfaceOwnerUserInfoKey = "retargetsToLiveSurfaceOwner"
@@ -394,7 +395,15 @@ final class TerminalNotificationStore: ObservableObject {
             refreshUnreadPresentation()
         }
     }
-    @Published private(set) var authorizationState: NotificationAuthorizationState = .unknown
+    @Published private(set) var authorizationState: NotificationAuthorizationState = .unknown {
+        didSet {
+            guard authorizationState != oldValue else { return }
+            NotificationCenter.default.post(
+                name: Self.authorizationStatusDidChangeNotification,
+                object: nil
+            )
+        }
+    }
     private var suppressNotificationDiffPublishing = false
 
     private let center = UNUserNotificationCenter.current()
@@ -1529,8 +1538,13 @@ final class TerminalNotificationStore: ObservableObject {
         if !idsToClear.isEmpty {
             notifications = updated
         }
-        clearFocusedReadIndicator(forTabId: tabId, surfaceId: surfaceId)
         if surfaceId == nil {
+            // Whole-tab mark-read dismisses every indicator kind, matching
+            // markRead(forTabId:). A surface-scoped mark-read must not clear the
+            // focused-read indicator: it marks notifications that were already
+            // read while the surface was focused, so it outlives mark-read and
+            // only an explicit clearFocusedReadIndicator dismisses it.
+            clearFocusedReadIndicator(forTabId: tabId, surfaceId: surfaceId)
             clearWorkspacePanelUnread(forTabId: tabId)
             setPanelDerivedWorkspaceUnread(false, forTabId: tabId)
             setWorkspaceRestoredUnread(false, forTabId: tabId)

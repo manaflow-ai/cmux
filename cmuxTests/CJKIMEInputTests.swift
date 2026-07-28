@@ -1254,8 +1254,11 @@ final class GhosttyBackquoteRegressionTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        let previousTextInputEventHandler = GhosttyNSView.debugTextInputEventHandler
+        let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
         defer {
-            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
+            GhosttyNSView.debugTextInputEventHandler = previousTextInputEventHandler
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
             window.orderOut(nil)
         }
 
@@ -1273,6 +1276,11 @@ final class GhosttyBackquoteRegressionTests: XCTestCase {
         hostedView.setVisibleInUI(true)
         hostedView.setActive(true)
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        // In a host without an active input context, interpretKeyEvents consumes the
+        // synthetic ESC as insertText("\u{1B}"). Route around AppKit interpretation
+        // so this test observes the layout recovery and terminal send directly.
+        GhosttyNSView.debugTextInputEventHandler = { _, _ in true }
 
         let recoveryProbe = NSEvent.keyEvent(
             with: .keyDown,

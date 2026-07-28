@@ -3,8 +3,15 @@ use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use cmux_tui_core::{platform::transport, server::CLEAR_HISTORY_CAPABILITY};
+use cmux_tui_core::platform::transport;
+use cmux_tui_core::server::{
+    CLEAR_HISTORY_CAPABILITY, LAYOUT_UNDO_CAPABILITY, VIEWPORT_COLUMN_RESIZE_CAPABILITY,
+    VIEWPORT_SPLITS_CAPABILITY,
+};
+use cmux_tui_core::{LayoutRatioError, LayoutUndoError, LayoutUndoResult, ViewportWidthError};
 use serde_json::{Value, json};
+
+use crate::localization::{Catalog, LayoutMessages};
 
 const REQUEST_ID: u64 = 1;
 const CAPABILITY_REQUEST_ID: u64 = 0;
@@ -13,6 +20,7 @@ const CLIENT_SIZING_PROTOCOL: u64 = 10;
 
 type BuildFn = fn(&FlagMap) -> Result<Value, UsageError>;
 type PrintFn = fn(&Value, &mut dyn Write) -> io::Result<()>;
+type ValidateFn = fn(&Value) -> io::Result<()>;
 type LocalFn = fn(&GlobalArgs, &FlagMap) -> i32;
 
 #[derive(Debug)]
@@ -48,20 +56,26 @@ struct VerbSpec {
 enum HelpText {
     Literal(&'static str),
     ClearHistory,
+    NewPaneRight,
+    SetViewportPaneWidth,
+    UndoLayout,
 }
 
 impl HelpText {
-    fn resolve(self, catalog: &'static crate::localization::Catalog) -> &'static str {
+    fn resolve(self, catalog: &'static Catalog) -> &'static str {
         match self {
             Self::Literal(text) => text,
             Self::ClearHistory => catalog.terminal.clear_history_help,
+            Self::NewPaneRight => catalog.layout.new_pane_right_help,
+            Self::SetViewportPaneWidth => catalog.layout.set_viewport_pane_width_help,
+            Self::UndoLayout => catalog.layout.undo_layout_help,
         }
     }
 }
 
 #[derive(Clone, Copy)]
 enum VerbKind {
-    Socket { build: BuildFn, print: PrintFn, stream: bool },
+    Socket { build: BuildFn, print: PrintFn, validate: Option<ValidateFn>, stream: bool },
     Local(LocalFn),
 }
 
@@ -247,6 +261,12 @@ const VERBS: &[VerbSpec] = &[
         kind: socket(build_new_pane, print_surface, false),
     },
     VerbSpec {
+        name: "new-pane-right",
+        help: HelpText::NewPaneRight,
+        allowed: &["pane", "width", "cols", "rows"],
+        kind: socket(build_new_pane_right, print_surface, false),
+    },
+    VerbSpec {
         name: "split",
         help: HelpText::Literal("Split a pane."),
         allowed: &["pane", "dir", "cols", "rows"],
@@ -263,6 +283,18 @@ const VERBS: &[VerbSpec] = &[
         help: HelpText::Literal("Set a split ratio by stable split id."),
         allowed: &["split", "ratio"],
         kind: socket(build_set_split_ratio, print_empty, false),
+    },
+    VerbSpec {
+        name: "set-viewport-pane-width",
+        help: HelpText::SetViewportPaneWidth,
+        allowed: &["pane", "width"],
+        kind: socket(build_set_viewport_pane_width, print_empty, false),
+    },
+    VerbSpec {
+        name: "undo-layout",
+        help: HelpText::UndoLayout,
+        allowed: &["pane", "revision", "confirm-close"],
+        kind: validated_socket(build_undo_layout, print_layout_undo, validate_layout_undo, false),
     },
     VerbSpec {
         name: "pane-neighbor",
@@ -423,7 +455,16 @@ const VERBS: &[VerbSpec] = &[
 ];
 
 const fn socket(build: BuildFn, print: PrintFn, stream: bool) -> VerbKind {
-    VerbKind::Socket { build, print, stream }
+    VerbKind::Socket { build, print, validate: None, stream }
+}
+
+const fn validated_socket(
+    build: BuildFn,
+    print: PrintFn,
+    validate: ValidateFn,
+    stream: bool,
+) -> VerbKind {
+    VerbKind::Socket { build, print, validate: Some(validate), stream }
 }
 
 pub fn is_cli_invocation(args: &[String]) -> bool {
@@ -445,13 +486,18 @@ pub fn run(args: &[String], usage: &str) -> i32 {
 }
 
 pub fn print_help(usage: &str) {
-    let catalog = crate::localization::catalog();
-    print!("{usage}");
-    println!();
-    println!("VERB HELP");
+    let mut stdout = io::stdout().lock();
+    let _ = write_help(usage, crate::localization::catalog(), &mut stdout);
+}
+
+fn write_help(usage: &str, catalog: &'static Catalog, out: &mut dyn Write) -> io::Result<()> {
+    write!(out, "{usage}")?;
+    writeln!(out)?;
+    writeln!(out, "{}", catalog.layout.verb_help_heading)?;
     for verb in VERBS {
-        println!("  {:<18} {}", verb.name, verb.help.resolve(catalog));
+        writeln!(out, "  {:<18} {}", verb.name, verb.help.resolve(catalog))?;
     }
+    Ok(())
 }
 
 enum FirstCommand {
@@ -575,8 +621,8 @@ fn verb_by_name(name: &str) -> Option<&'static VerbSpec> {
 }
 
 fn run_command(args: CliArgs) -> i32 {
-    let (build, print, stream_mode) = match args.verb.kind {
-        VerbKind::Socket { build, print, stream } => (build, print, stream),
+    let (build, print, validate, stream_mode) = match args.verb.kind {
+        VerbKind::Socket { build, print, validate, stream } => (build, print, validate, stream),
         VerbKind::Local(run) => return run(&args.global, &args.flags),
     };
     let request = match build(&args.flags) {
@@ -639,25 +685,36 @@ fn run_command(args: CliArgs) -> i32 {
     if stream_mode {
         run_stream(reader)
     } else {
-        run_one_response(&mut reader, args.global.json, print)
+        run_one_response(&mut reader, args.global.json, print, validate)
     }
 }
 
-fn required_capability(request: &Value) -> Option<(&'static str, &'static str)> {
+fn required_capability(request: &Value) -> Option<(&'static str, String)> {
     required_capability_with_catalog(request, crate::localization::catalog())
 }
 
 fn required_capability_with_catalog(
     request: &Value,
-    catalog: &'static crate::localization::Catalog,
-) -> Option<(&'static str, &'static str)> {
+    catalog: &'static Catalog,
+) -> Option<(&'static str, String)> {
     match request.get("cmd").and_then(Value::as_str) {
         Some("attach-surface") if request.get("cols").is_some() => Some((
             ATTACH_INITIAL_SIZE_CAPABILITY,
-            "initial attach sizing is not supported by this server",
+            "initial attach sizing is not supported by this server".to_string(),
         )),
         Some("clear-history") => {
-            Some((CLEAR_HISTORY_CAPABILITY, catalog.terminal.clear_history_unsupported))
+            Some((CLEAR_HISTORY_CAPABILITY, catalog.terminal.clear_history_unsupported.to_string()))
+        }
+        Some("new-pane-right") => Some((
+            VIEWPORT_SPLITS_CAPABILITY,
+            catalog.layout.unsupported_server_command("new-pane-right"),
+        )),
+        Some("set-viewport-pane-width") => Some((
+            VIEWPORT_COLUMN_RESIZE_CAPABILITY,
+            catalog.layout.unsupported_server_command("set-viewport-pane-width"),
+        )),
+        Some("undo-layout") => {
+            Some((LAYOUT_UNDO_CAPABILITY, catalog.layout.unsupported_server_command("undo-layout")))
         }
         _ => None,
     }
@@ -718,11 +775,7 @@ fn server_identity(reader: &mut BufReader<Box<dyn transport::Stream>>) -> Result
             continue;
         }
         if value.get("ok").and_then(Value::as_bool) != Some(true) {
-            return Err(value
-                .get("error")
-                .and_then(Value::as_str)
-                .unwrap_or("identify failed")
-                .to_string());
+            return Err("server rejected identify request".to_string());
         }
         return value
             .get("data")
@@ -734,6 +787,7 @@ fn server_identity(reader: &mut BufReader<Box<dyn transport::Stream>>) -> Result
 fn is_boolean_flag(spec: &VerbSpec, name: &str) -> bool {
     (spec.name == "run" && name == "new-workspace")
         || (spec.name == "send" && name == "paste")
+        || (spec.name == "undo-layout" && name == "confirm-close")
         || (spec.name == "plugin" && matches!(name, "force" | "builtin"))
 }
 
@@ -770,6 +824,7 @@ fn run_one_response(
     reader: &mut BufReader<Box<dyn transport::Stream>>,
     json_output: bool,
     print_human: PrintFn,
+    validate: Option<ValidateFn>,
 ) -> i32 {
     loop {
         let mut line = String::new();
@@ -794,7 +849,7 @@ fn run_one_response(
         if value.get("event").is_some() {
             continue;
         }
-        return print_response(&value, json_output, print_human);
+        return print_response(&value, json_output, print_human, validate);
     }
 }
 
@@ -857,13 +912,24 @@ fn run_stream(mut reader: BufReader<Box<dyn transport::Stream>>) -> i32 {
     }
 }
 
-fn print_response(value: &Value, json_output: bool, print_human: PrintFn) -> i32 {
+fn print_response(
+    value: &Value,
+    json_output: bool,
+    print_human: PrintFn,
+    validate: Option<ValidateFn>,
+) -> i32 {
     if value.get("ok").and_then(Value::as_bool) != Some(true) {
-        let error = value.get("error").and_then(Value::as_str).unwrap_or("unknown error");
+        let error = localized_response_error(value);
         eprintln!("{error}");
         return 1;
     }
     let data = value.get("data").unwrap_or(&Value::Null);
+    if let Some(validate) = validate
+        && let Err(error) = validate(data)
+    {
+        eprintln!("{error}");
+        return 3;
+    }
     let mut stdout = io::stdout();
     let result = if json_output {
         serde_json::to_writer(&mut stdout, data)
@@ -878,6 +944,33 @@ fn print_response(value: &Value, json_output: bool, print_human: PrintFn) -> i32
             eprintln!("stdout error: {err}");
             3
         }
+    }
+}
+
+fn localized_response_error(value: &Value) -> String {
+    localized_response_error_for(value, crate::localization::catalog())
+}
+
+fn localized_response_error_for(value: &Value, catalog: &Catalog) -> String {
+    let code = value.get("error_code").and_then(Value::as_str);
+    match code {
+        Some(LayoutUndoError::UNAVAILABLE_CODE) => {
+            catalog.sidebar.layout_nothing_to_undo.to_string()
+        }
+        Some(LayoutUndoError::STALE_CODE) => catalog.sidebar.layout_undo_stale.to_string(),
+        Some(LayoutRatioError::UNKNOWN_TARGET_CODE) => {
+            catalog.layout.viewport_ratio_target_missing.to_string()
+        }
+        Some(LayoutRatioError::OUT_OF_RANGE_CODE) => {
+            catalog.layout.viewport_ratio_out_of_range.to_string()
+        }
+        Some(ViewportWidthError::OUT_OF_RANGE_CODE) => {
+            catalog.layout.viewport_width_out_of_range.to_string()
+        }
+        Some(ViewportWidthError::COLUMN_MISSING_CODE) => {
+            catalog.layout.viewport_column_missing.to_string()
+        }
+        _ => value.get("error").and_then(Value::as_str).unwrap_or("unknown error").to_string(),
     }
 }
 
@@ -1136,6 +1229,14 @@ fn build_new_pane(flags: &FlagMap) -> Result<Value, UsageError> {
     Ok(value)
 }
 
+fn build_new_pane_right(flags: &FlagMap) -> Result<Value, UsageError> {
+    let mut value = build_new_pane(flags)?;
+    if flags.optional("width").is_some() {
+        value["width"] = json!(required_viewport_width(flags)?);
+    }
+    Ok(value)
+}
+
 fn build_export_layout(flags: &FlagMap) -> Result<Value, UsageError> {
     let mut value = json!({});
     flags.insert_optional_u64(&mut value, "screen")?;
@@ -1161,15 +1262,84 @@ fn build_set_ratio(flags: &FlagMap) -> Result<Value, UsageError> {
     Ok(json!({
         "pane": flags.required_u64("pane")?,
         "dir": flags.required_dir()?,
-        "ratio": flags.required_f32("ratio")?,
+        "ratio": required_ratio(flags)?,
     }))
 }
 
 fn build_set_split_ratio(flags: &FlagMap) -> Result<Value, UsageError> {
     Ok(json!({
         "split": flags.required_u64("split")?,
-        "ratio": flags.required_f32("ratio")?,
+        "ratio": required_ratio(flags)?,
     }))
+}
+
+fn required_ratio(flags: &FlagMap) -> Result<f32, UsageError> {
+    required_ratio_with_messages(flags, &crate::localization::catalog().layout)
+}
+
+fn required_ratio_with_messages(
+    flags: &FlagMap,
+    messages: &LayoutMessages,
+) -> Result<f32, UsageError> {
+    let ratio = flags
+        .required("ratio")?
+        .parse::<f32>()
+        .map_err(|_| UsageError(messages.ratio_must_be_number.to_string()))?;
+    if !ratio.is_finite() {
+        return Err(UsageError(messages.ratio_must_be_finite.to_string()));
+    }
+    Ok(ratio)
+}
+
+fn build_set_viewport_pane_width(flags: &FlagMap) -> Result<Value, UsageError> {
+    Ok(json!({
+        "pane": flags.required_u64("pane")?,
+        "width": required_viewport_width(flags)?,
+    }))
+}
+
+fn build_undo_layout(flags: &FlagMap) -> Result<Value, UsageError> {
+    let revision = flags.optional("revision");
+    let confirm_close = flags.optional("confirm-close").is_some();
+    if revision.is_some() != confirm_close {
+        return Err(UsageError(
+            crate::localization::catalog()
+                .layout
+                .layout_undo_confirmation_flags_together
+                .to_string(),
+        ));
+    }
+    let mut value = json!({
+        "pane": flags.required_u64("pane")?,
+        "confirm_close": confirm_close,
+    });
+    if let Some(revision) = revision {
+        value["revision"] = json!(parse_u64("revision", &revision)?);
+    }
+    Ok(value)
+}
+
+fn required_viewport_width(flags: &FlagMap) -> Result<f32, UsageError> {
+    required_viewport_width_with_messages(flags, &crate::localization::catalog().layout)
+}
+
+fn required_viewport_width_with_messages(
+    flags: &FlagMap,
+    messages: &LayoutMessages,
+) -> Result<f32, UsageError> {
+    let width = flags
+        .required("width")?
+        .parse::<f32>()
+        .map_err(|_| UsageError(messages.viewport_width_must_be_number.to_string()))?;
+    if !width.is_finite() {
+        return Err(UsageError(messages.viewport_width_must_be_finite.to_string()));
+    }
+    if !(cmux_tui_core::MIN_VIEWPORT_PANE_WIDTH..=cmux_tui_core::MAX_VIEWPORT_PANE_WIDTH)
+        .contains(&width)
+    {
+        return Err(UsageError(messages.viewport_width_out_of_range.to_string()));
+    }
+    Ok(width)
 }
 
 fn build_pane_direction(flags: &FlagMap) -> Result<Value, UsageError> {
@@ -1320,12 +1490,6 @@ impl FlagMap {
 
     fn required_isize(&self, name: &str) -> Result<isize, UsageError> {
         parse_isize(name, &self.required(name)?)
-    }
-
-    fn required_f32(&self, name: &str) -> Result<f32, UsageError> {
-        self.required(name)?
-            .parse::<f32>()
-            .map_err(|_| UsageError(format!("--{name} must be a number")))
     }
 
     fn required_dir(&self) -> Result<String, UsageError> {
@@ -1526,6 +1690,28 @@ fn print_vt_state(data: &Value, out: &mut dyn Write) -> io::Result<()> {
 
 fn print_surface(data: &Value, out: &mut dyn Write) -> io::Result<()> {
     writeln!(out, "{}", data.get("surface").and_then(Value::as_u64).unwrap_or(0))
+}
+
+fn decode_layout_undo(data: &Value) -> io::Result<LayoutUndoResult> {
+    crate::layout_undo::decode_layout_undo_result(data, &crate::localization::catalog().layout)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))
+}
+
+fn validate_layout_undo(data: &Value) -> io::Result<()> {
+    decode_layout_undo(data).map(|_| ())
+}
+
+fn print_layout_undo(data: &Value, out: &mut dyn Write) -> io::Result<()> {
+    let messages = &crate::localization::catalog().layout;
+    match decode_layout_undo(data)? {
+        LayoutUndoResult::Undone { screen, revision } => {
+            writeln!(out, "{}", messages.layout_undo_applied(screen, revision))
+        }
+        LayoutUndoResult::ConfirmationRequired { revision, closes_panes, .. } => {
+            let panes = closes_panes.iter().map(u64::to_string).collect::<Vec<_>>().join(",");
+            writeln!(out, "{}", messages.layout_undo_confirmation_required(revision, &panes))
+        }
+    }
 }
 
 fn print_notification(data: &Value, out: &mut dyn Write) -> io::Result<()> {
@@ -1801,6 +1987,23 @@ mod tests {
     }
 
     #[test]
+    fn capability_probe_does_not_expose_server_error_text() {
+        let stream = ScriptedStream {
+            reads: VecDeque::from([Ok(
+                b"{\"id\":0,\"ok\":false,\"error\":\"private upstream detail\"}\n".to_vec(),
+            )]),
+            current: io::Cursor::new(Vec::new()),
+            writes: Vec::new(),
+        };
+        let mut reader = BufReader::new(Box::new(stream) as Box<dyn transport::Stream>);
+
+        let error =
+            server_supports_capability(&mut reader, ATTACH_INITIAL_SIZE_CAPABILITY).unwrap_err();
+        assert_eq!(error, "server rejected identify request");
+        assert!(!error.contains("private upstream detail"));
+    }
+
+    #[test]
     fn clear_history_requires_its_additive_capability() {
         let request = json!({"id": 1, "cmd": "clear-history", "surface": 9});
         assert_eq!(
@@ -1810,7 +2013,8 @@ mod tests {
             ),
             Some((
                 CLEAR_HISTORY_CAPABILITY,
-                "clear-history is not supported by this server; restart the cmux-tui server",
+                "clear-history is not supported by this server; restart the cmux-tui server"
+                    .to_string(),
             ))
         );
 
@@ -1839,7 +2043,8 @@ mod tests {
             ),
             Some((
                 CLEAR_HISTORY_CAPABILITY,
-                "このサーバーでは clear-history を使用できません。cmux-tui サーバーを再起動してください",
+                "このサーバーでは clear-history を使用できません。cmux-tui サーバーを再起動してください"
+                    .to_string(),
             ))
         );
     }
@@ -1863,6 +2068,196 @@ mod tests {
     fn registered_verbs_have_help_text() {
         let catalog = crate::localization::catalog_for_locale("en_US.UTF-8");
         assert!(VERBS.iter().all(|verb| !verb.help.resolve(catalog).is_empty()));
+    }
+
+    #[test]
+    fn layout_cli_help_and_typed_errors_use_the_selected_catalog() {
+        let japanese = crate::localization::catalog_for_locale("ja_JP.UTF-8");
+        let mut help = Vec::new();
+        write_help("usage\n", japanese, &mut help).unwrap();
+        let help = String::from_utf8(help).unwrap();
+        assert!(help.contains("コマンドヘルプ"));
+        assert!(!help.contains("VERB HELP"));
+        assert!(help.contains("右側にビューポートペインを作成"));
+        assert!(help.contains("直前のレイアウト変更を元に戻す"));
+
+        let error = localized_response_error_for(
+            &json!({
+                "ok": false,
+                "error_code": LayoutRatioError::OUT_OF_RANGE_CODE,
+                "error": "private English server detail",
+            }),
+            japanese,
+        );
+        assert_eq!(error, japanese.layout.viewport_ratio_out_of_range);
+        assert!(!error.contains("private English"));
+
+        let width_error = localized_response_error_for(
+            &json!({
+                "ok": false,
+                "error_code": ViewportWidthError::OUT_OF_RANGE_CODE,
+                "error": "private English width detail",
+            }),
+            japanese,
+        );
+        assert_eq!(width_error, japanese.layout.viewport_width_out_of_range);
+        assert!(!width_error.contains("private English"));
+
+        let unavailable = localized_response_error_for(
+            &json!({
+                "ok": false,
+                "error_code": LayoutUndoError::UNAVAILABLE_CODE,
+                "error": "no layout change to undo",
+            }),
+            japanese,
+        );
+        assert_eq!(unavailable, japanese.sidebar.layout_nothing_to_undo);
+    }
+
+    #[test]
+    fn viewport_pane_builder_accepts_an_optional_width() {
+        let flags = FlagMap {
+            values: BTreeMap::from([
+                ("pane".to_string(), "7".to_string()),
+                ("width".to_string(), "0.75".to_string()),
+                ("cols".to_string(), "60".to_string()),
+                ("rows".to_string(), "20".to_string()),
+            ]),
+            ..Default::default()
+        };
+        assert_eq!(
+            build_new_pane_right(&flags).unwrap(),
+            json!({"pane": 7, "width": 0.75, "cols": 60, "rows": 20})
+        );
+    }
+
+    #[test]
+    fn viewport_width_builders_reject_nonfinite_and_out_of_range_values() {
+        for width in ["NaN", "inf", "0.09", "1.01"] {
+            let flags = FlagMap {
+                values: BTreeMap::from([
+                    ("pane".to_string(), "7".to_string()),
+                    ("width".to_string(), width.to_string()),
+                ]),
+                ..Default::default()
+            };
+            assert!(build_new_pane_right(&flags).is_err(), "accepted width {width}");
+            assert!(build_set_viewport_pane_width(&flags).is_err(), "accepted width {width}");
+        }
+    }
+
+    #[test]
+    fn viewport_width_builder_localizes_nonfinite_values() {
+        let japanese = crate::localization::catalog_for_locale("ja_JP.UTF-8");
+        let flags = |width: &str| FlagMap {
+            values: BTreeMap::from([("width".to_string(), width.to_string())]),
+            ..Default::default()
+        };
+
+        let error =
+            required_viewport_width_with_messages(&flags("NaN"), &japanese.layout).unwrap_err();
+
+        assert_eq!(error.0, japanese.layout.viewport_width_must_be_finite);
+        assert!(!error.0.contains("must be a finite number"));
+
+        let error =
+            required_viewport_width_with_messages(&flags("wide"), &japanese.layout).unwrap_err();
+        assert_eq!(error.0, japanese.layout.viewport_width_must_be_number);
+    }
+
+    #[test]
+    fn layout_undo_builder_and_printer_preserve_the_confirmation_revision() {
+        let flags = FlagMap {
+            values: BTreeMap::from([
+                ("pane".to_string(), "7".to_string()),
+                ("revision".to_string(), "42".to_string()),
+                ("confirm-close".to_string(), "true".to_string()),
+            ]),
+            ..Default::default()
+        };
+        assert_eq!(
+            build_undo_layout(&flags).unwrap(),
+            json!({"pane": 7, "revision": 42, "confirm_close": true})
+        );
+
+        let mut output = Vec::new();
+        print_layout_undo(
+            &json!({
+                "undone": false,
+                "confirmation_required": true,
+                "screen": 3,
+                "revision": 42,
+                "closes_panes": [7, 8],
+            }),
+            &mut output,
+        )
+        .unwrap();
+        assert_eq!(
+            String::from_utf8(output).unwrap(),
+            "confirmation required: rerun with --revision 42 --confirm-close (closes panes 7,8)\n"
+        );
+    }
+
+    #[test]
+    fn layout_undo_printer_rejects_malformed_results() {
+        for data in [
+            json!({
+                "undone": false,
+                "confirmation_required": true,
+                "screen": 3,
+                "revision": 42,
+            }),
+            json!({
+                "confirmation_required": true,
+                "screen": 3,
+                "revision": 42,
+                "closes_panes": [7],
+            }),
+            json!({
+                "undone": true,
+                "confirmation_required": true,
+                "screen": 3,
+                "revision": 42,
+                "closes_panes": [7],
+            }),
+            json!({
+                "undone": false,
+                "confirmation_required": true,
+                "revision": 42,
+                "closes_panes": [7],
+            }),
+            json!({
+                "undone": false,
+                "confirmation_required": true,
+                "screen": 3,
+                "revision": 42,
+                "closes_panes": [7, "8"],
+            }),
+        ] {
+            let mut output = Vec::new();
+            assert!(print_layout_undo(&data, &mut output).is_err(), "accepted {data}");
+            assert!(output.is_empty());
+        }
+    }
+
+    #[test]
+    fn layout_undo_requires_confirmation_flags_together() {
+        for values in [
+            BTreeMap::from([
+                ("pane".to_string(), "7".to_string()),
+                ("revision".to_string(), "42".to_string()),
+            ]),
+            BTreeMap::from([
+                ("pane".to_string(), "7".to_string()),
+                ("confirm-close".to_string(), "true".to_string()),
+            ]),
+        ] {
+            let error = build_undo_layout(&FlagMap { values, ..Default::default() }).unwrap_err();
+            assert_eq!(
+                error.0,
+                crate::localization::catalog().layout.layout_undo_confirmation_flags_together
+            );
+        }
     }
 
     #[test]
