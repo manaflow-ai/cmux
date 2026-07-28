@@ -1183,6 +1183,134 @@ class DeterminismCheckerCLITests(unittest.TestCase):
             negative.stdout,
         )
 
+    def test_swift_extensions_resolve_declared_clock_members(self) -> None:
+        positive = self.run_checker(
+            {
+                "same-file-extension.swift": (
+                    "struct SameFileClockTests {\n"
+                    "    let clock = ContinuousClock()\n"
+                    "}\n"
+                    "extension SameFileClockTests {\n"
+                    "    func verify() async throws {\n"
+                    "        try await self.clock.sleep(until: deadline)\n"
+                    "        #expect(finished)\n"
+                    "    }\n"
+                    "}\n"
+                ),
+                "cross-file-declaration.swift": (
+                    "struct CrossFileClockTests {\n"
+                    "    let clock = ContinuousClock()\n"
+                    "}\n"
+                ),
+                "cross-file-extension.swift": (
+                    "extension CrossFileClockTests {\n"
+                    "    func verify() async throws {\n"
+                    "        try await clock.sleep(until: deadline)\n"
+                    "        #expect(finished)\n"
+                    "    }\n"
+                    "}\n"
+                ),
+            }
+        )
+
+        self.assertEqual(
+            positive.returncode,
+            1,
+            positive.stdout + positive.stderr,
+        )
+        findings = [
+            line
+            for line in positive.stdout.splitlines()
+            if "sleep-then-assert:" in line
+        ]
+        self.assertEqual(len(findings), 2, positive.stdout)
+        self.assertIn(
+            "fixtures/same-file-extension.swift:6: sleep-then-assert:",
+            positive.stdout,
+        )
+        self.assertIn(
+            "fixtures/cross-file-extension.swift:3: sleep-then-assert:",
+            positive.stdout,
+        )
+
+        negative = self.run_checker(
+            {
+                "virtual-clock-declaration.swift": (
+                    "struct VirtualClockTests {\n"
+                    "    let clock: TestClock\n"
+                    "}\n"
+                ),
+                "virtual-clock-extension.swift": (
+                    "extension VirtualClockTests {\n"
+                    "    func verify() async throws {\n"
+                    "        try await clock.sleep(until: deadline)\n"
+                    "        #expect(finished)\n"
+                    "    }\n"
+                    "}\n"
+                ),
+            }
+        )
+
+        self.assertEqual(
+            negative.returncode,
+            0,
+            negative.stdout + negative.stderr,
+        )
+        self.assertIn(
+            "test-determinism: 0 active finding(s)",
+            negative.stdout,
+        )
+
+    def test_conditional_shell_override_does_not_hide_real_sleep(self) -> None:
+        positive = self.run_checker(
+            {
+                "conditional-shell-function.sh": (
+                    "if use_fake; then\n"
+                    '    sleep() { advance_clock "$@"; }\n'
+                    "fi\n"
+                    "sleep 1\n"
+                    'assert "$actual" "$expected"\n'
+                ),
+            }
+        )
+
+        self.assertEqual(
+            positive.returncode,
+            1,
+            positive.stdout + positive.stderr,
+        )
+        findings = [
+            line
+            for line in positive.stdout.splitlines()
+            if "sleep-then-assert:" in line
+        ]
+        self.assertEqual(len(findings), 1, positive.stdout)
+        self.assertIn(
+            "fixtures/conditional-shell-function.sh:4: "
+            "sleep-then-assert:",
+            findings[0],
+        )
+
+        negative = self.run_checker(
+            {
+                "unconditional-shell-function.sh": (
+                    'sleep() { advance_clock "$@"; }\n'
+                    "sleep 1\n"
+                    'assert "$actual" "$expected"\n'
+                ),
+            }
+        )
+
+        self.assertEqual(
+            negative.returncode,
+            0,
+            negative.stdout + negative.stderr,
+        )
+        self.assertIn(
+            "test-determinism: 0 active finding(s)",
+            negative.stdout,
+        )
+
     def test_python_import_aliases_are_tracked_until_shadowed(self) -> None:
         positive = self.run_checker(
             {
@@ -1787,6 +1915,77 @@ class DeterminismCheckerCLITests(unittest.TestCase):
             negative.returncode,
             0,
             negative.stdout + negative.stderr,
+        )
+
+    def test_python_nested_direct_call_scale_is_bounded(self) -> None:
+        depth = 18
+
+        def render_level(level: int, indent: str) -> list[str]:
+            name = f"level_{level}"
+            child_indent = indent + "    "
+            lines = [f"{indent}def {name}():"]
+            if level == depth:
+                lines.extend(
+                    (
+                        f"{child_indent}clock.sleep(0.01)",
+                        f"{child_indent}assert finished",
+                    )
+                )
+                return lines
+
+            lines.extend(render_level(level + 1, child_indent))
+            child = f"level_{level + 1}"
+            lines.extend(
+                (
+                    f"{child_indent}if enabled:",
+                    f"{child_indent}    {child}()",
+                    f"{child_indent}else:",
+                    f"{child_indent}    {child}()",
+                )
+            )
+            return lines
+
+        source_lines = [
+            "import time as clock",
+            *render_level(0, ""),
+            "level_0()",
+        ]
+        sleep_line = next(
+            index
+            for index, line in enumerate(source_lines, start=1)
+            if "clock.sleep(0.01)" in line
+        )
+
+        try:
+            result = self.run_checker(
+                {
+                    "nested-direct-call-scale.py": (
+                        "\n".join(source_lines) + "\n"
+                    ),
+                },
+                timeout=5,
+            )
+        except subprocess.TimeoutExpired:
+            self.fail(
+                "checker exceeded 5 seconds at depth 18; equivalent "
+                "direct-call binding variants appear to be expanding"
+            )
+
+        self.assertEqual(
+            result.returncode,
+            1,
+            result.stdout + result.stderr,
+        )
+        findings = [
+            line
+            for line in result.stdout.splitlines()
+            if "sleep-then-assert:" in line
+        ]
+        self.assertEqual(len(findings), 1, result.stdout)
+        self.assertIn(
+            f"fixtures/nested-direct-call-scale.py:{sleep_line}: "
+            "sleep-then-assert:",
+            findings[0],
         )
 
     def test_python_exhaustive_match_omits_impossible_fallthrough(self) -> None:
