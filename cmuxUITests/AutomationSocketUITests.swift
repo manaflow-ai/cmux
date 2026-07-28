@@ -291,25 +291,22 @@ final class AutomationSocketUITests: XCTestCase {
             "Expected the main window to exist before taking the screenshot"
         )
 
-        let screenshot = try XCTUnwrap(
-            socketResult(
-                method: "debug.window.screenshot",
-                params: ["label": "issue-9065-window"]
+        let captured = try XCTUnwrap(
+            waitForWindowScreenshotContainingMarker(
+                label: "issue-9065-window",
+                minimumMarkerPixels: 100,
+                timeout: 12.0
             ),
-            "Expected debug.window.screenshot to succeed"
+            "Expected debug.window.screenshot to capture the rendered terminal marker"
         )
-        let path = try XCTUnwrap(screenshot["path"] as? String)
-        let screenshotURL = URL(fileURLWithPath: path)
-        defer { try? FileManager.default.removeItem(at: screenshotURL) }
-
-        let pngData = try Data(contentsOf: screenshotURL)
+        let pngData = captured.pngData
         XCTAssertGreaterThan(pngData.count, 1_024, "Expected a non-empty PNG file")
         XCTAssertTrue(
             pngData.starts(with: [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]),
             "Expected the screenshot command to write PNG data"
         )
 
-        let stats = try XCTUnwrap(windowScreenshotPixelStats(pngData))
+        let stats = captured.stats
         XCTAssertGreaterThan(stats.width, 500, "Expected a main-window-sized screenshot")
         XCTAssertGreaterThan(stats.height, 300, "Expected a main-window-sized screenshot")
         XCTAssertGreaterThan(
@@ -331,24 +328,66 @@ final class AutomationSocketUITests: XCTestCase {
         let markerPixels: Int
     }
 
+    private struct CapturedWindowScreenshot {
+        let pngData: Data
+        let stats: WindowScreenshotPixelStats
+    }
+
     private func waitForTerminalText(
         _ expectedText: String,
         surfaceID: String,
         timeout: TimeInterval
     ) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        repeat {
-            if let result = socketResult(
-                method: "surface.read_text",
-                params: ["surface_id": surfaceID]
-            ),
-               let text = result["text"] as? String,
-               text.contains(expectedText) {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                if let result = self.socketResult(
+                    method: "surface.read_text",
+                    params: ["surface_id": surfaceID]
+                ),
+                   let text = result["text"] as? String,
+                   text.contains(expectedText) {
+                    return true
+                }
+                return false
+            },
+            object: NSObject()
+        )
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    private func waitForWindowScreenshotContainingMarker(
+        label: String,
+        minimumMarkerPixels: Int,
+        timeout: TimeInterval
+    ) -> CapturedWindowScreenshot? {
+        var captured: CapturedWindowScreenshot?
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                guard let screenshot = self.socketResult(
+                    method: "debug.window.screenshot",
+                    params: ["label": label]
+                ),
+                    let path = screenshot["path"] as? String else {
+                    return false
+                }
+
+                let screenshotURL = URL(fileURLWithPath: path)
+                defer { try? FileManager.default.removeItem(at: screenshotURL) }
+                guard let pngData = try? Data(contentsOf: screenshotURL),
+                      let stats = self.windowScreenshotPixelStats(pngData),
+                      stats.markerPixels > minimumMarkerPixels else {
+                    return false
+                }
+
+                captured = CapturedWindowScreenshot(pngData: pngData, stats: stats)
                 return true
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
-        } while Date() < deadline
-        return false
+            },
+            object: NSObject()
+        )
+        guard XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed else {
+            return nil
+        }
+        return captured
     }
 
     private func windowScreenshotPixelStats(_ pngData: Data) -> WindowScreenshotPixelStats? {
