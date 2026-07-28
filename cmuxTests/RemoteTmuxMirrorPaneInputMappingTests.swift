@@ -36,7 +36,7 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
     // MARK: - Harness (mirrors MirrorTitleHarness in RemoteTmuxMirrorTargetingTests)
 
     @MainActor
-    private final class Harness {
+    final class Harness {
         let windowId: UUID
         let controller: RemoteTmuxController
         let host: RemoteTmuxHost
