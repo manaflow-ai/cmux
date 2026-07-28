@@ -9631,6 +9631,43 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn exited_terminal_placeholders_do_not_consume_kitty_quota() {
+        let mux = test_mux();
+        let opts = mux.surface_options.lock().unwrap().clone();
+        let live =
+            Surface::spawn_for_test(mux.next_id(), opts.clone(), Arc::downgrade(&mux)).unwrap();
+        wait_for_kitty_image_budget(&mux);
+        let unconstrained =
+            live.with_terminal(|terminal| terminal.kitty_graphics_limits().unwrap()).unwrap();
+
+        let placeholder = Surface::exited_terminal_placeholder(
+            mux.next_id(),
+            opts,
+            Arc::downgrade(&mux),
+            TerminalHostIdentity {
+                terminal_id: "00112233445566778899aabbccddeeff".into(),
+                incarnation: "11111111111111111111111111111111".into(),
+            },
+        )
+        .unwrap();
+        wait_for_kitty_image_budget(&mux);
+
+        assert_eq!(
+            live.with_terminal(|terminal| terminal.kitty_graphics_limits().unwrap()).unwrap(),
+            unconstrained,
+            "an exited placeholder reduced a live terminal's graphics share"
+        );
+        assert_eq!(
+            placeholder
+                .with_terminal(|terminal| terminal.kitty_graphics_limits().unwrap())
+                .unwrap(),
+            KittyGraphicsLimits::disabled(),
+            "an exited placeholder retained graphics resources it cannot use"
+        );
+    }
+
     #[test]
     fn kitty_object_limits_cover_primary_and_alternate_screens() {
         let mux = test_mux();

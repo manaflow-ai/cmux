@@ -3864,8 +3864,8 @@ mod tests {
     use super::{
         Callbacks, ClearHistoryOutcome, KittyReplayCatalog, MouseModeScan, PaletteOsc,
         PromptSemantic, PromptSemanticTracker, PromptTrackState, Screen, Terminal,
-        kitty_replay_image_encodings, kitty_replay_placement, reset_kitty_replay_image_encodings,
-        vt_replay_row_window,
+        kitty_replay_image_encodings, kitty_replay_image_len, kitty_replay_placement,
+        reset_kitty_replay_image_encodings, vt_replay_row_window,
     };
 
     fn replay_placement_fixture(
@@ -4377,6 +4377,42 @@ mod tests {
         target.restore_kitty_image_aliases(&replay.kitty_image_aliases).unwrap();
         target.vt_write(b"\x1b_Ga=p,I=77,p=5,c=1,r=1,q=2;\x1b\\");
         assert_eq!(target.kitty_graphics_snapshot().unwrap().placements[0].image_id, image_id);
+    }
+
+    #[test]
+    fn minimal_bounded_replay_resets_before_numbered_kitty_images() {
+        let mut source = Terminal::new(256, 1, 0, Callbacks::default()).unwrap();
+        source.vt_write("x".repeat(255).as_bytes());
+        source.vt_write(b"\x1b_Ga=t,t=d,f=24,I=77,s=1,v=1,q=2;/wAA\x1b\\");
+        let snapshot = source.kitty_graphics_snapshot().unwrap();
+        let image = snapshot.images.first().unwrap();
+        let max_bytes = kitty_replay_image_len(image).unwrap() + b"\x1bc".len();
+        let text = source
+            .vt_replay_text_layout_bounded(
+                max_bytes,
+                &std::collections::BTreeSet::new(),
+                None,
+                false,
+            )
+            .unwrap();
+        assert_eq!(text.range, None, "fixture did not reach the minimal reset fallback");
+
+        let replay = source.vt_replay_bounded_theme_portable_with_aliases(max_bytes).unwrap();
+        assert_eq!(
+            replay.kitty_image_aliases,
+            vec![KittyImageAlias { image_id: image.id, image_number: 77 }]
+        );
+        assert!(
+            replay.bytes.starts_with(b"\x1bc\x1b_G"),
+            "the terminal reset cleared a preceding image transmission: {:?}",
+            replay.bytes
+        );
+
+        let mut target = Terminal::new(256, 1, 0, Callbacks::default()).unwrap();
+        target.vt_write(&replay.bytes);
+        target.restore_kitty_image_aliases(&replay.kitty_image_aliases).unwrap();
+        target.vt_write(b"\x1b_Ga=p,I=77,p=5,c=1,r=1,q=2;\x1b\\");
+        assert_eq!(target.kitty_graphics_snapshot().unwrap().placements[0].image_id, image.id);
     }
 
     #[test]
