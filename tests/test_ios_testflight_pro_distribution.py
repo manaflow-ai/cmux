@@ -45,10 +45,19 @@ def test_external_override_assigns_founders_and_pro_groups() -> None:
     ) in upload_job
 
     job_env = upload_job.split("    steps:\n", 1)[0]
+    install_profile = upload_job.split(
+        "      - name: Install beta provisioning profile\n", 1
+    )[1].split("\n      - name:", 1)[0]
     assert (
         "github.event.inputs.marketing_version_override != '' "
         "&& 'dev.cmux.app.beta'"
-    ) in job_env
+    ) not in job_env
+    assert (
+        "INPUT_MARKETING_VERSION_OVERRIDE: "
+        "${{ github.event.inputs.marketing_version_override }}"
+    ) in install_profile
+    assert 'if [ -n "${INPUT_MARKETING_VERSION_OVERRIDE:-}" ]; then' in install_profile
+    assert 'EXPECTED_APP_ID="7WLXT3NR37.dev.cmux.app.beta"' in install_profile
 
 
 def test_external_override_skips_internal_group_assignment() -> None:
