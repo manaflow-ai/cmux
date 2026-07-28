@@ -10,7 +10,6 @@ extension DockSplitStore {
     static func routeAttentionFlash(
         panelID: UUID,
         reason: WorkspaceAttentionFlashReason,
-        requiresSplit: Bool = false,
         shouldFocus: Bool = false
     ) -> Bool {
         guard let dock = liveStore(containingPanel: panelID),
@@ -20,11 +19,6 @@ extension DockSplitStore {
         }
         if shouldFocus {
             dock.focusPanel(panelID)
-        }
-        if requiresSplit,
-           dock.bonsplitController.allPaneIds.count <= 1,
-           dock.panels.count <= 1 {
-            return true
         }
         panel.triggerFlash(reason: reason)
         return true

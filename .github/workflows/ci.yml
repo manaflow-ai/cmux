@@ -648,6 +648,7 @@ jobs:
             -destination "platform=macOS" \
             CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/AgentNotificationRegressionTests \
+            -only-testing:cmuxTests/DockNotificationAttentionTests \
             -only-testing:cmuxTests/ClaudeHookLifecycleCleanupTests \
             -only-testing:cmuxTests/ClaudeHookLiveDeliveryTargetTests \
             -only-testing:cmuxTests/ClaudeHookPIDAuthenticationTests \
