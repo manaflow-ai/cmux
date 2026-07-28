@@ -41,13 +41,13 @@ extension CMUXCLI {
         explicitPassword: String?
     ) throws -> TmuxCompatLaunchContext? {
         // A managed launcher is anchored to the immutable identity injected into its
-        // terminal. Without either inherited key there is no caller to validate, so fail
+        // terminal. Without an inherited surface there is no caller to validate, so fail
         // closed before opening the socket. In particular, never borrow system-wide focus
         // from `system.identify`: a command started in Terminal.app must not target an
         // unrelated cmux surface merely because that surface happens to be focused.
         let ownWorkspace = normalizedTmuxTarget(processEnvironment["CMUX_WORKSPACE_ID"])
         let ownSurface = normalizedTmuxTarget(processEnvironment["CMUX_SURFACE_ID"])
-        guard ownWorkspace != nil || ownSurface != nil else { return nil }
+        guard let ownSurface else { return nil }
 
         let socketPath = try tmuxCompatResolvedSocketPath(processEnvironment: processEnvironment)
         let client = SocketClient(path: socketPath)
@@ -127,7 +127,7 @@ extension CMUXCLI {
             // switching or closing the operator's focused pane cannot retarget a running team.
             // Once either component is present, the inherited pair is authoritative: an incomplete
             // or stale pair fails closed instead of silently changing identity to the focused pane.
-            if let ownWorkspace, let ownSurface {
+            if let ownWorkspace {
                 if let context = try? contextFromSurface(
                     workspaceHandle: ownWorkspace,
                     surfaceHandle: ownSurface,
@@ -141,7 +141,6 @@ extension CMUXCLI {
             // workspace can therefore be stale while the launch surface is still live.
             // Relocate that UUID from structured socket state without consulting global
             // focus; an inherited identity must never silently retarget to another surface.
-            guard let ownSurface else { return nil }
             let surfaceId = tmuxTrimIdSigil(ownSurface)
             guard isUUID(surfaceId) else { return nil }
             let payload = try client.sendV2(
@@ -297,15 +296,9 @@ extension CMUXCLI {
         // still current. Treat that injected root as canonical, then validate its full
         // shape, ownership, permissions, and file relationships before writing to it.
         let trustedParent = managedRoot.deletingLastPathComponent().standardizedFileURL
-        let expectedRoot = trustedParent
-            .appendingPathComponent(surfaceId, isDirectory: true)
-            .standardizedFileURL
 
         guard trustedParent.lastPathComponent == "cmux-cli-shims",
               managedRoot.lastPathComponent == surfaceId,
-              managedRoot.resolvingSymlinksInPath() == expectedRoot.resolvingSymlinksInPath(),
-              managedRoot.deletingLastPathComponent().resolvingSymlinksInPath()
-                == trustedParent.resolvingSymlinksInPath(),
               isOwnedNonSymlinkDirectory(trustedParent, fileManager: fileManager),
               isOwnedNonSymlinkDirectory(managedRoot, fileManager: fileManager),
               claudeShim == managedRoot.appendingPathComponent("claude", isDirectory: false),

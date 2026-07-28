@@ -71,8 +71,12 @@ func configureClaudeTeamsShellWrapper(shimDir string) error {
 	}
 	wrapperDir := filepath.Join(shimDir, "shell")
 	originalShell := currentShell
-	if filepath.Clean(filepath.Dir(currentShell)) == filepath.Clean(wrapperDir) {
+	reentrant := filepath.Clean(filepath.Dir(currentShell)) == filepath.Clean(wrapperDir)
+	if reentrant {
 		originalShell = strings.TrimSpace(os.Getenv("CMUX_CLAUDE_TEAMS_ORIGINAL_SHELL"))
+		if originalShell == "" {
+			return fmt.Errorf("managed Claude Teams shell wrapper is active but CMUX_CLAUDE_TEAMS_ORIGINAL_SHELL is missing")
+		}
 	}
 	if originalShell == "" {
 		originalShell = "/bin/sh"
