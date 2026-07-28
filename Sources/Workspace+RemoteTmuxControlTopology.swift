@@ -74,8 +74,20 @@ extension Workspace {
     func activeRemoteTmuxControlPane(
         containerPanelID: UUID
     ) -> RemoteTmuxControlPaneLocation? {
-        let locations = remoteTmuxControlPanes(containerPanelID: containerPanelID)
-        return locations.first(where: { $0.pane.isFocused }) ?? locations.first
+        if let sessionMirror = remoteTmuxSessionMirror {
+            return sessionMirror.activeControlPaneLocation(containerPanelID: containerPanelID)
+        }
+        guard let mirror = remoteTmuxWindowMirrors[containerPanelID],
+              let pane = mirror.activeControlPane()
+                ?? mirror.paneIDsInOrder.first.flatMap({ mirror.controlPane(tmuxPaneID: $0) }) else {
+            return nil
+        }
+        return RemoteTmuxControlPaneLocation(
+            containerPanelID: containerPanelID,
+            owner: mirror,
+            windowMirror: mirror,
+            pane: pane
+        )
     }
 
     /// Resolves a control-plane surface identity to its tab mutation owner and
