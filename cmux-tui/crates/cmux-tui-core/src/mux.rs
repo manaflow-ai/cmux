@@ -11142,8 +11142,7 @@ mod tests {
         let started = Instant::now();
         let error = mux
             .new_tab(Some(pane), None, Some((80, 24)))
-            .err()
-            .expect("a blocked Kitty quota transition admitted another terminal");
+            .expect_err("a blocked Kitty quota transition admitted another terminal");
         assert!(
             started.elapsed() < Duration::from_millis(250),
             "a blocked Kitty quota transition waited for the control timeout: {error}"
@@ -11160,6 +11159,7 @@ mod tests {
 
         let gate = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
         let (started_sender, started_receiver) = std::sync::mpsc::sync_channel(1);
+        let (finished_sender, finished_receiver) = std::sync::mpsc::sync_channel(1);
         *mux.kitty_image_budget_operation.lock().unwrap() = Some(Arc::new({
             let gate = gate.clone();
             move |_surface, _limits, _deadline| {
@@ -11169,6 +11169,7 @@ mod tests {
                 while !*released {
                     released = changed.wait(released).unwrap();
                 }
+                let _ = finished_sender.try_send(());
                 anyhow::bail!("released persistent Kitty quota operation")
             }
         }));
@@ -11185,6 +11186,7 @@ mod tests {
             *released.lock().unwrap() = true;
             changed.notify_all();
         }
+        finished_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
 
         assert!(stopped, "Kitty quota worker waited forever for an operation past its deadline");
     }
