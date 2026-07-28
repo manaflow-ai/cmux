@@ -7,9 +7,8 @@ enum CmuxTaskManagerMemoryGroupAttribution: Sendable {
     case partial(attributedProcessCount: Int, unattributedProcessCount: Int)
     case unattributed
 
-    init?(_ payload: [String: Any]?) {
-        guard let payload,
-              let kind = CmuxTaskManagerMemoryDiagnostic.string(payload["kind"]) else {
+    init?(_ payload: [String: Any]) {
+        guard let kind = CmuxTaskManagerMemoryDiagnostic.string(payload["kind"]) else {
             return nil
         }
         switch kind {

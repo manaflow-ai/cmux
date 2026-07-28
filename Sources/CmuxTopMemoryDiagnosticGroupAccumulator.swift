@@ -40,7 +40,7 @@ struct CmuxTopMemoryDiagnosticGroupAccumulator {
     let name: String
     var rssBytes: Int64 = 0
     private var processIDs: [Int] = []
-    private var attributions: [CmuxTopProcessAttribution: AttributionAccumulator] = [:]
+    private var attributions: [CmuxTopProcessOwner: AttributionAccumulator] = [:]
     private var attributedProcessCount = 0
     private var commonOwner: CmuxTopProcessOwner?
     private var ownerIdentityKeys: Set<String> = []
@@ -71,10 +71,10 @@ struct CmuxTopMemoryDiagnosticGroupAccumulator {
         if let workspaceIdentityKey = owner.workspaceIdentityKey {
             workspaceIdentityKeys.insert(workspaceIdentityKey)
         }
-        if attributions[attribution] == nil {
-            attributions[attribution] = AttributionAccumulator(attribution: attribution)
+        if attributions[owner] == nil {
+            attributions[owner] = AttributionAccumulator(attribution: attribution)
         }
-        attributions[attribution]?.append(process: process)
+        attributions[owner]?.append(process: process)
     }
 
     func payload() -> [String: Any] {

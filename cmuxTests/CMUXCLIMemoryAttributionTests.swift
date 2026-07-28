@@ -16,6 +16,10 @@ extension CMUXCLIErrorOutputRegressionTests {
             environment.removeValue(forKey: key)
         }
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["AppleLanguages"] = "(en)"
+        environment["AppleLocale"] = "en_US"
+        environment["LANG"] = "en_US.UTF-8"
+        environment["LC_ALL"] = "en_US.UTF-8"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -27,7 +31,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(!result.timedOut, Comment(rawValue: result.stdout))
         #expect(result.status == 0, Comment(rawValue: result.stdout))
         #expect(result.stdout.contains("2 workspaces"), Comment(rawValue: result.stdout))
-        #expect(!result.stdout.contains("workspace workspace:1"), Comment(rawValue: result.stdout))
+        #expect(!result.stdout.contains("workspace workspace:"), Comment(rawValue: result.stdout))
     }
 
     private static let multiWorkspaceMemoryResponse = #"""

@@ -22,7 +22,7 @@ struct CmuxTaskManagerMemoryGroup: Sendable {
         self.processIds = CmuxTaskManagerMemoryDiagnostic.intArray(payload["pids"])
         let topAttribution = CmuxTaskManagerMemoryAttribution(payload["top_attribution"] as? [String: Any])
         self.attribution = CmuxTaskManagerMemoryGroupAttribution(
-            payload["group_attribution"] as? [String: Any]
+            payload["group_attribution"] as? [String: Any] ?? [:]
         )
             ?? topAttribution.map(CmuxTaskManagerMemoryGroupAttribution.common)
             ?? .unattributed
