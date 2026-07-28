@@ -13155,8 +13155,7 @@ class TerminalController {
                 return
             }
 
-            guard let pngData = self.captureCompositedWindowPNGData(window)
-                ?? self.captureAppKitWindowPNGData(window) else {
+            guard let pngData = self.captureAppKitWindowPNGData(window) else {
                 captureError = "Failed to create PNG data"
                 return
             }
@@ -13174,18 +13173,6 @@ class TerminalController {
 
         // Return OK with screenshot ID and path for easy reference
         return "OK \(screenshotId) \(outputPath.path)"
-    }
-
-    private func captureCompositedWindowPNGData(_ window: NSWindow) -> Data? {
-        guard let cgImage = CGWindowListCreateImage(
-            .null,
-            .optionIncludingWindow,
-            CGWindowID(window.windowNumber),
-            [.boundsIgnoreFraming, .nominalResolution]
-        ) else {
-            return nil
-        }
-        return NSBitmapImageRep(cgImage: cgImage).representation(using: .png, properties: [:])
     }
 
     private func captureAppKitWindowPNGData(_ window: NSWindow) -> Data? {
