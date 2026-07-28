@@ -4,15 +4,13 @@ import { ContentLocaleLink } from "../app/[locale]/components/content-locale-lin
 import { fallbackContentLocales } from "../i18n/locale-availability";
 
 describe("fallback-content links", () => {
-  test("renders direct canonical hrefs for English fallback content", () => {
+  test("keeps links in the current translated locale", () => {
     for (const href of [
       "/pricing",
       "/docs/agent-integrations/oh-my-pi",
     ]) {
       const markup = renderLink("de", href);
-      expect(markup).toContain(`href="${href}"`);
-      expect(markup).not.toContain("/en/");
-      expect(markup).not.toContain("/de/");
+      expect(markup).toContain(`href="/de${href}"`);
     }
   });
 

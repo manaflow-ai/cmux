@@ -24,10 +24,15 @@ describe("privacy policy localization", () => {
     }
   });
 
-  test("preserves legal and contact link targets in every translation", () => {
+  test("links each translation to its localized terms and preserves contact targets", () => {
     const englishTargets = linkTargets(privacyPolicyContent.en);
     for (const locale of locales) {
-      expect(linkTargets(privacyPolicyContent[locale])).toEqual(englishTargets);
+      const expectedTargets = englishTargets.map((target) =>
+        target === "https://cmux.com/terms-of-service" && locale !== "en"
+          ? `https://cmux.com/${locale}/terms-of-service`
+          : target,
+      );
+      expect(linkTargets(privacyPolicyContent[locale])).toEqual(expectedTargets);
     }
   });
 

@@ -53,15 +53,15 @@ mock.module("../services/billing/purchase", () => ({
 const { default: BillingSuccessPage } = await import("../app/billing/success/page");
 
 describe("billing success page", () => {
-  test("falls back to English copy for a locale without billingSuccess", async () => {
+  test("renders localized purchase copy for every supported locale", async () => {
     acceptLanguage = "fr";
     try {
       const element = await BillingSuccessPage({
         searchParams: Promise.resolve({ session_id: "cs_123" }),
       });
       const html = renderToStaticMarkup(element);
-      expect(html).toContain("cmux Pro is active");
-      expect(html).toContain("What you unlocked");
+      expect(html).toContain("cmux Pro est actif");
+      expect(html).toContain("Ce que tu as débloqué");
     } finally {
       acceptLanguage = "en";
     }

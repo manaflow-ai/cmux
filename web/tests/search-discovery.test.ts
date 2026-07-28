@@ -60,7 +60,10 @@ describe("search discovery", () => {
     expect(feed).not.toContain(
       "<title>Superrepos and Why Claude Code Is the Best Worktree Manager</title>",
     );
-    expect(feed).not.toContain("/ja/blog/cmux-omo");
+    expect(feed).toContain(
+      "<title>oh-my-openagent サブエージェントをネイティブとして cmux panes</title>",
+    );
+    expect(feed).toContain("/ja/blog/cmux-omo");
   });
 
   test("selects only recently modified sitemap URLs", () => {
