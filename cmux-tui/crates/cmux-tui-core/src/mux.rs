@@ -394,6 +394,11 @@ impl DeadlineFanoutPool {
             false
         }
     }
+
+    #[cfg(test)]
+    fn worker_count(&self) -> usize {
+        self.permits.load(Ordering::Acquire)
+    }
 }
 
 fn deadline_fanout_pool() -> Option<&'static DeadlineFanoutPool> {
@@ -11221,6 +11226,24 @@ mod tests {
             vec![0, 2, 4, 6, 8, 10, 12, 14]
         );
         assert!(max_active.load(Ordering::Acquire) > 1);
+    }
+
+    #[test]
+    fn deadline_fanout_workers_are_lazy_and_reclaim_idle_threads() {
+        let pool = DeadlineFanoutPool::new().expect("spawn deadline fanout pool");
+        assert_eq!(pool.worker_count(), 0, "fanout construction eagerly retained workers");
+
+        let (finished_tx, finished_rx) = std::sync::mpsc::sync_channel(1);
+        assert!(pool.submit(Box::new(move || {
+            finished_tx.send(()).unwrap();
+        })));
+        finished_rx.recv_timeout(Duration::from_secs(1)).expect("fanout job did not run");
+
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while pool.worker_count() != 0 && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(pool.worker_count(), 0, "idle fanout worker was retained");
     }
 
     #[test]

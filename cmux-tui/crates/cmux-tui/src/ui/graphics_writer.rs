@@ -429,6 +429,11 @@ impl GraphicsWriterShutdown {
     }
 
     #[cfg(test)]
+    fn cancel_for_panic_hook(&self) {
+        self.cancel_and_wait();
+    }
+
+    #[cfg(test)]
     fn wait_until_cancelled(&self) {
         self.control.wait_until_cancelled();
     }
@@ -2039,5 +2044,56 @@ mod tests {
             writes_after_restore.lock().unwrap().iter().all(|after_restore| !after_restore),
             "panic restoration raced a graphics write"
         );
+    }
+
+    #[test]
+    fn panic_hook_cancellation_does_not_join_writer_waiting_on_owned_stdout() {
+        const CHILD_ENV: &str = "CMUX_TEST_PANIC_GRAPHICS_OWNER";
+        if std::env::var_os(CHILD_ENV).is_some() {
+            let stdout_lock = Arc::new(StdoutLock::new(()));
+            let writer = GraphicsWriter::spawn_with_output(stdout_lock.clone(), io::sink())
+                .expect("spawn graphics writer");
+            let shutdown = writer.shutdown_control();
+            let (attempt_tx, attempt_rx) = sync_channel(1);
+            writer.control.observe_write_attempts(attempt_tx);
+            let guard = stdout_lock.lock();
+            writer.submit(vec![GraphicPlacement::browser(
+                0,
+                1,
+                Rect { x: 0, y: 0, width: 10, height: 5 },
+                1,
+                10,
+                5,
+                "AAAA".to_string(),
+            )]);
+            attempt_rx
+                .recv_timeout(Duration::from_secs(1))
+                .expect("graphics writer never waited on the owned stdout lock");
+
+            shutdown.cancel_for_panic_hook();
+            drop(guard);
+            return;
+        }
+
+        let current_exe = std::env::current_exe().expect("resolve current test executable");
+        let mut child = std::process::Command::new(current_exe)
+            .arg("panic_hook_cancellation_does_not_join_writer_waiting_on_owned_stdout")
+            .arg("--nocapture")
+            .env(CHILD_ENV, "1")
+            .spawn()
+            .expect("spawn isolated panic-hook regression");
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            if let Some(status) = child.try_wait().expect("poll panic-hook regression") {
+                assert!(status.success(), "isolated panic-hook regression failed: {status}");
+                break;
+            }
+            if Instant::now() >= deadline {
+                child.kill().expect("kill deadlocked panic-hook regression");
+                let _ = child.wait();
+                panic!("panic hook joined a graphics writer waiting on its stdout lock");
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
     }
 }
