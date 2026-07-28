@@ -21,6 +21,7 @@ enum AgentHibernationPlanner {
             guard settings.enabled else { return [] }
             excess = liveRestorable.count - settings.maxLiveTerminals
         case .systemMemoryPressure:
+            // Snapshot and reclaim a small batch before the next pressure pass.
             excess = min(liveRestorable.count, systemMemoryPressureBatchLimit)
         }
         guard excess > 0 else { return [] }

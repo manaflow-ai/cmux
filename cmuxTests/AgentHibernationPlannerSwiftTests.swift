@@ -232,7 +232,7 @@ struct AgentHibernationPlannerSwiftTests {
     }
 
     @Test
-    func criticalPressureSelectsOnlySafeIdleAgentsWhenScheduledHibernationIsDisabled() {
+    func criticalPressureSelectsBoundedSafeIdleBatchWhenScheduledHibernationIsDisabled() {
         let workspaceId = UUID()
         let now: TimeInterval = 1_000
         let idle = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())

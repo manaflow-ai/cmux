@@ -293,7 +293,8 @@ final class AgentHibernationController {
                 return nil
             }
             guard let fingerprint = hibernationFingerprint(for: record),
-                  fingerprint == confirmation.fingerprint else {
+                  fingerprint == confirmation.fingerprint,
+                  record.processIdentities == confirmation.processIdentities else {
                 confirmations.removeValue(forKey: record.key)
                 return nil
             }
@@ -331,6 +332,7 @@ final class AgentHibernationController {
         confirmations[record.key] = Confirmation(
             trigger: trigger,
             fingerprint: fingerprint,
+            processIdentities: record.processIdentities,
             sampledAt: now,
             dueAt: now + settings.confirmationSeconds
         )
