@@ -468,7 +468,7 @@ struct DockNotificationAttentionTests {
         let dock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
         let panel = DockRuntimeParityPanel(title: "Dock")
         let paneID = try dock.seedRuntimeParityPanel(panel)
-        let tabID = try #require(dock.surfaceIdFromPanelId(panel.id))
+        let tabID = try #require(dock.surfaceId(forPanelId: panel.id))
         let content = DockSplitContentView(
             store: dock,
             appearance: .fromConfig(WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "test.dock.unread")),

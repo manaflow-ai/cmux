@@ -28,7 +28,7 @@ struct DockSplitContentView: View {
         }
     }
 
-    func panelContentView(panel: any Panel, tabID: UUID, paneId: PaneID) -> PanelContentView {
+    func panelContentView(panel: any Panel, tabID: TabID, paneId: PaneID) -> PanelContentView {
         let isFocused = store.panelIsActiveInVisibleDockPane(panel.id) && rightSidebarOwnsInputFocus
         let isSelectedInPane = store.bonsplitController.selectedTab(inPane: paneId)?.id == tabID
         let isVisibleInUI = store.panelIsSelectedInVisibleDockPane(panel.id)
