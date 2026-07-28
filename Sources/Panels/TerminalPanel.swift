@@ -566,7 +566,7 @@ final class TerminalPanel: Panel, ObservableObject {
         } else {
             switch resolvedTarget {
             case .remote(.workspaceRemote):
-                capturedRemoteCleanup = workspaceRemoteController.map { controller in
+                capturedRemoteCleanup = workspaceRemoteController.map { controller -> TextBoxAttachmentRemoteCleanup in
                     { remotePaths in
                         controller.cleanupAbandonedUploadedFiles(remotePaths)
                     }
