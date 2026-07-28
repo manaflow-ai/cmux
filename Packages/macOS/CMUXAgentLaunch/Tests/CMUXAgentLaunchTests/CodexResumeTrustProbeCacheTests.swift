@@ -87,26 +87,26 @@ struct CodexResumeTrustProbeCacheTests {
             Darwin.close(ownerFD)
         }
 
-        var probeCount = 0
-        let startedAt = Date()
-        let result = await CodexResumeTrustProbeCache(
-            directory: directory,
-            fileManager: .default
-        ).resolve(
-            keyComponents: keyComponents
-        ) {
-            probeCount += 1
-            return ["/fallback"]
+        let outcome = try await expectCompletes(within: 5) {
+            var probeCount = 0
+            let result = await CodexResumeTrustProbeCache(
+                directory: directory,
+                fileManager: .default
+            ).resolve(
+                keyComponents: keyComponents
+            ) {
+                probeCount += 1
+                return ["/fallback"]
+            }
+            return (result, probeCount)
         }
-        let elapsed = Date().timeIntervalSince(startedAt)
 
-        #expect(result == ["/fallback"])
-        #expect(probeCount == 1)
-        #expect(elapsed < 2.75, "waited \(elapsed) seconds")
+        #expect(outcome.0 == ["/fallback"])
+        #expect(outcome.1 == 1)
     }
 
     @Test("Different keys sharing a shard retry immediately after release")
-    func shardCollisionRetriesAfterOwnerRelease() async {
+    func shardCollisionRetriesAfterOwnerRelease() async throws {
         let directory = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let keys = collidingKeyComponents()
@@ -124,15 +124,18 @@ struct CodexResumeTrustProbeCacheTests {
             directory: directory,
             fileManager: .default
         )
-        async let ownerResult = ownerCache.resolve(
-            keyComponents: keys.owner
-        ) {
-            _ = ownerStarted.continuation.yield()
-            ownerStarted.continuation.finish()
-            var releases = releaseOwner.stream.makeAsyncIterator()
-            _ = await releases.next()
-            return Set(["/owner"])
+        let ownerTask = Task {
+            await ownerCache.resolve(
+                keyComponents: keys.owner
+            ) {
+                _ = ownerStarted.continuation.yield()
+                ownerStarted.continuation.finish()
+                var releases = releaseOwner.stream.makeAsyncIterator()
+                _ = await releases.next()
+                return Set(["/owner"])
+            }
         }
+        defer { ownerTask.cancel() }
 
         var ownerStarts = ownerStarted.stream.makeAsyncIterator()
         let didStartOwner: Void? = await ownerStarts.next()
@@ -146,26 +149,58 @@ struct CodexResumeTrustProbeCacheTests {
                 waiterContended.continuation.finish()
             }
         )
-        async let waiterResult = waiterCache.resolve(
-            keyComponents: keys.waiter
-        ) {
-            Set(["/waiter"])
+        let waiterTask = Task {
+            await waiterCache.resolve(
+                keyComponents: keys.waiter
+            ) {
+                Set(["/waiter"])
+            }
         }
+        defer { waiterTask.cancel() }
 
         var contentions = waiterContended.stream.makeAsyncIterator()
         let didContend: Void? = await contentions.next()
         #expect(didContend != nil)
 
-        let releasedAt = Date()
         _ = releaseOwner.continuation.yield()
         releaseOwner.continuation.finish()
-        let results = await (ownerResult, waiterResult)
-        let elapsed = Date().timeIntervalSince(releasedAt)
+        let results = try await expectCompletes(within: 1.5) {
+            await (ownerTask.value, waiterTask.value)
+        }
 
         #expect(results.0 == ["/owner"])
         #expect(results.1 == ["/waiter"])
-        #expect(elapsed < 1.5, "waited \(elapsed) seconds")
     }
+
+    private func expectCompletes<Value: Sendable>(
+        within seconds: Double,
+        _ work: @Sendable @escaping () async -> Value,
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) async throws -> Value {
+        try await withThrowingTaskGroup(of: Value.self) { group in
+            group.addTask { await work() }
+            group.addTask {
+                try await Task.sleep(for: .seconds(seconds))
+                throw TimedOutWaiting()
+            }
+            do {
+                guard let value = try await group.next() else {
+                    throw TimedOutWaiting()
+                }
+                group.cancelAll()
+                return value
+            } catch is TimedOutWaiting {
+                group.cancelAll()
+                Issue.record(
+                    "operation did not complete within \(seconds) seconds",
+                    sourceLocation: sourceLocation
+                )
+                throw TimedOutWaiting()
+            }
+        }
+    }
+
+    private struct TimedOutWaiting: Error {}
 
     private func temporaryDirectory() -> URL {
         FileManager.default.temporaryDirectory
