@@ -20,12 +20,18 @@ import Testing
             "11111111-2222-4333-8444-555555555555": MacWorkspaceState(
                 macDeviceID: "11111111-2222-4333-8444-555555555555",
                 workspaces: [foreground],
-                status: .connected
+                status: .connected,
+                actionCapabilities: MobileWorkspaceActionCapabilities(
+                    supportsWorkspaceActions: true
+                )
             ),
             "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee": MacWorkspaceState(
                 macDeviceID: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
                 workspaces: [secondary],
-                status: .connected
+                status: .connected,
+                actionCapabilities: MobileWorkspaceActionCapabilities(
+                    supportsWorkspaceActions: true
+                )
             ),
         ], foregroundMacDeviceID: "11111111-2222-4333-8444-555555555555")
         store.selectedWorkspaceID = try #require(

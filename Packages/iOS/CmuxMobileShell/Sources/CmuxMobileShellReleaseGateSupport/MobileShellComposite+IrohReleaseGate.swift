@@ -53,14 +53,11 @@ extension MobileShellComposite {
         }
         mobileIrohReleaseGateProbeLog.info("probe stage=host_status state=completed")
 
-        guard let workspace = selectedWorkspace,
-              workspace.actionCapabilities.supportsWorkspaceActions,
-              !workspace.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        guard let target = irohReleaseGateForegroundTarget() else {
             throw MobileIrohReleaseGateProbeFailure.workspaceMutationUnavailable
         }
-        guard let terminalID = selectedTerminalID?.rawValue else {
-            throw MobileIrohReleaseGateProbeFailure.terminalUnavailable
-        }
+        let workspace = target.workspace
+        let terminalID = target.terminalID.rawValue
         var relayCredentialRolloverVerified = false
         var endpointContinuityVerified = false
         var connectionContinuityVerified = false
