@@ -255,6 +255,22 @@ public final class CmuxClient implements AutoCloseable {
         return new SurfaceResult(asLong(request("new-pane", params).get("surface")));
     }
 
+    public SurfaceResult newPaneRight(
+        long pane,
+        Double width,
+        Integer cols,
+        Integer rows
+    ) throws CmuxException {
+        validateViewportPaneWidth(width);
+        requireCapability("viewport-splits-v1", "viewport panes");
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("pane", pane);
+        putIfNotNull(params, "width", width);
+        putIfNotNull(params, "cols", cols);
+        putIfNotNull(params, "rows", rows);
+        return new SurfaceResult(asLong(request("new-pane-right", params).get("surface")));
+    }
+
     public SurfaceResult split(long pane, String dir, Integer cols, Integer rows) throws CmuxException {
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("pane", pane);
@@ -273,11 +289,79 @@ public final class CmuxClient implements AutoCloseable {
     }
 
     public void setSplitRatio(long split, double ratio) throws CmuxException {
+        setSplitRatio(split, ratio, null);
+    }
+
+    public void setSplitRatio(long split, double ratio, Long transaction) throws CmuxException {
         requireProtocol(8, "set-split-ratio");
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("split", split);
         params.put("ratio", ratio);
+        putIfNotNull(params, "transaction", transaction);
         request("set-split-ratio", params);
+    }
+
+    public void setViewportPaneWidth(long pane, double width) throws CmuxException {
+        setViewportPaneWidth(pane, width, null);
+    }
+
+    public void setViewportPaneWidth(long pane, double width, Long transaction)
+        throws CmuxException {
+        validateViewportPaneWidth(width);
+        requireCapability("viewport-column-resize-v1", "viewport pane resizing");
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("pane", pane);
+        params.put("width", width);
+        putIfNotNull(params, "transaction", transaction);
+        request("set-viewport-pane-width", params);
+    }
+
+    /**
+     * Previews layout undo when confirmationRevision is null. Confirm a
+     * pane-closing undo by passing the exact revision from the preview.
+     */
+    public LayoutUndoResult undoLayout(long pane, Long confirmationRevision)
+        throws CmuxException {
+        requireCapability("layout-undo-v1", "layout undo");
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("pane", pane);
+        if (confirmationRevision != null) {
+            params.put("revision", confirmationRevision);
+            params.put("confirm_close", true);
+        }
+        return decodeLayoutUndoResult(request("undo-layout", params));
+    }
+
+    private static LayoutUndoResult decodeLayoutUndoResult(Map<String, Object> data)
+        throws CmuxDecodeException {
+        long screen = layoutUndoU64(data.get("screen"), "screen");
+        long revision = layoutUndoU64(data.get("revision"), "revision");
+        Object undone = data.get("undone");
+        Object confirmationRequired = data.get("confirmation_required");
+        if (Boolean.TRUE.equals(undone)
+            && (!data.containsKey("confirmation_required")
+                || Boolean.FALSE.equals(confirmationRequired))) {
+            return new LayoutUndoUndone(screen, revision);
+        }
+        if (Boolean.FALSE.equals(undone)
+            && Boolean.TRUE.equals(confirmationRequired)) {
+            Object rawPanes = data.get("closes_panes");
+            if (!(rawPanes instanceof List<?> panes)) {
+                throw new CmuxDecodeException(
+                    "layout undo confirmation closes_panes must be an array of pane IDs",
+                    null
+                );
+            }
+            List<Long> closesPanes = new ArrayList<>();
+            for (Object value : panes) {
+                closesPanes.add(layoutUndoU64(value, "pane ID"));
+            }
+            return new LayoutUndoConfirmationRequired(screen, revision, List.copyOf(closesPanes));
+        }
+        throw new CmuxDecodeException(
+            "layout undo response does not contain exactly one valid outcome",
+            null
+        );
     }
 
     public void setDefaultColors(String fg, String bg) throws CmuxException {
@@ -495,11 +579,7 @@ public final class CmuxClient implements AutoCloseable {
             }
             return new LinkedHashMap<>();
         }
-        throw new CmuxCommandException(
-            asString(response.getOrDefault("error", "unknown error")),
-            response.get("id"),
-            CmuxErrorDelivery.fromWire(response.get("error_delivery"))
-        );
+        throw commandException(response);
     }
 
     private List<?> requestList(String cmd, Map<String, Object> params) throws CmuxException {
@@ -514,11 +594,7 @@ public final class CmuxClient implements AutoCloseable {
             }
             throw new CmuxDecodeException(cmd + " returned non-array data", null);
         }
-        throw new CmuxCommandException(
-            asString(response.getOrDefault("error", "unknown error")),
-            response.get("id"),
-            CmuxErrorDelivery.fromWire(response.get("error_delivery"))
-        );
+        throw commandException(response);
     }
 
     private long nextId() {
@@ -542,8 +618,29 @@ public final class CmuxClient implements AutoCloseable {
         }
     }
 
+    static void validateViewportPaneWidth(Double width) {
+        if (width == null) {
+            return;
+        }
+        if (!Double.isFinite(width) || width < 0.1 || width > 1.0) {
+            throw new IllegalArgumentException(
+                "viewport pane width must be between 0.1 and 1.0"
+            );
+        }
+    }
+
     static String asString(Object value) {
         return value == null ? "" : String.valueOf(value);
+    }
+
+    static CmuxCommandException commandException(Map<String, Object> response) {
+        String errorCode = response.get("error_code") instanceof String code ? code : null;
+        return new CmuxCommandException(
+            asString(response.getOrDefault("error", "unknown error")),
+            response.get("id"),
+            errorCode,
+            CmuxErrorDelivery.fromWire(response.get("error_delivery"))
+        );
     }
 
     static long asLong(Object value) {
@@ -551,6 +648,27 @@ public final class CmuxClient implements AutoCloseable {
             return number.longValue();
         }
         return Long.parseLong(String.valueOf(value));
+    }
+
+    private static long layoutUndoU64(Object value, String field)
+        throws CmuxDecodeException {
+        if (!(value instanceof Byte
+            || value instanceof Short
+            || value instanceof Integer
+            || value instanceof Long)) {
+            throw new CmuxDecodeException(
+                "layout undo " + field + " must be a nonnegative integer",
+                null
+            );
+        }
+        long decoded = ((Number) value).longValue();
+        if (decoded < 0) {
+            throw new CmuxDecodeException(
+                "layout undo " + field + " must be a nonnegative integer",
+                null
+            );
+        }
+        return decoded;
     }
 
     static boolean idsEqual(Object left, Object right) {
@@ -734,11 +852,7 @@ public final class CmuxClient implements AutoCloseable {
                     return new CmuxStream(connection, buffered);
                 }
                 if (Boolean.FALSE.equals(response.get("ok"))) {
-                    throw new CmuxCommandException(
-                        asString(response.get("error")),
-                        response.get("id"),
-                        CmuxErrorDelivery.fromWire(response.get("error_delivery"))
-                    );
+                    throw commandException(response);
                 }
             }
         }
