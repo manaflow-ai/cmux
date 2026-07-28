@@ -90,6 +90,10 @@ struct SimulatorWebInspectorTargetCatalog {
                 return removeListing(for: identifier)
             }
             let rawListing = argument["WIRListingKey"] as? [String: Any] ?? [:]
+            // WebKit emits provisional empty listings while a newly launched app
+            // is still publishing its pages. Application disconnect is the
+            // authoritative signal that its last published pages are gone.
+            guard !rawListing.isEmpty else { return false }
             let retainedTargets = listings.lazy
                 .filter { $0.key != identifier }
                 .flatMap(\.value)
