@@ -48,7 +48,10 @@ public final class WireCaptureTest {
         assertProtocolV7RejectsSetSplitRatio();
         assertProtocolV8RejectsNewPane();
         assertProtocolV9AllowsSetSplitRatio();
+        assertResizeTransactionsAreForwarded();
         assertPartialAttachSizeIsRejected();
+        assertCommandErrorPreservesMachineReadableCode();
+        assertMalformedLayoutUndoResultsAreRejected();
     }
 
     private static byte[] captureIdentify() throws Exception {
@@ -292,6 +295,32 @@ public final class WireCaptureTest {
         );
     }
 
+    private static void assertResizeTransactionsAreForwarded() throws Exception {
+        Path socket = freshSocketPath();
+        CaptureServer server = new CaptureServer(socket, new String[] {
+            "{\"id\":1,\"ok\":true,\"data\":{\"app\":\"cmux-tui\",\"version\":\"test\",\"protocol\":10,\"capabilities\":[\"viewport-column-resize-v1\"],\"session\":\"wire\",\"pid\":1}}",
+            "{\"id\":2,\"ok\":true,\"data\":{}}",
+            "{\"id\":3,\"ok\":true,\"data\":{}}"
+        }, true);
+        server.start();
+        try (CmuxClient client = CmuxClient.builder().socketPath(socket.toString()).timeout(Duration.ofSeconds(2)).build()) {
+            client.setSplitRatio(4, 0.625, 17L);
+            client.setViewportPaneWidth(9, 0.75, 17L);
+        } finally {
+            server.close();
+        }
+        assertLine(
+            "transactional set-split-ratio",
+            "{\"split\":4,\"ratio\":0.625,\"transaction\":17,\"id\":2,\"cmd\":\"set-split-ratio\"}\n",
+            server.firstLine(1)
+        );
+        assertLine(
+            "transactional set-viewport-pane-width",
+            "{\"pane\":9,\"width\":0.75,\"transaction\":17,\"id\":3,\"cmd\":\"set-viewport-pane-width\"}\n",
+            server.firstLine(2)
+        );
+    }
+
     private static void assertPartialAttachSizeIsRejected() throws Exception {
         Path socket = freshSocketPath();
         CaptureServer server = new CaptureServer(socket, new String[0]);
@@ -307,6 +336,54 @@ public final class WireCaptureTest {
             }
         } finally {
             server.close();
+        }
+    }
+
+    private static void assertCommandErrorPreservesMachineReadableCode() throws Exception {
+        Path socket = freshSocketPath();
+        CaptureServer server = new CaptureServer(socket, new String[] {
+            "{\"id\":1,\"ok\":false,\"error\":\"layout changed\",\"error_code\":\"layout-undo-stale\"}"
+        });
+        server.start();
+        try (CmuxClient client = CmuxClient.builder().socketPath(socket.toString()).timeout(Duration.ofSeconds(2)).build()) {
+            try {
+                client.listWorkspaces();
+                throw new AssertionError("failed command must throw");
+            } catch (CmuxCommandException error) {
+                if (!"layout-undo-stale".equals(error.errorCode())) {
+                    throw new AssertionError("error code = " + error.errorCode());
+                }
+            }
+        } finally {
+            server.close();
+        }
+    }
+
+    private static void assertMalformedLayoutUndoResultsAreRejected() throws Exception {
+        String[] malformed = new String[] {
+            "{\"confirmation_required\":true,\"screen\":3,\"revision\":8,\"closes_panes\":[15]}",
+            "{\"undone\":true,\"confirmation_required\":true,\"screen\":3,\"revision\":8,\"closes_panes\":[15]}",
+            "{\"undone\":false,\"confirmation_required\":true,\"screen\":\"3\",\"revision\":8,\"closes_panes\":[15]}",
+            "{\"undone\":false,\"confirmation_required\":true,\"screen\":3,\"revision\":-1,\"closes_panes\":[15]}",
+            "{\"undone\":false,\"confirmation_required\":true,\"screen\":3,\"revision\":8,\"closes_panes\":[\"15\"]}"
+        };
+        for (String data : malformed) {
+            Path socket = freshSocketPath();
+            CaptureServer server = new CaptureServer(socket, new String[] {
+                "{\"id\":1,\"ok\":true,\"data\":{\"app\":\"cmux-tui\",\"version\":\"test\",\"protocol\":10,\"capabilities\":[\"layout-undo-v1\"],\"session\":\"wire\",\"pid\":1}}",
+                "{\"id\":2,\"ok\":true,\"data\":" + data + "}"
+            }, true);
+            server.start();
+            try (CmuxClient client = CmuxClient.builder().socketPath(socket.toString()).timeout(Duration.ofSeconds(2)).build()) {
+                try {
+                    client.undoLayout(15, null);
+                    throw new AssertionError("malformed layout undo result must be rejected: " + data);
+                } catch (CmuxDecodeException expected) {
+                    // Expected.
+                }
+            } finally {
+                server.close();
+            }
         }
     }
 

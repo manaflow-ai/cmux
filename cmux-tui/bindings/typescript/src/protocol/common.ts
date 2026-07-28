@@ -45,6 +45,8 @@ export interface CmuxFailureResponse {
   id?: Json;
   ok: false;
   error: string;
+  /** Additive machine-readable classification for expected command failures. */
+  error_code?: string;
   error_delivery?: CmuxErrorDelivery;
 }
 

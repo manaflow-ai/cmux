@@ -1,21 +1,63 @@
 import type {
   CmuxClient,
   CmuxEvent,
+  CmuxFailureResponse,
   CmuxRequest,
   CmuxResponseData,
   CmuxStream,
+  BrowserFrame,
   DecodedAttachEvent,
+  ExportLayoutResult,
   KnownCmuxEvent,
+  NewPaneRightOptions,
   RenderAttachEvent,
   RenderDeltaEvent,
   RenderStateEvent,
   SurfaceExitedEvent,
+  Screen,
   Tree,
   TreeDeltaEvent,
 } from "../src/browser.js";
 
+const failureResponse: CmuxFailureResponse = {
+  ok: false,
+  error: "layout changed",
+  error_code: "layout-undo-stale",
+};
+void failureResponse;
+const scaledBrowserFrame: BrowserFrame = {
+  seq: 1,
+  width: 80,
+  height: 24,
+  image_width: 160,
+  image_height: 48,
+  data: "cG5n",
+};
+void scaledBrowserFrame;
+const exportedViewportLayout: ExportLayoutResult = {
+  layout: { type: "leaf", pane: 1 },
+  panes: [{ pane: 1, surfaces: [2] }],
+  viewport_base_width: 1,
+  viewport_splits: [{ split: 3, width: 2 / 3 }],
+};
+void exportedViewportLayout;
+
 const treeWithPaneRevision: Tree = { pane_revision: 7, workspaces: [] };
 void treeWithPaneRevision;
+const viewportScreen: Screen = {
+  id: 1,
+  name: null,
+  active: true,
+  active_pane: 2,
+  zoomed_pane: null,
+  layout: { type: "leaf", pane: 2 },
+  viewport_base_width: 1,
+  viewport_splits: [{ split: 3, width: 2 / 3 }],
+  panes: [],
+};
+void viewportScreen;
+const browserViewportOptions: NewPaneRightOptions = { width: 2 / 3 };
+void browserViewportOptions;
 
 const requests = [
   { cmd: "identify" },
@@ -44,9 +86,13 @@ const requests = [
   { cmd: "new-workspace", name: "sdk" },
   { cmd: "new-screen", workspace: 1 },
   { cmd: "new-pane", pane: 1 },
+  { cmd: "new-pane-right", pane: 1, width: 2 / 3 },
   { cmd: "split", pane: 1, dir: "right" },
   { cmd: "set-ratio", pane: 1, dir: "down", ratio: 0.5 },
-  { cmd: "set-split-ratio", split: 2, ratio: 0.5 },
+  { cmd: "set-split-ratio", split: 2, ratio: 0.5, transaction: 9 },
+  { cmd: "set-viewport-pane-width", pane: 1, width: 0.75, transaction: 9 },
+  { cmd: "undo-layout", pane: 1 },
+  { cmd: "undo-layout", pane: 1, revision: 8, confirm_close: true },
   { cmd: "pane-neighbor", pane: 1, dir: "left" },
   { cmd: "focus-direction", dir: "up" },
   { cmd: "swap-pane", pane: 1, target: 2 },

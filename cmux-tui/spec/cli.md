@@ -110,12 +110,15 @@ The generated CLI requires one of `--index` or `--delta` for `select-tab`, `sele
 | `new-workspace` | implemented | none | `--name <name>`, `--cols <n> --rows <n>` | surface id |
 | `new-screen` | implemented | none | `--workspace <id>`, `--cols <n> --rows <n>` | surface id |
 | `new-pane` | implemented | `--pane <id>` | `--cols <n> --rows <n>` | surface id |
-| `split` | implemented | `--pane <id> --dir right|down` | `--cols <n> --rows <n>` | surface id |
-| `set-ratio` | implemented | `--pane <id> --dir right|down --ratio <n>` | none | none |
+| `new-pane-right` | implemented; `viewport-splits-v1` | `--pane <id>` | `--width <fraction>`, `--cols <n> --rows <n>` | surface id |
+| `split` | implemented | `--pane <id> --dir right\|down` | `--cols <n> --rows <n>` | surface id |
+| `set-ratio` | implemented | `--pane <id> --dir right\|down --ratio <n>` | none | none |
 | `set-split-ratio` | implemented | `--split <id> --ratio <n>` | none | none |
-| `pane-neighbor` | implemented | `--pane <id> --dir left|right|up|down` | none | pane id or `null` |
-| `focus-direction` | implemented | `--dir left|right|up|down` | `--pane <id>` | pane id |
-| `swap-pane` | implemented | `--pane <id>` plus one of `--dir left|right|up|down`, `--target <id>` | none | none |
+| `set-viewport-pane-width` | implemented; `viewport-column-resize-v1` | `--pane <id> --width <fraction>` | none | none |
+| `undo-layout` | implemented; `layout-undo-v1` | `--pane <id>` | `--revision <n> --confirm-close` | undo or confirmation line |
+| `pane-neighbor` | implemented | `--pane <id> --dir left\|right\|up\|down` | none | pane id or `null` |
+| `focus-direction` | implemented | `--dir left\|right\|up\|down` | `--pane <id>` | pane id |
+| `swap-pane` | implemented | `--pane <id>` plus one of `--dir left\|right\|up\|down`, `--target <id>` | none | none |
 | `zoom-pane` | implemented | none | `--pane <id>`, `--mode toggle|on|off` | zoom state line |
 | `process-info` | implemented | `--surface <id>` | none | process metadata line |
 | `set-default-colors` | implemented | none | `--fg #rrggbb`, `--bg #rrggbb` | none |

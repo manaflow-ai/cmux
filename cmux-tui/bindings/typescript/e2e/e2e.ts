@@ -24,6 +24,16 @@ async function main(): Promise<void> {
     const paneId = findPaneForSurface(tree, created.surface);
     assert(paneId !== undefined, "new pane not found");
 
+    await client.newPaneRight(paneId, { width: 0.5 });
+    const viewportScreen = findScreenForSurface(await client.listWorkspaces(), created.surface);
+    assert(viewportScreen !== undefined, "viewport screen not found");
+    assert(viewportScreen.viewport_base_width === 1, "viewport base width missing");
+    assert(viewportScreen.viewport_splits?.length === 1, "viewport split metadata missing");
+    assert(
+      Math.abs(viewportScreen.viewport_splits[0].width - 0.5) < 0.0001,
+      "viewport split width did not round-trip",
+    );
+
     await client.split(paneId, "right");
     const splitTree = await client.listWorkspaces();
     const layout = findLayoutForSurface(splitTree, created.surface);
@@ -171,7 +181,18 @@ function findLayoutForSurface(tree: Tree, surface: number) {
       }
     }
   }
-    return undefined;
+  return undefined;
+}
+
+function findScreenForSurface(tree: Tree, surface: number) {
+  for (const workspace of tree.workspaces) {
+    for (const screen of workspace.screens) {
+      if (screen.panes.some((pane) => "tabs" in pane && pane.tabs.some((tab) => tab.surface === surface))) {
+        return screen;
+      }
+    }
+  }
+  return undefined;
 }
 
 function findClientSurfaceSize(

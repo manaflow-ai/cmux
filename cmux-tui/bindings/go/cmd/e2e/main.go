@@ -71,6 +71,24 @@ func run() error {
 	if !ok {
 		return fmt.Errorf("workspace not found")
 	}
+	pane, ok := findPaneForSurface(tree, created.Surface)
+	if !ok {
+		return fmt.Errorf("pane not found")
+	}
+	width := float32(0.5)
+	if _, err := client.NewPaneRight(ctx, pane, cmux.NewPaneRightOptions{Width: &width}); err != nil {
+		return err
+	}
+	viewportTree, err := client.ListWorkspaces(ctx)
+	if err != nil {
+		return err
+	}
+	viewportScreen, ok := findScreenForSurface(viewportTree, created.Surface)
+	if !ok || viewportScreen.ViewportBaseWidth == nil || *viewportScreen.ViewportBaseWidth != 1 ||
+		len(viewportScreen.ViewportSplits) != 1 ||
+		absFloat32(viewportScreen.ViewportSplits[0].Width-0.5) >= 0.0001 {
+		return fmt.Errorf("viewport metadata missing or incorrect: %+v", viewportScreen)
+	}
 	if err := client.RenameSurface(ctx, created.Surface, marker+"-renamed"); err != nil {
 		return err
 	}
@@ -220,6 +238,43 @@ func findWorkspaceForSurface(tree cmux.Tree, surface uint64) (uint64, bool) {
 		}
 	}
 	return 0, false
+}
+
+func findPaneForSurface(tree cmux.Tree, surface uint64) (uint64, bool) {
+	for _, workspace := range tree.Workspaces {
+		for _, screen := range workspace.Screens {
+			for _, pane := range screen.Panes {
+				for _, tab := range pane.Tabs {
+					if tab.Surface == surface {
+						return pane.ID, true
+					}
+				}
+			}
+		}
+	}
+	return 0, false
+}
+
+func findScreenForSurface(tree cmux.Tree, surface uint64) (cmux.Screen, bool) {
+	for _, workspace := range tree.Workspaces {
+		for _, screen := range workspace.Screens {
+			for _, pane := range screen.Panes {
+				for _, tab := range pane.Tabs {
+					if tab.Surface == surface {
+						return screen, true
+					}
+				}
+			}
+		}
+	}
+	return cmux.Screen{}, false
+}
+
+func absFloat32(value float32) float32 {
+	if value < 0 {
+		return -value
+	}
+	return value
 }
 
 func findClientSurfaceSize(

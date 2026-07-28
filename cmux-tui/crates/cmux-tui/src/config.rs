@@ -64,6 +64,9 @@
 //!   "scrollbar": {
 //!     "position": "column"
 //!   },
+//!   "viewport": {
+//!     "animation": true
+//!   },
 //!   "server": {
 //!     "ws": "127.0.0.1:7681",
 //!     "ws_token": "replace-with-a-secret"
@@ -98,7 +101,7 @@
 //! `select-screen-0` through `select-screen-9`, `new-screen`,
 //! `prev-workspace`, `next-workspace`, `new-workspace`, `close-workspace`,
 //! `send-prefix`, `toggle-sidebar`, `toggle-sidebar-compact`,
-//! `toggle-sidebar-view`, `focus-sidebar`,
+//! `toggle-sidebar-view`, `focus-sidebar`, `new-pane-right`, `undo-layout`,
 //! `focus-left`, `focus-right`, `focus-up`, `focus-down`, `focus-next-pane`,
 //! `swap-pane-prev`, `swap-pane-next`, `zoom-pane`, `resize-grow`,
 //! `resize-shrink`, `scroll-up`, `scroll-down`, `clear-history`, `browser-back`,
@@ -163,6 +166,8 @@ struct RawConfig {
     browser: RawBrowser,
     #[serde(default)]
     scrollbar: RawScrollbar,
+    #[serde(default)]
+    viewport: RawViewport,
     #[serde(default)]
     server: RawServer,
     /// Key bindings: `"prefix"` plus one entry per action. Values may be
@@ -573,6 +578,12 @@ struct RawScrollbar {
     position: Option<ScrollbarPosition>,
 }
 
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawViewport {
+    animation: Option<bool>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ScrollbarPosition {
@@ -588,6 +599,17 @@ pub struct Scrollbar {
 impl Default for Scrollbar {
     fn default() -> Self {
         Scrollbar { position: ScrollbarPosition::Column }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Viewport {
+    pub animation: bool,
+}
+
+impl Default for Viewport {
+    fn default() -> Self {
+        Self { animation: true }
     }
 }
 
@@ -860,6 +882,8 @@ pub enum Action {
     ToggleSidebarCompact,
     ToggleSidebarView,
     FocusSidebar,
+    NewPaneRight,
+    UndoLayout,
     FocusLeft,
     FocusRight,
     FocusUp,
@@ -937,6 +961,8 @@ define_named_action_definitions! {
     TOGGLE_SIDEBAR_COMPACT_DEFINITION => (Action::ToggleSidebarCompact, "toggle-sidebar-compact", "Compact or expand sidebar", "サイドバーの幅を切り替え");
     TOGGLE_SIDEBAR_VIEW_DEFINITION => (Action::ToggleSidebarView, "toggle-sidebar-view", "Switch sidebar view", "サイドバー表示を切り替え");
     FOCUS_SIDEBAR_DEFINITION => (Action::FocusSidebar, "focus-sidebar", "Focus sidebar", "サイドバーにフォーカス");
+    NEW_PANE_RIGHT_DEFINITION => (Action::NewPaneRight, "new-pane-right", "New column to the right", "右に新しい列");
+    UNDO_LAYOUT_DEFINITION => (Action::UndoLayout, "undo-layout", "Undo layout", "レイアウトを元に戻す");
     FOCUS_LEFT_DEFINITION => (Action::FocusLeft, "focus-left", "Focus left", "左へフォーカス");
     FOCUS_RIGHT_DEFINITION => (Action::FocusRight, "focus-right", "Focus right", "右へフォーカス");
     FOCUS_UP_DEFINITION => (Action::FocusUp, "focus-up", "Focus up", "上へフォーカス");
@@ -1087,7 +1113,7 @@ static SELECT_SCREEN_DEFINITIONS: [ActionDefinition; 10] = [
 /// The canonical action catalog. Presentation surfaces derive their labels
 /// and ordering from these named definitions instead of positional offsets.
 pub fn action_definitions() -> &'static [&'static ActionDefinition] {
-    static DEFINITIONS: [&ActionDefinition; 64] = [
+    static DEFINITIONS: [&ActionDefinition; 66] = [
         &SEND_PREFIX_DEFINITION,
         &NEW_TAB_DEFINITION,
         &NEW_BROWSER_TAB_DEFINITION,
@@ -1133,6 +1159,8 @@ pub fn action_definitions() -> &'static [&'static ActionDefinition] {
         &TOGGLE_SIDEBAR_COMPACT_DEFINITION,
         &TOGGLE_SIDEBAR_VIEW_DEFINITION,
         &FOCUS_SIDEBAR_DEFINITION,
+        &NEW_PANE_RIGHT_DEFINITION,
+        &UNDO_LAYOUT_DEFINITION,
         &FOCUS_LEFT_DEFINITION,
         &FOCUS_RIGHT_DEFINITION,
         &FOCUS_UP_DEFINITION,
@@ -1186,6 +1214,8 @@ impl Action {
             Action::ToggleSidebarCompact => &TOGGLE_SIDEBAR_COMPACT_DEFINITION,
             Action::ToggleSidebarView => &TOGGLE_SIDEBAR_VIEW_DEFINITION,
             Action::FocusSidebar => &FOCUS_SIDEBAR_DEFINITION,
+            Action::NewPaneRight => &NEW_PANE_RIGHT_DEFINITION,
+            Action::UndoLayout => &UNDO_LAYOUT_DEFINITION,
             Action::FocusLeft => &FOCUS_LEFT_DEFINITION,
             Action::FocusRight => &FOCUS_RIGHT_DEFINITION,
             Action::FocusUp => &FOCUS_UP_DEFINITION,
@@ -1381,6 +1411,8 @@ impl Default for Keys {
                 bind(KeyCode::Char('m'), Action::ToggleSidebarCompact),
                 bind(KeyCode::Char('e'), Action::ToggleSidebarView),
                 bind(KeyCode::Char('S'), Action::FocusSidebar),
+                bind(KeyCode::Char('g'), Action::NewPaneRight),
+                bind(KeyCode::Char('U'), Action::UndoLayout),
                 bind(KeyCode::Char('o'), Action::FocusNextPane),
                 bind(KeyCode::Char('h'), Action::FocusLeft),
                 bind(KeyCode::Left, Action::FocusLeft),
@@ -1427,6 +1459,15 @@ impl Keys {
             || (action == Action::ClearHistory && chord.mods.contains(KeyModifiers::CONTROL))
     }
 
+    fn shortcut_label_for_chord(&self, action: Action, chord: &Chord) -> Option<String> {
+        let chord_label = chord.display_label()?;
+        if self.is_modeless_binding(chord, action) {
+            Some(chord_label)
+        } else {
+            Some(format!("{} {chord_label}", self.prefix.display_label()?))
+        }
+    }
+
     /// The action bound to a key event (after the prefix).
     pub fn action_for(&self, key: &KeyEvent) -> Option<Action> {
         self.bindings.iter().find(|(chord, _)| chord.matches(key)).map(|(_, a)| *a)
@@ -1454,14 +1495,7 @@ impl Keys {
         self.bindings
             .iter()
             .filter(|(_, bound)| *bound == action)
-            .filter_map(|(chord, _)| {
-                let chord_label = chord.display_label()?;
-                if self.is_modeless_binding(chord, action) {
-                    Some(chord_label)
-                } else {
-                    Some(format!("{} {chord_label}", self.prefix.display_label()?))
-                }
-            })
+            .filter_map(|(chord, _)| self.shortcut_label_for_chord(action, chord))
             .collect()
     }
 
@@ -1477,12 +1511,20 @@ impl Keys {
     /// Bound actions in canonical catalog order, ready for shortcut help and
     /// future command surfaces.
     pub fn resolved_shortcuts(&self) -> Vec<(&'static ActionDefinition, Vec<String>)> {
+        let mut shortcuts_by_action = HashMap::<Action, Vec<String>>::new();
+        for (chord, action) in &self.bindings {
+            if let Some(label) = self.shortcut_label_for_chord(*action, chord) {
+                shortcuts_by_action.entry(*action).or_default().push(label);
+            }
+        }
         action_definitions()
             .iter()
             .copied()
             .filter_map(|definition| {
-                let shortcuts = self.shortcut_labels(definition.action);
-                (!shortcuts.is_empty()).then_some((definition, shortcuts))
+                shortcuts_by_action
+                    .remove(&definition.action)
+                    .filter(|shortcuts| !shortcuts.is_empty())
+                    .map(|shortcuts| (definition, shortcuts))
             })
             .collect()
     }
@@ -1650,6 +1692,7 @@ pub struct Config {
     pub machines: Vec<MachineConfig>,
     pub browser: Browser,
     pub scrollbar: Scrollbar,
+    pub viewport: Viewport,
     pub server: Server,
     pub keys: Keys,
 }
@@ -1919,6 +1962,9 @@ pub fn load() -> Config {
     }
     if let Some(position) = raw.scrollbar.position {
         config.scrollbar.position = position;
+    }
+    if let Some(animation) = raw.viewport.animation {
+        config.viewport.animation = animation;
     }
     config.server.ws = raw.server.ws.filter(|value| !value.trim().is_empty());
     config.server.ws_token = raw.server.ws_token.filter(|value| !value.trim().is_empty());
@@ -2925,6 +2971,7 @@ mod tests {
                     }
                 ],
                 "scrollbar": {"position": "border"},
+                "viewport": {"animation": false},
                 "keys": {
                     "alt_shortcuts": false,
                     "rename-pane": "r",
@@ -2982,6 +3029,7 @@ mod tests {
         assert_eq!(plugin.command, vec!["/tmp/sidebar-plugin", "--mode", "test"]);
         assert_eq!(plugin.cwd.as_deref(), Some("/tmp"));
         assert_eq!(config.scrollbar.position, ScrollbarPosition::Border);
+        assert!(!config.viewport.animation);
         assert_eq!(
             config.keys.action_for(&KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE)),
             Some(Action::RenameTab)
@@ -3025,6 +3073,21 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(err.contains("unknown variant `stealth`"), "{err}");
+    }
+
+    #[test]
+    fn viewport_animation_defaults_on_and_can_be_disabled() {
+        let raw: RawConfig = serde_json::from_str(r#"{}"#).unwrap();
+        assert!(raw.viewport.animation.is_none());
+        assert!(Config::default().viewport.animation);
+
+        let raw: RawConfig = serde_json::from_str(r#"{"viewport":{"animation":false}}"#).unwrap();
+        assert_eq!(raw.viewport.animation, Some(false));
+
+        let error = serde_json::from_str::<RawConfig>(r#"{"viewport":{"animation":"slow"}}"#)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("invalid type"), "{error}");
     }
 
     #[test]
@@ -3296,6 +3359,15 @@ mod tests {
     }
 
     #[test]
+    fn layout_undo_has_a_default_prefix_binding() {
+        let keys = Keys::default();
+        assert_eq!(
+            keys.action_for(&KeyEvent::new(KeyCode::Char('U'), KeyModifiers::SHIFT)),
+            Some(Action::UndoLayout)
+        );
+    }
+
+    #[test]
     fn new_action_names_parse_from_config_overrides() {
         let cases = [
             ("zoom-pane", Action::ZoomPane),
@@ -3305,6 +3377,8 @@ mod tests {
             ("scroll-up", Action::ScrollUp),
             ("toggle-sidebar-compact", Action::ToggleSidebarCompact),
             ("toggle-sidebar-view", Action::ToggleSidebarView),
+            ("new-pane-right", Action::NewPaneRight),
+            ("undo-layout", Action::UndoLayout),
             ("show-shortcuts", Action::ShowShortcuts),
             ("send-prefix", Action::SendPrefix),
             ("prev-workspace", Action::PrevWorkspace),

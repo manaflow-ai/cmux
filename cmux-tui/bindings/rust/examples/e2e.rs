@@ -21,8 +21,17 @@ fn main() -> Result<()> {
     let screen = client.read_screen(created.surface)?;
     assert!(screen.text.contains(&marker), "marker missing from read-screen");
 
-    let workspace_id = find_workspace_for_surface(&client.list_workspaces()?, created.surface)
-        .expect("workspace not found");
+    let tree = client.list_workspaces()?;
+    let workspace_id =
+        find_workspace_for_surface(&tree, created.surface).expect("workspace not found");
+    let pane_id = find_pane_for_surface(&tree, created.surface).expect("pane not found");
+    client.new_pane_right(pane_id, Some(0.5), None, None)?;
+    let viewport_tree = client.list_workspaces()?;
+    let viewport_screen = find_screen_for_surface(&viewport_tree, created.surface)
+        .expect("viewport screen not found");
+    assert_eq!(viewport_screen.viewport_base_width, Some(1.0));
+    assert_eq!(viewport_screen.viewport_splits.len(), 1);
+    assert!((viewport_screen.viewport_splits[0].width - 0.5).abs() < 0.0001);
     client.rename_surface(created.surface, &format!("{marker}-renamed"))?;
     let mut events = client.subscribe()?;
     client.resize_surface(created.surface, 100, 31)?;
@@ -119,6 +128,30 @@ fn find_workspace_for_surface(tree: &Tree, surface: u64) -> Option<u64> {
                 if pane.tabs.iter().any(|tab| tab.surface == surface) {
                     return Some(workspace.id);
                 }
+            }
+        }
+    }
+    None
+}
+
+fn find_pane_for_surface(tree: &Tree, surface: u64) -> Option<u64> {
+    for workspace in &tree.workspaces {
+        for screen in &workspace.screens {
+            for pane in &screen.panes {
+                if pane.tabs.iter().any(|tab| tab.surface == surface) {
+                    return Some(pane.id);
+                }
+            }
+        }
+    }
+    None
+}
+
+fn find_screen_for_surface(tree: &Tree, surface: u64) -> Option<&cmux_client::Screen> {
+    for workspace in &tree.workspaces {
+        for screen in &workspace.screens {
+            if screen.panes.iter().any(|pane| pane.tabs.iter().any(|tab| tab.surface == surface)) {
+                return Some(screen);
             }
         }
     }

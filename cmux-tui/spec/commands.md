@@ -63,9 +63,15 @@ object{
   active_pane:Id,
   zoomed_pane:Id|null,
   layout:Layout,
+  viewport_base_width?:float32,
+  viewport_splits?:array<object{split:Id,width:float32}>,
   panes:array<Pane>
 }
 ```
+
+Servers advertising `viewport-splits-v1` include `viewport_splits` when a screen uses horizontal viewport columns. Each entry marks a right split whose second child is appended to a horizontal virtual canvas. `width` is the second child's width as a fraction of each frontend's viewport. Ordinary screens omit the field. Clients that do not implement the capability may ignore it and render the split's fallback ratio.
+
+Servers advertising `viewport-column-resize-v1` include `viewport_base_width` when horizontal viewport layout is active. It is the width of the first column as a fraction of the frontend viewport. A missing value defaults to `1.0`.
 
 `Layout`:
 
@@ -182,7 +188,7 @@ object{app:"cmux-tui",version:string,build_commit?:string|null,ghostty_commit?:s
 
 `build_commit` and `ghostty_commit` are additive build-stamp fields. They are omitted or `null` when the binary was built without the corresponding stamp, so clients must preserve compatibility with older servers and unstamped local builds.
 
-`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits.
+`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `viewport-splits-v1` advertises `new-pane-right` and the `Screen.viewport_splits` field. `viewport-column-resize-v1` advertises `set-viewport-pane-width` and `Screen.viewport_base_width`. `layout-undo-v1` advertises server-owned structural layout history and `undo-layout`. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits.
 
 Errors:
 
@@ -204,7 +210,7 @@ Example:
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":10,"capabilities":["attach-initial-size","surface-subscribe-filter","workspace-registry-v1","clear-history-v1","clear-history-key-v1","provider-managed-workspace-authority-v2"],"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":10,"capabilities":["attach-initial-size","workspace-registry-v1","viewport-splits-v1","viewport-column-resize-v1","layout-undo-v1","clear-history-v1","surface-subscribe-filter","provider-managed-workspace-authority-v2","clear-history-key-v1"],"session":"main","pid":12345}}
 ```
 
 The current server reports protocol `10` in this field and in `ping`. Clients must negotiate protocol 8 before requiring stable split ids or sending `set-split-ratio`, protocol 9 before decoding stack layouts or sending `new-pane`, and protocol 10 before using per-surface client sizing.
@@ -598,12 +604,14 @@ Params:
 Result:
 
 ```text
-object{layout:Layout,panes:array<object{pane:Id,surfaces:array<Id>}>}
+object{layout:Layout,viewport_base_width?:float32,viewport_splits?:array<object{split:Id,width:float32}>,panes:array<object{pane:Id,surfaces:array<Id>}>}
 ```
 
 Errors: `unknown screen <id>`, `no active screen`, `bad request: ...`.
 
 CLI mapping: verb `export-layout`; flags `[--screen <id>]`; plain stdout and JSON stdout both print the exact result object.
+
+The result is an identity-bearing runtime snapshot for inspection. Its `layout` is not the declarative `layout` input accepted by `apply-layout`.
 
 ### apply-layout
 
@@ -1216,13 +1224,13 @@ Example:
 | status | implemented |
 | since | protocol 9 |
 
-Creates a PTY pane after the current panes in creation order, focuses it, and reapplies the default automatic layout. Panes one through five use one full-height left column and up to four equal right-side rows. Panes six through twelve fill balanced columns of four. Above twelve panes, the first pane stays full-height on the left while the remaining panes form a right-side stack whose focused member expands. The new surface inherits the active surface working directory of `pane` when available.
+Creates a PTY pane after the current panes in creation order, focuses it, and reapplies the default automatic layout inside the horizontal viewport column containing `pane`. A screen without horizontal viewport columns is one implicit column, preserving the original whole-screen behavior. Panes one through five use one full-height left column and up to four equal right-side rows. Panes six through twelve fill balanced columns of four. Above twelve panes, the first pane stays full-height on the left while the remaining panes form a right-side stack whose focused member expands. The new surface inherits the active surface working directory of `pane` when available.
 
 Params:
 
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
-| `pane` | `Id` | required | Pane whose screen receives the new pane |
+| `pane` | `Id` | required | Pane whose horizontal column receives the new pane |
 | `cols` | `uint16` | default null | Paired with `rows`; final value clamped to at least 1 |
 | `rows` | `uint16` | default null | Paired with `cols`; final value clamped to at least 1 |
 
@@ -1255,6 +1263,169 @@ Example:
 ```json
 {"id":10,"cmd":"new-pane","pane":2}
 {"id":10,"ok":true,"data":{"surface":14}}
+```
+
+### new-pane-right
+
+| Field | Value |
+| --- | --- |
+| name | `new-pane-right` |
+| status | implemented |
+| since | protocol 9 additive capability `viewport-splits-v1` |
+
+Creates and focuses one PTY column immediately to the right of the horizontal viewport column containing `pane`. Supporting frontends keep each existing column at its independent viewport-relative width and insert the new pane at `width` times the viewport width. The default is two thirds. The shared split tree stores equivalent proportional fallback ratios for clients that ignore viewport metadata. The new surface inherits the active surface working directory of `pane` when available.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `pane` | `Id` | required | Pane whose screen receives the new pane |
+| `width` | `float32` | default `0.6666667` | From 0.1 through 1.0 |
+| `cols` | `uint16` | default null | Paired with `rows`; final value clamped to at least 1 |
+| `rows` | `uint16` | default null | Paired with `cols`; final value clamped to at least 1 |
+
+Result:
+
+```text
+object{surface:Id}
+```
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `pane <id> has no workspace` | Target pane is not in a screen |
+| `viewport pane width must be between 0.1 and 1.0` | `width` is outside the supported range |
+| `pane creation failed` | PTY creation or child spawn fails; raw runtime details are logged internally only |
+| `bad request: ...` | Missing fields or wrong JSON type |
+
+CLI mapping:
+
+| Item | Value |
+| --- | --- |
+| Verb | `new-pane-right` |
+| Flags | `--pane <id> [--width <fraction>] [--cols <n> --rows <n>]` |
+| Plain stdout | new surface id followed by newline |
+| JSON stdout | exact result object |
+| Exit codes | common |
+
+Example:
+
+```json
+{"id":11,"cmd":"new-pane-right","pane":2}
+{"id":11,"ok":true,"data":{"surface":15}}
+```
+
+### set-viewport-pane-width
+
+| Field | Value |
+| --- | --- |
+| name | `set-viewport-pane-width` |
+| status | implemented |
+| since | protocol 9 additive capability `viewport-column-resize-v1` |
+
+Sets the width of the horizontal viewport column containing `pane`. Every pane nested inside that column keeps its internal split ratios. The command updates proportional fallback ratios for clients that ignore viewport metadata.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `pane` | `Id` | required | Must belong to a screen with viewport columns |
+| `width` | `float32` | required | Finite value from 0.1 through 1.0 |
+| `transaction` | `uint64` | default null | Samples with the same connection and transaction coalesce into one undo entry |
+
+Result: empty object.
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `viewport pane width must be between 0.1 and 1.0` | `width` is non-finite or outside the supported range |
+| `pane <id> has no resizable viewport column` | Pane is unknown or its screen has no viewport columns |
+| `bad request: ...` | Missing fields or wrong JSON type |
+
+Invalid widths return `error_code:"viewport-width-out-of-range"`. A missing pane or a pane outside a viewport layout returns `error_code:"viewport-column-not-found"`.
+
+CLI mapping:
+
+| Item | Value |
+| --- | --- |
+| Verb | `set-viewport-pane-width` |
+| Flags | `--pane <id> --width <fraction>` |
+| Plain stdout | empty |
+| JSON stdout | exact result object |
+| Exit codes | common |
+
+Example:
+
+```json
+{"id":12,"cmd":"set-viewport-pane-width","pane":15,"width":0.5}
+{"id":12,"ok":true,"data":{}}
+```
+
+### undo-layout
+
+| Field | Value |
+| --- | --- |
+| name | `undo-layout` |
+| status | implemented |
+| since | protocol 9 additive capability `layout-undo-v1` |
+
+Undoes the latest structural layout entry on the screen containing `pane`. History is owned by that screen, capped at 32 entries, and kept in memory only. Resize samples carrying the same connection-scoped `transaction` coalesce. A new transaction, another connection, or a request without a transaction starts a new undo entry. Pane creation, split and column resize, swap, zoom, and automatic-layout changes are undoable. A direct pane close clears that screen's history because the closed process cannot be recreated.
+
+If the entry created panes, the first request returns a confirmation preview. The server advances to a unique confirmation revision and binds it to the exact ordered surface membership of every pane in `closes_panes`. The client must show the consequence, then resend that revision with `confirm_close:true`. A later structural change, tab addition, tab removal, tab reorder, tab move, or newer preview invalidates the confirmation. A rejected or stale confirmation closes nothing.
+
+Clients must reject the response unless it contains exactly one complete result variant. The applied variant requires `undone:true`, `screen`, and `revision`, with `confirmation_required` either absent or false. The preview variant requires `undone:false`, `confirmation_required:true`, `screen`, `revision`, and an array of valid pane ids in `closes_panes`. Missing fields, contradictory outcome flags, invalid ids, and non-array `closes_panes` values are protocol errors.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `pane` | `Id` | required | Selects the screen whose history is used |
+| `revision` | `uint64` | default null | Required for a confirmed pane-closing undo; must equal the preview revision |
+| `confirm_close` | `boolean` | default false | Must be true to commit an undo that closes panes |
+
+Result:
+
+```text
+object{undone:true,screen:Id,revision:uint64}
+| object{undone:false,confirmation_required:true,screen:Id,revision:uint64,closes_panes:array<Id>}
+```
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `unknown pane <id>` | `pane` is not in a live screen |
+| `no layout change to undo` | The selected screen has no undo entry |
+| `confirmed layout undo requires the preview revision` | `confirm_close` is true without `revision` |
+| `layout revision conflict: expected <n>, current <n>` | The confirmation revision is stale or incorrect |
+| `tabs in pane <id> changed since the undo confirmation` | A pane's surface membership differs from the preview |
+| `layout changed before undo could commit` | The layout changed after validation and before commit |
+| `bad request: ...` | Missing fields or wrong JSON type |
+
+Expected failures also include a machine-readable response `error_code`.
+`layout-undo-unavailable` means the screen has no undo entry.
+`layout-undo-stale` means a previously valid entry or confirmation can no
+longer commit. Other failures omit `error_code`.
+
+CLI mapping:
+
+| Item | Value |
+| --- | --- |
+| Verb | `undo-layout` |
+| Flags | `--pane <id> [--revision <n> --confirm-close]` |
+| Plain stdout | undo line, or confirmation instructions with the revision and closing pane ids |
+| JSON stdout | exact result object |
+| Exit codes | common |
+
+Examples:
+
+```json
+{"id":13,"cmd":"undo-layout","pane":15}
+{"id":13,"ok":true,"data":{"undone":false,"confirmation_required":true,"screen":3,"revision":8,"closes_panes":[15]}}
+{"id":14,"cmd":"undo-layout","pane":15,"revision":8,"confirm_close":true}
+{"id":14,"ok":true,"data":{"undone":true,"screen":3,"revision":9}}
 ```
 
 ### split
@@ -1338,6 +1509,7 @@ Errors:
 | --- | --- |
 | `bad dir "<value>" (want "right" or "down")` | `dir` is not allowed |
 | `unknown pane/split <id>` | Pane is unknown or no ancestor split has `dir` |
+| `split <id> ratio ... width must be between 0.1 and 1` | The projected viewport split cannot represent the clamped ratio |
 | `bad request: ...` | Missing fields or wrong JSON type |
 
 CLI mapping:
@@ -1367,7 +1539,7 @@ Example:
 | status | implemented |
 | since | protocol 8 |
 
-Sets the ratio of exactly one canonical split node. The server clamps the supplied ratio to `0.05..0.95`. The split id and every unrelated node remain unchanged.
+Sets the ratio of exactly one canonical split node. The server clamps the supplied ratio to `0.05..0.95`. The split id and every unrelated node remain unchanged. A compatibility split representing a horizontal viewport column also preserves the column width invariant `0.1..1.0`.
 
 Params:
 
@@ -1375,6 +1547,7 @@ Params:
 | --- | --- | --- | --- |
 | `split` | `Id` | required | Stable split id from `list-workspaces` or `export-layout` |
 | `ratio` | `float32` | required | Clamped to `0.05..0.95` |
+| `transaction` | `uint64` | default null | Samples with the same connection and transaction coalesce into one undo entry |
 
 Result: `object{}`.
 
@@ -1383,7 +1556,10 @@ Errors:
 | Error | Condition |
 | --- | --- |
 | `unknown split <id>` | No live split node has the id |
+| `split <id> ratio ... width must be between 0.1 and 1` | The live viewport split would require an unsupported column width; layout remains unchanged |
 | `bad request: ...` | Missing fields or wrong JSON type |
+
+Missing targets return `error_code:"layout-ratio-target-missing"`. Unsupported viewport widths return `error_code:"layout-ratio-out-of-range"`.
 
 CLI mapping:
 
@@ -3170,3 +3346,9 @@ The following v5 behaviors are awkward for generated bindings and should be norm
 | Unknown fields | Unknown request fields are ignored by serde | Reject unknown fields or define extension slots |
 
 Protocol v9 adds `new-pane`; its implemented result is `{surface}`. A future result expansion may add `{pane,screen,workspace}` only behind a newer protocol version.
+
+`viewport-splits-v1` is additive within protocol v9. Clients must require the capability before sending `new-pane-right` or interpreting `Screen.viewport_splits`.
+
+`viewport-column-resize-v1` is additive within protocol v9. Clients must require the capability before sending `set-viewport-pane-width` or interpreting `Screen.viewport_base_width`.
+
+`layout-undo-v1` is additive within protocol v9. Clients must require the capability before sending `undo-layout`. A binding must preserve both result variants and must not set `confirm_close` without the exact revision returned by the confirmation preview.
