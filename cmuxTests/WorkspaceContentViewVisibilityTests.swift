@@ -13,6 +13,16 @@ import Bonsplit
 
 @Suite(.serialized)
 final class WorkspaceContentViewVisibilityTests {
+    private final class ClosureLifetimeSentinel {}
+
+    private final class WeakReference<Value: AnyObject> {
+        weak var value: Value?
+
+        init(_ value: Value) {
+            self.value = value
+        }
+    }
+
     private final class MinimalModeBodyProbeCounts {
         var contentViewBody = 0
         var workspaceContentBody = 0
@@ -39,7 +49,7 @@ final class WorkspaceContentViewVisibilityTests {
 
     @Test
     @MainActor
-    func sidebarResizerCursorReleaseSchedulerBoundsDeepReplacementBursts() async {
+    func sidebarResizerCursorReleaseSchedulerReleasesSupersededClosuresBeforeFinalDeadline() async {
         let clock = SidebarTestManualClock()
         let scheduler = SidebarResizerCursorReleaseScheduler(clock: clock)
         let releaseEvents = AsyncStream<Int>.makeStream()
@@ -47,82 +57,62 @@ final class WorkspaceContentViewVisibilityTests {
         var releaseIterator = releaseEvents.stream.makeAsyncIterator()
         var releases: [Int] = []
 
-        for index in 0..<1_000 {
-            let delay: Duration = index == 999 ? .seconds(2) : .seconds(1)
-            scheduler.schedule(force: false, delay: delay) { _ in
+        func schedule(_ index: Int, delay: Duration, force: Bool = false)
+            -> WeakReference<ClosureLifetimeSentinel> {
+            let sentinel = ClosureLifetimeSentinel()
+            let reference = WeakReference(sentinel)
+            scheduler.schedule(force: force, delay: delay) { [sentinel] releasedForce in
+                _ = sentinel
+                #expect(releasedForce == force)
                 releases.append(index)
                 releaseEvents.continuation.yield(index)
             }
+            return reference
         }
 
-        await clock.waitUntilSleeping(for: .seconds(2))
+        let immediate = schedule(-1, delay: .zero)
         #expect(releases.isEmpty)
+        let immediateRelease = await releaseIterator.next()
+        #expect(immediateRelease == -1)
+        await Task.yield()
+        #expect(immediate.value == nil)
+        releases.removeAll()
 
-        clock.advance(by: .seconds(2))
+        let superseded = (0..<999).map { schedule($0, delay: .seconds(1)) }
+        let final = schedule(999, delay: .milliseconds(50), force: true)
+        await clock.waitUntilSleeping(for: .milliseconds(50))
+        #expect(releases.isEmpty)
+        #expect(superseded.allSatisfy { $0.value == nil })
+        #expect(final.value != nil)
+
+        clock.advance(by: .milliseconds(49))
+        #expect(releases.isEmpty)
+        #expect(final.value != nil)
+
+        clock.advance(by: .milliseconds(1))
         let release = await releaseIterator.next()
         #expect(release == 999)
         #expect(releases == [999])
 
         await clock.waitUntilIdle()
-        #expect(clock.retainedCancellationMarkerCount == 0)
+        await Task.yield()
+        #expect(final.value == nil)
     }
 
     @Test
     @MainActor
-    func sidebarResizerCursorReleaseSchedulerCancelsReplacedDelayedRelease() async {
-        let clock = SidebarTestManualClock()
-        let scheduler = SidebarResizerCursorReleaseScheduler(clock: clock)
-        let releaseEvents = AsyncStream<Bool>.makeStream()
-        defer { releaseEvents.continuation.finish() }
-        var releaseIterator = releaseEvents.stream.makeAsyncIterator()
-        var releases: [Bool] = []
-
-        scheduler.schedule(force: false, delay: .zero) { force in
-            releases.append(force)
-            releaseEvents.continuation.yield(force)
-        }
-        #expect(releases.isEmpty)
-        let immediateRelease = await releaseIterator.next()
-        #expect(immediateRelease == false)
-        #expect(releases == [false])
-        releases.removeAll()
-
-        scheduler.schedule(force: false, delay: .milliseconds(200)) { force in
-            releases.append(force)
-            releaseEvents.continuation.yield(force)
-        }
-        await clock.waitUntilSleeping(for: .milliseconds(200))
-        scheduler.schedule(force: true, delay: .milliseconds(10)) { force in
-            releases.append(force)
-            releaseEvents.continuation.yield(force)
-        }
-        await clock.waitUntilSleeping(for: .milliseconds(10))
-
-        clock.advance(by: .milliseconds(10))
-        let replacementRelease = await releaseIterator.next()
-        #expect(replacementRelease == true)
-        #expect(releases == [true])
-
-        await clock.waitUntilIdle()
-        clock.advance(by: .milliseconds(190))
-        scheduler.schedule(force: true, delay: .zero) { force in
-            releases.append(force)
-            releaseEvents.continuation.yield(force)
-        }
-        let sentinelRelease = await releaseIterator.next()
-        #expect(sentinelRelease == true)
-        #expect(releases == [true, true])
-    }
-
-    @Test
-    @MainActor
-    func commandPaletteFocusRestoreCoordinatorClearsOnlyStaleTargets() {
+    func commandPaletteFocusRestoreCoordinatorReplacesBurstAndClearsOnlyStaleTargets() {
         let coordinator = CommandPaletteFocusRestoreCoordinator()
-        let firstTarget = Self.restoreFocusTarget()
+        let firstTarget = Self.restoreFocusTarget(intent: .terminal(.findField))
         let secondTarget = Self.restoreFocusTarget()
 
+        for _ in 0..<1_000 {
+            coordinator.request(target: Self.restoreFocusTarget())
+        }
         coordinator.request(target: firstTarget)
         #expect(coordinator.pendingTarget?.workspaceId == firstTarget.workspaceId)
+        #expect(coordinator.pendingTarget?.panelId == firstTarget.panelId)
+        #expect(coordinator.pendingTarget?.intent == firstTarget.intent)
 
         #expect(
             !coordinator.clearIfTargetNoLongerMatchesCurrentFocus(
