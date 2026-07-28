@@ -39,6 +39,14 @@ private struct WorkspaceGroupNewWorkspaceTarget {
     let placement: WorkspaceGroupNewPlacement
 }
 
+/// cmux accepts file and folder URLs through ``NSApplicationDelegate`` but
+/// does not use AppKit's document model. Returning zero keeps
+/// `NSDocumentController` from constructing an unused Open Recent menu and
+/// synchronously resolving its bookmarks during accessibility inspection.
+private final class CmuxDocumentController: NSDocumentController {
+    override var maximumRecentDocumentCount: Int { 0 }
+}
+
 /// Short-lived helper that watches for the next workspace to appear in a
 /// TabManager and joins it to a target group. Used by group `+` context-menu
 /// actions whose underlying executor creates the workspace asynchronously
@@ -1012,6 +1020,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// touched from the main-actor AX swizzle path (callers hold it on main),
     /// matching the other non-Sendable composition-root members (`shared`).
     nonisolated(unsafe) let accessibilityWindowCache: any AccessibilityWindowCaching = AccessibilityWindowCache()
+    /// AppKit retains the first `NSDocumentController` constructed during
+    /// launch as its shared controller. cmux owns one solely to disable the
+    /// document-only Open Recent state that its URL-opening path never uses.
+    private var documentController: NSDocumentController?
     /// First-responder bypass guard (CmuxBrowserPanel); composition-root owned.
     /// The `NSWindow.makeFirstResponder` swizzle reads `isActive` and
     /// `BrowserPanel` wraps responder-churning devtools work in `withBypass(_:)`.
@@ -1260,6 +1272,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             _ = ensureInitialMainWindowIfNeeded()
         }
         return true
+    }
+
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        documentController = CmuxDocumentController()
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
