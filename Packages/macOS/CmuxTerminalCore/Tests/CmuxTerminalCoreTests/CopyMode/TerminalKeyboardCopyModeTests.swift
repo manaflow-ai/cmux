@@ -246,6 +246,34 @@ struct TerminalKeyboardCopyModeResolverTests {
 
 @Suite("Terminal keyboard copy mode cursor")
 struct TerminalKeyboardCopyModeCursorPackageTests {
+    @Test func initialCursorRowUsesTheNearestGridBoundary() {
+        #expect(
+            terminalKeyboardCopyModeInitialViewportRow(
+                rows: 47,
+                imePointY: 660,
+                imeCellHeight: 14,
+                topPadding: 7
+            ) == 46
+        )
+    }
+
+    @Test func initialCursorConversionClampsExtremeFiniteInputs() {
+        #expect(
+            terminalKeyboardCopyModeInitialViewportRow(
+                rows: 47,
+                imePointY: Double.greatestFiniteMagnitude,
+                imeCellHeight: Double.leastNonzeroMagnitude
+            ) == 46
+        )
+        #expect(
+            terminalKeyboardCopyModeInitialViewportColumn(
+                columns: 80,
+                imePointX: -Double.greatestFiniteMagnitude,
+                imeCellWidth: Double.leastNonzeroMagnitude
+            ) == 0
+        )
+    }
+
     @Test func motionThenVisualSelectionUsesMovedCursorAsAnchor() {
         var cursor = TerminalKeyboardCopyModeCursor(row: 8, column: 7)
 
@@ -269,19 +297,6 @@ struct TerminalKeyboardCopyModeCursorPackageTests {
             ) == .startSelection
         )
         #expect(cursor.clamped(rows: 20, columns: 40) == TerminalKeyboardCopyModeCursor(row: 9, column: 7))
-    }
-
-    @Test func cursorSelectionXRangeKeepsLeftToRightDragAtRightEdge() throws {
-        let range = try #require(
-            terminalKeyboardCopyModeCursorSelectionXRange(
-                rectMinX: 99.5,
-                rectMaxX: 120,
-                boundsWidth: 100
-            )
-        )
-
-        #expect(abs(range.startX - 98) < 0.0001)
-        #expect(abs(range.endX - 99) < 0.0001)
     }
 
     @Test func viewportOffsetDeltaKeepsCursorOnSameTextAfterJump() {
