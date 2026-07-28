@@ -34,7 +34,7 @@ extension TerminalPasteboardService: TerminalClipboardReading {
                 if htmlOutcome.confirmsNoVisibleText {
                     return nil
                 }
-                if htmlOutcome == .rejected {
+                if htmlOutcome == .rejected, let plainText {
                     return plainText
                 }
             }

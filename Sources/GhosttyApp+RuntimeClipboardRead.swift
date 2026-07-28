@@ -17,8 +17,10 @@ extension GhosttyApp {
         requestSurfaceView?.reserveClipboardReadAdmission()
 
         Task { @MainActor [weak requestSurfaceView] in
-            requestSurfaceView?.beginReservedClipboardRead(clipboardRequestID)
-            guard let requestTerminalSurface = callbackContext.terminalSurface,
+            let currentEpoch = requestSurfaceView?.terminalSurface?
+                .runtimeSurfaceGeneration ?? .max
+            guard let requestSurfaceView,
+                  let requestTerminalSurface = callbackContext.terminalSurface,
                   requestTerminalSurface.isActiveRuntimeCallbackContext(
                     callbackContext
                   ),
@@ -26,48 +28,68 @@ extension GhosttyApp {
                     terminalSurface: requestTerminalSurface
                   ),
                   let requestSurface = requestTerminalSurface.surface,
-                  let preparationService = requestSurfaceView?
+                  let preparationService = requestSurfaceView
                     .imageTransferPreparation else {
-                requestSurfaceView?.cancelClipboardRead(clipboardRequestID)
+                requestSurfaceView?.cancelReservedClipboardRead(
+                    currentEpoch: currentEpoch
+                )
                 return
             }
+            let operation = TerminalImageTransferOperation()
+            var overflowCleanup: () -> Void = {}
+
+            @MainActor
+            func completeClipboardRequestOnMain(with text: String) {
+                guard requestSurfaceIdentity.matches(
+                    requestTerminalSurface
+                ) else {
+                    requestSurfaceView.cancelClipboardRead(
+                        clipboardRequestID,
+                        currentEpoch: requestSurfaceView.terminalSurface?
+                            .runtimeSurfaceGeneration ?? .max
+                    )
+                    return
+                }
+                // Remote tmux mirror panes need tmux to bracket the paste
+                // because the local manual-I/O surface cannot know the
+                // remote pane's bracketed-paste mode.
+                let handledByMirror = !text.isEmpty && (
+                    AppDelegate.shared?.remoteTmuxController.pasteIntoMirror(
+                        surfaceId: callbackContext.surfaceId,
+                        text: text
+                    ) ?? false
+                )
+                let completionText = handledByMirror ? "" : text
+                completionText.withCString { pointer in
+                    ghostty_surface_complete_clipboard_request(
+                        requestSurface,
+                        pointer,
+                        state,
+                        false
+                    )
+                }
+                requestTerminalSurface.noteClipboardReadCompleted()
+                requestSurfaceView.completeClipboardRead(
+                    clipboardRequestID,
+                    confirmed: false
+                )
+            }
+
             func completeClipboardRequest(with text: String) {
                 Task { @MainActor in
-                    guard requestSurfaceIdentity.matches(
-                        requestTerminalSurface
-                    ) else {
-                        requestSurfaceView?.cancelClipboardRead(
-                            clipboardRequestID
-                        )
-                        return
-                    }
-                    defer {
-                        requestSurfaceView?.completeClipboardRead(
-                            clipboardRequestID,
-                            confirmed: false
-                        )
-                    }
-                    // Remote tmux mirror panes need tmux to bracket the paste
-                    // because the local manual-I/O surface cannot know the
-                    // remote pane's bracketed-paste mode.
-                    let handledByMirror = !text.isEmpty && (
-                        AppDelegate.shared?.remoteTmuxController.pasteIntoMirror(
-                            surfaceId: callbackContext.surfaceId,
-                            text: text
-                        ) ?? false
-                    )
-                    let completionText = handledByMirror ? "" : text
-                    completionText.withCString { pointer in
-                        ghostty_surface_complete_clipboard_request(
-                            requestSurface,
-                            pointer,
-                            state,
-                            false
-                        )
-                    }
-                    requestTerminalSurface.noteClipboardReadCompleted()
+                    completeClipboardRequestOnMain(with: text)
                 }
             }
+
+            requestSurfaceView.beginReservedClipboardRead(
+                clipboardRequestID,
+                epoch: requestSurfaceIdentity.generation,
+                onOverflow: {
+                    _ = operation.cancel()
+                    overflowCleanup()
+                    completeClipboardRequestOnMain(with: "")
+                }
+            )
 
             guard let pasteboard = terminalPasteboard.pasteboard(for: location) else {
                 completeClipboardRequest(with: "")
@@ -82,6 +104,13 @@ extension GhosttyApp {
                 mode: .paste,
                 using: preparationService
             )
+
+            guard !operation.isCancelled else {
+                if case .fileURLs(let fileURLs) = preparedContent {
+                    terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
+                }
+                return
+            }
 
             guard requestSurfaceIdentity.matches(requestTerminalSurface) else {
                 if case .fileURLs(let fileURLs) = preparedContent {
@@ -105,7 +134,6 @@ extension GhosttyApp {
             case .insertText(let text):
                 completeClipboardRequest(with: text)
             case .fileURLs(let fileURLs):
-                let operation = TerminalImageTransferOperation()
                 let indicatorView = requestTerminalSurface.hostedView
                 indicatorView.beginImageTransferIndicator(
                     for: operation,
@@ -113,6 +141,9 @@ extension GhosttyApp {
                         completeClipboardRequest(with: "")
                     }
                 )
+                overflowCleanup = {
+                    indicatorView.endImageTransferIndicator(for: operation)
+                }
 
                 let target = requestTerminalSurface
                     .resolvedImageTransferTarget()

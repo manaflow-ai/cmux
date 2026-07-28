@@ -14,7 +14,11 @@ extension GhosttySurfaceCallbackContext {
               surfaceIdentity.matches(terminalSurface),
               let surface = terminalSurface.surface,
               UInt(bitPattern: surface) == surfaceIdentity.surfaceAddress else {
-            surfaceView?.cancelClipboardRead(stateAddress)
+            surfaceView?.cancelClipboardRead(
+                stateAddress,
+                currentEpoch: surfaceView?.terminalSurface?
+                    .runtimeSurfaceGeneration ?? .max
+            )
             return
         }
         text.withCString { pointer in

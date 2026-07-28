@@ -5,8 +5,16 @@ extension GhosttyNSView {
         terminalClipboardInputSequencer.reserveRequestAdmission()
     }
 
-    func beginReservedClipboardRead(_ requestID: UInt) {
-        terminalClipboardInputSequencer.beginReservedRequest(id: requestID)
+    func beginReservedClipboardRead(
+        _ requestID: UInt,
+        epoch: UInt64,
+        onOverflow: @escaping () -> Void
+    ) {
+        terminalClipboardInputSequencer.beginReservedRequest(
+            id: requestID,
+            epoch: epoch,
+            onOverflow: onOverflow
+        )
     }
 
     func clipboardReadRequiresConfirmation(
@@ -29,13 +37,30 @@ extension GhosttyNSView {
         }
     }
 
-    func cancelClipboardRead(_ requestID: UInt) {
-        terminalClipboardInputSequencer.cancelRequest(id: requestID)
+    func cancelClipboardRead(
+        _ requestID: UInt,
+        currentEpoch: UInt64
+    ) {
+        terminalClipboardInputSequencer.cancelRequest(
+            id: requestID,
+            currentEpoch: currentEpoch
+        ) { [weak self] event in
+            self?.replayClipboardDeferredInput(event)
+        }
+    }
+
+    func cancelReservedClipboardRead(currentEpoch: UInt64) {
+        terminalClipboardInputSequencer.cancelReservedRequest(
+            currentEpoch: currentEpoch
+        ) { [weak self] event in
+            self?.replayClipboardDeferredInput(event)
+        }
     }
 
     func routeInputDuringClipboardRead(_ event: NSEvent) -> Bool {
         terminalClipboardInputSequencer.shouldDefer(
             event,
+            epoch: terminalSurface?.runtimeSurfaceGeneration ?? .max,
             discardWhenFull: event.cmuxCanDiscardDuringClipboardRead
         )
     }
