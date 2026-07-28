@@ -1,7 +1,6 @@
 import type { MetadataRoute } from "next";
 import {
-  fallbackContentLocales,
-  englishFallbackContentLocales,
+  authoredContentLocalesByPath,
   featureWorkflowContentLocales,
   remoteTmuxDocsLocales,
 } from "../i18n/locale-availability";
@@ -19,11 +18,11 @@ export default function sitemap(): MetadataRoute.Sitemap {
     locales?: readonly string[];
   }> = [
     { path: "", lastModified: "2026-03-18", changeFrequency: "weekly" as const, priority: 1 },
-    { path: "/ios", lastModified: "2026-06-22", changeFrequency: "monthly" as const, priority: 0.8 },
-    { path: "/pricing", lastModified: "2026-07-01", changeFrequency: "monthly" as const, priority: 0.9, locales: fallbackContentLocales },
-    { path: "/enterprise", lastModified: "2026-07-04", changeFrequency: "monthly" as const, priority: 0.8 },
+    { path: "/ios", lastModified: "2026-07-28", changeFrequency: "monthly" as const, priority: 0.8, locales: authoredContentLocalesByPath["/ios"] },
+    { path: "/pricing", lastModified: "2026-07-01", changeFrequency: "monthly" as const, priority: 0.9, locales: authoredContentLocalesByPath["/pricing"] },
+    { path: "/enterprise", lastModified: "2026-07-28", changeFrequency: "monthly" as const, priority: 0.8, locales: authoredContentLocalesByPath["/enterprise"] },
     { path: "/blog", lastModified: "2026-07-23", changeFrequency: "weekly" as const, priority: 0.8 },
-    { path: "/blog/claude-code-best-worktree-manager", lastModified: "2026-07-23", changeFrequency: "monthly" as const, priority: 0.7, locales: fallbackContentLocales },
+    { path: "/blog/claude-code-best-worktree-manager", lastModified: "2026-07-23", changeFrequency: "monthly" as const, priority: 0.7, locales: authoredContentLocalesByPath["/blog/claude-code-best-worktree-manager"] },
     { path: "/blog/cmux-fork", lastModified: "2026-07-15", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/blog/cmux-home", lastModified: "2026-06-23", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/blog/cmux-history", lastModified: "2026-06-02", changeFrequency: "monthly" as const, priority: 0.7 },
@@ -37,10 +36,10 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { path: "/blog/show-hn-launch", lastModified: "2026-02-21", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/blog/introducing-cmux", lastModified: "2026-02-12", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/blog/zen-of-cmux", lastModified: "2026-02-27", changeFrequency: "monthly" as const, priority: 0.7 },
-    { path: "/blog/cmux-claude-teams", lastModified: "2026-03-30", changeFrequency: "monthly" as const, priority: 0.7, locales: englishFallbackContentLocales },
-    { path: "/blog/cmux-omo", lastModified: "2026-03-30", changeFrequency: "monthly" as const, priority: 0.7, locales: englishFallbackContentLocales },
-    { path: "/blog/cmux-ssh", lastModified: "2026-07-03", changeFrequency: "monthly" as const, priority: 0.7, locales: fallbackContentLocales },
-    { path: "/blog/gpl", lastModified: "2026-03-30", changeFrequency: "monthly" as const, priority: 0.7, locales: englishFallbackContentLocales },
+    { path: "/blog/cmux-claude-teams", lastModified: "2026-03-30", changeFrequency: "monthly" as const, priority: 0.7, locales: authoredContentLocalesByPath["/blog/cmux-claude-teams"] },
+    { path: "/blog/cmux-omo", lastModified: "2026-03-30", changeFrequency: "monthly" as const, priority: 0.7, locales: authoredContentLocalesByPath["/blog/cmux-omo"] },
+    { path: "/blog/cmux-ssh", lastModified: "2026-07-03", changeFrequency: "monthly" as const, priority: 0.7, locales: authoredContentLocalesByPath["/blog/cmux-ssh"] },
+    { path: "/blog/gpl", lastModified: "2026-03-30", changeFrequency: "monthly" as const, priority: 0.7, locales: authoredContentLocalesByPath["/blog/gpl"] },
     { path: "/blog/cmd-shift-u", lastModified: "2026-03-04", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/docs/getting-started", lastModified: "2026-03-18", changeFrequency: "monthly" as const, priority: 0.9 },
     { path: "/docs/concepts", lastModified: "2026-03-18", changeFrequency: "monthly" as const, priority: 0.8 },
@@ -60,11 +59,11 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { path: "/docs/ssh", lastModified: "2026-07-03", changeFrequency: "monthly" as const, priority: 0.8 },
     { path: "/docs/remote-tmux", lastModified: "2026-07-03", changeFrequency: "monthly" as const, priority: 0.8, locales: remoteTmuxDocsLocales },
     { path: "/docs/ios", lastModified: "2026-06-21", changeFrequency: "monthly" as const, priority: 0.8 },
-    { path: "/docs/agent-integrations/claude-code-teams", lastModified: "2026-03-30", changeFrequency: "monthly" as const, priority: 0.7 },
-    { path: "/docs/agent-integrations/oh-my-opencode", lastModified: "2026-03-30", changeFrequency: "monthly" as const, priority: 0.7 },
-    { path: "/docs/agent-integrations/oh-my-codex", lastModified: "2026-03-30", changeFrequency: "monthly" as const, priority: 0.7 },
-    { path: "/docs/agent-integrations/oh-my-pi", lastModified: "2026-07-07", changeFrequency: "monthly" as const, priority: 0.7, locales: fallbackContentLocales },
-    { path: "/docs/agent-integrations/oh-my-claudecode", lastModified: "2026-03-30", changeFrequency: "monthly" as const, priority: 0.7 },
+    { path: "/docs/agent-integrations/claude-code-teams", lastModified: "2026-07-28", changeFrequency: "monthly" as const, priority: 0.7, locales: authoredContentLocalesByPath["/docs/agent-integrations/claude-code-teams"] },
+    { path: "/docs/agent-integrations/oh-my-opencode", lastModified: "2026-07-28", changeFrequency: "monthly" as const, priority: 0.7, locales: authoredContentLocalesByPath["/docs/agent-integrations/oh-my-opencode"] },
+    { path: "/docs/agent-integrations/oh-my-codex", lastModified: "2026-07-28", changeFrequency: "monthly" as const, priority: 0.7, locales: authoredContentLocalesByPath["/docs/agent-integrations/oh-my-codex"] },
+    { path: "/docs/agent-integrations/oh-my-pi", lastModified: "2026-07-07", changeFrequency: "monthly" as const, priority: 0.7, locales: authoredContentLocalesByPath["/docs/agent-integrations/oh-my-pi"] },
+    { path: "/docs/agent-integrations/oh-my-claudecode", lastModified: "2026-07-28", changeFrequency: "monthly" as const, priority: 0.7, locales: authoredContentLocalesByPath["/docs/agent-integrations/oh-my-claudecode"] },
     { path: "/docs/changelog", lastModified: "2026-03-18", changeFrequency: "weekly" as const, priority: 0.5 },
     { path: "/community", lastModified: "2026-03-18", changeFrequency: "monthly" as const, priority: 0.5 },
     { path: "/wall-of-love", lastModified: "2026-03-18", changeFrequency: "monthly" as const, priority: 0.5 },
@@ -90,27 +89,13 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { path: "/agents/amp", lastModified: "2026-06-23", changeFrequency: "monthly" as const, priority: 0.6 },
     { path: "/agents/cursor-cli", lastModified: "2026-06-23", changeFrequency: "monthly" as const, priority: 0.6 },
     { path: "/privacy-policy", lastModified: "2026-07-10", changeFrequency: "yearly" as const, priority: 0.3 },
-    { path: "/terms-of-service", lastModified: "2026-03-18", changeFrequency: "yearly" as const, priority: 0.3 },
-    { path: "/eula", lastModified: "2026-03-18", changeFrequency: "yearly" as const, priority: 0.3 },
+    { path: "/terms-of-service", lastModified: "2026-07-28", changeFrequency: "yearly" as const, priority: 0.3 },
+    { path: "/eula", lastModified: "2026-07-28", changeFrequency: "yearly" as const, priority: 0.3 },
   ];
-
-  // Legal pages are English-only, so they only get one entry.
-  // The SEO landing pages are localized, so they go through the per-locale loop.
-  const englishOnly = new Set(["/terms-of-service", "/eula"]);
 
   const entries: MetadataRoute.Sitemap = [];
 
   for (const { path, lastModified, changeFrequency, priority, locales: pathLocales } of paths) {
-    if (englishOnly.has(path)) {
-      entries.push({
-        url: `${base}${path}`,
-        lastModified,
-        changeFrequency,
-        priority,
-      });
-      continue;
-    }
-
     const availableLocales = pathLocales ?? locales;
     const alternates: Record<string, string> = {};
     for (const locale of availableLocales) {

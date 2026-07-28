@@ -1,6 +1,8 @@
 import { describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createNextNavigationMock } from "./helpers/next-navigation-mock";
+import { locales } from "../i18n/routing";
+import englishMessages from "../messages/en.json";
 
 const purchaseModule = await import("../services/billing/purchase");
 const stripeModule = await import("../services/billing/stripe");
@@ -53,15 +55,24 @@ mock.module("../services/billing/purchase", () => ({
 const { default: BillingSuccessPage } = await import("../app/billing/success/page");
 
 describe("billing success page", () => {
-  test("falls back to English copy for a locale without billingSuccess", async () => {
-    acceptLanguage = "fr";
+  test("renders localized purchase copy for every supported locale", async () => {
     try {
-      const element = await BillingSuccessPage({
-        searchParams: Promise.resolve({ session_id: "cs_123" }),
-      });
-      const html = renderToStaticMarkup(element);
-      expect(html).toContain("cmux Pro is active");
-      expect(html).toContain("What you unlocked");
+      for (const locale of locales) {
+        acceptLanguage = locale;
+        const catalog = (
+          await import(`../messages/${locale}.json`)
+        ).default as typeof englishMessages;
+        const element = await BillingSuccessPage({
+          searchParams: Promise.resolve({ session_id: "cs_123" }),
+        });
+        const html = renderToStaticMarkup(element);
+        expect(html).toContain(catalog.billingSuccess.title);
+        if (locale !== "en") {
+          expect(catalog.billingSuccess.title).not.toBe(
+            englishMessages.billingSuccess.title,
+          );
+        }
+      }
     } finally {
       acceptLanguage = "en";
     }

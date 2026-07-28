@@ -43,7 +43,8 @@
     "blog": "Blog",
     "changelog": "Changelog",
     "community": "Comunidad",
-    "github": "GitHub"
+    "github": "GitHub",
+    "pricing": "Precios"
   },
   "footer": {
     "product": "Producto",
@@ -67,7 +68,8 @@
     "assets": "Recursos",
     "openSource": "Open source",
     "guides": "Guías",
-    "compare": "Comparar"
+    "compare": "Comparar",
+    "pricing": "Precios"
   },
   "home": {
     "taglinePrefix": "La terminal diseñada para ",
@@ -102,7 +104,7 @@
     "faqGhosttyQ": "¿Cuál es la relación entre cmux y Ghostty?",
     "faqGhosttyA": "cmux no es un fork de Ghostty. Utiliza <link>libghostty</link> como biblioteca para el renderizado de terminal, de la misma forma que las apps usan WebKit para vistas web. Ghostty es una terminal independiente; cmux es una app diferente construida sobre su motor de renderizado.",
     "faqPlatformQ": "¿Qué plataformas soporta?",
-    "faqPlatformA": "Solo macOS, por ahora. cmux es una app nativa de Swift + AppKit.",
+    "faqPlatformA": "macOS solo, por ahora. cmux es una app nativa de Swift + AppKit. <waitlist>Únete a la lista de espera</waitlist> para saber cuándo Linux, Windows y Android estén listos.",
     "faqAgentsQ": "¿Con qué agentes de programación funciona cmux?",
     "faqAgentsA": "Con todos. cmux es una terminal, por lo que cualquier agente que funcione en una terminal funciona de inmediato: Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, Goose, Amp, Cline, Cursor Agent, y cualquier otra cosa que pueda ejecutar desde la línea de comandos.",
     "faqNotificationsQ": "¿Cómo funcionan las notificaciones?",
@@ -132,7 +134,10 @@
     "faqSupportQ": "¿Cómo puedo apoyar a cmux?",
     "faqSupportA": "cmux es gratuito y de código abierto, y siempre lo será. Si quieres respaldar el desarrollo y obtener acceso anticipado a lo que viene, incluyendo cmux AI, la app de iOS y los Cloud VMs, echa un vistazo a <foundersLink>cmux Founders Edition</foundersLink>.",
     "faqFeatureQ": "Tengo una sugerencia o he encontrado un error",
-    "faqFeatureA": "Queremos saberlo. Abre un <issuesLink>issue</issuesLink> o un <prLink>pull request</prLink> en GitHub, o <mailLink>escríbenos</mailLink>."
+    "faqFeatureA": "Queremos saberlo. Abre un <issuesLink>issue</issuesLink> o un <prLink>pull request</prLink> en GitHub, o <mailLink>escríbenos</mailLink>.",
+    "typingOrganization": "Organización",
+    "typingProgrammability": "Programabilidad",
+    "taglineStatic": "La terminal diseñada para multitarea, organización y programabilidad."
   },
   "dashboard": {
     "aiAccounts": {
@@ -193,6 +198,127 @@
         "free": "Gratis",
         "pro": "Pro",
         "loading": "Cargando…"
+      },
+      "eyebrow": "Cuenta",
+      "title": "Facturación",
+      "description": "Revisa tu plan cmux y gestiona la facturación por suscripción.",
+      "banners": {
+        "cancelled": "Tu plan se cancelará al final del periodo de facturación actual.",
+        "resumed": "Tu plan se ha reanudado y se renovará con normalidad.",
+        "nosub": "No se encontró ninguna suscripción activa de Stripe para esta cuenta.",
+        "error": "La facturación no pudo actualizarse. Inténtalo de nuevo en breve."
+      },
+      "free": {
+        "name": "Gratis",
+        "body": "Actualmente estás en el plan gratuito. Actualiza cuando necesites los límites Pro y las funciones alojadas.",
+        "upsellTitle": "Actualiza cuando necesites agentes en la nube o facturación de equipo.",
+        "upsellBody": "Elige Pro para funciones personales en la nube, o Team para facturación compartida y asientos.",
+        "testflightTitle": "Descarga la app cmux iOS",
+        "testflightBody": "La beta iOS está disponible a través de TestFlight para usuarios activos de Pro y miembros del equipo.",
+        "testflightCta": "Únete a la beta de iOS"
+      },
+      "pro": {
+        "name": "cmux Pro",
+        "activeBody": "Tu plan se renueva el {date}.",
+        "pendingBody": "Tu plan está programado para finalizar el {date}."
+      },
+      "team": {
+        "name": "cmux Equipo",
+        "fallbackName": "Tu equipo",
+        "activeBody": "{team} se renueva el {date}.",
+        "pendingBody": "{team} está programado para finalizar el {date}.",
+        "price": "35 $/asiento/mes"
+      },
+      "details": {
+        "renewsOn": "Renovaciones",
+        "endsOn": "Finaliza en",
+        "price": "Precio",
+        "seats": "Puestos"
+      },
+      "dates": {
+        "unknown": "Desconocido"
+      },
+      "cancel": {
+        "body": "Tu acceso Pro permanece activo hasta {date}. Marca la casilla para confirmar la cancelación al final del periodo.",
+        "teamBody": "El acceso por equipos permanece activo hasta {date}. Marca la casilla para confirmar la cancelación al final del periodo.",
+        "checkbox": "Entiendo que mi plan terminará al final del periodo actual."
+      },
+      "actions": {
+        "viewPricing": "Ver precios",
+        "manageBilling": "Gestionar la facturación",
+        "cancelSummary": "Cancelar plan",
+        "confirmCancel": "Confirmar cancelación",
+        "resume": "Reanudar plan"
+      }
+    },
+    "nav": {
+      "brand": "cmux",
+      "vaultGroup": "Bóveda",
+      "vaultOverview": "Resumen",
+      "vaultSessions": "Sesiones",
+      "vaultCliSetup": "Configuración CLI",
+      "subrouterGroup": "subrouter",
+      "subrouterOverview": "Resumen",
+      "accountGroup": "Cuenta",
+      "billing": "Facturación",
+      "testflight": "iOS TestFlight"
+    },
+    "home": {
+      "title": "Panel de control",
+      "description": "Elige un panel de producto.",
+      "vaultName": "Bóveda",
+      "vaultDescription": "Navega por las sesiones sincronizadas de agentes y gestiona el acceso a la CLI.",
+      "vaultLink": "Bóveda abierta",
+      "subrouterName": "subrouter",
+      "subrouterDescription": "Enruta las solicitudes LLM entre cuentas de proveedores con conmutación por error y programación consciente del uso.",
+      "subrouterLink": "subrouter abierto"
+    },
+    "subrouter": {
+      "title": "subrouter",
+      "description": "Subrouter enruta las solicitudes LLM entre cuentas de proveedores con conmutación por error y programación consciente del uso."
+    },
+    "testflight": {
+      "eyebrow": "Cuenta",
+      "title": "iOS TestFlight",
+      "description": "Únete a la beta cmux iOS desde tu suscripción activa.",
+      "banners": {
+        "joined": "Apple enviará pronto tu TestFlight invitación por correo electrónico.",
+        "left": "Has dejado el grupo iOS TestFlight .",
+        "error": "TestFlight no se pudo actualizar. Inténtalo de nuevo en breve.",
+        "ineligible": "Se requiere una suscripción activa de Pro o Team para iOS TestFlight.",
+        "needs_email": "Añade un correo electrónico principal verificado antes de unirte a iOS TestFlight.",
+        "unavailable": "TestFlight inscripción no está disponible en este momento."
+      },
+      "notEligible": {
+        "title": "Se requiere suscripción",
+        "body": "iOS TestFlight acceso está disponible para usuarios activos de Pro y miembros de una suscripción de Equipo."
+      },
+      "needsEmail": {
+        "title": "Se requiere correo electrónico verificado",
+        "body": "Añade un correo electrónico principal verificado a tu cuenta para que Apple pueda enviar la invitación TestFlight ."
+      },
+      "unavailable": {
+        "title": "Inscripción no disponible",
+        "body": "TestFlight inscripción no está configurada para este entorno. Inténtalo de nuevo más tarde."
+      },
+      "join": {
+        "title": "Únete a la beta de iOS",
+        "body": "Apple enviará una invitación TestFlight a {email}. Instala TestFlight en tu iPhoney luego acepta la invitación."
+      },
+      "enrolled": {
+        "title": "Estás inscrito",
+        "body": "{email} está en el grupo cmux iOS TestFlight .",
+        "lapseNote": "El acceso termina automáticamente si tu suscripción caduca."
+      },
+      "details": {
+        "email": "Correo electrónico",
+        "status": "Estado",
+        "enrolled": "Matriculados"
+      },
+      "actions": {
+        "viewPricing": "Ver precios",
+        "join": "Únete a iOS TestFlight",
+        "leave": "Salir de TestFlight"
       }
     }
   },
@@ -506,7 +632,20 @@
         "p1": "cmux ahora tiene un administrador de tareas para revisar cuánto CPU y RAM usan tus agentes de programación y procesos de terminal.",
         "p2": "Ábrelo desde la CLI:",
         "p3": "O pulsa Cmd+Shift+P y elige Administrador de tareas en la paleta de comandos.",
-        "p4": "Requiere cmux v0.64.4+."
+        "p4": "Requiere cmux v0.64.4+.",
+        "workflowTitle": "Un flujo de trabajo para ejecutaciones ruidosas de agentes",
+        "workflowOpen": "Abre el Administrador de tareas cuando los ventiladores se encienden, un espacio de trabajo se vuelve lento o aparece un agente atascado.",
+        "workflowScan": "Escanea la lista de procesos en vivo para encontrar el espacio de trabajo, panel, superficie, agente o webview del navegador usando la mayor CPU o memoria.",
+        "workflowJump": "Salta del responsable a la superficie correspondiente para poder inspeccionar el contexto real del proceso.",
+        "workflowAct": "Detener, reiniciar o separar la tarea problemática con la misma información que mostraría el sistema operativo, con el alcance de cmux.",
+        "useTitle": "Cuando ayuda",
+        "useP": "El Administrador de tareas es más útil cuando varios paneles de Claude Code, Codex, OpenCodeo del navegador están ejecutándose a la vez y el Monitor de Actividad no puede decirte qué espacio de trabajo es el propietario de la carga.",
+        "faqTitle": "FAQ",
+        "faqAgentsTitle": "¿Identifica a los agentes codificadores?",
+        "faqAgentsBody": "Sí. cmux atributos de los procesos agentes conocidos al espacio de trabajo y a la superficie donde se ejecutan para que la vista de recursos coincida con el diseño de tu barra lateral.",
+        "faqCliTitle": "¿Puedo usarlo sin abrir la ventana?",
+        "faqCliBody": "Sí. Ejecuta cmux top para una instantánea terminal cuando quieras la misma información en scripts, SSH sesiones o un shell simple.",
+        "docsCta": "Lee la <link>documentación del Administrador de tareas</link> para el comando, el punto de entrada de la ventana y el flujo recomendado de solución de problemas."
       },
       "sessionRestore": {
         "seoP": "Si buscas cómo restaurar sesiones de Claude Code, OpenCode, opencode, Codex, Gemini CLI, Antigravity CLI, Grok Build CLI, Amp, Cursor CLI, Rovo Dev, Copilot, CodeBuddy, Factory, Qoder o Hermes Agent después de un fallo de terminal, instala cmux hooks y mantén activada la reanudación de agentes.",
@@ -529,7 +668,17 @@
         "implementationP2": "Los hooks de agentes escriben asignaciones de sesión en ~/.cmuxterm. Al restaurar, cmux reconstruye primero la UI. Si la reanudación automática de agentes está activada, lanza cada agente compatible con su comando nativo de reanudación y el ID de sesión guardado.",
         "limitsTitle": "Lo que queda fuera",
         "limitsP": "tmux, vim, shells y herramientas no compatibles vuelven a abrirse como terminales normales salvo que tengan una integración de cmux que registre un comando nativo seguro de reanudación. Eso mantiene la restauración predecible y evita reproducir prompts o secretos obsoletos.",
-        "docsCta": "Lee la <link>documentación de restauración de sesiones</link> para comandos de setup, agentes compatibles y solución de problemas."
+        "docsCta": "Lee la <link>documentación de restauración de sesiones</link> para comandos de setup, agentes compatibles y solución de problemas.",
+        "workflowTitle": "Configuración recomendada",
+        "workflowInstall": "Instala la CLI del agente que uses y luego ejecuta cmux hooks setup para que cmux pueda capturar los IDs de sesión nativos.",
+        "workflowWork": "Ejecuta agentes en terminales cmux normales. Los hooks registran el ID de sesión, CWD, espacio de trabajo y superficie a medida que avanza el trabajo.",
+        "workflowRelaunch": "Tras reiniciar, cmux reconstruye la ventana y el árbol de paneles antes de iniciar cualquier comando de reanudación de agente guardado.",
+        "workflowVerify": "Comprueba que el agente restaurado continúe con la misma sesión upstream y luego sigue trabajando en el mismo espacio de trabajo.",
+        "faqTitle": "FAQ",
+        "faqCrashTitle": "¿Se recupera después de un fallo?",
+        "faqCrashBody": "Recupera el diseño propiedad de la app y las sesiones de agente compatibles desde la última instantánea guardada. No puede recuperar memoria arbitraria de procesos que el agente o shell nunca expuso mediante una API de reanudación.",
+        "faqTmuxTitle": "¿Debería seguir usando tmux?",
+        "faqTmuxBody": "Usa tmux cuando necesites tmux semántica en un host remoto. Usa cmux restauración de sesión cuando quieras que el diseño de la app, el estado del navegador y el currículum del agente soportado se vuelvan a reunir."
       },
       "cmuxFinder": {
         "title": "cmux Finder",
@@ -548,7 +697,20 @@
         "p1": "cmux ahora tiene un panel Vault en la barra lateral derecha para sesiones antiguas de agentes.",
         "p2": "Indexa sesiones de Codex, Claude Code, OpenCode y Pi, con búsqueda de texto completo en los transcripts.",
         "p3": "Arrastra una sesión desde Vault a un workspace para reabrirla donde estás trabajando.",
-        "p4": "Requiere cmux v0.64+."
+        "p4": "Requiere cmux v0.64+.",
+        "workflowTitle": "Un flujo de trabajo para encontrar trabajos antiguos de agentes",
+        "workflowOpen": "Abre la Vault desde la barra lateral derecha cuando recuerdes la tarea, pero no el espacio de trabajo ni la fecha.",
+        "workflowSearch": "Busca un nombre de archivo, título de incidencia, mensaje de error, nombre de rama o frase en la transcripción del agente.",
+        "workflowDrag": "Arrastra la sesión correspondiente al espacio de trabajo activo para que se reabra junto al código que estás tocando ahora.",
+        "workflowContinue": "Continúa desde el contexto recuperado en lugar de pedir a un agente nuevo que redescubra el mismo estado.",
+        "useTitle": "Cuando Vault vence a la historia terminal",
+        "useP": "El historial de la shell te dice qué comando inició un agente. Vault busca lo que el agente realmente discutió, cambió e informó, lo cual se acerca más a cómo los desarrolladores recuerdan trabajos antiguos.",
+        "faqTitle": "FAQ",
+        "faqAgentsTitle": "¿Qué sesiones están indexadas?",
+        "faqAgentsBody": "Vault indexa las sesiones compatibles de Codex, Claude Code, OpenCode y Pi cuando cmux puede leer sus registros locales de sesión.",
+        "faqRestoreTitle": "¿Es Vault lo mismo que la restauración de sesión?",
+        "faqRestoreBody": "No. La restauración de sesiones recupera el diseño actual de la app tras relanzarse. Vault es para buscar sesiones antiguas de agentes y reabrir una bajo demanda.",
+        "docsCta": "Lee la <link>documentación de la Bóveda</link> para agentes indexados, el flujo de trabajo de búsqueda y los límites de restauración."
       },
       "markdownViewer": {
         "title": "Un mejor visor de Markdown en cmux",
@@ -603,16 +765,66 @@
         "p2": "El <zen>Zen de cmux</zen> dice que los desarrolladores deberían crear sus propias herramientas y explorar el espacio de formas de trabajar con código. Los worktrees son una primitiva útil, pero también lo son varios checkouts, repos de backend y frontend en carpetas distintas, máquinas remotas, proyectos sin Git, scripts locales y, a veces, programar directamente en main porque es lo más rápido para esa tarea.",
         "superRepoTitle": "El patrón de super repo",
         "superRepoP1": "Un super repo es un checkout de control que sabe dónde viven los repos reales, cómo se crean los worktrees, cómo se emparejan repos relacionados, qué scripts preparan cada workspace y cómo se revisan y fusionan las PR. cmuxterm-hq es un super repo: contiene el checkout principal de cmux, worktrees de cmux por tarea, checkouts de Zed, scripts de hq, skills reutilizables y las reglas que siguen los agentes para no pisarse.",
-        "superRepoP2": "La idea no es que todos copien ese árbol de directorios exacto. La idea es que un repo local de control puede describir todo tu sistema operativo de ingeniería. Un repo de backend y otro de frontend pueden abrirse juntos. Una app móvil y una API web pueden recargarse juntas. Una rama puede crearse en un repo y tener una rama equivalente en otro. Esa forma pertenece a tu equipo, no a un botón genérico de worktree.",
+        "superRepoP2": "El archivo <code>AGENTS.md</code> es el plano de control. Nombra los repositorios que un agente puede necesitar, define dónde pertenece cada árbol de trabajo de tarea y apunta a instrucciones de configuración por repositorio. Una tarea puede crear árboles de trabajo coincidentes para un terminal, integración con navegador y router sin clonar los tres para cada tarea.",
         "agentTitle": "Deja que el agente gestione los worktrees",
-        "agentP1": "Claude Code y Codex son mejores gestores de worktrees que la mayoría de gestores integrados porque pueden leer las reglas del repo, ejecutar scripts, crear worktrees en varios repos, limpiar sus propios worktrees, arreglar conflictos, subir ramas, abrir PR y fusionar después de que pasen CI y revisiones.",
-        "agentP2": "Nuestros flujos más usados son task-worktree-pr y autoreview. Funcionan porque los agentes pueden leer archivos, escribir archivos, ejecutar comandos, inspeccionar GitHub, esperar a CI, responder comentarios de revisión y operar entre repositorios. Si una tarea necesita cambios de cloud y escritorio juntos, puedes pedir al agente que mire en ambos sitios y dejar que el super repo codifique el resto.",
+        "agentP1": "cmux utiliza este patrón internamente. El código fuente público vive en <cmux>manaflow-ai/cmux</cmux>, mientras que nuestro repositorio de control privado es <hq>manaflow-ai/cmuxterm-hq</hq>. Desde la raíz de hq, podemos pedir a Codex o Claude Code que solucionen un problema de subrouter que pueda afectar a cmux. El agente crea solo los árboles de trabajo que necesita, lee el AGENTS.md de cada repositorio, inicia sus scripts de configuración y comienza a inspeccionar el código mientras esos scripts se ejecutan.",
+        "agentP2": "Un comando <code>./scripts/new-worktree.sh</code> implementa una sola topología. Un agente puede elegir una segunda verificación para submódulos incompatibles, un sandbox remoto para una configuración no confiable, una máquina virtual para otro sistema operativo o un planificador de GPU para experimentos, y luego reutilizar scripts para las piezas deterministas.",
         "limitsTitle": "Por qué pierde el soporte integrado de worktrees",
         "limitsP1": "Una función de worktrees a nivel de producto puede estar pulida para el caso común, pero los bordes aparecen enseguida: sin Git, varios repos, clientes generados, scripts privados de preparación, ramas emparejadas de backend y frontend, políticas de merge raras o un equipo que empuja a main intencionadamente para cambios internos pequeños.",
         "limitsP2": "Un flujo programable se adapta. Pide a Claude Code que cree un worktree, arranque Codex al lado, ejecute el comando de setup, abra el panel de navegador correcto, vigile las pruebas y elimine el worktree cuando la PR se fusione. Luego cambia ese flujo mañana.",
         "cmuxTitle": "cmux da una superficie al flujo",
         "cmuxP1": "cmux no necesita un gestor universal de worktrees integrado. Te da <customCommands>comandos personalizados</customCommands>, una <api>CLI y API de socket</api> programables y <skills>skills</skills> reutilizables. El botón de suma puede lanzar tu propio comando de worktree, una preparación multi-repo, un sandbox sin Git o un entorno remoto.",
-        "cmuxP2": "Por eso importa <home>cmux home</home>. El mejor gestor de worktrees es el que tus agentes pueden cambiar cuando cambia tu flujo."
+        "cmuxP2": "Por eso importa <home>cmux home</home>. El mejor gestor de worktrees es el que tus agentes pueden cambiar cuando cambia tu flujo.",
+        "agentsExample": "Trabajas en cmux-hq. Las tareas pueden incluir:\n- manaflow-ai/cmux\n- manaflow-ai/cmux-browser\n- manaflow-ai/subrouter\n\nCuando el usuario solicita una nueva tarea:\n1. Decide qué repositorios necesita la tarea.\n2. Crea los worktrees correspondientes en worktrees/[task]/[repo].\n3. Lee el archivo AGENTS.md de cada worktree.\n4. Inicia sus scripts de configuración inmediatamente y continúa con la tarea.",
+        "launchCommand": "cd ~/fun/cmux-hq\ncodex --yolo \"Arreglar problemas de subrouter xyz, que podrían estar relacionados con cmux\""
+      },
+      "cmuxClaudeTeams": {
+        "title": "Claude Code agentes compañeros como paneles nativos cmux",
+        "summary": "El modo compañeros de Claude Coderequiere tmux. cmux lo falsifica para que los compañeros se conviertan en splits nativos con metadatos en la barra lateral y notificaciones.",
+        "date": "30 de marzo de 2026",
+        "p1": "Claude Code tiene un <agentTeamsLink>modo experimental de compañeros</agentTeamsLink> de equipo que genera subagentes en paralelo. Requiere tmux y configurar <code>CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1</code>. <code>cmux claude-teams</code> se encarga de todo eso por ti: configura la variable ambiental, coloca una cuña de tmux en PATH que traduce cada comando de tmux (<code>split-window</code>, <code>send-keys</code>, <code>capture-pane</code>) en APInativo de cmuxde split/espacio de trabajo, y ejecutores en <code>claude --teammate-mode auto</code>. Un comando.",
+        "p2": "La cuña traduce <code>split-window</code> en <code>surface.split</code>, <code>send-keys</code> en <code>surface.send_text</code> <code>capture-pane</code> en <code>surface.read_text</code>. Los compañeros se apilan verticalmente en una columna derecha, igualándose automáticamente a medida que los agentes aparecen y salen. Cada panel aparece en la barra lateral con notificaciones. Funciona a través de SSH mediante el demonio de relé Go.",
+        "p3": "Los mismos poderes de cuña <omoLink><code>cmux omo</code></omoLink> para oh-my-openagent (antes oh-my-opencode).",
+        "readDocs": "Lee la documentación"
+      },
+      "cmuxOmo": {
+        "title": "oh-my-openagent subagentes como paneles de cmux nativos",
+        "summary": "oh-my-openagent orquesta agentes especialistas Claude, GPT y Gemini en paralelo. cmux omo convierte cada panel tmux en una división nativa.",
+        "date": "30 de marzo de 2026",
+        "p1": "<code>cmux omo</code> integra oh-my-openagent (antes oh-my-opencode), un plugin para OpenCode que orquesta agentes especialistas en Claude, GPT y Gemini en paralelo. Cada agente tiene su propio panel de tmux. <code>cmux omo</code> usa el mismo tmux shim que <claudeTeamsLink><code>cmux claude-teams</code></claudeTeamsLink>: falso <code>TMUX</code> env var, cada comando tmux traducido a cmux se separa. Autoinstala el plugin en una configuración sombra para que <code>~/.config/opencode</code> permanezca intacto.",
+        "p2": "La cuña también intercepta <code>terminal-notifier</code> llamadas y las enruta a través de <code>cmux notify</code>. Funciona sobre SSH mediante el demonio de relé Go.",
+        "readDocs": "Lee la documentación"
+      },
+      "gpl": {
+        "title": "cmux ahora es GPL",
+        "summary": "cmux relicenciada de AGPL-3.0 a GPL-3.0.",
+        "date": "30 de marzo de 2026",
+        "p1": "cmux relicenciada de AGPL-3.0 a GPL-3.0. La cláusula de uso de red de AGPLes irrelevante para una aplicación de escritorio, pero muchas empresas AGPL prohíben por completo. GPL elimina esa cláusula aunque sigue exigiendo que los forks sigan siendo de código abierto. La doble licencia (GPL + comercial) se mantiene igual."
+      },
+      "cmuxSsh": {
+        "title": "cmux SSH",
+        "summary": "Un comando te da sesiones remotas persistentes, paneles de navegador que llegan a puertos remotos y notificaciones de agentes que llegan a casa.",
+        "date": "30 de marzo de 2026",
+        "p1": "<code>cmux ssh user@remote</code> crea un espacio de trabajo para la máquina remota. Arrastra una imagen a una sesión Claude Code remota y se sube automáticamente. Los paneles del navegador enrutan a través de la red remota, así que localhost simplemente funciona. Usa tu <code>~/.ssh/config</code>, se reconecta en drops.",
+        "featureItems": [
+          "Los paneles del navegador enrutan a través de la máquina remota, así que localhost:3000 llega al servidor de desarrollo remoto sin reenvío de puertos",
+          "Arrastra una imagen a un terminal remoto para subirla vía scp",
+          "Los agentes de codificación en la máquina remota envían notificaciones a tu barra lateral local",
+          "cmux claude-teams y cmux omo trabajan sobre SSH, generando paneles de compañeros localmente mientras el cálculo se ejecuta remotamente",
+          "La barra lateral muestra el estado de la conexión y los puertos de escucha detectados"
+        ],
+        "videoTitle": "cmux SSH demo",
+        "workflowTitle": "Un flujo de trabajo de desarrollo remoto",
+        "workflowConnect": "Conéctate con cmux ssh y deja que cmux crear un espacio de trabajo dedicado para el host remoto.",
+        "workflowPreview": "Abre un panel del navegador junto al terminal y usa las URLs localhost como si el servidor de desarrollo fuera local.",
+        "workflowNotify": "Ejecuta Claude Code, Codex, OpenCodeu otro agente en la máquina remota y deja que cmux envíes las notificaciones de vuelta a tu Mac.",
+        "workflowUpload": "Arrastra archivos o imágenes al terminal remoto cuando el agente necesite contexto local o dispositivos de prueba.",
+        "faqTitle": "FAQ",
+        "faqPortTitle": "¿Sigo necesitando ssh -L para localhost?",
+        "faqPortBody": "Normalmente no. Los paneles del navegador dentro del espacio de trabajo remoto encaminan HTTP y el tráfico WebSocket a través de la máquina remota, por lo que las URLs de vista previa local se resuelven desde el host remoto.",
+        "faqConfigTitle": "¿Utiliza mi configuración de SSH actual?",
+        "faqConfigBody": "Sí. cmux lee ~/.ssh/config de alias, archivos de identidad, ajustes de proxy y opciones de host, y luego añade cmuxcomportamiento específico de enrutamiento y reconexión.",
+        "readDocs": "Lee la documentación SSH"
       }
     },
     "zenOfCmux": {
@@ -765,11 +977,78 @@
         "flujo de terminal",
         "desarrollo agentic"
       ]
+    },
+    "cmuxClaudeTeams": {
+      "metaTitle": "Claude Code agentes compañeros como paneles nativos cmux",
+      "metaDescription": "El modo compañeros de Claude Coderequiere tmux. cmux lo falsifica para que los compañeros se conviertan en splits nativos con metadatos en la barra lateral y notificaciones."
+    },
+    "cmuxOmo": {
+      "metaTitle": "oh-my-openagent subagentes como paneles de cmux nativos",
+      "metaDescription": "oh-my-openagent orquesta agentes especialistas Claude, GPT y Gemini en paralelo. cmux omo convierte cada panel tmux en una división nativa."
+    },
+    "gpl": {
+      "metaTitle": "cmux ahora es GPL",
+      "metaDescription": "cmux relicenciada de AGPL-3.0 a GPL-3.0."
+    },
+    "cmuxSsh": {
+      "metaTitle": "cmux SSH",
+      "metaDescription": "Un comando te da sesiones remotas persistentes, paneles de navegador que llegan a puertos remotos y notificaciones de agentes que llegan a casa."
     }
   },
   "docs": {
     "remoteTmux": {
-      "moshContrast": "Para cambiar de red sin perder la sesión, usa cmux mosh-tmux. Abre un terminal Mosh plenamente integrado y conectado a una sesión tmux con nombre; no sustituye el espejo nativo de espacios, pestañas y divisiones que ofrece el modo de control tmux por SSH."
+      "moshContrast": "Para cambiar de red sin perder la sesión, usa cmux mosh-tmux. Abre un terminal Mosh plenamente integrado y conectado a una sesión tmux con nombre; no sustituye el espejo nativo de espacios, pestañas y divisiones que ofrece el modo de control tmux por SSH.",
+      "title": "tmux remoto",
+      "metaTitle": "tmux remoto (beta)",
+      "metaDescription": "Conduce una sesión tmux remota desde cmux sobre SSH usando tmux modo control. Las sesiones se convierten en espacios de trabajo, las ventanas en pestañas y los paneles de una ventana se dividen cmux nativo.",
+      "intro": "El tmux remoto refleja una sesión de tmux que se ejecuta en una máquina remota en cmux sobre SSH, usando tmux modo de control (tmux -CC). En lugar de un terminal SSH simple, la sesión remota se reproyecta en la interfaz nativa de cmux— espacios de trabajo, pestañas, divisiones, scrollback y copia — y cmux controla el servidor de tmux real que lo respalda. Es una bandera de Características Beta y no cambia los terminales locales.",
+      "betaNote": "Beta. Esta función es opt-in y sigue estabilizando — véase las limitaciones más abajo.",
+      "mappingTitle": "¿Cómo tmux mapas a cmux",
+      "mappingIntro": "cmux y tmux anidan sus disposiciones en direcciones opuestas. En cmux, un panel contiene una fila de pestañas (cada pestaña es un terminal). En tmux, una ventana contiene una división de paneles. El tmux remoto conecta ambos proyectando la estructura de tmuxsobre cmux's:",
+      "mapTmux": "tmux",
+      "mapCmux": "cmux",
+      "rowSession": "Un espacio de trabajo dedicado en la barra lateral.",
+      "rowWindow": "Una pestaña en ese espacio de trabajo.",
+      "rowPane": "Un panel en un nativo dividido dentro de esa pestaña.",
+      "mappingPanes": "La nueva capacidad son los paneles dentro de una pestaña: una pestaña cmux solía albergar un solo terminal, pero una ventana tmux con varios paneles ahora se representa como una disposición real cmux dividida dentro de una sola pestaña — cada panel remoto es un panel nativo cmux terminal con el cromo habitual. El puente es bidireccional: dividir o cerrar un panel en esa pestaña se ejecuta tmux split-window, y reordenar las pestañas reordena las ventanas tmux con swap-window.",
+      "requirementsTitle": "Requisitos",
+      "requirementsDesc": "Un host SSH accesible (cmux lee tu ~/.ssh/config) con tmux 3.2 o más reciente instalado. El modo Control (tmux -CC) es una función estándar de tmux , por lo que no se necesita una compilación especial; cmux comprueba la versión tmux remota antes de conectarla y falla claramente en servidores antiguos. cmux se conecta a través de una conexión SSH ControlMaster, y el servidor remoto de tmux sigue funcionando cuando te desconectas.",
+      "enableTitle": "Habilitarlo",
+      "enableDesc": "Abre Configuración → Funciones Beta y activa el tmuxRemoto. El interruptor está desactivado por defecto, así que nada cambia en los terminales locales hasta que te inscribas.",
+      "attachTitle": "Acoplamiento",
+      "attachIntro": "Ejecuta cmux ssh-tmux <destination> en un terminal, usando un alias de ~/.ssh/config o user@host. cmux refleja las sesiones tmux de ese host en la barra lateral de la ventana actual: cada sesión se convierte en un espacio de trabajo, cada ventana en una pestaña y las ventanas con varios paneles se convierten en divisiones dentro de la pestaña.",
+      "attachNewWindow": "Pasa --new-window para abrir el espejo en una ventana nueva dedicada en lugar de la ventana actual.",
+      "attachSockets": "Los comandos de socket remote.tmux.* que aparecen abajo ofrecen un control más preciso. remote.tmux.mirror es el punto de entrada del espejo; acepta enrutamiento por ventana y llamada, y puede seleccionar opcionalmente el espacio de trabajo espejado.",
+      "attachCli": "Los hosts que se autentican de forma no interactiva (ssh-agent o una clave en ~/.ssh/config) se conectan sin aviso. Si el host necesita autenticación interactiva (una contraseña, confirmación de clave de host o MFA), cmux ejecuta ssh en línea en tu terminal para que puedas autenticarte, y luego se refleja en la ventana actual. Acepta --port, --identityy --no-focus.",
+      "troubleshootTitle": "Si aparece «Permission denied»",
+      "troubleshootDesc": "El destino se entrega a ssh tal cual, por lo que un alias debe llevar todo lo que ssh necesita para iniciar sesión — lo más común es User (sin él, ssh prueba tu nombre de usuario local) y IdentityFile:",
+      "troubleshootFallback": "O pasa explícitamente al usuario: cmux ssh-tmux dev@my-ssh-alias. Si el <destination> ssh simple no te inicia sesión, cmux ssh-tmux <destination> tampoco lo hará.",
+      "howTitle": "Cómo funciona",
+      "howDesc": "cmux genera ssh ... tmux -CC conectan y analizan el flujo en modo control en sí mismo en lugar de depender de un visor de tmux integrado, por lo que el protocolo y la correlación de comandos %begin/%end son totalmente propiedad de cmux. Cada panel remoto se renderiza en una superficie de terminal dedicada alimentada por tmux %output, y tu entrada — pulsaciones de teclas y ratón — se reenvía con tmux send-keys. El servidor remoto tmux es propietario del tamaño y reflujo del panel; cmux mantiene sus superficies sincronizadas con él y nunca vuelve a fluir localmente.",
+      "behaviorTitle": "Lo que soporta",
+      "behaviorSize": "Tamaño: el cliente remoto se redimensiona a la cuadrícula renderizada (refresh-client -C), para que las TUIs no se queden atascadas en el 80×24 por defecto de tmux.",
+      "behaviorSplit": "Splits: dividir o cerrar un panel en una ventana espejada se propaga a tmux con split-window, de modo que el layout cmux y el layout tmux permanecen sincronizados. Los splits programáticos (cmux new-split o surface.split sobre el socket) reportan aceptados sin identificador de superficie — el nuevo panel llega asíncronamente una vez que tmux confirma el cambio de diseño. Las peticiones que contienen opciones que la división enrutada no puede respetar (comando de arranque, directorio de trabajo, posición del divisor, colocación izquierda/arriba) se rechazan de entrada, antes de que la sesión remota se muta.",
+      "behaviorReorder": "Reordenación: arrastrar y reordenar las pestañas espejadas reordena las ventanas tmux con swap-window.",
+      "behaviorCwd": "Directorio de trabajo: la carpeta actual del panel remoto se rastrea y muestra en la pestaña.",
+      "behaviorPaste": "Pegar y soltar: el texto pegado y las imágenes/archivos que se caen pasan por tmux paste-buffer -p, por lo que una aplicación remota (por ejemplo, un agente de codificación) recibe un pegado real entre corchetes: una imagen llega como [Imagen #N], no como una ruta local.",
+      "behaviorMouse": "Ratón: al hacer clic, desplazarse y arrastrar, llega a la app del mando cuando tiene el modo ratón activado. Mantén pulsado Mayús mientras arrastras para una selección o copia de texto cmux nativa (igual que cualquier terminal que ejecute una app en modo ratón).",
+      "behaviorUnicode": "Salida correcta en Unicode: los caracteres de varios bytes se conservan incluso cuando tmux los divide entre actualizaciones, por lo que el dibujo de cajas y otros contenidos amplios se renderizan limpiamente.",
+      "socketTitle": "Comandos de socket",
+      "socketDesc": "La función también se controla mediante comandos socket (bloqueados en la bandera de Características Beta). host es un alias de destino SSH o ~/.ssh/config ; sesión es un nombre de sesión tmux ; espejo también acepta enrutamiento estándar de ventanas/espacios de trabajo/superficie/panel.",
+      "socketMethod": "Método",
+      "socketParams": "Params",
+      "socketMeaning": "Descripción",
+      "methodSessions": "Haz una lista de las tmux sesiones en un anfitrión.",
+      "methodAttach": "Adjuntar un cliente de control a una sesión (crear adjuntos o creaciones).",
+      "methodMirror": "Reflejar cada sesión en un host en la ventana resuelta, cada una como su propio espacio de trabajo (las ventanas se convierten en pestañas); devuelve el comando ssh para ejecutarse para autenticación interactiva cuando el host lo necesite.",
+      "methodDetach": "Desconecta el cliente de control; la sesión remota sigue ejecutándose.",
+      "methodState": "Informa del estado observado del cliente de control (diagnóstico).",
+      "socketSafetyDesc": "Un archivo host o identidad con prefijo guion es rechazado en el límite del trust como defensa contra SSH inyección de opción.",
+      "limitationsTitle": "Limitaciones",
+      "limitReconnect": "Las caídas de SSH transitorias se reconectan automáticamente: si la conexión falla a mitad de sesión, el espejo se congela y cmux intenta de nuevo con un retroceso exponencial limitado, reiniciando los paneles cuando se reanuda. El espejo solo se cierra definitivamente cuando termina la sesión remota, o cuando cierras la ventana del espejo o sales de cmux — y no se restaura al reiniciar (volver a conectar con cmux ssh-tmux).",
+      "limitPaste": "Solo el pegado/drop de una sola línea (como un archivo o una ruta de imagen) se entrega como un collage real entre corchetes mediante el paste-buffer -p; el texto multilínea se envía como pulsaciones de teclas planas, por lo que una aplicación remota no lo tratará como un solo pegado.",
+      "limitCwd": "Las actualizaciones en directo de directorios de trabajo utilizan suscripciones en modo control, por eso cmux requiere tmux 3.2 o superior antes de abrir el espejo.",
+      "limitReflow": "El scrollback de pantalla principal no se vuelve a envolver al redimensionar — cmux hojas se refluyen a tmux, por lo que las líneas antiguas pueden mantenerse en el ancho anterior hasta que la app repinte. Las TUIs a pantalla completa, que se redibujan al redimensionar, no se ven afectadas."
     },
     "layoutTitle": "cmux docs",
     "gettingStarted": {
@@ -802,7 +1081,8 @@
       "requirements": "Requisitos",
       "reqItem1": "macOS 14.0 o posterior",
       "reqItem2": "Apple Silicon o Intel Mac",
-      "metaTitle": "Primeros pasos"
+      "metaTitle": "Primeros pasos",
+      "sessionRestoreLink": "Consulta la <link>guía de restauración de sesiones</link> para la configuración del gancho de agente y la matriz de currículum soportada."
     },
     "concepts": {
       "title": "Conceptos",
@@ -902,7 +1182,9 @@
       "configNote": "La configuración por grupo se encuentra bajo la clave workspaceGroups en ~/.config/cmux/cmux.json, indexada por el directorio de trabajo del workspace ancla. Consulta la referencia de configuración para conocer las claves admitidas, incluida la ubicación global de nuevos workspaces y el color, el icono, la ubicación y las acciones del menú contextual por directorio.",
       "configLinkText": "referencia de configuración de workspaceGroups",
       "persistenceTitle": "Persistencia",
-      "persistenceDesc": "El nombre del grupo, el anclaje, el estado de fijado, el estado de plegado, el color y el icono se guardan junto con tus workspaces y se restauran entre lanzamientos. La pertenencia al grupo se almacena en cada workspace."
+      "persistenceDesc": "El nombre del grupo, el anclaje, el estado de fijado, el estado de plegado, el color y el icono se guardan junto con tus workspaces y se restauran entre lanzamientos. La pertenencia al grupo se almacena en cada workspace.",
+      "anchorNew": "El ancla de un grupo siempre es un espacio de trabajo completamente nuevo en el momento de la creación; agrupar una selección o crear un grupo nunca promove uno de tus espacios de trabajo existentes en el anclaje. (Cerrar un ancla después sí promueve al primer miembro restante del grupo, véase más abajo.) El directorio de trabajo del ancla se hereda del primer espacio de trabajo seleccionado al agrupar una selección, o del espacio activo al crear a través del CLI sin --cwd.",
+      "anchorClose": "Cerrar el espacio de trabajo ancla solo cierra ese espacio y promueve al primer miembro restante del grupo (el más antiguo que aún está en el orden del grupo) para que sea el nuevo ancla, de modo que el grupo y sus otros miembros permanezcan intactos (el miembro promovido muestra entonces el nombre del grupo como encabezado). Cuando el ancla es el único espacio de trabajo del grupo, el grupo se elimina. Para aplanar un grupo en espacios de trabajo no agrupados usa Desagrupar; para cerrar todos los espacios de trabajo de un grupo usa Eliminar grupo."
     },
     "configuration": {
       "title": "Configuración",
@@ -960,15 +1242,30 @@
           "copyOnSelect": "Cuando es true, copia el texto seleccionado del terminal al portapapeles del sistema cuando se confirma la selección. Cuando es false, cmux no emite una anulación de copy-on-select de Ghostty; la configuración y los valores predeterminados de Ghostty controlan el comportamiento del portapapeles de selección.",
           "scrollSpeed": "Multiplicador aplicado a los desplazamientos de la rueda de desplazamiento y del panel táctil en el terminal. Los valores más altos desplazan más rápido y los más bajos, más lento.",
           "showTextBoxOnNewTerminals": "Muestra la entrada TextBox beta de forma predeterminada en espacios de trabajo, pestañas y divisiones de terminal recién creados.",
-          "focusTextBoxOnNewTerminals": "Enfoca la entrada TextBox beta de forma predeterminada en espacios de trabajo, pestañas y divisiones de terminal recién creados. Enfocar también muestra TextBox."
+          "focusTextBoxOnNewTerminals": "Enfoca la entrada TextBox beta de forma predeterminada en espacios de trabajo, pestañas y divisiones de terminal recién creados. Enfocar también muestra TextBox.",
+          "textBoxDefaultSubmitAction": "Bandeja de texto predeterminada enviar ID de acción para nuevas sesiones de terminal. Usa entrada de texto para entrada sencilla o uno de los IDs de acción configurados.",
+          "textBoxSubmitActions": "Las acciones configurables de envío en el cuadro de texto se muestran en el botón de enviar, el ciclo de Shift-Tab y el menú de clic derecho.",
+          "textBoxSubmitActionId": "ID de acción estable referenciado por terminal.textBoxDefaultSubmitAction.",
+          "textBoxSubmitActionTitle": "Etiqueta de menú para esta acción de enviar.",
+          "textBoxSubmitActionKind": "Ya sea que esta acción envíe entrada de texto plano o que amplíe una plantilla de comando de shell.",
+          "textBoxSubmitActionCommandTemplate": "Plantilla de comandos de shell para acciones de comando. Incluye {{prompt}} para hacer comillas en el comando.",
+          "textBoxSubmitActionPreservePromptAfterLaunch": "Cuando sea cierto, lanza commandTemplate sin el prompt y guarda el prompt en el TextBox del agente activo.",
+          "textBoxSubmitActionSystemImage": "El nombre del símbolo de Reserva de SF aparece en el botón de enviar.",
+          "textBoxSubmitActionAssetName": "Nombre opcional de imagen del catálogo de activos de la app mostrado en el botón de enviar.",
+          "textBoxSubmitActionImagePath": "Ruta opcional de PNG o archivo de imagen mostrada en el botón de enviar. Tilde se expande.",
+          "textBoxSubmitActionBackgroundColorHex": "Metadatos de color de acción como RGB o RGBA hexadecimal. El relleno de botón de enviar permanece blanco y solo cambia la opacidad entre estados activados y desactivados."
         },
         "notifications": {
-          "suppressOnlyFocusedSurface": "Cuando está activado, un banner de notificación se retira automáticamente solo cuando su superficie es exactamente la superficie enfocada. Un banner entregado para una superficie no enfocada en el workspace actualmente visible permanece visible hasta que enfoques esa superficie (o hagas clic en él/lo descartes), en lugar de retirarse cuando el workspace se vuelve visible. Desactivado conserva el comportamiento heredado de retirada según la visibilidad del workspace."
+          "suppressOnlyFocusedSurface": "Cuando está activado, un banner de notificación se retira automáticamente solo cuando su superficie es exactamente la superficie enfocada. Un banner entregado para una superficie no enfocada en el workspace actualmente visible permanece visible hasta que enfoques esa superficie (o hagas clic en él/lo descartes), en lugar de retirarse cuando el workspace se vuelve visible. Desactivado conserva el comportamiento heredado de retirada según la visibilidad del workspace.",
+          "agentPermissionPrompt": "Notifica cuando un agente (por ejemplo, Claude Code) está bloqueado esperando tu permiso para ejecutar una herramienta. Activado por defecto, ya que esta es la alerta sobre la que debes actuar para desbloquear al agente.",
+          "agentTurnComplete": "Cuándo notificar que un agente ha terminado un turno. Cuando Idle (por defecto) suprime la notificación mientras el agente aún tiene una tarea en segundo plano o un despertar programado pendiente, así que te hacen ping cuando el trabajo realmente se agota. Siempre notifica al final de cada turno; nunca lo desactiva.",
+          "agentIdleReminder": "Notifica cuando un agente ha estado inactivo esperando tu entrada (unos 60 segundos después de que termine un turno). Suprimido mientras el trabajo en segundo plano del último turno sigue pendiente, así que una construcción o vigilante en marcha no activa una falsa alerta de espera."
         },
         "browser": {
           "defaultSearchEngine": "Motor de búsqueda predeterminado para consultas de la barra de direcciones del navegador que no son URL. Usa custom con customSearchEngineURLTemplate para otros proveedores.",
           "customSearchEngineName": "Nombre visible usado cuando defaultSearchEngine es custom.",
-          "customSearchEngineURLTemplate": "URL de búsqueda usada cuando defaultSearchEngine es custom. Incluye el marcador de consulta o %s para la consulta codificada. Si no hay marcador, cmux añade q= a la URL."
+          "customSearchEngineURLTemplate": "URL de búsqueda usada cuando defaultSearchEngine es custom. Incluye el marcador de consulta o %s para la consulta codificada. Si no hay marcador, cmux añade q= a la URL.",
+          "askWhereToSaveDownloads": "Muestra un panel de guardado para las descargas del navegador en lugar de guardar directamente en Descargas."
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Valor predeterminado global para dónde Cmd-N dentro de un grupo, el botón + del encabezado del grupo y las acciones de grupo configuradas colocan el nuevo workspace: `afterCurrent` (después del workspace activo dentro del grupo, con top como reserva), `top` (segunda posición, justo después del ancla) o `end` (después del último miembro).",
@@ -995,6 +1292,35 @@
         "shortcuts": {
           "when": "Predicados de contexto opcionales por acción (cláusulas `when` al estilo de VS Code), indexados por el id de acción de cmux. Cada valor es una expresión booleana sobre claves de contexto, combinada con !, &&, || y paréntesis. Claves booleanas: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Las claves tipadas admiten comparaciones: la cadena sidebarMode (files, find, sessions, feed o dock) y los enteros paneCount y workspaceCount. Los operadores de comparación son ==, !=, =~ (expresión regular), <, <=, >, >= e `in [a, b]`; una clave desconocida o ausente se evalúa como false. También se aceptan los literales booleanos true y false; `key == false` equivale a `!key`. El atajo de la acción solo se activa (y solo entra en conflicto con otros atajos) cuando la cláusula se cumple. Ejemplos: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } selecciona espacios de trabajo con Ctrl+1–9 en todas partes excepto cuando la barra lateral derecha tiene el foco; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } limita una asignación a la barra lateral de búsqueda cuando el espacio de trabajo tiene varios paneles.",
           "showModifierHoldHints": "Muestra chips de sugerencias de atajos mientras mantienes pulsado Cmd o Control."
+        },
+        "agentChat": {
+          "description": "Chat de agentes GUI configuración del servidor. La acción integrada de chat de nuevo agente abre este URL en un espacio de trabajo del navegador, sonda primero /healthz y puede ejecutar un comando start configurado cuando el servidor está caído.",
+          "url": "Base URL para el servidor de chat de agentes local de la máquina GUI . cmux sondea <url>/healthz antes de abrir el espacio de trabajo.",
+          "startCommand": "Comando opcional de shell para iniciar el servidor de chat de agentes cuando <url>/healthz no es alcanzable. cmux lo ejecuta separado con el SHELLdel usuario, consulta healthz durante una ventana corta y delimitada y luego abre el espacio de trabajo de cualquier manera.",
+          "keys": {
+            "description": "El comportamiento del teclado anula la interfaz web del chat de agentes.",
+            "ctrlJ": "Comportamiento de Ctrl+J en los campos de texto del chat de agentes. Usa la nueva línea para insertar un salto de línea, o el menú para mover al siguiente elemento emergente mientras hay un menú abierto."
+          },
+          "fonts": {
+            "description": "Sobrescrituras de fuentes para la interfaz web del chat del agente. Los valores omitidos vuelven a Ghostty y a los valores predeterminados integrados.",
+            "sansFamily": "CSS familia de fuentes usada para el cuerpo del chat de agentes y el texto de la interfaz.",
+            "bodyFamily": "Alias para sansFamily.",
+            "family": "Alias para sansFamily.",
+            "baseSize": "Tamaño base de fuente de Agent Chat en CSS píxeles.",
+            "bodySize": "Alias para baseSize.",
+            "monoFamily": "CSS familia de fuentes usada para el código del chat de agentes y texto monoespacio.",
+            "codeFamily": "Alias para monoFamily.",
+            "codeSize": "Código del chat del agente: tamaño de fuente en CSS píxeles.",
+            "monoSize": "Alias para codeSize.",
+            "codeLineHeight": "Multiplicador de altura de línea usado para bloques de códigos de chat de agentes."
+          }
+        },
+        "canvas": {
+          "paneGap": "El espaciado entre paneles en el diseño del lienzo, en puntos. El ajuste automático, el reordenado y la colocación de nuevos paneles usan este mismo hueco.",
+          "snappingEnabled": "Ajusta automáticamente el arrastre y el redimensionado de los paneles a los bordes vecinos y al hueco entre paneles. Mantén pulsada la tecla Comando para suspender el ajuste durante un gesto."
+        },
+        "fileEditor": {
+          "wordWrap": "Haz líneas largas en el borde derecho del editor en lugar de desplazarte horizontalmente."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -1006,7 +1332,12 @@
       "shortcutsWhenBooleanKeys": "claves booleanas. Una clave desconocida o ausente se evalúa como false; también se aceptan los literales true y false.",
       "shortcutsWhenTypedKeys": "claves tipadas para comparaciones: el modo activo de la barra lateral derecha (cadena) y los recuentos de paneles y espacios de trabajo (enteros).",
       "shortcutsWhenOperators": "operadores booleanos, comparaciones tipadas, coincidencia por expresión regular y pertenencia a listas. Las comparaciones ligan más fuerte que && y ||.",
-      "shortcutsWhenExample": "Por ejemplo, esto hace que Ctrl+1–9 seleccione espacios de trabajo en todas partes salvo cuando la barra lateral derecha tiene el foco (dejando Ctrl+1–5 libre para el selector de modo de la barra lateral), y limita la selección de superficie a la barra lateral de búsqueda cuando el espacio de trabajo tiene varios paneles:"
+      "shortcutsWhenExample": "Por ejemplo, esto hace que Ctrl+1–9 seleccione espacios de trabajo en todas partes salvo cuando la barra lateral derecha tiene el foco (dejando Ctrl+1–5 libre para el selector de modo de la barra lateral), y limita la selección de superficie a la barra lateral de búsqueda cuando el espacio de trabajo tiene varios paneles:",
+      "settingsFile": "cmux.json",
+      "settingsFileDesc": "cmux.json almacena la configuración de cmuxapps, accesos directos, acciones, comandos y diseños de espacio de trabajo.",
+      "settingsFilePrecedence": "Los accesos directos definidos en cmux.json anulan el valor de Configuración dentro de la app. Los atajos gestionados permanecen visibles en Ajustes pero allí se vuelven solo lectura.",
+      "settingsFileChords": "Usa una cuerda para un solo atajo o un array de dos elementos para un acorde. Ejemplo: [\"ctrl+b\", \"c\"] significa pulsar Ctrl+B, luego C.",
+      "exampleFileEditorWordWrap": "Haz líneas largas en el borde derecho del editor en lugar de desplazarte horizontalmente."
     },
     "customCommands": {
       "title": "Comandos personalizados",
@@ -1107,7 +1438,17 @@
       "absolutePath": "Ruta absoluta",
       "cwdAbsolute": "se usa tal cual",
       "fullExample": "Ejemplo completo",
-      "restartNew": "Crear un workspace nuevo (por defecto)"
+      "restartNew": "Crear un workspace nuevo (por defecto)",
+      "actionTypeWorkspace": "Crea un espacio de trabajo a partir de una definición de espacio de trabajo en línea, con comportamiento opcional de reinicio. Ofrecido automáticamente en el menú de botones plus de nuevo espacio de trabajo.",
+      "actionFieldNewWorkspaceMenu": "Establece true para ofrecer cualquier acción en el menú de botones plus de nuevo espacio de trabajo, o false para ocultar una acción de espacio de trabajo desde él.",
+      "workspaceActions": "Distribución de espacios de trabajo",
+      "workspaceActionsDesc": "Un diseño de espacio de trabajo se almacena como una acción <workspace>workspace</workspace> , incrustando una definición completa de espacio de trabajo directamente en la acción para que no necesite entrada <commands>commands</commands> separados. Soporta los mismos campos de espacio de trabajo más <setup>setup</setup>, un comando de arranque enviado al primer terminal antes del comando propio de ese terminal:",
+      "workspaceActionsMenuDesc": "Los diseños de espacios de trabajo aparecen automáticamente en el menú de clic derecho con botón plus. Configura <newWorkspaceMenu>newWorkspaceMenu</newWorkspaceMenu> en <falseValue>false</falseValue> para ocultar uno, o en <trueValue>true</trueValue> en cualquier otra acción para añadirlo al menú.",
+      "workspaceActionsSaveDesc": "También puedes crearlos sin escribir JSON: haz clic derecho en el botón más y elige <saveLayout>Save Workspace as Layout</saveLayout> para capturar las divisiones, directorios, agentes en ejecución y pestañas del navegador del espacio de trabajo actual en <configPath>~/.config/cmux/cmux.json</configPath>. Se almacenan como entradas en el bloque <actions>actions</actions>. <customize>Customize Workspace Layouts</customize> abre ese archivo en tu editor.",
+      "wsFieldEnv": "Variables de entorno heredadas por cada shell en el espacio de trabajo",
+      "wsFieldSetup": "El comando de arranque se envía al primer terminal del espacio de trabajo antes que el comando propio de ese terminal",
+      "workspaceActionsDefaultTitle": "Predeterminado para nuevos espacios de trabajo",
+      "workspaceActionsDefaultDesc": "Utiliza el submenú <defaultMenu>Default for New Workspace</defaultMenu> para elegir qué diseño de espacio de trabajo guardado debe ejecutarse al crear un espacio de trabajo nuevo sin más, o elige Ninguno para volver a un terminal en blanco. El cuadro de diálogo de guardar también tiene una casilla <checkbox>Use as default for new workspaces</checkbox>. La configuración es <action>ui.newWorkspace.action</action>; un valor <localConfig>.cmux/cmux.json</localConfig> prevalece sobre <globalConfig>~/.config/cmux/cmux.json</globalConfig>."
     },
     "keyboardShortcuts": {
       "title": "Atajos de teclado",
@@ -1130,7 +1471,9 @@
         "find": "Búsqueda",
         "terminal": "Terminal",
         "window": "Ventana",
-        "diffViewer": "Visor de diffs"
+        "diffViewer": "Visor de diffs",
+        "app": "App",
+        "appBlurb": "Atajos de aplicación, ventana y comandos de nivel superior."
       },
       "sc": {
         "ws-new": "Nuevo workspace",
@@ -1173,7 +1516,13 @@
         "wn-reload": "Recargar configuración",
         "wn-quit": "Salir"
       },
-      "metaTitle": "Atajos de teclado"
+      "metaTitle": "Atajos de teclado",
+      "chordsTitle": "Acordes de atajo",
+      "chordsIntro": "cmux soporta acordes de atajo en dos pasos en <settingsFile>~/.config/cmux/cmux.json</settingsFile>. Para ver el esquema de configuración completo, consulte la <configurationLink>documentación de configuración</configurationLink>.",
+      "chordsCallout": "La configuración puede editar atajos directamente. Usa cmux.json cuando quieras una asignación exacta de prefijos al estilo tmux, guarda accesos directos en archivos de puntos, o desvincula una acción con null, una cadena vacía, \"ninguno\", \"clear\", \"unbound\" o \"disabled\".",
+      "chordsRuleSingle": "Usa una cuerda sencilla como atajo de un solo paso.",
+      "chordsRuleArray": "Usa un array de dos elementos para un acorde. El primer elemento es el trazo del prefijo, el segundo es la tonalidad que lo sigue.",
+      "chordsRuleSyntax": "Cada elemento utiliza la misma sintaxis que las asignaciones normales, por ejemplo cmd+b, ctrl+b, shift+/ o ctrl+1."
     },
     "api": {
       "title": "Referencia de CLI",
@@ -1256,7 +1605,8 @@
       "pythonClient": "Cliente Python",
       "shellScript": "Script de shell",
       "buildScriptNotification": "Script de compilación con notificación",
-      "metaTitle": "Referencia de CLI"
+      "metaTitle": "Referencia de CLI",
+      "listSurfacesDesc": "Lista todas las superficies en el espacio de trabajo actual."
     },
     "notifications": {
       "title": "Notificaciones",
@@ -1365,9 +1715,9 @@
       "metaDescription": "Instala y usa habilidades de agentes de cmux para control básico por CLI, automatización del navegador, paneles Markdown, ventanas de depuración y releases.",
       "intro": "cmux incluye habilidades que enseñan a los agentes de código a usar el control por cmux CLI, superficies de navegador, paneles Markdown, ventanas de depuración y el flujo de releases.",
       "installTitle": "Instalar",
-      "installIntro": "Ejecuta <code>skills.sh</code> para instalar las habilidades incluidas en el repositorio en tu directorio de habilidades de Codex.",
+      "installIntro": "Usa <code>skills</code> CLI de Vercelpara el flujo estándar de instalación multiagente, o úsalo <code>skills.sh</code> cuando solo necesites el directorio de habilidades de Codex.",
       "installFromGitHub": "Instalar desde GitHub",
-      "installDestination": "De forma predeterminada, el script instala en <code>~/.codex/skills</code>, o en <code>$CODEX_HOME/skills</code> cuando CODEX_HOME está definido. Pasa <code>--dest</code> si tu agente lee habilidades desde otro directorio.",
+      "installDestination": "Por defecto, <code>skills.sh</code> se instala en <code>~/.codex/skills</code>o <code>$CODEX_HOME/skills</code> cuando CODEX_HOME está activado. Pasa <code>--dest</code> cuando tu agente lea habilidades de otro directorio.",
       "localInstallTitle": "Instalar desde un checkout",
       "localInstallIntro": "Desde un checkout clonado de cmux, el script usa el directorio local de habilidades.",
       "localInstallCommands": "Comandos locales",
@@ -1400,7 +1750,85 @@
       "relatedTitle": "Documentación relacionada",
       "relatedBrowserAutomation": "Automatización del navegador",
       "relatedApi": "Referencia de CLI",
-      "relatedCustomCommands": "Comandos personalizados"
+      "relatedCustomCommands": "Comandos personalizados",
+      "installWithVercel": "Instala con Vercel habilidades",
+      "installWithSkillsSh": "Instala con skills.sh",
+      "workspaceName": "cmux Espacio de trabajo",
+      "workspaceDescription": "Mantiene la automatización ajustada al espacio de trabajo actual del llamante, la superficie de llamante, los paneles, los metadatos de la barra lateral y el contexto del socket.",
+      "workspaceUse": "Úsalo cuando un agente deba añadir paneles, enviar entradas, inspeccionar el estado o abrir superficies auxiliares sin interrumpir otro espacio de trabajo.",
+      "settingsName": "cmux Configuración",
+      "settingsDescription": "Inspecciona, edita, valida y abre ~/.config/cmux/cmux.json con un script de ayuda incluido.",
+      "settingsUse": "Úsalo cuando cambies la apariencia, la barra lateral, las notificaciones, el navegador, la automatización o la configuración de atajos por JSON ruta.",
+      "customizationName": "cmux Personalización",
+      "customizationDescription": "Personaliza acciones cmux.json , comportamiento de botones plus, botones en la barra de pestañas, disposiciones de espacios de trabajo, controles de Dock, ganchos de alimentación, ajustes en la barra lateral, entradas de la Paleta de comandos, atajos y preferencias de terminal propiedad de Ghostty.",
+      "customizationUse": "Úsalo para que cmux abra los árboles de trabajo de un usuario, múltiples verificaciones, sesiones de SSH , herramientas de desarrollo o el diseño de proyectos desde los puntos exactos de entrada de la interfaz que quiere.",
+      "diagnosticsName": "cmux Diagnóstico",
+      "diagnosticsDescription": "Realiza comprobaciones seguras para el soporte de salud de cmux CLI , acceso a sockets, hooks, restauración de sesión, ajustes y binarios de agentes.",
+      "diagnosticsUse": "Úsalo cuando notificaciones, ganchos, restauraciones o automatizaciones no funcionen como se espera.",
+      "coverageTitle": "Lo que cubren las habilidades",
+      "coverageIntro": "Los archivos SKILL.md de nivel superior se mantienen cortos. Los detalles más profundos de los comandos están en referencias, scripts y plantillas junto a cada habilidad.",
+      "scopeHeader": "Alcance",
+      "referencesHeader": "Cobertura de referencia",
+      "cmuxScope": "Control de topología para ventanas, espacios de trabajo, paneles, superficies, enfoque, movimientos, reordenaciones, flujos de separación y destellos de atención.",
+      "cmuxReferences": "Gestiona la sintaxis, la segmentación de llamadas, el ciclo de vida de ventanas y espacios de trabajo, el enrutamiento de paneles y superficies, el destello de disparos y las comprobaciones de salud.",
+      "workspaceScope": "Reglas de automatización del espacio de trabajo actual para el contexto del llamador, paneles aditivos, superficies auxiliares, metadatos en la barra lateral, entrada y selección de sockets.",
+      "workspaceReferences": "Referencia de comandos de espacio de trabajo que cubre contexto, ventanas, espacios de trabajo, paneles, superficies, entrada, estado en la barra lateral, notificaciones, documentos y recargas etiquetadas.",
+      "settingsScope": "cmux.json ajustes de lectura y escritura, búsqueda de claves, análisis sintáctico JSONC , actualizaciones atómicas seguras, validación, apertura de editores y ediciones de enlace de accesos directos.",
+      "settingsReferences": "Lista de claves de configuración generada, identificadores de acciones de acceso directo, URLde esquema, detección de rutas soportadas y el asistente de configuración cmuxincluido.",
+      "customizationScope": "Personalización para el usuario final a través de cmux.json configuraciones, acciones, comandos, diseños de espacios de trabajo, menús con clic positivo y botón derecho, botones de barra de pestañas superficiales, controles de Dock, ganchos de feed y notificaciones, metadatos en la barra lateral, entradas de la paleta de comandos, atajos y límites de configuración Ghostty .",
+      "customizationReferences": "Selección de configuración de superficie, qué se puede personalizar, alcance global frente a local de proyecto, ejemplos de acciones, cableado de botones plus, ejemplos de botones en barra de pestañas, ejemplos de dock, ganchos de alimentación, ejemplos de diseño de espacios de trabajo, pasos de recarga, reglas de validación y restricciones de seguridad.",
+      "customizationExamplesTitle": "Biblioteca de ejemplos de personalización",
+      "customizationExamplesIntro": "Son patrones de flujo de trabajo reutilizables que un usuario puede pedir a un agente que aplique con cmux Personalización.",
+      "exampleHeader": "Ejemplo",
+      "exampleSurfaceHeader": "Personalizaciones",
+      "exampleUseHeader": "Bien para",
+      "exampleWorktreeName": "Agentes de árbol de trabajo",
+      "exampleWorktreeSurface": "Clic de botón adicional, botón de más botón menú de clic derecho, Paleta de comandos, diseño del espacio de trabajo",
+      "exampleWorktreeUse": "Abrir un árbol de trabajo dedicado o un checkout con terminales emparejados Codex, Claude, SSHo auxiliares.",
+      "exampleFullStackName": "Desarrollo full-stack",
+      "exampleFullStackSurface": "Comando Workspace, vista previa del navegador, controles del dock",
+      "exampleFullStackUse": "Empezar frontend, backend, pruebas, registros y paneles de vista previa en el mismo diseño repetible.",
+      "exampleSshName": "SSH devbox",
+      "exampleSshSurface": "Comando Workspace, terminal remoto, superficie del navegador",
+      "exampleSshUse": "Conectarse a un entorno remoto manteniendo previsualizaciones locales, notas y navegación en cmux.",
+      "exampleReviewName": "Revisión de PR",
+      "exampleReviewSurface": "Comando de espacio de trabajo, superficie del navegador, markdown o notas de terminal",
+      "exampleReviewUse": "Abrir GitHub estado, la solicitud pull y las notas de revisión en un único espacio de trabajo.",
+      "exampleDocsName": "Espacio de trabajo de Docs",
+      "exampleDocsSurface": "Comando de espacio de trabajo, panel de marcaje, vista previa del navegador",
+      "exampleDocsUse": "Edición de la documentación mostrando la página renderizada, el servidor de desarrollo local y las notas fuente.",
+      "exampleCiName": "Reloj CI",
+      "exampleCiSurface": "Controles de muelle, TUIde alimentación, ganchos de notificación",
+      "exampleCiUse": "Observar GitHub Acciones, CircleCI, monitores de liberación y eventos de gancho de agente sin perder el espacio de trabajo principal.",
+      "exampleAgentButtonsName": "Botones de agente rápido",
+      "exampleAgentButtonsSurface": "Botones de barra de pestañas de superficie, acciones, entradas de la paleta de comandos",
+      "exampleAgentButtonsUse": "Añadir lanzadores de Codex, Claudeo agentes personalizados de un solo clic, manteniendo visibles los botones de pestaña integrados.",
+      "customizationExamplesCallout": "Los fragmentos detallados están en <code>skills/cmux-customization/references/examples.md</code>. Los agentes cargan ese archivo solo cuando se necesita un patrón de biblioteca de ejemplos.",
+      "customizationExamplePrompts": "Ejemplos de prompts",
+      "customizationPromptWorktree": "Usa $cmux-customization para configurar el ejemplo de worktree-agents.",
+      "customizationPromptFullStack": "Usa $cmux-customization para crear un diseño de desarrollo full-stack local de proyecto con controles de Dock.",
+      "customizationPromptAgentButtons": "Usa $cmux-customization para añadir botones de agente rápido para Codex y Claude.",
+      "diagnosticsScope": "Comprobaciones de salud de solo lectura para CLI accesibilidad, acceso al socket, entorno cmux , validación de configuraciones, marcadores de instalación de ganchos, almacenes de sesiones, ajustes de reanudación automática y binarios de agentes compatibles.",
+      "diagnosticsReferences": "Incluye scripts de diagnóstico seguro para soporte, comandos de configuración de hook, interpretación de restauración de sesión, comprobaciones de notificaciones y reglas para redactar archivos sensibles.",
+      "browserScope": "Automatización del navegador dentro de cmux superficies webview, incluyendo navegación, acciones de DOM , esperas, captura de estado, capturas de pantalla y instantáneas.",
+      "browserReferences": "Mapeo de comandos, ciclo de vida de referencias instantáneas, autenticación, persistencia de sesión, estado del vídeo, comportamiento del proxy y plantillas de automatización reutilizables.",
+      "markdownScope": "Paneles markdown formateados que están junto a terminales y se recargan a medida que cambian los archivos.",
+      "markdownReferences": "Sintaxis de comandos, opciones de enrutamiento, comportamiento de recarga en vivo, reemplazo de archivos atómicos y cobertura de renderizado con markdown.",
+      "suggestionsTitle": "Habilidades futuras sugeridas",
+      "suggestionsIntro": "Son buenos candidatos si el conjunto de habilidades supera la lista actual de instalaciones.",
+      "suggestionHeader": "Idea de habilidad",
+      "suggestionUseHeader": "Caso de uso",
+      "suggestionWhyHeader": "Por qué ayuda",
+      "suggestSshName": "cmux SSH",
+      "suggestSshUse": "Impulsa espacios de trabajo remotos, lanzamientos de SSH URL , enrutamiento de navegadores a través de redes remotas y comportamientos de reconexión.",
+      "suggestSshWhy": "Las sesiones remotas son una superficie cmux principal con un comportamiento que difiere de los flujos de trabajo de terminales locales.",
+      "suggestCloudVmName": "cmux Cloud VM",
+      "suggestCloudVmUse": "Operar los flujos de creación de VM en la nube, conecta, ejecuta, SSH endpoint, facturación y solución de problemas de proveedores.",
+      "suggestCloudVmWhy": "El trabajo de máquinas virtuales en la nube abarca la aplicación web, la base de datos, las APIs de proveedores y las pruebas de humo.",
+      "suggestVaultName": "cmux Bóveda",
+      "suggestVaultUse": "Gestiona la configuración de agentes respaldados por bóveda, credenciales y comportamientos de restauración sin filtrar secretos en los prompts.",
+      "suggestVaultWhy": "Los flujos de trabajo de los vaults requieren un manejo más estricto que los ajustes normales porque afectan a los secretos y al inicio de agentes.",
+      "suggestionsCallout": "Mantén las habilidades futuras centrada en flujos de trabajo repetibles con secuencias de comandos reales. Si una habilidad solo reafirma la documentación del producto, añádela a la documentación en su lugar."
     },
     "changelog": {
       "title": "Changelog",
@@ -1427,7 +1855,13 @@
       "ohMyClaudeCode": "oh-my-claudecode",
       "dock": "Dock",
       "textBox": "TextBox (Beta)",
-      "ios": "App para iOS"
+      "ios": "App para iOS",
+      "base": "Base",
+      "ssh": "SSH",
+      "remoteTmux": "tmux remoto",
+      "ohMyPi": "oh-my-pi",
+      "vault": "Bóveda",
+      "taskManager": "Administrador de tareas"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -1587,7 +2021,52 @@
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode: OpenCode multiagente en cmux",
       "metaDescription": "oh-my-opencode (cmux omo) ejecuta la CLI de OpenCode con el plugin oh-my-openagent dentro de cmux. Orquesta Claude, GPT, Gemini y Grok como agentes paralelos, cada uno en una división nativa de cmux.",
-      "metaDescriptionShort": "cmux omo ejecuta OpenCode con oh-my-openagent y coordina Claude, GPT, Gemini y Grok como agentes paralelos, cada uno en una división nativa de cmux."
+      "metaDescriptionShort": "cmux omo ejecuta OpenCode con oh-my-openagent y coordina Claude, GPT, Gemini y Grok como agentes paralelos, cada uno en una división nativa de cmux.",
+      "title": "oh-my-opencode",
+      "nightlyWarning": "Disponible solo en <nightly>versiones nocturnas</nightly> .",
+      "intro": "cmux omo lanza OpenCode con el plugin oh-my-openagent en un entorno consciente de cmux. oh-my-openagent orquesta múltiples modelos de IA (Claude, GPT, Gemini, Grok) como agentes especializados que trabajan en paralelo. Cuando genera paneles de agentes, estos se vuelven nativos cmux divididos.",
+      "usage": "Uso",
+      "usageDesc": "Todos los argumentos posteriores a omo se remiten a OpenCode.",
+      "whatYouGet": "Lo que obtienes",
+      "whatYouGetDesc": "oh-my-openagent's TmuxSessionManager genera cada agente de fondo en su propio panel. Con cmux omo, esos paneles se vuelven nativos cmux divisiones en lugar de tmux paneles:",
+      "whatYouGet1": "Cada subagente (Hefesto, Atlas, Oráculo, etc.) tiene su propia división cmux , visible en el espacio de trabajo",
+      "whatYouGet2": "Gestión de disposición automática: los agentes se organizan en una cuadrícula (vertical-principal por defecto) y se redimensionan a medida que los agentes van y vienen",
+      "whatYouGet3": "Los agentes inactivos se limpian automáticamente tras 3 encuestas idle consecutivas sin mensajes nuevos",
+      "whatYouGet4": "Si la ventana es demasiado pequeña para un nuevo panel de agentes, se pone en cola y se vuelve a intentar cada 2 segundos hasta que queda espacio disponible",
+      "whatYouGet5": "Tu sesión principal permanece en el panel principal mientras los agentes trabajan a su lado",
+      "firstRun": "Primera etapa",
+      "firstRunDesc": "En la primera partida, cmux omo prepara todo automáticamente:",
+      "firstRunStep1": "Crea una configuración en sombra en ~/.cmuxterm/omo-config/ con oh-my-opencode registrado en el array de plugins",
+      "firstRunStep2": "Instala el paquete oh-my-opencode npm usando bun o npm si no está ya presente",
+      "firstRunStep3": "Los enlaces simbólicos node_modules, package.jsony configuración de plugins desde tu directorio original de ~/.config/opencode/",
+      "firstRunStep4": "Activa el modo tmux en la configuración oh-my-opencode (tmux.enabled por defecto es false, cmux omo lo activa)",
+      "firstRunSafe": "Tu configuración original de ~/.config/opencode/ nunca se modifica. Ejecutar código abierto simple funciona igual que antes.",
+      "howItWorks": "Cómo funciona",
+      "howItWorksDesc": "El mismo patrón que cmux claude-teams. Un shim de tmux intercepta los comandos de tmux del TmuxSessionManager de oh-my-openagent y los traduce en llamadas a la API de cmux.",
+      "shimStep1": "Crea una cuña tmux en ~/.cmuxterm/omo-bin/tmux que redirige a cmux __tmux-compat",
+      "shimStep2": "Configura TMUX y TMUX_PANE para simular una sesión tmux",
+      "shimStep3": "Activa tmux.enabled en la configuración de oh-my-opencode (necesaria para la aparición visual de paneles)",
+      "shimStep4": "Puntos OPENCODE_CONFIG_DIR en la configuración sombra",
+      "shimStep5": "Introduce el directorio shim a PATH y ejecuta en opencode",
+      "directories": "Directorios",
+      "dirPath": "Camino",
+      "dirPurpose": "Propósito",
+      "dirShim": "Contiene la escritura tmux shim",
+      "dirShadow": "Shadow OpenCode configuración con oh-my-opencode plugin registrado y tmux activado (enlaces simbólicos a tu configuración original)",
+      "dirStore": "Almacenamiento persistente para búferes y ganchos tmux-compat",
+      "shadowConfig": "Configuración sombra",
+      "shadowConfigDesc": "cmux omo usa un directorio de configuración en sombra, así que tu configuración original de OpenCode no se ve afectada:",
+      "shadowStep1": "Copia tu ~/.config/opencode/opencode.json añadiendo oh-my-opencode al array de plugins",
+      "shadowStep2": "Enlaces simbólicos node_modules, package.jsony bun.lock del directorio original",
+      "shadowStep3": "Escribe oh-my-opencode.json con tmux.enabled configurado en true",
+      "shadowStep4": "Establece OPENCODE_CONFIG_DIR al directorio sombra antes de lanzar opencode",
+      "envVars": "Variables de entorno",
+      "envVarName": "Variable",
+      "envVarPurpose": "Propósito",
+      "envTmux": "Ruta de socket tmux falsa que codifica el espacio de trabajo y el panel de cmux actuales",
+      "envTmuxPane": "Identificador de panel de tmux falso asignado al panel de cmux actual",
+      "envConfigDir": "Apunta al directorio shadow config con oh-my-opencode activado",
+      "envSocket": "Camino hacia el cmux socket de control para conectar la cuña"
     },
     "ios": {
       "metaTitle": "App para iOS",
@@ -1624,16 +2103,414 @@
       "dataNot": "Tu sesión interactiva de terminal, su contenido y las pulsaciones de teclas fluyen directamente entre tu teléfono y tu Mac a través de tu propia red, y no se retransmiten ni se almacenan en los servidores de cmux. La única excepción es el texto de las notificaciones reenviadas, que transita por cmux y el servicio de notificaciones de Apple para llegar a tu teléfono, a menos que actives Hide content (consulta Notificaciones más arriba).",
       "enterpriseTitle": "Empresas y autoalojamiento",
       "enterpriseDesc": "Para un despliegue autoalojado o aislado de red, contacta con <link>founders@manaflow.com</link>."
+    },
+    "base": {
+      "title": "Base",
+      "metaTitle": "Espacio de trabajo base en la nube",
+      "metaDescription": "La base es tu espacio de trabajo persistente cmux en la nube: una VM por ámbito personal o de equipo, recurrible desde Mac y iOS.",
+      "intro": "Base es tu espacio de trabajo en la nube cmux siempre activo. Es la VM en la nube por defecto cmux abre para una cuenta iniciada sesión: persistente, recurrible y pensada para codificar agentes, shells y trabajos que quieras alcanzar desde cualquier cliente cmux .",
+      "previewNote": "Nombres de la vista previa. Algunos menús de salida CLI y de nivel inferior siguen diciendo Cloud VM mientras el nombre del producto se mueve a Base.",
+      "whatTitle": "Qué es la base",
+      "whatDesc": "Base es el espacio de trabajo principal para el trabajo en la nube en cmux. Abrir Base es determinista: cmux encuentra la VM persistente adecuada para el alcance de tu cuenta actual, la reanuda si es necesario, repara el endpoint del terminal si puede y abre un terminal en él.",
+      "whatPersistent": "Persistente: los archivos, herramientas instaladas, historial de shell y estado del agente permanecen en la VM hasta que reinicies explícitamente la base.",
+      "whatSameVm": "Identidad estable: el mismo ámbito de cuenta abre la misma VM base cada vez.",
+      "whatAnywhere": "Accesible desde los clientes: Mac y iOS se conectan mediante cmux autenticación, así que el Mac que creó el espacio de trabajo no necesita permanecer en línea.",
+      "ownershipTitle": "Propiedad",
+      "ownershipDesc": "La base está asignada al contexto de la cuenta de Stack que usas en cmux.",
+      "ownerType": "Propietario",
+      "ownerScope": "Alcance",
+      "personalOwner": "Personal Base",
+      "personalScope": "Una VM persistente propiedad de tu usuario de Stack. Solo tus clientes conectados pueden conectarse, a menos que compartas acceso a través de una función de producto.",
+      "teamOwner": "Base del equipo",
+      "teamScope": "Una VM persistente propiedad de un equipo de Stack. Access sigue la membresía y la política del equipo, separada de la base personal de cada miembro.",
+      "switchingDesc": "Cambiar de cuentas de pila o equipos cambia qué base se abre. Una base personal y una base de equipo son VMs diferentes incluso si las usas desde el mismo Mac.",
+      "openCreateTitle": "Abrir, reiniciar, crear, bifurcar",
+      "openCreateDesc": "El botón principal debería ser Base Abierta. Es idempotente y seguro para pulsar repetidamente.",
+      "openMeaning": "Open Base: crea la VM base con alcance solo si no existe, de lo contrario reanuda y conecta a la existente.",
+      "resetMeaning": "Reiniciar la base: crear una nueva generación de base para el mismo alcance de cuenta. La generación anterior se conserva, por lo que los reinicios accidentales son recuperables.",
+      "createMeaning": "Crea una máquina virtual adicional, separada, para máquinas adicionales adicionales.",
+      "forkMeaning": "Fork VM: copia la VM actual en una nueva rama de trabajo.",
+      "cliNamingDesc": "La CLI de vista previa actual expone esto mediante comandos de VM. El modelo de producto es Base para el espacio de trabajo persistente predeterminado, y VM para máquinas adicionales explícitas y operaciones de bajo nivel.",
+      "sessionsTitle": "Sesiones y reconexiones",
+      "sessionsDesc": "Cada panel de terminal debería tener su propia sesión PTY remota. Dividir o abrir una nueva pestaña crea una nueva sesión. Restaurar cmux vuelve a unir cada panel a su sesión cuando es posible.",
+      "sessionScrollback": "El scrollback pertenece al panel de cmux y debería sobrevivir al reinicio de la app.",
+      "sessionReconnect": "Las reconexiones deberían ser silenciosas en el terminal. cmux debería mostrar el estado en la interfaz en lugar de añadir bucles de reintento al scrollback.",
+      "sessionRepair": "Si el terminal está viciado, cmux intenta una reparación in situ antes de pedirte que reinicies nada.",
+      "mobileTitle": "iOS acceso",
+      "mobileDesc": "Base funciona de forma independiente a un proceso de Mac. La app iOS puede listar tus espacios de trabajo de Base y conectarse a través del plano de control en la nube siempre que estés conectado. Esto te permite comprobar agentes y terminales mientras tu MacBook está en suspensión o offline.",
+      "notificationsTitle": "Notificaciones",
+      "notificationsDesc": "Una VM base puede tener muchos clientes conectados. Las notificaciones de los agentes deben dispersarse a través de la ruta de eventos en la nube a todos los clientes conectados con acceso, incluyendo Mac y iOS.",
+      "securityTitle": "Modelo de seguridad",
+      "securityAuth": "La autenticación utiliza tu cuenta cmux . Un cliente debe iniciar sesión antes de poder listarlo o conectarse a Base.",
+      "securityLease": "Los endpoints de conexión de terminal deben ser de corta duración y estar asignados a la cuenta, dispositivo, máquina virtual y sesión autenticados.",
+      "securityProvider": "Las credenciales del proveedor y los secretos de bootstrap de la VM permanecen en el lado del servidor. Los clientes solo reciben el endpoint de conectar o la operación firmada que necesitan.",
+      "securityTeam": "El acceso a la base del equipo debe comprobarse desde el lado del servidor en cada operación de lista, apertura, anexión, bifurcación, punto de control y reinicio.",
+      "recoveryTitle": "Recuperación",
+      "recoveryDesc": "Base está diseñado para preferir la reparación sobre el reemplazo porque su identidad y sistema de archivos forman parte de la promesa del usuario.",
+      "recoveryRetry": "Reintentar: pide a cmux que reanude y vuelva a conectar a la misma máquina virtual base.",
+      "recoveryReset": "Reiniciar: crear explícitamente una nueva generación de base. cmux mantiene la generación antigua conservada; la eliminación permanente debería ser un paso de confirmación separado.",
+      "recoverySupport": "Retroalimentación: incluye el id de la máquina virtual, el tiempo transcurrido y el último error no secreto para que soporte pueda saber si el fallo es autenticado, preparación del servicio, terminal terminal o estado local del cliente."
+    },
+    "search": {
+      "placeholder": "Buscar en la documentación…",
+      "label": "Buscar documentación",
+      "resultsLabel": "Resultados de la búsqueda",
+      "noResults": "Sin resultados",
+      "error": "Buscar no disponible",
+      "resultsCount": "{count, plural, one {# Resultado} other {# Resultados}}"
+    },
+    "headingAnchors": {
+      "link": "Enlace a la sección"
+    },
+    "claudeCodeTeams": {
+      "title": "Claude Code Equipos",
+      "metaTitle": "Claude Code Equipos - cmux",
+      "metaDescription": "Haz Claude Code con equipos de agentes dentro de cmux. Los agentes de compañeros aparecen como divisiones nativas cmux en lugar de tmux paneles.",
+      "nightlyWarning": "Disponible solo en <nightly>versiones nocturnas</nightly> .",
+      "intro": "cmux claude-teams lanza Claude Code con agentes teams activados. Cuando Claude genera agentes compañeros, aparecen como cmux nativos en vez de paneles tmux , con metadatos y notificaciones completas en la barra lateral.",
+      "usage": "Uso",
+      "usageDesc": "Todos los argumentos después de claude-teams se envían a Claude Code. El comando pone por defecto el modo compañero en automático y configura el entorno para que Claude use cmux splits.",
+      "howItWorks": "Cómo funciona",
+      "howItWorksDesc": "cmux claude-teams crea un script de tmux shim y configura el entorno para que Claude Code crea que se está ejecutando dentro de tmux. Cuando Claude emite tmux comandos para gestionar los paneles de compañeros, la cuña los traduce en cmux socket API llamadas.",
+      "shimStep1": "Crea una cuña tmux en ~/.cmuxterm/claude-teams-bin/tmux que redirige a cmux __tmux-compat",
+      "shimStep2": "Establece TMUX y TMUX_PANE variables de entorno para simular una sesión tmux",
+      "shimStep3": "Adelanta el directorio de cuñas para PATH para Claude encuentra la cuña antes que tmux",
+      "shimStep4": "Activa CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 y configura el modo compañero en automático",
+      "envVars": "Variables de entorno",
+      "envVarName": "Variable",
+      "envVarPurpose": "Propósito",
+      "envTmux": "Ruta de socket tmux falsa que codifica el espacio de trabajo y el panel de cmux actuales",
+      "envTmuxPane": "Identificador de panel de tmux falso asignado al panel de cmux actual",
+      "envTeams": "Activa Claude Code función de equipos de agentes",
+      "envSocket": "Camino hacia el cmux socket de control para conectar la cuña",
+      "directories": "Directorios",
+      "dirPath": "Camino",
+      "dirPurpose": "Propósito",
+      "dirShim": "Contiene el script tmux shim que traduce tmux comandos a cmux API llamadas",
+      "dirStore": "Almacenamiento persistente para búferes y ganchos tmux-compat",
+      "tmuxCommands": "Comandos tmux soportados",
+      "tmuxCommandsDesc": "La cuña traduce estos tmux comandos en operaciones cmux :",
+      "mapWorkspace": "crea un nuevo espacio de trabajo cmux",
+      "mapSplit": "divide el panel de cmux actual",
+      "mapSendText": "envía texto a una superficie cmux",
+      "mapReadText": "Lee el texto terminal de una superficie cmux",
+      "mapFocus": "se centra en un panel cmux o espacio de trabajo",
+      "mapClose": "cierra una superficie cmux o espacio de trabajo",
+      "mapList": "listas cmux paneles o espacios de trabajo"
+    },
+    "ohMyCodex": {
+      "title": "oh-my-codex",
+      "metaTitle": "oh-my-codex - cmux",
+      "metaDescription": "Ejecuta Oh My Codex (OMX) dentro de cmux con integración nativa de panel dividido para el modo equipo y la orquestación de agentes.",
+      "intro": "cmux omx lanza Oh My Codex (OMX) en un entorno consciente de cmux. OMX es una capa de orquestación multiagente para OpenAI Codex CLI con 30+ roles de agentes especializados, habilidades de flujo de trabajo y ejecución paralela de equipos basada en tmux. Cuando OMX genera paneles de equipo o pantallas de HUD , estos se vuelven nativos cmux divisiones.",
+      "usage": "Uso",
+      "usageDesc": "Todos los argumentos posteriores a omx se envían a la OMX CLI.",
+      "whatYouGet": "Lo que obtienes",
+      "whatYouGetDesc": "OMXmodo equipo y HUD usan tmux para la gestión de paneles. Con cmux omx, esos paneles se vuelven nativos cmux splits:",
+      "whatYouGet1": "Los paneles de trabajo en equipo (Codex/Claude sesiones) aparecen como cmux divisiones en el espacio de trabajo",
+      "whatYouGet2": "HUD pantalla de estado muestra el uso de modelo, rama, contexto y token en un panel dividido",
+      "whatYouGet3": "La gestión de disposición automática organiza paneles de agentes en una cuadrícula vertical-principal",
+      "whatYouGet4": "Tu sesión principal permanece en el panel principal mientras los trabajadores trabajan a su lado",
+      "prerequisites": "Requisitos previos",
+      "prerequisitesDesc": "OMX requiere Codex CLI OpenAI y una configuración Codex autenticación funcional. Ejecuta omx doctor para verificar tu instalación.",
+      "howItWorks": "Cómo funciona",
+      "howItWorksDesc": "Patrón similar a otras integraciones de cmux agentes. Una cuña tmux intercepta tmux comandos de OMX y los traduce en llamadas cmux API .",
+      "shimStep1": "Crea una cuña tmux en ~/.cmuxterm/omx-bin/tmux que redirige a cmux __tmux-compat",
+      "shimStep2": "Configura TMUX y TMUX_PANE para simular una sesión tmux",
+      "shimStep3": "Antepone el directorio de cuñas a PATH",
+      "shimStep4": "Ejecutivos en OMX con todos los argumentos restantes remitidos",
+      "directories": "Directorios",
+      "dirPath": "Camino",
+      "dirPurpose": "Propósito",
+      "dirShim": "Contiene la escritura tmux shim",
+      "dirStore": "Almacenamiento persistente para búferes y ganchos tmux-compat",
+      "envVars": "Variables de entorno",
+      "envVarName": "Variable",
+      "envVarPurpose": "Propósito",
+      "envTmux": "Ruta de socket tmux falsa que codifica el espacio de trabajo y el panel de cmux actuales",
+      "envTmuxPane": "Identificador de panel de tmux falso asignado al panel de cmux actual",
+      "envSocket": "Camino hacia el cmux socket de control para conectar la cuña"
+    },
+    "ohMyPi": {
+      "title": "oh-my-pi",
+      "metaTitle": "oh-my-pi - cmux",
+      "metaDescription": "Conecta oh-my-pi (omp) a cmux con ganchos para estado, notificaciones, restauración de sesión, autodenominación y atribución en el Administrador de tareas.",
+      "intro": "oh-my-pi es un fork de Pi reescrito como un agente de codificación. Su binario es omp, y cmux se integra con él a través de la extensión omp hooks.",
+      "setupUsage": "Configuración y uso",
+      "setupUsageDesc": "Instala OMP y luego instala la extensión cmux hooks. La extensión está escrita para ~/.omp/agent/extensions/cmux-omp-session.ts, y cmux la actualiza cuando cambia la versión incluida.",
+      "whatYouGet": "Lo que obtienes",
+      "whatYouGetDesc": "La extensión hooks permite que OMP reporte información del ciclo de vida y de la sesión a cmux:",
+      "whatYouGet1": "Estado ocupado y inactivo del espacio de trabajo desde los límites de turno de omp",
+      "whatYouGet2": "Notificaciones de giro en cmux",
+      "whatYouGet3": "Seguimiento de sesión para que los paneles cerrados puedan reanudarse desde el índice de sesión con --session SESSION_ID omp o bifurcarse con --fork SESSION_ID omp",
+      "whatYouGet4": "Nombre automático de espacios de trabajo, con omp disponible como modelo sumizador",
+      "whatYouGet5": "Atribución de procesos en el Administrador de tareas para procesos omp",
+      "directories": "Directorios",
+      "directoriesDesc": "cmux lee los datos omp del directorio agent. PI_CODING_AGENT_DIR o PI_CONFIG_DIR pueden sobrescribir ese directorio.",
+      "dirPath": "Camino",
+      "dirPurpose": "Propósito",
+      "dirExtension": "cmux Extensión de ganchos instalada y mejorada por cmux",
+      "dirSessions": "Archivos de sesión OMP que cmux lecturas para restauración y bifurcación",
+      "envVars": "Variables de entorno",
+      "envVarName": "Variable",
+      "envVarPurpose": "Propósito",
+      "envHooksDisabled": "Desactiva la extensión de ganchos omp instalada por cmux",
+      "envCmuxBin": "Anula el binario cmux que invoca la extensión de los ganchos"
+    },
+    "ohMyClaudeCode": {
+      "title": "oh-my-claudecode",
+      "metaTitle": "oh-my-claudecode - cmux",
+      "metaDescription": "Ejecuta Oh My Claude Code (OMC) dentro de cmux con integración nativa de panel dividido para orquestación multiagente.",
+      "intro": "cmux omc lanza Oh My Claude Code (OMC) en un entorno consciente de cmux. OMC es un sistema de orquestación multiagente para Claude Code con 19 agentes especializados, enrutamiento inteligente de modelos y pipelines de equipo basados en tmux. Cuando OMC genera paneles de equipo, estos se vuelven nativos cmux divisiones.",
+      "usage": "Uso",
+      "usageDesc": "Todos los argumentos posteriores a OMC se remiten al OMC CLI.",
+      "whatYouGet": "Lo que obtienes",
+      "whatYouGetDesc": "El modo equipo de OMCtmux usa para la gestión de paneles. Con cmux omc, esos paneles se vuelven nativos cmux divisiones:",
+      "whatYouGet1": "Los paneles de trabajo en equipo (Claude/Codex/Gemini) aparecen como cmux divisiones en el espacio de trabajo",
+      "whatYouGet2": "HUD pantalla de monitorización muestra el estado en tiempo real en un panel dividido",
+      "whatYouGet3": "La gestión de disposición automática organiza paneles de agentes en una cuadrícula vertical-principal",
+      "whatYouGet4": "Tu sesión principal permanece en el panel principal mientras los agentes trabajan a su lado",
+      "prerequisites": "Requisitos previos",
+      "prerequisitesDesc": "OMC requiere Claude Code CLI instalado y autenticado.",
+      "howItWorks": "Cómo funciona",
+      "howItWorksDesc": "El mismo patrón que cmux claude-teams. Un tmux shim intercepta tmux comandos de OMC y los traduce en llamadas cmux API.",
+      "shimStep1": "Crea una cuña tmux en ~/.cmuxterm/omc-bin/tmux que redirige a cmux __tmux-compat",
+      "shimStep2": "Configura TMUX y TMUX_PANE para simular una sesión tmux",
+      "shimStep3": "Antepone el directorio de cuñas a PATH",
+      "shimStep4": "Inyecta NODE_OPTIONS módulo de restauración para compatibilidad Claude Code",
+      "shimStep5": "Ejecutivos hacia OMC con todos los argumentos restantes enviados",
+      "directories": "Directorios",
+      "dirPath": "Camino",
+      "dirPurpose": "Propósito",
+      "dirShim": "Contiene la escritura tmux shim",
+      "dirStore": "Almacenamiento persistente para búferes y ganchos tmux-compat",
+      "envVars": "Variables de entorno",
+      "envVarName": "Variable",
+      "envVarPurpose": "Propósito",
+      "envTmux": "Ruta de socket tmux falsa que codifica el espacio de trabajo y el panel de cmux actuales",
+      "envTmuxPane": "Identificador de panel de tmux falso asignado al panel de cmux actual",
+      "envSocket": "Camino hacia el cmux socket de control para conectar la cuña"
+    },
+    "vault": {
+      "title": "Bóveda",
+      "metaTitle": "Bóveda",
+      "metaDescription": "Busca en Codexantiguas, Claude Code, OpenCodey sesiones de Pi en cmux Vault, y luego vuelve a abrir una sesión en el espacio de trabajo donde la necesites.",
+      "intro": "Vault es un panel lateral derecho para encontrar las antiguas sesiones de agentes de codificación de IA por contenido de transcripción en lugar de por historial de terminal.",
+      "indexesTitle": "Qué índices de Vault",
+      "indexesDesc": "Vault lee los registros locales de sesión de los agentes compatibles y hace que sus transcripciones sean buscables dentro de cmux.",
+      "indexCodex": "Codex sesiones",
+      "indexClaude": "Claude Code sesiones",
+      "indexOpenCode": "OpenCode sesiones",
+      "indexPi": "Sesiones de Pi",
+      "workflowTitle": "Flujo de trabajo",
+      "workflowOpen": "Abre la bóveda desde la barra lateral derecha.",
+      "workflowSearch": "Busca un archivo, rama, título de problema, mensaje de error o frase de la conversación.",
+      "workflowDrag": "Arrastra una sesión coincidente al espacio de trabajo actual.",
+      "workflowContinue": "Reanuda desde el contexto recuperado junto al código o panel del navegador que estás usando ahora.",
+      "useTitle": "Cuándo usar Vault",
+      "useDesc": "Usa Vault cuando recuerdes en qué ha trabajado un agente pero no en qué espacio de trabajo, fecha o comando de shell lo inició. Está diseñado para redescubrir el contexto anterior del agente, no para restaurar el diseño actual de la app tras reiniciarlo.",
+      "limitsTitle": "Límites",
+      "limitsDesc": "Vault solo puede indexar formatos de sesión que cmux sabe leer en la máquina local. No busca hosts privados remotos a menos que esas sesiones estén disponibles para la instalación cmux local.",
+      "blogCta": "Lee la <link>historia de Vault</link> para una visión general orientada al flujo de trabajo."
+    },
+    "taskManager": {
+      "title": "Administrador de tareas",
+      "metaTitle": "Administrador de tareas",
+      "metaDescription": "Utiliza cmux Administrador de tareas o cmux top para encontrar un alto consumo de CPU y RAM en agentes de codificación, procesos de terminal y paneles del navegador.",
+      "intro": "El Administrador de tareas muestra el uso de recursos para ventanas cmux , espacios de trabajo, paneles, procesos de terminal, agentes de codificación y vistas web del navegador.",
+      "openTitle": "Administrador de tareas abierto",
+      "openDesc": "Ejecuta el comando CLI desde cualquier terminal cmux :",
+      "paletteDesc": "También puedes pulsar Cmd+Shift+P y elegir Administrador de tareas desde la paleta de comandos.",
+      "showsTitle": "Lo que muestra",
+      "showsWindows": "Ventanas, espacios de trabajo, paneles y superficies",
+      "showsWorkspaces": "Propiedad del espacio de trabajo para la actividad de terminales y navegadores",
+      "showsAgents": "Procesos conocidos de agentes codificadores como Claude Code, Codexy OpenCode",
+      "showsBrowsers": "Vistas web del navegador y procesos auxiliares relacionados",
+      "workflowTitle": "Flujo de trabajo de resolución de problemas",
+      "workflowOpen": "Abre el Administrador de tareas cuando cmux parezca lento, los ventiladores se activen o un agente parezca atascado.",
+      "workflowSort": "Ordena o escanea el proceso usando la mayor CPU o memoria.",
+      "workflowJump": "Vuelve al espacio de trabajo o superficie de propiedad.",
+      "workflowFix": "Para, reinicia o divide el proceso sobrecargado dejando visible el contexto adecuado.",
+      "useTitle": "Cuándo usarlo",
+      "useDesc": "Utiliza el Administrador de tareas cuando el Monitor de Actividad muestre carga desde cmux pero no identifique el espacio de trabajo responsable, el agente o el panel del navegador.",
+      "blogCta": "Lee la <link>historia de la función del Administrador</link> de tareas para ver el flujo de trabajo y el contexto de lanzamiento."
     }
   },
   "legal": {
-    "privacyPolicy": "Política de privacidad",
-    "termsOfService": "Términos de servicio",
-    "eula": "EULA"
+    "terms": {
+      "metadataTitle": "Términos de servicio — cmux",
+      "metadataDescription": "Términos de servicio para la web de cmux y la solicitud macOS",
+      "title": "Términos de servicio",
+      "lastRevised": "Última revisión el: 18 de marzo de 2026",
+      "introduction": {
+        "siteAndApplication": "El sitio web ubicado en <site>cmux.com</site> (el \"Sitio\") y la aplicación de escritorio cmux (la \"Aplicación\") son obras protegidas por derechos de autor que pertenecen a Manaflow (\"Empresa\", \"nosotros\", \"nuestro\" y \"nosotros\"). Estos Términos de Uso (estos \"Términos\") establecen los términos y condiciones legalmente vinculantes que rigen tu uso del Sitio y la Aplicación.",
+        "acceptance": "Al acceder o utilizar el Sitio o la Aplicación, aceptas estos Términos y representas y garantizas que tienes el derecho, la autoridad y la capacidad para entrar en estos Términos. No puedes acceder ni utilizar el Sitio o la Aplicación si no tienes al menos 18 años. Si no estás de acuerdo con todas las disposiciones de estos Términos, no accedas ni utilices el Sitio o la Aplicación."
+      },
+      "sections": {
+        "license": {
+          "heading": "1. Licencia",
+          "body": "Sujeto a estos Términos, la Compañía te concede una licencia limitada, no transferible y revocable para usar y acceder al Sitio y la Aplicación para tus fines personales o internos de negocio, incluyendo el uso comercial en relación con tus actividades de desarrollo de software.",
+          "restrictionsHeading": "Restricciones",
+          "restrictionsIntro": "Los derechos que se te conceden están sujetos a las siguientes restricciones:",
+          "restrictions": [
+            "No debes licenciar, vender, alquilar, alquilar, transferir, ceder, distribuir, alojar ni explotar comercialmente la Aplicación de ninguna manera",
+            "No podrás modificar, hacer obras derivadas, desensamblar, descompilar o hacer ingeniería inversa de ninguna parte de la Aplicación",
+            "No deberás acceder a la aplicación para construir un producto similar o competitivo"
+          ],
+          "modificationHeading": "Modificación",
+          "modificationBody": "La empresa se reserva el derecho, en cualquier momento, de modificar, suspender o descontinuar el sitio o la aplicación con o sin aviso previo a usted. La empresa no será responsable ante usted ni ante ningún tercero por ninguna modificación, suspensión o descontinuación.",
+          "ownershipHeading": "Propiedad",
+          "ownershipBody": "Reconoces que todos los derechos de propiedad intelectual, incluidos derechos de autor, patentes, marcas registradas y secretos comerciales, en la Aplicación y su contenido son propiedad de los proveedores de la Compañía o Compañía. Estos Términos no te transfieren ningún derecho, título o interés en dicha propiedad intelectual, salvo la licencia limitada mencionada anteriormente. La Compañía y sus proveedores se reservan todos los derechos no concedidos en estos Términos.",
+          "feedbackHeading": "Retroalimentación",
+          "feedbackBody": "Si proporciona a la Empresa cualquier comentario o sugerencia sobre la Aplicación, por la presente cede a la Compañía todos los derechos sobre dichos comentarios y acepta que la Compañía tendrá el derecho de utilizarlos de cualquier manera que considere oportuna."
+        },
+        "userContent": {
+          "heading": "2. Contenido de usuario",
+          "body": "Mantienes la propiedad total de todo el código, archivos y contenido que crees o procesas usando la Aplicación. La Aplicación se ejecuta localmente en tu dispositivo y tu contenido no se transmite a nuestros servidores durante el uso normal."
+        },
+        "indemnification": {
+          "heading": "3. Indemnización",
+          "body": "Aceptas indemnizar y eximir a la Compañía (y a sus directivos, empleados y agentes), incluidos costes y honorarios legales, de cualquier reclamación o demanda realizada por un tercero debido a o derivado de (a) tu uso de la Aplicación, (b) tu violación de estos Términos, o (c) tu violación de las leyes o regulaciones aplicables."
+        },
+        "thirdPartyLinks": {
+          "heading": "4. Enlaces de terceros",
+          "body": "El sitio puede contener enlaces a sitios web y servicios de terceros. Dichos enlaces no están bajo el control de la Empresa, y la Compañía no se hace responsable de ellos. Utilizas todos los enlaces de terceros bajo tu propio riesgo."
+        },
+        "disclaimers": {
+          "heading": "5. Avisos legales",
+          "body": "LA SOLICITUD SE PROPORCIONA EN TÉRMINOS DE \"TAL CUAL\" Y \"SEGÚN ESTÉ DISPONIBLE\". LA EMPRESA RENUNCIA EXPRESAMENTE A CUALQUIER GARANTÍA Y CONDICIÓN DE CUALQUIER TIPO, YA SEAN EXPRESAS, IMPLÍCITAS O LEGALES, INCLUYENDO TODAS LAS GARANTÍAS DE COMERCIABILIDAD, IDONEIDAD PARA UN PROPÓSITO CONCRETO, TÍTULO Y NO INFRACCIÓN.",
+          "jurisdiction": "ALGUNAS JURISDICCIONES NO PERMITEN LA EXCLUSIÓN DE GARANTÍAS IMPLÍCITAS, POR LO QUE LA EXCLUSIÓN ANTERIOR PUEDE NO APLICARSE A TI."
+        },
+        "liability": {
+          "heading": "6. Limitación de responsabilidad",
+          "damages": "EN LA MÁXIMA MEDIDA PERMITIDA POR LA LEY, EN NINGÚN CASO LA EMPRESA SERÁ RESPONSABLE ANTE USTED NI ANTE NINGÚN TERCERO POR BENEFICIOS PERDIDOS, DATOS PERDIDOS O DAÑOS INDIRECTOS, CONSECUENTES, EJEMPLARES, INCIDENTALES, ESPECIALES O PUNITIVOS DERIVADOS DE O RELACIONADOS CON ESTOS TÉRMINOS O SU USO DE LA APLICACIÓN.",
+          "limit": "EN LA MEDIDA MÁXIMA PERMITIDA POR LA LEY, NUESTRA RESPONSABILIDAD HACIA USTED POR CUALQUIER DAÑO ESTARÁ SIEMPRE LIMITADA A CINCUENTA DÓLARES ESTADOUNIDENSES (50 DÓLARES)."
+        },
+        "termination": {
+          "heading": "7. Duración y terminación",
+          "body": "Estos Términos permanecerán vigentes mientras utilices la Aplicación. Podemos suspender o rescindir tus derechos en cualquier momento y por cualquier motivo, a nuestra única discreción. Al finalizar la solicitud, cesarás todo uso de la Aplicación y eliminarás todas las copias de tus dispositivos."
+        },
+        "disputes": {
+          "heading": "8. Resolución de Conflictos",
+          "arbitration": "Aceptas que cualquier disputa entre tú y la Compañía relacionada con la Aplicación o estos Términos se resolverá mediante arbitraje vinculante, en lugar de en un tribunal, salvo que cualquiera de las partes pueda presentar reclamaciones individualizadas en el tribunal de reclamaciones menores o buscar reparación equitativa por el uso indebido de propiedad intelectual. El arbitraje será llevado a cabo por JAMS según sus normas aplicables.",
+          "juryWaiver": "TÚ Y COMPAÑÍA RENUNCIÁIS A CUALQUIER DERECHO CONSTITUCIONAL Y LEGAL PARA DEMANDAR EN LOS TRIBUNALES Y TENER UN JUICIO ANTE UN JUEZ O UN JURADO.",
+          "classWaiver": "TÚ Y LA EMPRESA ACORDÁIS QUE CADA UNO PUEDE PRESENTAR RECLAMACIONES CONTRA EL OTRO SOLO DE FORMA INDIVIDUAL Y NO DE FORMA COLECTIVA, REPRESENTATIVA O COLECTIVA.",
+          "optOut": "Tienes derecho a renunciar a este acuerdo de arbitraje enviando un aviso por escrito a <email>founders@manaflow.com</email> dentro de los 30 días siguientes a estar sujeto por primera vez."
+        },
+        "general": {
+          "heading": "9. General",
+          "body": "Estos Términos constituyen el acuerdo completo entre usted y la Compañía respecto al uso de la Aplicación. Nuestro incumplimiento en ejercer o hacer cumplir cualquier derecho o disposición no se aplicará como una renuncia. Si alguna disposición resulta inválida, las demás permanecerán en pleno vigor."
+        },
+        "contact": {
+          "heading": "10. Contacto",
+          "body": "Las preguntas sobre estos Términos deben enviarse a <email>founders@manaflow.com</email>."
+        }
+      },
+      "copyright": "Derechos de autor © {year} Manaflow. Todos los derechos reservados."
+    },
+    "eula": {
+      "metadataTitle": "EULA — cmux",
+      "metadataDescription": "Contrato de Licencia de Usuario Final para la aplicación cmux macOS",
+      "title": "EULA",
+      "lastUpdated": "Última actualización: 18 de marzo de 2026",
+      "introduction": {
+        "readCarefully": "Por favor, lee atentamente este Acuerdo de Licencia de Usuario Final antes de descargar o usar cmux."
+      },
+      "sections": {
+        "definitions": {
+          "heading": "Interpretación y definiciones",
+          "intro": "A efectos de este Acuerdo:",
+          "agreementTerm": "\"Acuerdo\"",
+          "agreementText": "significa este Acuerdo de Licencia de Usuario Final que constituye el acuerdo completo entre usted y la Empresa respecto al uso de la Aplicación.",
+          "applicationTerm": "\"Aplicación\"",
+          "applicationText": "significa la aplicación de escritorio cmux para macOS, una aplicación terminal nativa construida sobre Ghostty.",
+          "companyTerm": "\"Compañía\"",
+          "companyText": "(referida como \"la Compañía\", \"Nosotros\", \"Nos\" o \"Nuestro\") se refiere a Manaflow.",
+          "contentTerm": "\"Contenido\"",
+          "contentText": "se refiere a contenido como texto, código, imágenes u otra información que puede ser creada, procesada o mostrada por la Aplicación.",
+          "countryTerm": "\"País\"",
+          "countryText": "se refiere a Estados Unidos.",
+          "deviceTerm": "\"Dispositivo\"",
+          "deviceText": "significa cualquier macOS ordenador que pueda ejecutar la Aplicación.",
+          "youTerm": "\"Tú\"",
+          "youText": "significa que la persona accede o utiliza la Aplicación."
+        },
+        "acknowledgment": {
+          "heading": "Reconocimientos",
+          "agreement": "Al descargar o utilizar la Aplicación, aceptas estar sujeto a los términos de este Acuerdo. Si no estás de acuerdo, no descargues ni utilices la Aplicación.",
+          "licensed": "La Aplicación está licenciada, no vendida, a usted por la Compañía para su uso estrictamente conforme a los términos de este Acuerdo."
+        },
+        "license": {
+          "heading": "Licencia",
+          "scopeHeading": "Alcance de la Licencia",
+          "scopeBody": "La Compañía le concede una licencia revocable, no exclusiva, no transferible y limitada para descargar, instalar y utilizar la Aplicación estrictamente conforme a este Acuerdo, para sus fines personales o internos de negocio, incluyendo el uso comercial en relación con el desarrollo de software.",
+          "restrictionsHeading": "Restricciones de licencia",
+          "restrictionsIntro": "Aceptas no hacerlo, y no permitirás que otros:",
+          "restrictions": [
+            "Licenciar, vender, alquilar, alquilar, ceder, distribuir, transmitir, alojar o explotar comercialmente la Aplicación o ponerla a disposición de terceros",
+            "Eliminar, alterar u ocultar cualquier aviso propietario (incluidos derechos de autor o marca registrada) de la Compañía",
+            "Modificar, crear obras derivadas, desensamblar, descifrar, compilar o hacer ingeniería inversa de cualquier parte de la Aplicación"
+          ]
+        },
+        "intellectualProperty": {
+          "heading": "Propiedad intelectual",
+          "ownership": "La Solicitud, incluyendo todos los derechos de autor, patentes, marcas registradas, secretos comerciales y otros derechos de propiedad intelectual, es y seguirá siendo propiedad exclusiva y exclusiva de la Compañía.",
+          "userOwnership": "Mantienes la propiedad de cualquier código o contenido que crees usando la Aplicación."
+        },
+        "modifications": {
+          "heading": "Modificaciones y actualizaciones",
+          "companyChanges": "La Compañía se reserva el derecho de modificar, suspender o cancelar la Aplicación en cualquier momento, con o sin previo aviso y sin responsabilidad hacia usted.",
+          "updates": "La Compañía puede proporcionar actualizaciones, parches, correcciones de errores y otras modificaciones. Las actualizaciones pueden modificar o eliminar ciertas funciones. Aceptas que todas las actualizaciones estén sujetas a los términos de este Acuerdo."
+        },
+        "thirdPartyServices": {
+          "heading": "Servicios de terceros",
+          "body": "La aplicación se integra con servicios de terceros como Ghostty (motor de renderizado de terminales), Sentry (seguimiento de errores) y Sparkle (marco de actualización automática). Reconoces que la Compañía no será responsable de ningún servicio de terceros, incluyendo su exactitud, integridad o calidad."
+        },
+        "termination": {
+          "heading": "Plazo y finalización",
+          "duration": "Este Acuerdo permanecerá vigente hasta que usted o la Compañía lo rescindan. La Compañía puede rescindir este Acuerdo en cualquier momento y por cualquier motivo.",
+          "breach": "Este Acuerdo terminará inmediatamente si no cumples con alguna disposición. También puedes terminar eliminando la Aplicación y todas las copias de tu Dispositivo.",
+          "effect": "Al finalizar, cesarás todo uso de la Aplicación y eliminarás todas las copias de tu Dispositivo."
+        },
+        "warranties": {
+          "heading": "Sin garantías",
+          "disclaimer": "La Solicitud se proporciona \"TAL CUAL\" y \"SEGÚN DISPONIBILIDAD\" sin ningún tipo de garantía. La Compañía renuncia expresamente a todas las garantías, ya sean expresas, implícitas, legales o de otro tipo, incluyendo todas las garantías implícitas de comercialización, idoneidad para un propósito particular, título y no infracción.",
+          "jurisdiction": "Algunas jurisdicciones no permiten la exclusión de ciertos tipos de garantías, por lo que algunas de las exclusiones anteriores pueden no aplicarse a ti."
+        },
+        "liability": {
+          "heading": "Limitación de responsabilidad",
+          "limit": "La responsabilidad total de la Compañía bajo este Acuerdo se limitará a la cantidad que realmente pague por la Aplicación, o a 100 USD si no ha comprado nada.",
+          "damages": "En la máxima medida permitida por la ley, en ningún caso la Compañía será responsable de daños especiales, incidentales, indirectos o consecuentes de ningún tipo."
+        },
+        "indemnification": {
+          "heading": "Indemnización",
+          "body": "Aceptas indemnizar y eximir a la Compañía de cualquier reclamación o demanda, incluidos honorarios legales razonables, debidos o derivados de tu uso de la Aplicación o la violación de este Acuerdo."
+        },
+        "severability": {
+          "heading": "Separabilidad y exención",
+          "body": "Si alguna disposición de este Acuerdo se considera inaplicable, será modificada e interpretada para lograr sus objetivos en la mayor medida posible, y las disposiciones restantes continuarán en pleno vigor."
+        },
+        "governingLaw": {
+          "heading": "Derecho aplicable",
+          "body": "Las leyes de los Estados Unidos, excluyendo las normas de conflicto de leyes, regirán este Acuerdo y su uso de la Aplicación."
+        },
+        "changes": {
+          "heading": "Cambios a este Acuerdo",
+          "body": "La Compañía se reserva el derecho de modificar este Acuerdo en cualquier momento. Si una revisión es relevante, proporcionaremos un preaviso con al menos 30 días de antelación. Al continuar utilizando la Aplicación después de que las revisiones entren en vigor, acepta estar vinculado por los términos revisados."
+        },
+        "contact": {
+          "heading": "Contáctanos",
+          "intro": "Si tiene alguna pregunta sobre este Acuerdo:",
+          "email": "Envíanos un correo electrónico a <email>founders@manaflow.com</email>"
+        }
+      }
+    }
   },
   "wallOfLove": {
     "title": "Wall of Love",
-    "description": "Lo que la gente dice sobre cmux."
+    "description": "Lo que la gente dice sobre cmux.",
+    "metaTitle": "Muro de Amor — cmux",
+    "metaDescription": "Lo que la gente dice sobre cmux, el terminal construido para multitarea."
   },
   "testimonials": {
     "mitchellh": "Otro proyecto basado en libghostty, esta vez un terminal macOS con pestanas verticales, mejor organizacion/notificaciones, navegador integrado/scriptable, dirigido especificamente a personas que usan muchos flujos de trabajo de agentes basados en terminal.",
@@ -3404,7 +4281,8 @@
       "cursorCli": "Una terminal para Cursor CLI",
       "keyboardShortcuts": "Atajos de teclado",
       "browserAutomation": "Automatización del navegador",
-      "compare": "Comparar cmux"
+      "compare": "Comparar cmux",
+      "remoteTmux": "tmux remoto"
     },
     "agents": {
       "metaTitle": "Una terminal para agentes de programación: cmux",
@@ -3520,10 +4398,299 @@
       "faqA3": "El panel suena y la barra lateral muestra una insignia de no leído cuando Cursor CLI termina o pide entrada, así puedes dejarlo ejecutándose y volver cuando te necesite.",
       "faqQ4": "¿Es cmux gratuita para usar con Cursor CLI?",
       "faqA4": "Sí. cmux es gratuita y de código abierto para macOS."
+    },
+    "remoteTmux": {
+      "title": "tmux remoto",
+      "metaDescription": "Usa cmux como interfaz nativa de macOS para tmux ejecutando en otra máquina."
     }
   },
   "pricing": {
-    "billingUnavailable": "La facturación no está disponible ahora. Inténtalo de nuevo más tarde."
+    "billingUnavailable": "La facturación no está disponible ahora. Inténtalo de nuevo más tarde.",
+    "metaTitle": "Precios — cmux",
+    "metaDescription": "cmux es un terminal de macOS gratuito y de código abierto para agentes de codificación de IA. Actualiza a Pro para máquinas virtuales en la nube, copia de seguridad de sesión cmux Vault y un modelo de gateway. Enterprise añade SSO y autoalojamiento.",
+    "metaDescriptionShort": "cmux es un terminal de macOS gratuito y de código abierto. Pro añade máquinas virtuales en la nube, copia de seguridad de sesiones Vault y un modelo de pasarela; Enterprise añade SSO y autoalojamiento.",
+    "metaDescriptionNoVault": "cmux es un terminal de macOS gratuito y de código abierto para agentes de codificación de IA. Actualiza a Pro para máquinas virtuales en la nube y un modelo de pasarela. Enterprise añade SSO y autoalojamiento.",
+    "metaDescriptionNoVaultShort": "cmux es un terminal de macOS gratuito y de código abierto. Pro añade máquinas virtuales en la nube y un modelo de pasarela; Enterprise añade SSO y autoalojamiento.",
+    "title": "Precios",
+    "perMonth": "/mes",
+    "perUserMonth": "/usuario/mes",
+    "currentPlan": "Plan actual",
+    "manageBilling": "Gestionar la facturación",
+    "free": {
+      "name": "Gratis",
+      "price": "$0",
+      "cta": "Descargar para Mac",
+      "featuresLead": "Incluye:",
+      "features": [
+        "Terminal nativo macOS construido sobre Ghostty, totalmente de código abierto",
+        "Ejecuta Claude Code, Codex, Gemini y cualquier agente de CLI con tus propias claves",
+        "Pestañas verticales, espacios de trabajo, paneles divididos y notificaciones de finalización",
+        "Paneles del navegador, un socket scriptable APIy habilidades personalizadas",
+        "Historial local de sesiones y una prueba única de la máquina virtual en la nube",
+        "Apoyo comunitario sobre Discord y GitHub"
+      ]
+    },
+    "pro": {
+      "name": "Pro",
+      "price": "$30",
+      "cta": "Obtener Pro",
+      "featuresLead": "Todo en gratis, además:",
+      "features": [
+        "Agentes en la nube en máquinas virtuales en entornos remotos aislados",
+        "20 horas de cálculo activas al mes en una VM de 4 vCPU / 16 GB, y luego basado en el uso",
+        "Pasarela modelo: enrutar entre proveedores con análisis de uso y costes",
+        "La app cmux iOS y el soporte por correo electrónico"
+      ],
+      "vaultFeatures": [
+        "cmux Vault: cada sesión respaldada en la nube y buscable",
+        "Historial de sesiones ilimitado en todas tus máquinas"
+      ],
+      "hostedNetworkingFeatures": [
+        "Redes alojadas para acceder a tu Mac desde la app iOS , sin configuración de Tailscale"
+      ]
+    },
+    "team": {
+      "name": "Equipo",
+      "price": "$35",
+      "cta": "Conseguir equipos",
+      "featuresLead": "Todo en Pro, además:",
+      "features": [
+        "Facturación unificada: una factura para todo el equipo",
+        "Gestión centralizada de escaños: añadir y eliminar miembros en cualquier momento",
+        "Horas de computación de VM en la nube agrupadas entre el equipo",
+        "Reglas de equipo compartido, configuraciones y plantillas de espacio de trabajo",
+        "Pasarela modelo a nivel de equipo con análisis de uso por miembro y costes",
+        "Administración centralizada y soporte prioritario por correo electrónico"
+      ]
+    },
+    "enterprise": {
+      "name": "Enterprise",
+      "price": "Personalizado",
+      "cta": "Contactar con ventas",
+      "featuresLead": "Todo en equipo, además:",
+      "features": [
+        "Ejecución y red en la nube autoalojadas, para que nada salga de tu red",
+        "Pasarela de modelo autoalojada con uso a nivel de organización y análisis de costes",
+        "SSO y SAML inicio de sesión",
+        "Administración centralizada y reglas de equipo compartido",
+        "Registros de auditoría para sesiones de terminal, solicitudes de red y actividad del navegador",
+        "Uso comprometido de la nube y precios por volumen",
+        "SOC 2 y un SLA, con soporte dedicado"
+      ]
+    },
+    "compare": {
+      "title": "Comparar planes",
+      "rows": [
+        {
+          "label": "Terminal macOS nativo, código abierto",
+          "free": "true",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
+        },
+        {
+          "label": "Agentes locales de CLI con tus propias llaves",
+          "free": "true",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
+        },
+        {
+          "label": "Pestañas verticales, splits, notificaciones, socket API",
+          "free": "true",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
+        },
+        {
+          "label": "Historial de sesiones",
+          "free": "Local",
+          "pro": "Ilimitado",
+          "team": "Ilimitado",
+          "enterprise": "Ilimitado",
+          "vault": true
+        },
+        {
+          "label": "cmux Vault: copia de seguridad de sesiones en la nube",
+          "free": "false",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true",
+          "vault": true
+        },
+        {
+          "label": "Busca en todas tus sesiones",
+          "free": "false",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true",
+          "vault": true
+        },
+        {
+          "label": "Agentes en la nube en máquinas virtuales en la nube",
+          "free": "1 Prueba de VM",
+          "pro": "20 horas al mes, luego según el uso",
+          "team": "Agrupado, basado en el uso",
+          "enterprise": "Uso comprometido"
+        },
+        {
+          "label": "Máquinas virtuales concurrentes en la nube",
+          "free": "1",
+          "pro": "Basado en el uso",
+          "team": "Basado en el uso",
+          "enterprise": "Personalizado"
+        },
+        {
+          "label": "Pasarela modelo: análisis de enrutamiento y uso",
+          "free": "false",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
+        },
+        {
+          "label": "iOS app",
+          "free": "false",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
+        },
+        {
+          "label": "Networking para llegar a tu Mac",
+          "free": "Trae el tuyo",
+          "pro": "Alojado",
+          "team": "Alojado",
+          "enterprise": "Autoalojado",
+          "hostedNetworking": true
+        },
+        {
+          "label": "Facturación unificada y gestión de asientos",
+          "free": "false",
+          "pro": "false",
+          "team": "true",
+          "enterprise": "true"
+        },
+        {
+          "label": "SSO y SAML inicio de sesión",
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
+        },
+        {
+          "label": "Ejecución autoalojada y aislada de la red",
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
+        },
+        {
+          "label": "Administración centralizada y reglas de equipo compartido",
+          "free": "false",
+          "pro": "false",
+          "team": "true",
+          "enterprise": "true"
+        },
+        {
+          "label": "Registros de auditoría: sesiones, red, navegador",
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
+        },
+        {
+          "label": "Uso comprometido y precios por volumen",
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
+        },
+        {
+          "label": "SOC 2 y un SLA",
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
+        },
+        {
+          "label": "Apoyo",
+          "free": "Comunidad",
+          "pro": "Correo electrónico",
+          "team": "Prioridad",
+          "enterprise": "Dedicado"
+        }
+      ]
+    },
+    "sizes": {
+      "title": "Tamaños de máquinas virtuales en la nube",
+      "body": "Elige el tamaño de una máquina virtual por agente. Se te factura por hora de cálculo activa, y las máquinas virtuales inactivas se suspenden automáticamente. Pro incluye 20 horas al mes en el tamaño de 4 vCPU / 16 GB.",
+      "colSize": "Tamaño",
+      "colUse": "Mejor para",
+      "colRate": "Por hora activa",
+      "rows": [
+        {
+          "size": "2 vCPU / 8 GB",
+          "use": "Agentes ligeros y tareas rápidas",
+          "rate": "$0.20"
+        },
+        {
+          "size": "4 vCPU / 16 GB",
+          "use": "Desarrollo estándar",
+          "rate": "$0.40"
+        },
+        {
+          "size": "8 vCPU / 32 GB",
+          "use": "Construcciones pesadas y agentes paralelos",
+          "rate": "$0.80"
+        }
+      ]
+    },
+    "help": "¿Preguntas? Únete a nuestro <discord>Discord</discord>, abre un <github> número deGitHub</github> o <email>envíanos un correo electrónico</email>.",
+    "faq": {
+      "title": "FAQ",
+      "items": [
+        {
+          "q": "¿Es realmente gratis el terminal?",
+          "a": "Sí. La app macOS es de código abierto y gratuita para siempre. Los agentes locales funcionan con tus propias API claves sin coste alguno para ti. Solo pagas cuando ejecutas agentes en máquinas virtuales en la nube."
+        },
+        {
+          "q": "¿Qué son las máquinas virtuales en la nube?",
+          "a": "Sandboxes remotas de Linux donde los agentes clonan repositorios, ejecutan comandos y abren pull requests en la nube, sin tocar tu máquina. Cubren trabajo paralelo, trabajos en segundo plano y revisión de relaciones públicas. Las máquinas virtuales inactivas se suspenden automáticamente, así que solo se te factura por horas de cálculo activas."
+        },
+        {
+          "q": "¿Qué es cmux Vault?",
+          "a": "Vault hace copias de seguridad de todas las sesiones de terminal en la nube y te permite buscar en todas, con historial ilimitado en tus máquinas. Free mantiene el historial localmente en cada máquina; Pro añade copia de seguridad y búsqueda en la nube.",
+          "vault": true
+        },
+        {
+          "q": "¿Qué es el modelo de pasarela?",
+          "a": "Una pasarela alojada que enruta cada solicitud a un modelo sólido entre proveedores y te proporciona análisis de uso y costes en un solo lugar. Lleva tus propias claves de proveedores. Las empresas pueden autoalojar la pasarela para control a nivel de organización."
+        },
+        {
+          "q": "¿Sigo necesitando Tailscale para la app iOS ?",
+          "a": "Sí, por ahora. Empareja tu iPhone con tu Mac a través de tu propia red, como Tailscale, en cualquier plan; Enterprise puede alojarse por sí mismo. La red alojada sin ninguna configuración está en la hoja de ruta."
+        },
+        {
+          "q": "¿Cómo funciona la facturación?",
+          "a": "Pro cuesta 30 $ al mes, o 240 $ al año (unos 20 $ al mes facturados anualmente) e incluye 20 horas de cálculo activas al mes en la VM de 4 vCPU / 16 GB en la Nube. Más allá de eso, el uso en la nube se factura por hora de cálculo activa según el tamaño de la VM (véase tamaños de VM en la nube arriba). Las VMs inactivas se suspenden automáticamente y los agentes que se ejecutan en paralelo simplemente consumen más horas. El terminal y los agentes locales permanecen libres."
+        },
+        {
+          "q": "¿Puedo alojar la nube por mi cuenta?",
+          "a": "Sí, en Enterprise. Ejecuta el agente en tu propia infraestructura o completamente en aislada de la red, para que el código fuente nunca salga de tu red."
+        },
+        {
+          "q": "¿Tienes un plan de equipo?",
+          "a": "Sí. El equipo cuesta 35 dólares por usuario al mes: facturación unificada para todo el equipo, gestión centralizada de asientos, horas agrupadas de máquinas virtuales en la nube y reglas de equipo compartidas. Enterprise añade SSO, autoalojamiento y registros de auditoría."
+        }
+      ]
+    },
+    "welcomeSuccess": "Bienvenido a cmux Pro. Tu suscripción está activa.",
+    "welcomeActive": "cmux Pro ya está activo en tu cuenta.",
+    "welcomePending": "Pago recibido. Pro puede tardar un minuto en activarse en tu cuenta.",
+    "welcomePendingAction": "Revisa de nuevo",
+    "billingError": "Algo salió mal al iniciar el pago. Por favor, inténtalo de nuevo en un momento.",
+    "billingCancelled": "Pago cancelado. No se le ha cobrado.",
+    "billingInvalidPlan": "Ese plan no está disponible. Elige un plan abajo.",
+    "welcomeTeam": "Tu compra de cmux Team está completa."
   },
   "platforms": {
     "macos": "macOS",
@@ -3551,5 +4718,233 @@
     "successBody": "Te enviaremos un correo cuando la versión de {platform} esté lista.",
     "successBodyAny": "Te enviaremos un correo cuando cmux esté listo para tu plataforma.",
     "done": "Listo"
+  },
+  "ios": {
+    "metaTitle": "cmux iOS — tus terminales en iPhone y iPad",
+    "metaDescription": "La app cmux iOS refleja tus terminales Mac en iPhone y iPad en tiempo real, a través de tu propio Tailscale o red local. Conduce tus agentes de codificación desde cualquier lugar.",
+    "title": "cmux iOS",
+    "iconAlt": "Icono cmux",
+    "tagline": "Tus terminales, en tu bolsillo.",
+    "subtitle": "La app cmux iOS refleja tus terminales Mac en iPhone y iPad en tiempo real. Conduce tus agentes de programación, observa compilaciones y cambia de espacio de trabajo desde cualquier lugar, a través de tu propio Tailscale o red local.",
+    "ctaBeta": "Descárgalo en TestFlight",
+    "ctaDocs": "Lee la documentación iOS",
+    "screenshotAlt": "cmux iOS app mostrando un terminal de agente en vivo",
+    "features": "Características",
+    "realtimeSync": "Sincronización en tiempo real",
+    "realtimeSyncDesc": ": tus terminales se transmiten a iPhone y iPad en cuanto cambian",
+    "byoNetwork": "Lleva tu propia red",
+    "byoNetworkDesc": ": conectarse a través de tu propio Tailscale o red local, sin servidores intermedios",
+    "verticalTabs": "Pestañas verticales",
+    "verticalTabsDesc": ": cada espacio de trabajo a un toque de distancia, igual que el escritorio",
+    "notifications": "Notificaciones de agentes",
+    "notificationsDesc": ": recibir ping cuando Claude, Codex, o cualquier agente necesita tu opinión",
+    "keyboard": "Teclado completo",
+    "keyboardDesc": ": atajos de hardware y una barra de entrada de grado terminal con flechas, tabulador y modificadores",
+    "native": "Nativo y rápido",
+    "nativeDesc": ": GPU-acelerado en el mismo motor que la app de Mac",
+    "howTitle": "Cómo funciona",
+    "howBody": "Empareja tu iPhone con tu Mac desde la ventana de Mobile Connect y luego conéctala a cualquier espacio de trabajo. La conexión se realiza a través de tu propio Tailscale o red local, así que tus terminales nunca tocan un servidor de terceros.",
+    "galleryTitle": "Ejecuta cualquier cosa en tu terminal",
+    "backToMac": "cmux para Mac",
+    "galleryItemAlt": "{name} funcionando en un terminal de cmux en iPhone"
+  },
+  "vault": {
+    "overview": {
+      "eyebrow": "cmux Bóveda",
+      "title": "Resumen de la bóveda",
+      "description": "Almacenamiento y actividad de subida para sesiones sincronizadas.",
+      "emptyTitle": "Todavía no hay sesiones sincronizadas",
+      "emptyBody": "Ejecuta el comando CLI sync desde una máquina con sesiones de agentes locales.",
+      "totalSessions": "Total de sesiones",
+      "totalRawBytes": "Bytes en bruto",
+      "totalCompressedBytes": "Bytes comprimidos",
+      "latestUpload": "Última subida",
+      "never": "Nunca"
+    },
+    "cliAuth": {
+      "section": "Bóveda",
+      "eyebrow": "cmux Bóveda",
+      "title": "Aprobar CLI acceso",
+      "description": "Confirma el código que muestra cmuxbóveda para conectar este dispositivo a tu cuenta cmux iniciada sesión.",
+      "codeLabel": "Código de usuario",
+      "approveButton": "Aprobar acceso",
+      "approving": "Aprobando...",
+      "success": "Acceso aprobado. Puedes volver al terminal.",
+      "error": "No se pudo aprobar este código. Comprueba que no haya caducado."
+    },
+    "sessions": {
+      "section": "Bóveda",
+      "eyebrow": "cmux Bóveda",
+      "title": "Sesiones sincronizadas",
+      "description": "Transcripciones recientes de agentes codificadores sincronizadas desde tus máquinas locales.",
+      "backToOverview": "Volver a la visión general",
+      "agent": "Agente",
+      "session": "Sesión",
+      "cwd": "Directorio de trabajo",
+      "rawSize": "Tamaño bruto",
+      "compressedSize": "Tamaño comprimido",
+      "snapshots": "Instantáneas",
+      "firstUploaded": "Primera subida",
+      "lastUploaded": "Última subida",
+      "unknownCwd": "Directorio desconocido",
+      "searchLabel": "Sesiones de búsqueda",
+      "searchPlaceholder": "Buscar cwd, ruta o ID de sesión",
+      "tableLabel": "Sesiones de salto",
+      "loadingMore": "Cargando más...",
+      "loadError": "No pude cargar más sesiones.",
+      "scrollForMore": "Desplázate para más sesiones",
+      "noResults": "Ninguna sesión coincide con estos filtros.",
+      "endOfList": "Fin de las sesiones",
+      "copySession": "Copiar",
+      "copiedSession": "Copiado"
+    },
+    "detail": {
+      "backToSessions": "← sesiones",
+      "detailsSummary": "Detalles",
+      "snapshotsSummary": "instantáneas ({count})",
+      "cwd": "Directorio de trabajo",
+      "rawSize": "Tamaño bruto",
+      "compressedSize": "Tamaño comprimido",
+      "firstUploaded": "Primera subida",
+      "lastUploaded": "Última subida",
+      "unknownCwd": "Directorio desconocido",
+      "unknownSize": "Tamaño desconocido",
+      "copyCommand": "Comando de copia",
+      "copiedCommand": "Copiado",
+      "copySessionId": "Copiar el ID de la sesión",
+      "copiedSessionId": "Copiado",
+      "downloadLink": "Descargar la última transcripción",
+      "downloadExpires": "Este enlace prefirmado expira en breve.",
+      "downloadUnavailable": "La descarga no está disponible en este momento.",
+      "loadingMessages": "cargando... {count} mensajes",
+      "loadedMessages": "{count} mensajes",
+      "streamError": "Falló la transmisión tras {count} mensajes",
+      "transcriptTooLarge": "Dejó de aparecer después de {count} mensajes (transcripción demasiado grande)",
+      "emptyTranscript": "No se han encontrado mensajes de transcripción legibles.",
+      "roles": {
+        "user": "usuario",
+        "assistant": "Asistente",
+        "system": "Sistema",
+        "tool": "Herramienta"
+      }
+    }
+  },
+  "billingSuccess": {
+    "metaTitle": "cmux Pro está activo",
+    "title": "cmux Pro está activo",
+    "body": "Creamos o actualizamos tu cuenta con {email}. Puedes abrir cmux ahora o añadir más métodos de inicio de sesión.",
+    "emailLabel": "Correo de compra",
+    "whatUnlockedTitle": "Lo que has desbloqueado",
+    "openCmux": "Abrir cmux",
+    "manageBilling": "Gestionar la facturación",
+    "manageSignInMethods": "Gestionar métodos de inicio de sesión",
+    "features": {
+      "cloudAgents": {
+        "title": "Agentes en la nube en máquinas virtuales en la nube",
+        "body": "Ejecuta agentes en sandboxes remotos aislados.",
+        "action": "Abrir cmux"
+      },
+      "modelGateway": {
+        "title": "Pasarela de modelos",
+        "body": "Encamina entre proveedores con análisis de uso y costes, además de 20 horas de cálculo al mes.",
+        "action": "Abrir la puerta de enlace de modelos"
+      },
+      "aiAccounts": {
+        "title": "Conecta tus cuentas de IA",
+        "body": "Añade cuentas de proveedor para cmux puedas enrutar el trabajo a través de ellas.",
+        "action": "Proveedores de conexión"
+      },
+      "iosApp": {
+        "title": "cmux iOS app",
+        "body": "Usa cmux en tu móvil.",
+        "action": "Únete a la beta de iOS"
+      }
+    }
+  },
+  "enterprise": {
+    "metaTitle": "Enterprise | cmux",
+    "metaDescription": "Habla con cmux sobre el despliegue empresarial, SSO, máquinas virtuales en la nube autoalojadas, registros de auditoría y uso comprometido.",
+    "section": "Enterprise",
+    "title": "Lleva cmux máquinas virtuales en la nube, SSOy controles de auditoría a tu equipo.",
+    "body": "Cuéntanos qué necesitas para desplegar cmux en toda tu organización. Encaminamos las solicitudes empresariales a los fundadores para que las revisiones de seguridad, la adquisición y los requisitos de autoalojamiento se gestionen directamente.",
+    "points": [
+      "Ejecución y redes en la nube autoalojada para el código que debe permanecer dentro de tu entorno.",
+      "SSO, SAML, registros de auditoría, administración centralizada y reglas de equipo compartido.",
+      "Uso comprometido, precios por volumen y soporte para revisiones de seguridad o compras."
+    ],
+    "formAriaLabel": "Formulario de contacto empresarial",
+    "form": {
+      "firstName": "Nombre de pila",
+      "lastName": "Apellido",
+      "companyName": "Nombre de la empresa",
+      "jobFunction": "Función laboral",
+      "jobTitle": "Título del puesto",
+      "businessEmail": "Dirección de correo electrónico empresarial",
+      "phoneNumber": "Número de teléfono",
+      "country": "País",
+      "companySize": "Tamaño de la empresa",
+      "deploymentNeeds": "Necesidades de despliegue",
+      "comments": "Comentarios",
+      "selectPlaceholder": "Selecciona uno",
+      "jobFunctionOptions": [
+        "Ingeniería",
+        "Plataforma",
+        "Seguridad",
+        "IT",
+        "Adquisición",
+        "Ejecutivo",
+        "Otros"
+      ],
+      "companySizeOptions": [
+        "1-10",
+        "11-50",
+        "51-200",
+        "201-1,000",
+        "1,001-5,000",
+        "5,001+"
+      ],
+      "deploymentNeedsOptions": [
+        "SSO o SAML",
+        "Máquinas virtuales en la nube autoalojadas",
+        "Pasarela de modelo autoalojada",
+        "Registros de auditoría y cumplimiento",
+        "Uso comprometido de máquinas virtuales en la nube",
+        "Revisión de seguridad o contratación",
+        "Otros"
+      ],
+      "privacy": "Utilizamos esta información para responder a tu solicitud empresarial y redirigirla al fundador adecuado. No vendemos información de contacto.",
+      "submit": "Enviar",
+      "submitting": "Entregando...",
+      "success": "Gracias. Recibimos tu solicitud y responderemos desde founders@manaflow.com.",
+      "error": "Algo salió mal. Por favor, inténtalo de nuevo o envía un correo founders@manaflow.com."
+    }
+  },
+  "appProWelcome": {
+    "eyebrow": "cmux Pro está activo",
+    "title": "Bienvenido a cmux Pro",
+    "body": "Tu plan incluye agentes en la nube en las máquinas virtuales en la nube, 20 horas de cálculo mensuales, el modelo gateway y la app cmux iOS . Empieza aquí.",
+    "done": "Ve al panel de control",
+    "steps": {
+      "modelGateway": {
+        "title": "Pasarela de modelos",
+        "body": "Enruta entre proveedores con análisis de consumo y costes.",
+        "action": "Abrir la puerta de enlace de modelos"
+      },
+      "aiAccounts": {
+        "title": "Conecta tus cuentas de IA",
+        "body": "Añade cuentas de proveedor para cmux puedas enrutar el trabajo a través de ellas.",
+        "action": "Proveedores de conexión"
+      },
+      "iosApp": {
+        "title": "cmux iOS app",
+        "body": "Usa cmux en tu móvil.",
+        "action": "Únete a la beta de iOS"
+      },
+      "billing": {
+        "title": "Gestiona tu plan",
+        "body": "Consulta tu plan, facturas y cancelaciones.",
+        "action": "Plan de gestión"
+      }
+    }
   }
 }

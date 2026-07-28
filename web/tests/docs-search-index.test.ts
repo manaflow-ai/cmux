@@ -44,10 +44,10 @@ describe("docs search index", () => {
 
     expect(
       pages.some((page) => page.locale === "de" && page.href === "/docs/vault"),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       pages.some((page) => page.locale === "de" && page.href === "/docs/task-manager"),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       pages.some((page) => page.locale === "ja" && page.href === "/docs/vault"),
     ).toBe(true);
@@ -60,7 +60,7 @@ describe("docs search index", () => {
           page.locale === "de" &&
           page.href === "/docs/agent-integrations/oh-my-pi",
       ),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       pages.some(
         (page) =>

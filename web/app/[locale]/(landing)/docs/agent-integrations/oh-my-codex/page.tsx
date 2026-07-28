@@ -2,13 +2,19 @@ import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { CodeBlock } from "@/app/[locale]/components/code-block";
 import { DocsHeading } from "@/app/[locale]/components/docs-heading";
+import { authoredContentLocalesByPath } from "@/i18n/locale-availability";
 import { buildAlternates, openGraphDefaults, seoDescription, twitterSummary } from "@/i18n/seo";
 import { DocsSchema } from "../../docs-schema";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "docs.ohMyCodex" });
-  const alternates = buildAlternates(locale, "/docs/agent-integrations/oh-my-codex");
+  const path = "/docs/agent-integrations/oh-my-codex";
+  const alternates = buildAlternates(
+    locale,
+    path,
+    authoredContentLocalesByPath[path],
+  );
   const title = t("metaTitle");
   const description = seoDescription(locale, t("metaDescription"));
   return {

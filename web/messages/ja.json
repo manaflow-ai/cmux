@@ -25,7 +25,8 @@
     "howBody": "Mobile Connect ウィンドウから iPhone と Mac をペアリングし、任意のワークスペースにアタッチします。接続は自分の Tailscale やローカルネットワーク経由で行われるため、ターミナルが第三者のサーバーを経由することはありません。",
     "galleryTitle": "ターミナルで動くものは何でも",
     "backToMac": "cmux for Mac",
-    "galleryItemAlt": "iPhone の cmux ターミナルで動作する {name}"
+    "galleryItemAlt": "iPhone の cmux ターミナルで動作する {name}",
+    "iconAlt": "cmux アイコン"
   },
   "meta": {
     "title": "cmux — マルチタスク、整理、プログラマビリティのために作られたターミナル",
@@ -662,7 +663,7 @@
     "faqGhosttyQ": "cmuxとGhosttyの関係は？",
     "faqGhosttyA": "cmuxはGhosttyのフォークではありません。アプリがWebKitをWebビューに使うのと同様に、ターミナルレンダリングのライブラリとして<link>libghostty</link>を使用しています。Ghosttyはスタンドアロンのターミナルで、cmuxはそのレンダリングエンジンの上に構築された別のアプリです。",
     "faqPlatformQ": "対応プラットフォームは？",
-    "faqPlatformA": "現在はmacOSのみです。cmuxはネイティブSwift + AppKitアプリです。Linux・Windows・Android 版が公開され次第お知らせします。<waitlist>順番待ちリストに登録</waitlist>してください。",
+    "faqPlatformA": "現在は macOS のみに対応しています。cmux は Swift と AppKit で作られたネイティブアプリです。Linux、Windows、Android への対応情報を受け取るには、<waitlist>ウェイトリストに登録</waitlist>してください。",
     "faqAgentsQ": "cmuxはどのコーディングエージェントに対応していますか？",
     "faqAgentsA": "すべてに対応しています。cmuxはターミナルなので、ターミナルで動作するすべてのエージェントがそのまま使えます：Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider、Goose、Amp、Cline、Cursor Agent、その他コマンドラインから起動できるすべてのツール。",
     "faqNotificationsQ": "通知はどのように機能しますか？",
@@ -956,13 +957,13 @@
         "p1": "ワークロードごとに適した並列化の方法は異なります。通常のGit変更にはワークツリーが向いています。サブモジュールやビルドツールがワークツリーを扱いにくい場合は、複数のチェックアウトが役立ちます。E2B、Freestyle、Daytona、Modalはリモートサンドボックスを提供し、GitHub Actionsも同じ用途に転用できます。ローカルの分離にはDocker、UTM、Lima、OrbStackがあります。Mac miniやLinuxマシンを並べるチームもあります。ML実験にはRay、Modal、Slurmが適しています。mainですべてを一気に進めるのが最速な場合もあります。",
         "p2": "役に立つマネージャーは、タスクの文脈からこれらの実行方式を選ぶべきです。これは<zen>cmuxの禅</zen>に沿っています。プリミティブを組み合わせ可能なままにして、使い方はプロジェクトのルールに決めさせます。",
         "superRepoTitle": "スーパーリポはプロジェクトの司令部",
-      "superRepoP1": "この制御用リポジトリをスーパーリポと呼びたいと思います。コーディングエージェントにとって、スーパーリポは一つ以上のソースリポジトリの上位にあり、プロンプトを分離されたタスク環境へ変換するためのデータ、スキル、origin、ワークツリー、運用ルールを保持します。",
-      "superRepoP2": "<code>AGENTS.md</code>が制御プレーンです。エージェントが必要とする可能性のあるリポジトリ、各タスクのワークツリーを置く場所、リポジトリごとのセットアップ手順を定義します。一つのタスクでターミナル、ブラウザ連携、ルーター用の対応するワークツリーを作れますが、すべてのタスクで三つとも複製する必要はありません。",
-      "agentsExample": "cmux-hqで作業しています。タスクには次のリポジトリが関係する場合があります：\n- manaflow-ai/cmux\n- manaflow-ai/cmux-browser\n- manaflow-ai/subrouter\n\nユーザーが新しいタスクを依頼したとき：\n1. タスクに必要なリポジトリを判断します。\n2. worktrees/[task]/[repo]に対応するワークツリーを作成します。\n3. 各ワークツリーのAGENTS.mdを読みます。\n4. セットアップスクリプトをすぐに起動し、タスクを続けます。",
-      "agentTitle": "トポロジーをエージェントに選ばせる",
-      "agentP1": "cmuxではこのパターンを社内で使っています。公開ソースは<cmux>manaflow-ai/cmux</cmux>にあり、非公開の制御用リポジトリは<hq>manaflow-ai/cmuxterm-hq</hq>です。hqのルートから、cmuxにも関係する可能性があるsubrouterの問題をCodexやClaude Codeに依頼できます。エージェントは必要なワークツリーだけを作り、各リポジトリのAGENTS.mdを読み、セットアップスクリプトを起動し、その実行中にコードの調査を始めます。",
-      "launchCommand": "cd ~/fun/cmux-hq\ncodex --yolo \"subrouterのxyz問題を修正して。cmuxのxyzにも関係する可能性あり\"",
-      "agentP2": "<code>./scripts/new-worktree.sh</code>は一つのトポロジーを実装します。エージェントなら、互換性のないサブモジュールには別チェックアウト、信頼できないセットアップにはリモートサンドボックス、別OSにはVM、実験にはGPUスケジューラを選び、決定的な処理には既存のスクリプトを再利用できます。",
+        "superRepoP1": "この制御用リポジトリをスーパーリポと呼びたいと思います。コーディングエージェントにとって、スーパーリポは一つ以上のソースリポジトリの上位にあり、プロンプトを分離されたタスク環境へ変換するためのデータ、スキル、origin、ワークツリー、運用ルールを保持します。",
+        "superRepoP2": "<code>AGENTS.md</code>ファイルはコントロールプレーンです。エージェントが必要とするリポジトリの名前、各タスクワークツリーの所在を定義し、リポジトリごとのセットアップ指示を指し示します。1つのタスクで、すべてのタスクで3つすべてをクローンすることなく、端末、ブラウザ統合、ルーターの対応するワークツリーを作成できます。",
+        "agentsExample": "cmux-hqで作業しています。タスクには次のリポジトリが関係する場合があります：\n- manaflow-ai/cmux\n- manaflow-ai/cmux-browser\n- manaflow-ai/subrouter\n\nユーザーが新しいタスクを依頼したとき：\n1. タスクに必要なリポジトリを判断します。\n2. worktrees/[task]/[repo]に対応するワークツリーを作成します。\n3. 各ワークツリーのAGENTS.mdを読みます。\n4. セットアップスクリプトをすぐに起動し、タスクを続けます。",
+        "agentTitle": "トポロジーをエージェントに選ばせる",
+        "agentP1": "cmux はこのパターンを社内で使っています。公開ソースは <cmux>manaflow-ai/cmux</cmux>、非公開の管理リポジトリは <hq>manaflow-ai/cmuxterm-hq</hq> にあります。hq のルートから Codex や Claude Code に、cmux に関係する可能性がある subrouter の問題を依頼できます。エージェントは必要な worktree だけを作成し、各リポジトリの AGENTS.md を読み、セットアップスクリプトを起動し、その実行中にコードの調査を始めます。",
+        "launchCommand": "cd ~/fun/cmux-hq\ncodex --yolo \"subrouterのxyz問題を修正して。cmuxのxyzにも関係する可能性あり\"",
+        "agentP2": "<code>./scripts/new-worktree.sh</code>コマンドは1つのトポロジーを実装します。エージェントは互換性のないサブモジュール用の2つ目のチェックアウト、信頼されていないセットアップ用のリモートサンドボックス、別のオペレーティングシステム用のVM、実験用のGPUスケジューラを選択し、決定的な部分にはスクリプトを再利用できます。",
         "limitsTitle": "完了までの時間が短くなる理由",
         "limitsP1": "多くのプロジェクトでは、ワークツリーは並列化の一部にすぎません。MLでは、一つのコーディングエージェントが一つのワークツリーで複数の実験を書き、スケジューラが実行を複数のGPUへ配布できます。ワークツリーを増やしても計算資源は増えず、調整だけが増えます。",
         "limitsP2": "エージェントによるオーケストレーションは起動時間も短縮できます。チェックアウトができた時点でエージェントはコードを読み書きし、依存関係のインストール、ビルド、ローカルサービスの起動はバックグラウンドで続けられます。すべてのセットアップ完了後にエージェントを起動するラッパーでは、最も遅い前提処理がクリティカルパスに入ります。",
@@ -1154,7 +1155,16 @@
         "faqPortTitle": "localhostにはssh -Lが必要ですか？",
         "faqPortBody": "通常は不要です。リモートワークスペース内のブラウザペインはHTTPとWebSocketの通信をリモートマシン経由でルーティングするため、ローカルプレビューURLはリモートホスト基準で解決されます。",
         "faqConfigTitle": "既存のSSH設定を使いますか？",
-        "faqConfigBody": "はい。cmuxは~/.ssh/configからエイリアス、identity file、proxy設定、host optionを読み取り、その上にcmux固有のルーティングと再接続動作を追加します。"
+        "faqConfigBody": "はい。cmuxは~/.ssh/configからエイリアス、identity file、proxy設定、host optionを読み取り、その上にcmux固有のルーティングと再接続動作を追加します。",
+        "featureItems": [
+          "ブラウザ ペインはリモート マシンを経由するため、localhost:3000 はポート転送なしでリモート開発サーバーに到達します",
+          "画像をリモート端末にドラッグし、scp 経由でアップロードします",
+          "リモート マシン上のコーディング エージェントがローカルに通知を送信しますサイドバー",
+          "cmux claude-teams と cmux omo は SSH 経由で動作し、計算をリモートで実行しながらチームメイトのペインをローカルに生成します",
+          "サイドバーには接続状態と検出されたリスニング ポートが表示されます"
+        ],
+        "videoTitle": "cmux SSHデモ",
+        "readDocs": "SSH ドキュメントを読む"
       },
       "cmuxHome": {
         "title": "cmux home",
@@ -1165,6 +1175,29 @@
         "p3": "cmuxはターミナルとブラウザ、そしてそれらを操作するCLIだけです。数行のbashスクリプトを書けば、ワークツリーの管理、複数チェックアウトのやりくり、リモートセッションの起動ができ、ワークスペースを自分に合った形に並べられます。",
         "p4": "cmuxはワークフローを押し付けるのではなく、あなたのワークフローに合わせるべきです。cmuxを自分の居場所のように感じてほしいのです。",
         "p5": "<link>cmux-home</link>はその一例です。ClaudeとCodexのワークスペースを起動してライブ状態を監視する小さなRust製TUIで、すべてcmuxのプリミティブの上に作られています。ランチャーはコマンドテンプレートを使うので、ワークツリーの作成、チェックアウトの選択、VMへのSSH接続などを自分のスクリプトに差し替えられます。フォークして自分のものにしてください。"
+      },
+      "cmuxClaudeTeams": {
+        "title": "Claude Code のチームメイトエージェントをネイティブな cmux ペインとして実行",
+        "summary": "Claude Code のチームメイト モードには tmux が必要です。 cmux は、チームメイトがサイドバー メタデータと通知を備えたネイティブ スプリットになるように偽装します。",
+        "date": "2026 年 3 月 30 日",
+        "p1": "Claude Code には、サブエージェントを並列で起動する実験的な <agentTeamsLink>チームメイトモード</agentTeamsLink>があります。この機能には tmux と <code>CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1</code> が必要です。<code>cmux claude-teams</code> は環境変数を設定し、PATH に tmux shim を置いて、すべての tmux コマンド（<code>split-window</code>、<code>send-keys</code>、<code>capture-pane</code>）を cmux のネイティブな分割／ワークスペース API に変換してから、<code>claude --teammate-mode auto</code> を実行します。必要なコマンドは一つだけです。",
+        "p2": "シムは、<code>split-window</code> を <code>surface.split</code> に変換し、<code>send-keys</code> を次のように変換します。 <code>surface.send_text</code>、<code>capture-pane</code> を <code>surface.read_text</code> に変換します。チームメイトは右側の列に垂直に積み重ねられ、エージェントの出現と終了に合わせて自動的に均等化されます。すべてのペインが通知とともにサイドバーに表示されます。 Go リレー デーモンを介して SSH 上で動作します。",
+        "p3": "同じ shim が <omoLink><code>cmux omo</code></omoLink> に電力を供給します。 oh-my-openagent (以前の oh-my-opencode).",
+        "readDocs": "ドキュメントを読む"
+      },
+      "cmuxOmo": {
+        "title": "oh-my-openagent のサブエージェントをネイティブな cmux ペインとして実行",
+        "summary": "oh-my-openagent は、スペシャリスト Claude、GPT、および Gemini エージェントを並行して調整します。 cmux omo は、各 tmux ペインをネイティブ分割に変換します。",
+        "date": "2026 年 3 月 30 日",
+        "p1": "<code>cmux omo</code> は、Claude、GPT、Gemini の専門エージェントを並列で調整する OpenCode プラグイン、oh-my-openagent（旧 oh-my-opencode）を統合します。各エージェントは専用の tmux ペインを使います。<code>cmux omo</code> は <claudeTeamsLink><code>cmux claude-teams</code></claudeTeamsLink> と同じ tmux shim を使い、<code>TMUX</code> 環境変数を提供して、すべての tmux コマンドを cmux の分割へ変換します。プラグインは shadow 設定へ自動的にインストールされるため、<code>~/.config/opencode</code> は変更されません。",
+        "p2": "また、shim は <code>terminal-notifier</code> 呼び出しをインターセプトし、ルーティングします。 <code>cmux notify</code>。 Go リレー デーモン経由で SSH 上で動作します。",
+        "readDocs": "ドキュメントを読む"
+      },
+      "gpl": {
+        "title": "cmux は現在GPL",
+        "summary": "cmux は AGPL-3.0 からGPL-3.0.",
+        "date": "2026 年 3 月 30 日",
+        "p1": "cmux は AGPL-3.0 から再ライセンスされましたGPL-3.0 に。 AGPL のネットワーク使用条項はデスクトップ アプリには無関係ですが、多くの企業は AGPL を完全に禁止しています。 GPL は、フォークがオープンソースのままであることを要求しながら、その句を削除します。デュアル ライセンス (GPL + 商用) は変わりません。"
       }
     },
     "zenOfCmux": {
@@ -1321,6 +1354,18 @@
     "cmuxHome": {
       "metaTitle": "cmux home",
       "metaDescription": "cmuxはワークツリーを押し付けません。プリミティブなので、ワークツリーや複数チェックアウト、リモート開発を自分でスクリプト化して、cmuxを自分の居場所にできます。"
+    },
+    "cmuxClaudeTeams": {
+      "metaTitle": "Claude Code のチームメイトエージェントをネイティブな cmux ペインとして実行",
+      "metaDescription": "Claude Code のチームメイト モードには tmux が必要です。 cmux は、チームメイトがサイドバー メタデータと通知を備えたネイティブ スプリットになるように偽装します。"
+    },
+    "cmuxOmo": {
+      "metaTitle": "oh-my-openagent のサブエージェントをネイティブな cmux ペインとして実行",
+      "metaDescription": "oh-my-openagent は、スペシャリスト Claude、GPT、および Gemini エージェントを並行して調整します。 cmux omo は、各 tmux ペインをネイティブ分割に変換します。"
+    },
+    "gpl": {
+      "metaTitle": "cmux は現在GPL",
+      "metaDescription": "cmux は AGPL-3.0 からGPL-3.0."
     }
   },
   "docs": {
@@ -1344,13 +1389,13 @@
       "enableTitle": "有効にする",
       "enableDesc": "設定 → ベータ機能 を開き、「リモート tmux」をオンにします。デフォルトはオフなので、オプトインするまでローカルのターミナルには何も影響しません。",
       "attachTitle": "接続する",
-      "attachIntro": "ターミナルで cmux ssh-tmux <宛先>（~/.ssh/config のエイリアスまたは user@host）を実行します。cmux はそのホストの tmux セッションを現在のウィンドウのサイドバーにミラーリングします。各セッションはワークスペースに、各ウィンドウはタブに、複数ペインのウィンドウはタブ内の分割になります。",
+      "attachIntro": "ターミナルで cmux ssh-tmux <destination> を実行します。<destination> には ~/.ssh/config のエイリアスまたは user@host を指定します。cmux はそのホストの tmux セッションを現在のウィンドウのサイドバーへミラーリングします。各セッションはワークスペース、各ウィンドウはタブ、複数ペインのウィンドウはタブ内の分割になります。",
       "attachNewWindow": "--new-window を指定すると、現在のウィンドウの代わりに専用の新しいウィンドウでミラーを開きます。",
       "attachSockets": "remote.tmux.* のソケットコマンド（下記）でより細かく制御できます。remote.tmux.mirror がミラーリングのエントリポイントで、ウィンドウや呼び出し元のルーティングを受け取り、必要に応じてミラーワークスペースを選択できます。",
       "attachCli": "非対話で認証されるホスト（ssh-agent や ~/.ssh/config の鍵）はプロンプトなしで接続されます。対話的な認証（パスワード、ホストキーの確認、多要素認証）が必要なホストでは、cmux がそのターミナル内で ssh を実行するため、その場で認証でき、その後 cmux が現在のウィンドウにミラーリングします。--port、--identity、--no-focus を指定できます。",
       "troubleshootTitle": "「Permission denied」が出る場合",
       "troubleshootDesc": "宛先はそのまま ssh に渡されるため、エイリアスにはログインに必要な設定をすべて含める必要があります。特に User（未指定だと ssh はローカルのユーザー名を使います）と IdentityFile です:",
-      "troubleshootFallback": "または cmux ssh-tmux dev@my-ssh-alias のようにユーザーを明示指定してください。素の ssh <宛先> でログインできない場合は、cmux ssh-tmux <宛先> でも接続できません。",
+      "troubleshootFallback": "ユーザー名を明示する場合は cmux ssh-tmux dev@my-ssh-alias を実行します。通常の ssh <destination> でログインできない場合、cmux ssh-tmux <destination> でもログインできません。",
       "howTitle": "仕組み",
       "howDesc": "cmux は ssh … tmux -CC attach を起動し、組み込みの tmux ビューアーに頼らずコントロールモードのストリームを自前で解析します。そのためプロトコルや %begin/%end のコマンド対応付けは完全に cmux が管理します。各リモートペインは tmux の %output を流し込む専用のターミナルサーフェスに描画され、キー入力やマウスなどの入力は tmux の send-keys でリモートへ送られます。ペインのサイズやリフローはリモートの tmux サーバーが管理し、cmux はそれに追従してローカルではリフローしません。",
       "behaviorTitle": "サポートしている機能",
@@ -1420,7 +1465,8 @@
       "requirements": "動作要件",
       "reqItem1": "macOS 14.0以降",
       "reqItem2": "Apple SiliconまたはIntel Mac",
-      "metaTitle": "はじめに"
+      "metaTitle": "はじめに",
+      "sessionRestoreLink": "エージェントフックの設定と対応する再開方法については、<link>セッション復元ガイド</link>を参照してください。"
     },
     "sessionRestore": {
       "title": "セッション復元",
@@ -1779,7 +1825,7 @@
       "workspaceActions": "ワークスペースレイアウト",
       "workspaceActionsDesc": "ワークスペースレイアウトは <workspace>workspace</workspace> アクションとして保存され、ワークスペース定義をアクション内に直接埋め込むため、別途 <commands>commands</commands> エントリは不要です。ワークスペースと同じフィールドに加えて、最初のターミナルにそのターミナル自身のコマンドより先に送信されるブートストラップコマンド <setup>setup</setup> をサポートします:",
       "workspaceActionsMenuDesc": "ワークスペースレイアウトはプラスボタンの右クリックメニューに自動的に表示されます。<newWorkspaceMenu>newWorkspaceMenu</newWorkspaceMenu> を <falseValue>false</falseValue> にすると非表示にでき、他のアクションで <trueValue>true</trueValue> にするとメニューに追加できます。",
-      "workspaceActionsSaveDesc": "JSON を書かずに作成することもできます。プラスボタンを右クリックして <saveLayout>ワークスペースをレイアウトとして保存</saveLayout> を選ぶと、現在のワークスペースの分割、ディレクトリ、実行中のエージェント、ブラウザタブが <configPath>~/.config/cmux/cmux.json</configPath> に保存されます。これは <actions>actions</actions> ブロックのエントリとして保存されます。<customize>ワークスペースレイアウトをカスタマイズ</customize> はそのファイルをエディタで開きます。",
+      "workspaceActionsSaveDesc": "JSON を書かずに作成することもできます。プラスボタンを右クリックして <saveLayout>Save Workspace as Layout</saveLayout> を選ぶと、現在のワークスペースの分割、ディレクトリ、実行中のエージェント、ブラウザタブが <configPath>~/.config/cmux/cmux.json</configPath> に保存されます。これは <actions>actions</actions> ブロックのエントリとして保存されます。<customize>Customize Workspace Layouts</customize> はそのファイルをエディタで開きます。",
       "simpleCommands": "シンプルコマンド",
       "simpleCommandsDesc": "シンプルコマンドは現在フォーカスされているターミナルでシェルコマンドを実行します：",
       "simpleCommandFields": "フィールド",
@@ -1832,7 +1878,7 @@
       "fullExample": "完全な例",
       "restartNew": "新しいワークスペースを作成する (デフォルト)",
       "workspaceActionsDefaultTitle": "新規ワークスペースのデフォルト",
-      "workspaceActionsDefaultDesc": "<defaultMenu>新規ワークスペースのデフォルト</defaultMenu> サブメニューで、通常の新規ワークスペース作成時に実行する保存済みワークスペースレイアウトを選べます。「なし」を選ぶと空のターミナルに戻ります。保存ダイアログにも <checkbox>新規ワークスペースのデフォルトとして使用</checkbox> チェックボックスがあります。設定キーは <action>ui.newWorkspace.action</action> です。プロジェクトローカルの <localConfig>.cmux/cmux.json</localConfig> の値は <globalConfig>~/.config/cmux/cmux.json</globalConfig> より優先されます。"
+      "workspaceActionsDefaultDesc": "<defaultMenu>Default for New Workspace</defaultMenu> サブメニューで、通常の新規ワークスペース作成時に実行する保存済みワークスペースレイアウトを選べます。「なし」を選ぶと空のターミナルに戻ります。保存ダイアログにも <checkbox>Use as default for new workspaces</checkbox> チェックボックスがあります。設定キーは <action>ui.newWorkspace.action</action> です。プロジェクトローカルの <localConfig>.cmux/cmux.json</localConfig> の値は <globalConfig>~/.config/cmux/cmux.json</globalConfig> より優先されます。"
     },
     "keyboardShortcuts": {
       "title": "キーボードショートカット",
@@ -2099,10 +2145,10 @@
       "metaDescription": "cmux のエージェントスキルをインストールして、CLI 制御、workspace 自動化、settings、customization、diagnostics、ブラウザ自動化、Markdown パネルに使えます。",
       "intro": "cmux には、コーディングエージェントに cmux CLI 制御、current workspace 自動化、settings、customization、diagnostics、ブラウザサーフェス、Markdown パネルの使い方を教えるスキルが含まれています。",
       "installTitle": "インストール",
-      "installIntro": "標準の複数エージェント向けインストールには Vercel の <code>skills</code> CLI を使います。Codex の skills ディレクトリだけでよい場合は <code>skills.sh</code> も使えます。",
+      "installIntro": "標準的なマルチエージェントインストールフローにはVercelの<code>skills</code> CLIを使うか、Codexスキルディレクトリだけが必要な場合は<code>skills.sh</code>を使います。",
       "installWithVercel": "Vercel skills でインストール",
       "installWithSkillsSh": "skills.sh でインストール",
-      "installDestination": "デフォルトでは、<code>skills.sh</code> は <code>~/.codex/skills</code> にインストールします。CODEX_HOME が設定されている場合は <code>$CODEX_HOME/skills</code> にインストールします。エージェントが別のディレクトリからスキルを読む場合は <code>--dest</code> を渡してください。",
+      "installDestination": "デフォルトでは、<code>skills.sh</code> は <code>~/.codex/skills</code> にインストールします。CODEX_HOME が設定されている場合は <code>$CODEX_HOME/skills</code> を使います。エージェントが別のディレクトリからスキルを読み込む場合は <code>--dest</code> を指定してください。",
       "localInstallTitle": "チェックアウトからインストール",
       "localInstallIntro": "クローン済みの cmux チェックアウトでは、スクリプトはローカルの skills ディレクトリを使います。",
       "localInstallCommands": "ローカルコマンド",
@@ -2256,18 +2302,27 @@
       "intro": "cmux omoはoh-my-openagentプラグインを有効にしてcmux対応環境でOpenCodeを起動します。oh-my-openagentは複数のAIモデル（Claude、GPT、Gemini、Grok）を専門エージェントとして並列にオーケストレーションします。エージェントペインはネイティブのcmuxスプリットになります。",
       "usage": "使い方",
       "usageDesc": "omoの後のすべての引数はOpenCodeに転送されます。",
+      "whatYouGet": "得られるもの",
+      "whatYouGetDesc": "oh-my-openagentのTmuxSessionManagerは、各バックグラウンドエージェントを個別のペインで起動します。cmux omoでは、これらのペインがtmuxペインではなくネイティブのcmuxスプリットになります：",
+      "whatYouGet1": "各サブエージェント（Hephaestus、Atlas、Oracleなど）が、ワークスペースに表示される個別のcmuxスプリットを使用",
+      "whatYouGet2": "自動レイアウト管理：エージェントをグリッド（デフォルトはmain-vertical）に配置し、エージェントの増減に合わせてサイズを調整",
+      "whatYouGet3": "新しいメッセージがない状態で3回連続してアイドルと確認されたエージェントを自動的に終了",
+      "whatYouGet4": "新しいエージェントペインを開くにはウインドウが小さすぎる場合、空きができるまで2秒ごとに再試行",
+      "whatYouGet5": "エージェントが隣で作業している間も、メインセッションはプライマリペインに維持",
       "firstRun": "初回実行",
-      "firstRunDesc": "初回実行時、cmux omoはoh-my-opencodeプラグインを自動的にセットアップします：",
+      "firstRunDesc": "初回プレイでは、cmux omoが自動的にすべてをセットアップします:",
       "firstRunStep1": "~/.cmuxterm/omo-config/にoh-my-opencodeをプラグイン配列に登録したシャドウ設定を作成",
       "firstRunStep2": "oh-my-opencode npmパッケージがない場合、bunまたはnpmでインストール",
       "firstRunStep3": "元の~/.config/opencode/ディレクトリからnode_modules、package.json、プラグイン設定をシンボリックリンク",
+      "firstRunStep4": "oh-my-opencode設定でtmuxモードを有効化（デフォルトではfalseのtmux.enabledをcmux omoが有効化）",
       "firstRunSafe": "元の~/.config/opencode/設定は変更されません。通常のopencode実行は以前と同じように動作します。",
       "howItWorks": "仕組み",
       "howItWorksDesc": "cmux claude-teamsと同じパターンです。tmux shimがoh-my-openagentのTmuxSessionManagerからのtmuxコマンドを傍受し、cmux APIコールに変換します。",
       "shimStep1": "~/.cmuxterm/omo-bin/tmuxにtmux shimを作成",
       "shimStep2": "TMUXとTMUX_PANE環境変数を設定",
-      "shimStep3": "OPENCODE_CONFIG_DIRをoh-my-opencodeが有効なシャドウ設定に指定",
-      "shimStep4": "shimディレクトリをPATHの先頭に追加してopencodeにexec",
+      "shimStep3": "ペインを視覚的に起動するため、oh-my-opencode設定のtmux.enabledを有効化",
+      "shimStep4": "OPENCODE_CONFIG_DIRをシャドウ設定に指定",
+      "shimStep5": "shimディレクトリをPATHの先頭に追加してopencodeにexec",
       "directories": "ディレクトリ",
       "dirPath": "パス",
       "dirPurpose": "目的",
@@ -2278,7 +2333,8 @@
       "shadowConfigDesc": "cmux omoはシャドウ設定ディレクトリを使用するため、元のOpenCode設定には影響しません：",
       "shadowStep1": "~/.config/opencode/opencode.jsonをコピーし、プラグイン配列にoh-my-opencodeを追加",
       "shadowStep2": "元のディレクトリからnode_modules、package.json、bun.lockをシンボリックリンク",
-      "shadowStep3": "opencode起動前にOPENCODE_CONFIG_DIRをシャドウディレクトリに設定",
+      "shadowStep3": "tmux.enabledをtrueに設定したoh-my-opencode.jsonを書き込み",
+      "shadowStep4": "opencode起動前にOPENCODE_CONFIG_DIRをシャドウディレクトリに設定",
       "envVars": "環境変数",
       "envVarName": "変数",
       "envVarPurpose": "目的",
@@ -2405,7 +2461,8 @@
       "ios": "iOSアプリ",
       "vault": "Vault",
       "taskManager": "タスクマネージャ",
-      "ssh": "SSH"
+      "ssh": "SSH",
+      "base": "Base"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -2484,7 +2541,7 @@
       "dragDropTitle": "ドラッグアンドドロップ",
       "dragDropDesc": "画像またはファイルをリモート端末にドラッグすると、cmux は既存の SSH 接続を介して scp 経由でアップロードします。 cmux は、TTY によってフォアグラウンド SSH プロセスを検出し、ControlMaster 多重化を通じてアップロードをルーティングします。",
       "notificationsTitle": "通知",
-      "notificationsDesc": "リモート マシン上のプロセスは、ローカル インスタンス上で実行される cmux コマンドを実行できます。コーディング エージェントがリモート ボックス上で cmux Notice を呼び出すと、通知がローカル サイドバーに表示されます。ワークスペースタブで青いリングが点灯します。 Cmd+Shift+U でそこにジャンプします。不安定な接続からの通知スパムは、ホストごとのクールダウンによって抑制されます。",
+      "notificationsDesc": "リモートマシン上のプロセスは、ローカルインスタンスで実行されるcmuxコマンドを実行することができます。リモートボックスでコーディングエージェントがcmux notifyを呼び出すと、通知はローカルサイドバーに表示されます。ワークスペースタブで青いリングが点灯します。Cmd+Shift+Uでそれにジャンプします。不安定な接続からの通知スパムは、ホストごとのクールダウンで抑制されます。",
       "agentsTitle": "SSH 経由でエージェントをコーディングする",
       "agentsDesc": "cmux claude-teams と cmux omo はどちらも SSH セッション内で動作します。リモート ホスト上の Go リレー デーモンは、ローカルの Swift CLI と同じ tmux-compat 変換を処理します。 Teammate エージェントは、リモート ボックスで計算が実行されている間、ローカル マシン上でネイティブ cmux スプリットとして生成されます。",
       "reconnectTitle": "再接続",
@@ -2595,16 +2652,230 @@
       "useTitle": "使う場面",
       "useDesc": "Activity Monitorではcmuxの負荷は分かるが、原因のワークスペース、エージェント、ブラウザペインが分からないときに使います。",
       "blogCta": "ワークフローと導入背景は<link>タスクマネージャの機能紹介</link>をご覧ください。"
+    },
+    "base": {
+      "title": "Base",
+      "metaTitle": "ベース クラウド ワークスペース",
+      "metaDescription": "Base は永続的な cmux クラウドワークスペースです。個人またはチームのスコープごとに一台の VM があり、Mac と iOS から再開できます。",
+      "intro": "Base は、常時接続の cmux クラウド ワークスペースです。これは、サインインしたアカウントに対して開かれるデフォルトのクラウド VM cmux です。永続的で再開可能で、エージェント、シェル、および cmux クライアントからアクセスしたい作業をコーディングするためのものです。",
+      "previewNote": "プレビューという名前です。一部の CLI 出力および下位レベルのメニューには、製品名が Base に移動しても引き続き Cloud VM と表示されます。",
+      "whatTitle": "Base とは",
+      "whatDesc": "Base は、cmux のクラウド作業用のホーム ワークスペースです。 Base を開くのは決定的です: cmux は、現在のアカウント スコープに適切な永続 VM を見つけ、必要に応じて再開し、可能であればターミナル エンドポイントを修復し、ターミナルを開きます。",
+      "whatPersistent": "永続: ファイル、インストールされているツール、シェル履歴、およびエージェントの状態は、明示的にリセットするまで VM 上に残ります。 Base.",
+      "whatSameVm": "安定した ID: 同じアカウント スコープが毎回同じ Base VM を開きます。",
+      "whatAnywhere": "Mac と iOS は cmux 認証を通じて接続できるため、ワークスペースを作成した Mac をオンラインのままにする必要はありません。",
+      "ownershipTitle": "所有権",
+      "ownershipDesc": "ベースは、使用しているスタック アカウント コンテキストによってスコープが設定されます。 cmux.",
+      "ownerType": "所有者",
+      "ownerScope": "スコープ",
+      "personalOwner": "個人ベース",
+      "personalScope": "スタック ユーザーが所有する 1 つの永続 VM。製品機能を通じてアクセスを共有しない限り、サインインしたクライアントのみが接続できます。",
+      "teamOwner": "チーム ベース",
+      "teamScope": "スタック チームが所有する 1 つの永続 VM。アクセスは、各メンバーの個人的な Base とは別に、チーム メンバーシップとチーム ポリシーに従います。",
+      "switchingDesc": "スタック アカウントまたはチームを切り替えると、開く Base が変わります。個人の Base とチーム Base は、同じ Mac から使用している場合でも、異なる VM です。",
+      "openCreateTitle": "開く、リセット、作成、フォーク",
+      "openCreateDesc": "メイン ボタンは Open Base である必要があります。これはべき等であり、繰り返し押しても安全です。",
+      "openMeaning": "Open Base: スコープ付きベース VM が存在しない場合にのみ作成し、存在しない場合は再開して既存のベース VM に接続します。",
+      "resetMeaning": "Base のリセット: 同じアカウント スコープに対して新しい Base 世代を作成します。前の世代が保持されるため、誤ってリセットしても回復可能です。",
+      "createMeaning": "VM の作成: 明示的な追加マシン用に追加の別個のクラウド VM を作成します。",
+      "forkMeaning": "VM をフォーク: 現在の VM を新しい作業ブランチにコピーします。",
+      "cliNamingDesc": "現在のプレビューCLI は、vm コマンドを通じてこれを公開します。製品モデルは、デフォルトの永続ワークスペースの場合は Base、明示的な追加マシンおよび低レベルの操作の場合は VM です。",
+      "sessionsTitle": "セッションと再接続",
+      "sessionsDesc": "各ターミナル ペインには独自のリモート PTY セッションが必要です。新しいタブを分割したり開いたりすると、新しいセッションが作成されます。 cmux を復元すると、可能な場合は各ペインがそのセッションに再接続されます。",
+      "sessionScrollback": "スクロールバックは cmux のペインに保存され、アプリを再起動しても維持されます。",
+      "sessionReconnect": "再接続は端末で静かに実行される必要があります。 cmux は、再試行ループをスクロールバックに追加するのではなく、UI に状態を表示する必要があります。",
+      "sessionRepair": "ターミナルのエンドポイントが古い場合、cmux はリセットを求める前にその場で修復を試みます。",
+      "mobileTitle": "iOS からのアクセス",
+      "mobileDesc": "Base は Mac プロセスとは独立して実行されます。 iOS アプリは、サインインしている限り、Base ワークスペースを一覧表示し、クラウド コントロール プレーン経由で接続できます。これにより、MacBook がスリープ状態またはオフラインのときにエージェントとターミナルを確認できます。",
+      "notificationsTitle": "通知",
+      "notificationsDesc": "Base VM には多数のクライアントを接続できます。エージェント通知は、クラウド イベント パスを通じて、Mac や iOS など、アクセス権のあるすべてのサインイン クライアントにファンアウトされる必要があります。",
+      "securityTitle": "セキュリティ モデル",
+      "securityAuth": "認証では、cmux アカウントが使用されます。クライアントは、Base をリストまたは接続する前にサインインする必要があります。",
+      "securityLease": "ターミナル接続エンドポイントは、有効期間が短く、認証されたアカウント、デバイス、VM、およびセッションにスコープされる必要があります。",
+      "securityProvider": "プロバイダの資格情報と VM ブートストラップ シークレットはサーバー側に残ります。クライアントは、必要なアタッチ エンドポイントまたは署名された操作のみを受け取ります。",
+      "securityTeam": "Team Base アクセスは、すべてのリスト、オープン、アタッチ、フォーク、チェックポイント、リセット操作でサーバー側でチェックする必要があります。",
+      "recoveryTitle": "リカバリ",
+      "recoveryDesc": "Base は、ID とファイル システムがユーザーの約束の一部であるため、交換よりも修復を優先するように設計されています。",
+      "recoveryRetry": "再試行: cmux に再開して同じ Base VM に再接続するよう依頼します。",
+      "recoveryReset": "リセット: 新しい Base 世代を明示的に作成します。 cmux は古い世代を保持します。完全な削除は別の確認手順である必要があります。",
+      "recoverySupport": "フィードバック: VM ID、経過時間、最後の非機密エラーを含めて、サポートが失敗の原因が認証、サービスの準備状況、ターミナル エンドポイント、またはローカル クライアントの状態であるかどうかを判断できます。"
     }
   },
   "legal": {
-    "privacyPolicy": "プライバシーポリシー",
-    "termsOfService": "利用規約",
-    "eula": "EULA"
+    "terms": {
+      "metadataTitle": "利用規約 — cmux",
+      "metadataDescription": "cmuxウェブサイトおよび macOS 申請の利用規約",
+      "title": "利用規約",
+      "lastRevised": "最終更新日:2026年3月18日",
+      "introduction": {
+        "siteAndApplication": "<site>cmux.com</site> にあるウェブサイト(「サイト」)およびcmuxデスクトップアプリケーション(「アプリケーション」)は、Manaflow(「会社」「私たち」「我々」「私たち」「私たち」)に属する著作権作品です。これらの利用規約(以下「利用規約」)は、サイトおよびアプリケーションの利用を規定する法的拘束力のある利用規約を定めています。",
+        "acceptance": "サイトまたはアプリケーションへのアクセスまたは利用により、あなたは本利用規約を受け入れたものとみなされ、これらの利用規約に同意する権利、権限、能力を有することを表明し保証します。18歳未満の方は、サイトまたはアプリケーションへのアクセスまたは利用を禁じます。これらの利用規約のすべての規定に同意しない場合は、サイトやアプリケーションへのアクセスおよび/または利用を控えてください。"
+      },
+      "sections": {
+        "license": {
+          "heading": "1. ライセンス",
+          "body": "これらの条件に従い、当社はあなたに、個人または社内のビジネス目的、ソフトウェア開発活動に関連する商業利用を含む、サイトおよびアプリケーションの使用およびアクセスのための譲渡不可、非独占的、取消可能かつ限定的なライセンスを提供します。",
+          "restrictionsHeading": "制限事項",
+          "restrictionsIntro": "あなたに付与される権利は以下の制限を受けます:",
+          "restrictions": [
+            "アプリケーションをライセンス、販売、賃貸、リース、譲渡、譲渡、配布、ホスティング、またはその他の商業的な利用は禁止します",
+            "アプリケーションのいかなる部分も改変、派生作品の作成、分解、逆コンパイル、またはリバースエンジニアリングしてはなりません",
+            "同様の、または競合する製品を作るためにアプリケーションにアクセスすることはできません"
+          ],
+          "modificationHeading": "改造",
+          "modificationBody": "当社は、通知の有無にかかわらず、サイトまたはアプリケーションをいつでも変更、停止、または中止する権利を留保します。当社は、変更、停止、または停止について、あなたや第三者に対して責任を負いません。",
+          "ownershipHeading": "所有権",
+          "ownershipBody": "申請書およびその内容に含まれる著作権、特許、商標、営業秘密を含むすべての知的財産権は、会社またはそのサプライヤーに所有されていることを認めます。本条項は、上記の限定ライセンスを除き、当該知的財産に関する権利、権利、利益をあなたに移転するものではありません。会社およびそのサプライヤーは、本条項に付与されていないすべての権利を留保します。",
+          "feedbackHeading": "フィードバック",
+          "feedbackBody": "アプリケーションに関するフィードバックや提案を会社に提供した場合、当社はそのフィードバックに関するすべての権利を会社に譲渡し、当社が適切と判断する方法でそのフィードバックを使用する権利を有することを認めます。"
+        },
+        "userContent": {
+          "heading": "2. ユーザーコンテンツ",
+          "body": "アプリケーションで作成または処理したすべてのコード、ファイル、コンテンツの完全な所有権はあなたにあります。アプリケーションはあなたのデバイス上でローカルに動作し、通常の使用中にコンテンツは当社のサーバーに送信されません。"
+        },
+        "indemnification": {
+          "heading": "3. 補償",
+          "body": "あなたは、(a) アプリケーションの使用、(b) 本条項違反、または(c) 適用法または規則違反に起因する、またはそれに起因する第三者による請求や要求から、会社(およびその役員、従業員、代理人)を、費用や弁護士費用を含む損害を免責し、免責することに同意します。"
+        },
+        "thirdPartyLinks": {
+          "heading": "4. 第三者とのリンク",
+          "body": "本サイトには第三者のウェブサイトやサービスへのリンクが含まれている場合があります。これらのリンクは当社の管理下に置かれておらず、当社は責任を負いません。すべての第三者リンクは自己責任でご利用ください。"
+        },
+        "disclaimers": {
+          "heading": "5. 免責事項",
+          "body": "申請書は「現状のまま」および「利用可能なまま」の条件で提供されます。当社は明示的、黙示的、または法定のいかなる保証および条件も明示的に否認します。商品性、特定の目的への適格性、タイトル、非侵害の保証も含まれます。",
+          "jurisdiction": "一部の法域では黙示の保証の除外が認められていないため、上記の除外はあなたには適用されない場合があります。"
+        },
+        "liability": {
+          "heading": "6. 責任の制限",
+          "damages": "法律で認められる最大の範囲内で、当社は本項またはアプリケーション利用に関連する損失、損失した利益、データ、または間接的、結果的、模範的、偶発的、特別的または懲罰的損害について、あなたや第三者に対していかなる責任も負いません。",
+          "limit": "法律で認められる最大の範囲内で、損害に対する当社の責任は常に50米ドル($50)に制限されます。"
+        },
+        "termination": {
+          "heading": "7. 任期と終了",
+          "body": "これらの利用規約は、アプリケーションを使用している間も有効です。当社は、任意の理由でいつでもあなたの権利を停止または終了することができます。終了後、アプリケーションのすべての利用を停止し、デバイスからすべてのコピーを削除します。"
+        },
+        "disputes": {
+          "heading": "8. 紛争解決",
+          "arbitration": "申請書または本条項に関するあなたと会社間の紛争は、裁判ではなく拘束力のある仲裁によって解決されることに同意しますが、いずれの当事者も小額訴訟裁判所で個別請求を主張したり、知的財産の悪用に対して衡平法上の救済を求めることができます。仲裁は、 JAMS が適用規則に従って実施します。",
+          "juryWaiver": "あなたと会社は、裁判所で訴訟を起こし、裁判官や陪審員の前で裁判を受ける憲法および法令上の権利を放棄します。",
+          "classWaiver": "あなたと会社は、互いに個別に請求を提起でき、集団、代表、または集団の基準では提起できないことに同意します。",
+          "optOut": "この仲裁合意の対象となる30日以内に書面で <email>founders@manaflow.com</email> 通知を送ることで、この仲裁契約からオプトアウトする権利があります。"
+        },
+        "general": {
+          "heading": "9. 一般",
+          "body": "本条項は、申請書の使用に関するあなたと会社間の完全な合意を構成します。我々がいかなる権利や規定も行使または執行しなかったことは放棄とはみなされません。いずれかの規定が無効と判断された場合、残りの規定は引き続き有効とされます。"
+        },
+        "contact": {
+          "heading": "10. 接触",
+          "body": "これらの利用規約に関する質問は <email>founders@manaflow.com</email> にお問い合わせください。"
+        }
+      },
+      "copyright": "著作権 {year} Manaflow©。無断転載を禁じます。"
+    },
+    "eula": {
+      "metadataTitle": "EULA — cmux",
+      "metadataDescription": "cmux macOS アプリケーションのエンドユーザーライセンス契約",
+      "title": "EULA(EULA)",
+      "lastUpdated": "最終更新日:2026年3月18日",
+      "introduction": {
+        "readCarefully": "cmuxをダウンロードまたは使用する前に、このエンドユーザーライセンス契約をよくお読みください。"
+      },
+      "sections": {
+        "definitions": {
+          "heading": "解釈と定義",
+          "intro": "本契約の目的のために:",
+          "agreementTerm": "「合意」",
+          "agreementText": "これは、アプリケーションの使用に関するあなたと会社との間の完全な合意を形成するエンドユーザーライセンス契約を意味します。",
+          "applicationTerm": "「申請」",
+          "applicationText": "macOSのcmuxデスクトップアプリケーションを意味し、Ghosttyを基に構築されたネイティブターミナルアプリケーションです。",
+          "companyTerm": "「会社」",
+          "companyText": "(「会社」、「私たち」、「私たち」または「私たちの」と呼ばれます)は Manaflowを指します。",
+          "contentTerm": "「コンテンツ」",
+          "contentText": "テキスト、コード、画像、またはその他のアプリケーションによって作成、処理、表示可能な情報などのコンテンツを指します。",
+          "countryTerm": "「カントリー」",
+          "countryText": "アメリカ合衆国を指します。",
+          "deviceTerm": "「装置」",
+          "deviceText": "アプリケーションを動作させることができる macOS コンピュータを指します。",
+          "youTerm": "「君」",
+          "youText": "アプリケーションにアクセスする、または使用する個人を指します。"
+        },
+        "acknowledgment": {
+          "heading": "謝辞",
+          "agreement": "アプリケーションをダウンロードまたは使用することで、あなたは本契約の条件に従うことに同意したものとみなされます。同意しない場合は、アプリケーションをダウンロードまたは使用しないでください。",
+          "licensed": "本アプリケーションは、本契約の条件に厳格に従って使用するために、会社からライセンス提供されており、販売されるものではありません。"
+        },
+        "license": {
+          "heading": "免許",
+          "scopeHeading": "ライセンスの範囲",
+          "scopeBody": "当社は、本契約に厳格に従い、個人的または社内的なビジネス目的、ソフトウェア開発に関連する商業利用を含むアプリケーションをダウンロード、インストール、使用するための可撤回可能、非独占的、譲渡不可、限定的なライセンスを付与します。",
+          "restrictionsHeading": "ライセンス制限",
+          "restrictionsIntro": "あなたはそれを認めず、他者に以下を許しません。",
+          "restrictions": [
+            "アプリケーションをライセンス、販売、賃貸、リース、譲渡、配布、送信、ホスト、またはその他の商業的に利用する、または第三者に利用可能にすること",
+            "会社の著作権や商標を含むいかなる独有の通知も削除、変更、または隠蔽してください",
+            "アプリケーションの任意の部分を改変、派生作品の作成、分解、復号、復号、逆コンパイル、またはリバースエンジニアリング"
+          ]
+        },
+        "intellectualProperty": {
+          "heading": "知的財産権",
+          "ownership": "本申請書は、すべての著作権、特許、商標、営業秘密およびその他の知的財産権を含め、当社の単独かつ排他的な財産であり続けます。",
+          "userOwnership": "アプリケーションで作成したコードやコンテンツの所有権はあなたに留まります。"
+        },
+        "modifications": {
+          "heading": "修正と更新",
+          "companyChanges": "当社は、通知の有無にかかわらず、またあなたに責任を負うことなく、申請書をいつでも変更、停止または中止する権利を留保します。",
+          "updates": "当社はアップデート、パッチ、バグ修正、その他の修正を提供する場合があります。アップデートは特定の機能を変更または削除する場合があります。すべてのアップデートは本契約の条件に従うことに同意します。"
+        },
+        "thirdPartyServices": {
+          "heading": "サードパーティサービス",
+          "body": "アプリケーションは、 Ghostty (端末レンダリングエンジン)、 Sentry (エラー追跡)、 Sparkle (自動更新フレームワーク)などのサードパーティサービスと統合されています。当社は、その正確性、完全性、品質を含むいかなる第三者サービスについても責任を負わないことを認めます。"
+        },
+        "termination": {
+          "heading": "任期と終了",
+          "duration": "本契約は、あなたまたは当社が終了するまで有効です。当社は、いかなる理由でも本契約をいつでも終了することができます。",
+          "breach": "本契約は、いかなる規定にも従わない場合、直ちに終了します。また、アプリケーションおよびデバイス内のすべてのコピーを削除することで終了することもできます。",
+          "effect": "終了後、アプリケーションのすべての使用を停止し、デバイスからすべてのコピーを削除してください。"
+        },
+        "warranties": {
+          "heading": "保証なし",
+          "disclaimer": "申請書は「現状のまま」および「利用可能なまま」として提供され、いかなる保証もありません。当社は明示的、黙示的、法定またはその他の保証を含み、商品性、特定の目的への適格性、タイトルおよび非侵害に関するすべての黙示的保証を明示的に否認します。",
+          "jurisdiction": "一部の法域では特定の保証の除外が認められていないため、上記の除外事項の一部はあなたには適用されない場合があります。"
+        },
+        "liability": {
+          "heading": "責任の制限",
+          "limit": "本契約に基づく会社の全責任は、申請に対してあなたが実際に支払った金額に限定され、購入していなければ100ドルとなります。",
+          "damages": "法律で認められる最大の範囲内で、会社はいかなる特別、付随的、間接的、または結果的な損害についても責任を負いません。"
+        },
+        "indemnification": {
+          "heading": "補償",
+          "body": "あなたは、申請書の使用または本契約違反に起因する、または本契約違反に起因する請求や請求、特に合理的な弁護士費用について、会社を補償し、損害を免除することに同意します。"
+        },
+        "severability": {
+          "heading": "分割可能性と放棄",
+          "body": "本協定のいずれかの条項が強制力を欠くと判断された場合、その目的を最大限達成するために変更・解釈され、残りの規定は引き続き完全な効果を保ちます。"
+        },
+        "governingLaw": {
+          "heading": "統治法",
+          "body": "本契約および申請書の使用は、法の衝突規則を除き、アメリカ合衆国の法律が適用されます。"
+        },
+        "changes": {
+          "heading": "この協定の変更点",
+          "body": "当社は本契約をいつでも変更する権利を留保します。改訂が重要な場合は、少なくとも30日前に通知いたします。改訂が有効になった後も申請書の使用を継続することで、改訂条項に拘束されることに同意したことになります。"
+        },
+        "contact": {
+          "heading": "お問い合わせ",
+          "intro": "この契約についてご質問がある場合は:",
+          "email": "メールは <email>founders@manaflow.com</email> までお送りください。"
+        }
+      }
+    }
   },
   "wallOfLove": {
     "title": "みんなの声",
-    "description": "cmuxについてみんなが言っていること。"
+    "description": "cmuxについてみんなが言っていること。",
+    "metaTitle": "Wall of Love — cmux",
+    "metaDescription": "人々の意見cmux、マルチタスク用に構築された端末。"
   },
   "testimonials": {
     "mitchellh": "またlibghosttyベースのプロジェクトが登場。今回は縦タブ付きのmacOSターミナルで、ターミナルベースのAIエージェントワークフローを大量に使う人向けに、整理・通知機能や組み込み・スクリプタブルなブラウザを搭載。",
@@ -3268,7 +3539,7 @@
                 "macOS 上の多数の可視エージェント セッション"
               ],
               [
-                "cmux クロード チーム",
+                "cmux claude-teams",
                 "チームメイトセッションのネイティブペインマッピング",
                 "強い",
                 "tmux/iTerm2ペインではなくネイティブcmux分割を使うClaude Codeエージェントチーム"

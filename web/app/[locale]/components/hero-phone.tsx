@@ -1,9 +1,11 @@
 "use client";
 
 import Image from "next/image";
+import { useLocale, useTranslations } from "next-intl";
 import { useRef, useState } from "react";
-import { Link } from "../../../i18n/navigation";
+import { authoredContentLocalesByPath } from "../../../i18n/locale-availability";
 import phoneImage from "@/app/[locale]/(landing)/assets/landing-iphone.png";
+import { ContentLocaleLink } from "./content-locale-link";
 
 // Baked placement over the bottom-right of the Mac hero (percent offsets).
 // To retune, open the page with ?drag and drag the phone: the badge shows the
@@ -27,6 +29,8 @@ function readStored(): { right: number; bottom: number } {
 }
 
 export function HeroPhone() {
+  const locale = useLocale();
+  const t = useTranslations("platforms");
   const [dragMode] = useState(
     () =>
       typeof window !== "undefined" &&
@@ -122,9 +126,15 @@ export function HeroPhone() {
       style={style}
       className={`pointer-events-none absolute z-10 drop-shadow-[0_28px_60px_rgba(0,0,0,0.5)] ${sizeClasses}`}
     >
-      <Link href="/ios" aria-label="cmux iOS" className="pointer-events-auto block">
+      <ContentLocaleLink
+        href="/ios"
+        currentLocale={locale}
+        contentLocales={authoredContentLocalesByPath["/ios"]}
+        aria-label={t("ios")}
+        className="pointer-events-auto block"
+      >
         {img}
-      </Link>
+      </ContentLocaleLink>
     </div>
   );
 }

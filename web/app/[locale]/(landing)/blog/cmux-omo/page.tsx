@@ -78,7 +78,9 @@ export default function CmuxOmoPage() {
       </p>
 
       <p className="mt-4">
-        <Link href="/docs/agent-integrations/oh-my-opencode">Read the docs &rarr;</Link>
+        <Link href="/docs/agent-integrations/oh-my-opencode">
+          {t("readDocs")} &rarr;
+        </Link>
       </p>
     </>
   );

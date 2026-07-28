@@ -136,45 +136,6 @@ export default function middleware(request: NextRequest) {
     return NextResponse.redirect(url, 301);
   }
 
-  // The remaining legal pages are English-only. Redirect
-  // /<locale>/legal-page to /legal-page, and skip next-intl for /legal-page so
-  // locale detection can't redirect back. The privacy policy has complete
-  // localized content and follows the normal next-intl path.
-  const englishOnlyPages = new Set([
-    "/terms-of-service",
-    "/eula",
-  ]);
-  if (englishOnlyPages.has(pathname)) {
-    const url = request.nextUrl.clone();
-    url.pathname = `/en${pathname}`;
-    return NextResponse.rewrite(url);
-  }
-  const secondSlash = pathname.indexOf("/", 1);
-  if (secondSlash !== -1) {
-    const rest = pathname.slice(secondSlash);
-    if (englishOnlyPages.has(rest)) {
-      const url = request.nextUrl.clone();
-      url.pathname = rest;
-      return NextResponse.redirect(url, 301);
-    }
-  }
-
-  // Base docs are English-only. Keep the canonical URL unprefixed and bypass
-  // locale detection so browser language preferences cannot select a 404.
-  const baseDocsMatch = pathname.match(
-    /^\/([a-z]{2}(?:-[A-Z]{2})?)\/docs\/base\/?$/,
-  );
-  if (baseDocsMatch && baseDocsMatch[1] !== "en") {
-    const url = request.nextUrl.clone();
-    url.pathname = "/docs/base";
-    return NextResponse.redirect(url, 301);
-  }
-  if (pathname === "/docs/base" || pathname === "/docs/base/") {
-    const url = request.nextUrl.clone();
-    url.pathname = "/en/docs/base";
-    return NextResponse.rewrite(url);
-  }
-
   const remoteTmuxMatch = pathname.match(
     /^\/([a-z]{2}(?:-[A-Z]{2})?)\/docs\/remote-tmux\/?$/,
   );

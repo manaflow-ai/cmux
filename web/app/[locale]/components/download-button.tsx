@@ -1,10 +1,11 @@
 "use client";
 
 import { Menu } from "@base-ui-components/react/menu";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import posthog from "posthog-js";
 import { useState } from "react";
 import { Link, usePathname } from "../../../i18n/navigation";
+import { authoredContentLocalesByPath } from "../../../i18n/locale-availability";
 import {
   DOWNLOAD_CONFIRMATION_HREF,
   DOWNLOAD_CONFIRMATION_PATH,
@@ -13,6 +14,7 @@ import {
   type WaitlistPlatform,
 } from "../../lib/download";
 import { ctaButtonStyle } from "./cta-styles";
+import { ContentLocaleLink } from "./content-locale-link";
 import { PlatformIcon } from "./platform-icons";
 import { WaitlistDialog } from "./waitlist-dialog";
 
@@ -38,6 +40,7 @@ export function DownloadButton({
   const t = useTranslations("common");
   const tp = useTranslations("platforms");
   const tw = useTranslations("waitlist");
+  const locale = useLocale();
   const pathname = usePathname();
   const isSmall = size === "sm";
   const [waitlistPlatform, setWaitlistPlatform] =
@@ -192,7 +195,15 @@ export function DownloadButton({
                   <span className="flex-1 text-left">{tp("macos")}</span>
                 </Menu.Item>
                 <Menu.Item
-                  render={<Link href="/ios" target="_blank" rel="noreferrer" />}
+                  render={
+                    <ContentLocaleLink
+                      href="/ios"
+                      currentLocale={locale}
+                      contentLocales={authoredContentLocalesByPath["/ios"]}
+                      target="_blank"
+                      rel="noreferrer"
+                    />
+                  }
                   onClick={() =>
                     posthog.capture("cmuxterm_download_clicked", {
                       location,

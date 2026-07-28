@@ -43,7 +43,8 @@
     "blog": "博客",
     "changelog": "更新日志",
     "community": "社区",
-    "github": "GitHub"
+    "github": "GitHub",
+    "pricing": "定价"
   },
   "footer": {
     "product": "产品",
@@ -67,7 +68,8 @@
     "assets": "素材",
     "openSource": "开源",
     "guides": "指南",
-    "compare": "对比"
+    "compare": "对比",
+    "pricing": "定价"
   },
   "home": {
     "taglinePrefix": "开源终端，专为 ",
@@ -102,7 +104,7 @@
     "faqGhosttyQ": "cmux 和 Ghostty 是什么关系？",
     "faqGhosttyA": "cmux 不是 Ghostty 的 fork。它使用 <link>libghostty</link> 作为终端渲染库，就像应用使用 WebKit 来渲染网页一样。Ghostty 是一个独立的终端；cmux 是基于其渲染引擎构建的不同应用。",
     "faqPlatformQ": "支持哪些平台？",
-    "faqPlatformA": "目前仅支持 macOS。cmux 是原生 Swift + AppKit 应用。",
+    "faqPlatformA": "目前仅macOS。cmux 是原生的 Swift + AppKit 应用。<waitlist>加入候补名单</waitlist>，了解 Linux、Windows 和 Android 的发布时间。",
     "faqAgentsQ": "cmux 支持哪些 coding agent？",
     "faqAgentsA": "全部都支持。cmux 是一个终端，所以任何在终端中运行的 agent 都可以直接使用：Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider、Goose、Amp、Cline、Cursor Agent，以及任何可以从命令行启动的工具。",
     "faqNotificationsQ": "通知是如何工作的？",
@@ -132,7 +134,10 @@
     "faqSupportQ": "我该如何支持 cmux？",
     "faqSupportA": "cmux 免费且开源，并且永远都会如此。如果你想支持开发并抢先体验后续内容，包括 cmux AI、iOS 应用和 Cloud VMs，请了解 <foundersLink>cmux Founders Edition</foundersLink>。",
     "faqFeatureQ": "我有功能请求或发现了一个 bug",
-    "faqFeatureA": "我们很想听到你的反馈。在 GitHub 上提交一个 <issuesLink>issue</issuesLink> 或 <prLink>pull request</prLink>，或者 <mailLink>给我们发邮件</mailLink>。"
+    "faqFeatureA": "我们很想听到你的反馈。在 GitHub 上提交一个 <issuesLink>issue</issuesLink> 或 <prLink>pull request</prLink>，或者 <mailLink>给我们发邮件</mailLink>。",
+    "typingOrganization": "组织结构",
+    "typingProgrammability": "可编程性",
+    "taglineStatic": "该终端专为多任务处理、组织和可编程而设计。"
   },
   "dashboard": {
     "aiAccounts": {
@@ -193,6 +198,127 @@
         "free": "免费",
         "pro": "Pro",
         "loading": "加载中…"
+      },
+      "eyebrow": "账号",
+      "title": "账单",
+      "description": "请审查您的 cmux 套餐并管理订阅账单。",
+      "banners": {
+        "cancelled": "你的计划将在当前计费期结束时取消。",
+        "resumed": "您的计划已恢复，并将正常续保。",
+        "nosub": "未发现该账户有活跃 Stripe 订阅。",
+        "error": "账单无法更新。请稍后再试。"
+      },
+      "free": {
+        "name": "免费",
+        "body": "你目前使用的是免费套餐。需要 Pro 限制和托管功能时升级。",
+        "upsellTitle": "需要云客服或团队计费时升级。",
+        "upsellBody": "选择 Pro 以获得个人云功能，或选择 Team 用于共享计费和座位。",
+        "testflightTitle": "下载 cmux iOS 应用",
+        "testflightBody": "iOS测试版通过TestFlight面向活跃的专业用户和团队成员开放。",
+        "testflightCta": "加入 iOS 测试版"
+      },
+      "pro": {
+        "name": "cmux 职业",
+        "activeBody": "你的计划会在 {date}续期。",
+        "pendingBody": "您的计划计划将在 {date}日结束。"
+      },
+      "team": {
+        "name": "cmux 队",
+        "fallbackName": "你的团队",
+        "activeBody": "{team}{date}更新。",
+        "pendingBody": "{team} 计划于 {date}日结束。",
+        "price": "每月座位35美元"
+      },
+      "details": {
+        "renewsOn": "更新",
+        "endsOn": "结尾",
+        "price": "价格",
+        "seats": "席位"
+      },
+      "dates": {
+        "unknown": "未知"
+      },
+      "cancel": {
+        "body": "您的专业访问权将持续有效至 {date}。在课程结束时勾选确认取消的选项。",
+        "teamBody": "团队访问权持续有效至 {date}。在课末检查取消选项。",
+        "checkbox": "我知道我的计划会在当前期限结束时结束。"
+      },
+      "actions": {
+        "viewPricing": "查看价格",
+        "manageBilling": "管理账单",
+        "cancelSummary": "取消计划",
+        "confirmCancel": "确认取消",
+        "resume": "恢复计划"
+      }
+    },
+    "nav": {
+      "brand": "cmux",
+      "vaultGroup": "穹顶",
+      "vaultOverview": "概述",
+      "vaultSessions": "会议",
+      "vaultCliSetup": "CLI 设置",
+      "subrouterGroup": "分布路器",
+      "subrouterOverview": "概述",
+      "accountGroup": "账号",
+      "billing": "账单",
+      "testflight": "iOS TestFlight"
+    },
+    "home": {
+      "title": "仪表盘",
+      "description": "选择产品仪表盘。",
+      "vaultName": "穹顶",
+      "vaultDescription": "浏览同步的代理会话并管理CLI访问。",
+      "vaultLink": "开放式穹顶",
+      "subrouterName": "分布路器",
+      "subrouterDescription": "通过故障切换和使用感知调度，将LLM请求路由到各个提供者账户之间。",
+      "subrouterLink": "开放分布器"
+    },
+    "subrouter": {
+      "title": "分布路器",
+      "description": "Subrouter通过故障切换和使用意识调度，在提供商账户间路由LLM请求。"
+    },
+    "testflight": {
+      "eyebrow": "账号",
+      "title": "iOS TestFlight",
+      "description": "通过您的活跃订阅加入 cmux iOS 测试版。",
+      "banners": {
+        "joined": "苹果公司会很快通过邮件发送你的 TestFlight 邀请函。",
+        "left": "你已经离开了 iOS TestFlight 组。",
+        "error": "TestFlight 无法更新。请稍后再试。",
+        "ineligible": "iOS TestFlight需要激活的职业或团队订阅。",
+        "needs_email": "加入前请添加已验证的主要邮箱 iOS TestFlight。",
+        "unavailable": "TestFlight 注册目前无法开放。"
+      },
+      "notEligible": {
+        "title": "需订阅",
+        "body": "iOS TestFlight 访问权限仅限于活跃的专业用户和Team订阅成员。"
+      },
+      "needsEmail": {
+        "title": "需要验证邮箱",
+        "body": "给你的账户添加一个经过验证的主邮箱，这样苹果才能发送 TestFlight 邀请。"
+      },
+      "unavailable": {
+        "title": "招生不可",
+        "body": "TestFlight 注册未为该环境配置。稍后再试。"
+      },
+      "join": {
+        "title": "加入 iOS 测试版",
+        "body": "苹果会向{email}发送TestFlight邀请。在你的iPhone上安装TestFlight，然后接受邀请。"
+      },
+      "enrolled": {
+        "title": "你已经注册了",
+        "body": "{email} 属于 cmux iOS TestFlight 组。",
+        "lapseNote": "如果订阅到期，访问权限会自动终止。"
+      },
+      "details": {
+        "email": "电子邮件",
+        "status": "现状",
+        "enrolled": "注册"
+      },
+      "actions": {
+        "viewPricing": "查看价格",
+        "join": "加入 iOS TestFlight",
+        "leave": "放手 TestFlight"
       }
     }
   },
@@ -446,16 +572,18 @@
         "p2": "<zen>cmux 之禅</zen>在于，开发者应该构建自己的工具，并探索与代码协作的各种方式。worktree 是一个有用的原语，但多个 checkout、放在不同文件夹里的后端/前端仓库、远程机器、非 Git 项目、本地脚本，甚至偶尔直接在 main 上写代码，因为那对当前任务最快，也同样是原语。",
         "superRepoTitle": "超级回购模式",
         "superRepoP1": "超级仓库是一种控制检查，它知道所有真实仓库的位置、如何创建工作树、如何配对相关仓库、哪些脚本准备每个工作区以及如何审查和合并 PR。 cmuxterm-hq 是一个超级存储库：它包含主要 cmux 签出、每个任务的 cmux 工作树、Zed 签出、hq 脚本、可重用技能以及代理遵循的规则以避免相互干扰。",
-        "superRepoP2": "重点并不是每个人都应该复制这个确切的目录树。关键是一个本地控制存储库可以描述您的整个工程操作系统。后端存储库和前端存储库可以一起打开。移动应用程序和 Web API 可以一起重新加载。可以在一个存储库中创建一个分支，并在另一个存储库中创建匹配的分支。该形状属于您的团队，而不是通用的工作树按钮。",
+        "superRepoP2": "<code>AGENTS.md</code>文件是控制平面。它命名代理可能需要的仓库，定义每个任务工作树的位置，并指向每个仓库的设置指令。一个任务可以为终端、浏览器集成和路由器创建匹配的工作树，而无需为每个任务克隆这三者。",
         "agentTitle": "让代理管理工作树",
-        "agentP1": "Claude Code 和 Codex 是比大多数内置工作树管理器更好的工作树管理器，因为它们可以读取您的存储库规则、运行脚本、跨多个存储库创建工作树、清理自己的工作树、修复冲突、推送分支、打开 PR 以及在 CI 和审查门通过后进行合并。",
-        "agentP2": "我们最常用的流程是任务工作树公关和自动审查。它们之所以有效，是因为代理可以读取文件、写入文件、运行命令、检查 GitHub、等待 CI、响应审阅意见以及跨存储库操作。如果任务需要同时更改云和桌面，您可以告诉代理在这两个位置进行查找，并让超级存储库对其余部分进行编码。",
+        "agentP1": "cmux 内部使用这种模式。公共源代码存在于 <cmux>manaflow-ai/cmux</cmux>中，而我们的私有控制仓库是 <hq>manaflow-ai/cmuxterm-hq</hq>。从总部根节点，我们可以请求Codex或Claude Code修复可能涉及cmux的子路由器问题。代理只创建它需要的工作树，读取每个仓库的 AGENTS.md，启动其设置脚本，并在这些脚本运行时开始检查代码。",
+        "agentP2": "<code>./scripts/new-worktree.sh</code>命令实现了一种拓扑结构。代理可以选择第二个检查对象以应对不兼容的子模块，选择一个远程沙箱用于不可信任的设置，一个虚拟机用于其他操作系统，或一个GPU调度器用于实验，然后再利用脚本来处理确定性部分。",
         "limitsTitle": "为什么内置工作树支持丢失",
         "limitsP1": "产品级工作树功能可以针对常见情况进行完善，但边缘情况会立即出现：没有 Git、多个存储库、生成的客户端、私有设置脚本、配对的后端/前端分支、不寻常的合并策略，或者故意将小的内部更改推送到 main 的团队。",
         "limitsP2": "可编程工作流程可以适应。要求 Claude Code 创建一个工作树，在其旁边启动 Codex，运行设置命令，打开右侧浏览器窗格，观看测试，并在 PR 合并时删除工作树。然后明天更改该工作流程。",
         "cmuxTitle": "cmux 为工作流程提供了一个界面",
         "cmuxP1": "cmux 不需要内置一个通用 worktree 管理器。它提供<customCommands>自定义命令</customCommands>、可编程的<api>CLI 和 socket API</api>，以及可复用的<skills>技能</skills>。加号按钮可以启动你自己的 worktree 命令、多仓库设置、非 Git 沙盒或远程环境。",
-        "cmuxP2": "这就是 <home>cmux home</home> 重要的原因。最好的 worktree 管理器，是当工作流变化时你的代理也能修改的那个；而最适合这个循环的终端，会把通知、Cmd+Shift+U 和 Cmd+Control+U 接到界面里。"
+        "cmuxP2": "这就是 <home>cmux home</home> 重要的原因。最好的 worktree 管理器，是当工作流变化时你的代理也能修改的那个；而最适合这个循环的终端，会把通知、Cmd+Shift+U 和 Cmd+Control+U 接到界面里。",
+        "agentsExample": "你正在 cmux-hq 中工作。任务可能包括：\n- manaflow-ai/cmux\n- manaflow-ai/cmux-browser\n- manaflow-ai/subrouter\n\n当用户请求新任务时：\n1. 确定任务需要哪些仓库。\n2. 在worktrees/[task]/[repo]中创建匹配的工作树。\n3. 阅读每个工作树的 AGENTS.md。\n4. 立即启动其设置脚本，然后继续执行任务。",
+        "launchCommand": "cd ~/fun/cmux-hq\ncodex --yolo \"修复子路由器 xyz 问题，可能与 cmux 相关\""
       },
       "cmuxFork": {
         "title": "cmux Fork 正式推出",
@@ -525,7 +653,20 @@
         "p1": "cmux 现在有了任务管理器，可以检查你的编程 agent 和终端进程正在使用多少 CPU 和 RAM。",
         "p2": "从 CLI 打开：",
         "p3": "或者按 Cmd+Shift+P，在命令面板中选择任务管理器。",
-        "p4": "需要 cmux v0.64.4+。"
+        "p4": "需要 cmux v0.64.4+。",
+        "workflowTitle": "噪声代理运行的工作流程",
+        "workflowOpen": "当风扇启动、工作区变慢或座席卡住时，打开任务管理器。",
+        "workflowScan": "扫描实时进程列表，查找工作区、面板、表面、代理或浏览器网页视图，使用最多 CPU 或内存。",
+        "workflowJump": "从管理器跳回匹配的表面，这样你就能检查实际的流程上下文。",
+        "workflowAct": "停止、重启或拆分有问题的任务，使用操作系统显示的相同信息，范围为 cmux。",
+        "useTitle": "当它有帮助时",
+        "useP": "任务管理器最有用的是，当多个 Claude Code、 Codex、 OpenCode或浏览器面板同时运行，而活动监视器无法告诉你哪个工作区拥有负载时。",
+        "faqTitle": "FAQ",
+        "faqAgentsTitle": "它能识别编码代理吗？",
+        "faqAgentsBody": "是的。 cmux 将已知代理进程属性到工作区和它们运行的表面，这样资源视图就能匹配你的侧边栏布局。",
+        "faqCliTitle": "我能不用开窗户就用吗？",
+        "faqCliBody": "是的。当你想在脚本、SSH会话或普通 shell 中获得相同信息时，运行cmux top来做终端快照。",
+        "docsCta": "请阅读 <link>任务管理器文档</link> 中的命令、窗口入口点和推荐的排查流程。"
       },
       "sessionRestore": {
         "seoP": "如果你想知道终端崩溃后如何恢复 Claude Code、OpenCode、opencode、Codex、Gemini CLI、Antigravity CLI、Grok Build CLI、Amp、Cursor CLI、Rovo Dev、Copilot、CodeBuddy、Factory、Qoder 或 Hermes Agent 会话，请安装 cmux hooks，并保持 agent 恢复功能开启。",
@@ -548,7 +689,17 @@
         "implementationP2": "代理 hooks 会把会话映射写入 ~/.cmuxterm。恢复时，cmux 先重建 UI。如果启用了自动代理恢复，它会用保存的会话 ID 启动每个受支持代理的原生恢复命令。",
         "limitsTitle": "不在范围内的内容",
         "limitsP": "tmux、vim、shell 和不受支持的工具会作为普通终端重新打开，除非它们有 cmux 集成来记录安全的原生恢复命令。这让恢复保持可预测，并避免重放过期提示或密钥。",
-        "docsCta": "阅读<link>会话恢复文档</link>，了解设置命令、受支持代理和故障排查。"
+        "docsCta": "阅读<link>会话恢复文档</link>，了解设置命令、受支持代理和故障排查。",
+        "workflowTitle": "推荐配置",
+        "workflowInstall": "安装你用的代理CLI，然后运行cmux hooks setup，这样cmux就能捕获本地会话ID。",
+        "workflowWork": "在普通 cmux 终端中运行代理。钩子记录会话ID、cwd、工作区和表面。",
+        "workflowRelaunch": "重启后， cmux 在启动任何保存的代理恢复命令前，重建窗口和窗格树。",
+        "workflowVerify": "检查恢复后的代理是否继续在同一个上游会话，然后继续在同一工作区工作。",
+        "faqTitle": "FAQ",
+        "faqCrashTitle": "崩溃后会恢复吗？",
+        "faqCrashBody": "它从最后保存的快照中恢复应用拥有的布局和支持的代理会话。它无法恢复代理或壳层从未通过恢复 API暴露过的任意进程内存。",
+        "faqTmuxTitle": "我还应该用 tmux吗？",
+        "faqTmuxBody": "当你需要在远程主机上处理tmux语义时使用tmux。当你希望应用布局、浏览器状态和支持的代理恢复重新整合时cmux，使用会话恢复。"
       },
       "cmuxFinder": {
         "title": "cmux Finder",
@@ -567,7 +718,20 @@
         "p1": "cmux 现在在右侧边栏提供 Vault 窗格，用于查看旧的代理会话。",
         "p2": "它会索引 Codex、Claude Code、OpenCode 和 Pi 会话，并支持在记录中全文搜索。",
         "p3": "把 Vault 中的会话拖到工作区，就能在当前工作位置重新打开。",
-        "p4": "需要 cmux v0.64+。"
+        "p4": "需要 cmux v0.64+。",
+        "workflowTitle": "寻找旧经纪人工作的工作流程",
+        "workflowOpen": "当你记得任务但不记得工作区或日期时，从右侧边栏打开Vault。",
+        "workflowSearch": "从代理文字记录中搜索文件名、期刊标题、错误信息、分支名称或短语。",
+        "workflowDrag": "把匹配的会话拖到当前工作区，让它在你现在触摸的代码旁边重新打开。",
+        "workflowContinue": "从恢复的上下文继续，而不是让新的代理重新发现同一状态。",
+        "useTitle": "当Vault打破终端历史",
+        "useP": "Shell历史告诉你是哪个命令启动了一个代理。Vault则搜索代理实际讨论、修改和报告的内容，这更接近开发者记忆的旧工作方式。",
+        "faqTitle": "FAQ",
+        "faqAgentsTitle": "哪些会话被索引？",
+        "faqAgentsBody": "当cmux能够读取本地会话记录时，Vault 索引支持Codex、Claude Code、OpenCode和Pi会话。",
+        "faqRestoreTitle": "Vault 和会话恢复是一样的吗？",
+        "faqRestoreBody": "不行。会话恢复是在重新启动后恢复当前应用布局。Vault 是用来搜索旧代理会话并按需重新开启的。",
+        "docsCta": "阅读 <link>Vault文档</link> 中的索引代理、搜索工作流程和恢复限制。"
       },
       "markdownViewer": {
         "title": "cmux 中更好的 Markdown 查看器",
@@ -613,6 +777,54 @@
         "p3": "cmux 只是终端和浏览器，外加一个用来驱动它们的 CLI。你可以写几个 bash 脚本来管理 worktree、在多份检出之间切换或开启远程会话，并按自己的习惯布置工作区。",
         "p4": "cmux 应该顺应你的工作流，而不是强迫你接受某一种。我们希望 cmux 用起来像家一样。",
         "p5": "<link>cmux-home</link> 就是一个例子。它是一个小巧的 Rust TUI，用来启动 Claude 和 Codex 工作区并实时查看它们的状态，完全构建在 cmux 的基础组件之上。启动器使用命令模板，你可以换成自己的脚本来创建 worktree、选择检出或 SSH 连接到 VM。把它 fork 下来，变成你自己的。"
+      },
+      "cmuxClaudeTeams": {
+        "title": "Claude Code队友代理作为本地面板cmux",
+        "summary": "Claude Code的队友模式需要 tmux。 cmux 假装这样，队友变成了带有侧边栏元数据和通知的原生分段。",
+        "date": "2026年3月30日",
+        "p1": "Claude Code 有一个实验性的<agentTeamsLink>队友模式</agentTeamsLink>，可以并行生成子代理。它需要tmux和设置 <code>CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1</code>。<code>cmux claude-teams</code> 会帮你处理所有这些：它设置环境变量，在PATH上放置一个tmux垫片，将每个tmux命令（<code>split-window</code>、<code>send-keys</code>、<code>capture-pane</code>）翻译成cmux的原生分割/工作区API，执行指令则转成<code>claude --teammate-mode auto</code>。一个命令。",
+        "p2": "垫片会将 <code>split-window</code> 转化为 <code>surface.split</code>，再 <code>send-keys</code> 为 <code>surface.send_text</code>， <code>capture-pane</code> 为 <code>surface.read_text</code>。队友垂直堆叠成右侧列，特工生成和退出时自动均衡。每个面板都会在侧边栏显示通知。通过Go中继守护进程 SSH 工作。",
+        "p3": "oh-my-openagent（原名oh-my-opencode）同样<omoLink><code>cmux omo</code></omoLink>垫片功率。",
+        "readDocs": "读文档"
+      },
+      "cmuxOmo": {
+        "title": "oh-my-openagent 子代理作为本地 cmux 面板",
+        "summary": "oh-my-openagent 并行协调专业的 Claude、 GPT和双子座特工。 cmux omo将每个 tmux 面板变成一个本地分割。",
+        "date": "2026年3月30日",
+        "p1": "<code>cmux omo</code>集成了oh-my-openagent（前称oh-my-opencode），这是一个用于OpenCode的插件，能并行协调Claude、GPT和Gemini上的专业代理。每个代理都有自己的tmux面板。<code>cmux omo</code>使用和<claudeTeamsLink><code>cmux claude-teams</code></claudeTeamsLink>相同的tmuxshim：假<code>TMUX</code>env var，每个tmux命令都翻译成cmux分离。它会自动将插件安装到阴影配置中，确保<code>~/.config/opencode</code>保持不动。",
+        "p2": "Shim还会截获 <code>terminal-notifier</code> 呼叫并通过 <code>cmux notify</code>转发。通过Go中继守护进程在 SSH 工作。",
+        "readDocs": "读文档"
+      },
+      "gpl": {
+        "title": "cmux 现在 GPL",
+        "summary": "cmux 从 AGPL-3.0重新授权为 GPL-3.0。",
+        "date": "2026年3月30日",
+        "p1": "cmux 从 AGPL-3.0重新授权到 GPL-3.0。 AGPL的网络使用条款对桌面应用无关紧要，但许多公司完全禁止 AGPL 。 GPL 取消了该条款，但仍要求分叉保持开源。双重许可（GPL +商业）保持不变。"
+      },
+      "cmuxSsh": {
+        "title": "cmux SSH",
+        "summary": "其中一个命令会给你持久的远程会话、指向远程端口的浏览器面板，以及回归的代理通知。",
+        "date": "2026年3月30日",
+        "p1": "<code>cmux ssh user@remote</code> 为远程机器创建一个工作区。把图片拖到远程 Claude Code 会话，它会自动上传。浏览器面板会通过远程网络路由，所以localhost就能正常工作。它会使用你的 <code>~/.ssh/config</code>，断线时重新连接。",
+        "featureItems": [
+          "浏览器面板通过远程机器路由，因此 localhost：3000 能够在没有端口转发的情况下到达远程开发服务器",
+          "把图片拖到远程终端，通过SCP上传",
+          "远程机器上的编码代理会向你本地侧边栏发送通知",
+          "cmux claude-teams和cmux omo 在SSH上工作，在本地生成队友面板，而计算则远程进行",
+          "侧边栏显示连接状态和检测到的监听端口"
+        ],
+        "videoTitle": "cmux SSH 演示",
+        "workflowTitle": "远程开发工作流程",
+        "workflowConnect": "连接 cmux ssh，让 cmux 为远程主机创建一个专用工作区。",
+        "workflowPreview": "在终端旁边打开浏览器窗格，使用localhost的URL，就像开发服务器是本地一样。",
+        "workflowNotify": "在远程机器上运行 Claude Code、 Codex、 OpenCode或其他代理，让 cmux 将通知路由回你的Mac。",
+        "workflowUpload": "当代理需要本地上下文或测试夹具时，将文件或图片拖入远程终端。",
+        "faqTitle": "FAQ",
+        "faqPortTitle": "我还需要 ssh -L 来做本地主机吗？",
+        "faqPortBody": "通常不会。远程工作空间内的浏览器面板会通过远程机器路由 HTTP 和WebSocket流量，因此本地预览URL会从远程主机解析。",
+        "faqConfigTitle": "它用的是我现有的 SSH 配置吗？",
+        "faqConfigBody": "是的。 cmux 读取 ~/.ssh/config 别名、身份文件、代理设置和主机选项，然后添加 cmux特定路由和重连行为。",
+        "readDocs": "阅读 SSH 文档"
       }
     },
     "zenOfCmux": {
@@ -765,11 +977,78 @@
     "cmuxHome": {
       "metaTitle": "cmux home",
       "metaDescription": "cmux 不会把 worktree 强加给你。它是一种基础组件，你可以自己用脚本实现 worktree、多份检出或远程开发，把 cmux 变成自己的家。"
+    },
+    "cmuxClaudeTeams": {
+      "metaTitle": "Claude Code队友代理作为本地面板cmux",
+      "metaDescription": "Claude Code的队友模式需要 tmux。 cmux 假装这样，队友变成了带有侧边栏元数据和通知的原生分段。"
+    },
+    "cmuxOmo": {
+      "metaTitle": "oh-my-openagent 子代理作为本地 cmux 面板",
+      "metaDescription": "oh-my-openagent 并行协调专业的 Claude、 GPT和双子座特工。 cmux omo将每个 tmux 面板变成一个本地分割。"
+    },
+    "gpl": {
+      "metaTitle": "cmux 现在 GPL",
+      "metaDescription": "cmux 从 AGPL-3.0重新授权为 GPL-3.0。"
+    },
+    "cmuxSsh": {
+      "metaTitle": "cmux SSH",
+      "metaDescription": "其中一个命令会给你持久的远程会话、指向远程端口的浏览器面板，以及回归的代理通知。"
     }
   },
   "docs": {
     "remoteTmux": {
-      "moshContrast": "如需在网络之间漫游，请使用 cmux mosh-tmux。它会打开一个连接到命名 tmux 会话的完整 Mosh 终端；不会取代 SSH tmux 控制模式提供的原生工作区、标签页和分屏镜像。"
+      "moshContrast": "如需在网络之间漫游，请使用 cmux mosh-tmux。它会打开一个连接到命名 tmux 会话的完整 Mosh 终端；不会取代 SSH tmux 控制模式提供的原生工作区、标签页和分屏镜像。",
+      "title": "远程 tmux",
+      "metaTitle": "远程 tmux （测试版）",
+      "metaDescription": "通过tmux控制模式从cmux驱动远程tmux会话SSH。会话变成工作区，窗口变成标签页，窗口窗格成为原生cmux分割。",
+      "intro": "远程tmux通过tmux控制模式（tmux -CC）将远程机器上运行的tmux会话镜像到SSHcmux。远程会话不再是普通的 SSH 终端，而是重新投影到cmux的原生界面——工作区、标签页、分割、滚动和复制——并cmux驱动其背后的真实 tmux 服务器。它是 Beta Features 标志，不会更改本地终端。",
+      "betaNote": "测试版。此功能为选择加入，仍在稳定中——详见下方限制。",
+      "mappingTitle": "tmux如何映射到cmux",
+      "mappingIntro": "cmux 和 tmux 将布局置向相反方向。在 cmux中，一个窗格包含一排标签页（每个标签页是一个终端）。在 tmux中，一个窗口显示分割面板。远程 tmux 通过将 tmux的结构投影到 cmux的结构上，连接了两者：",
+      "mapTmux": "tmux",
+      "mapCmux": "cmux",
+      "rowSession": "侧边栏有专门的工作区。",
+      "rowWindow": "在那个工作区里开一个标签页。",
+      "rowPane": "在那个标签页内的原生分割窗口中。",
+      "mappingPanes": "新功能是标签页内的窗格：cmux标签页过去只存放一个终端，但tmux窗口中多个窗格现在被渲染为一个标签页内的真实cmux分割布局——每个远程窗格都是带有常见Chrome的本地cmux终端窗格。桥接是双向的：在该标签页中拆分或关闭窗格会tmux split-window，重新排序标签页则会用swap-window重新排序tmux窗口。",
+      "requirementsTitle": "要求",
+      "requirementsDesc": "安装tmux 3.2或更新版本的可达SSH主机（cmux读取您的 ~/.ssh/config）。控制模式（tmux -CC）是标准tmux功能，因此不需要特殊构建;cmux在连接前会检查远程tmux版本，在旧服务器上明显失败。cmux通过 SSH ControlMaster 连接连接，断开后远程 tmux 服务器仍能运行。",
+      "enableTitle": "启用它",
+      "enableDesc": "打开设置 →测试版功能，并开启远程 tmux。默认情况下，这个开关是关闭的，所以在你选择加入之前，本地终端不会有任何变化。",
+      "attachTitle": "附加",
+      "attachIntro": "在终端中运行cmux ssh-tmux <destination>——用 ~/.ssh/config 别名或 user@host。cmux 将该主机的 tmux 会话镜像到当前窗口的侧边栏：每个会话变成工作区，每个窗口变成标签页，多窗格窗口变成标签页内的分割。",
+      "attachNewWindow": "通过 --new-window ，在专用新窗口中打开镜子，而不是当前窗口。",
+      "attachSockets": "remote.tmux.*套接字命令（如下图）提供了更细致的控制。remote.tmux.mirror 是镜像入口点;它接受窗口/调用者路由，并可选择镜像工作区。",
+      "attachCli": "非交互式认证的主机（ssh-agent，或 ~/.ssh/config中的密钥）无需提示即可连接。如果主机需要交互式认证（密码、主机密钥确认或 MFA）， cmux 会在终端内联运行ssh以便认证，然后镜像到当前窗口。接受 --port、 --identity和 --no-focus。",
+      "troubleshootTitle": "如果出现“Permission denied”错误",
+      "troubleshootDesc": "目的地是按原样交给 ssh，因此别名必须包含 ssh 登录所需的一切——最常见的是 User（没有别名，ssh 会尝试你的本地用户名）和 IdentityFile：",
+      "troubleshootFallback": "或者明确传递给用户： cmux ssh-tmux dev@my-ssh-alias。如果普通 ssh <destination> 不让你登录， cmux ssh-tmux <destination> 也不会。",
+      "howTitle": "工作原理",
+      "howDesc": "cmux 生成 ssh ...tmux -CC 连接并解析控制模式流本身，而不是依赖内置的tmux查看器，因此协议和 %bestart/%end 命令关联完全由 cmux 拥有。每个远程面板渲染成由 %output 输入的专用终端tmux，你的输入——按键和鼠标——会随 tmux send-keys 转发。远程tmux服务器拥有面板大小和回流;cmux 保持其表面与面板同步，且从不在本地重流。",
+      "behaviorTitle": "它支持的内容",
+      "behaviorSize": "尺寸调整：远程客户端被调整到渲染后的网格大小（refresh-client -C），所以TUI不会停留在 tmux默认的80×24。",
+      "behaviorSplit": "分割：在镜像窗口中拆分或关闭窗格会传播到tmux，split-window，因此cmux布局和 tmux 布局保持同步。程序分割（cmux new-split 或 surface.split 通过套接字）报告接受且无 surface ID——新窗格在确认布局变更后异步到达tmux。携带路由分割无法响应选项（启动命令、工作目录、分隔器位置、左/上位置）的请求会在远程会话变异前被拒绝。",
+      "behaviorReorder": "重新排序：拖动重排镜像标签页会重新排序tmux窗口，并用swap-window重新排序。",
+      "behaviorCwd": "工作目录：远程面板当前文件夹会被追踪并在标签页上显示。",
+      "behaviorPaste": "粘贴与删除：粘贴的文本和丢弃的图片/文件会经过tmux paste-buffer -p，因此远程应用（例如编码代理）会收到真正的括号粘贴——图像以[图片 #N]形式到达，而非本地路径。",
+      "behaviorMouse": "鼠标：在开启鼠标模式时，点击、滚动和拖动触向远程应用。拖动时按住Shift键，实现原生 cmux 文本选择/复制（与运行鼠标模式应用的终端相同）。",
+      "behaviorUnicode": "Unicode正确输出：即使 tmux 在更新中拆分多字节字符，仍保持不变，因此框绘制和其他宽内容渲染干净。",
+      "socketTitle": "套接字命令",
+      "socketDesc": "该功能也由套接字命令驱动（通过 Beta Features 标志进行门禁）。host 是 SSH 目的地或 ~/.ssh/config 别名;会话是 tmux 会话名称;镜像还支持标准的窗口/工作区/表面/窗格路由。",
+      "socketMethod": "方法",
+      "socketParams": "参数",
+      "socketMeaning": "描述",
+      "methodSessions": "列出 tmux 场次。",
+      "methodAttach": "将控制客户端连接到会话（创建附加或创建）。",
+      "methodMirror": "将主机上的每个会话镜像到已解析的窗口中，每个会话作为独立工作区（窗口变为标签页）;当主机需要时返回 ssh 命令以实现交互式认证。",
+      "methodDetach": "断开控制客户端;远程会话继续运行。",
+      "methodState": "报告对照客户观察到的状态（诊断）。",
+      "socketSafetyDesc": "在信任边界处拒绝带有破折号前缀的主机或身份文件，作为对选项注入的防御 SSH 。",
+      "limitationsTitle": "局限性",
+      "limitReconnect": "瞬时 SSH 断开会自动重新连接：如果连接在会话中途闪烁，镜像会冻结， cmux 以指数退回上限重试，恢复时会重新种回。镜像只有在远程会话结束时，或者你关闭镜像窗口或退出 cmux 时才会永久关闭——而且重启时不会恢复（用 cmux ssh-tmux重新连接）。",
+      "limitPaste": "只有单行粘贴/删除（如文件或图片路径）通过paste-buffer -p以真实的括号粘贴形式传递;多行文本以普通按键发送，因此远程应用不会将其视为单一粘贴。",
+      "limitCwd": "实时工作目录更新使用控制模式订阅，这也是为什么 cmux 需要 tmux 3.2或更新版本才能打开镜像。",
+      "limitReflow": "主屏滚动回放在缩小时不会重新包裹—— cmux 留回流流到 tmux，所以旧的线条可以保持之前的宽度直到应用重新绘制。全屏的TUI在调整大小时会重新绘制，则不受影响。"
     },
     "layoutTitle": "cmux docs",
     "gettingStarted": {
@@ -802,7 +1081,8 @@
       "requirements": "系统要求",
       "reqItem1": "macOS 14.0 或更高版本",
       "reqItem2": "Apple Silicon 或 Intel Mac",
-      "metaTitle": "快速开始"
+      "metaTitle": "快速开始",
+      "sessionRestoreLink": "请参阅 <link>会话恢复指南</link> 中的代理钩子设置和支持的恢复矩阵。"
     },
     "concepts": {
       "title": "核心概念",
@@ -902,7 +1182,9 @@
       "configNote": "每个分组的配置位于 ~/.config/cmux/cmux.json 中的 workspaceGroups 键下，以锚点工作区的工作目录作为键。请参阅配置参考，了解所支持的键，包括全局新建工作区放置位置，以及每个目录的颜色、图标、放置位置和右键菜单操作。",
       "configLinkText": "workspaceGroups 配置参考",
       "persistenceTitle": "持久化",
-      "persistenceDesc": "分组名称、锚点、固定状态、折叠状态、颜色和图标会与你的工作区一起保存，并在重新启动时恢复。分组归属信息存储在每个工作区上。"
+      "persistenceDesc": "分组名称、锚点、固定状态、折叠状态、颜色和图标会与你的工作区一起保存，并在重新启动时恢复。分组归属信息存储在每个工作区上。",
+      "anchorNew": "组的锚点在创建时始终是一个全新的工作区;分组或创建组时，你不会将已有的工作区提升到锚点中。（之后关闭锚点确实会提升组中第一个剩余成员，详见下文。）锚点的工作目录在分组选中时继承自第一个选中的工作区，或在通过 CLI 创建时继承自活跃工作区，无需 --cwd。",
+      "anchorClose": "关闭锚点工作区只关闭该工作区，并将组中第一个剩余成员（组中最早的成员）升格为新的锚点，因此组及其其他成员保持完整（晋升成员随后以组名作为头部显示）。当锚点成为组的唯一工作区时，该组将被移除。要将组平整成非分组工作区，请使用取消组;关闭组内所有工作区，使用删除组。"
     },
     "configuration": {
       "title": "配置",
@@ -960,15 +1242,30 @@
           "copyOnSelect": "为 true 时，在确认选择后将所选终端文本复制到系统剪贴板。为 false 时，cmux 不会输出 Ghostty copy-on-select 覆盖项；选择剪贴板行为由 Ghostty 配置和默认值控制。",
           "scrollSpeed": "应用于终端滚轮和触控板滚动量的倍数。值越大滚动越快，值越小滚动越慢。",
           "showTextBoxOnNewTerminals": "默认在新建的工作区、终端标签页和终端分屏中显示测试版 TextBox 输入。",
-          "focusTextBoxOnNewTerminals": "默认在新建的工作区、终端标签页和终端分屏中聚焦测试版 TextBox 输入。聚焦也会显示 TextBox。"
+          "focusTextBoxOnNewTerminals": "默认在新建的工作区、终端标签页和终端分屏中聚焦测试版 TextBox 输入。聚焦也会显示 TextBox。",
+          "textBoxDefaultSubmitAction": "默认TextBox提交新的终端会话的动作ID。使用文本输入作为明输入或配置中的动作ID。",
+          "textBoxSubmitActions": "可配置文本框提交操作显示在提交按钮、Shift-Tab循环和右键菜单上。",
+          "textBoxSubmitActionId": "稳定动作ID由 terminal.textBoxDefaultSubmitAction引用。",
+          "textBoxSubmitActionTitle": "此提交操作的菜单标签。",
+          "textBoxSubmitActionKind": "无论是提交纯文本输入还是扩展shell命令模板。",
+          "textBoxSubmitActionCommandTemplate": "Shell 命令模板用于 commandTemplate 操作。在命令中包含 shell 引号提示符的 {{prompt}} 。",
+          "textBoxSubmitActionPreservePromptAfterLaunch": "如果成立，启动 commandTemplate 而不带提示符，并将提示符保留在激活代理的文本框中。",
+          "textBoxSubmitActionSystemImage": "提交按钮上显示的备选SF符号名称。",
+          "textBoxSubmitActionAssetName": "提交按钮上显示可选的应用资源目录图片名称。",
+          "textBoxSubmitActionImagePath": "提交按钮显示可选的 PNG 或图像文件路径。Tilde被展开。",
+          "textBoxSubmitActionBackgroundColorHex": "动作颜色元数据为 RGB 或 RGBA 十六进制。提交按钮填充保持白色，仅在启用和禁用状态间不透明度变化。"
         },
         "notifications": {
-          "suppressOnlyFocusedSurface": "启用后，仅当通知横幅的 Surface 恰好是当前聚焦的 Surface 时，该横幅才会自动撤回。对于当前可见 workspace 中未聚焦的 Surface 所投递的横幅，在你聚焦该 Surface（或点击/关闭它）之前会一直显示，而不会在 workspace 变为可见时被撤回。关闭则保留旧的基于 workspace 可见性的撤回行为。"
+          "suppressOnlyFocusedSurface": "启用后，仅当通知横幅的 Surface 恰好是当前聚焦的 Surface 时，该横幅才会自动撤回。对于当前可见 workspace 中未聚焦的 Surface 所投递的横幅，在你聚焦该 Surface（或点击/关闭它）之前会一直显示，而不会在 workspace 变为可见时被撤回。关闭则保留旧的基于 workspace 可见性的撤回行为。",
+          "agentPermissionPrompt": "当代理（例如 Claude Code）被阻挡时，通知你，等待你的许可运行该工具。默认开启，因为这是你必须采取行动解除代理阻塞的警报。",
+          "agentTurnComplete": "何时通知代理完成一回合。whenIdle（默认）在代理仍有后台任务或待定的唤醒时抑制通知，所以当工作真正耗尽时你会被ping。每次回合结束时都会通知;绝不禁用通知。",
+          "agentIdleReminder": "当代理处于空闲等待你输入时（大约60秒，回合结束后）通知。在上一回合的后台工作仍在等待时被抑制，这样运行中的构建或观察者不会触发虚假等待警报。"
         },
         "browser": {
           "defaultSearchEngine": "浏览器地址栏输入不是 URL 时使用的默认搜索引擎。对于任意提供商，请使用 custom 和 customSearchEngineURLTemplate。",
           "customSearchEngineName": "defaultSearchEngine 为 custom 时使用的显示名称。",
-          "customSearchEngineURLTemplate": "defaultSearchEngine 为 custom 时使用的搜索 URL。使用查询占位符或 %s 表示已编码的查询。如果没有占位符，cmux 会向 URL 添加 q=。"
+          "customSearchEngineURLTemplate": "defaultSearchEngine 为 custom 时使用的搜索 URL。使用查询占位符或 %s 表示已编码的查询。如果没有占位符，cmux 会向 URL 添加 q=。",
+          "askWhereToSaveDownloads": "显示浏览器下载的保存面板，而不是直接保存到下载。"
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "组内 Cmd-N、组标题中的 + 按钮以及已配置的组操作放置新 workspace 的全局默认位置：`afterCurrent`（在当前活动的组内 workspace 后面，没有时回退到 top）、`top`（第二个位置，紧跟锚点之后）或 `end`（最后一个成员之后）。",
@@ -995,6 +1292,35 @@
         "shortcuts": {
           "when": "每个操作可选的上下文谓词（VS Code 风格的 `when` 子句），按 cmux 操作 id 索引。每个值都是基于上下文键的布尔表达式，可用 !、&&、|| 和括号组合。布尔键：sidebarFocus、browserFocus、markdownFocus、filePreviewTextEditorFocus、simulatorFocus、terminalFocus、commandPaletteVisible、terminalFindVisible、workspaceCanvasLayout。类型化键支持比较：字符串 sidebarMode（files、find、sessions、feed 或 dock）以及整数 paneCount 和 workspaceCount。比较运算符为 ==、!=、=~（正则表达式）、<、<=、>、>= 和 `in [a, b]`；未知或不存在的键按 false 处理。也接受布尔字面量 true 和 false；`key == false` 等同于 `!key`。只有当子句成立时，该操作的快捷键才会触发，也只会在这种情况下与其他快捷键冲突。示例：{ \"selectWorkspaceByNumber\": \"!sidebarFocus\" } 让 Ctrl+1–9 在右侧边栏未聚焦时选择工作区；{ \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } 在工作区有多个窗格时将绑定限定在查找侧边栏。",
           "showModifierHoldHints": "在按住 Cmd 或 Control 时显示快捷键提示标签。"
+        },
+        "agentChat": {
+          "description": "代理聊天 GUI 服务器设置。内置的新代理聊天操作会在浏览器工作区打开这个 URL ，先探测 /healthz，服务器当机时可以运行配置好的启动命令。",
+          "url": "为机器本地代理聊天GUI服务器提供基础URL。cmux在打开工作区前先探测<url>/healthz。",
+          "startCommand": "可选的shell命令可以在 <url>/healthz无法访问时启动代理聊天服务器。 cmux 会以用户的 SHELL分离运行，轮询healthz一个短暂的有界窗口，然后无论如何打开工作区。",
+          "keys": {
+            "description": "键盘行为会覆盖代理聊天网页界面。",
+            "ctrlJ": "在座席聊天文本字段中按Ctrl+J的行为。使用换行插入换行，或在菜单打开时切换到下一个弹窗项目。"
+          },
+          "fonts": {
+            "description": "为代理聊天网页界面覆盖字体。省略值退回到 Ghostty 和内置默认值。",
+            "sansFamily": "CSS 用于代理聊天正文和界面文本的字体家族。",
+            "bodyFamily": "sansFamily的别名。",
+            "family": "sansFamily的别名。",
+            "baseSize": "基础代理聊天字体大小（像素 CSS ）。",
+            "bodySize": "baseSize的别名。",
+            "monoFamily": "CSS 用于代理聊天代码和单宽文本的字体家族。",
+            "codeFamily": "单一家族的别名。",
+            "codeSize": "座席聊天代码的字体大小（像素 CSS ）。",
+            "monoSize": "codeSize的别名。",
+            "codeLineHeight": "用于代理聊天代码块的行高度乘数。"
+          }
+        },
+        "canvas": {
+          "paneGap": "画布布局中窗格间距，按点数计算。抓拍、整理和新窗格放置都使用了这个空隙。",
+          "snappingEnabled": "吸附窗格拖曳并调整大小到邻居边缘和窗格间隙。按住命令键暂停吸附一个手势。"
+        },
+        "fileEditor": {
+          "wordWrap": "在编辑器右侧边缘将长线环绕，而不是横向滚动。"
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -1006,7 +1332,12 @@
       "shortcutsWhenBooleanKeys": "布尔键。未知或不存在的键按 false 处理；也接受字面量 true 和 false。",
       "shortcutsWhenTypedKeys": "用于比较的类型化键：右侧边栏的当前模式（字符串），以及窗格和工作区数量（整数）。",
       "shortcutsWhenOperators": "布尔运算符、类型化比较、正则匹配和列表成员判断。比较的结合优先级高于 && 和 ||。",
-      "shortcutsWhenExample": "例如，下面的配置让 Ctrl+1–9 在右侧边栏未聚焦时选择工作区（把 Ctrl+1–5 留给侧边栏模式切换器），并在工作区有多个窗格时将表面选择限定在查找侧边栏："
+      "shortcutsWhenExample": "例如，下面的配置让 Ctrl+1–9 在右侧边栏未聚焦时选择工作区（把 Ctrl+1–5 留给侧边栏模式切换器），并在工作区有多个窗格时将表面选择限定在查找侧边栏：",
+      "settingsFile": "cmux.json",
+      "settingsFileDesc": "cmux.json 存储 cmux拥有的应用设置、快捷方式、动作、命令和工作区布局。",
+      "settingsFilePrecedence": "cmux.json中定义的快捷方式会覆盖应用内设置值。管理快捷方式在设置中仍可见，但在那里变成只读。",
+      "settingsFileChords": "用字符串表示单一快捷键，或用两项数组表示和弦。示例：“ctrl+b”， “c”意味着按Ctrl+B，然后按C。",
+      "exampleFileEditorWordWrap": "在编辑器右侧边缘将长线环绕，而不是横向滚动。"
     },
     "customCommands": {
       "title": "自定义命令",
@@ -1107,7 +1438,17 @@
       "absolutePath": "绝对路径",
       "cwdAbsolute": "按原样使用",
       "fullExample": "完整示例",
-      "restartNew": "创建新的 workspace（默认）"
+      "restartNew": "创建新的 workspace（默认）",
+      "actionTypeWorkspace": "从内联工作区定义创建工作区，并可选重启行为。可在新工作区加按钮菜单中自动提供。",
+      "actionFieldNewWorkspaceMenu": "设置 true 以提供 new-workspace plus 按钮菜单中的任何操作，或 false 以隐藏工作区操作。",
+      "workspaceActions": "工作区布局",
+      "workspaceActionsDesc": "工作区布局作为 <workspace>workspace</workspace> 动作存储，直接嵌入完整的工作区定义，因此不需要单独的 <commands>commands</commands> 条目。它支持相同的工作区字段和 <setup>setup</setup>，以及在该终端自身命令之前发送到第一个终端的引导命令：",
+      "workspaceActionsMenuDesc": "工作区布局会自动出现在加号右键菜单中。将 <newWorkspaceMenu>newWorkspaceMenu</newWorkspaceMenu> 设置为 <falseValue>false</falseValue> 以隐藏一个，或在其他添加该功能时设 <trueValue>true</trueValue> 。",
+      "workspaceActionsSaveDesc": "你也可以不写 JSON创建这些：右键点击加号按钮，选择 <saveLayout>Save Workspace as Layout</saveLayout> ”，将当前工作区的分割、目录、运行中的代理和浏览器标签页都集成到 <configPath>~/.config/cmux/cmux.json</configPath>。它们会作为 <actions>actions</actions> 块中的条目存储。 <customize>Customize Workspace Layouts</customize> 在编辑器中打开该文件。",
+      "wsFieldEnv": "环境变量被工作区中每个 shell 继承",
+      "wsFieldSetup": "引导指令先发送到工作空间的第一个终端，然后再发送该终端的自身命令",
+      "workspaceActionsDefaultTitle": "新工作区的默认设置",
+      "workspaceActionsDefaultDesc": "使用<defaultMenu>Default for New Workspace</defaultMenu>子菜单选择应运行的普通新工作区的已保存工作区布局，或选择“无”返回空白终端。保存对话框中还有“<checkbox>Use as default for new workspaces</checkbox>”复选框。设置为<action>ui.newWorkspace.action</action>;项目本地。<localConfig>.cmux/cmux.json</localConfig> 值胜过<globalConfig>~/.config/cmux/cmux.json</globalConfig>。"
     },
     "keyboardShortcuts": {
       "title": "快捷键",
@@ -1131,7 +1472,9 @@
         "find": "查找",
         "terminal": "终端",
         "window": "窗口",
-        "diffViewer": "差异查看器"
+        "diffViewer": "差异查看器",
+        "app": "应用",
+        "appBlurb": "应用程序、窗口和顶层命令快捷方式。"
       },
       "sc": {
         "ws-new": "新建工作区",
@@ -1174,7 +1517,13 @@
         "wn-reload": "重新加载配置",
         "wn-quit": "退出"
       },
-      "metaTitle": "键盘快捷键"
+      "metaTitle": "键盘快捷键",
+      "chordsTitle": "快捷和弦",
+      "chordsIntro": "cmux 支持<settingsFile>~/.config/cmux/cmux.json</settingsFile>的两步快捷键和弦。完整配置模式请参见<configurationLink>配置文档</configurationLink>。",
+      "chordsCallout": "设置可以直接编辑快捷方式。当你想要完全符合tmux风格的前缀绑定，或者将快捷方式保留在点文件中，或者解绑带有空字符串、“无”、“清除”、“解除绑定”或“禁用”的动作时，可以使用cmux.json。",
+      "chordsRuleSingle": "用普通字符串作为一步快捷键。",
+      "chordsRuleArray": "用两个元素的数组表示和弦。第一个元素是前缀划画，第二个是跟随它的调性。",
+      "chordsRuleSyntax": "每个项使用与常规绑定相同的语法，例如 cmd+b、ctrl+b、shift+/ 或 ctrl+1。"
     },
     "api": {
       "title": "CLI 参考",
@@ -1257,7 +1606,8 @@
       "pythonClient": "Python 客户端",
       "shellScript": "Shell 脚本",
       "buildScriptNotification": "带通知的构建脚本",
-      "metaTitle": "CLI 参考"
+      "metaTitle": "CLI 参考",
+      "listSurfacesDesc": "列出当前工作区中的所有表面。"
     },
     "notifications": {
       "title": "通知",
@@ -1366,9 +1716,9 @@
       "metaDescription": "安装并使用 cmux 代理技能，用于核心 CLI 控制、浏览器自动化、Markdown 面板、调试窗口和发布。",
       "intro": "cmux 随附的技能会教编码代理使用 cmux CLI 控制、浏览器界面、Markdown 面板、调试窗口和发布流程。",
       "installTitle": "安装",
-      "installIntro": "运行 <code>skills.sh</code>，将仓库中的技能安装到你的 Codex 技能目录。",
+      "installIntro": "使用Vercel的 <code>skills</code> CLI 作为标准的多代理安装流程，或者当你只需要 Codex 技能目录时使用<code>skills.sh</code>。",
       "installFromGitHub": "从 GitHub 安装",
-      "installDestination": "默认情况下，脚本会安装到 <code>~/.codex/skills</code>，当设置了 CODEX_HOME 时会安装到 <code>$CODEX_HOME/skills</code>。如果你的代理从其他目录读取技能，请传入 <code>--dest</code>。",
+      "installDestination": "默认情况下， <code>skills.sh</code> 安装到 <code>~/.codex/skills</code>，或者 <code>$CODEX_HOME/skills</code> ，当 CODEX_HOME 设置时。当你的代理从另一个目录读取技能时，传递 <code>--dest</code> 。",
       "localInstallTitle": "从 checkout 安装",
       "localInstallIntro": "在克隆的 cmux checkout 中，脚本会使用本地 skills 目录。",
       "localInstallCommands": "本地命令",
@@ -1401,7 +1751,85 @@
       "relatedTitle": "相关文档",
       "relatedBrowserAutomation": "浏览器自动化",
       "relatedApi": "CLI 参考",
-      "relatedCustomCommands": "自定义命令"
+      "relatedCustomCommands": "自定义命令",
+      "installWithVercel": "用 Vercel 技能安装",
+      "installWithSkillsSh": "用 skills.sh 安装",
+      "workspaceName": "cmux 工作空间",
+      "workspaceDescription": "保持自动化范围到当前调用者工作区、调用者表面、面板、侧边栏元数据和套接字上下文。",
+      "workspaceUse": "当代理需要添加窗格、发送输入、检查状态或打开辅助表面而不干扰其他工作区时，可以使用它。",
+      "settingsName": "cmux 设定",
+      "settingsDescription": "检查、编辑、验证，并用捆绑的辅助脚本打开 ~/.config/cmux/cmux.json 。",
+      "settingsUse": "在通过 JSON 路径更改外观、侧边栏、通知、浏览器、自动化或快捷方式设置时使用它。",
+      "customizationName": "cmux 定制化",
+      "customizationDescription": "可自定义 cmux.json 动作、加号键行为、标签栏按钮、工作区布局、Dock控制、Feed钩子、侧边栏设置、命令调色板条目、快捷方式以及 Ghostty拥有的终端偏好设置。",
+      "customizationUse": "用它让 cmux 从用户想要的界面入口点打开用户的工作树、多次借阅、 SSH 会话、开发工具或项目布局。",
+      "diagnosticsName": "cmux 诊断",
+      "diagnosticsDescription": "运行支持安全检查，包括 cmux CLI 健康、套接字访问、钩子、会话恢复、设置和代理二进制。",
+      "diagnosticsUse": "当通知、钩子、恢复或自动化表现不正常时，才会使用它。",
+      "coverageTitle": "技能涵盖的内容",
+      "coverageIntro": "顶层 SKILL.md文件简短。更深入的命令细节存在于每个技能旁边的参考文献、脚本和模板中。",
+      "scopeHeader": "范围",
+      "referencesHeader": "参考覆盖",
+      "cmuxScope": "窗口、工作区、窗格、曲面、焦点、移动、重排序、分离流和注意力闪烁的拓扑控制。",
+      "cmuxReferences": "处理语法、调用者定位、窗口和工作区生命周期、窗格和表面路由、触发闪存以及健康检查。",
+      "workspaceScope": "当前工作区自动化规则，涵盖调用者上下文、加法面板、辅助表面、侧边栏元数据、输入和套接字选择。",
+      "workspaceReferences": "Workspace 命令引用涵盖上下文、窗口、工作区、面板、表面、输入、侧边栏状态、通知、文档和带标签的重新加载。",
+      "settingsScope": "cmux.json 设置包括读写、键查询、 JSONC 解析、安全原子更新、验证、编辑器打开和快捷键绑定编辑。",
+      "settingsReferences": "生成设置键列表、快捷指令动作ID、模式 URL、支持的路径检测，以及捆绑的 cmux设置助手。",
+      "customizationScope": "终端用户在 cmux.json 设置、操作、命令、工作区布局、加号按钮点击和右键菜单、Surface 标签栏按钮、Dock控制、Feed和通知钩子、侧边栏元数据、命令面板条目、快捷方式以及 Ghostty 配置边界等方面实现自定义。",
+      "customizationReferences": "配置-表面选择、可自定义内容、全局与项目-本地范围、动作示例、加按钮布线、标签栏按钮示例、Dock示例、Feed 钩子、工作区布局示例、重新加载步骤、验证规则和安全约束。",
+      "customizationExamplesTitle": "自定义示例库",
+      "customizationExamplesIntro": "这些是用户可以通过 cmux 自定义请求代理应用的可重用工作流程模式。",
+      "exampleHeader": "示例",
+      "exampleSurfaceHeader": "自定义",
+      "exampleUseHeader": "好",
+      "exampleWorktreeName": "工作树代理",
+      "exampleWorktreeSurface": "加号按钮点击，加号右键右键菜单，命令调色板，工作区布局",
+      "exampleWorktreeUse": "开设专用工作树或结账，配合配对的 Codex、 Claude、 SSH或辅助终端。",
+      "exampleFullStackName": "全栈开发",
+      "exampleFullStackSurface": "Workspace 命令、浏览器预览、Dock 控制",
+      "exampleFullStackUse": "在同一个可重复的布局中启动前端、后端、测试、日志和预览面板。",
+      "exampleSshName": "SSH 开发者盒",
+      "exampleSshSurface": "Workspace 命令、远程终端、浏览器表面",
+      "exampleSshUse": "连接远程环境，同时保持本地预览、笔记和导航功能 cmux。",
+      "exampleReviewName": "回顾公关",
+      "exampleReviewSurface": "Workspace 命令、浏览器表面、Markdown 或终端备注",
+      "exampleReviewUse": "在一个工作区里打开状态、拉取请求和复习笔记 GitHub 。",
+      "exampleDocsName": "文档工作区",
+      "exampleDocsSurface": "Workspace 命令、Markdown 面板、浏览器预览",
+      "exampleDocsUse": "编辑文档时，渲染页面、本地开发服务器和源代码笔记都能看到。",
+      "exampleCiName": "CI手表",
+      "exampleCiSurface": "底座控制、饲料 TUI、通知钩子",
+      "exampleCiUse": "监控 GitHub 动作、CircleCI、释放监控和代理钩事件，同时不丢失主工作区。",
+      "exampleAgentButtonsName": "快速代理按钮",
+      "exampleAgentButtonsSurface": "Surface 标签栏按钮、动作、命令调色板条目",
+      "exampleAgentButtonsUse": "添加一键 Codex、 Claude或自定义代理启动器，同时保留内置标签按钮。",
+      "customizationExamplesCallout": "详细的摘要存在于 <code>skills/cmux-customization/references/examples.md</code>中。代理仅在需要示例库模式时加载该文件。",
+      "customizationExamplePrompts": "示例提示",
+      "customizationPromptWorktree": "使用 $cmux-customization 来设置 worktree-agents 的示例。",
+      "customizationPromptFullStack": "用$cmux-customization创建带有Dock控件的项目-本地全栈开发布局。",
+      "customizationPromptAgentButtons": "用$cmux-customization添加快速代理按钮，用于Codex和Claude。",
+      "diagnosticsScope": "只读健康检查，包括 CLI 可达性、套接字访问、 cmux 环境、设置验证、挂钩安装标记、会话存储、自动恢复设置和支持的代理二进制。",
+      "diagnosticsReferences": "捆绑支持安全的诊断脚本、钩子设置命令、会话恢复解释、通知检查以及敏感文件编辑规则。",
+      "browserScope": "cmux网页视图内的浏览器自动化功能，包括导航、DOM操作、等待、状态捕获、截图和快照。",
+      "browserReferences": "命令映射、快照引用生命周期、认证、会话持久性、视频状态、代理行为以及可复用自动化模板。",
+      "markdownScope": "格式化的 markdown 面板，位于终端旁边，文件变化时会重新加载。",
+      "markdownReferences": "命令语法、路由选项、实时加载行为、原子文件替换以及 markdown 渲染覆盖。",
+      "suggestionsTitle": "未来建议技能",
+      "suggestionsIntro": "如果技能能超过现有的名单，这些都是很好的候选人。",
+      "suggestionHeader": "技能创意",
+      "suggestionUseHeader": "使用场景",
+      "suggestionWhyHeader": "为什么它有帮助",
+      "suggestSshName": "cmux SSH",
+      "suggestSshUse": "驱动远程办公空间、 SSH URL 启动、通过远程网络路由浏览器，以及重新连接行为。",
+      "suggestSshWhy": "远程会话是主要的 cmux 面，其行为与本地终端工作流程不同。",
+      "suggestCloudVmName": "cmux 云虚拟机",
+      "suggestCloudVmUse": "操作云虚拟机创建、附加、执行、 SSH 端点、计费和提供商故障排除流程。",
+      "suggestCloudVmWhy": "云虚拟机工作跨越了网页应用、数据库、提供商API和烟雾测试。",
+      "suggestVaultName": "cmux 金库",
+      "suggestVaultUse": "管理vault支持的代理配置、凭证和恢复行为，同时避免在提示中泄露秘密。",
+      "suggestVaultWhy": "Vault 的工作流程需要比普通设置更严格的处理，因为它们会影响秘密和代理启动。",
+      "suggestionsCallout": "让未来的技能专注于可重复的工作流程，并有真实的命令序列。如果某个技能只会重述产品文档，那就把它加到文档里。"
     },
     "changelog": {
       "title": "更新日志",
@@ -1428,7 +1856,13 @@
       "ohMyClaudeCode": "oh-my-claudecode",
       "dock": "Dock",
       "textBox": "TextBox（测试版）",
-      "ios": "iOS 应用"
+      "ios": "iOS 应用",
+      "base": "基地",
+      "ssh": "SSH",
+      "remoteTmux": "远程 tmux",
+      "ohMyPi": "oh-my-pi",
+      "vault": "金库",
+      "taskManager": "任务管理器"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -1552,7 +1986,7 @@
       "dragDropTitle": "拖放",
       "dragDropDesc": "将图像或文件拖到远程终端中，cmux 通过现有 SSH 连接通过 scp 上传。 cmux 通过 TTY 检测前台 SSH 进程，并通过 ControlMaster 多路复用路由上传。",
       "notificationsTitle": "通知",
-      "notificationsDesc": "远程计算机上的进程可以运行在本地实例上执行的 cmux 命令。当编码代理在远程盒子上调用 cmux 通知时，通知会显示在本地侧边栏中。工作区选项卡上的蓝色环亮起。 Cmd+Shift+U 跳转到它。通过每台主机的冷却时间来抑制来自不稳定连接的通知垃圾邮件。",
+      "notificationsDesc": "远程机器上的进程可以执行cmux命令，这些命令会在本地实例上执行。当编码代理在远程机上调用cmux notify时，通知会出现在你的本地侧边栏。工作区标签页上的蓝色环会亮起。按 Cmd+Shift+U 跳转到它。由于连接不稳定而产生的通知垃圾邮件会被按主机冷却时间抑制。",
       "agentsTitle": "通过 SSH 编码代理",
       "agentsDesc": "cmux claude-teams 和 cmux omo 都在 SSH 会话中工作。远程主机上的 Go 中继守护进程处理与本地 Swift CLI 相同的 tmux-compat 转换。当计算在远程机器上运行时，队友代理会在本地计算机上本地 cmux 拆分时生成。",
       "reconnectTitle": "重新连接",
@@ -1588,7 +2022,52 @@
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode：在 cmux 中运行 OpenCode 多 agent",
       "metaDescription": "oh-my-opencode（cmux omo）在 cmux 中运行带 oh-my-openagent 插件的 OpenCode CLI。将 Claude、GPT、Gemini 和 Grok 作为并行 agent 编排，每个都在独立的原生 cmux 分屏中。",
-      "metaDescriptionShort": "oh-my-opencode（cmux omo）在 cmux 中运行带 oh-my-openagent 插件的 OpenCode CLI。将 Claude、GPT、Gemini 和 Grok 作为并行 agent 编排，每个都在独立的原生 cmux 分屏中。"
+      "metaDescriptionShort": "oh-my-opencode（cmux omo）在 cmux 中运行带 oh-my-openagent 插件的 OpenCode CLI。将 Claude、GPT、Gemini 和 Grok 作为并行 agent 编排，每个都在独立的原生 cmux 分屏中。",
+      "title": "oh-my-opencode",
+      "nightlyWarning": "仅在 <nightly>夜间构建</nightly> 中获得。",
+      "intro": "cmux omo 在cmux感知环境中用 oh-my-openagent 插件启动 OpenCode。oh-my-openagent 协调多个 AI 模型（Claude、GPT、Gemini、Grok）作为并行工作的专业代理。当它生成代理面板时，它们会成为原生的 cmux 分割。",
+      "usage": "用途",
+      "usageDesc": "所有在omo之后的论点都会转发给 OpenCode。",
+      "whatYouGet": "你能得到什么",
+      "whatYouGetDesc": "oh-my-openagent的 TmuxSessionManager 会在每个后台代理的独立窗格中生成。 cmux omo 后，这些窗格会变成原生 cmux 分割，而不是 tmux 窗格：",
+      "whatYouGet1": "每个子代理（赫淮斯托斯、阿特拉斯、神谕者等）都有自己的 cmux 分，在工作区中可见",
+      "whatYouGet2": "自动布局管理：代理以网格排列（默认为主垂直），并随着代理的出现和消失调整大小",
+      "whatYouGet3": "空闲代理在连续3次空闲轮询且无新消息后会自动清理",
+      "whatYouGet4": "如果窗口太小，无法容纳新的代理窗格，它会排队并每2秒重试一次，直到空间可用",
+      "whatYouGet5": "你的主会话会留在主窗格，而代理则在旁边工作",
+      "firstRun": "首次运行",
+      "firstRunDesc": "第一次运行时， cmux omo会自动设置所有内容：",
+      "firstRunStep1": "在 ~/.cmuxterm/omo-config/ 创建一个阴影配置， oh-my-opencode 注册在插件数组中",
+      "firstRunStep2": "如果还没有，则用bun或npm安装 oh-my-opencode npm包",
+      "firstRunStep3": "符号链接node_modules、 package.json和插件配置，来自你原始的 ~/.config/opencode/ 目录",
+      "firstRunStep4": "在oh-my-opencode配置中启用tmux模式（tmux.enabled 默认为 false，cmux omo开启）",
+      "firstRunSafe": "你原本的 ~/.config/opencode/ 配置永远不会被修改。运行纯开放代码和以前一样。",
+      "howItWorks": "工作原理",
+      "howItWorksDesc": "和cmux claude-teams一样的模式。tmux shim 拦截oh-my-openagent的 TmuxSessionManager 的tmux命令，并将其转换成 cmux API 调用。",
+      "shimStep1": "在~/.cmuxterm/omo-bin/tmux处产生一个tmux垫片，重定向到cmux __tmux-compat",
+      "shimStep2": "设置 TMUX 和 TMUX_PANE 以模拟 tmux 会话",
+      "shimStep3": "在oh-my-opencode配置中启用tmux.enabled（可视化窗格生成必不可少）",
+      "shimStep4": "指向阴影配置OPENCODE_CONFIG_DIR",
+      "shimStep5": "在 opencode 中为 PATH 和 exec 前置 shim 目录",
+      "directories": "目录",
+      "dirPath": "路径",
+      "dirPurpose": "目的",
+      "dirShim": "包含 tmux shim文字",
+      "dirShadow": "Shadow OpenCode 配置， oh-my-opencode 插件注册并启用 tmux （符号链接到你的原始配置）",
+      "dirStore": "tmux-兼容缓冲区和钩子的持久存储",
+      "shadowConfig": "阴影配置",
+      "shadowConfigDesc": "cmux omo 使用阴影配置目录，所以你原本的 OpenCode 设置不受影响：",
+      "shadowStep1": "复制你的 ~/.config/opencode/opencode.json ，并添加 oh-my-opencode 到插件数组中",
+      "shadowStep2": "来自原始目录的符号链接 node_modules、 package.json和 bun.lock",
+      "shadowStep3": "写入 oh-my-opencode.json 时 tmux.enabled 设置为 true。",
+      "shadowStep4": "在启动OpenCode前将 OPENCODE_CONFIG_DIR 设置为shadow目录",
+      "envVars": "环境变量",
+      "envVarName": "变量",
+      "envVarPurpose": "目的",
+      "envTmux": "用假 tmux 套接字路径编码当前 cmux 工作区和面板",
+      "envTmuxPane": "伪造 tmux 窗格标识符映射到当前 cmux 窗格",
+      "envConfigDir": "指向启用 oh-my-opencode 的阴影配置目录",
+      "envSocket": "垫片连接 cmux 控制插座的路径"
     },
     "ios": {
       "metaTitle": "iOS 应用",
@@ -1625,16 +2104,414 @@
       "dataNot": "你的交互式终端会话、其内容和击键，通过你自己的网络在手机和 Mac 之间直接传输，不会经由 cmux 服务器中继或存储在其上。唯一的例外是转发的通知文本，它会经过 cmux 和 Apple 的推送服务到达你的手机，除非你启用 Hide content（参见上方的通知）。",
       "enterpriseTitle": "企业与自托管",
       "enterpriseDesc": "如需自托管或气隙隔离部署，请联系 <link>founders@manaflow.com</link>。"
+    },
+    "base": {
+      "title": "基地",
+      "metaTitle": "基础云工作空间",
+      "metaDescription": "基础是你持久的 cmux 云工作空间：每个个人或团队范围一台虚拟机，可以从 Mac 和 iOS中恢复。",
+      "intro": "Base 是你始终在线的 cmux 云工作空间。它是为登录账户打开的默认云虚拟机 cmux ：持久、可恢复，适用于编码代理、shell 以及你想从任何 cmux 客户端访问的工作。",
+      "previewNote": "预览命名。有些 CLI 输出和底层菜单仍然显示云虚拟机，而产品名称则移到Base。",
+      "whatTitle": "什么是基础",
+      "whatDesc": "Base 是 cmux云工作区的主工作空间。打开 Base 是确定性的： cmux 找到适合当前账户范围的持久虚拟机，必要时恢复，修复终端终端（如果可能的话），并打开终端。",
+      "whatPersistent": "持久化：文件、已安装的工具、shell历史和代理状态会一直留在虚拟机上，直到你明确重置Base。",
+      "whatSameVm": "稳定身份：同一账户范围每次都打开同一个基础虚拟机。",
+      "whatAnywhere": "客户端可访问：Mac 和 iOS 通过 cmux 认证连接，因此创建工作区的 Mac 无需保持在线状态。",
+      "ownershipTitle": "所有权",
+      "ownershipDesc": "Base 的范围取决于你在 cmux中使用的 Stack 账户上下文。",
+      "ownerType": "所有者",
+      "ownerScope": "范围",
+      "personalOwner": "个人基地",
+      "personalScope": "一个由你的Stack用户拥有的持久虚拟机。只有你登录的客户端能连接，除非你通过产品功能共享访问权限。",
+      "teamOwner": "球队基础",
+      "teamScope": "一个由Stack团队拥有的持久虚拟机。访问权遵循团队成员和团队策略，独立于每个成员的个人Base。",
+      "switchingDesc": "切换Stack账户或Teams会改变打开哪个基地。个人基地和团队基地是不同的虚拟机，即使你在同一台Mac上使用它们。",
+      "openCreateTitle": "打开、重置、创建、分叉",
+      "openCreateDesc": "主键应该是“Open Base”。它是幂等的，可以反复按下。",
+      "openMeaning": "Open Base：只有在 Base 不存在时才创建该 Scopeed 的 Base 虚拟机，否则恢复并附加到现有虚拟机。",
+      "resetMeaning": "重置基地：为同一账户范围创建新的基地生成。保留上一代，这样意外重置时可以恢复。",
+      "createMeaning": "创建虚拟机：为额外的额外机器创建一个独立的云虚拟机。",
+      "forkMeaning": "分支虚拟机：将当前虚拟机复制到新的工作分支中。",
+      "cliNamingDesc": "当前预览版 CLI 通过虚拟机命令暴露这些功能。产品模型是默认持久工作区的基础版，显式额外机器和低级操作的虚拟机版。",
+      "sessionsTitle": "会话与重新连接",
+      "sessionsDesc": "每个终端窗格都应拥有自己的远程 PTY 会话。拆分或打开新标签页会创建一个新会话。恢复 cmux 尽可能将每个窗格重新连接到其会话。",
+      "sessionScrollback": "滚动回放属于 cmux 的面板，应该能在应用重新启动后保存。",
+      "sessionReconnect": "重连在终端里应该很安静。 cmux 应该在界面里显示状态，而不是在滚动时附加重试循环。",
+      "sessionRepair": "如果终端端点过时， cmux 会尝试原地修复，然后再让你重置任何东西。",
+      "mobileTitle": "iOS 通行",
+      "mobileDesc": "Base 独立于 Mac 进程运行。 iOS 应用可以列出你的 Base 工作区，并通过云控制平面连接，只要你登录了。这样你就可以在 MacBook 休眠或离线时检查代理和终端。",
+      "notificationsTitle": "通知",
+      "notificationsDesc": "基础虚拟机可以连接多个客户端。代理通知应通过云事件路径向所有登录的访问客户端发送，包括 Mac 和 iOS。",
+      "securityTitle": "安全模型",
+      "securityAuth": "认证使用你的 cmux 账户。客户端必须登录后才能列出或附加到Base。",
+      "securityLease": "终端连接端点应为短寿命，且范围为认证账户、设备、虚拟机和会话。",
+      "securityProvider": "提供者凭证和虚拟机引导密钥保持在服务器端。客户端只接收他们需要的连接端点或签名操作。",
+      "securityTeam": "每个列表都必须在服务器端检查团队基地访问，打开、附加、分叉、检查点和重置操作。",
+      "recoveryTitle": "恢复",
+      "recoveryDesc": "Base 设计上优先修复而非替换，因为其身份和文件系统是用户承诺的一部分。",
+      "recoveryRetry": "重试：要求 cmux 恢复并重新连接到同一个基础虚拟机。",
+      "recoveryReset": "重置：明确创建新的基础世代。 cmux 保持旧一代的保留;永久删除应作为单独的确认步骤。",
+      "recoverySupport": "反馈：包括虚拟机ID、经过时间和最后一次非秘密错误，以便支持判断失败是认证、服务准备、终端端点还是本地客户端状态。"
+    },
+    "search": {
+      "placeholder": "搜索文档......",
+      "label": "检索文档",
+      "resultsLabel": "搜索结果",
+      "noResults": "没有结果",
+      "error": "搜索不可用",
+      "resultsCount": "{count, plural, one {# 结果} other {# 结果}}"
+    },
+    "headingAnchors": {
+      "link": "章节链接"
+    },
+    "claudeCodeTeams": {
+      "title": "Claude Code 队伍",
+      "metaTitle": "Claude Code 球队 - cmux",
+      "metaDescription": "在cmux内运行Claude Code代理团队。队友代理生成为原生cmux分割，而不是tmux面板。",
+      "nightlyWarning": "仅在 <nightly>夜间构建</nightly> 中获得。",
+      "intro": "cmux claude-teams启动时启用了代理团队Claude Code。当Claude生成队友代理时，他们以原生cmux分割显示，而非tmux面板，并带有完整的侧边栏元数据和通知。",
+      "usage": "用途",
+      "usageDesc": "所有在 claude 团队之后的参数都会转发到 Claude Code。该命令默认队友模式为自动，并设置环境使 Claude 使用 cmux 分段。",
+      "howItWorks": "工作原理",
+      "howItWorksDesc": "cmux claude-teams 创建一个 tmux shim 脚本，并配置环境，让Claude Code以为它在 tmux 内运行。当 Claude 发出tmux命令管理队友面板时，shim 会将其转换成cmux套接字 API 调用。",
+      "shimStep1": "在~/.cmuxterm/claude-teams-bin/tmux处产生一个tmux垫片，重定向到cmux __tmux-compat",
+      "shimStep2": "设置 TMUX 和 TMUX_PANE 环境变量以模拟 tmux 会话",
+      "shimStep3": "在PATH前加上垫片目录，让Claude在实际tmux之前找到垫片",
+      "shimStep4": "启用 CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1，并将队友模式设置为自动",
+      "envVars": "环境变量",
+      "envVarName": "变量",
+      "envVarPurpose": "目的",
+      "envTmux": "用假 tmux 套接字路径编码当前 cmux 工作区和面板",
+      "envTmuxPane": "伪造 tmux 窗格标识符映射到当前 cmux 窗格",
+      "envTeams": "启用 Claude Code 座席团队功能",
+      "envSocket": "垫片连接 cmux 控制插座的路径",
+      "directories": "目录",
+      "dirPath": "路径",
+      "dirPurpose": "目的",
+      "dirShim": "包含 tmux shim 脚本，将 tmux 命令转换为 cmux API 调用",
+      "dirStore": "tmux-兼容缓冲区和钩子的持久存储",
+      "tmuxCommands": "支持 tmux 指挥",
+      "tmuxCommandsDesc": "shim 将这些 tmux 命令转换为 cmux 操作：",
+      "mapWorkspace": "创建新的 cmux 工作区",
+      "mapSplit": "将当前 cmux 面板分割开",
+      "mapSendText": "将文本发送到 cmux 表面",
+      "mapReadText": "从 cmux 表面读取终端文本",
+      "mapFocus": "聚焦 cmux 窗格或工作区",
+      "mapClose": "关闭 cmux 表面或工作区",
+      "mapList": "列表 cmux 面板或工作区"
+    },
+    "ohMyCodex": {
+      "title": "oh-my-codex",
+      "metaTitle": "oh-my-codex - cmux",
+      "metaDescription": "在cmux中运行 Oh My Codex （OMX） 并内置团队模式和代理编排的分割面板集成。",
+      "intro": "cmux omx 在cmux感知环境中启动 Oh My Codex（OMX）。OMX 是一个多代理编排层，支持 OpenAI Codex CLI，拥有 30+ 个专业代理角色、工作流程技能和基于 tmux的并行团队执行。当 OMX 生成团队面板或HUD显示时，它们会成为原生的 cmux 分割。",
+      "usage": "用途",
+      "usageDesc": "所有在omx之后的论述都会转发到omx的 CLI。",
+      "whatYouGet": "你能得到什么",
+      "whatYouGetDesc": "OMX的团队模式和 HUD 使用 tmux 来管理面板。有了 cmux omx，这些面板就变成了原生 cmux 分割：",
+      "whatYouGet1": "团队工作者的面板（Codex/Claude 会话）在工作区中以 cmux 分割的形式出现",
+      "whatYouGet2": "HUD 状态显示在分割面板中显示型号、分支、上下文和令牌使用情况",
+      "whatYouGet3": "自动布局管理将代理面板排列成主垂直网格",
+      "whatYouGet4": "你的主会议会留在主窗格内，工作人员则在旁边操作",
+      "prerequisites": "前提条件",
+      "prerequisitesDesc": "OMX需要OpenAI Codex CLI和可正常工作的Codex认证设置。运行omx doctor以验证你的安装。",
+      "howItWorks": "工作原理",
+      "howItWorksDesc": "与其他cmux代理集成的模式相同。tmux shim 会拦截OMXtmux命令并将其转换为cmux API调用。",
+      "shimStep1": "在~/.cmuxterm/omx-bin/tmux处产生一个tmux垫片，重定向到cmux __tmux-compat",
+      "shimStep2": "设置 TMUX 和 TMUX_PANE 以模拟 tmux 会话",
+      "shimStep3": "在 shim 目录前 PATH",
+      "shimStep4": "执行官已转入OMX，所有剩余论点已提交",
+      "directories": "目录",
+      "dirPath": "路径",
+      "dirPurpose": "目的",
+      "dirShim": "包含 tmux shim文字",
+      "dirStore": "tmux-兼容缓冲区和钩子的持久存储",
+      "envVars": "环境变量",
+      "envVarName": "变量",
+      "envVarPurpose": "目的",
+      "envTmux": "用假 tmux 套接字路径编码当前 cmux 工作区和面板",
+      "envTmuxPane": "伪造 tmux 窗格标识符映射到当前 cmux 窗格",
+      "envSocket": "垫片连接 cmux 控制插座的路径"
+    },
+    "ohMyPi": {
+      "title": "oh-my-pi",
+      "metaTitle": "oh-my-pi - cmux",
+      "metaDescription": "通过状态、通知、会话恢复、自动命名和任务管理器归属的钩子，将oh-my-pi（omp）连接到 cmux 。",
+      "intro": "oh-my-pi 是 Pi 的一个分支，重写为编码优先代理。它的二进制是 omp， cmux 通过 omp 钩子扩展与之积分。",
+      "setupUsage": "设置与使用",
+      "setupUsageDesc": "安装omp，然后安装 cmux hooks扩展。扩展是写入 ~/.omp/agent/extensions/cmux-omp-session.ts, ， cmux 在捆绑版本更改时自动升级。",
+      "whatYouGet": "你能得到什么",
+      "whatYouGetDesc": "钩子扩展允许OMP向 cmux报告生命周期和会话信息：",
+      "whatYouGet1": "从OMP转弯边界显示工作区忙碌和闲置状态",
+      "whatYouGet2": "cmux中的转机通知",
+      "whatYouGet3": "会话跟踪，使关闭窗格可以用omp --session SESSION_ID从会话索引恢复，或用omp --fork SESSION_ID分叉",
+      "whatYouGet4": "工作区自动命名，omp 作为摘要模型可用",
+      "whatYouGet5": "任务管理器 OMP 进程的归因",
+      "directories": "目录",
+      "directoriesDesc": "cmux 从代理目录读取OMP数据。 PI_CODING_AGENT_DIR 或 PI_CONFIG_DIR 可以覆盖该目录。",
+      "dirPath": "路径",
+      "dirPurpose": "目的",
+      "dirExtension": "cmux钩子延长件由cmux安装和升级",
+      "dirSessions": "cmux读取恢复和分支工作流程的OMP会话文件",
+      "envVars": "环境变量",
+      "envVarName": "变量",
+      "envVarPurpose": "目的",
+      "envHooksDisabled": "禁用cmux安装的omp钩延长部分",
+      "envCmuxBin": "覆盖钩子扩展调用的 cmux 二进制"
+    },
+    "ohMyClaudeCode": {
+      "title": "oh-my-claudecode",
+      "metaTitle": "oh-my-claudecode - cmux",
+      "metaDescription": "在cmux中运行 Oh My Claude Code （OMC） 并支持原生分割窗集成，实现多代理编排。",
+      "intro": "cmux omc 在cmux感知环境中启动 Oh My Claude Code（OMC）。OMC 是一个多代理编排Claude Code系统，拥有 19 个专业代理、智能模型路由和基于 tmux的团队管道。当 OMC 生成团队面板时，它们会成为原生的 cmux 分割。",
+      "usage": "用途",
+      "usageDesc": "所有OMC之后的参数都会转发到omc CLI。",
+      "whatYouGet": "你能得到什么",
+      "whatYouGetDesc": "OMC的团队模式使用 tmux 来管理面板。有了 cmux omc，这些面板就变成了本地 cmux 分割：",
+      "whatYouGet1": "团队工作人员的窗格（Claude/Codex/ Gemini 会话）在工作区中以 cmux 分割的形式出现",
+      "whatYouGet2": "HUD 监控显示以分割面板显示实时状态",
+      "whatYouGet3": "自动布局管理将代理面板排列成主垂直网格",
+      "whatYouGet4": "你的主会话会留在主窗格，而代理则在旁边工作",
+      "prerequisites": "前提条件",
+      "prerequisitesDesc": "OMC 需要安装和认证 Claude Code CLI 。",
+      "howItWorks": "工作原理",
+      "howItWorksDesc": "和cmux claude-teams的模式一样。tmux shim 会拦截来自 OMC 的tmux命令，并将其转换成cmux API 调用。",
+      "shimStep1": "在~/.cmuxterm/omc-bin/tmux处产生一个tmux垫片，重定向到cmux __tmux-compat",
+      "shimStep2": "设置 TMUX 和 TMUX_PANE 以模拟 tmux 会话",
+      "shimStep3": "在 shim 目录前 PATH",
+      "shimStep4": "注入 NODE_OPTIONS 恢复模块以实现 Claude Code 兼容性",
+      "shimStep5": "执行官进入OMC，所有剩余论点已提交",
+      "directories": "目录",
+      "dirPath": "路径",
+      "dirPurpose": "目的",
+      "dirShim": "包含 tmux shim文字",
+      "dirStore": "tmux-兼容缓冲区和钩子的持久存储",
+      "envVars": "环境变量",
+      "envVarName": "变量",
+      "envVarPurpose": "目的",
+      "envTmux": "用假 tmux 套接字路径编码当前 cmux 工作区和面板",
+      "envTmuxPane": "伪造 tmux 窗格标识符映射到当前 cmux 窗格",
+      "envSocket": "垫片连接 cmux 控制插座的路径"
+    },
+    "vault": {
+      "title": "金库",
+      "metaTitle": "金库",
+      "metaDescription": "在 cmux Vault 中搜索旧的 Codex、Claude Code、OpenCode和 Pi 会话，然后在你需要的工作区重新打开会话。",
+      "intro": "Vault 是一个位于右侧边栏的面板，用于通过转录内容而非终端历史查找旧的 AI 编码代理会话。",
+      "indexesTitle": "Vault 索引内容",
+      "indexesDesc": "Vault 读取支持代理的本地会话记录，并使其转录可在 cmux中搜索。",
+      "indexCodex": "Codex 场",
+      "indexClaude": "Claude Code 场",
+      "indexOpenCode": "OpenCode 场",
+      "indexPi": "Pi 会话",
+      "workflowTitle": "工作流程",
+      "workflowOpen": "从右侧边栏打开Vault。",
+      "workflowSearch": "搜索对话中的文件、分支、议题标题、错误信息或短语。",
+      "workflowDrag": "将匹配的会话拖入当前工作区。",
+      "workflowContinue": "从你当前使用的代码或浏览器面板旁恢复的上下文继续。",
+      "useTitle": "何时使用Vault",
+      "useDesc": "当你记得代理做了什么，但不记得是哪个工作区、日期或哪个 shell 命令启动时，就用 Vault。它设计的目的是重新发现之前的代理上下文，而不是在重新启动后恢复当前应用布局。",
+      "limitsTitle": "界限",
+      "limitsDesc": "Vault 只能索引 cmux 知道如何在本地机器上读取的会话格式。除非私有远程主机对本地 cmux 安装有可用的会话，否则它不会搜索这些会话。",
+      "blogCta": "阅读 <link>Vault功能故事</link> ，了解面向工作流程的概览。"
+    },
+    "taskManager": {
+      "title": "任务管理器",
+      "metaTitle": "任务管理器",
+      "metaDescription": "使用任务管理器或cmux top cmux查找编码代理、终端进程和浏览器面板的高CPU和RAM使用情况。",
+      "intro": "任务管理器显示 cmux 窗口、工作区、窗格、终端进程、编码代理和浏览器网页视图的资源使用情况。",
+      "openTitle": "开放任务管理器",
+      "openDesc": "从任意cmux终端运行CLI命令：",
+      "paletteDesc": "你也可以按Cmd+Shift+P，从命令面板中选择任务管理器。",
+      "showsTitle": "它所显示的内容",
+      "showsWindows": "窗口、工作区、窗格和表面",
+      "showsWorkspaces": "终端和浏览器活动的Workspace 所有权",
+      "showsAgents": "已知的编码代理流程，如 Claude Code、 Codex和 OpenCode",
+      "showsBrowsers": "浏览器 webview 及相关辅助进程",
+      "workflowTitle": "故障排除工作流程",
+      "workflowOpen": "当 cmux 感觉缓慢、风扇转动或座席卡住时，打开任务管理器。",
+      "workflowSort": "用最多 CPU 或内存排序或扫描进程。",
+      "workflowJump": "回到拥有工作区或桌面的场景。",
+      "workflowFix": "在合适的上下文下停止、重启或拆分超载进程。",
+      "useTitle": "何时使用它",
+      "useDesc": "当活动监控显示 cmux 负载但未标明负责的工作区、代理或浏览器面板时，使用任务管理器。",
+      "blogCta": "阅读 <link>任务管理器功能故事</link> ，了解工作流程和启动上下文。"
     }
   },
   "legal": {
-    "privacyPolicy": "隐私政策",
-    "termsOfService": "服务条款",
-    "eula": "EULA"
+    "terms": {
+      "metadataTitle": "服务条款 — cmux",
+      "metadataDescription": "cmux网站及 macOS 应用的服务条款",
+      "title": "服务条款",
+      "lastRevised": "最后修改时间：2026年3月18日",
+      "introduction": {
+        "siteAndApplication": "位于 <site>cmux.com</site> 的网站（“网站”）和cmux桌面应用程序（“应用程序”）均为 Manaflow （“公司”、“我们”、“我们的”和“我们”）的版权作品。本使用条款（“以下”条款“）规定了规范您使用本网站和应用具有法律约束力的条款和条件。",
+        "acceptance": "访问或使用本网站或应用程序即表示您接受本条款，并代表并保证您拥有权利、权威和能力订订这些条款。未满18岁者不得访问或使用本网站或应用。如果您不同意本条款的所有条款，请勿访问和/或使用本网站或应用程序。"
+      },
+      "sections": {
+        "license": {
+          "heading": "1. 许可",
+          "body": "在遵守这些条款的前提下，公司授予您不可转让、非独占、可撤销、有限的许可，允许您个人或内部业务目的使用和访问本网站和应用程序，包括与您的软件开发活动相关的商业用途。",
+          "restrictionsHeading": "限制",
+          "restrictionsIntro": "授予您的权利受以下限制：",
+          "restrictions": [
+            "您不得授权、销售、租赁、租赁、转让、转让、分发、托管或以其他方式商业利用该应用",
+            "您不得修改、制作衍生作品、反汇编、逆向编译或逆向工程应用的任何部分",
+            "您不得访问该应用来构建类似或竞争产品"
+          ],
+          "modificationHeading": "改装",
+          "modificationBody": "公司保留随时修改、暂停或终止本网站或应用的权利，无论是否通知您。公司对您或任何第三方不承担任何修改、暂停或停用的责任。",
+          "ownershipHeading": "所有权",
+          "ownershipBody": "您承认申请及其内容中的所有知识产权，包括版权、专利、商标和商业秘密，均归公司或其供应商所有。本条款不转让您对该知识产权的任何权利、所有权或利益，惟上述有限许可除外。公司及其供应商保留本条款未授予的所有权利。",
+          "feedbackHeading": "反馈",
+          "feedbackBody": "如果您向公司提供任何关于申请的反馈或建议，您特此将该反馈的所有权利转让给公司，并同意公司有权以任何其认为合适的方式使用该反馈。"
+        },
+        "userContent": {
+          "heading": "2. 用户内容",
+          "body": "您保留使用应用创建或处理的所有代码、文件和内容的全部所有权。应用在您的设备上本地运行，您的内容在正常使用时不会传输到我们的服务器。"
+        },
+        "indemnification": {
+          "heading": "3. 赔偿",
+          "body": "您同意对公司（及其高管、员工和代理人）免受因（a）您使用本应用程序、（b）违反本条款，或（c）违反适用法律或法规而产生的任何第三方索赔或要求，包括费用和律师费。"
+        },
+        "thirdPartyLinks": {
+          "heading": "4. 第三方链接",
+          "body": "本网站可能包含指向第三方网站和服务的链接。这些链接不受公司控制，公司对其不负责。您使用所有第三方链接需自行承担风险。"
+        },
+        "disclaimers": {
+          "heading": "5. 免责声明",
+          "body": "申请以“现状”和“可得”方式提供。公司明确否认任何形式的保证和条件，无论是明示、默示还是法定，包括所有关于适销性、特定用途的适配性、标题和非侵权的保证。",
+          "jurisdiction": "某些司法管辖区不允许排除默示保证，因此上述排除条款可能不适用于您。"
+        },
+        "liability": {
+          "heading": "6. 责任限制",
+          "damages": "在法律允许的最大范围内，公司不对您或任何第三方因本条款或您使用应用而产生的任何间接、结果性、示范性、附带、特殊或惩罚性损害赔偿承担责任。",
+          "limit": "在法律允许的最大范围内，我们对您的任何损害责任始终限制在五十美元（约50美元）以内。"
+        },
+        "termination": {
+          "heading": "7. 任期与终止",
+          "body": "在您使用应用期间，这些条款将继续有效。我们可根据自身裁量权，随时以任何理由暂停或终止您的权利。终止后，您应停止使用应用并删除设备上的所有副本。"
+        },
+        "disputes": {
+          "heading": "8. 争议解决",
+          "arbitration": "您同意您与公司之间关于申请或本条款的任何争议将通过具有约束力的仲裁解决，而非法院，但任一方可在小额索赔法庭提出个别索赔或寻求知识产权滥用的衡平救济。仲裁将由 JAMS 根据其适用规则进行。",
+          "juryWaiver": "你和公司放弃了任何宪法和法定权利，不得在法庭上提起诉讼，并在法官或陪审团面前进行审判。",
+          "classWaiver": "您与公司同意，双方只能以个人身份对对方提起索赔，不得以集体、代表或集体方式提起诉讼。",
+          "optOut": "您有权在首次受仲裁协议约束后30天内向 <email>founders@manaflow.com</email> 发送书面通知，选择退出该仲裁协议。"
+        },
+        "general": {
+          "heading": "9. 一般",
+          "body": "本条款构成您与公司之间关于应用使用的完整协议。我们未能行使或执行任何权利或条款，不构成放弃。若有任何条款被判定无效，其余条款将继续完全有效。"
+        },
+        "contact": {
+          "heading": "10. 接触",
+          "body": "有关这些条款的问题请发送给 <email>founders@manaflow.com</email>。"
+        }
+      },
+      "copyright": "版权所有 © {year} Manaflow。保留所有权利。"
+    },
+    "eula": {
+      "metadataTitle": "EULA — cmux",
+      "metadataDescription": "cmux macOS 应用的终端用户许可协议",
+      "title": "EULA（终结版）",
+      "lastUpdated": "最后更新：2026年3月18日",
+      "introduction": {
+        "readCarefully": "请在下载或使用cmux前仔细阅读本终端用户许可协议。"
+      },
+      "sections": {
+        "definitions": {
+          "heading": "解释与定义",
+          "intro": "就本协议而言：",
+          "agreementTerm": "“协议”",
+          "agreementText": "指本终端用户许可协议，构成您与公司之间关于应用使用的完整协议。",
+          "applicationTerm": "“应用”",
+          "applicationText": "指的是 macOS的cmux桌面应用程序，基于 Ghostty构建的原生终端应用。",
+          "companyTerm": "“公司”",
+          "companyText": "（称为“本公司”、“我们”、“我们”或“我们的”）指的是 Manaflow。",
+          "contentTerm": "“内容”",
+          "contentText": "指的是应用程序可以创建、处理或显示的内容，如文本、代码、图片或其他信息。",
+          "countryTerm": "“乡村”",
+          "countryText": "指的是美国。",
+          "deviceTerm": "“装置”",
+          "deviceText": "指任何能够运行该应用程序的 macOS 计算机。",
+          "youTerm": "“你”",
+          "youText": "指访问或使用该应用程序的个人。"
+        },
+        "acknowledgment": {
+          "heading": "致谢",
+          "agreement": "下载或使用本应用程序，即表示您同意遵守本协议条款。如果您不同意，请勿下载或使用该应用程序。",
+          "licensed": "本公司授权使用该应用程序，但不出售，严格遵守本协议条款。"
+        },
+        "license": {
+          "heading": "许可",
+          "scopeHeading": "许可范围",
+          "scopeBody": "公司授予您可撤销、非独占、不可转让的有限许可，允许您严格按照本协议下载、安装和使用本应用，用于个人或内部业务目的，包括与软件开发相关的商业用途。",
+          "restrictionsHeading": "许可限制",
+          "restrictionsIntro": "你同意不这样做，也不会允许他人这样做：",
+          "restrictions": [
+            "许可、销售、租赁、租赁、转让、分发、传输、托管或以其他方式商业利用该应用程序，或将其提供给任何第三方",
+            "删除、更改或掩盖公司的任何专有声明（包括版权或商标）",
+            "修改、制作衍生作品、反汇编、解密、逆向编译或逆向工程应用程序的任何部分"
+          ]
+        },
+        "intellectualProperty": {
+          "heading": "知识产权",
+          "ownership": "该申请，包括所有版权、专利、商标、商业秘密及其他知识产权，均为公司唯一且独有的财产。",
+          "userOwnership": "你保留使用该应用程序创建的任何代码或内容的所有权。"
+        },
+        "modifications": {
+          "heading": "修改与更新",
+          "companyChanges": "公司保留随时修改、暂停或终止应用的权利，无论是否通知，且对您不承担任何责任。",
+          "updates": "公司可能会提供更新、补丁、漏洞修复及其他修改。更新可能会修改或移除某些功能。您同意所有更新均受本协议条款约束。"
+        },
+        "thirdPartyServices": {
+          "heading": "第三方服务",
+          "body": "该应用集成了第三方服务，包括 Ghostty （终端渲染引擎）、 Sentry （错误跟踪）和 Sparkle （自动更新框架）。您承认公司不对任何第三方服务负责，包括其准确性、完整性或质量。"
+        },
+        "termination": {
+          "heading": "任期与终止",
+          "duration": "本协议将持续有效，直至您或公司终止。公司可因任何理由随时终止本协议。",
+          "breach": "如果您未能遵守任何条款，本协议将立即终止。您也可以通过删除应用程序及设备中的所有副本来终止。",
+          "effect": "终止后，您应停止使用应用并删除设备上的所有副本。"
+        },
+        "warranties": {
+          "heading": "无保修",
+          "disclaimer": "申请以“现状”和“可得”形式提供，不提供任何形式的保证。公司明确否认所有保证，无论是明示的、默示的、法定的还是其他形式，包括所有关于适销性、特定用途的适宜性、标题和非侵权的默示保证。",
+          "jurisdiction": "某些司法管辖区不允许排除某些类型的保修，因此上述部分除外条款可能不适用于您。"
+        },
+        "liability": {
+          "heading": "责任限制",
+          "limit": "公司根据本协议的全部责任限于您实际支付的申请金额，若您未购买任何物品，则为100美元。",
+          "damages": "在法律允许的最大范围内，公司不对任何特殊、附带、间接或后果性损害承担责任。"
+        },
+        "indemnification": {
+          "heading": "赔偿",
+          "body": "您同意对公司因使用本应用或违反本协议而产生的任何索赔或要求（包括合理的律师费）给予赔偿并免于责任。"
+        },
+        "severability": {
+          "heading": "可分割性与豁免权",
+          "body": "如果本协议的任何条款被认定为不可执行，将对其进行修改和解释，以最大程度实现其目标，其余条款将继续全面生效。"
+        },
+        "governingLaw": {
+          "heading": "治理法律",
+          "body": "本协议及您使用本应用程序，除冲突规则外，应适用美国法律。"
+        },
+        "changes": {
+          "heading": "该协议的变更",
+          "body": "公司保留随时修改本协议的权利。如修订内容重大，我们将至少提前30天通知。修订生效后继续使用应用，即表示您同意遵守修订后的条款。"
+        },
+        "contact": {
+          "heading": "联系我们",
+          "intro": "如果您对本协议有任何疑问：",
+          "email": "请通过电子邮件联系我们 <email>founders@manaflow.com</email>"
+        }
+      }
+    }
   },
   "wallOfLove": {
     "title": "用户好评",
-    "description": "大家对 cmux 的评价。"
+    "description": "大家对 cmux 的评价。",
+    "metaTitle": "爱之墙 — cmux",
+    "metaDescription": "人们对 cmux的评价，这个为多任务处理而设计的终端。"
   },
   "testimonials": {
     "mitchellh": "又一个基于 libghostty 的项目，这次是一个带垂直标签页、更好的组织/通知、内置可编程浏览器的 macOS 终端，专门面向大量使用终端 agent 工作流的用户。",
@@ -2239,7 +3116,7 @@
                 "macOS 上有许多可见的代理会话"
               ],
               [
-                "cmux 克劳德团队",
+                "cmux claude-teams",
                 "队友会话的本机窗格映射",
                 "强的",
                 "使用原生 cmux 分屏而不是 tmux/iTerm2 窗格的 Claude Code 代理团队"
@@ -3405,7 +4282,8 @@
       "cursorCli": "为 Cursor CLI 打造的终端",
       "keyboardShortcuts": "键盘快捷键",
       "browserAutomation": "浏览器自动化",
-      "compare": "比较 cmux"
+      "compare": "比较 cmux",
+      "remoteTmux": "远程 tmux"
     },
     "agents": {
       "metaTitle": "为编程 agent 打造的终端 | cmux",
@@ -3521,10 +4399,299 @@
       "faqA3": "当 Cursor CLI 完成或请求输入时，面板会响铃，侧边栏会显示未读标记，于是你可以让它运行，等它需要你时再回来。",
       "faqQ4": "搭配 Cursor CLI 使用的 cmux 免费吗？",
       "faqA4": "免费。cmux 是面向 macOS 的免费开源软件。"
+    },
+    "remoteTmux": {
+      "title": "远程 tmux",
+      "metaDescription": "用cmux作为tmux在另一台机器上运行的原生macOS前端。"
     }
   },
   "pricing": {
-    "billingUnavailable": "目前无法使用结算功能。请稍后再试。"
+    "billingUnavailable": "目前无法使用结算功能。请稍后再试。",
+    "metaTitle": "定价—— cmux",
+    "metaDescription": "cmux 是一个免费的开源 AI 编码代理 macOS 终端。升级到 Pro for Cloud VMS， cmux Vault 会话备份和模型网关。Enterprise 版增加了 SSO 和自托管功能。",
+    "metaDescriptionShort": "cmux 是一个免费的开源 macOS 终端。Pro 增加了云虚拟机、Vault 会话备份和模型网关;Enterprise 增加了 SSO 和自托管功能。",
+    "metaDescriptionNoVault": "cmux 是一个免费的开源 AI 编码代理的 macOS 终端。升级到 Pro for Cloud VM 和模型网关。Enterprise 版增加了 SSO 和自托管功能。",
+    "metaDescriptionNoVaultShort": "cmux 是一个免费的开源 macOS 终端。Pro 加入了云虚拟机和模型网关;Enterprise 版本增加了 SSO 和自托管功能。",
+    "title": "定价",
+    "perMonth": "/month",
+    "perUserMonth": "/user/month",
+    "currentPlan": "当前计划",
+    "manageBilling": "管理账单",
+    "free": {
+      "name": "免费",
+      "price": "$0",
+      "cta": "Mac版下载",
+      "featuresLead": "内容包括：",
+      "features": [
+        "基于Ghostty构建的原生macOS终端，完全开源",
+        "用自己的钥匙Claude CodeCodex、Gemini以及任何CLI代理",
+        "垂直标签页、工作区、分割面板和完成通知",
+        "浏览器面板、可脚本套接字 API，以及自定义技能",
+        "本地会话历史及一次性Cloud VM试用",
+        "社区支持， Discord 和 GitHub"
+      ]
+    },
+    "pro": {
+      "name": "优点",
+      "price": "$30",
+      "cta": "Get Pro",
+      "featuresLead": "所有内容免费，此外：",
+      "features": [
+        "云代理在隔离的远程沙箱中运行在云虚拟机上",
+        "每月20小时活跃计算，运行在4个vCPU / 16GB虚拟机上，然后按使用量计算",
+        "模型网关：通过使用和成本分析实现跨供应商路由",
+        "cmux iOS应用和邮件支持"
+      ],
+      "vaultFeatures": [
+        "cmux Vault：每个会话都备份到云端并可搜索",
+        "所有机器之间无限会话历史"
+      ],
+      "hostedNetworkingFeatures": [
+        "托管网络通过 iOS 应用连接到你的Mac，没有Tailscale设置"
+      ]
+    },
+    "team": {
+      "name": "团队",
+      "price": "$35",
+      "cta": "获取Teams",
+      "featuresLead": "Pro版的一切，还有：",
+      "features": [
+        "统一计费：整个团队开一张发票",
+        "集中式席位管理：随时添加或移除成员",
+        "团队共享的云虚拟机计算小时",
+        "共享团队规则、设置和工作区模板",
+        "全团队模型网关，支持每成员使用和成本分析",
+        "集中管理和优先邮件支持"
+      ]
+    },
+    "enterprise": {
+      "name": "企业号",
+      "price": "定制",
+      "cta": "联系销售",
+      "featuresLead": "Team中的所有内容，以及：",
+      "features": [
+        "自托管云执行和网络连接，确保网络无任何信息流出",
+        "自架模型网关，具备全组织使用和成本分析功能",
+        "SSO 和 SAML 登录",
+        "集中管理与共享团队规则",
+        "终端会话、网络请求和浏览器活动的审计日志",
+        "承诺的云使用和批量定价",
+        "SOC 2 和 SLA，配备专门支持"
+      ]
+    },
+    "compare": {
+      "title": "比较计划",
+      "rows": [
+        {
+          "label": "原生 macOS 终端，开源",
+          "free": "true",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
+        },
+        {
+          "label": "本地 CLI 代理拥有自己的钥匙",
+          "free": "true",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
+        },
+        {
+          "label": "垂直标签页、分段、通知、套接字 API",
+          "free": "true",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
+        },
+        {
+          "label": "会议历史",
+          "free": "地方",
+          "pro": "无限",
+          "team": "无限",
+          "enterprise": "无限",
+          "vault": true
+        },
+        {
+          "label": "cmux Vault：云会话备份",
+          "free": "false",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true",
+          "vault": true
+        },
+        {
+          "label": "在所有会话中搜索",
+          "free": "false",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true",
+          "vault": true
+        },
+        {
+          "label": "云虚拟机上的云代理",
+          "free": "1次VM试验",
+          "pro": "每月20小时，然后按使用量计算",
+          "team": "基于使用量的池化",
+          "enterprise": "承诺的使用"
+        },
+        {
+          "label": "并发云虚拟机",
+          "free": "1",
+          "pro": "基于使用情况",
+          "team": "基于使用情况",
+          "enterprise": "定制"
+        },
+        {
+          "label": "模型网关：路由与使用分析",
+          "free": "false",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
+        },
+        {
+          "label": "iOS 应用",
+          "free": "false",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
+        },
+        {
+          "label": "网络连接你的Mac。",
+          "free": "带上你自己的",
+          "pro": "主持人",
+          "team": "主持人",
+          "enterprise": "自托管",
+          "hostedNetworking": true
+        },
+        {
+          "label": "统一计费与座位管理",
+          "free": "false",
+          "pro": "false",
+          "team": "true",
+          "enterprise": "true"
+        },
+        {
+          "label": "SSO 和 SAML 登录",
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
+        },
+        {
+          "label": "自主机和空中隔离执行",
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
+        },
+        {
+          "label": "集中管理与共享团队规则",
+          "free": "false",
+          "pro": "false",
+          "team": "true",
+          "enterprise": "true"
+        },
+        {
+          "label": "审计日志：会话、网络、浏览器",
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
+        },
+        {
+          "label": "承诺使用量和批量定价",
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
+        },
+        {
+          "label": "SOC 2 和 SLA",
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
+        },
+        {
+          "label": "支持",
+          "free": "社区",
+          "pro": "电子邮件",
+          "team": "优先级",
+          "enterprise": "献身"
+        }
+      ]
+    },
+    "sizes": {
+      "title": "云虚拟机大小",
+      "body": "为每个代理选择虚拟机大小。你按活跃计算小时计费，空闲虚拟机会自动挂起。Pro在4个vCPU / 16 GB容量下每月20小时。",
+      "colSize": "规模",
+      "colUse": "最佳",
+      "colRate": "每活跃小时",
+      "rows": [
+        {
+          "size": "2 vCPU / 8 GB",
+          "use": "轻型特工与快速任务",
+          "rate": "$0.20"
+        },
+        {
+          "size": "4 个 vCPU / 16 GB",
+          "use": "标准开发",
+          "rate": "$0.40"
+        },
+        {
+          "size": "8 vCPU / 32 GB",
+          "use": "重型构建与并行特工",
+          "rate": "$0.80"
+        }
+      ]
+    },
+    "help": "有问题？加入我们的 <discord>Discord</discord>、提交 <github>GitHub issue</github>，或发送电子邮件至 <email>founders@manaflow.com</email>。",
+    "faq": {
+      "title": "FAQ",
+      "items": [
+        {
+          "q": "终端真的免费吗？",
+          "a": "是的。 macOS 应用是开源且永久免费的。本地代理用你自己的 API 密钥运行，且对你来说是免费的。只有在云虚拟机上运行代理时才会付费。"
+        },
+        {
+          "q": "什么是云虚拟机？",
+          "a": "远程Linux沙箱，代理在云端克隆仓库、运行命令并打开拉取请求，无需动用你的机器。它们涵盖并行工作、后台作业和PR审查。空闲虚拟机会自动暂停，所以你只按活跃计算小时计费。"
+        },
+        {
+          "q": "什么是 cmux Vault？",
+          "a": "Vault 会将每个终端会话备份到云端，并允许你在所有终端会话间搜索，并且在各台机器之间拥有无限的历史记录。Free 在每台机器上本地保存历史;Pro 版本增加了云备份和搜索功能。",
+          "vault": true
+        },
+        {
+          "q": "什么是型号网关？",
+          "a": "一个托管网关，能将每个请求路由到跨供应商的强大模型，并让你在一个地方进行使用和成本分析。自带供应商密钥。企业级可以自托管网关，实现全组织的控制。"
+        },
+        {
+          "q": "我还需要用Tailscale来做 iOS 应用吗？",
+          "a": "是的，目前是这样。通过自己的网络，比如Tailscale，将 iPhone 与Mac配对，任何套餐;企业版可以自托管。无设置托管网络是计划中的方案。"
+        },
+        {
+          "q": "账单是如何运作的？",
+          "a": "Pro 每月 30 美元，或每年 240 美元（约 20 美元按月计费），包含 4 个 vCPU / 16 GB 云虚拟机每月 20 小时的活跃计算小时。除此之外，云使用按虚拟机大小按活跃计算小时计费（见上文云虚拟机大小）。空闲虚拟机会自动暂停，并行运行的代理只会消耗更多小时。终端和本地代理保持空闲。"
+        },
+        {
+          "q": "我可以自托管云吗？",
+          "a": "是的，在企业级。在你自己的基础设施上运行代理执行，或者完全隔离，这样源代码永远不会离开你的网络。"
+        },
+        {
+          "q": "你有团队计划吗？",
+          "a": "是的。团队每月每位用户收费35美元：全团队统一计费，集中管理席位，共享云虚拟机小时数，以及共享团队规则。企业版增加了 SSO、自托管和审计日志。"
+        }
+      ]
+    },
+    "welcomeSuccess": "欢迎来到 cmux Pro。你的订阅是有效的。",
+    "welcomeActive": "cmux Pro 已经在你的账户上激活了。",
+    "welcomePending": "付款已收到。Pro 可能需要一分钟才能在您的账户上激活。",
+    "welcomePendingAction": "再查一次",
+    "billingError": "结账开始时出了点问题。请稍后再试。",
+    "billingCancelled": "结账取消。您未被收费。",
+    "billingInvalidPlan": "该套餐目前不可使用。请在下方选择一个套餐。",
+    "welcomeTeam": "您的 cmux 团队购买完成。"
   },
   "platforms": {
     "macos": "macOS",
@@ -3552,5 +4719,233 @@
     "successBody": "{platform} 版本就绪后，我们会给你发邮件。",
     "successBodyAny": "cmux 在你的平台上就绪后，我们会给你发邮件。",
     "done": "完成"
+  },
+  "ios": {
+    "metaTitle": "cmux iOS ——你的终端 iPhone 和iPad上",
+    "metaDescription": "cmux iOS应用实时将你的Mac终端镜像到iPhone和iPad，通过你自己的Tailscale或本地网络。你可以随时随地驱动你的编码代理。",
+    "title": "cmux iOS",
+    "iconAlt": "cmux 图标",
+    "tagline": "你的终端，在你口袋里。",
+    "subtitle": "cmux iOS应用实时将你的Mac终端镜像到iPhone和iPad。你可以通过自己的Tailscale或本地网络，随时驱动你的编码代理、观看构建和切换工作空间。",
+    "ctaBeta": "下载到 TestFlight",
+    "ctaDocs": "阅读 iOS 文档",
+    "screenshotAlt": "cmux iOS 应用显示一个实时代理终端",
+    "features": "特色",
+    "realtimeSync": "实时同步",
+    "realtimeSyncDesc": "：你的终端一旦切换，就会立即流向 iPhone 和iPad。",
+    "byoNetwork": "带上你自己的人脉",
+    "byoNetworkDesc": "：通过您自己的Tailscale或本地网络连接，中间没有服务器",
+    "verticalTabs": "垂直标签",
+    "verticalTabsDesc": "：每个工作区只需轻触即可，就像桌面一样",
+    "notifications": "代理通知",
+    "notificationsDesc": "当 Claude、 Codex或任何代理需要你的意见时，都会被提示",
+    "keyboard": "全键盘",
+    "keyboardDesc": "：硬件快捷键和带有箭头、制表符和修饰符的终端级输入栏",
+    "native": "本地且快速",
+    "nativeDesc": "： GPU- 在与Mac应用相同的引擎上进行加速渲染",
+    "howTitle": "工作原理",
+    "howBody": "通过Mobile Connect窗口将 iPhone 与Mac配对，然后连接到任意工作区。连接通过你自己的Tailscale或本地网络运行，因此终端不会接触第三方服务器。",
+    "galleryTitle": "在你的终端里运行任何东西",
+    "backToMac": "cmux for Mac",
+    "galleryItemAlt": "{name} 在 cmux 终端运行 iPhone"
+  },
+  "vault": {
+    "overview": {
+      "eyebrow": "cmux 金库",
+      "title": "金库概述",
+      "description": "同步会话的存储和上传活动。",
+      "emptyTitle": "还没有同步会话",
+      "emptyBody": "从有本地代理会话的机器上运行 CLI 同步命令。",
+      "totalSessions": "总场次",
+      "totalRawBytes": "原始字节",
+      "totalCompressedBytes": "压缩字节",
+      "latestUpload": "最新上传",
+      "never": "绝不"
+    },
+    "cliAuth": {
+      "section": "穹顶",
+      "eyebrow": "cmux 金库",
+      "title": "批准 CLI 访问",
+      "description": "请确认 cmux-vault显示的代码，将此设备连接到您已登录的 cmux 账户。",
+      "codeLabel": "用户代码",
+      "approveButton": "批准访问",
+      "approving": "批准......",
+      "success": "访问已批准。你可以返回终端了。",
+      "error": "无法批准这个代码。检查它是否已过期。"
+    },
+    "sessions": {
+      "section": "穹顶",
+      "eyebrow": "cmux 金库",
+      "title": "同步会话",
+      "description": "最近从你本地机器同步的编码代理转录记录。",
+      "backToOverview": "返回概览",
+      "agent": "代理人",
+      "session": "会议",
+      "cwd": "工作目录",
+      "rawSize": "原始尺寸",
+      "compressedSize": "压缩尺寸",
+      "snapshots": "快照",
+      "firstUploaded": "首次上传",
+      "lastUploaded": "最后上传",
+      "unknownCwd": "未知目录",
+      "searchLabel": "搜索会议",
+      "searchPlaceholder": "搜索cwd、路径或会话ID",
+      "tableLabel": "保险库会话",
+      "loadingMore": "加载更多......",
+      "loadError": "无法加载更多会话。",
+      "scrollForMore": "继续滚动查看更多游戏",
+      "noResults": "没有任何会话能匹配这些过滤器。",
+      "endOfList": "会议结束",
+      "copySession": "收到",
+      "copiedSession": "复制"
+    },
+    "detail": {
+      "backToSessions": "←场",
+      "detailsSummary": "细节",
+      "snapshotsSummary": "快照（{count}）",
+      "cwd": "工作目录",
+      "rawSize": "原始尺寸",
+      "compressedSize": "压缩尺寸",
+      "firstUploaded": "首次上传",
+      "lastUploaded": "最后上传",
+      "unknownCwd": "未知目录",
+      "unknownSize": "尺寸未知",
+      "copyCommand": "复制命令",
+      "copiedCommand": "复制",
+      "copySessionId": "复制会话ID",
+      "copiedSessionId": "复制",
+      "downloadLink": "下载最新文字稿",
+      "downloadExpires": "这个预签名链接即将到期。",
+      "downloadUnavailable": "目前无法下载。",
+      "loadingMessages": "正在加载...... {count} 消息",
+      "loadedMessages": "{count} 消息",
+      "streamError": "{count}消息后流路失败",
+      "transcriptTooLarge": "在 {count} 条消息后停止（文字记录太大）",
+      "emptyTranscript": "未发现可读的文字记录信息。",
+      "roles": {
+        "user": "用户",
+        "assistant": "助理",
+        "system": "系统",
+        "tool": "工具"
+      }
+    }
+  },
+  "billingSuccess": {
+    "metaTitle": "cmux Pro 已激活",
+    "title": "cmux Pro 已激活",
+    "body": "我们已创建或升级您的账户 {email}。您现在可以开启 cmux 或添加更多登录方式。",
+    "emailLabel": "购买邮箱",
+    "whatUnlockedTitle": "你解锁了什么",
+    "openCmux": "开放 cmux",
+    "manageBilling": "管理账单",
+    "manageSignInMethods": "管理登录方式",
+    "features": {
+      "cloudAgents": {
+        "title": "云虚拟机上的云代理",
+        "body": "在偏远的沙盒中运行代理。",
+        "action": "开放 cmux"
+      },
+      "modelGateway": {
+        "title": "模型网关",
+        "body": "通过使用和成本分析实现跨供应商路由，每月还能提供20小时的计算工作。",
+        "action": "开放模型网关"
+      },
+      "aiAccounts": {
+        "title": "连接你的AI账户",
+        "body": "添加提供者账户，这样 cmux 可以通过它们进行工作路由。",
+        "action": "连接服务提供者"
+      },
+      "iosApp": {
+        "title": "cmux iOS 应用",
+        "body": "用手机上的 cmux 。",
+        "action": "加入 iOS 测试版"
+      }
+    }
+  },
+  "enterprise": {
+    "metaTitle": "企业号 | cmux",
+    "metaDescription": "与 cmux 讨论企业部署、 SSO、自托管云虚拟机、审计日志以及已承诺的使用情况。",
+    "section": "企业号",
+    "title": "为你的团队带来 cmux 云虚拟机、 SSO和审计控制。",
+    "body": "告诉我们您需要在组织内部署 cmux 什么。我们将企业请求路由给创始人，确保安全审查、采购和自托管需求都能直接处理。",
+    "points": [
+      "自托管云端执行和网络，适用于必须留在环境内的代码。",
+      "SSO、 SAML、审计日志、集中管理和共享团队规则。",
+      "稳定使用、批量定价以及支持安全或采购审查。"
+    ],
+    "formAriaLabel": "企业联系表单",
+    "form": {
+      "firstName": "名字",
+      "lastName": "姓氏",
+      "companyName": "公司名称",
+      "jobFunction": "工作职能",
+      "jobTitle": "职位名称",
+      "businessEmail": "商业邮箱",
+      "phoneNumber": "电话号码",
+      "country": "乡村",
+      "companySize": "公司规模",
+      "deploymentNeeds": "部署需求",
+      "comments": "评论",
+      "selectPlaceholder": "选择一个",
+      "jobFunctionOptions": [
+        "工程",
+        "纲领",
+        "安全性",
+        "IT",
+        "采购",
+        "行政",
+        "其他"
+      ],
+      "companySizeOptions": [
+        "1-10",
+        "11-50",
+        "51-200",
+        "201-1,000",
+        "1,001-5,000",
+        "5,001+"
+      ],
+      "deploymentNeedsOptions": [
+        "SSO 或 SAML",
+        "自托管云虚拟机",
+        "自托管模型网关",
+        "审计日志与合规",
+        "承诺云虚拟机使用",
+        "安全或采购审查",
+        "其他"
+      ],
+      "privacy": "我们利用这些信息回应您的企业请求，并将其路由到合适的创始人。我们不出售联系方式。",
+      "submit": "提交",
+      "submitting": "臣服......",
+      "success": "谢谢。我们已收到您的请求，并将回复 founders@manaflow.com。",
+      "error": "出了问题。请再试或发邮件 founders@manaflow.com。"
+    }
+  },
+  "appProWelcome": {
+    "eyebrow": "cmux Pro 已激活",
+    "title": "欢迎来到 cmux 专业版",
+    "body": "您的套餐包括云虚拟机上的云代理、20个月计算小时、模型网关和 cmux iOS 应用。从这里开始。",
+    "done": "前往仪表盘",
+    "steps": {
+      "modelGateway": {
+        "title": "模型网关",
+        "body": "通过使用和成本分析实现跨供应商路由。",
+        "action": "开放模型网关"
+      },
+      "aiAccounts": {
+        "title": "连接你的AI账户",
+        "body": "添加提供者账户，这样 cmux 可以通过它们进行工作路由。",
+        "action": "连接服务提供者"
+      },
+      "iosApp": {
+        "title": "cmux iOS 应用",
+        "body": "用手机上的 cmux 。",
+        "action": "加入 iOS 测试版"
+      },
+      "billing": {
+        "title": "管理您的计划",
+        "body": "查看您的计划、发票和取消。",
+        "action": "管理计划"
+      }
+    }
   }
 }

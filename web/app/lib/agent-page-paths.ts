@@ -2,8 +2,7 @@ import { locales } from "../../i18n/routing";
 import { comparePages, comparePath } from "./compare-pages";
 import type { ComparePageKey } from "./compare-pages";
 import {
-  englishFallbackContentLocales,
-  fallbackContentLocales,
+  authoredContentLocalesByPath,
   featureWorkflowContentLocales,
   remoteTmuxDocsLocales,
 } from "../../i18n/locale-availability";
@@ -76,12 +75,6 @@ const blockedPrefixes = [
   "/agent-page-variant",
   "/handler",
 ];
-const englishOnlyPages = [
-  "/privacy-policy",
-  "/terms-of-service",
-  "/eula",
-] as const;
-
 const comparePageTitles = {
   bestTerminalForAgents: "Best terminals and agent workspaces for AI coding agents",
   cmuxVsAlacritty: "cmux vs Alacritty",
@@ -110,14 +103,29 @@ const agentReadableComparePages = comparePages.map((page) => ({
 
 export const agentReadablePages = [
   { path: "/", title: "Home" },
-  { path: "/ios", title: "cmux iOS" },
-  { path: "/pricing", title: "Pricing", locales: fallbackContentLocales },
-  { path: "/enterprise", title: "Enterprise" },
+  {
+    path: "/ios",
+    title: "cmux iOS",
+    locales: authoredContentLocalesByPath["/ios"],
+  },
+  {
+    path: "/pricing",
+    title: "Pricing",
+    locales: authoredContentLocalesByPath["/pricing"],
+  },
+  {
+    path: "/enterprise",
+    title: "Enterprise",
+    locales: authoredContentLocalesByPath["/enterprise"],
+  },
   { path: "/blog", title: "Blog" },
   {
     path: "/blog/claude-code-best-worktree-manager",
     title: "Superrepos and Why Claude Code Is the Best Worktree Manager",
-    locales: fallbackContentLocales,
+    locales:
+      authoredContentLocalesByPath[
+        "/blog/claude-code-best-worktree-manager"
+      ],
   },
   { path: "/blog/cmux-fork", title: "Introducing cmux Fork" },
   { path: "/blog/cmux-home", title: "cmux home" },
@@ -132,22 +140,22 @@ export const agentReadablePages = [
   {
     path: "/blog/cmux-ssh",
     title: "cmux SSH",
-    locales: fallbackContentLocales,
+    locales: authoredContentLocalesByPath["/blog/cmux-ssh"],
   },
   {
     path: "/blog/cmux-claude-teams",
     title: "Claude Code teammate agents as native cmux panes",
-    locales: englishFallbackContentLocales,
+    locales: authoredContentLocalesByPath["/blog/cmux-claude-teams"],
   },
   {
     path: "/blog/cmux-omo",
     title: "oh-my-openagent subagents as native cmux panes",
-    locales: englishFallbackContentLocales,
+    locales: authoredContentLocalesByPath["/blog/cmux-omo"],
   },
   {
     path: "/blog/gpl",
     title: "cmux is now GPL",
-    locales: englishFallbackContentLocales,
+    locales: authoredContentLocalesByPath["/blog/gpl"],
   },
   { path: "/blog/cmd-shift-u", title: "Cmd+Shift+U" },
   { path: "/blog/zen-of-cmux", title: "The Zen of cmux" },
@@ -175,23 +183,42 @@ export const agentReadablePages = [
   {
     path: "/docs/agent-integrations/claude-code-teams",
     title: "Claude Code Teams",
+    locales:
+      authoredContentLocalesByPath[
+        "/docs/agent-integrations/claude-code-teams"
+      ],
   },
   {
     path: "/docs/agent-integrations/oh-my-opencode",
     title: "oh-my-opencode",
+    locales:
+      authoredContentLocalesByPath[
+        "/docs/agent-integrations/oh-my-opencode"
+      ],
   },
   {
     path: "/docs/agent-integrations/oh-my-codex",
     title: "oh-my-codex",
+    locales:
+      authoredContentLocalesByPath[
+        "/docs/agent-integrations/oh-my-codex"
+      ],
   },
   {
     path: "/docs/agent-integrations/oh-my-pi",
     title: "oh-my-pi",
-    locales: fallbackContentLocales,
+    locales:
+      authoredContentLocalesByPath[
+        "/docs/agent-integrations/oh-my-pi"
+      ],
   },
   {
     path: "/docs/agent-integrations/oh-my-claudecode",
     title: "oh-my-claudecode",
+    locales:
+      authoredContentLocalesByPath[
+        "/docs/agent-integrations/oh-my-claudecode"
+      ],
   },
   { path: "/docs/changelog", title: "Changelog" },
   { path: "/community", title: "Community" },
@@ -372,7 +399,6 @@ function normalizeCanonicalPagePath(pathWithoutExtension: string): string | null
   }
 
   path = normalizeEnglishLocalePrefix(path);
-  path = normalizeEnglishOnlyPage(path);
 
   if (path !== "/" && path.endsWith("/")) {
     path = path.slice(0, -1);
@@ -387,17 +413,6 @@ function normalizeEnglishLocalePrefix(path: string): string {
   }
   if (path.startsWith("/en/")) {
     return path.slice("/en".length) || "/";
-  }
-  return path;
-}
-
-function normalizeEnglishOnlyPage(path: string): string {
-  for (const locale of locales) {
-    for (const page of englishOnlyPages) {
-      if (path === `/${locale}${page}`) {
-        return page;
-      }
-    }
   }
   return path;
 }

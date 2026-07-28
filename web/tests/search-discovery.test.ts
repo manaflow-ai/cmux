@@ -11,6 +11,7 @@ import {
 import { buildLocalizedBlogRssFeed } from "../app/lib/localized-blog-feed";
 import { POST as submitIndexNowDeployment } from "../app/api/cron/indexnow/route";
 import { lawrenceChen } from "../app/[locale]/components/blog-authors";
+import japaneseMessages from "../messages/ja.json";
 
 describe("search discovery", () => {
   test("publishes a valid RSS channel with canonical blog URLs", () => {
@@ -60,7 +61,10 @@ describe("search discovery", () => {
     expect(feed).not.toContain(
       "<title>Superrepos and Why Claude Code Is the Best Worktree Manager</title>",
     );
-    expect(feed).not.toContain("/ja/blog/cmux-omo");
+    expect(feed).toContain(
+      `<title>${japaneseMessages.blog.posts.cmuxOmo.title}</title>`,
+    );
+    expect(feed).toContain("/ja/blog/cmux-omo");
   });
 
   test("selects only recently modified sitemap URLs", () => {

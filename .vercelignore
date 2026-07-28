@@ -5,6 +5,9 @@ ghostty/
 # Build artifacts
 build/
 DerivedData/
+web/.next/
+web/.pagefind-site/
+web/public/pagefind/
 *.xcodeproj/
 *.xcworkspace/
 

@@ -43,6 +43,7 @@ export default async function CmuxSshPage({
   const showFeatureWorkflow = hasFeatureWorkflowContent(locale);
   const t = await getTranslations({ locale, namespace: "blog.posts.cmuxSsh" });
   const tc = await getTranslations({ locale, namespace: "common" });
+  const featureItems = t.raw("featureItems") as string[];
 
   return (
     <>
@@ -89,17 +90,15 @@ export default async function CmuxSshPage({
       ) : null}
 
       <ul className="mt-4 space-y-1">
-        <li>Browser panes route through the remote machine, so <code>localhost:3000</code> reaches the remote dev server without port forwarding</li>
-        <li>Drag an image into a remote terminal to upload via scp</li>
-        <li>Coding agents on the remote box send notifications to your local sidebar</li>
-        <li><code>cmux claude-teams</code> and <code>cmux omo</code> work over SSH, spawning teammate panes locally while computation runs remote</li>
-        <li>The sidebar shows connection state and detected listening ports</li>
+        {featureItems.map((item, index) => (
+          <li key={index}>{item}</li>
+        ))}
       </ul>
 
       <iframe
         className="my-6 rounded-lg w-full aspect-video"
         src="https://www.youtube.com/embed/RoR9pMOZWkk"
-        title="cmux SSH demo"
+        title={t("videoTitle")}
         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
         allowFullScreen
       />
@@ -115,7 +114,7 @@ export default async function CmuxSshPage({
       ) : null}
 
       <p className="mt-4">
-        <Link href="/docs/ssh">Read the SSH docs &rarr;</Link>
+        <Link href="/docs/ssh">{t("readDocs")} &rarr;</Link>
       </p>
     </>
   );

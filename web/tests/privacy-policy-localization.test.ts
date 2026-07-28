@@ -9,7 +9,8 @@ import {
 import sitemap from "../app/sitemap";
 import { locales } from "../i18n/routing";
 
-const markdownLinkPattern = /\[[^\]]+]\((https?:\/\/[^)]+|mailto:[^)]+)\)/g;
+const markdownLinkPattern =
+  /\[[^\]]+]\(((?:https?:\/\/|mailto:|\/)[^)]+)\)/g;
 
 describe("privacy policy localization", () => {
   test("provides complete content for every routed locale", () => {
@@ -24,10 +25,12 @@ describe("privacy policy localization", () => {
     }
   });
 
-  test("preserves legal and contact link targets in every translation", () => {
+  test("uses locale-aware relative terms links and preserves contact targets", () => {
     const englishTargets = linkTargets(privacyPolicyContent.en);
     for (const locale of locales) {
-      expect(linkTargets(privacyPolicyContent[locale])).toEqual(englishTargets);
+      const expectedTargets = [...englishTargets].sort();
+      expect(linkTargets(privacyPolicyContent[locale])).toEqual(expectedTargets);
+      expect(expectedTargets).toContain("/terms-of-service");
     }
   });
 

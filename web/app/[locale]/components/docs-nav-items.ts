@@ -1,10 +1,10 @@
-import type { Locale } from "../../../i18n/routing";
+import { locales, type Locale } from "../../../i18n/routing";
 import {
   docsPathAvailableInChannel,
   type DocsChannel,
 } from "@/app/lib/docs-channel";
 import {
-  fallbackContentLocales,
+  authoredContentLocalesByPath,
   featureWorkflowContentLocales,
   remoteTmuxDocsLocales,
 } from "../../../i18n/locale-availability";
@@ -18,7 +18,7 @@ export type NavLink = {
 export type NavSection = { sectionKey: string; children: NavLink[] };
 export type NavEntry = NavLink | NavSection;
 
-export const baseDocsLocales = ["en"] as const satisfies readonly Locale[];
+export const baseDocsLocales = locales;
 
 export function isSection(entry: NavEntry): entry is NavSection {
   return "sectionKey" in entry;
@@ -87,15 +87,46 @@ export const navItems: NavEntry[] = [
   {
     sectionKey: "agentIntegrations",
     children: [
-      { titleKey: "claudeCodeTeams", href: "/docs/agent-integrations/claude-code-teams" },
-      { titleKey: "ohMyOpenCode", href: "/docs/agent-integrations/oh-my-opencode" },
-      { titleKey: "ohMyCodex", href: "/docs/agent-integrations/oh-my-codex" },
+      {
+        titleKey: "claudeCodeTeams",
+        href: "/docs/agent-integrations/claude-code-teams",
+        contentLocales:
+          authoredContentLocalesByPath[
+            "/docs/agent-integrations/claude-code-teams"
+          ],
+      },
+      {
+        titleKey: "ohMyOpenCode",
+        href: "/docs/agent-integrations/oh-my-opencode",
+        contentLocales:
+          authoredContentLocalesByPath[
+            "/docs/agent-integrations/oh-my-opencode"
+          ],
+      },
+      {
+        titleKey: "ohMyCodex",
+        href: "/docs/agent-integrations/oh-my-codex",
+        contentLocales:
+          authoredContentLocalesByPath[
+            "/docs/agent-integrations/oh-my-codex"
+          ],
+      },
       {
         titleKey: "ohMyPi",
         href: "/docs/agent-integrations/oh-my-pi",
-        contentLocales: fallbackContentLocales,
+        contentLocales:
+          authoredContentLocalesByPath[
+            "/docs/agent-integrations/oh-my-pi"
+          ],
       },
-      { titleKey: "ohMyClaudeCode", href: "/docs/agent-integrations/oh-my-claudecode" },
+      {
+        titleKey: "ohMyClaudeCode",
+        href: "/docs/agent-integrations/oh-my-claudecode",
+        contentLocales:
+          authoredContentLocalesByPath[
+            "/docs/agent-integrations/oh-my-claudecode"
+          ],
+      },
     ],
   },
   { titleKey: "changelog", href: "/docs/changelog" },

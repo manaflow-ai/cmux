@@ -14,7 +14,6 @@ type FooterLink = {
   label: string;
   href: string;
   proUpgrade?: boolean;
-  unlocalized?: boolean;
   contentLocales?: readonly Locale[];
 };
 
@@ -57,8 +56,8 @@ export async function SiteFooter() {
       heading: t("legal"),
       links: [
         { label: t("privacy"), href: "/privacy-policy" },
-        { label: t("terms"), href: "/terms-of-service", unlocalized: true },
-        { label: t("eula"), href: "/eula", unlocalized: true },
+        { label: t("terms"), href: "/terms-of-service" },
+        { label: t("eula"), href: "/eula" },
       ] satisfies FooterLink[],
     },
     {
@@ -85,7 +84,7 @@ export async function SiteFooter() {
                 {col.links.map((link) => {
                   const item = (
                     <li key={link.href}>
-                      {isExternal(link.href) || link.unlocalized ? (
+                      {isExternal(link.href) ? (
                         <a
                           href={link.href}
                           target={isExternal(link.href) ? "_blank" : undefined}

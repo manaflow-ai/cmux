@@ -1,52 +1,45 @@
 import { locales, type Locale } from "./routing";
 
-export const featureWorkflowContentLocales = [
-  "en",
-  "ja",
-] as const satisfies readonly Locale[];
+// Every shipped message catalog contains every English source message. Keep
+// route discovery, navigation, metadata, and agent-readable variants aligned
+// with the complete locale list.
+export const translatedContentLocales = locales;
+export const featureWorkflowContentLocales = translatedContentLocales;
 
 export const featureWorkflowDocPaths = [
   "/docs/vault",
   "/docs/task-manager",
 ] as const;
 
-export const remoteTmuxDocsLocales = [
-  "en",
-  "ja",
-] as const satisfies readonly Locale[];
+export const remoteTmuxDocsLocales = translatedContentLocales;
+export const fallbackContentLocales = translatedContentLocales;
+export const englishFallbackContentLocales = translatedContentLocales;
+const extendedAgentIntegrationContentLocales = translatedContentLocales;
 
-// Routes in this registry intentionally expose only their authored locales.
-export const fallbackContentLocales = [
-  "en",
-  "ja",
-] as const satisfies readonly Locale[];
+// Keep route metadata and internal links on one source of truth.
+export const authoredContentLocalesByPath = {
+  "/ios": fallbackContentLocales,
+  "/pricing": fallbackContentLocales,
+  "/enterprise": fallbackContentLocales,
+  "/docs/agent-integrations/claude-code-teams":
+    extendedAgentIntegrationContentLocales,
+  "/docs/agent-integrations/oh-my-opencode":
+    extendedAgentIntegrationContentLocales,
+  "/docs/agent-integrations/oh-my-codex": fallbackContentLocales,
+  "/docs/agent-integrations/oh-my-pi": fallbackContentLocales,
+  "/docs/agent-integrations/oh-my-claudecode": fallbackContentLocales,
+  "/blog/claude-code-best-worktree-manager": fallbackContentLocales,
+  "/blog/cmux-ssh": fallbackContentLocales,
+  "/blog/cmux-claude-teams": englishFallbackContentLocales,
+  "/blog/cmux-omo": englishFallbackContentLocales,
+  "/blog/gpl": englishFallbackContentLocales,
+} as const satisfies Record<string, readonly Locale[]>;
 
-export const englishFallbackContentLocales = [
-  "en",
-] as const satisfies readonly Locale[];
+type AuthoredContentPath = keyof typeof authoredContentLocalesByPath;
 
-const fallbackContentRoutes = [
-  { path: "/pricing", locales: fallbackContentLocales },
-  {
-    path: "/docs/agent-integrations/oh-my-pi",
-    locales: fallbackContentLocales,
-  },
-  {
-    path: "/blog/claude-code-best-worktree-manager",
-    locales: fallbackContentLocales,
-  },
-  { path: "/blog/cmux-ssh", locales: fallbackContentLocales },
-  {
-    path: "/blog/cmux-claude-teams",
-    locales: englishFallbackContentLocales,
-  },
-  { path: "/blog/cmux-omo", locales: englishFallbackContentLocales },
-  { path: "/blog/gpl", locales: englishFallbackContentLocales },
-] as const;
-
-export const fallbackContentPaths = fallbackContentRoutes.map(
-  ({ path }) => path,
-);
+export const fallbackContentPaths = Object.keys(
+  authoredContentLocalesByPath,
+) as AuthoredContentPath[];
 
 export function hasFeatureWorkflowContent(
   locale: string,
@@ -94,17 +87,21 @@ export function hasFallbackContent(
 export function fallbackContentRequestForPathname(
   pathname: string,
 ): {
-  path: (typeof fallbackContentRoutes)[number]["path"];
+  path: AuthoredContentPath;
   locale: Locale | null;
   locales: readonly Locale[];
 } | null {
   const { locale, path } = unprefixLocale(pathname);
-  const route = fallbackContentRoutes.find((candidate) => candidate.path === path);
-  if (route) {
+  if (!Object.hasOwn(authoredContentLocalesByPath, path)) {
+    return null;
+  }
+  const availableLocales =
+    authoredContentLocalesByPath[path as AuthoredContentPath];
+  if (availableLocales) {
     return {
-      path: route.path,
+      path: path as AuthoredContentPath,
       locale,
-      locales: route.locales,
+      locales: availableLocales,
     };
   }
   return null;
