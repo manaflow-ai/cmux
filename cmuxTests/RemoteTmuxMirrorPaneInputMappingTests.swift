@@ -245,6 +245,30 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
         let initialMirror = try harness.mirror()
         let originalPanePanel = try #require(initialMirror.panel(forPane: 4))
         let originalPaneSurface = originalPanePanel.surface
+        let containerPanelId = try #require(
+            harness.workspace.remoteTmuxSessionMirror?.panelIdByWindow[2]
+        )
+        let containerPanel = try #require(
+            harness.workspace.panels[containerPanelId] as? TerminalPanel
+        )
+
+        #expect(
+            TerminalController.shared.mobileTerminalPanels(in: harness.workspace).map(\.id)
+                == [originalPanePanel.id],
+            "Mobile must enumerate the live pane rather than the closed workspace container"
+        )
+        let initialMobileTarget = try #require(
+            TerminalController.shared.mobileResolveWorkspaceAndSurface(
+                params: [
+                    "workspace_id": harness.workspace.id.uuidString,
+                    "surface_id": originalPanePanel.id.uuidString,
+                ],
+                requireTerminal: true
+            )
+        )
+        #expect(initialMobileTarget.surfaceId == originalPanePanel.id)
+        let scriptTab = ScriptTab(windowId: harness.windowId, tabId: harness.workspace.id)
+        #expect(scriptTab.terminals.map(\.stableID) == [originalPanePanel.id.uuidString])
 
         // tmux splits window @2: pane %5 is created and becomes the active pane.
         harness.connection.handleMessageForTesting(.layoutChange(
@@ -273,12 +297,6 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
         try expectSelectTargetMatchesInputTarget(mirror)
         try expectDistinctSurfacesPerPane(mirror)
 
-        let containerPanelId = try #require(
-            harness.workspace.remoteTmuxSessionMirror?.panelIdByWindow[2]
-        )
-        let containerPanel = try #require(
-            harness.workspace.panels[containerPanelId] as? TerminalPanel
-        )
         #expect(containerPanel.surface.portalBindingStateLabel() == "closed")
         #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: containerPanelId) == nil)
         for paneId in mirror.paneIDsInOrder {
@@ -296,6 +314,24 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
             "The newly split pane must be the active input target without a click; got \(String(describing: mirror.activePaneId))"
         )
         let expectedInputPanel = try #require(mirror.panel(forPane: 5))
+        let expectedExternalPanelIDs = mirror.paneIDsInOrder.compactMap {
+            mirror.panel(forPane: $0)?.id
+        }
+        #expect(
+            TerminalController.shared.mobileTerminalPanels(in: harness.workspace).map(\.id)
+                == expectedExternalPanelIDs
+        )
+        #expect(scriptTab.terminals.map(\.stableID) == expectedExternalPanelIDs.map(\.uuidString))
+        #expect(scriptTab.focusedTerminal?.stableID == expectedInputPanel.id.uuidString)
+        let tabManager = try #require(AppDelegate.shared?.tabManagerFor(windowId: harness.windowId))
+        #expect(TerminalController.shared.resolveTerminalPanel(
+            from: containerPanelId.uuidString,
+            tabManager: tabManager
+        ) === expectedInputPanel)
+        #expect(TerminalController.shared.resolveTerminalPanel(
+            from: expectedInputPanel.id.uuidString,
+            tabManager: tabManager
+        ) === expectedInputPanel)
         #expect(harness.workspace.focusedTerminalPanel === containerPanel)
         #expect(harness.workspace.focusedTerminalInputTarget()?.panel === expectedInputPanel)
         #expect(
@@ -306,9 +342,9 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
         )
 
 #if DEBUG
-        // Reproduce the first keystroke after the split while AppKit has no
-        // viable terminal responder. The real per-key repair path must target
-        // the active inner pane, never the now-hidden workspace container.
+        // Reproduce an immediate command equivalent after the split while the
+        // original pane remains a live, viable AppKit responder. Repair must
+        // recognize that it is the wrong terminal and retarget the active pane.
         let appDelegate = try #require(AppDelegate.shared)
         let window = try #require(
             NSApp.windows.first { $0.identifier?.rawValue == "cmux.main.\(harness.windowId.uuidString)" }
@@ -316,14 +352,14 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
         let keyDown = try #require(NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
-            modifierFlags: [],
+            modifierFlags: [.command],
             timestamp: ProcessInfo.processInfo.systemUptime,
             windowNumber: window.windowNumber,
             context: nil,
-            characters: "x",
-            charactersIgnoringModifiers: "x",
+            characters: "v",
+            charactersIgnoringModifiers: "v",
             isARepeat: false,
-            keyCode: 7
+            keyCode: 9
         ))
         var didRunRepair = false
         let previousRepairObserver = appDelegate.debugFocusedTerminalKeyRepairObserverForTesting
@@ -335,18 +371,20 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
         defer { appDelegate.debugFocusedTerminalKeyRepairObserverForTesting = previousRepairObserver }
 
         #expect(harness.workspace.focusedTerminalInputTarget()?.surfaceID == expectedInputPanel.id)
-        _ = window.makeFirstResponder(nil)
+        originalPanePanel.hostedView.moveFocus()
+        let staleResponder = try #require(window.firstResponder)
+        #expect(originalPanePanel.hostedView.isSurfaceViewFirstResponder())
         #expect(!expectedInputPanel.hostedView.isSurfaceViewFirstResponder())
 
         appDelegate.repairFocusedTerminalKeyboardRoutingIfNeeded(
             window: window,
             event: keyDown,
-            firstResponderOverride: window
+            firstResponderOverride: staleResponder
         )
 
         #expect(
             didRunRepair,
-            "The first key after a 1→2 tmux split must run terminal focus repair"
+            "A command key after a 1→2 tmux split must repair stale terminal focus"
         )
         #expect(harness.workspace.focusedTerminalInputTarget()?.surfaceID == expectedInputPanel.id)
         #expect(
