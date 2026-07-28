@@ -1476,6 +1476,90 @@ mod tests {
 
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     #[test]
+    fn natural_reaper_degrades_persistent_observation_errors() {
+        let release = Arc::new(AtomicBool::new(false));
+        let observe_release = release.clone();
+        let (attempt_sender, attempt_receiver) = mpsc::channel();
+        let (finished_sender, finished_receiver) = mpsc::channel();
+        let session = libc::pid_t::try_from(std::process::id()).unwrap();
+        enqueue_reserved_session_leader(
+            reserve_child_reaper().unwrap(),
+            session,
+            Duration::ZERO,
+            move || {
+                let _ = attempt_sender.send(());
+                if observe_release.load(Ordering::Acquire) {
+                    Ok(true)
+                } else {
+                    Err(io::Error::other("injected persistent observation error"))
+                }
+            },
+            || false,
+            || true,
+            move |_| {
+                let _ = finished_sender.send(());
+                true
+            },
+        );
+
+        for _ in 0..NATURAL_REAP_MAX_ATTEMPTS {
+            attempt_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+        }
+        let retried_while_degraded =
+            attempt_receiver.recv_timeout(Duration::from_millis(250)).is_ok();
+        release.store(true, Ordering::Release);
+        wake_child_reaper();
+        finished_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        assert!(
+            !retried_while_degraded,
+            "persistent observation errors kept the shared child reaper on its hot retry cadence"
+        );
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn natural_reaper_degrades_unresolved_finish_without_session_cleanup() {
+        let release = Arc::new(AtomicBool::new(false));
+        let finish_release = release.clone();
+        let (attempt_sender, attempt_receiver) = mpsc::channel();
+        let (finished_sender, finished_receiver) = mpsc::channel();
+        let session = libc::pid_t::try_from(std::process::id()).unwrap();
+        enqueue_reserved_session_leader(
+            reserve_child_reaper().unwrap(),
+            session,
+            Duration::ZERO,
+            || Ok(true),
+            || false,
+            || true,
+            move |_| {
+                let _ = attempt_sender.send(());
+                if finish_release.load(Ordering::Acquire) {
+                    let _ = finished_sender.send(());
+                    true
+                } else {
+                    false
+                }
+            },
+        );
+
+        for _ in 0..NATURAL_REAP_MAX_ATTEMPTS {
+            attempt_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+        }
+        let retried_while_degraded =
+            attempt_receiver.recv_timeout(Duration::from_millis(250)).is_ok();
+        release.store(true, Ordering::Release);
+        wake_child_reaper();
+        finished_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        assert!(
+            !retried_while_degraded,
+            "an unresolved ownership-loss finish kept the shared child reaper on its hot retry cadence"
+        );
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
     fn ignored_sigchld_fails_before_reserving_a_child_reaper() {
         const CHILD_ENV: &str = "CMUX_TUI_TEST_IGNORED_SIGCHLD";
         const TEST_NAME: &str =

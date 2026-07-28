@@ -337,6 +337,8 @@ mod unix {
     static NEXT_HOST_PROCESS_REAPER_SPAWN_FAILURES: AtomicUsize = AtomicUsize::new(0);
     #[cfg(test)]
     static HOST_PROCESS_INLINE_WAITS: AtomicUsize = AtomicUsize::new(0);
+    #[cfg(test)]
+    static HOST_CHILD_OBSERVER_SPAWNS: AtomicUsize = AtomicUsize::new(0);
 
     struct HostProcessReaper {
         sender: Sender<HostProcessReapRequest>,
@@ -3418,6 +3420,8 @@ mod unix {
         })?;
         let child_host = shared.clone();
         thread::Builder::new().name("terminal-host-child".into()).spawn(move || {
+            #[cfg(test)]
+            HOST_CHILD_OBSERVER_SPAWNS.fetch_add(1, Ordering::AcqRel);
             let observation = loop {
                 match crate::process_session::observe_child_without_reaping(session, false) {
                     Ok(crate::process_session::ChildWaitState::Running) => continue,
@@ -4628,6 +4632,75 @@ mod unix {
                 host.normal_cleanup_attempts.load(Ordering::Acquire)
             );
             assert!(reaped, "the hosted PTY leader remained unreaped after cleanup could succeed");
+        }
+
+        #[test]
+        fn hosted_child_observation_uses_the_reserved_shared_reaper() {
+            const CHILDREN: usize = 4;
+
+            let _guard = HOST_REAP_TEST_LOCK.lock().unwrap();
+            let worker_baseline = crate::process_session::dedicated_natural_reap_workers_for_test();
+            let observer_baseline = HOST_CHILD_OBSERVER_SPAWNS.load(Ordering::Acquire);
+            let mut hosts = Vec::new();
+            for index in 0..CHILDREN {
+                let bootstrap = HostBootstrap {
+                    min_version: PROTOCOL_VERSION,
+                    max_version: PROTOCOL_VERSION,
+                    terminal_id: TerminalId::random().unwrap(),
+                    owner_token: CapabilityToken::random().unwrap(),
+                };
+                let mut bootstrap_bytes = Vec::new();
+                write_frame(&mut bootstrap_bytes, &bootstrap.into_frame(1)).unwrap();
+                let bootstrapped = crate::terminal_host::bootstrap_stdio_once(
+                    &mut bootstrap_bytes.as_slice(),
+                    &mut Vec::new(),
+                )
+                .unwrap();
+                let launch = HostLaunch {
+                    endpoint: format!("/tmp/cmux-host-reap-bound-{index}.sock"),
+                    record_path: format!("/tmp/cmux-host-reap-bound-{index}.json"),
+                    term: "xterm-256color".into(),
+                    cols: 80,
+                    rows: 24,
+                    scrollback: 100,
+                    cwd: Some("/tmp".into()),
+                    command: vec!["/bin/sh".into(), "-c".into(), "exit 0".into()],
+                    extra_env: Vec::new(),
+                    default_colors: DefaultColors::default(),
+                };
+                hosts.push(spawn_host_runtime(&launch, &bootstrapped).unwrap());
+            }
+
+            for host in &hosts {
+                let deadline = Instant::now() + Duration::from_secs(3);
+                while !host.child_reaped.load(Ordering::Acquire) && Instant::now() < deadline {
+                    thread::sleep(Duration::from_millis(10));
+                }
+                assert!(
+                    host.child_reaped.load(Ordering::Acquire),
+                    "hosted PTY child was not reaped by the bounded shared worker"
+                );
+            }
+            let dedicated_workers =
+                crate::process_session::dedicated_natural_reap_workers_for_test()
+                    .saturating_sub(worker_baseline);
+            let dedicated_observers = HOST_CHILD_OBSERVER_SPAWNS
+                .load(Ordering::Acquire)
+                .saturating_sub(observer_baseline);
+
+            for host in hosts {
+                host.request_termination();
+                let _ = host.wait_for_child_exit(Duration::from_secs(1));
+            }
+
+            assert!(
+                dedicated_workers <= 1,
+                "hosted PTY observation retained {dedicated_workers} shared retry workers"
+            );
+            assert_eq!(
+                dedicated_observers, 0,
+                "hosted PTY child observation retained one dedicated thread per child"
+            );
         }
 
         #[test]
