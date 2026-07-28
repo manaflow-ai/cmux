@@ -2,6 +2,19 @@ import Darwin
 import Foundation
 import Testing
 
+private final class CodexResumeOneShotGate: @unchecked Sendable {
+  private let lock = NSLock()
+  private var available = true
+
+  func take() -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    guard available else { return false }
+    available = false
+    return true
+  }
+}
+
 @Suite("Codex resume process leases", .serialized)
 struct CodexResumeProcessLeaseTests {
   private typealias H = CodexResumeTestHarness
@@ -195,7 +208,7 @@ struct CodexResumeProcessLeaseTests {
       newerProcess.waitUntilExit()
     }
     let newerPID = Int(newerProcess.processIdentifier)
-    let gateOnce = DispatchSemaphore(value: 1)
+    let gateOnce = CodexResumeOneShotGate()
     let staleValidated = DispatchSemaphore(value: 0)
     let releaseStale = DispatchSemaphore(value: 0)
 
@@ -205,7 +218,7 @@ struct CodexResumeProcessLeaseTests {
       connectionLimit: 32,
       beforeResponse: { line in
         guard H.jsonObject(line)?["method"] as? String == "system.top",
-          gateOnce.wait(timeout: .now()) == .success
+          gateOnce.take()
         else {
           return
         }

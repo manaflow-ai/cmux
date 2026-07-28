@@ -338,6 +338,10 @@ private final class CLIJSONLinesChunkReader: @unchecked Sendable {
                     self?.consumeAvailableData()
                 }
                 lock.unlock()
+                // A fast child can write before the readability handler is
+                // installed. Drain once immediately so an already-buffered
+                // initialize response cannot strand the staged request.
+                consumeAvailableData()
             }
         } onCancel: {
             finish((nil, nil, false, false, nil, false))
