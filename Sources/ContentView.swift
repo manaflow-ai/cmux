@@ -9396,17 +9396,20 @@ struct ContentView: View {
         recordCommandPaletteUsage(command.id)
         if command.dismissOnRun,
            Self.commandPaletteShouldDismissBeforeRun(forCommandId: command.id) {
+            let restoreOwnerAsKey = Self.commandPaletteShouldRestoreOwnerBeforeRun(
+                forCommandId: command.id
+            )
             if let postRunFocusTarget {
                 dismissCommandPalette(
                     restoreFocus: true,
                     preferredFocusTarget: postRunFocusTarget,
-                    restoreOwnerAsKey: true
+                    restoreOwnerAsKey: restoreOwnerAsKey
                 )
             } else {
                 dismissCommandPalette(
                     restoreFocus: false,
                     preferredFocusTarget: nil,
-                    restoreOwnerAsKey: true
+                    restoreOwnerAsKey: restoreOwnerAsKey
                 )
             }
             command.action()
@@ -9611,6 +9614,14 @@ struct ContentView: View {
         default:
             return false
         }
+    }
+
+    static func commandPaletteShouldRestoreOwnerBeforeRun(forCommandId commandId: String) -> Bool {
+        // Floating-window rename transfers key ownership directly from the
+        // palette to its accessory. Making the main window key in between
+        // schedules terminal focus restoration, which then steals focus from
+        // the rename field after the accessory appears.
+        commandId != "palette.renameFloatingWindow"
     }
 
     static func commandPalettePostRunRestoreFocusIntent(forCommandId commandId: String) -> PanelFocusIntent? {
