@@ -1878,7 +1878,7 @@ struct ComputerUseUXTests {
             "--cursor-shape",
             "cmux",
             "--idle-hide-ms",
-            "1200",
+            "0",
             "--cursor-speed",
             "1.75",
         ])
@@ -1916,11 +1916,28 @@ struct ComputerUseUXTests {
             "--cursor-shape",
             "cmux",
             "--idle-hide-ms",
-            "1200",
+            "0",
             "--cursor-speed",
             "1.75",
         ])
         #expect(codexConfiguration.environment == configuration.environment)
+    }
+
+    /// Every Codex compatibility action already returns a refreshed screenshot
+    /// and accessibility snapshot. Asking the agent to scan again doubled the
+    /// state captures and model/MCP round trips between Calculator clicks.
+    @Test func bundledCodexInstructionsReuseActionReturnedState() throws {
+        let skillURL = try #require(Bundle.main.url(
+            forResource: "SKILL",
+            withExtension: "md",
+            subdirectory: "cmux-computer-use"
+        ))
+        let skill = try String(contentsOf: skillURL, encoding: .utf8)
+
+        #expect(skill.contains(
+            "Every successful action already returns a fresh app state and screenshot."
+        ))
+        #expect(!skill.contains("Re-read the returned app state after each action"))
     }
 
     @Test(.timeLimit(.minutes(1)))
