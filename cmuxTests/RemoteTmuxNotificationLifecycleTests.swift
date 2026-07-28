@@ -240,6 +240,18 @@ struct RemoteTmuxNotificationLifecycleTests {
             return
         }
         #expect(harness.workspace.focusedPanelId == containerPanelID)
+        harness.writer.close()
+        let commands = try #require(String(
+            bytes: try harness.pipe.fileHandleForReading.readToEnd() ?? Data(),
+            encoding: .utf8
+        ))
+        let selectCommands = commands.split(separator: "\n").filter {
+            $0.hasPrefix("select-pane ")
+        }
+        #expect(selectCommands.last?.contains("-t @2.%4") == true)
+        harness.connection.handleMessageForTesting(
+            .windowPaneChanged(windowId: 2, paneId: 4)
+        )
         #expect(mirror.activePaneId == 4)
         #expect(TerminalNotificationStore.shared.notifications
             .first(where: { $0.id == notification.id })?.isRead == true)

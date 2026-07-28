@@ -19,8 +19,12 @@ extension AppDelegate {
         var surfaceId = surfaceId
         var panelId = panelId
         var scrollPosition = scrollPosition
-        if let liveSurfaceId = panelId ?? surfaceId,
-           let owner = notificationSurfaceOwner(surfaceID: liveSurfaceId, preferredTabID: tabId) {
+        let liveOwner = surfaceId.flatMap {
+            notificationSurfaceOwner(surfaceID: $0, preferredTabID: tabId)
+        } ?? panelId.flatMap {
+            notificationSurfaceOwner(surfaceID: $0, preferredTabID: tabId)
+        }
+        if let owner = liveOwner {
             if owner.tabID != tabId, !retargetsToLiveSurfaceOwner {
                 surfaceId = nil
                 panelId = nil

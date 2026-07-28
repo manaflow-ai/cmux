@@ -237,6 +237,8 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
     func singlePaneToSplitKeepsSelectAndInputTargetsAlignedForNewPane() throws {
         let harness = try Harness()
         defer { harness.tearDown() }
+        let tabManager = try #require(AppDelegate.shared?.tabManagerFor(windowId: harness.windowId))
+        tabManager.selectWorkspace(harness.workspace)
 
         harness.publishListWindows([
             "@2 f92f,80x24,0,0,4 f92f,80x24,0,0,4 [] zsh",
@@ -349,7 +351,6 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
             windowID: harness.windowId
         ))
         TerminalNotificationStore.shared.clearNotifications(forTabId: harness.workspace.id, surfaceId: expectedInputPanel.id)
-        let tabManager = try #require(AppDelegate.shared?.tabManagerFor(windowId: harness.windowId))
         #expect(TerminalController.shared.resolveTerminalPanel(
             from: containerPanelId.uuidString,
             tabManager: tabManager
@@ -366,60 +367,6 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
                 preferredPanelId: containerPanelId
             ) === expectedInputPanel
         )
-
-#if DEBUG
-        // Reproduce an immediate command equivalent after the split while the
-        // original pane remains a live, viable AppKit responder. Repair must
-        // recognize that it is the wrong terminal and retarget the active pane.
-        let appDelegate = try #require(AppDelegate.shared)
-        let window = try #require(
-            NSApp.windows.first { $0.identifier?.rawValue == "cmux.main.\(harness.windowId.uuidString)" }
-        )
-        let keyDown = try #require(NSEvent.keyEvent(
-            with: .keyDown,
-            location: .zero,
-            modifierFlags: [.command],
-            timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: window.windowNumber,
-            context: nil,
-            characters: "v",
-            charactersIgnoringModifiers: "v",
-            isARepeat: false,
-            keyCode: 9
-        ))
-        var didRunRepair = false
-        let previousRepairObserver = appDelegate.debugFocusedTerminalKeyRepairObserverForTesting
-        appDelegate.debugFocusedTerminalKeyRepairObserverForTesting = { observedWindow, event, responder in
-            previousRepairObserver?(observedWindow, event, responder)
-            guard observedWindow === window, event.keyCode == keyDown.keyCode else { return }
-            didRunRepair = true
-        }
-        defer { appDelegate.debugFocusedTerminalKeyRepairObserverForTesting = previousRepairObserver }
-
-        #expect(harness.workspace.focusedTerminalInputTarget()?.surfaceID == expectedInputPanel.id)
-        originalPanePanel.hostedView.moveFocus()
-        let staleResponder = try #require(window.firstResponder)
-        #expect(originalPanePanel.hostedView.isSurfaceViewFirstResponder())
-        #expect(!expectedInputPanel.hostedView.isSurfaceViewFirstResponder())
-
-        appDelegate.repairFocusedTerminalKeyboardRoutingIfNeeded(
-            window: window,
-            event: keyDown,
-            firstResponderOverride: staleResponder
-        )
-
-        #expect(
-            didRunRepair,
-            "A command key after a 1→2 tmux split must repair stale terminal focus"
-        )
-        #expect(harness.workspace.focusedTerminalInputTarget()?.surfaceID == expectedInputPanel.id)
-        #expect(
-            expectedInputPanel.hostedView.isSurfaceViewFirstResponder(),
-            "Key repair must make the tmux-active inner pane the actual AppKit responder"
-        )
-#else
-        Issue.record("DEBUG key-repair target instrumentation is required for this regression")
-#endif
 
         harness.workspace.moveFocus(direction: .left)
 

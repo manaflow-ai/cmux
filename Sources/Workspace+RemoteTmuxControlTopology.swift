@@ -236,6 +236,9 @@ extension Workspace {
         }
         guard let projection,
               let panel = projection.panel as? TerminalPanel else {
+            if remoteTmuxWindowMirrors[panelID]?.surfaceIDsInLayoutOrder.isEmpty == false {
+                return nil
+            }
             return liveRemoteTmuxContainerFallback(panelID).map {
                 (surfaceID: panelID, panel: $0)
             }

@@ -147,6 +147,10 @@ struct RemoteTmuxMirrorNewPaneKeyFocusTests {
         harness.splitMakingPaneFiveActive()
 
         let paneFive = try #require(harness.mirror.panel(forPane: 5))
+        defer {
+            paneFive.hostedView.removeFromSuperview()
+            paneFour.hostedView.removeFromSuperview()
+        }
         #expect(window.firstResponder === paneFour.hostedView.surfaceView)
         paneFour.hostedView.setActive(false)
         paneFive.hostedView.frame = contentView.bounds

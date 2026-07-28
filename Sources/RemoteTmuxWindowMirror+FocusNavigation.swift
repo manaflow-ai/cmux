@@ -1,7 +1,14 @@
 import Bonsplit
+import Foundation
 
 @MainActor
 extension RemoteTmuxWindowMirror {
+    struct PendingCreatedPaneFocusRequest {
+        let requestID: UUID
+        let preexistingPaneIDs: Set<Int>
+        var candidatePaneID: Int?
+    }
+
     /// Whether nested focus moved, reached a valid boundary, or could not
     /// resolve authoritative pane ownership.
     enum FocusNavigationResult {
@@ -61,5 +68,72 @@ extension RemoteTmuxWindowMirror {
         isApplyingTmuxFocus = true
         bonsplitController.focusPane(bonsplitPane)
         isApplyingTmuxFocus = false
+    }
+
+    func noteCreatedPaneFocusRequestAccepted(requestID: UUID) {
+        pendingCreatedPaneFocusRequests.append(PendingCreatedPaneFocusRequest(
+            requestID: requestID,
+            preexistingPaneIDs: Set(layout.paneIDsInOrder),
+            candidatePaneID: nil
+        ))
+    }
+
+    func cancelPendingCreatedPaneFocus(requestID: UUID) {
+        pendingCreatedPaneFocusRequests.removeAll { $0.requestID == requestID }
+        completePendingCreatedPaneFocusIfMounted()
+    }
+
+    func cancelPendingCreatedPaneFocus(candidatePaneID: Int) {
+        pendingCreatedPaneFocusRequests.removeAll { $0.candidatePaneID == candidatePaneID }
+        completePendingCreatedPaneFocusIfMounted()
+    }
+
+    func noteAuthoritativeCreatedPaneCandidate(paneID: Int) {
+        guard !pendingCreatedPaneFocusRequests.contains(where: {
+            $0.candidatePaneID == paneID
+        }) else {
+            completePendingCreatedPaneFocusIfMounted()
+            return
+        }
+        guard let index = pendingCreatedPaneFocusRequests.firstIndex(where: {
+            $0.candidatePaneID == nil && !$0.preexistingPaneIDs.contains(paneID)
+        }) else {
+            completePendingCreatedPaneFocusIfMounted()
+            return
+        }
+        pendingCreatedPaneFocusRequests[index].candidatePaneID = paneID
+        completePendingCreatedPaneFocusIfMounted()
+    }
+
+    func reconcilePendingCreatedPaneFocus(authoritativePaneID: Int?) {
+        if let authoritativePaneID {
+            noteAuthoritativeCreatedPaneCandidate(paneID: authoritativePaneID)
+        } else {
+            completePendingCreatedPaneFocusIfMounted()
+        }
+    }
+
+    func handlePaneSurfaceProgress() {
+        completePendingCreatedPaneFocusIfMounted()
+    }
+
+    private func completePendingCreatedPaneFocusIfMounted() {
+        while let request = pendingCreatedPaneFocusRequests.first,
+              let paneID = request.candidatePaneID {
+            guard layout.paneIDsInOrder.contains(paneID),
+                  let panel = panel(forPane: paneID),
+                  panel.hostedView.isVisibleInUI,
+                  panel.hostedView.superview != nil,
+                  panel.hostedView.window != nil else {
+                return
+            }
+            if activePaneId != paneID {
+                setActivePane(paneID, fromTmux: true)
+            }
+            focusBonsplitPane(forTmuxPane: paneID)
+            panel.hostedView.moveFocus()
+            guard panel.hostedView.isSurfaceViewFirstResponder() else { return }
+            pendingCreatedPaneFocusRequests.removeFirst()
+        }
     }
 }

@@ -68,9 +68,54 @@ struct RemoteTmuxProjectedFocusInteractionTests {
         )
     }
 
+    @Test
+    func commandEquivalentRepairsStalePaneFirstResponder() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let mirror = try splitInitiallySinglePaneWindow(in: harness)
+        let stalePane = try #require(mirror.panel(forPane: 4))
+        let activePane = try #require(mirror.panel(forPane: 5))
+        let appDelegate = try #require(AppDelegate.shared)
+        let window = try #require(
+            NSApp.windows.first {
+                $0.identifier?.rawValue == "cmux.main.\(harness.windowId.uuidString)"
+            }
+        )
+        window.makeKeyAndOrderFront(nil)
+        stalePane.hostedView.moveFocus()
+        #expect(stalePane.hostedView.isSurfaceViewFirstResponder())
+        let staleResponder = try #require(window.firstResponder)
+        let keyDown = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "v",
+            charactersIgnoringModifiers: "v",
+            isARepeat: false,
+            keyCode: 9
+        ))
+
+        appDelegate.repairFocusedTerminalKeyboardRoutingIfNeeded(
+            window: window,
+            event: keyDown,
+            firstResponderOverride: staleResponder
+        )
+
+        #expect(harness.workspace.focusedTerminalInputTarget()?.surfaceID == activePane.id)
+        #expect(
+            activePane.hostedView.isSurfaceViewFirstResponder(),
+            "Key repair must make the tmux-active inner pane the actual AppKit responder"
+        )
+    }
+
     private func splitInitiallySinglePaneWindow(
         in harness: Harness
     ) throws -> RemoteTmuxWindowMirror {
+        let manager = try #require(AppDelegate.shared?.tabManagerFor(windowId: harness.windowId))
+        manager.selectWorkspace(harness.workspace)
         harness.publishListWindows([
             "@2 f92f,80x24,0,0,4 f92f,80x24,0,0,4 [] zsh",
         ])
@@ -96,6 +141,11 @@ struct RemoteTmuxProjectedFocusInteractionTests {
         let mirror = try harness.mirror()
         #expect(mirror === initialMirror)
         #expect(mirror.activePaneId == 5)
+        #expect(waitUntil {
+            mirror.paneIDsInOrder.allSatisfy {
+                mirror.panel(forPane: $0)?.hostedView.window != nil
+            }
+        })
         return mirror
     }
 

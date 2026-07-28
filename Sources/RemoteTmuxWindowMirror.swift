@@ -67,6 +67,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     private(set) var layoutStructureVersion = 0
     /// The tmux pane the user last focused (drives the focus overlay + splits).
     private(set) var activePaneId: Int?
+    @ObservationIgnored var pendingCreatedPaneFocusRequests: [PendingCreatedPaneFocusRequest] = []
     /// Display title for this mirrored tmux window; every inner surface/tab title
     /// derives from this tmux window name, never from pane-border labels.
     private(set) var windowTitle = String(localized: "remoteTmux.tab.window", defaultValue: "tmux window")
@@ -376,6 +377,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
             connection?.unsubscribePaneHeader(paneId: paneId)
             panelsByPaneId[paneId] = nil
             cwdByPaneId[paneId] = nil
+            cancelPendingCreatedPaneFocus(candidatePaneID: paneId)
             if activePaneId == paneId { activePaneId = nil }
         }
         lastRenderedGrids = lastRenderedGrids.filter { livePaneIds.contains($0.key) }
@@ -416,13 +418,15 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         // first attach the rects reply emits the active-pane event BEFORE the
         // topology publish creates this mirror, so the event-driven path
         // (noteRemoteActivePane) can't have delivered it.
+        let remoteActive = connection?.activePaneByWindow[windowId]
         if activePaneId == nil,
-           let remoteActive = connection?.activePaneByWindow[windowId],
+           let remoteActive,
            livePaneIds.contains(remoteActive) {
             setActivePane(remoteActive, fromTmux: true)
         } else {
             seedActivePaneIfNeeded()
         }
+        reconcilePendingCreatedPaneFocus(authoritativePaneID: remoteActive)
         refreshPaneTitles()
         // Drive the ONE-TIME claim from topology publishes too, not just view
         // geometry and surface reports. Without this a hidden window can
@@ -443,12 +447,14 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         surface.onManualSizeApplied = { [weak self] in
             self?.handleSizingSample($0, paneId: paneId)
             self?.onPaneSurfaceProgress?(paneId)
+            self?.handlePaneSurfaceProgress()
         }
         surface.onRuntimeReady = { [weak self, weak surface] in
             if let sample = surface?.rawSizingSample() {
                 self?.handleSizingSample(sample, paneId: paneId)
             }
             self?.onPaneSurfaceProgress?(paneId)
+            self?.handlePaneSurfaceProgress()
         }
         surface.flushPendingManualSizeReportIfAttached()
         if let sample = surface.rawSizingSample() {
@@ -468,6 +474,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     func noteRemoteActivePane(_ paneId: Int) {
         if activePaneId != paneId { activePaneId = paneId }
         focusBonsplitPane(forTmuxPane: paneId)
+        noteAuthoritativeCreatedPaneCandidate(paneID: paneId)
     }
 
     func setActivePane(_ paneId: Int, fromTmux: Bool) {
@@ -527,6 +534,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         pendingContainerScale = nil
         pendingOversizedReading = nil
         dividerResizeInFlight = nil
+        pendingCreatedPaneFocusRequests.removeAll()
         let activeConnection = connection
         activeConnection?.removeWindowSizeClaim(windowId: windowId)
         workspaceBonsplitController = nil

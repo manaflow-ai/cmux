@@ -62,11 +62,24 @@ extension RemoteTmuxWindowMirror {
         vertical: Bool,
         focusIntent: RemoteTmuxSplitFocusIntent
     ) -> Bool {
-        sendControlCommand(focusIntent.command(
+        let command = focusIntent.command(
             vertical: vertical,
             windowID: windowId,
             paneID: tmuxPaneID
-        ))
+        )
+        guard focusIntent == .focusCreatedPane else {
+            return sendControlCommand(command)
+        }
+        guard let connection else { return false }
+        let requestID = UUID()
+        let accepted = connection.sendTracked(command) { [weak self] succeeded in
+            guard !succeeded else { return }
+            self?.cancelPendingCreatedPaneFocus(requestID: requestID)
+        }
+        if accepted {
+            noteCreatedPaneFocusRequestAccepted(requestID: requestID)
+        }
+        return accepted
     }
 
     /// Resizes the addressed tmux pane by `amountCells` relative to one of its
