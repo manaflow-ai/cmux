@@ -89,6 +89,7 @@ extension Workspace {
         )
     }
 
+    @MainActor
     func resolveForkAgentConversationContextMenuAvailability(
         forPanelId panelId: UUID
     ) async {
