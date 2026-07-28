@@ -1890,6 +1890,11 @@ def _javascript_timer_alias_positions(
             continue
 
         alias = event.group("called")
+        previous = event.start("called") - 1
+        while previous >= 0 and text[previous].isspace():
+            previous -= 1
+        if previous >= 0 and text[previous] == ".":
+            continue
         if any(
             start <= event.start() < end and alias in shadowed
             for start, end, shadowed in (
@@ -1917,43 +1922,45 @@ def _javascript_real_sleep_positions(
     """Return line/column sites for trusted JavaScript sleeps."""
     text = "\n".join(masked_lines)
     positions: dict[int, set[int]] = {}
-    for match in _JS_SLEEP_CALL.finditer(text):
-        token = (
-            "setTimeout"
-            if "setTimeout" in match.group()
-            else "sleep"
+
+    def record(sleep_offsets: Iterable[int]) -> None:
+        for sleep_offset in sleep_offsets:
+            line = text.count("\n", 0, sleep_offset)
+            line_start = text.rfind("\n", 0, sleep_offset) + 1
+            positions.setdefault(line, set()).add(
+                sleep_offset - line_start
+            )
+
+    # JavaScript's timer globals are ordinary lexical identifiers and may be
+    # replaced by parameters or local fake-clock bindings. Resolve them with
+    # the same scope model used for trusted timer imports instead of trusting
+    # their spelling alone.
+    record(_javascript_timer_alias_positions(text, {"setTimeout"}))
+    record(
+        _javascript_timer_alias_positions(
+            text,
+            {"Bun"},
+            member="sleep",
         )
-        sleep_offset = match.start() + match.group().rfind(token)
-        previous = match.start() - 1
-        while previous >= 0 and text[previous].isspace():
-            previous -= 1
-        if previous >= 0 and text[previous] == ".":
-            continue
-        line = text.count("\n", 0, sleep_offset)
-        line_start = text.rfind("\n", 0, sleep_offset) + 1
-        positions.setdefault(line, set()).add(sleep_offset - line_start)
+    )
+    record(
+        _javascript_timer_alias_positions(
+            text,
+            {"global", "globalThis", "self", "window"},
+            member="setTimeout",
+        )
+    )
 
     timer_aliases = _javascript_timer_aliases(raw_text, text)
-    for sleep_offset in _javascript_timer_alias_positions(
-        text,
-        timer_aliases,
-    ):
-        line = text.count("\n", 0, sleep_offset)
-        line_start = text.rfind("\n", 0, sleep_offset) + 1
-        positions.setdefault(line, set()).add(
-            sleep_offset - line_start
-        )
+    record(_javascript_timer_alias_positions(text, timer_aliases))
     timer_namespaces = _javascript_timer_namespaces(raw_text, text)
-    for sleep_offset in _javascript_timer_alias_positions(
-        text,
-        timer_namespaces,
-        member="setTimeout",
-    ):
-        line = text.count("\n", 0, sleep_offset)
-        line_start = text.rfind("\n", 0, sleep_offset) + 1
-        positions.setdefault(line, set()).add(
-            sleep_offset - line_start
+    record(
+        _javascript_timer_alias_positions(
+            text,
+            timer_namespaces,
+            member="setTimeout",
         )
+    )
     return positions
 
 
@@ -4607,7 +4614,6 @@ class _ShellConditionalBindingFrame:
     remaining_reachable: bool = True
     branch_reachable: bool = True
     in_branch: bool = False
-    saw_then: bool = False
 
 
 def _shell_control_keyword_offsets(text: str) -> list[tuple[int, int, str]]:
@@ -4889,9 +4895,10 @@ def _shell_real_sleep_positions(
                     continue
                 frame = conditional_binding_frames[-1]
                 if keyword == "then":
-                    if not frame.saw_then:
-                        frame.entry_binding = sleep_function_scopes[-1]
-                        frame.saw_then = True
+                    # The condition executes on every path that can reach this
+                    # branch. Preserve any function binding it changed for
+                    # both the true branch and later elif/else paths.
+                    frame.entry_binding = sleep_function_scopes[-1]
                     sleep_function_scopes[-1] = frame.entry_binding
                     frame.branch_reachable = (
                         frame.remaining_reachable and literal is not False
