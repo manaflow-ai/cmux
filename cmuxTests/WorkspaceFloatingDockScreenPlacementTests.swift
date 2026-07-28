@@ -229,6 +229,56 @@ struct WorkspaceFloatingDockParkingRegressionTests {
             #expect(snapshots[index].parkedFrame.minY > snapshots[index - 1].parkedFrame.minY)
         }
     }
+
+    @Test
+    @MainActor
+    func newerParkingLayoutWinsOverAnOlderAnimationCompletion() async throws {
+        _ = NSApplication.shared
+        let noteURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-floating-parking-generation-\(UUID().uuidString).md")
+        try "".write(to: noteURL, atomically: true, encoding: .utf8)
+        let parent = NSWindow(
+            contentRect: CGRect(x: 100, y: 100, width: 900, height: 700),
+            styleMask: [.titled, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        let dock = WorkspaceFloatingDock(
+            id: UUID(),
+            workspaceId: UUID(),
+            title: "Animated",
+            frame: CGRect(x: 40, y: 40, width: 520, height: 380),
+            noteFilePath: noteURL.path,
+            baseDirectoryProvider: { nil },
+            remoteBrowserSettingsProvider: { .local }
+        )
+        let controller = WorkspaceFloatingDockWindowController(
+            dock: dock,
+            parentWindow: parent,
+            onCloseRequest: { _ in }
+        )
+        defer {
+            controller.teardown()
+            dock.close()
+            parent.close()
+            try? FileManager.default.removeItem(at: noteURL)
+        }
+        controller.show(focus: false)
+        let first = WorkspaceFloatingDockParkingSnapshot(
+            restoreFrame: CGRect(x: 200, y: 200, width: 520, height: 380),
+            visibleScreenFrame: CGRect(x: 0, y: 0, width: 1_440, height: 900)
+        )
+        let latest = WorkspaceFloatingDockParkingSnapshot(
+            restoreFrame: CGRect(x: 2_900, y: 20, width: 520, height: 380),
+            visibleScreenFrame: CGRect(x: 2_560, y: -358, width: 1_728, height: 1_117)
+        )
+
+        controller.showStashed(snapshot: first, animated: true)
+        controller.showStashed(snapshot: latest, animated: false)
+        try await Task.sleep(nanoseconds: 350_000_000)
+
+        #expect(controller.window?.frame == latest.parkedFrame)
+    }
 }
 
 @Suite(.serialized)
