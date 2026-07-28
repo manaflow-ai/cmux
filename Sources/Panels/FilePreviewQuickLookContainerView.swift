@@ -80,9 +80,9 @@ final class FilePreviewQuickLookContainerView: NSView {
             data: ["reason": reason]
         )
         previewView.previewItem = nil
-        if previewView.window != nil {
-            previewView.close()
-        }
+        // `shouldCloseWithWindow` transfers closure ownership to this host even
+        // when the preview has never entered a window.
+        previewView.close()
         previewView.removeFromSuperview()
         phase = .idle
     }
