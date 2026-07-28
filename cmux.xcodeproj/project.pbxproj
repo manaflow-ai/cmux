@@ -229,7 +229,7 @@
 		A88500000000000000000008 /* ApplicationSurfaceRuntimeError.swift in Sources */ = {isa = PBXBuildFile; fileRef = A88500000000000000000007 /* ApplicationSurfaceRuntimeError.swift */; };
 		A8850000000000000000000A /* ApplicationSurfaceRuntimeLease.swift in Sources */ = {isa = PBXBuildFile; fileRef = A88500000000000000000009 /* ApplicationSurfaceRuntimeLease.swift */; };
 		A8850000000000000000000C /* ApplicationSurfaceSessionDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8850000000000000000000B /* ApplicationSurfaceSessionDescriptor.swift */; };
-		A88500000000000000000012 /* ApplicationSurfaceStopFailureAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = A88500000000000000000011 /* ApplicationSurfaceStopFailureAction.swift */; };
+		A88600000000000000000002 /* ApplicationSurfaceStopFailureAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = A88600000000000000000001 /* ApplicationSurfaceStopFailureAction.swift */; };
 		A88200000000000000000002 /* ApplicationSurfaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A88200000000000000000001 /* ApplicationSurfaceTests.swift */; };
 		A8850000000000000000000E /* ApplicationWindowDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8850000000000000000000D /* ApplicationWindowDescriptor.swift */; };
 		A5001A02A1B2C3D4E5F60718 /* AppWindowBackdropControllerDependencies.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001A03A1B2C3D4E5F60718 /* AppWindowBackdropControllerDependencies.swift */; };
@@ -2743,7 +2743,7 @@
 		A88500000000000000000007 /* ApplicationSurfaceRuntimeError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ApplicationSurfaceRuntimeError.swift; sourceTree = "<group>"; };
 		A88500000000000000000009 /* ApplicationSurfaceRuntimeLease.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ApplicationSurfaceRuntimeLease.swift; sourceTree = "<group>"; };
 		A8850000000000000000000B /* ApplicationSurfaceSessionDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ApplicationSurfaceSessionDescriptor.swift; sourceTree = "<group>"; };
-		A88500000000000000000011 /* ApplicationSurfaceStopFailureAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ApplicationSurfaceStopFailureAction.swift; sourceTree = "<group>"; };
+		A88600000000000000000001 /* ApplicationSurfaceStopFailureAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ApplicationSurfaceStopFailureAction.swift; sourceTree = "<group>"; };
 		A88200000000000000000001 /* ApplicationSurfaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationSurfaceTests.swift; sourceTree = "<group>"; };
 		A8850000000000000000000D /* ApplicationWindowDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ApplicationWindowDescriptor.swift; sourceTree = "<group>"; };
 		A5001A03A1B2C3D4E5F60718 /* AppWindowBackdropControllerDependencies.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Windowing/AppWindowBackdropControllerDependencies.swift; sourceTree = "<group>"; };
@@ -5538,7 +5538,7 @@
 					A88500000000000000000001 /* ApplicationSurfaceInputEvent.swift */,
 					A88500000000000000000003 /* ApplicationSurfaceInputEventKind.swift */,
 					A88500000000000000000005 /* ApplicationSurfacePendingStop.swift */,
-					A88500000000000000000011 /* ApplicationSurfaceStopFailureAction.swift */,
+					A88600000000000000000001 /* ApplicationSurfaceStopFailureAction.swift */,
 					A88300000000000000000001 /* ApplicationSurfaceRuntime.swift */,
 					A88500000000000000000007 /* ApplicationSurfaceRuntimeError.swift */,
 					A88500000000000000000009 /* ApplicationSurfaceRuntimeLease.swift */,
@@ -8089,7 +8089,7 @@
 				A88500000000000000000008 /* ApplicationSurfaceRuntimeError.swift in Sources */,
 				A8850000000000000000000A /* ApplicationSurfaceRuntimeLease.swift in Sources */,
 				A8850000000000000000000C /* ApplicationSurfaceSessionDescriptor.swift in Sources */,
-				A88500000000000000000012 /* ApplicationSurfaceStopFailureAction.swift in Sources */,
+				A88600000000000000000002 /* ApplicationSurfaceStopFailureAction.swift in Sources */,
 				A8850000000000000000000E /* ApplicationWindowDescriptor.swift in Sources */,
 				A5001A02A1B2C3D4E5F60718 /* AppWindowBackdropControllerDependencies.swift in Sources */,
 				A5001A00A1B2C3D4E5F60718 /* AppWindowChromeComposition.swift in Sources */,
